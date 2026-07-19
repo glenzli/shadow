@@ -9,6 +9,5 @@ project(
 
 option(SHADOW_BUILD_RAW_PROBE "Build the LibRaw vertical-spike probe" ON)
 
-if(SHADOW_BUILD_RAW_PROBE)
-    add_subdirectory(cpp/shadow-image)
-endif()
+include(CTest)
+add_subdirectory(cpp/shadow-image)

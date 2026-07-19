@@ -22,7 +22,8 @@ fn main() -> io::Result<()> {
         "native-build" => run("cmake", &["--build", "--preset", "native-dev"]),
         "native-check" => {
             run("cmake", &["--preset", "native-dev"])?;
-            run("cmake", &["--build", "--preset", "native-dev"])
+            run("cmake", &["--build", "--preset", "native-dev"])?;
+            run("ctest", &["--preset", "native-dev"])
         }
         "doctor" => {
             doctor("rustc", &["--version"]);

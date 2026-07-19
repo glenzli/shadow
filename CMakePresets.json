@@ -14,6 +14,7 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "BUILD_TESTING": "ON",
         "SHADOW_BUILD_RAW_PROBE": "ON"
       }
     }
@@ -22,6 +23,15 @@
     {
       "name": "native-dev",
       "configurePreset": "native-dev"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "native-dev",
+      "configurePreset": "native-dev",
+      "output": {
+        "outputOnFailure": true
+      }
     }
   ]
 }

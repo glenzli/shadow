@@ -1,20 +1,42 @@
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LibRaw REQUIRED IMPORTED_TARGET libraw)
 
-add_executable(shadow-raw-probe tools/raw_probe.cpp)
-target_compile_features(shadow-raw-probe PRIVATE cxx_std_20)
-target_link_libraries(shadow-raw-probe PRIVATE PkgConfig::LibRaw)
+function(shadow_image_enable_warnings target)
+    if(MSVC)
+        target_compile_options(${target} PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(
+            ${target}
+            PRIVATE
+                -Wall
+                -Wextra
+                -Wpedantic
+                -Wconversion
+                -Wsign-conversion
+        )
+    endif()
+endfunction()
 
-if(MSVC)
-    target_compile_options(shadow-raw-probe PRIVATE /W4 /permissive-)
-else()
-    target_compile_options(
-        shadow-raw-probe
-        PRIVATE
-            -Wall
-            -Wextra
-            -Wpedantic
-            -Wconversion
-            -Wsign-conversion
-    )
+add_library(shadow-image STATIC src/decoder/libraw_decoder.cpp)
+add_library(Shadow::Image ALIAS shadow-image)
+target_compile_features(shadow-image PUBLIC cxx_std_20)
+target_include_directories(
+    shadow-image
+    PUBLIC
+        "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+)
+target_link_libraries(shadow-image PRIVATE PkgConfig::LibRaw)
+shadow_image_enable_warnings(shadow-image)
+
+if(SHADOW_BUILD_RAW_PROBE)
+    add_executable(shadow-raw-probe tools/raw_probe.cpp)
+    target_link_libraries(shadow-raw-probe PRIVATE Shadow::Image)
+    shadow_image_enable_warnings(shadow-raw-probe)
+endif()
+
+if(BUILD_TESTING)
+    add_executable(shadow-image-contract-tests tests/decoder_contract_test.cpp)
+    target_link_libraries(shadow-image-contract-tests PRIVATE Shadow::Image)
+    shadow_image_enable_warnings(shadow-image-contract-tests)
+    add_test(NAME shadow-image-contract COMMAND shadow-image-contract-tests)
 endif()

@@ -21,4 +21,4 @@ cargo run --package shadow-cli -- scan ./catalogs/demo.sqlite /path/to/photos
 ./build/native-dev/cpp/shadow-image/shadow-raw-probe /path/to/input.dng ./bench-results/raw-probe
 ```
 
-The current C++ probe intentionally uses LibRaw's reference RGB processing only as a decoder boundary and correctness baseline. Shadow's own scene-linear color and adjustment pipeline will replace that stage. Qt is not required for this probe. The local product and research material lives under `local-reference/` and is intentionally ignored by Git.
+The reusable C++ decoder contract is documented in [`cpp/shadow-image/README.md`](cpp/shadow-image/README.md). The probe intentionally uses LibRaw's reference RGB processing only as a correctness baseline; Shadow's own scene-linear color and adjustment pipeline will replace that stage. Qt is not required for this slice. The local product and research material lives under `local-reference/` and is intentionally ignored by Git.
