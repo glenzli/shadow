@@ -1,0 +1,16 @@
+[package]
+name = "shadow-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+shadow-catalog.workspace = true
+shadow-core.workspace = true
+
+[lints]
+workspace = true
+

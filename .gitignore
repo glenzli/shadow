@@ -1,0 +1,49 @@
+# Local-only architecture and research material
+/local-reference/
+
+# Rust
+/target/
+**/*.rs.bk
+
+# CMake / C++ / Qt
+/build/
+/build-*/
+/cmake-build-*/
+CMakeUserPresets.json
+.qtc_clangd/
+*.user
+*.user.*
+
+# Generated bindings and local dependency staging
+/generated/
+/vendor-local/
+/sdk-local/
+
+# Models, caches, catalogs, and benchmark outputs
+/models/
+/model-cache/
+/cache/
+/catalogs/
+/bench-results/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.local.toml
+*.local.json
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Logs and crash dumps
+*.log
+*.dmp
+*.core
+

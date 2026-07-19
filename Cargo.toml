@@ -1,0 +1,46 @@
+[workspace]
+members = [
+    "apps/shadow-cli",
+    "crates/shadow-catalog",
+    "crates/shadow-core",
+    "crates/shadow-domain",
+    "xtask",
+]
+default-members = [
+    "apps/shadow-cli",
+    "crates/shadow-catalog",
+    "crates/shadow-core",
+    "crates/shadow-domain",
+]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.96"
+license = "GPL-3.0-or-later"
+authors = ["Shadow contributors"]
+
+[workspace.dependencies]
+anyhow = "1.0.102"
+rusqlite = { version = "0.40.1", features = ["bundled"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+shadow-catalog = { path = "crates/shadow-catalog" }
+shadow-core = { path = "crates/shadow-core" }
+shadow-domain = { path = "crates/shadow-domain" }
+thiserror = "2.0.18"
+tracing = "0.1.44"
+uuid = { version = "1.23.2", features = ["serde", "std", "v7"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+
