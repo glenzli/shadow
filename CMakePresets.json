@@ -1,0 +1,27 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 28,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "native-dev",
+      "displayName": "Shadow native development",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/native-dev",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "SHADOW_BUILD_RAW_PROBE": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "native-dev",
+      "configurePreset": "native-dev"
+    }
+  ]
+}

@@ -18,17 +18,24 @@ fn main() -> io::Result<()> {
             )
         }
         "test" => run("cargo", &["test", "--workspace"]),
+        "native-configure" => run("cmake", &["--preset", "native-dev"]),
+        "native-build" => run("cmake", &["--build", "--preset", "native-dev"]),
+        "native-check" => {
+            run("cmake", &["--preset", "native-dev"])?;
+            run("cmake", &["--build", "--preset", "native-dev"])
+        }
         "doctor" => {
             doctor("rustc", &["--version"]);
             doctor("cargo", &["--version"]);
             doctor("clang++", &["--version"]);
             doctor("cmake", &["--version"]);
             doctor("ninja", &["--version"]);
+            doctor("pkg-config", &["--modversion", "libraw"]);
             doctor("qtpaths6", &["--version"]);
             Ok(())
         }
         _ => {
-            println!("cargo xtask <check|test|doctor>");
+            println!("cargo xtask <check|test|native-configure|native-build|native-check|doctor>");
             Ok(())
         }
     }
