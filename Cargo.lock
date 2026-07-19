@@ -295,6 +295,7 @@ dependencies = [
  "anyhow",
  "shadow-catalog",
  "shadow-core",
+ "shadow-domain",
 ]
 
 [[package]]

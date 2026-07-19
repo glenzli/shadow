@@ -5,6 +5,6 @@ mod ids;
 
 pub use asset::{AssetLocation, LocationStatus, Platform, RepresentationKind};
 pub use ids::{
-    EntityId, GroupId, LayerId, LocationId, PhotoId, RecipeCommitId, RecipeId, RepresentationId,
-    ShootId, StyleId,
+    EntityId, GroupId, ImportSessionId, LayerId, LocationId, PhotoId, RecipeCommitId, RecipeId,
+    RepresentationId, ShootId, StyleId,
 };

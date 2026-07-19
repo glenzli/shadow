@@ -10,7 +10,7 @@ authors.workspace = true
 anyhow.workspace = true
 shadow-catalog.workspace = true
 shadow-core.workspace = true
+shadow-domain.workspace = true
 
 [lints]
 workspace = true
-

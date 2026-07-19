@@ -3,6 +3,10 @@
 //! This crate owns schema migration and write transactions. It deliberately
 //! knows nothing about Qt, RAW decoding, or render jobs.
 
+mod import_journal;
+mod store;
+mod writer;
+
 use std::{path::Path, time::Duration};
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params, types::Type};
@@ -13,7 +17,11 @@ use shadow_domain::{
 use thiserror::Error;
 use uuid::Uuid;
 
-const SCHEMA_VERSION: i64 = 1;
+pub use import_journal::{ImportSession, ImportSessionState, ImportSessionSummary};
+pub use store::CatalogStore;
+pub use writer::{CatalogActor, CatalogHandle};
+
+const SCHEMA_VERSION: i64 = 2;
 
 const MIGRATION_V1: &str = r"
 CREATE TABLE photos (
@@ -53,10 +61,80 @@ CREATE INDEX locations_representation_id_idx ON locations(representation_id);
 CREATE INDEX locations_status_idx ON locations(status);
 ";
 
+const MIGRATION_V2: &str = r"
+CREATE TABLE import_sessions (
+    id                BLOB PRIMARY KEY NOT NULL CHECK (length(id) = 16),
+    root_platform     TEXT NOT NULL,
+    root_native_path  BLOB NOT NULL,
+    root_display_path TEXT NOT NULL,
+    state             TEXT NOT NULL
+        CHECK (state IN ('running', 'completed', 'failed', 'cancelled')),
+    started_at_ms     INTEGER NOT NULL,
+    updated_at_ms     INTEGER NOT NULL,
+    finished_at_ms    INTEGER,
+    last_error        TEXT
+) STRICT;
+
+CREATE INDEX import_sessions_state_idx ON import_sessions(state, updated_at_ms);
+
+CREATE TABLE import_entries (
+    session_id        BLOB NOT NULL CHECK (length(session_id) = 16),
+    native_path       BLOB NOT NULL,
+    display_path      TEXT NOT NULL,
+    kind              TEXT NOT NULL,
+    byte_len          INTEGER NOT NULL CHECK (byte_len >= 0),
+    modified_at_ms    INTEGER,
+    state             TEXT NOT NULL
+        CHECK (state IN ('discovered', 'inserted', 'unchanged', 'needs_revalidation', 'failed')),
+    photo_id          BLOB CHECK (photo_id IS NULL OR length(photo_id) = 16),
+    representation_id BLOB CHECK (representation_id IS NULL OR length(representation_id) = 16),
+    location_id       BLOB CHECK (location_id IS NULL OR length(location_id) = 16),
+    error             TEXT,
+    updated_at_ms     INTEGER NOT NULL,
+    PRIMARY KEY (session_id, native_path),
+    FOREIGN KEY (session_id) REFERENCES import_sessions(id) ON DELETE CASCADE,
+    FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE RESTRICT,
+    FOREIGN KEY (representation_id) REFERENCES representations(id) ON DELETE RESTRICT,
+    FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE RESTRICT
+) STRICT;
+
+CREATE INDEX import_entries_state_idx ON import_entries(session_id, state);
+
+CREATE TABLE import_issues (
+    id            INTEGER PRIMARY KEY,
+    session_id    BLOB NOT NULL CHECK (length(session_id) = 16),
+    native_path   BLOB NOT NULL,
+    display_path  TEXT NOT NULL,
+    message       TEXT NOT NULL,
+    created_at_ms INTEGER NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES import_sessions(id) ON DELETE CASCADE
+) STRICT;
+
+CREATE INDEX import_issues_session_idx ON import_issues(session_id);
+";
+
 #[derive(Debug, Error)]
 pub enum CatalogError {
     #[error("SQLite catalog error: {0}")]
     Sqlite(#[from] rusqlite::Error),
+    #[error("import session {0} does not exist")]
+    ImportSessionNotFound(shadow_domain::ImportSessionId),
+    #[error("import session {id} cannot be used while state is {state}")]
+    InvalidImportSessionState {
+        id: shadow_domain::ImportSessionId,
+        state: &'static str,
+    },
+    #[error("import entry is missing in session {session_id}: {display_path}")]
+    ImportEntryNotFound {
+        session_id: shadow_domain::ImportSessionId,
+        display_path: String,
+    },
+    #[error("cannot start catalog writer actor: {0}")]
+    ActorStart(#[source] std::io::Error),
+    #[error("catalog writer actor is unavailable")]
+    ActorUnavailable,
+    #[error("catalog writer actor panicked")]
+    ActorPanicked,
 }
 
 #[derive(Debug)]
@@ -155,36 +233,7 @@ impl Catalog {
         request: &RegisterAsset,
     ) -> Result<RegisteredAsset, CatalogError> {
         let transaction = self.connection.transaction()?;
-        let existing = find_existing_asset(&transaction, &request.location)?;
-
-        let result = if let Some(existing) = existing {
-            let unchanged = existing.byte_len == request.byte_len
-                && existing.modified_at_ms == request.modified_at_ms;
-
-            if !unchanged {
-                transaction.execute(
-                    "UPDATE locations SET status = ?1 WHERE id = ?2",
-                    params![
-                        LocationStatus::NeedsRevalidation.as_str(),
-                        existing.location_id.as_bytes().as_slice()
-                    ],
-                )?;
-            }
-
-            RegisteredAsset {
-                photo_id: existing.photo_id,
-                representation_id: existing.representation_id,
-                location_id: existing.location_id,
-                status: if unchanged {
-                    RegistrationStatus::Unchanged
-                } else {
-                    RegistrationStatus::NeedsRevalidation
-                },
-            }
-        } else {
-            insert_asset(&transaction, request)?
-        };
-
+        let result = register_asset_in_transaction(&transaction, request)?;
         transaction.commit()?;
         Ok(result)
     }
@@ -208,6 +257,41 @@ impl Catalog {
             locations: count_rows(&self.connection, "locations")?,
             locations_needing_revalidation: non_negative_count(locations_needing_revalidation)?,
         })
+    }
+}
+
+fn register_asset_in_transaction(
+    transaction: &Transaction<'_>,
+    request: &RegisterAsset,
+) -> rusqlite::Result<RegisteredAsset> {
+    let existing = find_existing_asset(transaction, &request.location)?;
+
+    if let Some(existing) = existing {
+        let unchanged = existing.byte_len == request.byte_len
+            && existing.modified_at_ms == request.modified_at_ms;
+
+        if !unchanged {
+            transaction.execute(
+                "UPDATE locations SET status = ?1 WHERE id = ?2",
+                params![
+                    LocationStatus::NeedsRevalidation.as_str(),
+                    existing.location_id.as_bytes().as_slice()
+                ],
+            )?;
+        }
+
+        Ok(RegisteredAsset {
+            photo_id: existing.photo_id,
+            representation_id: existing.representation_id,
+            location_id: existing.location_id,
+            status: if unchanged {
+                RegistrationStatus::Unchanged
+            } else {
+                RegistrationStatus::NeedsRevalidation
+            },
+        })
+    } else {
+        insert_asset(transaction, request)
     }
 }
 
@@ -243,6 +327,17 @@ fn migrate(connection: &mut Connection) -> rusqlite::Result<()> {
         transaction.execute(
             "INSERT INTO schema_migrations(version, applied_at_ms) VALUES (?1, unixepoch('subsec') * 1000)",
             [1_i64],
+        )?;
+        transaction.commit()?;
+    }
+
+    let version = current_schema_version(connection)?;
+    if version < 2 {
+        let transaction = connection.transaction()?;
+        transaction.execute_batch(MIGRATION_V2)?;
+        transaction.execute(
+            "INSERT INTO schema_migrations(version, applied_at_ms) VALUES (?1, unixepoch('subsec') * 1000)",
+            [2_i64],
         )?;
         transaction.commit()?;
     }
@@ -386,10 +481,10 @@ mod tests {
     }
 
     #[test]
-    fn migration_creates_schema_v1() {
+    fn migration_creates_current_schema() {
         let catalog = Catalog::open_in_memory().expect("open catalog");
 
-        assert_eq!(catalog.schema_version().expect("schema version"), 1);
+        assert_eq!(catalog.schema_version().expect("schema version"), 2);
     }
 
     #[test]

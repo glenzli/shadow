@@ -59,6 +59,7 @@ macro_rules! entity_id {
 entity_id!(PhotoId);
 entity_id!(RepresentationId);
 entity_id!(LocationId);
+entity_id!(ImportSessionId);
 entity_id!(RecipeId);
 entity_id!(RecipeCommitId);
 entity_id!(LayerId);
