@@ -11,7 +11,10 @@ crate-type = ["rlib", "staticlib"]
 
 [dependencies]
 anyhow.workspace = true
+blake3.workspace = true
 cxx.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 shadow-bridge.workspace = true
 shadow-catalog.workspace = true
 shadow-core.workspace = true
@@ -19,6 +22,9 @@ shadow-domain.workspace = true
 shadow-ai.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
+
+[dev-dependencies]
+shadow-cache.workspace = true
 
 [build-dependencies]
 cxx-build = "=1.0.198"

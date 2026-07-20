@@ -11,6 +11,7 @@
 struct ReviewItem final {
     QString photo_id;
     QString representation_id;
+    QString visual_handle;
     QString title;
     QString source_path;
     QString visual_role;
@@ -39,6 +40,7 @@ public:
     enum Role {
         PhotoIdRole = Qt::UserRole + 1,
         RepresentationIdRole,
+        VisualHandleRole,
         TitleRole,
         SourcePathRole,
         VisualRole,
@@ -71,6 +73,7 @@ public:
     void replace(QVector<ReviewItem> items, quint64 generation);
     void append(QVector<ReviewItem> items);
     [[nodiscard]] bool isGenerationCurrent(quint64 generation) const noexcept;
+    [[nodiscard]] QString visualSourceFor(const QString& ticket) const;
 
 private:
     QVector<ReviewItem> items_;

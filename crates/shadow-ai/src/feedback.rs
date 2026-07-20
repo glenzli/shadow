@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
-use shadow_domain::{GroupId, PhotoId, RecipeCommitId};
+use shadow_domain::{GroupId, PhotoId, RecipeCommitId, RepresentationId};
 
 use crate::{ModelProvenance, UnitInterval};
 
@@ -34,6 +34,78 @@ pub struct PresentedCandidate {
     pub visible_fraction: UnitInterval,
     pub inspected_at_one_to_one: bool,
     pub feature: Option<FeatureSnapshotRef>,
+    /// Exact rebuildable artifact and decoded frame that reached the UI.
+    ///
+    /// Older evidence did not capture this boundary. Omitting `None` preserves
+    /// its canonical JSON byte-for-byte instead of inventing provenance later.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub visual: Option<PresentedVisualProvenance>,
+}
+
+/// Catalog role of the rebuildable artifact shown to the user.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PresentedVisualRole {
+    EmbeddedPreview,
+    GeneratedProxy,
+}
+
+/// Spatial fitting applied by the evidence surface.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PresentedFitMode {
+    PreserveAspectFit,
+}
+
+/// Frozen identity of the rebuildable Catalog artifact used for presentation.
+///
+/// This deliberately duplicates source and artifact metadata. Feedback history
+/// must remain explainable after the corresponding cache row is invalidated.
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub struct PresentedVisualArtifact {
+    pub representation_id: RepresentationId,
+    pub source_byte_len: u64,
+    pub source_modified_at_ms: Option<i64>,
+    pub role: PresentedVisualRole,
+    pub variant_key: String,
+    pub generator_id: String,
+    pub generator_version: String,
+    pub provider_preview_id: Option<u64>,
+    pub blob_algorithm: String,
+    pub blob_digest_hex: String,
+    pub blob_byte_len: u64,
+    pub codec: String,
+    pub byte_order: String,
+    pub width: u32,
+    pub height: u32,
+    pub bits_per_channel: u16,
+    pub channels: u16,
+    pub created_at_ms: i64,
+}
+
+/// Exact decoded frame and UI surface contract used for one presentation.
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub struct PresentedVisualFrame {
+    pub surface_id: String,
+    pub surface_revision: u64,
+    pub fit_mode: PresentedFitMode,
+    pub decoder_id: String,
+    pub decoder_version: String,
+    pub auto_transform: bool,
+    pub requested_width: u32,
+    pub requested_height: u32,
+    pub decoded_width: u32,
+    pub decoded_height: u32,
+    pub pixel_format: String,
+    pub pixel_hash_algorithm: String,
+    pub pixel_hash_hex: String,
+}
+
+/// Complete provenance for the pixels a candidate surface presented.
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub struct PresentedVisualProvenance {
+    pub artifact: PresentedVisualArtifact,
+    pub frame: PresentedVisualFrame,
 }
 
 /// What the user could actually see when an action occurred.
@@ -181,6 +253,10 @@ pub enum FeedbackValidationError {
     CopyTargetIsSource,
     #[error("feature dimension must be greater than zero")]
     ZeroFeatureDimension,
+    #[error("{field} must be greater than zero")]
+    ZeroVisualValue { field: &'static str },
+    #[error("{field} must be exactly 64 lowercase hexadecimal characters")]
+    InvalidVisualDigest { field: &'static str },
 }
 
 impl NewFeedbackEvent {
@@ -340,6 +416,9 @@ fn validate_feedback(
                 return Err(FeedbackValidationError::ZeroFeatureDimension);
             }
         }
+        if let Some(visual) = &candidate.visual {
+            validate_presented_visual(visual)?;
+        }
     }
     if let Some(model) = &presentation.active_model {
         validate_identifier("model provider id", &model.provider_id)?;
@@ -352,6 +431,90 @@ fn validate_feedback(
     }
 
     validate_action(action, &presented_photos)
+}
+
+fn validate_presented_visual(
+    visual: &PresentedVisualProvenance,
+) -> Result<(), FeedbackValidationError> {
+    let artifact = &visual.artifact;
+    for (field, value) in [
+        ("visual variant key", artifact.variant_key.as_str()),
+        ("visual generator id", artifact.generator_id.as_str()),
+        (
+            "visual generator version",
+            artifact.generator_version.as_str(),
+        ),
+        ("visual blob algorithm", artifact.blob_algorithm.as_str()),
+        ("visual codec", artifact.codec.as_str()),
+        ("visual byte order", artifact.byte_order.as_str()),
+    ] {
+        validate_identifier(field, value)?;
+    }
+    validate_lower_hex_digest("visual blob digest", &artifact.blob_digest_hex)?;
+    for (field, value) in [
+        ("visual source byte length", artifact.source_byte_len),
+        ("visual blob byte length", artifact.blob_byte_len),
+        ("visual artifact width", u64::from(artifact.width)),
+        ("visual artifact height", u64::from(artifact.height)),
+        (
+            "visual artifact bits per channel",
+            u64::from(artifact.bits_per_channel),
+        ),
+        ("visual artifact channels", u64::from(artifact.channels)),
+    ] {
+        validate_non_zero_visual_value(field, value)?;
+    }
+
+    let frame = &visual.frame;
+    for (field, value) in [
+        ("visual surface id", frame.surface_id.as_str()),
+        ("visual decoder id", frame.decoder_id.as_str()),
+        ("visual decoder version", frame.decoder_version.as_str()),
+        ("visual pixel format", frame.pixel_format.as_str()),
+        (
+            "visual pixel hash algorithm",
+            frame.pixel_hash_algorithm.as_str(),
+        ),
+    ] {
+        validate_identifier(field, value)?;
+    }
+    validate_lower_hex_digest("visual pixel hash", &frame.pixel_hash_hex)?;
+    for (field, value) in [
+        ("visual surface revision", frame.surface_revision),
+        ("visual requested width", u64::from(frame.requested_width)),
+        ("visual requested height", u64::from(frame.requested_height)),
+        ("visual decoded width", u64::from(frame.decoded_width)),
+        ("visual decoded height", u64::from(frame.decoded_height)),
+    ] {
+        validate_non_zero_visual_value(field, value)?;
+    }
+    Ok(())
+}
+
+fn validate_non_zero_visual_value(
+    field: &'static str,
+    value: u64,
+) -> Result<(), FeedbackValidationError> {
+    if value == 0 {
+        Err(FeedbackValidationError::ZeroVisualValue { field })
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_lower_hex_digest(
+    field: &'static str,
+    value: &str,
+) -> Result<(), FeedbackValidationError> {
+    if value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        Ok(())
+    } else {
+        Err(FeedbackValidationError::InvalidVisualDigest { field })
+    }
 }
 
 fn validate_action(
@@ -664,6 +827,47 @@ mod tests {
                 artifact_hash: artifact_hash.into(),
                 dimension: 2,
             }),
+            visual: None,
+        }
+    }
+
+    fn presented_visual(representation_id: RepresentationId) -> PresentedVisualProvenance {
+        PresentedVisualProvenance {
+            artifact: PresentedVisualArtifact {
+                representation_id,
+                source_byte_len: 48_000_000,
+                source_modified_at_ms: Some(1_700_000_000_000),
+                role: PresentedVisualRole::EmbeddedPreview,
+                variant_key: "embedded-0".into(),
+                generator_id: "libraw-preview-extractor".into(),
+                generator_version: "0.21.4".into(),
+                provider_preview_id: Some(0),
+                blob_algorithm: "blake3".into(),
+                blob_digest_hex: "0".repeat(64),
+                blob_byte_len: 2_000_000,
+                codec: "jpeg".into(),
+                byte_order: "not_applicable".into(),
+                width: 4_096,
+                height: 2_731,
+                bits_per_channel: 8,
+                channels: 3,
+                created_at_ms: 1_700_000_000_100,
+            },
+            frame: PresentedVisualFrame {
+                surface_id: "review-compare-left".into(),
+                surface_revision: 1,
+                fit_mode: PresentedFitMode::PreserveAspectFit,
+                decoder_id: "qt-image-jpeg".into(),
+                decoder_version: "6.8.3".into(),
+                auto_transform: true,
+                requested_width: 1_280,
+                requested_height: 960,
+                decoded_width: 4_096,
+                decoded_height: 2_731,
+                pixel_format: "rgba8888-premultiplied".into(),
+                pixel_hash_algorithm: "blake3".into(),
+                pixel_hash_hex: "a".repeat(64),
+            },
         }
     }
 
@@ -691,6 +895,109 @@ mod tests {
             maximum_examples: 100,
             forgotten_event_ids: BTreeSet::new(),
         }
+    }
+
+    #[test]
+    fn legacy_candidate_json_round_trips_byte_for_byte_without_visual_field() {
+        let legacy = r#"{"photo_id":"018f0000-0000-7000-8000-000000000000","position":7,"visible_fraction":1.0,"inspected_at_one_to_one":false,"feature":null}"#;
+        let candidate: PresentedCandidate =
+            serde_json::from_str(legacy).expect("deserialize legacy candidate");
+
+        assert!(candidate.visual.is_none());
+        assert_eq!(
+            serde_json::to_string(&candidate).expect("serialize legacy candidate"),
+            legacy
+        );
+    }
+
+    #[test]
+    fn presented_visual_round_trips_with_complete_artifact_and_frame_identity() {
+        let photo_id = PhotoId::new_v7();
+        let mut evidence = event(FeedbackAction::Exported { photo_id });
+        evidence.presentation.candidates.push(PresentedCandidate {
+            photo_id,
+            position: 0,
+            visible_fraction: UnitInterval::ONE,
+            inspected_at_one_to_one: false,
+            feature: None,
+            visual: Some(presented_visual(RepresentationId::new_v7())),
+        });
+        evidence.validate().expect("valid visual provenance");
+
+        let json = serde_json::to_string(&evidence).expect("serialize visual evidence");
+        let decoded: FeedbackEvent =
+            serde_json::from_str(&json).expect("deserialize visual evidence");
+        assert_eq!(decoded, evidence);
+        assert_eq!(
+            serde_json::to_string(&decoded).expect("reserialize visual evidence"),
+            json
+        );
+    }
+
+    #[test]
+    fn presented_visual_rejects_tampered_or_incomplete_identity() {
+        let photo_id = PhotoId::new_v7();
+        let mut evidence = event(FeedbackAction::Exported { photo_id });
+        evidence.presentation.candidates.push(PresentedCandidate {
+            photo_id,
+            position: 0,
+            visible_fraction: UnitInterval::ONE,
+            inspected_at_one_to_one: false,
+            feature: None,
+            visual: Some(presented_visual(RepresentationId::new_v7())),
+        });
+
+        let visual = evidence.presentation.candidates[0]
+            .visual
+            .as_mut()
+            .expect("visual");
+        visual.artifact.blob_digest_hex.replace_range(0..1, "A");
+        assert!(matches!(
+            evidence.validate(),
+            Err(FeedbackValidationError::InvalidVisualDigest {
+                field: "visual blob digest"
+            })
+        ));
+
+        let visual = evidence.presentation.candidates[0]
+            .visual
+            .as_mut()
+            .expect("visual");
+        visual.artifact.blob_digest_hex = "0".repeat(64);
+        visual.frame.decoded_width = 0;
+        assert!(matches!(
+            evidence.validate(),
+            Err(FeedbackValidationError::ZeroVisualValue {
+                field: "visual decoded width"
+            })
+        ));
+
+        let visual = evidence.presentation.candidates[0]
+            .visual
+            .as_mut()
+            .expect("visual");
+        visual.frame.decoded_width = 4_096;
+        visual.frame.decoder_id.clear();
+        assert!(matches!(
+            evidence.validate(),
+            Err(FeedbackValidationError::EmptyString {
+                field: "visual decoder id"
+            })
+        ));
+
+        let visual = evidence.presentation.candidates[0]
+            .visual
+            .as_mut()
+            .expect("visual");
+        visual.frame.decoder_id = "qt-image-jpeg".into();
+        visual.artifact.generator_version = "x".repeat(MAX_IDENTIFIER_LENGTH + 1);
+        assert!(matches!(
+            evidence.validate(),
+            Err(FeedbackValidationError::StringTooLong {
+                field: "visual generator version",
+                maximum: MAX_IDENTIFIER_LENGTH
+            })
+        ));
     }
 
     #[test]

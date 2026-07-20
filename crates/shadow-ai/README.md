@@ -38,14 +38,17 @@ responsibilities; the first such adapter now lives in `shadow-core` and
   substitute for the still-unselected image feature extractor.
 
 All model-derived data remains rebuildable. Human decisions, feedback events, and
-accepted edit versions remain durable application facts.
+accepted edit versions remain durable application facts. A feedback candidate may
+also carry the exact encoded visual artifact and the normalized decoded-frame
+receipt that were presented when the decision was made. This provenance is an
+identity contract, not proof that two differently authored proxies are comparable.
 
 ## Current application integration
 
 The import/decode path now sends the preferred cached JPEG visual to a dedicated
 single-worker actor with a bounded queue. It verifies the content-addressed blob,
 decodes a maximum-512-edge display-luma plane through `shadow-bridge`, runs the
-deterministic observer, and asks Catalog schema v7 to commit only against the
+deterministic observer, and asks Catalog schema v8 to commit only against the
 exact representation fingerprint, cached-artifact identity, observation schema,
 implementation version, luma contract, and preprocessing revision. Stale jobs
 are discarded. Invalid persisted observation data is treated as rebuildable and
@@ -57,6 +60,16 @@ does not rank a group, add quality badges, or compare observations made from
 differently generated, resized, or sharpened proxies. An embedded camera preview
 and a Shadow-generated proxy can have materially different upstream processing
 even when the final JPEG-to-luma decoder revision matches.
+
+The desktop Compare path freezes an exact cached-artifact record in a
+session-authenticated handle, exchanges it for one-purpose presentation tickets,
+and loads those content-addressed bytes without reselecting the current preferred
+artifact. Qt normalizes the decoded image to unpremultiplied row-major RGBA8888 and
+returns a SHA-256 frame receipt before the presentation can be confirmed or the
+human outcome recorded. A later preferred-artifact change therefore does not
+rewrite the evidence. The receipt intentionally stops before display ICC, GPU
+sampling, compositing, and the physical screen. The accompanying technical
+observation is displayed separately and is not yet copied into the feedback event.
 
 ## Deliberately not implemented
 

@@ -526,10 +526,14 @@ name = "shadow-desktop-bridge"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "blake3",
  "cxx",
  "cxx-build",
+ "serde",
+ "serde_json",
  "shadow-ai",
  "shadow-bridge",
+ "shadow-cache",
  "shadow-catalog",
  "shadow-core",
  "shadow-domain",

@@ -22,7 +22,8 @@ pub use feedback::{
     BatchBuildReport, FeatureSnapshotRef, FeedbackAction, FeedbackEvent, FeedbackForgetFact,
     FeedbackIgnored, FeedbackValidationError, IncrementalTrainingBatch, IncrementalTrainingPolicy,
     LearningScope, NewFeedbackEvent, NewFeedbackForgetFact, PairwiseExampleRef, PairwiseOutcome,
-    PresentationContext, PresentedCandidate, SuggestionDecision,
+    PresentationContext, PresentedCandidate, PresentedFitMode, PresentedVisualArtifact,
+    PresentedVisualFrame, PresentedVisualProvenance, PresentedVisualRole, SuggestionDecision,
     build_incremental_preference_batch,
 };
 pub use manifest::{

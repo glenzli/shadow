@@ -19,6 +19,7 @@ struct BackendScanReport final {
 struct BackendReviewItem final {
     QString photo_id;
     QString representation_id;
+    QString visual_handle;
     QString title;
     QString source_path;
     QString visual_role;
@@ -46,6 +47,17 @@ struct BackendReviewPage final {
     QString next_cursor_representation_id;
     std::uint64_t total_items = 0;
     bool has_more = false;
+};
+
+struct BackendReviewVisual final {
+    QByteArray bytes;
+    bool requires_frame_receipt = false;
+};
+
+struct BackendReviewComparisonPresentation final {
+    QString presentation_id;
+    QString left_request_ticket;
+    QString right_request_ticket;
 };
 
 enum class BackendPairwiseOutcome : std::uint8_t {
@@ -147,12 +159,28 @@ public:
         const QString& cursor_representation_id,
         std::uint32_t limit
     ) const;
-    [[nodiscard]] QByteArray loadReviewVisual(const QString& representation_id) const;
+    [[nodiscard]] BackendReviewVisual loadReviewVisual(const QString& ticket) const;
+    [[nodiscard]] BackendReviewComparisonPresentation prepareReviewComparison(
+        const QString& left_visual_handle,
+        const QString& right_visual_handle
+    ) const;
+    void reportReviewVisualFrame(
+        const QString& ticket,
+        const QString& decoder_version,
+        std::uint32_t requested_width,
+        std::uint32_t requested_height,
+        std::uint32_t decoded_width,
+        std::uint32_t decoded_height,
+        const QString& pixel_hash_hex
+    ) const;
+    void confirmReviewComparisonReady(
+        const QString& presentation_id,
+        const QString& left_request_ticket,
+        const QString& right_request_ticket
+    ) const;
+    void cancelReviewComparison(const QString& presentation_id) const;
     [[nodiscard]] BackendFeedbackReceipt recordReviewComparison(
-        const QString& left_photo_id,
-        const QString& left_representation_id,
-        const QString& right_photo_id,
-        const QString& right_representation_id,
+        const QString& presentation_id,
         BackendPairwiseOutcome outcome
     ) const;
     [[nodiscard]] BackendForgetReceipt forgetReviewFeedback(

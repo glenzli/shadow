@@ -8,6 +8,7 @@
 #include <QObject>
 #include <QString>
 #include <QUrl>
+#include <QVariantMap>
 
 #include <cstdint>
 #include <memory>
@@ -89,13 +90,17 @@ public:
 
     Q_INVOKABLE void scanFolder(const QUrl& folder_url);
     Q_INVOKABLE void loadMore();
-    Q_INVOKABLE void recordComparison(
-        const QString& left_photo_id,
-        const QString& left_representation_id,
-        const QString& right_photo_id,
-        const QString& right_representation_id,
-        int outcome
+    Q_INVOKABLE QVariantMap prepareComparison(
+        const QString& left_visual_handle,
+        const QString& right_visual_handle
     );
+    Q_INVOKABLE bool confirmComparisonReady(
+        const QString& presentation_id,
+        const QString& left_request_ticket,
+        const QString& right_request_ticket
+    );
+    Q_INVOKABLE void cancelComparison(const QString& presentation_id);
+    Q_INVOKABLE void recordComparison(const QString& presentation_id, int outcome);
     Q_INVOKABLE void undoLastComparison();
 
 signals:

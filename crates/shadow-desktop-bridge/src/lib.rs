@@ -8,9 +8,12 @@ use std::{
 };
 
 use anyhow::{Context, Result as AnyResult, anyhow, bail};
+use serde::{Deserialize, Serialize};
 use shadow_ai::{
     FeedbackAction, LearningScope, NewFeedbackEvent, NewFeedbackForgetFact, PairwiseOutcome,
-    PresentationContext, PresentedCandidate, UnitInterval as AiUnitInterval,
+    PresentationContext, PresentedCandidate, PresentedFitMode, PresentedVisualArtifact,
+    PresentedVisualFrame, PresentedVisualProvenance, PresentedVisualRole,
+    UnitInterval as AiUnitInterval,
 };
 use shadow_bridge::{
     ADJUSTMENT_IMPLEMENTATION_VERSION, ADJUSTMENT_PARAMETER_SCHEMA_VERSION, AdjustmentRenderNode,
@@ -39,11 +42,12 @@ use shadow_domain::operation::{
 };
 use shadow_domain::{
     AdjustmentNode, AdjustmentScope, BlendMode, CURRENT_RECIPE_SCHEMA_VERSION, DecoderSnapshot,
-    EditGraph, EntityId, FiniteF64, ImageDomain, LayerContent, LayerContentDiff, LayerInstance,
-    LayerInstanceId, NodeId, NodeInput, OperationDescriptor, OperationId, ParameterBlock,
-    ParameterKey, ParameterValue, PhotoId, PortType, PreviewPayload, ProcessingStage, ProxyPayload,
-    RecipeCommit, RecipeCommitId, RecipeDiff, RecipeId, RecipeSnapshot, RepresentationId,
-    UnitInterval, VersionName, diff_recipe_snapshots,
+    EditGraph, EntityId, FiniteF64, ImageDimensions, ImageDomain, LayerContent, LayerContentDiff,
+    LayerInstance, LayerInstanceId, NodeId, NodeInput, OperationDescriptor, OperationId,
+    ParameterBlock, ParameterKey, ParameterValue, PhotoId, PortType, PreviewByteOrder,
+    PreviewCodec, PreviewPayload, ProcessingStage, ProxyPayload, RecipeCommit, RecipeCommitId,
+    RecipeDiff, RecipeId, RecipeSnapshot, RepresentationId, UnitInterval, VersionName,
+    diff_recipe_snapshots,
 };
 use uuid::Uuid;
 
@@ -80,6 +84,10 @@ mod ffi {
     struct FfiReviewItem {
         photo_id: String,
         representation_id: String,
+        /// Session-authenticated identity of the exact grid artifact. It is
+        /// intentionally opaque to Qt and remains valid if Catalog preference
+        /// changes after this page was produced.
+        visual_handle: String,
         title: String,
         source_path: String,
         visual_role: String,
@@ -122,6 +130,18 @@ mod ffi {
     #[derive(Debug)]
     struct FfiVisualPayload {
         bytes: Vec<u8>,
+        /// Compare request tickets require a decoded-frame receipt before the
+        /// associated human evidence can be committed. Grid handles do not.
+        requires_frame_receipt: bool,
+    }
+
+    /// Dedicated request tickets for the two immutable visual selections in
+    /// one pending Review comparison.
+    #[derive(Debug)]
+    struct FfiReviewComparisonPresentation {
+        presentation_id: String,
+        left_request_ticket: String,
+        right_request_ticket: String,
     }
 
     /// The first renderer-backed edit subset exposed to Qt.
@@ -224,16 +244,33 @@ mod ffi {
             cursor_representation_id: &str,
             limit: u32,
         ) -> Result<FfiReviewPage>;
-        fn load_review_visual(
+        fn load_review_visual(self: &DesktopSession, ticket: &str) -> Result<FfiVisualPayload>;
+        fn prepare_review_comparison(
             self: &DesktopSession,
-            representation_id: &str,
-        ) -> Result<FfiVisualPayload>;
+            left_grid_handle: &str,
+            right_grid_handle: &str,
+        ) -> Result<FfiReviewComparisonPresentation>;
+        #[allow(clippy::too_many_arguments)]
+        fn record_review_visual_frame(
+            self: &DesktopSession,
+            request_ticket: &str,
+            decoder_version: &str,
+            requested_width: u32,
+            requested_height: u32,
+            decoded_width: u32,
+            decoded_height: u32,
+            pixel_hash_hex: &str,
+        ) -> Result<()>;
+        fn confirm_review_comparison_ready(
+            self: &DesktopSession,
+            presentation_id: &str,
+            left_request_ticket: &str,
+            right_request_ticket: &str,
+        ) -> Result<()>;
+        fn cancel_review_comparison(self: &DesktopSession, presentation_id: &str) -> Result<()>;
         fn record_review_comparison(
             self: &DesktopSession,
-            left_photo_id: &str,
-            left_representation_id: &str,
-            right_photo_id: &str,
-            right_representation_id: &str,
+            presentation_id: &str,
             outcome: FfiPairwiseOutcome,
         ) -> Result<FfiFeedbackReceipt>;
         fn forget_review_feedback(
@@ -276,7 +313,35 @@ struct DesktopSession {
     cache_root: PathBuf,
     edit_preview_sessions: Mutex<VecDeque<CachedEditPreviewSession>>,
     review_feedback_session_id: String,
+    review_visual_signing_key: [u8; 32],
+    review_comparisons: Mutex<ReviewComparisonRegistry>,
     active_review_feedback_event_ids: Mutex<HashSet<String>>,
+}
+
+#[derive(Debug, Default)]
+struct ReviewComparisonRegistry {
+    presentations: HashMap<String, PendingReviewComparison>,
+}
+
+#[derive(Debug)]
+struct PendingReviewComparison {
+    left: PendingReviewVisual,
+    right: PendingReviewVisual,
+    ready: bool,
+}
+
+#[derive(Debug)]
+struct PendingReviewVisual {
+    request_ticket: String,
+    selection: ReviewVisualSelection,
+    bytes_verified: bool,
+    frame: Option<PresentedVisualFrame>,
+}
+
+#[derive(Debug, Clone)]
+struct ReviewVisualSelection {
+    photo_id: PhotoId,
+    record: CachedArtifactRecord,
 }
 
 #[derive(Debug)]
@@ -334,50 +399,225 @@ impl DesktopSession {
             };
         Ok(ffi::FfiReviewPage {
             total_items: page.total_items,
-            items: page.items.into_iter().map(review_item).collect(),
+            items: page
+                .items
+                .into_iter()
+                .map(|record| self.review_item(record))
+                .collect::<AnyResult<Vec<_>>>()?,
             has_more,
             next_cursor_path,
             next_cursor_representation_id,
         })
     }
 
-    fn load_review_visual(&self, representation_id: &str) -> AnyResult<ffi::FfiVisualPayload> {
-        let representation_id: RepresentationId = representation_id
-            .parse()
-            .with_context(|| format!("parse representation id {representation_id}"))?;
-        let record = preferred_visual(&self.catalog, representation_id)?
-            .ok_or_else(|| anyhow!("visual is not cached yet for {representation_id}"))?;
+    fn load_review_visual(&self, ticket: &str) -> AnyResult<ffi::FfiVisualPayload> {
+        if ticket.starts_with(GRID_VISUAL_HANDLE_PREFIX) {
+            let selection = self.decode_grid_visual_handle(ticket)?;
+            return Ok(ffi::FfiVisualPayload {
+                bytes: self.loader.load_bytes(&selection.record)?,
+                requires_frame_receipt: false,
+            });
+        }
+
+        // Clone the exact record before performing filesystem I/O. If the
+        // presentation is canceled concurrently, the second lookup refuses to
+        // acknowledge those bytes and no receipt can later be attached.
+        let selection = {
+            let registry = self
+                .review_comparisons
+                .lock()
+                .map_err(|_| anyhow!("Review comparison registry lock is poisoned"))?;
+            pending_visual(&registry, ticket)
+                .map(|slot| slot.selection.clone())
+                .ok_or_else(|| anyhow!("unknown or expired Review visual request ticket"))?
+        };
+        let bytes = self.loader.load_bytes(&selection.record)?;
+        {
+            let mut registry = self
+                .review_comparisons
+                .lock()
+                .map_err(|_| anyhow!("Review comparison registry lock is poisoned"))?;
+            let slot = pending_visual_mut(&mut registry, ticket)
+                .ok_or_else(|| anyhow!("Review visual request was canceled while loading"))?;
+            if slot.selection.photo_id != selection.photo_id
+                || slot.selection.record != selection.record
+            {
+                bail!("Review visual request identity changed while loading");
+            }
+            slot.bytes_verified = true;
+        }
         Ok(ffi::FfiVisualPayload {
-            bytes: self.loader.load_bytes(&record)?,
+            bytes,
+            requires_frame_receipt: true,
         })
+    }
+
+    fn prepare_review_comparison(
+        &self,
+        left_grid_handle: &str,
+        right_grid_handle: &str,
+    ) -> AnyResult<ffi::FfiReviewComparisonPresentation> {
+        let left = self.decode_grid_visual_handle(left_grid_handle)?;
+        let right = self.decode_grid_visual_handle(right_grid_handle)?;
+        if left.photo_id == right.photo_id {
+            bail!("Review comparison requires two different photos");
+        }
+
+        let mut registry = self
+            .review_comparisons
+            .lock()
+            .map_err(|_| anyhow!("Review comparison registry lock is poisoned"))?;
+        if registry.presentations.len() >= MAX_PENDING_REVIEW_COMPARISONS {
+            bail!(
+                "Review comparison registry is full; cancel an abandoned comparison before retrying"
+            );
+        }
+        let presentation_id = unique_presentation_id(&registry);
+        let left_request_ticket = unique_request_ticket(&registry);
+        let right_request_ticket = unique_request_ticket_excluding(&registry, &left_request_ticket);
+        registry.presentations.insert(
+            presentation_id.clone(),
+            PendingReviewComparison {
+                left: PendingReviewVisual {
+                    request_ticket: left_request_ticket.clone(),
+                    selection: left,
+                    bytes_verified: false,
+                    frame: None,
+                },
+                right: PendingReviewVisual {
+                    request_ticket: right_request_ticket.clone(),
+                    selection: right,
+                    bytes_verified: false,
+                    frame: None,
+                },
+                ready: false,
+            },
+        );
+        Ok(ffi::FfiReviewComparisonPresentation {
+            presentation_id,
+            left_request_ticket,
+            right_request_ticket,
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn record_review_visual_frame(
+        &self,
+        request_ticket: &str,
+        decoder_version: &str,
+        requested_width: u32,
+        requested_height: u32,
+        decoded_width: u32,
+        decoded_height: u32,
+        pixel_hash_hex: &str,
+    ) -> AnyResult<()> {
+        validate_frame_receipt(
+            decoder_version,
+            requested_width,
+            requested_height,
+            decoded_width,
+            decoded_height,
+            pixel_hash_hex,
+        )?;
+        let frame = PresentedVisualFrame {
+            surface_id: REVIEW_COMPARE_SURFACE_ID.to_owned(),
+            surface_revision: REVIEW_COMPARE_SURFACE_REVISION,
+            fit_mode: PresentedFitMode::PreserveAspectFit,
+            decoder_id: REVIEW_COMPARE_DECODER_ID.to_owned(),
+            decoder_version: decoder_version.to_owned(),
+            auto_transform: true,
+            requested_width,
+            requested_height,
+            decoded_width,
+            decoded_height,
+            pixel_format: REVIEW_COMPARE_PIXEL_FORMAT.to_owned(),
+            pixel_hash_algorithm: REVIEW_COMPARE_PIXEL_HASH_ALGORITHM.to_owned(),
+            pixel_hash_hex: pixel_hash_hex.to_owned(),
+        };
+        let mut registry = self
+            .review_comparisons
+            .lock()
+            .map_err(|_| anyhow!("Review comparison registry lock is poisoned"))?;
+        let slot = pending_visual_mut(&mut registry, request_ticket)
+            .ok_or_else(|| anyhow!("unknown or expired Review visual request ticket"))?;
+        if !slot.bytes_verified {
+            bail!("Review visual bytes must load successfully before recording a frame receipt");
+        }
+        match &slot.frame {
+            None => slot.frame = Some(frame),
+            Some(existing) if existing == &frame => {}
+            Some(_) => bail!("Review visual request already has a different frame receipt"),
+        }
+        Ok(())
+    }
+
+    fn confirm_review_comparison_ready(
+        &self,
+        presentation_id: &str,
+        left_request_ticket: &str,
+        right_request_ticket: &str,
+    ) -> AnyResult<()> {
+        let mut registry = self
+            .review_comparisons
+            .lock()
+            .map_err(|_| anyhow!("Review comparison registry lock is poisoned"))?;
+        let presentation = registry
+            .presentations
+            .get_mut(presentation_id)
+            .ok_or_else(|| anyhow!("unknown or expired Review comparison presentation"))?;
+        if presentation.left.request_ticket != left_request_ticket
+            || presentation.right.request_ticket != right_request_ticket
+        {
+            bail!("Review comparison tickets do not belong to this presentation");
+        }
+        for (side, slot) in [("left", &presentation.left), ("right", &presentation.right)] {
+            if !slot.bytes_verified || slot.frame.is_none() {
+                bail!("{side} Review comparison visual is not fully presented");
+            }
+        }
+        presentation.ready = true;
+        Ok(())
+    }
+
+    fn cancel_review_comparison(&self, presentation_id: &str) -> AnyResult<()> {
+        let mut registry = self
+            .review_comparisons
+            .lock()
+            .map_err(|_| anyhow!("Review comparison registry lock is poisoned"))?;
+        registry
+            .presentations
+            .remove(presentation_id)
+            .ok_or_else(|| anyhow!("unknown or expired Review comparison presentation"))?;
+        Ok(())
     }
 
     fn record_review_comparison(
         &self,
-        left_photo_id: &str,
-        left_representation_id: &str,
-        right_photo_id: &str,
-        right_representation_id: &str,
+        presentation_id: &str,
         outcome: ffi::FfiPairwiseOutcome,
     ) -> AnyResult<ffi::FfiFeedbackReceipt> {
+        let outcome = pairwise_outcome(outcome)?;
+        // Acquire the undo set first so a poisoned lock cannot leave durable
+        // evidence that the current UI session is unable to forget.
         let mut active_event_ids = self
             .active_review_feedback_event_ids
             .lock()
             .map_err(|_| anyhow!("Review feedback mutation lock is poisoned"))?;
-        let left = self.validated_review_feedback_candidate(
-            "left",
-            left_photo_id,
-            left_representation_id,
-        )?;
-        let right = self.validated_review_feedback_candidate(
-            "right",
-            right_photo_id,
-            right_representation_id,
-        )?;
-        if left == right {
-            bail!("Review comparison requires two different photos");
+        let mut registry = self
+            .review_comparisons
+            .lock()
+            .map_err(|_| anyhow!("Review comparison registry lock is poisoned"))?;
+        let presentation = registry
+            .presentations
+            .get(presentation_id)
+            .ok_or_else(|| anyhow!("unknown or expired Review comparison presentation"))?;
+        if !presentation.ready {
+            bail!("Review comparison must be confirmed ready before recording feedback");
         }
-
+        let left = presentation.left.selection.photo_id;
+        let right = presentation.right.selection.photo_id;
+        let left_visual = presented_visual(&presentation.left)?;
+        let right_visual = presented_visual(&presentation.right)?;
         let occurred_at_unix_ms = current_time_ms()?;
         let event = self.catalog.append_feedback_event(&NewFeedbackEvent {
             event_id: Uuid::now_v7().to_string(),
@@ -393,6 +633,7 @@ impl DesktopSession {
                         visible_fraction: AiUnitInterval::ONE,
                         inspected_at_one_to_one: false,
                         feature: None,
+                        visual: Some(left_visual),
                     },
                     PresentedCandidate {
                         photo_id: right,
@@ -400,6 +641,7 @@ impl DesktopSession {
                         visible_fraction: AiUnitInterval::ONE,
                         inspected_at_one_to_one: false,
                         feature: None,
+                        visual: Some(right_visual),
                     },
                 ],
                 active_model: None,
@@ -407,9 +649,12 @@ impl DesktopSession {
             action: FeedbackAction::PairwiseComparison {
                 left,
                 right,
-                outcome: pairwise_outcome(outcome)?,
+                outcome,
             },
         })?;
+        // Catalog success is the consumption boundary. Any error above leaves
+        // the ready presentation intact for a safe retry.
+        registry.presentations.remove(presentation_id);
         active_event_ids.insert(event.event_id.clone());
         Ok(ffi::FfiFeedbackReceipt {
             event_id: event.event_id,
@@ -448,33 +693,6 @@ impl DesktopSession {
             sequence: fact.sequence,
             occurred_at_unix_ms: fact.occurred_at_unix_ms,
         })
-    }
-
-    fn validated_review_feedback_candidate(
-        &self,
-        side: &str,
-        photo_id: &str,
-        representation_id: &str,
-    ) -> AnyResult<PhotoId> {
-        let photo_id: PhotoId = photo_id
-            .parse()
-            .with_context(|| format!("parse {side} Review photo id {photo_id}"))?;
-        let representation_id: RepresentationId = representation_id.parse().with_context(|| {
-            format!("parse {side} Review representation id {representation_id}")
-        })?;
-        let source = self
-            .catalog
-            .review_source(photo_id)?
-            .ok_or_else(|| anyhow!("{side} photo {photo_id} has no online original RAW source"))?;
-        if source.representation_id != representation_id {
-            bail!(
-                "{side} representation {representation_id} is not the current online original for photo {photo_id}"
-            );
-        }
-        if source.visual.is_none() {
-            bail!("{side} photo {photo_id} has no current Review visual");
-        }
-        Ok(photo_id)
     }
 
     fn photo_edit_state(
@@ -754,8 +972,44 @@ impl DesktopSession {
 const WORKING_RECIPE_REF: &str = "working";
 const NAMED_VERSION_REF_PREFIX: &str = "versions/";
 const CONTRAST_PIVOT: f64 = 0.18;
+const GRID_VISUAL_HANDLE_PREFIX: &str = "shadow-grid-visual-v1.";
+const GRID_VISUAL_HANDLE_SCHEMA_VERSION: u8 = 1;
+const MAX_GRID_VISUAL_PAYLOAD_BYTES: usize = 16 * 1_024;
+const MAX_PENDING_REVIEW_COMPARISONS: usize = 64;
+const REVIEW_COMPARE_SURFACE_ID: &str = "shadow.desktop.review-compare";
+const REVIEW_COMPARE_SURFACE_REVISION: u64 = 1;
+const REVIEW_COMPARE_DECODER_ID: &str = "qt.qimagereader";
+const REVIEW_COMPARE_PIXEL_FORMAT: &str = "rgba8888_unpremultiplied_row_major";
+const REVIEW_COMPARE_PIXEL_HASH_ALGORITHM: &str = "sha256";
 const REVIEW_FEEDBACK_FORGET_REASON: &str =
     "user removed this Review comparison from local preference learning";
+
+/// Serializable mirror of the Catalog record carried by a grid handle. The
+/// keyed signature is session-local; this payload is never trusted unsigned.
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SignedGridVisualPayload {
+    schema_version: u8,
+    photo_id: String,
+    representation_id: String,
+    source_byte_len: u64,
+    source_modified_at_ms: Option<i64>,
+    role: String,
+    variant_key: String,
+    generator_id: String,
+    generator_version: String,
+    provider_preview_id: Option<u64>,
+    blob_algorithm: String,
+    blob_digest_hex: String,
+    blob_byte_len: u64,
+    codec: String,
+    byte_order: String,
+    width: u32,
+    height: u32,
+    bits_per_channel: u16,
+    channels: u16,
+    created_at_ms: i64,
+}
 
 fn pairwise_outcome(outcome: ffi::FfiPairwiseOutcome) -> AnyResult<PairwiseOutcome> {
     match outcome {
@@ -1969,6 +2223,8 @@ fn open_desktop_session(catalog_path: &str, cache_root: &str) -> AnyResult<Box<D
         cache_root,
         edit_preview_sessions: Mutex::new(VecDeque::new()),
         review_feedback_session_id: Uuid::now_v7().to_string(),
+        review_visual_signing_key: new_review_visual_signing_key(),
+        review_comparisons: Mutex::new(ReviewComparisonRegistry::default()),
         active_review_feedback_event_ids: Mutex::new(HashSet::new()),
     }))
 }
@@ -1986,99 +2242,441 @@ fn parse_cursor(path: &str, representation_id: &str) -> AnyResult<Option<ReviewC
     }
 }
 
-fn review_item(record: ReviewItemRecord) -> ffi::FfiReviewItem {
-    let (visual_role, visual_width, visual_height, has_visual) = record.visual.map_or_else(
-        || (String::new(), 0, 0, false),
-        |visual| {
-            (
-                role_name(visual.artifact.role).to_owned(),
-                visual.artifact.dimensions.width,
-                visual.artifact.dimensions.height,
-                true,
-            )
-        },
-    );
-    let technical = record.technical;
-    let has_technical_observation = technical.is_some();
-    let (
-        technical_input_width,
-        technical_input_height,
-        technical_preprocessing_version,
-        technical_implementation_version,
-        mean_luma,
-        p01_luma,
-        p50_luma,
-        p99_luma,
-        near_black_fraction,
-        near_white_fraction,
-        laplacian_variance,
-        edge_energy,
-    ) = technical.map_or_else(
-        || {
-            (
-                0,
-                0,
-                String::new(),
-                String::new(),
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-            )
-        },
-        |technical| {
-            (
-                technical.input_width,
-                technical.input_height,
-                technical.preprocessing_version,
-                technical.implementation_version,
-                technical.mean_luma,
-                technical.p01_luma,
-                technical.p50_luma,
-                technical.p99_luma,
-                technical.near_black_fraction,
-                technical.near_white_fraction,
-                technical.laplacian_variance,
-                technical.edge_energy,
-            )
-        },
-    );
-    ffi::FfiReviewItem {
-        photo_id: record.photo_id.to_string(),
-        representation_id: record.representation_id.to_string(),
-        title: file_name(&record.location.display_path),
-        source_path: record.location.display_path,
-        visual_role,
-        visual_width,
-        visual_height,
-        has_visual,
-        has_technical_observation,
-        technical_input_width,
-        technical_input_height,
-        technical_preprocessing_version,
-        technical_implementation_version,
-        mean_luma,
-        p01_luma,
-        p50_luma,
-        p99_luma,
-        near_black_fraction,
-        near_white_fraction,
-        laplacian_variance,
-        edge_energy,
+impl DesktopSession {
+    fn review_item(&self, record: ReviewItemRecord) -> AnyResult<ffi::FfiReviewItem> {
+        let visual_handle = record
+            .visual
+            .as_ref()
+            .map(|visual| {
+                self.encode_grid_visual_handle(&ReviewVisualSelection {
+                    photo_id: record.photo_id,
+                    record: visual.clone(),
+                })
+            })
+            .transpose()?
+            .unwrap_or_default();
+        let (visual_role, visual_width, visual_height, has_visual) = record.visual.map_or_else(
+            || (String::new(), 0, 0, false),
+            |visual| {
+                (
+                    role_name(visual.artifact.role).to_owned(),
+                    visual.artifact.dimensions.width,
+                    visual.artifact.dimensions.height,
+                    true,
+                )
+            },
+        );
+        let technical = record.technical;
+        let has_technical_observation = technical.is_some();
+        let (
+            technical_input_width,
+            technical_input_height,
+            technical_preprocessing_version,
+            technical_implementation_version,
+            mean_luma,
+            p01_luma,
+            p50_luma,
+            p99_luma,
+            near_black_fraction,
+            near_white_fraction,
+            laplacian_variance,
+            edge_energy,
+        ) = technical.map_or_else(
+            || {
+                (
+                    0,
+                    0,
+                    String::new(),
+                    String::new(),
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                )
+            },
+            |technical| {
+                (
+                    technical.input_width,
+                    technical.input_height,
+                    technical.preprocessing_version,
+                    technical.implementation_version,
+                    technical.mean_luma,
+                    technical.p01_luma,
+                    technical.p50_luma,
+                    technical.p99_luma,
+                    technical.near_black_fraction,
+                    technical.near_white_fraction,
+                    technical.laplacian_variance,
+                    technical.edge_energy,
+                )
+            },
+        );
+        Ok(ffi::FfiReviewItem {
+            photo_id: record.photo_id.to_string(),
+            representation_id: record.representation_id.to_string(),
+            visual_handle,
+            title: file_name(&record.location.display_path),
+            source_path: record.location.display_path,
+            visual_role,
+            visual_width,
+            visual_height,
+            has_visual,
+            has_technical_observation,
+            technical_input_width,
+            technical_input_height,
+            technical_preprocessing_version,
+            technical_implementation_version,
+            mean_luma,
+            p01_luma,
+            p50_luma,
+            p99_luma,
+            near_black_fraction,
+            near_white_fraction,
+            laplacian_variance,
+            edge_energy,
+        })
+    }
+
+    fn encode_grid_visual_handle(&self, selection: &ReviewVisualSelection) -> AnyResult<String> {
+        let payload = SignedGridVisualPayload::from_selection(selection)?;
+        let payload = serde_json::to_vec(&payload).context("encode Review grid visual handle")?;
+        if payload.len() > MAX_GRID_VISUAL_PAYLOAD_BYTES {
+            bail!("Review grid visual handle payload exceeds its size limit");
+        }
+        let signature = blake3::keyed_hash(&self.review_visual_signing_key, &payload);
+        Ok(format!(
+            "{GRID_VISUAL_HANDLE_PREFIX}{}.{}",
+            encode_hex(&payload),
+            signature.to_hex()
+        ))
+    }
+
+    fn decode_grid_visual_handle(&self, handle: &str) -> AnyResult<ReviewVisualSelection> {
+        let encoded = handle
+            .strip_prefix(GRID_VISUAL_HANDLE_PREFIX)
+            .ok_or_else(|| anyhow!("invalid Review grid visual handle prefix"))?;
+        let (payload_hex, signature_hex) = encoded
+            .split_once('.')
+            .ok_or_else(|| anyhow!("malformed Review grid visual handle"))?;
+        if payload_hex.len() > MAX_GRID_VISUAL_PAYLOAD_BYTES.saturating_mul(2) {
+            bail!("Review grid visual handle payload exceeds its size limit");
+        }
+        if signature_hex.len() != 64 || !is_lower_hex(signature_hex) {
+            bail!("malformed Review grid visual handle signature");
+        }
+        let payload = decode_hex(payload_hex).context("decode Review grid visual handle")?;
+        if payload.len() > MAX_GRID_VISUAL_PAYLOAD_BYTES {
+            bail!("Review grid visual handle payload exceeds its size limit");
+        }
+        let supplied_signature =
+            decode_hex_32(signature_hex).context("decode Review grid visual handle signature")?;
+        let expected_signature = blake3::keyed_hash(&self.review_visual_signing_key, &payload);
+        if !constant_time_eq(expected_signature.as_bytes(), &supplied_signature) {
+            bail!("Review grid visual handle signature is invalid for this session");
+        }
+        let payload: SignedGridVisualPayload =
+            serde_json::from_slice(&payload).context("parse Review grid visual handle")?;
+        payload.into_selection()
     }
 }
 
-fn preferred_visual(
-    catalog: &CatalogHandle,
-    representation_id: RepresentationId,
-) -> AnyResult<Option<CachedArtifactRecord>> {
-    catalog
-        .preferred_cached_artifact(representation_id)
-        .map_err(Into::into)
+impl SignedGridVisualPayload {
+    fn from_selection(selection: &ReviewVisualSelection) -> AnyResult<Self> {
+        let record = &selection.record;
+        Ok(Self {
+            schema_version: GRID_VISUAL_HANDLE_SCHEMA_VERSION,
+            photo_id: selection.photo_id.to_string(),
+            representation_id: record.representation_id.to_string(),
+            source_byte_len: record.source.byte_len,
+            source_modified_at_ms: record.source.modified_at_ms,
+            role: record.artifact.role.as_str().to_owned(),
+            variant_key: record.artifact.variant_key.clone(),
+            generator_id: record.artifact.generator_id.clone(),
+            generator_version: record.artifact.generator_version.clone(),
+            provider_preview_id: record
+                .artifact
+                .provider_preview_id
+                .map(u64::try_from)
+                .transpose()
+                .context("provider preview id does not fit Review provenance")?,
+            blob_algorithm: record.artifact.blob_algorithm.clone(),
+            blob_digest_hex: encode_hex(&record.artifact.blob_digest),
+            blob_byte_len: record.artifact.blob_byte_len,
+            codec: record.artifact.codec.as_str().to_owned(),
+            byte_order: record.artifact.byte_order.as_str().to_owned(),
+            width: record.artifact.dimensions.width,
+            height: record.artifact.dimensions.height,
+            bits_per_channel: record.artifact.bits_per_channel,
+            channels: record.artifact.channels,
+            created_at_ms: record.artifact.created_at_ms,
+        })
+    }
+
+    fn into_selection(self) -> AnyResult<ReviewVisualSelection> {
+        if self.schema_version != GRID_VISUAL_HANDLE_SCHEMA_VERSION {
+            bail!(
+                "unsupported Review grid visual handle schema {}",
+                self.schema_version
+            );
+        }
+        let photo_id = self
+            .photo_id
+            .parse()
+            .context("parse photo id in Review grid visual handle")?;
+        let representation_id = self
+            .representation_id
+            .parse()
+            .context("parse representation id in Review grid visual handle")?;
+        let role = match self.role.as_str() {
+            "embedded_preview" => CachedArtifactRole::EmbeddedPreview,
+            "generated_proxy" => CachedArtifactRole::GeneratedProxy,
+            other => bail!("unsupported Review visual artifact role {other:?}"),
+        };
+        let codec = match self.codec.as_str() {
+            "unknown" => PreviewCodec::Unknown,
+            "jpeg" => PreviewCodec::Jpeg,
+            "bitmap" => PreviewCodec::Bitmap,
+            "jpeg_xl" => PreviewCodec::JpegXl,
+            "h265" => PreviewCodec::H265,
+            other => bail!("unsupported Review visual codec {other:?}"),
+        };
+        let byte_order = match self.byte_order.as_str() {
+            "not_applicable" => PreviewByteOrder::NotApplicable,
+            "native" => PreviewByteOrder::Native,
+            "little_endian" => PreviewByteOrder::LittleEndian,
+            "big_endian" => PreviewByteOrder::BigEndian,
+            other => bail!("unsupported Review visual byte order {other:?}"),
+        };
+        Ok(ReviewVisualSelection {
+            photo_id,
+            record: CachedArtifactRecord {
+                representation_id,
+                source: RepresentationFingerprint {
+                    byte_len: self.source_byte_len,
+                    modified_at_ms: self.source_modified_at_ms,
+                },
+                artifact: shadow_catalog::CachedArtifact {
+                    role,
+                    variant_key: self.variant_key,
+                    generator_id: self.generator_id,
+                    generator_version: self.generator_version,
+                    provider_preview_id: self
+                        .provider_preview_id
+                        .map(usize::try_from)
+                        .transpose()
+                        .context("provider preview id does not fit this platform")?,
+                    blob_algorithm: self.blob_algorithm,
+                    blob_digest: decode_hex_32(&self.blob_digest_hex)
+                        .context("decode Review visual blob digest")?,
+                    blob_byte_len: self.blob_byte_len,
+                    codec,
+                    byte_order,
+                    dimensions: ImageDimensions {
+                        width: self.width,
+                        height: self.height,
+                    },
+                    bits_per_channel: self.bits_per_channel,
+                    channels: self.channels,
+                    created_at_ms: self.created_at_ms,
+                },
+            },
+        })
+    }
+}
+
+fn pending_visual<'a>(
+    registry: &'a ReviewComparisonRegistry,
+    request_ticket: &str,
+) -> Option<&'a PendingReviewVisual> {
+    registry.presentations.values().find_map(|presentation| {
+        if presentation.left.request_ticket == request_ticket {
+            Some(&presentation.left)
+        } else if presentation.right.request_ticket == request_ticket {
+            Some(&presentation.right)
+        } else {
+            None
+        }
+    })
+}
+
+fn pending_visual_mut<'a>(
+    registry: &'a mut ReviewComparisonRegistry,
+    request_ticket: &str,
+) -> Option<&'a mut PendingReviewVisual> {
+    registry
+        .presentations
+        .values_mut()
+        .find_map(|presentation| {
+            if presentation.left.request_ticket == request_ticket {
+                Some(&mut presentation.left)
+            } else if presentation.right.request_ticket == request_ticket {
+                Some(&mut presentation.right)
+            } else {
+                None
+            }
+        })
+}
+
+fn unique_presentation_id(registry: &ReviewComparisonRegistry) -> String {
+    loop {
+        let candidate = Uuid::now_v7().to_string();
+        if !registry.presentations.contains_key(&candidate) {
+            return candidate;
+        }
+    }
+}
+
+fn unique_request_ticket(registry: &ReviewComparisonRegistry) -> String {
+    unique_request_ticket_excluding(registry, "")
+}
+
+fn unique_request_ticket_excluding(registry: &ReviewComparisonRegistry, excluded: &str) -> String {
+    loop {
+        let candidate = Uuid::now_v7().to_string();
+        if candidate != excluded && pending_visual(registry, &candidate).is_none() {
+            return candidate;
+        }
+    }
+}
+
+fn presented_visual(slot: &PendingReviewVisual) -> AnyResult<PresentedVisualProvenance> {
+    if !slot.bytes_verified {
+        bail!("Review visual bytes were not verified");
+    }
+    let frame = slot
+        .frame
+        .clone()
+        .ok_or_else(|| anyhow!("Review visual has no decoded-frame receipt"))?;
+    let record = &slot.selection.record;
+    let role = match record.artifact.role {
+        CachedArtifactRole::EmbeddedPreview => PresentedVisualRole::EmbeddedPreview,
+        CachedArtifactRole::GeneratedProxy => PresentedVisualRole::GeneratedProxy,
+    };
+    Ok(PresentedVisualProvenance {
+        artifact: PresentedVisualArtifact {
+            representation_id: record.representation_id,
+            source_byte_len: record.source.byte_len,
+            source_modified_at_ms: record.source.modified_at_ms,
+            role,
+            variant_key: record.artifact.variant_key.clone(),
+            generator_id: record.artifact.generator_id.clone(),
+            generator_version: record.artifact.generator_version.clone(),
+            provider_preview_id: record
+                .artifact
+                .provider_preview_id
+                .map(u64::try_from)
+                .transpose()
+                .context("provider preview id does not fit Review provenance")?,
+            blob_algorithm: record.artifact.blob_algorithm.clone(),
+            blob_digest_hex: encode_hex(&record.artifact.blob_digest),
+            blob_byte_len: record.artifact.blob_byte_len,
+            codec: record.artifact.codec.as_str().to_owned(),
+            byte_order: record.artifact.byte_order.as_str().to_owned(),
+            width: record.artifact.dimensions.width,
+            height: record.artifact.dimensions.height,
+            bits_per_channel: record.artifact.bits_per_channel,
+            channels: record.artifact.channels,
+            created_at_ms: record.artifact.created_at_ms,
+        },
+        frame,
+    })
+}
+
+fn validate_frame_receipt(
+    decoder_version: &str,
+    requested_width: u32,
+    requested_height: u32,
+    decoded_width: u32,
+    decoded_height: u32,
+    pixel_hash_hex: &str,
+) -> AnyResult<()> {
+    if decoder_version.trim().is_empty() || decoder_version.len() > 256 {
+        bail!("Review visual decoder version must contain 1 through 256 bytes");
+    }
+    if [
+        requested_width,
+        requested_height,
+        decoded_width,
+        decoded_height,
+    ]
+    .contains(&0)
+    {
+        bail!("Review visual requested and decoded dimensions must be non-zero");
+    }
+    if pixel_hash_hex.len() != 64 || !is_lower_hex(pixel_hash_hex) {
+        bail!("Review visual pixel hash must be 64 lowercase hexadecimal characters");
+    }
+    Ok(())
+}
+
+fn new_review_visual_signing_key() -> [u8; 32] {
+    let first = Uuid::now_v7();
+    let second = Uuid::now_v7();
+    let mut key = [0_u8; 32];
+    key[..16].copy_from_slice(first.as_bytes());
+    key[16..].copy_from_slice(second.as_bytes());
+    key
+}
+
+fn encode_hex(bytes: &[u8]) -> String {
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    let mut encoded = String::with_capacity(bytes.len().saturating_mul(2));
+    for byte in bytes {
+        encoded.push(char::from(DIGITS[usize::from(byte >> 4)]));
+        encoded.push(char::from(DIGITS[usize::from(byte & 0x0f)]));
+    }
+    encoded
+}
+
+fn decode_hex(encoded: &str) -> AnyResult<Vec<u8>> {
+    if !encoded.len().is_multiple_of(2) || !is_lower_hex(encoded) {
+        bail!("hex value must contain an even number of lowercase hexadecimal characters");
+    }
+    encoded
+        .as_bytes()
+        .chunks_exact(2)
+        .map(|pair| Ok((hex_nibble(pair[0])? << 4) | hex_nibble(pair[1])?))
+        .collect()
+}
+
+fn decode_hex_32(encoded: &str) -> AnyResult<[u8; 32]> {
+    if encoded.len() != 64 {
+        bail!("digest must contain exactly 64 hexadecimal characters");
+    }
+    let bytes = decode_hex(encoded)?;
+    bytes
+        .try_into()
+        .map_err(|_| anyhow!("digest must contain exactly 32 bytes"))
+}
+
+fn hex_nibble(byte: u8) -> AnyResult<u8> {
+    match byte {
+        b'0'..=b'9' => Ok(byte - b'0'),
+        b'a'..=b'f' => Ok(byte - b'a' + 10),
+        _ => Err(anyhow::Error::msg("invalid lowercase hexadecimal digit")),
+    }
+}
+
+fn is_lower_hex(value: &str) -> bool {
+    value
+        .bytes()
+        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    left.iter()
+        .zip(right)
+        .fold(0_u8, |difference, (left, right)| {
+            difference | (left ^ right)
+        })
+        == 0
 }
 
 const fn role_name(role: CachedArtifactRole) -> &'static str {
@@ -2114,6 +2712,7 @@ mod tests {
     use shadow_ai::{
         FeedbackIgnored, IncrementalTrainingPolicy, build_incremental_preference_batch,
     };
+    use shadow_cache::ContentAddressedStore;
     use shadow_catalog::{CachedArtifact, RecordCachedArtifact, RegisterAsset};
     use shadow_domain::{
         AssetLocation, EntityId, ImageDimensions, Platform, PreviewByteOrder, PreviewCodec,
@@ -2141,6 +2740,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn review_comparison_maps_and_persists_all_five_explicit_outcomes() {
         let (root, session, left, right) = test_feedback_session();
         let cases = [
@@ -2163,16 +2763,12 @@ mod tests {
             ),
         ];
         let mut receipts = Vec::new();
-        for (outcome, _) in cases {
+        for (index, (outcome, _)) in cases.iter().enumerate() {
+            let presentation =
+                ready_review_comparison(&session, &left, &right, u8::try_from(index + 1).unwrap());
             receipts.push(
                 session
-                    .record_review_comparison(
-                        &left.photo_id,
-                        &left.representation_id,
-                        &right.photo_id,
-                        &right.representation_id,
-                        outcome,
-                    )
+                    .record_review_comparison(&presentation.presentation_id, *outcome)
                     .expect("record Review comparison"),
             );
         }
@@ -2218,6 +2814,45 @@ mod tests {
             assert!(!event.presentation.candidates[1].inspected_at_one_to_one);
             assert!(event.presentation.candidates[0].feature.is_none());
             assert!(event.presentation.candidates[1].feature.is_none());
+            let left_visual = event.presentation.candidates[0]
+                .visual
+                .as_ref()
+                .expect("left visual provenance");
+            let right_visual = event.presentation.candidates[1]
+                .visual
+                .as_ref()
+                .expect("right visual provenance");
+            assert_eq!(
+                left_visual.artifact.representation_id.to_string(),
+                left.representation_id
+            );
+            assert_eq!(
+                right_visual.artifact.representation_id.to_string(),
+                right.representation_id
+            );
+            assert_eq!(
+                left_visual.artifact.blob_digest_hex,
+                encode_hex(&left.record.artifact.blob_digest)
+            );
+            assert_eq!(
+                right_visual.artifact.blob_digest_hex,
+                encode_hex(&right.record.artifact.blob_digest)
+            );
+            assert_eq!(left_visual.frame.surface_id, REVIEW_COMPARE_SURFACE_ID);
+            assert_eq!(
+                left_visual.frame.surface_revision,
+                REVIEW_COMPARE_SURFACE_REVISION
+            );
+            assert_eq!(
+                left_visual.frame.fit_mode,
+                PresentedFitMode::PreserveAspectFit
+            );
+            assert_eq!(left_visual.frame.decoder_id, REVIEW_COMPARE_DECODER_ID);
+            assert_eq!(left_visual.frame.pixel_format, REVIEW_COMPARE_PIXEL_FORMAT);
+            assert_eq!(
+                left_visual.frame.pixel_hash_algorithm,
+                REVIEW_COMPARE_PIXEL_HASH_ALGORITHM
+            );
             assert!(matches!(
                 event.action,
                 FeedbackAction::PairwiseComparison {
@@ -2235,69 +2870,47 @@ mod tests {
     }
 
     #[test]
-    fn review_comparison_rejects_untrusted_id_source_and_visual_boundaries() {
+    fn review_handles_reject_forgery_cross_session_and_same_photo() {
         let (root, session, left, right) = test_feedback_session();
-        let no_visual = register_feedback_candidate(&session, &root, 3, false);
-        let unknown_photo = PhotoId::new_v7().to_string();
-        let unknown_representation = RepresentationId::new_v7().to_string();
-        let cases = [
-            session.record_review_comparison(
-                "not-a-uuid",
-                &left.representation_id,
-                &right.photo_id,
-                &right.representation_id,
-                ffi::FfiPairwiseOutcome::LeftPreferred,
-            ),
-            session.record_review_comparison(
-                &left.photo_id,
-                "not-a-uuid",
-                &right.photo_id,
-                &right.representation_id,
-                ffi::FfiPairwiseOutcome::LeftPreferred,
-            ),
-            session.record_review_comparison(
-                &unknown_photo,
-                &unknown_representation,
-                &right.photo_id,
-                &right.representation_id,
-                ffi::FfiPairwiseOutcome::LeftPreferred,
-            ),
-            session.record_review_comparison(
-                &left.photo_id,
-                &right.representation_id,
-                &right.photo_id,
-                &right.representation_id,
-                ffi::FfiPairwiseOutcome::LeftPreferred,
-            ),
-            session.record_review_comparison(
-                &left.photo_id,
-                &left.representation_id,
-                &left.photo_id,
-                &left.representation_id,
-                ffi::FfiPairwiseOutcome::LeftPreferred,
-            ),
-            session.record_review_comparison(
-                &no_visual.photo_id,
-                &no_visual.representation_id,
-                &right.photo_id,
-                &right.representation_id,
-                ffi::FfiPairwiseOutcome::LeftPreferred,
-            ),
-        ];
-        let errors = cases
-            .into_iter()
-            .map(|result| {
-                result
-                    .expect_err("invalid comparison must fail")
-                    .to_string()
-            })
-            .collect::<Vec<_>>();
-        assert!(errors[0].contains("parse left Review photo id"));
-        assert!(errors[1].contains("parse left Review representation id"));
-        assert!(errors[2].contains("no online original RAW source"));
-        assert!(errors[3].contains("is not the current online original"));
-        assert!(errors[4].contains("two different photos"));
-        assert!(errors[5].contains("has no current Review visual"));
+        assert!(
+            session
+                .prepare_review_comparison(&left.visual_handle, &left.visual_handle)
+                .expect_err("same photo must fail")
+                .to_string()
+                .contains("two different photos")
+        );
+        assert!(
+            session
+                .prepare_review_comparison("not-a-handle", &right.visual_handle)
+                .expect_err("plain identifiers must not be accepted")
+                .to_string()
+                .contains("invalid Review grid visual handle prefix")
+        );
+        let mut forged = left.visual_handle.clone();
+        let replacement = if forged.ends_with('0') { '1' } else { '0' };
+        forged.pop();
+        forged.push(replacement);
+        assert!(
+            session
+                .prepare_review_comparison(&forged, &right.visual_handle)
+                .expect_err("forged handle must fail")
+                .to_string()
+                .contains("signature is invalid")
+        );
+
+        let other_root = root.join("other-session");
+        let other = open_desktop_session(
+            other_root.join("catalog.sqlite").to_str().unwrap(),
+            root.join("cache").to_str().unwrap(),
+        )
+        .expect("open second session");
+        assert!(
+            other
+                .load_review_visual(&left.visual_handle)
+                .expect_err("grid handles are session-bound")
+                .to_string()
+                .contains("signature is invalid for this session")
+        );
         assert!(
             session
                 .catalog
@@ -2305,6 +2918,272 @@ mod tests {
                 .expect("read empty feedback page")
                 .events
                 .is_empty()
+        );
+
+        drop(session);
+        std::fs::remove_dir_all(root).expect("remove feedback fixture");
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn review_comparison_requires_verified_frames_confirmation_and_consumes_once() {
+        let (root, session, left, right) = test_feedback_session();
+        let presentation = session
+            .prepare_review_comparison(&left.visual_handle, &right.visual_handle)
+            .expect("prepare comparison");
+        assert!(
+            session
+                .record_review_visual_frame(
+                    &presentation.left_request_ticket,
+                    "qt-test-1",
+                    800,
+                    600,
+                    4,
+                    3,
+                    &"11".repeat(32),
+                )
+                .expect_err("receipt before load must fail")
+                .to_string()
+                .contains("bytes must load successfully")
+        );
+        assert!(
+            session
+                .record_review_comparison(
+                    &presentation.presentation_id,
+                    ffi::FfiPairwiseOutcome::LeftPreferred,
+                )
+                .expect_err("unconfirmed comparison must fail")
+                .to_string()
+                .contains("confirmed ready")
+        );
+
+        let left_payload = session
+            .load_review_visual(&presentation.left_request_ticket)
+            .expect("load exact left comparison bytes");
+        assert!(left_payload.requires_frame_receipt);
+        assert_eq!(left_payload.bytes, left.bytes);
+        record_test_frame(&session, &presentation.left_request_ticket, 1);
+        record_test_frame(&session, &presentation.left_request_ticket, 1);
+        assert!(
+            session
+                .record_review_visual_frame(
+                    &presentation.left_request_ticket,
+                    "qt-test-1",
+                    800,
+                    600,
+                    4,
+                    3,
+                    &"22".repeat(32),
+                )
+                .expect_err("different duplicate frame receipt must fail")
+                .to_string()
+                .contains("different frame receipt")
+        );
+        assert!(
+            session
+                .confirm_review_comparison_ready(
+                    &presentation.presentation_id,
+                    &presentation.left_request_ticket,
+                    &presentation.right_request_ticket,
+                )
+                .expect_err("missing right frame must fail")
+                .to_string()
+                .contains("right Review comparison visual is not fully presented")
+        );
+        let right_payload = session
+            .load_review_visual(&presentation.right_request_ticket)
+            .expect("load exact right comparison bytes");
+        assert!(right_payload.requires_frame_receipt);
+        assert_eq!(right_payload.bytes, right.bytes);
+        record_test_frame(&session, &presentation.right_request_ticket, 2);
+        assert!(
+            session
+                .confirm_review_comparison_ready(
+                    &presentation.presentation_id,
+                    &presentation.right_request_ticket,
+                    &presentation.left_request_ticket,
+                )
+                .expect_err("swapped tickets must fail")
+                .to_string()
+                .contains("do not belong")
+        );
+        session
+            .confirm_review_comparison_ready(
+                &presentation.presentation_id,
+                &presentation.left_request_ticket,
+                &presentation.right_request_ticket,
+            )
+            .expect("confirm ready");
+        session
+            .record_review_comparison(
+                &presentation.presentation_id,
+                ffi::FfiPairwiseOutcome::LeftPreferred,
+            )
+            .expect("record once");
+        assert!(
+            session
+                .record_review_comparison(
+                    &presentation.presentation_id,
+                    ffi::FfiPairwiseOutcome::LeftPreferred,
+                )
+                .expect_err("consumed presentation must fail")
+                .to_string()
+                .contains("unknown or expired")
+        );
+        assert!(
+            session
+                .load_review_visual(&presentation.left_request_ticket)
+                .expect_err("consumed request ticket must fail")
+                .to_string()
+                .contains("unknown or expired")
+        );
+
+        drop(session);
+        std::fs::remove_dir_all(root).expect("remove feedback fixture");
+    }
+
+    #[test]
+    fn cancel_review_comparison_expires_both_request_tickets_without_feedback() {
+        let (root, session, left, right) = test_feedback_session();
+        let presentation = session
+            .prepare_review_comparison(&left.visual_handle, &right.visual_handle)
+            .expect("prepare comparison to cancel");
+        session
+            .cancel_review_comparison(&presentation.presentation_id)
+            .expect("cancel comparison");
+        for ticket in [
+            &presentation.left_request_ticket,
+            &presentation.right_request_ticket,
+        ] {
+            assert!(
+                session
+                    .load_review_visual(ticket)
+                    .expect_err("canceled ticket must expire")
+                    .to_string()
+                    .contains("unknown or expired")
+            );
+        }
+        assert!(
+            session
+                .cancel_review_comparison(&presentation.presentation_id)
+                .expect_err("cancel is single-use")
+                .to_string()
+                .contains("unknown or expired")
+        );
+        assert!(
+            session
+                .catalog
+                .feedback_events_after(&LearningScope::Global, 0, 10)
+                .expect("read empty feedback")
+                .events
+                .is_empty()
+        );
+
+        drop(session);
+        std::fs::remove_dir_all(root).expect("remove feedback fixture");
+    }
+
+    #[test]
+    fn catalog_failure_retains_ready_presentation_for_retry_or_cancel() {
+        let (root, session, left, right) = test_feedback_session();
+        // This state cannot be produced by the public Review page, but it is a
+        // stable failure injection: the session signs a visual record owned by
+        // another photo and Catalog remains the authoritative ownership gate.
+        let mismatched_left_handle = session
+            .encode_grid_visual_handle(&ReviewVisualSelection {
+                photo_id: left.photo_id.parse().expect("left photo id"),
+                record: right.record.clone(),
+            })
+            .expect("sign deliberately mismatched fixture handle");
+        let presentation = session
+            .prepare_review_comparison(&mismatched_left_handle, &right.visual_handle)
+            .expect("prepare ownership failure fixture");
+        session
+            .load_review_visual(&presentation.left_request_ticket)
+            .expect("load mismatched left bytes");
+        session
+            .load_review_visual(&presentation.right_request_ticket)
+            .expect("load right bytes");
+        record_test_frame(&session, &presentation.left_request_ticket, 8);
+        record_test_frame(&session, &presentation.right_request_ticket, 9);
+        session
+            .confirm_review_comparison_ready(
+                &presentation.presentation_id,
+                &presentation.left_request_ticket,
+                &presentation.right_request_ticket,
+            )
+            .expect("confirm ownership failure fixture");
+
+        for _ in 0..2 {
+            let error = session
+                .record_review_comparison(
+                    &presentation.presentation_id,
+                    ffi::FfiPairwiseOutcome::LeftPreferred,
+                )
+                .expect_err("Catalog ownership failure must retain presentation")
+                .to_string();
+            assert!(
+                error.contains("is not owned by candidate photo"),
+                "unexpected Catalog ownership error: {error}"
+            );
+        }
+        session
+            .cancel_review_comparison(&presentation.presentation_id)
+            .expect("retained failed presentation remains cancelable");
+        assert!(
+            session
+                .catalog
+                .feedback_events_after(&LearningScope::Global, 0, 10)
+                .expect("read empty feedback after Catalog failure")
+                .events
+                .is_empty()
+        );
+
+        drop(session);
+        std::fs::remove_dir_all(root).expect("remove feedback fixture");
+    }
+
+    #[test]
+    fn exact_grid_selection_survives_preferred_artifact_replacement() {
+        let (root, session, left, right) = test_feedback_session();
+        let old_digest = left.record.artifact.blob_digest;
+        let replacement = replace_feedback_visual(&session, &left, 9);
+        assert_ne!(replacement.artifact.blob_digest, old_digest);
+        assert_eq!(
+            session
+                .catalog
+                .preferred_cached_artifact(left.record.representation_id)
+                .expect("read replacement")
+                .expect("preferred replacement")
+                .artifact
+                .blob_digest,
+            replacement.artifact.blob_digest
+        );
+
+        let grid_payload = session
+            .load_review_visual(&left.visual_handle)
+            .expect("load old exact grid artifact");
+        assert!(!grid_payload.requires_frame_receipt);
+        assert_eq!(grid_payload.bytes, left.bytes);
+        let presentation = ready_review_comparison(&session, &left, &right, 7);
+        session
+            .record_review_comparison(
+                &presentation.presentation_id,
+                ffi::FfiPairwiseOutcome::LeftPreferred,
+            )
+            .expect("record exact old presentation");
+        let page = session
+            .catalog
+            .feedback_events_after(&LearningScope::Global, 0, 10)
+            .expect("read exact event");
+        assert_eq!(
+            page.events[0].presentation.candidates[0]
+                .visual
+                .as_ref()
+                .expect("left provenance")
+                .artifact
+                .blob_digest_hex,
+            encode_hex(&old_digest)
         );
 
         drop(session);
@@ -2340,12 +3219,10 @@ mod tests {
                 .contains("not an active comparison issued by this Review session")
         );
 
+        let presentation = ready_review_comparison(&session, &left, &right, 3);
         let prior_session_receipt = session
             .record_review_comparison(
-                &left.photo_id,
-                &left.representation_id,
-                &right.photo_id,
-                &right.representation_id,
+                &presentation.presentation_id,
                 ffi::FfiPairwiseOutcome::KeepBoth,
             )
             .expect("record current-session comparison");
@@ -2380,12 +3257,10 @@ mod tests {
     #[test]
     fn review_feedback_reopens_forgets_append_only_and_never_trains_without_features() {
         let (root, session, left, right) = test_feedback_session();
+        let presentation = ready_review_comparison(&session, &left, &right, 4);
         let receipt = session
             .record_review_comparison(
-                &left.photo_id,
-                &left.representation_id,
-                &right.photo_id,
-                &right.representation_id,
+                &presentation.presentation_id,
                 ffi::FfiPairwiseOutcome::LeftPreferred,
             )
             .expect("record comparison");
@@ -2484,47 +3359,40 @@ mod tests {
     }
 
     #[test]
-    fn concurrent_review_feedback_calls_keep_unique_order_and_single_forget_fact() {
+    fn concurrent_review_feedback_consumes_one_presentation_once_and_single_forget_fact() {
         let (root, session, left, right) = test_feedback_session();
+        let presentation = ready_review_comparison(&session, &left, &right, 5);
         let session: Arc<DesktopSession> = Arc::from(session);
         let record_workers = (0..8)
             .map(|_| {
                 let session = Arc::clone(&session);
-                let left = left.clone();
-                let right = right.clone();
+                let presentation_id = presentation.presentation_id.clone();
                 thread::spawn(move || {
                     session.record_review_comparison(
-                        &left.photo_id,
-                        &left.representation_id,
-                        &right.photo_id,
-                        &right.representation_id,
+                        &presentation_id,
                         ffi::FfiPairwiseOutcome::KeepBoth,
                     )
                 })
             })
             .collect::<Vec<_>>();
-        let mut receipts = record_workers
+        let results = record_workers
             .into_iter()
-            .map(|worker| worker.join().expect("record worker panicked").unwrap())
+            .map(|worker| worker.join().expect("record worker panicked"))
             .collect::<Vec<_>>();
-        receipts.sort_by_key(|receipt| receipt.sequence);
+        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
         assert_eq!(
-            receipts
+            results
                 .iter()
-                .map(|receipt| receipt.sequence)
-                .collect::<Vec<_>>(),
-            (1..=8).collect::<Vec<_>>()
+                .filter_map(|result| result.as_ref().err())
+                .filter(|error| error.to_string().contains("unknown or expired"))
+                .count(),
+            7
         );
-        assert_eq!(
-            receipts
-                .iter()
-                .map(|receipt| receipt.event_id.as_str())
-                .collect::<BTreeSet<_>>()
-                .len(),
-            8
-        );
-
-        let target = receipts[0].event_id.clone();
+        let target = results
+            .into_iter()
+            .find_map(Result::ok)
+            .expect("one record receipt")
+            .event_id;
         let forget_workers = (0..4)
             .map(|_| {
                 let session = Arc::clone(&session);
@@ -3943,6 +4811,9 @@ mod tests {
     struct TestFeedbackCandidate {
         photo_id: String,
         representation_id: String,
+        visual_handle: String,
+        bytes: Vec<u8>,
+        record: CachedArtifactRecord,
     }
 
     fn training_report(
@@ -3978,8 +4849,8 @@ mod tests {
             root.join("cache").to_str().expect("cache path"),
         )
         .expect("open feedback session");
-        let left = register_feedback_candidate(&session, &root, 1, true);
-        let right = register_feedback_candidate(&session, &root, 2, true);
+        let left = register_feedback_candidate(&session, &root, 1);
+        let right = register_feedback_candidate(&session, &root, 2);
         (root, session, left, right)
     }
 
@@ -3987,7 +4858,6 @@ mod tests {
         session: &DesktopSession,
         root: &Path,
         index: u8,
-        with_visual: bool,
     ) -> TestFeedbackCandidate {
         let source = RepresentationFingerprint {
             byte_len: 4_096 + u64::from(index),
@@ -4012,38 +4882,133 @@ mod tests {
                 now_ms: 1_000 + i64::from(index),
             })
             .expect("register feedback source");
-        if with_visual {
-            session
-                .catalog
-                .record_cached_artifact(&RecordCachedArtifact {
-                    representation_id: registered.representation_id,
-                    expected_source: source,
-                    artifact: CachedArtifact {
-                        role: CachedArtifactRole::GeneratedProxy,
-                        variant_key: "feedback-proxy-v1".into(),
-                        generator_id: "test".into(),
-                        generator_version: "1".into(),
-                        provider_preview_id: None,
-                        blob_algorithm: "blake3-256".into(),
-                        blob_digest: [index; 32],
-                        blob_byte_len: 1_024,
-                        codec: PreviewCodec::Jpeg,
-                        byte_order: PreviewByteOrder::NotApplicable,
-                        dimensions: ImageDimensions {
-                            width: 1_600,
-                            height: 1_200,
-                        },
-                        bits_per_channel: 8,
-                        channels: 3,
-                        created_at_ms: 2_000 + i64::from(index),
-                    },
-                })
-                .expect("record feedback visual");
-        }
+        let bytes = test_visual_bytes(index);
+        let store = ContentAddressedStore::open(root.join("cache")).expect("open fixture CAS");
+        let blob = store.put(&bytes).expect("write fixture visual blob");
+        let record = CachedArtifactRecord {
+            representation_id: registered.representation_id,
+            source,
+            artifact: CachedArtifact {
+                role: CachedArtifactRole::GeneratedProxy,
+                variant_key: "feedback-proxy-v1".into(),
+                generator_id: "test".into(),
+                generator_version: "1".into(),
+                provider_preview_id: None,
+                blob_algorithm: blob.digest.algorithm().into(),
+                blob_digest: *blob.digest.as_bytes(),
+                blob_byte_len: blob.byte_len,
+                codec: PreviewCodec::Jpeg,
+                byte_order: PreviewByteOrder::NotApplicable,
+                dimensions: ImageDimensions {
+                    width: 4,
+                    height: 3,
+                },
+                bits_per_channel: 8,
+                channels: 3,
+                created_at_ms: 2_000 + i64::from(index),
+            },
+        };
+        session
+            .catalog
+            .record_cached_artifact(&RecordCachedArtifact {
+                representation_id: record.representation_id,
+                expected_source: record.source,
+                artifact: record.artifact.clone(),
+            })
+            .expect("record feedback visual");
+        let visual_handle = session
+            .encode_grid_visual_handle(&ReviewVisualSelection {
+                photo_id: registered.photo_id,
+                record: record.clone(),
+            })
+            .expect("sign feedback visual handle");
         TestFeedbackCandidate {
             photo_id: registered.photo_id.to_string(),
             representation_id: registered.representation_id.to_string(),
+            visual_handle,
+            bytes,
+            record,
         }
+    }
+
+    fn replace_feedback_visual(
+        session: &DesktopSession,
+        candidate: &TestFeedbackCandidate,
+        byte: u8,
+    ) -> CachedArtifactRecord {
+        let bytes = test_visual_bytes(byte);
+        let store = ContentAddressedStore::open(&session.cache_root).expect("open fixture CAS");
+        let blob = store.put(&bytes).expect("write replacement visual blob");
+        let mut record = candidate.record.clone();
+        record.artifact.blob_digest = *blob.digest.as_bytes();
+        record.artifact.blob_byte_len = blob.byte_len;
+        record.artifact.generator_version = "2".into();
+        record.artifact.created_at_ms += 100;
+        session
+            .catalog
+            .record_cached_artifact(&RecordCachedArtifact {
+                representation_id: record.representation_id,
+                expected_source: record.source,
+                artifact: record.artifact.clone(),
+            })
+            .expect("replace preferred visual");
+        record
+    }
+
+    fn test_visual_bytes(byte: u8) -> Vec<u8> {
+        let mut bytes = vec![0xff, 0xd8];
+        bytes.extend(std::iter::repeat_n(byte, 32));
+        bytes.extend([0xff, 0xd9]);
+        bytes
+    }
+
+    fn record_test_frame(session: &DesktopSession, request_ticket: &str, byte: u8) {
+        session
+            .record_review_visual_frame(
+                request_ticket,
+                "qt-test-1",
+                800,
+                600,
+                4,
+                3,
+                &format!("{byte:02x}").repeat(32),
+            )
+            .expect("record fixture frame receipt");
+    }
+
+    fn ready_review_comparison(
+        session: &DesktopSession,
+        left: &TestFeedbackCandidate,
+        right: &TestFeedbackCandidate,
+        frame_seed: u8,
+    ) -> ffi::FfiReviewComparisonPresentation {
+        let presentation = session
+            .prepare_review_comparison(&left.visual_handle, &right.visual_handle)
+            .expect("prepare fixture comparison");
+        let left_payload = session
+            .load_review_visual(&presentation.left_request_ticket)
+            .expect("load fixture left visual");
+        let right_payload = session
+            .load_review_visual(&presentation.right_request_ticket)
+            .expect("load fixture right visual");
+        assert_eq!(left_payload.bytes, left.bytes);
+        assert_eq!(right_payload.bytes, right.bytes);
+        assert!(left_payload.requires_frame_receipt);
+        assert!(right_payload.requires_frame_receipt);
+        record_test_frame(session, &presentation.left_request_ticket, frame_seed);
+        record_test_frame(
+            session,
+            &presentation.right_request_ticket,
+            frame_seed.wrapping_add(1),
+        );
+        session
+            .confirm_review_comparison_ready(
+                &presentation.presentation_id,
+                &presentation.left_request_ticket,
+                &presentation.right_request_ticket,
+            )
+            .expect("confirm fixture comparison");
+        presentation
     }
 
     fn test_edit_session() -> (PathBuf, Box<DesktopSession>, String, String) {
@@ -4119,8 +5084,9 @@ mod tests {
             assert!(page.items[0].laplacian_variance >= 0.0);
             assert!(page.items[0].edge_energy >= 0.0);
             let visual = session
-                .load_review_visual(&page.items[0].representation_id)
+                .load_review_visual(&page.items[0].visual_handle)
                 .expect("load first visual lazily");
+            assert!(!visual.requires_frame_receipt);
             assert!(visual.bytes.starts_with(&[0xff, 0xd8]));
             assert!(visual.bytes.ends_with(&[0xff, 0xd9]));
 

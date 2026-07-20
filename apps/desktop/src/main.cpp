@@ -7,13 +7,34 @@
 #include <QDebug>
 #include <QDir>
 #include <QGuiApplication>
+#include <QImage>
 #include <QQmlApplicationEngine>
 #include <QQuickStyle>
+#include <QSize>
 #include <QStandardPaths>
 #include <QTimer>
+#include <QUrl>
 #include <QVariant>
 
 #include <memory>
+
+namespace {
+
+[[nodiscard]] QString image_provider_request_id(const QString& source) {
+    const QUrl url(source);
+    QString id = url.path();
+    if (id.startsWith(QLatin1Char('/'))) {
+        id.remove(0, 1);
+    }
+    const QString query = url.query(QUrl::FullyEncoded);
+    if (!query.isEmpty()) {
+        id += QLatin1Char('?');
+        id += query;
+    }
+    return id;
+}
+
+} // namespace
 
 int main(int argc, char* argv[]) {
     QQuickStyle::setStyle(QStringLiteral("Basic"));
@@ -42,9 +63,13 @@ int main(int argc, char* argv[]) {
     auto edit_preview_store = std::make_shared<EditPreviewStore>();
     EditController editor(backend, edit_preview_store);
     QQmlApplicationEngine engine;
+    auto* const thumbnail_provider = new ThumbnailProvider(
+        backend,
+        controller.reviewModel()
+    );
     engine.addImageProvider(
         QStringLiteral("shadow"),
-        new ThumbnailProvider(backend, controller.reviewModel())
+        thumbnail_provider
     );
     engine.addImageProvider(
         QStringLiteral("shadow-edit"),
@@ -94,7 +119,7 @@ int main(int argc, char* argv[]) {
             &controller,
             &ReviewController::itemCountChanged,
             &application,
-            [&controller]() {
+            [&controller, thumbnail_provider]() {
                 auto* model = controller.reviewModel();
                 if (model->rowCount() < 2 || controller.comparisonBusy()
                     || controller.sessionEvidenceCount() > 0) {
@@ -102,13 +127,46 @@ int main(int argc, char* argv[]) {
                 }
                 const QModelIndex left = model->index(0, 0);
                 const QModelIndex right = model->index(1, 0);
-                controller.recordComparison(
-                    model->data(left, ReviewModel::PhotoIdRole).toString(),
-                    model->data(left, ReviewModel::RepresentationIdRole).toString(),
-                    model->data(right, ReviewModel::PhotoIdRole).toString(),
-                    model->data(right, ReviewModel::RepresentationIdRole).toString(),
-                    0
+                const QVariantMap presentation = controller.prepareComparison(
+                    model->data(left, ReviewModel::VisualHandleRole).toString(),
+                    model->data(right, ReviewModel::VisualHandleRole).toString()
                 );
+                const QString presentation_id =
+                    presentation.value(QStringLiteral("presentationId")).toString();
+                const QString left_ticket =
+                    presentation.value(QStringLiteral("leftRequestTicket")).toString();
+                const QString right_ticket =
+                    presentation.value(QStringLiteral("rightRequestTicket")).toString();
+                if (presentation_id.isEmpty() || left_ticket.isEmpty()
+                    || right_ticket.isEmpty()) {
+                    return;
+                }
+                const QSize requested_size(1'280, 960);
+                QSize left_size;
+                QSize right_size;
+                const QImage left_image = thumbnail_provider->requestImage(
+                    image_provider_request_id(
+                        presentation.value(QStringLiteral("leftSource")).toString()
+                    ),
+                    &left_size,
+                    requested_size
+                );
+                const QImage right_image = thumbnail_provider->requestImage(
+                    image_provider_request_id(
+                        presentation.value(QStringLiteral("rightSource")).toString()
+                    ),
+                    &right_size,
+                    requested_size
+                );
+                if (left_image.isNull() || right_image.isNull()
+                    || !controller.confirmComparisonReady(
+                        presentation_id,
+                        left_ticket,
+                        right_ticket
+                    )) {
+                    return;
+                }
+                controller.recordComparison(presentation_id, 0);
             }
         );
     }

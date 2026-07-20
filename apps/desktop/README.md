@@ -9,12 +9,12 @@ FolderDialog / QML Review grid
   → shadow-core scan / decode workers
   → shadow-catalog single writer
   → embedded preview or generated proxy cache
-  → bounded display-luma observation worker → Catalog v7 summary
+  → bounded display-luma observation worker → Catalog v8 summary
 
-two cached Review visuals / explicit outcome
-  → ReviewController asynchronous evidence write
-  → shadow-desktop-bridge candidate validation
-  → Catalog v7 append-only Global feedback / forget fact
+two signed exact-artifact handles / explicit outcome
+  → compare-only request tickets → verified cache bytes
+  → Qt decoded RGBA frame receipt → ReviewController evidence write
+  → Catalog v8 append-only Global feedback / forget fact
 ```
 
 QML never opens SQLite, calls LibRaw, or interprets blob paths. The Rust bridge returns bounded Review metadata pages using a stable path/representation cursor. Compressed visuals are not stored in the Qt model: a forced-asynchronous `QQuickImageProvider` requests a verified cache blob only when Qt needs that image and decodes only the requested display size. Every image URL carries the current model generation, so a late result from a previous folder is discarded.
@@ -46,16 +46,35 @@ model-training examples.
 This is an evidence-capture surface, not a learned recommender. The presentation
 records neither a group nor an active model, and both candidates currently carry
 no feature snapshot. There is therefore no input with which to train the existing
-preference head, no personal score, and no automatic ranking change. The complete
-provenance of the exact cached visual artifact presented in each slot is also not
-yet part of the recorded feedback context.
+preference head, no personal score, and no automatic ranking change.
+
+Visual identity is no longer inferred from a photo or representation at click
+time. Each Review row receives a session-authenticated opaque handle containing
+the exact Catalog artifact selected for that page. Entering Compare creates two
+purpose-specific request tickets. The image provider loads the frozen records'
+verified content-addressed bytes, normalizes successful Qt decodes to
+non-premultiplied RGBA8888, hashes only `width × 4` bytes from each row with
+SHA-256, and returns those same frames to Qt Quick. Both frame receipts and QML
+`Image.Ready` must agree with the pending presentation before an outcome can be
+recorded. The feedback event freezes the full source/artifact identity, decoder
+and surface revision, requested and decoded dimensions, pixel format, and frame
+hash. It never re-queries the preferred visual during load or commit, so a later
+artifact A → B change cannot rewrite historical evidence.
+
+This provenance boundary ends at the normalized decoded frame. It does not claim
+to preserve display ICC, GPU scaling, the window's final raster, or physical
+screen pixels. Legacy feedback remains readable with an explicitly absent visual
+field; Catalog v8 is a marker-only payload-contract migration and never guesses
+provenance from today's cache.
 
 Available display-luma observations may appear alongside each photo as parallel
 technical facts. The UI does not subtract them, name a winner, or use them to
 justify the human outcome. Camera-embedded previews and Shadow-generated proxies
 can differ in upstream resizing, sharpening, tone, and color treatment, so their
 metrics are not necessarily comparable even when the final analyzer revision is
-the same.
+the same. Their current Catalog revisions remain visible in the UI, but this
+slice does not yet copy the separate technical-observation payload into the
+feedback event.
 
 ## macOS development
 
@@ -81,6 +100,13 @@ QT_QPA_PLATFORM=offscreen SHADOW_DESKTOP_SMOKE_TEST=1 \
 Adding `SHADOW_DESKTOP_OPEN_FIRST_EDIT=1` to a smoke run waits for the first scanned Review item, opens it through the real Precision controller, renders its scene-linear edit preview, and fails after 30 seconds if no preview reaches QML.
 
 Adding `SHADOW_DESKTOP_REQUEST_BEFORE=1` to that edit smoke waits for a second, lazily requested neutral-import baseline. This exercises the same warm decoded session without treating the baseline as unprocessed sensor data.
+
+Adding `SHADOW_DESKTOP_RECORD_FIRST_COMPARISON=1` to a smoke run with at least
+two visuals prepares a real Compare presentation, requests both exact frames
+through the image provider, confirms their receipts, and records a left-preferred
+event. `SHADOW_DESKTOP_FORGET_RECORDED_COMPARISON=1` then appends its forget fact
+before exit. Use a fresh `SHADOW_DESKTOP_DATA_ROOT` when inspecting the resulting
+single event and fact in isolation.
 
 The model currently fetches 96 metadata rows per page and requests another page near the end of the grid. Scanning still completes before the first Catalog page is shown; streaming import progress and first-screen priority are separate follow-up work.
 

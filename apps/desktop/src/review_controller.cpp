@@ -55,6 +55,7 @@ constexpr std::uint32_t REVIEW_PAGE_SIZE = 96;
         items.push_back({
             .photo_id = std::move(item.photo_id),
             .representation_id = std::move(item.representation_id),
+            .visual_handle = std::move(item.visual_handle),
             .title = std::move(item.title),
             .source_path = std::move(item.source_path),
             .visual_role = std::move(item.visual_role),
@@ -111,20 +112,14 @@ constexpr std::uint32_t REVIEW_PAGE_SIZE = 96;
 
 [[nodiscard]] ReviewEvidenceTaskResult record_comparison(
     const std::shared_ptr<DesktopBackend>& backend,
-    const QString& left_photo_id,
-    const QString& left_representation_id,
-    const QString& right_photo_id,
-    const QString& right_representation_id,
+    const QString& presentation_id,
     const BackendPairwiseOutcome outcome
 ) {
     ReviewEvidenceTaskResult result;
     result.kind = ReviewEvidenceTaskKind::Record;
     try {
         result.feedback = backend->recordReviewComparison(
-            left_photo_id,
-            left_representation_id,
-            right_photo_id,
-            right_representation_id,
+            presentation_id,
             outcome
         );
     } catch (const std::exception& error) {
@@ -269,11 +264,94 @@ void ReviewController::loadMore() {
     startPage(false);
 }
 
+QVariantMap ReviewController::prepareComparison(
+    const QString& left_visual_handle,
+    const QString& right_visual_handle
+) {
+    if (evidence_session_.busy()) {
+        return {};
+    }
+    if (left_visual_handle.trimmed().isEmpty()
+        || right_visual_handle.trimmed().isEmpty()) {
+        setComparisonStatusText(QStringLiteral("Choose two verified visuals before comparing"));
+        return {};
+    }
+    try {
+        const auto presentation = backend_->prepareReviewComparison(
+            left_visual_handle,
+            right_visual_handle
+        );
+        setComparisonStatusText(
+            QStringLiteral("Loading two exact Compare frames with durable provenance…")
+        );
+        return {
+            {QStringLiteral("presentationId"), presentation.presentation_id},
+            {QStringLiteral("leftRequestTicket"), presentation.left_request_ticket},
+            {QStringLiteral("rightRequestTicket"), presentation.right_request_ticket},
+            {
+                QStringLiteral("leftSource"),
+                model_.visualSourceFor(presentation.left_request_ticket),
+            },
+            {
+                QStringLiteral("rightSource"),
+                model_.visualSourceFor(presentation.right_request_ticket),
+            },
+        };
+    } catch (const std::exception& error) {
+        setComparisonStatusText(
+            QStringLiteral("Cannot prepare exact comparison · %1")
+                .arg(QString::fromUtf8(error.what()))
+        );
+        return {};
+    }
+}
+
+bool ReviewController::confirmComparisonReady(
+    const QString& presentation_id,
+    const QString& left_request_ticket,
+    const QString& right_request_ticket
+) {
+    if (presentation_id.trimmed().isEmpty()
+        || left_request_ticket.trimmed().isEmpty()
+        || right_request_ticket.trimmed().isEmpty()) {
+        return false;
+    }
+    try {
+        backend_->confirmReviewComparisonReady(
+            presentation_id,
+            left_request_ticket,
+            right_request_ticket
+        );
+        setComparisonStatusText(
+            QStringLiteral("Exact encoded artifacts and decoded Compare frames verified")
+        );
+        return true;
+    } catch (const std::exception& error) {
+        setComparisonStatusText(
+            QStringLiteral("Comparison frame verification failed · %1")
+                .arg(QString::fromUtf8(error.what()))
+        );
+        return false;
+    }
+}
+
+void ReviewController::cancelComparison(const QString& presentation_id) {
+    if (presentation_id.trimmed().isEmpty() || evidence_session_.busy()) {
+        return;
+    }
+    try {
+        backend_->cancelReviewComparison(presentation_id);
+        setComparisonStatusText(QStringLiteral("Comparison presentation closed"));
+    } catch (const std::exception& error) {
+        setComparisonStatusText(
+            QStringLiteral("Cannot close comparison presentation · %1")
+                .arg(QString::fromUtf8(error.what()))
+        );
+    }
+}
+
 void ReviewController::recordComparison(
-    const QString& left_photo_id,
-    const QString& left_representation_id,
-    const QString& right_photo_id,
-    const QString& right_representation_id,
+    const QString& presentation_id,
     const int outcome
 ) {
     const auto resolved_outcome = pairwise_outcome(outcome);
@@ -281,14 +359,8 @@ void ReviewController::recordComparison(
         setComparisonStatusText(QStringLiteral("Comparison outcome is not supported"));
         return;
     }
-    if (left_photo_id.trimmed().isEmpty() || right_photo_id.trimmed().isEmpty()
-        || left_representation_id.trimmed().isEmpty()
-        || right_representation_id.trimmed().isEmpty()) {
-        setComparisonStatusText(QStringLiteral("Choose two visible photos before comparing"));
-        return;
-    }
-    if (left_photo_id == right_photo_id) {
-        setComparisonStatusText(QStringLiteral("A photo cannot occupy both comparison slots"));
+    if (presentation_id.trimmed().isEmpty()) {
+        setComparisonStatusText(QStringLiteral("Prepare and verify the comparison first"));
         return;
     }
     if (!evidence_session_.beginRecord()) {
@@ -299,10 +371,7 @@ void ReviewController::recordComparison(
     evidence_watcher_.setFuture(QtConcurrent::run(
         record_comparison,
         backend_,
-        left_photo_id,
-        left_representation_id,
-        right_photo_id,
-        right_representation_id,
+        presentation_id,
         *resolved_outcome
     ));
 }

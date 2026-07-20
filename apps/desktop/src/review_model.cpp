@@ -1,6 +1,7 @@
 #include "review_model.hpp"
 
 #include <QUrl>
+#include <QUrlQuery>
 #include <QVariant>
 
 #include <utility>
@@ -24,6 +25,8 @@ QVariant ReviewModel::data(const QModelIndex& index, const int role) const {
         return item.photo_id;
     case RepresentationIdRole:
         return item.representation_id;
+    case VisualHandleRole:
+        return item.visual_handle;
     case TitleRole:
         return item.title;
     case SourcePathRole:
@@ -40,9 +43,7 @@ QVariant ReviewModel::data(const QModelIndex& index, const int role) const {
         if (!item.has_visual) {
             return QString{};
         }
-        return QStringLiteral("image://shadow/%1?generation=%2")
-            .arg(item.representation_id)
-            .arg(generation_.load(std::memory_order_relaxed));
+        return visualSourceFor(item.visual_handle);
     case HasTechnicalObservationRole:
         return item.has_technical_observation;
     case TechnicalInputWidthRole:
@@ -78,6 +79,7 @@ QHash<int, QByteArray> ReviewModel::roleNames() const {
     return {
         {PhotoIdRole, "photoId"},
         {RepresentationIdRole, "representationId"},
+        {VisualHandleRole, "visualHandle"},
         {TitleRole, "title"},
         {SourcePathRole, "sourcePath"},
         {VisualRole, "visualRole"},
@@ -121,4 +123,21 @@ void ReviewModel::append(QVector<ReviewItem> items) {
 
 bool ReviewModel::isGenerationCurrent(const quint64 generation) const noexcept {
     return generation_.load(std::memory_order_acquire) == generation;
+}
+
+QString ReviewModel::visualSourceFor(const QString& ticket) const {
+    if (ticket.isEmpty()) {
+        return {};
+    }
+    QUrlQuery query;
+    query.addQueryItem(
+        QStringLiteral("generation"),
+        QString::number(generation_.load(std::memory_order_acquire))
+    );
+    query.addQueryItem(
+        QStringLiteral("ticket"),
+        QString::fromLatin1(QUrl::toPercentEncoding(ticket))
+    );
+    return QStringLiteral("image://shadow/visual?%1")
+        .arg(query.toString(QUrl::FullyEncoded));
 }

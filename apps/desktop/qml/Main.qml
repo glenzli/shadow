@@ -254,6 +254,7 @@ ApplicationWindow {
                 Layout.preferredHeight: 15
                 visible: window.workspaceIndex === 0
                     ? window.controller.busy || window.controller.loadingMore
+                        || window.controller.comparisonBusy
                     : window.editor.busy
                 running: visible
             }
@@ -261,7 +262,9 @@ ApplicationWindow {
             Label {
                 Layout.fillWidth: true
                 text: window.workspaceIndex === 0
-                    ? window.controller.statusText
+                    ? (window.controller.comparisonBusy
+                        ? window.controller.comparisonStatusText
+                        : window.controller.statusText)
                     : window.editor.statusText
                 color: window.textMuted
                 font.pixelSize: 10

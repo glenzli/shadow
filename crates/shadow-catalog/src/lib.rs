@@ -45,7 +45,7 @@ pub use technical_observation::{
 };
 pub use writer::{CatalogActor, CatalogHandle};
 
-const SCHEMA_VERSION: i64 = 7;
+const SCHEMA_VERSION: i64 = 8;
 
 const MIGRATION_V1: &str = r"
 CREATE TABLE photos (
@@ -369,6 +369,11 @@ CREATE INDEX representation_technical_observation_source_idx
     );
 ";
 
+// Presented-visual provenance is embedded in canonical append-only feedback
+// JSON. Version 8 is intentionally marker-only: no rebuildable cache table is
+// made authoritative for historical evidence.
+const MIGRATION_V8: &str = r"";
+
 #[derive(Debug, Error)]
 pub enum CatalogError {
     #[error("SQLite catalog error: {0}")]
@@ -445,6 +450,13 @@ pub enum CatalogError {
     FeedbackEventAlreadyExists(String),
     #[error("AI feedback event id {0:?} does not exist")]
     FeedbackEventNotFound(String),
+    #[error(
+        "presented visual representation {representation_id} is not owned by candidate photo {photo_id}"
+    )]
+    FeedbackVisualRepresentationOwnerMismatch {
+        photo_id: PhotoId,
+        representation_id: RepresentationId,
+    },
     #[error("AI feedback forget fact id {0:?} already exists and cannot be overwritten")]
     FeedbackForgetFactAlreadyExists(String),
     #[error("AI feedback page limit {limit} is outside 1 through {maximum}")]
@@ -725,6 +737,17 @@ fn migrate(connection: &mut Connection) -> rusqlite::Result<()> {
         transaction.commit()?;
     }
 
+    let version = current_schema_version(connection)?;
+    if version < 8 {
+        let transaction = connection.transaction()?;
+        transaction.execute_batch(MIGRATION_V8)?;
+        transaction.execute(
+            "INSERT INTO schema_migrations(version, applied_at_ms) VALUES (?1, unixepoch('subsec') * 1000)",
+            [8_i64],
+        )?;
+        transaction.commit()?;
+    }
+
     let final_version = current_schema_version(connection)?;
     if final_version != SCHEMA_VERSION {
         return Err(rusqlite::Error::InvalidQuery);
@@ -847,6 +870,7 @@ fn non_negative_count(count: i64) -> rusqlite::Result<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shadow_ai::LearningScope;
     use shadow_domain::Platform;
 
     fn request(byte_len: u64, modified_at_ms: Option<i64>) -> RegisterAsset {
@@ -863,11 +887,41 @@ mod tests {
         }
     }
 
+    fn apply_schema_through_v7(connection: &mut Connection) {
+        connection
+            .execute_batch(
+                "CREATE TABLE schema_migrations (
+                     version INTEGER PRIMARY KEY NOT NULL,
+                     applied_at_ms INTEGER NOT NULL
+                 ) STRICT;",
+            )
+            .expect("create migration table");
+        for (version, sql) in [
+            (1_i64, MIGRATION_V1),
+            (2, MIGRATION_V2),
+            (3, MIGRATION_V3),
+            (4, MIGRATION_V4),
+            (5, MIGRATION_V5),
+            (6, MIGRATION_V6),
+            (7, MIGRATION_V7),
+        ] {
+            let transaction = connection.transaction().expect("start migration");
+            transaction.execute_batch(sql).expect("apply migration");
+            transaction
+                .execute(
+                    "INSERT INTO schema_migrations(version, applied_at_ms) VALUES (?1, ?1)",
+                    [version],
+                )
+                .expect("record migration");
+            transaction.commit().expect("commit migration");
+        }
+    }
+
     #[test]
     fn migration_creates_current_schema() {
         let catalog = Catalog::open_in_memory().expect("open catalog");
 
-        assert_eq!(catalog.schema_version().expect("schema version"), 7);
+        assert_eq!(catalog.schema_version().expect("schema version"), 8);
     }
 
     #[test]
@@ -905,7 +959,7 @@ mod tests {
         }
 
         let catalog = Catalog::open(&path).expect("migrate v2 catalog");
-        assert_eq!(catalog.schema_version().expect("schema version"), 7);
+        assert_eq!(catalog.schema_version().expect("schema version"), 8);
         let snapshot_tables: i64 = catalog
             .connection
             .query_row(
@@ -922,6 +976,97 @@ mod tests {
         assert_eq!(snapshot_tables, 4);
         drop(catalog);
         std::fs::remove_dir_all(root).expect("remove migration fixture");
+    }
+
+    #[test]
+    fn version_seven_catalog_receives_marker_only_feedback_provenance_migration() {
+        let mut connection = Connection::open_in_memory().expect("open v7 fixture");
+        configure_connection(&connection, false).expect("configure fixture");
+        apply_schema_through_v7(&mut connection);
+        let objects_before: i64 = connection
+            .query_row("SELECT COUNT(*) FROM sqlite_schema", [], |row| row.get(0))
+            .expect("count schema objects before v8");
+
+        migrate(&mut connection).expect("apply v8 marker");
+
+        let objects_after: i64 = connection
+            .query_row("SELECT COUNT(*) FROM sqlite_schema", [], |row| row.get(0))
+            .expect("count schema objects after v8");
+        assert_eq!(
+            current_schema_version(&connection).expect("schema version"),
+            8
+        );
+        assert_eq!(objects_after, objects_before);
+    }
+
+    #[test]
+    fn version_seven_legacy_feedback_remains_canonical_after_v8_migration() {
+        const PHOTO_TEXT: &str = "018f0000-0000-7000-8000-000000000001";
+        const LEGACY_EVENT_TEMPLATE: &str = r#"{"event_id":"legacy-v7-event","sequence":1,"occurred_at_unix_ms":1700000001000,"scope":{"kind":"global"},"presentation":{"session_id":"legacy-review-session","group_id":null,"candidates":[{"photo_id":"__PHOTO_ID__","position":0,"visible_fraction":1.0,"inspected_at_one_to_one":false,"feature":null}],"active_model":null},"action":{"action":"exported","photo_id":"__PHOTO_ID__"}}"#;
+
+        let root =
+            std::env::temp_dir().join(format!("shadow-catalog-v7-feedback-{}", PhotoId::new_v7()));
+        std::fs::create_dir_all(&root).expect("create v7 feedback fixture");
+        let path = root.join("catalog.sqlite");
+        let legacy_json = LEGACY_EVENT_TEMPLATE.replace("__PHOTO_ID__", PHOTO_TEXT);
+        let legacy_digest = blake3::hash(legacy_json.as_bytes());
+        {
+            let mut connection = Connection::open(&path).expect("open v7 feedback fixture");
+            configure_connection(&connection, false).expect("configure v7 feedback fixture");
+            apply_schema_through_v7(&mut connection);
+            let photo_id: PhotoId = PHOTO_TEXT.parse().expect("parse legacy photo id");
+            connection
+                .execute(
+                    "INSERT INTO photos(id, created_at_ms) VALUES (?1, ?2)",
+                    rusqlite::params![photo_id.as_bytes().as_slice(), 1_700_000_000_000_i64],
+                )
+                .expect("insert legacy photo");
+            connection
+                .execute(
+                    "INSERT INTO ai_feedback_events(
+                         sequence, event_id, occurred_at_ms, scope_kind, project_id,
+                         event_json, event_digest
+                     ) VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6)",
+                    rusqlite::params![
+                        1_i64,
+                        "legacy-v7-event",
+                        1_700_000_001_000_i64,
+                        "global",
+                        legacy_json.as_str(),
+                        legacy_digest.as_bytes().as_slice(),
+                    ],
+                )
+                .expect("insert canonical v7 feedback event");
+            assert_eq!(
+                current_schema_version(&connection).expect("v7 schema version"),
+                7
+            );
+        }
+
+        let catalog = Catalog::open(&path).expect("migrate v7 feedback catalog");
+        assert_eq!(catalog.schema_version().expect("v8 schema version"), 8);
+        let (stored_json, stored_digest): (String, Vec<u8>) = catalog
+            .connection
+            .query_row(
+                "SELECT event_json, event_digest FROM ai_feedback_events
+                 WHERE event_id = ?1",
+                ["legacy-v7-event"],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("read unchanged legacy storage");
+        assert_eq!(stored_json, legacy_json);
+        assert_eq!(stored_digest.as_slice(), legacy_digest.as_bytes());
+
+        let page = catalog
+            .feedback_events_after(&LearningScope::Global, 0, 10)
+            .expect("read legacy feedback through v8 integrity checks");
+        assert_eq!(page.events.len(), 1);
+        assert_eq!(page.events[0].event_id, "legacy-v7-event");
+        assert_eq!(page.events[0].presentation.candidates.len(), 1);
+        assert!(page.events[0].presentation.candidates[0].visual.is_none());
+
+        drop(catalog);
+        std::fs::remove_dir_all(root).expect("remove v7 feedback fixture");
     }
 
     #[test]
