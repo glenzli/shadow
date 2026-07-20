@@ -105,12 +105,14 @@ struct ToneCurve final {
 using AdjustmentParameters = std::variant<
     ExposureAdjustment,
     ContrastAdjustment,
+    ToneCurve,
     ChannelGainAdjustment,
     SaturationAdjustment>;
 
 enum class AdjustmentOperation : std::uint8_t {
     exposure,
     contrast,
+    tone_curve,
     channel_gain,
     saturation,
 };
@@ -158,9 +160,11 @@ private:
 [[nodiscard]] AdjustmentOperation operation(const AdjustmentParameters& parameters) noexcept;
 [[nodiscard]] std::string_view operation_id(AdjustmentOperation operation) noexcept;
 
-// Executes an intentionally linear subset of the future typed edit graph. Nodes are applied
-// in span order, disabled nodes are skipped, and the input is never mutated. The executor does
-// not clamp negative or >1 values and rejects NaN/Inf rather than silently contaminating caches.
+// Executes an intentionally compact subset of the future typed edit graph. The recommended
+// default pipeline order is Exposure -> Contrast -> ToneCurve -> ChannelGain -> Saturation, but
+// that is a recipe convention: this executor always applies nodes in the supplied span order.
+// Disabled nodes are skipped and the input is never mutated. The executor does not clamp
+// negative or >1 values and rejects NaN/Inf rather than silently contaminating caches.
 [[nodiscard]] FloatRgbImage execute_adjustment_nodes(
     const FloatRgbImage& input,
     std::span<const AdjustmentNode> nodes
@@ -180,10 +184,11 @@ private:
 // the only operation that asks DecodeSession to render the RAW. render_jpeg() owns all of its
 // temporary edit/JPEG state, so concurrent const calls are safe after construction.
 //
-// The version-1 operations are pixel-local linear/affine transforms in scene-linear RGB.
-// Therefore bilinear downsampling may happen before those operations without changing their
-// mathematical result. Nonlinear, masked, or neighborhood operations must declare a different
-// preview strategy rather than being silently routed through this class.
+// The version-1 operations are pixel-local transforms in scene-linear RGB. Linear/affine nodes
+// commute with the bilinear downsampling used to prepare this proxy. ToneCurve is nonlinear, so
+// applying it here is an interactive proxy approximation rather than a bit-equivalent substitute
+// for applying it before full-resolution downsampling. Masked or neighborhood operations must
+// still declare an appropriate preview strategy rather than being silently routed through here.
 class WarmEditPreviewSession final {
 public:
     WarmEditPreviewSession(const WarmEditPreviewSession&) = delete;

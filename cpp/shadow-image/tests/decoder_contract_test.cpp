@@ -166,6 +166,10 @@ void edited_proxy_crosses_explicit_linear_srgb_boundary() {
             .parameters = image::ContrastAdjustment{},
         },
         image::AdjustmentNode{
+            .node_id = "tone-curve",
+            .parameters = image::ToneCurve{},
+        },
+        image::AdjustmentNode{
             .node_id = "channel-gain",
             .parameters = image::ChannelGainAdjustment{},
         },
@@ -186,7 +190,7 @@ void edited_proxy_crosses_explicit_linear_srgb_boundary() {
 
     auto adjusted_nodes = neutral_nodes;
     adjusted_nodes[0].parameters = image::ExposureAdjustment{1.0};
-    adjusted_nodes[2].parameters = image::ChannelGainAdjustment{{1.1, 1.0, 0.9}};
+    adjusted_nodes[3].parameters = image::ChannelGainAdjustment{{1.1, 1.0, 0.9}};
     const image::ProxyRequest small_request{.max_edge = 4, .jpeg_quality = 90};
     const auto neutral_small = image::render_edited_reference_proxy_jpeg(
         session,

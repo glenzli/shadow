@@ -249,7 +249,45 @@ void validate_image(const FloatRgbImage& image) {
     return static_cast<float>(value);
 }
 
-void validate_node(const AdjustmentNode& node, const std::size_t index) {
+template <typename CheckedConversion>
+void apply_prepared_tone_curve(
+    FloatRgbImage& image,
+    const PreparedToneCurve& prepared,
+    CheckedConversion&& checked_conversion
+) {
+    const std::size_t stride = image.row_stride_bytes / sizeof(float);
+    for (std::uint32_t y = 0; y < image.dimensions.height; ++y) {
+        const std::size_t row = static_cast<std::size_t>(y) * stride;
+        for (std::uint32_t x = 0; x < image.dimensions.width; ++x) {
+            const std::size_t sample = row + static_cast<std::size_t>(x) * rgb_channels;
+            for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
+                image.samples[sample + channel] = checked_conversion(
+                    evaluate_tone_curve(
+                        prepared,
+                        static_cast<double>(image.samples[sample + channel])
+                    )
+                );
+            }
+        }
+    }
+}
+
+[[nodiscard]] PreparedToneCurve prepare_tone_curve_node(
+    const ToneCurve& curve,
+    const AdjustmentNode& node,
+    const std::size_t index
+) {
+    try {
+        return prepare_tone_curve(curve);
+    } catch (const EditError& error) {
+        throw_node_error(error.code(), index, node, error.what());
+    }
+}
+
+[[nodiscard]] std::optional<PreparedToneCurve> validate_node(
+    const AdjustmentNode& node,
+    const std::size_t index
+) {
     if (
         node.parameter_schema_version != adjustment_parameter_schema_version
         || node.implementation_version != adjustment_implementation_version
@@ -262,8 +300,9 @@ void validate_node(const AdjustmentNode& node, const std::size_t index) {
         );
     }
 
+    std::optional<PreparedToneCurve> prepared_tone_curve;
     std::visit(
-        [&node, index](const auto& parameters) {
+        [&node, index, &prepared_tone_curve](const auto& parameters) {
             using Parameters = std::decay_t<decltype(parameters)>;
             if constexpr (std::is_same_v<Parameters, ExposureAdjustment>) {
                 const double gain = std::exp2(parameters.stops);
@@ -287,6 +326,8 @@ void validate_node(const AdjustmentNode& node, const std::size_t index) {
                         "contrast factor and pivot must be finite and non-negative"
                     );
                 }
+            } else if constexpr (std::is_same_v<Parameters, ToneCurve>) {
+                prepared_tone_curve = prepare_tone_curve_node(parameters, node, index);
             } else if constexpr (std::is_same_v<Parameters, ChannelGainAdjustment>) {
                 if (!std::ranges::all_of(parameters.channel_gains, [](const double gain) {
                         return std::isfinite(gain) && gain > 0.0;
@@ -311,6 +352,7 @@ void validate_node(const AdjustmentNode& node, const std::size_t index) {
         },
         node.parameters
     );
+    return prepared_tone_curve;
 }
 
 [[nodiscard]] float checked_float(
@@ -355,9 +397,14 @@ void transform_rgb_pixels(
     }
 }
 
-void apply_node(FloatRgbImage& image, const AdjustmentNode& node, const std::size_t index) {
+void apply_node(
+    FloatRgbImage& image,
+    const AdjustmentNode& node,
+    const std::size_t index,
+    const std::optional<PreparedToneCurve>& prepared_tone_curve
+) {
     std::visit(
-        [&image, &node, index](const auto& parameters) {
+        [&image, &node, index, &prepared_tone_curve](const auto& parameters) {
             using Parameters = std::decay_t<decltype(parameters)>;
             if constexpr (std::is_same_v<Parameters, ExposureAdjustment>) {
                 const double gain = std::exp2(parameters.stops);
@@ -384,6 +431,14 @@ void apply_node(FloatRgbImage& image, const AdjustmentNode& node, const std::siz
                                 + (value - parameters.pivot) * parameters.factor;
                         };
                         return std::array{adjust(input[0]), adjust(input[1]), adjust(input[2])};
+                    }
+                );
+            } else if constexpr (std::is_same_v<Parameters, ToneCurve>) {
+                apply_prepared_tone_curve(
+                    image,
+                    prepared_tone_curve.value(),
+                    [&node, index](const double value) {
+                        return checked_float(value, index, node);
                     }
                 );
             } else if constexpr (std::is_same_v<Parameters, ChannelGainAdjustment>) {
@@ -445,9 +500,12 @@ AdjustmentOperation operation(const AdjustmentParameters& parameters) noexcept {
                 return AdjustmentOperation::exposure;
             } else if constexpr (std::is_same_v<Parameters, ContrastAdjustment>) {
                 return AdjustmentOperation::contrast;
+            } else if constexpr (std::is_same_v<Parameters, ToneCurve>) {
+                return AdjustmentOperation::tone_curve;
             } else if constexpr (std::is_same_v<Parameters, ChannelGainAdjustment>) {
                 return AdjustmentOperation::channel_gain;
             } else {
+                static_assert(std::is_same_v<Parameters, SaturationAdjustment>);
                 return AdjustmentOperation::saturation;
             }
         },
@@ -461,6 +519,8 @@ std::string_view operation_id(const AdjustmentOperation operation) noexcept {
         return "shadow.exposure";
     case AdjustmentOperation::contrast:
         return "shadow.contrast";
+    case AdjustmentOperation::tone_curve:
+        return "shadow.tone_curve";
     case AdjustmentOperation::channel_gain:
         return "shadow.channel_gain";
     case AdjustmentOperation::saturation:
@@ -474,14 +534,16 @@ FloatRgbImage execute_adjustment_nodes(
     const std::span<const AdjustmentNode> nodes
 ) {
     validate_image(input);
+    std::vector<std::optional<PreparedToneCurve>> prepared_tone_curves;
+    prepared_tone_curves.reserve(nodes.size());
     for (std::size_t index = 0; index < nodes.size(); ++index) {
-        validate_node(nodes[index], index);
+        prepared_tone_curves.push_back(validate_node(nodes[index], index));
     }
 
     FloatRgbImage output = input;
     for (std::size_t index = 0; index < nodes.size(); ++index) {
         if (nodes[index].enabled) {
-            apply_node(output, nodes[index], index);
+            apply_node(output, nodes[index], index, prepared_tone_curves[index]);
         }
     }
     return output;
@@ -492,21 +554,7 @@ FloatRgbImage apply_tone_curve(const FloatRgbImage& input, const ToneCurve& curv
     const PreparedToneCurve prepared = prepare_tone_curve(curve);
 
     FloatRgbImage output = input;
-    const std::size_t stride = output.row_stride_bytes / sizeof(float);
-    for (std::uint32_t y = 0; y < output.dimensions.height; ++y) {
-        const std::size_t row = static_cast<std::size_t>(y) * stride;
-        for (std::uint32_t x = 0; x < output.dimensions.width; ++x) {
-            const std::size_t sample = row + static_cast<std::size_t>(x) * rgb_channels;
-            for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
-                output.samples[sample + channel] = checked_tone_curve_float(
-                    evaluate_tone_curve(
-                        prepared,
-                        static_cast<double>(output.samples[sample + channel])
-                    )
-                );
-            }
-        }
-    }
+    apply_prepared_tone_curve(output, prepared, checked_tone_curve_float);
     return output;
 }
 

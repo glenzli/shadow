@@ -77,6 +77,7 @@ void stable_operation_ids_are_explicit() {
     const std::array nodes{
         image::AdjustmentParameters{image::ExposureAdjustment{}},
         image::AdjustmentParameters{image::ContrastAdjustment{}},
+        image::AdjustmentParameters{image::ToneCurve{}},
         image::AdjustmentParameters{image::ChannelGainAdjustment{}},
         image::AdjustmentParameters{image::SaturationAdjustment{}},
     };
@@ -89,11 +90,15 @@ void stable_operation_ids_are_explicit() {
         "contrast has a stable operation id"
     );
     expect(
-        image::operation_id(image::operation(nodes[2])) == "shadow.channel_gain",
+        image::operation_id(image::operation(nodes[2])) == "shadow.tone_curve",
+        "tone curve has a stable operation id"
+    );
+    expect(
+        image::operation_id(image::operation(nodes[3])) == "shadow.channel_gain",
         "channel gain has a stable operation id"
     );
     expect(
-        image::operation_id(image::operation(nodes[3])) == "shadow.saturation",
+        image::operation_id(image::operation(nodes[4])) == "shadow.saturation",
         "saturation has a stable operation id"
     );
 }
@@ -186,6 +191,122 @@ void node_order_is_observable_and_disabled_nodes_are_skipped() {
     const std::array disabled_only{disabled};
     const auto unchanged = image::execute_adjustment_nodes(input, disabled_only);
     expect_close(unchanged.samples[0], input.samples[0], "disabled nodes do not affect pixels");
+}
+
+void tone_curve_node_is_neutral_and_respects_declared_order() {
+    const auto neutral_input = rgb_image(1, {-0.5F, 0.25F, 1.5F});
+    const std::array neutral_node{
+        image::AdjustmentNode{
+            .node_id = "neutral-tone-curve",
+            .parameters = image::ToneCurve{},
+        },
+    };
+    const auto neutral = image::execute_adjustment_nodes(neutral_input, neutral_node);
+    expect(
+        neutral.samples == neutral_input.samples,
+        "the default tone curve node is exactly neutral across the unclipped scene range"
+    );
+
+    const image::AdjustmentNode exposure{
+        .node_id = "exposure",
+        .parameters = image::ExposureAdjustment{.stops = 1.0},
+    };
+    const image::AdjustmentNode curve{
+        .node_id = "tone-curve",
+        .parameters = image::ToneCurve{
+            .points = {{0.0, 0.0}, {0.5, 0.1}, {1.0, 1.0}},
+        },
+    };
+    const std::array exposure_then_curve{exposure, curve};
+    const std::array curve_then_exposure{curve, exposure};
+    const auto first = image::execute_adjustment_nodes(
+        rgb_image(1, {0.3F, 0.3F, 0.3F}),
+        exposure_then_curve
+    );
+    const auto second = image::execute_adjustment_nodes(
+        rgb_image(1, {0.3F, 0.3F, 0.3F}),
+        curve_then_exposure
+    );
+    expect_close(first.samples[0], 0.28F, "tone curve consumes the preceding exposure result");
+    expect_close(second.samples[0], 0.12F, "executor does not impose its suggested node order");
+    expect(
+        std::abs(first.samples[0] - second.samples[0]) > 0.1F,
+        "tone curve order remains observably recipe-controlled"
+    );
+}
+
+void tone_curve_node_disable_and_unclipped_range_are_preserved() {
+    const auto input = rgb_image(1, {-0.5F, 0.5F, 1.5F});
+    image::AdjustmentNode curve{
+        .node_id = "wide-tone-curve",
+        .parameters = image::ToneCurve{
+            .points = {{0.0, 0.1}, {0.25, 0.2}, {1.0, 0.8}},
+        },
+    };
+    const std::array enabled{curve};
+    const auto output = image::execute_adjustment_nodes(input, enabled);
+    expect_close(output.samples[0], -0.1F, "tone curve node preserves negative output");
+    expect_close(output.samples[1], 0.4F, "tone curve node interpolates normalized output");
+    expect_close(output.samples[2], 1.2F, "tone curve node preserves super-white output");
+
+    curve.enabled = false;
+    const std::array disabled{curve};
+    const auto unchanged = image::execute_adjustment_nodes(input, disabled);
+    expect(unchanged.samples == input.samples, "a disabled tone curve node is skipped");
+}
+
+void invalid_tone_curve_nodes_report_their_index() {
+    const auto input = rgb_image(1, {0.1F, 0.2F, 0.3F});
+    const std::array malformed{
+        image::AdjustmentNode{
+            .node_id = "valid-exposure",
+            .parameters = image::ExposureAdjustment{},
+        },
+        image::AdjustmentNode{
+            .node_id = "malformed-tone-curve",
+            .parameters = image::ToneCurve{.points = {{0.0, 0.0}}},
+        },
+    };
+    expect_edit_error(
+        [&] { static_cast<void>(image::execute_adjustment_nodes(input, malformed)); },
+        image::EditErrorCode::invalid_parameter,
+        1U,
+        "invalid tone curve geometry retains node provenance"
+    );
+
+    image::ToneCurve future;
+    future.parameter_schema_version = image::tone_curve_parameter_schema_version + 1U;
+    const std::array unsupported{
+        image::AdjustmentNode{
+            .node_id = "future-tone-curve",
+            .parameters = std::move(future),
+        },
+    };
+    expect_edit_error(
+        [&] { static_cast<void>(image::execute_adjustment_nodes(input, unsupported)); },
+        image::EditErrorCode::unsupported_version,
+        0U,
+        "tone curve parameter schema versions are checked in the typed node path"
+    );
+
+    const std::array overflowing{
+        image::AdjustmentNode{
+            .node_id = "valid-exposure",
+            .parameters = image::ExposureAdjustment{},
+        },
+        image::AdjustmentNode{
+            .node_id = "overflowing-tone-curve",
+            .parameters = image::ToneCurve{
+                .points = {{0.0, 0.0}, {1.0, std::numeric_limits<double>::max()}},
+            },
+        },
+    };
+    expect_edit_error(
+        [&] { static_cast<void>(image::execute_adjustment_nodes(input, overflowing)); },
+        image::EditErrorCode::numeric_overflow,
+        1U,
+        "tone curve evaluation errors retain node provenance"
+    );
 }
 
 void invalid_values_and_versions_fail_closed() {
@@ -457,6 +578,9 @@ int main() {
     exposure_preserves_unclipped_scene_range_and_padding();
     channel_gain_and_saturation_have_numeric_contracts();
     node_order_is_observable_and_disabled_nodes_are_skipped();
+    tone_curve_node_is_neutral_and_respects_declared_order();
+    tone_curve_node_disable_and_unclipped_range_are_preserved();
+    invalid_tone_curve_nodes_report_their_index();
     invalid_values_and_versions_fail_closed();
     color_and_layout_assumptions_are_enforced();
     default_tone_curve_is_an_exact_neutral_operation();
