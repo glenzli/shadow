@@ -60,6 +60,12 @@ qt_add_executable(
     MACOSX_BUNDLE
     src/desktop_backend.cpp
     src/desktop_backend.hpp
+    src/edit_controller.cpp
+    src/edit_controller.hpp
+    src/edit_preview_provider.cpp
+    src/edit_preview_provider.hpp
+    src/edit_version_model.cpp
+    src/edit_version_model.hpp
     src/main.cpp
     src/review_controller.cpp
     src/review_controller.hpp
@@ -75,6 +81,9 @@ qt_add_qml_module(
     VERSION 1.0
     QML_FILES
         qml/Main.qml
+        qml/PrecisionWorkspace.qml
+        qml/ReviewWorkspace.qml
+        qml/ShadowSlider.qml
 )
 
 target_compile_features(shadow-desktop PRIVATE cxx_std_20)

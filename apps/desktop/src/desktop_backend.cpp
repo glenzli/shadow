@@ -28,6 +28,60 @@ namespace {
     );
 }
 
+[[nodiscard]] shadow::desktop::FfiBasicEditParameters ffi_parameters(
+    const BackendBasicEditParameters& source
+) {
+    return {
+        .exposure_stops = source.exposure_stops,
+        .contrast_factor = source.contrast_factor,
+        .red_channel_gain = source.red_channel_gain,
+        .green_channel_gain = source.green_channel_gain,
+        .blue_channel_gain = source.blue_channel_gain,
+        .saturation_factor = source.saturation_factor,
+    };
+}
+
+[[nodiscard]] BackendBasicEditParameters edit_parameters(
+    const shadow::desktop::FfiBasicEditParameters& source
+) {
+    return {
+        .exposure_stops = source.exposure_stops,
+        .contrast_factor = source.contrast_factor,
+        .red_channel_gain = source.red_channel_gain,
+        .green_channel_gain = source.green_channel_gain,
+        .blue_channel_gain = source.blue_channel_gain,
+        .saturation_factor = source.saturation_factor,
+    };
+}
+
+[[nodiscard]] BackendPhotoEditState edit_state(
+    const shadow::desktop::FfiPhotoEditState& source
+) {
+    BackendPhotoEditState state;
+    state.photo_id = qstring(source.photo_id);
+    state.source_path = qstring(source.source_path);
+    state.working_commit_id = qstring(source.working_commit_id);
+    state.recipe_id = qstring(source.recipe_id);
+    state.parameters = edit_parameters(source.parameters);
+    state.has_working_version = source.has_working_version;
+    state.versions.reserve(static_cast<qsizetype>(source.versions.size()));
+    for (const auto& version : source.versions) {
+        BackendEditVersion converted;
+        converted.commit_id = qstring(version.commit_id);
+        converted.name = qstring(version.name);
+        converted.created_at_ms = version.created_at_ms;
+        converted.is_working = version.is_working;
+        converted.parent_commit_ids.reserve(
+            static_cast<qsizetype>(version.parent_commit_ids.size())
+        );
+        for (const auto& parent : version.parent_commit_ids) {
+            converted.parent_commit_ids.push_back(qstring(parent));
+        }
+        state.versions.push_back(std::move(converted));
+    }
+    return state;
+}
+
 } // namespace
 
 struct DesktopBackend::Impl final {
@@ -90,4 +144,63 @@ BackendReviewPage DesktopBackend::reviewPage(
 QByteArray DesktopBackend::loadReviewVisual(const QString& representation_id) const {
     const auto payload = impl_->session->load_review_visual(representation_id.toStdString());
     return qbytes(payload.bytes);
+}
+
+BackendPhotoEditState DesktopBackend::photoEditState(
+    const QString& photo_id,
+    const QString& source_path
+) const {
+    return edit_state(impl_->session->photo_edit_state(
+        photo_id.toStdString(),
+        source_path.toStdString()
+    ));
+}
+
+BackendEditedPreview DesktopBackend::renderBasicEditPreview(
+    const QString& photo_id,
+    const QString& source_path,
+    const BackendBasicEditParameters& parameters,
+    const std::uint32_t max_edge,
+    const std::uint8_t jpeg_quality
+) const {
+    const auto ffi = ffi_parameters(parameters);
+    const auto payload = impl_->session->render_basic_edit_preview(
+        photo_id.toStdString(),
+        source_path.toStdString(),
+        ffi,
+        max_edge,
+        jpeg_quality
+    );
+    return {
+        .bytes = qbytes(payload.bytes),
+        .width = payload.width,
+        .height = payload.height,
+    };
+}
+
+BackendPhotoEditState DesktopBackend::saveBasicEditVersion(
+    const QString& photo_id,
+    const QString& source_path,
+    const BackendBasicEditParameters& parameters,
+    const QString& version_name
+) const {
+    const auto ffi = ffi_parameters(parameters);
+    return edit_state(impl_->session->save_basic_edit_version(
+        photo_id.toStdString(),
+        source_path.toStdString(),
+        ffi,
+        version_name.toStdString()
+    ));
+}
+
+BackendPhotoEditState DesktopBackend::checkoutBasicEditVersion(
+    const QString& photo_id,
+    const QString& source_path,
+    const QString& commit_id
+) const {
+    return edit_state(impl_->session->checkout_basic_edit_version(
+        photo_id.toStdString(),
+        source_path.toStdString(),
+        commit_id.toStdString()
+    ));
 }

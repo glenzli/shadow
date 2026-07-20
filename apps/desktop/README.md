@@ -32,4 +32,27 @@ QT_QPA_PLATFORM=offscreen SHADOW_DESKTOP_SMOKE_TEST=1 \
 
 `SHADOW_DESKTOP_SCAN_FOLDER=/absolute/folder` optionally starts one scan after launch. It is intended for local visual regression and does not bypass the folder picker in normal use.
 
+`SHADOW_DESKTOP_DATA_ROOT=/absolute/folder` overrides the local Catalog/cache directory for isolated smoke tests. Normal launches continue to use Qt's per-user application-data location.
+
+Adding `SHADOW_DESKTOP_OPEN_FIRST_EDIT=1` to a smoke run waits for the first scanned Review item, opens it through the real Precision controller, renders its scene-linear edit preview, and fails after 30 seconds if no preview reaches QML.
+
 The model currently fetches 96 metadata rows per page and requests another page near the end of the grid. Scanning still completes before the first Catalog page is shown; streaming import progress and first-screen priority are separate follow-up work.
+
+## Precision vertical slice
+
+Double-clicking a Review item opens a real non-destructive Precision workspace:
+
+```text
+Qt sliders / named-version actions
+  → EditController (debounce, generations, stale-result rejection)
+  → shadow-desktop-bridge (Catalog-owned photo/source validation)
+  → reusable 1600-edge scene-linear sRGB working proxy
+  → Exposure → Contrast → RGB Channel Gain → Saturation
+  → asynchronously decoded JPEG image provider
+```
+
+The left panel exposes one `PHOTO`-scope `Basic Adjustments` layer and its four fixed, typed nodes. It is deliberately not a free-form Node Lab. Saving creates a new immutable Recipe commit while atomically moving the `working` ref and adding a named-version ref. Checking out an older commit preserves newer commits; the next save branches from the checked-out version. Layer and node identities survive consecutive saves so structural diffs remain meaningful.
+
+RAW preparation is cached for up to two recent `(representation, source fingerprint, edge)` sessions. A slider update reruns only the adjustment nodes and JPEG encoder; it does not reopen or decode the RAW. Preview buffers are bounded, rebuildable, and never become Catalog facts.
+
+This slice intentionally implements only the four renderer-backed global operations above. Camera-domain white balance, curves, masks, crop, full-resolution tiles, undo checkpoints, export, and shared scopes remain later vertical slices; the UI does not present placeholders for them.

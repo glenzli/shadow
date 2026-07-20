@@ -8,6 +8,7 @@ The first executable slices are intentionally small:
 folder scan → transactional catalog registration → stable reopen → statistics
 RAW/DNG → metadata → embedded preview or bounded JPEG proxy → content cache
 RAW/DNG → sensor mosaic → reference RGB correctness baseline
+RAW/DNG → bounded scene-linear working proxy → ordered edit nodes → versioned JPEG preview
 ```
 
 ## Developer commands
@@ -43,7 +44,7 @@ that failed. Corrupt bytes are retained under `quarantine/b3`; the next folder
 scan schedules the missing visual again without disturbing a concurrent newer
 artifact.
 
-The first Qt Quick Review application now lives in [`apps/desktop`](apps/desktop/README.md). It selects a folder, runs the existing Rust scan/decode/cache pipeline off the UI thread, pages lightweight Catalog metadata into the grid, and lazily requests verified embedded previews or fallback proxies without exposing SQLite or LibRaw to QML.
+The first Qt Quick Review and Precision application now lives in [`apps/desktop`](apps/desktop/README.md). Review selects a folder, runs the Rust scan/decode/cache pipeline off the UI thread, pages lightweight Catalog metadata, and lazily requests verified visuals. Precision opens the same Catalog-owned RAW source, prepares one bounded scene-linear working proxy, executes a real ordered adjustment layer, and saves or checks out immutable versions without exposing SQLite, LibRaw, or compressed image buffers to QML.
 
 The non-destructive edit foundation is also live below the UI. `shadow-domain` owns typed, stage-checked edit DAGs, adjustment layers and scopes, immutable shared-layer revisions, and Git-like Recipe commits/branches/named versions. Catalog schema v5 stores immutable commit JSON, normalized parent edges, content-addressed snapshot identities, and movable refs; old heads are never overwritten. `shadow-ai` adds model-independent manifests, resource/privacy admission, explainable group-relative scoring, append-only feedback, and a small deterministic preference head. It deliberately ships no pretend inference or unselected model weights.
 
