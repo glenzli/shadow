@@ -2,11 +2,14 @@
 
 #include <QQuickImageProvider>
 
+#include <memory>
+
+class DesktopBackend;
 class ReviewModel;
 
 class ThumbnailProvider final : public QQuickImageProvider {
 public:
-    explicit ThumbnailProvider(const ReviewModel* model);
+    ThumbnailProvider(std::shared_ptr<DesktopBackend> backend, const ReviewModel* model);
 
     [[nodiscard]] QImage requestImage(
         const QString& id,
@@ -15,5 +18,6 @@ public:
     ) override;
 
 private:
+    std::shared_ptr<DesktopBackend> backend_;
     const ReviewModel* model_;
 };

@@ -29,7 +29,7 @@ pub use decode_snapshot::{
     RepresentationFingerprint,
 };
 pub use import_journal::{ImportSession, ImportSessionState, ImportSessionSummary};
-pub use review::ReviewItemRecord;
+pub use review::{ReviewCursor, ReviewItemRecord, ReviewPageRecord};
 pub use store::CatalogStore;
 pub use writer::{CatalogActor, CatalogHandle};
 

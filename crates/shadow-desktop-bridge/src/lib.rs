@@ -1,17 +1,23 @@
-//! Coarse-grained Rust snapshot boundary consumed by the Qt desktop shell.
+//! Coarse-grained, long-lived Rust services consumed by the Qt desktop shell.
 
-use std::path::{Path, PathBuf};
+use std::{
+    cmp::Reverse,
+    path::{Path, PathBuf},
+};
 
-use anyhow::{Context, Result as AnyResult};
+use anyhow::{Context, Result as AnyResult, anyhow, bail};
 use shadow_bridge::{
     extract_best_libraw_preview, inspect_libraw, libraw_provider_version,
     render_libraw_reference_proxy,
 };
-use shadow_catalog::{CachedArtifactRole, CatalogActor};
+use shadow_catalog::{
+    CachedArtifactRecord, CachedArtifactRole, CatalogActor, CatalogHandle, ReviewCursor,
+    ReviewItemRecord,
+};
 use shadow_core::{
     CachedArtifactLoader, DecodeInspectionActor, DecodeInspector, scan_folder_with_inspection,
 };
-use shadow_domain::{DecoderSnapshot, PreviewPayload, ProxyPayload};
+use shadow_domain::{DecoderSnapshot, PreviewPayload, ProxyPayload, RepresentationId};
 
 #[cxx::bridge(namespace = "shadow::desktop")]
 mod ffi {
@@ -24,26 +30,121 @@ mod ffi {
         visual_role: String,
         visual_width: u32,
         visual_height: u32,
-        visual_bytes: Vec<u8>,
-        visual_error: String,
+        has_visual: bool,
     }
 
     #[derive(Debug)]
-    struct FfiReviewSnapshot {
+    struct FfiScanReport {
         folder_path: String,
         files_seen: u64,
         supported_files: u64,
         decode_inspections_queued: u64,
         issue_count: u64,
+    }
+
+    #[derive(Debug)]
+    struct FfiReviewPage {
+        total_items: u64,
         items: Vec<FfiReviewItem>,
+        has_more: bool,
+        next_cursor_path: String,
+        next_cursor_representation_id: String,
+    }
+
+    #[derive(Debug)]
+    struct FfiVisualPayload {
+        bytes: Vec<u8>,
     }
 
     extern "Rust" {
-        fn scan_review(
+        type DesktopSession;
+
+        fn open_desktop_session(
             catalog_path: &str,
             cache_root: &str,
-            folder_path: &str,
-        ) -> Result<FfiReviewSnapshot>;
+        ) -> Result<Box<DesktopSession>>;
+        fn scan_folder(self: &DesktopSession, folder_path: &str) -> Result<FfiScanReport>;
+        fn review_page(
+            self: &DesktopSession,
+            cursor_path: &str,
+            cursor_representation_id: &str,
+            limit: u32,
+        ) -> Result<FfiReviewPage>;
+        fn load_review_visual(
+            self: &DesktopSession,
+            representation_id: &str,
+        ) -> Result<FfiVisualPayload>;
+    }
+}
+
+#[derive(Debug)]
+struct DesktopSession {
+    _actor: CatalogActor,
+    catalog: CatalogHandle,
+    loader: CachedArtifactLoader,
+    cache_root: PathBuf,
+}
+
+impl DesktopSession {
+    fn scan_folder(&self, folder_path: &str) -> AnyResult<ffi::FfiScanReport> {
+        let folder_path = Path::new(folder_path);
+        let mut catalog = self.catalog.clone();
+        let inspector = DecodeInspectionActor::spawn_with_cache(
+            catalog.clone(),
+            LibRawInspector::new(),
+            &self.cache_root,
+        )?;
+        let report = scan_folder_with_inspection(&mut catalog, &inspector.handle(), folder_path)
+            .with_context(|| format!("scan {}", folder_path.display()))?;
+        inspector.shutdown()?;
+        Ok(ffi::FfiScanReport {
+            folder_path: folder_path.display().to_string(),
+            files_seen: report.files_seen,
+            supported_files: report.supported_files,
+            decode_inspections_queued: report.decode_inspections_queued,
+            issue_count: u64::try_from(report.issues.len()).unwrap_or(u64::MAX),
+        })
+    }
+
+    fn review_page(
+        &self,
+        cursor_path: &str,
+        cursor_representation_id: &str,
+        limit: u32,
+    ) -> AnyResult<ffi::FfiReviewPage> {
+        let cursor = parse_cursor(cursor_path, cursor_representation_id)?;
+        let page = self.catalog.review_page(
+            cursor.as_ref(),
+            usize::try_from(limit).unwrap_or(usize::MAX),
+        )?;
+        let (has_more, next_cursor_path, next_cursor_representation_id) =
+            if let Some(cursor) = page.next_cursor {
+                (
+                    true,
+                    cursor.display_path,
+                    cursor.representation_id.to_string(),
+                )
+            } else {
+                (false, String::new(), String::new())
+            };
+        Ok(ffi::FfiReviewPage {
+            total_items: page.total_items,
+            items: page.items.into_iter().map(review_item).collect(),
+            has_more,
+            next_cursor_path,
+            next_cursor_representation_id,
+        })
+    }
+
+    fn load_review_visual(&self, representation_id: &str) -> AnyResult<ffi::FfiVisualPayload> {
+        let representation_id: RepresentationId = representation_id
+            .parse()
+            .with_context(|| format!("parse representation id {representation_id}"))?;
+        let record = preferred_visual(&self.catalog, representation_id)?
+            .ok_or_else(|| anyhow!("visual is not cached yet for {representation_id}"))?;
+        Ok(ffi::FfiVisualPayload {
+            bytes: self.loader.load_bytes(&record)?,
+        })
     }
 }
 
@@ -88,86 +189,87 @@ impl DecodeInspector for LibRawInspector {
     }
 }
 
-fn scan_review(
-    catalog_path: &str,
-    cache_root: &str,
-    folder_path: &str,
-) -> AnyResult<ffi::FfiReviewSnapshot> {
-    scan_review_inner(
-        Path::new(catalog_path),
-        Path::new(cache_root),
-        Path::new(folder_path),
-    )
-}
-
-fn scan_review_inner(
-    catalog_path: &Path,
-    cache_root: &Path,
-    folder_path: &Path,
-) -> AnyResult<ffi::FfiReviewSnapshot> {
+fn open_desktop_session(catalog_path: &str, cache_root: &str) -> AnyResult<Box<DesktopSession>> {
+    let catalog_path = Path::new(catalog_path);
+    let cache_root = PathBuf::from(cache_root);
     ensure_parent(catalog_path)?;
     let actor = CatalogActor::spawn(catalog_path)
         .with_context(|| format!("open catalog {}", catalog_path.display()))?;
-    let mut catalog = actor.handle();
-    let inspector = DecodeInspectionActor::spawn_with_cache(
-        catalog.clone(),
-        LibRawInspector::new(),
+    let catalog = actor.handle();
+    let loader = CachedArtifactLoader::open(catalog.clone(), &cache_root)?;
+    Ok(Box::new(DesktopSession {
+        _actor: actor,
+        catalog,
+        loader,
         cache_root,
-    )?;
-    let report = scan_folder_with_inspection(&mut catalog, &inspector.handle(), folder_path)
-        .with_context(|| format!("scan {}", folder_path.display()))?;
-    inspector.shutdown()?;
+    }))
+}
 
-    let loader = CachedArtifactLoader::open(catalog.clone(), cache_root)?;
-    let mut items = Vec::new();
-    for record in catalog.review_items()? {
-        let (visual_role, visual_width, visual_height, visual_bytes, visual_error) =
-            if let Some(visual) = record.visual {
-                let role = match visual.artifact.role {
-                    CachedArtifactRole::EmbeddedPreview => "embedded",
-                    CachedArtifactRole::GeneratedProxy => "proxy",
-                };
-                match loader.load_bytes(&visual) {
-                    Ok(bytes) => (
-                        role.to_owned(),
-                        visual.artifact.dimensions.width,
-                        visual.artifact.dimensions.height,
-                        bytes,
-                        String::new(),
-                    ),
-                    Err(error) => (
-                        role.to_owned(),
-                        visual.artifact.dimensions.width,
-                        visual.artifact.dimensions.height,
-                        Vec::new(),
-                        error.to_string(),
-                    ),
-                }
-            } else {
-                (String::new(), 0, 0, Vec::new(), "visual pending".into())
-            };
-        items.push(ffi::FfiReviewItem {
-            photo_id: record.photo_id.to_string(),
-            representation_id: record.representation_id.to_string(),
-            title: file_name(&record.location.display_path),
-            source_path: record.location.display_path,
-            visual_role,
-            visual_width,
-            visual_height,
-            visual_bytes,
-            visual_error,
-        });
+fn parse_cursor(path: &str, representation_id: &str) -> AnyResult<Option<ReviewCursor>> {
+    match (path.is_empty(), representation_id.is_empty()) {
+        (true, true) => Ok(None),
+        (false, false) => Ok(Some(ReviewCursor {
+            display_path: path.to_owned(),
+            representation_id: representation_id
+                .parse()
+                .with_context(|| format!("parse Review cursor id {representation_id}"))?,
+        })),
+        _ => bail!("Review cursor path and representation id must both be present"),
     }
-    let snapshot = ffi::FfiReviewSnapshot {
-        folder_path: folder_path.display().to_string(),
-        files_seen: report.files_seen,
-        supported_files: report.supported_files,
-        decode_inspections_queued: report.decode_inspections_queued,
-        issue_count: u64::try_from(report.issues.len()).unwrap_or(u64::MAX),
-        items,
-    };
-    actor.shutdown()?;
-    Ok(snapshot)
+}
+
+fn review_item(record: ReviewItemRecord) -> ffi::FfiReviewItem {
+    let (visual_role, visual_width, visual_height, has_visual) = record.visual.map_or_else(
+        || (String::new(), 0, 0, false),
+        |visual| {
+            (
+                role_name(visual.artifact.role).to_owned(),
+                visual.artifact.dimensions.width,
+                visual.artifact.dimensions.height,
+                true,
+            )
+        },
+    );
+    ffi::FfiReviewItem {
+        photo_id: record.photo_id.to_string(),
+        representation_id: record.representation_id.to_string(),
+        title: file_name(&record.location.display_path),
+        source_path: record.location.display_path,
+        visual_role,
+        visual_width,
+        visual_height,
+        has_visual,
+    }
+}
+
+fn preferred_visual(
+    catalog: &CatalogHandle,
+    representation_id: RepresentationId,
+) -> AnyResult<Option<CachedArtifactRecord>> {
+    let source = catalog.representation_fingerprint(representation_id)?;
+    let mut artifacts = catalog.cached_artifacts(representation_id)?;
+    artifacts.retain(|record| record.source == source);
+    artifacts.sort_by_key(|record| {
+        (
+            match record.artifact.role {
+                CachedArtifactRole::EmbeddedPreview => 0_u8,
+                CachedArtifactRole::GeneratedProxy => 1_u8,
+            },
+            Reverse(
+                u64::from(record.artifact.dimensions.width)
+                    * u64::from(record.artifact.dimensions.height),
+            ),
+            record.artifact.variant_key.clone(),
+        )
+    });
+    Ok(artifacts.into_iter().next())
+}
+
+const fn role_name(role: CachedArtifactRole) -> &'static str {
+    match role {
+        CachedArtifactRole::EmbeddedPreview => "embedded",
+        CachedArtifactRole::GeneratedProxy => "proxy",
+    }
 }
 
 fn ensure_parent(path: &Path) -> AnyResult<()> {
@@ -202,8 +304,20 @@ mod tests {
     }
 
     #[test]
+    fn partial_review_cursor_is_rejected() {
+        assert!(parse_cursor("/photos/a.dng", "").is_err());
+        assert!(parse_cursor("", &RepresentationId::new_v7().to_string()).is_err());
+    }
+
+    #[test]
+    fn desktop_session_can_back_concurrent_qt_image_requests() {
+        fn assert_send_and_sync<T: Send + Sync>() {}
+        assert_send_and_sync::<DesktopSession>();
+    }
+
+    #[test]
     #[ignore = "requires SHADOW_TEST_DNG_FOLDER to contain local RAW fixtures"]
-    fn real_dng_folder_builds_a_review_snapshot_for_qt() {
+    fn real_dng_folder_pages_metadata_and_loads_visuals_lazily() {
         let folder = std::env::var_os("SHADOW_TEST_DNG_FOLDER").expect("SHADOW_TEST_DNG_FOLDER");
         let root = std::env::temp_dir().join(format!(
             "shadow-desktop-bridge-{}-{}",
@@ -211,19 +325,28 @@ mod tests {
             RepresentationId::new_v7()
         ));
         std::fs::create_dir_all(&root).expect("create desktop bridge fixture");
-        let snapshot = scan_review_inner(
-            &root.join("catalog.sqlite"),
-            &root.join("cache"),
-            Path::new(&folder),
-        )
-        .expect("build real Review snapshot");
+        {
+            let session = open_desktop_session(
+                root.join("catalog.sqlite").to_str().expect("catalog path"),
+                root.join("cache").to_str().expect("cache path"),
+            )
+            .expect("open desktop session");
+            let report = session
+                .scan_folder(Path::new(&folder).to_str().expect("fixture folder"))
+                .expect("scan real DNG folder");
+            let page = session.review_page("", "", 1).expect("first Review page");
 
-        assert!(snapshot.supported_files >= 2);
-        assert!(snapshot.items.len() >= 2);
-        assert!(snapshot.items.iter().all(|item| {
-            item.visual_bytes.starts_with(&[0xff, 0xd8])
-                && item.visual_bytes.ends_with(&[0xff, 0xd9])
-        }));
+            assert!(report.supported_files >= 2);
+            assert_eq!(page.items.len(), 1);
+            assert!(page.total_items >= 2);
+            assert!(page.has_more);
+            assert!(page.items[0].has_visual);
+            let visual = session
+                .load_review_visual(&page.items[0].representation_id)
+                .expect("load first visual lazily");
+            assert!(visual.bytes.starts_with(&[0xff, 0xd8]));
+            assert!(visual.bytes.ends_with(&[0xff, 0xd9]));
+        }
         std::fs::remove_dir_all(root).expect("remove desktop bridge fixture");
     }
 }

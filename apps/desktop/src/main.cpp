@@ -1,6 +1,8 @@
+#include "desktop_backend.hpp"
 #include "review_controller.hpp"
 #include "thumbnail_provider.hpp"
 
+#include <QDebug>
 #include <QDir>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
@@ -8,6 +10,8 @@
 #include <QStandardPaths>
 #include <QTimer>
 #include <QVariant>
+
+#include <memory>
 
 int main(int argc, char* argv[]) {
     QQuickStyle::setStyle(QStringLiteral("Basic"));
@@ -22,11 +26,18 @@ int main(int argc, char* argv[]) {
     const QString catalog_path = QDir(application_data).filePath(QStringLiteral("catalog.sqlite"));
     const QString cache_root = QDir(application_data).filePath(QStringLiteral("cache"));
 
-    ReviewController controller(catalog_path, cache_root);
+    std::shared_ptr<DesktopBackend> backend;
+    try {
+        backend = std::make_shared<DesktopBackend>(catalog_path, cache_root);
+    } catch (const std::exception& error) {
+        qCritical() << "Cannot start Shadow's local backend:" << error.what();
+        return EXIT_FAILURE;
+    }
+    ReviewController controller(backend);
     QQmlApplicationEngine engine;
     engine.addImageProvider(
         QStringLiteral("shadow"),
-        new ThumbnailProvider(controller.reviewModel())
+        new ThumbnailProvider(backend, controller.reviewModel())
     );
     engine.setInitialProperties({
         {QStringLiteral("controller"), QVariant::fromValue(&controller)},

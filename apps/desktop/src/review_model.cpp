@@ -1,9 +1,7 @@
 #include "review_model.hpp"
 
-#include <QReadLocker>
 #include <QUrl>
 #include <QVariant>
-#include <QWriteLocker>
 
 #include <utility>
 
@@ -13,12 +11,10 @@ int ReviewModel::rowCount(const QModelIndex& parent) const {
     if (parent.isValid()) {
         return 0;
     }
-    QReadLocker locker(&lock_);
     return static_cast<int>(items_.size());
 }
 
 QVariant ReviewModel::data(const QModelIndex& index, const int role) const {
-    QReadLocker locker(&lock_);
     if (!index.isValid() || index.row() < 0 || index.row() >= items_.size()) {
         return {};
     }
@@ -35,18 +31,18 @@ QVariant ReviewModel::data(const QModelIndex& index, const int role) const {
     case VisualRole:
         return item.visual_role;
     case VisualErrorRole:
-        return item.visual_error;
+        return item.has_visual ? QString{} : QStringLiteral("visual pending");
     case VisualWidthRole:
         return QVariant::fromValue(item.visual_width);
     case VisualHeightRole:
         return QVariant::fromValue(item.visual_height);
     case VisualSourceRole:
-        if (item.visual_bytes.isEmpty()) {
+        if (!item.has_visual) {
             return QString{};
         }
-        return QStringLiteral("image://shadow/%1?v=%2")
+        return QStringLiteral("image://shadow/%1?generation=%2")
             .arg(item.representation_id)
-            .arg(generation_);
+            .arg(generation_.load(std::memory_order_relaxed));
     default:
         return {};
     }
@@ -66,25 +62,24 @@ QHash<int, QByteArray> ReviewModel::roleNames() const {
     };
 }
 
-void ReviewModel::replace(QVector<ReviewItem> items) {
+void ReviewModel::replace(QVector<ReviewItem> items, const quint64 generation) {
     beginResetModel();
-    {
-        QWriteLocker locker(&lock_);
-        items_ = std::move(items);
-        row_by_id_.clear();
-        for (qsizetype row = 0; row < items_.size(); ++row) {
-            row_by_id_.insert(items_.at(row).representation_id, row);
-        }
-        ++generation_;
-    }
+    items_ = std::move(items);
+    generation_.store(generation, std::memory_order_release);
     endResetModel();
 }
 
-QByteArray ReviewModel::visualBytes(const QString& representation_id) const {
-    QReadLocker locker(&lock_);
-    const auto found = row_by_id_.constFind(representation_id);
-    if (found == row_by_id_.cend()) {
-        return {};
+void ReviewModel::append(QVector<ReviewItem> items) {
+    if (items.isEmpty()) {
+        return;
     }
-    return items_.at(found.value()).visual_bytes;
+    const auto first = items_.size();
+    const auto last = first + items.size() - 1;
+    beginInsertRows({}, static_cast<int>(first), static_cast<int>(last));
+    items_.append(std::move(items));
+    endInsertRows();
+}
+
+bool ReviewModel::isGenerationCurrent(const quint64 generation) const noexcept {
+    return generation_.load(std::memory_order_acquire) == generation;
 }

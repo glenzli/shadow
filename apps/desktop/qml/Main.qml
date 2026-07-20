@@ -25,6 +25,15 @@ ApplicationWindow {
         selectedHeight = card.visualHeight
     }
 
+    function clearSelection() {
+        selectedTitle = ""
+        selectedPath = ""
+        selectedVisual = ""
+        selectedRole = ""
+        selectedWidth = 0
+        selectedHeight = 0
+    }
+
     width: 1480
     height: 920
     minimumWidth: 1080
@@ -44,6 +53,14 @@ ApplicationWindow {
         id: folderDialog
         title: "Choose a photo folder"
         onAccepted: window.controller.scanFolder(selectedFolder)
+    }
+
+    Connections {
+        target: window.controller
+        function onItemCountChanged() {
+            if (window.controller.itemCount === 0)
+                window.clearSelection()
+        }
     }
 
     Popup {
@@ -124,7 +141,7 @@ ApplicationWindow {
             Button {
                 id: folderButton
                 text: window.controller.busy ? "SCANNING…" : "CHOOSE FOLDER"
-                enabled: !window.controller.busy
+                enabled: !window.controller.busy && !window.controller.loadingMore
                 onClicked: folderDialog.open()
 
                 background: Rectangle {
@@ -216,13 +233,36 @@ ApplicationWindow {
 
             GridView {
                 id: grid
+
+                function maybeLoadMore() {
+                    if (window.controller.hasMore
+                            && !window.controller.busy
+                            && !window.controller.loadingMore
+                            && contentY + height >= contentHeight - cellHeight * 2)
+                        window.controller.loadMore()
+                }
+
                 anchors.fill: parent
                 anchors.margins: 18
                 clip: true
                 model: window.controller.model
                 cellWidth: Math.max(220, Math.floor(width / Math.max(1, Math.floor(width / 270))))
                 cellHeight: cellWidth * 0.78
-                currentIndex: count > 0 ? 0 : -1
+                currentIndex: -1
+                onContentYChanged: maybeLoadMore()
+                onHeightChanged: Qt.callLater(maybeLoadMore)
+                onCountChanged: {
+                    if (count === 0) {
+                        currentIndex = -1
+                    } else if (currentIndex < 0) {
+                        currentIndex = 0
+                    }
+                    Qt.callLater(maybeLoadMore)
+                }
+                onCurrentItemChanged: {
+                    if (currentItem)
+                        window.selectPhoto(currentItem)
+                }
 
                 delegate: Item {
                     id: card
@@ -237,11 +277,6 @@ ApplicationWindow {
                     required property int visualWidth
                     required property int visualHeight
                     required property string visualSource
-
-                    Component.onCompleted: {
-                        if (card.index === grid.currentIndex)
-                            window.selectPhoto(card)
-                    }
 
                     Rectangle {
                         anchors.fill: parent
@@ -357,6 +392,17 @@ ApplicationWindow {
                     horizontalAlignment: Text.AlignHCenter
                     wrapMode: Text.WordWrap
                     lineHeight: 1.4
+                }
+
+
+                BusyIndicator {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: 18
+                    visible: window.controller.loadingMore
+                    running: visible
+                    width: 34
+                    height: 34
                 }
             }
 

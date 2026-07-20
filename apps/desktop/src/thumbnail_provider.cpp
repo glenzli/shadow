@@ -1,22 +1,52 @@
 #include "thumbnail_provider.hpp"
 
+#include "desktop_backend.hpp"
 #include "review_model.hpp"
 
 #include <QBuffer>
+#include <QDebug>
 #include <QImageReader>
+#include <QUrlQuery>
 
 #include <algorithm>
 
-ThumbnailProvider::ThumbnailProvider(const ReviewModel* model)
-    : QQuickImageProvider(QQuickImageProvider::Image), model_(model) {}
+ThumbnailProvider::ThumbnailProvider(
+    std::shared_ptr<DesktopBackend> backend,
+    const ReviewModel* model
+)
+    : QQuickImageProvider(
+          QQuickImageProvider::Image,
+          QQmlImageProviderBase::ForceAsynchronousImageLoading
+      ),
+      backend_(std::move(backend)),
+      model_(model) {}
 
 QImage ThumbnailProvider::requestImage(
     const QString& id,
     QSize* size,
     const QSize& requested_size
 ) {
-    const QString representation_id = id.section(QLatin1Char('?'), 0, 0);
-    const QByteArray bytes = model_->visualBytes(representation_id);
+    const qsizetype query_start = id.indexOf(QLatin1Char('?'));
+    const QString representation_id = id.left(query_start);
+    const QUrlQuery query(query_start >= 0 ? id.mid(query_start + 1) : QString{});
+    bool valid_generation = false;
+    const quint64 generation = query
+                                   .queryItemValue(QStringLiteral("generation"))
+                                   .toULongLong(&valid_generation);
+    if (!valid_generation || !model_->isGenerationCurrent(generation)) {
+        return {};
+    }
+
+    QByteArray bytes;
+    try {
+        bytes = backend_->loadReviewVisual(representation_id);
+    } catch (const std::exception& error) {
+        qWarning() << "Cannot load Review visual" << representation_id << error.what();
+        return {};
+    }
+    if (!model_->isGenerationCurrent(generation)) {
+        return {};
+    }
     if (bytes.isEmpty()) {
         if (size != nullptr) {
             *size = {};

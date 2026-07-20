@@ -58,6 +58,8 @@ add_dependencies(shadow-desktop-rust shadow-desktop-rust-build)
 qt_add_executable(
     shadow-desktop
     MACOSX_BUNDLE
+    src/desktop_backend.cpp
+    src/desktop_backend.hpp
     src/main.cpp
     src/review_controller.cpp
     src/review_controller.hpp

@@ -11,7 +11,7 @@ use crate::{
     ImportSession, ImportSessionState, ImportSessionSummary, InvalidateCachedArtifactStatus,
     RecordCachedArtifact, RecordCachedArtifactStatus, RecordDecodeSnapshot,
     RecordDecodeSnapshotStatus, RegisterAsset, RegisteredAsset, RepresentationFingerprint,
-    ReviewItemRecord,
+    ReviewCursor, ReviewPageRecord,
 };
 
 #[derive(Debug)]
@@ -65,7 +65,11 @@ enum Message {
         Box<CachedArtifactRecord>,
         SyncSender<Result<InvalidateCachedArtifactStatus, CatalogError>>,
     ),
-    ReviewItems(SyncSender<Result<Vec<ReviewItemRecord>, CatalogError>>),
+    ReviewPage(
+        Option<ReviewCursor>,
+        usize,
+        SyncSender<Result<ReviewPageRecord, CatalogError>>,
+    ),
     BeginImportSession(
         AssetLocation,
         i64,
@@ -332,13 +336,18 @@ impl CatalogHandle {
         })
     }
 
-    /// Returns an immutable Review-grid snapshot through the Catalog actor.
+    /// Returns one immutable, keyset-paginated Review-grid page through the
+    /// Catalog actor.
     ///
     /// # Errors
     ///
     /// Returns [`CatalogError`] if the writer is unavailable or the query fails.
-    pub fn review_items(&self) -> Result<Vec<ReviewItemRecord>, CatalogError> {
-        self.request(Message::ReviewItems)
+    pub fn review_page(
+        &self,
+        after: Option<&ReviewCursor>,
+        limit: usize,
+    ) -> Result<ReviewPageRecord, CatalogError> {
+        self.request(|response| Message::ReviewPage(after.cloned(), limit, response))
     }
 
     /// Lists resumable import sessions.
@@ -491,8 +500,8 @@ fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
             Message::InvalidateCachedArtifact(record, response) => {
                 let _ = response.send(catalog.invalidate_cached_artifact(record.as_ref()));
             }
-            Message::ReviewItems(response) => {
-                let _ = response.send(catalog.review_items());
+            Message::ReviewPage(after, limit, response) => {
+                let _ = response.send(catalog.review_page(after.as_ref(), limit));
             }
             Message::BeginImportSession(root, now_ms, response) => {
                 let _ = response.send(catalog.begin_import_session(&root, now_ms));

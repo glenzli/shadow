@@ -5,13 +5,13 @@ The first macOS Review slice is a native Qt Quick application backed by the exis
 ```text
 FolderDialog / QML Review grid
   → ReviewController (Qt UI thread + QtConcurrent job)
-  → shadow-desktop-bridge (coarse CXX snapshot)
+  → shadow-desktop-bridge (long-lived CXX session)
   → shadow-core scan / decode workers
   → shadow-catalog single writer
   → embedded preview or generated proxy cache
 ```
 
-QML never opens SQLite, calls LibRaw, or interprets blob paths. The Rust bridge returns an immutable Review snapshot containing presentation metadata and verified compressed visual payloads. The C++ model exposes those fields to QML and a `QQuickImageProvider` decodes only the requested display size.
+QML never opens SQLite, calls LibRaw, or interprets blob paths. The Rust bridge returns bounded Review metadata pages using a stable path/representation cursor. Compressed visuals are not stored in the Qt model: a forced-asynchronous `QQuickImageProvider` requests a verified cache blob only when Qt needs that image and decodes only the requested display size. Every image URL carries the current model generation, so a late result from a previous folder is discarded.
 
 ## macOS development
 
@@ -32,4 +32,4 @@ QT_QPA_PLATFORM=offscreen SHADOW_DESKTOP_SMOKE_TEST=1 \
 
 `SHADOW_DESKTOP_SCAN_FOLDER=/absolute/folder` optionally starts one scan after launch. It is intended for local visual regression and does not bypass the folder picker in normal use.
 
-The current snapshot keeps compressed preview bytes in memory. This is bounded enough for the first interaction milestone but is not the final large-library design. The next iteration will page the model and let an asynchronous image provider request verified blobs by representation and generation instead of materializing the entire library snapshot.
+The model currently fetches 96 metadata rows per page and requests another page near the end of the grid. Scanning still completes before the first Catalog page is shown; streaming import progress and first-screen priority are separate follow-up work.
