@@ -16,6 +16,7 @@ Item {
     readonly property color panelRaised: "#181c21"
     readonly property color border: "#2a3037"
     readonly property color textPrimary: "#edf0f2"
+    readonly property color textSecondary: "#bdc4ca"
     readonly property color textMuted: "#8b949e"
     readonly property color accent: "#d8b36a"
     readonly property var nodeTitles: ["Exposure", "Contrast", "RGB Channel Gain", "Saturation"]
@@ -779,9 +780,12 @@ Item {
                                     required property string label
                                     required property string createdAtText
                                     required property bool current
+                                    required property int parentCount
+                                    required property string changeSummary
+                                    required property string parentSummary
 
                                     width: versionList.width
-                                    height: 62
+                                    height: 78
                                     radius: 4
                                     color: current ? "#242820" : "#181c21"
                                     border.color: current ? "#625334" : precision.border
@@ -795,9 +799,7 @@ Item {
                                         spacing: 4
                                         Label {
                                             width: parent.width
-                                            text: versionRow.label.length > 0
-                                                ? versionRow.label
-                                                : versionRow.commitId.slice(0, 8)
+                                            text: versionRow.label
                                             color: precision.textPrimary
                                             font.pixelSize: 11
                                             font.weight: Font.Medium
@@ -805,7 +807,15 @@ Item {
                                         }
                                         Label {
                                             width: parent.width
-                                            text: versionRow.createdAtText
+                                            text: versionRow.changeSummary
+                                            color: precision.textSecondary
+                                            font.pixelSize: 10
+                                            elide: Text.ElideRight
+                                        }
+                                        Label {
+                                            width: parent.width
+                                            text: versionRow.createdAtText + "  ·  "
+                                                + versionRow.parentSummary
                                             color: precision.textMuted
                                             font.pixelSize: 9
                                             elide: Text.ElideRight

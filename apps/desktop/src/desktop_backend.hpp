@@ -52,6 +52,19 @@ struct BackendEditVersion final {
     std::int64_t created_at_ms = 0;
     QVector<QString> parent_commit_ids;
     bool is_working = false;
+    bool is_root = false;
+    bool recipe_schema_changed = false;
+    std::uint32_t layers_added = 0;
+    std::uint32_t layers_removed = 0;
+    std::uint32_t layers_moved = 0;
+    std::uint32_t layers_modified = 0;
+    std::uint32_t nodes_added = 0;
+    std::uint32_t nodes_removed = 0;
+    std::uint32_t nodes_modified = 0;
+    std::uint32_t node_parameter_blocks_changed = 0;
+    QVector<QString> changed_basic_parameters;
+    std::uint32_t changed_basic_parameter_count = 0;
+    bool has_other_changes = false;
 };
 
 struct BackendPhotoEditState final {

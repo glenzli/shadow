@@ -1,5 +1,7 @@
 #include "edit_version_model.hpp"
 
+#include "edit_version_presentation.hpp"
+
 #include <QDateTime>
 #include <QVariant>
 
@@ -20,7 +22,7 @@ QVariant EditVersionModel::data(const QModelIndex& index, const int role) const 
     case CommitIdRole:
         return version.commit_id;
     case LabelRole:
-        return version.name;
+        return EditVersionPresentation::displayName(version);
     case CreatedAtTextRole:
         return QDateTime::fromMSecsSinceEpoch(version.created_at_ms)
             .toLocalTime()
@@ -29,6 +31,10 @@ QVariant EditVersionModel::data(const QModelIndex& index, const int role) const 
         return version.is_working;
     case ParentCountRole:
         return version.parent_commit_ids.size();
+    case ChangeSummaryRole:
+        return EditVersionPresentation::changeSummary(version);
+    case ParentSummaryRole:
+        return EditVersionPresentation::parentSummary(version);
     default:
         return {};
     }
@@ -41,6 +47,8 @@ QHash<int, QByteArray> EditVersionModel::roleNames() const {
         {CreatedAtTextRole, "createdAtText"},
         {CurrentRole, "current"},
         {ParentCountRole, "parentCount"},
+        {ChangeSummaryRole, "changeSummary"},
+        {ParentSummaryRole, "parentSummary"},
     };
 }
 

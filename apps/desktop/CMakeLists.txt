@@ -1,4 +1,4 @@
-find_package(Qt6 6.8 REQUIRED COMPONENTS Concurrent Quick QuickControls2)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Core Concurrent Quick QuickControls2)
 find_package(PkgConfig REQUIRED)
 find_package(JPEG REQUIRED)
 find_package(Iconv REQUIRED)
@@ -67,6 +67,8 @@ qt_add_executable(
     src/edit_preview_provider.hpp
     src/edit_version_model.cpp
     src/edit_version_model.hpp
+    src/edit_version_presentation.cpp
+    src/edit_version_presentation.hpp
     src/main.cpp
     src/review_controller.cpp
     src/review_controller.hpp
@@ -133,4 +135,32 @@ if(BUILD_TESTING)
         )
     endif()
     add_test(NAME shadow-desktop-edit-history COMMAND shadow-edit-history-test)
+
+    add_executable(
+        shadow-edit-version-presentation-test
+        tests/edit_version_presentation_test.cpp
+        src/edit_version_model.cpp
+        src/edit_version_presentation.cpp
+    )
+    target_compile_features(shadow-edit-version-presentation-test PRIVATE cxx_std_20)
+    target_include_directories(
+        shadow-edit-version-presentation-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(shadow-edit-version-presentation-test PRIVATE Qt6::Core)
+    if(MSVC)
+        target_compile_options(
+            shadow-edit-version-presentation-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-edit-version-presentation-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-edit-version-presentation
+        COMMAND shadow-edit-version-presentation-test
+    )
 endif()

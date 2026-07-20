@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <stdexcept>
 #include <string>
 #include <utility>
 
@@ -26,6 +27,16 @@ namespace {
         reinterpret_cast<const char*>(value.data()),
         static_cast<qsizetype>(length)
     );
+}
+
+[[nodiscard]] qsizetype checked_qt_vector_size(
+    const std::size_t size,
+    const char* const field
+) {
+    if (size > static_cast<std::size_t>(std::numeric_limits<qsizetype>::max())) {
+        throw std::length_error(std::string("desktop bridge vector is too large: ") + field);
+    }
+    return static_cast<qsizetype>(size);
 }
 
 [[nodiscard]] shadow::desktop::FfiBasicEditParameters ffi_parameters(
@@ -64,18 +75,44 @@ namespace {
     state.recipe_id = qstring(source.recipe_id);
     state.parameters = edit_parameters(source.parameters);
     state.has_working_version = source.has_working_version;
-    state.versions.reserve(static_cast<qsizetype>(source.versions.size()));
+    state.versions.reserve(checked_qt_vector_size(source.versions.size(), "versions"));
     for (const auto& version : source.versions) {
         BackendEditVersion converted;
         converted.commit_id = qstring(version.commit_id);
         converted.name = qstring(version.name);
         converted.created_at_ms = version.created_at_ms;
         converted.is_working = version.is_working;
+        converted.is_root = version.is_root;
+        converted.recipe_schema_changed = version.recipe_schema_changed;
+        converted.layers_added = version.layers_added;
+        converted.layers_removed = version.layers_removed;
+        converted.layers_moved = version.layers_moved;
+        converted.layers_modified = version.layers_modified;
+        converted.nodes_added = version.nodes_added;
+        converted.nodes_removed = version.nodes_removed;
+        converted.nodes_modified = version.nodes_modified;
+        converted.node_parameter_blocks_changed = version.node_parameter_blocks_changed;
+        converted.changed_basic_parameter_count = version.changed_basic_parameter_count;
+        converted.has_other_changes = version.has_other_changes;
         converted.parent_commit_ids.reserve(
-            static_cast<qsizetype>(version.parent_commit_ids.size())
+            checked_qt_vector_size(version.parent_commit_ids.size(), "parent_commit_ids")
         );
         for (const auto& parent : version.parent_commit_ids) {
             converted.parent_commit_ids.push_back(qstring(parent));
+        }
+        const auto changed_parameter_size = checked_qt_vector_size(
+            version.changed_basic_parameters.size(),
+            "changed_basic_parameters"
+        );
+        if (static_cast<std::uint64_t>(changed_parameter_size)
+            != static_cast<std::uint64_t>(version.changed_basic_parameter_count)) {
+            throw std::runtime_error(
+                "desktop bridge returned an inconsistent changed-basic-parameter count"
+            );
+        }
+        converted.changed_basic_parameters.reserve(changed_parameter_size);
+        for (const auto& parameter : version.changed_basic_parameters) {
+            converted.changed_basic_parameters.push_back(qstring(parameter));
         }
         state.versions.push_back(std::move(converted));
     }

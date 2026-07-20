@@ -15,6 +15,8 @@ public:
         CreatedAtTextRole,
         CurrentRole,
         ParentCountRole,
+        ChangeSummaryRole,
+        ParentSummaryRole,
     };
     Q_ENUM(Role)
 
