@@ -23,10 +23,11 @@ use shadow_core::{
 };
 use shadow_domain::{
     AdjustmentNode, AdjustmentScope, BlendMode, CURRENT_RECIPE_SCHEMA_VERSION, DecoderSnapshot,
-    EditGraph, EntityId, FiniteF64, ImageDomain, LayerContent, LayerInstance, LayerInstanceId,
-    NodeId, NodeInput, OperationDescriptor, OperationId, ParameterBlock, ParameterKey,
-    ParameterValue, PhotoId, PortType, PreviewPayload, ProcessingStage, ProxyPayload, RecipeCommit,
-    RecipeCommitId, RecipeId, RecipeSnapshot, RepresentationId, UnitInterval, VersionName,
+    EditGraph, EntityId, FiniteF64, ImageDomain, LayerContent, LayerContentDiff, LayerInstance,
+    LayerInstanceId, NodeId, NodeInput, OperationDescriptor, OperationId, ParameterBlock,
+    ParameterKey, ParameterValue, PhotoId, PortType, PreviewPayload, ProcessingStage, ProxyPayload,
+    RecipeCommit, RecipeCommitId, RecipeDiff, RecipeId, RecipeSnapshot, RepresentationId,
+    UnitInterval, VersionName, diff_recipe_snapshots,
 };
 
 #[cxx::bridge(namespace = "shadow::desktop")]
@@ -85,6 +86,25 @@ mod ffi {
         created_at_ms: i64,
         parent_commit_ids: Vec<String>,
         is_working: bool,
+        /// Root commits have no parent snapshot to compare with. All counters
+        /// are zero and `changed_basic_parameters` is empty for roots.
+        is_root: bool,
+        recipe_schema_changed: bool,
+        layers_added: u32,
+        layers_removed: u32,
+        layers_moved: u32,
+        layers_modified: u32,
+        nodes_added: u32,
+        nodes_removed: u32,
+        nodes_modified: u32,
+        node_parameter_blocks_changed: u32,
+        /// Stable localization keys for the exact basic controls that differ
+        /// from this commit's first parent.
+        changed_basic_parameters: Vec<String>,
+        changed_basic_parameter_count: u32,
+        /// True when the structural diff contains changes not represented by
+        /// `changed_basic_parameters` (for example topology or masks).
+        has_other_changes: bool,
     }
 
     /// Durable state for one photo's basic adjustment surface.
@@ -452,8 +472,8 @@ impl DesktopSession {
         let recipe_id = working_record.map(|record| record.commit.recipe_id());
         let versions = commits
             .iter()
-            .map(|record| ffi_edit_version(record, working_id))
-            .collect();
+            .map(|record| ffi_edit_version(record, &commits, working_id))
+            .collect::<AnyResult<Vec<_>>>()?;
         Ok(ffi::FfiPhotoEditState {
             photo_id: photo_id.to_string(),
             source_path: source_path.to_owned(),
@@ -824,9 +844,11 @@ fn commit_record(
 
 fn ffi_edit_version(
     record: &RecipeCommitRecord,
+    commits: &[RecipeCommitRecord],
     working_id: Option<RecipeCommitId>,
-) -> ffi::FfiEditVersion {
-    ffi::FfiEditVersion {
+) -> AnyResult<ffi::FfiEditVersion> {
+    let diff = edit_version_diff(record, commits)?;
+    Ok(ffi::FfiEditVersion {
         commit_id: record.commit.id().to_string(),
         name: record
             .commit
@@ -841,7 +863,255 @@ fn ffi_edit_version(
             .map(ToString::to_string)
             .collect(),
         is_working: working_id == Some(record.commit.id()),
+        is_root: diff.is_root,
+        recipe_schema_changed: diff.recipe_schema_changed,
+        layers_added: diff.layers_added,
+        layers_removed: diff.layers_removed,
+        layers_moved: diff.layers_moved,
+        layers_modified: diff.layers_modified,
+        nodes_added: diff.nodes_added,
+        nodes_removed: diff.nodes_removed,
+        nodes_modified: diff.nodes_modified,
+        node_parameter_blocks_changed: diff.node_parameter_blocks_changed,
+        changed_basic_parameter_count: checked_count(
+            record.commit.id(),
+            "changed_basic_parameters",
+            diff.changed_basic_parameters.len(),
+        )?,
+        changed_basic_parameters: diff.changed_basic_parameters,
+        has_other_changes: diff.has_other_changes,
+    })
+}
+
+#[derive(Debug, thiserror::Error)]
+enum EditVersionDiffError {
+    #[error(
+        "edit_version_diff.parent_missing: commit {commit_id} references unavailable first parent {parent_id}"
+    )]
+    ParentMissing {
+        commit_id: RecipeCommitId,
+        parent_id: RecipeCommitId,
+    },
+    #[error(
+        "edit_version_diff.recipe_mismatch: commit {commit_id} and first parent {parent_id} have different Recipe identities"
+    )]
+    RecipeMismatch {
+        commit_id: RecipeCommitId,
+        parent_id: RecipeCommitId,
+    },
+    #[error(
+        "edit_version_diff.unsupported_basic_snapshot: cannot compare {role} commit {commit_id}: {source}"
+    )]
+    UnsupportedBasicSnapshot {
+        commit_id: RecipeCommitId,
+        role: &'static str,
+        #[source]
+        source: anyhow::Error,
+    },
+    #[error(
+        "edit_version_diff.count_overflow: {field} for commit {commit_id} exceeds the desktop ABI limit"
+    )]
+    CountOverflow {
+        commit_id: RecipeCommitId,
+        field: &'static str,
+    },
+}
+
+#[derive(Debug, Default)]
+struct EditVersionDiff {
+    is_root: bool,
+    recipe_schema_changed: bool,
+    layers_added: u32,
+    layers_removed: u32,
+    layers_moved: u32,
+    layers_modified: u32,
+    nodes_added: u32,
+    nodes_removed: u32,
+    nodes_modified: u32,
+    node_parameter_blocks_changed: u32,
+    changed_basic_parameters: Vec<String>,
+    has_other_changes: bool,
+}
+
+fn edit_version_diff(
+    record: &RecipeCommitRecord,
+    commits: &[RecipeCommitRecord],
+) -> Result<EditVersionDiff, EditVersionDiffError> {
+    let Some(parent_id) = record.commit.parents().first().copied() else {
+        return Ok(EditVersionDiff {
+            is_root: true,
+            ..EditVersionDiff::default()
+        });
+    };
+    let parent = commits
+        .iter()
+        .find(|candidate| candidate.commit.id() == parent_id)
+        .ok_or(EditVersionDiffError::ParentMissing {
+            commit_id: record.commit.id(),
+            parent_id,
+        })?;
+    if parent.commit.recipe_id() != record.commit.recipe_id() {
+        return Err(EditVersionDiffError::RecipeMismatch {
+            commit_id: record.commit.id(),
+            parent_id,
+        });
     }
+
+    let structural = diff_recipe_snapshots(parent.commit.snapshot(), record.commit.snapshot());
+    let summary = structural.summary();
+    let before = basic_parameters_from_snapshot(parent.commit.snapshot()).map_err(|source| {
+        EditVersionDiffError::UnsupportedBasicSnapshot {
+            commit_id: parent_id,
+            role: "parent",
+            source,
+        }
+    })?;
+    let after = basic_parameters_from_snapshot(record.commit.snapshot()).map_err(|source| {
+        EditVersionDiffError::UnsupportedBasicSnapshot {
+            commit_id: record.commit.id(),
+            role: "current",
+            source,
+        }
+    })?;
+    let changed_basic_parameters = changed_basic_parameters(before, after);
+
+    Ok(EditVersionDiff {
+        is_root: false,
+        recipe_schema_changed: summary.recipe_schema_changed,
+        layers_added: checked_summary_count(
+            record.commit.id(),
+            "layers_added",
+            summary.layers_added,
+        )?,
+        layers_removed: checked_summary_count(
+            record.commit.id(),
+            "layers_removed",
+            summary.layers_removed,
+        )?,
+        layers_moved: checked_summary_count(
+            record.commit.id(),
+            "layers_moved",
+            summary.layers_moved,
+        )?,
+        layers_modified: checked_summary_count(
+            record.commit.id(),
+            "layers_modified",
+            summary.layers_modified,
+        )?,
+        nodes_added: checked_summary_count(record.commit.id(), "nodes_added", summary.nodes_added)?,
+        nodes_removed: checked_summary_count(
+            record.commit.id(),
+            "nodes_removed",
+            summary.nodes_removed,
+        )?,
+        nodes_modified: checked_summary_count(
+            record.commit.id(),
+            "nodes_modified",
+            summary.nodes_modified,
+        )?,
+        node_parameter_blocks_changed: checked_summary_count(
+            record.commit.id(),
+            "node_parameter_blocks_changed",
+            summary.node_parameters_changed,
+        )?,
+        has_other_changes: has_other_recipe_changes(&structural),
+        changed_basic_parameters,
+    })
+}
+
+fn checked_summary_count(
+    commit_id: RecipeCommitId,
+    field: &'static str,
+    count: usize,
+) -> Result<u32, EditVersionDiffError> {
+    checked_count(commit_id, field, count)
+}
+
+fn checked_count(
+    commit_id: RecipeCommitId,
+    field: &'static str,
+    count: usize,
+) -> Result<u32, EditVersionDiffError> {
+    u32::try_from(count).map_err(|_| EditVersionDiffError::CountOverflow { commit_id, field })
+}
+
+fn changed_basic_parameters(
+    before: BasicEditParameters,
+    after: BasicEditParameters,
+) -> Vec<String> {
+    let mut changed = Vec::new();
+    if persisted_float_changed(before.exposure_stops, after.exposure_stops) {
+        changed.push("exposure_stops".to_owned());
+    }
+    if persisted_float_changed(before.contrast_factor, after.contrast_factor) {
+        changed.push("contrast_factor".to_owned());
+    }
+    for (key, before, after) in [
+        (
+            "red_channel_gain",
+            before.channel_gains[0],
+            after.channel_gains[0],
+        ),
+        (
+            "green_channel_gain",
+            before.channel_gains[1],
+            after.channel_gains[1],
+        ),
+        (
+            "blue_channel_gain",
+            before.channel_gains[2],
+            after.channel_gains[2],
+        ),
+    ] {
+        if persisted_float_changed(before, after) {
+            changed.push(key.to_owned());
+        }
+    }
+    if persisted_float_changed(before.saturation_factor, after.saturation_factor) {
+        changed.push("saturation_factor".to_owned());
+    }
+    changed
+}
+
+const fn persisted_float_changed(before: f64, after: f64) -> bool {
+    before.to_bits() != after.to_bits()
+}
+
+/// A basic-parameter-only edit still appears as one modified layer and one or
+/// more modified nodes in the generic summary. Inspect the exact diff so the
+/// UI can distinguish those container changes from topology/mask/contract
+/// changes that its localized basic-control labels do not describe.
+fn has_other_recipe_changes(diff: &RecipeDiff) -> bool {
+    if diff.schema_version().is_some()
+        || !diff.added_layers().is_empty()
+        || !diff.removed_layers().is_empty()
+        || !diff.moved_layers().is_empty()
+    {
+        return true;
+    }
+
+    diff.modified_layers().iter().any(|layer| {
+        if !layer.instance().is_empty() {
+            return true;
+        }
+        match layer.content() {
+            Some(LayerContentDiff::InlineGraph { graph }) => {
+                graph.schema_version().is_some()
+                    || graph.input_types().is_some()
+                    || graph.output_node().is_some()
+                    || !graph.added_nodes().is_empty()
+                    || !graph.removed_nodes().is_empty()
+                    || graph.modified_nodes().iter().any(|node| {
+                        node.operation_contract().is_some()
+                            || node.inputs().is_some()
+                            || node.mask().is_some()
+                            || node.parameters().is_none()
+                    })
+            }
+            Some(LayerContentDiff::Shared { .. } | LayerContentDiff::Replaced { .. }) => true,
+            None => false,
+        }
+    })
 }
 
 fn current_time_ms() -> AnyResult<i64> {
@@ -1083,6 +1353,8 @@ mod tests {
             )
             .expect("save first version");
         let first_id = first.working_commit_id.clone();
+        let root_version = first.versions.first().expect("root version");
+        assert_root_diff(root_version);
 
         let second_parameters = ffi_parameters(-0.25, 1.3, [1.1, 1.0, 0.8], 1.2);
         let second = session
@@ -1111,6 +1383,7 @@ mod tests {
         assert_eq!(working.name, "Second look");
         assert_eq!(working.created_at_ms, 2_000);
         assert_eq!(working.parent_commit_ids, std::slice::from_ref(&first_id));
+        assert_all_basic_parameters_changed(working);
 
         let parsed_photo_id: PhotoId = photo_id.parse().expect("photo id");
         let commits = session
@@ -1147,6 +1420,147 @@ mod tests {
 
         drop(session);
         std::fs::remove_dir_all(root).expect("remove edit fixture");
+    }
+
+    #[test]
+    fn consecutive_version_reports_the_exact_changed_basic_parameter() {
+        let (root, session, photo_id, source_path) = test_edit_session();
+        let first_parameters = ffi_parameters(0.25, 1.1, [1.05, 1.0, 0.95], 0.9);
+        let first = session
+            .save_basic_edit_version_at(&photo_id, &source_path, &first_parameters, "Base", 1_000)
+            .expect("save root version");
+        let first_id = first.working_commit_id;
+
+        let second = session
+            .save_basic_edit_version_at(
+                &photo_id,
+                &source_path,
+                &ffi_parameters(0.75, 1.1, [1.05, 1.0, 0.95], 0.9),
+                "Exposure only",
+                2_000,
+            )
+            .expect("save exposure version");
+        let version = second
+            .versions
+            .iter()
+            .find(|version| version.is_working)
+            .expect("working version");
+
+        assert!(!version.is_root);
+        assert_eq!(version.parent_commit_ids, [first_id]);
+        assert!(!version.recipe_schema_changed);
+        assert_eq!(version.layers_added, 0);
+        assert_eq!(version.layers_removed, 0);
+        assert_eq!(version.layers_moved, 0);
+        assert_eq!(version.layers_modified, 1);
+        assert_eq!(version.nodes_added, 0);
+        assert_eq!(version.nodes_removed, 0);
+        assert_eq!(version.nodes_modified, 1);
+        assert_eq!(version.node_parameter_blocks_changed, 1);
+        assert_eq!(version.changed_basic_parameter_count, 1);
+        assert_eq!(version.changed_basic_parameters, ["exposure_stops"]);
+        assert!(!version.has_other_changes);
+
+        drop(session);
+        std::fs::remove_dir_all(root).expect("remove edit fixture");
+    }
+
+    #[test]
+    fn version_saved_from_an_old_checkout_diffs_against_the_branch_point() {
+        let (root, session, photo_id, source_path) = test_edit_session();
+        let base_parameters = ffi_parameters(0.25, 1.1, [1.05, 1.0, 0.95], 0.9);
+        let base = session
+            .save_basic_edit_version_at(
+                &photo_id,
+                &source_path,
+                &base_parameters,
+                "Branch point",
+                1_000,
+            )
+            .expect("save branch point");
+        let base_id = base.working_commit_id;
+        let continuation = session
+            .save_basic_edit_version_at(
+                &photo_id,
+                &source_path,
+                &ffi_parameters(0.75, 1.1, [1.05, 1.0, 0.95], 0.9),
+                "Exposure branch",
+                2_000,
+            )
+            .expect("save first branch");
+        let continuation_id = continuation.working_commit_id;
+        session
+            .checkout_basic_edit_version_at(&photo_id, &source_path, &base_id, 3_000)
+            .expect("check out branch point");
+
+        let branch = session
+            .save_basic_edit_version_at(
+                &photo_id,
+                &source_path,
+                &ffi_parameters(0.25, 1.1, [1.05, 1.0, 0.95], 1.2),
+                "Saturation branch",
+                4_000,
+            )
+            .expect("save second branch");
+        let working = branch
+            .versions
+            .iter()
+            .find(|version| version.is_working)
+            .expect("working branch version");
+
+        assert_eq!(branch.versions.len(), 3);
+        assert_eq!(working.parent_commit_ids, [base_id]);
+        assert_eq!(working.changed_basic_parameter_count, 1);
+        assert_eq!(working.changed_basic_parameters, ["saturation_factor"]);
+        assert_eq!(working.layers_modified, 1);
+        assert_eq!(working.nodes_modified, 1);
+        assert_eq!(working.node_parameter_blocks_changed, 1);
+        assert!(!working.has_other_changes);
+        assert!(branch.versions.iter().any(|version| {
+            version.commit_id == continuation_id
+                && version.parent_commit_ids == working.parent_commit_ids
+                && version.changed_basic_parameters == ["exposure_stops"]
+        }));
+
+        drop(session);
+        std::fs::remove_dir_all(root).expect("remove edit fixture");
+    }
+
+    #[test]
+    fn version_diff_rejects_an_unavailable_first_parent() {
+        let photo_id = PhotoId::new_v7();
+        let missing_parent = RecipeCommitId::new_v7();
+        let commit = RecipeCommit::new(
+            RecipeCommitId::new_v7(),
+            RecipeId::new_v7(),
+            vec![missing_parent],
+            basic_recipe_snapshot(BasicEditParameters::default(), None)
+                .expect("build test snapshot"),
+            Some("Broken edge".to_owned()),
+            1_000,
+        )
+        .expect("build commit with unresolved external parent");
+        let record = RecipeCommitRecord {
+            photo_id,
+            commit,
+            snapshot_digest: [0; 32],
+        };
+
+        let error = edit_version_diff(&record, std::slice::from_ref(&record))
+            .expect_err("missing first parent must fail");
+
+        assert!(matches!(
+            error,
+            EditVersionDiffError::ParentMissing {
+                parent_id,
+                ..
+            } if parent_id == missing_parent
+        ));
+        assert!(
+            error
+                .to_string()
+                .starts_with("edit_version_diff.parent_missing:")
+        );
     }
 
     #[test]
@@ -1232,6 +1646,39 @@ mod tests {
             (actual - expected).abs() < 1.0e-12,
             "expected {expected}, got {actual}"
         );
+    }
+
+    fn assert_root_diff(version: &ffi::FfiEditVersion) {
+        assert!(version.is_root);
+        assert!(version.parent_commit_ids.is_empty());
+        assert_eq!(version.layers_added, 0);
+        assert_eq!(version.layers_removed, 0);
+        assert_eq!(version.layers_moved, 0);
+        assert_eq!(version.layers_modified, 0);
+        assert_eq!(version.nodes_added, 0);
+        assert_eq!(version.nodes_removed, 0);
+        assert_eq!(version.nodes_modified, 0);
+        assert_eq!(version.node_parameter_blocks_changed, 0);
+        assert_eq!(version.changed_basic_parameter_count, 0);
+        assert!(version.changed_basic_parameters.is_empty());
+        assert!(!version.has_other_changes);
+    }
+
+    fn assert_all_basic_parameters_changed(version: &ffi::FfiEditVersion) {
+        assert_eq!(version.changed_basic_parameter_count, 6);
+        assert_eq!(
+            version.changed_basic_parameters,
+            [
+                "exposure_stops",
+                "contrast_factor",
+                "red_channel_gain",
+                "green_channel_gain",
+                "blue_channel_gain",
+                "saturation_factor",
+            ]
+        );
+        assert_eq!(version.node_parameter_blocks_changed, 4);
+        assert!(!version.has_other_changes);
     }
 
     fn test_edit_session() -> (PathBuf, Box<DesktopSession>, String, String) {

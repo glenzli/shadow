@@ -16,6 +16,7 @@ shadow-bridge.workspace = true
 shadow-catalog.workspace = true
 shadow-core.workspace = true
 shadow-domain.workspace = true
+thiserror.workspace = true
 
 [build-dependencies]
 cxx-build = "=1.0.198"

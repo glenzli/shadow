@@ -530,6 +530,7 @@ dependencies = [
  "shadow-catalog",
  "shadow-core",
  "shadow-domain",
+ "thiserror",
 ]
 
 [[package]]
