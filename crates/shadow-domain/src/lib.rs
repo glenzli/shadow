@@ -4,6 +4,7 @@ mod asset;
 mod decode;
 mod ids;
 mod recipe;
+mod recipe_diff;
 
 pub use asset::{AssetLocation, LocationStatus, Platform, RepresentationKind};
 pub use decode::{
@@ -23,4 +24,9 @@ pub use recipe::{
     NodeInput, OperationDescriptor, OperationId, ParameterBlock, ParameterKey, ParameterValue,
     PortType, ProcessingStage, RecipeBranch, RecipeCommit, RecipeHistory, RecipeSnapshot,
     RecipeValidationError, UnitInterval, VersionName,
+};
+pub use recipe_diff::{
+    GraphDiff, IndexedLayer, LayerContentDiff, LayerContentKind, LayerInstanceDiff,
+    LayerModification, LayerMove, NodeModification, RecipeDiff, RecipeDiffSummary, SharedLayerDiff,
+    ValueChange, diff_recipe_snapshots,
 };
