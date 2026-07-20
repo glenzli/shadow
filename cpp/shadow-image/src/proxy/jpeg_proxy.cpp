@@ -1,5 +1,7 @@
 #include <shadow/image/edit.hpp>
 
+#include "display_rgb_math.hpp"
+
 #include <jpeglib.h>
 
 #include <algorithm>
@@ -465,6 +467,105 @@ void preflight_detail_metadata(const AssetMetadata& metadata) {
     return output;
 }
 
+struct PreparedEditPreviewPixels final {
+    FloatRgbImage edited;
+    std::vector<std::uint8_t> rgb;
+};
+
+[[nodiscard]] PreparedEditPreviewPixels prepare_edit_preview_pixels(
+    const FloatRgbImage& working_proxy,
+    const std::span<const AdjustmentNode> nodes
+) {
+    FloatRgbImage edited = execute_adjustment_nodes(working_proxy, nodes);
+    auto rgb = resize_linear_to_srgb8(edited, edited.dimensions);
+    return PreparedEditPreviewPixels{
+        .edited = std::move(edited),
+        .rgb = std::move(rgb),
+    };
+}
+
+[[nodiscard]] EditPreviewAnalysis analyze_edit_preview(
+    const FloatRgbImage& edited,
+    const std::vector<std::uint8_t>& rgb
+) {
+    if (edited.dimensions.width == 0U || edited.dimensions.height == 0U) {
+        throw DecodeError(
+            DecodeErrorCode::internal,
+            0,
+            "edited preview analysis received empty dimensions"
+        );
+    }
+    const std::size_t expected_rgb_size = checked_rgb_size(edited.dimensions);
+    const std::size_t minimum_row_samples =
+        static_cast<std::size_t>(edited.dimensions.width) * 3U;
+    if (edited.row_stride_bytes % sizeof(float) != 0U
+        || edited.row_stride_bytes / sizeof(float) < minimum_row_samples
+        || rgb.size() != expected_rgb_size) {
+        throw DecodeError(
+            DecodeErrorCode::internal,
+            0,
+            "edited preview analysis received an invalid RGB layout"
+        );
+    }
+    const std::size_t float_row_stride = edited.row_stride_bytes / sizeof(float);
+    if (
+        float_row_stride > std::numeric_limits<std::size_t>::max()
+            / static_cast<std::size_t>(edited.dimensions.height)
+    ) {
+        throw DecodeError(
+            DecodeErrorCode::internal,
+            0,
+            "edited preview analysis scene-linear layout overflows"
+        );
+    }
+    const std::size_t required_float_samples =
+        float_row_stride * static_cast<std::size_t>(edited.dimensions.height);
+    if (required_float_samples > edited.samples.size()) {
+        throw DecodeError(
+            DecodeErrorCode::internal,
+            0,
+            "edited preview analysis received truncated scene-linear pixels"
+        );
+    }
+
+    EditPreviewAnalysis analysis;
+    analysis.sample_dimensions = edited.dimensions;
+    analysis.pixel_count = edited.dimensions.pixel_count();
+    for (std::uint32_t y = 0; y < edited.dimensions.height; ++y) {
+        for (std::uint32_t x = 0; x < edited.dimensions.width; ++x) {
+            const std::size_t rgb_index =
+                (static_cast<std::size_t>(y) * edited.dimensions.width + x) * 3U;
+            const std::size_t float_index =
+                static_cast<std::size_t>(y) * float_row_stride
+                + static_cast<std::size_t>(x) * 3U;
+            const std::uint8_t red = rgb[rgb_index];
+            const std::uint8_t green = rgb[rgb_index + 1U];
+            const std::uint8_t blue = rgb[rgb_index + 2U];
+            ++analysis.red[red];
+            ++analysis.green[green];
+            ++analysis.blue[blue];
+            ++analysis.luma[display_rgb::rec709_encoded_luma_u8(red, green, blue)];
+
+            bool shadow_clipped = false;
+            bool highlight_clipped = false;
+            for (std::size_t channel = 0; channel < 3U; ++channel) {
+                const float sample = edited.samples[float_index + channel];
+                if (sample < 0.0F) {
+                    ++analysis.below_zero_samples[channel];
+                    shadow_clipped = true;
+                }
+                if (sample > 1.0F) {
+                    ++analysis.above_one_samples[channel];
+                    highlight_clipped = true;
+                }
+            }
+            analysis.shadow_clipped_pixels += shadow_clipped ? 1U : 0U;
+            analysis.highlight_clipped_pixels += highlight_clipped ? 1U : 0U;
+        }
+    }
+    return analysis;
+}
+
 [[nodiscard]] std::vector<std::uint8_t> encode_jpeg(
     const std::vector<std::uint8_t>& rgb,
     const Dimensions dimensions,
@@ -533,13 +634,32 @@ EncodedProxy WarmEditPreviewSession::render_jpeg(
     const std::uint8_t jpeg_quality
 ) const {
     validate_jpeg_quality(jpeg_quality);
-    const FloatRgbImage edited = execute_adjustment_nodes(working_proxy_, nodes);
-    const auto rgb = resize_linear_to_srgb8(edited, edited.dimensions);
+    auto prepared = prepare_edit_preview_pixels(working_proxy_, nodes);
+    EncodedProxy proxy;
+    proxy.dimensions = prepared.edited.dimensions;
+    proxy.bytes = encode_jpeg(prepared.rgb, prepared.edited.dimensions, jpeg_quality);
+    return proxy;
+}
+
+AnalyzedEditPreview WarmEditPreviewSession::render_jpeg_with_analysis(
+    const std::span<const AdjustmentNode> nodes,
+    const std::uint8_t jpeg_quality
+) const {
+    validate_jpeg_quality(jpeg_quality);
+    auto prepared = prepare_edit_preview_pixels(working_proxy_, nodes);
+    auto analysis = analyze_edit_preview(prepared.edited, prepared.rgb);
 
     EncodedProxy proxy;
-    proxy.dimensions = edited.dimensions;
-    proxy.bytes = encode_jpeg(rgb, edited.dimensions, jpeg_quality);
-    return proxy;
+    proxy.dimensions = prepared.edited.dimensions;
+    proxy.bytes = encode_jpeg(
+        prepared.rgb,
+        prepared.edited.dimensions,
+        jpeg_quality
+    );
+    return AnalyzedEditPreview{
+        .proxy = std::move(proxy),
+        .analysis = std::move(analysis),
+    };
 }
 
 WarmEditPreviewSession prepare_warm_edit_preview(

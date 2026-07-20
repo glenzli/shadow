@@ -24,6 +24,83 @@ constexpr std::uint32_t EDIT_DETAIL_TILE_SIDE = 512;
 constexpr std::uint32_t EDIT_LARGE_DETAIL_TILE_SIDE = 1'024;
 constexpr int EDIT_DETAIL_DEBOUNCE_MS = 70;
 constexpr std::uint64_t EDIT_DETAIL_MAX_PRESENTATION_BYTES = 96U * 1'024U * 1'024U;
+constexpr qsizetype EDIT_HISTOGRAM_BIN_COUNT = 256;
+
+[[nodiscard]] QVariantList histogram_counts(
+    const QVector<std::uint64_t>& counts
+) {
+    QVariantList result;
+    result.reserve(counts.size());
+    for (const auto count : counts) {
+        result.push_back(QVariant::fromValue<qulonglong>(count));
+    }
+    return result;
+}
+
+[[nodiscard]] QVariantMap empty_histogram() {
+    return {
+        {QStringLiteral("valid"), false},
+        {QStringLiteral("updating"), false},
+        {QStringLiteral("stale"), false},
+        {QStringLiteral("generation"), QVariant::fromValue<qulonglong>(0)},
+        {QStringLiteral("targetGeneration"), QVariant::fromValue<qulonglong>(0)},
+    };
+}
+
+[[nodiscard]] QVariantMap histogram_snapshot(
+    const BackendEditPreviewAnalysis& analysis,
+    const quint64 generation
+) {
+    if (analysis.width == 0 || analysis.height == 0 || analysis.pixel_count == 0
+        || analysis.red.size() != EDIT_HISTOGRAM_BIN_COUNT
+        || analysis.green.size() != EDIT_HISTOGRAM_BIN_COUNT
+        || analysis.blue.size() != EDIT_HISTOGRAM_BIN_COUNT
+        || analysis.luma.size() != EDIT_HISTOGRAM_BIN_COUNT
+        || analysis.below_zero_samples.size() != 3
+        || analysis.above_one_samples.size() != 3) {
+        throw std::runtime_error("edit preview analysis violated the desktop contract");
+    }
+    const double pixel_count = static_cast<double>(analysis.pixel_count);
+    return {
+        {QStringLiteral("valid"), true},
+        {QStringLiteral("updating"), false},
+        {QStringLiteral("stale"), false},
+        {QStringLiteral("generation"), QVariant::fromValue<qulonglong>(generation)},
+        {QStringLiteral("targetGeneration"), QVariant::fromValue<qulonglong>(generation)},
+        {QStringLiteral("version"), analysis.version},
+        {QStringLiteral("width"), analysis.width},
+        {QStringLiteral("height"), analysis.height},
+        {
+            QStringLiteral("pixelCount"),
+            QVariant::fromValue<qulonglong>(analysis.pixel_count)
+        },
+        {QStringLiteral("red"), histogram_counts(analysis.red)},
+        {QStringLiteral("green"), histogram_counts(analysis.green)},
+        {QStringLiteral("blue"), histogram_counts(analysis.blue)},
+        {QStringLiteral("luma"), histogram_counts(analysis.luma)},
+        {QStringLiteral("belowZero"), histogram_counts(analysis.below_zero_samples)},
+        {QStringLiteral("aboveOne"), histogram_counts(analysis.above_one_samples)},
+        {
+            QStringLiteral("shadowClippedPixels"),
+            QVariant::fromValue<qulonglong>(analysis.shadow_clipped_pixels)
+        },
+        {
+            QStringLiteral("highlightClippedPixels"),
+            QVariant::fromValue<qulonglong>(analysis.highlight_clipped_pixels)
+        },
+        {
+            QStringLiteral("shadowClippedFraction"),
+            static_cast<double>(analysis.shadow_clipped_pixels) / pixel_count
+        },
+        {
+            QStringLiteral("highlightClippedFraction"),
+            static_cast<double>(analysis.highlight_clipped_pixels) / pixel_count
+        },
+        {QStringLiteral("approximate"), true},
+        {QStringLiteral("scope"), QStringLiteral("complete-warm-proxy")},
+        {QStringLiteral("clippingRule"), QStringLiteral("strict-pre-clamp")},
+    };
+}
 
 [[nodiscard]] QVector<ToneCurvePoint> tone_curve_model_points(
     const BackendBasicEditLayer* const layer
@@ -308,6 +385,8 @@ EditController::EditController(
       preview_store_(std::move(preview_store)),
       versions_(this),
       tone_curve_points_(this) {
+    histogram_ = empty_histogram();
+    before_histogram_ = empty_histogram();
     preview_debounce_.setSingleShot(true);
     detail_debounce_.setSingleShot(true);
     connect(
@@ -425,6 +504,14 @@ QString EditController::previewSource() const {
 
 QString EditController::beforePreviewSource() const {
     return before_preview_source_;
+}
+
+QVariantMap EditController::histogram() const {
+    return histogram_;
+}
+
+QVariantMap EditController::beforeHistogram() const {
+    return before_histogram_;
 }
 
 QString EditController::beforeErrorText() const {
@@ -653,6 +740,7 @@ void EditController::openPhoto(
     resetDetailState();
     preview_queued_ = false;
     before_requested_ = false;
+    clearHistograms();
     photo_id_ = photo_id;
     representation_id_ = representation_id;
     source_path_ = source_path;
@@ -703,6 +791,7 @@ void EditController::closePhoto() {
     }
     clearSessionHistory();
     resetDetailState();
+    clearHistograms();
     active_ = false;
     emit activeChanged();
     emit layerActionsChanged();
@@ -1022,6 +1111,7 @@ void EditController::requestBeforePreview() {
         emit beforeErrorTextChanged();
     }
     before_requested_ = true;
+    markHistogramUpdating(EditPreviewKind::NeutralBefore);
     maybeStartBeforePreview();
 }
 
@@ -1171,6 +1261,7 @@ void EditController::finishPreviewTask() {
     if (result.generation.kind == EditPreviewKind::Current && accepted) {
         settled_render_revision_ = result.generation.current_revision;
         if (!result.error.isEmpty()) {
+            markHistogramFailed(EditPreviewKind::Current);
             setStatusText(QStringLiteral("Preview render failed · %1").arg(result.error));
         } else {
             const QSize dimensions(
@@ -1181,6 +1272,11 @@ void EditController::finishPreviewTask() {
                 EditPreviewSlot::Current,
                 std::move(result.preview.bytes),
                 dimensions,
+                result.generation.current_revision
+            );
+            publishHistogram(
+                EditPreviewKind::Current,
+                result.preview.analysis,
                 result.generation.current_revision
             );
             preview_source_ = QStringLiteral("image://shadow-edit/current?generation=%1")
@@ -1194,6 +1290,7 @@ void EditController::finishPreviewTask() {
     } else if (result.generation.kind == EditPreviewKind::NeutralBefore && accepted) {
         before_requested_ = false;
         if (!result.error.isEmpty()) {
+            markHistogramFailed(EditPreviewKind::NeutralBefore);
             before_error_text_ = QStringLiteral("Neutral baseline failed · %1").arg(
                 result.error
             );
@@ -1207,6 +1304,11 @@ void EditController::finishPreviewTask() {
                 EditPreviewSlot::Before,
                 std::move(result.preview.bytes),
                 dimensions,
+                result.generation.photo
+            );
+            publishHistogram(
+                EditPreviewKind::NeutralBefore,
+                result.preview.analysis,
                 result.generation.photo
             );
             before_preview_source_ = QStringLiteral(
@@ -1635,6 +1737,7 @@ void EditController::schedulePreview(const int delay_ms) {
         return;
     }
     ++render_revision_;
+    markHistogramUpdating(EditPreviewKind::Current);
     if (detail_mode_) {
         invalidateDetailPresentation();
         detail_queued_ = true;
@@ -1692,6 +1795,63 @@ void EditController::setPreviewRunning(
         emit beforeRenderingChanged();
     }
     emitBusyChange(previous_busy);
+}
+
+void EditController::markHistogramUpdating(const EditPreviewKind kind) {
+    QVariantMap& target = kind == EditPreviewKind::Current
+        ? histogram_ : before_histogram_;
+    target.insert(QStringLiteral("updating"), true);
+    target.insert(QStringLiteral("stale"), false);
+    target.insert(
+        QStringLiteral("targetGeneration"),
+        QVariant::fromValue<qulonglong>(
+            kind == EditPreviewKind::Current ? render_revision_ : photo_generation_
+        )
+    );
+    if (kind == EditPreviewKind::Current) {
+        emit histogramChanged();
+    } else {
+        emit beforeHistogramChanged();
+    }
+}
+
+void EditController::publishHistogram(
+    const EditPreviewKind kind,
+    const BackendEditPreviewAnalysis& analysis,
+    const quint64 generation
+) {
+    QVariantMap snapshot = histogram_snapshot(analysis, generation);
+    if (kind == EditPreviewKind::Current) {
+        histogram_ = std::move(snapshot);
+        emit histogramChanged();
+    } else {
+        before_histogram_ = std::move(snapshot);
+        emit beforeHistogramChanged();
+    }
+}
+
+void EditController::markHistogramFailed(const EditPreviewKind kind) {
+    QVariantMap& target = kind == EditPreviewKind::Current
+        ? histogram_ : before_histogram_;
+    target.insert(QStringLiteral("updating"), false);
+    target.insert(QStringLiteral("stale"), true);
+    if (kind == EditPreviewKind::Current) {
+        emit histogramChanged();
+    } else {
+        emit beforeHistogramChanged();
+    }
+}
+
+void EditController::clearHistograms() {
+    const QVariantMap empty = empty_histogram();
+    if (histogram_ != empty) {
+        histogram_ = empty;
+        emit histogramChanged();
+    }
+    if (before_histogram_ != empty) {
+        before_histogram_ = empty;
+        emit beforeHistogramChanged();
+    }
 }
 
 void EditController::setDetailRunning(const bool running) {

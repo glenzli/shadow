@@ -13,6 +13,7 @@
 #include <QString>
 #include <QTimer>
 #include <QVariantList>
+#include <QVariantMap>
 
 #include <cstdint>
 #include <memory>
@@ -66,6 +67,12 @@ class EditController final : public QObject {
         QString beforePreviewSource
         READ beforePreviewSource
         NOTIFY beforePreviewSourceChanged
+    )
+    Q_PROPERTY(QVariantMap histogram READ histogram NOTIFY histogramChanged)
+    Q_PROPERTY(
+        QVariantMap beforeHistogram
+        READ beforeHistogram
+        NOTIFY beforeHistogramChanged
     )
     Q_PROPERTY(QString beforeErrorText READ beforeErrorText NOTIFY beforeErrorTextChanged)
     Q_PROPERTY(QString statusText READ statusText NOTIFY statusTextChanged)
@@ -140,6 +147,8 @@ public:
     [[nodiscard]] QString sourcePath() const;
     [[nodiscard]] QString previewSource() const;
     [[nodiscard]] QString beforePreviewSource() const;
+    [[nodiscard]] QVariantMap histogram() const;
+    [[nodiscard]] QVariantMap beforeHistogram() const;
     [[nodiscard]] QString beforeErrorText() const;
     [[nodiscard]] QString statusText() const;
     [[nodiscard]] QVariantList layers() const;
@@ -222,6 +231,8 @@ signals:
     void sourcePathChanged();
     void previewSourceChanged();
     void beforePreviewSourceChanged();
+    void histogramChanged();
+    void beforeHistogramChanged();
     void beforeErrorTextChanged();
     void statusTextChanged();
     void layersChanged();
@@ -262,6 +273,14 @@ private:
     void setDirty(bool dirty);
     void setStateRunning(bool running);
     void setPreviewRunning(EditPreviewKind kind, bool running);
+    void markHistogramUpdating(EditPreviewKind kind);
+    void publishHistogram(
+        EditPreviewKind kind,
+        const BackendEditPreviewAnalysis& analysis,
+        quint64 generation
+    );
+    void markHistogramFailed(EditPreviewKind kind);
+    void clearHistograms();
     void setDetailRunning(bool running);
     void emitBusyChange(bool previous_busy);
     void parameterEdited(
@@ -299,6 +318,8 @@ private:
     QString title_;
     QString preview_source_;
     QString before_preview_source_;
+    QVariantMap histogram_;
+    QVariantMap before_histogram_;
     QString before_error_text_;
     QString detail_error_text_;
     QString status_text_ = QStringLiteral("Open a photo from Review to begin editing");

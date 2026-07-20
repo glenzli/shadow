@@ -39,6 +39,18 @@ namespace {
     return static_cast<qsizetype>(size);
 }
 
+[[nodiscard]] QVector<std::uint64_t> qcounts(
+    const rust::Vec<std::uint64_t>& value,
+    const char* const field
+) {
+    QVector<std::uint64_t> result;
+    result.reserve(checked_qt_vector_size(value.size(), field));
+    for (const auto count : value) {
+        result.push_back(count);
+    }
+    return result;
+}
+
 [[nodiscard]] shadow::desktop::FfiBasicEditParameters ffi_parameters(
     const BackendBasicEditParameters& source
 ) {
@@ -479,6 +491,26 @@ BackendEditedPreview DesktopBackend::renderEditPreview(
     );
     return {
         .bytes = qbytes(payload.bytes),
+        .analysis = {
+            .version = qstring(payload.analysis_version),
+            .red = qcounts(payload.red_histogram, "red_histogram"),
+            .green = qcounts(payload.green_histogram, "green_histogram"),
+            .blue = qcounts(payload.blue_histogram, "blue_histogram"),
+            .luma = qcounts(payload.luma_histogram, "luma_histogram"),
+            .below_zero_samples = qcounts(
+                payload.below_zero_samples,
+                "below_zero_samples"
+            ),
+            .above_one_samples = qcounts(
+                payload.above_one_samples,
+                "above_one_samples"
+            ),
+            .width = payload.analysis_width,
+            .height = payload.analysis_height,
+            .pixel_count = payload.pixel_count,
+            .shadow_clipped_pixels = payload.shadow_clipped_pixels,
+            .highlight_clipped_pixels = payload.highlight_clipped_pixels,
+        },
         .width = payload.width,
         .height = payload.height,
     };

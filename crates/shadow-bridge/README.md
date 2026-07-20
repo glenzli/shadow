@@ -17,7 +17,12 @@ No LibRaw or CXX type escapes the crate's public API. `inspect_libraw` returns a
 For slider interaction, `LibRawEditPreviewSession::open(path, max_edge)` performs that RAW render
 once and retains only a bounded scene-linear float working proxy. Repeated
 `render(edits, jpeg_quality)` calls provide the four-node Basic compatibility path;
-`render_plan(plan, jpeg_quality)` executes a validated typed plan. Neither reopens nor decodes the
+`render_plan(plan, jpeg_quality)` executes a validated typed plan. The parallel
+`render_plan_with_analysis` path returns that JPEG together with four exact 256-bin histograms
+from the uncompressed display-sRGB proxy before JPEG encoding and strict scene-linear `< 0` /
+`> 1` per-channel and any-channel clipping counts from before output clamping. Rust validates the
+analysis version, dimensions, bin lengths/sums, and clipping union bounds before exposing fixed
+arrays. Neither render path reopens nor decodes the
 RAW. The safe wrapper is `Send + Sync`: its C++ working buffer is immutable,
 each render owns all temporary state, and no LibRaw object survives preparation. The warm-session
 edge is independently capped at 4096; 1600/2048 are the intended UI choices. The existing

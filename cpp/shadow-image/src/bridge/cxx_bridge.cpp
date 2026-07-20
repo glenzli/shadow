@@ -73,6 +73,48 @@ namespace {
     return result;
 }
 
+template <std::size_t Size>
+[[nodiscard]] rust::Vec<std::uint64_t> sample_counts(
+    const std::array<std::uint64_t, Size>& source
+) {
+    rust::Vec<std::uint64_t> result;
+    result.reserve(source.size());
+    for (const auto count : source) {
+        result.push_back(count);
+    }
+    return result;
+}
+
+[[nodiscard]] FfiEditPreviewAnalysis edit_preview_analysis(
+    const image::EditPreviewAnalysis& analysis
+) {
+    FfiEditPreviewAnalysis result;
+    result.version = rust::String(
+        image::edit_preview_analysis_version.data(),
+        image::edit_preview_analysis_version.size()
+    );
+    result.sample_dimensions = dimensions(analysis.sample_dimensions);
+    result.red = sample_counts(analysis.red);
+    result.green = sample_counts(analysis.green);
+    result.blue = sample_counts(analysis.blue);
+    result.luma = sample_counts(analysis.luma);
+    result.below_zero_samples = sample_counts(analysis.below_zero_samples);
+    result.above_one_samples = sample_counts(analysis.above_one_samples);
+    result.pixel_count = analysis.pixel_count;
+    result.shadow_clipped_pixels = analysis.shadow_clipped_pixels;
+    result.highlight_clipped_pixels = analysis.highlight_clipped_pixels;
+    return result;
+}
+
+[[nodiscard]] FfiAnalyzedEditPreview analyzed_edit_preview(
+    const image::AnalyzedEditPreview& preview
+) {
+    FfiAnalyzedEditPreview result;
+    result.proxy = encoded_proxy(preview.proxy);
+    result.analysis = edit_preview_analysis(preview.analysis);
+    return result;
+}
+
 [[nodiscard]] FfiDetailTileRect detail_tile_rect(const image::DetailTileRect value) noexcept {
     return FfiDetailTileRect{value.x, value.y, value.width, value.height};
 }
@@ -362,6 +404,22 @@ FfiEncodedProxy EditPreviewHandle::render_adjustment_plan(
     }
     const auto nodes = adjustment_nodes(request.nodes);
     return encoded_proxy(session_.render_jpeg(nodes, request.jpeg_quality));
+}
+
+FfiAnalyzedEditPreview EditPreviewHandle::render_adjustment_plan_with_analysis(
+    const FfiAdjustmentRenderRequest& request
+) const {
+    if (request.max_edge != session_.max_edge()) {
+        throw image::DecodeError(
+            image::DecodeErrorCode::invalid_request,
+            0,
+            "warm edit preview request does not match the prepared max edge"
+        );
+    }
+    const auto nodes = adjustment_nodes(request.nodes);
+    return analyzed_edit_preview(
+        session_.render_jpeg_with_analysis(nodes, request.jpeg_quality)
+    );
 }
 
 std::unique_ptr<FullEditDetailHandle> DecodeHandle::prepare_edit_detail() const {

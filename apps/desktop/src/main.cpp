@@ -15,11 +15,13 @@
 #include <QStandardPaths>
 #include <QTimer>
 #include <QUrl>
+#include <QUrlQuery>
 #include <QVariant>
 #include <QVector>
 
 #include <cmath>
 #include <cstdint>
+#include <functional>
 #include <memory>
 
 namespace {
@@ -36,6 +38,100 @@ namespace {
         id += query;
     }
     return id;
+}
+
+[[nodiscard]] QString preview_generation(const QString& source) {
+    return QUrlQuery(QUrl(source)).queryItemValue(QStringLiteral("generation"));
+}
+
+[[nodiscard]] bool valid_edit_histogram(
+    const QVariantMap& histogram,
+    const QString& source
+) {
+    const QString source_generation = preview_generation(source);
+    if (!histogram.value(QStringLiteral("valid")).toBool()
+        || histogram.value(QStringLiteral("updating")).toBool()
+        || histogram.value(QStringLiteral("stale")).toBool()
+        || histogram.value(QStringLiteral("version")).toString().isEmpty()
+        || source_generation.isEmpty()
+        || histogram.value(QStringLiteral("generation")).toString() != source_generation
+        || histogram.value(QStringLiteral("targetGeneration")).toString()
+            != source_generation) {
+        return false;
+    }
+    const qulonglong pixel_count = histogram.value(QStringLiteral("pixelCount")).toULongLong();
+    const qulonglong dimensions_count =
+        histogram.value(QStringLiteral("width")).toULongLong()
+        * histogram.value(QStringLiteral("height")).toULongLong();
+    if (pixel_count == 0 || pixel_count != dimensions_count) {
+        return false;
+    }
+    for (const auto& key : {
+             QStringLiteral("red"),
+             QStringLiteral("green"),
+             QStringLiteral("blue"),
+             QStringLiteral("luma"),
+         }) {
+        const QVariantList bins = histogram.value(key).toList();
+        if (bins.size() != 256) {
+            return false;
+        }
+        qulonglong sum = 0;
+        for (const QVariant& bin : bins) {
+            const qulonglong count = bin.toULongLong();
+            if (count > pixel_count - sum) {
+                return false;
+            }
+            sum += count;
+        }
+        if (sum != pixel_count) {
+            return false;
+        }
+    }
+    return histogram.value(QStringLiteral("belowZero")).toList().size() == 3
+        && histogram.value(QStringLiteral("aboveOne")).toList().size() == 3
+        && histogram.value(QStringLiteral("shadowClippedPixels")).toULongLong()
+            <= pixel_count
+        && histogram.value(QStringLiteral("highlightClippedPixels")).toULongLong()
+            <= pixel_count;
+}
+
+[[nodiscard]] QObject* precision_workspace(QQmlApplicationEngine& engine) {
+    if (engine.rootObjects().isEmpty()) {
+        return nullptr;
+    }
+    return engine.rootObjects().front()->findChild<QObject*>(
+        QStringLiteral("precisionWorkspace")
+    );
+}
+
+[[nodiscard]] bool qml_preview_is_ready(
+    QQmlApplicationEngine& engine,
+    const QString& source
+) {
+    const auto* const workspace = precision_workspace(engine);
+    return workspace != nullptr && !preview_generation(source).isEmpty()
+        && workspace->property("readyPreviewGeneration").toString()
+            == preview_generation(source);
+}
+
+void after_qml_preview_ready(
+    QCoreApplication& application,
+    QQmlApplicationEngine& engine,
+    QString source,
+    std::function<void()> action
+) {
+    auto poll = std::make_shared<std::function<void()>>();
+    *poll = [&application, &engine, source = std::move(source),
+             action = std::move(action), poll]() {
+        if (qml_preview_is_ready(engine, source)) {
+            *poll = {};
+            action();
+            return;
+        }
+        QTimer::singleShot(20, &application, *poll);
+    };
+    QTimer::singleShot(0, &application, *poll);
 }
 
 class AdjustmentStackSmoke final
@@ -401,7 +497,7 @@ int main(int argc, char* argv[]) {
             &controller,
             &ReviewController::itemCountChanged,
             &application,
-            [&controller, &editor]() {
+            [&controller, &editor, &engine]() {
                 auto* model = controller.reviewModel();
                 if (editor.active() || model->rowCount() == 0) {
                     return;
@@ -413,6 +509,9 @@ int main(int argc, char* argv[]) {
                     model->data(first, ReviewModel::SourcePathRole).toString(),
                     model->data(first, ReviewModel::TitleRole).toString()
                 );
+                if (!engine.rootObjects().isEmpty()) {
+                    engine.rootObjects().front()->setProperty("workspaceIndex", 1);
+                }
             }
         );
     }
@@ -580,12 +679,21 @@ int main(int argc, char* argv[]) {
                 &editor,
                 &EditController::previewSourceChanged,
                 &application,
-                [&editor, requested]() {
-                    if (*requested || editor.previewSource().isEmpty()) {
+                [&application, &engine, &editor, requested]() {
+                    const QString source = editor.previewSource();
+                    if (*requested || source.isEmpty()
+                        || !valid_edit_histogram(editor.histogram(), source)) {
                         return;
                     }
                     *requested = true;
-                    editor.requestDetailViewport(0.5, 0.5, 1'280, 960);
+                    after_qml_preview_ready(
+                        application,
+                        engine,
+                        source,
+                        [&editor]() {
+                            editor.requestDetailViewport(0.5, 0.5, 1'280, 960);
+                        }
+                    );
                 }
             );
             QObject::connect(
@@ -626,18 +734,39 @@ int main(int argc, char* argv[]) {
         } else if (open_first_edit && adjustment_stack_smoke) {
             AdjustmentStackSmoke::start(application, controller, editor);
         } else if (open_first_edit) {
+            auto current_wait_started = std::make_shared<bool>(false);
+            auto before_wait_started = std::make_shared<bool>(false);
             QObject::connect(
                 &editor,
                 &EditController::previewSourceChanged,
                 &application,
-                [&application, &editor, request_before]() {
-                    if (!editor.previewSource().isEmpty()) {
-                        if (request_before) {
-                            editor.requestBeforePreview();
-                        } else {
-                            QTimer::singleShot(50, &application, &QCoreApplication::quit);
-                        }
+                [&application, &engine, &editor, request_before,
+                 current_wait_started]() {
+                    const QString source = editor.previewSource();
+                    if (*current_wait_started || source.isEmpty()
+                        || !valid_edit_histogram(editor.histogram(), source)) {
+                        return;
                     }
+                    *current_wait_started = true;
+                    after_qml_preview_ready(
+                        application,
+                        engine,
+                        source,
+                        [&application, &engine, &editor, request_before]() {
+                            if (request_before) {
+                                if (auto* const workspace = precision_workspace(engine)) {
+                                    workspace->setProperty("showBefore", true);
+                                }
+                                editor.requestBeforePreview();
+                            } else {
+                                QTimer::singleShot(
+                                    50,
+                                    &application,
+                                    &QCoreApplication::quit
+                                );
+                            }
+                        }
+                    );
                 }
             );
             if (request_before) {
@@ -645,19 +774,47 @@ int main(int argc, char* argv[]) {
                     &editor,
                     &EditController::beforePreviewSourceChanged,
                     &application,
-                    [&application, &editor]() {
-                        if (!editor.beforePreviewSource().isEmpty()) {
-                            QTimer::singleShot(50, &application, &QCoreApplication::quit);
+                    [&application, &engine, &editor, before_wait_started]() {
+                        const QString source = editor.beforePreviewSource();
+                        if (*before_wait_started || source.isEmpty()
+                            || !valid_edit_histogram(
+                                editor.beforeHistogram(),
+                                source
+                            )) {
+                            return;
                         }
+                        *before_wait_started = true;
+                        after_qml_preview_ready(
+                            application,
+                            engine,
+                            source,
+                            [&application]() {
+                                QTimer::singleShot(
+                                    50,
+                                    &application,
+                                    &QCoreApplication::quit
+                                );
+                            }
+                        );
                     }
                 );
             }
             QTimer::singleShot(
                 30'000,
                 &application,
-                [&application, &editor, request_before]() {
-                    const bool succeeded = !editor.previewSource().isEmpty()
-                        && (!request_before || !editor.beforePreviewSource().isEmpty());
+                [&application, &engine, &editor, request_before]() {
+                    const QString current_source = editor.previewSource();
+                    const QString before_source = editor.beforePreviewSource();
+                    const bool succeeded = !current_source.isEmpty()
+                        && valid_edit_histogram(editor.histogram(), current_source)
+                        && qml_preview_is_ready(engine, current_source)
+                        && (!request_before
+                            || (!before_source.isEmpty()
+                                && valid_edit_histogram(
+                                    editor.beforeHistogram(),
+                                    before_source
+                                )
+                                && qml_preview_is_ready(engine, before_source)));
                     application.exit(succeeded ? EXIT_SUCCESS : EXIT_FAILURE);
                 }
             );

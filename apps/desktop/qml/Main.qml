@@ -234,6 +234,7 @@ ApplicationWindow {
         }
 
         PrecisionWorkspace {
+            objectName: "precisionWorkspace"
             Layout.fillWidth: true
             Layout.fillHeight: true
             editor: window.editor

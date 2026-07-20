@@ -67,6 +67,14 @@ square interleaved RGB float32 proxy; typical 3:2 images and the UI's 1600/2048 
 Each render owns its output/edit/JPEG buffers, so const renders may safely run concurrently; the
 original decoder session is neither retained nor revisited during slider interaction.
 
+`render_jpeg_with_analysis` freezes a transient sidecar from that same complete warm render.
+R/G/B and encoded Rec.709 luma each use 256 `u64` bins over the uncompressed display-sRGB
+RGB8 result immediately before JPEG encoding. Separate per-channel and any-channel counts inspect
+the edited scene-linear values immediately before output clamping and use strict `< 0` and `> 1`;
+exact endpoints are not called clipped. The sidecar is complete-proxy output analysis, not RAW
+sensor exposure, full-resolution statistics, or persisted evidence. It owns no extra per-pixel
+luma plane and remains call-local for concurrent renders.
+
 ## Display-luma analysis boundary
 
 `include/shadow/image/display_luma.hpp` names the complete preprocessing contract returned with

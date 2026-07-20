@@ -119,6 +119,27 @@ mod ffi {
     }
 
     #[derive(Debug)]
+    struct FfiEditPreviewAnalysis {
+        version: String,
+        sample_dimensions: FfiDimensions,
+        red: Vec<u64>,
+        green: Vec<u64>,
+        blue: Vec<u64>,
+        luma: Vec<u64>,
+        below_zero_samples: Vec<u64>,
+        above_one_samples: Vec<u64>,
+        pixel_count: u64,
+        shadow_clipped_pixels: u64,
+        highlight_clipped_pixels: u64,
+    }
+
+    #[derive(Debug)]
+    struct FfiAnalyzedEditPreview {
+        proxy: FfiEncodedProxy,
+        analysis: FfiEditPreviewAnalysis,
+    }
+
+    #[derive(Debug)]
     struct FfiDisplayLuma {
         width: u32,
         height: u32,
@@ -210,6 +231,10 @@ mod ffi {
             self: &EditPreviewHandle,
             request: &FfiAdjustmentRenderRequest,
         ) -> Result<FfiEncodedProxy>;
+        fn render_adjustment_plan_with_analysis(
+            self: &EditPreviewHandle,
+            request: &FfiAdjustmentRenderRequest,
+        ) -> Result<FfiAnalyzedEditPreview>;
         fn dimensions(self: &FullEditDetailHandle) -> FfiDimensions;
         fn retained_bytes(self: &FullEditDetailHandle) -> u64;
         fn render_adjustment_plan_tile(
@@ -242,6 +267,20 @@ pub const BASIC_EDIT_PREVIEW_RECIPE_VERSION: u32 = 1;
 /// A square proxy at this edge consumes at most 192 MiB for interleaved RGB
 /// float32. The intended UI values are 1600 and 2048.
 pub const MAX_WARM_EDIT_PREVIEW_EDGE: u32 = 4_096;
+
+/// Number of bins in every warm edit-preview display histogram.
+pub const EDIT_PREVIEW_HISTOGRAM_BIN_COUNT: usize = 256;
+
+/// Exact semantic contract for warm edit-preview analysis.
+///
+/// Histograms cover the complete uncompressed display-sRGB RGB8 warm proxy
+/// immediately before JPEG encoding. Clipping counts inspect the edited
+/// scene-linear samples before display clamping and use strict `< 0` and `> 1`
+/// comparisons; exact zero and one are not clipped.
+pub const EDIT_PREVIEW_ANALYSIS_VERSION: &str = concat!(
+    "shadow.edit-preview-analysis.v1:rgb8-before-jpeg:rec709-encoded-q16:",
+    "pre-clamp-linear-strict-lt-gt-any-channel"
+);
 
 /// Hard width and height bound for one full-resolution detail tile.
 pub const MAX_EDIT_DETAIL_TILE_SIDE: u32 = 1_024;
@@ -722,6 +761,34 @@ pub struct LibRawEditPreviewSession {
     max_edge: u32,
 }
 
+/// Transient analysis of one complete warm-proxy edit render.
+///
+/// The four histograms are derived from uncompressed display-sRGB RGB8 bytes
+/// before JPEG encoding. Per-channel and any-channel clipping counts are
+/// derived from the same render's scene-linear samples before output clamping;
+/// they are not sensor-domain exposure measurements.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct EditPreviewAnalysis {
+    pub version: String,
+    pub sample_dimensions: ImageDimensions,
+    pub red: [u64; EDIT_PREVIEW_HISTOGRAM_BIN_COUNT],
+    pub green: [u64; EDIT_PREVIEW_HISTOGRAM_BIN_COUNT],
+    pub blue: [u64; EDIT_PREVIEW_HISTOGRAM_BIN_COUNT],
+    pub luma: [u64; EDIT_PREVIEW_HISTOGRAM_BIN_COUNT],
+    pub below_zero_samples: [u64; 3],
+    pub above_one_samples: [u64; 3],
+    pub pixel_count: u64,
+    pub shadow_clipped_pixels: u64,
+    pub highlight_clipped_pixels: u64,
+}
+
+/// A JPEG preview and its generation-matched transient analysis.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct AnalyzedEditPreview {
+    pub proxy: shadow_domain::ProxyPayload,
+    pub analysis: EditPreviewAnalysis,
+}
+
 /// One exact rectangle in the processed full-resolution image coordinate space.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct DetailTileRect {
@@ -879,6 +946,33 @@ impl LibRawEditPreviewSession {
         let request = ffi_render_request(plan, self.max_edge, jpeg_quality);
         let proxy = handle.render_adjustment_plan(&request)?;
         Ok(proxy_payload(proxy))
+    }
+
+    /// Executes a typed plan and returns its JPEG plus generation-matched
+    /// display histogram and pre-clamp clipping analysis.
+    ///
+    /// The analysis covers the complete prepared warm proxy, not the current
+    /// viewport. It is computed from uncompressed pixels before JPEG encoding,
+    /// so changing `jpeg_quality` cannot change its values.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BridgeError::InvalidEditRequest`] for an invalid plan or JPEG
+    /// quality, [`BridgeError::Decoder`] for authoritative C++ failures, or
+    /// [`BridgeError::InvalidEditPreviewOutput`] if any returned analysis field
+    /// violates the versioned bridge contract.
+    pub fn render_plan_with_analysis(
+        &self,
+        plan: &AdjustmentRenderPlan,
+        jpeg_quality: u8,
+    ) -> Result<AnalyzedEditPreview, BridgeError> {
+        plan.validate()?;
+        validate_jpeg_quality(jpeg_quality)?;
+        let handle = self.handle.as_ref().ok_or(BridgeError::NullHandle)?;
+        let request = ffi_render_request(plan, self.max_edge, jpeg_quality);
+        let analyzed = handle.render_adjustment_plan_with_analysis(&request)?;
+        let proxy = proxy_payload(analyzed.proxy);
+        validate_analyzed_edit_preview(proxy, analyzed.analysis, self.dimensions)
     }
 }
 
@@ -1152,10 +1246,168 @@ fn proxy_payload(proxy: ffi::FfiEncodedProxy) -> shadow_domain::ProxyPayload {
     }
 }
 
+fn validate_edit_preview_proxy(
+    proxy: &shadow_domain::ProxyPayload,
+    expected_dimensions: ImageDimensions,
+) -> Result<(), BridgeError> {
+    if proxy.dimensions != expected_dimensions
+        || proxy.dimensions.width == 0
+        || proxy.dimensions.height == 0
+    {
+        return Err(BridgeError::InvalidEditPreviewOutput(
+            "proxy dimensions must match the prepared warm session",
+        ));
+    }
+    if proxy.codec != PreviewCodec::Jpeg
+        || proxy.bits_per_channel != 8
+        || proxy.channels != 3
+        || !proxy.bytes.starts_with(&[0xff, 0xd8])
+        || !proxy.bytes.ends_with(&[0xff, 0xd9])
+    {
+        return Err(BridgeError::InvalidEditPreviewOutput(
+            "proxy must be a non-empty standard 8-bit three-channel JPEG",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_analyzed_edit_preview(
+    proxy: shadow_domain::ProxyPayload,
+    analysis: ffi::FfiEditPreviewAnalysis,
+    expected_dimensions: ImageDimensions,
+) -> Result<AnalyzedEditPreview, BridgeError> {
+    validate_edit_preview_proxy(&proxy, expected_dimensions)?;
+    let analysis = validate_edit_preview_analysis(analysis, expected_dimensions)?;
+    Ok(AnalyzedEditPreview { proxy, analysis })
+}
+
+fn validated_histogram(
+    bins: Vec<u64>,
+    pixel_count: u64,
+) -> Result<[u64; EDIT_PREVIEW_HISTOGRAM_BIN_COUNT], BridgeError> {
+    let bins: [u64; EDIT_PREVIEW_HISTOGRAM_BIN_COUNT] = bins.try_into().map_err(|_| {
+        BridgeError::InvalidEditPreviewOutput("every histogram must contain exactly 256 bins")
+    })?;
+    let sum = bins.iter().try_fold(0_u64, |sum, count| {
+        sum.checked_add(*count)
+            .ok_or(BridgeError::InvalidEditPreviewOutput(
+                "histogram sample count overflows u64",
+            ))
+    })?;
+    if sum != pixel_count {
+        return Err(BridgeError::InvalidEditPreviewOutput(
+            "every histogram sum must equal pixel_count",
+        ));
+    }
+    Ok(bins)
+}
+
+fn validated_channel_counts(values: Vec<u64>) -> Result<[u64; 3], BridgeError> {
+    values.try_into().map_err(|_| {
+        BridgeError::InvalidEditPreviewOutput(
+            "per-channel clipping counts must contain exactly three values",
+        )
+    })
+}
+
+fn validate_any_channel_clip_count(
+    per_channel: &[u64; 3],
+    any_channel: u64,
+    pixel_count: u64,
+) -> Result<(), BridgeError> {
+    let per_channel_sum = per_channel.iter().try_fold(0_u64, |sum, count| {
+        if *count > pixel_count {
+            return Err(BridgeError::InvalidEditPreviewOutput(
+                "per-channel clipping count exceeds pixel_count",
+            ));
+        }
+        sum.checked_add(*count)
+            .ok_or(BridgeError::InvalidEditPreviewOutput(
+                "clipping sample count overflows u64",
+            ))
+    })?;
+    let largest_channel = per_channel.iter().copied().max().unwrap_or(0);
+    if any_channel > pixel_count || any_channel < largest_channel || any_channel > per_channel_sum {
+        return Err(BridgeError::InvalidEditPreviewOutput(
+            "any-channel clipping count violates per-channel bounds",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_edit_preview_analysis(
+    analysis: ffi::FfiEditPreviewAnalysis,
+    proxy_dimensions: ImageDimensions,
+) -> Result<EditPreviewAnalysis, BridgeError> {
+    if analysis.version != EDIT_PREVIEW_ANALYSIS_VERSION {
+        return Err(BridgeError::InvalidEditPreviewOutput(
+            "analysis version is unsupported",
+        ));
+    }
+    let sample_dimensions = dimensions(&analysis.sample_dimensions);
+    if sample_dimensions.width == 0
+        || sample_dimensions.height == 0
+        || sample_dimensions != proxy_dimensions
+    {
+        return Err(BridgeError::InvalidEditPreviewOutput(
+            "analysis dimensions must be non-zero and match the proxy",
+        ));
+    }
+    if analysis.pixel_count != sample_dimensions.pixel_count() {
+        return Err(BridgeError::InvalidEditPreviewOutput(
+            "analysis pixel_count must equal width times height",
+        ));
+    }
+
+    let red = validated_histogram(analysis.red, analysis.pixel_count)?;
+    let green = validated_histogram(analysis.green, analysis.pixel_count)?;
+    let blue = validated_histogram(analysis.blue, analysis.pixel_count)?;
+    let luma = validated_histogram(analysis.luma, analysis.pixel_count)?;
+    let below_zero_samples = validated_channel_counts(analysis.below_zero_samples)?;
+    let above_one_samples = validated_channel_counts(analysis.above_one_samples)?;
+
+    for channel in 0..3 {
+        if below_zero_samples[channel]
+            .checked_add(above_one_samples[channel])
+            .is_none_or(|total| total > analysis.pixel_count)
+        {
+            return Err(BridgeError::InvalidEditPreviewOutput(
+                "one channel cannot be below zero and above one for the same pixel",
+            ));
+        }
+    }
+    validate_any_channel_clip_count(
+        &below_zero_samples,
+        analysis.shadow_clipped_pixels,
+        analysis.pixel_count,
+    )?;
+    validate_any_channel_clip_count(
+        &above_one_samples,
+        analysis.highlight_clipped_pixels,
+        analysis.pixel_count,
+    )?;
+
+    Ok(EditPreviewAnalysis {
+        version: analysis.version,
+        sample_dimensions,
+        red,
+        green,
+        blue,
+        luma,
+        below_zero_samples,
+        above_one_samples,
+        pixel_count: analysis.pixel_count,
+        shadow_clipped_pixels: analysis.shadow_clipped_pixels,
+        highlight_clipped_pixels: analysis.highlight_clipped_pixels,
+    })
+}
+
 #[derive(Debug, Error)]
 pub enum BridgeError {
     #[error("invalid edited proxy request: {0}")]
     InvalidEditRequest(&'static str),
+    #[error("invalid edit-preview analysis bridge output: {0}")]
+    InvalidEditPreviewOutput(&'static str),
     #[error("invalid full edit detail bridge output: {0}")]
     InvalidEditDetailOutput(&'static str),
     #[error("invalid JPEG display-luma request: {0}")]
@@ -1570,6 +1822,148 @@ mod tests {
         }
     }
 
+    fn valid_ffi_edit_preview_analysis() -> ffi::FfiEditPreviewAnalysis {
+        let histogram = || {
+            let mut bins = vec![0_u64; EDIT_PREVIEW_HISTOGRAM_BIN_COUNT];
+            bins[0] = 2;
+            bins
+        };
+        ffi::FfiEditPreviewAnalysis {
+            version: EDIT_PREVIEW_ANALYSIS_VERSION.to_owned(),
+            sample_dimensions: ffi::FfiDimensions {
+                width: 2,
+                height: 1,
+            },
+            red: histogram(),
+            green: histogram(),
+            blue: histogram(),
+            luma: histogram(),
+            below_zero_samples: vec![0, 0, 0],
+            above_one_samples: vec![1, 0, 0],
+            pixel_count: 2,
+            shadow_clipped_pixels: 0,
+            highlight_clipped_pixels: 1,
+        }
+    }
+
+    fn valid_edit_preview_proxy() -> shadow_domain::ProxyPayload {
+        shadow_domain::ProxyPayload {
+            dimensions: ImageDimensions {
+                width: 2,
+                height: 1,
+            },
+            codec: PreviewCodec::Jpeg,
+            bits_per_channel: 8,
+            channels: 3,
+            bytes: vec![0xff, 0xd8, 0xff, 0xd9],
+        }
+    }
+
+    #[test]
+    fn edit_preview_analysis_validation_fails_closed() {
+        let proxy_dimensions = ImageDimensions {
+            width: 2,
+            height: 1,
+        };
+        let valid =
+            validate_edit_preview_analysis(valid_ffi_edit_preview_analysis(), proxy_dimensions)
+                .expect("valid analysis contract");
+        assert_eq!(valid.version, EDIT_PREVIEW_ANALYSIS_VERSION);
+        assert_eq!(valid.pixel_count, 2);
+        assert_eq!(valid.red.iter().sum::<u64>(), 2);
+        assert_eq!(valid.highlight_clipped_pixels, 1);
+
+        let mut wrong_version = valid_ffi_edit_preview_analysis();
+        wrong_version.version.push_str(":future");
+        assert!(matches!(
+            validate_edit_preview_analysis(wrong_version, proxy_dimensions),
+            Err(BridgeError::InvalidEditPreviewOutput(_))
+        ));
+
+        let wrong_proxy_dimensions = ImageDimensions {
+            width: 1,
+            height: 2,
+        };
+        assert!(matches!(
+            validate_edit_preview_analysis(
+                valid_ffi_edit_preview_analysis(),
+                wrong_proxy_dimensions
+            ),
+            Err(BridgeError::InvalidEditPreviewOutput(_))
+        ));
+
+        let mut short_histogram = valid_ffi_edit_preview_analysis();
+        short_histogram.luma.pop();
+        assert!(matches!(
+            validate_edit_preview_analysis(short_histogram, proxy_dimensions),
+            Err(BridgeError::InvalidEditPreviewOutput(_))
+        ));
+
+        let mut wrong_histogram_sum = valid_ffi_edit_preview_analysis();
+        wrong_histogram_sum.blue[0] = 1;
+        assert!(matches!(
+            validate_edit_preview_analysis(wrong_histogram_sum, proxy_dimensions),
+            Err(BridgeError::InvalidEditPreviewOutput(_))
+        ));
+
+        let mut impossible_channel_counts = valid_ffi_edit_preview_analysis();
+        impossible_channel_counts.below_zero_samples = vec![2, 0, 0];
+        impossible_channel_counts.above_one_samples = vec![1, 0, 0];
+        impossible_channel_counts.shadow_clipped_pixels = 2;
+        assert!(matches!(
+            validate_edit_preview_analysis(impossible_channel_counts, proxy_dimensions),
+            Err(BridgeError::InvalidEditPreviewOutput(_))
+        ));
+
+        let mut impossible_any_channel_count = valid_ffi_edit_preview_analysis();
+        impossible_any_channel_count.highlight_clipped_pixels = 2;
+        assert!(matches!(
+            validate_edit_preview_analysis(impossible_any_channel_count, proxy_dimensions),
+            Err(BridgeError::InvalidEditPreviewOutput(_))
+        ));
+
+        validate_analyzed_edit_preview(
+            valid_edit_preview_proxy(),
+            valid_ffi_edit_preview_analysis(),
+            proxy_dimensions,
+        )
+        .expect("matching analyzed proxy contract");
+
+        let paired_wrong_dimensions = ImageDimensions {
+            width: 1,
+            height: 2,
+        };
+        let mut wrong_proxy = valid_edit_preview_proxy();
+        wrong_proxy.dimensions = paired_wrong_dimensions;
+        let mut matching_wrong_analysis = valid_ffi_edit_preview_analysis();
+        matching_wrong_analysis.sample_dimensions = ffi::FfiDimensions {
+            width: paired_wrong_dimensions.width,
+            height: paired_wrong_dimensions.height,
+        };
+        assert!(matches!(
+            validate_analyzed_edit_preview(wrong_proxy, matching_wrong_analysis, proxy_dimensions,),
+            Err(BridgeError::InvalidEditPreviewOutput(_))
+        ));
+
+        for mutate in [
+            |proxy: &mut shadow_domain::ProxyPayload| proxy.codec = PreviewCodec::Bitmap,
+            |proxy: &mut shadow_domain::ProxyPayload| proxy.bits_per_channel = 16,
+            |proxy: &mut shadow_domain::ProxyPayload| proxy.channels = 4,
+            |proxy: &mut shadow_domain::ProxyPayload| proxy.bytes.clear(),
+        ] {
+            let mut proxy = valid_edit_preview_proxy();
+            mutate(&mut proxy);
+            assert!(matches!(
+                validate_analyzed_edit_preview(
+                    proxy,
+                    valid_ffi_edit_preview_analysis(),
+                    proxy_dimensions,
+                ),
+                Err(BridgeError::InvalidEditPreviewOutput(_))
+            ));
+        }
+    }
+
     #[test]
     fn full_edit_detail_contract_is_send_sync_and_rejects_invalid_rectangles_locally() {
         fn assert_send_sync<T: Send + Sync>() {}
@@ -1764,6 +2158,9 @@ mod tests {
                 let neutral_from_plan = session
                     .render_plan(&neutral_plan, 86)
                     .expect("render neutral typed plan");
+                let neutral_analyzed = session
+                    .render_plan_with_analysis(&neutral_plan, 86)
+                    .expect("render neutral typed plan with analysis");
                 let adjusted = session
                     .render(
                         BasicEditParameters {
@@ -1799,6 +2196,30 @@ mod tests {
 
                 assert_eq!(session.dimensions(), neutral.dimensions);
                 assert_eq!(neutral_from_plan.bytes, neutral.bytes);
+                assert_eq!(neutral_analyzed.proxy.bytes, neutral.bytes);
+                assert_eq!(
+                    neutral_analyzed.analysis.sample_dimensions,
+                    neutral.dimensions
+                );
+                assert_eq!(
+                    neutral_analyzed.analysis.pixel_count,
+                    neutral.dimensions.pixel_count()
+                );
+                for histogram in [
+                    &neutral_analyzed.analysis.red,
+                    &neutral_analyzed.analysis.green,
+                    &neutral_analyzed.analysis.blue,
+                    &neutral_analyzed.analysis.luma,
+                ] {
+                    assert_eq!(
+                        histogram.iter().sum::<u64>(),
+                        neutral_analyzed.analysis.pixel_count
+                    );
+                }
+                assert_eq!(
+                    neutral_analyzed.analysis.version,
+                    EDIT_PREVIEW_ANALYSIS_VERSION
+                );
                 assert_eq!(adjusted.dimensions, neutral.dimensions);
                 assert_eq!(curved.dimensions, neutral.dimensions);
                 assert_eq!(neutral.codec, PreviewCodec::Jpeg);

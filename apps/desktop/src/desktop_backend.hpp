@@ -178,8 +178,24 @@ struct BackendPhotoEditState final {
     bool has_working_version = false;
 };
 
+struct BackendEditPreviewAnalysis final {
+    QString version;
+    QVector<std::uint64_t> red;
+    QVector<std::uint64_t> green;
+    QVector<std::uint64_t> blue;
+    QVector<std::uint64_t> luma;
+    QVector<std::uint64_t> below_zero_samples;
+    QVector<std::uint64_t> above_one_samples;
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
+    std::uint64_t pixel_count = 0;
+    std::uint64_t shadow_clipped_pixels = 0;
+    std::uint64_t highlight_clipped_pixels = 0;
+};
+
 struct BackendEditedPreview final {
     QByteArray bytes;
+    BackendEditPreviewAnalysis analysis;
     std::uint32_t width = 0;
     std::uint32_t height = 0;
 };

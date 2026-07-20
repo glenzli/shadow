@@ -1,5 +1,7 @@
 #include <shadow/image/display_luma.hpp>
 
+#include "display_rgb_math.hpp"
+
 #include <jconfig.h>
 #include <jpeglib.h>
 #include <jerror.h>
@@ -48,13 +50,6 @@ inline constexpr std::uint32_t maximum_scaled_decode_edge = 8'192U;
 inline constexpr std::uint64_t maximum_scaled_decode_pixels = 8'388'608U;
 inline constexpr std::uint64_t maximum_multiscan_source_pixels = 50'000'000U;
 inline constexpr long maximum_libjpeg_memory_bytes = 256L * 1024L * 1024L;
-inline constexpr std::uint32_t rec709_red_q16 = 13'933U;
-inline constexpr std::uint32_t rec709_green_q16 = 46'871U;
-inline constexpr std::uint32_t rec709_blue_q16 = 4'732U;
-inline constexpr std::uint32_t maximum_weighted_luma = 255U * 65'536U;
-
-static_assert(rec709_red_q16 + rec709_green_q16 + rec709_blue_q16 == 65'536U);
-static_assert(maximum_weighted_luma < (1U << 24U));
 static_assert(sizeof(JSAMPLE) == 1U);
 static_assert(MAXJSAMPLE == 255);
 
@@ -361,9 +356,11 @@ void select_idct_scale(
             state->weighted_luma + row * result.scaled_width;
         for (std::size_t column = 0U; column < result.scaled_width; ++column) {
             const std::size_t source = column * 3U;
-            output[column] = rec709_red_q16 * state->scanline[source]
-                + rec709_green_q16 * state->scanline[source + 1U]
-                + rec709_blue_q16 * state->scanline[source + 2U];
+            output[column] = display_rgb::rec709_encoded_luma_q16(
+                state->scanline[source],
+                state->scanline[source + 1U],
+                state->scanline[source + 2U]
+            );
         }
     }
 
@@ -494,7 +491,8 @@ struct AxisCoordinate final {
                 y
             );
             output[static_cast<std::size_t>(row) * target.width + column] =
-                static_cast<float>(weighted) / static_cast<float>(maximum_weighted_luma);
+                static_cast<float>(weighted)
+                / static_cast<float>(display_rgb::maximum_weighted_luma);
         }
     }
     return output;

@@ -302,6 +302,18 @@ mod ffi {
         width: u32,
         height: u32,
         bytes: Vec<u8>,
+        analysis_version: String,
+        analysis_width: u32,
+        analysis_height: u32,
+        red_histogram: Vec<u64>,
+        green_histogram: Vec<u64>,
+        blue_histogram: Vec<u64>,
+        luma_histogram: Vec<u64>,
+        below_zero_samples: Vec<u64>,
+        above_one_samples: Vec<u64>,
+        pixel_count: u64,
+        shadow_clipped_pixels: u64,
+        highlight_clipped_pixels: u64,
     }
 
     /// Tightly packed display-sRGB RGB8 pixels for one level-zero tile.
@@ -907,11 +919,25 @@ impl DesktopSession {
             request.use_working_recipe,
         )?;
         let session = self.edit_preview_session(&source, request.max_edge)?;
-        let proxy = session.render_plan(&plan, request.jpeg_quality)?;
+        let rendered = session.render_plan_with_analysis(&plan, request.jpeg_quality)?;
+        let proxy = rendered.proxy;
+        let analysis = rendered.analysis;
         Ok(ffi::FfiEditedPreview {
             width: proxy.dimensions.width,
             height: proxy.dimensions.height,
             bytes: proxy.bytes,
+            analysis_version: analysis.version,
+            analysis_width: analysis.sample_dimensions.width,
+            analysis_height: analysis.sample_dimensions.height,
+            red_histogram: analysis.red.to_vec(),
+            green_histogram: analysis.green.to_vec(),
+            blue_histogram: analysis.blue.to_vec(),
+            luma_histogram: analysis.luma.to_vec(),
+            below_zero_samples: analysis.below_zero_samples.to_vec(),
+            above_one_samples: analysis.above_one_samples.to_vec(),
+            pixel_count: analysis.pixel_count,
+            shadow_clipped_pixels: analysis.shadow_clipped_pixels,
+            highlight_clipped_pixels: analysis.highlight_clipped_pixels,
         })
     }
 
@@ -6236,6 +6262,29 @@ mod tests {
         }
     }
 
+    fn assert_preview_analysis(preview: &ffi::FfiEditedPreview) {
+        assert!(!preview.analysis_version.is_empty());
+        assert_eq!(preview.analysis_width, preview.width);
+        assert_eq!(preview.analysis_height, preview.height);
+        assert_eq!(
+            preview.pixel_count,
+            u64::from(preview.width) * u64::from(preview.height)
+        );
+        for histogram in [
+            &preview.red_histogram,
+            &preview.green_histogram,
+            &preview.blue_histogram,
+            &preview.luma_histogram,
+        ] {
+            assert_eq!(histogram.len(), 256);
+            assert_eq!(histogram.iter().sum::<u64>(), preview.pixel_count);
+        }
+        assert_eq!(preview.below_zero_samples.len(), 3);
+        assert_eq!(preview.above_one_samples.len(), 3);
+        assert!(preview.shadow_clipped_pixels <= preview.pixel_count);
+        assert!(preview.highlight_clipped_pixels <= preview.pixel_count);
+    }
+
     fn single_exposure_recipe(
         recipe_schema_version: u32,
         graph_schema_version: u32,
@@ -6796,7 +6845,10 @@ mod tests {
                 .expect("reuse prepared edit preview session");
             assert!(first_edit.bytes.starts_with(&[0xff, 0xd8]));
             assert!(second_edit.bytes.starts_with(&[0xff, 0xd8]));
+            assert_preview_analysis(&first_edit);
+            assert_preview_analysis(&second_edit);
             assert_ne!(first_edit.bytes, second_edit.bytes);
+            assert_ne!(first_edit.luma_histogram, second_edit.luma_histogram);
             assert_persisted_tone_recipe_and_neutral_before(
                 session.as_ref(),
                 &page.items[0],
@@ -6918,7 +6970,15 @@ mod tests {
         assert_ne!(tone_current.bytes, new_base_after_ref_move.bytes);
         assert_ne!(tone_current.bytes, neutral_before_first.bytes);
         assert_eq!(bypassed_current.bytes, neutral_before_first.bytes);
+        assert_eq!(
+            bypassed_current.luma_histogram,
+            neutral_before_first.luma_histogram
+        );
         assert_eq!(neutral_before_first.bytes, neutral_before_second.bytes);
+        assert_eq!(
+            neutral_before_first.luma_histogram,
+            neutral_before_second.luma_histogram
+        );
         let state = session
             .photo_edit_state(&item.photo_id, &item.source_path)
             .expect("open Basic surface over persisted Tone Curve");

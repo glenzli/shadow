@@ -3,6 +3,7 @@
 
 #include <array>
 #include <cstdlib>
+#include <future>
 #include <iostream>
 #include <limits>
 #include <string_view>
@@ -130,6 +131,65 @@ private:
     mutable std::size_t reference_render_count_ = 0;
 };
 
+class BoundaryRgbSession final : public image::DecodeSession {
+public:
+    [[nodiscard]] const image::AssetMetadata& metadata() const noexcept override {
+        return metadata_;
+    }
+
+    [[nodiscard]] const image::DecodeCapabilities& capabilities() const noexcept override {
+        return capabilities_;
+    }
+
+    [[nodiscard]] std::span<const image::PreviewDescriptor> previews() const noexcept override {
+        return {};
+    }
+
+    [[nodiscard]] image::PreviewPayload decode_preview(std::size_t) override {
+        throw image::DecodeError(image::DecodeErrorCode::no_preview, 0, "no preview");
+    }
+
+    [[nodiscard]] image::MosaicBuffer decode_mosaic() override {
+        throw image::DecodeError(image::DecodeErrorCode::unsupported, 0, "no mosaic");
+    }
+
+    [[nodiscard]] image::PixelBuffer render_reference_rgb() const override {
+        ++reference_render_count_;
+        return image::PixelBuffer{
+            .dimensions = {5, 1},
+            .bits_per_channel = 16,
+            .channels = 3,
+            .row_stride_bytes = 5U * 3U * sizeof(std::uint16_t),
+            .color_space = image::ColorSpace::srgb,
+            .samples = {
+                0U, 0U, 0U,
+                65'535U, 65'535U, 65'535U,
+                65'535U, 0U, 0U,
+                0U, 65'535U, 0U,
+                0U, 0U, 65'535U,
+            },
+        };
+    }
+
+    [[nodiscard]] std::size_t reference_render_count() const noexcept {
+        return reference_render_count_;
+    }
+
+private:
+    image::AssetMetadata metadata_;
+    image::DecodeCapabilities capabilities_;
+    mutable std::size_t reference_render_count_ = 0;
+};
+
+template <std::size_t Size>
+[[nodiscard]] std::uint64_t sum_counts(const std::array<std::uint64_t, Size>& values) {
+    std::uint64_t sum = 0U;
+    for (const auto value : values) {
+        sum += value;
+    }
+    return sum;
+}
+
 void reference_proxy_is_bounded_standard_jpeg() {
     expect(
         image::proxy_dimensions({4'032, 3'024}, 2'048) == image::Dimensions{2'048, 1'536},
@@ -253,6 +313,107 @@ void warm_edit_preview_decodes_once_and_renders_repeatedly() {
     expect(session.reference_render_count() == 2U, "only the one-shot comparison decodes again");
 }
 
+void warm_edit_preview_analysis_is_pre_jpeg_and_strictly_pre_clamp() {
+    const BoundaryRgbSession session;
+    const auto warm = image::prepare_warm_edit_preview(session, 5);
+    expect(session.reference_render_count() == 1U, "analysis preparation decodes exactly once");
+
+    const std::array neutral_nodes{
+        image::AdjustmentNode{
+            .node_id = "neutral-exposure",
+            .parameters = image::ExposureAdjustment{},
+        },
+    };
+    const auto low_quality = warm.render_jpeg_with_analysis(neutral_nodes, 1);
+    const auto high_quality = warm.render_jpeg_with_analysis(neutral_nodes, 100);
+    const auto& neutral = low_quality.analysis;
+
+    expect(
+        neutral == high_quality.analysis,
+        "JPEG quality cannot affect analysis computed from pre-encode RGB8"
+    );
+    expect(
+        low_quality.proxy.bytes != high_quality.proxy.bytes,
+        "the quality-independence check still exercises distinct JPEG encodings"
+    );
+    expect(
+        neutral.sample_dimensions == image::Dimensions{5, 1} && neutral.pixel_count == 5U,
+        "analysis describes the complete warm proxy"
+    );
+    expect(
+        neutral.red[0] == 3U && neutral.red[255] == 2U
+            && neutral.green[0] == 3U && neutral.green[255] == 2U
+            && neutral.blue[0] == 3U && neutral.blue[255] == 2U,
+        "known black, white, and primary pixels land in exact RGB endpoint bins"
+    );
+    expect(
+        neutral.luma[0] == 1U && neutral.luma[255] == 1U
+            && neutral.luma[54] == 1U && neutral.luma[182] == 1U
+            && neutral.luma[18] == 1U,
+        "fixed-point Rec.709 encoded luma preserves endpoints and RGB channel order"
+    );
+    expect(
+        sum_counts(neutral.red) == neutral.pixel_count
+            && sum_counts(neutral.green) == neutral.pixel_count
+            && sum_counts(neutral.blue) == neutral.pixel_count
+            && sum_counts(neutral.luma) == neutral.pixel_count,
+        "every histogram contains exactly one sample per proxy pixel"
+    );
+    expect(
+        neutral.below_zero_samples == std::array<std::uint64_t, 3>{0U, 0U, 0U}
+            && neutral.above_one_samples == std::array<std::uint64_t, 3>{0U, 0U, 0U}
+            && neutral.shadow_clipped_pixels == 0U
+            && neutral.highlight_clipped_pixels == 0U,
+        "exact scene-linear zero and one are legal and are not reported as clipped"
+    );
+
+    const std::array highlight_nodes{
+        image::AdjustmentNode{
+            .node_id = "highlight-exposure",
+            .parameters = image::ExposureAdjustment{1.0},
+        },
+    };
+    const auto highlight = warm.render_jpeg_with_analysis(highlight_nodes, 80).analysis;
+    expect(
+        highlight.above_one_samples == std::array<std::uint64_t, 3>{2U, 2U, 2U}
+            && highlight.highlight_clipped_pixels == 4U,
+        "super-white channels and their any-channel pixel union are counted independently"
+    );
+
+    image::ToneCurve lowered_curve;
+    lowered_curve.points = {{0.0, -0.1}, {1.0, 0.9}};
+    const std::array shadow_nodes{
+        image::AdjustmentNode{
+            .node_id = "lowered-curve",
+            .parameters = std::move(lowered_curve),
+        },
+    };
+    const auto shadow = warm.render_jpeg_with_analysis(shadow_nodes, 80).analysis;
+    expect(
+        shadow.below_zero_samples == std::array<std::uint64_t, 3>{3U, 3U, 3U}
+            && shadow.shadow_clipped_pixels == 4U,
+        "negative channels and their any-channel pixel union are counted independently"
+    );
+    expect(
+        session.reference_render_count() == 1U,
+        "repeated analyzed renders never ask the decoder for pixels again"
+    );
+
+    auto first_concurrent = std::async(std::launch::async, [&warm, &neutral_nodes]() {
+        return warm.render_jpeg_with_analysis(neutral_nodes, 80);
+    });
+    auto second_concurrent = std::async(std::launch::async, [&warm, &neutral_nodes]() {
+        return warm.render_jpeg_with_analysis(neutral_nodes, 80);
+    });
+    const auto first_result = first_concurrent.get();
+    const auto second_result = second_concurrent.get();
+    expect(
+        first_result.analysis == second_result.analysis
+            && first_result.proxy.bytes == second_result.proxy.bytes,
+        "concurrent const analyzed renders are deterministic and isolated"
+    );
+}
+
 void warm_edit_preview_bounds_fail_before_decode() {
     const FakeRgbSession session;
     try {
@@ -357,6 +518,7 @@ int main() {
     reference_proxy_is_bounded_standard_jpeg();
     edited_proxy_crosses_explicit_linear_srgb_boundary();
     warm_edit_preview_decodes_once_and_renders_repeatedly();
+    warm_edit_preview_analysis_is_pre_jpeg_and_strictly_pre_clamp();
     warm_edit_preview_bounds_fail_before_decode();
     edited_proxy_rejects_invalid_nodes_before_decode();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;

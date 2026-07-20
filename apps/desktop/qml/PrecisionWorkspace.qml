@@ -19,9 +19,12 @@ Item {
     property bool detailImageLoadFailed: false
     property bool componentReady: false
     property bool suppressViewportTracking: false
+    property string readyPreviewGeneration: ""
 
     readonly property bool beforeReady: editor.beforePreviewSource.length > 0
     readonly property bool displayingBefore: showBefore && beforeReady
+    readonly property var displayedHistogram: displayingBefore
+        ? editor.beforeHistogram : editor.histogram
     readonly property real deviceScale: Math.max(1.0, Screen.devicePixelRatio)
     readonly property real imagePixelWidth: editor.detailFullWidth > 0
         ? editor.detailFullWidth
@@ -112,6 +115,11 @@ Item {
         previewFlick.contentX = 0
         previewFlick.contentY = 0
         editor.leaveDetailMode()
+    }
+
+    function previewGeneration(source) {
+        const match = String(source).match(/[?&]generation=([^&#]+)/)
+        return match && match.length > 1 ? decodeURIComponent(match[1]) : ""
     }
 
     function normalizedCenterX() {
@@ -812,6 +820,15 @@ Item {
                             asynchronous: true
                             cache: false
                             smooth: true
+                            onSourceChanged: precision.readyPreviewGeneration = ""
+                            onStatusChanged: {
+                                if (status === Image.Ready) {
+                                    precision.readyPreviewGeneration
+                                        = precision.previewGeneration(source)
+                                } else if (status === Image.Error || status === Image.Null) {
+                                    precision.readyPreviewGeneration = ""
+                                }
+                            }
                         }
 
                         Repeater {
@@ -1031,6 +1048,21 @@ Item {
             ColumnLayout {
                 anchors.fill: parent
                 spacing: 0
+
+                EditHistogram {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 166
+                    analysis: precision.displayedHistogram
+                    beforeView: precision.displayingBefore
+                    displayGeneration: precision.readyPreviewGeneration
+                    panelColor: precision.panelRaised
+                    plotColor: "#0b0e11"
+                    borderColor: precision.border
+                    textColor: precision.textPrimary
+                    secondaryTextColor: precision.textSecondary
+                    mutedTextColor: precision.textMuted
+                    accentColor: precision.accent
+                }
 
                 TabBar {
                     id: rightTabs

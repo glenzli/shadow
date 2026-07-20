@@ -202,6 +202,35 @@ void validate_adjustment_nodes(std::span<const AdjustmentNode> nodes);
 // applying it here is an interactive proxy approximation rather than a bit-equivalent substitute
 // for applying it before full-resolution downsampling. Masked or neighborhood operations must
 // still declare an appropriate preview strategy rather than being silently routed through here.
+inline constexpr std::size_t edit_preview_histogram_bin_count = 256U;
+inline constexpr std::string_view edit_preview_analysis_version =
+    "shadow.edit-preview-analysis.v1:rgb8-before-jpeg:rec709-encoded-q16:"
+    "pre-clamp-linear-strict-lt-gt-any-channel";
+
+// Transient analysis of one complete warm-proxy render. Histogram bins describe the uncompressed
+// display-sRGB RGB8 pixels immediately before JPEG encoding. Clipping counts inspect the edited
+// scene-linear values immediately before output clamping: exact 0 and 1 are legal, while a pixel
+// is counted when any channel is below 0 or above 1. This is not sensor-domain exposure analysis.
+struct EditPreviewAnalysis final {
+    Dimensions sample_dimensions;
+    std::array<std::uint64_t, edit_preview_histogram_bin_count> red{};
+    std::array<std::uint64_t, edit_preview_histogram_bin_count> green{};
+    std::array<std::uint64_t, edit_preview_histogram_bin_count> blue{};
+    std::array<std::uint64_t, edit_preview_histogram_bin_count> luma{};
+    std::array<std::uint64_t, 3> below_zero_samples{};
+    std::array<std::uint64_t, 3> above_one_samples{};
+    std::uint64_t pixel_count = 0;
+    std::uint64_t shadow_clipped_pixels = 0;
+    std::uint64_t highlight_clipped_pixels = 0;
+
+    auto operator<=>(const EditPreviewAnalysis&) const = default;
+};
+
+struct AnalyzedEditPreview final {
+    EncodedProxy proxy;
+    EditPreviewAnalysis analysis;
+};
+
 class WarmEditPreviewSession final {
 public:
     WarmEditPreviewSession(const WarmEditPreviewSession&) = delete;
@@ -213,6 +242,10 @@ public:
     [[nodiscard]] Dimensions dimensions() const noexcept;
     [[nodiscard]] std::uint32_t max_edge() const noexcept;
     [[nodiscard]] EncodedProxy render_jpeg(
+        std::span<const AdjustmentNode> nodes,
+        std::uint8_t jpeg_quality = 88
+    ) const;
+    [[nodiscard]] AnalyzedEditPreview render_jpeg_with_analysis(
         std::span<const AdjustmentNode> nodes,
         std::uint8_t jpeg_quality = 88
     ) const;

@@ -67,6 +67,9 @@ public:
     [[nodiscard]] FfiEncodedProxy render_adjustment_plan(
         const FfiAdjustmentRenderRequest& request
     ) const;
+    [[nodiscard]] FfiAnalyzedEditPreview render_adjustment_plan_with_analysis(
+        const FfiAdjustmentRenderRequest& request
+    ) const;
 
 private:
     image::WarmEditPreviewSession session_;

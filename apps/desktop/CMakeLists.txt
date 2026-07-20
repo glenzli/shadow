@@ -89,6 +89,7 @@ qt_add_qml_module(
     URI Shadow.App
     VERSION 1.0
     QML_FILES
+        qml/EditHistogram.qml
         qml/Main.qml
         qml/LayerActionButton.qml
         qml/PrecisionWorkspace.qml

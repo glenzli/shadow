@@ -95,6 +95,7 @@ fn main() {
         "src/bridge/cxx_bridge.cpp",
         "src/decoder/libraw_decoder.cpp",
         "src/edit/cpu_reference.cpp",
+        "src/proxy/display_rgb_math.hpp",
         "src/proxy/jpeg_display_luma.cpp",
         "src/proxy/jpeg_proxy.cpp",
     ] {
