@@ -184,6 +184,22 @@ struct BackendEditedPreview final {
     std::uint32_t height = 0;
 };
 
+struct BackendEditedDetailTile final {
+    QByteArray bytes;
+    std::uint32_t x = 0;
+    std::uint32_t y = 0;
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
+    std::uint32_t row_stride_bytes = 0;
+};
+
+struct BackendEditedDetailViewport final {
+    QVector<BackendEditedDetailTile> tiles;
+    std::uint32_t full_width = 0;
+    std::uint32_t full_height = 0;
+    std::uint64_t retained_bytes = 0;
+};
+
 class DesktopBackend final {
 public:
     DesktopBackend(const QString& catalog_path, const QString& cache_root);
@@ -246,6 +262,20 @@ public:
         const BackendEditSettings& settings,
         std::uint32_t max_edge,
         std::uint8_t jpeg_quality,
+        bool use_working_recipe
+    ) const;
+    [[nodiscard]] std::uint64_t beginEditDetailRequest() const noexcept;
+    [[nodiscard]] BackendEditedDetailViewport renderEditDetailViewport(
+        const QString& photo_id,
+        const QString& source_path,
+        const QString& base_commit_id,
+        const BackendEditSettings& settings,
+        std::uint64_t render_token,
+        double center_x,
+        double center_y,
+        std::uint32_t viewport_width,
+        std::uint32_t viewport_height,
+        std::uint32_t tile_side,
         bool use_working_recipe
     ) const;
     [[nodiscard]] BackendPhotoEditState saveEditVersion(

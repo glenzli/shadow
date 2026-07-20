@@ -484,6 +484,56 @@ BackendEditedPreview DesktopBackend::renderEditPreview(
     };
 }
 
+std::uint64_t DesktopBackend::beginEditDetailRequest() const noexcept {
+    return impl_->session->begin_basic_edit_detail();
+}
+
+BackendEditedDetailViewport DesktopBackend::renderEditDetailViewport(
+    const QString& photo_id,
+    const QString& source_path,
+    const QString& base_commit_id,
+    const BackendEditSettings& settings,
+    const std::uint64_t render_token,
+    const double center_x,
+    const double center_y,
+    const std::uint32_t viewport_width,
+    const std::uint32_t viewport_height,
+    const std::uint32_t tile_side,
+    const bool use_working_recipe
+) const {
+    shadow::desktop::FfiEditDetailViewportRequest request;
+    request.base_commit_id = base_commit_id.toStdString();
+    request.settings = ffi_settings(settings);
+    request.render_token = render_token;
+    request.center_x = center_x;
+    request.center_y = center_y;
+    request.viewport_width = viewport_width;
+    request.viewport_height = viewport_height;
+    request.tile_side = tile_side;
+    request.use_working_recipe = use_working_recipe;
+    const auto payload = impl_->session->render_basic_edit_detail_viewport(
+        photo_id.toStdString(),
+        source_path.toStdString(),
+        request
+    );
+    BackendEditedDetailViewport result;
+    result.full_width = payload.full_width;
+    result.full_height = payload.full_height;
+    result.retained_bytes = payload.retained_bytes;
+    result.tiles.reserve(static_cast<qsizetype>(payload.tiles.size()));
+    for (const auto& tile : payload.tiles) {
+        result.tiles.push_back({
+            .bytes = qbytes(tile.bytes),
+            .x = tile.x,
+            .y = tile.y,
+            .width = tile.width,
+            .height = tile.height,
+            .row_stride_bytes = tile.row_stride_bytes,
+        });
+    }
+    return result;
+}
+
 BackendPhotoEditState DesktopBackend::saveEditVersion(
     const QString& photo_id,
     const QString& source_path,

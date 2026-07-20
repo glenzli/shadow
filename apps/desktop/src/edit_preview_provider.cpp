@@ -1,12 +1,22 @@
 #include "edit_preview_provider.hpp"
 
 #include <QBuffer>
+#include <QColorSpace>
 #include <QImageReader>
 #include <QReadLocker>
 #include <QUrlQuery>
 #include <QWriteLocker>
 
+#include <memory>
 #include <utility>
+
+namespace {
+
+void release_detail_pixels(void* const owner) noexcept {
+    delete static_cast<QByteArray*>(owner);
+}
+
+} // namespace
 
 EditPreviewStore::StoredPreview& EditPreviewStore::slot(
     const EditPreviewSlot slot
@@ -67,6 +77,55 @@ EditPreviewStore::Snapshot EditPreviewStore::snapshot(
     return {
         .bytes = stored.bytes,
         .dimensions = stored.dimensions,
+        .row_stride_bytes = stored.row_stride_bytes,
+    };
+}
+
+void EditPreviewStore::publishDetails(
+    QVector<DetailPublication> publications,
+    const EditDetailGeneration generation
+) {
+    QWriteLocker lock(&lock_);
+    details_.clear();
+    detail_generation_ = generation;
+    for (auto& publication : publications) {
+        if (publication.ticket.isEmpty() || publication.bytes.isEmpty()) {
+            continue;
+        }
+        details_.insert(
+            publication.ticket,
+            StoredPreview{
+                .bytes = std::move(publication.bytes),
+                .dimensions = publication.dimensions,
+                .generation = 0,
+                .row_stride_bytes = publication.row_stride_bytes,
+            }
+        );
+    }
+}
+
+void EditPreviewStore::clearDetails(const EditDetailGeneration generation) {
+    QWriteLocker lock(&lock_);
+    details_.clear();
+    detail_generation_ = generation;
+}
+
+EditPreviewStore::Snapshot EditPreviewStore::detailSnapshot(
+    const QString& ticket,
+    const EditDetailGeneration generation
+) const {
+    QReadLocker lock(&lock_);
+    if (generation != detail_generation_) {
+        return {};
+    }
+    const auto found = details_.constFind(ticket);
+    if (found == details_.cend()) {
+        return {};
+    }
+    return {
+        .bytes = found->bytes,
+        .dimensions = found->dimensions,
+        .row_stride_bytes = found->row_stride_bytes,
     };
 }
 
@@ -84,6 +143,65 @@ QImage EditPreviewProvider::requestImage(
 ) {
     const qsizetype query_start = id.indexOf(QLatin1Char('?'));
     const QString slot_name = query_start >= 0 ? id.left(query_start) : id;
+    const QUrlQuery query(query_start >= 0 ? id.mid(query_start + 1) : QString{});
+    if (slot_name.startsWith(QStringLiteral("detail/"))) {
+        const QString ticket = slot_name.mid(7);
+        bool valid_photo = false;
+        bool valid_recipe = false;
+        bool valid_viewport = false;
+        const EditDetailGeneration generation{
+            .photo = query.queryItemValue(QStringLiteral("photo")).toULongLong(
+                &valid_photo
+            ),
+            .recipe_revision = query
+                                   .queryItemValue(QStringLiteral("recipe"))
+                                   .toULongLong(&valid_recipe),
+            .viewport_revision = query
+                                     .queryItemValue(QStringLiteral("viewport"))
+                                     .toULongLong(&valid_viewport),
+        };
+        if (ticket.isEmpty() || !valid_photo || !valid_recipe || !valid_viewport) {
+            if (size != nullptr) {
+                *size = {};
+            }
+            return {};
+        }
+        auto snapshot = store_->detailSnapshot(ticket, generation);
+        const bool valid_dimensions = snapshot.dimensions.isValid();
+        const quint64 minimum_stride = valid_dimensions
+            ? static_cast<quint64>(snapshot.dimensions.width()) * 3U
+            : 0U;
+        const quint64 expected_bytes = snapshot.row_stride_bytes > 0
+            && valid_dimensions
+            ? static_cast<quint64>(snapshot.row_stride_bytes)
+                * static_cast<quint64>(snapshot.dimensions.height())
+            : 0U;
+        const bool valid_layout = valid_dimensions
+            && static_cast<quint64>(snapshot.row_stride_bytes) == minimum_stride
+            && snapshot.row_stride_bytes > 0
+            && expected_bytes == static_cast<quint64>(snapshot.bytes.size());
+        if (snapshot.bytes.isEmpty() || !valid_layout) {
+            if (size != nullptr) {
+                *size = {};
+            }
+            return {};
+        }
+        auto* const pixel_owner = new QByteArray(std::move(snapshot.bytes));
+        QImage image(
+            reinterpret_cast<const uchar*>(pixel_owner->constData()),
+            snapshot.dimensions.width(),
+            snapshot.dimensions.height(),
+            snapshot.row_stride_bytes,
+            QImage::Format_RGB888,
+            release_detail_pixels,
+            pixel_owner
+        );
+        image.setColorSpace(QColorSpace::SRgb);
+        if (size != nullptr) {
+            *size = image.size();
+        }
+        return image;
+    }
     EditPreviewSlot slot;
     if (slot_name == QStringLiteral("current")) {
         slot = EditPreviewSlot::Current;
@@ -95,7 +213,6 @@ QImage EditPreviewProvider::requestImage(
         }
         return {};
     }
-    const QUrlQuery query(query_start >= 0 ? id.mid(query_start + 1) : QString{});
     bool valid_generation = false;
     const quint64 generation = query
                                    .queryItemValue(QStringLiteral("generation"))

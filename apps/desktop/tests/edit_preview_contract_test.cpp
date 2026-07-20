@@ -3,6 +3,7 @@
 
 #include <QBuffer>
 #include <QColor>
+#include <QColorSpace>
 #include <QImage>
 
 #include <cstdlib>
@@ -25,6 +26,16 @@ void require(const bool condition, const std::string& message) {
     QBuffer buffer(&bytes);
     require(buffer.open(QIODevice::WriteOnly), "test image buffer must open");
     require(image.save(&buffer, "PNG"), "test image must encode");
+    return bytes;
+}
+
+[[nodiscard]] QByteArray rgb_square(const QColor color) {
+    QByteArray bytes(2 * 2 * 3, Qt::Uninitialized);
+    for (qsizetype index = 0; index < bytes.size(); index += 3) {
+        bytes[index] = static_cast<char>(color.red());
+        bytes[index + 1] = static_cast<char>(color.green());
+        bytes[index + 2] = static_cast<char>(color.blue());
+    }
     return bytes;
 }
 
@@ -99,6 +110,100 @@ void provider_routes_only_named_slots() {
     );
 }
 
+void detail_tiles_are_atomic_and_generation_guarded() {
+    auto store = std::make_shared<EditPreviewStore>();
+    constexpr EditDetailGeneration first{
+        .photo = 4,
+        .recipe_revision = 9,
+        .viewport_revision = 2,
+    };
+    QVector<EditPreviewStore::DetailPublication> publications;
+    publications.push_back({
+        .ticket = QStringLiteral("0-0"),
+        .bytes = rgb_square(Qt::green),
+        .dimensions = QSize(2, 2),
+        .row_stride_bytes = 6,
+    });
+    store->publishDetails(std::move(publications), first);
+    const auto stored_pixels = store->detailSnapshot(QStringLiteral("0-0"), first);
+    const auto* const stored_address = reinterpret_cast<const uchar*>(
+        stored_pixels.bytes.constData()
+    );
+    EditPreviewProvider provider(store);
+
+    const QImage current = provider.requestImage(
+        QStringLiteral("detail/0-0?photo=4&recipe=9&viewport=2"),
+        nullptr,
+        {}
+    );
+    require(
+        !current.isNull() && current.pixelColor(0, 0) == QColor(Qt::green),
+        "a detail URL must resolve only its exact generation"
+    );
+    require(
+        current.colorSpace() == QColorSpace(QColorSpace::SRgb),
+        "raw detail pixels must carry an explicit display-sRGB contract"
+    );
+    require(
+        current.constBits() == stored_address,
+        "detail provider must retain the immutable store bytes without a viewport copy"
+    );
+    require(
+        provider
+            .requestImage(
+                QStringLiteral("detail/0-0?photo=4&recipe=10&viewport=2"),
+                nullptr,
+                {}
+            )
+            .isNull(),
+        "a stale Recipe generation must not address detail pixels"
+    );
+
+    store->clearDetails(EditDetailGeneration{
+        .photo = 4,
+        .recipe_revision = 9,
+        .viewport_revision = 3,
+    });
+    require(
+        provider
+            .requestImage(
+                QStringLiteral("detail/0-0?photo=4&recipe=9&viewport=2"),
+                nullptr,
+                {}
+            )
+            .isNull(),
+        "advancing the viewport invalidates every prior tile atomically"
+    );
+    require(
+        current.pixelColor(0, 0) == QColor(Qt::green),
+        "an image already handed to Qt must retain its pixels after store invalidation"
+    );
+
+    constexpr EditDetailGeneration malformed{
+        .photo = 4,
+        .recipe_revision = 9,
+        .viewport_revision = 4,
+    };
+    QVector<EditPreviewStore::DetailPublication> malformed_publications;
+    malformed_publications.push_back({
+        .ticket = QStringLiteral("bad-stride"),
+        .bytes = rgb_square(Qt::red),
+        .dimensions = QSize(2, 2),
+        .row_stride_bytes = 5,
+    });
+    store->publishDetails(std::move(malformed_publications), malformed);
+    require(
+        provider
+            .requestImage(
+                QStringLiteral("detail/bad-stride?photo=4&recipe=9&viewport=4"),
+                nullptr,
+                {}
+            )
+            .isNull(),
+        "detail provider must reject non-tight RGB8 rows"
+    );
+}
+
 void stale_result_rules_are_kind_specific() {
     constexpr EditPreviewGeneration current{
         .kind = EditPreviewKind::Current,
@@ -115,6 +220,16 @@ void stale_result_rules_are_kind_specific() {
     static_assert(!accepts_edit_preview(current, 5, 9));
     static_assert(accepts_edit_preview(before, 4, 99));
     static_assert(!accepts_edit_preview(before, 5, 99));
+
+    constexpr EditDetailGeneration detail{
+        .photo = 4,
+        .recipe_revision = 9,
+        .viewport_revision = 3,
+    };
+    static_assert(accepts_edit_detail(detail, 4, 9, 3));
+    static_assert(!accepts_edit_detail(detail, 5, 9, 3));
+    static_assert(!accepts_edit_detail(detail, 4, 10, 3));
+    static_assert(!accepts_edit_detail(detail, 4, 9, 4));
 }
 
 void before_waits_for_the_latest_current_preview() {
@@ -151,6 +266,7 @@ void before_waits_for_the_latest_current_preview() {
 int main() {
     slots_have_independent_generations();
     provider_routes_only_named_slots();
+    detail_tiles_are_atomic_and_generation_guarded();
     stale_result_rules_are_kind_specific();
     before_waits_for_the_latest_current_preview();
     return EXIT_SUCCESS;

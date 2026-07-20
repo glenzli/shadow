@@ -73,6 +73,28 @@ namespace {
     return result;
 }
 
+[[nodiscard]] FfiDetailTileRect detail_tile_rect(const image::DetailTileRect value) noexcept {
+    return FfiDetailTileRect{value.x, value.y, value.width, value.height};
+}
+
+[[nodiscard]] image::DetailTileRect detail_tile_rect(const FfiDetailTileRect& value) noexcept {
+    return image::DetailTileRect{value.x, value.y, value.width, value.height};
+}
+
+[[nodiscard]] FfiRenderedDetailTile rendered_detail_tile(
+    const image::RenderedDetailTile& tile
+) {
+    FfiRenderedDetailTile result;
+    result.rect = detail_tile_rect(tile.rect);
+    result.full_dimensions = dimensions(tile.full_dimensions);
+    result.row_stride_bytes = tile.row_stride_bytes;
+    result.bytes.reserve(tile.bytes.size());
+    for (const auto byte : tile.bytes) {
+        result.bytes.push_back(byte);
+    }
+    return result;
+}
+
 inline constexpr std::size_t maximum_adjustment_nodes = 256U;
 inline constexpr std::size_t maximum_adjustment_node_id_bytes = 256U;
 
@@ -174,17 +196,17 @@ void require_parameter_count(
 }
 
 [[nodiscard]] std::vector<image::AdjustmentNode> adjustment_nodes(
-    const FfiAdjustmentRenderRequest& request
+    const rust::Vec<FfiAdjustmentNode>& nodes
 ) {
-    if (request.nodes.empty() || request.nodes.size() > maximum_adjustment_nodes) {
+    if (nodes.empty() || nodes.size() > maximum_adjustment_nodes) {
         throw_invalid_adjustment_plan(
             "adjustment render plan must contain between 1 and 256 nodes"
         );
     }
 
     std::vector<image::AdjustmentNode> result;
-    result.reserve(request.nodes.size());
-    for (const auto& source : request.nodes) {
+    result.reserve(nodes.size());
+    for (const auto& source : nodes) {
         result.push_back(adjustment_node(source));
     }
     return result;
@@ -298,7 +320,7 @@ FfiEncodedProxy DecodeHandle::render_reference_proxy(
 FfiEncodedProxy DecodeHandle::render_adjustment_plan(
     const FfiAdjustmentRenderRequest& request
 ) const {
-    const auto nodes = adjustment_nodes(request);
+    const auto nodes = adjustment_nodes(request.nodes);
     const auto proxy = image::render_edited_reference_proxy_jpeg(
         *session_,
         nodes,
@@ -338,8 +360,36 @@ FfiEncodedProxy EditPreviewHandle::render_adjustment_plan(
             "warm edit preview request does not match the prepared max edge"
         );
     }
-    const auto nodes = adjustment_nodes(request);
+    const auto nodes = adjustment_nodes(request.nodes);
     return encoded_proxy(session_.render_jpeg(nodes, request.jpeg_quality));
+}
+
+std::unique_ptr<FullEditDetailHandle> DecodeHandle::prepare_edit_detail() const {
+    return std::make_unique<FullEditDetailHandle>(
+        image::prepare_full_edit_detail(*session_)
+    );
+}
+
+FullEditDetailHandle::FullEditDetailHandle(image::FullEditDetailSession session)
+    : session_(std::move(session)) {}
+
+FullEditDetailHandle::~FullEditDetailHandle() = default;
+
+FfiDimensions FullEditDetailHandle::dimensions() const noexcept {
+    return shadow::bridge::dimensions(session_.dimensions());
+}
+
+std::uint64_t FullEditDetailHandle::retained_bytes() const noexcept {
+    return session_.retained_bytes();
+}
+
+FfiRenderedDetailTile FullEditDetailHandle::render_adjustment_plan_tile(
+    const FfiAdjustmentDetailTileRequest& request
+) const {
+    const auto nodes = adjustment_nodes(request.nodes);
+    return rendered_detail_tile(
+        session_.render_rgb8(nodes, detail_tile_rect(request.rect))
+    );
 }
 
 std::unique_ptr<DecodeHandle> open_libraw_utf8(const rust::Str path) {

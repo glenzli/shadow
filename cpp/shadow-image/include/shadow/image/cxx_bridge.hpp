@@ -5,6 +5,7 @@
 namespace shadow::bridge {
 class DecodeHandle;
 class EditPreviewHandle;
+class FullEditDetailHandle;
 }
 
 #include "shadow-bridge/src/lib.rs.h"
@@ -43,6 +44,7 @@ public:
     [[nodiscard]] std::unique_ptr<EditPreviewHandle> prepare_edit_preview(
         std::uint32_t max_edge
     ) const;
+    [[nodiscard]] std::unique_ptr<FullEditDetailHandle> prepare_edit_detail() const;
 
 private:
     std::unique_ptr<image::DecoderProvider> provider_;
@@ -68,6 +70,26 @@ public:
 
 private:
     image::WarmEditPreviewSession session_;
+};
+
+// The complete retained source is immutable and contains no decoder. Every tile render owns its
+// float working buffer and packed RGB8 result, so const calls may safely run concurrently.
+class FullEditDetailHandle final {
+public:
+    explicit FullEditDetailHandle(image::FullEditDetailSession session);
+    ~FullEditDetailHandle();
+
+    FullEditDetailHandle(const FullEditDetailHandle&) = delete;
+    FullEditDetailHandle& operator=(const FullEditDetailHandle&) = delete;
+
+    [[nodiscard]] FfiDimensions dimensions() const noexcept;
+    [[nodiscard]] std::uint64_t retained_bytes() const noexcept;
+    [[nodiscard]] FfiRenderedDetailTile render_adjustment_plan_tile(
+        const FfiAdjustmentDetailTileRequest& request
+    ) const;
+
+private:
+    image::FullEditDetailSession session_;
 };
 
 [[nodiscard]] std::unique_ptr<DecodeHandle> open_libraw_utf8(rust::Str path);

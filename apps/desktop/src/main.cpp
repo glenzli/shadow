@@ -5,6 +5,7 @@
 #include "thumbnail_provider.hpp"
 
 #include <QDebug>
+#include <QColorSpace>
 #include <QDir>
 #include <QGuiApplication>
 #include <QImage>
@@ -359,9 +360,10 @@ int main(int argc, char* argv[]) {
         QStringLiteral("shadow"),
         thumbnail_provider
     );
+    auto* const edit_preview_provider = new EditPreviewProvider(edit_preview_store);
     engine.addImageProvider(
         QStringLiteral("shadow-edit"),
-        new EditPreviewProvider(edit_preview_store)
+        edit_preview_provider
     );
     engine.setInitialProperties({
         {QStringLiteral("controller"), QVariant::fromValue(&controller)},
@@ -390,6 +392,9 @@ int main(int argc, char* argv[]) {
     );
     const bool adjustment_stack_smoke = qEnvironmentVariableIsSet(
         "SHADOW_DESKTOP_ADJUSTMENT_STACK_SMOKE"
+    );
+    const bool full_detail_smoke = qEnvironmentVariableIsSet(
+        "SHADOW_DESKTOP_FULL_DETAIL_SMOKE"
     );
     if (open_first_edit && !record_first_comparison && !set_first_decision) {
         QObject::connect(
@@ -568,6 +573,56 @@ int main(int argc, char* argv[]) {
                     application.exit(*decision_succeeded ? EXIT_SUCCESS : EXIT_FAILURE);
                 }
             );
+        } else if (open_first_edit && full_detail_smoke) {
+            auto requested = std::make_shared<bool>(false);
+            auto succeeded = std::make_shared<bool>(false);
+            QObject::connect(
+                &editor,
+                &EditController::previewSourceChanged,
+                &application,
+                [&editor, requested]() {
+                    if (*requested || editor.previewSource().isEmpty()) {
+                        return;
+                    }
+                    *requested = true;
+                    editor.requestDetailViewport(0.5, 0.5, 1'280, 960);
+                }
+            );
+            QObject::connect(
+                &editor,
+                &EditController::detailTilesChanged,
+                &application,
+                [&application, &editor, edit_preview_provider, succeeded]() {
+                    const QVariantList tiles = editor.detailTiles();
+                    if (tiles.isEmpty() || editor.detailFullWidth() == 0
+                        || editor.detailFullHeight() == 0
+                        || editor.detailRetainedBytes() == 0) {
+                        return;
+                    }
+                    const QVariantMap first = tiles.front().toMap();
+                    QSize decoded_size;
+                    const QImage image = edit_preview_provider->requestImage(
+                        image_provider_request_id(
+                            first.value(QStringLiteral("source")).toString()
+                        ),
+                        &decoded_size,
+                        {}
+                    );
+                    const QSize expected(
+                        first.value(QStringLiteral("width")).toInt(),
+                        first.value(QStringLiteral("height")).toInt()
+                    );
+                    if (image.isNull() || decoded_size != expected
+                        || image.colorSpace() != QColorSpace(QColorSpace::SRgb)) {
+                        return;
+                    }
+                    *succeeded = true;
+                    QTimer::singleShot(50, &application, &QCoreApplication::quit);
+                }
+            );
+            QTimer::singleShot(120'000, &application, [&application, succeeded]() {
+                application.exit(*succeeded ? EXIT_SUCCESS : EXIT_FAILURE);
+            });
         } else if (open_first_edit && adjustment_stack_smoke) {
             AdjustmentStackSmoke::start(application, controller, editor);
         } else if (open_first_edit) {

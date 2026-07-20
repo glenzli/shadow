@@ -52,6 +52,11 @@ if(BUILD_TESTING)
     shadow_image_enable_warnings(shadow-image-edit-tests)
     add_test(NAME shadow-image-edit-contract COMMAND shadow-image-edit-tests)
 
+    add_executable(shadow-image-detail-tile-tests tests/detail_tile_contract_test.cpp)
+    target_link_libraries(shadow-image-detail-tile-tests PRIVATE Shadow::Image)
+    shadow_image_enable_warnings(shadow-image-detail-tile-tests)
+    add_test(NAME shadow-image-detail-tile-contract COMMAND shadow-image-detail-tile-tests)
+
     add_executable(shadow-image-display-luma-tests tests/display_luma_contract_test.cpp)
     target_link_libraries(shadow-image-display-luma-tests PRIVATE Shadow::Image)
     shadow_image_enable_warnings(shadow-image-display-luma-tests)

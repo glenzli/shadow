@@ -3,7 +3,10 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -17,8 +20,9 @@ use shadow_ai::{
 };
 use shadow_bridge::{
     ADJUSTMENT_IMPLEMENTATION_VERSION, ADJUSTMENT_PARAMETER_SCHEMA_VERSION, AdjustmentRenderNode,
-    AdjustmentRenderOperation, AdjustmentRenderPlan, BasicEditParameters, LibRawEditPreviewSession,
-    MAX_ADJUSTMENT_RENDER_NODES, MAX_TONE_CURVE_POINTS, ToneCurvePoint,
+    AdjustmentRenderOperation, AdjustmentRenderPlan, BasicEditParameters, DetailTileRect,
+    DetailTileRequest, LibRawEditDetailSession, LibRawEditPreviewSession,
+    MAX_ADJUSTMENT_RENDER_NODES, MAX_EDIT_DETAIL_TILE_SIDE, MAX_TONE_CURVE_POINTS, ToneCurvePoint,
     extract_best_libraw_preview, inspect_libraw, libraw_provider_version,
     render_libraw_reference_proxy,
 };
@@ -29,8 +33,8 @@ use shadow_catalog::{
     TechnicalObservationRevision,
 };
 use shadow_core::{
-    CachedArtifactLoader, DecodeInspectionActor, DecodeInspector, scan_folder_with_inspection,
-    technical_analysis_preprocessing_version,
+    CachedArtifactLoader, DecodeInspectionActor, DecodeInspector, fingerprint_source,
+    scan_folder_with_inspection, technical_analysis_preprocessing_version,
 };
 use shadow_domain::operation::{
     BASIC_GRAPH_SCHEMA_VERSION, BASIC_LAYER_LABEL, CHANNEL_GAIN_OPERATION_ID,
@@ -234,6 +238,23 @@ mod ffi {
         use_working_recipe: bool,
     }
 
+    /// One visible full-resolution viewport. Coordinates are normalized so the
+    /// first cold request does not need to know LibRaw's oriented output size.
+    #[derive(Debug)]
+    struct FfiEditDetailViewportRequest {
+        base_commit_id: String,
+        settings: FfiEditSettings,
+        /// Token allocated by the session before this task is queued. A newer
+        /// token makes an in-flight tile loop stop before publishing pixels.
+        render_token: u64,
+        center_x: f64,
+        center_y: f64,
+        viewport_width: u32,
+        viewport_height: u32,
+        tile_side: u32,
+        use_working_recipe: bool,
+    }
+
     /// One immutable version in newest-first order.
     #[derive(Debug)]
     struct FfiEditVersion {
@@ -281,6 +302,26 @@ mod ffi {
         width: u32,
         height: u32,
         bytes: Vec<u8>,
+    }
+
+    /// Tightly packed display-sRGB RGB8 pixels for one level-zero tile.
+    #[derive(Debug)]
+    struct FfiEditedDetailTile {
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+        row_stride_bytes: u32,
+        bytes: Vec<u8>,
+    }
+
+    /// An atomically presented set of tiles covering the requested viewport.
+    #[derive(Debug)]
+    struct FfiEditedDetailViewport {
+        full_width: u32,
+        full_height: u32,
+        retained_bytes: u64,
+        tiles: Vec<FfiEditedDetailTile>,
     }
 
     extern "Rust" {
@@ -354,6 +395,13 @@ mod ffi {
             source_path: &str,
             request: &FfiEditPreviewRequest,
         ) -> Result<FfiEditedPreview>;
+        fn begin_basic_edit_detail(self: &DesktopSession) -> u64;
+        fn render_basic_edit_detail_viewport(
+            self: &DesktopSession,
+            photo_id: &str,
+            source_path: &str,
+            request: &FfiEditDetailViewportRequest,
+        ) -> Result<FfiEditedDetailViewport>;
         fn save_basic_edit_version(
             self: &DesktopSession,
             photo_id: &str,
@@ -398,6 +446,8 @@ struct DesktopSession {
     loader: CachedArtifactLoader,
     cache_root: PathBuf,
     edit_preview_sessions: Mutex<VecDeque<CachedEditPreviewSession>>,
+    edit_detail_session: Mutex<Option<CachedEditDetailSession>>,
+    edit_detail_render_token: AtomicU64,
     review_feedback_session_id: String,
     review_visual_signing_key: [u8; 32],
     review_comparisons: Mutex<ReviewComparisonRegistry>,
@@ -436,6 +486,13 @@ struct CachedEditPreviewSession {
     source: RepresentationFingerprint,
     max_edge: u32,
     session: Arc<LibRawEditPreviewSession>,
+}
+
+#[derive(Debug)]
+struct CachedEditDetailSession {
+    representation_id: RepresentationId,
+    source: RepresentationFingerprint,
+    session: Arc<LibRawEditDetailSession>,
 }
 
 impl DesktopSession {
@@ -843,15 +900,101 @@ impl DesktopSession {
         request: &ffi::FfiEditPreviewRequest,
     ) -> AnyResult<ffi::FfiEditedPreview> {
         let (photo_id, source) = self.validated_photo_source(photo_id, source_path)?;
-        let edits = preview_edit_settings(&request.settings, request.use_working_recipe)?;
+        let plan = self.basic_edit_render_plan(
+            photo_id,
+            &request.base_commit_id,
+            &request.settings,
+            request.use_working_recipe,
+        )?;
+        let session = self.edit_preview_session(&source, request.max_edge)?;
+        let proxy = session.render_plan(&plan, request.jpeg_quality)?;
+        Ok(ffi::FfiEditedPreview {
+            width: proxy.dimensions.width,
+            height: proxy.dimensions.height,
+            bytes: proxy.bytes,
+        })
+    }
+
+    fn render_basic_edit_detail_viewport(
+        &self,
+        photo_id: &str,
+        source_path: &str,
+        request: &ffi::FfiEditDetailViewportRequest,
+    ) -> AnyResult<ffi::FfiEditedDetailViewport> {
+        validate_detail_viewport_request(request)?;
+        self.ensure_current_edit_detail_render(request.render_token)?;
+        let (photo_id, source) = self.validated_photo_source(photo_id, source_path)?;
+        let plan = self.basic_edit_render_plan(
+            photo_id,
+            &request.base_commit_id,
+            &request.settings,
+            request.use_working_recipe,
+        )?;
+        self.ensure_current_edit_detail_render(request.render_token)?;
+        let session = self.edit_detail_session(&source, request.render_token)?;
+        self.ensure_current_edit_detail_render(request.render_token)?;
+        let full_dimensions = session.dimensions();
+        let rects = detail_viewport_rects(
+            full_dimensions,
+            request.center_x,
+            request.center_y,
+            request.viewport_width,
+            request.viewport_height,
+            request.tile_side,
+        )?;
+        let mut tiles = Vec::with_capacity(rects.len());
+        for rect in rects {
+            self.ensure_current_edit_detail_render(request.render_token)?;
+            let rendered = session.render_plan_tile(&plan, DetailTileRequest { rect })?;
+            self.ensure_current_edit_detail_render(request.render_token)?;
+            tiles.push(ffi::FfiEditedDetailTile {
+                x: rendered.rect.x,
+                y: rendered.rect.y,
+                width: rendered.rect.width,
+                height: rendered.rect.height,
+                row_stride_bytes: rendered.row_stride_bytes,
+                bytes: rendered.bytes,
+            });
+        }
+        Ok(ffi::FfiEditedDetailViewport {
+            full_width: full_dimensions.width,
+            full_height: full_dimensions.height,
+            retained_bytes: session.retained_bytes(),
+            tiles,
+        })
+    }
+
+    fn begin_basic_edit_detail(&self) -> u64 {
+        // A 64-bit process-lifetime counter cannot wrap in any realistic UI
+        // session. SeqCst keeps the cross-language cancellation contract easy
+        // to audit: every later request is visible to every tile worker.
+        self.edit_detail_render_token.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    fn ensure_current_edit_detail_render(&self, render_token: u64) -> AnyResult<()> {
+        if render_token == 0 || self.edit_detail_render_token.load(Ordering::SeqCst) != render_token
+        {
+            bail!("full detail render was superseded by a newer viewport or Recipe");
+        }
+        Ok(())
+    }
+
+    fn basic_edit_render_plan(
+        &self,
+        photo_id: PhotoId,
+        base_commit_id: &str,
+        settings: &ffi::FfiEditSettings,
+        use_working_recipe: bool,
+    ) -> AnyResult<AdjustmentRenderPlan> {
+        let edits = preview_edit_settings(settings, use_working_recipe)?;
         // Sliders and their immutable base commit travel as one render
         // generation. Never resolve the movable working ref here: it may have
         // advanced while this worker was queued, which would create a hybrid
         // Recipe that never existed in version history.
-        let working_commit = if request.use_working_recipe && !request.base_commit_id.is_empty() {
-            let commit_id: RecipeCommitId = request.base_commit_id.parse().with_context(|| {
-                format!("parse preview base commit id {}", request.base_commit_id)
-            })?;
+        let working_commit = if use_working_recipe && !base_commit_id.is_empty() {
+            let commit_id: RecipeCommitId = base_commit_id
+                .parse()
+                .with_context(|| format!("parse preview base commit id {base_commit_id}"))?;
             Some(
                 self.catalog
                     .recipe_commit(photo_id, commit_id)?
@@ -866,14 +1009,7 @@ impl DesktopSession {
             .as_ref()
             .map(|record| record.commit.snapshot());
         let snapshot = edit_recipe_snapshot(&edits, template)?;
-        let plan = compile_recipe_render_plan(&snapshot)?;
-        let session = self.edit_preview_session(&source, request.max_edge)?;
-        let proxy = session.render_plan(&plan, request.jpeg_quality)?;
-        Ok(ffi::FfiEditedPreview {
-            width: proxy.dimensions.width,
-            height: proxy.dimensions.height,
-            bytes: proxy.bytes,
-        })
+        compile_recipe_render_plan(&snapshot)
     }
 
     fn edit_preview_session(
@@ -922,6 +1058,54 @@ impl DesktopSession {
             session: Arc::clone(&prepared),
         });
         sessions.truncate(2);
+        Ok(prepared)
+    }
+
+    fn edit_detail_session(
+        &self,
+        source: &ReviewItemRecord,
+        render_token: u64,
+    ) -> AnyResult<Arc<LibRawEditDetailSession>> {
+        const SOURCE_CHANGED: &str = "full detail source changed since Catalog registration";
+        const SOURCE_METADATA_CONTEXT: &str = "read full detail source metadata";
+        let native_path = catalog_native_path(source)?;
+        let current_source = fingerprint_source(&native_path).context(SOURCE_METADATA_CONTEXT)?;
+        if current_source != source.source {
+            bail!(SOURCE_CHANGED);
+        }
+        // One mutex is also the full-decode admission gate. Holding it across
+        // preparation prevents concurrent cold requests from materializing
+        // multiple hundreds-of-MiB sources. A source currently pinned by a
+        // renderer cannot be evicted for another photo.
+        let mut cached = self
+            .edit_detail_session
+            .lock()
+            .map_err(|_| anyhow!("edit detail session cache lock is poisoned"))?;
+        // A newer request may have arrived while this worker waited for the
+        // single cold-decode gate. Refuse stale work before opening LibRaw.
+        self.ensure_current_edit_detail_render(render_token)?;
+        if let Some(entry) = cached.as_ref().filter(|entry| {
+            entry.representation_id == source.representation_id && entry.source == source.source
+        }) {
+            return Ok(Arc::clone(&entry.session));
+        }
+        if cached
+            .as_ref()
+            .is_some_and(|entry| Arc::strong_count(&entry.session) > 1)
+        {
+            bail!("full detail source is busy rendering another photo");
+        }
+        *cached = None;
+        let prepared = Arc::new(LibRawEditDetailSession::open(&native_path)?);
+        let decoded_source = fingerprint_source(&native_path).context(SOURCE_METADATA_CONTEXT)?;
+        if decoded_source != source.source {
+            bail!(SOURCE_CHANGED);
+        }
+        *cached = Some(CachedEditDetailSession {
+            representation_id: source.representation_id,
+            source: source.source,
+            session: Arc::clone(&prepared),
+        });
         Ok(prepared)
     }
 
@@ -1108,6 +1292,120 @@ const GRID_VISUAL_HANDLE_PREFIX: &str = "shadow-grid-visual-v1.";
 const GRID_VISUAL_HANDLE_SCHEMA_VERSION: u8 = 1;
 const MAX_GRID_VISUAL_PAYLOAD_BYTES: usize = 16 * 1_024;
 const MAX_PENDING_REVIEW_COMPARISONS: usize = 64;
+const MAX_DETAIL_VIEWPORT_SIDE: u32 = 8_192;
+const MAX_DETAIL_VIEWPORT_TILES: usize = 100;
+
+fn validate_detail_viewport_request(request: &ffi::FfiEditDetailViewportRequest) -> AnyResult<()> {
+    if request.render_token == 0 {
+        bail!("detail render token must be non-zero");
+    }
+    if !request.center_x.is_finite()
+        || !request.center_y.is_finite()
+        || !(0.0..=1.0).contains(&request.center_x)
+        || !(0.0..=1.0).contains(&request.center_y)
+    {
+        bail!("detail viewport center must be finite and normalized to 0..=1");
+    }
+    if request.viewport_width == 0
+        || request.viewport_height == 0
+        || request.viewport_width > MAX_DETAIL_VIEWPORT_SIDE
+        || request.viewport_height > MAX_DETAIL_VIEWPORT_SIDE
+    {
+        bail!("detail viewport dimensions must be in 1..=8192");
+    }
+    if request.tile_side == 0 || request.tile_side > MAX_EDIT_DETAIL_TILE_SIDE {
+        bail!("detail tile side must be in 1..=1024");
+    }
+    let worst_case_axis_tiles = |viewport: u32| {
+        // For an integer-aligned interval of length L against a fixed T grid,
+        // max intersected cells = ceil((L - 1) / T) + 1.
+        (u64::from(viewport) + u64::from(request.tile_side) - 2) / u64::from(request.tile_side) + 1
+    };
+    let worst_case_tiles = worst_case_axis_tiles(request.viewport_width)
+        .checked_mul(worst_case_axis_tiles(request.viewport_height))
+        .ok_or_else(|| anyhow!("detail viewport tile admission count overflowed"))?;
+    if worst_case_tiles > u64::try_from(MAX_DETAIL_VIEWPORT_TILES).unwrap_or(u64::MAX) {
+        bail!("detail viewport exceeds the 100-tile pre-decode admission bound");
+    }
+    Ok(())
+}
+
+fn detail_axis_span(full: u32, center: f64, viewport: u32) -> AnyResult<(u32, u32)> {
+    if full == 0 {
+        bail!("detail source dimension must be non-zero");
+    }
+    let span = viewport.min(full);
+    let max_start = full - span;
+    let centered = center * f64::from(full) - f64::from(span) / 2.0;
+    let rounded_start = centered.round().clamp(0.0, f64::from(max_start));
+    // The finite normalized-center precondition and clamp prove this value is
+    // an integral number in the complete u32 range before conversion.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let start = rounded_start as u32;
+    Ok((start, start + span))
+}
+
+fn detail_viewport_rects(
+    full: ImageDimensions,
+    center_x: f64,
+    center_y: f64,
+    viewport_width: u32,
+    viewport_height: u32,
+    tile_side: u32,
+) -> AnyResult<Vec<DetailTileRect>> {
+    if !center_x.is_finite()
+        || !center_y.is_finite()
+        || !(0.0..=1.0).contains(&center_x)
+        || !(0.0..=1.0).contains(&center_y)
+        || tile_side == 0
+        || tile_side > MAX_EDIT_DETAIL_TILE_SIDE
+    {
+        bail!("invalid detail viewport geometry");
+    }
+    let (left, right) = detail_axis_span(full.width, center_x, viewport_width)?;
+    let (top, bottom) = detail_axis_span(full.height, center_y, viewport_height)?;
+    let first_x = left / tile_side * tile_side;
+    let first_y = top / tile_side * tile_side;
+    let mut rects = Vec::new();
+    let mut y = first_y;
+    while y < bottom {
+        let mut x = first_x;
+        while x < right {
+            rects.push(DetailTileRect {
+                x,
+                y,
+                width: tile_side.min(full.width - x),
+                height: tile_side.min(full.height - y),
+            });
+            if rects.len() > MAX_DETAIL_VIEWPORT_TILES {
+                bail!("detail viewport exceeds the 100-tile admission bound");
+            }
+            x = x
+                .checked_add(tile_side)
+                .ok_or_else(|| anyhow!("detail tile x coordinate overflowed"))?;
+        }
+        y = y
+            .checked_add(tile_side)
+            .ok_or_else(|| anyhow!("detail tile y coordinate overflowed"))?;
+    }
+
+    // Rendering the center first improves cancellation latency once the
+    // coordinator grows cancellable streaming. The v1 presentation remains
+    // atomic: Qt receives the vector only after every visible tile is ready.
+    let viewport_center = (
+        center_x * f64::from(full.width),
+        center_y * f64::from(full.height),
+    );
+    rects.sort_by(|left, right| {
+        let distance = |rect: &DetailTileRect| {
+            let dx = f64::from(rect.x) + f64::from(rect.width) / 2.0 - viewport_center.0;
+            let dy = f64::from(rect.y) + f64::from(rect.height) / 2.0 - viewport_center.1;
+            dx.mul_add(dx, dy * dy)
+        };
+        distance(left).total_cmp(&distance(right))
+    });
+    Ok(rects)
+}
 const REVIEW_COMPARE_SURFACE_ID: &str = "shadow.desktop.review-compare";
 const REVIEW_COMPARE_SURFACE_REVISION: u64 = 1;
 const REVIEW_COMPARE_DECODER_ID: &str = "qt.qimagereader";
@@ -2706,6 +3004,8 @@ fn open_desktop_session(catalog_path: &str, cache_root: &str) -> AnyResult<Box<D
         loader,
         cache_root,
         edit_preview_sessions: Mutex::new(VecDeque::new()),
+        edit_detail_session: Mutex::new(None),
+        edit_detail_render_token: AtomicU64::new(0),
         review_feedback_session_id: Uuid::now_v7().to_string(),
         review_visual_signing_key: new_review_visual_signing_key(),
         review_comparisons: Mutex::new(ReviewComparisonRegistry::default()),
@@ -3224,6 +3524,108 @@ mod tests {
     fn desktop_session_can_back_concurrent_qt_image_requests() {
         fn assert_send_and_sync<T: Send + Sync>() {}
         assert_send_and_sync::<DesktopSession>();
+    }
+
+    #[test]
+    fn detail_viewport_tiles_cover_center_and_clipped_edges_without_duplicates() {
+        let dimensions = ImageDimensions {
+            width: 1_300,
+            height: 900,
+        };
+        let center = detail_viewport_rects(dimensions, 0.5, 0.5, 700, 600, 512)
+            .expect("tile centered viewport");
+        assert_eq!(center.len(), 4);
+        let unique = center
+            .iter()
+            .map(|rect| (rect.x, rect.y, rect.width, rect.height))
+            .collect::<BTreeSet<_>>();
+        assert_eq!(unique.len(), center.len());
+        assert!(center.iter().all(|rect| {
+            rect.x + rect.width <= dimensions.width && rect.y + rect.height <= dimensions.height
+        }));
+
+        let bottom_right =
+            detail_viewport_rects(dimensions, 1.0, 1.0, 512, 512, 512).expect("tile edge viewport");
+        assert!(bottom_right.iter().any(|rect| {
+            rect.x == 1_024 && rect.y == 512 && rect.width == 276 && rect.height == 388
+        }));
+        assert!(bottom_right.iter().all(|rect| {
+            rect.x + rect.width <= dimensions.width && rect.y + rect.height <= dimensions.height
+        }));
+    }
+
+    #[test]
+    fn detail_viewport_geometry_fails_closed() {
+        let dimensions = ImageDimensions {
+            width: 1_300,
+            height: 900,
+        };
+        for (center_x, tile_side) in [(f64::NAN, 512), (0.5, 0), (0.5, 1_025)] {
+            assert!(detail_viewport_rects(dimensions, center_x, 0.5, 700, 600, tile_side).is_err());
+        }
+        assert!(
+            detail_viewport_rects(
+                ImageDimensions {
+                    width: 0,
+                    height: 900,
+                },
+                0.5,
+                0.5,
+                700,
+                600,
+                512,
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn detail_request_rejects_an_excessive_grid_before_source_work() {
+        let mut request = ffi::FfiEditDetailViewportRequest {
+            base_commit_id: String::new(),
+            settings: ffi_parameters(0.0, 1.0, [1.0; 3], 1.0),
+            render_token: 1,
+            center_x: 0.5,
+            center_y: 0.5,
+            viewport_width: 4_096,
+            viewport_height: 4_096,
+            tile_side: 512,
+            use_working_recipe: true,
+        };
+        validate_detail_viewport_request(&request).expect("the desktop 512px grid is admitted");
+
+        request.viewport_width = 6_016;
+        request.viewport_height = 3_384;
+        request.tile_side = 1_024;
+        validate_detail_viewport_request(&request)
+            .expect("an adaptive 1024px grid admits a 6K display viewport");
+
+        request.viewport_width = 8_193;
+        assert!(validate_detail_viewport_request(&request).is_err());
+
+        request.viewport_width = 4_096;
+        request.viewport_height = 4_096;
+        request.tile_side = 1;
+        let error = validate_detail_viewport_request(&request)
+            .expect_err("a pathological grid must fail before source lookup or decode");
+        assert!(error.to_string().contains("pre-decode admission"));
+    }
+
+    #[test]
+    fn newer_detail_render_tokens_cancel_older_tile_work() {
+        let (root, session, _, _) = test_edit_session();
+        let first = session.begin_basic_edit_detail();
+        session
+            .ensure_current_edit_detail_render(first)
+            .expect("fresh token is current");
+        let second = session.begin_basic_edit_detail();
+        assert!(session.ensure_current_edit_detail_render(first).is_err());
+        session
+            .ensure_current_edit_detail_render(second)
+            .expect("new token supersedes the old token");
+
+        drop(session);
+        std::fs::remove_dir_all(root).expect("remove detail-token fixture");
     }
 
     #[test]
@@ -5721,6 +6123,36 @@ mod tests {
         assert!(error.to_string().contains("does not belong to photo"));
         drop(session);
         std::fs::remove_dir_all(root).expect("remove edit fixture");
+    }
+
+    #[test]
+    fn full_detail_rejects_a_source_that_no_longer_matches_catalog_before_decode() {
+        let (root, session, photo_id, source_path) = test_edit_session();
+        std::fs::write(&source_path, b"changed after Catalog registration")
+            .expect("write changed detail source");
+        let request = ffi::FfiEditDetailViewportRequest {
+            base_commit_id: String::new(),
+            settings: ffi_parameters(0.0, 1.0, [1.0; 3], 1.0),
+            render_token: session.begin_basic_edit_detail(),
+            center_x: 0.5,
+            center_y: 0.5,
+            viewport_width: 512,
+            viewport_height: 512,
+            tile_side: 512,
+            use_working_recipe: true,
+        };
+
+        let error = session
+            .render_basic_edit_detail_viewport(&photo_id, &source_path, &request)
+            .expect_err("changed source must fail before LibRaw decode");
+        assert!(
+            error
+                .to_string()
+                .contains("source changed since Catalog registration")
+        );
+
+        drop(session);
+        std::fs::remove_dir_all(root).expect("remove changed-source fixture");
     }
 
     fn ffi_parameters(

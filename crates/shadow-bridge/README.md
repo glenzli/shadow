@@ -23,7 +23,19 @@ each render owns all temporary state, and no LibRaw object survives preparation.
 edge is independently capped at 4096; 1600/2048 are the intended UI choices. The existing
 `render_libraw_edited_proxy` one-shot convenience API remains available for stateless callers.
 
-Compressed embedded previews and generated proxies are small enough to cross as owned bytes. Large mosaic and RGB buffers intentionally remain in C++; their future bridge will use opaque handles and tile requests, not `Vec<u16>` copies across FFI.
+`LibRawEditDetailSession::open(path)` is the separate 1:1 path. It checks decoder metadata against
+a worst-case RGB u16 allocation before the reference render starts, verifies the actual retained
+allocation independently, and rejects either above 512 MiB. Its opaque C++ handle retains the
+immutable full-resolution u16 sRGB source but no decoder. `render_plan_tile` accepts an unscaled,
+in-bounds rectangle whose width and height are each at most 1024, converts only that crop to
+scene-linear float, executes the same typed pixel-local plan, and returns tightly packed RGB8 sRGB
+bytes. It deliberately does not JPEG-encode individual tiles, avoiding independent chroma/block
+boundaries at tile seams. The detail wrapper is also `Send + Sync`; concurrent calls read the
+retained source and own all crop/edit/output memory independently.
+
+Compressed embedded previews and generated proxies are small enough to cross as owned bytes.
+Large mosaic and full-resolution u16 RGB buffers remain in C++; detail requests copy only bounded
+RGB8 tiles across FFI rather than exposing `Vec<u16>`.
 
 `decode_jpeg_display_luma(bytes, max_edge)` is the analysis-side compressed-payload bridge. It
 accepts `max_edge` only in 1 through 512 and returns owned `width`, `height`, sample `stride`,
@@ -49,4 +61,6 @@ cargo test --package shadow-bridge
 cargo run --package shadow-cli -- inspect-raw /absolute/path/to/input.dng
 ```
 
-The ignored `real_dng_snapshot_crosses_the_bridge` test can be enabled with an absolute local fixture path in `SHADOW_TEST_DNG`.
+The ignored `real_dng_snapshot_crosses_the_bridge` and
+`real_dng_full_edit_detail_session_renders_deterministic_tiles` tests can be enabled with an
+absolute local fixture path in `SHADOW_TEST_DNG`.

@@ -153,11 +153,34 @@ mod ffi {
         jpeg_quality: u8,
     }
 
+    #[derive(Debug, Clone, Copy)]
+    struct FfiDetailTileRect {
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+    }
+
+    #[derive(Debug)]
+    struct FfiAdjustmentDetailTileRequest {
+        nodes: Vec<FfiAdjustmentNode>,
+        rect: FfiDetailTileRect,
+    }
+
+    #[derive(Debug)]
+    struct FfiRenderedDetailTile {
+        rect: FfiDetailTileRect,
+        full_dimensions: FfiDimensions,
+        row_stride_bytes: u32,
+        bytes: Vec<u8>,
+    }
+
     unsafe extern "C++" {
         include!("shadow/image/cxx_bridge.hpp");
 
         type DecodeHandle;
         type EditPreviewHandle;
+        type FullEditDetailHandle;
 
         fn open_libraw_utf8(path: &str) -> Result<UniquePtr<DecodeHandle>>;
         fn libraw_provider_version() -> String;
@@ -180,12 +203,19 @@ mod ffi {
             self: &DecodeHandle,
             max_edge: u32,
         ) -> Result<UniquePtr<EditPreviewHandle>>;
+        fn prepare_edit_detail(self: &DecodeHandle) -> Result<UniquePtr<FullEditDetailHandle>>;
         fn dimensions(self: &EditPreviewHandle) -> FfiDimensions;
         fn max_edge(self: &EditPreviewHandle) -> u32;
         fn render_adjustment_plan(
             self: &EditPreviewHandle,
             request: &FfiAdjustmentRenderRequest,
         ) -> Result<FfiEncodedProxy>;
+        fn dimensions(self: &FullEditDetailHandle) -> FfiDimensions;
+        fn retained_bytes(self: &FullEditDetailHandle) -> u64;
+        fn render_adjustment_plan_tile(
+            self: &FullEditDetailHandle,
+            request: &FfiAdjustmentDetailTileRequest,
+        ) -> Result<FfiRenderedDetailTile>;
     }
 }
 
@@ -197,6 +227,13 @@ unsafe impl Send for ffi::EditPreviewHandle {}
 // SAFETY: see the Send implementation above. Concurrent calls only read the working proxy.
 unsafe impl Sync for ffi::EditPreviewHandle {}
 
+// SAFETY: the C++ handle owns a fully prepared, immutable u16 reference image. It contains no
+// decoder or borrowed state, and every tile render allocates independent float/RGB8 buffers.
+// The public wrapper exposes no mutable access to the handle.
+unsafe impl Send for ffi::FullEditDetailHandle {}
+// SAFETY: see the Send implementation above. Concurrent calls only read the retained source.
+unsafe impl Sync for ffi::FullEditDetailHandle {}
+
 /// Cache-key version for the fixed-order basic edited-preview recipe.
 pub const BASIC_EDIT_PREVIEW_RECIPE_VERSION: u32 = 1;
 
@@ -205,6 +242,12 @@ pub const BASIC_EDIT_PREVIEW_RECIPE_VERSION: u32 = 1;
 /// A square proxy at this edge consumes at most 192 MiB for interleaved RGB
 /// float32. The intended UI values are 1600 and 2048.
 pub const MAX_WARM_EDIT_PREVIEW_EDGE: u32 = 4_096;
+
+/// Hard width and height bound for one full-resolution detail tile.
+pub const MAX_EDIT_DETAIL_TILE_SIDE: u32 = 1_024;
+
+/// Hard bound for the complete immutable u16 source retained by one detail session.
+pub const MAX_EDIT_DETAIL_RETAINED_BYTES: u64 = 512 * 1_024 * 1_024;
 
 /// Hard longest-edge bound for a JPEG display-luma analysis plane.
 pub const MAX_JPEG_DISPLAY_LUMA_EDGE: u32 = 512;
@@ -679,6 +722,77 @@ pub struct LibRawEditPreviewSession {
     max_edge: u32,
 }
 
+/// One exact rectangle in the processed full-resolution image coordinate space.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub struct DetailTileRect {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// One bounded, unscaled full-resolution tile request.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub struct DetailTileRequest {
+    pub rect: DetailTileRect,
+}
+
+impl DetailTileRequest {
+    fn validate(self, full_dimensions: ImageDimensions) -> Result<(), BridgeError> {
+        let rect = self.rect;
+        if rect.width == 0
+            || rect.height == 0
+            || rect.width > MAX_EDIT_DETAIL_TILE_SIDE
+            || rect.height > MAX_EDIT_DETAIL_TILE_SIDE
+        {
+            return Err(BridgeError::InvalidEditRequest(
+                "detail tile width and height must be in 1..=1024",
+            ));
+        }
+        if rect.x >= full_dimensions.width
+            || rect.y >= full_dimensions.height
+            || rect.width > full_dimensions.width - rect.x
+            || rect.height > full_dimensions.height - rect.y
+        {
+            return Err(BridgeError::InvalidEditRequest(
+                "detail tile rectangle must be fully inside the retained image",
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Packed RGB8 sRGB bytes for one exact full-resolution rectangle.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct RenderedDetailTile {
+    pub rect: DetailTileRect,
+    pub full_dimensions: ImageDimensions,
+    pub row_stride_bytes: u32,
+    pub bytes: Vec<u8>,
+}
+
+/// A reusable immutable full-resolution u16 sRGB source for 1:1 edit tiles.
+///
+/// Preparation performs one `LibRaw` reference render, retains no decoder, and fails when either
+/// the metadata worst-case RGB allocation or the actual retained allocation exceeds 512 MiB.
+/// Repeated tile renders convert and edit only the requested rectangle. The wrapper is
+/// [`Send`] + [`Sync`], and concurrent renders own independent temporary buffers.
+pub struct LibRawEditDetailSession {
+    handle: cxx::UniquePtr<ffi::FullEditDetailHandle>,
+    dimensions: ImageDimensions,
+    retained_bytes: u64,
+}
+
+impl std::fmt::Debug for LibRawEditDetailSession {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("LibRawEditDetailSession")
+            .field("dimensions", &self.dimensions)
+            .field("retained_bytes", &self.retained_bytes)
+            .finish_non_exhaustive()
+    }
+}
+
 impl std::fmt::Debug for LibRawEditPreviewSession {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
@@ -765,6 +879,117 @@ impl LibRawEditPreviewSession {
         let request = ffi_render_request(plan, self.max_edge, jpeg_quality);
         let proxy = handle.render_adjustment_plan(&request)?;
         Ok(proxy_payload(proxy))
+    }
+}
+
+impl LibRawEditDetailSession {
+    /// Opens and decodes a RAW into an immutable full-resolution u16 sRGB source.
+    ///
+    /// Provider metadata is checked against the worst-case RGB retention limit before the
+    /// reference render starts. The returned allocation is checked independently before it is
+    /// retained by the session.
+    ///
+    /// # Errors
+    ///
+    /// Returns a path, decoder, resource-limit, or invalid bridge-output error. Sources whose
+    /// worst-case or actual retained allocation exceeds 512 MiB fail closed.
+    pub fn open(path: &Path) -> Result<Self, BridgeError> {
+        let decode_handle = open_libraw(path)?;
+        let decode_handle = decode_handle.as_ref().ok_or(BridgeError::NullHandle)?;
+        let handle = decode_handle.prepare_edit_detail()?;
+        let prepared = handle.as_ref().ok_or(BridgeError::NullHandle)?;
+        let prepared_dimensions = dimensions(&prepared.dimensions());
+        let retained_bytes = prepared.retained_bytes();
+        if prepared_dimensions.width == 0 || prepared_dimensions.height == 0 {
+            return Err(BridgeError::InvalidEditDetailOutput(
+                "prepared dimensions must be non-zero",
+            ));
+        }
+        if retained_bytes == 0 || retained_bytes > MAX_EDIT_DETAIL_RETAINED_BYTES {
+            return Err(BridgeError::InvalidEditDetailOutput(
+                "retained bytes must be in 1..=512 MiB",
+            ));
+        }
+        Ok(Self {
+            handle,
+            dimensions: prepared_dimensions,
+            retained_bytes,
+        })
+    }
+
+    /// Returns the processed full-resolution image dimensions used by tile coordinates.
+    #[must_use]
+    pub const fn dimensions(&self) -> ImageDimensions {
+        self.dimensions
+    }
+
+    /// Returns the actual immutable u16 allocation retained by this session.
+    #[must_use]
+    pub const fn retained_bytes(&self) -> u64 {
+        self.retained_bytes
+    }
+
+    /// Executes a dependency-ordered typed plan against one exact full-resolution rectangle.
+    ///
+    /// Plan and rectangle shape/bounds are rejected in Rust before entering C++. The C++ kernel
+    /// validates them again, converts only the crop to scene-linear float, executes the existing
+    /// pixel-local nodes, and returns tightly packed RGB8 sRGB without compression or scaling.
+    /// No RAW I/O occurs during this method.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BridgeError::InvalidEditRequest`] for an invalid plan or rectangle,
+    /// [`BridgeError::Decoder`] for authoritative kernel failures, or
+    /// [`BridgeError::InvalidEditDetailOutput`] if bridge output violates its contract.
+    pub fn render_plan_tile(
+        &self,
+        plan: &AdjustmentRenderPlan,
+        request: DetailTileRequest,
+    ) -> Result<RenderedDetailTile, BridgeError> {
+        plan.validate()?;
+        request.validate(self.dimensions)?;
+        let handle = self.handle.as_ref().ok_or(BridgeError::NullHandle)?;
+        let rendered =
+            handle.render_adjustment_plan_tile(&ffi_detail_tile_request(plan, request))?;
+        let rect = detail_tile_rect(rendered.rect);
+        let full_dimensions = dimensions(&rendered.full_dimensions);
+        if rect != request.rect || full_dimensions != self.dimensions {
+            return Err(BridgeError::InvalidEditDetailOutput(
+                "returned identity does not match the requested tile and prepared source",
+            ));
+        }
+        let expected_stride =
+            rect.width
+                .checked_mul(3)
+                .ok_or(BridgeError::InvalidEditDetailOutput(
+                    "RGB8 row stride overflows",
+                ))?;
+        if rendered.row_stride_bytes != expected_stride {
+            return Err(BridgeError::InvalidEditDetailOutput(
+                "RGB8 row stride must equal width times three",
+            ));
+        }
+        let expected_len = usize::try_from(expected_stride)
+            .ok()
+            .and_then(|stride| {
+                usize::try_from(rect.height)
+                    .ok()
+                    .and_then(|height| stride.checked_mul(height))
+            })
+            .ok_or(BridgeError::InvalidEditDetailOutput(
+                "RGB8 byte length overflows addressable memory",
+            ))?;
+        if rendered.bytes.len() != expected_len {
+            return Err(BridgeError::InvalidEditDetailOutput(
+                "RGB8 byte length must equal row stride times height",
+            ));
+        }
+        Ok(RenderedDetailTile {
+            rect,
+            full_dimensions,
+            row_stride_bytes: rendered.row_stride_bytes,
+            bytes: rendered.bytes,
+        })
     }
 }
 
@@ -859,6 +1084,34 @@ fn ffi_render_request(
     }
 }
 
+fn ffi_detail_tile_request(
+    plan: &AdjustmentRenderPlan,
+    request: DetailTileRequest,
+) -> ffi::FfiAdjustmentDetailTileRequest {
+    ffi::FfiAdjustmentDetailTileRequest {
+        nodes: plan.nodes.iter().map(ffi_render_node).collect(),
+        rect: ffi_detail_tile_rect(request.rect),
+    }
+}
+
+const fn ffi_detail_tile_rect(rect: DetailTileRect) -> ffi::FfiDetailTileRect {
+    ffi::FfiDetailTileRect {
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+    }
+}
+
+const fn detail_tile_rect(rect: ffi::FfiDetailTileRect) -> DetailTileRect {
+    DetailTileRect {
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+    }
+}
+
 fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustmentNode {
     let (operation, parameters) = match &node.operation {
         AdjustmentRenderOperation::Exposure { stops } => {
@@ -903,6 +1156,8 @@ fn proxy_payload(proxy: ffi::FfiEncodedProxy) -> shadow_domain::ProxyPayload {
 pub enum BridgeError {
     #[error("invalid edited proxy request: {0}")]
     InvalidEditRequest(&'static str),
+    #[error("invalid full edit detail bridge output: {0}")]
+    InvalidEditDetailOutput(&'static str),
     #[error("invalid JPEG display-luma request: {0}")]
     InvalidDisplayLumaRequest(&'static str),
     #[error("invalid JPEG display-luma decoder output: {0}")]
@@ -1316,6 +1571,66 @@ mod tests {
     }
 
     #[test]
+    fn full_edit_detail_contract_is_send_sync_and_rejects_invalid_rectangles_locally() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<LibRawEditDetailSession>();
+        assert_eq!(MAX_EDIT_DETAIL_TILE_SIDE, 1_024);
+        assert_eq!(MAX_EDIT_DETAIL_RETAINED_BYTES, 512 * 1_024 * 1_024);
+
+        let dimensions = ImageDimensions {
+            width: 4_000,
+            height: 3_000,
+        };
+        for rect in [
+            DetailTileRect {
+                x: 0,
+                y: 0,
+                width: 0,
+                height: 1,
+            },
+            DetailTileRect {
+                x: 0,
+                y: 0,
+                width: MAX_EDIT_DETAIL_TILE_SIDE + 1,
+                height: 1,
+            },
+            DetailTileRect {
+                x: dimensions.width,
+                y: 0,
+                width: 1,
+                height: 1,
+            },
+            DetailTileRect {
+                x: dimensions.width - 1,
+                y: 0,
+                width: 2,
+                height: 1,
+            },
+            DetailTileRect {
+                x: u32::MAX,
+                y: 0,
+                width: 1,
+                height: 1,
+            },
+        ] {
+            assert!(matches!(
+                DetailTileRequest { rect }.validate(dimensions),
+                Err(BridgeError::InvalidEditRequest(_))
+            ));
+        }
+        DetailTileRequest {
+            rect: DetailTileRect {
+                x: dimensions.width - 1_024,
+                y: dimensions.height - 1_024,
+                width: 1_024,
+                height: 1_024,
+            },
+        }
+        .validate(dimensions)
+        .expect("maximum in-bounds detail tile is valid without opening a RAW");
+    }
+
+    #[test]
     fn edited_proxy_parameters_fail_closed_before_raw_io() {
         let invalid_requests = [
             EditedProxyRequest {
@@ -1495,5 +1810,63 @@ mod tests {
             .expect("spawn small edit worker")
             .join()
             .expect("small edit worker did not panic");
+    }
+
+    #[test]
+    #[ignore = "requires SHADOW_TEST_DNG to point at a local RAW fixture"]
+    fn real_dng_full_edit_detail_session_renders_deterministic_tiles() {
+        let path = PathBuf::from(std::env::var_os("SHADOW_TEST_DNG").expect("SHADOW_TEST_DNG"));
+        std::thread::Builder::new()
+            .name("small-detail-worker".to_owned())
+            .stack_size(512 * 1_024)
+            .spawn(move || {
+                let session = LibRawEditDetailSession::open(&path)
+                    .expect("prepare full local DNG detail session on a small worker stack");
+                let full = session.dimensions();
+                assert!(full.width > 0 && full.height > 0);
+                assert!((1..=MAX_EDIT_DETAIL_RETAINED_BYTES).contains(&session.retained_bytes()));
+                let width = full.width.min(512);
+                let height = full.height.min(512);
+                let request = DetailTileRequest {
+                    rect: DetailTileRect {
+                        x: (full.width - width) / 2,
+                        y: (full.height - height) / 2,
+                        width,
+                        height,
+                    },
+                };
+                let neutral_plan = basic_adjustment_render_plan(BasicEditParameters::default())
+                    .expect("build neutral detail plan");
+                let first = session
+                    .render_plan_tile(&neutral_plan, request)
+                    .expect("render neutral full-resolution detail tile");
+                let second = session
+                    .render_plan_tile(&neutral_plan, request)
+                    .expect("repeat neutral full-resolution detail tile");
+                assert_eq!(first, second);
+                assert_eq!(first.rect, request.rect);
+                assert_eq!(first.full_dimensions, full);
+                assert_eq!(first.row_stride_bytes, width * 3);
+                assert_eq!(
+                    first.bytes.len(),
+                    usize::try_from(width * 3)
+                        .unwrap()
+                        .checked_mul(usize::try_from(height).unwrap())
+                        .unwrap()
+                );
+
+                let adjusted_plan = basic_adjustment_render_plan(BasicEditParameters {
+                    exposure_stops: 1.0,
+                    ..BasicEditParameters::default()
+                })
+                .expect("build adjusted detail plan");
+                let adjusted = session
+                    .render_plan_tile(&adjusted_plan, request)
+                    .expect("render adjusted full-resolution detail tile");
+                assert_ne!(adjusted.bytes, first.bytes);
+            })
+            .expect("spawn small detail worker")
+            .join()
+            .expect("small detail worker did not panic");
     }
 }

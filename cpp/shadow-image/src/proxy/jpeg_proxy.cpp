@@ -300,6 +300,125 @@ void validate_warm_edit_max_edge(const std::uint32_t max_edge) {
     return resize_srgb_transfer_to_linear(source, source.dimensions);
 }
 
+void validate_detail_tile_rect(
+    const DetailTileRect rect,
+    const Dimensions full_dimensions
+) {
+    if (
+        rect.width == 0U || rect.height == 0U
+        || rect.width > maximum_edit_detail_tile_side
+        || rect.height > maximum_edit_detail_tile_side
+    ) {
+        throw DecodeError(
+            DecodeErrorCode::invalid_request,
+            0,
+            "detail tile width and height must be in 1..=1024"
+        );
+    }
+    if (
+        rect.x >= full_dimensions.width || rect.y >= full_dimensions.height
+        || rect.width > full_dimensions.width - rect.x
+        || rect.height > full_dimensions.height - rect.y
+    ) {
+        throw DecodeError(
+            DecodeErrorCode::invalid_request,
+            0,
+            "detail tile rectangle must be fully inside the retained image"
+        );
+    }
+}
+
+[[nodiscard]] FloatRgbImage crop_srgb_transfer_to_linear(
+    const PixelBuffer& source,
+    const DetailTileRect rect
+) {
+    const std::size_t source_stride = validated_source_row_stride(source);
+    const Dimensions tile_dimensions{rect.width, rect.height};
+    const std::size_t sample_count = checked_rgb_size(tile_dimensions);
+    const std::uint64_t row_samples = static_cast<std::uint64_t>(rect.width) * 3U;
+    if (row_samples > std::numeric_limits<std::size_t>::max() / sizeof(float)) {
+        throw DecodeError(
+            DecodeErrorCode::resource_limit,
+            0,
+            "detail tile row stride overflows the address space"
+        );
+    }
+    if (sample_count > std::numeric_limits<std::size_t>::max() / sizeof(float)) {
+        throw DecodeError(
+            DecodeErrorCode::resource_limit,
+            0,
+            "detail tile float buffer exceeds the address space"
+        );
+    }
+
+    FloatRgbImage output;
+    output.dimensions = tile_dimensions;
+    output.row_stride_bytes = static_cast<std::size_t>(row_samples) * sizeof(float);
+    output.pixel_format = FloatPixelFormat::rgb_f32_native_interleaved;
+    output.transfer_function = TransferFunction::linear;
+    output.reference = ImageReference::scene_referred;
+    output.working_space = linear_srgb_working_space();
+    output.samples.resize(sample_count);
+
+    for (std::uint32_t output_y = 0; output_y < rect.height; ++output_y) {
+        const std::size_t source_y = static_cast<std::size_t>(rect.y) + output_y;
+        for (std::uint32_t output_x = 0; output_x < rect.width; ++output_x) {
+            const std::size_t source_x = static_cast<std::size_t>(rect.x) + output_x;
+            const std::size_t output_index =
+                (static_cast<std::size_t>(output_y) * rect.width + output_x) * 3U;
+            for (std::size_t channel = 0; channel < 3U; ++channel) {
+                const double encoded = static_cast<double>(
+                    source_sample(source, source_stride, source_x, source_y, channel)
+                ) / 65'535.0;
+                output.samples[output_index + channel] =
+                    static_cast<float>(srgb_to_scene_linear(encoded));
+            }
+        }
+    }
+    return output;
+}
+
+[[nodiscard]] std::uint64_t checked_detail_retained_bytes(const PixelBuffer& source) {
+    if (
+        source.samples.capacity()
+        > std::numeric_limits<std::uint64_t>::max() / sizeof(std::uint16_t)
+    ) {
+        throw DecodeError(
+            DecodeErrorCode::resource_limit,
+            0,
+            "full edit detail retained byte count overflows"
+        );
+    }
+    const std::uint64_t bytes =
+        static_cast<std::uint64_t>(source.samples.capacity()) * sizeof(std::uint16_t);
+    if (bytes > maximum_full_edit_detail_retained_bytes) {
+        throw DecodeError(
+            DecodeErrorCode::resource_limit,
+            0,
+            "full edit detail source exceeds the 512 MiB retained limit"
+        );
+    }
+    return bytes;
+}
+
+void preflight_detail_metadata(const AssetMetadata& metadata) {
+    const std::uint64_t pixels = std::max(
+        metadata.raw_dimensions.pixel_count(),
+        metadata.image_dimensions.pixel_count()
+    );
+    constexpr std::uint64_t rgb_u16_bytes_per_pixel = 3U * sizeof(std::uint16_t);
+    if (
+        pixels == 0U
+        || pixels > maximum_full_edit_detail_retained_bytes / rgb_u16_bytes_per_pixel
+    ) {
+        throw DecodeError(
+            DecodeErrorCode::resource_limit,
+            0,
+            "full edit detail metadata exceeds the 512 MiB worst-case RGB u16 limit"
+        );
+    }
+}
+
 [[nodiscard]] std::vector<std::uint8_t> resize_linear_to_srgb8(
     const FloatRgbImage& source,
     const Dimensions target
@@ -432,6 +551,46 @@ WarmEditPreviewSession prepare_warm_edit_preview(
     const Dimensions target = proxy_dimensions(reference_rgb.dimensions, max_edge);
     FloatRgbImage working_proxy = resize_srgb_transfer_to_linear(reference_rgb, target);
     return WarmEditPreviewSession(std::move(working_proxy), max_edge);
+}
+
+FullEditDetailSession::FullEditDetailSession(
+    PixelBuffer reference_rgb,
+    const std::uint64_t retained_bytes
+)
+    : reference_rgb_(std::move(reference_rgb)), retained_bytes_(retained_bytes) {}
+
+Dimensions FullEditDetailSession::dimensions() const noexcept {
+    return reference_rgb_.dimensions;
+}
+
+std::uint64_t FullEditDetailSession::retained_bytes() const noexcept {
+    return retained_bytes_;
+}
+
+RenderedDetailTile FullEditDetailSession::render_rgb8(
+    const std::span<const AdjustmentNode> nodes,
+    const DetailTileRect rect
+) const {
+    validate_adjustment_nodes(nodes);
+    validate_detail_tile_rect(rect, reference_rgb_.dimensions);
+    const FloatRgbImage tile = crop_srgb_transfer_to_linear(reference_rgb_, rect);
+    const FloatRgbImage edited = execute_adjustment_nodes(tile, nodes);
+    const Dimensions dimensions{rect.width, rect.height};
+    auto bytes = resize_linear_to_srgb8(edited, dimensions);
+    return RenderedDetailTile{
+        .rect = rect,
+        .full_dimensions = reference_rgb_.dimensions,
+        .row_stride_bytes = rect.width * 3U,
+        .bytes = std::move(bytes),
+    };
+}
+
+FullEditDetailSession prepare_full_edit_detail(const DecodeSession& session) {
+    preflight_detail_metadata(session.metadata());
+    PixelBuffer reference_rgb = session.render_reference_rgb();
+    static_cast<void>(validated_source_row_stride(reference_rgb));
+    const std::uint64_t retained_bytes = checked_detail_retained_bytes(reference_rgb);
+    return FullEditDetailSession(std::move(reference_rgb), retained_bytes);
 }
 
 Dimensions proxy_dimensions(const Dimensions source, const std::uint32_t max_edge) {

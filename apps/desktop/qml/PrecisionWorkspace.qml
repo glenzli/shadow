@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Window
 
 Item {
     id: precision
@@ -10,10 +11,34 @@ Item {
     required property var editor
     property int selectedNode: 0
     property real zoomFactor: 1.0
+    property bool fitView: true
     property bool showBefore: false
+    property real requestedDetailCenterX: 0.5
+    property real requestedDetailCenterY: 0.5
+    property bool detailImageReady: false
+    property bool detailImageLoadFailed: false
+    property bool componentReady: false
+    property bool suppressViewportTracking: false
 
     readonly property bool beforeReady: editor.beforePreviewSource.length > 0
     readonly property bool displayingBefore: showBefore && beforeReady
+    readonly property real deviceScale: Math.max(1.0, Screen.devicePixelRatio)
+    readonly property real imagePixelWidth: editor.detailFullWidth > 0
+        ? editor.detailFullWidth
+        : Math.max(1, editedPreview.sourceSize.width)
+    readonly property real imagePixelHeight: editor.detailFullHeight > 0
+        ? editor.detailFullHeight
+        : Math.max(1, editedPreview.sourceSize.height)
+    readonly property real fitScale: Math.min(
+        previewFlick.width / imagePixelWidth,
+        previewFlick.height / imagePixelHeight
+    )
+    readonly property real displayScale: fitView
+        ? Math.max(0.0001, fitScale)
+        : zoomFactor / deviceScale
+    readonly property bool showingFullDetail: !fitView && zoomFactor >= 1.0
+        && !displayingBefore && editor.detailMode && editor.detailTiles.length > 0
+        && detailImageReady
 
     readonly property color panel: "#121519"
     readonly property color panelRaised: "#181c21"
@@ -37,13 +62,132 @@ Item {
         target: precision.editor
         function onSourcePathChanged() {
             precision.showBefore = false
+            precision.resetView()
+        }
+        function onDetailGeometryChanged() {
+            if (!precision.fitView && precision.editor.detailMode) {
+                Qt.callLater(function() {
+                    precision.suppressViewportTracking = true
+                    precision.centerOnNormalized(
+                        precision.requestedDetailCenterX,
+                        precision.requestedDetailCenterY
+                    )
+                    precision.suppressViewportTracking = false
+                })
+            }
+        }
+        function onDetailTilesChanged() {
+            precision.detailImageReady = false
+            precision.detailImageLoadFailed = false
         }
     }
 
+    onDeviceScaleChanged: {
+        if (!componentReady || fitView || zoomFactor < 1.0 || !editor.active)
+            return
+        editor.leaveDetailMode()
+        Qt.callLater(function() {
+            precision.centerOnNormalized(
+                precision.requestedDetailCenterX,
+                precision.requestedDetailCenterY
+            )
+            precision.requestVisibleDetail()
+        })
+    }
+
+    Component.onCompleted: componentReady = true
+
+    Timer {
+        id: directViewportSettle
+        interval: 70
+        repeat: false
+        onTriggered: precision.requestVisibleDetail()
+    }
+
     function resetView() {
+        fitView = true
         zoomFactor = 1.0
+        detailImageReady = false
+        detailImageLoadFailed = false
         previewFlick.contentX = 0
         previewFlick.contentY = 0
+        editor.leaveDetailMode()
+    }
+
+    function normalizedCenterX() {
+        if (photoSurface.width <= 0)
+            return 0.5
+        return Math.max(0, Math.min(1,
+            (previewFlick.contentX + previewFlick.width / 2 - photoSurface.x)
+                / photoSurface.width))
+    }
+
+    function normalizedCenterY() {
+        if (photoSurface.height <= 0)
+            return 0.5
+        return Math.max(0, Math.min(1,
+            (previewFlick.contentY + previewFlick.height / 2 - photoSurface.y)
+                / photoSurface.height))
+    }
+
+    function centerOnNormalized(nx, ny) {
+        previewFlick.contentX = Math.max(0, Math.min(
+            previewFlick.contentWidth - previewFlick.width,
+            photoSurface.x + nx * photoSurface.width - previewFlick.width / 2
+        ))
+        previewFlick.contentY = Math.max(0, Math.min(
+            previewFlick.contentHeight - previewFlick.height,
+            photoSurface.y + ny * photoSurface.height - previewFlick.height / 2
+        ))
+    }
+
+    function requestVisibleDetail() {
+        if (fitView || zoomFactor < 1.0 || displayingBefore || !editor.active) {
+            editor.leaveDetailMode()
+            return
+        }
+        requestedDetailCenterX = normalizedCenterX()
+        requestedDetailCenterY = normalizedCenterY()
+        const pixelWidth = Math.max(1,
+            Math.ceil(previewFlick.width / displayScale))
+        const pixelHeight = Math.max(1,
+            Math.ceil(previewFlick.height / displayScale))
+        if (pixelWidth > 8192 || pixelHeight > 8192) {
+            editor.leaveDetailMode()
+            detailImageLoadFailed = true
+            return
+        }
+        detailImageLoadFailed = false
+        editor.requestDetailViewport(
+            requestedDetailCenterX,
+            requestedDetailCenterY,
+            pixelWidth,
+            pixelHeight
+        )
+    }
+
+    function directViewportPositionChanged() {
+        if (!componentReady || fitView || zoomFactor < 1.0 || displayingBefore
+                || !editor.active || previewFlick.moving || previewFlick.flicking
+                || suppressViewportTracking
+                || (!editor.detailMode && !detailImageReady))
+            return
+        editor.leaveDetailMode()
+        directViewportSettle.restart()
+    }
+
+    function setPixelZoom(value) {
+        const centerX = normalizedCenterX()
+        const centerY = normalizedCenterY()
+        if (editor.detailMode)
+            editor.leaveDetailMode()
+        fitView = false
+        showBefore = false
+        zoomFactor = value
+        Qt.callLater(function() {
+            precision.centerOnNormalized(centerX, centerY)
+            precision.requestVisibleDetail()
+        })
     }
 
     Shortcut {
@@ -539,6 +683,7 @@ Item {
                             text: "BEFORE"
                             enabled: precision.editor.active
                             onClicked: {
+                                precision.resetView()
                                 precision.showBefore = true
                                 precision.editor.requestBeforePreview()
                             }
@@ -560,7 +705,9 @@ Item {
                         }
 
                         Label {
-                            text: Math.round(precision.zoomFactor * 100) + "%"
+                            text: precision.fitView
+                                ? "FIT"
+                                : Math.round(precision.zoomFactor * 100) + "%"
                             color: precision.textMuted
                             font.family: "Menlo"
                             font.pixelSize: 9
@@ -568,11 +715,37 @@ Item {
                         Slider {
                             id: zoomSlider
                             Layout.preferredWidth: 112
-                            from: 1.0
+                            from: 0.25
                             to: 4.0
                             stepSize: 0.05
                             value: precision.zoomFactor
-                            onMoved: precision.zoomFactor = value
+                            onMoved: precision.setPixelZoom(value)
+                        }
+                        Button {
+                            id: actualPixelsButton
+                            Layout.preferredWidth: 52
+                            Layout.preferredHeight: 27
+                            text: "100%"
+                            enabled: precision.editor.active
+                            onClicked: precision.setPixelZoom(1.0)
+                            background: Rectangle {
+                                radius: 3
+                                color: !precision.fitView
+                                    && Math.abs(precision.zoomFactor - 1.0) < 0.001
+                                    ? "#30291d" : "#1b2025"
+                                border.color: !precision.fitView
+                                    && Math.abs(precision.zoomFactor - 1.0) < 0.001
+                                    ? precision.accent : precision.border
+                            }
+                            contentItem: Label {
+                                text: actualPixelsButton.text
+                                color: actualPixelsButton.enabled
+                                    ? precision.textSecondary : "#606a74"
+                                font.pixelSize: 9
+                                font.weight: Font.Bold
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
                         }
                         Button {
                             id: fitButton
@@ -603,25 +776,92 @@ Item {
                     Layout.fillHeight: true
                     clip: true
                     boundsBehavior: Flickable.StopAtBounds
-                    contentWidth: width * precision.zoomFactor
-                    contentHeight: height * precision.zoomFactor
-                    interactive: precision.zoomFactor > 1.0
-
-                    Image {
-                        id: editedPreview
-                        width: previewFlick.contentWidth
-                        height: previewFlick.contentHeight
-                        source: precision.displayingBefore
-                            ? precision.editor.beforePreviewSource
-                            : precision.editor.previewSource
-                        fillMode: Image.PreserveAspectFit
-                        asynchronous: true
-                        cache: false
-                        smooth: true
+                    contentWidth: Math.max(width, photoSurface.width)
+                    contentHeight: Math.max(height, photoSurface.height)
+                    interactive: contentWidth > width || contentHeight > height
+                    onMovementStarted: {
+                        directViewportSettle.stop()
+                        precision.editor.leaveDetailMode()
+                    }
+                    onMovementEnded: precision.requestVisibleDetail()
+                    onContentXChanged: precision.directViewportPositionChanged()
+                    onContentYChanged: precision.directViewportPositionChanged()
+                    onWidthChanged: {
+                        if (precision.editor.detailMode)
+                            precision.requestVisibleDetail()
+                    }
+                    onHeightChanged: {
+                        if (precision.editor.detailMode)
+                            precision.requestVisibleDetail()
                     }
 
-                    ScrollBar.horizontal: ScrollBar { policy: ScrollBar.AsNeeded }
-                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                    Item {
+                        id: photoSurface
+                        x: (previewFlick.contentWidth - width) / 2
+                        y: (previewFlick.contentHeight - height) / 2
+                        width: precision.imagePixelWidth * precision.displayScale
+                        height: precision.imagePixelHeight * precision.displayScale
+
+                        Image {
+                            id: editedPreview
+                            anchors.fill: parent
+                            source: precision.displayingBefore
+                                ? precision.editor.beforePreviewSource
+                                : precision.editor.previewSource
+                            fillMode: Image.Stretch
+                            asynchronous: true
+                            cache: false
+                            smooth: true
+                        }
+
+                        Repeater {
+                            model: precision.editor.detailTiles
+                            delegate: Image {
+                                required property var modelData
+                                x: modelData.x * precision.displayScale
+                                y: modelData.y * precision.displayScale
+                                width: modelData.width * precision.displayScale
+                                height: modelData.height * precision.displayScale
+                                source: modelData.source
+                                fillMode: Image.Stretch
+                                asynchronous: true
+                                cache: false
+                                smooth: false
+                                visible: precision.showingFullDetail
+                                onStatusChanged: {
+                                    if (status === Image.Ready)
+                                        precision.detailImageReady = true
+                                    else if (status === Image.Error) {
+                                        precision.detailImageReady = false
+                                        precision.detailImageLoadFailed = true
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    ScrollBar.horizontal: ScrollBar {
+                        policy: ScrollBar.AsNeeded
+                        onPressedChanged: {
+                            if (pressed) {
+                                directViewportSettle.stop()
+                                precision.editor.leaveDetailMode()
+                            } else {
+                                Qt.callLater(precision.requestVisibleDetail)
+                            }
+                        }
+                    }
+                    ScrollBar.vertical: ScrollBar {
+                        policy: ScrollBar.AsNeeded
+                        onPressedChanged: {
+                            if (pressed) {
+                                directViewportSettle.stop()
+                                precision.editor.leaveDetailMode()
+                            } else {
+                                Qt.callLater(precision.requestVisibleDetail)
+                            }
+                        }
+                    }
                 }
             }
 
@@ -645,12 +885,58 @@ Item {
                     anchors.centerIn: parent
                     text: precision.displayingBefore
                         ? "BEFORE · NEUTRAL BASE"
-                        : "AFTER · CURRENT EDIT"
+                        : precision.showingFullDetail
+                            ? "AFTER · FULL-RES RGB DETAIL"
+                            : "AFTER · CURRENT EDIT PROXY"
                     color: precision.displayingBefore
                         ? precision.accent : precision.textSecondary
                     font.pixelSize: 8
                     font.weight: Font.Bold
                     font.letterSpacing: 0.7
+                }
+            }
+
+            Rectangle {
+                anchors.top: comparisonBadge.bottom
+                anchors.right: comparisonBadge.right
+                anchors.topMargin: 7
+                width: Math.min(350, detailHintRow.implicitWidth + 20)
+                height: 30
+                radius: 4
+                visible: !precision.displayingBefore && !precision.fitView
+                    && precision.zoomFactor >= 1.0
+                    && (precision.editor.detailRendering
+                        || precision.editor.detailErrorText.length > 0
+                        || precision.detailImageLoadFailed)
+                color: "#d9181c21"
+                border.color: precision.editor.detailErrorText.length > 0
+                    || precision.detailImageLoadFailed
+                    ? "#8b5148" : precision.border
+                clip: true
+
+                Row {
+                    id: detailHintRow
+                    anchors.centerIn: parent
+                    spacing: 7
+                    BusyIndicator {
+                        width: 14
+                        height: 14
+                        visible: precision.editor.detailRendering
+                        running: visible
+                    }
+                    Label {
+                        width: Math.min(290, implicitWidth)
+                        text: precision.editor.detailErrorText.length > 0
+                            ? precision.editor.detailErrorText
+                            : precision.detailImageLoadFailed
+                                ? "Full-detail viewport unavailable · showing proxy"
+                                : "Preparing exact local full-resolution pixels…"
+                        color: precision.editor.detailErrorText.length > 0
+                            || precision.detailImageLoadFailed
+                            ? "#d28e82" : precision.textMuted
+                        font.pixelSize: 9
+                        elide: Text.ElideRight
+                    }
                 }
             }
 

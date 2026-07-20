@@ -9,7 +9,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <exception>
+#include <limits>
+#include <stdexcept>
 #include <utility>
 
 namespace {
@@ -17,6 +20,10 @@ namespace {
 constexpr std::uint32_t EDIT_PREVIEW_EDGE = 1'600;
 constexpr std::uint8_t EDIT_PREVIEW_QUALITY = 88;
 constexpr int EDIT_DEBOUNCE_MS = 140;
+constexpr std::uint32_t EDIT_DETAIL_TILE_SIDE = 512;
+constexpr std::uint32_t EDIT_LARGE_DETAIL_TILE_SIDE = 1'024;
+constexpr int EDIT_DETAIL_DEBOUNCE_MS = 70;
+constexpr std::uint64_t EDIT_DETAIL_MAX_PRESENTATION_BYTES = 96U * 1'024U * 1'024U;
 
 [[nodiscard]] QVector<ToneCurvePoint> tone_curve_model_points(
     const BackendBasicEditLayer* const layer
@@ -167,6 +174,128 @@ constexpr int EDIT_DEBOUNCE_MS = 140;
     return result;
 }
 
+[[nodiscard]] BackendEditedDetailViewport compose_detail_viewport(
+    BackendEditedDetailViewport viewport
+) {
+    if (viewport.full_width == 0 || viewport.full_height == 0 || viewport.tiles.isEmpty()) {
+        throw std::runtime_error("full detail returned no RGB8 tiles");
+    }
+    std::uint32_t left = std::numeric_limits<std::uint32_t>::max();
+    std::uint32_t top = std::numeric_limits<std::uint32_t>::max();
+    std::uint32_t right = 0;
+    std::uint32_t bottom = 0;
+    std::uint64_t tile_pixels = 0;
+    for (qsizetype index = 0; index < viewport.tiles.size(); ++index) {
+        const auto& tile = viewport.tiles.at(index);
+        const std::uint64_t expected_stride = static_cast<std::uint64_t>(tile.width) * 3U;
+        const std::uint64_t expected_bytes = expected_stride * tile.height;
+        const std::uint64_t tile_right = static_cast<std::uint64_t>(tile.x) + tile.width;
+        const std::uint64_t tile_bottom = static_cast<std::uint64_t>(tile.y) + tile.height;
+        if (tile.width == 0 || tile.height == 0 || tile.row_stride_bytes != expected_stride
+            || expected_bytes != static_cast<std::uint64_t>(tile.bytes.size())
+            || tile_right > viewport.full_width || tile_bottom > viewport.full_height) {
+            throw std::runtime_error("full detail returned an invalid RGB8 tile layout");
+        }
+        for (qsizetype prior_index = 0; prior_index < index; ++prior_index) {
+            const auto& prior = viewport.tiles.at(prior_index);
+            const bool overlaps = tile.x < prior.x + prior.width
+                && prior.x < tile.x + tile.width && tile.y < prior.y + prior.height
+                && prior.y < tile.y + tile.height;
+            if (overlaps) {
+                throw std::runtime_error("full detail returned overlapping RGB8 tiles");
+            }
+        }
+        left = std::min(left, tile.x);
+        top = std::min(top, tile.y);
+        right = std::max(right, static_cast<std::uint32_t>(tile_right));
+        bottom = std::max(bottom, static_cast<std::uint32_t>(tile_bottom));
+        tile_pixels += static_cast<std::uint64_t>(tile.width) * tile.height;
+    }
+
+    const std::uint32_t presentation_width = right - left;
+    const std::uint32_t presentation_height = bottom - top;
+    const std::uint64_t presentation_pixels =
+        static_cast<std::uint64_t>(presentation_width) * presentation_height;
+    const std::uint64_t presentation_bytes = presentation_pixels * 3U;
+    if (presentation_width == 0 || presentation_height == 0
+        || tile_pixels != presentation_pixels
+        || presentation_bytes
+            > static_cast<std::uint64_t>(std::numeric_limits<qsizetype>::max())) {
+        throw std::runtime_error("full detail tiles do not cover one complete viewport");
+    }
+    if (presentation_bytes > EDIT_DETAIL_MAX_PRESENTATION_BYTES) {
+        throw std::runtime_error("full detail viewport exceeds the 96 MiB RGB limit");
+    }
+
+    QByteArray composite;
+    composite.resize(static_cast<qsizetype>(presentation_bytes));
+    composite.fill('\0');
+    for (const auto& tile : viewport.tiles) {
+        for (std::uint32_t row = 0; row < tile.height; ++row) {
+            const std::size_t destination_offset =
+                (static_cast<std::size_t>(tile.y - top + row) * presentation_width
+                 + (tile.x - left))
+                * 3U;
+            const std::size_t source_offset =
+                static_cast<std::size_t>(row) * tile.row_stride_bytes;
+            std::memcpy(
+                composite.data() + destination_offset,
+                tile.bytes.constData() + source_offset,
+                static_cast<std::size_t>(tile.row_stride_bytes)
+            );
+        }
+    }
+    viewport.tiles = {{
+        .bytes = std::move(composite),
+        .x = left,
+        .y = top,
+        .width = presentation_width,
+        .height = presentation_height,
+        .row_stride_bytes = presentation_width * 3U,
+    }};
+    return viewport;
+}
+
+[[nodiscard]] EditDetailTaskResult render_detail(
+    const std::shared_ptr<DesktopBackend>& backend,
+    const QString& photo_id,
+    const QString& source_path,
+    const QString& base_commit_id,
+    const BackendEditSettings settings,
+    const std::uint64_t render_token,
+    const double center_x,
+    const double center_y,
+    const std::uint32_t viewport_width,
+    const std::uint32_t viewport_height,
+    const EditDetailGeneration generation
+) {
+    EditDetailTaskResult result;
+    result.generation = generation;
+    try {
+        const std::uint32_t tile_side = std::max(viewport_width, viewport_height) > 4'096U
+            ? EDIT_LARGE_DETAIL_TILE_SIDE
+            : EDIT_DETAIL_TILE_SIDE;
+        result.viewport = compose_detail_viewport(
+            backend->renderEditDetailViewport(
+                photo_id,
+                source_path,
+                base_commit_id,
+                settings,
+                render_token,
+                center_x,
+                center_y,
+                viewport_width,
+                viewport_height,
+                tile_side,
+                true
+            )
+        );
+    } catch (const std::exception& error) {
+        result.error = QString::fromUtf8(error.what());
+    }
+    return result;
+}
+
 } // namespace
 
 EditController::EditController(
@@ -180,6 +309,7 @@ EditController::EditController(
       versions_(this),
       tone_curve_points_(this) {
     preview_debounce_.setSingleShot(true);
+    detail_debounce_.setSingleShot(true);
     connect(
         &preview_debounce_,
         &QTimer::timeout,
@@ -198,12 +328,27 @@ EditController::EditController(
         this,
         &EditController::finishPreviewTask
     );
+    connect(
+        &detail_debounce_,
+        &QTimer::timeout,
+        this,
+        &EditController::startDetailRender
+    );
+    connect(
+        &detail_watcher_,
+        &QFutureWatcher<EditDetailTaskResult>::finished,
+        this,
+        &EditController::finishDetailTask
+    );
 }
 
 EditController::~EditController() {
     preview_debounce_.stop();
+    detail_debounce_.stop();
+    detail_render_token_ = backend_->beginEditDetailRequest();
     state_watcher_.waitForFinished();
     preview_watcher_.waitForFinished();
+    detail_watcher_.waitForFinished();
 }
 
 bool EditController::active() const noexcept {
@@ -211,7 +356,7 @@ bool EditController::active() const noexcept {
 }
 
 bool EditController::busy() const noexcept {
-    return state_running_ || current_rendering_ || before_rendering_;
+    return state_running_ || current_rendering_ || before_rendering_ || detail_rendering_;
 }
 
 bool EditController::stateBusy() const noexcept {
@@ -224,6 +369,34 @@ bool EditController::rendering() const noexcept {
 
 bool EditController::beforeRendering() const noexcept {
     return before_rendering_;
+}
+
+bool EditController::detailMode() const noexcept {
+    return detail_mode_;
+}
+
+bool EditController::detailRendering() const noexcept {
+    return detail_rendering_;
+}
+
+QString EditController::detailErrorText() const {
+    return detail_error_text_;
+}
+
+quint32 EditController::detailFullWidth() const noexcept {
+    return detail_full_width_;
+}
+
+quint32 EditController::detailFullHeight() const noexcept {
+    return detail_full_height_;
+}
+
+quint64 EditController::detailRetainedBytes() const noexcept {
+    return detail_retained_bytes_;
+}
+
+QVariantList EditController::detailTiles() const {
+    return detail_tiles_;
 }
 
 bool EditController::dirty() const noexcept {
@@ -477,6 +650,7 @@ void EditController::openPhoto(
     ++render_revision_;
     settled_render_revision_ = 0;
     preview_debounce_.stop();
+    resetDetailState();
     preview_queued_ = false;
     before_requested_ = false;
     photo_id_ = photo_id;
@@ -528,6 +702,7 @@ void EditController::closePhoto() {
         return;
     }
     clearSessionHistory();
+    resetDetailState();
     active_ = false;
     emit activeChanged();
     emit layerActionsChanged();
@@ -850,6 +1025,54 @@ void EditController::requestBeforePreview() {
     maybeStartBeforePreview();
 }
 
+void EditController::requestDetailViewport(
+    const double center_x,
+    const double center_y,
+    const int viewport_width_pixels,
+    const int viewport_height_pixels
+) {
+    if (!active_ || !std::isfinite(center_x) || !std::isfinite(center_y)
+        || center_x < 0.0 || center_x > 1.0 || center_y < 0.0 || center_y > 1.0
+        || viewport_width_pixels <= 0 || viewport_height_pixels <= 0
+        || viewport_width_pixels > 8'192 || viewport_height_pixels > 8'192) {
+        return;
+    }
+    detail_center_x_ = center_x;
+    detail_center_y_ = center_y;
+    detail_viewport_width_ = static_cast<std::uint32_t>(viewport_width_pixels);
+    detail_viewport_height_ = static_cast<std::uint32_t>(viewport_height_pixels);
+    ++detail_viewport_revision_;
+    if (!detail_mode_) {
+        detail_mode_ = true;
+        emit detailModeChanged();
+    }
+    if (!detail_error_text_.isEmpty()) {
+        detail_error_text_.clear();
+        emit detailErrorTextChanged();
+    }
+    invalidateDetailPresentation();
+    detail_queued_ = true;
+    detail_debounce_.start(EDIT_DETAIL_DEBOUNCE_MS);
+}
+
+void EditController::leaveDetailMode() {
+    if (!detail_mode_ && detail_tiles_.isEmpty()) {
+        return;
+    }
+    detail_debounce_.stop();
+    detail_queued_ = false;
+    ++detail_viewport_revision_;
+    invalidateDetailPresentation();
+    if (detail_mode_) {
+        detail_mode_ = false;
+        emit detailModeChanged();
+    }
+    if (!detail_error_text_.isEmpty()) {
+        detail_error_text_.clear();
+        emit detailErrorTextChanged();
+    }
+}
+
 void EditController::saveVersion(const QString& version_name) {
     const QString name = version_name.trimmed();
     if (!active_ || state_running_) {
@@ -912,6 +1135,7 @@ void EditController::finishStateTask() {
             preview_debounce_.start(0);
         }
         maybeStartBeforePreview();
+        maybeStartDetailRender();
         return;
     }
     applyState(std::move(result.state));
@@ -932,6 +1156,7 @@ void EditController::finishStateTask() {
         preview_debounce_.start(0);
     }
     maybeStartBeforePreview();
+    maybeStartDetailRender();
 }
 
 void EditController::finishPreviewTask() {
@@ -996,6 +1221,111 @@ void EditController::finishPreviewTask() {
         schedulePreview(0);
     } else {
         maybeStartBeforePreview();
+        maybeStartDetailRender();
+    }
+}
+
+void EditController::finishDetailTask() {
+    EditDetailTaskResult result = detail_watcher_.result();
+    setDetailRunning(false);
+    const bool accepted = detail_mode_ && active_ && accepts_edit_detail(
+        result.generation,
+        photo_generation_,
+        render_revision_,
+        detail_viewport_revision_
+    );
+    if (accepted) {
+        if (!result.error.isEmpty()) {
+            detail_error_text_ = QStringLiteral("Full detail failed · %1").arg(
+                result.error
+            );
+            emit detailErrorTextChanged();
+        } else {
+            const auto* tile = result.viewport.tiles.size() == 1
+                ? &result.viewport.tiles.front()
+                : nullptr;
+            const std::uint64_t expected_stride = tile == nullptr
+                ? 0U
+                : static_cast<std::uint64_t>(tile->width) * 3U;
+            const std::uint64_t expected_bytes = tile == nullptr
+                ? 0U
+                : expected_stride * tile->height;
+            const bool valid = result.viewport.full_width > 0
+                && result.viewport.full_height > 0 && tile != nullptr
+                && tile->width > 0 && tile->height > 0
+                && tile->row_stride_bytes == expected_stride
+                && expected_bytes == static_cast<std::uint64_t>(tile->bytes.size());
+            QVector<EditPreviewStore::DetailPublication> publications;
+            QVariantList presentation;
+            if (valid) {
+                auto& mutable_tile = result.viewport.tiles.front();
+                const QString ticket = QStringLiteral("viewport-%1-%2")
+                                           .arg(mutable_tile.x)
+                                           .arg(mutable_tile.y);
+                publications.push_back({
+                    .ticket = ticket,
+                    .bytes = std::move(mutable_tile.bytes),
+                    .dimensions = QSize(
+                        static_cast<int>(mutable_tile.width),
+                        static_cast<int>(mutable_tile.height)
+                    ),
+                    .row_stride_bytes = static_cast<qsizetype>(
+                        mutable_tile.row_stride_bytes
+                    ),
+                });
+                QVariantMap item;
+                item.insert(QStringLiteral("x"), mutable_tile.x);
+                item.insert(QStringLiteral("y"), mutable_tile.y);
+                item.insert(QStringLiteral("width"), mutable_tile.width);
+                item.insert(QStringLiteral("height"), mutable_tile.height);
+                item.insert(
+                    QStringLiteral("source"),
+                    QStringLiteral(
+                        "image://shadow-edit/detail/%1?photo=%2&recipe=%3&viewport=%4"
+                    )
+                        .arg(ticket)
+                        .arg(result.generation.photo)
+                        .arg(result.generation.recipe_revision)
+                        .arg(result.generation.viewport_revision)
+                );
+                presentation.push_back(item);
+            }
+            if (!valid) {
+                detail_error_text_ = QStringLiteral(
+                    "Full detail returned an invalid RGB8 tile layout"
+                );
+                emit detailErrorTextChanged();
+            } else {
+                const bool geometry_changed = detail_full_width_
+                        != result.viewport.full_width
+                    || detail_full_height_ != result.viewport.full_height
+                    || detail_retained_bytes_ != result.viewport.retained_bytes;
+                detail_full_width_ = result.viewport.full_width;
+                detail_full_height_ = result.viewport.full_height;
+                detail_retained_bytes_ = result.viewport.retained_bytes;
+                preview_store_->publishDetails(
+                    std::move(publications),
+                    result.generation
+                );
+                detail_tiles_ = std::move(presentation);
+                if (geometry_changed) {
+                    emit detailGeometryChanged();
+                }
+                emit detailTilesChanged();
+                const double retained_mib = static_cast<double>(detail_retained_bytes_)
+                    / (1'024.0 * 1'024.0);
+                setStatusText(
+                    QStringLiteral("Full-resolution detail ready · %1 MiB local source")
+                        .arg(retained_mib, 0, 'f', 0)
+                );
+            }
+        }
+    }
+
+    if (detail_queued_) {
+        maybeStartDetailRender();
+    } else {
+        maybeStartBeforePreview();
     }
 }
 
@@ -1026,7 +1356,43 @@ void EditController::startPreviewRender() {
     ));
 }
 
+void EditController::startDetailRender() {
+    if (!detail_mode_ || !active_) {
+        detail_queued_ = false;
+        return;
+    }
+    if (state_running_ || current_rendering_ || before_rendering_
+        || settled_render_revision_ != render_revision_ || detail_rendering_) {
+        detail_queued_ = true;
+        return;
+    }
+    detail_queued_ = false;
+    setDetailRunning(true);
+    setStatusText(QStringLiteral("Preparing exact full-resolution detail…"));
+    detail_watcher_.setFuture(QtConcurrent::run(
+        render_detail,
+        backend_,
+        photo_id_,
+        source_path_,
+        working_commit_id_,
+        settings_,
+        detail_render_token_,
+        detail_center_x_,
+        detail_center_y_,
+        detail_viewport_width_,
+        detail_viewport_height_,
+        EditDetailGeneration{
+            .photo = photo_generation_,
+            .recipe_revision = render_revision_,
+            .viewport_revision = detail_viewport_revision_,
+        }
+    ));
+}
+
 void EditController::maybeStartBeforePreview() {
+    if (detail_rendering_) {
+        return;
+    }
     if (!can_start_neutral_before(NeutralBeforeStartState{
             .requested = before_requested_,
             .active = active_,
@@ -1053,6 +1419,54 @@ void EditController::maybeStartBeforePreview() {
             .current_revision = 0,
         }
     ));
+}
+
+void EditController::maybeStartDetailRender() {
+    if (!detail_queued_ || !detail_mode_ || detail_rendering_
+        || detail_debounce_.isActive()) {
+        return;
+    }
+    if (state_running_ || current_rendering_ || before_rendering_
+        || settled_render_revision_ != render_revision_) {
+        return;
+    }
+    detail_debounce_.start(0);
+}
+
+void EditController::invalidateDetailPresentation() {
+    detail_render_token_ = backend_->beginEditDetailRequest();
+    preview_store_->clearDetails(EditDetailGeneration{
+        .photo = photo_generation_,
+        .recipe_revision = render_revision_,
+        .viewport_revision = detail_viewport_revision_,
+    });
+    if (!detail_tiles_.isEmpty()) {
+        detail_tiles_.clear();
+        emit detailTilesChanged();
+    }
+}
+
+void EditController::resetDetailState() {
+    detail_debounce_.stop();
+    detail_queued_ = false;
+    ++detail_viewport_revision_;
+    invalidateDetailPresentation();
+    if (detail_mode_) {
+        detail_mode_ = false;
+        emit detailModeChanged();
+    }
+    if (!detail_error_text_.isEmpty()) {
+        detail_error_text_.clear();
+        emit detailErrorTextChanged();
+    }
+    const bool had_geometry = detail_full_width_ != 0 || detail_full_height_ != 0
+        || detail_retained_bytes_ != 0;
+    detail_full_width_ = 0;
+    detail_full_height_ = 0;
+    detail_retained_bytes_ = 0;
+    if (had_geometry) {
+        emit detailGeometryChanged();
+    }
 }
 
 void EditController::applyState(BackendPhotoEditState state) {
@@ -1221,6 +1635,11 @@ void EditController::schedulePreview(const int delay_ms) {
         return;
     }
     ++render_revision_;
+    if (detail_mode_) {
+        invalidateDetailPresentation();
+        detail_queued_ = true;
+        detail_debounce_.start(std::max(delay_ms, EDIT_DETAIL_DEBOUNCE_MS));
+    }
     if (current_rendering_ || before_rendering_) {
         preview_queued_ = true;
     }
@@ -1272,6 +1691,16 @@ void EditController::setPreviewRunning(
         before_rendering_ = running;
         emit beforeRenderingChanged();
     }
+    emitBusyChange(previous_busy);
+}
+
+void EditController::setDetailRunning(const bool running) {
+    if (detail_rendering_ == running) {
+        return;
+    }
+    const bool previous_busy = busy();
+    detail_rendering_ = running;
+    emit detailRenderingChanged();
     emitBusyChange(previous_busy);
 }
 

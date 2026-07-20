@@ -139,6 +139,12 @@ render, save, close, reopen, and verify stable order, IDs, parameters, and bypas
 state. Use a fresh `SHADOW_DESKTOP_DATA_ROOT`; the smoke intentionally creates a
 named Recipe version in that isolated Catalog.
 
+Adding `SHADOW_DESKTOP_FULL_DETAIL_SMOKE=1` to the first-edit smoke enters the
+real level-zero detail path at the image center, prepares one bounded full-size
+LibRaw reference-RGB session, renders the visible adaptive tile grid, assembles
+one atomic RGB8 viewport presentation, and reads it back through the Qt image
+provider. It does not save a Recipe, tile artifact, or Catalog fact.
+
 Adding `SHADOW_DESKTOP_RECORD_FIRST_COMPARISON=1` to a smoke run with at least
 two visuals prepares a real Compare presentation, requests both exact frames
 through the image provider, confirms their receipts, and records a left-preferred
@@ -162,11 +168,12 @@ Double-clicking a Review item opens a real non-destructive Precision workspace:
 Qt sliders / named-version actions
   → EditController (debounce, generations, stale-result rejection)
   → shadow-desktop-bridge (Catalog-owned photo/source validation)
-  → reusable 1600-edge scene-linear sRGB working proxy
   → supported working Recipe + complete transient edit settings
   → ordered 1..16 layer typed render plan
   → per layer: Exposure → Contrast → [Tone Curve] → RGB Channel Gain → Saturation
-  → asynchronously decoded JPEG image provider
+  ├─ FIT / sub-100%: reusable 1600-edge scene-linear proxy → JPEG provider
+  └─ 100%+: one immutable full-size u16 sRGB source → visible RGB8 tiles
+       → one atomically published viewport image
 ```
 
 Precision exposes an ordered stack of one through sixteen `PHOTO`-scope inline Basic layers. The left panel uses the same input-to-output order as the Recipe and supports add, duplicate, delete, move, select, and enabled/bypassed operations; the final executable layer cannot be deleted. Four fixed slider groups and a point-curve editor operate on the selected layer. Each persisted layer is a canonical four-node chain when its curve is absent and a five-node chain when the optional Tone Curve is present. Duplicate copies values, curve, and bypass state but receives a new layer ID and five new node IDs. Reorder and bypass retain every existing identity and payload.
@@ -183,4 +190,40 @@ RAW preparation is cached for up to two recent `(representation, source fingerpr
 
 Before/After comparison uses two independently generation-checked preview slots. `After` is the current working stack; `Before` is the neutral import baseline produced by the same decoded scene-linear working proxy with one default enabled Basic layer and no Tone Curve. The backend enforces that neutral contract regardless of the caller's layer count, order, bypass states, parameters, or curves. It is rendered only after the user first requests it and only after the latest current preview settles.
 
-The current UI authors only fixed Basic layers. Arbitrary nodes or connections, shared layer revisions, masks, opacity/blend controls, Camera-domain white balance, parameter/per-channel curves, histogram overlays, crop, full-resolution tiles, export, and AI-authored stacks remain later vertical slices; the UI does not present placeholders for them. The warm proxy remains an interactive approximation for nonlinear curves, so full-resolution parity still needs an explicit quality gate.
+`FIT` and `100%` now have distinct meanings. FIT keeps the bounded warm proxy;
+100% maps one processed photo pixel to one physical display pixel using Qt's
+device-pixel ratio. Entering 100% lazily prepares a separate immutable full-size
+16-bit sRGB reference buffer, capped at 512 MiB per retained source and cached
+for only the active Catalog representation/fingerprint. The limit does not
+claim to include LibRaw's transient decode allocations. A typical 45 MP
+three-channel source retains about 260 MiB. It is not converted into one full-size float image: the backend
+converts and executes the same complete Recipe only for the current level-zero
+tile grid. Normal viewports use 512×512 tiles; viewports wider or taller than
+4096 source pixels use 1024×1024 tiles so 5K/6K displays do not silently receive
+a partial detail surface. Requests remain explicitly bounded to 8192 pixels per
+axis. Tiles are tightly packed RGB8 rather than separately encoded
+JPEGs; Qt receives one stitched viewport presentation, avoiding tile codec and
+partial nonlinear-curve seams. Requests are rejected before a cold decode if
+their worst-case grid exceeds 100 tiles; the assembled RGB presentation is
+limited to 96 MiB and stays on the worker path. Qt's image provider retains that
+same immutable byte storage instead of making another full viewport copy. The warm proxy remains underneath during cold
+decode, pan, stale-result rejection, and errors.
+
+Full detail has an independent `{photo, Recipe revision, viewport revision}`
+acceptance contract at both controller and image-store boundaries. Changing a
+photo or edit invalidates it immediately. Starting a pan hides the current
+presentation; only the final viewport is queued after movement ends. The source
+session is Recipe-independent and reusable across slider revisions, while the
+RGB viewport is rebuildable memory state and never enters Catalog or durable
+version history. A newer viewport or Recipe token stops the old worker between
+tiles; generation checks still reject a result if cancellation races its final
+tile. The first cold request still performs a complete LibRaw
+demosaic because v1 deliberately does not depend on LibRaw crop semantics.
+
+This is a full-resolution parity gate for the current pixel-local Basic nodes,
+including nonlinear Tone Curve, but still uses LibRaw's camera-WB, processed
+sRGB reference output. It is not yet Shadow's final camera-domain scene-linear
+pipeline, export renderer, ICC-managed display proof, mip pyramid, GPU backend,
+or neighborhood-operation tile/halo system.
+
+The current UI authors only fixed Basic layers. Arbitrary nodes or connections, shared layer revisions, masks, opacity/blend controls, Camera-domain white balance, parameter/per-channel curves, histogram overlays, crop, full-resolution export, and AI-authored stacks remain later vertical slices; the UI does not present placeholders for them. Warm FIT preview remains an interactive approximation for nonlinear curves; 100% detail is now the explicit full-resolution quality gate for the supported pixel-local stack.

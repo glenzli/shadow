@@ -122,6 +122,13 @@ inline constexpr std::uint32_t adjustment_implementation_version = 1;
 // A square proxy at this limit occupies at most 192 MiB as interleaved RGB float32.
 // Typical 3:2 photos at the UI's 1600/2048 edge use substantially less memory.
 inline constexpr std::uint32_t maximum_warm_edit_preview_edge = 4'096;
+// Full-detail sessions retain the provider's complete 16-bit reference RGB image, but never
+// more than 512 MiB. The metadata preflight assumes worst-case RGB even when a provider may
+// ultimately return one-channel grayscale data.
+inline constexpr std::uint64_t maximum_full_edit_detail_retained_bytes = 512ULL * 1'024ULL * 1'024ULL;
+// Detail work stays tile-local so one request cannot accidentally materialize another full-size
+// float image while the immutable 16-bit source is resident.
+inline constexpr std::uint32_t maximum_edit_detail_tile_side = 1'024;
 
 struct AdjustmentNode final {
     std::string node_id;
@@ -222,12 +229,62 @@ private:
     );
 };
 
+struct DetailTileRect final {
+    std::uint32_t x = 0;
+    std::uint32_t y = 0;
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
+
+    auto operator<=>(const DetailTileRect&) const = default;
+};
+
+// Packed, display-referred sRGB bytes for one exact full-resolution rectangle. Rows carry no
+// padding and no compression is applied, avoiding independently encoded JPEG block or chroma
+// boundaries between neighboring tiles.
+struct RenderedDetailTile final {
+    DetailTileRect rect;
+    Dimensions full_dimensions;
+    std::uint32_t row_stride_bytes = 0;
+    std::vector<std::uint8_t> bytes;
+};
+
+// An immutable complete 16-bit sRGB reference image used only for 1:1 detail requests. No
+// decoder survives preparation; each const render allocates and edits only the requested tile,
+// which makes concurrent renders independent after construction.
+class FullEditDetailSession final {
+public:
+    FullEditDetailSession(const FullEditDetailSession&) = delete;
+    FullEditDetailSession& operator=(const FullEditDetailSession&) = delete;
+    FullEditDetailSession(FullEditDetailSession&&) noexcept = default;
+    FullEditDetailSession& operator=(FullEditDetailSession&&) noexcept = default;
+    ~FullEditDetailSession() = default;
+
+    [[nodiscard]] Dimensions dimensions() const noexcept;
+    [[nodiscard]] std::uint64_t retained_bytes() const noexcept;
+    [[nodiscard]] RenderedDetailTile render_rgb8(
+        std::span<const AdjustmentNode> nodes,
+        DetailTileRect rect
+    ) const;
+
+private:
+    FullEditDetailSession(PixelBuffer reference_rgb, std::uint64_t retained_bytes);
+
+    PixelBuffer reference_rgb_;
+    std::uint64_t retained_bytes_ = 0;
+
+    friend FullEditDetailSession prepare_full_edit_detail(const DecodeSession& session);
+};
+
 // Decodes once and stores only a max-edge-bounded scene-linear sRGB float proxy. Conversion to
 // linear light precedes bilinear downsampling; the full-size float image is never materialized.
 [[nodiscard]] WarmEditPreviewSession prepare_warm_edit_preview(
     const DecodeSession& session,
     std::uint32_t max_edge = 2'048
 );
+
+// Checks the provider metadata against the worst-case RGB u16 retention bound before asking it
+// to render pixels, then independently checks the actual retained vector allocation.
+[[nodiscard]] FullEditDetailSession prepare_full_edit_detail(const DecodeSession& session);
 
 // Renders a standard display-referred JPEG while keeping adjustment math in explicitly
 // scene-referred linear sRGB. The LibRaw reference buffer is decoded from its sRGB transfer

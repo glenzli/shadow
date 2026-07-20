@@ -1,9 +1,14 @@
 #pragma once
 
+#include "edit_preview_contract.hpp"
+
 #include <QByteArray>
+#include <QHash>
 #include <QQuickImageProvider>
 #include <QReadWriteLock>
 #include <QSize>
+#include <QString>
+#include <QVector>
 
 #include <cstdint>
 #include <memory>
@@ -18,6 +23,14 @@ public:
     struct Snapshot final {
         QByteArray bytes;
         QSize dimensions;
+        qsizetype row_stride_bytes = 0;
+    };
+
+    struct DetailPublication final {
+        QString ticket;
+        QByteArray bytes;
+        QSize dimensions;
+        qsizetype row_stride_bytes = 0;
     };
 
     void publish(
@@ -29,12 +42,22 @@ public:
     void clear(EditPreviewSlot slot, quint64 generation);
     void clearAll(quint64 current_generation, quint64 before_generation);
     [[nodiscard]] Snapshot snapshot(EditPreviewSlot slot, quint64 generation) const;
+    void publishDetails(
+        QVector<DetailPublication> publications,
+        EditDetailGeneration generation
+    );
+    void clearDetails(EditDetailGeneration generation);
+    [[nodiscard]] Snapshot detailSnapshot(
+        const QString& ticket,
+        EditDetailGeneration generation
+    ) const;
 
 private:
     struct StoredPreview final {
         QByteArray bytes;
         QSize dimensions;
         quint64 generation = 0;
+        qsizetype row_stride_bytes = 0;
     };
 
     [[nodiscard]] StoredPreview& slot(EditPreviewSlot slot) noexcept;
@@ -43,6 +66,8 @@ private:
     mutable QReadWriteLock lock_;
     StoredPreview current_;
     StoredPreview before_;
+    QHash<QString, StoredPreview> details_;
+    EditDetailGeneration detail_generation_;
 };
 
 class EditPreviewProvider final : public QQuickImageProvider {

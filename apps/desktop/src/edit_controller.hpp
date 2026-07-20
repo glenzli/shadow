@@ -36,6 +36,12 @@ struct EditPreviewTaskResult final {
     EditPreviewGeneration generation;
 };
 
+struct EditDetailTaskResult final {
+    BackendEditedDetailViewport viewport;
+    QString error;
+    EditDetailGeneration generation;
+};
+
 class EditController final : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool active READ active NOTIFY activeChanged)
@@ -43,6 +49,13 @@ class EditController final : public QObject {
     Q_PROPERTY(bool stateBusy READ stateBusy NOTIFY stateBusyChanged)
     Q_PROPERTY(bool rendering READ rendering NOTIFY renderingChanged)
     Q_PROPERTY(bool beforeRendering READ beforeRendering NOTIFY beforeRenderingChanged)
+    Q_PROPERTY(bool detailMode READ detailMode NOTIFY detailModeChanged)
+    Q_PROPERTY(bool detailRendering READ detailRendering NOTIFY detailRenderingChanged)
+    Q_PROPERTY(QString detailErrorText READ detailErrorText NOTIFY detailErrorTextChanged)
+    Q_PROPERTY(quint32 detailFullWidth READ detailFullWidth NOTIFY detailGeometryChanged)
+    Q_PROPERTY(quint32 detailFullHeight READ detailFullHeight NOTIFY detailGeometryChanged)
+    Q_PROPERTY(quint64 detailRetainedBytes READ detailRetainedBytes NOTIFY detailGeometryChanged)
+    Q_PROPERTY(QVariantList detailTiles READ detailTiles NOTIFY detailTilesChanged)
     Q_PROPERTY(bool dirty READ dirty NOTIFY dirtyChanged)
     Q_PROPERTY(bool canUndo READ canUndo NOTIFY historyChanged)
     Q_PROPERTY(bool canRedo READ canRedo NOTIFY historyChanged)
@@ -113,6 +126,13 @@ public:
     [[nodiscard]] bool stateBusy() const noexcept;
     [[nodiscard]] bool rendering() const noexcept;
     [[nodiscard]] bool beforeRendering() const noexcept;
+    [[nodiscard]] bool detailMode() const noexcept;
+    [[nodiscard]] bool detailRendering() const noexcept;
+    [[nodiscard]] QString detailErrorText() const;
+    [[nodiscard]] quint32 detailFullWidth() const noexcept;
+    [[nodiscard]] quint32 detailFullHeight() const noexcept;
+    [[nodiscard]] quint64 detailRetainedBytes() const noexcept;
+    [[nodiscard]] QVariantList detailTiles() const;
     [[nodiscard]] bool dirty() const noexcept;
     [[nodiscard]] bool canUndo() const noexcept;
     [[nodiscard]] bool canRedo() const noexcept;
@@ -175,6 +195,13 @@ public:
     Q_INVOKABLE void resetEdits();
     Q_INVOKABLE void revertEdits();
     Q_INVOKABLE void requestBeforePreview();
+    Q_INVOKABLE void requestDetailViewport(
+        double center_x,
+        double center_y,
+        int viewport_width_pixels,
+        int viewport_height_pixels
+    );
+    Q_INVOKABLE void leaveDetailMode();
     Q_INVOKABLE void saveVersion(const QString& version_name);
     Q_INVOKABLE void checkoutVersion(const QString& commit_id);
 
@@ -184,6 +211,11 @@ signals:
     void stateBusyChanged();
     void renderingChanged();
     void beforeRenderingChanged();
+    void detailModeChanged();
+    void detailRenderingChanged();
+    void detailErrorTextChanged();
+    void detailGeometryChanged();
+    void detailTilesChanged();
     void dirtyChanged();
     void historyChanged();
     void titleChanged();
@@ -202,7 +234,9 @@ signals:
 private slots:
     void finishStateTask();
     void finishPreviewTask();
+    void finishDetailTask();
     void startPreviewRender();
+    void startDetailRender();
 
 private:
     void applyState(BackendPhotoEditState state);
@@ -221,10 +255,14 @@ private:
     );
     void schedulePreview(int delay_ms);
     void maybeStartBeforePreview();
+    void maybeStartDetailRender();
+    void invalidateDetailPresentation();
+    void resetDetailState();
     void setStatusText(QString status);
     void setDirty(bool dirty);
     void setStateRunning(bool running);
     void setPreviewRunning(EditPreviewKind kind, bool running);
+    void setDetailRunning(bool running);
     void emitBusyChange(bool previous_busy);
     void parameterEdited(
         const QString& key,
@@ -248,7 +286,9 @@ private:
     ToneCurvePointModel tone_curve_points_;
     QFutureWatcher<EditStateTaskResult> state_watcher_;
     QFutureWatcher<EditPreviewTaskResult> preview_watcher_;
+    QFutureWatcher<EditDetailTaskResult> detail_watcher_;
     QTimer preview_debounce_;
+    QTimer detail_debounce_;
     SessionEditHistory<BackendEditSettings> history_;
     BackendEditSettings settings_;
     BackendEditSettings committed_settings_;
@@ -260,16 +300,30 @@ private:
     QString preview_source_;
     QString before_preview_source_;
     QString before_error_text_;
+    QString detail_error_text_;
     QString status_text_ = QStringLiteral("Open a photo from Review to begin editing");
     quint64 photo_generation_ = 0;
     quint64 render_revision_ = 0;
     quint64 settled_render_revision_ = 0;
+    quint64 detail_viewport_revision_ = 0;
+    quint64 detail_render_token_ = 0;
+    quint32 detail_full_width_ = 0;
+    quint32 detail_full_height_ = 0;
+    quint64 detail_retained_bytes_ = 0;
+    QVariantList detail_tiles_;
+    double detail_center_x_ = 0.5;
+    double detail_center_y_ = 0.5;
+    std::uint32_t detail_viewport_width_ = 1;
+    std::uint32_t detail_viewport_height_ = 1;
     bool active_ = false;
     bool dirty_ = false;
     bool state_running_ = false;
     bool current_rendering_ = false;
     bool before_rendering_ = false;
+    bool detail_mode_ = false;
+    bool detail_rendering_ = false;
     bool preview_queued_ = false;
     bool before_requested_ = false;
+    bool detail_queued_ = false;
     int selected_layer_index_ = -1;
 };
