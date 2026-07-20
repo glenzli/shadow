@@ -60,10 +60,16 @@ int main(int argc, char* argv[]) {
     }
     const QString initial_folder = qEnvironmentVariable("SHADOW_DESKTOP_SCAN_FOLDER");
     const bool open_first_edit = qEnvironmentVariableIsSet("SHADOW_DESKTOP_OPEN_FIRST_EDIT");
+    const bool record_first_comparison = qEnvironmentVariableIsSet(
+        "SHADOW_DESKTOP_RECORD_FIRST_COMPARISON"
+    );
+    const bool forget_recorded_comparison = qEnvironmentVariableIsSet(
+        "SHADOW_DESKTOP_FORGET_RECORDED_COMPARISON"
+    );
     const bool request_before = qEnvironmentVariableIsSet(
         "SHADOW_DESKTOP_REQUEST_BEFORE"
     );
-    if (open_first_edit) {
+    if (open_first_edit && !record_first_comparison) {
         QObject::connect(
             &controller,
             &ReviewController::itemCountChanged,
@@ -83,11 +89,66 @@ int main(int argc, char* argv[]) {
             }
         );
     }
+    if (record_first_comparison) {
+        QObject::connect(
+            &controller,
+            &ReviewController::itemCountChanged,
+            &application,
+            [&controller]() {
+                auto* model = controller.reviewModel();
+                if (model->rowCount() < 2 || controller.comparisonBusy()
+                    || controller.sessionEvidenceCount() > 0) {
+                    return;
+                }
+                const QModelIndex left = model->index(0, 0);
+                const QModelIndex right = model->index(1, 0);
+                controller.recordComparison(
+                    model->data(left, ReviewModel::PhotoIdRole).toString(),
+                    model->data(left, ReviewModel::RepresentationIdRole).toString(),
+                    model->data(right, ReviewModel::PhotoIdRole).toString(),
+                    model->data(right, ReviewModel::RepresentationIdRole).toString(),
+                    0
+                );
+            }
+        );
+    }
     if (!initial_folder.isEmpty()) {
         controller.scanFolder(QUrl::fromLocalFile(initial_folder));
     }
     if (qEnvironmentVariableIsSet("SHADOW_DESKTOP_SMOKE_TEST")) {
-        if (open_first_edit) {
+        if (record_first_comparison) {
+            auto comparison_succeeded = std::make_shared<bool>(false);
+            QObject::connect(
+                &controller,
+                &ReviewController::comparisonRecorded,
+                &application,
+                [&application, &controller, forget_recorded_comparison,
+                 comparison_succeeded]() {
+                    if (forget_recorded_comparison) {
+                        controller.undoLastComparison();
+                    } else {
+                        *comparison_succeeded = true;
+                        QTimer::singleShot(50, &application, &QCoreApplication::quit);
+                    }
+                }
+            );
+            QObject::connect(
+                &controller,
+                &ReviewController::comparisonForgotten,
+                &application,
+                [&application, comparison_succeeded]() {
+                    *comparison_succeeded = true;
+                    QTimer::singleShot(50, &application, &QCoreApplication::quit);
+                }
+            );
+            QTimer::singleShot(
+                30'000,
+                &application,
+                [&application, comparison_succeeded]() {
+                    application.exit(*comparison_succeeded ? EXIT_SUCCESS : EXIT_FAILURE);
+                }
+            );
+        } else if (open_first_edit) {
             QObject::connect(
                 &editor,
                 &EditController::previewSourceChanged,

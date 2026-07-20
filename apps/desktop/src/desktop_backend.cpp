@@ -151,6 +151,24 @@ namespace {
     return state;
 }
 
+[[nodiscard]] shadow::desktop::FfiPairwiseOutcome ffi_outcome(
+    const BackendPairwiseOutcome outcome
+) {
+    switch (outcome) {
+    case BackendPairwiseOutcome::LeftPreferred:
+        return shadow::desktop::FfiPairwiseOutcome::LeftPreferred;
+    case BackendPairwiseOutcome::RightPreferred:
+        return shadow::desktop::FfiPairwiseOutcome::RightPreferred;
+    case BackendPairwiseOutcome::KeepBoth:
+        return shadow::desktop::FfiPairwiseOutcome::KeepBoth;
+    case BackendPairwiseOutcome::KeepNeither:
+        return shadow::desktop::FfiPairwiseOutcome::KeepNeither;
+    case BackendPairwiseOutcome::CannotCompare:
+        return shadow::desktop::FfiPairwiseOutcome::CannotCompare;
+    }
+    throw std::invalid_argument("unknown pairwise outcome");
+}
+
 } // namespace
 
 struct DesktopBackend::Impl final {
@@ -230,6 +248,39 @@ BackendReviewPage DesktopBackend::reviewPage(
 QByteArray DesktopBackend::loadReviewVisual(const QString& representation_id) const {
     const auto payload = impl_->session->load_review_visual(representation_id.toStdString());
     return qbytes(payload.bytes);
+}
+
+BackendFeedbackReceipt DesktopBackend::recordReviewComparison(
+    const QString& left_photo_id,
+    const QString& left_representation_id,
+    const QString& right_photo_id,
+    const QString& right_representation_id,
+    const BackendPairwiseOutcome outcome
+) const {
+    const auto receipt = impl_->session->record_review_comparison(
+        left_photo_id.toStdString(),
+        left_representation_id.toStdString(),
+        right_photo_id.toStdString(),
+        right_representation_id.toStdString(),
+        ffi_outcome(outcome)
+    );
+    return {
+        .event_id = qstring(receipt.event_id),
+        .sequence = receipt.sequence,
+        .occurred_at_ms = receipt.occurred_at_unix_ms,
+    };
+}
+
+BackendForgetReceipt DesktopBackend::forgetReviewFeedback(
+    const QString& event_id
+) const {
+    const auto receipt = impl_->session->forget_review_feedback(event_id.toStdString());
+    return {
+        .fact_id = qstring(receipt.fact_id),
+        .target_event_id = qstring(receipt.target_event_id),
+        .sequence = receipt.sequence,
+        .occurred_at_ms = receipt.occurred_at_unix_ms,
+    };
 }
 
 BackendPhotoEditState DesktopBackend::photoEditState(

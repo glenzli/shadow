@@ -1,6 +1,7 @@
 #pragma once
 
 #include "desktop_backend.hpp"
+#include "review_evidence_session.hpp"
 #include "review_model.hpp"
 
 #include <QFutureWatcher>
@@ -8,6 +9,7 @@
 #include <QString>
 #include <QUrl>
 
+#include <cstdint>
 #include <memory>
 
 struct ScanTaskResult final {
@@ -23,6 +25,18 @@ struct PageTaskResult final {
     bool reset = false;
 };
 
+enum class ReviewEvidenceTaskKind : std::uint8_t {
+    Record,
+    Forget,
+};
+
+struct ReviewEvidenceTaskResult final {
+    BackendFeedbackReceipt feedback;
+    BackendForgetReceipt forget;
+    QString error;
+    ReviewEvidenceTaskKind kind = ReviewEvidenceTaskKind::Record;
+};
+
 class ReviewController final : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
@@ -31,6 +45,26 @@ class ReviewController final : public QObject {
     Q_PROPERTY(QString folderPath READ folderPath NOTIFY folderPathChanged)
     Q_PROPERTY(QString statusText READ statusText NOTIFY statusTextChanged)
     Q_PROPERTY(int itemCount READ itemCount NOTIFY itemCountChanged)
+    Q_PROPERTY(
+        bool comparisonBusy
+        READ comparisonBusy
+        NOTIFY comparisonStateChanged
+    )
+    Q_PROPERTY(
+        bool canUndoComparison
+        READ canUndoComparison
+        NOTIFY comparisonStateChanged
+    )
+    Q_PROPERTY(
+        int sessionEvidenceCount
+        READ sessionEvidenceCount
+        NOTIFY comparisonStateChanged
+    )
+    Q_PROPERTY(
+        QString comparisonStatusText
+        READ comparisonStatusText
+        NOTIFY comparisonStatusTextChanged
+    )
     Q_PROPERTY(QAbstractItemModel* model READ model CONSTANT)
 
 public:
@@ -46,11 +80,23 @@ public:
     [[nodiscard]] QString folderPath() const;
     [[nodiscard]] QString statusText() const;
     [[nodiscard]] int itemCount() const;
+    [[nodiscard]] bool comparisonBusy() const noexcept;
+    [[nodiscard]] bool canUndoComparison() const noexcept;
+    [[nodiscard]] int sessionEvidenceCount() const noexcept;
+    [[nodiscard]] QString comparisonStatusText() const;
     [[nodiscard]] QAbstractItemModel* model() noexcept;
     [[nodiscard]] ReviewModel* reviewModel() noexcept;
 
     Q_INVOKABLE void scanFolder(const QUrl& folder_url);
     Q_INVOKABLE void loadMore();
+    Q_INVOKABLE void recordComparison(
+        const QString& left_photo_id,
+        const QString& left_representation_id,
+        const QString& right_photo_id,
+        const QString& right_representation_id,
+        int outcome
+    );
+    Q_INVOKABLE void undoLastComparison();
 
 signals:
     void busyChanged();
@@ -59,19 +105,28 @@ signals:
     void folderPathChanged();
     void statusTextChanged();
     void itemCountChanged();
+    void comparisonStateChanged();
+    void comparisonStatusTextChanged();
+    void comparisonRecorded();
+    void comparisonForgotten();
 
 private:
     void finishScan();
     void finishPage();
+    void finishEvidenceTask();
     void startPage(bool reset);
     void emitWorkStateChanges(bool old_busy, bool old_loading_more);
     void setHasMore(bool has_more);
     void setStatusText(QString status);
     void updateReadyStatus();
+    void setComparisonStatusText(QString status);
 
     std::shared_ptr<DesktopBackend> backend_;
     QString folder_path_;
     QString status_text_ = QStringLiteral("Choose a folder to build your Review library");
+    QString comparison_status_text_ = QStringLiteral(
+        "Explicit choices are recorded as evidence; no preference model is active"
+    );
     QString next_cursor_path_;
     QString next_cursor_representation_id_;
     quint64 generation_ = 0;
@@ -83,6 +138,8 @@ private:
     bool page_running_ = false;
     bool has_more_ = false;
     ReviewModel model_;
+    ReviewEvidenceSession evidence_session_;
     QFutureWatcher<ScanTaskResult> scan_watcher_;
     QFutureWatcher<PageTaskResult> page_watcher_;
+    QFutureWatcher<ReviewEvidenceTaskResult> evidence_watcher_;
 };

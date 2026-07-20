@@ -10,6 +10,11 @@ FolderDialog / QML Review grid
   → shadow-catalog single writer
   → embedded preview or generated proxy cache
   → bounded display-luma observation worker → Catalog v7 summary
+
+two cached Review visuals / explicit outcome
+  → ReviewController asynchronous evidence write
+  → shadow-desktop-bridge candidate validation
+  → Catalog v7 append-only Global feedback / forget fact
 ```
 
 QML never opens SQLite, calls LibRaw, or interprets blob paths. The Rust bridge returns bounded Review metadata pages using a stable path/representation cursor. Compressed visuals are not stored in the Qt model: a forced-asynchronous `QQuickImageProvider` requests a verified cache blob only when Qt needs that image and decodes only the requested display size. Every image URL carries the current model generation, so a late result from a previous folder is discarded.
@@ -21,7 +26,36 @@ revision. The selected-photo sidebar shows mean and percentile luma,
 near-black/near-white fractions, two scale-sensitive detail proxies, and the input
 and analyzer revisions. These are single-photo display-proxy facts: the grid does
 not turn them into quality badges, sorting, Picks, or Rejects, and the application
-does not compare differently authored/preprocessed proxies.
+does not automatically compare, rank, or infer across differently
+authored/preprocessed proxies.
+
+## Review Compare Evidence vertical slice
+
+Review can place two already cached visuals side by side and ask for one explicit
+`PairwiseOutcome`: `LeftPreferred`, `RightPreferred`, `KeepBoth`, `KeepNeither`,
+or `CannotCompare`. Recording an outcome appends one human-feedback event in the
+`Global` learning scope. It does not mutate either photo, assign a Pick/Reject,
+or silently infer a label from merely opening or leaving the comparison.
+
+Undo is deliberately non-destructive. It appends a forget fact targeting the
+source feedback event; it does not update or delete that event. The evidence
+counter shown by this first UI covers active, not-forgotten events from the
+current application session, not a lifetime evidence total or a count of
+model-training examples.
+
+This is an evidence-capture surface, not a learned recommender. The presentation
+records neither a group nor an active model, and both candidates currently carry
+no feature snapshot. There is therefore no input with which to train the existing
+preference head, no personal score, and no automatic ranking change. The complete
+provenance of the exact cached visual artifact presented in each slot is also not
+yet part of the recorded feedback context.
+
+Available display-luma observations may appear alongside each photo as parallel
+technical facts. The UI does not subtract them, name a winner, or use them to
+justify the human outcome. Camera-embedded previews and Shadow-generated proxies
+can differ in upstream resizing, sharpening, tone, and color treatment, so their
+metrics are not necessarily comparable even when the final analyzer revision is
+the same.
 
 ## macOS development
 

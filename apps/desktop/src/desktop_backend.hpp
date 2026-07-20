@@ -48,6 +48,27 @@ struct BackendReviewPage final {
     bool has_more = false;
 };
 
+enum class BackendPairwiseOutcome : std::uint8_t {
+    LeftPreferred,
+    RightPreferred,
+    KeepBoth,
+    KeepNeither,
+    CannotCompare,
+};
+
+struct BackendFeedbackReceipt final {
+    QString event_id;
+    std::uint64_t sequence = 0;
+    std::int64_t occurred_at_ms = 0;
+};
+
+struct BackendForgetReceipt final {
+    QString fact_id;
+    QString target_event_id;
+    std::uint64_t sequence = 0;
+    std::int64_t occurred_at_ms = 0;
+};
+
 struct BackendBasicEditParameters final {
     double exposure_stops = 0.0;
     double contrast_factor = 1.0;
@@ -127,6 +148,16 @@ public:
         std::uint32_t limit
     ) const;
     [[nodiscard]] QByteArray loadReviewVisual(const QString& representation_id) const;
+    [[nodiscard]] BackendFeedbackReceipt recordReviewComparison(
+        const QString& left_photo_id,
+        const QString& left_representation_id,
+        const QString& right_photo_id,
+        const QString& right_representation_id,
+        BackendPairwiseOutcome outcome
+    ) const;
+    [[nodiscard]] BackendForgetReceipt forgetReviewFeedback(
+        const QString& event_id
+    ) const;
     [[nodiscard]] BackendPhotoEditState photoEditState(
         const QString& photo_id,
         const QString& source_path

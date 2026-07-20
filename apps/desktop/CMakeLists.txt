@@ -73,6 +73,7 @@ qt_add_executable(
     src/main.cpp
     src/review_controller.cpp
     src/review_controller.hpp
+    src/review_evidence_session.hpp
     src/review_model.cpp
     src/review_model.hpp
     src/thumbnail_provider.cpp
@@ -243,4 +244,31 @@ if(BUILD_TESTING)
         )
     endif()
     add_test(NAME shadow-desktop-review-model COMMAND shadow-review-model-test)
+
+    add_executable(
+        shadow-review-evidence-session-test
+        tests/review_evidence_session_test.cpp
+        src/review_evidence_session.hpp
+    )
+    target_compile_features(shadow-review-evidence-session-test PRIVATE cxx_std_20)
+    target_include_directories(
+        shadow-review-evidence-session-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(shadow-review-evidence-session-test PRIVATE Qt6::Core)
+    if(MSVC)
+        target_compile_options(
+            shadow-review-evidence-session-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-review-evidence-session-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-review-evidence-session
+        COMMAND shadow-review-evidence-session-test
+    )
 endif()

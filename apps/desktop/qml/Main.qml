@@ -168,8 +168,11 @@ ApplicationWindow {
             Button {
                 id: folderButton
                 visible: window.workspaceIndex === 0
-                text: window.controller.busy ? "SCANNING…" : "CHOOSE FOLDER"
+                text: window.controller.busy
+                    ? "SCANNING…"
+                    : window.controller.comparisonBusy ? "RECORDING…" : "CHOOSE FOLDER"
                 enabled: !window.controller.busy && !window.controller.loadingMore
+                    && !window.controller.comparisonBusy
                 onClicked: reviewWorkspace.chooseFolder()
 
                 background: Rectangle {

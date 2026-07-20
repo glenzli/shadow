@@ -528,11 +528,13 @@ dependencies = [
  "anyhow",
  "cxx",
  "cxx-build",
+ "shadow-ai",
  "shadow-bridge",
  "shadow-catalog",
  "shadow-core",
  "shadow-domain",
  "thiserror",
+ "uuid",
 ]
 
 [[package]]

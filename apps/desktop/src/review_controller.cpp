@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <optional>
 #include <utility>
 
 namespace {
@@ -89,6 +90,63 @@ constexpr std::uint32_t REVIEW_PAGE_SIZE = 96;
     ));
 }
 
+[[nodiscard]] std::optional<BackendPairwiseOutcome> pairwise_outcome(
+    const int outcome
+) {
+    switch (outcome) {
+    case 0:
+        return BackendPairwiseOutcome::LeftPreferred;
+    case 1:
+        return BackendPairwiseOutcome::RightPreferred;
+    case 2:
+        return BackendPairwiseOutcome::KeepBoth;
+    case 3:
+        return BackendPairwiseOutcome::KeepNeither;
+    case 4:
+        return BackendPairwiseOutcome::CannotCompare;
+    default:
+        return std::nullopt;
+    }
+}
+
+[[nodiscard]] ReviewEvidenceTaskResult record_comparison(
+    const std::shared_ptr<DesktopBackend>& backend,
+    const QString& left_photo_id,
+    const QString& left_representation_id,
+    const QString& right_photo_id,
+    const QString& right_representation_id,
+    const BackendPairwiseOutcome outcome
+) {
+    ReviewEvidenceTaskResult result;
+    result.kind = ReviewEvidenceTaskKind::Record;
+    try {
+        result.feedback = backend->recordReviewComparison(
+            left_photo_id,
+            left_representation_id,
+            right_photo_id,
+            right_representation_id,
+            outcome
+        );
+    } catch (const std::exception& error) {
+        result.error = QString::fromUtf8(error.what());
+    }
+    return result;
+}
+
+[[nodiscard]] ReviewEvidenceTaskResult forget_comparison(
+    const std::shared_ptr<DesktopBackend>& backend,
+    const QString& event_id
+) {
+    ReviewEvidenceTaskResult result;
+    result.kind = ReviewEvidenceTaskKind::Forget;
+    try {
+        result.forget = backend->forgetReviewFeedback(event_id);
+    } catch (const std::exception& error) {
+        result.error = QString::fromUtf8(error.what());
+    }
+    return result;
+}
+
 } // namespace
 
 ReviewController::ReviewController(
@@ -108,11 +166,18 @@ ReviewController::ReviewController(
         this,
         &ReviewController::finishPage
     );
+    connect(
+        &evidence_watcher_,
+        &QFutureWatcher<ReviewEvidenceTaskResult>::finished,
+        this,
+        &ReviewController::finishEvidenceTask
+    );
 }
 
 ReviewController::~ReviewController() {
     scan_watcher_.waitForFinished();
     page_watcher_.waitForFinished();
+    evidence_watcher_.waitForFinished();
 }
 
 bool ReviewController::busy() const noexcept {
@@ -139,6 +204,22 @@ int ReviewController::itemCount() const {
     return bounded_count(total_items_);
 }
 
+bool ReviewController::comparisonBusy() const noexcept {
+    return evidence_session_.busy();
+}
+
+bool ReviewController::canUndoComparison() const noexcept {
+    return evidence_session_.canForget();
+}
+
+int ReviewController::sessionEvidenceCount() const noexcept {
+    return evidence_session_.activeCount();
+}
+
+QString ReviewController::comparisonStatusText() const {
+    return comparison_status_text_;
+}
+
 QAbstractItemModel* ReviewController::model() noexcept {
     return &model_;
 }
@@ -148,7 +229,7 @@ ReviewModel* ReviewController::reviewModel() noexcept {
 }
 
 void ReviewController::scanFolder(const QUrl& folder_url) {
-    if (scan_running_ || page_running_) {
+    if (scan_running_ || page_running_ || evidence_session_.busy()) {
         return;
     }
     const QString path = folder_url.toLocalFile();
@@ -186,6 +267,58 @@ void ReviewController::loadMore() {
         return;
     }
     startPage(false);
+}
+
+void ReviewController::recordComparison(
+    const QString& left_photo_id,
+    const QString& left_representation_id,
+    const QString& right_photo_id,
+    const QString& right_representation_id,
+    const int outcome
+) {
+    const auto resolved_outcome = pairwise_outcome(outcome);
+    if (!resolved_outcome) {
+        setComparisonStatusText(QStringLiteral("Comparison outcome is not supported"));
+        return;
+    }
+    if (left_photo_id.trimmed().isEmpty() || right_photo_id.trimmed().isEmpty()
+        || left_representation_id.trimmed().isEmpty()
+        || right_representation_id.trimmed().isEmpty()) {
+        setComparisonStatusText(QStringLiteral("Choose two visible photos before comparing"));
+        return;
+    }
+    if (left_photo_id == right_photo_id) {
+        setComparisonStatusText(QStringLiteral("A photo cannot occupy both comparison slots"));
+        return;
+    }
+    if (!evidence_session_.beginRecord()) {
+        return;
+    }
+    emit comparisonStateChanged();
+    setComparisonStatusText(QStringLiteral("Recording append-only comparison evidence…"));
+    evidence_watcher_.setFuture(QtConcurrent::run(
+        record_comparison,
+        backend_,
+        left_photo_id,
+        left_representation_id,
+        right_photo_id,
+        right_representation_id,
+        *resolved_outcome
+    ));
+}
+
+void ReviewController::undoLastComparison() {
+    const auto event_id = evidence_session_.beginForget();
+    if (!event_id) {
+        return;
+    }
+    emit comparisonStateChanged();
+    setComparisonStatusText(QStringLiteral("Appending a forget fact for the latest evidence…"));
+    evidence_watcher_.setFuture(QtConcurrent::run(
+        forget_comparison,
+        backend_,
+        *event_id
+    ));
 }
 
 void ReviewController::finishScan() {
@@ -236,6 +369,47 @@ void ReviewController::finishPage() {
     }
     emit itemCountChanged();
     updateReadyStatus();
+}
+
+void ReviewController::finishEvidenceTask() {
+    ReviewEvidenceTaskResult result = evidence_watcher_.result();
+    if (!result.error.isEmpty()) {
+        evidence_session_.fail();
+        emit comparisonStateChanged();
+        setComparisonStatusText(
+            (result.kind == ReviewEvidenceTaskKind::Record
+                 ? QStringLiteral("Evidence write failed · pair retained · %1")
+                 : QStringLiteral("Forget write failed · evidence retained · %1"))
+                .arg(result.error)
+        );
+        return;
+    }
+
+    if (result.kind == ReviewEvidenceTaskKind::Record) {
+        if (!evidence_session_.completeRecord(result.feedback.event_id)) {
+            emit comparisonStateChanged();
+            setComparisonStatusText(QStringLiteral("Evidence receipt was invalid; pair retained"));
+            return;
+        }
+        emit comparisonStateChanged();
+        setComparisonStatusText(
+            QStringLiteral("Preference evidence recorded · sequence %1 · model not active")
+                .arg(result.feedback.sequence)
+        );
+        emit comparisonRecorded();
+        return;
+    }
+
+    if (!evidence_session_.completeForget(result.forget.target_event_id)) {
+        emit comparisonStateChanged();
+        setComparisonStatusText(QStringLiteral("Forget receipt was invalid; evidence retained"));
+        return;
+    }
+    emit comparisonStateChanged();
+    setComparisonStatusText(
+        QStringLiteral("Latest evidence forgotten non-destructively · source event retained")
+    );
+    emit comparisonForgotten();
 }
 
 void ReviewController::startPage(const bool reset) {
@@ -299,4 +473,12 @@ void ReviewController::updateReadyStatus() {
             .arg(issue_count_)
             .arg(loading)
     );
+}
+
+void ReviewController::setComparisonStatusText(QString status) {
+    if (comparison_status_text_ == status) {
+        return;
+    }
+    comparison_status_text_ = std::move(status);
+    emit comparisonStatusTextChanged();
 }

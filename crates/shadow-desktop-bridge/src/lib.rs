@@ -8,6 +8,10 @@ use std::{
 };
 
 use anyhow::{Context, Result as AnyResult, anyhow, bail};
+use shadow_ai::{
+    FeedbackAction, LearningScope, NewFeedbackEvent, NewFeedbackForgetFact, PairwiseOutcome,
+    PresentationContext, PresentedCandidate, UnitInterval as AiUnitInterval,
+};
 use shadow_bridge::{
     ADJUSTMENT_IMPLEMENTATION_VERSION, ADJUSTMENT_PARAMETER_SCHEMA_VERSION, AdjustmentRenderNode,
     AdjustmentRenderOperation, AdjustmentRenderPlan, BasicEditParameters, LibRawEditPreviewSession,
@@ -41,9 +45,37 @@ use shadow_domain::{
     RecipeCommit, RecipeCommitId, RecipeDiff, RecipeId, RecipeSnapshot, RepresentationId,
     UnitInterval, VersionName, diff_recipe_snapshots,
 };
+use uuid::Uuid;
 
 #[cxx::bridge(namespace = "shadow::desktop")]
 mod ffi {
+    /// The explicit human outcome for one Review-side comparison.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum FfiPairwiseOutcome {
+        LeftPreferred,
+        RightPreferred,
+        KeepBoth,
+        KeepNeither,
+        CannotCompare,
+    }
+
+    /// Durable identity and ordering assigned to one comparison event.
+    #[derive(Debug)]
+    struct FfiFeedbackReceipt {
+        event_id: String,
+        sequence: u64,
+        occurred_at_unix_ms: i64,
+    }
+
+    /// Durable identity and ordering assigned to one append-only forget fact.
+    #[derive(Debug)]
+    struct FfiForgetReceipt {
+        fact_id: String,
+        target_event_id: String,
+        sequence: u64,
+        occurred_at_unix_ms: i64,
+    }
+
     #[derive(Debug)]
     struct FfiReviewItem {
         photo_id: String,
@@ -196,6 +228,18 @@ mod ffi {
             self: &DesktopSession,
             representation_id: &str,
         ) -> Result<FfiVisualPayload>;
+        fn record_review_comparison(
+            self: &DesktopSession,
+            left_photo_id: &str,
+            left_representation_id: &str,
+            right_photo_id: &str,
+            right_representation_id: &str,
+            outcome: FfiPairwiseOutcome,
+        ) -> Result<FfiFeedbackReceipt>;
+        fn forget_review_feedback(
+            self: &DesktopSession,
+            event_id: &str,
+        ) -> Result<FfiForgetReceipt>;
         fn photo_edit_state(
             self: &DesktopSession,
             photo_id: &str,
@@ -231,6 +275,8 @@ struct DesktopSession {
     loader: CachedArtifactLoader,
     cache_root: PathBuf,
     edit_preview_sessions: Mutex<VecDeque<CachedEditPreviewSession>>,
+    review_feedback_session_id: String,
+    active_review_feedback_event_ids: Mutex<HashSet<String>>,
 }
 
 #[derive(Debug)]
@@ -304,6 +350,131 @@ impl DesktopSession {
         Ok(ffi::FfiVisualPayload {
             bytes: self.loader.load_bytes(&record)?,
         })
+    }
+
+    fn record_review_comparison(
+        &self,
+        left_photo_id: &str,
+        left_representation_id: &str,
+        right_photo_id: &str,
+        right_representation_id: &str,
+        outcome: ffi::FfiPairwiseOutcome,
+    ) -> AnyResult<ffi::FfiFeedbackReceipt> {
+        let mut active_event_ids = self
+            .active_review_feedback_event_ids
+            .lock()
+            .map_err(|_| anyhow!("Review feedback mutation lock is poisoned"))?;
+        let left = self.validated_review_feedback_candidate(
+            "left",
+            left_photo_id,
+            left_representation_id,
+        )?;
+        let right = self.validated_review_feedback_candidate(
+            "right",
+            right_photo_id,
+            right_representation_id,
+        )?;
+        if left == right {
+            bail!("Review comparison requires two different photos");
+        }
+
+        let occurred_at_unix_ms = current_time_ms()?;
+        let event = self.catalog.append_feedback_event(&NewFeedbackEvent {
+            event_id: Uuid::now_v7().to_string(),
+            occurred_at_unix_ms,
+            scope: LearningScope::Global,
+            presentation: PresentationContext {
+                session_id: self.review_feedback_session_id.clone(),
+                group_id: None,
+                candidates: vec![
+                    PresentedCandidate {
+                        photo_id: left,
+                        position: 0,
+                        visible_fraction: AiUnitInterval::ONE,
+                        inspected_at_one_to_one: false,
+                        feature: None,
+                    },
+                    PresentedCandidate {
+                        photo_id: right,
+                        position: 1,
+                        visible_fraction: AiUnitInterval::ONE,
+                        inspected_at_one_to_one: false,
+                        feature: None,
+                    },
+                ],
+                active_model: None,
+            },
+            action: FeedbackAction::PairwiseComparison {
+                left,
+                right,
+                outcome: pairwise_outcome(outcome)?,
+            },
+        })?;
+        active_event_ids.insert(event.event_id.clone());
+        Ok(ffi::FfiFeedbackReceipt {
+            event_id: event.event_id,
+            sequence: event.sequence,
+            occurred_at_unix_ms: event.occurred_at_unix_ms,
+        })
+    }
+
+    fn forget_review_feedback(&self, event_id: &str) -> AnyResult<ffi::FfiForgetReceipt> {
+        let target_event_id = Uuid::parse_str(event_id)
+            .with_context(|| format!("parse Review feedback event id {event_id}"))?
+            .to_string();
+        let mut active_event_ids = self
+            .active_review_feedback_event_ids
+            .lock()
+            .map_err(|_| anyhow!("Review feedback mutation lock is poisoned"))?;
+        if !active_event_ids.contains(&target_event_id) {
+            bail!(
+                "Review feedback event {target_event_id} is not an active comparison issued by this Review session"
+            );
+        }
+
+        let occurred_at_unix_ms = current_time_ms()?;
+        let fact = self
+            .catalog
+            .append_feedback_forget_fact(&NewFeedbackForgetFact {
+                fact_id: Uuid::now_v7().to_string(),
+                target_event_id: target_event_id.clone(),
+                occurred_at_unix_ms,
+                reason: Some(REVIEW_FEEDBACK_FORGET_REASON.to_owned()),
+            })?;
+        active_event_ids.remove(&target_event_id);
+        Ok(ffi::FfiForgetReceipt {
+            fact_id: fact.fact_id,
+            target_event_id: fact.target_event_id,
+            sequence: fact.sequence,
+            occurred_at_unix_ms: fact.occurred_at_unix_ms,
+        })
+    }
+
+    fn validated_review_feedback_candidate(
+        &self,
+        side: &str,
+        photo_id: &str,
+        representation_id: &str,
+    ) -> AnyResult<PhotoId> {
+        let photo_id: PhotoId = photo_id
+            .parse()
+            .with_context(|| format!("parse {side} Review photo id {photo_id}"))?;
+        let representation_id: RepresentationId = representation_id.parse().with_context(|| {
+            format!("parse {side} Review representation id {representation_id}")
+        })?;
+        let source = self
+            .catalog
+            .review_source(photo_id)?
+            .ok_or_else(|| anyhow!("{side} photo {photo_id} has no online original RAW source"))?;
+        if source.representation_id != representation_id {
+            bail!(
+                "{side} representation {representation_id} is not the current online original for photo {photo_id}"
+            );
+        }
+        if source.visual.is_none() {
+            bail!("{side} photo {photo_id} has no current Review visual");
+        }
+        Ok(photo_id)
     }
 
     fn photo_edit_state(
@@ -583,6 +754,19 @@ impl DesktopSession {
 const WORKING_RECIPE_REF: &str = "working";
 const NAMED_VERSION_REF_PREFIX: &str = "versions/";
 const CONTRAST_PIVOT: f64 = 0.18;
+const REVIEW_FEEDBACK_FORGET_REASON: &str =
+    "user removed this Review comparison from local preference learning";
+
+fn pairwise_outcome(outcome: ffi::FfiPairwiseOutcome) -> AnyResult<PairwiseOutcome> {
+    match outcome {
+        ffi::FfiPairwiseOutcome::LeftPreferred => Ok(PairwiseOutcome::LeftPreferred),
+        ffi::FfiPairwiseOutcome::RightPreferred => Ok(PairwiseOutcome::RightPreferred),
+        ffi::FfiPairwiseOutcome::KeepBoth => Ok(PairwiseOutcome::KeepBoth),
+        ffi::FfiPairwiseOutcome::KeepNeither => Ok(PairwiseOutcome::KeepNeither),
+        ffi::FfiPairwiseOutcome::CannotCompare => Ok(PairwiseOutcome::CannotCompare),
+        _ => bail!("unsupported Review comparison outcome"),
+    }
+}
 
 // A persisted v1 Recipe must map to the exact v1 executor contract. A future
 // bridge revision therefore requires an explicit compiler mapping instead of
@@ -1784,6 +1968,8 @@ fn open_desktop_session(catalog_path: &str, cache_root: &str) -> AnyResult<Box<D
         loader,
         cache_root,
         edit_preview_sessions: Mutex::new(VecDeque::new()),
+        review_feedback_session_id: Uuid::now_v7().to_string(),
+        active_review_feedback_event_ids: Mutex::new(HashSet::new()),
     }))
 }
 
@@ -1923,8 +2109,16 @@ fn file_name(display_path: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use shadow_catalog::RegisterAsset;
-    use shadow_domain::{AssetLocation, EntityId, Platform, RepresentationId, RepresentationKind};
+    use std::{collections::BTreeSet, sync::Arc, thread};
+
+    use shadow_ai::{
+        FeedbackIgnored, IncrementalTrainingPolicy, build_incremental_preference_batch,
+    };
+    use shadow_catalog::{CachedArtifact, RecordCachedArtifact, RegisterAsset};
+    use shadow_domain::{
+        AssetLocation, EntityId, ImageDimensions, Platform, PreviewByteOrder, PreviewCodec,
+        RepresentationId, RepresentationKind,
+    };
 
     use super::*;
 
@@ -1944,6 +2138,433 @@ mod tests {
     fn desktop_session_can_back_concurrent_qt_image_requests() {
         fn assert_send_and_sync<T: Send + Sync>() {}
         assert_send_and_sync::<DesktopSession>();
+    }
+
+    #[test]
+    fn review_comparison_maps_and_persists_all_five_explicit_outcomes() {
+        let (root, session, left, right) = test_feedback_session();
+        let cases = [
+            (
+                ffi::FfiPairwiseOutcome::LeftPreferred,
+                PairwiseOutcome::LeftPreferred,
+            ),
+            (
+                ffi::FfiPairwiseOutcome::RightPreferred,
+                PairwiseOutcome::RightPreferred,
+            ),
+            (ffi::FfiPairwiseOutcome::KeepBoth, PairwiseOutcome::KeepBoth),
+            (
+                ffi::FfiPairwiseOutcome::KeepNeither,
+                PairwiseOutcome::KeepNeither,
+            ),
+            (
+                ffi::FfiPairwiseOutcome::CannotCompare,
+                PairwiseOutcome::CannotCompare,
+            ),
+        ];
+        let mut receipts = Vec::new();
+        for (outcome, _) in cases {
+            receipts.push(
+                session
+                    .record_review_comparison(
+                        &left.photo_id,
+                        &left.representation_id,
+                        &right.photo_id,
+                        &right.representation_id,
+                        outcome,
+                    )
+                    .expect("record Review comparison"),
+            );
+        }
+
+        let page = session
+            .catalog
+            .feedback_events_after(&LearningScope::Global, 0, 10)
+            .expect("read persisted Review comparisons");
+        assert_eq!(page.events.len(), cases.len());
+        assert!(!page.has_more);
+        for (index, ((_, expected_outcome), event)) in cases.iter().zip(&page.events).enumerate() {
+            let receipt = &receipts[index];
+            assert_eq!(receipt.event_id, event.event_id);
+            assert_eq!(receipt.sequence, event.sequence);
+            assert_eq!(receipt.occurred_at_unix_ms, event.occurred_at_unix_ms);
+            assert_eq!(receipt.sequence, u64::try_from(index + 1).unwrap());
+            assert_eq!(
+                Uuid::parse_str(&receipt.event_id)
+                    .unwrap()
+                    .get_version_num(),
+                7
+            );
+            assert!(receipt.occurred_at_unix_ms > 0);
+            assert_eq!(event.scope, LearningScope::Global);
+            assert_eq!(
+                event.presentation.session_id,
+                session.review_feedback_session_id
+            );
+            assert!(event.presentation.group_id.is_none());
+            assert!(event.presentation.active_model.is_none());
+            assert_eq!(event.presentation.candidates.len(), 2);
+            assert_eq!(event.presentation.candidates[0].position, 0);
+            assert_eq!(event.presentation.candidates[1].position, 1);
+            assert_eq!(
+                event.presentation.candidates[0].visible_fraction,
+                AiUnitInterval::ONE
+            );
+            assert_eq!(
+                event.presentation.candidates[1].visible_fraction,
+                AiUnitInterval::ONE
+            );
+            assert!(!event.presentation.candidates[0].inspected_at_one_to_one);
+            assert!(!event.presentation.candidates[1].inspected_at_one_to_one);
+            assert!(event.presentation.candidates[0].feature.is_none());
+            assert!(event.presentation.candidates[1].feature.is_none());
+            assert!(matches!(
+                event.action,
+                FeedbackAction::PairwiseComparison {
+                    left: event_left,
+                    right: event_right,
+                    outcome,
+                } if event_left.to_string() == left.photo_id
+                    && event_right.to_string() == right.photo_id
+                    && outcome == *expected_outcome
+            ));
+        }
+
+        drop(session);
+        std::fs::remove_dir_all(root).expect("remove feedback fixture");
+    }
+
+    #[test]
+    fn review_comparison_rejects_untrusted_id_source_and_visual_boundaries() {
+        let (root, session, left, right) = test_feedback_session();
+        let no_visual = register_feedback_candidate(&session, &root, 3, false);
+        let unknown_photo = PhotoId::new_v7().to_string();
+        let unknown_representation = RepresentationId::new_v7().to_string();
+        let cases = [
+            session.record_review_comparison(
+                "not-a-uuid",
+                &left.representation_id,
+                &right.photo_id,
+                &right.representation_id,
+                ffi::FfiPairwiseOutcome::LeftPreferred,
+            ),
+            session.record_review_comparison(
+                &left.photo_id,
+                "not-a-uuid",
+                &right.photo_id,
+                &right.representation_id,
+                ffi::FfiPairwiseOutcome::LeftPreferred,
+            ),
+            session.record_review_comparison(
+                &unknown_photo,
+                &unknown_representation,
+                &right.photo_id,
+                &right.representation_id,
+                ffi::FfiPairwiseOutcome::LeftPreferred,
+            ),
+            session.record_review_comparison(
+                &left.photo_id,
+                &right.representation_id,
+                &right.photo_id,
+                &right.representation_id,
+                ffi::FfiPairwiseOutcome::LeftPreferred,
+            ),
+            session.record_review_comparison(
+                &left.photo_id,
+                &left.representation_id,
+                &left.photo_id,
+                &left.representation_id,
+                ffi::FfiPairwiseOutcome::LeftPreferred,
+            ),
+            session.record_review_comparison(
+                &no_visual.photo_id,
+                &no_visual.representation_id,
+                &right.photo_id,
+                &right.representation_id,
+                ffi::FfiPairwiseOutcome::LeftPreferred,
+            ),
+        ];
+        let errors = cases
+            .into_iter()
+            .map(|result| {
+                result
+                    .expect_err("invalid comparison must fail")
+                    .to_string()
+            })
+            .collect::<Vec<_>>();
+        assert!(errors[0].contains("parse left Review photo id"));
+        assert!(errors[1].contains("parse left Review representation id"));
+        assert!(errors[2].contains("no online original RAW source"));
+        assert!(errors[3].contains("is not the current online original"));
+        assert!(errors[4].contains("two different photos"));
+        assert!(errors[5].contains("has no current Review visual"));
+        assert!(
+            session
+                .catalog
+                .feedback_events_after(&LearningScope::Global, 0, 10)
+                .expect("read empty feedback page")
+                .events
+                .is_empty()
+        );
+
+        drop(session);
+        std::fs::remove_dir_all(root).expect("remove feedback fixture");
+    }
+
+    #[test]
+    fn review_forget_accepts_only_active_comparisons_issued_by_the_current_session() {
+        let (root, session, left, right) = test_feedback_session();
+        let external_event_id = Uuid::now_v7().to_string();
+        session
+            .catalog
+            .append_feedback_event(&NewFeedbackEvent {
+                event_id: external_event_id.clone(),
+                occurred_at_unix_ms: current_time_ms().expect("current time"),
+                scope: LearningScope::Global,
+                presentation: PresentationContext {
+                    session_id: "external-feedback-producer".into(),
+                    group_id: None,
+                    candidates: vec![],
+                    active_model: None,
+                },
+                action: FeedbackAction::Exported {
+                    photo_id: left.photo_id.parse().expect("left photo id"),
+                },
+            })
+            .expect("append external Global feedback");
+        assert!(
+            session
+                .forget_review_feedback(&external_event_id)
+                .expect_err("external feedback must not enter Review undo")
+                .to_string()
+                .contains("not an active comparison issued by this Review session")
+        );
+
+        let prior_session_receipt = session
+            .record_review_comparison(
+                &left.photo_id,
+                &left.representation_id,
+                &right.photo_id,
+                &right.representation_id,
+                ffi::FfiPairwiseOutcome::KeepBoth,
+            )
+            .expect("record current-session comparison");
+        let catalog_path = root.join("catalog.sqlite");
+        let cache_path = root.join("cache");
+        drop(session);
+
+        let reopened = open_desktop_session(
+            catalog_path.to_str().expect("catalog path"),
+            cache_path.to_str().expect("cache path"),
+        )
+        .expect("reopen feedback session");
+        assert!(
+            reopened
+                .forget_review_feedback(&prior_session_receipt.event_id)
+                .expect_err("an earlier session's comparison must not enter Review undo")
+                .to_string()
+                .contains("not an active comparison issued by this Review session")
+        );
+        assert!(
+            reopened
+                .catalog
+                .forgotten_feedback_event_ids(&LearningScope::Global)
+                .expect("read unchanged forget set")
+                .is_empty()
+        );
+
+        drop(reopened);
+        std::fs::remove_dir_all(root).expect("remove feedback fixture");
+    }
+
+    #[test]
+    fn review_feedback_reopens_forgets_append_only_and_never_trains_without_features() {
+        let (root, session, left, right) = test_feedback_session();
+        let receipt = session
+            .record_review_comparison(
+                &left.photo_id,
+                &left.representation_id,
+                &right.photo_id,
+                &right.representation_id,
+                ffi::FfiPairwiseOutcome::LeftPreferred,
+            )
+            .expect("record comparison");
+        let page = session
+            .catalog
+            .feedback_events_after(&LearningScope::Global, 0, 10)
+            .expect("read comparison");
+        let no_feature_report = training_report(&page.events, BTreeSet::new());
+        assert!(no_feature_report.batch.examples.is_empty());
+        assert_eq!(
+            no_feature_report.ignored,
+            [FeedbackIgnored::MissingFrozenFeature {
+                event_id: receipt.event_id.clone(),
+                photo_id: left.photo_id.parse().unwrap(),
+            }]
+        );
+
+        let forgotten = session
+            .forget_review_feedback(&receipt.event_id)
+            .expect("append forget fact");
+        assert_eq!(forgotten.target_event_id, receipt.event_id);
+        assert_eq!(forgotten.sequence, 1);
+        assert_eq!(
+            Uuid::parse_str(&forgotten.fact_id)
+                .unwrap()
+                .get_version_num(),
+            7
+        );
+        assert!(forgotten.occurred_at_unix_ms > 0);
+        let forgotten_ids = session
+            .catalog
+            .forgotten_feedback_event_ids(&LearningScope::Global)
+            .expect("read forgotten ids");
+        assert_eq!(forgotten_ids, BTreeSet::from([receipt.event_id.clone()]));
+        let forgotten_report = training_report(&page.events, forgotten_ids);
+        assert!(forgotten_report.batch.examples.is_empty());
+        assert_eq!(
+            forgotten_report.ignored,
+            [FeedbackIgnored::Forgotten {
+                event_id: receipt.event_id.clone(),
+            }]
+        );
+        assert!(
+            session
+                .forget_review_feedback(&receipt.event_id)
+                .expect_err("duplicate forget must fail")
+                .to_string()
+                .contains("not an active comparison issued by this Review session")
+        );
+
+        let catalog_path = root.join("catalog.sqlite");
+        let cache_path = root.join("cache");
+        drop(session);
+        let reopened = open_desktop_session(
+            catalog_path.to_str().expect("catalog path"),
+            cache_path.to_str().expect("cache path"),
+        )
+        .expect("reopen feedback session");
+        let reopened_page = reopened
+            .catalog
+            .feedback_events_after(&LearningScope::Global, 0, 10)
+            .expect("read event after reopen");
+        assert_eq!(reopened_page.events.len(), 1);
+        assert_eq!(reopened_page.events[0].event_id, receipt.event_id);
+        assert_eq!(
+            reopened
+                .catalog
+                .forgotten_feedback_event_ids(&LearningScope::Global)
+                .expect("read forget fact after reopen"),
+            BTreeSet::from([receipt.event_id.clone()])
+        );
+        assert!(
+            reopened
+                .forget_review_feedback(&receipt.event_id)
+                .expect_err("a reopened session must not forget an earlier session's event")
+                .to_string()
+                .contains("not an active comparison issued by this Review session")
+        );
+        assert!(
+            reopened
+                .forget_review_feedback(&Uuid::now_v7().to_string())
+                .expect_err("unknown event must fail")
+                .to_string()
+                .contains("not an active comparison issued by this Review session")
+        );
+        assert!(
+            reopened
+                .forget_review_feedback("not-a-uuid")
+                .expect_err("malformed event id must fail")
+                .to_string()
+                .contains("parse Review feedback event id")
+        );
+
+        drop(reopened);
+        std::fs::remove_dir_all(root).expect("remove feedback fixture");
+    }
+
+    #[test]
+    fn concurrent_review_feedback_calls_keep_unique_order_and_single_forget_fact() {
+        let (root, session, left, right) = test_feedback_session();
+        let session: Arc<DesktopSession> = Arc::from(session);
+        let record_workers = (0..8)
+            .map(|_| {
+                let session = Arc::clone(&session);
+                let left = left.clone();
+                let right = right.clone();
+                thread::spawn(move || {
+                    session.record_review_comparison(
+                        &left.photo_id,
+                        &left.representation_id,
+                        &right.photo_id,
+                        &right.representation_id,
+                        ffi::FfiPairwiseOutcome::KeepBoth,
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+        let mut receipts = record_workers
+            .into_iter()
+            .map(|worker| worker.join().expect("record worker panicked").unwrap())
+            .collect::<Vec<_>>();
+        receipts.sort_by_key(|receipt| receipt.sequence);
+        assert_eq!(
+            receipts
+                .iter()
+                .map(|receipt| receipt.sequence)
+                .collect::<Vec<_>>(),
+            (1..=8).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            receipts
+                .iter()
+                .map(|receipt| receipt.event_id.as_str())
+                .collect::<BTreeSet<_>>()
+                .len(),
+            8
+        );
+
+        let target = receipts[0].event_id.clone();
+        let forget_workers = (0..4)
+            .map(|_| {
+                let session = Arc::clone(&session);
+                let target = target.clone();
+                thread::spawn(move || session.forget_review_feedback(&target))
+            })
+            .collect::<Vec<_>>();
+        let forget_results = forget_workers
+            .into_iter()
+            .map(|worker| worker.join().expect("forget worker panicked"))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            forget_results
+                .iter()
+                .filter(|result| result.is_ok())
+                .count(),
+            1
+        );
+        assert_eq!(
+            forget_results
+                .iter()
+                .filter_map(|result| result.as_ref().err())
+                .filter(|error| {
+                    error
+                        .to_string()
+                        .contains("not an active comparison issued by this Review session")
+                })
+                .count(),
+            3
+        );
+        assert_eq!(
+            session
+                .catalog
+                .forgotten_feedback_event_ids(&LearningScope::Global)
+                .expect("read concurrent forget result"),
+            BTreeSet::from([target])
+        );
+
+        drop(session);
+        std::fs::remove_dir_all(root).expect("remove feedback fixture");
     }
 
     #[test]
@@ -3316,6 +3937,113 @@ mod tests {
         );
         assert_eq!(version.node_parameter_blocks_changed, 4);
         assert!(!version.has_other_changes);
+    }
+
+    #[derive(Debug, Clone)]
+    struct TestFeedbackCandidate {
+        photo_id: String,
+        representation_id: String,
+    }
+
+    fn training_report(
+        events: &[shadow_ai::FeedbackEvent],
+        forgotten_event_ids: BTreeSet<String>,
+    ) -> shadow_ai::BatchBuildReport {
+        build_incremental_preference_batch(
+            events,
+            &IncrementalTrainingPolicy {
+                scope: LearningScope::Global,
+                learning_paused: false,
+                after_sequence_exclusive: 0,
+                maximum_examples: 10,
+                forgotten_event_ids,
+            },
+        )
+    }
+
+    fn test_feedback_session() -> (
+        PathBuf,
+        Box<DesktopSession>,
+        TestFeedbackCandidate,
+        TestFeedbackCandidate,
+    ) {
+        let root = std::env::temp_dir().join(format!(
+            "shadow-desktop-feedback-{}-{}",
+            std::process::id(),
+            RepresentationId::new_v7()
+        ));
+        std::fs::create_dir_all(&root).expect("create feedback fixture");
+        let session = open_desktop_session(
+            root.join("catalog.sqlite").to_str().expect("catalog path"),
+            root.join("cache").to_str().expect("cache path"),
+        )
+        .expect("open feedback session");
+        let left = register_feedback_candidate(&session, &root, 1, true);
+        let right = register_feedback_candidate(&session, &root, 2, true);
+        (root, session, left, right)
+    }
+
+    fn register_feedback_candidate(
+        session: &DesktopSession,
+        root: &Path,
+        index: u8,
+        with_visual: bool,
+    ) -> TestFeedbackCandidate {
+        let source = RepresentationFingerprint {
+            byte_len: 4_096 + u64::from(index),
+            modified_at_ms: Some(100 + i64::from(index)),
+        };
+        let source_path = root
+            .join(format!("feedback-{index}.dng"))
+            .to_str()
+            .expect("source path")
+            .to_owned();
+        let registered = session
+            .catalog
+            .register_asset(&RegisterAsset {
+                kind: RepresentationKind::OriginalRaw,
+                location: AssetLocation::new(
+                    Platform::MacOs,
+                    source_path.as_bytes().to_vec(),
+                    source_path,
+                ),
+                byte_len: source.byte_len,
+                modified_at_ms: source.modified_at_ms,
+                now_ms: 1_000 + i64::from(index),
+            })
+            .expect("register feedback source");
+        if with_visual {
+            session
+                .catalog
+                .record_cached_artifact(&RecordCachedArtifact {
+                    representation_id: registered.representation_id,
+                    expected_source: source,
+                    artifact: CachedArtifact {
+                        role: CachedArtifactRole::GeneratedProxy,
+                        variant_key: "feedback-proxy-v1".into(),
+                        generator_id: "test".into(),
+                        generator_version: "1".into(),
+                        provider_preview_id: None,
+                        blob_algorithm: "blake3-256".into(),
+                        blob_digest: [index; 32],
+                        blob_byte_len: 1_024,
+                        codec: PreviewCodec::Jpeg,
+                        byte_order: PreviewByteOrder::NotApplicable,
+                        dimensions: ImageDimensions {
+                            width: 1_600,
+                            height: 1_200,
+                        },
+                        bits_per_channel: 8,
+                        channels: 3,
+                        created_at_ms: 2_000 + i64::from(index),
+                    },
+                })
+                .expect("record feedback visual");
+        }
+        TestFeedbackCandidate {
+            photo_id: registered.photo_id.to_string(),
+            representation_id: registered.representation_id.to_string(),
+        }
     }
 
     fn test_edit_session() -> (PathBuf, Box<DesktopSession>, String, String) {
