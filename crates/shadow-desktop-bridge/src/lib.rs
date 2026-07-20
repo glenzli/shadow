@@ -2,7 +2,7 @@
 
 use std::{
     cmp::Reverse,
-    collections::{BTreeMap, VecDeque},
+    collections::{BTreeMap, HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
@@ -10,16 +10,26 @@ use std::{
 
 use anyhow::{Context, Result as AnyResult, anyhow, bail};
 use shadow_bridge::{
-    BasicEditParameters, LibRawEditPreviewSession, extract_best_libraw_preview, inspect_libraw,
+    ADJUSTMENT_IMPLEMENTATION_VERSION, ADJUSTMENT_PARAMETER_SCHEMA_VERSION, AdjustmentRenderNode,
+    AdjustmentRenderOperation, AdjustmentRenderPlan, BasicEditParameters, LibRawEditPreviewSession,
+    MAX_ADJUSTMENT_RENDER_NODES, ToneCurvePoint, extract_best_libraw_preview, inspect_libraw,
     libraw_provider_version, render_libraw_reference_proxy,
 };
 use shadow_catalog::{
     CachedArtifactRecord, CachedArtifactRole, CatalogActor, CatalogHandle, CommitRecipe,
-    RecipeCommitRecord, RecipeRefKind, RecipeRefTarget, RepresentationFingerprint, ReviewCursor,
-    ReviewItemRecord, SetRecipeRef,
+    RecipeCommitRecord, RecipeRefExpectation, RecipeRefKind, RecipeRefTarget,
+    RepresentationFingerprint, ReviewCursor, ReviewItemRecord, SetRecipeRef,
 };
 use shadow_core::{
     CachedArtifactLoader, DecodeInspectionActor, DecodeInspector, scan_folder_with_inspection,
+};
+use shadow_domain::operation::{
+    BASIC_GRAPH_SCHEMA_VERSION, BASIC_LAYER_LABEL, CHANNEL_GAIN_OPERATION_ID,
+    CHANNEL_GAINS_PARAMETER_KEY, CONTRAST_FACTOR_PARAMETER_KEY, CONTRAST_OPERATION_ID,
+    CONTRAST_PIVOT_PARAMETER_KEY, CPU_REFERENCE_IMPLEMENTATION_REVISION,
+    CPU_REFERENCE_IMPLEMENTATION_VERSION, CPU_REFERENCE_PARAMETER_SCHEMA_VERSION,
+    EXPOSURE_OPERATION_ID, EXPOSURE_STOPS_PARAMETER_KEY, SATURATION_FACTOR_PARAMETER_KEY,
+    SATURATION_OPERATION_ID, TONE_CURVE_OPERATION_ID, TONE_CURVE_POINTS_PARAMETER_KEY,
 };
 use shadow_domain::{
     AdjustmentNode, AdjustmentScope, BlendMode, CURRENT_RECIPE_SCHEMA_VERSION, DecoderSnapshot,
@@ -76,6 +86,16 @@ mod ffi {
         green_channel_gain: f64,
         blue_channel_gain: f64,
         saturation_factor: f64,
+    }
+
+    /// One immutable-base edit preview request crossing the desktop boundary.
+    #[derive(Debug)]
+    struct FfiEditPreviewRequest {
+        base_commit_id: String,
+        parameters: FfiBasicEditParameters,
+        max_edge: u32,
+        jpeg_quality: u8,
+        use_working_recipe: bool,
     }
 
     /// One immutable version in newest-first order.
@@ -154,14 +174,13 @@ mod ffi {
             self: &DesktopSession,
             photo_id: &str,
             source_path: &str,
-            parameters: &FfiBasicEditParameters,
-            max_edge: u32,
-            jpeg_quality: u8,
+            request: &FfiEditPreviewRequest,
         ) -> Result<FfiEditedPreview>;
         fn save_basic_edit_version(
             self: &DesktopSession,
             photo_id: &str,
             source_path: &str,
+            base_commit_id: &str,
             parameters: &FfiBasicEditParameters,
             version_name: &str,
         ) -> Result<FfiPhotoEditState>;
@@ -266,14 +285,35 @@ impl DesktopSession {
         &self,
         photo_id: &str,
         source_path: &str,
-        parameters: &ffi::FfiBasicEditParameters,
-        max_edge: u32,
-        jpeg_quality: u8,
+        request: &ffi::FfiEditPreviewRequest,
     ) -> AnyResult<ffi::FfiEditedPreview> {
-        let (_, source) = self.validated_photo_source(photo_id, source_path)?;
-        let edits = basic_parameters(parameters)?;
-        let session = self.edit_preview_session(&source, max_edge)?;
-        let proxy = session.render(edits, jpeg_quality)?;
+        let (photo_id, source) = self.validated_photo_source(photo_id, source_path)?;
+        let edits = preview_basic_parameters(&request.parameters, request.use_working_recipe)?;
+        // Sliders and their immutable base commit travel as one render
+        // generation. Never resolve the movable working ref here: it may have
+        // advanced while this worker was queued, which would create a hybrid
+        // Recipe that never existed in version history.
+        let working_commit = if request.use_working_recipe && !request.base_commit_id.is_empty() {
+            let commit_id: RecipeCommitId = request.base_commit_id.parse().with_context(|| {
+                format!("parse preview base commit id {}", request.base_commit_id)
+            })?;
+            Some(
+                self.catalog
+                    .recipe_commit(photo_id, commit_id)?
+                    .ok_or_else(|| {
+                        anyhow!("preview base Recipe commit {commit_id} is unavailable")
+                    })?,
+            )
+        } else {
+            None
+        };
+        let template = working_commit
+            .as_ref()
+            .map(|record| record.commit.snapshot());
+        let snapshot = basic_recipe_snapshot(edits, template)?;
+        let plan = compile_recipe_render_plan(&snapshot)?;
+        let session = self.edit_preview_session(&source, request.max_edge)?;
+        let proxy = session.render_plan(&plan, request.jpeg_quality)?;
         Ok(ffi::FfiEditedPreview {
             width: proxy.dimensions.width,
             height: proxy.dimensions.height,
@@ -334,12 +374,14 @@ impl DesktopSession {
         &self,
         photo_id: &str,
         source_path: &str,
+        base_commit_id: &str,
         parameters: &ffi::FfiBasicEditParameters,
         version_name: &str,
     ) -> AnyResult<ffi::FfiPhotoEditState> {
         self.save_basic_edit_version_at(
             photo_id,
             source_path,
+            base_commit_id,
             parameters,
             version_name,
             current_time_ms()?,
@@ -350,6 +392,7 @@ impl DesktopSession {
         &self,
         photo_id: &str,
         source_path: &str,
+        base_commit_id: &str,
         parameters: &ffi::FfiBasicEditParameters,
         version_name: &str,
         created_at_ms: i64,
@@ -358,17 +401,29 @@ impl DesktopSession {
         let version_name =
             VersionName::new(version_name).context("validate basic edit version name")?;
         let parameters = basic_parameters(parameters)?;
-        let working = self.catalog.recipe_ref(photo_id, WORKING_RECIPE_REF)?;
-        let commits = self.catalog.recipe_commits(photo_id)?;
-        let working_record = working
-            .as_ref()
-            .map(|reference| commit_record(&commits, reference.commit_id))
+        let base_commit_id = if base_commit_id.is_empty() {
+            None
+        } else {
+            Some(
+                base_commit_id
+                    .parse::<RecipeCommitId>()
+                    .with_context(|| format!("parse save base commit id {base_commit_id}"))?,
+            )
+        };
+        let working_record = base_commit_id
+            .map(|commit_id| {
+                self.catalog
+                    .recipe_commit(photo_id, commit_id)?
+                    .ok_or_else(|| anyhow!("save base Recipe commit {commit_id} is unavailable"))
+            })
             .transpose()?;
         let snapshot = basic_recipe_snapshot(
             parameters,
-            working_record.map(|record| record.commit.snapshot()),
+            working_record
+                .as_ref()
+                .map(|record| record.commit.snapshot()),
         )?;
-        let (recipe_id, parents) = if let Some(record) = working_record {
+        let (recipe_id, parents) = if let Some(record) = working_record.as_ref() {
             (record.commit.recipe_id(), vec![record.commit.id()])
         } else {
             (RecipeId::new_v7(), Vec::new())
@@ -389,10 +444,15 @@ impl DesktopSession {
                 RecipeRefTarget {
                     name: WORKING_RECIPE_REF.to_owned(),
                     kind: RecipeRefKind::Working,
+                    expectation: Some(
+                        base_commit_id
+                            .map_or(RecipeRefExpectation::Missing, RecipeRefExpectation::At),
+                    ),
                 },
                 RecipeRefTarget {
                     name: format!("{NAMED_VERSION_REF_PREFIX}{commit_id}"),
                     kind: RecipeRefKind::NamedVersion,
+                    expectation: Some(RecipeRefExpectation::Missing),
                 },
             ],
         })?;
@@ -488,11 +548,15 @@ impl DesktopSession {
 
 const WORKING_RECIPE_REF: &str = "working";
 const NAMED_VERSION_REF_PREFIX: &str = "versions/";
-const BASIC_GRAPH_SCHEMA_VERSION: u32 = 1;
-const BASIC_PARAMETER_SCHEMA_VERSION: u32 = 1;
-const BASIC_IMPLEMENTATION_VERSION: &str = "cpu-reference-v1";
-const BASIC_LAYER_LABEL: &str = "Basic adjustments";
 const CONTRAST_PIVOT: f64 = 0.18;
+
+// A persisted v1 Recipe must map to the exact v1 executor contract. A future
+// bridge revision therefore requires an explicit compiler mapping instead of
+// silently upgrading old pixels to new semantics.
+const _: () = assert!(
+    CPU_REFERENCE_PARAMETER_SCHEMA_VERSION == ADJUSTMENT_PARAMETER_SCHEMA_VERSION
+        && CPU_REFERENCE_IMPLEMENTATION_REVISION == ADJUSTMENT_IMPLEMENTATION_VERSION
+);
 
 fn basic_parameters(parameters: &ffi::FfiBasicEditParameters) -> AnyResult<BasicEditParameters> {
     let parameters = BasicEditParameters {
@@ -507,6 +571,21 @@ fn basic_parameters(parameters: &ffi::FfiBasicEditParameters) -> AnyResult<Basic
     };
     validate_basic_parameters(parameters)?;
     Ok(parameters)
+}
+
+fn preview_basic_parameters(
+    parameters: &ffi::FfiBasicEditParameters,
+    use_working_recipe: bool,
+) -> AnyResult<BasicEditParameters> {
+    if use_working_recipe {
+        basic_parameters(parameters)
+    } else {
+        // Before is a product-level neutral import baseline, not merely a
+        // render that happens to omit the persisted working Recipe. Enforce
+        // that semantic at the backend boundary so callers cannot leak the
+        // current slider state into the comparison slot.
+        Ok(BasicEditParameters::default())
+    }
 }
 
 fn validate_basic_parameters(parameters: BasicEditParameters) -> AnyResult<()> {
@@ -542,6 +621,182 @@ fn ffi_basic_parameters(parameters: BasicEditParameters) -> ffi::FfiBasicEditPar
     }
 }
 
+/// Compiles the currently executable Recipe subset into dependency order.
+/// Persisted vector order is intentionally ignored: graph bindings and the
+/// explicit output node are the source of execution order.
+fn compile_recipe_render_plan(snapshot: &RecipeSnapshot) -> AnyResult<AdjustmentRenderPlan> {
+    let (layer, nodes) = ordered_inline_recipe_nodes(snapshot)?;
+    let plan = AdjustmentRenderPlan {
+        nodes: nodes
+            .into_iter()
+            .map(|node| compile_recipe_node(node, layer.enabled()))
+            .collect::<AnyResult<Vec<_>>>()?,
+    };
+    plan.validate()
+        .context("validate compiled Recipe render plan")?;
+    Ok(plan)
+}
+
+fn ordered_inline_recipe_nodes(
+    snapshot: &RecipeSnapshot,
+) -> AnyResult<(&LayerInstance, Vec<&AdjustmentNode>)> {
+    snapshot
+        .validate()
+        .context("validate Recipe before rendering")?;
+    if snapshot.schema_version() != CURRENT_RECIPE_SCHEMA_VERSION {
+        bail!(
+            "Recipe render compiler supports schema {}, received {}",
+            CURRENT_RECIPE_SCHEMA_VERSION,
+            snapshot.schema_version()
+        );
+    }
+    let [layer] = snapshot.layers() else {
+        bail!("Recipe render compiler requires exactly one adjustment layer");
+    };
+    if layer.scope() != AdjustmentScope::Photo
+        || layer.opacity() != UnitInterval::ONE
+        || layer.blend_mode() != BlendMode::Normal
+        || layer.mask().is_some()
+    {
+        bail!("Recipe render compiler does not support this layer scope, blend, opacity, or mask");
+    }
+    let LayerContent::Inline { graph } = layer.content() else {
+        bail!("Recipe render compiler requires a resolved inline graph");
+    };
+    let rgb = PortType::Image(ImageDomain::WorkingRgb);
+    if graph.schema_version() != BASIC_GRAPH_SCHEMA_VERSION
+        || graph.input_types() != [rgb]
+        || graph.output_type() != Some(rgb)
+    {
+        bail!("Recipe render compiler received an unsupported graph contract");
+    }
+    if graph.nodes().is_empty() || graph.nodes().len() > MAX_ADJUSTMENT_RENDER_NODES {
+        bail!("Recipe render compiler supports 1 through 256 executable nodes");
+    }
+
+    let mut reverse = Vec::with_capacity(graph.nodes().len());
+    let mut visited = HashSet::with_capacity(graph.nodes().len());
+    let nodes_by_id = graph
+        .nodes()
+        .iter()
+        .map(|node| (node.id(), node))
+        .collect::<HashMap<_, _>>();
+    let mut current = graph.output_node();
+    loop {
+        if !visited.insert(current) {
+            bail!("Recipe render compiler encountered a dependency cycle at node {current}");
+        }
+        let node = nodes_by_id
+            .get(&current)
+            .copied()
+            .ok_or_else(|| anyhow!("Recipe output path references missing node {current}"))?;
+        reverse.push(node);
+        match node.inputs() {
+            [NodeInput::GraphInput { index: 0 }] => break,
+            [NodeInput::Node { node_id }] => current = *node_id,
+            _ => bail!(
+                "Recipe node {} is not part of the supported single-input linear chain",
+                node.id()
+            ),
+        }
+    }
+    if reverse.len() != graph.nodes().len() {
+        bail!("Recipe render compiler rejects branches or nodes outside the output chain");
+    }
+    reverse.reverse();
+    Ok((layer, reverse))
+}
+
+fn compile_recipe_node(
+    node: &AdjustmentNode,
+    layer_enabled: bool,
+) -> AnyResult<AdjustmentRenderNode> {
+    let descriptor = node.operation();
+    let rgb = PortType::Image(ImageDomain::WorkingRgb);
+    if descriptor.parameter_schema_version() != CPU_REFERENCE_PARAMETER_SCHEMA_VERSION
+        || descriptor.implementation_version() != CPU_REFERENCE_IMPLEMENTATION_VERSION
+        || descriptor.input_types() != [rgb]
+        || descriptor.output_type() != rgb
+        || descriptor.seed().is_some()
+        || node.mask_reference().is_some()
+    {
+        bail!(
+            "Recipe node {} uses an unsupported operation contract, seed, or mask",
+            node.id()
+        );
+    }
+
+    let operation = match descriptor.operation_id().as_str() {
+        EXPOSURE_OPERATION_ID => {
+            require_stage(node, ProcessingStage::SceneLinearFoundation)?;
+            AdjustmentRenderOperation::Exposure {
+                stops: required_float(node.parameters(), EXPOSURE_STOPS_PARAMETER_KEY, 1)?,
+            }
+        }
+        CONTRAST_OPERATION_ID => {
+            require_stage(node, ProcessingStage::ToneAndLocalContrast)?;
+            AdjustmentRenderOperation::Contrast {
+                factor: required_float(node.parameters(), CONTRAST_FACTOR_PARAMETER_KEY, 2)?,
+                pivot: required_float(node.parameters(), CONTRAST_PIVOT_PARAMETER_KEY, 2)?,
+            }
+        }
+        TONE_CURVE_OPERATION_ID => {
+            require_stage(node, ProcessingStage::ToneAndLocalContrast)?;
+            let flattened =
+                required_float_vector(node.parameters(), TONE_CURVE_POINTS_PARAMETER_KEY, 1)?;
+            if flattened.len() % 2 != 0 {
+                bail!("Recipe Tone Curve points must contain flattened x/y pairs");
+            }
+            AdjustmentRenderOperation::ToneCurve {
+                points: flattened
+                    .chunks_exact(2)
+                    .map(|point| ToneCurvePoint {
+                        x: point[0],
+                        y: point[1],
+                    })
+                    .collect(),
+            }
+        }
+        CHANNEL_GAIN_OPERATION_ID => {
+            require_stage(node, ProcessingStage::CreativeColor)?;
+            let gains = required_float_vector(node.parameters(), CHANNEL_GAINS_PARAMETER_KEY, 1)?;
+            let [red, green, blue] = gains.as_slice() else {
+                bail!("Recipe channel gain must contain exactly three values");
+            };
+            AdjustmentRenderOperation::ChannelGain {
+                channel_gains: [*red, *green, *blue],
+            }
+        }
+        SATURATION_OPERATION_ID => {
+            require_stage(node, ProcessingStage::CreativeColor)?;
+            AdjustmentRenderOperation::Saturation {
+                factor: required_float(node.parameters(), SATURATION_FACTOR_PARAMETER_KEY, 1)?,
+            }
+        }
+        operation_id => bail!("Recipe operation {operation_id:?} is not executable by this build"),
+    };
+    Ok(AdjustmentRenderNode {
+        node_id: node.id().to_string(),
+        parameter_schema_version: descriptor.parameter_schema_version(),
+        implementation_version: CPU_REFERENCE_IMPLEMENTATION_REVISION,
+        enabled: layer_enabled,
+        operation,
+    })
+}
+
+fn require_stage(node: &AdjustmentNode, expected: ProcessingStage) -> AnyResult<()> {
+    if node.operation().stage() == expected {
+        Ok(())
+    } else {
+        bail!(
+            "Recipe node {} has stage {:?}; expected {:?}",
+            node.id(),
+            node.operation().stage(),
+            expected
+        )
+    }
+}
+
 fn basic_recipe_snapshot(
     parameters: BasicEditParameters,
     template: Option<&RecipeSnapshot>,
@@ -554,44 +809,61 @@ fn basic_recipe_snapshot(
         .flatten()
         .unwrap_or_else(BasicRecipeIdentity::new);
     let [exposure_id, contrast_id, channel_gain_id, saturation_id] = identity.node_ids;
-    let nodes = vec![
+    let mut nodes = vec![
         basic_node(
             exposure_id,
-            "shadow.exposure",
+            EXPOSURE_OPERATION_ID,
             ProcessingStage::SceneLinearFoundation,
             NodeInput::GraphInput { index: 0 },
             parameter_block([(
-                "stops",
+                EXPOSURE_STOPS_PARAMETER_KEY,
                 ParameterValue::Float(FiniteF64::new(parameters.exposure_stops)?),
             )])?,
         )?,
         basic_node(
             contrast_id,
-            "shadow.contrast",
+            CONTRAST_OPERATION_ID,
             ProcessingStage::ToneAndLocalContrast,
             NodeInput::Node {
                 node_id: exposure_id,
             },
             parameter_block([
                 (
-                    "factor",
+                    CONTRAST_FACTOR_PARAMETER_KEY,
                     ParameterValue::Float(FiniteF64::new(parameters.contrast_factor)?),
                 ),
                 (
-                    "pivot",
+                    CONTRAST_PIVOT_PARAMETER_KEY,
                     ParameterValue::Float(FiniteF64::new(CONTRAST_PIVOT)?),
                 ),
             ])?,
         )?,
-        basic_node(
-            channel_gain_id,
-            "shadow.channel_gain",
-            ProcessingStage::CreativeColor,
+    ];
+    let channel_input = if let Some(tone_curve) = identity.tone_curve {
+        let tone_curve_id = tone_curve.node_id;
+        nodes.push(basic_node(
+            tone_curve_id,
+            TONE_CURVE_OPERATION_ID,
+            ProcessingStage::ToneAndLocalContrast,
             NodeInput::Node {
                 node_id: contrast_id,
             },
+            tone_curve.parameters,
+        )?);
+        tone_curve_id
+    } else {
+        contrast_id
+    };
+    nodes.extend([
+        basic_node(
+            channel_gain_id,
+            CHANNEL_GAIN_OPERATION_ID,
+            ProcessingStage::CreativeColor,
+            NodeInput::Node {
+                node_id: channel_input,
+            },
             parameter_block([(
-                "channel_gains",
+                CHANNEL_GAINS_PARAMETER_KEY,
                 ParameterValue::FloatVector(
                     parameters
                         .channel_gains
@@ -603,17 +875,17 @@ fn basic_recipe_snapshot(
         )?,
         basic_node(
             saturation_id,
-            "shadow.saturation",
+            SATURATION_OPERATION_ID,
             ProcessingStage::CreativeColor,
             NodeInput::Node {
                 node_id: channel_gain_id,
             },
             parameter_block([(
-                "factor",
+                SATURATION_FACTOR_PARAMETER_KEY,
                 ParameterValue::Float(FiniteF64::new(parameters.saturation_factor)?),
             )])?,
         )?,
-    ];
+    ]);
     let graph = EditGraph::new(BASIC_GRAPH_SCHEMA_VERSION, vec![rgb], nodes, saturation_id)?;
     let layer = LayerInstance::new(
         identity.layer_id,
@@ -628,10 +900,17 @@ fn basic_recipe_snapshot(
     RecipeSnapshot::new(CURRENT_RECIPE_SCHEMA_VERSION, vec![layer]).map_err(Into::into)
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 struct BasicRecipeIdentity {
     layer_id: LayerInstanceId,
     node_ids: [NodeId; 4],
+    tone_curve: Option<BasicToneCurveIdentity>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct BasicToneCurveIdentity {
+    node_id: NodeId,
+    parameters: ParameterBlock,
 }
 
 impl BasicRecipeIdentity {
@@ -639,6 +918,7 @@ impl BasicRecipeIdentity {
         Self {
             layer_id: LayerInstanceId::new_v7(),
             node_ids: std::array::from_fn(|_| NodeId::new_v7()),
+            tone_curve: None,
         }
     }
 }
@@ -648,21 +928,19 @@ fn basic_recipe_identity(snapshot: &RecipeSnapshot) -> AnyResult<Option<BasicRec
         return Ok(None);
     }
     basic_parameters_from_snapshot(snapshot)?;
-    let layer = &snapshot.layers()[0];
-    let LayerContent::Inline { graph } = layer.content() else {
-        unreachable!("basic_parameters_from_snapshot accepted only inline layers");
-    };
-    let [exposure, contrast, channel_gain, saturation] = graph.nodes() else {
-        unreachable!("basic_parameters_from_snapshot accepted exactly four nodes");
-    };
+    let nodes = basic_recipe_nodes(snapshot)?;
     Ok(Some(BasicRecipeIdentity {
-        layer_id: layer.id(),
+        layer_id: nodes.layer.id(),
         node_ids: [
-            exposure.id(),
-            contrast.id(),
-            channel_gain.id(),
-            saturation.id(),
+            nodes.exposure.id(),
+            nodes.contrast.id(),
+            nodes.channel_gain.id(),
+            nodes.saturation.id(),
         ],
+        tone_curve: nodes.tone_curve.map(|node| BasicToneCurveIdentity {
+            node_id: node.id(),
+            parameters: node.parameters().clone(),
+        }),
     }))
 }
 
@@ -676,8 +954,8 @@ fn basic_node(
     let rgb = PortType::Image(ImageDomain::WorkingRgb);
     let operation = OperationDescriptor::new(
         OperationId::new(operation_id)?,
-        BASIC_PARAMETER_SCHEMA_VERSION,
-        BASIC_IMPLEMENTATION_VERSION,
+        CPU_REFERENCE_PARAMETER_SCHEMA_VERSION,
+        CPU_REFERENCE_IMPLEMENTATION_VERSION,
         stage,
         vec![rgb],
         rgb,
@@ -696,72 +974,105 @@ fn parameter_block<const N: usize>(
     Ok(ParameterBlock::new(values))
 }
 
-fn basic_parameters_from_snapshot(snapshot: &RecipeSnapshot) -> AnyResult<BasicEditParameters> {
-    if snapshot.layers().is_empty() {
-        return Ok(BasicEditParameters::default());
+struct BasicRecipeNodes<'a> {
+    layer: &'a LayerInstance,
+    exposure: &'a AdjustmentNode,
+    contrast: &'a AdjustmentNode,
+    tone_curve: Option<&'a AdjustmentNode>,
+    channel_gain: &'a AdjustmentNode,
+    saturation: &'a AdjustmentNode,
+}
+
+fn basic_recipe_nodes(snapshot: &RecipeSnapshot) -> AnyResult<BasicRecipeNodes<'_>> {
+    // Besides proving the topology, this validates the optional Tone Curve's
+    // versioned point payload through the same plan used by the renderer.
+    compile_recipe_render_plan(snapshot)?;
+    let (layer, ordered) = ordered_inline_recipe_nodes(snapshot)?;
+    if layer.label() != BASIC_LAYER_LABEL || !layer.enabled() {
+        bail!("working Recipe is not an enabled Basic adjustments layer");
     }
-    let [layer] = snapshot.layers() else {
-        bail!("working Recipe is not the supported single-layer basic edit subset");
-    };
-    if layer.label() != BASIC_LAYER_LABEL
-        || layer.scope() != AdjustmentScope::Photo
-        || !layer.enabled()
-        || layer.opacity() != UnitInterval::ONE
-        || layer.blend_mode() != BlendMode::Normal
-        || layer.mask().is_some()
-    {
-        bail!("working Recipe has unsupported basic-layer semantics");
-    }
-    let LayerContent::Inline { graph } = layer.content() else {
-        bail!("working Recipe uses a shared layer unsupported by the basic editor");
-    };
-    let rgb = PortType::Image(ImageDomain::WorkingRgb);
-    if graph.schema_version() != BASIC_GRAPH_SCHEMA_VERSION || graph.input_types() != [rgb] {
-        bail!("working Recipe has an unsupported basic graph contract");
-    }
-    let [exposure, contrast, channel_gain, saturation] = graph.nodes() else {
-        bail!("working Recipe is not the four-node basic edit subset");
+    let (exposure, contrast, tone_curve, channel_gain, saturation) = match ordered.len() {
+        4 => (ordered[0], ordered[1], None, ordered[2], ordered[3]),
+        5 => (
+            ordered[0],
+            ordered[1],
+            Some(ordered[2]),
+            ordered[3],
+            ordered[4],
+        ),
+        _ => bail!("working Recipe is not the supported four/five-node Basic subset"),
     };
     validate_basic_node(
         exposure,
-        "shadow.exposure",
+        EXPOSURE_OPERATION_ID,
         ProcessingStage::SceneLinearFoundation,
         NodeInput::GraphInput { index: 0 },
     )?;
     validate_basic_node(
         contrast,
-        "shadow.contrast",
+        CONTRAST_OPERATION_ID,
         ProcessingStage::ToneAndLocalContrast,
         NodeInput::Node {
             node_id: exposure.id(),
         },
     )?;
+    if let Some(tone_curve) = tone_curve {
+        validate_basic_node(
+            tone_curve,
+            TONE_CURVE_OPERATION_ID,
+            ProcessingStage::ToneAndLocalContrast,
+            NodeInput::Node {
+                node_id: contrast.id(),
+            },
+        )?;
+    }
     validate_basic_node(
         channel_gain,
-        "shadow.channel_gain",
+        CHANNEL_GAIN_OPERATION_ID,
         ProcessingStage::CreativeColor,
         NodeInput::Node {
-            node_id: contrast.id(),
+            node_id: tone_curve.map_or_else(|| contrast.id(), AdjustmentNode::id),
         },
     )?;
     validate_basic_node(
         saturation,
-        "shadow.saturation",
+        SATURATION_OPERATION_ID,
         ProcessingStage::CreativeColor,
         NodeInput::Node {
             node_id: channel_gain.id(),
         },
     )?;
-    if graph.output_node() != saturation.id() {
-        bail!("working Recipe basic graph output is not saturation");
+    Ok(BasicRecipeNodes {
+        layer,
+        exposure,
+        contrast,
+        tone_curve,
+        channel_gain,
+        saturation,
+    })
+}
+
+fn basic_parameters_from_snapshot(snapshot: &RecipeSnapshot) -> AnyResult<BasicEditParameters> {
+    if snapshot.layers().is_empty() {
+        return Ok(BasicEditParameters::default());
     }
-    let exposure_stops = required_float(exposure.parameters(), "stops", 1)?;
-    let contrast_factor = required_float(contrast.parameters(), "factor", 2)?;
-    let pivot = required_float(contrast.parameters(), "pivot", 2)?;
+    let nodes = basic_recipe_nodes(snapshot)?;
+    let exposure_stops =
+        required_float(nodes.exposure.parameters(), EXPOSURE_STOPS_PARAMETER_KEY, 1)?;
+    let contrast_factor = required_float(
+        nodes.contrast.parameters(),
+        CONTRAST_FACTOR_PARAMETER_KEY,
+        2,
+    )?;
+    let pivot = required_float(nodes.contrast.parameters(), CONTRAST_PIVOT_PARAMETER_KEY, 2)?;
     if pivot != CONTRAST_PIVOT {
         bail!("working Recipe uses unsupported contrast pivot {pivot}");
     }
-    let channel_gains = required_float_vector(channel_gain.parameters(), "channel_gains", 1)?;
+    let channel_gains = required_float_vector(
+        nodes.channel_gain.parameters(),
+        CHANNEL_GAINS_PARAMETER_KEY,
+        1,
+    )?;
     let [red, green, blue] = channel_gains.as_slice() else {
         bail!("working Recipe channel_gains must contain exactly three values");
     };
@@ -769,7 +1080,11 @@ fn basic_parameters_from_snapshot(snapshot: &RecipeSnapshot) -> AnyResult<BasicE
         exposure_stops,
         contrast_factor,
         channel_gains: [*red, *green, *blue],
-        saturation_factor: required_float(saturation.parameters(), "factor", 1)?,
+        saturation_factor: required_float(
+            nodes.saturation.parameters(),
+            SATURATION_FACTOR_PARAMETER_KEY,
+            1,
+        )?,
     };
     validate_basic_parameters(parameters)?;
     Ok(parameters)
@@ -784,8 +1099,8 @@ fn validate_basic_node(
     let operation = node.operation();
     let rgb = PortType::Image(ImageDomain::WorkingRgb);
     if operation.operation_id().as_str() != operation_id
-        || operation.parameter_schema_version() != BASIC_PARAMETER_SCHEMA_VERSION
-        || operation.implementation_version() != BASIC_IMPLEMENTATION_VERSION
+        || operation.parameter_schema_version() != CPU_REFERENCE_PARAMETER_SCHEMA_VERSION
+        || operation.implementation_version() != CPU_REFERENCE_IMPLEMENTATION_VERSION
         || operation.stage() != stage
         || operation.input_types() != [rgb]
         || operation.output_type() != rgb
@@ -1014,7 +1329,7 @@ fn edit_version_diff(
             "node_parameter_blocks_changed",
             summary.node_parameters_changed,
         )?,
-        has_other_changes: has_other_recipe_changes(&structural),
+        has_other_changes: has_other_recipe_changes(&structural, record.commit.snapshot()),
         changed_basic_parameters,
     })
 }
@@ -1081,7 +1396,7 @@ const fn persisted_float_changed(before: f64, after: f64) -> bool {
 /// more modified nodes in the generic summary. Inspect the exact diff so the
 /// UI can distinguish those container changes from topology/mask/contract
 /// changes that its localized basic-control labels do not describe.
-fn has_other_recipe_changes(diff: &RecipeDiff) -> bool {
+fn has_other_recipe_changes(diff: &RecipeDiff, after: &RecipeSnapshot) -> bool {
     if diff.schema_version().is_some()
         || !diff.added_layers().is_empty()
         || !diff.removed_layers().is_empty()
@@ -1106,11 +1421,30 @@ fn has_other_recipe_changes(diff: &RecipeDiff) -> bool {
                             || node.inputs().is_some()
                             || node.mask().is_some()
                             || node.parameters().is_none()
+                            || !node_parameter_change_has_basic_label(after, node.node_id())
                     })
             }
             Some(LayerContentDiff::Shared { .. } | LayerContentDiff::Replaced { .. }) => true,
             None => false,
         }
+    })
+}
+
+fn node_parameter_change_has_basic_label(snapshot: &RecipeSnapshot, node_id: NodeId) -> bool {
+    snapshot.layers().iter().any(|layer| {
+        let LayerContent::Inline { graph } = layer.content() else {
+            return false;
+        };
+        graph.nodes().iter().any(|node| {
+            node.id() == node_id
+                && matches!(
+                    node.operation().operation_id().as_str(),
+                    EXPOSURE_OPERATION_ID
+                        | CONTRAST_OPERATION_ID
+                        | CHANNEL_GAIN_OPERATION_ID
+                        | SATURATION_OPERATION_ID
+                )
+        })
     })
 }
 
@@ -1326,6 +1660,339 @@ mod tests {
     }
 
     #[test]
+    fn neutral_before_ignores_transient_slider_parameters() {
+        let non_neutral = ffi_parameters(2.0, 1.7, [1.4, 0.8, 1.2], 0.6);
+
+        assert_eq!(
+            preview_basic_parameters(&non_neutral, false).expect("select neutral Before"),
+            BasicEditParameters::default()
+        );
+        assert_ne!(
+            preview_basic_parameters(&non_neutral, true).expect("select current parameters"),
+            BasicEditParameters::default()
+        );
+    }
+
+    #[test]
+    fn recipe_compiler_follows_dependencies_and_emits_tone_curve() {
+        let points = [[0.0, 0.0], [0.35, 0.2], [0.7, 0.85], [1.0, 1.0]];
+        let parameters = BasicEditParameters {
+            exposure_stops: 1.25,
+            contrast_factor: 1.4,
+            channel_gains: [1.2, 0.95, 0.8],
+            saturation_factor: 0.75,
+        };
+        let snapshot = basic_recipe_with_tone(parameters, &points, true);
+        let recipe_nodes = basic_recipe_nodes(&snapshot).expect("read typed Recipe nodes");
+        let plan = compile_recipe_render_plan(&snapshot).expect("compile typed Recipe");
+
+        assert_eq!(
+            plan,
+            AdjustmentRenderPlan {
+                nodes: vec![
+                    AdjustmentRenderNode {
+                        node_id: recipe_nodes.exposure.id().to_string(),
+                        parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+                        implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
+                        enabled: true,
+                        operation: AdjustmentRenderOperation::Exposure {
+                            stops: parameters.exposure_stops,
+                        },
+                    },
+                    AdjustmentRenderNode {
+                        node_id: recipe_nodes.contrast.id().to_string(),
+                        parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+                        implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
+                        enabled: true,
+                        operation: AdjustmentRenderOperation::Contrast {
+                            factor: parameters.contrast_factor,
+                            pivot: CONTRAST_PIVOT,
+                        },
+                    },
+                    AdjustmentRenderNode {
+                        node_id: recipe_nodes
+                            .tone_curve
+                            .expect("Tone Curve node")
+                            .id()
+                            .to_string(),
+                        parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+                        implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
+                        enabled: true,
+                        operation: AdjustmentRenderOperation::ToneCurve {
+                            points: points
+                                .into_iter()
+                                .map(|[x, y]| ToneCurvePoint { x, y })
+                                .collect(),
+                        },
+                    },
+                    AdjustmentRenderNode {
+                        node_id: recipe_nodes.channel_gain.id().to_string(),
+                        parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+                        implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
+                        enabled: true,
+                        operation: AdjustmentRenderOperation::ChannelGain {
+                            channel_gains: parameters.channel_gains,
+                        },
+                    },
+                    AdjustmentRenderNode {
+                        node_id: recipe_nodes.saturation.id().to_string(),
+                        parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+                        implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
+                        enabled: true,
+                        operation: AdjustmentRenderOperation::Saturation {
+                            factor: parameters.saturation_factor,
+                        },
+                    },
+                ],
+            }
+        );
+    }
+
+    #[test]
+    fn slider_edits_preserve_an_existing_tone_curve_node() {
+        let points = [[0.0, 0.05], [0.5, 0.65], [1.0, 1.0]];
+        let original = basic_recipe_with_tone(BasicEditParameters::default(), &points, false);
+        let original_identity = basic_recipe_identity(&original)
+            .expect("read original identity")
+            .expect("non-empty identity");
+        let changed = BasicEditParameters {
+            exposure_stops: 0.75,
+            contrast_factor: 1.2,
+            channel_gains: [1.05, 1.0, 0.95],
+            saturation_factor: 1.1,
+        };
+
+        let updated = basic_recipe_snapshot(changed, Some(&original))
+            .expect("apply slider values without flattening Tone Curve");
+        let updated_identity = basic_recipe_identity(&updated)
+            .expect("read updated identity")
+            .expect("non-empty identity");
+        let plan = compile_recipe_render_plan(&updated).expect("compile updated Recipe");
+
+        assert_eq!(basic_parameters_from_snapshot(&updated).unwrap(), changed);
+        assert_eq!(updated_identity, original_identity);
+        assert!(matches!(
+            &plan.nodes[2].operation,
+            AdjustmentRenderOperation::ToneCurve { points: compiled }
+                if compiled == &points
+                    .into_iter()
+                    .map(|[x, y]| ToneCurvePoint { x, y })
+                    .collect::<Vec<_>>()
+        ));
+    }
+
+    #[test]
+    fn durable_slider_version_preserves_persisted_tone_curve() {
+        let (root, session, photo_id, source_path) = test_edit_session();
+        let parsed_photo_id: PhotoId = photo_id.parse().expect("photo id");
+        let root_commit_id = RecipeCommitId::new_v7();
+        let root_snapshot = basic_recipe_with_tone(
+            BasicEditParameters::default(),
+            &[[0.0, 0.02], [0.5, 0.68], [1.0, 1.0]],
+            true,
+        );
+        let root_identity = basic_recipe_identity(&root_snapshot)
+            .expect("read root identity")
+            .expect("non-empty root");
+        session
+            .catalog
+            .commit_recipe(&CommitRecipe {
+                photo_id: parsed_photo_id,
+                commit: RecipeCommit::new(
+                    root_commit_id,
+                    RecipeId::new_v7(),
+                    Vec::new(),
+                    root_snapshot,
+                    Some("Curve root".to_owned()),
+                    1_000,
+                )
+                .expect("build curve root"),
+                update_refs: vec![RecipeRefTarget {
+                    name: WORKING_RECIPE_REF.to_owned(),
+                    kind: RecipeRefKind::Working,
+                    expectation: Some(RecipeRefExpectation::Missing),
+                }],
+            })
+            .expect("persist curve root");
+
+        let saved = session
+            .save_basic_edit_version_at(
+                &photo_id,
+                &source_path,
+                &root_commit_id.to_string(),
+                &ffi_parameters(0.6, 1.15, [1.04, 1.0, 0.96], 1.1),
+                "Curve plus sliders",
+                2_000,
+            )
+            .expect("save child without flattening Tone Curve");
+        let commits = session
+            .catalog
+            .recipe_commits(parsed_photo_id)
+            .expect("list curve history");
+        let child = commits
+            .iter()
+            .find(|record| record.commit.id().to_string() == saved.working_commit_id)
+            .expect("saved child commit");
+        let child_identity = basic_recipe_identity(child.commit.snapshot())
+            .expect("read child identity")
+            .expect("non-empty child");
+        let plan = compile_recipe_render_plan(child.commit.snapshot()).expect("compile child");
+
+        assert_eq!(child.commit.parents(), [root_commit_id]);
+        assert_eq!(child_identity, root_identity);
+        assert!(matches!(
+            &plan.nodes[2].operation,
+            AdjustmentRenderOperation::ToneCurve { points }
+                if points == &[
+                    ToneCurvePoint { x: 0.0, y: 0.02 },
+                    ToneCurvePoint { x: 0.5, y: 0.68 },
+                    ToneCurvePoint { x: 1.0, y: 1.0 },
+                ]
+        ));
+
+        drop(session);
+        std::fs::remove_dir_all(root).expect("remove edit fixture");
+    }
+
+    #[test]
+    fn recipe_compiler_rejects_unknown_operation_without_fallback() {
+        let rgb = PortType::Image(ImageDomain::WorkingRgb);
+        let node_id = NodeId::new_v7();
+        let unknown = AdjustmentNode::new(
+            node_id,
+            OperationDescriptor::new(
+                OperationId::new("shadow.future_magic").expect("operation id"),
+                CPU_REFERENCE_PARAMETER_SCHEMA_VERSION,
+                CPU_REFERENCE_IMPLEMENTATION_VERSION,
+                ProcessingStage::CreativeColor,
+                vec![rgb],
+                rgb,
+                None,
+            )
+            .expect("operation descriptor"),
+            vec![NodeInput::GraphInput { index: 0 }],
+            ParameterBlock::default(),
+            None,
+        )
+        .expect("unknown typed node remains a valid domain node");
+        let graph = EditGraph::new(
+            BASIC_GRAPH_SCHEMA_VERSION,
+            vec![rgb],
+            vec![unknown],
+            node_id,
+        )
+        .expect("domain graph");
+        let snapshot = RecipeSnapshot::new(
+            CURRENT_RECIPE_SCHEMA_VERSION,
+            vec![
+                LayerInstance::new(
+                    LayerInstanceId::new_v7(),
+                    "Future layer",
+                    AdjustmentScope::Photo,
+                    LayerContent::Inline { graph },
+                    true,
+                    UnitInterval::ONE,
+                    BlendMode::Normal,
+                    None,
+                )
+                .expect("future layer"),
+            ],
+        )
+        .expect("future Recipe");
+
+        let error = compile_recipe_render_plan(&snapshot)
+            .expect_err("unknown operation must never become an implicit no-op");
+        assert!(error.to_string().contains("not executable"));
+    }
+
+    #[test]
+    fn recipe_compiler_rejects_future_persisted_contract_versions() {
+        let cases = [
+            (
+                "operation parameter schema",
+                single_exposure_recipe(
+                    CURRENT_RECIPE_SCHEMA_VERSION,
+                    BASIC_GRAPH_SCHEMA_VERSION,
+                    CPU_REFERENCE_PARAMETER_SCHEMA_VERSION + 1,
+                    CPU_REFERENCE_IMPLEMENTATION_VERSION,
+                ),
+            ),
+            (
+                "operation implementation",
+                single_exposure_recipe(
+                    CURRENT_RECIPE_SCHEMA_VERSION,
+                    BASIC_GRAPH_SCHEMA_VERSION,
+                    CPU_REFERENCE_PARAMETER_SCHEMA_VERSION,
+                    "cpu-reference-v2",
+                ),
+            ),
+            (
+                "Recipe schema",
+                single_exposure_recipe(
+                    CURRENT_RECIPE_SCHEMA_VERSION + 1,
+                    BASIC_GRAPH_SCHEMA_VERSION,
+                    CPU_REFERENCE_PARAMETER_SCHEMA_VERSION,
+                    CPU_REFERENCE_IMPLEMENTATION_VERSION,
+                ),
+            ),
+            (
+                "graph schema",
+                single_exposure_recipe(
+                    CURRENT_RECIPE_SCHEMA_VERSION,
+                    BASIC_GRAPH_SCHEMA_VERSION + 1,
+                    CPU_REFERENCE_PARAMETER_SCHEMA_VERSION,
+                    CPU_REFERENCE_IMPLEMENTATION_VERSION,
+                ),
+            ),
+        ];
+
+        for (contract, snapshot) in cases {
+            let error = compile_recipe_render_plan(&snapshot)
+                .expect_err("future persisted contract must fail closed");
+            assert!(
+                error.to_string().contains("supports") || error.to_string().contains("unsupported"),
+                "unexpected {contract} error: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn recipe_compiler_rejects_a_valid_branching_graph() {
+        let snapshot = branching_merge_recipe();
+        snapshot
+            .validate()
+            .expect("branching domain Recipe is valid");
+
+        let error = compile_recipe_render_plan(&snapshot)
+            .expect_err("linear executor must reject fork-and-merge topology");
+
+        assert!(error.to_string().contains("single-input linear chain"));
+    }
+
+    #[test]
+    fn tone_curve_parameter_diff_is_reported_as_other_version_change() {
+        let before = basic_recipe_with_tone(
+            BasicEditParameters::default(),
+            &[[0.0, 0.0], [0.5, 0.6], [1.0, 1.0]],
+            false,
+        );
+        let after =
+            recipe_with_tone_from_base(&before, &[[0.0, 0.03], [0.5, 0.72], [1.0, 1.0]], true);
+        let diff = diff_recipe_snapshots(&before, &after);
+
+        assert_eq!(diff.summary().nodes_modified, 1);
+        assert_eq!(diff.summary().node_parameters_changed, 1);
+        assert!(
+            changed_basic_parameters(
+                basic_parameters_from_snapshot(&before).unwrap(),
+                basic_parameters_from_snapshot(&after).unwrap(),
+            )
+            .is_empty()
+        );
+        assert!(has_other_recipe_changes(&diff, &after));
+    }
+
+    #[test]
     fn saving_versions_keeps_old_commits_and_moves_working_atomically() {
         let (root, session, photo_id, source_path) = test_edit_session();
         let neutral = session
@@ -1347,6 +2014,7 @@ mod tests {
             .save_basic_edit_version_at(
                 &photo_id,
                 &source_path,
+                "",
                 &first_parameters,
                 "First look",
                 1_000,
@@ -1361,6 +2029,7 @@ mod tests {
             .save_basic_edit_version_at(
                 &photo_id,
                 &source_path,
+                &first_id,
                 &second_parameters,
                 "Second look",
                 2_000,
@@ -1423,11 +2092,66 @@ mod tests {
     }
 
     #[test]
+    fn stale_save_base_cannot_overwrite_a_newer_working_version() {
+        let (root, session, photo_id, source_path) = test_edit_session();
+        let first = session
+            .save_basic_edit_version_at(
+                &photo_id,
+                &source_path,
+                "",
+                &ffi_parameters(0.25, 1.1, [1.0; 3], 0.9),
+                "First",
+                1_000,
+            )
+            .expect("save first version");
+        let first_id = first.working_commit_id;
+        let second = session
+            .save_basic_edit_version_at(
+                &photo_id,
+                &source_path,
+                &first_id,
+                &ffi_parameters(0.5, 1.2, [1.0; 3], 0.8),
+                "Second",
+                2_000,
+            )
+            .expect("save second version");
+        let second_id = second.working_commit_id;
+
+        let error = session
+            .save_basic_edit_version_at(
+                &photo_id,
+                &source_path,
+                &first_id,
+                &ffi_parameters(-0.5, 0.8, [1.0; 3], 1.2),
+                "Stale writer",
+                3_000,
+            )
+            .expect_err("stale base must lose the compare-and-swap");
+        let state = session
+            .photo_edit_state(&photo_id, &source_path)
+            .expect("reload state after rejected save");
+
+        assert!(error.to_string().contains("did not match expectation"));
+        assert_eq!(state.working_commit_id, second_id);
+        assert_eq!(state.versions.len(), 2);
+
+        drop(session);
+        std::fs::remove_dir_all(root).expect("remove edit fixture");
+    }
+
+    #[test]
     fn consecutive_version_reports_the_exact_changed_basic_parameter() {
         let (root, session, photo_id, source_path) = test_edit_session();
         let first_parameters = ffi_parameters(0.25, 1.1, [1.05, 1.0, 0.95], 0.9);
         let first = session
-            .save_basic_edit_version_at(&photo_id, &source_path, &first_parameters, "Base", 1_000)
+            .save_basic_edit_version_at(
+                &photo_id,
+                &source_path,
+                "",
+                &first_parameters,
+                "Base",
+                1_000,
+            )
             .expect("save root version");
         let first_id = first.working_commit_id;
 
@@ -1435,6 +2159,7 @@ mod tests {
             .save_basic_edit_version_at(
                 &photo_id,
                 &source_path,
+                &first_id,
                 &ffi_parameters(0.75, 1.1, [1.05, 1.0, 0.95], 0.9),
                 "Exposure only",
                 2_000,
@@ -1473,6 +2198,7 @@ mod tests {
             .save_basic_edit_version_at(
                 &photo_id,
                 &source_path,
+                "",
                 &base_parameters,
                 "Branch point",
                 1_000,
@@ -1483,6 +2209,7 @@ mod tests {
             .save_basic_edit_version_at(
                 &photo_id,
                 &source_path,
+                &base_id,
                 &ffi_parameters(0.75, 1.1, [1.05, 1.0, 0.95], 0.9),
                 "Exposure branch",
                 2_000,
@@ -1497,6 +2224,7 @@ mod tests {
             .save_basic_edit_version_at(
                 &photo_id,
                 &source_path,
+                &base_id,
                 &ffi_parameters(0.25, 1.1, [1.05, 1.0, 0.95], 1.2),
                 "Saturation branch",
                 4_000,
@@ -1571,6 +2299,7 @@ mod tests {
             .save_basic_edit_version_at(
                 &photo_id,
                 &source_path,
+                "",
                 &first_parameters,
                 "Warm branch point",
                 1_000,
@@ -1581,6 +2310,7 @@ mod tests {
             .save_basic_edit_version_at(
                 &photo_id,
                 &source_path,
+                &first_id,
                 &ffi_parameters(-1.0, 1.5, [0.8, 1.0, 1.3], 1.4),
                 "Cool continuation",
                 2_000,
@@ -1639,6 +2369,218 @@ mod tests {
             blue_channel_gain: channel_gains[2],
             saturation_factor,
         }
+    }
+
+    fn preview_request(
+        base_commit_id: &str,
+        parameters: ffi::FfiBasicEditParameters,
+        use_working_recipe: bool,
+    ) -> ffi::FfiEditPreviewRequest {
+        ffi::FfiEditPreviewRequest {
+            base_commit_id: base_commit_id.to_owned(),
+            parameters,
+            max_edge: 1_024,
+            jpeg_quality: 86,
+            use_working_recipe,
+        }
+    }
+
+    fn single_exposure_recipe(
+        recipe_schema_version: u32,
+        graph_schema_version: u32,
+        parameter_schema_version: u32,
+        implementation_version: &str,
+    ) -> RecipeSnapshot {
+        let rgb = PortType::Image(ImageDomain::WorkingRgb);
+        let node_id = NodeId::new_v7();
+        let node = AdjustmentNode::new(
+            node_id,
+            OperationDescriptor::new(
+                OperationId::new(EXPOSURE_OPERATION_ID).expect("Exposure operation id"),
+                parameter_schema_version,
+                implementation_version,
+                ProcessingStage::SceneLinearFoundation,
+                vec![rgb],
+                rgb,
+                None,
+            )
+            .expect("versioned Exposure descriptor"),
+            vec![NodeInput::GraphInput { index: 0 }],
+            parameter_block([(
+                EXPOSURE_STOPS_PARAMETER_KEY,
+                ParameterValue::Float(FiniteF64::new(0.5).expect("finite Exposure")),
+            )])
+            .expect("Exposure parameters"),
+            None,
+        )
+        .expect("Exposure node");
+        let graph = EditGraph::new(graph_schema_version, vec![rgb], vec![node], node_id)
+            .expect("single-node graph");
+        one_layer_recipe(recipe_schema_version, graph)
+    }
+
+    fn branching_merge_recipe() -> RecipeSnapshot {
+        let rgb = PortType::Image(ImageDomain::WorkingRgb);
+        let left_id = NodeId::new_v7();
+        let right_id = NodeId::new_v7();
+        let merge_id = NodeId::new_v7();
+        let exposure_parameters = || {
+            parameter_block([(
+                EXPOSURE_STOPS_PARAMETER_KEY,
+                ParameterValue::Float(FiniteF64::new(0.25).expect("finite Exposure")),
+            )])
+            .expect("Exposure parameters")
+        };
+        let left = basic_node(
+            left_id,
+            EXPOSURE_OPERATION_ID,
+            ProcessingStage::SceneLinearFoundation,
+            NodeInput::GraphInput { index: 0 },
+            exposure_parameters(),
+        )
+        .expect("left branch");
+        let right = basic_node(
+            right_id,
+            EXPOSURE_OPERATION_ID,
+            ProcessingStage::SceneLinearFoundation,
+            NodeInput::GraphInput { index: 0 },
+            exposure_parameters(),
+        )
+        .expect("right branch");
+        let merge = AdjustmentNode::new(
+            merge_id,
+            OperationDescriptor::new(
+                OperationId::new("shadow.test_merge").expect("merge operation id"),
+                CPU_REFERENCE_PARAMETER_SCHEMA_VERSION,
+                CPU_REFERENCE_IMPLEMENTATION_VERSION,
+                ProcessingStage::CreativeColor,
+                vec![rgb, rgb],
+                rgb,
+                None,
+            )
+            .expect("merge descriptor"),
+            vec![
+                NodeInput::Node { node_id: left_id },
+                NodeInput::Node { node_id: right_id },
+            ],
+            ParameterBlock::default(),
+            None,
+        )
+        .expect("merge node");
+        let graph = EditGraph::new(
+            BASIC_GRAPH_SCHEMA_VERSION,
+            vec![rgb],
+            vec![left, right, merge],
+            merge_id,
+        )
+        .expect("branching graph");
+        one_layer_recipe(CURRENT_RECIPE_SCHEMA_VERSION, graph)
+    }
+
+    fn one_layer_recipe(schema_version: u32, graph: EditGraph) -> RecipeSnapshot {
+        RecipeSnapshot::new(
+            schema_version,
+            vec![
+                LayerInstance::new(
+                    LayerInstanceId::new_v7(),
+                    BASIC_LAYER_LABEL,
+                    AdjustmentScope::Photo,
+                    LayerContent::Inline { graph },
+                    true,
+                    UnitInterval::ONE,
+                    BlendMode::Normal,
+                    None,
+                )
+                .expect("single inline layer"),
+            ],
+        )
+        .expect("single-layer Recipe")
+    }
+
+    fn basic_recipe_with_tone(
+        parameters: BasicEditParameters,
+        points: &[[f64; 2]],
+        reverse_storage_order: bool,
+    ) -> RecipeSnapshot {
+        let base = basic_recipe_snapshot(parameters, None).expect("build base Basic Recipe");
+        recipe_with_tone_from_base(&base, points, reverse_storage_order)
+    }
+
+    fn recipe_with_tone_from_base(
+        base: &RecipeSnapshot,
+        points: &[[f64; 2]],
+        reverse_storage_order: bool,
+    ) -> RecipeSnapshot {
+        let base_nodes = basic_recipe_nodes(base).expect("read base Basic nodes");
+        let tone_curve_id = base_nodes
+            .tone_curve
+            .map_or_else(NodeId::new_v7, AdjustmentNode::id);
+        let mut nodes = vec![
+            base_nodes.exposure.clone(),
+            base_nodes.contrast.clone(),
+            basic_node(
+                tone_curve_id,
+                TONE_CURVE_OPERATION_ID,
+                ProcessingStage::ToneAndLocalContrast,
+                NodeInput::Node {
+                    node_id: base_nodes.contrast.id(),
+                },
+                parameter_block([(
+                    TONE_CURVE_POINTS_PARAMETER_KEY,
+                    ParameterValue::FloatVector(
+                        points
+                            .iter()
+                            .flatten()
+                            .copied()
+                            .map(FiniteF64::new)
+                            .collect::<Result<Vec<_>, _>>()
+                            .expect("finite test Tone Curve"),
+                    ),
+                )])
+                .expect("Tone Curve parameters"),
+            )
+            .expect("Tone Curve node"),
+            basic_node(
+                base_nodes.channel_gain.id(),
+                CHANNEL_GAIN_OPERATION_ID,
+                ProcessingStage::CreativeColor,
+                NodeInput::Node {
+                    node_id: tone_curve_id,
+                },
+                base_nodes.channel_gain.parameters().clone(),
+            )
+            .expect("rewired channel gain"),
+            base_nodes.saturation.clone(),
+        ];
+        if reverse_storage_order {
+            nodes.reverse();
+        }
+        let output = base_nodes.saturation.id();
+        let layer_id = base_nodes.layer.id();
+        let graph = EditGraph::new(
+            BASIC_GRAPH_SCHEMA_VERSION,
+            vec![PortType::Image(ImageDomain::WorkingRgb)],
+            nodes,
+            output,
+        )
+        .expect("build Tone Curve graph");
+        RecipeSnapshot::new(
+            CURRENT_RECIPE_SCHEMA_VERSION,
+            vec![
+                LayerInstance::new(
+                    layer_id,
+                    BASIC_LAYER_LABEL,
+                    AdjustmentScope::Photo,
+                    LayerContent::Inline { graph },
+                    true,
+                    UnitInterval::ONE,
+                    BlendMode::Normal,
+                    None,
+                )
+                .expect("build Tone Curve layer"),
+            ],
+        )
+        .expect("build Tone Curve Recipe")
     }
 
     fn assert_close(actual: f64, expected: f64) {
@@ -1752,23 +2694,24 @@ mod tests {
                 .render_basic_edit_preview(
                     &page.items[0].photo_id,
                     &page.items[0].source_path,
-                    &edits,
-                    1_024,
-                    86,
+                    &preview_request("", edits, true),
                 )
                 .expect("prepare and render first edited preview");
             let second_edit = session
                 .render_basic_edit_preview(
                     &page.items[0].photo_id,
                     &page.items[0].source_path,
-                    &ffi_parameters(0.5, 1.1, [1.05, 1.0, 0.95], 1.15),
-                    1_024,
-                    86,
+                    &preview_request("", ffi_parameters(0.5, 1.1, [1.05, 1.0, 0.95], 1.15), true),
                 )
                 .expect("reuse prepared edit preview session");
             assert!(first_edit.bytes.starts_with(&[0xff, 0xd8]));
             assert!(second_edit.bytes.starts_with(&[0xff, 0xd8]));
             assert_ne!(first_edit.bytes, second_edit.bytes);
+            assert_persisted_tone_recipe_and_neutral_before(
+                session.as_ref(),
+                &page.items[0],
+                &ffi_parameters(0.8, 1.25, [1.08, 1.0, 0.92], 1.2),
+            );
             assert_eq!(
                 session
                     .edit_preview_sessions
@@ -1779,5 +2722,98 @@ mod tests {
             );
         }
         std::fs::remove_dir_all(root).expect("remove desktop bridge fixture");
+    }
+
+    fn assert_persisted_tone_recipe_and_neutral_before(
+        session: &DesktopSession,
+        item: &ffi::FfiReviewItem,
+        edits: &ffi::FfiBasicEditParameters,
+    ) {
+        let photo_id: PhotoId = item.photo_id.parse().expect("photo id");
+        let recipe_id = RecipeId::new_v7();
+        let first_tone_id = persist_test_tone_recipe(session, photo_id, recipe_id, None, 0.72);
+        let tone_current = session
+            .render_basic_edit_preview(
+                &item.photo_id,
+                &item.source_path,
+                &preview_request(&first_tone_id.to_string(), *edits, true),
+            )
+            .expect("render persisted Tone Curve Recipe");
+        let neutral_before_first = session
+            .render_basic_edit_preview(
+                &item.photo_id,
+                &item.source_path,
+                &preview_request("", *edits, false),
+            )
+            .expect("render neutral Before independently of working Recipe");
+        let second_tone_id =
+            persist_test_tone_recipe(session, photo_id, recipe_id, Some(first_tone_id), 0.28);
+        let old_base_after_ref_move = session
+            .render_basic_edit_preview(
+                &item.photo_id,
+                &item.source_path,
+                &preview_request(&first_tone_id.to_string(), *edits, true),
+            )
+            .expect("render exact old base after working ref moves");
+        let new_base_after_ref_move = session
+            .render_basic_edit_preview(
+                &item.photo_id,
+                &item.source_path,
+                &preview_request(&second_tone_id.to_string(), *edits, true),
+            )
+            .expect("render new working base explicitly");
+        let neutral_before_second = session
+            .render_basic_edit_preview(
+                &item.photo_id,
+                &item.source_path,
+                &preview_request("", ffi_parameters(0.0, 1.0, [1.0; 3], 1.0), false),
+            )
+            .expect("render stable neutral Before after ref move");
+
+        assert_eq!(tone_current.bytes, old_base_after_ref_move.bytes);
+        assert_ne!(tone_current.bytes, new_base_after_ref_move.bytes);
+        assert_ne!(tone_current.bytes, neutral_before_first.bytes);
+        assert_eq!(neutral_before_first.bytes, neutral_before_second.bytes);
+        let state = session
+            .photo_edit_state(&item.photo_id, &item.source_path)
+            .expect("open Basic surface over persisted Tone Curve");
+        assert_eq!(state.working_commit_id, second_tone_id.to_string());
+    }
+
+    fn persist_test_tone_recipe(
+        session: &DesktopSession,
+        photo_id: PhotoId,
+        recipe_id: RecipeId,
+        parent: Option<RecipeCommitId>,
+        midpoint_y: f64,
+    ) -> RecipeCommitId {
+        let commit_id = RecipeCommitId::new_v7();
+        session
+            .catalog
+            .commit_recipe(&CommitRecipe {
+                photo_id,
+                commit: RecipeCommit::new(
+                    commit_id,
+                    recipe_id,
+                    parent.into_iter().collect(),
+                    basic_recipe_with_tone(
+                        BasicEditParameters::default(),
+                        &[[0.0, 0.0], [0.5, midpoint_y], [1.0, 1.0]],
+                        true,
+                    ),
+                    Some("Typed Tone Curve".to_owned()),
+                    2_000,
+                )
+                .expect("build Tone Curve commit"),
+                update_refs: vec![RecipeRefTarget {
+                    name: WORKING_RECIPE_REF.to_owned(),
+                    kind: RecipeRefKind::Working,
+                    expectation: Some(
+                        parent.map_or(RecipeRefExpectation::Missing, RecipeRefExpectation::At),
+                    ),
+                }],
+            })
+            .expect("persist Tone Curve working Recipe");
+        commit_id
     }
 }

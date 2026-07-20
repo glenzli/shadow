@@ -49,11 +49,13 @@ Qt sliders / named-version actions
   → EditController (debounce, generations, stale-result rejection)
   → shadow-desktop-bridge (Catalog-owned photo/source validation)
   → reusable 1600-edge scene-linear sRGB working proxy
-  → Exposure → Contrast → RGB Channel Gain → Saturation
+  → supported working Recipe + transient Basic slider values
+  → dependency-ordered typed render plan
+  → Exposure → Contrast → [Tone Curve] → RGB Channel Gain → Saturation
   → asynchronously decoded JPEG image provider
 ```
 
-The left panel exposes one `PHOTO`-scope `Basic Adjustments` layer and its four fixed, typed nodes. It is deliberately not a free-form Node Lab. Saving creates a new immutable Recipe commit while atomically moving the `working` ref and adding a named-version ref. Checking out an older commit preserves newer commits; the next save branches from the checked-out version. Layer and node identities survive consecutive saves so structural diffs remain meaningful.
+The left Inspector exposes four fixed control groups over one `PHOTO`-scope `Basic Adjustments` layer. It is deliberately not a free-form Node Lab. The persisted Recipe is a constrained linear chain with four nodes, or five when an existing Tone Curve is present. The current UI cannot author the curve, but rendering, checkout, and subsequent slider saves preserve its node identity and parameters. The visible reset action therefore resets sliders, not hidden Recipe nodes. Saving creates a new immutable Recipe commit while atomically moving the `working` ref and adding a named-version ref. Each preview is bound to the immutable base commit that supplied its sliders, and each save compare-and-swaps the expected `working` head; a stale task fails instead of combining or overwriting two versions. Checking out an older commit preserves newer commits; the next save branches from the checked-out version. Layer and node identities survive consecutive saves so structural diffs remain meaningful.
 
 Precision also keeps a bounded, in-memory undo/redo history for the current edit session. All updates between a slider press and release are coalesced into one meaningful step; changing another parameter starts a separate step. Reset and revert are undoable, while opening or checking out a photo clears the session history. A successful save makes the saved parameters the new dirty baseline and clears session undo/redo, because durable Recipe versions—not transient UI steps—own history across saves. Standard Undo/Redo shortcuts use the platform mapping (`Cmd+Z` and `Cmd+Shift+Z` on macOS), with visible controls in the preview toolbar.
 
@@ -61,6 +63,6 @@ Each durable version row summarizes its parent-relative Recipe diff. Renderer-ba
 
 RAW preparation is cached for up to two recent `(representation, source fingerprint, edge)` sessions. A slider update reruns only the adjustment nodes and JPEG encoder; it does not reopen or decode the RAW. Undo and redo update the working parameters through the same generation-checked preview path. Rendering never disables adjustment controls: a newer revision is queued while the prior render finishes, and stale output is rejected. Preview buffers are bounded, rebuildable, and never become Catalog facts.
 
-Before/After comparison uses two independently generation-checked preview slots. `After` is the current working edit; `Before` is the neutral import baseline produced by the same decoded scene-linear working proxy with default basic-adjustment parameters. The baseline is rendered only after the user first requests it and only after the latest current preview settles.
+Before/After comparison uses two independently generation-checked preview slots. `After` is the current working edit; `Before` is the neutral import baseline produced by the same decoded scene-linear working proxy with default basic-adjustment parameters. The backend enforces that neutral contract regardless of caller slider values, and the baseline deliberately does not inherit a persisted working Tone Curve. It is rendered only after the user first requests it and only after the latest current preview settles.
 
-This slice intentionally implements only the four renderer-backed global operations above. Camera-domain white balance, curves, masks, crop, full-resolution tiles, export, and shared scopes remain later vertical slices; the UI does not present placeholders for them.
+The current UI authors only the four global controls above. The executable Recipe subset also includes the versioned Tone Curve, while curve authoring UI, camera-domain white balance, masks, crop, full-resolution tiles, export, and shared scopes remain later vertical slices; the UI does not present placeholders for them.

@@ -187,6 +187,7 @@ private:
     SessionEditHistory<BackendBasicEditParameters> history_;
     BackendBasicEditParameters parameters_;
     BackendBasicEditParameters committed_parameters_;
+    QString working_commit_id_;
     QString photo_id_;
     QString representation_id_;
     QString source_path_;

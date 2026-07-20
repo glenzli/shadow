@@ -1,6 +1,9 @@
 //! Safe, coarse-grained Rust access to Shadow's C++ image decoder providers.
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashSet,
+    path::{Path, PathBuf},
+};
 
 use shadow_domain::{
     DecodeCapabilitySnapshot, DecodeProviderSnapshot, DecodeSupport, DecoderSnapshot,
@@ -116,13 +119,27 @@ mod ffi {
     }
 
     #[derive(Debug)]
-    struct FfiBasicEditRequest {
-        exposure_stops: f64,
-        contrast_factor: f64,
-        red_channel_gain: f64,
-        green_channel_gain: f64,
-        blue_channel_gain: f64,
-        saturation_factor: f64,
+    enum FfiAdjustmentOperation {
+        Exposure,
+        Contrast,
+        ToneCurve,
+        ChannelGain,
+        Saturation,
+    }
+
+    #[derive(Debug)]
+    struct FfiAdjustmentNode {
+        node_id: String,
+        operation: FfiAdjustmentOperation,
+        parameter_schema_version: u32,
+        implementation_version: u32,
+        enabled: bool,
+        parameters: Vec<f64>,
+    }
+
+    #[derive(Debug)]
+    struct FfiAdjustmentRenderRequest {
+        nodes: Vec<FfiAdjustmentNode>,
         max_edge: u32,
         jpeg_quality: u8,
     }
@@ -145,9 +162,9 @@ mod ffi {
             max_edge: u32,
             jpeg_quality: u8,
         ) -> Result<FfiEncodedProxy>;
-        fn render_edited_reference_proxy(
+        fn render_adjustment_plan(
             self: &DecodeHandle,
-            request: &FfiBasicEditRequest,
+            request: &FfiAdjustmentRenderRequest,
         ) -> Result<FfiEncodedProxy>;
         fn prepare_edit_preview(
             self: &DecodeHandle,
@@ -155,9 +172,9 @@ mod ffi {
         ) -> Result<UniquePtr<EditPreviewHandle>>;
         fn dimensions(self: &EditPreviewHandle) -> FfiDimensions;
         fn max_edge(self: &EditPreviewHandle) -> u32;
-        fn render_basic_edits(
+        fn render_adjustment_plan(
             self: &EditPreviewHandle,
-            request: &FfiBasicEditRequest,
+            request: &FfiAdjustmentRenderRequest,
         ) -> Result<FfiEncodedProxy>;
     }
 }
@@ -178,6 +195,187 @@ pub const BASIC_EDIT_PREVIEW_RECIPE_VERSION: u32 = 1;
 /// A square proxy at this edge consumes at most 192 MiB for interleaved RGB
 /// float32. The intended UI values are 1600 and 2048.
 pub const MAX_WARM_EDIT_PREVIEW_EDGE: u32 = 4_096;
+
+/// Current numeric contract understood by the C++ adjustment executor.
+pub const ADJUSTMENT_PARAMETER_SCHEMA_VERSION: u32 = 1;
+/// Current numeric implementation contract understood by the C++ executor.
+pub const ADJUSTMENT_IMPLEMENTATION_VERSION: u32 = 1;
+/// Hard bound for one linearized render plan crossing the language boundary.
+pub const MAX_ADJUSTMENT_RENDER_NODES: usize = 256;
+/// Hard bound for diagnostic node identities crossing the language boundary.
+pub const MAX_ADJUSTMENT_NODE_ID_BYTES: usize = 256;
+/// Mirrors the CPU reference Tone Curve bound without exposing a C++ type.
+pub const MAX_TONE_CURVE_POINTS: usize = 256;
+
+/// One point in the version-1 piecewise-linear Tone Curve contract.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ToneCurvePoint {
+    pub x: f64,
+    pub y: f64,
+}
+
+/// Typed pixel operation in execution order.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AdjustmentRenderOperation {
+    Exposure { stops: f64 },
+    Contrast { factor: f64, pivot: f64 },
+    ToneCurve { points: Vec<ToneCurvePoint> },
+    ChannelGain { channel_gains: [f64; 3] },
+    Saturation { factor: f64 },
+}
+
+/// A bounded, versioned node ready for the C++ reference executor.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AdjustmentRenderNode {
+    pub node_id: String,
+    pub parameter_schema_version: u32,
+    pub implementation_version: u32,
+    pub enabled: bool,
+    pub operation: AdjustmentRenderOperation,
+}
+
+/// A dependency-ordered linear execution plan.
+///
+/// Graph topology, stages, masks, layer blending, and shared revisions are
+/// deliberately compiled before this boundary. This type contains only the
+/// pixel-local operations the current CPU reference backend can execute.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AdjustmentRenderPlan {
+    pub nodes: Vec<AdjustmentRenderNode>,
+}
+
+impl AdjustmentRenderPlan {
+    /// Validates bounded bridge structure and finite parameter storage.
+    /// Operation-specific numerical semantics remain authoritatively checked
+    /// by the C++ executor before it touches pixels.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BridgeError::InvalidEditRequest`] for empty or oversized
+    /// plans, duplicate/invalid node ids, unsupported versions, malformed Tone
+    /// Curves, or non-finite values.
+    pub fn validate(&self) -> Result<(), BridgeError> {
+        if self.nodes.is_empty() || self.nodes.len() > MAX_ADJUSTMENT_RENDER_NODES {
+            return Err(BridgeError::InvalidEditRequest(
+                "adjustment render plan must contain 1 through 256 nodes",
+            ));
+        }
+        let mut node_ids = HashSet::with_capacity(self.nodes.len());
+        for node in &self.nodes {
+            if node.node_id.trim().is_empty() || node.node_id.len() > MAX_ADJUSTMENT_NODE_ID_BYTES {
+                return Err(BridgeError::InvalidEditRequest(
+                    "adjustment node id must contain 1 through 256 bytes",
+                ));
+            }
+            if !node_ids.insert(node.node_id.as_str()) {
+                return Err(BridgeError::InvalidEditRequest(
+                    "adjustment render plan contains duplicate node ids",
+                ));
+            }
+            if node.parameter_schema_version != ADJUSTMENT_PARAMETER_SCHEMA_VERSION
+                || node.implementation_version != ADJUSTMENT_IMPLEMENTATION_VERSION
+            {
+                return Err(BridgeError::InvalidEditRequest(
+                    "adjustment node uses an unsupported schema or implementation version",
+                ));
+            }
+            validate_render_operation(&node.operation)?;
+        }
+        Ok(())
+    }
+}
+
+#[allow(clippy::float_cmp)] // Tone Curve schema requires exact normalized endpoints.
+fn validate_render_operation(operation: &AdjustmentRenderOperation) -> Result<(), BridgeError> {
+    let finite = |value: f64| {
+        if value.is_finite() {
+            Ok(())
+        } else {
+            Err(BridgeError::InvalidEditRequest(
+                "adjustment render parameters must be finite",
+            ))
+        }
+    };
+    match operation {
+        AdjustmentRenderOperation::Exposure { stops } => {
+            finite(*stops)?;
+            let gain = stops.exp2();
+            if gain.is_finite() && gain > 0.0 {
+                Ok(())
+            } else {
+                Err(BridgeError::InvalidEditRequest(
+                    "exposure stops must produce a finite, positive gain",
+                ))
+            }
+        }
+        AdjustmentRenderOperation::Contrast { factor, pivot } => {
+            finite(*factor)?;
+            finite(*pivot)?;
+            if *factor >= 0.0 && *pivot >= 0.0 {
+                Ok(())
+            } else {
+                Err(BridgeError::InvalidEditRequest(
+                    "contrast factor and pivot must be non-negative",
+                ))
+            }
+        }
+        AdjustmentRenderOperation::ToneCurve { points } => {
+            if !(2..=MAX_TONE_CURVE_POINTS).contains(&points.len()) {
+                return Err(BridgeError::InvalidEditRequest(
+                    "tone curve must contain 2 through 256 points",
+                ));
+            }
+            if points.first().is_none_or(|point| point.x != 0.0)
+                || points.last().is_none_or(|point| point.x != 1.0)
+            {
+                return Err(BridgeError::InvalidEditRequest(
+                    "tone curve x coordinates must start at zero and end at one",
+                ));
+            }
+            let mut previous: Option<ToneCurvePoint> = None;
+            for point in points {
+                finite(point.x)?;
+                finite(point.y)?;
+                if let Some(previous_point) = previous {
+                    if point.x <= previous_point.x {
+                        return Err(BridgeError::InvalidEditRequest(
+                            "tone curve x coordinates must be strictly increasing",
+                        ));
+                    }
+                    let slope = (point.y - previous_point.y) / (point.x - previous_point.x);
+                    if !slope.is_finite() {
+                        return Err(BridgeError::InvalidEditRequest(
+                            "tone curve segment slopes must be finite",
+                        ));
+                    }
+                }
+                previous = Some(*point);
+            }
+            Ok(())
+        }
+        AdjustmentRenderOperation::ChannelGain { channel_gains } => {
+            for gain in channel_gains {
+                finite(*gain)?;
+                if *gain <= 0.0 {
+                    return Err(BridgeError::InvalidEditRequest(
+                        "channel gains must be positive",
+                    ));
+                }
+            }
+            Ok(())
+        }
+        AdjustmentRenderOperation::Saturation { factor } => {
+            finite(*factor)?;
+            if *factor >= 0.0 {
+                Ok(())
+            } else {
+                Err(BridgeError::InvalidEditRequest(
+                    "saturation factor must be non-negative",
+                ))
+            }
+        }
+    }
+}
 
 /// The first small, deterministic subset of Shadow's edit graph.
 ///
@@ -236,6 +434,58 @@ impl BasicEditParameters {
     }
 }
 
+/// Builds the compatibility four-node plan used by the current Precision
+/// sliders. New renderer integrations should compile their persisted Recipe
+/// directly instead of treating this fixed subset as the source of truth.
+///
+/// # Errors
+///
+/// Returns [`BridgeError::InvalidEditRequest`] when a basic parameter violates
+/// its public range.
+pub fn basic_adjustment_render_plan(
+    edits: BasicEditParameters,
+) -> Result<AdjustmentRenderPlan, BridgeError> {
+    edits.validate()?;
+    let node = |node_id: &str, operation| AdjustmentRenderNode {
+        node_id: node_id.to_owned(),
+        parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+        implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
+        enabled: true,
+        operation,
+    };
+    let plan = AdjustmentRenderPlan {
+        nodes: vec![
+            node(
+                "basic-exposure",
+                AdjustmentRenderOperation::Exposure {
+                    stops: edits.exposure_stops,
+                },
+            ),
+            node(
+                "basic-contrast",
+                AdjustmentRenderOperation::Contrast {
+                    factor: edits.contrast_factor,
+                    pivot: 0.18,
+                },
+            ),
+            node(
+                "basic-channel-gain",
+                AdjustmentRenderOperation::ChannelGain {
+                    channel_gains: edits.channel_gains,
+                },
+            ),
+            node(
+                "basic-saturation",
+                AdjustmentRenderOperation::Saturation {
+                    factor: edits.saturation_factor,
+                },
+            ),
+        ],
+    };
+    plan.validate()?;
+    Ok(plan)
+}
+
 /// Parameters for a bounded, standard-JPEG edited preview.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct EditedProxyRequest {
@@ -257,11 +507,7 @@ impl Default for EditedProxyRequest {
 impl EditedProxyRequest {
     fn validate(self) -> Result<(), BridgeError> {
         self.edits.validate()?;
-        if !(1..=16_384).contains(&self.max_edge) {
-            return Err(BridgeError::InvalidEditRequest(
-                "max_edge must be in 1..=16384",
-            ));
-        }
+        validate_proxy_max_edge(self.max_edge)?;
         validate_jpeg_quality(self.jpeg_quality)
     }
 }
@@ -381,11 +627,28 @@ impl LibRawEditPreviewSession {
         edits: BasicEditParameters,
         jpeg_quality: u8,
     ) -> Result<shadow_domain::ProxyPayload, BridgeError> {
-        edits.validate()?;
+        let plan = basic_adjustment_render_plan(edits)?;
+        self.render_plan(&plan, jpeg_quality)
+    }
+
+    /// Executes a dependency-ordered typed plan against the prepared proxy.
+    /// This method never reopens or decodes the RAW.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BridgeError::InvalidEditRequest`] for an invalid plan or JPEG
+    /// quality, and [`BridgeError::Decoder`] for authoritative C++ numeric or
+    /// encoding failures.
+    pub fn render_plan(
+        &self,
+        plan: &AdjustmentRenderPlan,
+        jpeg_quality: u8,
+    ) -> Result<shadow_domain::ProxyPayload, BridgeError> {
+        plan.validate()?;
         validate_jpeg_quality(jpeg_quality)?;
         let handle = self.handle.as_ref().ok_or(BridgeError::NullHandle)?;
-        let request = ffi_edit_request(edits, self.max_edge, jpeg_quality);
-        let proxy = handle.render_basic_edits(&request)?;
+        let request = ffi_render_request(plan, self.max_edge, jpeg_quality);
+        let proxy = handle.render_adjustment_plan(&request)?;
         Ok(proxy_payload(proxy))
     }
 }
@@ -432,28 +695,82 @@ pub fn render_libraw_edited_proxy(
     request: EditedProxyRequest,
 ) -> Result<shadow_domain::ProxyPayload, BridgeError> {
     request.validate()?;
+    let plan = basic_adjustment_render_plan(request.edits)?;
+    render_libraw_adjustment_plan(path, &plan, request.max_edge, request.jpeg_quality)
+}
+
+/// Renders a typed, dependency-ordered adjustment plan as a bounded JPEG.
+///
+/// # Errors
+///
+/// Returns [`BridgeError::InvalidEditRequest`] before RAW I/O for an invalid
+/// plan, edge bound, or JPEG quality. Decoder, executor, and encoder failures
+/// are returned as [`BridgeError::Decoder`].
+pub fn render_libraw_adjustment_plan(
+    path: &Path,
+    plan: &AdjustmentRenderPlan,
+    max_edge: u32,
+    jpeg_quality: u8,
+) -> Result<shadow_domain::ProxyPayload, BridgeError> {
+    plan.validate()?;
+    validate_proxy_max_edge(max_edge)?;
+    validate_jpeg_quality(jpeg_quality)?;
     let handle = open_libraw(path)?;
     let handle = handle.as_ref().ok_or(BridgeError::NullHandle)?;
-    let edits = request.edits;
-    let ffi_request = ffi_edit_request(edits, request.max_edge, request.jpeg_quality);
-    let proxy = handle.render_edited_reference_proxy(&ffi_request)?;
+    let ffi_request = ffi_render_request(plan, max_edge, jpeg_quality);
+    let proxy = handle.render_adjustment_plan(&ffi_request)?;
     Ok(proxy_payload(proxy))
 }
 
-fn ffi_edit_request(
-    edits: BasicEditParameters,
+fn validate_proxy_max_edge(max_edge: u32) -> Result<(), BridgeError> {
+    if (1..=16_384).contains(&max_edge) {
+        Ok(())
+    } else {
+        Err(BridgeError::InvalidEditRequest(
+            "max_edge must be in 1..=16384",
+        ))
+    }
+}
+
+fn ffi_render_request(
+    plan: &AdjustmentRenderPlan,
     max_edge: u32,
     jpeg_quality: u8,
-) -> ffi::FfiBasicEditRequest {
-    ffi::FfiBasicEditRequest {
-        exposure_stops: edits.exposure_stops,
-        contrast_factor: edits.contrast_factor,
-        red_channel_gain: edits.channel_gains[0],
-        green_channel_gain: edits.channel_gains[1],
-        blue_channel_gain: edits.channel_gains[2],
-        saturation_factor: edits.saturation_factor,
+) -> ffi::FfiAdjustmentRenderRequest {
+    ffi::FfiAdjustmentRenderRequest {
+        nodes: plan.nodes.iter().map(ffi_render_node).collect(),
         max_edge,
         jpeg_quality,
+    }
+}
+
+fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustmentNode {
+    let (operation, parameters) = match &node.operation {
+        AdjustmentRenderOperation::Exposure { stops } => {
+            (ffi::FfiAdjustmentOperation::Exposure, vec![*stops])
+        }
+        AdjustmentRenderOperation::Contrast { factor, pivot } => {
+            (ffi::FfiAdjustmentOperation::Contrast, vec![*factor, *pivot])
+        }
+        AdjustmentRenderOperation::ToneCurve { points } => (
+            ffi::FfiAdjustmentOperation::ToneCurve,
+            points.iter().flat_map(|point| [point.x, point.y]).collect(),
+        ),
+        AdjustmentRenderOperation::ChannelGain { channel_gains } => (
+            ffi::FfiAdjustmentOperation::ChannelGain,
+            channel_gains.to_vec(),
+        ),
+        AdjustmentRenderOperation::Saturation { factor } => {
+            (ffi::FfiAdjustmentOperation::Saturation, vec![*factor])
+        }
+    };
+    ffi::FfiAdjustmentNode {
+        node_id: node.node_id.clone(),
+        operation,
+        parameter_schema_version: node.parameter_schema_version,
+        implementation_version: node.implementation_version,
+        enabled: node.enabled,
+        parameters,
     }
 }
 
@@ -647,6 +964,142 @@ mod tests {
     }
 
     #[test]
+    fn basic_compatibility_builds_the_expected_typed_plan() {
+        let plan = basic_adjustment_render_plan(BasicEditParameters::default())
+            .expect("neutral basic edits compile");
+        assert_eq!(plan.nodes.len(), 4);
+        assert!(matches!(
+            plan.nodes[0].operation,
+            AdjustmentRenderOperation::Exposure { stops: 0.0 }
+        ));
+        assert!(matches!(
+            plan.nodes[1].operation,
+            AdjustmentRenderOperation::Contrast {
+                factor: 1.0,
+                pivot: 0.18
+            }
+        ));
+        assert!(matches!(
+            plan.nodes[2].operation,
+            AdjustmentRenderOperation::ChannelGain {
+                channel_gains: [1.0, 1.0, 1.0]
+            }
+        ));
+        assert!(matches!(
+            plan.nodes[3].operation,
+            AdjustmentRenderOperation::Saturation { factor: 1.0 }
+        ));
+    }
+
+    #[test]
+    fn typed_plan_rejects_duplicate_ids_and_malformed_curves() {
+        let node = |node_id: &str, operation| AdjustmentRenderNode {
+            node_id: node_id.to_owned(),
+            parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+            implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
+            enabled: true,
+            operation,
+        };
+        let duplicate = AdjustmentRenderPlan {
+            nodes: vec![
+                node("same", AdjustmentRenderOperation::Exposure { stops: 0.0 }),
+                node(
+                    "same",
+                    AdjustmentRenderOperation::Saturation { factor: 1.0 },
+                ),
+            ],
+        };
+        assert!(matches!(
+            duplicate.validate(),
+            Err(BridgeError::InvalidEditRequest(_))
+        ));
+
+        for points in [
+            vec![
+                ToneCurvePoint { x: 0.1, y: 0.0 },
+                ToneCurvePoint { x: 1.0, y: 1.0 },
+            ],
+            vec![
+                ToneCurvePoint { x: 0.0, y: 0.0 },
+                ToneCurvePoint { x: 0.0, y: 0.5 },
+                ToneCurvePoint { x: 1.0, y: 1.0 },
+            ],
+        ] {
+            let malformed = AdjustmentRenderPlan {
+                nodes: vec![node(
+                    "curve",
+                    AdjustmentRenderOperation::ToneCurve { points },
+                )],
+            };
+            assert!(matches!(
+                malformed.validate(),
+                Err(BridgeError::InvalidEditRequest(_))
+            ));
+        }
+
+        for operation in [
+            AdjustmentRenderOperation::Exposure { stops: -2_000.0 },
+            AdjustmentRenderOperation::Contrast {
+                factor: -0.1,
+                pivot: 0.18,
+            },
+            AdjustmentRenderOperation::ToneCurve {
+                points: vec![
+                    ToneCurvePoint { x: 0.0, y: 0.0 },
+                    ToneCurvePoint {
+                        x: f64::MIN_POSITIVE,
+                        y: f64::MAX,
+                    },
+                    ToneCurvePoint { x: 1.0, y: 1.0 },
+                ],
+            },
+            AdjustmentRenderOperation::ChannelGain {
+                channel_gains: [1.0, 0.0, 1.0],
+            },
+            AdjustmentRenderOperation::Saturation { factor: -0.1 },
+        ] {
+            let invalid = AdjustmentRenderPlan {
+                nodes: vec![node("invalid", operation)],
+            };
+            assert!(matches!(
+                invalid.validate(),
+                Err(BridgeError::InvalidEditRequest(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn typed_plan_rejects_unsupported_contract_versions() {
+        for (parameter_schema_version, implementation_version) in [
+            (
+                ADJUSTMENT_PARAMETER_SCHEMA_VERSION + 1,
+                ADJUSTMENT_IMPLEMENTATION_VERSION,
+            ),
+            (
+                ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+                ADJUSTMENT_IMPLEMENTATION_VERSION + 1,
+            ),
+        ] {
+            let plan = AdjustmentRenderPlan {
+                nodes: vec![AdjustmentRenderNode {
+                    node_id: "future-exposure".to_owned(),
+                    parameter_schema_version,
+                    implementation_version,
+                    enabled: true,
+                    operation: AdjustmentRenderOperation::Exposure { stops: 0.0 },
+                }],
+            };
+
+            assert!(matches!(
+                plan.validate(),
+                Err(BridgeError::InvalidEditRequest(
+                    "adjustment node uses an unsupported schema or implementation version"
+                ))
+            ));
+        }
+    }
+
+    #[test]
     fn warm_edit_session_is_send_sync_and_bounded_before_raw_io() {
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<LibRawEditPreviewSession>();
@@ -790,6 +1243,11 @@ mod tests {
                 let neutral = session
                     .render(BasicEditParameters::default(), 86)
                     .expect("render neutral warm preview");
+                let neutral_plan = basic_adjustment_render_plan(BasicEditParameters::default())
+                    .expect("build neutral typed plan");
+                let neutral_from_plan = session
+                    .render_plan(&neutral_plan, 86)
+                    .expect("render neutral typed plan");
                 let adjusted = session
                     .render(
                         BasicEditParameters {
@@ -801,13 +1259,37 @@ mod tests {
                         86,
                     )
                     .expect("render adjusted warm preview");
+                let mut curved_plan = basic_adjustment_render_plan(BasicEditParameters::default())
+                    .expect("build neutral typed plan");
+                curved_plan.nodes.insert(
+                    2,
+                    AdjustmentRenderNode {
+                        node_id: "test-tone-curve".to_owned(),
+                        parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+                        implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
+                        enabled: true,
+                        operation: AdjustmentRenderOperation::ToneCurve {
+                            points: vec![
+                                ToneCurvePoint { x: 0.0, y: 0.0 },
+                                ToneCurvePoint { x: 0.5, y: 0.7 },
+                                ToneCurvePoint { x: 1.0, y: 1.0 },
+                            ],
+                        },
+                    },
+                );
+                let curved = session
+                    .render_plan(&curved_plan, 86)
+                    .expect("render typed Tone Curve plan");
 
                 assert_eq!(session.dimensions(), neutral.dimensions);
+                assert_eq!(neutral_from_plan.bytes, neutral.bytes);
                 assert_eq!(adjusted.dimensions, neutral.dimensions);
+                assert_eq!(curved.dimensions, neutral.dimensions);
                 assert_eq!(neutral.codec, PreviewCodec::Jpeg);
                 assert!(neutral.bytes.starts_with(&[0xff, 0xd8]));
                 assert!(adjusted.bytes.ends_with(&[0xff, 0xd9]));
                 assert_ne!(adjusted.bytes, neutral.bytes);
+                assert_ne!(curved.bytes, neutral.bytes);
             })
             .expect("spawn small edit worker")
             .join()

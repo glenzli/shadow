@@ -4,7 +4,9 @@
 #include <array>
 #include <cstdlib>
 #include <iostream>
+#include <limits>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace image = shadow::image;
@@ -280,6 +282,72 @@ void warm_edit_preview_bounds_fail_before_decode() {
     );
 }
 
+void edited_proxy_rejects_invalid_nodes_before_decode() {
+    const FakeRgbSession session;
+    const image::ProxyRequest request{.max_edge = 4, .jpeg_quality = 90};
+
+    const auto rejects_before_decode = [&](const image::AdjustmentNode& invalid_node,
+                                           const image::EditErrorCode expected_code,
+                                           const std::string_view message) {
+        const std::array nodes{invalid_node};
+        try {
+            static_cast<void>(image::render_edited_reference_proxy_jpeg(
+                session,
+                nodes,
+                request
+            ));
+            expect(false, message);
+        } catch (const image::EditError& error) {
+            expect(error.code() == expected_code, message);
+            expect(error.node_index() == 0U, "preflight errors retain node provenance");
+        }
+        expect(
+            session.reference_render_count() == 0U,
+            "adjustment preflight rejects invalid nodes before rendering reference RGB"
+        );
+    };
+
+    rejects_before_decode(
+        image::AdjustmentNode{
+            .node_id = "non-finite-disabled-exposure",
+            .enabled = false,
+            .parameters = image::ExposureAdjustment{
+                std::numeric_limits<double>::quiet_NaN(),
+            },
+        },
+        image::EditErrorCode::invalid_parameter,
+        "preflight validates numeric parameters even on disabled nodes"
+    );
+
+    rejects_before_decode(
+        image::AdjustmentNode{
+            .node_id = "future-version",
+            .implementation_version = image::adjustment_implementation_version + 1U,
+            .parameters = image::ExposureAdjustment{},
+        },
+        image::EditErrorCode::unsupported_version,
+        "preflight rejects unsupported adjustment implementations"
+    );
+
+    image::ToneCurve overflowing_slope;
+    overflowing_slope.points = {
+        {0.0, 0.0},
+        {
+            std::numeric_limits<double>::min(),
+            std::numeric_limits<double>::max(),
+        },
+        {1.0, 1.0},
+    };
+    rejects_before_decode(
+        image::AdjustmentNode{
+            .node_id = "overflowing-tone-curve-slope",
+            .parameters = std::move(overflowing_slope),
+        },
+        image::EditErrorCode::invalid_parameter,
+        "preflight rejects non-finite Tone Curve segment slopes"
+    );
+}
+
 } // namespace
 
 int main() {
@@ -290,5 +358,6 @@ int main() {
     edited_proxy_crosses_explicit_linear_srgb_boundary();
     warm_edit_preview_decodes_once_and_renders_repeatedly();
     warm_edit_preview_bounds_fail_before_decode();
+    edited_proxy_rejects_invalid_nodes_before_decode();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

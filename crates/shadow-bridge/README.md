@@ -2,7 +2,7 @@
 
 `shadow-bridge` is the coarse-grained CXX boundary between Rust application state and the C++20 image kernel.
 
-The current bridge performs one read-only operation:
+The decoder side of the bridge follows this coarse-grained path:
 
 ```text
 Rust path
@@ -12,12 +12,13 @@ Rust path
 → pure shadow-domain types
 ```
 
-No LibRaw or CXX type escapes the crate's public API. `inspect_libraw` returns a serializable descriptor snapshot; `extract_best_libraw_preview` returns the kernel-selected embedded preview or `None`; `render_libraw_reference_proxy` returns a bounded display JPEG for the no-preview fallback. `render_libraw_edited_proxy` is the first real edit path: it decodes LibRaw's sRGB reference result to scene-linear sRGB, executes exposure, contrast, resolved RGB channel gain, and saturation nodes in a fixed order, then produces a bounded standard JPEG. The RGB gains are post-demosaic adjustments, not RAW white balance. C++ exceptions become `BridgeError`; Rust panics and C++ exceptions never cross the language boundary directly.
+No LibRaw or CXX type escapes the crate's public API. `inspect_libraw` returns a serializable descriptor snapshot; `extract_best_libraw_preview` returns the kernel-selected embedded preview or `None`; `render_libraw_reference_proxy` returns a bounded display JPEG for the no-preview fallback. The edit boundary accepts a bounded, dependency-ordered `AdjustmentRenderPlan` containing exposure, contrast, Tone Curve, resolved RGB channel gain, and saturation nodes. Plans contain at most 256 uniquely identified nodes and validate versions, finite parameters, and Tone Curve structure before execution. Graph topology, processing stages, masks, layer blending, and shared revisions are compiled before this boundary rather than interpreted here. `render_libraw_edited_proxy` remains the four-node Basic compatibility API, while `render_libraw_adjustment_plan` is the typed one-shot path. RGB gains are post-demosaic adjustments, not RAW white balance. C++ exceptions become `BridgeError`; Rust panics and C++ exceptions never cross the language boundary directly.
 
 For slider interaction, `LibRawEditPreviewSession::open(path, max_edge)` performs that RAW render
 once and retains only a bounded scene-linear float working proxy. Repeated
-`render(edits, jpeg_quality)` calls execute the four basic nodes and JPEG encoding without opening
-or decoding the RAW again. The safe wrapper is `Send + Sync`: its C++ working buffer is immutable,
+`render(edits, jpeg_quality)` calls provide the four-node Basic compatibility path;
+`render_plan(plan, jpeg_quality)` executes a validated typed plan. Neither reopens nor decodes the
+RAW. The safe wrapper is `Send + Sync`: its C++ working buffer is immutable,
 each render owns all temporary state, and no LibRaw object survives preparation. The warm-session
 edge is independently capped at 4096; 1600/2048 are the intended UI choices. The existing
 `render_libraw_edited_proxy` one-shot convenience API remains available for stateless callers.

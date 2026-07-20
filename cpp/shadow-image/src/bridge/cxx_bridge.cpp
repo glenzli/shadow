@@ -2,12 +2,11 @@
 
 #include <shadow/image/edit.hpp>
 
-#include <array>
-#include <cmath>
 #include <filesystem>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace shadow::bridge {
 
@@ -72,79 +71,121 @@ namespace {
     return result;
 }
 
-void validate_basic_edit_parameter(
-    const double value,
-    const double minimum,
-    const double maximum,
-    const std::string_view name,
-    const bool minimum_is_inclusive = true
+inline constexpr std::size_t maximum_adjustment_nodes = 256U;
+inline constexpr std::size_t maximum_adjustment_node_id_bytes = 256U;
+
+[[noreturn]] void throw_invalid_adjustment_plan(std::string message) {
+    throw image::DecodeError(
+        image::DecodeErrorCode::invalid_request,
+        0,
+        std::move(message)
+    );
+}
+
+void require_parameter_count(
+    const FfiAdjustmentNode& node,
+    const std::size_t expected,
+    const std::string_view operation
 ) {
-    const bool below_minimum = minimum_is_inclusive ? value < minimum : value <= minimum;
-    if (!std::isfinite(value) || below_minimum || value > maximum) {
-        throw image::DecodeError(
-            image::DecodeErrorCode::invalid_request,
-            0,
-            "edited proxy " + std::string(name) + " is outside the supported range"
+    if (node.parameters.size() != expected) {
+        throw_invalid_adjustment_plan(
+            "adjustment node " + std::string(operation) + " requires exactly "
+            + std::to_string(expected) + " parameters"
         );
     }
 }
 
-void validate_basic_edits(const FfiBasicEditRequest& request) {
-    validate_basic_edit_parameter(request.exposure_stops, -16.0, 16.0, "exposure stops");
-    validate_basic_edit_parameter(request.contrast_factor, 0.0, 8.0, "contrast factor");
-    validate_basic_edit_parameter(
-        request.red_channel_gain,
-        0.0,
-        16.0,
-        "red channel gain",
-        false
-    );
-    validate_basic_edit_parameter(
-        request.green_channel_gain,
-        0.0,
-        16.0,
-        "green channel gain",
-        false
-    );
-    validate_basic_edit_parameter(
-        request.blue_channel_gain,
-        0.0,
-        16.0,
-        "blue channel gain",
-        false
-    );
-    validate_basic_edit_parameter(request.saturation_factor, 0.0, 8.0, "saturation factor");
+[[nodiscard]] image::AdjustmentNode adjustment_node(const FfiAdjustmentNode& source) {
+    if (
+        source.node_id.empty()
+        || source.node_id.size() > maximum_adjustment_node_id_bytes
+    ) {
+        throw_invalid_adjustment_plan(
+            "adjustment node id must contain between 1 and 256 UTF-8 bytes"
+        );
+    }
+
+    image::AdjustmentNode result{
+        .node_id = std::string(source.node_id.data(), source.node_id.size()),
+        .parameter_schema_version = source.parameter_schema_version,
+        .implementation_version = source.implementation_version,
+        .enabled = source.enabled,
+    };
+
+    switch (source.operation) {
+    case FfiAdjustmentOperation::Exposure:
+        require_parameter_count(source, 1U, "exposure");
+        result.parameters = image::ExposureAdjustment{source.parameters[0]};
+        break;
+    case FfiAdjustmentOperation::Contrast:
+        require_parameter_count(source, 2U, "contrast");
+        result.parameters = image::ContrastAdjustment{
+            source.parameters[0],
+            source.parameters[1],
+        };
+        break;
+    case FfiAdjustmentOperation::ToneCurve: {
+        if (source.parameters.size() % 2U != 0U) {
+            throw_invalid_adjustment_plan(
+                "tone curve parameters must contain flattened x/y pairs"
+            );
+        }
+        const std::size_t point_count = source.parameters.size() / 2U;
+        if (point_count < 2U || point_count > image::maximum_tone_curve_points) {
+            throw_invalid_adjustment_plan(
+                "tone curve must contain between 2 and 256 control points"
+            );
+        }
+
+        image::ToneCurve curve{
+            .parameter_schema_version = source.parameter_schema_version,
+            .implementation_version = source.implementation_version,
+            .points = {},
+        };
+        curve.points.reserve(point_count);
+        for (std::size_t index = 0U; index < source.parameters.size(); index += 2U) {
+            curve.points.push_back(image::ToneCurvePoint{
+                source.parameters[index],
+                source.parameters[index + 1U],
+            });
+        }
+        result.parameters = std::move(curve);
+        break;
+    }
+    case FfiAdjustmentOperation::ChannelGain:
+        require_parameter_count(source, 3U, "channel gain");
+        result.parameters = image::ChannelGainAdjustment{{
+            source.parameters[0],
+            source.parameters[1],
+            source.parameters[2],
+        }};
+        break;
+    case FfiAdjustmentOperation::Saturation:
+        require_parameter_count(source, 1U, "saturation");
+        result.parameters = image::SaturationAdjustment{source.parameters[0]};
+        break;
+    default:
+        throw_invalid_adjustment_plan("adjustment node operation is unsupported");
+    }
+
+    return result;
 }
 
-[[nodiscard]] std::array<image::AdjustmentNode, 4> basic_edit_nodes(
-    const FfiBasicEditRequest& request
+[[nodiscard]] std::vector<image::AdjustmentNode> adjustment_nodes(
+    const FfiAdjustmentRenderRequest& request
 ) {
-    // These are resolved post-demosaic scene-linear RGB gains, not camera-domain RAW white
-    // balance coefficients. Keeping the node name honest prevents a lossy API promise.
-    return {
-        image::AdjustmentNode{
-            .node_id = "basic-exposure",
-            .parameters = image::ExposureAdjustment{request.exposure_stops},
-        },
-        image::AdjustmentNode{
-            .node_id = "basic-contrast",
-            .parameters = image::ContrastAdjustment{request.contrast_factor, 0.18},
-        },
-        image::AdjustmentNode{
-            .node_id = "basic-channel-gain",
-            .parameters = image::ChannelGainAdjustment{
-                {
-                    request.red_channel_gain,
-                    request.green_channel_gain,
-                    request.blue_channel_gain,
-                }
-            },
-        },
-        image::AdjustmentNode{
-            .node_id = "basic-saturation",
-            .parameters = image::SaturationAdjustment{request.saturation_factor},
-        },
-    };
+    if (request.nodes.empty() || request.nodes.size() > maximum_adjustment_nodes) {
+        throw_invalid_adjustment_plan(
+            "adjustment render plan must contain between 1 and 256 nodes"
+        );
+    }
+
+    std::vector<image::AdjustmentNode> result;
+    result.reserve(request.nodes.size());
+    for (const auto& source : request.nodes) {
+        result.push_back(adjustment_node(source));
+    }
+    return result;
 }
 
 } // namespace
@@ -252,11 +293,10 @@ FfiEncodedProxy DecodeHandle::render_reference_proxy(
     return encoded_proxy(proxy);
 }
 
-FfiEncodedProxy DecodeHandle::render_edited_reference_proxy(
-    const FfiBasicEditRequest& request
+FfiEncodedProxy DecodeHandle::render_adjustment_plan(
+    const FfiAdjustmentRenderRequest& request
 ) const {
-    validate_basic_edits(request);
-    const auto nodes = basic_edit_nodes(request);
+    const auto nodes = adjustment_nodes(request);
     const auto proxy = image::render_edited_reference_proxy_jpeg(
         *session_,
         nodes,
@@ -286,10 +326,9 @@ std::uint32_t EditPreviewHandle::max_edge() const noexcept {
     return session_.max_edge();
 }
 
-FfiEncodedProxy EditPreviewHandle::render_basic_edits(
-    const FfiBasicEditRequest& request
+FfiEncodedProxy EditPreviewHandle::render_adjustment_plan(
+    const FfiAdjustmentRenderRequest& request
 ) const {
-    validate_basic_edits(request);
     if (request.max_edge != session_.max_edge()) {
         throw image::DecodeError(
             image::DecodeErrorCode::invalid_request,
@@ -297,7 +336,7 @@ FfiEncodedProxy EditPreviewHandle::render_basic_edits(
             "warm edit preview request does not match the prepared max edge"
         );
     }
-    const auto nodes = basic_edit_nodes(request);
+    const auto nodes = adjustment_nodes(request);
     return encoded_proxy(session_.render_jpeg(nodes, request.jpeg_quality));
 }
 

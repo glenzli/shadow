@@ -3,6 +3,7 @@
 mod asset;
 mod decode;
 mod ids;
+pub mod operation;
 mod recipe;
 mod recipe_diff;
 

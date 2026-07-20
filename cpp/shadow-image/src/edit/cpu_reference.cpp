@@ -355,6 +355,17 @@ void apply_prepared_tone_curve(
     return prepared_tone_curve;
 }
 
+[[nodiscard]] std::vector<std::optional<PreparedToneCurve>> prepare_adjustment_nodes(
+    const std::span<const AdjustmentNode> nodes
+) {
+    std::vector<std::optional<PreparedToneCurve>> prepared_tone_curves;
+    prepared_tone_curves.reserve(nodes.size());
+    for (std::size_t index = 0; index < nodes.size(); ++index) {
+        prepared_tone_curves.push_back(validate_node(nodes[index], index));
+    }
+    return prepared_tone_curves;
+}
+
 [[nodiscard]] float checked_float(
     const double value,
     const std::size_t node_index,
@@ -529,16 +540,16 @@ std::string_view operation_id(const AdjustmentOperation operation) noexcept {
     return "shadow.unknown";
 }
 
+void validate_adjustment_nodes(const std::span<const AdjustmentNode> nodes) {
+    static_cast<void>(prepare_adjustment_nodes(nodes));
+}
+
 FloatRgbImage execute_adjustment_nodes(
     const FloatRgbImage& input,
     const std::span<const AdjustmentNode> nodes
 ) {
     validate_image(input);
-    std::vector<std::optional<PreparedToneCurve>> prepared_tone_curves;
-    prepared_tone_curves.reserve(nodes.size());
-    for (std::size_t index = 0; index < nodes.size(); ++index) {
-        prepared_tone_curves.push_back(validate_node(nodes[index], index));
-    }
+    const auto prepared_tone_curves = prepare_adjustment_nodes(nodes);
 
     FloatRgbImage output = input;
     for (std::size_t index = 0; index < nodes.size(); ++index) {

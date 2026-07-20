@@ -33,7 +33,8 @@ pub use decode_snapshot::{
 pub use feedback::{FeedbackPage, MAX_FEEDBACK_PAGE_SIZE};
 pub use import_journal::{ImportSession, ImportSessionState, ImportSessionSummary};
 pub use recipe::{
-    CommitRecipe, RecipeCommitRecord, RecipeRefKind, RecipeRefRecord, RecipeRefTarget, SetRecipeRef,
+    CommitRecipe, RecipeCommitRecord, RecipeRefExpectation, RecipeRefKind, RecipeRefRecord,
+    RecipeRefTarget, SetRecipeRef,
 };
 pub use review::{ReviewCursor, ReviewItemRecord, ReviewPageRecord};
 pub use store::CatalogStore;
@@ -374,6 +375,15 @@ pub enum CatalogError {
     InvalidRecipeRefName(String),
     #[error("Recipe ref name {0:?} appears more than once in one commit")]
     DuplicateRecipeRefName(String),
+    #[error(
+        "Recipe ref {name:?} for photo {photo_id} did not match expectation {expected:?}; current commit is {actual:?}"
+    )]
+    RecipeRefExpectationMismatch {
+        photo_id: PhotoId,
+        name: String,
+        expected: RecipeRefExpectation,
+        actual: Option<shadow_domain::RecipeCommitId>,
+    },
     #[error("unknown persisted Recipe ref kind: {0}")]
     UnknownRecipeRefKind(String),
     #[error("invalid AI feedback: {0}")]

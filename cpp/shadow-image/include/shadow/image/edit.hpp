@@ -160,6 +160,12 @@ private:
 [[nodiscard]] AdjustmentOperation operation(const AdjustmentParameters& parameters) noexcept;
 [[nodiscard]] std::string_view operation_id(AdjustmentOperation operation) noexcept;
 
+// Validates the complete adjustment plan without requiring image pixels. All nodes, including
+// disabled ones, are checked for supported versions, finite parameters, and valid Tone Curve
+// geometry/slopes. This lets callers reject malformed work before an expensive decode. Pixel-
+// dependent overflow remains the responsibility of execute_adjustment_nodes().
+void validate_adjustment_nodes(std::span<const AdjustmentNode> nodes);
+
 // Executes an intentionally compact subset of the future typed edit graph. The recommended
 // default pipeline order is Exposure -> Contrast -> ToneCurve -> ChannelGain -> Saturation, but
 // that is a recipe convention: this executor always applies nodes in the supplied span order.

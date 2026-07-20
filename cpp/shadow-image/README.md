@@ -37,27 +37,31 @@ primaries, white point, and luminance coefficients. It is not legal to feed the 
 display-referred `PixelBuffer` directly into this path: a future camera/display color transform
 must establish the declared working space first.
 
-The version-1 ordered node executor currently supports exposure, pivoted contrast, resolved
-RGB channel gains, and luma-preserving saturation. It deliberately preserves negative
+The version-1 ordered node executor currently supports exposure, pivoted contrast, the versioned
+piecewise-linear Tone Curve, resolved RGB channel gains, and luma-preserving saturation. It
+deliberately preserves negative
 and greater-than-one scene values, performs no implicit gamut mapping or clipping, rejects
 NaN/Inf and float overflow, and refuses unknown schema/implementation versions. Node order is
-observable and stable. This linear executor is the CPU reference subset of the future typed DAG;
+observable and stable. This ordered executor is the CPU reference subset of the future typed DAG;
 masks, branching, blending, tile scheduling, and GPU implementations remain separate work.
+`validate_adjustment_nodes` exposes the same parameter validation without requiring pixels, so
+the one-shot edited-proxy path rejects malformed plans before asking a decoder to render RGB.
 
-The independent `apply_tone_curve` operator establishes a versioned CPU reference contract
-without changing that first node subset. Version 1 uses at most 256 finite control points whose
+Tone Curve is available both through the standalone `apply_tone_curve` reference operator and as
+a normal ordered executor node. Version 1 uses 2 through 256 finite control points whose
 strictly increasing x coordinates span exactly 0 through 1. It applies a piecewise-linear curve
 to each scene-linear working-RGB channel, interpolates normalized samples, and extrapolates
 negative and super-white samples with the endpoint segment slopes. It never clips. This is a
-transparent baseline for Recipe integration and parity tests; it does not claim to be a final
+transparent baseline for parity tests; it does not claim to be a final
 perceptual, luminance-only, or display-referred tone-curve model.
 
 `WarmEditPreviewSession` is the interactive path for this exact version-1 subset. Preparation
 asks the decoder for reference RGB once, converts samples to scene-linear sRGB, and bilinearly
-downsamples them into an immutable float working proxy before any adjustment. This reordering is
-valid only because exposure, pivot contrast, RGB gains, and saturation are pixel-local affine
-operations in the same linear domain; future nonlinear, masked, or neighborhood nodes must use
-an explicitly different preview strategy. The warm edge is capped at 4096 (at most 192 MiB for a
+downsamples them into an immutable float working proxy before any adjustment. Exposure, pivot
+contrast, RGB gains, and saturation follow the current linear proxy assumptions. Tone Curve is
+nonlinear, so executing it on the prepared proxy is an interactive approximation rather than a
+bit-equivalent full-resolution result; masked and neighborhood nodes require an explicitly
+different preview strategy. The warm edge is capped at 4096 (at most 192 MiB for a
 square interleaved RGB float32 proxy; typical 3:2 images and the UI's 1600/2048 choices use less).
 Each render owns its output/edit/JPEG buffers, so const renders may safely run concurrently; the
 original decoder session is neither retained nor revisited during slider interaction.

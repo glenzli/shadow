@@ -36,8 +36,8 @@ public:
         std::uint32_t max_edge,
         std::uint8_t jpeg_quality
     ) const;
-    [[nodiscard]] FfiEncodedProxy render_edited_reference_proxy(
-        const FfiBasicEditRequest& request
+    [[nodiscard]] FfiEncodedProxy render_adjustment_plan(
+        const FfiAdjustmentRenderRequest& request
     ) const;
     [[nodiscard]] std::unique_ptr<EditPreviewHandle> prepare_edit_preview(
         std::uint32_t max_edge
@@ -49,7 +49,7 @@ private:
 };
 
 // Unlike DecodeHandle, this handle no longer owns or references a decoder. Its working proxy
-// is immutable after preparation and render_basic_edits() uses only call-local state, so const
+// is immutable after preparation and render_adjustment_plan() uses only call-local state, so const
 // calls may safely run concurrently on different worker threads.
 class EditPreviewHandle final {
 public:
@@ -61,8 +61,8 @@ public:
 
     [[nodiscard]] FfiDimensions dimensions() const noexcept;
     [[nodiscard]] std::uint32_t max_edge() const noexcept;
-    [[nodiscard]] FfiEncodedProxy render_basic_edits(
-        const FfiBasicEditRequest& request
+    [[nodiscard]] FfiEncodedProxy render_adjustment_plan(
+        const FfiAdjustmentRenderRequest& request
     ) const;
 
 private:

@@ -8,7 +8,7 @@ use std::{
 use shadow_ai::{
     FeedbackEvent, FeedbackForgetFact, LearningScope, NewFeedbackEvent, NewFeedbackForgetFact,
 };
-use shadow_domain::{AssetLocation, ImportSessionId, PhotoId, RepresentationId};
+use shadow_domain::{AssetLocation, ImportSessionId, PhotoId, RecipeCommitId, RepresentationId};
 
 use crate::{
     CachedArtifactRecord, Catalog, CatalogError, CatalogStats, CatalogStore, CommitRecipe,
@@ -86,6 +86,11 @@ enum Message {
     RecipeCommits(
         PhotoId,
         SyncSender<Result<Vec<RecipeCommitRecord>, CatalogError>>,
+    ),
+    RecipeCommit(
+        PhotoId,
+        RecipeCommitId,
+        SyncSender<Result<Option<RecipeCommitRecord>, CatalogError>>,
     ),
     RecipeRef(
         PhotoId,
@@ -412,7 +417,8 @@ impl CatalogHandle {
     ///
     /// # Errors
     ///
-    /// Returns [`CatalogError`] when the commit is invalid or persistence fails.
+    /// Returns [`CatalogError`] when the commit is invalid, a guarded ref has
+    /// changed since it was read, or persistence fails.
     pub fn commit_recipe(
         &self,
         request: &CommitRecipe,
@@ -430,6 +436,19 @@ impl CatalogHandle {
         photo_id: PhotoId,
     ) -> Result<Vec<RecipeCommitRecord>, CatalogError> {
         self.request(|response| Message::RecipeCommits(photo_id, response))
+    }
+
+    /// Resolves one immutable Recipe commit by owner and id.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] when the actor or persisted data is invalid.
+    pub fn recipe_commit(
+        &self,
+        photo_id: PhotoId,
+        commit_id: RecipeCommitId,
+    ) -> Result<Option<RecipeCommitRecord>, CatalogError> {
+        self.request(|response| Message::RecipeCommit(photo_id, commit_id, response))
     }
 
     /// Resolves a named Recipe ref without changing it.
@@ -684,15 +703,16 @@ fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
             Message::RecipeCommits(photo_id, response) => {
                 let _ = response.send(catalog.recipe_commits(photo_id));
             }
+            Message::RecipeCommit(photo_id, commit_id, response) => {
+                respond(&response, catalog.recipe_commit(photo_id, commit_id));
+            }
             Message::RecipeRef(photo_id, name, response) => {
                 let _ = response.send(catalog.recipe_ref(photo_id, &name));
             }
             Message::SetRecipeRef(request, response) => {
                 let _ = response.send(catalog.set_recipe_ref(request.as_ref()));
             }
-            Message::Feedback(message) => {
-                run_feedback_message(&mut catalog, message);
-            }
+            Message::Feedback(message) => run_feedback_message(&mut catalog, message),
             Message::BeginImportSession(root, now_ms, response) => {
                 let _ = response.send(catalog.begin_import_session(&root, now_ms));
             }
@@ -756,7 +776,9 @@ mod tests {
     use std::thread;
 
     use shadow_ai::{FeedbackAction, PresentationContext};
-    use shadow_domain::{Platform, RepresentationKind};
+    use shadow_domain::{
+        EntityId, Platform, RecipeCommit, RecipeId, RecipeSnapshot, RepresentationKind,
+    };
 
     use super::*;
 
@@ -787,6 +809,62 @@ mod tests {
             handle.join().expect("join client thread");
         }
         assert_eq!(actor.handle().stats().expect("stats").photos, 4);
+        actor.shutdown().expect("shutdown actor");
+    }
+
+    #[test]
+    fn actor_resolves_exact_recipe_commits_without_crossing_photo_owners() {
+        let actor = CatalogActor::spawn_in_memory().expect("spawn catalog actor");
+        let handle = actor.handle();
+        let register = |path: &str| RegisterAsset {
+            kind: RepresentationKind::OriginalRaw,
+            location: AssetLocation::new(Platform::MacOs, path.as_bytes().to_vec(), path),
+            byte_len: 42,
+            modified_at_ms: Some(100),
+            now_ms: 1_700_000_000_000,
+        };
+        let owner = handle
+            .register_asset(&register("/photos/exact-owner.dng"))
+            .expect("register commit owner");
+        let other = handle
+            .register_asset(&register("/photos/exact-other.dng"))
+            .expect("register other photo");
+        let commit = RecipeCommit::new(
+            RecipeCommitId::new_v7(),
+            RecipeId::new_v7(),
+            Vec::new(),
+            RecipeSnapshot::empty(),
+            Some("Exact actor lookup".to_owned()),
+            1_700_000_001_000,
+        )
+        .expect("build Recipe commit");
+        let expected = handle
+            .commit_recipe(&CommitRecipe {
+                photo_id: owner.photo_id,
+                commit: commit.clone(),
+                update_refs: Vec::new(),
+            })
+            .expect("commit Recipe through actor");
+
+        assert_eq!(
+            handle
+                .recipe_commit(owner.photo_id, commit.id())
+                .expect("resolve exact commit through actor"),
+            Some(expected)
+        );
+        assert!(
+            handle
+                .recipe_commit(other.photo_id, commit.id())
+                .expect("query commit through the wrong owner")
+                .is_none()
+        );
+        assert!(
+            handle
+                .recipe_commit(owner.photo_id, RecipeCommitId::new_v7())
+                .expect("query absent exact commit through actor")
+                .is_none()
+        );
+
         actor.shutdown().expect("shutdown actor");
     }
 

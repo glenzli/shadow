@@ -769,7 +769,7 @@ Item {
                                     Layout.leftMargin: 18
                                     Layout.rightMargin: 18
                                     Layout.preferredHeight: 36
-                                    text: "RESET TO NEUTRAL"
+                                    text: "RESET SLIDERS"
                                     enabled: precision.editor.active && !precision.editor.stateBusy
                                     onClicked: precision.editor.resetEdits()
                                     background: Rectangle {

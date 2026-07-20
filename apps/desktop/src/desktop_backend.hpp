@@ -105,13 +105,16 @@ public:
     [[nodiscard]] BackendEditedPreview renderBasicEditPreview(
         const QString& photo_id,
         const QString& source_path,
+        const QString& base_commit_id,
         const BackendBasicEditParameters& parameters,
         std::uint32_t max_edge,
-        std::uint8_t jpeg_quality
+        std::uint8_t jpeg_quality,
+        bool use_working_recipe
     ) const;
     [[nodiscard]] BackendPhotoEditState saveBasicEditVersion(
         const QString& photo_id,
         const QString& source_path,
+        const QString& base_commit_id,
         const BackendBasicEditParameters& parameters,
         const QString& version_name
     ) const;

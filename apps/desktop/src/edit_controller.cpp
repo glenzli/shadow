@@ -35,6 +35,7 @@ constexpr int EDIT_DEBOUNCE_MS = 140;
     const std::shared_ptr<DesktopBackend>& backend,
     const QString& photo_id,
     const QString& source_path,
+    const QString& base_commit_id,
     const BackendBasicEditParameters parameters,
     const QString& version_name,
     const quint64 generation
@@ -46,6 +47,7 @@ constexpr int EDIT_DEBOUNCE_MS = 140;
         result.state = backend->saveBasicEditVersion(
             photo_id,
             source_path,
+            base_commit_id,
             parameters,
             version_name
         );
@@ -81,6 +83,7 @@ constexpr int EDIT_DEBOUNCE_MS = 140;
     const std::shared_ptr<DesktopBackend>& backend,
     const QString& photo_id,
     const QString& source_path,
+    const QString& base_commit_id,
     const BackendBasicEditParameters parameters,
     const EditPreviewGeneration generation
 ) {
@@ -90,9 +93,11 @@ constexpr int EDIT_DEBOUNCE_MS = 140;
         result.preview = backend->renderBasicEditPreview(
             photo_id,
             source_path,
+            base_commit_id,
             parameters,
             EDIT_PREVIEW_EDGE,
-            EDIT_PREVIEW_QUALITY
+            EDIT_PREVIEW_QUALITY,
+            generation.kind == EditPreviewKind::Current
         );
     } catch (const std::exception& error) {
         result.error = QString::fromUtf8(error.what());
@@ -316,6 +321,7 @@ void EditController::openPhoto(
     source_path_ = source_path;
     title_ = title;
     versions_.replace({});
+    working_commit_id_.clear();
     committed_parameters_ = {};
     clearSessionHistory();
     setParameters({});
@@ -472,6 +478,7 @@ void EditController::saveVersion(const QString& version_name) {
         backend_,
         photo_id_,
         source_path_,
+        working_commit_id_,
         parameters_,
         name,
         photo_generation_
@@ -618,6 +625,7 @@ void EditController::startPreviewRender() {
         backend_,
         photo_id_,
         source_path_,
+        working_commit_id_,
         parameters_,
         EditPreviewGeneration{
             .kind = EditPreviewKind::Current,
@@ -646,6 +654,7 @@ void EditController::maybeStartBeforePreview() {
         backend_,
         photo_id_,
         source_path_,
+        QString{},
         BackendBasicEditParameters{},
         EditPreviewGeneration{
             .kind = EditPreviewKind::NeutralBefore,
@@ -661,6 +670,7 @@ void EditController::applyState(BackendPhotoEditState state) {
         return;
     }
     committed_parameters_ = state.parameters;
+    working_commit_id_ = std::move(state.working_commit_id);
     setParameters(state.parameters);
     clearSessionHistory();
     versions_.replace(std::move(state.versions));

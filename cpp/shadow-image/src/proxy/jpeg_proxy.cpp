@@ -467,6 +467,7 @@ EncodedProxy render_edited_reference_proxy_jpeg(
     const ProxyRequest request
 ) {
     validate_proxy_request(request);
+    validate_adjustment_nodes(nodes);
     const PixelBuffer reference_rgb = session.render_reference_rgb();
     const FloatRgbImage scene_linear = decode_srgb_transfer(reference_rgb);
     const FloatRgbImage edited = execute_adjustment_nodes(scene_linear, nodes);

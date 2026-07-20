@@ -196,17 +196,22 @@ BackendPhotoEditState DesktopBackend::photoEditState(
 BackendEditedPreview DesktopBackend::renderBasicEditPreview(
     const QString& photo_id,
     const QString& source_path,
+    const QString& base_commit_id,
     const BackendBasicEditParameters& parameters,
     const std::uint32_t max_edge,
-    const std::uint8_t jpeg_quality
+    const std::uint8_t jpeg_quality,
+    const bool use_working_recipe
 ) const {
-    const auto ffi = ffi_parameters(parameters);
+    shadow::desktop::FfiEditPreviewRequest request;
+    request.base_commit_id = base_commit_id.toStdString();
+    request.parameters = ffi_parameters(parameters);
+    request.max_edge = max_edge;
+    request.jpeg_quality = jpeg_quality;
+    request.use_working_recipe = use_working_recipe;
     const auto payload = impl_->session->render_basic_edit_preview(
         photo_id.toStdString(),
         source_path.toStdString(),
-        ffi,
-        max_edge,
-        jpeg_quality
+        request
     );
     return {
         .bytes = qbytes(payload.bytes),
@@ -218,6 +223,7 @@ BackendEditedPreview DesktopBackend::renderBasicEditPreview(
 BackendPhotoEditState DesktopBackend::saveBasicEditVersion(
     const QString& photo_id,
     const QString& source_path,
+    const QString& base_commit_id,
     const BackendBasicEditParameters& parameters,
     const QString& version_name
 ) const {
@@ -225,6 +231,7 @@ BackendPhotoEditState DesktopBackend::saveBasicEditVersion(
     return edit_state(impl_->session->save_basic_edit_version(
         photo_id.toStdString(),
         source_path.toStdString(),
+        base_commit_id.toStdString(),
         ffi,
         version_name.toStdString()
     ));
