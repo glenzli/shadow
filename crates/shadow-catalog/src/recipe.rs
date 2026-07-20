@@ -1,0 +1,561 @@
+use rusqlite::{OptionalExtension, Transaction, params};
+use shadow_domain::{EntityId, PhotoId, RecipeCommit, RecipeCommitId, RecipeId};
+
+use crate::{Catalog, CatalogError, cache_artifact::digest, read_id};
+
+/// The semantic role of a movable name that points at an immutable commit.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub enum RecipeRefKind {
+    Working,
+    Branch,
+    NamedVersion,
+    Tag,
+}
+
+impl RecipeRefKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Working => "working",
+            Self::Branch => "branch",
+            Self::NamedVersion => "named_version",
+            Self::Tag => "tag",
+        }
+    }
+}
+
+/// One ref update performed atomically with a new immutable commit.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct RecipeRefTarget {
+    pub name: String,
+    pub kind: RecipeRefKind,
+}
+
+/// Writes one already-validated domain commit for a photo.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CommitRecipe {
+    pub photo_id: PhotoId,
+    pub commit: RecipeCommit,
+    pub update_refs: Vec<RecipeRefTarget>,
+}
+
+/// An immutable commit plus its durable content identity and owner.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RecipeCommitRecord {
+    pub photo_id: PhotoId,
+    pub commit: RecipeCommit,
+    pub snapshot_digest: [u8; 32],
+}
+
+/// A durable movable name. Moving it never mutates or deletes a commit.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct RecipeRefRecord {
+    pub photo_id: PhotoId,
+    pub name: String,
+    pub kind: RecipeRefKind,
+    pub commit_id: RecipeCommitId,
+    pub updated_at_ms: i64,
+}
+
+/// Explicitly moves or creates one ref after validating commit ownership.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct SetRecipeRef {
+    pub photo_id: PhotoId,
+    pub name: String,
+    pub kind: RecipeRefKind,
+    pub commit_id: RecipeCommitId,
+    pub updated_at_ms: i64,
+}
+
+impl Catalog {
+    /// Atomically inserts an immutable Recipe commit, its ordered parent edges,
+    /// and an optional movable ref.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] when the snapshot is invalid, a parent belongs
+    /// to another photo, the commit id already exists, or persistence fails.
+    pub fn commit_recipe(
+        &mut self,
+        request: &CommitRecipe,
+    ) -> Result<RecipeCommitRecord, CatalogError> {
+        request
+            .commit
+            .validate()
+            .map_err(|error| CatalogError::InvalidRecipe(error.to_string()))?;
+        let mut ref_names = std::collections::BTreeSet::new();
+        for target in &request.update_refs {
+            validate_ref_name(&target.name)?;
+            if !ref_names.insert(&target.name) {
+                return Err(CatalogError::DuplicateRecipeRefName(target.name.clone()));
+            }
+        }
+        let commit_json =
+            serde_json::to_string(&request.commit).map_err(CatalogError::RecipeJson)?;
+        let snapshot_json =
+            serde_json::to_vec(request.commit.snapshot()).map_err(CatalogError::RecipeJson)?;
+        let snapshot_digest = *blake3::hash(&snapshot_json).as_bytes();
+        let transaction = self.connection.transaction()?;
+        ensure_photo(&transaction, request.photo_id)?;
+        ensure_commit_absent(&transaction, request.commit.id())?;
+        for parent in request.commit.parents() {
+            ensure_commit_owner(&transaction, request.photo_id, *parent)?;
+        }
+        transaction.execute(
+            "INSERT INTO recipe_commits(
+                 id, photo_id, recipe_id, commit_json, snapshot_digest, created_at_ms
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                request.commit.id().as_bytes().as_slice(),
+                request.photo_id.as_bytes().as_slice(),
+                request.commit.recipe_id().as_bytes().as_slice(),
+                commit_json,
+                snapshot_digest.as_slice(),
+                request.commit.created_at_ms(),
+            ],
+        )?;
+        for (position, parent) in request.commit.parents().iter().enumerate() {
+            let position = i64::try_from(position).map_err(|error| {
+                CatalogError::Sqlite(rusqlite::Error::ToSqlConversionFailure(Box::new(error)))
+            })?;
+            transaction.execute(
+                "INSERT INTO recipe_commit_parents(commit_id, parent_id, photo_id, position)
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![
+                    request.commit.id().as_bytes().as_slice(),
+                    parent.as_bytes().as_slice(),
+                    request.photo_id.as_bytes().as_slice(),
+                    position,
+                ],
+            )?;
+        }
+        for target in &request.update_refs {
+            upsert_ref(
+                &transaction,
+                request.photo_id,
+                &target.name,
+                target.kind,
+                request.commit.id(),
+                request.commit.created_at_ms(),
+            )?;
+        }
+        transaction.commit()?;
+        Ok(RecipeCommitRecord {
+            photo_id: request.photo_id,
+            commit: request.commit.clone(),
+            snapshot_digest,
+        })
+    }
+
+    /// Returns every immutable commit for a photo, newest author timestamp first.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] when stored JSON, identity, or graph state is invalid.
+    pub fn recipe_commits(
+        &self,
+        photo_id: PhotoId,
+    ) -> Result<Vec<RecipeCommitRecord>, CatalogError> {
+        let mut statement = self.connection.prepare(
+            "SELECT id, recipe_id, commit_json, snapshot_digest
+             FROM recipe_commits
+             WHERE photo_id = ?1
+             ORDER BY created_at_ms DESC, id DESC",
+        )?;
+        let rows = statement.query_map([photo_id.as_bytes().as_slice()], |row| {
+            Ok((
+                read_id::<RecipeCommitId>(row, 0)?,
+                read_id::<RecipeId>(row, 1)?,
+                row.get::<_, String>(2)?,
+                digest(row.get(3)?, 3)?,
+            ))
+        })?;
+        let mut records = Vec::new();
+        for row in rows {
+            let (stored_id, stored_recipe_id, json, snapshot_digest) = row?;
+            let commit: RecipeCommit =
+                serde_json::from_str(&json).map_err(CatalogError::RecipeJson)?;
+            commit
+                .validate()
+                .map_err(|error| CatalogError::InvalidRecipe(error.to_string()))?;
+            if commit.id() != stored_id || commit.recipe_id() != stored_recipe_id {
+                return Err(CatalogError::InvalidRecipe(
+                    "stored Recipe JSON identity disagrees with its indexed columns".into(),
+                ));
+            }
+            if commit.parents() != stored_parents(&self.connection, stored_id)? {
+                return Err(CatalogError::InvalidRecipe(
+                    "stored Recipe JSON parents disagree with normalized parent edges".into(),
+                ));
+            }
+            let snapshot_json =
+                serde_json::to_vec(commit.snapshot()).map_err(CatalogError::RecipeJson)?;
+            if blake3::hash(&snapshot_json).as_bytes() != &snapshot_digest {
+                return Err(CatalogError::InvalidRecipe(
+                    "stored Recipe snapshot digest does not match".into(),
+                ));
+            }
+            records.push(RecipeCommitRecord {
+                photo_id,
+                commit,
+                snapshot_digest,
+            });
+        }
+        Ok(records)
+    }
+
+    /// Returns one ref and the immutable commit id it currently names.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] for an invalid ref name or persisted value.
+    pub fn recipe_ref(
+        &self,
+        photo_id: PhotoId,
+        name: &str,
+    ) -> Result<Option<RecipeRefRecord>, CatalogError> {
+        validate_ref_name(name)?;
+        self.connection
+            .query_row(
+                "SELECT kind, commit_id, updated_at_ms
+                 FROM recipe_refs WHERE photo_id = ?1 AND name = ?2",
+                params![photo_id.as_bytes().as_slice(), name],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        read_id::<RecipeCommitId>(row, 1)?,
+                        row.get::<_, i64>(2)?,
+                    ))
+                },
+            )
+            .optional()?
+            .map(|(kind, commit_id, updated_at_ms)| {
+                Ok(RecipeRefRecord {
+                    photo_id,
+                    name: name.to_owned(),
+                    kind: parse_ref_kind(&kind)?,
+                    commit_id,
+                    updated_at_ms,
+                })
+            })
+            .transpose()
+    }
+
+    /// Moves a ref to an existing commit owned by the same photo.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] if the name is invalid, the target is absent or
+    /// belongs to another photo, or the transaction fails.
+    pub fn set_recipe_ref(&mut self, request: &SetRecipeRef) -> Result<(), CatalogError> {
+        validate_ref_name(&request.name)?;
+        let transaction = self.connection.transaction()?;
+        ensure_commit_owner(&transaction, request.photo_id, request.commit_id)?;
+        upsert_ref(
+            &transaction,
+            request.photo_id,
+            &request.name,
+            request.kind,
+            request.commit_id,
+            request.updated_at_ms,
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
+}
+
+fn ensure_photo(transaction: &Transaction<'_>, photo_id: PhotoId) -> Result<(), CatalogError> {
+    let present = transaction.query_row(
+        "SELECT EXISTS(SELECT 1 FROM photos WHERE id = ?1)",
+        [photo_id.as_bytes().as_slice()],
+        |row| row.get::<_, bool>(0),
+    )?;
+    if present {
+        Ok(())
+    } else {
+        Err(CatalogError::PhotoNotFound(photo_id))
+    }
+}
+
+fn ensure_commit_absent(
+    transaction: &Transaction<'_>,
+    commit_id: RecipeCommitId,
+) -> Result<(), CatalogError> {
+    let present = transaction.query_row(
+        "SELECT EXISTS(SELECT 1 FROM recipe_commits WHERE id = ?1)",
+        [commit_id.as_bytes().as_slice()],
+        |row| row.get::<_, bool>(0),
+    )?;
+    if present {
+        Err(CatalogError::RecipeCommitAlreadyExists(commit_id))
+    } else {
+        Ok(())
+    }
+}
+
+fn ensure_commit_owner(
+    transaction: &Transaction<'_>,
+    photo_id: PhotoId,
+    commit_id: RecipeCommitId,
+) -> Result<(), CatalogError> {
+    let owner = transaction
+        .query_row(
+            "SELECT photo_id FROM recipe_commits WHERE id = ?1",
+            [commit_id.as_bytes().as_slice()],
+            |row| read_id::<PhotoId>(row, 0),
+        )
+        .optional()?;
+    match owner {
+        Some(owner) if owner == photo_id => Ok(()),
+        Some(_) => Err(CatalogError::RecipeCommitOwnerMismatch {
+            photo_id,
+            commit_id,
+        }),
+        None => Err(CatalogError::RecipeCommitNotFound(commit_id)),
+    }
+}
+
+fn upsert_ref(
+    transaction: &Transaction<'_>,
+    photo_id: PhotoId,
+    name: &str,
+    kind: RecipeRefKind,
+    commit_id: RecipeCommitId,
+    updated_at_ms: i64,
+) -> Result<(), CatalogError> {
+    transaction.execute(
+        "INSERT INTO recipe_refs(photo_id, name, kind, commit_id, updated_at_ms)
+         VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(photo_id, name) DO UPDATE SET
+             kind = excluded.kind,
+             commit_id = excluded.commit_id,
+             updated_at_ms = excluded.updated_at_ms",
+        params![
+            photo_id.as_bytes().as_slice(),
+            name,
+            kind.as_str(),
+            commit_id.as_bytes().as_slice(),
+            updated_at_ms,
+        ],
+    )?;
+    Ok(())
+}
+
+fn stored_parents(
+    connection: &rusqlite::Connection,
+    commit_id: RecipeCommitId,
+) -> Result<Vec<RecipeCommitId>, CatalogError> {
+    let mut statement = connection.prepare(
+        "SELECT parent_id FROM recipe_commit_parents
+         WHERE commit_id = ?1 ORDER BY position",
+    )?;
+    statement
+        .query_map([commit_id.as_bytes().as_slice()], |row| {
+            read_id::<RecipeCommitId>(row, 0)
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
+}
+
+fn validate_ref_name(name: &str) -> Result<(), CatalogError> {
+    if name.is_empty() || name.len() > 255 || name.chars().any(char::is_control) {
+        return Err(CatalogError::InvalidRecipeRefName(name.to_owned()));
+    }
+    Ok(())
+}
+
+fn parse_ref_kind(value: &str) -> Result<RecipeRefKind, CatalogError> {
+    match value {
+        "working" => Ok(RecipeRefKind::Working),
+        "branch" => Ok(RecipeRefKind::Branch),
+        "named_version" => Ok(RecipeRefKind::NamedVersion),
+        "tag" => Ok(RecipeRefKind::Tag),
+        _ => Err(CatalogError::UnknownRecipeRefKind(value.to_owned())),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use shadow_domain::{AssetLocation, EntityId, Platform, RecipeSnapshot, RepresentationKind};
+
+    use super::*;
+    use crate::RegisterAsset;
+
+    #[test]
+    fn immutable_commits_branch_without_overwriting_the_previous_head() {
+        let (mut catalog, photo_id) = catalog_with_photo("/photos/edit.dng");
+        let recipe_id = RecipeId::new_v7();
+        let root = commit(recipe_id, Vec::new(), "Natural base", 100);
+        catalog
+            .commit_recipe(&CommitRecipe {
+                photo_id,
+                commit: root.clone(),
+                update_refs: vec![RecipeRefTarget {
+                    name: "working".into(),
+                    kind: RecipeRefKind::Working,
+                }],
+            })
+            .expect("commit root");
+
+        let warm = commit(recipe_id, vec![root.id()], "Warm editorial", 200);
+        catalog
+            .commit_recipe(&CommitRecipe {
+                photo_id,
+                commit: warm.clone(),
+                update_refs: vec![RecipeRefTarget {
+                    name: "working".into(),
+                    kind: RecipeRefKind::Working,
+                }],
+            })
+            .expect("commit child");
+        assert_eq!(
+            catalog
+                .recipe_ref(photo_id, "working")
+                .expect("read working ref")
+                .expect("working ref")
+                .commit_id,
+            warm.id()
+        );
+
+        catalog
+            .set_recipe_ref(&SetRecipeRef {
+                photo_id,
+                name: "versions/natural-base".into(),
+                kind: RecipeRefKind::NamedVersion,
+                commit_id: root.id(),
+                updated_at_ms: 250,
+            })
+            .expect("name old version");
+        let commits = catalog.recipe_commits(photo_id).expect("list history");
+        assert_eq!(commits.len(), 2);
+        assert_eq!(commits[0].commit.id(), warm.id());
+        assert_eq!(commits[1].commit.id(), root.id());
+        assert_eq!(commits[1].commit.message(), Some("Natural base"));
+        assert_eq!(commits[0].snapshot_digest, commits[1].snapshot_digest);
+    }
+
+    #[test]
+    fn commits_cannot_be_replaced_or_parented_across_photos() {
+        let (mut catalog, first_photo) = catalog_with_photo("/photos/one.dng");
+        let second = catalog
+            .register_asset(&RegisterAsset {
+                kind: RepresentationKind::OriginalRaw,
+                location: AssetLocation::new(
+                    Platform::MacOs,
+                    b"/photos/two.dng".to_vec(),
+                    "/photos/two.dng",
+                ),
+                byte_len: 2,
+                modified_at_ms: Some(2),
+                now_ms: 2,
+            })
+            .expect("register second photo");
+        let recipe_id = RecipeId::new_v7();
+        let root = commit(recipe_id, Vec::new(), "Root", 100);
+        let request = CommitRecipe {
+            photo_id: first_photo,
+            commit: root.clone(),
+            update_refs: Vec::new(),
+        };
+        catalog.commit_recipe(&request).expect("commit root");
+        assert!(matches!(
+            catalog.commit_recipe(&request),
+            Err(CatalogError::RecipeCommitAlreadyExists(id)) if id == root.id()
+        ));
+
+        let invalid_child = commit(recipe_id, vec![root.id()], "Wrong owner", 200);
+        assert!(matches!(
+            catalog.commit_recipe(&CommitRecipe {
+                photo_id: second.photo_id,
+                commit: invalid_child,
+                update_refs: Vec::new(),
+            }),
+            Err(CatalogError::RecipeCommitOwnerMismatch { .. })
+        ));
+    }
+
+    #[test]
+    fn recipe_history_survives_catalog_close_and_reopen() {
+        let root = std::env::temp_dir().join(format!(
+            "shadow-recipe-catalog-{}-{}",
+            std::process::id(),
+            RecipeCommitId::new_v7()
+        ));
+        std::fs::create_dir_all(&root).expect("create test root");
+        let path = root.join("catalog.sqlite");
+        let (photo_id, commit_id, digest) = {
+            let mut catalog = Catalog::open(&path).expect("open catalog");
+            let registered = catalog
+                .register_asset(&RegisterAsset {
+                    kind: RepresentationKind::OriginalRaw,
+                    location: AssetLocation::new(
+                        Platform::MacOs,
+                        b"/photos/reopen.dng".to_vec(),
+                        "/photos/reopen.dng",
+                    ),
+                    byte_len: 10,
+                    modified_at_ms: Some(10),
+                    now_ms: 10,
+                })
+                .expect("register photo");
+            let commit = commit(RecipeId::new_v7(), Vec::new(), "Persistent", 20);
+            let record = catalog
+                .commit_recipe(&CommitRecipe {
+                    photo_id: registered.photo_id,
+                    commit: commit.clone(),
+                    update_refs: vec![RecipeRefTarget {
+                        name: "working".into(),
+                        kind: RecipeRefKind::Working,
+                    }],
+                })
+                .expect("commit Recipe");
+            (registered.photo_id, commit.id(), record.snapshot_digest)
+        };
+
+        let catalog = Catalog::open(&path).expect("reopen catalog");
+        let records = catalog.recipe_commits(photo_id).expect("reload commits");
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].commit.id(), commit_id);
+        assert_eq!(records[0].snapshot_digest, digest);
+        assert_eq!(
+            catalog
+                .recipe_ref(photo_id, "working")
+                .expect("read ref")
+                .expect("working ref")
+                .commit_id,
+            commit_id
+        );
+        drop(catalog);
+        std::fs::remove_dir_all(root).expect("remove test root");
+    }
+
+    fn catalog_with_photo(path: &str) -> (Catalog, PhotoId) {
+        let mut catalog = Catalog::open_in_memory().expect("open catalog");
+        let registered = catalog
+            .register_asset(&RegisterAsset {
+                kind: RepresentationKind::OriginalRaw,
+                location: AssetLocation::new(Platform::MacOs, path.as_bytes().to_vec(), path),
+                byte_len: 1,
+                modified_at_ms: Some(1),
+                now_ms: 1,
+            })
+            .expect("register photo");
+        (catalog, registered.photo_id)
+    }
+
+    fn commit(
+        recipe_id: RecipeId,
+        parents: Vec<RecipeCommitId>,
+        message: &str,
+        created_at_ms: i64,
+    ) -> RecipeCommit {
+        RecipeCommit::new(
+            RecipeCommitId::new_v7(),
+            recipe_id,
+            parents,
+            RecipeSnapshot::empty(),
+            Some(message.into()),
+            created_at_ms,
+        )
+        .expect("valid commit")
+    }
+}

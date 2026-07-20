@@ -6,6 +6,7 @@
 mod cache_artifact;
 mod decode_snapshot;
 mod import_journal;
+mod recipe;
 mod review;
 mod store;
 mod writer;
@@ -29,11 +30,14 @@ pub use decode_snapshot::{
     RepresentationFingerprint,
 };
 pub use import_journal::{ImportSession, ImportSessionState, ImportSessionSummary};
+pub use recipe::{
+    CommitRecipe, RecipeCommitRecord, RecipeRefKind, RecipeRefRecord, RecipeRefTarget, SetRecipeRef,
+};
 pub use review::{ReviewCursor, ReviewItemRecord, ReviewPageRecord};
 pub use store::CatalogStore;
 pub use writer::{CatalogActor, CatalogHandle};
 
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 
 const MIGRATION_V1: &str = r"
 CREATE TABLE photos (
@@ -202,6 +206,51 @@ CREATE INDEX representation_cached_artifact_blob_idx
     ON representation_cached_artifacts(blob_algorithm, blob_digest);
 ";
 
+const MIGRATION_V5: &str = r"
+CREATE TABLE recipe_commits (
+    id             BLOB PRIMARY KEY NOT NULL CHECK (length(id) = 16),
+    photo_id       BLOB NOT NULL CHECK (length(photo_id) = 16),
+    recipe_id      BLOB NOT NULL CHECK (length(recipe_id) = 16),
+    commit_json    TEXT NOT NULL CHECK (json_valid(commit_json)),
+    snapshot_digest BLOB NOT NULL CHECK (length(snapshot_digest) = 32),
+    created_at_ms  INTEGER NOT NULL,
+    UNIQUE (id, photo_id),
+    FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE RESTRICT
+) STRICT;
+
+CREATE INDEX recipe_commits_photo_time_idx
+    ON recipe_commits(photo_id, created_at_ms DESC, id);
+CREATE INDEX recipe_commits_recipe_idx ON recipe_commits(recipe_id);
+CREATE INDEX recipe_commits_digest_idx ON recipe_commits(snapshot_digest);
+
+CREATE TABLE recipe_commit_parents (
+    commit_id  BLOB NOT NULL CHECK (length(commit_id) = 16),
+    parent_id  BLOB NOT NULL CHECK (length(parent_id) = 16),
+    photo_id   BLOB NOT NULL CHECK (length(photo_id) = 16),
+    position   INTEGER NOT NULL CHECK (position >= 0),
+    PRIMARY KEY (commit_id, position),
+    UNIQUE (commit_id, parent_id),
+    FOREIGN KEY (commit_id, photo_id)
+        REFERENCES recipe_commits(id, photo_id) ON DELETE CASCADE,
+    FOREIGN KEY (parent_id, photo_id)
+        REFERENCES recipe_commits(id, photo_id) ON DELETE RESTRICT
+) STRICT;
+
+CREATE TABLE recipe_refs (
+    photo_id      BLOB NOT NULL CHECK (length(photo_id) = 16),
+    name          TEXT NOT NULL CHECK (length(name) > 0),
+    kind          TEXT NOT NULL
+        CHECK (kind IN ('working', 'branch', 'named_version', 'tag')),
+    commit_id     BLOB NOT NULL CHECK (length(commit_id) = 16),
+    updated_at_ms INTEGER NOT NULL,
+    PRIMARY KEY (photo_id, name),
+    FOREIGN KEY (commit_id, photo_id)
+        REFERENCES recipe_commits(id, photo_id) ON DELETE RESTRICT
+) STRICT;
+
+CREATE INDEX recipe_refs_commit_idx ON recipe_refs(commit_id);
+";
+
 #[derive(Debug, Error)]
 pub enum CatalogError {
     #[error("SQLite catalog error: {0}")]
@@ -226,6 +275,8 @@ pub enum CatalogError {
     ActorPanicked,
     #[error("representation {0} does not exist")]
     RepresentationNotFound(RepresentationId),
+    #[error("photo {0} does not exist")]
+    PhotoNotFound(PhotoId),
     #[error("invalid decode snapshot: {0}")]
     InvalidDecodeSnapshot(&'static str),
     #[error("decode snapshot field {field} is outside SQLite's integer range")]
@@ -242,6 +293,25 @@ pub enum CatalogError {
     UnknownCachedArtifactValue { field: &'static str, value: String },
     #[error("unknown persisted platform: {0}")]
     UnknownPlatform(String),
+    #[error("invalid Recipe: {0}")]
+    InvalidRecipe(String),
+    #[error("Recipe JSON error: {0}")]
+    RecipeJson(serde_json::Error),
+    #[error("Recipe commit {0} does not exist")]
+    RecipeCommitNotFound(shadow_domain::RecipeCommitId),
+    #[error("Recipe commit {0} already exists and cannot be overwritten")]
+    RecipeCommitAlreadyExists(shadow_domain::RecipeCommitId),
+    #[error("Recipe commit {commit_id} is not owned by photo {photo_id}")]
+    RecipeCommitOwnerMismatch {
+        photo_id: PhotoId,
+        commit_id: shadow_domain::RecipeCommitId,
+    },
+    #[error("invalid Recipe ref name: {0:?}")]
+    InvalidRecipeRefName(String),
+    #[error("Recipe ref name {0:?} appears more than once in one commit")]
+    DuplicateRecipeRefName(String),
+    #[error("unknown persisted Recipe ref kind: {0}")]
+    UnknownRecipeRefKind(String),
 }
 
 #[derive(Debug)]
@@ -471,6 +541,17 @@ fn migrate(connection: &mut Connection) -> rusqlite::Result<()> {
         transaction.commit()?;
     }
 
+    let version = current_schema_version(connection)?;
+    if version < 5 {
+        let transaction = connection.transaction()?;
+        transaction.execute_batch(MIGRATION_V5)?;
+        transaction.execute(
+            "INSERT INTO schema_migrations(version, applied_at_ms) VALUES (?1, unixepoch('subsec') * 1000)",
+            [5_i64],
+        )?;
+        transaction.commit()?;
+    }
+
     let final_version = current_schema_version(connection)?;
     if final_version != SCHEMA_VERSION {
         return Err(rusqlite::Error::InvalidQuery);
@@ -613,7 +694,7 @@ mod tests {
     fn migration_creates_current_schema() {
         let catalog = Catalog::open_in_memory().expect("open catalog");
 
-        assert_eq!(catalog.schema_version().expect("schema version"), 4);
+        assert_eq!(catalog.schema_version().expect("schema version"), 5);
     }
 
     #[test]
@@ -651,7 +732,7 @@ mod tests {
         }
 
         let catalog = Catalog::open(&path).expect("migrate v2 catalog");
-        assert_eq!(catalog.schema_version().expect("schema version"), 4);
+        assert_eq!(catalog.schema_version().expect("schema version"), 5);
         let snapshot_tables: i64 = catalog
             .connection
             .query_row(

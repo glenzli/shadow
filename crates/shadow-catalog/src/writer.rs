@@ -4,14 +4,14 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-use shadow_domain::{AssetLocation, ImportSessionId, RepresentationId};
+use shadow_domain::{AssetLocation, ImportSessionId, PhotoId, RepresentationId};
 
 use crate::{
-    CachedArtifactRecord, Catalog, CatalogError, CatalogStats, CatalogStore, DecodeSnapshotRecord,
-    ImportSession, ImportSessionState, ImportSessionSummary, InvalidateCachedArtifactStatus,
-    RecordCachedArtifact, RecordCachedArtifactStatus, RecordDecodeSnapshot,
-    RecordDecodeSnapshotStatus, RegisterAsset, RegisteredAsset, RepresentationFingerprint,
-    ReviewCursor, ReviewPageRecord,
+    CachedArtifactRecord, Catalog, CatalogError, CatalogStats, CatalogStore, CommitRecipe,
+    DecodeSnapshotRecord, ImportSession, ImportSessionState, ImportSessionSummary,
+    InvalidateCachedArtifactStatus, RecipeCommitRecord, RecipeRefRecord, RecordCachedArtifact,
+    RecordCachedArtifactStatus, RecordDecodeSnapshot, RecordDecodeSnapshotStatus, RegisterAsset,
+    RegisteredAsset, RepresentationFingerprint, ReviewCursor, ReviewPageRecord, SetRecipeRef,
 };
 
 #[derive(Debug)]
@@ -70,6 +70,20 @@ enum Message {
         usize,
         SyncSender<Result<ReviewPageRecord, CatalogError>>,
     ),
+    CommitRecipe(
+        Box<CommitRecipe>,
+        SyncSender<Result<RecipeCommitRecord, CatalogError>>,
+    ),
+    RecipeCommits(
+        PhotoId,
+        SyncSender<Result<Vec<RecipeCommitRecord>, CatalogError>>,
+    ),
+    RecipeRef(
+        PhotoId,
+        String,
+        SyncSender<Result<Option<RecipeRefRecord>, CatalogError>>,
+    ),
+    SetRecipeRef(Box<SetRecipeRef>, SyncSender<Result<(), CatalogError>>),
     BeginImportSession(
         AssetLocation,
         i64,
@@ -350,6 +364,54 @@ impl CatalogHandle {
         self.request(|response| Message::ReviewPage(after.cloned(), limit, response))
     }
 
+    /// Persists an immutable Recipe commit and optional ref move through the
+    /// single Catalog writer.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] when the commit is invalid or persistence fails.
+    pub fn commit_recipe(
+        &self,
+        request: &CommitRecipe,
+    ) -> Result<RecipeCommitRecord, CatalogError> {
+        self.request(|response| Message::CommitRecipe(Box::new(request.clone()), response))
+    }
+
+    /// Lists every immutable Recipe commit owned by a photo.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] when the actor or persisted data is invalid.
+    pub fn recipe_commits(
+        &self,
+        photo_id: PhotoId,
+    ) -> Result<Vec<RecipeCommitRecord>, CatalogError> {
+        self.request(|response| Message::RecipeCommits(photo_id, response))
+    }
+
+    /// Resolves a named Recipe ref without changing it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] for an invalid name or unavailable actor.
+    pub fn recipe_ref(
+        &self,
+        photo_id: PhotoId,
+        name: &str,
+    ) -> Result<Option<RecipeRefRecord>, CatalogError> {
+        self.request(|response| Message::RecipeRef(photo_id, name.to_owned(), response))
+    }
+
+    /// Moves a Recipe ref through the single Catalog writer.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] if the target does not belong to the photo or
+    /// the write fails.
+    pub fn set_recipe_ref(&self, request: &SetRecipeRef) -> Result<(), CatalogError> {
+        self.request(|response| Message::SetRecipeRef(Box::new(request.clone()), response))
+    }
+
     /// Lists resumable import sessions.
     ///
     /// # Errors
@@ -502,6 +564,18 @@ fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
             }
             Message::ReviewPage(after, limit, response) => {
                 let _ = response.send(catalog.review_page(after.as_ref(), limit));
+            }
+            Message::CommitRecipe(request, response) => {
+                let _ = response.send(catalog.commit_recipe(request.as_ref()));
+            }
+            Message::RecipeCommits(photo_id, response) => {
+                let _ = response.send(catalog.recipe_commits(photo_id));
+            }
+            Message::RecipeRef(photo_id, name, response) => {
+                let _ = response.send(catalog.recipe_ref(photo_id, &name));
+            }
+            Message::SetRecipeRef(request, response) => {
+                let _ = response.send(catalog.set_recipe_ref(request.as_ref()));
             }
             Message::BeginImportSession(root, now_ms, response) => {
                 let _ = response.send(catalog.begin_import_session(&root, now_ms));

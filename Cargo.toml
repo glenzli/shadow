@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "apps/shadow-cli",
+    "crates/shadow-ai",
     "crates/shadow-bridge",
     "crates/shadow-cache",
     "crates/shadow-catalog",
@@ -11,6 +12,7 @@ members = [
 ]
 default-members = [
     "apps/shadow-cli",
+    "crates/shadow-ai",
     "crates/shadow-bridge",
     "crates/shadow-cache",
     "crates/shadow-catalog",
@@ -35,6 +37,7 @@ rusqlite = { version = "0.40.1", features = ["bundled"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 shadow-catalog = { path = "crates/shadow-catalog" }
+shadow-ai = { path = "crates/shadow-ai" }
 shadow-bridge = { path = "crates/shadow-bridge" }
 shadow-cache = { path = "crates/shadow-cache" }
 shadow-core = { path = "crates/shadow-core" }

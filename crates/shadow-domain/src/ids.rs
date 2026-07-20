@@ -62,10 +62,19 @@ entity_id!(LocationId);
 entity_id!(ImportSessionId);
 entity_id!(RecipeId);
 entity_id!(RecipeCommitId);
+entity_id!(NodeId);
 entity_id!(LayerId);
+entity_id!(LayerInstanceId);
+entity_id!(LayerRevisionId);
+entity_id!(MaskId);
+entity_id!(BranchId);
+entity_id!(VersionId);
 entity_id!(StyleId);
 entity_id!(GroupId);
 entity_id!(ShootId);
+entity_id!(SelectionId);
+entity_id!(CollectionId);
+entity_id!(OutputTargetId);
 
 #[cfg(test)]
 mod tests {
