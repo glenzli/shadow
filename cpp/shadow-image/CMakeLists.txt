@@ -22,6 +22,7 @@ add_library(
     shadow-image STATIC
     src/decoder/libraw_decoder.cpp
     src/edit/cpu_reference.cpp
+    src/proxy/jpeg_display_luma.cpp
     src/proxy/jpeg_proxy.cpp
 )
 add_library(Shadow::Image ALIAS shadow-image)
@@ -50,4 +51,9 @@ if(BUILD_TESTING)
     target_link_libraries(shadow-image-edit-tests PRIVATE Shadow::Image)
     shadow_image_enable_warnings(shadow-image-edit-tests)
     add_test(NAME shadow-image-edit-contract COMMAND shadow-image-edit-tests)
+
+    add_executable(shadow-image-display-luma-tests tests/display_luma_contract_test.cpp)
+    target_link_libraries(shadow-image-display-luma-tests PRIVATE Shadow::Image)
+    shadow_image_enable_warnings(shadow-image-display-luma-tests)
+    add_test(NAME shadow-image-display-luma-contract COMMAND shadow-image-display-luma-tests)
 endif()

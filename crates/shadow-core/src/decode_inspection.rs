@@ -8,7 +8,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use shadow_cache::{CacheError, ContentAddressedStore};
+use shadow_cache::{CacheError, ContentAddressedStore, StoredBlob};
 use shadow_catalog::{
     CachedArtifact, CachedArtifactRole, CatalogError, CatalogHandle, RecordCachedArtifact,
     RecordCachedArtifactStatus, RecordDecodeSnapshot, RecordDecodeSnapshotStatus,
@@ -19,6 +19,11 @@ use shadow_domain::{
     RepresentationId,
 };
 use thiserror::Error;
+
+use crate::technical_observation::{
+    TechnicalObservationActor, TechnicalObservationError, TechnicalObservationHandle,
+    technical_analysis_preprocessing_version,
+};
 
 const INSPECTION_QUEUE_CAPACITY: usize = 32;
 
@@ -139,6 +144,8 @@ pub enum DecodeInspectionError {
     Catalog(#[from] CatalogError),
     #[error("preview cache operation failed: {0}")]
     Cache(#[from] CacheError),
+    #[error("technical observation operation failed: {0}")]
+    TechnicalObservation(#[from] TechnicalObservationError),
     #[error("cannot start decode inspection worker: {0}")]
     WorkerStart(#[source] std::io::Error),
     #[error("decode inspection worker is unavailable")]
@@ -153,6 +160,7 @@ pub enum DecodeInspectionError {
 pub struct DecodeInspectionActor {
     handle: DecodeInspectionHandle,
     join_handle: Option<JoinHandle<()>>,
+    technical_observer: Option<TechnicalObservationActor>,
 }
 
 #[derive(Debug, Clone)]
@@ -161,6 +169,7 @@ pub struct DecodeInspectionHandle {
     provider_id: Arc<str>,
     provider_version: Arc<str>,
     proxy_variant_key: Arc<str>,
+    technical_preprocessing_version: Option<Arc<str>>,
     caches_previews: bool,
 }
 
@@ -220,10 +229,30 @@ impl DecodeInspectionActor {
         let provider_version = Arc::<str>::from(inspector.provider_version());
         let proxy_variant_key = Arc::<str>::from(inspector.proxy_variant_key());
         let caches_previews = cache.is_some();
+        let technical_observer = cache
+            .as_ref()
+            .map(|cache| {
+                TechnicalObservationActor::spawn_with_store(catalog.clone(), cache.clone())
+            })
+            .transpose()?;
+        let technical_handle = technical_observer
+            .as_ref()
+            .map(TechnicalObservationActor::handle);
+        let technical_preprocessing_version = technical_handle
+            .as_ref()
+            .map(|_| Arc::<str>::from(technical_analysis_preprocessing_version()));
         let (sender, receiver) = mpsc::sync_channel(INSPECTION_QUEUE_CAPACITY);
         let join_handle = thread::Builder::new()
             .name("shadow-decode-inspector".to_owned())
-            .spawn(move || run_worker(&catalog, inspector, cache.as_ref(), &receiver))
+            .spawn(move || {
+                run_worker(
+                    &catalog,
+                    inspector,
+                    cache.as_ref(),
+                    technical_handle.as_ref(),
+                    &receiver,
+                );
+            })
             .map_err(DecodeInspectionError::WorkerStart)?;
         Ok(Self {
             handle: DecodeInspectionHandle {
@@ -231,9 +260,11 @@ impl DecodeInspectionActor {
                 provider_id,
                 provider_version,
                 proxy_variant_key,
+                technical_preprocessing_version,
                 caches_previews,
             },
             join_handle: Some(join_handle),
+            technical_observer,
         })
     }
 
@@ -251,26 +282,33 @@ impl DecodeInspectionActor {
     }
 
     fn stop_and_join(&mut self) -> Result<(), DecodeInspectionError> {
-        let Some(join_handle) = self.join_handle.take() else {
-            return Ok(());
-        };
-        let (response_sender, response_receiver) = mpsc::sync_channel(0);
-        if self
-            .handle
-            .sender
-            .send(Message::Shutdown(response_sender))
-            .is_err()
-        {
-            return match join_handle.join() {
-                Ok(()) => Err(DecodeInspectionError::WorkerUnavailable),
-                Err(_) => Err(DecodeInspectionError::WorkerPanicked),
-            };
-        }
-        let acknowledged = response_receiver.recv();
-        if join_handle.join().is_err() {
-            return Err(DecodeInspectionError::WorkerPanicked);
-        }
-        acknowledged.map_err(|_| DecodeInspectionError::WorkerUnavailable)
+        let decode_result = self.join_handle.take().map_or(Ok(()), |join_handle| {
+            let (response_sender, response_receiver) = mpsc::sync_channel(0);
+            if self
+                .handle
+                .sender
+                .send(Message::Shutdown(response_sender))
+                .is_err()
+            {
+                return match join_handle.join() {
+                    Ok(()) => Err(DecodeInspectionError::WorkerUnavailable),
+                    Err(_) => Err(DecodeInspectionError::WorkerPanicked),
+                };
+            }
+            let acknowledged = response_receiver.recv();
+            if join_handle.join().is_err() {
+                return Err(DecodeInspectionError::WorkerPanicked);
+            }
+            acknowledged.map_err(|_| DecodeInspectionError::WorkerUnavailable)
+        });
+        let observation_result = self
+            .technical_observer
+            .take()
+            .map(TechnicalObservationActor::shutdown)
+            .transpose();
+        decode_result?;
+        observation_result?;
+        Ok(())
     }
 }
 
@@ -295,6 +333,10 @@ impl DecodeInspectionHandle {
 
     pub const fn caches_previews(&self) -> bool {
         self.caches_previews
+    }
+
+    pub fn technical_preprocessing_version(&self) -> Option<&str> {
+        self.technical_preprocessing_version.as_deref()
     }
 
     /// Queues an inspection and returns immediately with a completion ticket.
@@ -370,12 +412,19 @@ fn run_worker(
     catalog: &CatalogHandle,
     mut inspector: impl DecodeInspector,
     cache: Option<&ContentAddressedStore>,
+    technical_observer: Option<&TechnicalObservationHandle>,
     receiver: &Receiver<Message>,
 ) {
     while let Ok(message) = receiver.recv() {
         match message {
             Message::Inspect(request, response) => {
-                let result = inspect_and_record(catalog, &mut inspector, cache, &request);
+                let result = inspect_and_record(
+                    catalog,
+                    &mut inspector,
+                    cache,
+                    technical_observer,
+                    &request,
+                );
                 let _ = response.send(result);
             }
             Message::Shutdown(response) => {
@@ -390,6 +439,7 @@ fn inspect_and_record(
     catalog: &CatalogHandle,
     inspector: &mut impl DecodeInspector,
     cache: Option<&ContentAddressedStore>,
+    technical_observer: Option<&TechnicalObservationHandle>,
     request: &DecodeInspectionRequest,
 ) -> Result<DecodeInspectionOutcome, DecodeInspectionError> {
     if read_source_fingerprint(&request.path)? != request.expected_source {
@@ -442,6 +492,7 @@ fn inspect_and_record(
                     catalog,
                     inspector,
                     cache,
+                    technical_observer,
                     request,
                     &provider_id,
                     &provider_version,
@@ -463,6 +514,7 @@ fn cache_preview(
     catalog: &CatalogHandle,
     inspector: &mut impl DecodeInspector,
     cache: &ContentAddressedStore,
+    technical_observer: Option<&TechnicalObservationHandle>,
     request: &DecodeInspectionRequest,
     provider_id: &str,
     provider_version: &str,
@@ -542,25 +594,49 @@ fn cache_preview(
         created_at_ms: now_ms(),
         ..artifact
     };
+    record_cached_visual(
+        catalog,
+        technical_observer,
+        request,
+        artifact,
+        stored_kind,
+        &blob,
+    )
+}
+
+fn record_cached_visual(
+    catalog: &CatalogHandle,
+    technical_observer: Option<&TechnicalObservationHandle>,
+    request: &DecodeInspectionRequest,
+    artifact: CachedArtifact,
+    stored_kind: CachedVisualKind,
+    blob: &StoredBlob,
+) -> PreviewCacheOutcome {
     let status = catalog.record_cached_artifact(&RecordCachedArtifact {
         representation_id: request.representation_id,
         expected_source: request.expected_source,
         artifact,
     });
     match status {
-        Ok(RecordCachedArtifactStatus::Recorded) => match stored_kind {
-            CachedVisualKind::EmbeddedPreview => PreviewCacheOutcome::StoredEmbeddedPreview {
-                digest_hex: blob.digest.to_hex(),
-                byte_len: blob.byte_len,
-            },
-            CachedVisualKind::GeneratedProxy(dimensions) => {
-                PreviewCacheOutcome::StoredGeneratedProxy {
+        Ok(RecordCachedArtifactStatus::Recorded) => {
+            if let Some(observer) = technical_observer {
+                let _ = observer
+                    .submit_preferred_detached(request.representation_id, request.expected_source);
+            }
+            match stored_kind {
+                CachedVisualKind::EmbeddedPreview => PreviewCacheOutcome::StoredEmbeddedPreview {
                     digest_hex: blob.digest.to_hex(),
                     byte_len: blob.byte_len,
-                    dimensions,
+                },
+                CachedVisualKind::GeneratedProxy(dimensions) => {
+                    PreviewCacheOutcome::StoredGeneratedProxy {
+                        digest_hex: blob.digest.to_hex(),
+                        byte_len: blob.byte_len,
+                        dimensions,
+                    }
                 }
             }
-        },
+        }
         Ok(RecordCachedArtifactStatus::StaleSource) => {
             PreviewCacheOutcome::Discarded(DecodeInspectionDiscardReason::CatalogChanged)
         }
@@ -607,6 +683,8 @@ mod tests {
         PreviewByteOrder, PreviewCodec, PreviewDescriptorSnapshot, RawMetadataSnapshot,
         RepresentationKind,
     };
+
+    use crate::technical_observation::TEST_DISPLAY_JPEG;
 
     use super::*;
 
@@ -738,9 +816,9 @@ mod tests {
         assert!(matches!(
             outcome,
             DecodeInspectionOutcome::Recorded {
-                preview: PreviewCacheOutcome::StoredEmbeddedPreview { byte_len: 13, .. },
+                preview: PreviewCacheOutcome::StoredEmbeddedPreview { byte_len, .. },
                 ..
-            }
+            } if byte_len == u64::try_from(TEST_DISPLAY_JPEG.len()).expect("test JPEG length fits")
         ));
 
         let artifacts = catalog
@@ -752,7 +830,7 @@ mod tests {
         let digest = shadow_cache::BlobDigest::from_bytes(artifacts[0].artifact.blob_digest);
         assert_eq!(
             fs::read(store.resolve(digest)).expect("read cached preview"),
-            b"preview bytes"
+            TEST_DISPLAY_JPEG
         );
 
         worker.shutdown().expect("shutdown inspector");
@@ -787,7 +865,7 @@ mod tests {
             outcome,
             DecodeInspectionOutcome::Recorded {
                 preview: PreviewCacheOutcome::StoredGeneratedProxy {
-                    byte_len: 11,
+                    byte_len,
                     dimensions: ImageDimensions {
                         width: 2_048,
                         height: 1_365
@@ -795,7 +873,7 @@ mod tests {
                     ..
                 },
                 ..
-            }
+            } if byte_len == u64::try_from(TEST_DISPLAY_JPEG.len()).expect("test JPEG length fits")
         ));
 
         let artifacts = catalog
@@ -813,6 +891,42 @@ mod tests {
         assert_eq!(artifacts[0].artifact.provider_preview_id, None);
 
         worker.shutdown().expect("shutdown inspector");
+        actor.shutdown().expect("shutdown catalog");
+    }
+
+    #[test]
+    fn detached_observation_failure_is_reported_on_inspector_shutdown() {
+        let fixture = Fixture::new();
+        let actor = CatalogActor::spawn(&fixture.database_path).expect("spawn catalog");
+        let catalog = actor.handle();
+        let source = fingerprint_source(&fixture.raw_path).expect("fingerprint source");
+        let registered = catalog
+            .register_asset(&fixture.registration(source))
+            .expect("register source");
+        let worker = DecodeInspectionActor::spawn_with_cache(
+            catalog,
+            CorruptPreviewInspector,
+            fixture.root.join("cache"),
+        )
+        .expect("spawn cached inspector");
+
+        let outcome = worker
+            .handle()
+            .submit(DecodeInspectionRequest {
+                representation_id: registered.representation_id,
+                path: fixture.raw_path.clone(),
+                expected_source: source,
+            })
+            .expect("submit inspection")
+            .wait()
+            .expect("cache corrupt JPEG before detached observation runs");
+        assert!(matches!(outcome, DecodeInspectionOutcome::Recorded { .. }));
+        assert!(matches!(
+            worker.shutdown(),
+            Err(DecodeInspectionError::TechnicalObservation(
+                TechnicalObservationError::Bridge(_)
+            ))
+        ));
         actor.shutdown().expect("shutdown catalog");
     }
 
@@ -836,7 +950,7 @@ mod tests {
             Ok(Some(PreviewPayload {
                 descriptor: preview_descriptor(),
                 byte_order: PreviewByteOrder::NotApplicable,
-                bytes: b"preview bytes".to_vec(),
+                bytes: TEST_DISPLAY_JPEG.to_vec(),
             }))
         }
     }
@@ -869,7 +983,32 @@ mod tests {
                 codec: PreviewCodec::Jpeg,
                 bits_per_channel: 8,
                 channels: 3,
-                bytes: b"proxy bytes".to_vec(),
+                bytes: TEST_DISPLAY_JPEG.to_vec(),
+            }))
+        }
+    }
+
+    #[derive(Debug, Copy, Clone)]
+    struct CorruptPreviewInspector;
+
+    impl DecodeInspector for CorruptPreviewInspector {
+        fn provider_id(&self) -> &'static str {
+            "test-decoder"
+        }
+
+        fn inspect(&mut self, _path: &Path) -> Result<DecoderSnapshot, String> {
+            let mut snapshot = sample_snapshot();
+            snapshot.provider.id = "test-decoder".into();
+            snapshot.capabilities.embedded_previews = DecodeSupport::Available;
+            snapshot.previews.push(preview_descriptor());
+            Ok(snapshot)
+        }
+
+        fn extract_best_preview(&mut self, _path: &Path) -> Result<Option<PreviewPayload>, String> {
+            Ok(Some(PreviewPayload {
+                descriptor: preview_descriptor(),
+                byte_order: PreviewByteOrder::NotApplicable,
+                bytes: b"not a JPEG".to_vec(),
             }))
         }
     }
@@ -884,7 +1023,7 @@ mod tests {
             },
             bits_per_channel: 8,
             channels: 3,
-            encoded_bytes: 13,
+            encoded_bytes: u64::try_from(TEST_DISPLAY_JPEG.len()).expect("test JPEG length fits"),
             decodable: true,
         }
     }

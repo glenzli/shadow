@@ -513,6 +513,8 @@ dependencies = [
 name = "shadow-core"
 version = "0.1.0"
 dependencies = [
+ "shadow-ai",
+ "shadow-bridge",
  "shadow-cache",
  "shadow-catalog",
  "shadow-domain",

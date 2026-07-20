@@ -1,8 +1,10 @@
 #include <shadow/image/cxx_bridge.hpp>
 
 #include <shadow/image/edit.hpp>
+#include <shadow/image/display_luma.hpp>
 
 #include <filesystem>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -355,6 +357,34 @@ std::unique_ptr<DecodeHandle> open_libraw_utf8(const rust::Str path) {
 rust::String libraw_provider_version() {
     const auto provider = image::make_libraw_decoder_provider();
     return rust::String(provider->info().version);
+}
+
+FfiDisplayLuma decode_jpeg_display_luma(
+    const rust::Slice<const std::uint8_t> encoded,
+    const std::uint32_t max_edge
+) {
+    const auto decoded = image::decode_jpeg_display_luma(
+        std::span<const std::uint8_t>(encoded.data(), encoded.size()),
+        max_edge
+    );
+    if (decoded.row_stride_samples > std::numeric_limits<std::uint32_t>::max()) {
+        throw image::DecodeError(
+            image::DecodeErrorCode::internal,
+            0,
+            "JPEG display-luma stride does not fit the bridge contract"
+        );
+    }
+
+    FfiDisplayLuma result;
+    result.width = decoded.dimensions.width;
+    result.height = decoded.dimensions.height;
+    result.stride = static_cast<std::uint32_t>(decoded.row_stride_samples);
+    result.preprocessing_version = rust::String(decoded.preprocessing_version);
+    result.samples.reserve(decoded.samples.size());
+    for (const float sample : decoded.samples) {
+        result.samples.push_back(sample);
+    }
+    return result;
 }
 
 } // namespace shadow::bridge

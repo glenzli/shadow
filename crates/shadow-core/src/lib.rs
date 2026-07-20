@@ -4,6 +4,7 @@ mod cached_artifact_loader;
 mod decode_inspection;
 mod import;
 mod native_path;
+mod technical_observation;
 
 pub use cached_artifact_loader::{
     CachedArtifactInvalidationReason, CachedArtifactLoadError, CachedArtifactLoader,
@@ -18,3 +19,8 @@ pub use import::{
     scan_folder_with_inspection,
 };
 pub use native_path::{NativePathError, native_location};
+pub use technical_observation::{
+    TECHNICAL_ANALYSIS_MAX_EDGE, TechnicalObservationActor, TechnicalObservationError,
+    TechnicalObservationHandle, TechnicalObservationOutcome, TechnicalObservationTicket,
+    technical_analysis_preprocessing_version,
+};

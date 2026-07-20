@@ -25,13 +25,24 @@ edge is independently capped at 4096; 1600/2048 are the intended UI choices. The
 
 Compressed embedded previews and generated proxies are small enough to cross as owned bytes. Large mosaic and RGB buffers intentionally remain in C++; their future bridge will use opaque handles and tile requests, not `Vec<u16>` copies across FFI.
 
+`decode_jpeg_display_luma(bytes, max_edge)` is the analysis-side compressed-payload bridge. It
+accepts `max_edge` only in 1 through 512 and returns owned `width`, `height`, sample `stride`,
+normalized `Vec<f32>` luma, and the exact preprocessing version. The output is tightly packed and
+can be borrowed directly by `shadow_ai::DisplayLumaPlane`. Its semantics are explicitly an
+assumed-sRGB JPEG display proxy without ICC or orientation interpretation, never a RAW-domain
+measurement. Its version-2 identity includes the discovered libjpeg-turbo package revision,
+RGB8 output, slow integer DCT, disabled fancy upsampling and block smoothing, fixed IDCT
+scale/resize/luma rules, and the requested edge. Rust rejects a C++ result whose reported identity
+does not match the build-time contract. This makes incompatible preprocessing detectable; it does
+not by itself make differently authored embedded/generated proxies comparable.
+
 ## Path contract
 
 The first implementation is Mac-first and accepts a UTF-8 path. This limitation is explicit: `inspect_libraw` rejects a non-UTF-8 `Path` instead of using a lossy display string. The Windows adapter will add a native UTF-16 entry point while preserving the existing provider and snapshot schemas.
 
 ## Build
 
-Cargo uses CXX 1.0.198 and compiles the same `shadow-image` sources used by CMake. LibRaw 0.22+ and a libjpeg-compatible implementation are discovered through `pkg-config`; on macOS the build script filters Homebrew's obsolete `-lstdc++` entry because CXX already links libc++.
+Cargo uses CXX 1.0.198 and compiles the same `shadow-image` sources used by CMake. LibRaw 0.22+ and 8-bit libjpeg-turbo with in-memory source support are discovered through `pkg-config`; unsupported JPEG builds fail at compile time. The discovered libjpeg-turbo version is embedded in the Rust and C++ preprocessing contracts. On macOS the build script filters Homebrew's obsolete `-lstdc++` entry because CXX already links libc++.
 
 ```sh
 cargo test --package shadow-bridge

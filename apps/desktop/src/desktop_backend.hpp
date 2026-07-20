@@ -25,6 +25,19 @@ struct BackendReviewItem final {
     std::uint32_t visual_width = 0;
     std::uint32_t visual_height = 0;
     bool has_visual = false;
+    bool has_technical_observation = false;
+    std::uint32_t technical_input_width = 0;
+    std::uint32_t technical_input_height = 0;
+    QString technical_preprocessing_version;
+    QString technical_implementation_version;
+    double mean_luma = 0.0;
+    double p01_luma = 0.0;
+    double p50_luma = 0.0;
+    double p99_luma = 0.0;
+    double near_black_fraction = 0.0;
+    double near_white_fraction = 0.0;
+    double laplacian_variance = 0.0;
+    double edge_energy = 0.0;
 };
 
 struct BackendReviewPage final {

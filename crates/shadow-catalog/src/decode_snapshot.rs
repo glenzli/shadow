@@ -1,7 +1,7 @@
 use rusqlite::{OptionalExtension, Transaction, params, types::Type};
 use shadow_domain::{DecoderSnapshot, EntityId, RepresentationId};
 
-use crate::{Catalog, CatalogError, read_id};
+use crate::{Catalog, CatalogError, TechnicalObservationRevision, read_id};
 
 const SNAPSHOT_SCHEMA: i64 = 1;
 
@@ -155,6 +155,7 @@ impl Catalog {
     ///
     /// Returns [`CatalogError`] when the representation is absent or the query
     /// fails.
+    #[allow(clippy::too_many_arguments)]
     pub fn is_decode_output_current(
         &self,
         representation_id: RepresentationId,
@@ -163,6 +164,7 @@ impl Catalog {
         source: RepresentationFingerprint,
         require_cached_preview: bool,
         proxy_variant_key: &str,
+        required_technical_preprocessing: Option<&str>,
     ) -> Result<bool, CatalogError> {
         if self.representation_fingerprint(representation_id)? != source {
             return Ok(false);
@@ -209,7 +211,7 @@ impl Catalog {
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
             )
             .optional()?;
-        Ok(
+        let output_current =
             current.is_some_and(|(has_preview, can_render, cached_preview, cached_proxy)| {
                 !require_cached_preview
                     || if has_preview != 0 {
@@ -219,9 +221,51 @@ impl Catalog {
                     } else {
                         true
                     }
-            }),
+            });
+        if !output_current {
+            return Ok(false);
+        }
+        let Some(preprocessing_version) = required_technical_preprocessing else {
+            return Ok(true);
+        };
+        preferred_visual_has_current_technical_observation(
+            self,
+            representation_id,
+            source,
+            &TechnicalObservationRevision::current(preprocessing_version),
         )
     }
+}
+
+fn preferred_visual_has_current_technical_observation(
+    catalog: &Catalog,
+    representation_id: RepresentationId,
+    source: RepresentationFingerprint,
+    revision: &TechnicalObservationRevision,
+) -> Result<bool, CatalogError> {
+    if !revision.is_supported_by_this_build() {
+        return Ok(false);
+    }
+    let preferred = catalog.preferred_cached_artifact(representation_id)?;
+    Ok(match preferred {
+        // No supported visual means there is nothing for this observer to do.
+        None => true,
+        Some(record) if record.artifact.codec != shadow_domain::PreviewCodec::Jpeg => true,
+        Some(record) if record.source != source => false,
+        Some(record) => match catalog.technical_observation(
+            representation_id,
+            source,
+            &record.artifact,
+            revision,
+        ) {
+            Ok(value) => value.is_some(),
+            Err(
+                CatalogError::InvalidPersistedTechnicalObservation(_)
+                | CatalogError::TechnicalObservationJson(_),
+            ) => false,
+            Err(error) => return Err(error),
+        },
+    })
 }
 
 fn validate_snapshot(snapshot: &DecoderSnapshot) -> Result<(), CatalogError> {
@@ -371,6 +415,7 @@ fn non_negative_u64(value: i64, index: usize) -> rusqlite::Result<u64> {
 
 #[cfg(test)]
 mod tests {
+    use shadow_ai::{DISPLAY_LUMA_CONTRACT_VERSION, DisplayLumaPlane, observe_display_luma};
     use shadow_domain::{
         AssetLocation, DecodeCapabilitySnapshot, DecodeProviderSnapshot, DecodeSupport,
         ImageDimensions, ImageMargins, PendingCorrectionsSnapshot, Platform, PreviewCodec,
@@ -379,7 +424,8 @@ mod tests {
 
     use super::*;
     use crate::{
-        CachedArtifact, CachedArtifactRole, RecordCachedArtifact, RegisterAsset, RegistrationStatus,
+        CachedArtifact, CachedArtifactRole, RecordCachedArtifact, RecordTechnicalObservation,
+        RegisterAsset, RegistrationStatus, technical_observation::artifact_content_hash,
     };
 
     fn registered_catalog() -> (Catalog, RepresentationId, RepresentationFingerprint) {
@@ -590,6 +636,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn cached_preview_requirement_reconciles_missing_artifacts() {
         const PROXY_KEY: &str = "libraw:grid-jpeg-2048-q88-v1";
         let (mut catalog, representation_id, source) = registered_catalog();
@@ -611,6 +658,7 @@ mod tests {
                     source,
                     false,
                     PROXY_KEY,
+                    None,
                 )
                 .expect("query descriptor-only state")
         );
@@ -623,6 +671,7 @@ mod tests {
                     source,
                     false,
                     PROXY_KEY,
+                    None,
                 )
                 .expect("query newer provider version")
         );
@@ -635,33 +684,35 @@ mod tests {
                     source,
                     true,
                     PROXY_KEY,
+                    None,
                 )
                 .expect("query missing cached preview")
         );
 
+        let artifact = CachedArtifact {
+            role: CachedArtifactRole::EmbeddedPreview,
+            variant_key: "libraw".into(),
+            generator_id: "libraw".into(),
+            generator_version: "1".into(),
+            provider_preview_id: Some(7),
+            blob_algorithm: "blake3-256".into(),
+            blob_digest: [1; 32],
+            blob_byte_len: 1_024,
+            codec: PreviewCodec::Jpeg,
+            byte_order: shadow_domain::PreviewByteOrder::NotApplicable,
+            dimensions: ImageDimensions {
+                width: 1_600,
+                height: 1_200,
+            },
+            bits_per_channel: 8,
+            channels: 3,
+            created_at_ms: 789,
+        };
         catalog
             .record_cached_artifact(&RecordCachedArtifact {
                 representation_id,
                 expected_source: source,
-                artifact: CachedArtifact {
-                    role: CachedArtifactRole::EmbeddedPreview,
-                    variant_key: "libraw".into(),
-                    generator_id: "libraw".into(),
-                    generator_version: "1".into(),
-                    provider_preview_id: Some(7),
-                    blob_algorithm: "blake3-256".into(),
-                    blob_digest: [1; 32],
-                    blob_byte_len: 1_024,
-                    codec: PreviewCodec::Jpeg,
-                    byte_order: shadow_domain::PreviewByteOrder::NotApplicable,
-                    dimensions: ImageDimensions {
-                        width: 1_600,
-                        height: 1_200,
-                    },
-                    bits_per_channel: 8,
-                    channels: 3,
-                    created_at_ms: 789,
-                },
+                artifact: artifact.clone(),
             })
             .expect("record cached preview");
 
@@ -674,8 +725,77 @@ mod tests {
                     source,
                     true,
                     PROXY_KEY,
+                    None,
                 )
                 .expect("query complete cached state")
+        );
+        assert!(
+            !catalog
+                .is_decode_output_current(
+                    representation_id,
+                    "libraw",
+                    "1",
+                    source,
+                    true,
+                    PROXY_KEY,
+                    Some("jpeg-luma-v1"),
+                )
+                .expect("migration backfill requires technical observation")
+        );
+        record_technical(
+            &mut catalog,
+            representation_id,
+            source,
+            &artifact,
+            "jpeg-luma-v1",
+        );
+        assert!(
+            catalog
+                .is_decode_output_current(
+                    representation_id,
+                    "libraw",
+                    "1",
+                    source,
+                    true,
+                    PROXY_KEY,
+                    Some("jpeg-luma-v1"),
+                )
+                .expect("matching technical observation completes backfill")
+        );
+        catalog
+            .connection
+            .execute(
+                "UPDATE representation_technical_observations
+                 SET observation_digest = zeroblob(32)
+                 WHERE preprocessing_version = 'jpeg-luma-v1'",
+                [],
+            )
+            .expect("corrupt rebuildable technical observation");
+        assert!(
+            !catalog
+                .is_decode_output_current(
+                    representation_id,
+                    "libraw",
+                    "1",
+                    source,
+                    true,
+                    PROXY_KEY,
+                    Some("jpeg-luma-v1"),
+                )
+                .expect("corrupt observation requires regeneration")
+        );
+        assert!(
+            !catalog
+                .is_decode_output_current(
+                    representation_id,
+                    "libraw",
+                    "1",
+                    source,
+                    true,
+                    PROXY_KEY,
+                    Some("jpeg-luma-v2"),
+                )
+                .expect("preprocessing upgrade requires backfill")
         );
     }
 
@@ -703,6 +823,7 @@ mod tests {
                     source,
                     true,
                     PROXY_KEY,
+                    None,
                 )
                 .expect("query missing generated proxy")
         );
@@ -742,6 +863,7 @@ mod tests {
                     source,
                     true,
                     PROXY_KEY,
+                    None,
                 )
                 .expect("query complete generated proxy")
         );
@@ -754,8 +876,92 @@ mod tests {
                     source,
                     true,
                     "libraw:grid-jpeg-2048-q88-v2",
+                    None,
                 )
                 .expect("query newer proxy recipe")
         );
+    }
+
+    #[test]
+    fn non_jpeg_visual_does_not_create_a_technical_backfill_loop() {
+        const PROXY_KEY: &str = "libraw:grid-bitmap-2048-v1";
+        let (mut catalog, representation_id, source) = registered_catalog();
+        let mut without_preview = snapshot("libraw", "1", &[]);
+        without_preview.capabilities.embedded_previews = DecodeSupport::Unavailable;
+        catalog
+            .record_decode_snapshot(&RecordDecodeSnapshot {
+                representation_id,
+                expected_source: source,
+                snapshot: without_preview,
+                inspected_at_ms: 456,
+            })
+            .expect("record snapshot");
+        catalog
+            .record_cached_artifact(&RecordCachedArtifact {
+                representation_id,
+                expected_source: source,
+                artifact: CachedArtifact {
+                    role: CachedArtifactRole::GeneratedProxy,
+                    variant_key: PROXY_KEY.into(),
+                    generator_id: "libraw".into(),
+                    generator_version: "1".into(),
+                    provider_preview_id: None,
+                    blob_algorithm: "blake3-256".into(),
+                    blob_digest: [3; 32],
+                    blob_byte_len: 456_789,
+                    codec: PreviewCodec::Bitmap,
+                    byte_order: shadow_domain::PreviewByteOrder::Native,
+                    dimensions: ImageDimensions {
+                        width: 2_048,
+                        height: 1_365,
+                    },
+                    bits_per_channel: 8,
+                    channels: 3,
+                    created_at_ms: 790,
+                },
+            })
+            .expect("record non-JPEG visual");
+        assert!(
+            catalog
+                .is_decode_output_current(
+                    representation_id,
+                    "libraw",
+                    "1",
+                    source,
+                    true,
+                    PROXY_KEY,
+                    Some("jpeg-luma-v1"),
+                )
+                .expect("non-JPEG visuals do not create an impossible backfill loop")
+        );
+    }
+
+    fn record_technical(
+        catalog: &mut Catalog,
+        representation_id: RepresentationId,
+        source: RepresentationFingerprint,
+        artifact: &CachedArtifact,
+        preprocessing_version: &str,
+    ) {
+        let input_source_hash = artifact_content_hash(artifact);
+        let observation = observe_display_luma(DisplayLumaPlane {
+            contract_version: DISPLAY_LUMA_CONTRACT_VERSION,
+            width: 2,
+            height: 2,
+            stride: 2,
+            samples: &[0.0, 0.25, 0.75, 1.0],
+            preprocessing_version,
+            input_source_hash: &input_source_hash,
+        })
+        .expect("observe luma");
+        catalog
+            .record_technical_observation(&RecordTechnicalObservation {
+                representation_id,
+                expected_source: source,
+                expected_artifact: artifact.clone(),
+                observation,
+                observed_at_ms: 900,
+            })
+            .expect("record technical observation");
     }
 }

@@ -26,6 +26,7 @@ Current contract rules:
 - DNG opcode lists are surfaced as `PendingCorrections` until Shadow can prove they were applied.
 - `render_reference_rgb` is a correctness/fallback path. It is not Shadow's final scene-linear color pipeline.
 - `render_reference_proxy_jpeg` bounds the longest edge (2048 and quality 88 in the first recipe) and rejects unbounded requests. Its version belongs in the cache key.
+- `decode_jpeg_display_luma` is a separate analysis path over compressed display proxies. It requires 8-bit libjpeg-turbo with in-memory sources, rejects encoded inputs above 128 MiB and source headers above 65,535 per axis or 100 million pixels, applies a stricter 50-million-pixel limit to multi-scan inputs, caps libjpeg memory at 256 MiB, and bounds scaled intermediates before emitting a tightly packed normalized `float` luma plane with a caller-selected edge in 1 through 512. Corrupt-data warnings, including synthesized end-of-image recovery for truncation, fail closed.
 - A `DecodeSession` is thread-confined. Providers may be shared; parallel work should open independent sessions.
 - The current owned `MosaicBuffer` intentionally copies LibRaw memory. A later opaque/tiled buffer can remove that copy without changing metadata semantics.
 
@@ -65,6 +66,19 @@ different preview strategy. The warm edge is capped at 4096 (at most 192 MiB for
 square interleaved RGB float32 proxy; typical 3:2 images and the UI's 1600/2048 choices use less).
 Each render owns its output/edit/JPEG buffers, so const renders may safely run concurrently; the
 original decoder session is neither retained nor revisited during slider interaction.
+
+## Display-luma analysis boundary
+
+`include/shadow/image/display_luma.hpp` names the complete preprocessing contract returned with
+every plane. Version 2 pins the exact libjpeg-turbo package revision, RGB8 output, `JDCT_ISLOW`,
+disabled fancy upsampling and block smoothing, 1/2/4/8 IDCT scale selection, assumed encoded sRGB,
+no ICC transform, stored pixel orientation, fixed-point encoded-domain Rec.709 luma,
+center-aligned bilinear resize, and the requested maximum edge. A dependency or setting change
+therefore creates a different persisted preprocessing identity instead of silently reusing old
+measurements. This is deliberately a reproducible observation of a display proxy, not RAW
+exposure or sensor luminance. The libjpeg fatal-error callback is contained inside a C-style
+allocation frame; C++ owned output is constructed only after that `setjmp` boundary has finished,
+so corrupt data cannot jump across live C++ containers.
 
 ## Build and test
 

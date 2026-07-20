@@ -43,6 +43,32 @@ QVariant ReviewModel::data(const QModelIndex& index, const int role) const {
         return QStringLiteral("image://shadow/%1?generation=%2")
             .arg(item.representation_id)
             .arg(generation_.load(std::memory_order_relaxed));
+    case HasTechnicalObservationRole:
+        return item.has_technical_observation;
+    case TechnicalInputWidthRole:
+        return QVariant::fromValue(item.technical_input_width);
+    case TechnicalInputHeightRole:
+        return QVariant::fromValue(item.technical_input_height);
+    case TechnicalPreprocessingVersionRole:
+        return item.technical_preprocessing_version;
+    case TechnicalImplementationVersionRole:
+        return item.technical_implementation_version;
+    case MeanLumaRole:
+        return item.mean_luma;
+    case P01LumaRole:
+        return item.p01_luma;
+    case P50LumaRole:
+        return item.p50_luma;
+    case P99LumaRole:
+        return item.p99_luma;
+    case NearBlackFractionRole:
+        return item.near_black_fraction;
+    case NearWhiteFractionRole:
+        return item.near_white_fraction;
+    case LaplacianVarianceRole:
+        return item.laplacian_variance;
+    case EdgeEnergyRole:
+        return item.edge_energy;
     default:
         return {};
     }
@@ -59,6 +85,19 @@ QHash<int, QByteArray> ReviewModel::roleNames() const {
         {VisualWidthRole, "visualWidth"},
         {VisualHeightRole, "visualHeight"},
         {VisualSourceRole, "visualSource"},
+        {HasTechnicalObservationRole, "hasTechnicalObservation"},
+        {TechnicalInputWidthRole, "technicalInputWidth"},
+        {TechnicalInputHeightRole, "technicalInputHeight"},
+        {TechnicalPreprocessingVersionRole, "technicalPreprocessingVersion"},
+        {TechnicalImplementationVersionRole, "technicalImplementationVersion"},
+        {MeanLumaRole, "meanLuma"},
+        {P01LumaRole, "p01Luma"},
+        {P50LumaRole, "p50Luma"},
+        {P99LumaRole, "p99Luma"},
+        {NearBlackFractionRole, "nearBlackFraction"},
+        {NearWhiteFractionRole, "nearWhiteFraction"},
+        {LaplacianVarianceRole, "laplacianVariance"},
+        {EdgeEnergyRole, "edgeEnergy"},
     };
 }
 

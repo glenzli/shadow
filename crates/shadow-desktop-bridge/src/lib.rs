@@ -1,7 +1,6 @@
 //! Coarse-grained, long-lived Rust services consumed by the Qt desktop shell.
 
 use std::{
-    cmp::Reverse,
     collections::{BTreeMap, HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
@@ -19,9 +18,11 @@ use shadow_catalog::{
     CachedArtifactRecord, CachedArtifactRole, CatalogActor, CatalogHandle, CommitRecipe,
     RecipeCommitRecord, RecipeRefExpectation, RecipeRefKind, RecipeRefTarget,
     RepresentationFingerprint, ReviewCursor, ReviewItemRecord, SetRecipeRef,
+    TechnicalObservationRevision,
 };
 use shadow_core::{
     CachedArtifactLoader, DecodeInspectionActor, DecodeInspector, scan_folder_with_inspection,
+    technical_analysis_preprocessing_version,
 };
 use shadow_domain::operation::{
     BASIC_GRAPH_SCHEMA_VERSION, BASIC_LAYER_LABEL, CHANNEL_GAIN_OPERATION_ID,
@@ -52,6 +53,19 @@ mod ffi {
         visual_width: u32,
         visual_height: u32,
         has_visual: bool,
+        has_technical_observation: bool,
+        technical_input_width: u32,
+        technical_input_height: u32,
+        technical_preprocessing_version: String,
+        technical_implementation_version: String,
+        mean_luma: f64,
+        p01_luma: f64,
+        p50_luma: f64,
+        p99_luma: f64,
+        near_black_fraction: f64,
+        near_white_fraction: f64,
+        laplacian_variance: f64,
+        edge_energy: f64,
     }
 
     #[derive(Debug)]
@@ -238,9 +252,12 @@ impl DesktopSession {
         limit: u32,
     ) -> AnyResult<ffi::FfiReviewPage> {
         let cursor = parse_cursor(cursor_path, cursor_representation_id)?;
-        let page = self.catalog.review_page(
+        let revision =
+            TechnicalObservationRevision::current(technical_analysis_preprocessing_version());
+        let page = self.catalog.review_page_with_technical(
             cursor.as_ref(),
             usize::try_from(limit).unwrap_or(usize::MAX),
+            &revision,
         )?;
         let (has_more, next_cursor_path, next_cursor_representation_id) =
             if let Some(cursor) = page.next_cursor {
@@ -1558,6 +1575,55 @@ fn review_item(record: ReviewItemRecord) -> ffi::FfiReviewItem {
             )
         },
     );
+    let technical = record.technical;
+    let has_technical_observation = technical.is_some();
+    let (
+        technical_input_width,
+        technical_input_height,
+        technical_preprocessing_version,
+        technical_implementation_version,
+        mean_luma,
+        p01_luma,
+        p50_luma,
+        p99_luma,
+        near_black_fraction,
+        near_white_fraction,
+        laplacian_variance,
+        edge_energy,
+    ) = technical.map_or_else(
+        || {
+            (
+                0,
+                0,
+                String::new(),
+                String::new(),
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+            )
+        },
+        |technical| {
+            (
+                technical.input_width,
+                technical.input_height,
+                technical.preprocessing_version,
+                technical.implementation_version,
+                technical.mean_luma,
+                technical.p01_luma,
+                technical.p50_luma,
+                technical.p99_luma,
+                technical.near_black_fraction,
+                technical.near_white_fraction,
+                technical.laplacian_variance,
+                technical.edge_energy,
+            )
+        },
+    );
     ffi::FfiReviewItem {
         photo_id: record.photo_id.to_string(),
         representation_id: record.representation_id.to_string(),
@@ -1567,6 +1633,19 @@ fn review_item(record: ReviewItemRecord) -> ffi::FfiReviewItem {
         visual_width,
         visual_height,
         has_visual,
+        has_technical_observation,
+        technical_input_width,
+        technical_input_height,
+        technical_preprocessing_version,
+        technical_implementation_version,
+        mean_luma,
+        p01_luma,
+        p50_luma,
+        p99_luma,
+        near_black_fraction,
+        near_white_fraction,
+        laplacian_variance,
+        edge_energy,
     }
 }
 
@@ -1574,23 +1653,9 @@ fn preferred_visual(
     catalog: &CatalogHandle,
     representation_id: RepresentationId,
 ) -> AnyResult<Option<CachedArtifactRecord>> {
-    let source = catalog.representation_fingerprint(representation_id)?;
-    let mut artifacts = catalog.cached_artifacts(representation_id)?;
-    artifacts.retain(|record| record.source == source);
-    artifacts.sort_by_key(|record| {
-        (
-            match record.artifact.role {
-                CachedArtifactRole::EmbeddedPreview => 0_u8,
-                CachedArtifactRole::GeneratedProxy => 1_u8,
-            },
-            Reverse(
-                u64::from(record.artifact.dimensions.width)
-                    * u64::from(record.artifact.dimensions.height),
-            ),
-            record.artifact.variant_key.clone(),
-        )
-    });
-    Ok(artifacts.into_iter().next())
+    catalog
+        .preferred_cached_artifact(representation_id)
+        .map_err(Into::into)
 }
 
 const fn role_name(role: CachedArtifactRole) -> &'static str {
@@ -2683,6 +2748,18 @@ mod tests {
             assert!(page.total_items >= 2);
             assert!(page.has_more);
             assert!(page.items[0].has_visual);
+            assert!(page.items[0].has_technical_observation);
+            assert!(page.items[0].technical_input_width > 0);
+            assert!(page.items[0].technical_input_width <= 512);
+            assert!(page.items[0].technical_input_height > 0);
+            assert!(page.items[0].technical_input_height <= 512);
+            assert_eq!(
+                page.items[0].technical_preprocessing_version,
+                technical_analysis_preprocessing_version()
+            );
+            assert!((0.0..=1.0).contains(&page.items[0].mean_luma));
+            assert!(page.items[0].laplacian_variance >= 0.0);
+            assert!(page.items[0].edge_energy >= 0.0);
             let visual = session
                 .load_review_visual(&page.items[0].representation_id)
                 .expect("load first visual lazily");

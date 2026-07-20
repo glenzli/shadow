@@ -16,6 +16,19 @@ Item {
     property string selectedRole: ""
     property int selectedWidth: 0
     property int selectedHeight: 0
+    property bool selectedHasTechnicalObservation: false
+    property int selectedTechnicalInputWidth: 0
+    property int selectedTechnicalInputHeight: 0
+    property string selectedTechnicalPreprocessingVersion: ""
+    property string selectedTechnicalImplementationVersion: ""
+    property real selectedMeanLuma: 0.0
+    property real selectedP01Luma: 0.0
+    property real selectedP50Luma: 0.0
+    property real selectedP99Luma: 0.0
+    property real selectedNearBlackFraction: 0.0
+    property real selectedNearWhiteFraction: 0.0
+    property real selectedLaplacianVariance: 0.0
+    property real selectedEdgeEnergy: 0.0
 
     signal openPrecisionRequested(string photoId, string representationId,
                                   string sourcePath, string photoTitle)
@@ -26,6 +39,29 @@ Item {
     readonly property color textPrimary: "#edf0f2"
     readonly property color textMuted: "#8b949e"
     readonly property color accent: "#d8b36a"
+
+    function formatLuma(value) {
+        return Number(value).toFixed(3)
+    }
+
+    function formatPercent(value) {
+        return (Number(value) * 100.0).toFixed(2) + "%"
+    }
+
+    function formatProxyDetail(value) {
+        const number = Number(value)
+        const magnitude = Math.abs(number)
+        if (magnitude > 0.0 && (magnitude < 0.001 || magnitude >= 1000.0))
+            return number.toExponential(3)
+        return number.toFixed(4)
+    }
+
+    function concisePreprocessingVersion(value) {
+        const parts = String(value).split(":")
+        if (parts.length < 2)
+            return value.length > 0 ? value : "—"
+        return parts[0] + " · " + parts[parts.length - 1]
+    }
 
     function chooseFolder() {
         folderDialog.open()
@@ -39,6 +75,19 @@ Item {
         selectedRole = card.visualRole
         selectedWidth = card.visualWidth
         selectedHeight = card.visualHeight
+        selectedHasTechnicalObservation = card.hasTechnicalObservation
+        selectedTechnicalInputWidth = card.technicalInputWidth
+        selectedTechnicalInputHeight = card.technicalInputHeight
+        selectedTechnicalPreprocessingVersion = card.technicalPreprocessingVersion
+        selectedTechnicalImplementationVersion = card.technicalImplementationVersion
+        selectedMeanLuma = card.meanLuma
+        selectedP01Luma = card.p01Luma
+        selectedP50Luma = card.p50Luma
+        selectedP99Luma = card.p99Luma
+        selectedNearBlackFraction = card.nearBlackFraction
+        selectedNearWhiteFraction = card.nearWhiteFraction
+        selectedLaplacianVariance = card.laplacianVariance
+        selectedEdgeEnergy = card.edgeEnergy
     }
 
     function clearSelection() {
@@ -49,6 +98,19 @@ Item {
         selectedRole = ""
         selectedWidth = 0
         selectedHeight = 0
+        selectedHasTechnicalObservation = false
+        selectedTechnicalInputWidth = 0
+        selectedTechnicalInputHeight = 0
+        selectedTechnicalPreprocessingVersion = ""
+        selectedTechnicalImplementationVersion = ""
+        selectedMeanLuma = 0.0
+        selectedP01Luma = 0.0
+        selectedP50Luma = 0.0
+        selectedP99Luma = 0.0
+        selectedNearBlackFraction = 0.0
+        selectedNearWhiteFraction = 0.0
+        selectedLaplacianVariance = 0.0
+        selectedEdgeEnergy = 0.0
     }
 
     function openSelectedPhoto() {
@@ -191,6 +253,19 @@ Item {
                     required property int visualWidth
                     required property int visualHeight
                     required property string visualSource
+                    required property bool hasTechnicalObservation
+                    required property int technicalInputWidth
+                    required property int technicalInputHeight
+                    required property string technicalPreprocessingVersion
+                    required property string technicalImplementationVersion
+                    required property real meanLuma
+                    required property real p01Luma
+                    required property real p50Luma
+                    required property real p99Luma
+                    required property real nearBlackFraction
+                    required property real nearWhiteFraction
+                    required property real laplacianVariance
+                    required property real edgeEnergy
 
                     Rectangle {
                         anchors.fill: parent
@@ -404,6 +479,129 @@ Item {
                             : "—"
                         color: review.textPrimary
                         font.pixelSize: 10
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 1
+                    visible: review.selectedPhotoId.length > 0
+                    color: review.border
+                }
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    visible: review.selectedPhotoId.length > 0
+                    spacing: 5
+
+                    Label {
+                        text: "TECHNICAL · DISPLAY PROXY"
+                        color: review.textMuted
+                        font.pixelSize: 9
+                        font.weight: Font.DemiBold
+                        font.letterSpacing: 1.0
+                    }
+
+                    Label {
+                        visible: !review.selectedHasTechnicalObservation
+                        text: "NOT AVAILABLE"
+                        color: "#64707b"
+                        font.pixelSize: 10
+                        font.weight: Font.Medium
+                    }
+
+                    GridLayout {
+                        Layout.fillWidth: true
+                        visible: review.selectedHasTechnicalObservation
+                        columns: 2
+                        rowSpacing: 5
+                        columnSpacing: 10
+
+                        Label { text: "LUMA MEAN"; color: review.textMuted; font.pixelSize: 9 }
+                        Label {
+                            text: review.formatLuma(review.selectedMeanLuma)
+                            color: review.textPrimary
+                            font.pixelSize: 10
+                        }
+                        Label { text: "LUMA P01"; color: review.textMuted; font.pixelSize: 9 }
+                        Label {
+                            text: review.formatLuma(review.selectedP01Luma)
+                            color: review.textPrimary
+                            font.pixelSize: 10
+                        }
+                        Label { text: "LUMA P50"; color: review.textMuted; font.pixelSize: 9 }
+                        Label {
+                            text: review.formatLuma(review.selectedP50Luma)
+                            color: review.textPrimary
+                            font.pixelSize: 10
+                        }
+                        Label { text: "LUMA P99"; color: review.textMuted; font.pixelSize: 9 }
+                        Label {
+                            text: review.formatLuma(review.selectedP99Luma)
+                            color: review.textPrimary
+                            font.pixelSize: 10
+                        }
+                        Label { text: "NEAR BLACK"; color: review.textMuted; font.pixelSize: 9 }
+                        Label {
+                            text: review.formatPercent(review.selectedNearBlackFraction)
+                            color: review.textPrimary
+                            font.pixelSize: 10
+                        }
+                        Label { text: "NEAR WHITE"; color: review.textMuted; font.pixelSize: 9 }
+                        Label {
+                            text: review.formatPercent(review.selectedNearWhiteFraction)
+                            color: review.textPrimary
+                            font.pixelSize: 10
+                        }
+                        Label {
+                            text: "LAPLACIAN · PROXY"
+                            color: review.textMuted
+                            font.pixelSize: 9
+                        }
+                        Label {
+                            text: review.formatProxyDetail(review.selectedLaplacianVariance)
+                            color: review.textPrimary
+                            font.pixelSize: 10
+                        }
+                        Label {
+                            text: "EDGE ENERGY · PROXY"
+                            color: review.textMuted
+                            font.pixelSize: 9
+                        }
+                        Label {
+                            text: review.formatProxyDetail(review.selectedEdgeEnergy)
+                            color: review.textPrimary
+                            font.pixelSize: 10
+                        }
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        visible: review.selectedHasTechnicalObservation
+                        text: "INPUT  " + review.selectedTechnicalInputWidth + " × "
+                            + review.selectedTechnicalInputHeight
+                        color: "#66717c"
+                        font.pixelSize: 9
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        visible: review.selectedHasTechnicalObservation
+                        text: "PIPELINE  " + review.concisePreprocessingVersion(
+                            review.selectedTechnicalPreprocessingVersion)
+                        color: "#66717c"
+                        font.pixelSize: 8
+                        elide: Text.ElideRight
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        visible: review.selectedHasTechnicalObservation
+                        text: "ANALYZER  "
+                            + review.selectedTechnicalImplementationVersion
+                        color: "#66717c"
+                        font.pixelSize: 8
+                        elide: Text.ElideRight
                     }
                 }
 

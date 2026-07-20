@@ -1,9 +1,10 @@
 # shadow-ai
 
 `shadow-ai` is Shadow's model-independent AI foundation. It intentionally does
-not load a model, download weights, inspect hardware, edit a photo, or write the
-Catalog. Those responsibilities live behind later worker/provider and application
-boundaries.
+not load a model, download weights, inspect hardware, edit a photo, or access the
+Catalog. Runtime scheduling and persistence remain application-layer
+responsibilities; the first such adapter now lives in `shadow-core` and
+`shadow-catalog` without coupling this crate to either one.
 
 ## What is implemented now
 
@@ -29,8 +30,9 @@ boundaries.
   fractions, and two explicitly defined sharpness proxies. These measurements
   describe the supplied display proxy only; they are not RAW exposure readings,
   aesthetic scores, or automatic Pick/Reject decisions.
-  Sharpness proxies are only comparable at the same proxy scale and exact
-  preprocessing revision; resizing or sharpening changes their meaning.
+  The application does not currently compare sharpness across photos. Matching
+  proxy scale and exact preprocessing revision is a minimum precondition, not
+  proof of comparability; upstream resizing or sharpening changes their meaning.
 - A small deterministic Bradley-Terry/logistic linear preference head over frozen
   feature vectors. It is a real, serializable CPU update path, but it is not a
   substitute for the still-unselected image feature extractor.
@@ -38,12 +40,32 @@ boundaries.
 All model-derived data remains rebuildable. Human decisions, feedback events, and
 accepted edit versions remain durable application facts.
 
+## Current application integration
+
+The import/decode path now sends the preferred cached JPEG visual to a dedicated
+single-worker actor with a bounded queue. It verifies the content-addressed blob,
+decodes a maximum-512-edge display-luma plane through `shadow-bridge`, runs the
+deterministic observer, and asks Catalog schema v7 to commit only against the
+exact representation fingerprint, cached-artifact identity, observation schema,
+implementation version, luma contract, and preprocessing revision. Stale jobs
+are discarded. Invalid persisted observation data is treated as rebuildable and
+does not make the Review page unreadable.
+
+Review exposes a compact summary for the selected photo while retaining the full
+histogram in Catalog. This remains a single-photo factual inspection path: it
+does not rank a group, add quality badges, or compare observations made from
+differently generated, resized, or sharpened proxies. An embedded camera preview
+and a Shadow-generated proxy can have materially different upstream processing
+even when the final JPEG-to-luma decoder revision matches.
+
 ## Deliberately not implemented
 
 - No ONNX Runtime/Core ML/CUDA/Metal/DirectML/Windows ML adapter.
 - No DINO, CLIP, face/eye, SAM, depth, inpaint, diffusion, VLM, or LLM model.
 - No fabricated quality score, embedding, mask, recipe, or generated patch.
-- No model downloader, remote API call, Python runtime, or Catalog schema write.
+- No model downloader, remote API call, Python runtime, or direct Catalog access
+  from this crate.
+- No cross-photo quality rank derived from the current display-proxy metrics.
 - No fixed hardware-name assumptions for M1 Pro or RTX 4070 Ti.
 
 ## Decisions and evidence needed next
@@ -83,7 +105,9 @@ and the two target machines before an implementation is called usable:
     guarantees, and deterministic local fallback. Remote use remains off by
     default.
 
-The intended next vertical slice is modest: connect these rule-based display-luma
-observations to versioned proxy artifacts, persist their provenance, and benchmark
-one pinned frozen embedding model behind a worker. Only after it passes the
-quality/resource gates should personal preference affect UI recommendations.
+The next AI slice should first freeze a comparable analysis-artifact contract and
+benchmark it on real shoots, then benchmark one pinned frozen embedding model and
+runtime behind an isolated worker. The exact extractor, weights, preprocessing,
+licenses, and ONNX Runtime/Core ML/CUDA packaging remain decisions, not implied
+dependencies. Only after the comparability, quality, and resource gates pass
+should group ranking or personal preference affect UI recommendations.

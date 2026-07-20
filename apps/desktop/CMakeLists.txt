@@ -191,4 +191,25 @@ if(BUILD_TESTING)
         NAME shadow-desktop-edit-preview-contract
         COMMAND shadow-edit-preview-contract-test
     )
+
+    add_executable(
+        shadow-review-model-test
+        tests/review_model_test.cpp
+        src/review_model.cpp
+    )
+    target_compile_features(shadow-review-model-test PRIVATE cxx_std_20)
+    target_include_directories(
+        shadow-review-model-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(shadow-review-model-test PRIVATE Qt6::Core)
+    if(MSVC)
+        target_compile_options(shadow-review-model-test PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(
+            shadow-review-model-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(NAME shadow-desktop-review-model COMMAND shadow-review-model-test)
 endif()

@@ -9,9 +9,19 @@ FolderDialog / QML Review grid
   → shadow-core scan / decode workers
   → shadow-catalog single writer
   → embedded preview or generated proxy cache
+  → bounded display-luma observation worker → Catalog v7 summary
 ```
 
 QML never opens SQLite, calls LibRaw, or interprets blob paths. The Rust bridge returns bounded Review metadata pages using a stable path/representation cursor. Compressed visuals are not stored in the Qt model: a forced-asynchronous `QQuickImageProvider` requests a verified cache blob only when Qt needs that image and decodes only the requested display size. Every image URL carries the current model generation, so a late result from a previous folder is discarded.
+
+When the preferred cached visual is JPEG, the core also queues a maximum-512-edge
+display-luma observation on a separate bounded single-worker actor. Catalog commits
+it only against the exact current source/artifact and algorithm/preprocessing
+revision. The selected-photo sidebar shows mean and percentile luma,
+near-black/near-white fractions, two scale-sensitive detail proxies, and the input
+and analyzer revisions. These are single-photo display-proxy facts: the grid does
+not turn them into quality badges, sorting, Picks, or Rejects, and the application
+does not compare differently authored/preprocessed proxies.
 
 ## macOS development
 

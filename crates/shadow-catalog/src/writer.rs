@@ -14,9 +14,10 @@ use crate::{
     CachedArtifactRecord, Catalog, CatalogError, CatalogStats, CatalogStore, CommitRecipe,
     DecodeSnapshotRecord, FeedbackPage, ImportSession, ImportSessionState, ImportSessionSummary,
     InvalidateCachedArtifactStatus, RecipeCommitRecord, RecipeRefRecord, RecordCachedArtifact,
-    RecordCachedArtifactStatus, RecordDecodeSnapshot, RecordDecodeSnapshotStatus, RegisterAsset,
-    RegisteredAsset, RepresentationFingerprint, ReviewCursor, ReviewItemRecord, ReviewPageRecord,
-    SetRecipeRef,
+    RecordCachedArtifactStatus, RecordDecodeSnapshot, RecordDecodeSnapshotStatus,
+    RecordTechnicalObservation, RecordTechnicalObservationStatus, RegisterAsset, RegisteredAsset,
+    RepresentationFingerprint, ReviewCursor, ReviewItemRecord, ReviewPageRecord, SetRecipeRef,
+    TechnicalObservationRecord, TechnicalObservationRevision,
 };
 
 #[derive(Debug)]
@@ -56,6 +57,7 @@ enum Message {
         RepresentationFingerprint,
         bool,
         String,
+        Option<String>,
         SyncSender<Result<bool, CatalogError>>,
     ),
     RecordCachedArtifact(
@@ -66,17 +68,34 @@ enum Message {
         RepresentationId,
         SyncSender<Result<Vec<CachedArtifactRecord>, CatalogError>>,
     ),
+    PreferredCachedArtifact(
+        RepresentationId,
+        SyncSender<Result<Option<CachedArtifactRecord>, CatalogError>>,
+    ),
     InvalidateCachedArtifact(
         Box<CachedArtifactRecord>,
         SyncSender<Result<InvalidateCachedArtifactStatus, CatalogError>>,
     ),
+    RecordTechnicalObservation(
+        Box<RecordTechnicalObservation>,
+        SyncSender<Result<RecordTechnicalObservationStatus, CatalogError>>,
+    ),
+    TechnicalObservation(
+        RepresentationId,
+        RepresentationFingerprint,
+        Box<crate::CachedArtifact>,
+        TechnicalObservationRevision,
+        SyncSender<Result<Option<TechnicalObservationRecord>, CatalogError>>,
+    ),
     ReviewPage(
         Option<ReviewCursor>,
         usize,
+        Option<TechnicalObservationRevision>,
         SyncSender<Result<ReviewPageRecord, CatalogError>>,
     ),
     ReviewSource(
         PhotoId,
+        Option<TechnicalObservationRevision>,
         SyncSender<Result<Option<ReviewItemRecord>, CatalogError>>,
     ),
     CommitRecipe(
@@ -324,6 +343,7 @@ impl CatalogHandle {
     /// # Errors
     ///
     /// Returns [`CatalogError`] if the writer is unavailable or the query fails.
+    #[allow(clippy::too_many_arguments)]
     pub fn is_decode_output_current(
         &self,
         representation_id: RepresentationId,
@@ -332,6 +352,7 @@ impl CatalogHandle {
         source: RepresentationFingerprint,
         require_cached_preview: bool,
         proxy_variant_key: &str,
+        required_technical_preprocessing: Option<&str>,
     ) -> Result<bool, CatalogError> {
         self.request(|response| {
             Message::IsDecodeOutputCurrent(
@@ -341,6 +362,7 @@ impl CatalogHandle {
                 source,
                 require_cached_preview,
                 proxy_variant_key.to_owned(),
+                required_technical_preprocessing.map(str::to_owned),
                 response,
             )
         })
@@ -371,6 +393,20 @@ impl CatalogHandle {
         self.request(|response| Message::CachedArtifacts(representation_id, response))
     }
 
+    /// Returns the shared Review-selected current visual through the Catalog
+    /// writer so analysis and UI use one artifact-selection contract.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] if the writer is unavailable, the
+    /// representation is absent, or persisted metadata is invalid.
+    pub fn preferred_cached_artifact(
+        &self,
+        representation_id: RepresentationId,
+    ) -> Result<Option<CachedArtifactRecord>, CatalogError> {
+        self.request(|response| Message::PreferredCachedArtifact(representation_id, response))
+    }
+
     /// Invalidates an exact cache reference through the single Catalog writer.
     ///
     /// # Errors
@@ -386,6 +422,45 @@ impl CatalogHandle {
         })
     }
 
+    /// Records one display-luma observation through the single Catalog writer.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] if the writer is unavailable or persistence
+    /// fails. A normal source/artifact race is returned in the status.
+    pub fn record_technical_observation(
+        &self,
+        request: &RecordTechnicalObservation,
+    ) -> Result<RecordTechnicalObservationStatus, CatalogError> {
+        self.request(|response| {
+            Message::RecordTechnicalObservation(Box::new(request.clone()), response)
+        })
+    }
+
+    /// Reads one exact, current technical observation through the Catalog actor.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] if the actor is unavailable or matching
+    /// persisted state fails integrity validation.
+    pub fn technical_observation(
+        &self,
+        representation_id: RepresentationId,
+        expected_source: RepresentationFingerprint,
+        expected_artifact: &crate::CachedArtifact,
+        revision: &TechnicalObservationRevision,
+    ) -> Result<Option<TechnicalObservationRecord>, CatalogError> {
+        self.request(|response| {
+            Message::TechnicalObservation(
+                representation_id,
+                expected_source,
+                Box::new(expected_artifact.clone()),
+                revision.clone(),
+                response,
+            )
+        })
+    }
+
     /// Returns one immutable, keyset-paginated Review-grid page through the
     /// Catalog actor.
     ///
@@ -397,7 +472,24 @@ impl CatalogHandle {
         after: Option<&ReviewCursor>,
         limit: usize,
     ) -> Result<ReviewPageRecord, CatalogError> {
-        self.request(|response| Message::ReviewPage(after.cloned(), limit, response))
+        self.request(|response| Message::ReviewPage(after.cloned(), limit, None, response))
+    }
+
+    /// Returns a Review page with summaries for one exact technical revision.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] if the writer is unavailable, the query fails,
+    /// or a matching persisted observation fails integrity validation.
+    pub fn review_page_with_technical(
+        &self,
+        after: Option<&ReviewCursor>,
+        limit: usize,
+        revision: &TechnicalObservationRevision,
+    ) -> Result<ReviewPageRecord, CatalogError> {
+        self.request(|response| {
+            Message::ReviewPage(after.cloned(), limit, Some(revision.clone()), response)
+        })
     }
 
     /// Returns the catalog-owned online RAW source for one photo.
@@ -409,7 +501,21 @@ impl CatalogHandle {
         &self,
         photo_id: PhotoId,
     ) -> Result<Option<ReviewItemRecord>, CatalogError> {
-        self.request(|response| Message::ReviewSource(photo_id, response))
+        self.request(|response| Message::ReviewSource(photo_id, None, response))
+    }
+
+    /// Returns one Review source with an exact current technical summary.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] if the actor is unavailable, the query fails,
+    /// or a matching persisted observation fails integrity validation.
+    pub fn review_source_with_technical(
+        &self,
+        photo_id: PhotoId,
+        revision: &TechnicalObservationRevision,
+    ) -> Result<Option<ReviewItemRecord>, CatalogError> {
+        self.request(|response| Message::ReviewSource(photo_id, Some(revision.clone()), response))
     }
 
     /// Persists an immutable Recipe commit and optional ref move through the
@@ -647,6 +753,7 @@ impl CatalogStore for CatalogHandle {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
     while let Ok(message) = receiver.recv() {
         match message {
@@ -671,6 +778,7 @@ fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
                 source,
                 require_cached_preview,
                 proxy_variant_key,
+                required_technical_preprocessing,
                 response,
             ) => {
                 let _ = response.send(catalog.is_decode_output_current(
@@ -680,6 +788,7 @@ fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
                     source,
                     require_cached_preview,
                     &proxy_variant_key,
+                    required_technical_preprocessing.as_deref(),
                 ));
             }
             Message::RecordCachedArtifact(request, response) => {
@@ -688,14 +797,42 @@ fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
             Message::CachedArtifacts(representation_id, response) => {
                 let _ = response.send(catalog.cached_artifacts(representation_id));
             }
+            Message::PreferredCachedArtifact(representation_id, response) => {
+                let _ = response.send(catalog.preferred_cached_artifact(representation_id));
+            }
             Message::InvalidateCachedArtifact(record, response) => {
                 let _ = response.send(catalog.invalidate_cached_artifact(record.as_ref()));
             }
-            Message::ReviewPage(after, limit, response) => {
-                let _ = response.send(catalog.review_page(after.as_ref(), limit));
+            Message::RecordTechnicalObservation(request, response) => {
+                let _ = response.send(catalog.record_technical_observation(request.as_ref()));
             }
-            Message::ReviewSource(photo_id, response) => {
-                let _ = response.send(catalog.review_source(photo_id));
+            Message::TechnicalObservation(
+                representation_id,
+                source,
+                artifact,
+                revision,
+                response,
+            ) => {
+                let _ = response.send(catalog.technical_observation(
+                    representation_id,
+                    source,
+                    artifact.as_ref(),
+                    &revision,
+                ));
+            }
+            Message::ReviewPage(after, limit, revision, response) => {
+                let result = revision.as_ref().map_or_else(
+                    || catalog.review_page(after.as_ref(), limit),
+                    |revision| catalog.review_page_with_technical(after.as_ref(), limit, revision),
+                );
+                let _ = response.send(result);
+            }
+            Message::ReviewSource(photo_id, revision, response) => {
+                let result = revision.as_ref().map_or_else(
+                    || catalog.review_source(photo_id),
+                    |revision| catalog.review_source_with_technical(photo_id, revision),
+                );
+                let _ = response.send(result);
             }
             Message::CommitRecipe(request, response) => {
                 let _ = response.send(catalog.commit_recipe(request.as_ref()));

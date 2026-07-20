@@ -119,6 +119,15 @@ mod ffi {
     }
 
     #[derive(Debug)]
+    struct FfiDisplayLuma {
+        width: u32,
+        height: u32,
+        stride: u32,
+        samples: Vec<f32>,
+        preprocessing_version: String,
+    }
+
+    #[derive(Debug)]
     enum FfiAdjustmentOperation {
         Exposure,
         Contrast,
@@ -152,6 +161,7 @@ mod ffi {
 
         fn open_libraw_utf8(path: &str) -> Result<UniquePtr<DecodeHandle>>;
         fn libraw_provider_version() -> String;
+        fn decode_jpeg_display_luma(encoded: &[u8], max_edge: u32) -> Result<FfiDisplayLuma>;
         fn provider(self: &DecodeHandle) -> FfiProviderSnapshot;
         fn metadata(self: &DecodeHandle) -> FfiMetadataSnapshot;
         fn capabilities(self: &DecodeHandle) -> FfiCapabilitySnapshot;
@@ -195,6 +205,111 @@ pub const BASIC_EDIT_PREVIEW_RECIPE_VERSION: u32 = 1;
 /// A square proxy at this edge consumes at most 192 MiB for interleaved RGB
 /// float32. The intended UI values are 1600 and 2048.
 pub const MAX_WARM_EDIT_PREVIEW_EDGE: u32 = 4_096;
+
+/// Hard longest-edge bound for a JPEG display-luma analysis plane.
+pub const MAX_JPEG_DISPLAY_LUMA_EDGE: u32 = 512;
+
+/// Stable semantic prefix returned by the JPEG display-luma preprocessor.
+///
+/// The complete returned version appends `:max-edge-N`, because sharpness
+/// observations from different analysis scales are not directly comparable.
+pub const JPEG_DISPLAY_LUMA_PREPROCESSING_VERSION_PREFIX: &str = concat!(
+    "shadow.jpeg-luma.v2:libjpeg-turbo-",
+    env!("SHADOW_LIBJPEG_TURBO_VERSION"),
+    ":rgb8:islow:no-fancy-upsampling:no-block-smoothing:assume-srgb:ignore-icc:",
+    "stored-orientation:idct-scale-1-2-4-8:bilinear-center-q16:rec709-encoded-q16"
+);
+
+/// Owned normalized display-referred luminance decoded from a JPEG proxy.
+///
+/// This is not RAW sensor luminance. The exact JPEG/color/resize assumptions
+/// are carried in [`DecodedDisplayLuma::preprocessing_version`]. `stride` is
+/// measured in `f32` samples and is currently always equal to `width`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DecodedDisplayLuma {
+    pub width: u32,
+    pub height: u32,
+    pub stride: u32,
+    pub samples: Vec<f32>,
+    pub preprocessing_version: String,
+}
+
+/// Decodes JPEG bytes into a bounded, tightly packed normalized display-luma
+/// plane suitable for `shadow_ai::DisplayLumaPlane`.
+///
+/// The pipeline uses version-pinned libjpeg-turbo RGB8 output with the integer
+/// slow DCT, fancy upsampling and block smoothing disabled. It does not apply
+/// ICC profiles or EXIF orientation, assumes encoded sRGB, applies fixed-point
+/// Rec.709 luma, selects one of libjpeg's 1/2/4/8 IDCT scales, and
+/// deterministically resizes to `max_edge`. Truncated JPEG warnings are
+/// rejected rather than repaired.
+///
+/// # Errors
+///
+/// Returns [`BridgeError::InvalidDisplayLumaRequest`] unless `max_edge` is in
+/// `1..=512`, or [`BridgeError::Decoder`] for corrupt, unsupported, or
+/// resource-limited JPEG data.
+pub fn decode_jpeg_display_luma(
+    encoded: &[u8],
+    max_edge: u32,
+) -> Result<DecodedDisplayLuma, BridgeError> {
+    if !(1..=MAX_JPEG_DISPLAY_LUMA_EDGE).contains(&max_edge) {
+        return Err(BridgeError::InvalidDisplayLumaRequest(
+            "max_edge must be in 1..=512",
+        ));
+    }
+
+    let decoded = ffi::decode_jpeg_display_luma(encoded, max_edge)?;
+    if decoded.width == 0
+        || decoded.height == 0
+        || decoded.width > max_edge
+        || decoded.height > max_edge
+        || decoded.stride != decoded.width
+    {
+        return Err(BridgeError::InvalidDisplayLumaOutput(
+            "dimensions or stride violate the bounded plane contract",
+        ));
+    }
+    let expected_len = usize::try_from(decoded.stride)
+        .ok()
+        .and_then(|stride| {
+            usize::try_from(decoded.height)
+                .ok()
+                .and_then(|height| stride.checked_mul(height))
+        })
+        .ok_or(BridgeError::InvalidDisplayLumaOutput(
+            "plane length overflows addressable memory",
+        ))?;
+    if decoded.samples.len() != expected_len {
+        return Err(BridgeError::InvalidDisplayLumaOutput(
+            "sample length does not match stride times height",
+        ));
+    }
+    if decoded
+        .samples
+        .iter()
+        .any(|sample| !sample.is_finite() || !(0.0..=1.0).contains(sample))
+    {
+        return Err(BridgeError::InvalidDisplayLumaOutput(
+            "samples must be finite and normalized",
+        ));
+    }
+    let expected_version =
+        format!("{JPEG_DISPLAY_LUMA_PREPROCESSING_VERSION_PREFIX}:max-edge-{max_edge}");
+    if decoded.preprocessing_version != expected_version {
+        return Err(BridgeError::InvalidDisplayLumaOutput(
+            "preprocessing version does not match the requested scale",
+        ));
+    }
+
+    Ok(DecodedDisplayLuma {
+        width: decoded.width,
+        height: decoded.height,
+        stride: decoded.stride,
+        samples: decoded.samples,
+        preprocessing_version: decoded.preprocessing_version,
+    })
+}
 
 /// Current numeric contract understood by the C++ adjustment executor.
 pub const ADJUSTMENT_PARAMETER_SCHEMA_VERSION: u32 = 1;
@@ -788,6 +903,10 @@ fn proxy_payload(proxy: ffi::FfiEncodedProxy) -> shadow_domain::ProxyPayload {
 pub enum BridgeError {
     #[error("invalid edited proxy request: {0}")]
     InvalidEditRequest(&'static str),
+    #[error("invalid JPEG display-luma request: {0}")]
+    InvalidDisplayLumaRequest(&'static str),
+    #[error("invalid JPEG display-luma decoder output: {0}")]
+    InvalidDisplayLumaOutput(&'static str),
     #[error("the Mac-first decoder bridge currently requires a UTF-8 path: {0}")]
     NonUtf8Path(PathBuf),
     #[error("the C++ decoder bridge returned a null handle")]
@@ -953,6 +1072,88 @@ const fn support(value: bool) -> DecodeSupport {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const TINY_GRAYSCALE_JPEG: &[u8] = &[
+        0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00,
+        0x01, 0x00, 0x01, 0x00, 0x00, 0xff, 0xdb, 0x00, 0x43, 0x00, 0x03, 0x02, 0x02, 0x03, 0x02,
+        0x02, 0x03, 0x03, 0x03, 0x03, 0x04, 0x03, 0x03, 0x04, 0x05, 0x08, 0x05, 0x05, 0x04, 0x04,
+        0x05, 0x0a, 0x07, 0x07, 0x06, 0x08, 0x0c, 0x0a, 0x0c, 0x0c, 0x0b, 0x0a, 0x0b, 0x0b, 0x0d,
+        0x0e, 0x12, 0x10, 0x0d, 0x0e, 0x11, 0x0e, 0x0b, 0x0b, 0x10, 0x16, 0x10, 0x11, 0x13, 0x14,
+        0x15, 0x15, 0x15, 0x0c, 0x0f, 0x17, 0x18, 0x16, 0x14, 0x18, 0x12, 0x14, 0x15, 0x14, 0xff,
+        0xc0, 0x00, 0x0b, 0x08, 0x00, 0x02, 0x00, 0x02, 0x01, 0x01, 0x11, 0x00, 0xff, 0xc4, 0x00,
+        0x14, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x09, 0xff, 0xc4, 0x00, 0x1d, 0x10, 0x00, 0x02, 0x01, 0x04, 0x03, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x02, 0x06, 0x03, 0x04,
+        0x05, 0x07, 0x00, 0x12, 0x62, 0xff, 0xda, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3f, 0x00,
+        0x41, 0xe2, 0xfa, 0x1b, 0x59, 0xd3, 0x8d, 0x62, 0x55, 0x75, 0xdc, 0x4d, 0x55, 0x6d, 0x28,
+        0x80, 0xa3, 0x09, 0x6c, 0x00, 0x1d, 0x07, 0x8e, 0x7f, 0xff, 0xd9,
+    ];
+
+    #[test]
+    fn jpeg_display_luma_crosses_as_a_bounded_deterministic_plane() {
+        let first = decode_jpeg_display_luma(TINY_GRAYSCALE_JPEG, 512)
+            .expect("decode valid tiny JPEG display proxy");
+        let second = decode_jpeg_display_luma(TINY_GRAYSCALE_JPEG, 512)
+            .expect("repeat valid tiny JPEG display proxy");
+        assert_eq!((first.width, first.height, first.stride), (2, 2, 2));
+        assert_eq!(first.samples.len(), 4);
+        assert_eq!(first, second);
+        assert_eq!(
+            first
+                .samples
+                .iter()
+                .map(|sample| sample.to_bits())
+                .collect::<Vec<_>>(),
+            [1_023_443_073, 1_050_319_515, 1_061_405_636, 1_065_353_216],
+            "the version-pinned JPEG dependency must retain golden sample values"
+        );
+        assert!(
+            first
+                .samples
+                .iter()
+                .all(|value| (0.0..=1.0).contains(value))
+        );
+        assert!(first.samples[0] < first.samples[3]);
+        assert_eq!(
+            first.preprocessing_version,
+            format!("{JPEG_DISPLAY_LUMA_PREPROCESSING_VERSION_PREFIX}:max-edge-512")
+        );
+    }
+
+    #[test]
+    fn jpeg_display_luma_rejects_corruption_limits_and_invalid_bounds() {
+        for invalid_edge in [0, MAX_JPEG_DISPLAY_LUMA_EDGE + 1] {
+            assert!(matches!(
+                decode_jpeg_display_luma(&[], invalid_edge),
+                Err(BridgeError::InvalidDisplayLumaRequest(_))
+            ));
+        }
+
+        for corrupt in [
+            vec![0xff, 0xd8, 0xff],
+            TINY_GRAYSCALE_JPEG[..TINY_GRAYSCALE_JPEG.len() - 2].to_vec(),
+        ] {
+            assert!(matches!(
+                decode_jpeg_display_luma(&corrupt, 512),
+                Err(BridgeError::Decoder(_))
+            ));
+        }
+
+        let mut oversized = TINY_GRAYSCALE_JPEG.to_vec();
+        let sof = oversized
+            .windows(2)
+            .position(|window| window == [0xff, 0xc0])
+            .expect("fixture has baseline SOF");
+        oversized[sof + 5..sof + 9].copy_from_slice(&[0x4e, 0x20, 0x4e, 0x20]);
+        let error = decode_jpeg_display_luma(&oversized, 512)
+            .expect_err("oversized dimensions fail before entropy decode");
+        assert!(matches!(error, BridgeError::Decoder(_)));
+        assert!(
+            error
+                .to_string()
+                .contains("dimensions or pixel count exceed limits")
+        );
+    }
 
     #[test]
     fn basic_edit_defaults_are_a_bounded_neutral_recipe() {

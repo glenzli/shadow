@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 use rusqlite::{params, types::Type};
 use shadow_domain::{EntityId, ImageDimensions, PreviewByteOrder, PreviewCodec, RepresentationId};
 
@@ -233,6 +235,28 @@ impl Catalog {
         Ok(artifacts)
     }
 
+    /// Returns the exact current visual selected by the shared Review ordering.
+    ///
+    /// Embedded previews precede generated proxies; within a role the largest
+    /// image wins, followed by the stable variant key. Keeping this selection
+    /// in Catalog prevents background analysis and Review from targeting
+    /// different provider/variant artifacts.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] when the representation is absent or persisted
+    /// artifact metadata is invalid.
+    pub fn preferred_cached_artifact(
+        &self,
+        representation_id: RepresentationId,
+    ) -> Result<Option<CachedArtifactRecord>, CatalogError> {
+        let source = self.representation_fingerprint(representation_id)?;
+        let mut artifacts = self.cached_artifacts(representation_id)?;
+        artifacts.retain(|record| record.source == source);
+        artifacts.sort_by(preferred_artifact_ordering);
+        Ok(artifacts.into_iter().next())
+    }
+
     /// Removes an artifact reference only if the Catalog row is still exactly
     /// the record observed by a failed cache read.
     ///
@@ -275,6 +299,27 @@ impl Catalog {
             InvalidateCachedArtifactStatus::NotCurrent
         })
     }
+}
+
+fn preferred_artifact_ordering(
+    left: &CachedArtifactRecord,
+    right: &CachedArtifactRecord,
+) -> Ordering {
+    artifact_role_rank(left.artifact.role)
+        .cmp(&artifact_role_rank(right.artifact.role))
+        .then_with(|| artifact_area(right).cmp(&artifact_area(left)))
+        .then_with(|| left.artifact.variant_key.cmp(&right.artifact.variant_key))
+}
+
+const fn artifact_role_rank(role: CachedArtifactRole) -> u8 {
+    match role {
+        CachedArtifactRole::EmbeddedPreview => 0,
+        CachedArtifactRole::GeneratedProxy => 1,
+    }
+}
+
+fn artifact_area(record: &CachedArtifactRecord) -> u64 {
+    u64::from(record.artifact.dimensions.width) * u64::from(record.artifact.dimensions.height)
 }
 
 fn validate_artifact(artifact: &CachedArtifact) -> Result<(), CatalogError> {

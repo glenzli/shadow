@@ -173,6 +173,23 @@ BackendReviewPage DesktopBackend::reviewPage(
             .visual_width = item.visual_width,
             .visual_height = item.visual_height,
             .has_visual = item.has_visual,
+            .has_technical_observation = item.has_technical_observation,
+            .technical_input_width = item.technical_input_width,
+            .technical_input_height = item.technical_input_height,
+            .technical_preprocessing_version = qstring(
+                item.technical_preprocessing_version
+            ),
+            .technical_implementation_version = qstring(
+                item.technical_implementation_version
+            ),
+            .mean_luma = item.mean_luma,
+            .p01_luma = item.p01_luma,
+            .p50_luma = item.p50_luma,
+            .p99_luma = item.p99_luma,
+            .near_black_fraction = item.near_black_fraction,
+            .near_white_fraction = item.near_white_fraction,
+            .laplacian_variance = item.laplacian_variance,
+            .edge_energy = item.edge_energy,
         });
     }
     return page;

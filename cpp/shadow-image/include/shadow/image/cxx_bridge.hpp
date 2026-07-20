@@ -10,6 +10,7 @@ class EditPreviewHandle;
 #include "shadow-bridge/src/lib.rs.h"
 
 #include <shadow/image/decoder.hpp>
+#include <shadow/image/display_luma.hpp>
 #include <shadow/image/edit.hpp>
 
 #include <memory>
@@ -71,5 +72,9 @@ private:
 
 [[nodiscard]] std::unique_ptr<DecodeHandle> open_libraw_utf8(rust::Str path);
 [[nodiscard]] rust::String libraw_provider_version();
+[[nodiscard]] FfiDisplayLuma decode_jpeg_display_luma(
+    rust::Slice<const std::uint8_t> encoded,
+    std::uint32_t max_edge
+);
 
 } // namespace shadow::bridge

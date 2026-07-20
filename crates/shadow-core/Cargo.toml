@@ -7,6 +7,8 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
+shadow-ai.workspace = true
+shadow-bridge.workspace = true
 shadow-cache.workspace = true
 shadow-catalog.workspace = true
 shadow-domain.workspace = true

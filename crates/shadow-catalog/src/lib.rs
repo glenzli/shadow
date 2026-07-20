@@ -10,6 +10,7 @@ mod import_journal;
 mod recipe;
 mod review;
 mod store;
+mod technical_observation;
 mod writer;
 
 use std::{path::Path, time::Duration};
@@ -38,9 +39,13 @@ pub use recipe::{
 };
 pub use review::{ReviewCursor, ReviewItemRecord, ReviewPageRecord};
 pub use store::CatalogStore;
+pub use technical_observation::{
+    RecordTechnicalObservation, RecordTechnicalObservationStatus, TechnicalObservationRecord,
+    TechnicalObservationRevision, TechnicalObservationSummary,
+};
 pub use writer::{CatalogActor, CatalogHandle};
 
-const SCHEMA_VERSION: i64 = 6;
+const SCHEMA_VERSION: i64 = 7;
 
 const MIGRATION_V1: &str = r"
 CREATE TABLE photos (
@@ -316,6 +321,54 @@ BEGIN
 END;
 ";
 
+const MIGRATION_V7: &str = r"
+CREATE TABLE representation_technical_observations (
+    representation_id             BLOB NOT NULL CHECK (length(representation_id) = 16),
+    source_role                   TEXT NOT NULL
+        CHECK (source_role IN ('embedded_preview', 'generated_proxy')),
+    source_variant_key            TEXT NOT NULL CHECK (length(source_variant_key) > 0),
+    source_generator_id           TEXT NOT NULL CHECK (length(source_generator_id) > 0),
+    source_generator_version      TEXT NOT NULL,
+    source_provider_preview_id    INTEGER NOT NULL CHECK (source_provider_preview_id >= -1),
+    source_blob_algorithm         TEXT NOT NULL CHECK (length(source_blob_algorithm) > 0),
+    source_blob_digest            BLOB NOT NULL CHECK (length(source_blob_digest) = 32),
+    source_blob_byte_len          INTEGER NOT NULL CHECK (source_blob_byte_len > 0),
+    source_codec                  TEXT NOT NULL
+        CHECK (source_codec IN ('unknown', 'jpeg', 'bitmap', 'jpeg_xl', 'h265')),
+    source_byte_order             TEXT NOT NULL
+        CHECK (source_byte_order IN ('not_applicable', 'native', 'little_endian', 'big_endian')),
+    source_width                  INTEGER NOT NULL CHECK (source_width >= 0),
+    source_height                 INTEGER NOT NULL CHECK (source_height >= 0),
+    source_bits_per_channel       INTEGER NOT NULL CHECK (source_bits_per_channel >= 0),
+    source_channels               INTEGER NOT NULL CHECK (source_channels >= 0),
+    source_created_at_ms          INTEGER NOT NULL,
+    source_byte_len               INTEGER NOT NULL CHECK (source_byte_len >= 0),
+    source_modified_at_ms         INTEGER,
+    observation_schema            INTEGER NOT NULL CHECK (observation_schema > 0),
+    implementation_version        TEXT NOT NULL CHECK (length(implementation_version) > 0),
+    display_luma_contract_version INTEGER NOT NULL CHECK (display_luma_contract_version > 0),
+    preprocessing_version         TEXT NOT NULL CHECK (length(preprocessing_version) > 0),
+    observation_json              TEXT NOT NULL CHECK (json_valid(observation_json)),
+    observation_digest            BLOB NOT NULL CHECK (length(observation_digest) = 32),
+    observed_at_ms                INTEGER NOT NULL,
+    PRIMARY KEY (
+        representation_id, source_role, source_variant_key, source_generator_id,
+        source_generator_version, source_provider_preview_id, source_blob_algorithm,
+        source_blob_digest, source_blob_byte_len, source_codec, source_byte_order,
+        source_width, source_height, source_bits_per_channel, source_channels,
+        observation_schema,
+        implementation_version, display_luma_contract_version, preprocessing_version
+    ),
+    FOREIGN KEY (representation_id) REFERENCES representations(id) ON DELETE CASCADE
+) STRICT;
+
+CREATE INDEX representation_technical_observation_source_idx
+    ON representation_technical_observations(
+        representation_id, source_role, source_variant_key,
+        source_blob_algorithm, source_blob_digest
+    );
+";
+
 #[derive(Debug, Error)]
 pub enum CatalogError {
     #[error("SQLite catalog error: {0}")]
@@ -402,6 +455,14 @@ pub enum CatalogError {
     FeedbackJson(serde_json::Error),
     #[error("persisted AI feedback failed its integrity check: {0}")]
     InvalidPersistedFeedback(&'static str),
+    #[error("invalid technical observation: {0}")]
+    InvalidTechnicalObservation(String),
+    #[error("technical observation JSON error: {0}")]
+    TechnicalObservationJson(serde_json::Error),
+    #[error("technical observation field {field} is outside SQLite's integer range")]
+    TechnicalObservationValueOutOfRange { field: &'static str },
+    #[error("persisted technical observation failed its integrity check: {0}")]
+    InvalidPersistedTechnicalObservation(&'static str),
 }
 
 #[derive(Debug)]
@@ -653,6 +714,17 @@ fn migrate(connection: &mut Connection) -> rusqlite::Result<()> {
         transaction.commit()?;
     }
 
+    let version = current_schema_version(connection)?;
+    if version < 7 {
+        let transaction = connection.transaction()?;
+        transaction.execute_batch(MIGRATION_V7)?;
+        transaction.execute(
+            "INSERT INTO schema_migrations(version, applied_at_ms) VALUES (?1, unixepoch('subsec') * 1000)",
+            [7_i64],
+        )?;
+        transaction.commit()?;
+    }
+
     let final_version = current_schema_version(connection)?;
     if final_version != SCHEMA_VERSION {
         return Err(rusqlite::Error::InvalidQuery);
@@ -795,7 +867,7 @@ mod tests {
     fn migration_creates_current_schema() {
         let catalog = Catalog::open_in_memory().expect("open catalog");
 
-        assert_eq!(catalog.schema_version().expect("schema version"), 6);
+        assert_eq!(catalog.schema_version().expect("schema version"), 7);
     }
 
     #[test]
@@ -833,20 +905,21 @@ mod tests {
         }
 
         let catalog = Catalog::open(&path).expect("migrate v2 catalog");
-        assert_eq!(catalog.schema_version().expect("schema version"), 6);
+        assert_eq!(catalog.schema_version().expect("schema version"), 7);
         let snapshot_tables: i64 = catalog
             .connection
             .query_row(
                 "SELECT COUNT(*) FROM sqlite_schema
                  WHERE type = 'table' AND name IN (
                      'representation_decode_snapshots', 'representation_previews',
-                     'representation_cached_artifacts'
+                     'representation_cached_artifacts',
+                     'representation_technical_observations'
                  )",
                 [],
                 |row| row.get(0),
             )
             .expect("query migrated tables");
-        assert_eq!(snapshot_tables, 3);
+        assert_eq!(snapshot_tables, 4);
         drop(catalog);
         std::fs::remove_dir_all(root).expect("remove migration fixture");
     }
