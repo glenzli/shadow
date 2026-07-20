@@ -8,6 +8,7 @@ authors.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+shadow-bridge.workspace = true
 shadow-catalog.workspace = true
 shadow-core.workspace = true
 shadow-domain.workspace = true

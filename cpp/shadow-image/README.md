@@ -16,6 +16,8 @@ DecoderProvider
 
 The public header does not expose LibRaw objects, enums, pointers, or ownership rules. A provider owns its decoder implementation; returned buffers own their memory and remain valid after subsequent session calls.
 
+Rust consumes owned metadata/capability/preview snapshots through the CXX adapter in `src/bridge/cxx_bridge.cpp`. The bridge is intentionally coarse-grained: the first boundary call returns a complete descriptor snapshot, while large pixel buffers remain in C++.
+
 Current contract rules:
 
 - A file without an embedded preview is valid and can still expose mosaic/RGB capabilities.

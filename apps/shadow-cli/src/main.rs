@@ -1,9 +1,10 @@
 use std::{env, path::Path};
 
 use anyhow::{Context, Result, bail};
+use shadow_bridge::inspect_libraw;
 use shadow_catalog::{CatalogActor, CatalogStats};
 use shadow_core::{ScanReport, resume_scan, scan_folder};
-use shadow_domain::ImportSessionId;
+use shadow_domain::{DecoderSnapshot, ImportSessionId};
 
 fn main() -> Result<()> {
     let arguments = env::args().skip(1).collect::<Vec<_>>();
@@ -35,6 +36,11 @@ fn main() -> Result<()> {
                     session.updated_at_ms
                 );
             }
+        }
+        [command, raw_path] if command == "inspect-raw" => {
+            let snapshot = inspect_libraw(Path::new(raw_path))
+                .with_context(|| format!("inspect RAW {raw_path}"))?;
+            print_decoder_snapshot(&snapshot);
         }
         [command, catalog_path, folder] if command == "scan" => {
             let actor = open_catalog(catalog_path)?;
@@ -98,8 +104,65 @@ fn print_stats(stats: CatalogStats) {
     );
 }
 
+fn print_decoder_snapshot(snapshot: &DecoderSnapshot) {
+    let metadata = &snapshot.metadata;
+    let capabilities = &snapshot.capabilities;
+    println!(
+        "decoder: provider={} version={} dng_sdk={} rawspeed={} jpeg={}",
+        snapshot.provider.id,
+        snapshot.provider.version,
+        snapshot.provider.dng_sdk,
+        snapshot.provider.rawspeed,
+        snapshot.provider.jpeg
+    );
+    println!(
+        "camera: make={} model={} normalized={}/{} dng={}",
+        metadata.make,
+        metadata.model,
+        metadata.normalized_make,
+        metadata.normalized_model,
+        metadata.dng_version.as_deref().unwrap_or("none")
+    );
+    println!(
+        "raw: canvas={}x{} image={}x{} margins={},{},{},{} cfa={} bits={} black={} white={}",
+        metadata.raw_dimensions.width,
+        metadata.raw_dimensions.height,
+        metadata.image_dimensions.width,
+        metadata.image_dimensions.height,
+        metadata.margins.left,
+        metadata.margins.top,
+        metadata.margins.right,
+        metadata.margins.bottom,
+        metadata.cfa_pattern,
+        metadata.sensor_bits,
+        metadata.black_level,
+        metadata.white_level
+    );
+    println!(
+        "capabilities: metadata={} previews={} mosaic={} reference_rgb={} pending_opcodes={:?}",
+        capabilities.metadata.is_available(),
+        capabilities.embedded_previews.is_available(),
+        capabilities.mosaic.is_available(),
+        capabilities.reference_rgb.is_available(),
+        capabilities.pending_corrections.dng_opcode_list_bytes
+    );
+    for preview in &snapshot.previews {
+        println!(
+            "preview: id={} codec={} dimensions={}x{} bits={} channels={} bytes={} decodable={}",
+            preview.provider_id,
+            preview.codec.as_str(),
+            preview.dimensions.width,
+            preview.dimensions.height,
+            preview.bits_per_channel,
+            preview.channels,
+            preview.encoded_bytes,
+            preview.decodable
+        );
+    }
+}
+
 fn print_usage() {
     eprintln!(
-        "usage:\n  shadow-cli init <catalog.sqlite>\n  shadow-cli scan <catalog.sqlite> <folder>\n  shadow-cli resume <catalog.sqlite> <session-id>\n  shadow-cli recoverable <catalog.sqlite>\n  shadow-cli stats <catalog.sqlite>"
+        "usage:\n  shadow-cli init <catalog.sqlite>\n  shadow-cli scan <catalog.sqlite> <folder>\n  shadow-cli resume <catalog.sqlite> <session-id>\n  shadow-cli recoverable <catalog.sqlite>\n  shadow-cli stats <catalog.sqlite>\n  shadow-cli inspect-raw <path>"
     );
 }

@@ -18,7 +18,8 @@ cargo xtask doctor
 cargo xtask native-check
 cargo run --package shadow-cli -- init ./catalogs/demo.sqlite
 cargo run --package shadow-cli -- scan ./catalogs/demo.sqlite /path/to/photos
+cargo run --package shadow-cli -- inspect-raw /path/to/input.dng
 ./build/native-dev/cpp/shadow-image/shadow-raw-probe /path/to/input.dng ./bench-results/raw-probe
 ```
 
-The reusable C++ decoder contract is documented in [`cpp/shadow-image/README.md`](cpp/shadow-image/README.md). The probe intentionally uses LibRaw's reference RGB processing only as a correctness baseline; Shadow's own scene-linear color and adjustment pipeline will replace that stage. Qt is not required for this slice. The local product and research material lives under `local-reference/` and is intentionally ignored by Git.
+The reusable C++ decoder contract is documented in [`cpp/shadow-image/README.md`](cpp/shadow-image/README.md); its Rust boundary is documented in [`crates/shadow-bridge/README.md`](crates/shadow-bridge/README.md). The probe intentionally uses LibRaw's reference RGB processing only as a correctness baseline; Shadow's own scene-linear color and adjustment pipeline will replace that stage. Qt is not required for this slice. The local product and research material lives under `local-reference/` and is intentionally ignored by Git.
