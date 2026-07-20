@@ -147,6 +147,58 @@ impl Catalog {
         }
         Ok(snapshots)
     }
+
+    /// Reports whether a provider's required decode output is current for this
+    /// exact source revision.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] when the representation is absent or the query
+    /// fails.
+    pub fn is_decode_output_current(
+        &self,
+        representation_id: RepresentationId,
+        provider_id: &str,
+        provider_version: &str,
+        source: RepresentationFingerprint,
+        require_cached_preview: bool,
+    ) -> Result<bool, CatalogError> {
+        if self.representation_fingerprint(representation_id)? != source {
+            return Ok(false);
+        }
+        let byte_len = sqlite_u64(source.byte_len, "source_byte_len")?;
+        let current: Option<(i64, i64)> = self
+            .connection
+            .query_row(
+                "SELECT s.has_embedded_previews,
+                        EXISTS(
+                            SELECT 1 FROM representation_cached_artifacts a
+                            WHERE a.representation_id = s.representation_id
+                              AND a.role = 'embedded_preview'
+                              AND a.variant_key = s.provider_id
+                              AND a.generator_version = s.provider_version
+                              AND a.source_byte_len = s.source_byte_len
+                              AND a.source_modified_at_ms IS s.source_modified_at_ms
+                        )
+                 FROM representation_decode_snapshots s
+                 WHERE s.representation_id = ?1 AND s.provider_id = ?2
+                   AND s.provider_version = ?3
+                   AND s.source_byte_len = ?4
+                   AND s.source_modified_at_ms IS ?5",
+                params![
+                    representation_id.as_bytes().as_slice(),
+                    provider_id,
+                    provider_version,
+                    byte_len,
+                    source.modified_at_ms
+                ],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        Ok(current.is_some_and(|(has_preview, cached_preview)| {
+            !require_cached_preview || has_preview == 0 || cached_preview != 0
+        }))
+    }
 }
 
 fn validate_snapshot(snapshot: &DecoderSnapshot) -> Result<(), CatalogError> {
@@ -189,7 +241,7 @@ fn representation_fingerprint(
     value.ok_or(CatalogError::RepresentationNotFound(representation_id))
 }
 
-fn representation_fingerprint_in_transaction(
+pub(crate) fn representation_fingerprint_in_transaction(
     transaction: &Transaction<'_>,
     representation_id: RepresentationId,
 ) -> Result<RepresentationFingerprint, CatalogError> {
@@ -303,7 +355,9 @@ mod tests {
     };
 
     use super::*;
-    use crate::{RegisterAsset, RegistrationStatus};
+    use crate::{
+        CachedArtifact, CachedArtifactRole, RecordCachedArtifact, RegisterAsset, RegistrationStatus,
+    };
 
     fn registered_catalog() -> (Catalog, RepresentationId, RepresentationFingerprint) {
         let mut catalog = Catalog::open_in_memory().expect("open catalog");
@@ -509,6 +563,67 @@ mod tests {
                 .decode_snapshots(representation_id)
                 .expect("read snapshots")
                 .is_empty()
+        );
+    }
+
+    #[test]
+    fn cached_preview_requirement_reconciles_missing_artifacts() {
+        let (mut catalog, representation_id, source) = registered_catalog();
+        catalog
+            .record_decode_snapshot(&RecordDecodeSnapshot {
+                representation_id,
+                expected_source: source,
+                snapshot: snapshot("libraw", "1", &[7]),
+                inspected_at_ms: 456,
+            })
+            .expect("record snapshot");
+
+        assert!(
+            catalog
+                .is_decode_output_current(representation_id, "libraw", "1", source, false)
+                .expect("query descriptor-only state")
+        );
+        assert!(
+            !catalog
+                .is_decode_output_current(representation_id, "libraw", "2", source, false)
+                .expect("query newer provider version")
+        );
+        assert!(
+            !catalog
+                .is_decode_output_current(representation_id, "libraw", "1", source, true)
+                .expect("query missing cached preview")
+        );
+
+        catalog
+            .record_cached_artifact(&RecordCachedArtifact {
+                representation_id,
+                expected_source: source,
+                artifact: CachedArtifact {
+                    role: CachedArtifactRole::EmbeddedPreview,
+                    variant_key: "libraw".into(),
+                    generator_id: "libraw".into(),
+                    generator_version: "1".into(),
+                    provider_preview_id: Some(7),
+                    blob_algorithm: "blake3-256".into(),
+                    blob_digest: [1; 32],
+                    blob_byte_len: 1_024,
+                    codec: PreviewCodec::Jpeg,
+                    byte_order: shadow_domain::PreviewByteOrder::NotApplicable,
+                    dimensions: ImageDimensions {
+                        width: 1_600,
+                        height: 1_200,
+                    },
+                    bits_per_channel: 8,
+                    channels: 3,
+                    created_at_ms: 789,
+                },
+            })
+            .expect("record cached preview");
+
+        assert!(
+            catalog
+                .is_decode_output_current(representation_id, "libraw", "1", source, true)
+                .expect("query complete cached state")
         );
     }
 }

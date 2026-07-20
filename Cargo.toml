@@ -2,6 +2,7 @@
 members = [
     "apps/shadow-cli",
     "crates/shadow-bridge",
+    "crates/shadow-cache",
     "crates/shadow-catalog",
     "crates/shadow-core",
     "crates/shadow-domain",
@@ -10,6 +11,7 @@ members = [
 default-members = [
     "apps/shadow-cli",
     "crates/shadow-bridge",
+    "crates/shadow-cache",
     "crates/shadow-catalog",
     "crates/shadow-core",
     "crates/shadow-domain",
@@ -25,12 +27,14 @@ authors = ["Shadow contributors"]
 
 [workspace.dependencies]
 anyhow = "1.0.102"
+blake3 = "1.8.5"
 cxx = "=1.0.198"
 rusqlite = { version = "0.40.1", features = ["bundled"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 shadow-catalog = { path = "crates/shadow-catalog" }
 shadow-bridge = { path = "crates/shadow-bridge" }
+shadow-cache = { path = "crates/shadow-cache" }
 shadow-core = { path = "crates/shadow-core" }
 shadow-domain = { path = "crates/shadow-domain" }
 thiserror = "2.0.18"

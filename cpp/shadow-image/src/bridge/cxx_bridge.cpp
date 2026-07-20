@@ -29,6 +29,32 @@ namespace {
     return FfiPreviewFormat::Unknown;
 }
 
+[[nodiscard]] FfiByteOrder byte_order(const image::ByteOrder value) noexcept {
+    switch (value) {
+    case image::ByteOrder::native:
+        return FfiByteOrder::Native;
+    case image::ByteOrder::little_endian:
+        return FfiByteOrder::LittleEndian;
+    case image::ByteOrder::big_endian:
+        return FfiByteOrder::BigEndian;
+    case image::ByteOrder::not_applicable:
+        return FfiByteOrder::NotApplicable;
+    }
+    return FfiByteOrder::NotApplicable;
+}
+
+[[nodiscard]] FfiPreviewSnapshot preview_snapshot(const image::PreviewDescriptor& preview) {
+    return FfiPreviewSnapshot{
+        preview.id,
+        preview_format(preview.format),
+        dimensions(preview.dimensions),
+        preview.bits_per_channel,
+        preview.channels,
+        preview.encoded_bytes,
+        preview.decodable,
+    };
+}
+
 } // namespace
 
 DecodeHandle::DecodeHandle(
@@ -99,17 +125,28 @@ rust::Vec<FfiPreviewSnapshot> DecodeHandle::previews() const {
     rust::Vec<FfiPreviewSnapshot> snapshots;
     snapshots.reserve(session_->previews().size());
     for (const auto& preview : session_->previews()) {
-        snapshots.push_back(FfiPreviewSnapshot{
-            preview.id,
-            preview_format(preview.format),
-            dimensions(preview.dimensions),
-            preview.bits_per_channel,
-            preview.channels,
-            preview.encoded_bytes,
-            preview.decodable,
-        });
+        snapshots.push_back(preview_snapshot(preview));
     }
     return snapshots;
+}
+
+FfiPreviewPayload DecodeHandle::decode_best_preview() {
+    const auto selected = image::select_best_preview(session_->previews());
+    FfiPreviewPayload result;
+    if (!selected.has_value()) {
+        result.present = false;
+        return result;
+    }
+
+    auto payload = session_->decode_preview(*selected);
+    result.present = true;
+    result.descriptor = preview_snapshot(payload.descriptor);
+    result.byte_order = byte_order(payload.byte_order);
+    result.bytes.reserve(payload.bytes.size());
+    for (const auto byte : payload.bytes) {
+        result.bytes.push_back(byte);
+    }
+    return result;
 }
 
 std::unique_ptr<DecodeHandle> open_libraw_utf8(const rust::Str path) {
@@ -122,6 +159,11 @@ std::unique_ptr<DecodeHandle> open_libraw_utf8(const rust::Str path) {
     auto provider = image::make_libraw_decoder_provider();
     auto session = provider->open(std::filesystem::path(utf8_path));
     return std::make_unique<DecodeHandle>(std::move(provider), std::move(session));
+}
+
+rust::String libraw_provider_version() {
+    const auto provider = image::make_libraw_decoder_provider();
+    return rust::String(provider->info().version);
 }
 
 } // namespace shadow::bridge

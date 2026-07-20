@@ -1,15 +1,20 @@
 use std::{
     path::{Path, PathBuf},
-    sync::mpsc::{self, Receiver, Sender, SyncSender},
+    sync::{
+        Arc,
+        mpsc::{self, Receiver, Sender, SyncSender},
+    },
     thread::{self, JoinHandle},
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use shadow_cache::{CacheError, ContentAddressedStore};
 use shadow_catalog::{
-    CatalogError, CatalogHandle, RecordDecodeSnapshot, RecordDecodeSnapshotStatus,
+    CachedArtifact, CachedArtifactRole, CatalogError, CatalogHandle, RecordCachedArtifact,
+    RecordCachedArtifactStatus, RecordDecodeSnapshot, RecordDecodeSnapshotStatus,
     RepresentationFingerprint,
 };
-use shadow_domain::{DecoderSnapshot, RepresentationId};
+use shadow_domain::{DecoderSnapshot, PreviewPayload, RepresentationId};
 use thiserror::Error;
 
 const INSPECTION_QUEUE_CAPACITY: usize = 32;
@@ -19,12 +24,36 @@ const INSPECTION_QUEUE_CAPACITY: usize = 32;
 /// Implementations adapt `LibRaw`, a private vendor SDK bridge, a DNG converter,
 /// or a test double without exposing provider types to the scheduler.
 pub trait DecodeInspector: Send + 'static {
+    /// Stable provider id used for Catalog cache reconciliation.
+    #[allow(clippy::unnecessary_literal_bound)]
+    fn provider_id(&self) -> &str {
+        "anonymous"
+    }
+
+    /// Provider build/version used to invalidate stale capability results.
+    #[allow(clippy::unnecessary_literal_bound)]
+    fn provider_version(&self) -> &str {
+        "1"
+    }
+
     /// Inspects one source and returns an owned, provider-neutral snapshot.
     ///
     /// # Errors
     ///
     /// Returns a provider diagnostic suitable for the background job log.
     fn inspect(&mut self, path: &Path) -> Result<DecoderSnapshot, String>;
+
+    /// Extracts the provider-selected embedded preview when available.
+    ///
+    /// The default keeps descriptor-only inspectors valid. Implementations
+    /// should return `Ok(None)` for a legitimate no-preview source.
+    ///
+    /// # Errors
+    ///
+    /// Returns a provider diagnostic when preview extraction fails.
+    fn extract_best_preview(&mut self, _path: &Path) -> Result<Option<PreviewPayload>, String> {
+        Ok(None)
+    }
 }
 
 impl<F> DecodeInspector for F
@@ -54,8 +83,18 @@ pub enum DecodeInspectionOutcome {
     Recorded {
         provider_id: String,
         provider_version: String,
+        preview: PreviewCacheOutcome,
     },
     Discarded(DecodeInspectionDiscardReason),
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum PreviewCacheOutcome {
+    NotRequested,
+    NoEmbeddedPreview,
+    Stored { digest_hex: String, byte_len: u64 },
+    Discarded(DecodeInspectionDiscardReason),
+    Failed(String),
 }
 
 #[derive(Debug, Error)]
@@ -70,6 +109,8 @@ pub enum DecodeInspectionError {
     Inspector { path: PathBuf, message: String },
     #[error("catalog operation failed: {0}")]
     Catalog(#[from] CatalogError),
+    #[error("preview cache operation failed: {0}")]
+    Cache(#[from] CacheError),
     #[error("cannot start decode inspection worker: {0}")]
     WorkerStart(#[source] std::io::Error),
     #[error("decode inspection worker is unavailable")]
@@ -89,6 +130,9 @@ pub struct DecodeInspectionActor {
 #[derive(Debug, Clone)]
 pub struct DecodeInspectionHandle {
     sender: SyncSender<Message>,
+    provider_id: Arc<str>,
+    provider_version: Arc<str>,
+    caches_previews: bool,
 }
 
 #[derive(Debug)]
@@ -119,13 +163,45 @@ impl DecodeInspectionActor {
         catalog: CatalogHandle,
         inspector: impl DecodeInspector,
     ) -> Result<Self, DecodeInspectionError> {
+        Self::spawn_inner(catalog, inspector, None)
+    }
+
+    /// Starts a decode worker that also writes selected embedded previews into
+    /// a content-addressed cache root.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DecodeInspectionError`] when the cache root or worker cannot be
+    /// initialized.
+    pub fn spawn_with_cache(
+        catalog: CatalogHandle,
+        inspector: impl DecodeInspector,
+        cache_root: impl Into<PathBuf>,
+    ) -> Result<Self, DecodeInspectionError> {
+        let cache = ContentAddressedStore::open(cache_root)?;
+        Self::spawn_inner(catalog, inspector, Some(cache))
+    }
+
+    fn spawn_inner(
+        catalog: CatalogHandle,
+        inspector: impl DecodeInspector,
+        cache: Option<ContentAddressedStore>,
+    ) -> Result<Self, DecodeInspectionError> {
+        let provider_id = Arc::<str>::from(inspector.provider_id());
+        let provider_version = Arc::<str>::from(inspector.provider_version());
+        let caches_previews = cache.is_some();
         let (sender, receiver) = mpsc::sync_channel(INSPECTION_QUEUE_CAPACITY);
         let join_handle = thread::Builder::new()
             .name("shadow-decode-inspector".to_owned())
-            .spawn(move || run_worker(&catalog, inspector, &receiver))
+            .spawn(move || run_worker(&catalog, inspector, cache.as_ref(), &receiver))
             .map_err(DecodeInspectionError::WorkerStart)?;
         Ok(Self {
-            handle: DecodeInspectionHandle { sender },
+            handle: DecodeInspectionHandle {
+                sender,
+                provider_id,
+                provider_version,
+                caches_previews,
+            },
             join_handle: Some(join_handle),
         })
     }
@@ -174,6 +250,18 @@ impl Drop for DecodeInspectionActor {
 }
 
 impl DecodeInspectionHandle {
+    pub fn provider_id(&self) -> &str {
+        &self.provider_id
+    }
+
+    pub fn provider_version(&self) -> &str {
+        &self.provider_version
+    }
+
+    pub const fn caches_previews(&self) -> bool {
+        self.caches_previews
+    }
+
     /// Queues an inspection and returns immediately with a completion ticket.
     ///
     /// The bounded queue applies backpressure when imports outrun decoding.
@@ -246,12 +334,13 @@ pub fn fingerprint_source(path: &Path) -> Result<RepresentationFingerprint, std:
 fn run_worker(
     catalog: &CatalogHandle,
     mut inspector: impl DecodeInspector,
+    cache: Option<&ContentAddressedStore>,
     receiver: &Receiver<Message>,
 ) {
     while let Ok(message) = receiver.recv() {
         match message {
             Message::Inspect(request, response) => {
-                let result = inspect_and_record(catalog, &mut inspector, &request);
+                let result = inspect_and_record(catalog, &mut inspector, cache, &request);
                 let _ = response.send(result);
             }
             Message::Shutdown(response) => {
@@ -265,6 +354,7 @@ fn run_worker(
 fn inspect_and_record(
     catalog: &CatalogHandle,
     inspector: &mut impl DecodeInspector,
+    cache: Option<&ContentAddressedStore>,
     request: &DecodeInspectionRequest,
 ) -> Result<DecodeInspectionOutcome, DecodeInspectionError> {
     if read_source_fingerprint(&request.path)? != request.expected_source {
@@ -280,6 +370,20 @@ fn inspect_and_record(
                 path: request.path.clone(),
                 message,
             })?;
+    if snapshot.provider.id != inspector.provider_id()
+        || snapshot.provider.version != inspector.provider_version()
+    {
+        return Err(DecodeInspectionError::Inspector {
+            path: request.path.clone(),
+            message: format!(
+                "inspector provider {}/{} disagrees with snapshot provider {}/{}",
+                inspector.provider_id(),
+                inspector.provider_version(),
+                snapshot.provider.id,
+                snapshot.provider.version
+            ),
+        });
+    }
 
     if read_source_fingerprint(&request.path)? != request.expected_source {
         return Ok(DecodeInspectionOutcome::Discarded(
@@ -297,14 +401,87 @@ fn inspect_and_record(
     })?;
 
     Ok(match status {
-        RecordDecodeSnapshotStatus::Recorded => DecodeInspectionOutcome::Recorded {
-            provider_id,
-            provider_version,
-        },
+        RecordDecodeSnapshotStatus::Recorded => {
+            let preview = cache.map_or(PreviewCacheOutcome::NotRequested, |cache| {
+                cache_preview(
+                    catalog,
+                    inspector,
+                    cache,
+                    request,
+                    &provider_id,
+                    &provider_version,
+                )
+            });
+            DecodeInspectionOutcome::Recorded {
+                provider_id,
+                provider_version,
+                preview,
+            }
+        }
         RecordDecodeSnapshotStatus::StaleSource => {
             DecodeInspectionOutcome::Discarded(DecodeInspectionDiscardReason::CatalogChanged)
         }
     })
+}
+
+fn cache_preview(
+    catalog: &CatalogHandle,
+    inspector: &mut impl DecodeInspector,
+    cache: &ContentAddressedStore,
+    request: &DecodeInspectionRequest,
+    provider_id: &str,
+    provider_version: &str,
+) -> PreviewCacheOutcome {
+    if source_changed(request) {
+        return PreviewCacheOutcome::Discarded(DecodeInspectionDiscardReason::FilesystemChanged);
+    }
+    let preview = match inspector.extract_best_preview(&request.path) {
+        Ok(Some(preview)) => preview,
+        Ok(None) => return PreviewCacheOutcome::NoEmbeddedPreview,
+        Err(message) => return PreviewCacheOutcome::Failed(message),
+    };
+    if source_changed(request) {
+        return PreviewCacheOutcome::Discarded(DecodeInspectionDiscardReason::FilesystemChanged);
+    }
+    let blob = match cache.put(&preview.bytes) {
+        Ok(blob) => blob,
+        Err(error) => return PreviewCacheOutcome::Failed(error.to_string()),
+    };
+    let created_at_ms = now_ms();
+    let status = catalog.record_cached_artifact(&RecordCachedArtifact {
+        representation_id: request.representation_id,
+        expected_source: request.expected_source,
+        artifact: CachedArtifact {
+            role: CachedArtifactRole::EmbeddedPreview,
+            variant_key: provider_id.to_owned(),
+            generator_id: provider_id.to_owned(),
+            generator_version: provider_version.to_owned(),
+            provider_preview_id: Some(preview.descriptor.provider_id),
+            blob_algorithm: blob.digest.algorithm().to_owned(),
+            blob_digest: *blob.digest.as_bytes(),
+            blob_byte_len: blob.byte_len,
+            codec: preview.descriptor.codec,
+            byte_order: preview.byte_order,
+            dimensions: preview.descriptor.dimensions,
+            bits_per_channel: preview.descriptor.bits_per_channel,
+            channels: preview.descriptor.channels,
+            created_at_ms,
+        },
+    });
+    match status {
+        Ok(RecordCachedArtifactStatus::Recorded) => PreviewCacheOutcome::Stored {
+            digest_hex: blob.digest.to_hex(),
+            byte_len: blob.byte_len,
+        },
+        Ok(RecordCachedArtifactStatus::StaleSource) => {
+            PreviewCacheOutcome::Discarded(DecodeInspectionDiscardReason::CatalogChanged)
+        }
+        Err(error) => PreviewCacheOutcome::Failed(error.to_string()),
+    }
+}
+
+fn source_changed(request: &DecodeInspectionRequest) -> bool {
+    fingerprint_source(&request.path).map_or(true, |current| current != request.expected_source)
 }
 
 fn read_source_fingerprint(
@@ -333,7 +510,8 @@ mod tests {
     use shadow_domain::{
         AssetLocation, DecodeCapabilitySnapshot, DecodeProviderSnapshot, DecodeSupport, EntityId,
         ImageDimensions, ImageMargins, PendingCorrectionsSnapshot, PhotoId, Platform,
-        RawMetadataSnapshot, RepresentationKind,
+        PreviewByteOrder, PreviewCodec, PreviewDescriptorSnapshot, RawMetadataSnapshot,
+        RepresentationKind,
     };
 
     use super::*;
@@ -374,8 +552,9 @@ mod tests {
                 .wait_timeout(std::time::Duration::from_secs(1))
                 .expect("complete second inspection without waiting for first ticket"),
             DecodeInspectionOutcome::Recorded {
-                provider_id: "test-decoder".into(),
+                provider_id: "anonymous".into(),
                 provider_version: "1".into(),
+                preview: PreviewCacheOutcome::NotRequested,
             }
         );
         assert!(matches!(
@@ -438,6 +617,94 @@ mod tests {
         actor.shutdown().expect("shutdown catalog");
     }
 
+    #[test]
+    fn embedded_preview_is_content_addressed_and_cataloged() {
+        let fixture = Fixture::new();
+        let actor = CatalogActor::spawn(&fixture.database_path).expect("spawn catalog");
+        let catalog = actor.handle();
+        let source = fingerprint_source(&fixture.raw_path).expect("fingerprint source");
+        let registered = catalog
+            .register_asset(&fixture.registration(source))
+            .expect("register source");
+        let cache_root = fixture.root.join("cache");
+        let worker =
+            DecodeInspectionActor::spawn_with_cache(catalog.clone(), PreviewInspector, &cache_root)
+                .expect("spawn cached inspector");
+
+        let outcome = worker
+            .handle()
+            .submit(DecodeInspectionRequest {
+                representation_id: registered.representation_id,
+                path: fixture.raw_path.clone(),
+                expected_source: source,
+            })
+            .expect("submit inspection")
+            .wait()
+            .expect("complete inspection");
+        assert!(matches!(
+            outcome,
+            DecodeInspectionOutcome::Recorded {
+                preview: PreviewCacheOutcome::Stored { byte_len: 13, .. },
+                ..
+            }
+        ));
+
+        let artifacts = catalog
+            .cached_artifacts(registered.representation_id)
+            .expect("read cached artifacts");
+        assert_eq!(artifacts.len(), 1);
+        assert_eq!(artifacts[0].artifact.codec, PreviewCodec::Jpeg);
+        let store = ContentAddressedStore::open(cache_root).expect("reopen cache");
+        let digest = shadow_cache::BlobDigest::from_bytes(artifacts[0].artifact.blob_digest);
+        assert_eq!(
+            fs::read(store.resolve(digest)).expect("read cached preview"),
+            b"preview bytes"
+        );
+
+        worker.shutdown().expect("shutdown inspector");
+        actor.shutdown().expect("shutdown catalog");
+    }
+
+    #[derive(Debug, Copy, Clone)]
+    struct PreviewInspector;
+
+    impl DecodeInspector for PreviewInspector {
+        fn provider_id(&self) -> &'static str {
+            "test-decoder"
+        }
+
+        fn inspect(&mut self, _path: &Path) -> Result<DecoderSnapshot, String> {
+            let mut snapshot = sample_snapshot();
+            snapshot.provider.id = "test-decoder".into();
+            snapshot.capabilities.embedded_previews = DecodeSupport::Available;
+            snapshot.previews.push(preview_descriptor());
+            Ok(snapshot)
+        }
+
+        fn extract_best_preview(&mut self, _path: &Path) -> Result<Option<PreviewPayload>, String> {
+            Ok(Some(PreviewPayload {
+                descriptor: preview_descriptor(),
+                byte_order: PreviewByteOrder::NotApplicable,
+                bytes: b"preview bytes".to_vec(),
+            }))
+        }
+    }
+
+    fn preview_descriptor() -> PreviewDescriptorSnapshot {
+        PreviewDescriptorSnapshot {
+            provider_id: 7,
+            codec: PreviewCodec::Jpeg,
+            dimensions: ImageDimensions {
+                width: 1_600,
+                height: 1_200,
+            },
+            bits_per_channel: 8,
+            channels: 3,
+            encoded_bytes: 13,
+            decodable: true,
+        }
+    }
+
     #[derive(Debug)]
     struct Fixture {
         root: PathBuf,
@@ -482,7 +749,7 @@ mod tests {
     fn sample_snapshot() -> DecoderSnapshot {
         DecoderSnapshot {
             provider: DecodeProviderSnapshot {
-                id: "test-decoder".into(),
+                id: "anonymous".into(),
                 version: "1".into(),
                 dng_sdk: false,
                 rawspeed: false,

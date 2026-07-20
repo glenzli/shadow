@@ -5,12 +5,14 @@ use std::{
 };
 
 use shadow_catalog::{
-    CatalogError, CatalogStore, ImportSessionState, RegisterAsset, RegistrationStatus,
+    CatalogError, CatalogHandle, CatalogStore, ImportSessionState, RegisterAsset, RegisteredAsset,
+    RegistrationStatus, RepresentationFingerprint,
 };
 use shadow_domain::{ImportSessionId, RepresentationKind};
 use thiserror::Error;
 
 use crate::native_path::{NativePathError, decode_location, encode_location};
+use crate::{DecodeInspectionError, DecodeInspectionHandle, DecodeInspectionRequest};
 
 #[derive(Debug, Error)]
 pub enum ScanError {
@@ -20,6 +22,8 @@ pub enum ScanError {
     Catalog(#[from] CatalogError),
     #[error("cannot decode import root path: {0}")]
     NativePath(#[from] NativePathError),
+    #[error("cannot schedule RAW inspection: {0}")]
+    DecodeInspection(#[from] DecodeInspectionError),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -36,6 +40,7 @@ pub struct ScanReport {
     pub inserted: u64,
     pub unchanged: u64,
     pub needs_revalidation: u64,
+    pub decode_inspections_queued: u64,
     pub skipped: u64,
     pub issues: Vec<ScanIssue>,
 }
@@ -52,17 +57,35 @@ pub fn scan_folder<C: CatalogStore + ?Sized>(
     catalog: &mut C,
     root: &Path,
 ) -> Result<ScanReport, ScanError> {
-    let root = if root.is_absolute() {
-        root.to_path_buf()
-    } else {
-        std::env::current_dir()
-            .map_err(ScanError::CurrentDirectory)?
-            .join(root)
-    };
-
+    let root = absolute_root(root)?;
     let now_ms = now_ms();
     let session_id = catalog.begin_import_session(&encode_location(&root), now_ms)?;
-    run_scan_session(catalog, session_id, &root)
+    run_scan_session(catalog, session_id, &root, None)
+}
+
+/// Scans a folder and schedules missing RAW decode snapshots on a background
+/// inspection worker.
+///
+/// Existing current snapshots for the worker's provider are skipped. The
+/// bounded worker queue applies backpressure without running decoder code on
+/// the scanner or catalog writer threads.
+///
+/// # Errors
+///
+/// Returns [`ScanError`] for root resolution, catalog failure, or a stopped
+/// inspection worker.
+pub fn scan_folder_with_inspection(
+    catalog: &mut CatalogHandle,
+    inspections: &DecodeInspectionHandle,
+    root: &Path,
+) -> Result<ScanReport, ScanError> {
+    let root = absolute_root(root)?;
+    let session_id = catalog.begin_import_session(&encode_location(&root), now_ms())?;
+    let scheduler = DecodeScheduler {
+        catalog: catalog.clone(),
+        inspections,
+    };
+    run_scan_session(catalog, session_id, &root, Some(&scheduler))
 }
 
 /// Resumes an interrupted import session by idempotently rescanning its root.
@@ -77,13 +100,34 @@ pub fn resume_scan<C: CatalogStore + ?Sized>(
 ) -> Result<ScanReport, ScanError> {
     let session = catalog.resume_import_session(session_id, now_ms())?;
     let root = decode_location(&session.root)?;
-    run_scan_session(catalog, session_id, &root)
+    run_scan_session(catalog, session_id, &root, None)
+}
+
+/// Resumes an import session while reconciling missing provider snapshots.
+///
+/// # Errors
+///
+/// Returns [`ScanError`] under the same conditions as [`resume_scan`] plus an
+/// unavailable inspection worker.
+pub fn resume_scan_with_inspection(
+    catalog: &mut CatalogHandle,
+    inspections: &DecodeInspectionHandle,
+    session_id: ImportSessionId,
+) -> Result<ScanReport, ScanError> {
+    let session = catalog.resume_import_session(session_id, now_ms())?;
+    let root = decode_location(&session.root)?;
+    let scheduler = DecodeScheduler {
+        catalog: catalog.clone(),
+        inspections,
+    };
+    run_scan_session(catalog, session_id, &root, Some(&scheduler))
 }
 
 fn run_scan_session(
     catalog: &mut (impl CatalogStore + ?Sized),
     session_id: ImportSessionId,
     root: &Path,
+    scheduler: Option<&DecodeScheduler<'_>>,
 ) -> Result<ScanReport, ScanError> {
     let mut report = ScanReport {
         session_id,
@@ -92,10 +136,11 @@ fn run_scan_session(
         inserted: 0,
         unchanged: 0,
         needs_revalidation: 0,
+        decode_inspections_queued: 0,
         skipped: 0,
         issues: Vec::new(),
     };
-    if let Err(error) = scan_directory(catalog, session_id, root, &mut report) {
+    if let Err(error) = scan_directory(catalog, session_id, root, scheduler, &mut report) {
         let message = error.to_string();
         let _ = catalog.finish_import_session(
             session_id,
@@ -113,6 +158,7 @@ fn scan_directory(
     catalog: &mut (impl CatalogStore + ?Sized),
     session_id: ImportSessionId,
     directory: &Path,
+    scheduler: Option<&DecodeScheduler<'_>>,
     report: &mut ScanReport,
 ) -> Result<(), ScanError> {
     let entries = match fs::read_dir(directory) {
@@ -145,7 +191,7 @@ fn scan_directory(
             continue;
         }
         if file_type.is_dir() {
-            scan_directory(catalog, session_id, &path, report)?;
+            scan_directory(catalog, session_id, &path, scheduler, report)?;
             continue;
         }
         if !file_type.is_file() {
@@ -181,9 +227,65 @@ fn scan_directory(
             RegistrationStatus::Unchanged => report.unchanged += 1,
             RegistrationStatus::NeedsRevalidation => report.needs_revalidation += 1,
         }
+        if let Some(scheduler) = scheduler {
+            report.decode_inspections_queued +=
+                u64::from(scheduler.schedule(&path, kind, &request, registered)?);
+        }
     }
 
     Ok(())
+}
+
+#[derive(Debug)]
+struct DecodeScheduler<'a> {
+    catalog: CatalogHandle,
+    inspections: &'a DecodeInspectionHandle,
+}
+
+impl DecodeScheduler<'_> {
+    fn schedule(
+        &self,
+        path: &Path,
+        kind: RepresentationKind,
+        request: &RegisterAsset,
+        registered: RegisteredAsset,
+    ) -> Result<bool, ScanError> {
+        if kind != RepresentationKind::OriginalRaw
+            || registered.status == RegistrationStatus::NeedsRevalidation
+        {
+            return Ok(false);
+        }
+        let source = RepresentationFingerprint {
+            byte_len: request.byte_len,
+            modified_at_ms: request.modified_at_ms,
+        };
+        if self.catalog.is_decode_output_current(
+            registered.representation_id,
+            self.inspections.provider_id(),
+            self.inspections.provider_version(),
+            source,
+            self.inspections.caches_previews(),
+        )? {
+            return Ok(false);
+        }
+        let ticket = self.inspections.submit(DecodeInspectionRequest {
+            representation_id: registered.representation_id,
+            path: path.to_path_buf(),
+            expected_source: source,
+        })?;
+        drop(ticket);
+        Ok(true)
+    }
+}
+
+fn absolute_root(root: &Path) -> Result<PathBuf, ScanError> {
+    if root.is_absolute() {
+        Ok(root.to_path_buf())
+    } else {
+        Ok(std::env::current_dir()
+            .map_err(ScanError::CurrentDirectory)?
+            .join(root))
+    }
 }
 
 fn record_issue(
@@ -226,9 +328,18 @@ fn now_ms() -> i64 {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
     use super::*;
+    use crate::DecodeInspectionActor;
     use shadow_catalog::{Catalog, CatalogActor};
-    use shadow_domain::{EntityId, PhotoId};
+    use shadow_domain::{
+        DecodeCapabilitySnapshot, DecodeProviderSnapshot, DecodeSupport, DecoderSnapshot, EntityId,
+        ImageDimensions, ImageMargins, PendingCorrectionsSnapshot, PhotoId, RawMetadataSnapshot,
+    };
 
     #[test]
     fn scan_is_recursive_filtered_and_idempotent() {
@@ -306,6 +417,91 @@ mod tests {
             if sidecar.exists() {
                 fs::remove_file(sidecar).expect("remove catalog sidecar");
             }
+        }
+    }
+
+    #[test]
+    fn scan_reconciles_only_missing_provider_snapshots() {
+        let test_id = PhotoId::new_v7();
+        let root = std::env::temp_dir().join(format!("shadow-scheduled-scan-{test_id}"));
+        let database_path = std::env::temp_dir().join(format!("shadow-scheduled-{test_id}.sqlite"));
+        fs::create_dir_all(&root).expect("create fixture directory");
+        fs::write(root.join("one.NEF"), b"raw").expect("write raw fixture");
+        fs::write(root.join("two.jpg"), b"jpeg").expect("write raster fixture");
+
+        let actor = CatalogActor::spawn(&database_path).expect("spawn catalog actor");
+        let mut catalog = actor.handle();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let worker_calls = Arc::clone(&calls);
+        let worker = DecodeInspectionActor::spawn(catalog.clone(), move |_path: &Path| {
+            worker_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(scheduled_snapshot())
+        })
+        .expect("spawn decode worker");
+        let first = scan_folder_with_inspection(&mut catalog, &worker.handle(), &root)
+            .expect("scan and schedule");
+        assert_eq!(first.decode_inspections_queued, 1);
+        worker.shutdown().expect("drain first decode worker");
+
+        let second_worker_calls = Arc::clone(&calls);
+        let second_worker = DecodeInspectionActor::spawn(catalog.clone(), move |_path: &Path| {
+            second_worker_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(scheduled_snapshot())
+        })
+        .expect("spawn second decode worker");
+        let second = scan_folder_with_inspection(&mut catalog, &second_worker.handle(), &root)
+            .expect("rescan and reconcile");
+        assert_eq!(second.decode_inspections_queued, 0);
+        second_worker.shutdown().expect("shutdown second worker");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+        actor.shutdown().expect("shutdown catalog");
+        fs::remove_dir_all(&root).expect("remove fixture directory");
+        fs::remove_file(&database_path).expect("remove test catalog");
+    }
+
+    fn scheduled_snapshot() -> DecoderSnapshot {
+        DecoderSnapshot {
+            provider: DecodeProviderSnapshot {
+                id: "anonymous".into(),
+                version: "1".into(),
+                dng_sdk: false,
+                rawspeed: false,
+                jpeg: false,
+            },
+            metadata: RawMetadataSnapshot {
+                make: "Test".into(),
+                model: "Fixture".into(),
+                normalized_make: "Test".into(),
+                normalized_model: "Fixture".into(),
+                dng_version: None,
+                raw_count: 1,
+                raw_dimensions: ImageDimensions {
+                    width: 10,
+                    height: 10,
+                },
+                image_dimensions: ImageDimensions {
+                    width: 10,
+                    height: 10,
+                },
+                margins: ImageMargins::default(),
+                orientation: 0,
+                cfa_pattern: "RGGB".into(),
+                sensor_colors: 3,
+                sensor_bits: 12,
+                black_level: 0,
+                white_level: 4_095,
+                as_shot_neutral: [1.0; 4],
+                baseline_exposure: 0.0,
+            },
+            capabilities: DecodeCapabilitySnapshot {
+                metadata: DecodeSupport::Available,
+                embedded_previews: DecodeSupport::Unavailable,
+                mosaic: DecodeSupport::Available,
+                reference_rgb: DecodeSupport::Unavailable,
+                pending_corrections: PendingCorrectionsSnapshot::default(),
+            },
+            previews: Vec::new(),
         }
     }
 }

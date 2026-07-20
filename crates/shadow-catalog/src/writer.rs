@@ -7,9 +7,10 @@ use std::{
 use shadow_domain::{AssetLocation, ImportSessionId, RepresentationId};
 
 use crate::{
-    Catalog, CatalogError, CatalogStats, CatalogStore, DecodeSnapshotRecord, ImportSession,
-    ImportSessionState, ImportSessionSummary, RecordDecodeSnapshot, RecordDecodeSnapshotStatus,
-    RegisterAsset, RegisteredAsset, RepresentationFingerprint,
+    CachedArtifactRecord, Catalog, CatalogError, CatalogStats, CatalogStore, DecodeSnapshotRecord,
+    ImportSession, ImportSessionState, ImportSessionSummary, RecordCachedArtifact,
+    RecordCachedArtifactStatus, RecordDecodeSnapshot, RecordDecodeSnapshotStatus, RegisterAsset,
+    RegisteredAsset, RepresentationFingerprint,
 };
 
 #[derive(Debug)]
@@ -41,6 +42,22 @@ enum Message {
     DecodeSnapshots(
         RepresentationId,
         SyncSender<Result<Vec<DecodeSnapshotRecord>, CatalogError>>,
+    ),
+    IsDecodeOutputCurrent(
+        RepresentationId,
+        String,
+        String,
+        RepresentationFingerprint,
+        bool,
+        SyncSender<Result<bool, CatalogError>>,
+    ),
+    RecordCachedArtifact(
+        Box<RecordCachedArtifact>,
+        SyncSender<Result<RecordCachedArtifactStatus, CatalogError>>,
+    ),
+    CachedArtifacts(
+        RepresentationId,
+        SyncSender<Result<Vec<CachedArtifactRecord>, CatalogError>>,
     ),
     BeginImportSession(
         AssetLocation,
@@ -241,6 +258,56 @@ impl CatalogHandle {
         self.request(|response| Message::DecodeSnapshots(representation_id, response))
     }
 
+    /// Reports whether a provider's required output is current for a source.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] if the writer is unavailable or the query fails.
+    pub fn is_decode_output_current(
+        &self,
+        representation_id: RepresentationId,
+        provider_id: &str,
+        provider_version: &str,
+        source: RepresentationFingerprint,
+        require_cached_preview: bool,
+    ) -> Result<bool, CatalogError> {
+        self.request(|response| {
+            Message::IsDecodeOutputCurrent(
+                representation_id,
+                provider_id.to_owned(),
+                provider_version.to_owned(),
+                source,
+                require_cached_preview,
+                response,
+            )
+        })
+    }
+
+    /// Records a content-addressed cached artifact through the catalog writer.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] if the writer is unavailable or persistence
+    /// fails. Source races are returned as a normal status.
+    pub fn record_cached_artifact(
+        &self,
+        request: &RecordCachedArtifact,
+    ) -> Result<RecordCachedArtifactStatus, CatalogError> {
+        self.request(|response| Message::RecordCachedArtifact(Box::new(request.clone()), response))
+    }
+
+    /// Returns cached preview/proxy references for a representation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] if the writer is unavailable or the query fails.
+    pub fn cached_artifacts(
+        &self,
+        representation_id: RepresentationId,
+    ) -> Result<Vec<CachedArtifactRecord>, CatalogError> {
+        self.request(|response| Message::CachedArtifacts(representation_id, response))
+    }
+
     /// Lists resumable import sessions.
     ///
     /// # Errors
@@ -363,6 +430,28 @@ fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
             }
             Message::DecodeSnapshots(representation_id, response) => {
                 let _ = response.send(catalog.decode_snapshots(representation_id));
+            }
+            Message::IsDecodeOutputCurrent(
+                representation_id,
+                provider_id,
+                provider_version,
+                source,
+                require_cached_preview,
+                response,
+            ) => {
+                let _ = response.send(catalog.is_decode_output_current(
+                    representation_id,
+                    &provider_id,
+                    &provider_version,
+                    source,
+                    require_cached_preview,
+                ));
+            }
+            Message::RecordCachedArtifact(request, response) => {
+                let _ = response.send(catalog.record_cached_artifact(request.as_ref()));
+            }
+            Message::CachedArtifacts(representation_id, response) => {
+                let _ = response.send(catalog.cached_artifacts(representation_id));
             }
             Message::BeginImportSession(root, now_ms, response) => {
                 let _ = response.send(catalog.begin_import_session(&root, now_ms));

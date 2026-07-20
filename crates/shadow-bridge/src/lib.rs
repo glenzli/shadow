@@ -21,6 +21,14 @@ mod ffi {
     }
 
     #[derive(Debug)]
+    enum FfiByteOrder {
+        NotApplicable,
+        Native,
+        LittleEndian,
+        BigEndian,
+    }
+
+    #[derive(Debug)]
     struct FfiDimensions {
         width: u32,
         height: u32,
@@ -90,17 +98,33 @@ mod ffi {
         decodable: bool,
     }
 
+    #[derive(Debug)]
+    struct FfiPreviewPayload {
+        present: bool,
+        descriptor: FfiPreviewSnapshot,
+        byte_order: FfiByteOrder,
+        bytes: Vec<u8>,
+    }
+
     unsafe extern "C++" {
         include!("shadow/image/cxx_bridge.hpp");
 
         type DecodeHandle;
 
         fn open_libraw_utf8(path: &str) -> Result<UniquePtr<DecodeHandle>>;
+        fn libraw_provider_version() -> String;
         fn provider(self: &DecodeHandle) -> FfiProviderSnapshot;
         fn metadata(self: &DecodeHandle) -> FfiMetadataSnapshot;
         fn capabilities(self: &DecodeHandle) -> FfiCapabilitySnapshot;
         fn previews(self: &DecodeHandle) -> Vec<FfiPreviewSnapshot>;
+        fn decode_best_preview(self: Pin<&mut DecodeHandle>) -> Result<FfiPreviewPayload>;
     }
+}
+
+/// Returns the version string of the linked `LibRaw` provider without opening
+/// an image.
+pub fn libraw_provider_version() -> String {
+    ffi::libraw_provider_version()
 }
 
 #[derive(Debug, Error)]
@@ -123,18 +147,51 @@ pub enum BridgeError {
 /// Mac-first bridge, or a decoder error when the C++ provider cannot open and
 /// identify the file.
 pub fn inspect_libraw(path: &Path) -> Result<DecoderSnapshot, BridgeError> {
+    let handle = open_libraw(path)?;
+    let handle = handle.as_ref().ok_or(BridgeError::NullHandle)?;
+
+    Ok(snapshot(handle))
+}
+
+/// Extracts the largest decodable embedded preview selected by the image
+/// kernel. Absence of an embedded preview is a successful `None` result.
+///
+/// # Errors
+///
+/// Returns [`BridgeError`] when the path cannot cross the Mac-first bridge or
+/// the provider fails while decoding the selected preview.
+pub fn extract_best_libraw_preview(
+    path: &Path,
+) -> Result<Option<shadow_domain::PreviewPayload>, BridgeError> {
+    let mut handle = open_libraw(path)?;
+    if handle.is_null() {
+        return Err(BridgeError::NullHandle);
+    }
+    let payload = handle.pin_mut().decode_best_preview()?;
+    if !payload.present {
+        return Ok(None);
+    }
+    Ok(Some(shadow_domain::PreviewPayload {
+        descriptor: preview_descriptor(&payload.descriptor),
+        byte_order: preview_byte_order(payload.byte_order),
+        bytes: payload.bytes,
+    }))
+}
+
+fn open_libraw(path: &Path) -> Result<cxx::UniquePtr<ffi::DecodeHandle>, BridgeError> {
     let utf8_path = path
         .to_str()
         .ok_or_else(|| BridgeError::NonUtf8Path(path.to_path_buf()))?;
-    let handle = ffi::open_libraw_utf8(utf8_path)?;
-    let handle = handle.as_ref().ok_or(BridgeError::NullHandle)?;
+    ffi::open_libraw_utf8(utf8_path).map_err(Into::into)
+}
 
+fn snapshot(handle: &ffi::DecodeHandle) -> DecoderSnapshot {
     let provider = handle.provider();
     let metadata = handle.metadata();
     let capabilities = handle.capabilities();
     let previews = handle.previews();
 
-    Ok(DecoderSnapshot {
+    DecoderSnapshot {
         provider: DecodeProviderSnapshot {
             id: provider.id,
             version: provider.version,
@@ -184,19 +241,20 @@ pub fn inspect_libraw(path: &Path) -> Result<DecoderSnapshot, BridgeError> {
                 ],
             },
         },
-        previews: previews
-            .into_iter()
-            .map(|preview| PreviewDescriptorSnapshot {
-                provider_id: preview.provider_id,
-                codec: preview_codec(preview.format),
-                dimensions: dimensions(&preview.dimensions),
-                bits_per_channel: preview.bits_per_channel,
-                channels: preview.channels,
-                encoded_bytes: preview.encoded_bytes,
-                decodable: preview.decodable,
-            })
-            .collect(),
-    })
+        previews: previews.iter().map(preview_descriptor).collect(),
+    }
+}
+
+fn preview_descriptor(preview: &ffi::FfiPreviewSnapshot) -> PreviewDescriptorSnapshot {
+    PreviewDescriptorSnapshot {
+        provider_id: preview.provider_id,
+        codec: preview_codec(preview.format),
+        dimensions: dimensions(&preview.dimensions),
+        bits_per_channel: preview.bits_per_channel,
+        channels: preview.channels,
+        encoded_bytes: preview.encoded_bytes,
+        decodable: preview.decodable,
+    }
 }
 
 fn dimensions(value: &ffi::FfiDimensions) -> ImageDimensions {
@@ -213,6 +271,15 @@ fn preview_codec(value: ffi::FfiPreviewFormat) -> PreviewCodec {
         ffi::FfiPreviewFormat::JpegXl => PreviewCodec::JpegXl,
         ffi::FfiPreviewFormat::H265 => PreviewCodec::H265,
         _ => PreviewCodec::Unknown,
+    }
+}
+
+fn preview_byte_order(value: ffi::FfiByteOrder) -> shadow_domain::PreviewByteOrder {
+    match value {
+        ffi::FfiByteOrder::Native => shadow_domain::PreviewByteOrder::Native,
+        ffi::FfiByteOrder::LittleEndian => shadow_domain::PreviewByteOrder::LittleEndian,
+        ffi::FfiByteOrder::BigEndian => shadow_domain::PreviewByteOrder::BigEndian,
+        _ => shadow_domain::PreviewByteOrder::NotApplicable,
     }
 }
 
@@ -237,5 +304,21 @@ mod tests {
         assert!(snapshot.capabilities.metadata.is_available());
         assert!(snapshot.capabilities.mosaic.is_available());
         assert!(snapshot.metadata.raw_dimensions.pixel_count() > 0);
+    }
+
+    #[test]
+    #[ignore = "requires SHADOW_TEST_DNG_WITH_PREVIEW to point at a local RAW fixture"]
+    fn real_dng_embedded_preview_crosses_the_bridge() {
+        let path =
+            std::env::var_os("SHADOW_TEST_DNG_WITH_PREVIEW").expect("SHADOW_TEST_DNG_WITH_PREVIEW");
+        let preview = extract_best_libraw_preview(Path::new(&path))
+            .expect("extract local DNG preview")
+            .expect("fixture contains a preview");
+        assert_eq!(preview.descriptor.codec, PreviewCodec::Jpeg);
+        assert!(preview.descriptor.dimensions.pixel_count() > 0);
+        assert_eq!(
+            preview.descriptor.encoded_bytes,
+            u64::try_from(preview.bytes.len()).expect("preview length fits u64")
+        );
     }
 }

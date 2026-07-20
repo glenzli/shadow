@@ -105,6 +105,26 @@ impl PreviewCodec {
     }
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PreviewByteOrder {
+    NotApplicable,
+    Native,
+    LittleEndian,
+    BigEndian,
+}
+
+impl PreviewByteOrder {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::NotApplicable => "not_applicable",
+            Self::Native => "native",
+            Self::LittleEndian => "little_endian",
+            Self::BigEndian => "big_endian",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct PreviewDescriptorSnapshot {
     pub provider_id: usize,
@@ -114,6 +134,13 @@ pub struct PreviewDescriptorSnapshot {
     pub channels: u16,
     pub encoded_bytes: u64,
     pub decodable: bool,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct PreviewPayload {
+    pub descriptor: PreviewDescriptorSnapshot,
+    pub byte_order: PreviewByteOrder,
+    pub bytes: Vec<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

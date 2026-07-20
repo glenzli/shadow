@@ -29,6 +29,7 @@ public:
     [[nodiscard]] FfiMetadataSnapshot metadata() const;
     [[nodiscard]] FfiCapabilitySnapshot capabilities() const;
     [[nodiscard]] rust::Vec<FfiPreviewSnapshot> previews() const;
+    [[nodiscard]] FfiPreviewPayload decode_best_preview();
 
 private:
     std::unique_ptr<image::DecoderProvider> provider_;
@@ -36,5 +37,6 @@ private:
 };
 
 [[nodiscard]] std::unique_ptr<DecodeHandle> open_libraw_utf8(rust::Str path);
+[[nodiscard]] rust::String libraw_provider_version();
 
 } // namespace shadow::bridge

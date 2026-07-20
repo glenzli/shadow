@@ -1,5 +1,5 @@
 [package]
-name = "shadow-core"
+name = "shadow-cache"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -7,9 +7,7 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
-shadow-cache.workspace = true
-shadow-catalog.workspace = true
-shadow-domain.workspace = true
+blake3.workspace = true
 thiserror.workspace = true
 
 [lints]

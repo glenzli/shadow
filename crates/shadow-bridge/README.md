@@ -8,13 +8,13 @@ The current bridge performs one read-only operation:
 Rust path
 → CXX open_libraw_utf8
 → C++ DecoderProvider / DecodeSession
-→ owned metadata + capability + preview snapshots
+→ owned metadata + capability + preview snapshots / selected preview payload
 → pure shadow-domain types
 ```
 
-No LibRaw or CXX type escapes the crate's public API. The only public entry point is the safe `inspect_libraw` function, and consumers receive serializable `shadow-domain` snapshots. C++ exceptions become `BridgeError`; Rust panics and C++ exceptions never cross the language boundary directly.
+No LibRaw or CXX type escapes the crate's public API. `inspect_libraw` returns a serializable descriptor snapshot; `extract_best_libraw_preview` returns the kernel-selected embedded preview or `None`. C++ exceptions become `BridgeError`; Rust panics and C++ exceptions never cross the language boundary directly.
 
-Large mosaic and RGB buffers intentionally remain in C++. Their future bridge will use opaque handles and tile requests, not `Vec<u16>` copies across FFI.
+Compressed embedded previews are small enough to cross as owned bytes. Large mosaic and RGB buffers intentionally remain in C++; their future bridge will use opaque handles and tile requests, not `Vec<u16>` copies across FFI.
 
 ## Path contract
 

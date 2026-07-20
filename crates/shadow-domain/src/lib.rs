@@ -7,8 +7,8 @@ mod ids;
 pub use asset::{AssetLocation, LocationStatus, Platform, RepresentationKind};
 pub use decode::{
     DecodeCapabilitySnapshot, DecodeProviderSnapshot, DecodeSupport, DecoderSnapshot,
-    ImageDimensions, ImageMargins, PendingCorrectionsSnapshot, PreviewCodec,
-    PreviewDescriptorSnapshot, RawMetadataSnapshot,
+    ImageDimensions, ImageMargins, PendingCorrectionsSnapshot, PreviewByteOrder, PreviewCodec,
+    PreviewDescriptorSnapshot, PreviewPayload, RawMetadataSnapshot,
 };
 pub use ids::{
     EntityId, GroupId, ImportSessionId, LayerId, LocationId, PhotoId, RecipeCommitId, RecipeId,

@@ -3,6 +3,7 @@
 //! This crate owns schema migration and write transactions. It deliberately
 //! knows nothing about Qt, RAW decoding, or render jobs.
 
+mod cache_artifact;
 mod decode_snapshot;
 mod import_journal;
 mod store;
@@ -18,6 +19,10 @@ use shadow_domain::{
 use thiserror::Error;
 use uuid::Uuid;
 
+pub use cache_artifact::{
+    CachedArtifact, CachedArtifactRecord, CachedArtifactRole, RecordCachedArtifact,
+    RecordCachedArtifactStatus,
+};
 pub use decode_snapshot::{
     DecodeSnapshotRecord, RecordDecodeSnapshot, RecordDecodeSnapshotStatus,
     RepresentationFingerprint,
@@ -26,7 +31,7 @@ pub use import_journal::{ImportSession, ImportSessionState, ImportSessionSummary
 pub use store::CatalogStore;
 pub use writer::{CatalogActor, CatalogHandle};
 
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 
 const MIGRATION_V1: &str = r"
 CREATE TABLE photos (
@@ -162,6 +167,39 @@ CREATE INDEX representation_previews_selection_idx
     ON representation_previews(representation_id, decodable, width, height);
 ";
 
+const MIGRATION_V4: &str = r"
+CREATE TABLE representation_cached_artifacts (
+    representation_id    BLOB NOT NULL CHECK (length(representation_id) = 16),
+    role                 TEXT NOT NULL
+        CHECK (role IN ('embedded_preview', 'generated_proxy')),
+    variant_key          TEXT NOT NULL CHECK (length(variant_key) > 0),
+    generator_id         TEXT NOT NULL CHECK (length(generator_id) > 0),
+    generator_version    TEXT NOT NULL,
+    provider_preview_id  INTEGER CHECK (provider_preview_id IS NULL OR provider_preview_id >= 0),
+    source_byte_len      INTEGER NOT NULL CHECK (source_byte_len >= 0),
+    source_modified_at_ms INTEGER,
+    blob_algorithm       TEXT NOT NULL CHECK (length(blob_algorithm) > 0),
+    blob_digest          BLOB NOT NULL CHECK (length(blob_digest) = 32),
+    blob_byte_len        INTEGER NOT NULL CHECK (blob_byte_len >= 0),
+    codec                TEXT NOT NULL
+        CHECK (codec IN ('unknown', 'jpeg', 'bitmap', 'jpeg_xl', 'h265')),
+    byte_order           TEXT NOT NULL
+        CHECK (byte_order IN ('not_applicable', 'native', 'little_endian', 'big_endian')),
+    width                INTEGER NOT NULL CHECK (width >= 0),
+    height               INTEGER NOT NULL CHECK (height >= 0),
+    bits_per_channel     INTEGER NOT NULL CHECK (bits_per_channel >= 0),
+    channels             INTEGER NOT NULL CHECK (channels >= 0),
+    created_at_ms        INTEGER NOT NULL,
+    PRIMARY KEY (representation_id, role, variant_key),
+    FOREIGN KEY (representation_id) REFERENCES representations(id) ON DELETE CASCADE
+) STRICT;
+
+CREATE INDEX representation_cached_artifact_lookup_idx
+    ON representation_cached_artifacts(representation_id, role, width, height);
+CREATE INDEX representation_cached_artifact_blob_idx
+    ON representation_cached_artifacts(blob_algorithm, blob_digest);
+";
+
 #[derive(Debug, Error)]
 pub enum CatalogError {
     #[error("SQLite catalog error: {0}")]
@@ -194,6 +232,12 @@ pub enum CatalogError {
     UnsupportedDecodeSnapshotSchema(i64),
     #[error("decode snapshot JSON error: {0}")]
     DecodeSnapshotJson(#[from] serde_json::Error),
+    #[error("invalid cached artifact: {0}")]
+    InvalidCachedArtifact(&'static str),
+    #[error("cached artifact field {field} is outside SQLite's integer range")]
+    CachedArtifactValueOutOfRange { field: &'static str },
+    #[error("unknown persisted cached artifact {field}: {value}")]
+    UnknownCachedArtifactValue { field: &'static str, value: String },
 }
 
 #[derive(Debug)]
@@ -412,6 +456,17 @@ fn migrate(connection: &mut Connection) -> rusqlite::Result<()> {
         transaction.commit()?;
     }
 
+    let version = current_schema_version(connection)?;
+    if version < 4 {
+        let transaction = connection.transaction()?;
+        transaction.execute_batch(MIGRATION_V4)?;
+        transaction.execute(
+            "INSERT INTO schema_migrations(version, applied_at_ms) VALUES (?1, unixepoch('subsec') * 1000)",
+            [4_i64],
+        )?;
+        transaction.commit()?;
+    }
+
     let final_version = current_schema_version(connection)?;
     if final_version != SCHEMA_VERSION {
         return Err(rusqlite::Error::InvalidQuery);
@@ -554,7 +609,7 @@ mod tests {
     fn migration_creates_current_schema() {
         let catalog = Catalog::open_in_memory().expect("open catalog");
 
-        assert_eq!(catalog.schema_version().expect("schema version"), 3);
+        assert_eq!(catalog.schema_version().expect("schema version"), 4);
     }
 
     #[test]
@@ -592,19 +647,20 @@ mod tests {
         }
 
         let catalog = Catalog::open(&path).expect("migrate v2 catalog");
-        assert_eq!(catalog.schema_version().expect("schema version"), 3);
+        assert_eq!(catalog.schema_version().expect("schema version"), 4);
         let snapshot_tables: i64 = catalog
             .connection
             .query_row(
                 "SELECT COUNT(*) FROM sqlite_schema
                  WHERE type = 'table' AND name IN (
-                     'representation_decode_snapshots', 'representation_previews'
+                     'representation_decode_snapshots', 'representation_previews',
+                     'representation_cached_artifacts'
                  )",
                 [],
                 |row| row.get(0),
             )
             .expect("query migrated tables");
-        assert_eq!(snapshot_tables, 2);
+        assert_eq!(snapshot_tables, 3);
         drop(catalog);
         std::fs::remove_dir_all(root).expect("remove migration fixture");
     }

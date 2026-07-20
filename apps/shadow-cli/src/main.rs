@@ -5,13 +5,14 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
-use shadow_bridge::inspect_libraw;
+use shadow_bridge::{extract_best_libraw_preview, inspect_libraw, libraw_provider_version};
 use shadow_catalog::{CatalogActor, CatalogStats, RegisterAsset};
 use shadow_core::{
-    DecodeInspectionActor, DecodeInspectionOutcome, DecodeInspectionRequest, ScanReport,
-    fingerprint_source, native_location, resume_scan, scan_folder,
+    DecodeInspectionActor, DecodeInspectionOutcome, DecodeInspectionRequest, DecodeInspector,
+    PreviewCacheOutcome, ScanReport, fingerprint_source, native_location, resume_scan, scan_folder,
+    scan_folder_with_inspection,
 };
-use shadow_domain::{DecoderSnapshot, ImportSessionId, RepresentationKind};
+use shadow_domain::{DecoderSnapshot, ImportSessionId, PreviewPayload, RepresentationKind};
 
 fn main() -> Result<()> {
     let arguments = env::args().skip(1).collect::<Vec<_>>();
@@ -49,38 +50,8 @@ fn main() -> Result<()> {
                 .with_context(|| format!("inspect RAW {raw_path}"))?;
             print_decoder_snapshot(&snapshot);
         }
-        [command, catalog_path, raw_path] if command == "inspect-store" => {
-            let raw_path = absolute_path(Path::new(raw_path))?;
-            let source = fingerprint_source(&raw_path)
-                .with_context(|| format!("read RAW metadata {}", raw_path.display()))?;
-            let actor = open_catalog(catalog_path)?;
-            let catalog = actor.handle();
-            let registered = catalog.register_asset(&RegisterAsset {
-                kind: RepresentationKind::OriginalRaw,
-                location: native_location(&raw_path),
-                byte_len: source.byte_len,
-                modified_at_ms: source.modified_at_ms,
-                now_ms: now_ms(),
-            })?;
-            let inspector = DecodeInspectionActor::spawn(catalog.clone(), |path: &Path| {
-                inspect_libraw(path).map_err(|error| error.to_string())
-            })?;
-            let outcome = inspector
-                .handle()
-                .submit(DecodeInspectionRequest {
-                    representation_id: registered.representation_id,
-                    path: raw_path,
-                    expected_source: source,
-                })?
-                .wait()?;
-            print_inspection_outcome(&outcome);
-            if matches!(outcome, DecodeInspectionOutcome::Recorded { .. }) {
-                for record in catalog.decode_snapshots(registered.representation_id)? {
-                    print_decoder_snapshot(&record.snapshot);
-                }
-            }
-            inspector.shutdown()?;
-            actor.shutdown()?;
+        [command, catalog_path, cache_root, raw_path] if command == "inspect-store" => {
+            inspect_store(catalog_path, cache_root, raw_path)?;
         }
         [command, catalog_path, folder] if command == "scan" => {
             let actor = open_catalog(catalog_path)?;
@@ -88,6 +59,9 @@ fn main() -> Result<()> {
             let report = scan_folder(&mut catalog, Path::new(folder))?;
             print_report(report);
             print_stats(catalog.stats()?);
+        }
+        [command, catalog_path, cache_root, folder] if command == "scan-cache" => {
+            scan_cache(catalog_path, cache_root, folder)?;
         }
         [command, catalog_path, session_id] if command == "resume" => {
             let session_id: ImportSessionId = session_id
@@ -108,6 +82,59 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+fn inspect_store(catalog_path: &str, cache_root: &str, raw_path: &str) -> Result<()> {
+    let raw_path = absolute_path(Path::new(raw_path))?;
+    let source = fingerprint_source(&raw_path)
+        .with_context(|| format!("read RAW metadata {}", raw_path.display()))?;
+    let actor = open_catalog(catalog_path)?;
+    let catalog = actor.handle();
+    let registered = catalog.register_asset(&RegisterAsset {
+        kind: RepresentationKind::OriginalRaw,
+        location: native_location(&raw_path),
+        byte_len: source.byte_len,
+        modified_at_ms: source.modified_at_ms,
+        now_ms: now_ms(),
+    })?;
+    let inspector = DecodeInspectionActor::spawn_with_cache(
+        catalog.clone(),
+        LibRawInspector::new(),
+        cache_root,
+    )?;
+    let outcome = inspector
+        .handle()
+        .submit(DecodeInspectionRequest {
+            representation_id: registered.representation_id,
+            path: raw_path,
+            expected_source: source,
+        })?
+        .wait()?;
+    print_inspection_outcome(&outcome);
+    if matches!(outcome, DecodeInspectionOutcome::Recorded { .. }) {
+        for record in catalog.decode_snapshots(registered.representation_id)? {
+            print_decoder_snapshot(&record.snapshot);
+        }
+    }
+    inspector.shutdown()?;
+    actor.shutdown()?;
+    Ok(())
+}
+
+fn scan_cache(catalog_path: &str, cache_root: &str, folder: &str) -> Result<()> {
+    let actor = open_catalog(catalog_path)?;
+    let mut catalog = actor.handle();
+    let inspector = DecodeInspectionActor::spawn_with_cache(
+        catalog.clone(),
+        LibRawInspector::new(),
+        cache_root,
+    )?;
+    let report = scan_folder_with_inspection(&mut catalog, &inspector.handle(), Path::new(folder))?;
+    inspector.shutdown()?;
+    print_report(report);
+    print_stats(catalog.stats()?);
+    actor.shutdown()?;
+    Ok(())
+}
+
 fn absolute_path(path: &Path) -> Result<PathBuf> {
     if path.is_absolute() {
         Ok(path.to_path_buf())
@@ -123,7 +150,26 @@ fn print_inspection_outcome(outcome: &DecodeInspectionOutcome) {
         DecodeInspectionOutcome::Recorded {
             provider_id,
             provider_version,
-        } => println!("stored decoder snapshot: provider={provider_id} version={provider_version}"),
+            preview,
+        } => {
+            println!("stored decoder snapshot: provider={provider_id} version={provider_version}");
+            match preview {
+                PreviewCacheOutcome::Stored {
+                    digest_hex,
+                    byte_len,
+                } => println!("cached embedded preview: blake3={digest_hex} bytes={byte_len}"),
+                PreviewCacheOutcome::NoEmbeddedPreview => {
+                    println!("cached embedded preview: none available");
+                }
+                PreviewCacheOutcome::NotRequested => {}
+                PreviewCacheOutcome::Discarded(reason) => {
+                    println!("discarded embedded preview: reason={reason:?}");
+                }
+                PreviewCacheOutcome::Failed(message) => {
+                    println!("embedded preview cache failed: {message}");
+                }
+            }
+        }
         DecodeInspectionOutcome::Discarded(reason) => {
             println!("discarded decoder snapshot: reason={reason:?}");
         }
@@ -132,13 +178,14 @@ fn print_inspection_outcome(outcome: &DecodeInspectionOutcome) {
 
 fn print_report(report: ScanReport) {
     println!(
-        "scan: session={} seen={} supported={} inserted={} unchanged={} revalidate={} skipped={} issues={}",
+        "scan: session={} seen={} supported={} inserted={} unchanged={} revalidate={} decode_queued={} skipped={} issues={}",
         report.session_id,
         report.files_seen,
         report.supported_files,
         report.inserted,
         report.unchanged,
         report.needs_revalidation,
+        report.decode_inspections_queued,
         report.skipped,
         report.issues.len()
     );
@@ -225,8 +272,39 @@ fn print_decoder_snapshot(snapshot: &DecoderSnapshot) {
 
 fn print_usage() {
     eprintln!(
-        "usage:\n  shadow-cli init <catalog.sqlite>\n  shadow-cli scan <catalog.sqlite> <folder>\n  shadow-cli resume <catalog.sqlite> <session-id>\n  shadow-cli recoverable <catalog.sqlite>\n  shadow-cli stats <catalog.sqlite>\n  shadow-cli inspect-raw <path>\n  shadow-cli inspect-store <catalog.sqlite> <path>"
+        "usage:\n  shadow-cli init <catalog.sqlite>\n  shadow-cli scan <catalog.sqlite> <folder>\n  shadow-cli scan-cache <catalog.sqlite> <cache-root> <folder>\n  shadow-cli resume <catalog.sqlite> <session-id>\n  shadow-cli recoverable <catalog.sqlite>\n  shadow-cli stats <catalog.sqlite>\n  shadow-cli inspect-raw <path>\n  shadow-cli inspect-store <catalog.sqlite> <cache-root> <path>"
     );
+}
+
+#[derive(Debug, Clone)]
+struct LibRawInspector {
+    version: String,
+}
+
+impl LibRawInspector {
+    fn new() -> Self {
+        Self {
+            version: libraw_provider_version(),
+        }
+    }
+}
+
+impl DecodeInspector for LibRawInspector {
+    fn provider_id(&self) -> &'static str {
+        "libraw"
+    }
+
+    fn provider_version(&self) -> &str {
+        &self.version
+    }
+
+    fn inspect(&mut self, path: &Path) -> Result<DecoderSnapshot, String> {
+        inspect_libraw(path).map_err(|error| error.to_string())
+    }
+
+    fn extract_best_preview(&mut self, path: &Path) -> Result<Option<PreviewPayload>, String> {
+        extract_best_libraw_preview(path).map_err(|error| error.to_string())
+    }
 }
 
 fn now_ms() -> i64 {

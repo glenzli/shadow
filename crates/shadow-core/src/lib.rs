@@ -7,7 +7,10 @@ mod native_path;
 pub use decode_inspection::{
     DecodeInspectionActor, DecodeInspectionDiscardReason, DecodeInspectionError,
     DecodeInspectionHandle, DecodeInspectionOutcome, DecodeInspectionRequest,
-    DecodeInspectionTicket, DecodeInspector, fingerprint_source,
+    DecodeInspectionTicket, DecodeInspector, PreviewCacheOutcome, fingerprint_source,
 };
-pub use import::{ScanIssue, ScanReport, resume_scan, scan_folder};
+pub use import::{
+    ScanIssue, ScanReport, resume_scan, resume_scan_with_inspection, scan_folder,
+    scan_folder_with_inspection,
+};
 pub use native_path::{NativePathError, native_location};
