@@ -6,7 +6,8 @@ The first executable slices are intentionally small:
 
 ```text
 folder scan → transactional catalog registration → stable reopen → statistics
-RAW/DNG → metadata → embedded preview → sensor mosaic → reference RGB
+RAW/DNG → metadata → embedded preview or bounded JPEG proxy → content cache
+RAW/DNG → sensor mosaic → reference RGB correctness baseline
 ```
 
 ## Developer commands
@@ -28,7 +29,10 @@ cargo run --package shadow-cli -- inspect-store ./catalogs/demo.sqlite ./catalog
 RAW representation, decodes its provider-neutral capability snapshot away from
 the caller and SQLite writer threads, then persists the result only if the file
 size and modification time still match. The largest decodable embedded preview
-is stored by BLAKE3 content identity under the explicit cache root. Snapshots
-from multiple decoder providers may coexist for one representation.
+is stored by BLAKE3 content identity under the explicit cache root. When a RAW
+has no preview, the C++ kernel renders and JPEG-encodes a versioned 2048-edge
+fallback without copying the full-size RGB buffer into Rust. Cache reads verify
+the digest and byte length lazily. Snapshots from multiple decoder providers may
+coexist for one representation.
 
 The reusable C++ decoder contract is documented in [`cpp/shadow-image/README.md`](cpp/shadow-image/README.md); its Rust boundary is documented in [`crates/shadow-bridge/README.md`](crates/shadow-bridge/README.md), and cache semantics in [`crates/shadow-cache/README.md`](crates/shadow-cache/README.md). The probe intentionally uses LibRaw's reference RGB processing only as a correctness baseline; Shadow's own scene-linear color and adjustment pipeline will replace that stage. Qt is not required for this slice. The local product and research material lives under `local-reference/` and is intentionally ignored by Git.

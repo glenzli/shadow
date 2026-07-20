@@ -170,6 +170,28 @@ impl ContentAddressedStore {
         Ok(())
     }
 
+    /// Loads one blob and verifies its content identity before returning bytes.
+    ///
+    /// This is the safe entry point for lazy UI/cache consumers. A truncated or
+    /// replaced file is reported as corruption instead of reaching an image
+    /// decoder under the Catalog's trusted metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CacheError::CorruptBlob`] for a digest mismatch and an I/O
+    /// error when the blob cannot be read.
+    pub fn read_verified(&self, digest: BlobDigest) -> Result<Vec<u8>, CacheError> {
+        let path = self.resolve(digest);
+        let bytes = fs::read(&path).map_err(|source| CacheError::Io {
+            path: path.clone(),
+            source,
+        })?;
+        if blake3::hash(&bytes).as_bytes() != digest.as_bytes() {
+            return Err(CacheError::CorruptBlob(path));
+        }
+        Ok(bytes)
+    }
+
     pub fn resolve(&self, digest: BlobDigest) -> PathBuf {
         self.root.join(relative_blob_path(digest))
     }
@@ -260,6 +282,24 @@ mod tests {
 
         assert!(matches!(
             store.put(b"correct"),
+            Err(CacheError::CorruptBlob(_))
+        ));
+        fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[test]
+    fn lazy_read_verifies_bytes_before_returning_them() {
+        let root = fixture_root("verified-read");
+        let store = ContentAddressedStore::open(&root).expect("open cache");
+        let blob = store.put(b"display proxy").expect("put blob");
+        assert_eq!(
+            store.read_verified(blob.digest).expect("verified read"),
+            b"display proxy"
+        );
+
+        fs::write(store.resolve(blob.digest), b"tampered proxy").expect("tamper blob");
+        assert!(matches!(
+            store.read_verified(blob.digest),
             Err(CacheError::CorruptBlob(_))
         ));
         fs::remove_dir_all(root).expect("remove fixture");

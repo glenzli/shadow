@@ -1,5 +1,6 @@
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LibRaw REQUIRED IMPORTED_TARGET libraw)
+find_package(JPEG REQUIRED)
 
 function(shadow_image_enable_warnings target)
     if(MSVC)
@@ -17,7 +18,11 @@ function(shadow_image_enable_warnings target)
     endif()
 endfunction()
 
-add_library(shadow-image STATIC src/decoder/libraw_decoder.cpp)
+add_library(
+    shadow-image STATIC
+    src/decoder/libraw_decoder.cpp
+    src/proxy/jpeg_proxy.cpp
+)
 add_library(Shadow::Image ALIAS shadow-image)
 target_compile_features(shadow-image PUBLIC cxx_std_20)
 target_include_directories(
@@ -25,7 +30,7 @@ target_include_directories(
     PUBLIC
         "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
 )
-target_link_libraries(shadow-image PRIVATE PkgConfig::LibRaw)
+target_link_libraries(shadow-image PRIVATE PkgConfig::LibRaw JPEG::JPEG)
 shadow_image_enable_warnings(shadow-image)
 
 if(SHADOW_BUILD_RAW_PROBE)

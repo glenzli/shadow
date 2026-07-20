@@ -30,6 +30,10 @@ public:
     [[nodiscard]] FfiCapabilitySnapshot capabilities() const;
     [[nodiscard]] rust::Vec<FfiPreviewSnapshot> previews() const;
     [[nodiscard]] FfiPreviewPayload decode_best_preview();
+    [[nodiscard]] FfiEncodedProxy render_reference_proxy(
+        std::uint32_t max_edge,
+        std::uint8_t jpeg_quality
+    ) const;
 
 private:
     std::unique_ptr<image::DecoderProvider> provider_;

@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <string_view>
+#include <vector>
 
 namespace image = shadow::image;
 
@@ -80,11 +81,76 @@ void no_decodable_preview_is_a_valid_state() {
     );
 }
 
+class FakeRgbSession final : public image::DecodeSession {
+public:
+    [[nodiscard]] const image::AssetMetadata& metadata() const noexcept override {
+        return metadata_;
+    }
+
+    [[nodiscard]] const image::DecodeCapabilities& capabilities() const noexcept override {
+        return capabilities_;
+    }
+
+    [[nodiscard]] std::span<const image::PreviewDescriptor> previews() const noexcept override {
+        return {};
+    }
+
+    [[nodiscard]] image::PreviewPayload decode_preview(std::size_t) override {
+        throw image::DecodeError(image::DecodeErrorCode::no_preview, 0, "no preview");
+    }
+
+    [[nodiscard]] image::MosaicBuffer decode_mosaic() override {
+        throw image::DecodeError(image::DecodeErrorCode::unsupported, 0, "no mosaic");
+    }
+
+    [[nodiscard]] image::PixelBuffer render_reference_rgb() const override {
+        image::PixelBuffer buffer;
+        buffer.dimensions = {8, 4};
+        buffer.bits_per_channel = 16;
+        buffer.channels = 3;
+        buffer.row_stride_bytes = 8U * 3U * sizeof(std::uint16_t);
+        buffer.samples.resize(8U * 4U * 3U);
+        for (std::size_t index = 0; index < buffer.samples.size(); ++index) {
+            buffer.samples[index] = static_cast<std::uint16_t>((index * 997U) % 65'536U);
+        }
+        return buffer;
+    }
+
+private:
+    image::AssetMetadata metadata_;
+    image::DecodeCapabilities capabilities_;
+};
+
+void reference_proxy_is_bounded_standard_jpeg() {
+    expect(
+        image::proxy_dimensions({4'032, 3'024}, 2'048) == image::Dimensions{2'048, 1'536},
+        "proxy dimensions preserve aspect ratio and max edge"
+    );
+
+    const FakeRgbSession session;
+    const auto proxy = image::render_reference_proxy_jpeg(
+        session,
+        image::ProxyRequest{.max_edge = 4, .jpeg_quality = 88}
+    );
+    expect(proxy.dimensions == image::Dimensions{4, 2}, "proxy renderer downsizes RGB");
+    expect(proxy.format == image::PreviewFormat::jpeg, "proxy output is JPEG");
+    expect(proxy.bytes.size() > 4U, "proxy JPEG is not empty");
+    expect(
+        proxy.bytes[0] == 0xffU && proxy.bytes[1] == 0xd8U,
+        "proxy output starts with JPEG SOI"
+    );
+    expect(
+        proxy.bytes[proxy.bytes.size() - 2U] == 0xffU && proxy.bytes.back() == 0xd9U,
+        "proxy output ends with JPEG EOI"
+    );
+}
+
 } // namespace
 
 int main() {
     pending_corrections_are_explicit();
     largest_decodable_preview_wins();
     no_decodable_preview_is_a_valid_state();
+    reference_proxy_is_bounded_standard_jpeg();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

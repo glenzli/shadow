@@ -5,14 +5,19 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
-use shadow_bridge::{extract_best_libraw_preview, inspect_libraw, libraw_provider_version};
+use shadow_bridge::{
+    extract_best_libraw_preview, inspect_libraw, libraw_provider_version,
+    render_libraw_reference_proxy,
+};
 use shadow_catalog::{CatalogActor, CatalogStats, RegisterAsset};
 use shadow_core::{
     DecodeInspectionActor, DecodeInspectionOutcome, DecodeInspectionRequest, DecodeInspector,
     PreviewCacheOutcome, ScanReport, fingerprint_source, native_location, resume_scan, scan_folder,
     scan_folder_with_inspection,
 };
-use shadow_domain::{DecoderSnapshot, ImportSessionId, PreviewPayload, RepresentationKind};
+use shadow_domain::{
+    DecoderSnapshot, ImportSessionId, PreviewPayload, ProxyPayload, RepresentationKind,
+};
 
 fn main() -> Result<()> {
     let arguments = env::args().skip(1).collect::<Vec<_>>();
@@ -154,12 +159,22 @@ fn print_inspection_outcome(outcome: &DecodeInspectionOutcome) {
         } => {
             println!("stored decoder snapshot: provider={provider_id} version={provider_version}");
             match preview {
-                PreviewCacheOutcome::Stored {
+                PreviewCacheOutcome::StoredEmbeddedPreview {
                     digest_hex,
                     byte_len,
                 } => println!("cached embedded preview: blake3={digest_hex} bytes={byte_len}"),
-                PreviewCacheOutcome::NoEmbeddedPreview => {
-                    println!("cached embedded preview: none available");
+                PreviewCacheOutcome::StoredGeneratedProxy {
+                    digest_hex,
+                    byte_len,
+                    dimensions,
+                } => println!(
+                    "cached generated proxy: blake3={digest_hex} bytes={byte_len} dimensions={}x{}",
+                    dimensions.width, dimensions.height
+                ),
+                PreviewCacheOutcome::NoVisualAvailable => {
+                    println!(
+                        "cached visual: neither embedded preview nor generated proxy available"
+                    );
                 }
                 PreviewCacheOutcome::NotRequested => {}
                 PreviewCacheOutcome::Discarded(reason) => {
@@ -304,6 +319,16 @@ impl DecodeInspector for LibRawInspector {
 
     fn extract_best_preview(&mut self, path: &Path) -> Result<Option<PreviewPayload>, String> {
         extract_best_libraw_preview(path).map_err(|error| error.to_string())
+    }
+
+    fn render_proxy(&mut self, path: &Path) -> Result<Option<ProxyPayload>, String> {
+        render_libraw_reference_proxy(path, 2_048, 88)
+            .map(Some)
+            .map_err(|error| error.to_string())
+    }
+
+    fn proxy_variant_key(&self) -> &'static str {
+        "libraw:grid-jpeg-2048-q88-v1"
     }
 }
 

@@ -11,12 +11,13 @@ DecoderProvider
    ├─ DecodeCapabilities + PendingCorrections
    ├─ PreviewDescriptor[] → PreviewPayload
    ├─ MosaicBuffer
-   └─ PixelBuffer (reference RGB only)
+   ├─ PixelBuffer (reference RGB only)
+   └─ EncodedProxy (bounded display JPEG fallback)
 ```
 
 The public header does not expose LibRaw objects, enums, pointers, or ownership rules. A provider owns its decoder implementation; returned buffers own their memory and remain valid after subsequent session calls.
 
-Rust consumes owned metadata/capability/preview snapshots and the selected embedded preview payload through the CXX adapter in `src/bridge/cxx_bridge.cpp`. The bridge is intentionally coarse-grained: descriptor inspection is one call and preview extraction is one call, while large mosaic/RGB buffers remain in C++.
+Rust consumes owned metadata/capability/preview snapshots, the selected embedded preview, and a final compressed proxy through the CXX adapter in `src/bridge/cxx_bridge.cpp`. The bridge is intentionally coarse-grained: full-size mosaic/RGB buffers remain in C++, where the fallback path performs bilinear downscaling and libjpeg-compatible encoding before transferring bytes.
 
 Current contract rules:
 
@@ -24,6 +25,7 @@ Current contract rules:
 - Preview IDs are provider IDs, not vector positions. `select_best_preview` chooses the largest decodable candidate.
 - DNG opcode lists are surfaced as `PendingCorrections` until Shadow can prove they were applied.
 - `render_reference_rgb` is a correctness/fallback path. It is not Shadow's final scene-linear color pipeline.
+- `render_reference_proxy_jpeg` bounds the longest edge (2048 and quality 88 in the first recipe) and rejects unbounded requests. Its version belongs in the cache key.
 - A `DecodeSession` is thread-confined. Providers may be shared; parallel work should open independent sessions.
 - The current owned `MosaicBuffer` intentionally copies LibRaw memory. A later opaque/tiled buffer can remove that copy without changing metadata semantics.
 

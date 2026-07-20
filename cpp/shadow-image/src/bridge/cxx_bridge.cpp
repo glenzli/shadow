@@ -149,6 +149,26 @@ FfiPreviewPayload DecodeHandle::decode_best_preview() {
     return result;
 }
 
+FfiEncodedProxy DecodeHandle::render_reference_proxy(
+    const std::uint32_t max_edge,
+    const std::uint8_t jpeg_quality
+) const {
+    const auto proxy = image::render_reference_proxy_jpeg(
+        *session_,
+        image::ProxyRequest{max_edge, jpeg_quality}
+    );
+    FfiEncodedProxy result;
+    result.dimensions = dimensions(proxy.dimensions);
+    result.format = preview_format(proxy.format);
+    result.bits_per_channel = proxy.bits_per_channel;
+    result.channels = proxy.channels;
+    result.bytes.reserve(proxy.bytes.size());
+    for (const auto byte : proxy.bytes) {
+        result.bytes.push_back(byte);
+    }
+    return result;
+}
+
 std::unique_ptr<DecodeHandle> open_libraw_utf8(const rust::Str path) {
     const std::string_view utf8_bytes(path.data(), path.size());
     std::u8string utf8_path;

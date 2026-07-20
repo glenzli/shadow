@@ -10,16 +10,30 @@ fn main() {
         .cargo_metadata(false)
         .probe("libraw")
         .expect("LibRaw 0.22+ must be discoverable through pkg-config");
+    let libjpeg = pkg_config::Config::new()
+        .cargo_metadata(false)
+        .probe("libjpeg")
+        .expect("libjpeg-turbo must be discoverable through pkg-config");
 
     let mut build = cxx_build::bridge("src/lib.rs");
     build
         .file(image_root.join("src/bridge/cxx_bridge.cpp"))
         .file(image_root.join("src/decoder/libraw_decoder.cpp"))
+        .file(image_root.join("src/proxy/jpeg_proxy.cpp"))
         .include(&image_include)
         .std("c++20");
 
     let target_family = env::var("CARGO_CFG_TARGET_FAMILY").unwrap_or_default();
     for include_path in &libraw.include_paths {
+        if target_family == "unix" {
+            build
+                .flag("-isystem")
+                .flag(include_path.to_string_lossy().as_ref());
+        } else {
+            build.include(include_path);
+        }
+    }
+    for include_path in &libjpeg.include_paths {
         if target_family == "unix" {
             build
                 .flag("-isystem")
@@ -59,6 +73,12 @@ fn main() {
     for framework in &libraw.frameworks {
         println!("cargo:rustc-link-lib=framework={framework}");
     }
+    for link_path in &libjpeg.link_paths {
+        println!("cargo:rustc-link-search=native={}", link_path.display());
+    }
+    for library in &libjpeg.libs {
+        println!("cargo:rustc-link-lib={library}");
+    }
 
     println!("cargo:rerun-if-changed=src/lib.rs");
     println!(
@@ -80,5 +100,9 @@ fn main() {
     println!(
         "cargo:rerun-if-changed={}",
         image_root.join("src/decoder/libraw_decoder.cpp").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        image_root.join("src/proxy/jpeg_proxy.cpp").display()
     );
 }

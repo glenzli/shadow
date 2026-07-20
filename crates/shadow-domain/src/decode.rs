@@ -143,6 +143,15 @@ pub struct PreviewPayload {
     pub bytes: Vec<u8>,
 }
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct ProxyPayload {
+    pub dimensions: ImageDimensions,
+    pub codec: PreviewCodec,
+    pub bits_per_channel: u16,
+    pub channels: u16,
+    pub bytes: Vec<u8>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DecoderSnapshot {
     pub provider: DecodeProviderSnapshot,

@@ -49,6 +49,7 @@ enum Message {
         String,
         RepresentationFingerprint,
         bool,
+        String,
         SyncSender<Result<bool, CatalogError>>,
     ),
     RecordCachedArtifact(
@@ -270,6 +271,7 @@ impl CatalogHandle {
         provider_version: &str,
         source: RepresentationFingerprint,
         require_cached_preview: bool,
+        proxy_variant_key: &str,
     ) -> Result<bool, CatalogError> {
         self.request(|response| {
             Message::IsDecodeOutputCurrent(
@@ -278,6 +280,7 @@ impl CatalogHandle {
                 provider_version.to_owned(),
                 source,
                 require_cached_preview,
+                proxy_variant_key.to_owned(),
                 response,
             )
         })
@@ -437,6 +440,7 @@ fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
                 provider_version,
                 source,
                 require_cached_preview,
+                proxy_variant_key,
                 response,
             ) => {
                 let _ = response.send(catalog.is_decode_output_current(
@@ -445,6 +449,7 @@ fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
                     &provider_version,
                     source,
                     require_cached_preview,
+                    &proxy_variant_key,
                 ));
             }
             Message::RecordCachedArtifact(request, response) => {

@@ -265,6 +265,7 @@ impl DecodeScheduler<'_> {
             self.inspections.provider_version(),
             source,
             self.inspections.caches_previews(),
+            self.inspections.proxy_variant_key(),
         )? {
             return Ok(false);
         }

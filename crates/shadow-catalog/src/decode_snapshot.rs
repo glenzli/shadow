@@ -162,20 +162,33 @@ impl Catalog {
         provider_version: &str,
         source: RepresentationFingerprint,
         require_cached_preview: bool,
+        proxy_variant_key: &str,
     ) -> Result<bool, CatalogError> {
         if self.representation_fingerprint(representation_id)? != source {
             return Ok(false);
         }
         let byte_len = sqlite_u64(source.byte_len, "source_byte_len")?;
-        let current: Option<(i64, i64)> = self
+        let current: Option<(i64, i64, i64, i64)> = self
             .connection
             .query_row(
                 "SELECT s.has_embedded_previews,
+                        s.can_render_reference_rgb,
                         EXISTS(
                             SELECT 1 FROM representation_cached_artifacts a
                             WHERE a.representation_id = s.representation_id
                               AND a.role = 'embedded_preview'
                               AND a.variant_key = s.provider_id
+                              AND a.generator_id = s.provider_id
+                              AND a.generator_version = s.provider_version
+                              AND a.source_byte_len = s.source_byte_len
+                              AND a.source_modified_at_ms IS s.source_modified_at_ms
+                        ),
+                        EXISTS(
+                            SELECT 1 FROM representation_cached_artifacts a
+                            WHERE a.representation_id = s.representation_id
+                              AND a.role = 'generated_proxy'
+                              AND a.variant_key = ?6
+                              AND a.generator_id = s.provider_id
                               AND a.generator_version = s.provider_version
                               AND a.source_byte_len = s.source_byte_len
                               AND a.source_modified_at_ms IS s.source_modified_at_ms
@@ -190,14 +203,24 @@ impl Catalog {
                     provider_id,
                     provider_version,
                     byte_len,
-                    source.modified_at_ms
+                    source.modified_at_ms,
+                    proxy_variant_key,
                 ],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
             )
             .optional()?;
-        Ok(current.is_some_and(|(has_preview, cached_preview)| {
-            !require_cached_preview || has_preview == 0 || cached_preview != 0
-        }))
+        Ok(
+            current.is_some_and(|(has_preview, can_render, cached_preview, cached_proxy)| {
+                !require_cached_preview
+                    || if has_preview != 0 {
+                        cached_preview != 0
+                    } else if can_render != 0 {
+                        cached_proxy != 0
+                    } else {
+                        true
+                    }
+            }),
+        )
     }
 }
 
@@ -568,6 +591,7 @@ mod tests {
 
     #[test]
     fn cached_preview_requirement_reconciles_missing_artifacts() {
+        const PROXY_KEY: &str = "libraw:grid-jpeg-2048-q88-v1";
         let (mut catalog, representation_id, source) = registered_catalog();
         catalog
             .record_decode_snapshot(&RecordDecodeSnapshot {
@@ -580,17 +604,38 @@ mod tests {
 
         assert!(
             catalog
-                .is_decode_output_current(representation_id, "libraw", "1", source, false)
+                .is_decode_output_current(
+                    representation_id,
+                    "libraw",
+                    "1",
+                    source,
+                    false,
+                    PROXY_KEY,
+                )
                 .expect("query descriptor-only state")
         );
         assert!(
             !catalog
-                .is_decode_output_current(representation_id, "libraw", "2", source, false)
+                .is_decode_output_current(
+                    representation_id,
+                    "libraw",
+                    "2",
+                    source,
+                    false,
+                    PROXY_KEY,
+                )
                 .expect("query newer provider version")
         );
         assert!(
             !catalog
-                .is_decode_output_current(representation_id, "libraw", "1", source, true)
+                .is_decode_output_current(
+                    representation_id,
+                    "libraw",
+                    "1",
+                    source,
+                    true,
+                    PROXY_KEY,
+                )
                 .expect("query missing cached preview")
         );
 
@@ -622,8 +667,95 @@ mod tests {
 
         assert!(
             catalog
-                .is_decode_output_current(representation_id, "libraw", "1", source, true)
+                .is_decode_output_current(
+                    representation_id,
+                    "libraw",
+                    "1",
+                    source,
+                    true,
+                    PROXY_KEY,
+                )
                 .expect("query complete cached state")
+        );
+    }
+
+    #[test]
+    fn generated_proxy_requirement_uses_the_current_recipe_and_provider_version() {
+        const PROXY_KEY: &str = "libraw:grid-jpeg-2048-q88-v1";
+        let (mut catalog, representation_id, source) = registered_catalog();
+        let mut without_preview = snapshot("libraw", "1", &[]);
+        without_preview.capabilities.embedded_previews = DecodeSupport::Unavailable;
+        catalog
+            .record_decode_snapshot(&RecordDecodeSnapshot {
+                representation_id,
+                expected_source: source,
+                snapshot: without_preview,
+                inspected_at_ms: 456,
+            })
+            .expect("record snapshot");
+
+        assert!(
+            !catalog
+                .is_decode_output_current(
+                    representation_id,
+                    "libraw",
+                    "1",
+                    source,
+                    true,
+                    PROXY_KEY,
+                )
+                .expect("query missing generated proxy")
+        );
+
+        catalog
+            .record_cached_artifact(&RecordCachedArtifact {
+                representation_id,
+                expected_source: source,
+                artifact: CachedArtifact {
+                    role: CachedArtifactRole::GeneratedProxy,
+                    variant_key: PROXY_KEY.into(),
+                    generator_id: "libraw".into(),
+                    generator_version: "1".into(),
+                    provider_preview_id: None,
+                    blob_algorithm: "blake3-256".into(),
+                    blob_digest: [2; 32],
+                    blob_byte_len: 456_789,
+                    codec: PreviewCodec::Jpeg,
+                    byte_order: shadow_domain::PreviewByteOrder::NotApplicable,
+                    dimensions: ImageDimensions {
+                        width: 2_048,
+                        height: 1_365,
+                    },
+                    bits_per_channel: 8,
+                    channels: 3,
+                    created_at_ms: 789,
+                },
+            })
+            .expect("record generated proxy");
+
+        assert!(
+            catalog
+                .is_decode_output_current(
+                    representation_id,
+                    "libraw",
+                    "1",
+                    source,
+                    true,
+                    PROXY_KEY,
+                )
+                .expect("query complete generated proxy")
+        );
+        assert!(
+            !catalog
+                .is_decode_output_current(
+                    representation_id,
+                    "libraw",
+                    "1",
+                    source,
+                    true,
+                    "libraw:grid-jpeg-2048-q88-v2",
+                )
+                .expect("query newer proxy recipe")
         );
     }
 }

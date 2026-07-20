@@ -14,7 +14,10 @@ use shadow_catalog::{
     RecordCachedArtifactStatus, RecordDecodeSnapshot, RecordDecodeSnapshotStatus,
     RepresentationFingerprint,
 };
-use shadow_domain::{DecoderSnapshot, PreviewPayload, RepresentationId};
+use shadow_domain::{
+    DecoderSnapshot, ImageDimensions, PreviewByteOrder, PreviewPayload, ProxyPayload,
+    RepresentationId,
+};
 use thiserror::Error;
 
 const INSPECTION_QUEUE_CAPACITY: usize = 32;
@@ -54,6 +57,23 @@ pub trait DecodeInspector: Send + 'static {
     fn extract_best_preview(&mut self, _path: &Path) -> Result<Option<PreviewPayload>, String> {
         Ok(None)
     }
+
+    /// Renders a bounded display proxy when no embedded preview is available.
+    ///
+    /// The variant key is stored in the Catalog so later renderer changes can
+    /// invalidate only proxies produced by an older recipe.
+    ///
+    /// # Errors
+    ///
+    /// Returns a provider diagnostic when reference rendering or encoding fails.
+    fn render_proxy(&mut self, _path: &Path) -> Result<Option<ProxyPayload>, String> {
+        Ok(None)
+    }
+
+    #[allow(clippy::unnecessary_literal_bound)]
+    fn proxy_variant_key(&self) -> &str {
+        "anonymous:grid-jpeg-2048-q88-v1"
+    }
 }
 
 impl<F> DecodeInspector for F
@@ -91,8 +111,16 @@ pub enum DecodeInspectionOutcome {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum PreviewCacheOutcome {
     NotRequested,
-    NoEmbeddedPreview,
-    Stored { digest_hex: String, byte_len: u64 },
+    NoVisualAvailable,
+    StoredEmbeddedPreview {
+        digest_hex: String,
+        byte_len: u64,
+    },
+    StoredGeneratedProxy {
+        digest_hex: String,
+        byte_len: u64,
+        dimensions: ImageDimensions,
+    },
     Discarded(DecodeInspectionDiscardReason),
     Failed(String),
 }
@@ -132,6 +160,7 @@ pub struct DecodeInspectionHandle {
     sender: SyncSender<Message>,
     provider_id: Arc<str>,
     provider_version: Arc<str>,
+    proxy_variant_key: Arc<str>,
     caches_previews: bool,
 }
 
@@ -189,6 +218,7 @@ impl DecodeInspectionActor {
     ) -> Result<Self, DecodeInspectionError> {
         let provider_id = Arc::<str>::from(inspector.provider_id());
         let provider_version = Arc::<str>::from(inspector.provider_version());
+        let proxy_variant_key = Arc::<str>::from(inspector.proxy_variant_key());
         let caches_previews = cache.is_some();
         let (sender, receiver) = mpsc::sync_channel(INSPECTION_QUEUE_CAPACITY);
         let join_handle = thread::Builder::new()
@@ -200,6 +230,7 @@ impl DecodeInspectionActor {
                 sender,
                 provider_id,
                 provider_version,
+                proxy_variant_key,
                 caches_previews,
             },
             join_handle: Some(join_handle),
@@ -256,6 +287,10 @@ impl DecodeInspectionHandle {
 
     pub fn provider_version(&self) -> &str {
         &self.provider_version
+    }
+
+    pub fn proxy_variant_key(&self) -> &str {
+        &self.proxy_variant_key
     }
 
     pub const fn caches_previews(&self) -> bool {
@@ -436,48 +471,107 @@ fn cache_preview(
         return PreviewCacheOutcome::Discarded(DecodeInspectionDiscardReason::FilesystemChanged);
     }
     let preview = match inspector.extract_best_preview(&request.path) {
-        Ok(Some(preview)) => preview,
-        Ok(None) => return PreviewCacheOutcome::NoEmbeddedPreview,
+        Ok(preview) => preview,
         Err(message) => return PreviewCacheOutcome::Failed(message),
     };
     if source_changed(request) {
         return PreviewCacheOutcome::Discarded(DecodeInspectionDiscardReason::FilesystemChanged);
     }
-    let blob = match cache.put(&preview.bytes) {
-        Ok(blob) => blob,
-        Err(error) => return PreviewCacheOutcome::Failed(error.to_string()),
-    };
-    let created_at_ms = now_ms();
-    let status = catalog.record_cached_artifact(&RecordCachedArtifact {
-        representation_id: request.representation_id,
-        expected_source: request.expected_source,
-        artifact: CachedArtifact {
+
+    let (bytes, artifact, stored_kind) = if let Some(preview) = preview {
+        let artifact = CachedArtifact {
             role: CachedArtifactRole::EmbeddedPreview,
             variant_key: provider_id.to_owned(),
             generator_id: provider_id.to_owned(),
             generator_version: provider_version.to_owned(),
             provider_preview_id: Some(preview.descriptor.provider_id),
-            blob_algorithm: blob.digest.algorithm().to_owned(),
-            blob_digest: *blob.digest.as_bytes(),
-            blob_byte_len: blob.byte_len,
+            blob_algorithm: String::new(),
+            blob_digest: [0; 32],
+            blob_byte_len: 0,
             codec: preview.descriptor.codec,
             byte_order: preview.byte_order,
             dimensions: preview.descriptor.dimensions,
             bits_per_channel: preview.descriptor.bits_per_channel,
             channels: preview.descriptor.channels,
-            created_at_ms,
-        },
+            created_at_ms: 0,
+        };
+        (preview.bytes, artifact, CachedVisualKind::EmbeddedPreview)
+    } else {
+        let proxy = match inspector.render_proxy(&request.path) {
+            Ok(Some(proxy)) => proxy,
+            Ok(None) => return PreviewCacheOutcome::NoVisualAvailable,
+            Err(message) => return PreviewCacheOutcome::Failed(message),
+        };
+        let dimensions = proxy.dimensions;
+        let artifact = CachedArtifact {
+            role: CachedArtifactRole::GeneratedProxy,
+            variant_key: inspector.proxy_variant_key().to_owned(),
+            generator_id: provider_id.to_owned(),
+            generator_version: provider_version.to_owned(),
+            provider_preview_id: None,
+            blob_algorithm: String::new(),
+            blob_digest: [0; 32],
+            blob_byte_len: 0,
+            codec: proxy.codec,
+            byte_order: PreviewByteOrder::NotApplicable,
+            dimensions,
+            bits_per_channel: proxy.bits_per_channel,
+            channels: proxy.channels,
+            created_at_ms: 0,
+        };
+        (
+            proxy.bytes,
+            artifact,
+            CachedVisualKind::GeneratedProxy(dimensions),
+        )
+    };
+    if source_changed(request) {
+        return PreviewCacheOutcome::Discarded(DecodeInspectionDiscardReason::FilesystemChanged);
+    }
+    let blob = match cache.put(&bytes) {
+        Ok(blob) => blob,
+        Err(error) => return PreviewCacheOutcome::Failed(error.to_string()),
+    };
+    if source_changed(request) {
+        return PreviewCacheOutcome::Discarded(DecodeInspectionDiscardReason::FilesystemChanged);
+    }
+    let artifact = CachedArtifact {
+        blob_algorithm: blob.digest.algorithm().to_owned(),
+        blob_digest: *blob.digest.as_bytes(),
+        blob_byte_len: blob.byte_len,
+        created_at_ms: now_ms(),
+        ..artifact
+    };
+    let status = catalog.record_cached_artifact(&RecordCachedArtifact {
+        representation_id: request.representation_id,
+        expected_source: request.expected_source,
+        artifact,
     });
     match status {
-        Ok(RecordCachedArtifactStatus::Recorded) => PreviewCacheOutcome::Stored {
-            digest_hex: blob.digest.to_hex(),
-            byte_len: blob.byte_len,
+        Ok(RecordCachedArtifactStatus::Recorded) => match stored_kind {
+            CachedVisualKind::EmbeddedPreview => PreviewCacheOutcome::StoredEmbeddedPreview {
+                digest_hex: blob.digest.to_hex(),
+                byte_len: blob.byte_len,
+            },
+            CachedVisualKind::GeneratedProxy(dimensions) => {
+                PreviewCacheOutcome::StoredGeneratedProxy {
+                    digest_hex: blob.digest.to_hex(),
+                    byte_len: blob.byte_len,
+                    dimensions,
+                }
+            }
         },
         Ok(RecordCachedArtifactStatus::StaleSource) => {
             PreviewCacheOutcome::Discarded(DecodeInspectionDiscardReason::CatalogChanged)
         }
         Err(error) => PreviewCacheOutcome::Failed(error.to_string()),
     }
+}
+
+#[derive(Debug, Copy, Clone)]
+enum CachedVisualKind {
+    EmbeddedPreview,
+    GeneratedProxy(ImageDimensions),
 }
 
 fn source_changed(request: &DecodeInspectionRequest) -> bool {
@@ -644,7 +738,7 @@ mod tests {
         assert!(matches!(
             outcome,
             DecodeInspectionOutcome::Recorded {
-                preview: PreviewCacheOutcome::Stored { byte_len: 13, .. },
+                preview: PreviewCacheOutcome::StoredEmbeddedPreview { byte_len: 13, .. },
                 ..
             }
         ));
@@ -660,6 +754,63 @@ mod tests {
             fs::read(store.resolve(digest)).expect("read cached preview"),
             b"preview bytes"
         );
+
+        worker.shutdown().expect("shutdown inspector");
+        actor.shutdown().expect("shutdown catalog");
+    }
+
+    #[test]
+    fn missing_embedded_preview_falls_back_to_versioned_generated_proxy() {
+        let fixture = Fixture::new();
+        let actor = CatalogActor::spawn(&fixture.database_path).expect("spawn catalog");
+        let catalog = actor.handle();
+        let source = fingerprint_source(&fixture.raw_path).expect("fingerprint source");
+        let registered = catalog
+            .register_asset(&fixture.registration(source))
+            .expect("register source");
+        let cache_root = fixture.root.join("cache");
+        let worker =
+            DecodeInspectionActor::spawn_with_cache(catalog.clone(), ProxyInspector, &cache_root)
+                .expect("spawn cached inspector");
+
+        let outcome = worker
+            .handle()
+            .submit(DecodeInspectionRequest {
+                representation_id: registered.representation_id,
+                path: fixture.raw_path.clone(),
+                expected_source: source,
+            })
+            .expect("submit inspection")
+            .wait()
+            .expect("complete inspection");
+        assert!(matches!(
+            outcome,
+            DecodeInspectionOutcome::Recorded {
+                preview: PreviewCacheOutcome::StoredGeneratedProxy {
+                    byte_len: 11,
+                    dimensions: ImageDimensions {
+                        width: 2_048,
+                        height: 1_365
+                    },
+                    ..
+                },
+                ..
+            }
+        ));
+
+        let artifacts = catalog
+            .cached_artifacts(registered.representation_id)
+            .expect("read cached artifacts");
+        assert_eq!(artifacts.len(), 1);
+        assert_eq!(
+            artifacts[0].artifact.role,
+            CachedArtifactRole::GeneratedProxy
+        );
+        assert_eq!(
+            artifacts[0].artifact.variant_key,
+            "test-decoder:grid-jpeg-2048-q88-v1"
+        );
+        assert_eq!(artifacts[0].artifact.provider_preview_id, None);
 
         worker.shutdown().expect("shutdown inspector");
         actor.shutdown().expect("shutdown catalog");
@@ -686,6 +837,39 @@ mod tests {
                 descriptor: preview_descriptor(),
                 byte_order: PreviewByteOrder::NotApplicable,
                 bytes: b"preview bytes".to_vec(),
+            }))
+        }
+    }
+
+    #[derive(Debug, Copy, Clone)]
+    struct ProxyInspector;
+
+    impl DecodeInspector for ProxyInspector {
+        fn provider_id(&self) -> &'static str {
+            "test-decoder"
+        }
+
+        fn proxy_variant_key(&self) -> &'static str {
+            "test-decoder:grid-jpeg-2048-q88-v1"
+        }
+
+        fn inspect(&mut self, _path: &Path) -> Result<DecoderSnapshot, String> {
+            let mut snapshot = sample_snapshot();
+            snapshot.provider.id = "test-decoder".into();
+            snapshot.capabilities.reference_rgb = DecodeSupport::Available;
+            Ok(snapshot)
+        }
+
+        fn render_proxy(&mut self, _path: &Path) -> Result<Option<ProxyPayload>, String> {
+            Ok(Some(ProxyPayload {
+                dimensions: ImageDimensions {
+                    width: 2_048,
+                    height: 1_365,
+                },
+                codec: PreviewCodec::Jpeg,
+                bits_per_channel: 8,
+                channels: 3,
+                bytes: b"proxy bytes".to_vec(),
             }))
         }
     }

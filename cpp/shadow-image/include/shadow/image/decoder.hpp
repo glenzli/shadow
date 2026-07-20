@@ -136,6 +136,19 @@ struct PixelBuffer final {
     std::vector<std::uint16_t> samples;
 };
 
+struct ProxyRequest final {
+    std::uint32_t max_edge = 2'048;
+    std::uint8_t jpeg_quality = 88;
+};
+
+struct EncodedProxy final {
+    Dimensions dimensions;
+    PreviewFormat format = PreviewFormat::jpeg;
+    std::uint16_t bits_per_channel = 8;
+    std::uint16_t channels = 3;
+    std::vector<std::uint8_t> bytes;
+};
+
 enum class DecodeErrorCode : std::uint8_t {
     unsupported,
     io,
@@ -199,5 +212,12 @@ public:
 ) noexcept;
 
 [[nodiscard]] std::string_view to_string(PreviewFormat format) noexcept;
+
+[[nodiscard]] Dimensions proxy_dimensions(Dimensions source, std::uint32_t max_edge);
+
+[[nodiscard]] EncodedProxy render_reference_proxy_jpeg(
+    const DecodeSession& session,
+    ProxyRequest request = {}
+);
 
 } // namespace shadow::image

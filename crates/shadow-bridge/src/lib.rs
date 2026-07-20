@@ -106,6 +106,15 @@ mod ffi {
         bytes: Vec<u8>,
     }
 
+    #[derive(Debug)]
+    struct FfiEncodedProxy {
+        dimensions: FfiDimensions,
+        format: FfiPreviewFormat,
+        bits_per_channel: u16,
+        channels: u16,
+        bytes: Vec<u8>,
+    }
+
     unsafe extern "C++" {
         include!("shadow/image/cxx_bridge.hpp");
 
@@ -118,6 +127,11 @@ mod ffi {
         fn capabilities(self: &DecodeHandle) -> FfiCapabilitySnapshot;
         fn previews(self: &DecodeHandle) -> Vec<FfiPreviewSnapshot>;
         fn decode_best_preview(self: Pin<&mut DecodeHandle>) -> Result<FfiPreviewPayload>;
+        fn render_reference_proxy(
+            self: &DecodeHandle,
+            max_edge: u32,
+            jpeg_quality: u8,
+        ) -> Result<FfiEncodedProxy>;
     }
 }
 
@@ -125,6 +139,30 @@ mod ffi {
 /// an image.
 pub fn libraw_provider_version() -> String {
     ffi::libraw_provider_version()
+}
+
+/// Renders a bounded, display-referred JPEG proxy through the `LibRaw`
+/// reference path. This is a fallback for RAW files without an embedded
+/// preview, not Shadow's eventual scene-linear renderer.
+///
+/// # Errors
+///
+/// Returns [`BridgeError`] when the provider cannot render or encode the RAW.
+pub fn render_libraw_reference_proxy(
+    path: &Path,
+    max_edge: u32,
+    jpeg_quality: u8,
+) -> Result<shadow_domain::ProxyPayload, BridgeError> {
+    let handle = open_libraw(path)?;
+    let handle = handle.as_ref().ok_or(BridgeError::NullHandle)?;
+    let proxy = handle.render_reference_proxy(max_edge, jpeg_quality)?;
+    Ok(shadow_domain::ProxyPayload {
+        dimensions: dimensions(&proxy.dimensions),
+        codec: preview_codec(proxy.format),
+        bits_per_channel: proxy.bits_per_channel,
+        channels: proxy.channels,
+        bytes: proxy.bytes,
+    })
 }
 
 #[derive(Debug, Error)]
@@ -320,5 +358,19 @@ mod tests {
             preview.descriptor.encoded_bytes,
             u64::try_from(preview.bytes.len()).expect("preview length fits u64")
         );
+    }
+
+    #[test]
+    #[ignore = "requires SHADOW_TEST_DNG_NO_PREVIEW to point at a local RAW fixture"]
+    fn real_dng_reference_proxy_crosses_the_bridge() {
+        let path =
+            std::env::var_os("SHADOW_TEST_DNG_NO_PREVIEW").expect("SHADOW_TEST_DNG_NO_PREVIEW");
+        let proxy = render_libraw_reference_proxy(Path::new(&path), 2_048, 88)
+            .expect("render local DNG proxy");
+        assert_eq!(proxy.codec, PreviewCodec::Jpeg);
+        assert_eq!(proxy.dimensions.width, 2_048);
+        assert_eq!(proxy.dimensions.height, 1_536);
+        assert!(proxy.bytes.starts_with(&[0xff, 0xd8]));
+        assert!(proxy.bytes.ends_with(&[0xff, 0xd9]));
     }
 }
