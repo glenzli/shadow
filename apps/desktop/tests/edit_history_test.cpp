@@ -3,12 +3,14 @@
 #include <cstdlib>
 #include <iostream>
 #include <string>
+#include <vector>
 
 namespace {
 
 struct State final {
     int exposure = 0;
     int contrast = 0;
+    std::vector<int> curve_y{0, 100};
 
     bool operator==(const State&) const = default;
 };
@@ -64,6 +66,31 @@ void switching_parameters_splits_steps() {
     require(current == State{}, "second undo must restore exposure");
 }
 
+void tone_curve_drag_is_one_atomic_recipe_step() {
+    SessionEditHistory<State> history;
+    State current;
+
+    history.beginGesture("tone_curve/1", current);
+    for (int value = 99; value >= 0; --value) {
+        const State before = current;
+        current.curve_y[1] = value;
+        history.record("tone_curve/1", before, current);
+    }
+    history.endGesture("tone_curve/1", current);
+
+    require(history.undoDepth() == 1, "a curve drag must create one undo step");
+    current = *history.undo(current);
+    require(
+        current.curve_y == std::vector<int>({0, 100}),
+        "curve undo must restore the complete point set"
+    );
+    current = *history.redo(current);
+    require(
+        current.curve_y == std::vector<int>({0, 0}),
+        "curve redo must restore the final drag point"
+    );
+}
+
 void a_new_edit_clears_redo() {
     SessionEditHistory<State> history;
     State current;
@@ -114,6 +141,7 @@ void clear_starts_a_new_session() {
 int main() {
     continuous_gesture_is_one_step();
     switching_parameters_splits_steps();
+    tone_curve_drag_is_one_atomic_recipe_step();
     a_new_edit_clears_redo();
     a_net_noop_gesture_preserves_redo();
     clear_starts_a_new_session();

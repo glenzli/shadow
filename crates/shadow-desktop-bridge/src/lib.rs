@@ -11,8 +11,9 @@ use anyhow::{Context, Result as AnyResult, anyhow, bail};
 use shadow_bridge::{
     ADJUSTMENT_IMPLEMENTATION_VERSION, ADJUSTMENT_PARAMETER_SCHEMA_VERSION, AdjustmentRenderNode,
     AdjustmentRenderOperation, AdjustmentRenderPlan, BasicEditParameters, LibRawEditPreviewSession,
-    MAX_ADJUSTMENT_RENDER_NODES, ToneCurvePoint, extract_best_libraw_preview, inspect_libraw,
-    libraw_provider_version, render_libraw_reference_proxy,
+    MAX_ADJUSTMENT_RENDER_NODES, MAX_TONE_CURVE_POINTS, ToneCurvePoint,
+    extract_best_libraw_preview, inspect_libraw, libraw_provider_version,
+    render_libraw_reference_proxy,
 };
 use shadow_catalog::{
     CachedArtifactRecord, CachedArtifactRole, CatalogActor, CatalogHandle, CommitRecipe,
@@ -102,11 +103,26 @@ mod ffi {
         saturation_factor: f64,
     }
 
+    /// One exact point in the versioned piecewise-linear Tone Curve contract.
+    #[derive(Debug, Clone, Copy)]
+    struct FfiToneCurvePoint {
+        x: f64,
+        y: f64,
+    }
+
+    /// Complete editable state for the first renderer-backed adjustment surface.
+    #[derive(Debug, Clone)]
+    struct FfiEditSettings {
+        basic: FfiBasicEditParameters,
+        has_tone_curve: bool,
+        tone_curve_points: Vec<FfiToneCurvePoint>,
+    }
+
     /// One immutable-base edit preview request crossing the desktop boundary.
     #[derive(Debug)]
     struct FfiEditPreviewRequest {
         base_commit_id: String,
-        parameters: FfiBasicEditParameters,
+        settings: FfiEditSettings,
         max_edge: u32,
         jpeg_quality: u8,
         use_working_recipe: bool,
@@ -132,12 +148,12 @@ mod ffi {
         nodes_removed: u32,
         nodes_modified: u32,
         node_parameter_blocks_changed: u32,
-        /// Stable localization keys for the exact basic controls that differ
+        /// Stable localization keys for the exact editable controls that differ
         /// from this commit's first parent.
         changed_basic_parameters: Vec<String>,
         changed_basic_parameter_count: u32,
         /// True when the structural diff contains changes not represented by
-        /// `changed_basic_parameters` (for example topology or masks).
+        /// `changed_basic_parameters` (for example unsupported topology or masks).
         has_other_changes: bool,
     }
 
@@ -149,7 +165,7 @@ mod ffi {
         has_working_version: bool,
         working_commit_id: String,
         recipe_id: String,
-        parameters: FfiBasicEditParameters,
+        settings: FfiEditSettings,
         versions: Vec<FfiEditVersion>,
     }
 
@@ -195,7 +211,7 @@ mod ffi {
             photo_id: &str,
             source_path: &str,
             base_commit_id: &str,
-            parameters: &FfiBasicEditParameters,
+            settings: &FfiEditSettings,
             version_name: &str,
         ) -> Result<FfiPhotoEditState>;
         fn checkout_basic_edit_version(
@@ -305,7 +321,7 @@ impl DesktopSession {
         request: &ffi::FfiEditPreviewRequest,
     ) -> AnyResult<ffi::FfiEditedPreview> {
         let (photo_id, source) = self.validated_photo_source(photo_id, source_path)?;
-        let edits = preview_basic_parameters(&request.parameters, request.use_working_recipe)?;
+        let edits = preview_edit_settings(&request.settings, request.use_working_recipe)?;
         // Sliders and their immutable base commit travel as one render
         // generation. Never resolve the movable working ref here: it may have
         // advanced while this worker was queued, which would create a hybrid
@@ -327,7 +343,7 @@ impl DesktopSession {
         let template = working_commit
             .as_ref()
             .map(|record| record.commit.snapshot());
-        let snapshot = basic_recipe_snapshot(edits, template)?;
+        let snapshot = edit_recipe_snapshot(&edits, template)?;
         let plan = compile_recipe_render_plan(&snapshot)?;
         let session = self.edit_preview_session(&source, request.max_edge)?;
         let proxy = session.render_plan(&plan, request.jpeg_quality)?;
@@ -392,14 +408,14 @@ impl DesktopSession {
         photo_id: &str,
         source_path: &str,
         base_commit_id: &str,
-        parameters: &ffi::FfiBasicEditParameters,
+        settings: &ffi::FfiEditSettings,
         version_name: &str,
     ) -> AnyResult<ffi::FfiPhotoEditState> {
         self.save_basic_edit_version_at(
             photo_id,
             source_path,
             base_commit_id,
-            parameters,
+            settings,
             version_name,
             current_time_ms()?,
         )
@@ -410,14 +426,14 @@ impl DesktopSession {
         photo_id: &str,
         source_path: &str,
         base_commit_id: &str,
-        parameters: &ffi::FfiBasicEditParameters,
+        settings: &ffi::FfiEditSettings,
         version_name: &str,
         created_at_ms: i64,
     ) -> AnyResult<ffi::FfiPhotoEditState> {
         let (photo_id, source) = self.validated_photo_source(photo_id, source_path)?;
         let version_name =
             VersionName::new(version_name).context("validate basic edit version name")?;
-        let parameters = basic_parameters(parameters)?;
+        let settings = edit_settings(settings)?;
         let base_commit_id = if base_commit_id.is_empty() {
             None
         } else {
@@ -434,8 +450,8 @@ impl DesktopSession {
                     .ok_or_else(|| anyhow!("save base Recipe commit {commit_id} is unavailable"))
             })
             .transpose()?;
-        let snapshot = basic_recipe_snapshot(
-            parameters,
+        let snapshot = edit_recipe_snapshot(
+            &settings,
             working_record
                 .as_ref()
                 .map(|record| record.commit.snapshot()),
@@ -498,7 +514,7 @@ impl DesktopSession {
             .with_context(|| format!("parse Recipe commit id {commit_id}"))?;
         let commits = self.catalog.recipe_commits(photo_id)?;
         let record = commit_record(&commits, commit_id)?;
-        basic_parameters_from_snapshot(record.commit.snapshot())?;
+        edit_settings_from_snapshot(record.commit.snapshot())?;
         self.catalog.set_recipe_ref(&SetRecipeRef {
             photo_id,
             name: WORKING_RECIPE_REF.to_owned(),
@@ -541,9 +557,9 @@ impl DesktopSession {
             .as_ref()
             .map(|reference| commit_record(&commits, reference.commit_id))
             .transpose()?;
-        let parameters = working_record.map_or_else(
-            || Ok(BasicEditParameters::default()),
-            |record| basic_parameters_from_snapshot(record.commit.snapshot()),
+        let settings = working_record.map_or_else(
+            || Ok(EditSettings::default()),
+            |record| edit_settings_from_snapshot(record.commit.snapshot()),
         )?;
         let working_id = working_record.map(|record| record.commit.id());
         let recipe_id = working_record.map(|record| record.commit.recipe_id());
@@ -557,7 +573,7 @@ impl DesktopSession {
             has_working_version: working_id.is_some(),
             working_commit_id: working_id.map_or_else(String::new, |id| id.to_string()),
             recipe_id: recipe_id.map_or_else(String::new, |id| id.to_string()),
-            parameters: ffi_basic_parameters(parameters),
+            settings: ffi_edit_settings(settings),
             versions,
         })
     }
@@ -575,6 +591,38 @@ const _: () = assert!(
         && CPU_REFERENCE_IMPLEMENTATION_REVISION == ADJUSTMENT_IMPLEMENTATION_VERSION
 );
 
+#[derive(Debug, Clone, PartialEq, Default)]
+struct EditSettings {
+    basic: BasicEditParameters,
+    tone_curve: Option<Vec<ToneCurvePoint>>,
+}
+
+fn edit_settings(settings: &ffi::FfiEditSettings) -> AnyResult<EditSettings> {
+    let basic = basic_parameters(&settings.basic)?;
+    let tone_curve = match (
+        settings.has_tone_curve,
+        settings.tone_curve_points.is_empty(),
+    ) {
+        (false, true) => None,
+        (false, false) => {
+            bail!("Tone Curve points must be empty when has_tone_curve is false")
+        }
+        (true, _) => Some(
+            settings
+                .tone_curve_points
+                .iter()
+                .map(|point| ToneCurvePoint {
+                    x: point.x,
+                    y: point.y,
+                })
+                .collect(),
+        ),
+    };
+    let settings = EditSettings { basic, tone_curve };
+    validate_edit_settings(&settings)?;
+    Ok(settings)
+}
+
 fn basic_parameters(parameters: &ffi::FfiBasicEditParameters) -> AnyResult<BasicEditParameters> {
     let parameters = BasicEditParameters {
         exposure_stops: parameters.exposure_stops,
@@ -590,19 +638,56 @@ fn basic_parameters(parameters: &ffi::FfiBasicEditParameters) -> AnyResult<Basic
     Ok(parameters)
 }
 
-fn preview_basic_parameters(
-    parameters: &ffi::FfiBasicEditParameters,
+fn preview_edit_settings(
+    settings: &ffi::FfiEditSettings,
     use_working_recipe: bool,
-) -> AnyResult<BasicEditParameters> {
+) -> AnyResult<EditSettings> {
     if use_working_recipe {
-        basic_parameters(parameters)
+        edit_settings(settings)
     } else {
         // Before is a product-level neutral import baseline, not merely a
-        // render that happens to omit the persisted working Recipe. Enforce
-        // that semantic at the backend boundary so callers cannot leak the
-        // current slider state into the comparison slot.
-        Ok(BasicEditParameters::default())
+        // render that happens to omit the persisted working Recipe. Both the
+        // current slider state and Tone Curve must be excluded.
+        Ok(EditSettings::default())
     }
+}
+
+fn validate_edit_settings(settings: &EditSettings) -> AnyResult<()> {
+    validate_basic_parameters(settings.basic)?;
+    if let Some(points) = settings.tone_curve.as_deref() {
+        validate_tone_curve(points)?;
+    }
+    Ok(())
+}
+
+#[allow(clippy::float_cmp)] // The persisted contract requires exact normalized x endpoints.
+fn validate_tone_curve(points: &[ToneCurvePoint]) -> AnyResult<()> {
+    if !(2..=MAX_TONE_CURVE_POINTS).contains(&points.len()) {
+        bail!("Tone Curve must contain 2 through 256 points");
+    }
+    if points
+        .iter()
+        .any(|point| !point.x.is_finite() || !point.y.is_finite())
+    {
+        bail!("Tone Curve points must contain only finite values");
+    }
+    if points.first().is_none_or(|point| point.x != 0.0)
+        || points.last().is_none_or(|point| point.x != 1.0)
+    {
+        bail!("Tone Curve x coordinates must start at zero and end at one");
+    }
+    for pair in points.windows(2) {
+        let [left, right] = pair else {
+            unreachable!("windows(2) always returns two points")
+        };
+        if right.x <= left.x {
+            bail!("Tone Curve x coordinates must be strictly increasing");
+        }
+        if !((right.y - left.y) / (right.x - left.x)).is_finite() {
+            bail!("Tone Curve segment slopes must be finite");
+        }
+    }
+    Ok(())
 }
 
 fn validate_basic_parameters(parameters: BasicEditParameters) -> AnyResult<()> {
@@ -635,6 +720,24 @@ fn ffi_basic_parameters(parameters: BasicEditParameters) -> ffi::FfiBasicEditPar
         green_channel_gain: parameters.channel_gains[1],
         blue_channel_gain: parameters.channel_gains[2],
         saturation_factor: parameters.saturation_factor,
+    }
+}
+
+fn ffi_edit_settings(settings: EditSettings) -> ffi::FfiEditSettings {
+    let has_tone_curve = settings.tone_curve.is_some();
+    let tone_curve_points = settings
+        .tone_curve
+        .unwrap_or_default()
+        .into_iter()
+        .map(|point| ffi::FfiToneCurvePoint {
+            x: point.x,
+            y: point.y,
+        })
+        .collect();
+    ffi::FfiEditSettings {
+        basic: ffi_basic_parameters(settings.basic),
+        has_tone_curve,
+        tone_curve_points,
     }
 }
 
@@ -814,17 +917,32 @@ fn require_stage(node: &AdjustmentNode, expected: ProcessingStage) -> AnyResult<
     }
 }
 
+#[cfg(test)]
 fn basic_recipe_snapshot(
     parameters: BasicEditParameters,
     template: Option<&RecipeSnapshot>,
 ) -> AnyResult<RecipeSnapshot> {
-    validate_basic_parameters(parameters)?;
-    let rgb = PortType::Image(ImageDomain::WorkingRgb);
-    let identity = template
-        .map(basic_recipe_identity)
+    let tone_curve = template
+        .map(edit_settings_from_snapshot)
         .transpose()?
-        .flatten()
-        .unwrap_or_else(BasicRecipeIdentity::new);
+        .and_then(|settings| settings.tone_curve);
+    edit_recipe_snapshot(
+        &EditSettings {
+            basic: parameters,
+            tone_curve,
+        },
+        template,
+    )
+}
+
+fn edit_recipe_snapshot(
+    settings: &EditSettings,
+    template: Option<&RecipeSnapshot>,
+) -> AnyResult<RecipeSnapshot> {
+    validate_edit_settings(settings)?;
+    let parameters = settings.basic;
+    let rgb = PortType::Image(ImageDomain::WorkingRgb);
+    let identity = resolved_basic_recipe_identity(template)?;
     let [exposure_id, contrast_id, channel_gain_id, saturation_id] = identity.node_ids;
     let mut nodes = vec![
         basic_node(
@@ -856,8 +974,11 @@ fn basic_recipe_snapshot(
             ])?,
         )?,
     ];
-    let channel_input = if let Some(tone_curve) = identity.tone_curve {
-        let tone_curve_id = tone_curve.node_id;
+    let channel_input = if let Some(points) = settings.tone_curve.as_deref() {
+        let tone_curve_id = identity
+            .tone_curve
+            .as_ref()
+            .map_or_else(NodeId::new_v7, |tone_curve| tone_curve.node_id);
         nodes.push(basic_node(
             tone_curve_id,
             TONE_CURVE_OPERATION_ID,
@@ -865,7 +986,7 @@ fn basic_recipe_snapshot(
             NodeInput::Node {
                 node_id: contrast_id,
             },
-            tone_curve.parameters,
+            tone_curve_parameter_block(points)?,
         )?);
         tone_curve_id
     } else {
@@ -927,7 +1048,6 @@ struct BasicRecipeIdentity {
 #[derive(Debug, Clone, PartialEq)]
 struct BasicToneCurveIdentity {
     node_id: NodeId,
-    parameters: ParameterBlock,
 }
 
 impl BasicRecipeIdentity {
@@ -938,6 +1058,16 @@ impl BasicRecipeIdentity {
             tone_curve: None,
         }
     }
+}
+
+fn resolved_basic_recipe_identity(
+    template: Option<&RecipeSnapshot>,
+) -> AnyResult<BasicRecipeIdentity> {
+    Ok(template
+        .map(basic_recipe_identity)
+        .transpose()?
+        .flatten()
+        .unwrap_or_else(BasicRecipeIdentity::new))
 }
 
 fn basic_recipe_identity(snapshot: &RecipeSnapshot) -> AnyResult<Option<BasicRecipeIdentity>> {
@@ -954,10 +1084,9 @@ fn basic_recipe_identity(snapshot: &RecipeSnapshot) -> AnyResult<Option<BasicRec
             nodes.channel_gain.id(),
             nodes.saturation.id(),
         ],
-        tone_curve: nodes.tone_curve.map(|node| BasicToneCurveIdentity {
-            node_id: node.id(),
-            parameters: node.parameters().clone(),
-        }),
+        tone_curve: nodes
+            .tone_curve
+            .map(|node| BasicToneCurveIdentity { node_id: node.id() }),
     }))
 }
 
@@ -989,6 +1118,20 @@ fn parameter_block<const N: usize>(
         .map(|(key, value)| Ok((ParameterKey::new(key)?, value)))
         .collect::<AnyResult<BTreeMap<_, _>>>()?;
     Ok(ParameterBlock::new(values))
+}
+
+fn tone_curve_parameter_block(points: &[ToneCurvePoint]) -> AnyResult<ParameterBlock> {
+    validate_tone_curve(points)?;
+    parameter_block([(
+        TONE_CURVE_POINTS_PARAMETER_KEY,
+        ParameterValue::FloatVector(
+            points
+                .iter()
+                .flat_map(|point| [point.x, point.y])
+                .map(FiniteF64::new)
+                .collect::<Result<Vec<_>, _>>()?,
+        ),
+    )])
 }
 
 struct BasicRecipeNodes<'a> {
@@ -1105,6 +1248,39 @@ fn basic_parameters_from_snapshot(snapshot: &RecipeSnapshot) -> AnyResult<BasicE
     };
     validate_basic_parameters(parameters)?;
     Ok(parameters)
+}
+
+fn edit_settings_from_snapshot(snapshot: &RecipeSnapshot) -> AnyResult<EditSettings> {
+    if snapshot.layers().is_empty() {
+        return Ok(EditSettings::default());
+    }
+    let basic = basic_parameters_from_snapshot(snapshot)?;
+    let nodes = basic_recipe_nodes(snapshot)?;
+    let tone_curve = nodes
+        .tone_curve
+        .map(|node| tone_curve_points_from_parameters(node.parameters()))
+        .transpose()?;
+    let settings = EditSettings { basic, tone_curve };
+    validate_edit_settings(&settings)?;
+    Ok(settings)
+}
+
+fn tone_curve_points_from_parameters(
+    parameters: &ParameterBlock,
+) -> AnyResult<Vec<ToneCurvePoint>> {
+    let flattened = required_float_vector(parameters, TONE_CURVE_POINTS_PARAMETER_KEY, 1)?;
+    if flattened.len() % 2 != 0 {
+        bail!("Recipe Tone Curve points must contain flattened x/y pairs");
+    }
+    let points = flattened
+        .chunks_exact(2)
+        .map(|point| ToneCurvePoint {
+            x: point[0],
+            y: point[1],
+        })
+        .collect::<Vec<_>>();
+    validate_tone_curve(&points)?;
+    Ok(points)
 }
 
 fn validate_basic_node(
@@ -1291,21 +1467,21 @@ fn edit_version_diff(
 
     let structural = diff_recipe_snapshots(parent.commit.snapshot(), record.commit.snapshot());
     let summary = structural.summary();
-    let before = basic_parameters_from_snapshot(parent.commit.snapshot()).map_err(|source| {
+    let before = edit_settings_from_snapshot(parent.commit.snapshot()).map_err(|source| {
         EditVersionDiffError::UnsupportedBasicSnapshot {
             commit_id: parent_id,
             role: "parent",
             source,
         }
     })?;
-    let after = basic_parameters_from_snapshot(record.commit.snapshot()).map_err(|source| {
+    let after = edit_settings_from_snapshot(record.commit.snapshot()).map_err(|source| {
         EditVersionDiffError::UnsupportedBasicSnapshot {
             commit_id: record.commit.id(),
             role: "current",
             source,
         }
     })?;
-    let changed_basic_parameters = changed_basic_parameters(before, after);
+    let changed_basic_parameters = changed_edit_parameters(&before, &after);
 
     Ok(EditVersionDiff {
         is_root: false,
@@ -1346,7 +1522,11 @@ fn edit_version_diff(
             "node_parameter_blocks_changed",
             summary.node_parameters_changed,
         )?,
-        has_other_changes: has_other_recipe_changes(&structural, record.commit.snapshot()),
+        has_other_changes: has_other_recipe_changes(
+            &structural,
+            parent.commit.snapshot(),
+            record.commit.snapshot(),
+        ),
         changed_basic_parameters,
     })
 }
@@ -1405,6 +1585,14 @@ fn changed_basic_parameters(
     changed
 }
 
+fn changed_edit_parameters(before: &EditSettings, after: &EditSettings) -> Vec<String> {
+    let mut changed = changed_basic_parameters(before.basic, after.basic);
+    if before.tone_curve != after.tone_curve {
+        changed.push("tone_curve".to_owned());
+    }
+    changed
+}
+
 const fn persisted_float_changed(before: f64, after: f64) -> bool {
     before.to_bits() != after.to_bits()
 }
@@ -1413,13 +1601,21 @@ const fn persisted_float_changed(before: f64, after: f64) -> bool {
 /// more modified nodes in the generic summary. Inspect the exact diff so the
 /// UI can distinguish those container changes from topology/mask/contract
 /// changes that its localized basic-control labels do not describe.
-fn has_other_recipe_changes(diff: &RecipeDiff, after: &RecipeSnapshot) -> bool {
+fn has_other_recipe_changes(
+    diff: &RecipeDiff,
+    before: &RecipeSnapshot,
+    after: &RecipeSnapshot,
+) -> bool {
     if diff.schema_version().is_some()
         || !diff.added_layers().is_empty()
         || !diff.removed_layers().is_empty()
         || !diff.moved_layers().is_empty()
     {
         return true;
+    }
+
+    if canonical_edit_identity_is_preserved(before, after) {
+        return false;
     }
 
     diff.modified_layers().iter().any(|layer| {
@@ -1447,6 +1643,21 @@ fn has_other_recipe_changes(diff: &RecipeDiff, after: &RecipeSnapshot) -> bool {
     })
 }
 
+fn canonical_edit_identity_is_preserved(before: &RecipeSnapshot, after: &RecipeSnapshot) -> bool {
+    let (Ok(before), Ok(after)) = (basic_recipe_nodes(before), basic_recipe_nodes(after)) else {
+        return false;
+    };
+    before.layer.id() == after.layer.id()
+        && before.exposure.id() == after.exposure.id()
+        && before.contrast.id() == after.contrast.id()
+        && before.channel_gain.id() == after.channel_gain.id()
+        && before.saturation.id() == after.saturation.id()
+        && match (before.tone_curve, after.tone_curve) {
+            (Some(before), Some(after)) => before.id() == after.id(),
+            _ => true,
+        }
+}
+
 fn node_parameter_change_has_basic_label(snapshot: &RecipeSnapshot, node_id: NodeId) -> bool {
     snapshot.layers().iter().any(|layer| {
         let LayerContent::Inline { graph } = layer.content() else {
@@ -1458,6 +1669,7 @@ fn node_parameter_change_has_basic_label(snapshot: &RecipeSnapshot, node_id: Nod
                     node.operation().operation_id().as_str(),
                     EXPOSURE_OPERATION_ID
                         | CONTRAST_OPERATION_ID
+                        | TONE_CURVE_OPERATION_ID
                         | CHANNEL_GAIN_OPERATION_ID
                         | SATURATION_OPERATION_ID
                 )
@@ -1725,17 +1937,69 @@ mod tests {
     }
 
     #[test]
+    fn ffi_tone_curve_round_trip_preserves_every_control_point() {
+        let incoming = ffi_settings_with_tone(
+            0.4,
+            1.2,
+            [1.05, 1.0, 0.95],
+            0.9,
+            &[[0.0, -0.1], [0.2, 0.08], [0.7, 0.82], [1.0, 1.2]],
+        );
+        let settings = edit_settings(&incoming).expect("validate FFI edit settings");
+        let snapshot = edit_recipe_snapshot(&settings, None).expect("build five-node Recipe");
+        let decoded = edit_settings_from_snapshot(&snapshot).expect("decode full edit settings");
+        let outgoing = ffi_edit_settings(decoded.clone());
+
+        assert_eq!(decoded, settings);
+        assert!(outgoing.has_tone_curve);
+        assert_eq!(ffi_curve_pairs(&outgoing), ffi_curve_pairs(&incoming));
+    }
+
+    #[test]
     fn neutral_before_ignores_transient_slider_parameters() {
-        let non_neutral = ffi_parameters(2.0, 1.7, [1.4, 0.8, 1.2], 0.6);
+        let non_neutral = ffi_settings_with_tone(
+            2.0,
+            1.7,
+            [1.4, 0.8, 1.2],
+            0.6,
+            &[[0.0, 0.1], [0.5, 0.8], [1.0, 1.1]],
+        );
 
         assert_eq!(
-            preview_basic_parameters(&non_neutral, false).expect("select neutral Before"),
-            BasicEditParameters::default()
+            preview_edit_settings(&non_neutral, false).expect("select neutral Before"),
+            EditSettings::default()
         );
         assert_ne!(
-            preview_basic_parameters(&non_neutral, true).expect("select current parameters"),
-            BasicEditParameters::default()
+            preview_edit_settings(&non_neutral, true).expect("select current parameters"),
+            EditSettings::default()
         );
+    }
+
+    #[test]
+    fn tone_curve_ffi_validation_rejects_invalid_geometry_without_repair() {
+        assert_invalid_curve(&[[0.0, 0.0]], "2 through 256");
+        assert_invalid_curve(&[[0.1, 0.0], [1.0, 1.0]], "start at zero");
+        assert_invalid_curve(
+            &[[0.0, 0.0], [0.5, 0.4], [0.5, 0.7], [1.0, 1.0]],
+            "strictly increasing",
+        );
+        assert_invalid_curve(&[[0.0, 0.0], [1.0, f64::NAN]], "finite values");
+        let maximum = u32::try_from(MAX_TONE_CURVE_POINTS).expect("Tone Curve bound fits u32");
+        let too_many = (0..=maximum)
+            .map(|index| {
+                let value = f64::from(index) / f64::from(maximum);
+                [value, value]
+            })
+            .collect::<Vec<_>>();
+        assert_invalid_curve(&too_many, "2 through 256");
+
+        let mut inconsistent = ffi_parameters(0.0, 1.0, [1.0; 3], 1.0);
+        inconsistent.tone_curve_points = vec![
+            ffi::FfiToneCurvePoint { x: 0.0, y: 0.0 },
+            ffi::FfiToneCurvePoint { x: 1.0, y: 1.0 },
+        ];
+        let error = edit_settings(&inconsistent).expect_err("presence flag mismatch must fail");
+        assert!(error.to_string().contains("has_tone_curve is false"));
     }
 
     #[test]
@@ -1814,6 +2078,73 @@ mod tests {
     }
 
     #[test]
+    fn edit_settings_preview_plan_contains_the_exact_tone_curve() {
+        let incoming = ffi_settings_with_tone(
+            0.25,
+            1.1,
+            [1.0; 3],
+            1.0,
+            &[[0.0, 0.0], [0.4, 0.25], [0.8, 0.9], [1.0, 1.0]],
+        );
+        let settings = edit_settings(&incoming).expect("validate preview settings");
+        let snapshot = edit_recipe_snapshot(&settings, None).expect("build preview Recipe");
+        let plan = compile_recipe_render_plan(&snapshot).expect("compile preview plan");
+
+        assert_eq!(plan.nodes.len(), 5);
+        assert!(matches!(
+            &plan.nodes[2].operation,
+            AdjustmentRenderOperation::ToneCurve { points }
+                if points == settings.tone_curve.as_ref().expect("Tone Curve")
+        ));
+    }
+
+    #[test]
+    fn editing_and_resetting_tone_curve_preserves_canonical_node_identity() {
+        let original_settings = edit_settings(&ffi_settings_with_tone(
+            0.0,
+            1.0,
+            [1.0; 3],
+            1.0,
+            &[[0.0, 0.0], [0.5, 0.7], [1.0, 1.0]],
+        ))
+        .expect("original settings");
+        let original = edit_recipe_snapshot(&original_settings, None).expect("original Recipe");
+        let original_nodes = basic_recipe_nodes(&original).expect("original nodes");
+        let tone_id = original_nodes.tone_curve.expect("Tone Curve").id();
+
+        let edited_settings = edit_settings(&ffi_settings_with_tone(
+            0.0,
+            1.0,
+            [1.0; 3],
+            1.0,
+            &[[0.0, 0.03], [0.5, 0.62], [1.0, 1.0]],
+        ))
+        .expect("edited settings");
+        let edited = edit_recipe_snapshot(&edited_settings, Some(&original)).expect("edit curve");
+        let edited_nodes = basic_recipe_nodes(&edited).expect("edited nodes");
+        assert_eq!(edited_nodes.tone_curve.expect("Tone Curve").id(), tone_id);
+
+        let reset = edit_recipe_snapshot(
+            &EditSettings {
+                basic: edited_settings.basic,
+                tone_curve: None,
+            },
+            Some(&edited),
+        )
+        .expect("reset curve");
+        let reset_nodes = basic_recipe_nodes(&reset).expect("reset nodes");
+        assert!(reset_nodes.tone_curve.is_none());
+        assert_eq!(compile_recipe_render_plan(&reset).unwrap().nodes.len(), 4);
+        assert_eq!(reset_nodes.exposure.id(), original_nodes.exposure.id());
+        assert_eq!(reset_nodes.contrast.id(), original_nodes.contrast.id());
+        assert_eq!(
+            reset_nodes.channel_gain.id(),
+            original_nodes.channel_gain.id()
+        );
+        assert_eq!(reset_nodes.saturation.id(), original_nodes.saturation.id());
+    }
+
+    #[test]
     fn slider_edits_preserve_an_existing_tone_curve_node() {
         let points = [[0.0, 0.05], [0.5, 0.65], [1.0, 1.0]];
         let original = basic_recipe_with_tone(BasicEditParameters::default(), &points, false);
@@ -1885,7 +2216,13 @@ mod tests {
                 &photo_id,
                 &source_path,
                 &root_commit_id.to_string(),
-                &ffi_parameters(0.6, 1.15, [1.04, 1.0, 0.96], 1.1),
+                &ffi_settings_with_tone(
+                    0.6,
+                    1.15,
+                    [1.04, 1.0, 0.96],
+                    1.1,
+                    &[[0.0, 0.02], [0.5, 0.68], [1.0, 1.0]],
+                ),
                 "Curve plus sliders",
                 2_000,
             )
@@ -2035,7 +2372,7 @@ mod tests {
     }
 
     #[test]
-    fn tone_curve_parameter_diff_is_reported_as_other_version_change() {
+    fn tone_curve_parameter_diff_has_a_stable_version_change_key() {
         let before = basic_recipe_with_tone(
             BasicEditParameters::default(),
             &[[0.0, 0.0], [0.5, 0.6], [1.0, 1.0]],
@@ -2047,14 +2384,39 @@ mod tests {
 
         assert_eq!(diff.summary().nodes_modified, 1);
         assert_eq!(diff.summary().node_parameters_changed, 1);
-        assert!(
-            changed_basic_parameters(
-                basic_parameters_from_snapshot(&before).unwrap(),
-                basic_parameters_from_snapshot(&after).unwrap(),
-            )
-            .is_empty()
+        assert_eq!(
+            changed_edit_parameters(
+                &edit_settings_from_snapshot(&before).unwrap(),
+                &edit_settings_from_snapshot(&after).unwrap(),
+            ),
+            ["tone_curve"]
         );
-        assert!(has_other_recipe_changes(&diff, &after));
+        assert!(!has_other_recipe_changes(&diff, &before, &after));
+    }
+
+    #[test]
+    fn tone_curve_add_and_reset_share_the_stable_version_change_key() {
+        let neutral = edit_recipe_snapshot(&EditSettings::default(), None).expect("neutral Recipe");
+        let curved_settings = edit_settings(&ffi_settings_with_tone(
+            0.0,
+            1.0,
+            [1.0; 3],
+            1.0,
+            &[[0.0, 0.0], [0.5, 0.7], [1.0, 1.0]],
+        ))
+        .expect("curve settings");
+        let curved = edit_recipe_snapshot(&curved_settings, Some(&neutral)).expect("add curve");
+        let reset = edit_recipe_snapshot(&EditSettings::default(), Some(&curved)).expect("reset");
+
+        for (before, after) in [(&neutral, &curved), (&curved, &reset)] {
+            let changed = changed_edit_parameters(
+                &edit_settings_from_snapshot(before).unwrap(),
+                &edit_settings_from_snapshot(after).unwrap(),
+            );
+            let diff = diff_recipe_snapshots(before, after);
+            assert_eq!(changed, ["tone_curve"]);
+            assert!(!has_other_recipe_changes(&diff, before, after));
+        }
     }
 
     #[test]
@@ -2066,12 +2428,14 @@ mod tests {
         assert!(!neutral.has_working_version);
         assert!(neutral.working_commit_id.is_empty());
         assert!(neutral.recipe_id.is_empty());
-        assert_close(neutral.parameters.exposure_stops, 0.0);
-        assert_close(neutral.parameters.contrast_factor, 1.0);
-        assert_close(neutral.parameters.red_channel_gain, 1.0);
-        assert_close(neutral.parameters.green_channel_gain, 1.0);
-        assert_close(neutral.parameters.blue_channel_gain, 1.0);
-        assert_close(neutral.parameters.saturation_factor, 1.0);
+        assert_close(neutral.settings.basic.exposure_stops, 0.0);
+        assert_close(neutral.settings.basic.contrast_factor, 1.0);
+        assert_close(neutral.settings.basic.red_channel_gain, 1.0);
+        assert_close(neutral.settings.basic.green_channel_gain, 1.0);
+        assert_close(neutral.settings.basic.blue_channel_gain, 1.0);
+        assert_close(neutral.settings.basic.saturation_factor, 1.0);
+        assert!(!neutral.settings.has_tone_curve);
+        assert!(neutral.settings.tone_curve_points.is_empty());
         assert!(neutral.versions.is_empty());
 
         let first_parameters = ffi_parameters(0.5, 1.1, [1.0, 0.9, 1.2], 0.8);
@@ -2388,12 +2752,12 @@ mod tests {
 
         assert_eq!(checked_out.working_commit_id, first_id);
         assert_eq!(checked_out.versions.len(), 2);
-        assert_close(checked_out.parameters.exposure_stops, 1.0);
-        assert_close(checked_out.parameters.contrast_factor, 0.9);
-        assert_close(checked_out.parameters.red_channel_gain, 1.2);
-        assert_close(checked_out.parameters.green_channel_gain, 1.0);
-        assert_close(checked_out.parameters.blue_channel_gain, 0.7);
-        assert_close(checked_out.parameters.saturation_factor, 0.6);
+        assert_close(checked_out.settings.basic.exposure_stops, 1.0);
+        assert_close(checked_out.settings.basic.contrast_factor, 0.9);
+        assert_close(checked_out.settings.basic.red_channel_gain, 1.2);
+        assert_close(checked_out.settings.basic.green_channel_gain, 1.0);
+        assert_close(checked_out.settings.basic.blue_channel_gain, 0.7);
+        assert_close(checked_out.settings.basic.saturation_factor, 0.6);
         assert_eq!(
             checked_out
                 .versions
@@ -2404,6 +2768,60 @@ mod tests {
         );
 
         drop(session);
+        std::fs::remove_dir_all(root).expect("remove edit fixture");
+    }
+
+    #[test]
+    fn save_reopen_and_checkout_restore_the_complete_tone_curve() {
+        let (root, session, photo_id, source_path) = test_edit_session();
+        let first_points = [[0.0, 0.02], [0.35, 0.2], [0.7, 0.86], [1.0, 1.0]];
+        let second_points = [[0.0, -0.04], [0.35, 0.3], [0.7, 0.74], [1.0, 1.08]];
+        let first = session
+            .save_basic_edit_version_at(
+                &photo_id,
+                &source_path,
+                "",
+                &ffi_settings_with_tone(0.2, 1.1, [1.0; 3], 0.95, &first_points),
+                "First curve",
+                1_000,
+            )
+            .expect("save first curve");
+        let first_id = first.working_commit_id;
+        let second = session
+            .save_basic_edit_version_at(
+                &photo_id,
+                &source_path,
+                &first_id,
+                &ffi_settings_with_tone(0.2, 1.1, [1.0; 3], 0.95, &second_points),
+                "Second curve",
+                2_000,
+            )
+            .expect("save second curve");
+        let current_version = second
+            .versions
+            .iter()
+            .find(|version| version.is_working)
+            .expect("working curve version");
+        assert_eq!(current_version.changed_basic_parameters, ["tone_curve"]);
+        assert!(!current_version.has_other_changes);
+
+        drop(session);
+        let reopened = open_desktop_session(
+            root.join("catalog.sqlite").to_str().expect("catalog path"),
+            root.join("cache").to_str().expect("cache path"),
+        )
+        .expect("reopen desktop session");
+        let reopened_state = reopened
+            .photo_edit_state(&photo_id, &source_path)
+            .expect("read reopened curve");
+        assert_eq!(ffi_curve_pairs(&reopened_state.settings), second_points);
+        let checked_out = reopened
+            .checkout_basic_edit_version_at(&photo_id, &source_path, &first_id, 3_000)
+            .expect("check out first curve");
+        assert_eq!(ffi_curve_pairs(&checked_out.settings), first_points);
+        assert_eq!(checked_out.versions.len(), 2);
+
+        drop(reopened);
         std::fs::remove_dir_all(root).expect("remove edit fixture");
     }
 
@@ -2425,25 +2843,67 @@ mod tests {
         contrast_factor: f64,
         channel_gains: [f64; 3],
         saturation_factor: f64,
-    ) -> ffi::FfiBasicEditParameters {
-        ffi::FfiBasicEditParameters {
+    ) -> ffi::FfiEditSettings {
+        ffi::FfiEditSettings {
+            basic: ffi::FfiBasicEditParameters {
+                exposure_stops,
+                contrast_factor,
+                red_channel_gain: channel_gains[0],
+                green_channel_gain: channel_gains[1],
+                blue_channel_gain: channel_gains[2],
+                saturation_factor,
+            },
+            has_tone_curve: false,
+            tone_curve_points: Vec::new(),
+        }
+    }
+
+    fn ffi_settings_with_tone(
+        exposure_stops: f64,
+        contrast_factor: f64,
+        channel_gains: [f64; 3],
+        saturation_factor: f64,
+        points: &[[f64; 2]],
+    ) -> ffi::FfiEditSettings {
+        let mut settings = ffi_parameters(
             exposure_stops,
             contrast_factor,
-            red_channel_gain: channel_gains[0],
-            green_channel_gain: channel_gains[1],
-            blue_channel_gain: channel_gains[2],
+            channel_gains,
             saturation_factor,
-        }
+        );
+        settings.has_tone_curve = true;
+        settings.tone_curve_points = points
+            .iter()
+            .map(|[x, y]| ffi::FfiToneCurvePoint { x: *x, y: *y })
+            .collect();
+        settings
+    }
+
+    fn ffi_curve_pairs(settings: &ffi::FfiEditSettings) -> Vec<[f64; 2]> {
+        settings
+            .tone_curve_points
+            .iter()
+            .map(|point| [point.x, point.y])
+            .collect()
+    }
+
+    fn assert_invalid_curve(points: &[[f64; 2]], expected_message: &str) {
+        let settings = ffi_settings_with_tone(0.0, 1.0, [1.0; 3], 1.0, points);
+        let error = edit_settings(&settings).expect_err("invalid Tone Curve must fail closed");
+        assert!(
+            error.to_string().contains(expected_message),
+            "unexpected error: {error}"
+        );
     }
 
     fn preview_request(
         base_commit_id: &str,
-        parameters: ffi::FfiBasicEditParameters,
+        settings: ffi::FfiEditSettings,
         use_working_recipe: bool,
     ) -> ffi::FfiEditPreviewRequest {
         ffi::FfiEditPreviewRequest {
             base_commit_id: base_commit_id.to_owned(),
-            parameters,
+            settings,
             max_edge: 1_024,
             jpeg_quality: 86,
             use_working_recipe,
@@ -2804,39 +3264,49 @@ mod tests {
     fn assert_persisted_tone_recipe_and_neutral_before(
         session: &DesktopSession,
         item: &ffi::FfiReviewItem,
-        edits: &ffi::FfiBasicEditParameters,
+        edits: &ffi::FfiEditSettings,
     ) {
         let photo_id: PhotoId = item.photo_id.parse().expect("photo id");
         let recipe_id = RecipeId::new_v7();
         let first_tone_id = persist_test_tone_recipe(session, photo_id, recipe_id, None, 0.72);
+        let mut first_settings = session
+            .photo_edit_state(&item.photo_id, &item.source_path)
+            .expect("read first Tone Curve settings")
+            .settings;
+        first_settings.basic = edits.basic;
         let tone_current = session
             .render_basic_edit_preview(
                 &item.photo_id,
                 &item.source_path,
-                &preview_request(&first_tone_id.to_string(), *edits, true),
+                &preview_request(&first_tone_id.to_string(), first_settings.clone(), true),
             )
             .expect("render persisted Tone Curve Recipe");
         let neutral_before_first = session
             .render_basic_edit_preview(
                 &item.photo_id,
                 &item.source_path,
-                &preview_request("", *edits, false),
+                &preview_request("", first_settings.clone(), false),
             )
             .expect("render neutral Before independently of working Recipe");
         let second_tone_id =
             persist_test_tone_recipe(session, photo_id, recipe_id, Some(first_tone_id), 0.28);
+        let mut second_settings = session
+            .photo_edit_state(&item.photo_id, &item.source_path)
+            .expect("read second Tone Curve settings")
+            .settings;
+        second_settings.basic = edits.basic;
         let old_base_after_ref_move = session
             .render_basic_edit_preview(
                 &item.photo_id,
                 &item.source_path,
-                &preview_request(&first_tone_id.to_string(), *edits, true),
+                &preview_request(&first_tone_id.to_string(), first_settings, true),
             )
             .expect("render exact old base after working ref moves");
         let new_base_after_ref_move = session
             .render_basic_edit_preview(
                 &item.photo_id,
                 &item.source_path,
-                &preview_request(&second_tone_id.to_string(), *edits, true),
+                &preview_request(&second_tone_id.to_string(), second_settings, true),
             )
             .expect("render new working base explicitly");
         let neutral_before_second = session

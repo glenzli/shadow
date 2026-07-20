@@ -46,18 +46,29 @@ void every_basic_key_has_a_stable_label() {
     version.changed_basic_parameters = {
         QStringLiteral("exposure_stops"),
         QStringLiteral("contrast_factor"),
+        QStringLiteral("tone_curve"),
         QStringLiteral("red_channel_gain"),
         QStringLiteral("green_channel_gain"),
         QStringLiteral("blue_channel_gain"),
         QStringLiteral("saturation_factor"),
     };
-    version.changed_basic_parameter_count = 6;
+    version.changed_basic_parameter_count = 7;
     require(
         EditVersionPresentation::changeSummary(version)
             == QStringLiteral(
-                "Exposure · Contrast · Red gain · Green gain · Blue gain · Saturation"
+                "Exposure · Contrast · Tone Curve · Red gain · Green gain · Blue gain · Saturation"
             ),
-        "every renderer-backed basic parameter needs a stable display label"
+        "every renderer-backed edit parameter needs a stable display label"
+    );
+}
+
+void tone_curve_has_a_stable_version_label() {
+    BackendEditVersion version;
+    version.changed_basic_parameters = {QStringLiteral("tone_curve")};
+    version.changed_basic_parameter_count = 1;
+    require(
+        EditVersionPresentation::changeSummary(version) == QStringLiteral("Tone Curve"),
+        "curve edits must not collapse into an opaque structural change"
     );
 }
 
@@ -162,6 +173,7 @@ int main() {
     root_has_a_semantic_summary();
     basic_keys_are_localizable_labels();
     every_basic_key_has_a_stable_label();
+    tone_curve_has_a_stable_version_label();
     unknown_keys_are_never_exposed_or_dropped();
     structural_and_basic_changes_compose();
     an_unrepresented_reported_change_is_not_lost();

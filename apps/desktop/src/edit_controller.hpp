@@ -5,6 +5,7 @@
 #include "edit_preview_contract.hpp"
 #include "edit_preview_provider.hpp"
 #include "edit_version_model.hpp"
+#include "tone_curve_point_model.hpp"
 
 #include <QAbstractItemModel>
 #include <QFutureWatcher>
@@ -75,6 +76,9 @@ class EditController final : public QObject {
         WRITE setSaturationFactor
         NOTIFY parametersChanged
     )
+    Q_PROPERTY(QAbstractItemModel* toneCurvePoints READ toneCurvePoints CONSTANT)
+    Q_PROPERTY(bool hasToneCurve READ hasToneCurve NOTIFY toneCurveChanged)
+    Q_PROPERTY(bool toneCurveEditable READ toneCurveEditable NOTIFY toneCurveChanged)
     Q_PROPERTY(QAbstractItemModel* versions READ versions CONSTANT)
 
 public:
@@ -105,6 +109,9 @@ public:
     [[nodiscard]] double greenGain() const noexcept;
     [[nodiscard]] double blueGain() const noexcept;
     [[nodiscard]] double saturationFactor() const noexcept;
+    [[nodiscard]] QAbstractItemModel* toneCurvePoints() noexcept;
+    [[nodiscard]] bool hasToneCurve() const noexcept;
+    [[nodiscard]] bool toneCurveEditable() const noexcept;
     [[nodiscard]] QAbstractItemModel* versions() noexcept;
 
     void setExposureStops(double value);
@@ -123,6 +130,12 @@ public:
     Q_INVOKABLE void closePhoto();
     Q_INVOKABLE void beginParameterEdit(const QString& parameter_key);
     Q_INVOKABLE void endParameterEdit(const QString& parameter_key);
+    Q_INVOKABLE void beginToneCurveGesture(int index);
+    Q_INVOKABLE void moveToneCurvePoint(int index, double x, double y);
+    Q_INVOKABLE void endToneCurveGesture(int index);
+    Q_INVOKABLE void addToneCurvePoint(double x, double y);
+    Q_INVOKABLE void removeToneCurvePoint(int index);
+    Q_INVOKABLE void resetToneCurve();
     Q_INVOKABLE void undo();
     Q_INVOKABLE void redo();
     Q_INVOKABLE void resetEdits();
@@ -146,6 +159,7 @@ signals:
     void beforeErrorTextChanged();
     void statusTextChanged();
     void parametersChanged();
+    void toneCurveChanged();
 
 private slots:
     void finishStateTask();
@@ -154,11 +168,11 @@ private slots:
 
 private:
     void applyState(BackendPhotoEditState state);
-    void setParameters(BackendBasicEditParameters parameters);
+    void setSettings(BackendEditSettings settings);
     void clearSessionHistory();
     void recordWorkingTransition(
         const QString& key,
-        const BackendBasicEditParameters& before
+        const BackendEditSettings& before
     );
     void schedulePreview(int delay_ms);
     void maybeStartBeforePreview();
@@ -169,7 +183,12 @@ private:
     void emitBusyChange(bool previous_busy);
     void parameterEdited(
         const QString& key,
-        const BackendBasicEditParameters& before
+        const BackendEditSettings& before
+    );
+    void toneCurveEdited(
+        const QString& key,
+        const BackendEditSettings& before,
+        int preview_delay_ms
     );
     [[nodiscard]] bool acceptParameter(
         double value,
@@ -181,12 +200,13 @@ private:
     std::shared_ptr<DesktopBackend> backend_;
     std::shared_ptr<EditPreviewStore> preview_store_;
     EditVersionModel versions_;
+    ToneCurvePointModel tone_curve_points_;
     QFutureWatcher<EditStateTaskResult> state_watcher_;
     QFutureWatcher<EditPreviewTaskResult> preview_watcher_;
     QTimer preview_debounce_;
-    SessionEditHistory<BackendBasicEditParameters> history_;
-    BackendBasicEditParameters parameters_;
-    BackendBasicEditParameters committed_parameters_;
+    SessionEditHistory<BackendEditSettings> history_;
+    BackendEditSettings settings_;
+    BackendEditSettings committed_settings_;
     QString working_commit_id_;
     QString photo_id_;
     QString representation_id_;

@@ -65,6 +65,36 @@ namespace {
     };
 }
 
+[[nodiscard]] shadow::desktop::FfiEditSettings ffi_settings(
+    const BackendEditSettings& source
+) {
+    shadow::desktop::FfiEditSettings settings;
+    settings.basic = ffi_parameters(source.basic);
+    settings.has_tone_curve = source.has_tone_curve;
+    settings.tone_curve_points.reserve(
+        static_cast<std::size_t>(source.tone_curve_points.size())
+    );
+    for (const auto& point : source.tone_curve_points) {
+        settings.tone_curve_points.push_back({.x = point.x, .y = point.y});
+    }
+    return settings;
+}
+
+[[nodiscard]] BackendEditSettings edit_settings(
+    const shadow::desktop::FfiEditSettings& source
+) {
+    BackendEditSettings settings;
+    settings.basic = edit_parameters(source.basic);
+    settings.has_tone_curve = source.has_tone_curve;
+    settings.tone_curve_points.reserve(
+        checked_qt_vector_size(source.tone_curve_points.size(), "tone_curve_points")
+    );
+    for (const auto& point : source.tone_curve_points) {
+        settings.tone_curve_points.push_back({.x = point.x, .y = point.y});
+    }
+    return settings;
+}
+
 [[nodiscard]] BackendPhotoEditState edit_state(
     const shadow::desktop::FfiPhotoEditState& source
 ) {
@@ -73,7 +103,7 @@ namespace {
     state.source_path = qstring(source.source_path);
     state.working_commit_id = qstring(source.working_commit_id);
     state.recipe_id = qstring(source.recipe_id);
-    state.parameters = edit_parameters(source.parameters);
+    state.settings = edit_settings(source.settings);
     state.has_working_version = source.has_working_version;
     state.versions.reserve(checked_qt_vector_size(source.versions.size(), "versions"));
     for (const auto& version : source.versions) {
@@ -210,18 +240,18 @@ BackendPhotoEditState DesktopBackend::photoEditState(
     ));
 }
 
-BackendEditedPreview DesktopBackend::renderBasicEditPreview(
+BackendEditedPreview DesktopBackend::renderEditPreview(
     const QString& photo_id,
     const QString& source_path,
     const QString& base_commit_id,
-    const BackendBasicEditParameters& parameters,
+    const BackendEditSettings& settings,
     const std::uint32_t max_edge,
     const std::uint8_t jpeg_quality,
     const bool use_working_recipe
 ) const {
     shadow::desktop::FfiEditPreviewRequest request;
     request.base_commit_id = base_commit_id.toStdString();
-    request.parameters = ffi_parameters(parameters);
+    request.settings = ffi_settings(settings);
     request.max_edge = max_edge;
     request.jpeg_quality = jpeg_quality;
     request.use_working_recipe = use_working_recipe;
@@ -237,14 +267,14 @@ BackendEditedPreview DesktopBackend::renderBasicEditPreview(
     };
 }
 
-BackendPhotoEditState DesktopBackend::saveBasicEditVersion(
+BackendPhotoEditState DesktopBackend::saveEditVersion(
     const QString& photo_id,
     const QString& source_path,
     const QString& base_commit_id,
-    const BackendBasicEditParameters& parameters,
+    const BackendEditSettings& settings,
     const QString& version_name
 ) const {
-    const auto ffi = ffi_parameters(parameters);
+    const auto ffi = ffi_settings(settings);
     return edit_state(impl_->session->save_basic_edit_version(
         photo_id.toStdString(),
         source_path.toStdString(),
@@ -254,7 +284,7 @@ BackendPhotoEditState DesktopBackend::saveBasicEditVersion(
     ));
 }
 
-BackendPhotoEditState DesktopBackend::checkoutBasicEditVersion(
+BackendPhotoEditState DesktopBackend::checkoutEditVersion(
     const QString& photo_id,
     const QString& source_path,
     const QString& commit_id

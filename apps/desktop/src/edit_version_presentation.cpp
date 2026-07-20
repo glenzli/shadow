@@ -19,6 +19,9 @@ namespace {
     if (key == QStringLiteral("contrast_factor")) {
         return translated("Contrast");
     }
+    if (key == QStringLiteral("tone_curve")) {
+        return translated("Tone Curve");
+    }
     if (key == QStringLiteral("red_channel_gain")) {
         return translated("Red gain");
     }

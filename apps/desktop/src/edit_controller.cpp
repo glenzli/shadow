@@ -14,6 +14,36 @@ constexpr std::uint32_t EDIT_PREVIEW_EDGE = 1'600;
 constexpr std::uint8_t EDIT_PREVIEW_QUALITY = 88;
 constexpr int EDIT_DEBOUNCE_MS = 140;
 
+[[nodiscard]] QVector<ToneCurvePoint> tone_curve_model_points(
+    const BackendEditSettings& settings
+) {
+    if (!settings.has_tone_curve) {
+        return {{0.0, 0.0}, {1.0, 1.0}};
+    }
+    QVector<ToneCurvePoint> points;
+    points.reserve(settings.tone_curve_points.size());
+    for (const auto& point : settings.tone_curve_points) {
+        points.push_back({.x = point.x, .y = point.y});
+    }
+    return points;
+}
+
+[[nodiscard]] QVector<BackendToneCurvePoint> backend_tone_curve_points(
+    const ToneCurvePointModel& model
+) {
+    const auto source = model.points();
+    QVector<BackendToneCurvePoint> points;
+    points.reserve(source.size());
+    for (const auto& point : source) {
+        points.push_back({.x = point.x, .y = point.y});
+    }
+    return points;
+}
+
+[[nodiscard]] QString tone_curve_gesture_key(const int index) {
+    return QStringLiteral("tone_curve/%1").arg(index);
+}
+
 [[nodiscard]] EditStateTaskResult load_state(
     const std::shared_ptr<DesktopBackend>& backend,
     const QString& photo_id,
@@ -36,7 +66,7 @@ constexpr int EDIT_DEBOUNCE_MS = 140;
     const QString& photo_id,
     const QString& source_path,
     const QString& base_commit_id,
-    const BackendBasicEditParameters parameters,
+    const BackendEditSettings settings,
     const QString& version_name,
     const quint64 generation
 ) {
@@ -44,11 +74,11 @@ constexpr int EDIT_DEBOUNCE_MS = 140;
     result.photo_generation = generation;
     result.kind = EditStateTaskKind::Save;
     try {
-        result.state = backend->saveBasicEditVersion(
+        result.state = backend->saveEditVersion(
             photo_id,
             source_path,
             base_commit_id,
-            parameters,
+            settings,
             version_name
         );
     } catch (const std::exception& error) {
@@ -68,7 +98,7 @@ constexpr int EDIT_DEBOUNCE_MS = 140;
     result.photo_generation = generation;
     result.kind = EditStateTaskKind::Checkout;
     try {
-        result.state = backend->checkoutBasicEditVersion(
+        result.state = backend->checkoutEditVersion(
             photo_id,
             source_path,
             commit_id
@@ -84,17 +114,17 @@ constexpr int EDIT_DEBOUNCE_MS = 140;
     const QString& photo_id,
     const QString& source_path,
     const QString& base_commit_id,
-    const BackendBasicEditParameters parameters,
+    const BackendEditSettings settings,
     const EditPreviewGeneration generation
 ) {
     EditPreviewTaskResult result;
     result.generation = generation;
     try {
-        result.preview = backend->renderBasicEditPreview(
+        result.preview = backend->renderEditPreview(
             photo_id,
             source_path,
             base_commit_id,
-            parameters,
+            settings,
             EDIT_PREVIEW_EDGE,
             EDIT_PREVIEW_QUALITY,
             generation.kind == EditPreviewKind::Current
@@ -115,7 +145,8 @@ EditController::EditController(
     : QObject(parent),
       backend_(std::move(backend)),
       preview_store_(std::move(preview_store)),
-      versions_(this) {
+      versions_(this),
+      tone_curve_points_(this) {
     preview_debounce_.setSingleShot(true);
     connect(
         &preview_debounce_,
@@ -200,27 +231,39 @@ QString EditController::statusText() const {
 }
 
 double EditController::exposureStops() const noexcept {
-    return parameters_.exposure_stops;
+    return settings_.basic.exposure_stops;
 }
 
 double EditController::contrastFactor() const noexcept {
-    return parameters_.contrast_factor;
+    return settings_.basic.contrast_factor;
 }
 
 double EditController::redGain() const noexcept {
-    return parameters_.red_channel_gain;
+    return settings_.basic.red_channel_gain;
 }
 
 double EditController::greenGain() const noexcept {
-    return parameters_.green_channel_gain;
+    return settings_.basic.green_channel_gain;
 }
 
 double EditController::blueGain() const noexcept {
-    return parameters_.blue_channel_gain;
+    return settings_.basic.blue_channel_gain;
 }
 
 double EditController::saturationFactor() const noexcept {
-    return parameters_.saturation_factor;
+    return settings_.basic.saturation_factor;
+}
+
+QAbstractItemModel* EditController::toneCurvePoints() noexcept {
+    return &tone_curve_points_;
+}
+
+bool EditController::hasToneCurve() const noexcept {
+    return settings_.has_tone_curve;
+}
+
+bool EditController::toneCurveEditable() const noexcept {
+    return tone_curve_points_.isEditable();
 }
 
 QAbstractItemModel* EditController::versions() noexcept {
@@ -228,62 +271,62 @@ QAbstractItemModel* EditController::versions() noexcept {
 }
 
 void EditController::setExposureStops(const double value) {
-    if (parameters_.exposure_stops == value
+    if (settings_.basic.exposure_stops == value
         || !acceptParameter(value, -16.0, 16.0, QStringLiteral("Exposure"))) {
         return;
     }
-    const BackendBasicEditParameters before = parameters_;
-    parameters_.exposure_stops = value;
+    const BackendEditSettings before = settings_;
+    settings_.basic.exposure_stops = value;
     parameterEdited(QStringLiteral("exposure"), before);
 }
 
 void EditController::setContrastFactor(const double value) {
-    if (parameters_.contrast_factor == value
+    if (settings_.basic.contrast_factor == value
         || !acceptParameter(value, 0.0, 8.0, QStringLiteral("Contrast"))) {
         return;
     }
-    const BackendBasicEditParameters before = parameters_;
-    parameters_.contrast_factor = value;
+    const BackendEditSettings before = settings_;
+    settings_.basic.contrast_factor = value;
     parameterEdited(QStringLiteral("contrast"), before);
 }
 
 void EditController::setRedGain(const double value) {
-    if (parameters_.red_channel_gain == value
+    if (settings_.basic.red_channel_gain == value
         || !acceptParameter(value, 0.000'001, 16.0, QStringLiteral("Red gain"))) {
         return;
     }
-    const BackendBasicEditParameters before = parameters_;
-    parameters_.red_channel_gain = value;
+    const BackendEditSettings before = settings_;
+    settings_.basic.red_channel_gain = value;
     parameterEdited(QStringLiteral("red_gain"), before);
 }
 
 void EditController::setGreenGain(const double value) {
-    if (parameters_.green_channel_gain == value
+    if (settings_.basic.green_channel_gain == value
         || !acceptParameter(value, 0.000'001, 16.0, QStringLiteral("Green gain"))) {
         return;
     }
-    const BackendBasicEditParameters before = parameters_;
-    parameters_.green_channel_gain = value;
+    const BackendEditSettings before = settings_;
+    settings_.basic.green_channel_gain = value;
     parameterEdited(QStringLiteral("green_gain"), before);
 }
 
 void EditController::setBlueGain(const double value) {
-    if (parameters_.blue_channel_gain == value
+    if (settings_.basic.blue_channel_gain == value
         || !acceptParameter(value, 0.000'001, 16.0, QStringLiteral("Blue gain"))) {
         return;
     }
-    const BackendBasicEditParameters before = parameters_;
-    parameters_.blue_channel_gain = value;
+    const BackendEditSettings before = settings_;
+    settings_.basic.blue_channel_gain = value;
     parameterEdited(QStringLiteral("blue_gain"), before);
 }
 
 void EditController::setSaturationFactor(const double value) {
-    if (parameters_.saturation_factor == value
+    if (settings_.basic.saturation_factor == value
         || !acceptParameter(value, 0.0, 8.0, QStringLiteral("Saturation"))) {
         return;
     }
-    const BackendBasicEditParameters before = parameters_;
-    parameters_.saturation_factor = value;
+    const BackendEditSettings before = settings_;
+    settings_.basic.saturation_factor = value;
     parameterEdited(QStringLiteral("saturation"), before);
 }
 
@@ -322,9 +365,9 @@ void EditController::openPhoto(
     title_ = title;
     versions_.replace({});
     working_commit_id_.clear();
-    committed_parameters_ = {};
+    committed_settings_ = {};
     clearSessionHistory();
-    setParameters({});
+    setSettings({});
     if (!preview_source_.isEmpty()) {
         preview_source_.clear();
         emit previewSourceChanged();
@@ -375,7 +418,7 @@ void EditController::beginParameterEdit(const QString& parameter_key) {
     }
     const bool could_undo = canUndo();
     const bool could_redo = canRedo();
-    history_.beginGesture(parameter_key.toStdString(), parameters_);
+    history_.beginGesture(parameter_key.toStdString(), settings_);
     if (could_undo != canUndo() || could_redo != canRedo()) {
         emit historyChanged();
     }
@@ -387,22 +430,88 @@ void EditController::endParameterEdit(const QString& parameter_key) {
     }
     const bool could_undo = canUndo();
     const bool could_redo = canRedo();
-    history_.endGesture(parameter_key.toStdString(), parameters_);
+    history_.endGesture(parameter_key.toStdString(), settings_);
     if (could_undo != canUndo() || could_redo != canRedo()) {
         emit historyChanged();
     }
+}
+
+void EditController::beginToneCurveGesture(const int index) {
+    if (!active_ || state_running_ || !tone_curve_points_.isEditable()
+        || !tone_curve_points_.selectPoint(index)) {
+        return;
+    }
+    beginParameterEdit(tone_curve_gesture_key(index));
+}
+
+void EditController::moveToneCurvePoint(
+    const int index,
+    const double x,
+    const double y
+) {
+    if (!active_ || state_running_) {
+        return;
+    }
+    const BackendEditSettings before = settings_;
+    if (!tone_curve_points_.movePoint(index, x, y)) {
+        return;
+    }
+    settings_.has_tone_curve = true;
+    settings_.tone_curve_points = backend_tone_curve_points(tone_curve_points_);
+    toneCurveEdited(tone_curve_gesture_key(index), before, EDIT_DEBOUNCE_MS);
+}
+
+void EditController::endToneCurveGesture(const int index) {
+    endParameterEdit(tone_curve_gesture_key(index));
+}
+
+void EditController::addToneCurvePoint(const double x, const double y) {
+    if (!active_ || state_running_) {
+        return;
+    }
+    const BackendEditSettings before = settings_;
+    if (tone_curve_points_.addPoint(x, y) < 0) {
+        setStatusText(QStringLiteral("The point cannot be added inside this curve"));
+        return;
+    }
+    settings_.has_tone_curve = true;
+    settings_.tone_curve_points = backend_tone_curve_points(tone_curve_points_);
+    toneCurveEdited(QStringLiteral("tone_curve/add"), before, 0);
+}
+
+void EditController::removeToneCurvePoint(const int index) {
+    if (!active_ || state_running_) {
+        return;
+    }
+    const BackendEditSettings before = settings_;
+    if (!tone_curve_points_.removePoint(index)) {
+        return;
+    }
+    settings_.tone_curve_points = backend_tone_curve_points(tone_curve_points_);
+    toneCurveEdited(QStringLiteral("tone_curve/remove"), before, 0);
+}
+
+void EditController::resetToneCurve() {
+    if (!active_ || state_running_ || !settings_.has_tone_curve) {
+        return;
+    }
+    const BackendEditSettings before = settings_;
+    tone_curve_points_.resetLinear();
+    settings_.has_tone_curve = false;
+    settings_.tone_curve_points.clear();
+    toneCurveEdited(QStringLiteral("tone_curve/reset"), before, 0);
 }
 
 void EditController::undo() {
     if (!active_ || state_running_) {
         return;
     }
-    const auto restored = history_.undo(parameters_);
+    const auto restored = history_.undo(settings_);
     emit historyChanged();
     if (!restored) {
         return;
     }
-    setParameters(*restored);
+    setSettings(*restored);
     schedulePreview(0);
     setStatusText(QStringLiteral("Undid the last session adjustment"));
 }
@@ -411,12 +520,12 @@ void EditController::redo() {
     if (!active_ || state_running_) {
         return;
     }
-    const auto restored = history_.redo(parameters_);
+    const auto restored = history_.redo(settings_);
     emit historyChanged();
     if (!restored) {
         return;
     }
-    setParameters(*restored);
+    setSettings(*restored);
     schedulePreview(0);
     setStatusText(QStringLiteral("Redid the last session adjustment"));
 }
@@ -426,11 +535,13 @@ void EditController::resetEdits() {
         return;
     }
     const BackendBasicEditParameters neutral;
-    if (parameters_ == neutral) {
+    if (settings_.basic == neutral) {
         return;
     }
-    const BackendBasicEditParameters before = parameters_;
-    setParameters(neutral);
+    const BackendEditSettings before = settings_;
+    BackendEditSettings reset = settings_;
+    reset.basic = neutral;
+    setSettings(std::move(reset));
     recordWorkingTransition(QStringLiteral("reset"), before);
     schedulePreview(0);
 }
@@ -439,9 +550,9 @@ void EditController::revertEdits() {
     if (!active_ || state_running_) {
         return;
     }
-    if (parameters_ != committed_parameters_) {
-        const BackendBasicEditParameters before = parameters_;
-        setParameters(committed_parameters_);
+    if (settings_ != committed_settings_) {
+        const BackendEditSettings before = settings_;
+        setSettings(committed_settings_);
         recordWorkingTransition(QStringLiteral("revert"), before);
         schedulePreview(0);
     }
@@ -469,7 +580,7 @@ void EditController::saveVersion(const QString& version_name) {
         setStatusText(QStringLiteral("Enter a name for this version"));
         return;
     }
-    history_.finishGesture(parameters_);
+    history_.finishGesture(settings_);
     emit historyChanged();
     setStateRunning(true);
     setStatusText(QStringLiteral("Saving immutable version “%1”…").arg(name));
@@ -479,7 +590,7 @@ void EditController::saveVersion(const QString& version_name) {
         photo_id_,
         source_path_,
         working_commit_id_,
-        parameters_,
+        settings_,
         name,
         photo_generation_
     ));
@@ -626,7 +737,7 @@ void EditController::startPreviewRender() {
         photo_id_,
         source_path_,
         working_commit_id_,
-        parameters_,
+        settings_,
         EditPreviewGeneration{
             .kind = EditPreviewKind::Current,
             .photo = photo_generation_,
@@ -655,7 +766,7 @@ void EditController::maybeStartBeforePreview() {
         photo_id_,
         source_path_,
         QString{},
-        BackendBasicEditParameters{},
+        BackendEditSettings{},
         EditPreviewGeneration{
             .kind = EditPreviewKind::NeutralBefore,
             .photo = photo_generation_,
@@ -669,22 +780,34 @@ void EditController::applyState(BackendPhotoEditState state) {
         setStatusText(QStringLiteral("Catalog returned edit state for a different photo"));
         return;
     }
-    committed_parameters_ = state.parameters;
+    committed_settings_ = state.settings;
     working_commit_id_ = std::move(state.working_commit_id);
-    setParameters(state.parameters);
+    setSettings(std::move(state.settings));
     clearSessionHistory();
     versions_.replace(std::move(state.versions));
 }
 
-void EditController::setParameters(
-    const BackendBasicEditParameters parameters
-) {
-    const bool changed = parameters_ != parameters;
-    parameters_ = parameters;
-    if (changed) {
+void EditController::setSettings(BackendEditSettings settings) {
+    if (!settings.has_tone_curve) {
+        settings.tone_curve_points.clear();
+    }
+    const bool basic_changed = settings_.basic != settings.basic;
+    const bool curve_changed = settings_.has_tone_curve != settings.has_tone_curve
+        || settings_.tone_curve_points != settings.tone_curve_points;
+    const auto model_points = tone_curve_model_points(settings);
+    if (tone_curve_points_.points() != model_points
+        && !tone_curve_points_.replace(model_points)) {
+        setStatusText(QStringLiteral("The saved Tone Curve cannot be represented safely"));
+        return;
+    }
+    settings_ = std::move(settings);
+    if (basic_changed) {
         emit parametersChanged();
     }
-    setDirty(parameters_ != committed_parameters_);
+    if (curve_changed) {
+        emit toneCurveChanged();
+    }
+    setDirty(settings_ != committed_settings_);
 }
 
 void EditController::clearSessionHistory() {
@@ -697,11 +820,11 @@ void EditController::clearSessionHistory() {
 
 void EditController::recordWorkingTransition(
     const QString& key,
-    const BackendBasicEditParameters& before
+    const BackendEditSettings& before
 ) {
     const bool could_undo = canUndo();
     const bool could_redo = canRedo();
-    history_.record(key.toStdString(), before, parameters_);
+    history_.record(key.toStdString(), before, settings_);
     if (could_undo != canUndo() || could_redo != canRedo()) {
         emit historyChanged();
     }
@@ -773,15 +896,26 @@ void EditController::emitBusyChange(const bool previous_busy) {
 
 void EditController::parameterEdited(
     const QString& key,
-    const BackendBasicEditParameters& before
+    const BackendEditSettings& before
 ) {
     if (!active_ || state_running_) {
         return;
     }
     recordWorkingTransition(key, before);
     emit parametersChanged();
-    setDirty(parameters_ != committed_parameters_);
+    setDirty(settings_ != committed_settings_);
     schedulePreview(EDIT_DEBOUNCE_MS);
+}
+
+void EditController::toneCurveEdited(
+    const QString& key,
+    const BackendEditSettings& before,
+    const int preview_delay_ms
+) {
+    recordWorkingTransition(key, before);
+    emit toneCurveChanged();
+    setDirty(settings_ != committed_settings_);
+    schedulePreview(preview_delay_ms);
 }
 
 bool EditController::acceptParameter(

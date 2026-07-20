@@ -59,6 +59,21 @@ struct BackendBasicEditParameters final {
     auto operator<=>(const BackendBasicEditParameters&) const = default;
 };
 
+struct BackendToneCurvePoint final {
+    double x = 0.0;
+    double y = 0.0;
+
+    auto operator<=>(const BackendToneCurvePoint&) const = default;
+};
+
+struct BackendEditSettings final {
+    BackendBasicEditParameters basic;
+    bool has_tone_curve = false;
+    QVector<BackendToneCurvePoint> tone_curve_points;
+
+    bool operator==(const BackendEditSettings&) const = default;
+};
+
 struct BackendEditVersion final {
     QString commit_id;
     QString name;
@@ -85,7 +100,7 @@ struct BackendPhotoEditState final {
     QString source_path;
     QString working_commit_id;
     QString recipe_id;
-    BackendBasicEditParameters parameters;
+    BackendEditSettings settings;
     QVector<BackendEditVersion> versions;
     bool has_working_version = false;
 };
@@ -115,23 +130,23 @@ public:
         const QString& photo_id,
         const QString& source_path
     ) const;
-    [[nodiscard]] BackendEditedPreview renderBasicEditPreview(
+    [[nodiscard]] BackendEditedPreview renderEditPreview(
         const QString& photo_id,
         const QString& source_path,
         const QString& base_commit_id,
-        const BackendBasicEditParameters& parameters,
+        const BackendEditSettings& settings,
         std::uint32_t max_edge,
         std::uint8_t jpeg_quality,
         bool use_working_recipe
     ) const;
-    [[nodiscard]] BackendPhotoEditState saveBasicEditVersion(
+    [[nodiscard]] BackendPhotoEditState saveEditVersion(
         const QString& photo_id,
         const QString& source_path,
         const QString& base_commit_id,
-        const BackendBasicEditParameters& parameters,
+        const BackendEditSettings& settings,
         const QString& version_name
     ) const;
-    [[nodiscard]] BackendPhotoEditState checkoutBasicEditVersion(
+    [[nodiscard]] BackendPhotoEditState checkoutEditVersion(
         const QString& photo_id,
         const QString& source_path,
         const QString& commit_id

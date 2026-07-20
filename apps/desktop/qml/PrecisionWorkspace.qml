@@ -23,10 +23,13 @@ Item {
     readonly property color textSecondary: "#bdc4ca"
     readonly property color textMuted: "#8b949e"
     readonly property color accent: "#d8b36a"
-    readonly property var nodeTitles: ["Exposure", "Contrast", "RGB Channel Gain", "Saturation"]
+    readonly property var nodeTitles: [
+        "Exposure", "Contrast", "Tone Curve", "RGB Channel Gain", "Saturation"
+    ]
     readonly property var nodeDescriptions: [
         "Scene-linear exposure in stops",
         "Pivot contrast in the tone stage",
+        "Versioned point curve in the tone stage",
         "Independent creative RGB gains",
         "Luma-preserving color intensity"
     ]
@@ -62,6 +65,7 @@ Item {
         id: nodeModel
         ListElement { nodeTitle: "Exposure"; nodeStage: "SCENE LINEAR" }
         ListElement { nodeTitle: "Contrast"; nodeStage: "TONE" }
+        ListElement { nodeTitle: "Tone Curve"; nodeStage: "TONE · OPTIONAL" }
         ListElement { nodeTitle: "RGB Channel Gain"; nodeStage: "CREATIVE COLOR" }
         ListElement { nodeTitle: "Saturation"; nodeStage: "CREATIVE COLOR" }
     }
@@ -699,8 +703,23 @@ Item {
                                     onGestureFinished: precision.editor.endParameterEdit("contrast")
                                 }
 
-                                ShadowSlider {
+                                ToneCurveEditor {
                                     visible: precision.selectedNode === 2
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: 18
+                                    Layout.rightMargin: 18
+                                    Layout.preferredHeight: implicitHeight
+                                    controller: precision.editor
+                                    panelColor: precision.panelRaised
+                                    plotColor: "#101317"
+                                    borderColor: precision.border
+                                    textColor: precision.textPrimary
+                                    mutedTextColor: precision.textMuted
+                                    accentColor: precision.accent
+                                }
+
+                                ShadowSlider {
+                                    visible: precision.selectedNode === 3
                                     Layout.fillWidth: true
                                     Layout.leftMargin: 18
                                     Layout.rightMargin: 18
@@ -715,7 +734,7 @@ Item {
                                     onGestureFinished: precision.editor.endParameterEdit("red_gain")
                                 }
                                 ShadowSlider {
-                                    visible: precision.selectedNode === 2
+                                    visible: precision.selectedNode === 3
                                     Layout.fillWidth: true
                                     Layout.leftMargin: 18
                                     Layout.rightMargin: 18
@@ -730,7 +749,7 @@ Item {
                                     onGestureFinished: precision.editor.endParameterEdit("green_gain")
                                 }
                                 ShadowSlider {
-                                    visible: precision.selectedNode === 2
+                                    visible: precision.selectedNode === 3
                                     Layout.fillWidth: true
                                     Layout.leftMargin: 18
                                     Layout.rightMargin: 18
@@ -746,7 +765,7 @@ Item {
                                 }
 
                                 ShadowSlider {
-                                    visible: precision.selectedNode === 3
+                                    visible: precision.selectedNode === 4
                                     Layout.fillWidth: true
                                     Layout.leftMargin: 18
                                     Layout.rightMargin: 18
@@ -765,6 +784,7 @@ Item {
 
                                 Button {
                                     id: resetButton
+                                    visible: precision.selectedNode !== 2
                                     Layout.fillWidth: true
                                     Layout.leftMargin: 18
                                     Layout.rightMargin: 18

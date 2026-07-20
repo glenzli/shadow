@@ -77,6 +77,8 @@ qt_add_executable(
     src/review_model.hpp
     src/thumbnail_provider.cpp
     src/thumbnail_provider.hpp
+    src/tone_curve_point_model.cpp
+    src/tone_curve_point_model.hpp
 )
 
 qt_add_qml_module(
@@ -88,6 +90,7 @@ qt_add_qml_module(
         qml/PrecisionWorkspace.qml
         qml/ReviewWorkspace.qml
         qml/ShadowSlider.qml
+        qml/ToneCurveEditor.qml
 )
 
 target_compile_features(shadow-desktop PRIVATE cxx_std_20)
@@ -136,6 +139,34 @@ if(BUILD_TESTING)
         )
     endif()
     add_test(NAME shadow-desktop-edit-history COMMAND shadow-edit-history-test)
+
+    add_executable(
+        shadow-tone-curve-point-model-test
+        tests/tone_curve_point_model_test.cpp
+        src/tone_curve_point_model.cpp
+        src/tone_curve_point_model.hpp
+    )
+    target_compile_features(shadow-tone-curve-point-model-test PRIVATE cxx_std_20)
+    target_include_directories(
+        shadow-tone-curve-point-model-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(shadow-tone-curve-point-model-test PRIVATE Qt6::Core)
+    if(MSVC)
+        target_compile_options(
+            shadow-tone-curve-point-model-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-tone-curve-point-model-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-tone-curve-point-model
+        COMMAND shadow-tone-curve-point-model-test
+    )
 
     add_executable(
         shadow-edit-version-presentation-test
