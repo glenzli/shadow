@@ -8,9 +8,9 @@ use shadow_domain::{AssetLocation, ImportSessionId, RepresentationId};
 
 use crate::{
     CachedArtifactRecord, Catalog, CatalogError, CatalogStats, CatalogStore, DecodeSnapshotRecord,
-    ImportSession, ImportSessionState, ImportSessionSummary, RecordCachedArtifact,
-    RecordCachedArtifactStatus, RecordDecodeSnapshot, RecordDecodeSnapshotStatus, RegisterAsset,
-    RegisteredAsset, RepresentationFingerprint,
+    ImportSession, ImportSessionState, ImportSessionSummary, InvalidateCachedArtifactStatus,
+    RecordCachedArtifact, RecordCachedArtifactStatus, RecordDecodeSnapshot,
+    RecordDecodeSnapshotStatus, RegisterAsset, RegisteredAsset, RepresentationFingerprint,
 };
 
 #[derive(Debug)]
@@ -59,6 +59,10 @@ enum Message {
     CachedArtifacts(
         RepresentationId,
         SyncSender<Result<Vec<CachedArtifactRecord>, CatalogError>>,
+    ),
+    InvalidateCachedArtifact(
+        Box<CachedArtifactRecord>,
+        SyncSender<Result<InvalidateCachedArtifactStatus, CatalogError>>,
     ),
     BeginImportSession(
         AssetLocation,
@@ -311,6 +315,21 @@ impl CatalogHandle {
         self.request(|response| Message::CachedArtifacts(representation_id, response))
     }
 
+    /// Invalidates an exact cache reference through the single Catalog writer.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] if the writer is unavailable or the conditional
+    /// delete fails.
+    pub fn invalidate_cached_artifact(
+        &self,
+        record: &CachedArtifactRecord,
+    ) -> Result<InvalidateCachedArtifactStatus, CatalogError> {
+        self.request(|response| {
+            Message::InvalidateCachedArtifact(Box::new(record.clone()), response)
+        })
+    }
+
     /// Lists resumable import sessions.
     ///
     /// # Errors
@@ -457,6 +476,9 @@ fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
             }
             Message::CachedArtifacts(representation_id, response) => {
                 let _ = response.send(catalog.cached_artifacts(representation_id));
+            }
+            Message::InvalidateCachedArtifact(record, response) => {
+                let _ = response.send(catalog.invalidate_cached_artifact(record.as_ref()));
             }
             Message::BeginImportSession(root, now_ms, response) => {
                 let _ = response.send(catalog.begin_import_session(&root, now_ms));

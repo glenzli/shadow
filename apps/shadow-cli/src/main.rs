@@ -11,9 +11,9 @@ use shadow_bridge::{
 };
 use shadow_catalog::{CatalogActor, CatalogStats, RegisterAsset};
 use shadow_core::{
-    DecodeInspectionActor, DecodeInspectionOutcome, DecodeInspectionRequest, DecodeInspector,
-    PreviewCacheOutcome, ScanReport, fingerprint_source, native_location, resume_scan, scan_folder,
-    scan_folder_with_inspection,
+    CachedArtifactLoader, DecodeInspectionActor, DecodeInspectionOutcome, DecodeInspectionRequest,
+    DecodeInspector, PreviewCacheOutcome, ScanReport, fingerprint_source, native_location,
+    resume_scan, scan_folder, scan_folder_with_inspection,
 };
 use shadow_domain::{
     DecoderSnapshot, ImportSessionId, PreviewPayload, ProxyPayload, RepresentationKind,
@@ -57,6 +57,9 @@ fn main() -> Result<()> {
         }
         [command, catalog_path, cache_root, raw_path] if command == "inspect-store" => {
             inspect_store(catalog_path, cache_root, raw_path)?;
+        }
+        [command, catalog_path, cache_root, raw_path] if command == "cache-read" => {
+            cache_read(catalog_path, cache_root, raw_path)?;
         }
         [command, catalog_path, folder] if command == "scan" => {
             let actor = open_catalog(catalog_path)?;
@@ -136,6 +139,39 @@ fn scan_cache(catalog_path: &str, cache_root: &str, folder: &str) -> Result<()> 
     inspector.shutdown()?;
     print_report(report);
     print_stats(catalog.stats()?);
+    actor.shutdown()?;
+    Ok(())
+}
+
+fn cache_read(catalog_path: &str, cache_root: &str, raw_path: &str) -> Result<()> {
+    let raw_path = absolute_path(Path::new(raw_path))?;
+    let source = fingerprint_source(&raw_path)
+        .with_context(|| format!("read RAW metadata {}", raw_path.display()))?;
+    let actor = open_catalog(catalog_path)?;
+    let catalog = actor.handle();
+    let registered = catalog.register_asset(&RegisterAsset {
+        kind: RepresentationKind::OriginalRaw,
+        location: native_location(&raw_path),
+        byte_len: source.byte_len,
+        modified_at_ms: source.modified_at_ms,
+        now_ms: now_ms(),
+    })?;
+    let artifacts = catalog.cached_artifacts(registered.representation_id)?;
+    if artifacts.is_empty() {
+        bail!("no cached visual for {}", raw_path.display());
+    }
+    let loader = CachedArtifactLoader::open(catalog.clone(), cache_root)?;
+    for record in artifacts {
+        let bytes = loader.load_bytes(&record)?;
+        println!(
+            "verified cached visual: role={} variant={} bytes={} dimensions={}x{}",
+            record.artifact.role.as_str(),
+            record.artifact.variant_key,
+            bytes.len(),
+            record.artifact.dimensions.width,
+            record.artifact.dimensions.height
+        );
+    }
     actor.shutdown()?;
     Ok(())
 }
@@ -287,7 +323,7 @@ fn print_decoder_snapshot(snapshot: &DecoderSnapshot) {
 
 fn print_usage() {
     eprintln!(
-        "usage:\n  shadow-cli init <catalog.sqlite>\n  shadow-cli scan <catalog.sqlite> <folder>\n  shadow-cli scan-cache <catalog.sqlite> <cache-root> <folder>\n  shadow-cli resume <catalog.sqlite> <session-id>\n  shadow-cli recoverable <catalog.sqlite>\n  shadow-cli stats <catalog.sqlite>\n  shadow-cli inspect-raw <path>\n  shadow-cli inspect-store <catalog.sqlite> <cache-root> <path>"
+        "usage:\n  shadow-cli init <catalog.sqlite>\n  shadow-cli scan <catalog.sqlite> <folder>\n  shadow-cli scan-cache <catalog.sqlite> <cache-root> <folder>\n  shadow-cli cache-read <catalog.sqlite> <cache-root> <path>\n  shadow-cli resume <catalog.sqlite> <session-id>\n  shadow-cli recoverable <catalog.sqlite>\n  shadow-cli stats <catalog.sqlite>\n  shadow-cli inspect-raw <path>\n  shadow-cli inspect-store <catalog.sqlite> <cache-root> <path>"
     );
 }
 

@@ -59,6 +59,12 @@ pub struct CachedArtifactRecord {
     pub artifact: CachedArtifact,
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum InvalidateCachedArtifactStatus {
+    Invalidated,
+    NotCurrent,
+}
+
 impl Catalog {
     /// Atomically records a reference to one already-written cache blob.
     ///
@@ -226,6 +232,49 @@ impl Catalog {
         }
         Ok(artifacts)
     }
+
+    /// Removes an artifact reference only if the Catalog row is still exactly
+    /// the record observed by a failed cache read.
+    ///
+    /// The full provenance, source fingerprint, blob identity, and creation
+    /// timestamp prevent a slow reader from deleting a replacement committed by
+    /// another worker after that reader loaded its record.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] for numeric overflow or a failed delete.
+    pub fn invalidate_cached_artifact(
+        &mut self,
+        record: &CachedArtifactRecord,
+    ) -> Result<InvalidateCachedArtifactStatus, CatalogError> {
+        let artifact = &record.artifact;
+        let deleted = self.connection.execute(
+            "DELETE FROM representation_cached_artifacts
+             WHERE representation_id = ?1 AND role = ?2 AND variant_key = ?3
+               AND generator_id = ?4 AND generator_version = ?5
+               AND source_byte_len = ?6 AND source_modified_at_ms IS ?7
+               AND blob_algorithm = ?8 AND blob_digest = ?9 AND blob_byte_len = ?10
+               AND created_at_ms = ?11",
+            params![
+                record.representation_id.as_bytes().as_slice(),
+                artifact.role.as_str(),
+                artifact.variant_key,
+                artifact.generator_id,
+                artifact.generator_version,
+                sqlite_u64(record.source.byte_len, "source_byte_len")?,
+                record.source.modified_at_ms,
+                artifact.blob_algorithm,
+                artifact.blob_digest.as_slice(),
+                sqlite_u64(artifact.blob_byte_len, "blob_byte_len")?,
+                artifact.created_at_ms,
+            ],
+        )?;
+        Ok(if deleted == 1 {
+            InvalidateCachedArtifactStatus::Invalidated
+        } else {
+            InvalidateCachedArtifactStatus::NotCurrent
+        })
+    }
 }
 
 fn validate_artifact(artifact: &CachedArtifact) -> Result<(), CatalogError> {
@@ -375,6 +424,56 @@ mod tests {
             catalog
                 .cached_artifacts(representation_id)
                 .expect("read artifacts")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn invalidation_cannot_delete_a_concurrently_replaced_artifact() {
+        let (mut catalog, representation_id, source) = registered_catalog();
+        catalog
+            .record_cached_artifact(&RecordCachedArtifact {
+                representation_id,
+                expected_source: source,
+                artifact: artifact("1", 1),
+            })
+            .expect("record first artifact");
+        let stale = catalog
+            .cached_artifacts(representation_id)
+            .expect("read first artifact")
+            .remove(0);
+
+        let mut replacement = artifact("2", 2);
+        replacement.created_at_ms += 1;
+        catalog
+            .record_cached_artifact(&RecordCachedArtifact {
+                representation_id,
+                expected_source: source,
+                artifact: replacement,
+            })
+            .expect("record replacement");
+        assert_eq!(
+            catalog
+                .invalidate_cached_artifact(&stale)
+                .expect("ignore stale invalidation"),
+            InvalidateCachedArtifactStatus::NotCurrent
+        );
+
+        let current = catalog
+            .cached_artifacts(representation_id)
+            .expect("read replacement")
+            .remove(0);
+        assert_eq!(current.artifact.generator_version, "2");
+        assert_eq!(
+            catalog
+                .invalidate_cached_artifact(&current)
+                .expect("invalidate current artifact"),
+            InvalidateCachedArtifactStatus::Invalidated
+        );
+        assert!(
+            catalog
+                .cached_artifacts(representation_id)
+                .expect("read empty artifacts")
                 .is_empty()
         );
     }

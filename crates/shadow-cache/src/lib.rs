@@ -56,6 +56,13 @@ pub struct StoredBlob {
     pub relative_path: PathBuf,
 }
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum QuarantineStatus {
+    Missing,
+    NotCorrupt,
+    Quarantined { relative_path: PathBuf },
+}
+
 /// A cloneable handle to one cache root.
 ///
 /// Blob paths are derived from content only:
@@ -192,6 +199,54 @@ impl ContentAddressedStore {
         Ok(bytes)
     }
 
+    /// Moves a still-corrupt blob out of the live digest tree so regenerated
+    /// content can reclaim its canonical path.
+    ///
+    /// The bytes are retained under `quarantine/b3` for diagnosis or manual
+    /// recovery. The method re-verifies immediately before the rename and never
+    /// moves a valid blob.
+    ///
+    /// # Errors
+    ///
+    /// Returns an I/O error when verification or the recoverable rename fails.
+    pub fn quarantine_corrupt(&self, digest: BlobDigest) -> Result<QuarantineStatus, CacheError> {
+        match self.verify(digest) {
+            Ok(()) => return Ok(QuarantineStatus::NotCorrupt),
+            Err(CacheError::Io { source, .. }) if source.kind() == io::ErrorKind::NotFound => {
+                return Ok(QuarantineStatus::Missing);
+            }
+            Err(CacheError::CorruptBlob(_)) => {}
+            Err(error) => return Err(error),
+        }
+
+        let source_path = self.resolve(digest);
+        let quarantine_root = self.root.join("quarantine").join(ALGORITHM_DIRECTORY);
+        fs::create_dir_all(&quarantine_root).map_err(|source| CacheError::Io {
+            path: quarantine_root.clone(),
+            source,
+        })?;
+        let sequence = TEMP_FILE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let relative_path = Path::new("quarantine")
+            .join(ALGORITHM_DIRECTORY)
+            .join(format!(
+                "{}.{}.{}.corrupt",
+                digest.to_hex(),
+                std::process::id(),
+                sequence
+            ));
+        let destination = self.root.join(&relative_path);
+        match fs::rename(&source_path, &destination) {
+            Ok(()) => Ok(QuarantineStatus::Quarantined { relative_path }),
+            Err(source) if source.kind() == io::ErrorKind::NotFound => {
+                Ok(QuarantineStatus::Missing)
+            }
+            Err(source) => Err(CacheError::Io {
+                path: source_path,
+                source,
+            }),
+        }
+    }
+
     pub fn resolve(&self, digest: BlobDigest) -> PathBuf {
         self.root.join(relative_blob_path(digest))
     }
@@ -302,6 +357,36 @@ mod tests {
             store.read_verified(blob.digest),
             Err(CacheError::CorruptBlob(_))
         ));
+        fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[test]
+    fn corrupt_blob_is_quarantined_and_can_be_regenerated() {
+        let root = fixture_root("quarantine");
+        let store = ContentAddressedStore::open(&root).expect("open cache");
+        let blob = store.put(b"correct proxy").expect("put blob");
+        fs::write(store.resolve(blob.digest), b"corrupt proxy").expect("corrupt blob");
+
+        let status = store
+            .quarantine_corrupt(blob.digest)
+            .expect("quarantine corrupt blob");
+        let QuarantineStatus::Quarantined { relative_path } = status else {
+            panic!("expected quarantined blob, found {status:?}");
+        };
+        assert!(!store.resolve(blob.digest).exists());
+        assert_eq!(
+            fs::read(root.join(relative_path)).expect("read quarantined bytes"),
+            b"corrupt proxy"
+        );
+
+        let regenerated = store.put(b"correct proxy").expect("regenerate blob");
+        assert_eq!(regenerated.digest, blob.digest);
+        assert_eq!(
+            store
+                .read_verified(regenerated.digest)
+                .expect("read regenerated blob"),
+            b"correct proxy"
+        );
         fs::remove_dir_all(root).expect("remove fixture");
     }
 

@@ -20,8 +20,8 @@ use thiserror::Error;
 use uuid::Uuid;
 
 pub use cache_artifact::{
-    CachedArtifact, CachedArtifactRecord, CachedArtifactRole, RecordCachedArtifact,
-    RecordCachedArtifactStatus,
+    CachedArtifact, CachedArtifactRecord, CachedArtifactRole, InvalidateCachedArtifactStatus,
+    RecordCachedArtifact, RecordCachedArtifactStatus,
 };
 pub use decode_snapshot::{
     DecodeSnapshotRecord, RecordDecodeSnapshot, RecordDecodeSnapshotStatus,
