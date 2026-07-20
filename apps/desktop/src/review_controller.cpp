@@ -1,6 +1,7 @@
 #include "review_controller.hpp"
 
 #include <QtConcurrentRun>
+#include <QSet>
 
 #include <algorithm>
 #include <limits>
@@ -11,6 +12,9 @@
 namespace {
 
 constexpr std::uint32_t REVIEW_PAGE_SIZE = 96;
+constexpr int SCAN_PROGRESS_POLL_MS = 150;
+constexpr quint64 STREAM_REFRESH_STRIDE = 16;
+constexpr qint64 STREAM_REFRESH_MIN_INTERVAL_MS = 400;
 
 [[nodiscard]] ScanTaskResult run_scan(
     const std::shared_ptr<DesktopBackend>& backend,
@@ -20,7 +24,7 @@ constexpr std::uint32_t REVIEW_PAGE_SIZE = 96;
     ScanTaskResult result;
     result.generation = generation;
     try {
-        result.report = backend->scanFolder(folder_path);
+        result.report = backend->scanFolder(folder_path, generation);
     } catch (const std::exception& error) {
         result.error = QString::fromUtf8(error.what());
     }
@@ -31,18 +35,82 @@ constexpr std::uint32_t REVIEW_PAGE_SIZE = 96;
     const std::shared_ptr<DesktopBackend>& backend,
     const QString& cursor_path,
     const QString& cursor_representation_id,
-    const quint64 generation,
-    const bool reset
+    const quint64 library_generation,
+    const quint64 request_id,
+    const PageTaskKind kind,
+    const QVector<QString>& required_representation_ids
 ) {
     PageTaskResult result;
-    result.generation = generation;
-    result.reset = reset;
+    result.library_generation = library_generation;
+    result.request_id = request_id;
+    result.kind = kind;
     try {
-        result.page = backend->reviewPage(
-            cursor_path,
-            cursor_representation_id,
-            REVIEW_PAGE_SIZE
-        );
+        if (kind != PageTaskKind::FinalReset) {
+            result.page = backend->reviewPage(
+                cursor_path,
+                cursor_representation_id,
+                REVIEW_PAGE_SIZE
+            );
+            return result;
+        }
+
+        QSet<QString> required_keys;
+        required_keys.reserve(required_representation_ids.size());
+        for (const auto& representation_id : required_representation_ids) {
+            required_keys.insert(representation_id);
+        }
+        QSet<QString> seen_keys;
+        QString next_path;
+        QString next_representation_id;
+        bool first_page = true;
+        while (true) {
+            BackendReviewPage page = backend->reviewPage(
+                next_path,
+                next_representation_id,
+                REVIEW_PAGE_SIZE
+            );
+            const bool page_is_empty = page.items.isEmpty();
+            if (!first_page && page.total_items != result.page.total_items) {
+                throw std::runtime_error(
+                    "Catalog changed while rebuilding the stable Library prefix"
+                );
+            }
+            if (first_page) {
+                result.page.total_items = page.total_items;
+                first_page = false;
+            }
+            for (auto& item : page.items) {
+                if (item.representation_id.isEmpty()
+                    || seen_keys.contains(item.representation_id)) {
+                    throw std::runtime_error(
+                        "Library refresh returned an invalid or duplicate stable key"
+                    );
+                }
+                seen_keys.insert(item.representation_id);
+                required_keys.remove(item.representation_id);
+                result.page.items.push_back(std::move(item));
+            }
+            result.page.has_more = page.has_more;
+            result.page.next_cursor_path = std::move(page.next_cursor_path);
+            result.page.next_cursor_representation_id =
+                std::move(page.next_cursor_representation_id);
+            if (result.page.has_more
+                && (page_is_empty
+                || result.page.next_cursor_path.isEmpty()
+                || result.page.next_cursor_representation_id.isEmpty()
+                || (result.page.next_cursor_path == next_path
+                    && result.page.next_cursor_representation_id
+                        == next_representation_id))) {
+                throw std::runtime_error(
+                    "Library refresh did not advance its stable pagination cursor"
+                );
+            }
+            if (required_keys.isEmpty() || !result.page.has_more) {
+                break;
+            }
+            next_path = result.page.next_cursor_path;
+            next_representation_id = result.page.next_cursor_representation_id;
+        }
     } catch (const std::exception& error) {
         result.error = QString::fromUtf8(error.what());
     }
@@ -222,6 +290,9 @@ ReviewController::ReviewController(
     QObject* parent
 )
     : QObject(parent), backend_(std::move(backend)), model_(this) {
+    model_.replace({}, library_generation_);
+    scan_progress_timer_.setInterval(SCAN_PROGRESS_POLL_MS);
+    scan_progress_timer_.setTimerType(Qt::CoarseTimer);
     connect(
         &scan_watcher_,
         &QFutureWatcher<ScanTaskResult>::finished,
@@ -246,9 +317,28 @@ ReviewController::ReviewController(
         this,
         &ReviewController::finishDecisionTask
     );
+    connect(
+        &scan_progress_timer_,
+        &QTimer::timeout,
+        this,
+        &ReviewController::pollScanProgress
+    );
+    QTimer::singleShot(0, this, [this]() {
+        startPage(
+            scan_running_ ? PageTaskKind::StreamingPrefix
+                          : PageTaskKind::InitialReset
+        );
+    });
 }
 
 ReviewController::~ReviewController() {
+    scan_progress_timer_.stop();
+    if (scan_running_) {
+        try {
+            static_cast<void>(backend_->cancelFolderScan(scan_generation_));
+        } catch (const std::exception&) {
+        }
+    }
     scan_watcher_.waitForFinished();
     page_watcher_.waitForFinished();
     evidence_watcher_.waitForFinished();
@@ -256,11 +346,20 @@ ReviewController::~ReviewController() {
 }
 
 bool ReviewController::busy() const noexcept {
-    return scan_running_ || (page_running_ && model_.rowCount() == 0);
+    return model_.rowCount() == 0
+        && (scan_running_ || page_running_ || terminal_refresh_active_);
+}
+
+bool ReviewController::scanning() const noexcept {
+    return scan_running_;
+}
+
+bool ReviewController::refreshing() const noexcept {
+    return page_reset_running_ || terminal_refresh_active_;
 }
 
 bool ReviewController::loadingMore() const noexcept {
-    return page_running_ && model_.rowCount() > 0;
+    return page_running_ && !page_reset_running_ && model_.rowCount() > 0;
 }
 
 bool ReviewController::hasMore() const noexcept {
@@ -273,6 +372,56 @@ QString ReviewController::folderPath() const {
 
 QString ReviewController::statusText() const {
     return status_text_;
+}
+
+QVariantMap ReviewController::scanProgress() const {
+    const quint64 catalogued = inserted_files_ + unchanged_files_ + revalidation_files_;
+    QString phase = QStringLiteral("idle");
+    switch (scan_phase_) {
+    case BackendScanPhase::Idle:
+        break;
+    case BackendScanPhase::Discovering:
+        phase = QStringLiteral("discovering");
+        break;
+    case BackendScanPhase::PreparingPreviews:
+        phase = QStringLiteral("preparing-previews");
+        break;
+    case BackendScanPhase::Cancelling:
+        phase = QStringLiteral("cancelling");
+        break;
+    case BackendScanPhase::Completed:
+        phase = QStringLiteral("completed");
+        break;
+    case BackendScanPhase::Cancelled:
+        phase = QStringLiteral("cancelled");
+        break;
+    case BackendScanPhase::Failed:
+        phase = QStringLiteral("failed");
+        break;
+    }
+    return {
+        {QStringLiteral("scanId"), QVariant::fromValue(scan_generation_)},
+        {QStringLiteral("updateSequence"), QVariant::fromValue(scan_update_sequence_)},
+        {QStringLiteral("phase"), phase},
+        {QStringLiteral("filesSeen"), QVariant::fromValue(files_seen_)},
+        {QStringLiteral("supportedFiles"), QVariant::fromValue(supported_files_)},
+        {QStringLiteral("cataloguedFiles"), QVariant::fromValue(catalogued)},
+        {QStringLiteral("insertedFiles"), QVariant::fromValue(inserted_files_)},
+        {QStringLiteral("unchangedFiles"), QVariant::fromValue(unchanged_files_)},
+        {QStringLiteral("revalidationFiles"), QVariant::fromValue(revalidation_files_)},
+        {QStringLiteral("decodeQueued"), QVariant::fromValue(decode_queued_)},
+        {QStringLiteral("decodeCompleted"), QVariant::fromValue(decode_completed_)},
+        {
+            QStringLiteral("decodeHardFailures"),
+            QVariant::fromValue(decode_hard_failures_),
+        },
+        {QStringLiteral("previewFailures"), QVariant::fromValue(preview_failures_)},
+        {QStringLiteral("decodeCancelled"), QVariant::fromValue(decode_cancelled_)},
+        {QStringLiteral("skippedFiles"), QVariant::fromValue(skipped_files_)},
+        {QStringLiteral("issueCount"), QVariant::fromValue(issue_count_)},
+        {QStringLiteral("targetPath"), folder_path_},
+        {QStringLiteral("cancellable"), scan_running_},
+    };
 }
 
 int ReviewController::itemCount() const {
@@ -316,8 +465,8 @@ ReviewModel* ReviewController::reviewModel() noexcept {
 }
 
 void ReviewController::scanFolder(const QUrl& folder_url) {
-    if (scan_running_ || page_running_ || evidence_session_.busy()
-        || decision_session_.busy()) {
+    if (scan_running_ || page_running_ || terminal_refresh_active_
+        || evidence_session_.busy() || decision_session_.busy()) {
         return;
     }
     const QString path = folder_url.toLocalFile();
@@ -328,34 +477,83 @@ void ReviewController::scanFolder(const QUrl& folder_url) {
 
     const bool old_busy = busy();
     const bool old_loading_more = loadingMore();
-    ++generation_;
-    model_.replace({}, generation_);
-    total_items_ = 0;
+    const bool old_refreshing = refreshing();
+    ++scan_generation_;
+    if (scan_generation_ == 0) {
+        ++scan_generation_;
+    }
+    try {
+        backend_->beginFolderScan(scan_generation_);
+    } catch (const std::exception& error) {
+        setStatusText(
+            QStringLiteral("Could not start import · %1")
+                .arg(QString::fromUtf8(error.what()))
+        );
+        return;
+    }
+    scan_update_sequence_ = 0;
+    files_seen_ = 0;
     supported_files_ = 0;
+    inserted_files_ = 0;
+    unchanged_files_ = 0;
+    revalidation_files_ = 0;
     decode_queued_ = 0;
+    decode_completed_ = 0;
+    decode_hard_failures_ = 0;
+    preview_failures_ = 0;
+    decode_cancelled_ = 0;
+    skipped_files_ = 0;
     issue_count_ = 0;
-    next_cursor_path_.clear();
-    next_cursor_representation_id_.clear();
+    next_stream_refresh_at_ = 1;
+    last_stream_refresh_ms_ = -1;
+    scan_phase_ = BackendScanPhase::Discovering;
+    scan_terminal_error_.clear();
+    scan_terminal_cancelled_ = false;
+    final_page_refresh_pending_ = false;
+    terminal_refresh_active_ = false;
     setHasMore(false);
-    emit itemCountChanged();
     folder_path_ = path;
     emit folderPathChanged();
     scan_running_ = true;
-    emitWorkStateChanges(old_busy, old_loading_more);
-    setStatusText(QStringLiteral("Scanning RAW files and preparing Review previews…"));
+    scan_clock_.restart();
+    scan_progress_timer_.start();
+    emit scanningChanged();
+    emit scanProgressChanged();
+    emitWorkStateChanges(old_busy, old_loading_more, old_refreshing);
+    updateScanStatus();
     scan_watcher_.setFuture(QtConcurrent::run(
-        [backend = backend_, folder = folder_path_, generation = generation_]() {
+        [backend = backend_, folder = folder_path_, generation = scan_generation_]() {
             return run_scan(backend, folder, generation);
         }
     ));
 }
 
-void ReviewController::loadMore() {
-    if (!has_more_ || scan_running_ || page_running_ || evidence_session_.busy()
-        || decision_session_.busy()) {
+void ReviewController::cancelScan() {
+    if (!scan_running_ || scan_phase_ == BackendScanPhase::Cancelling) {
         return;
     }
-    startPage(false);
+    try {
+        if (!backend_->cancelFolderScan(scan_generation_)) {
+            return;
+        }
+    } catch (const std::exception& error) {
+        setStatusText(
+            QStringLiteral("Could not cancel import · %1")
+                .arg(QString::fromUtf8(error.what()))
+        );
+        return;
+    }
+    scan_phase_ = BackendScanPhase::Cancelling;
+    emit scanProgressChanged();
+    updateScanStatus();
+}
+
+void ReviewController::loadMore() {
+    if (!has_more_ || scan_running_ || refreshing() || page_running_
+        || evidence_session_.busy() || decision_session_.busy()) {
+        return;
+    }
+    startPage(PageTaskKind::Append);
 }
 
 QVariantMap ReviewController::prepareComparison(
@@ -363,7 +561,7 @@ QVariantMap ReviewController::prepareComparison(
     const QString& right_visual_handle
 ) {
     if (evidence_session_.busy() || decision_session_.busy() || scan_running_
-        || page_running_) {
+        || refreshing() || page_running_) {
         return {};
     }
     if (left_visual_handle.trimmed().isEmpty()
@@ -462,7 +660,7 @@ void ReviewController::recordComparison(
         setComparisonStatusText(QStringLiteral("Prepare and verify the comparison first"));
         return;
     }
-    if (decision_session_.busy() || scan_running_ || page_running_) {
+    if (decision_session_.busy() || scan_running_ || refreshing() || page_running_) {
         return;
     }
     if (!evidence_session_.beginRecord()) {
@@ -479,7 +677,7 @@ void ReviewController::recordComparison(
 }
 
 void ReviewController::undoLastComparison() {
-    if (decision_session_.busy() || scan_running_ || page_running_) {
+    if (decision_session_.busy() || scan_running_ || refreshing() || page_running_) {
         return;
     }
     const auto event_id = evidence_session_.beginForget();
@@ -504,7 +702,7 @@ void ReviewController::setPhotoFlag(
         setDecisionStatusText(QStringLiteral("Unsupported Review flag"));
         return;
     }
-    if (scan_running_ || page_running_ || evidence_session_.busy()
+    if (scan_running_ || refreshing() || page_running_ || evidence_session_.busy()
         || decision_session_.busy()) {
         return;
     }
@@ -541,7 +739,7 @@ void ReviewController::setPhotoRating(
         setDecisionStatusText(QStringLiteral("Rating must be between 0 and 5 stars"));
         return;
     }
-    if (scan_running_ || page_running_ || evidence_session_.busy()
+    if (scan_running_ || refreshing() || page_running_ || evidence_session_.busy()
         || decision_session_.busy()) {
         return;
     }
@@ -572,7 +770,7 @@ void ReviewController::setPhotoRating(
 }
 
 void ReviewController::undoLastDecision() {
-    if (scan_running_ || page_running_ || evidence_session_.busy()
+    if (scan_running_ || refreshing() || page_running_ || evidence_session_.busy()
         || decision_session_.busy()) {
         return;
     }
@@ -605,63 +803,244 @@ void ReviewController::startDecisionMutation(
 
 void ReviewController::finishScan() {
     const ScanTaskResult result = scan_watcher_.result();
+    if (result.generation != scan_generation_) {
+        return;
+    }
+    scan_progress_timer_.stop();
+    pollScanProgress();
     const bool old_busy = busy();
     const bool old_loading_more = loadingMore();
-    scan_running_ = false;
-    emitWorkStateChanges(old_busy, old_loading_more);
-    if (result.generation != generation_) {
-        return;
-    }
+    const bool old_refreshing = refreshing();
+    terminal_refresh_active_ = true;
+    final_page_refresh_pending_ = true;
     if (!result.error.isEmpty()) {
-        setStatusText(QStringLiteral("Scan failed · %1").arg(result.error));
+        scan_phase_ = BackendScanPhase::Failed;
+        scan_terminal_error_ = result.error;
+        scan_terminal_cancelled_ = false;
+    } else {
+        folder_path_ = result.report.folder_path;
+        files_seen_ = result.report.files_seen;
+        supported_files_ = result.report.supported_files;
+        inserted_files_ = result.report.inserted;
+        unchanged_files_ = result.report.unchanged;
+        revalidation_files_ = result.report.needs_revalidation;
+        decode_queued_ = result.report.decode_queued;
+        decode_completed_ = result.report.decode_completed;
+        decode_hard_failures_ = result.report.decode_hard_failures;
+        preview_failures_ = result.report.preview_failures;
+        decode_cancelled_ = result.report.decode_cancelled;
+        issue_count_ = result.report.issue_count;
+        scan_terminal_cancelled_ = result.report.cancelled;
+        scan_phase_ = result.report.cancelled ? BackendScanPhase::Cancelled
+                                              : BackendScanPhase::Completed;
+        emit folderPathChanged();
+    }
+    scan_running_ = false;
+    emit scanningChanged();
+    emit scanProgressChanged();
+    emitWorkStateChanges(old_busy, old_loading_more, old_refreshing);
+    requestFinalPageRefresh();
+}
+
+void ReviewController::pollScanProgress() {
+    if (scan_generation_ == 0) {
         return;
     }
-    folder_path_ = result.report.folder_path;
-    supported_files_ = result.report.supported_files;
-    decode_queued_ = result.report.decode_queued;
-    issue_count_ = result.report.issue_count;
-    emit folderPathChanged();
-    startPage(true);
+    BackendScanProgress progress;
+    try {
+        progress = backend_->scanProgress(scan_generation_);
+    } catch (const std::exception& error) {
+        if (scan_running_) {
+            setStatusText(
+                QStringLiteral("Import progress unavailable · %1")
+                    .arg(QString::fromUtf8(error.what()))
+            );
+        }
+        return;
+    }
+    if (!progress.valid || progress.scan_id != scan_generation_
+        || progress.update_sequence <= scan_update_sequence_) {
+        return;
+    }
+
+    scan_update_sequence_ = progress.update_sequence;
+    files_seen_ = progress.files_seen;
+    supported_files_ = progress.supported_files;
+    inserted_files_ = progress.inserted;
+    unchanged_files_ = progress.unchanged;
+    revalidation_files_ = progress.needs_revalidation;
+    decode_queued_ = progress.decode_queued;
+    decode_completed_ = progress.decode_completed;
+    decode_hard_failures_ = progress.decode_hard_failures;
+    preview_failures_ = progress.preview_failures;
+    decode_cancelled_ = progress.decode_cancelled;
+    skipped_files_ = progress.skipped;
+    issue_count_ = progress.issue_count;
+    scan_phase_ = progress.phase;
+    emit scanProgressChanged();
+    if (scan_running_) {
+        updateScanStatus();
+    }
+
+    const quint64 catalogued = inserted_files_ + unchanged_files_ + revalidation_files_;
+    const qint64 elapsed = scan_clock_.isValid() ? scan_clock_.elapsed() : 0;
+    const bool first_visible_page = model_.rowCount() == 0 && catalogued > 0;
+    const bool paced_refresh = catalogued >= next_stream_refresh_at_
+        && (last_stream_refresh_ms_ < 0
+            || elapsed - last_stream_refresh_ms_ >= STREAM_REFRESH_MIN_INTERVAL_MS);
+    if (scan_running_ && !page_running_ && (first_visible_page || paced_refresh)) {
+        last_stream_refresh_ms_ = elapsed;
+        next_stream_refresh_at_ = catalogued + STREAM_REFRESH_STRIDE;
+        startPage(PageTaskKind::StreamingPrefix);
+    }
+}
+
+void ReviewController::requestFinalPageRefresh() {
+    terminal_refresh_active_ = true;
+    final_page_refresh_pending_ = true;
+    if (page_running_) {
+        return;
+    }
+    final_page_refresh_pending_ = false;
+    startPage(PageTaskKind::FinalReset);
 }
 
 void ReviewController::finishPage() {
     PageTaskResult result = page_watcher_.result();
     const bool old_busy = busy();
     const bool old_loading_more = loadingMore();
+    const bool old_refreshing = refreshing();
     page_running_ = false;
-    emitWorkStateChanges(old_busy, old_loading_more);
-    if (result.generation != generation_) {
-        return;
-    }
-    if (!result.error.isEmpty()) {
-        setStatusText(QStringLiteral("Review page failed · %1").arg(result.error));
+    page_reset_running_ = false;
+    if (result.library_generation != library_generation_
+        || result.request_id != active_page_request_id_) {
+        emitWorkStateChanges(old_busy, old_loading_more, old_refreshing);
         return;
     }
 
-    total_items_ = result.page.total_items;
-    next_cursor_path_ = std::move(result.page.next_cursor_path);
-    next_cursor_representation_id_ =
-        std::move(result.page.next_cursor_representation_id);
-    setHasMore(result.page.has_more);
-    auto items = review_items(std::move(result.page.items));
-    for (const auto& item : items) {
-        decision_session_.reconcile(backend_decision_state(
-            item.photo_id,
-            {
-                .head_sequence = item.decision_head_sequence,
-                .flag = item.decision_flag,
-                .rating = item.decision_rating,
-            }
-        ));
+    const auto finish_failure = [this, &result, old_busy, old_loading_more,
+                                 old_refreshing](QString error) {
+        if (result.kind != PageTaskKind::FinalReset
+            && final_page_refresh_pending_ && !scan_running_) {
+            setStatusText(
+                QStringLiteral(
+                    "Live Library refresh failed · rebuilding one stable final view · %1"
+                )
+                    .arg(error)
+            );
+            emitWorkStateChanges(old_busy, old_loading_more, old_refreshing);
+            final_page_refresh_pending_ = false;
+            startPage(PageTaskKind::FinalReset);
+            return;
+        }
+        if (result.kind == PageTaskKind::FinalReset) {
+            final_page_refresh_pending_ = false;
+            terminal_refresh_active_ = false;
+            setHasMore(false);
+            setStatusText(
+                QStringLiteral(
+                    "Final Library refresh failed · visible photos retained · add the folder again or reopen Shadow to retry · %1"
+                )
+                    .arg(error)
+            );
+        } else if (scan_running_) {
+            setStatusText(
+                QStringLiteral(
+                    "Live Library refresh delayed · import is still safe and continuing · %1"
+                )
+                    .arg(error)
+            );
+        } else {
+            setStatusText(
+                QStringLiteral("Library refresh failed · existing photos retained · %1")
+                    .arg(error)
+            );
+        }
+        emitWorkStateChanges(old_busy, old_loading_more, old_refreshing);
+    };
+
+    if (!result.error.isEmpty()) {
+        finish_failure(result.error);
+        return;
     }
-    if (result.reset) {
-        model_.replace(std::move(items), generation_);
+    if (result.page.has_more
+        && (result.page.items.isEmpty() || result.page.next_cursor_path.isEmpty()
+            || result.page.next_cursor_representation_id.isEmpty())) {
+        finish_failure(QStringLiteral("the page exposed an invalid continuation cursor"));
+        return;
+    }
+
+    auto items = review_items(std::move(result.page.items));
+    QVector<BackendReviewDecisionState> decision_states;
+    decision_states.reserve(items.size());
+    try {
+        for (const auto& item : items) {
+            decision_states.push_back(backend_decision_state(
+                item.photo_id,
+                {
+                    .head_sequence = item.decision_head_sequence,
+                    .flag = item.decision_flag,
+                    .rating = item.decision_rating,
+                }
+            ));
+        }
+    } catch (const std::exception& error) {
+        finish_failure(QString::fromUtf8(error.what()));
+        return;
+    }
+    bool accepted = false;
+    switch (result.kind) {
+    case PageTaskKind::InitialReset:
+    case PageTaskKind::FinalReset:
+        accepted = model_.reconcileSnapshot(std::move(items), library_generation_);
+        break;
+    case PageTaskKind::StreamingPrefix:
+        accepted = model_.reconcilePrefixSnapshot(
+            std::move(items),
+            library_generation_
+        );
+        break;
+    case PageTaskKind::Append:
+        accepted = model_.appendSnapshot(std::move(items), library_generation_);
+        break;
+    }
+    if (!accepted) {
+        finish_failure(QStringLiteral("the page contained invalid or duplicate stable keys"));
+        return;
+    }
+
+    for (auto& state : decision_states) {
+        decision_session_.reconcile(std::move(state));
+    }
+    total_items_ = result.page.total_items;
+    if (result.kind == PageTaskKind::StreamingPrefix) {
+        setHasMore(false);
     } else {
-        model_.append(std::move(items));
+        next_cursor_path_ = std::move(result.page.next_cursor_path);
+        next_cursor_representation_id_ =
+            std::move(result.page.next_cursor_representation_id);
+        setHasMore(result.page.has_more);
+    }
+    if (result.kind == PageTaskKind::FinalReset) {
+        final_page_refresh_pending_ = false;
+        terminal_refresh_active_ = false;
     }
     emit itemCountChanged();
     emit decisionStateChanged();
+    if (result.kind != PageTaskKind::FinalReset
+        && final_page_refresh_pending_ && !scan_running_) {
+        emitWorkStateChanges(old_busy, old_loading_more, old_refreshing);
+        final_page_refresh_pending_ = false;
+        startPage(PageTaskKind::FinalReset);
+        return;
+    }
+    if (scan_running_) {
+        updateScanStatus();
+        emitWorkStateChanges(old_busy, old_loading_more, old_refreshing);
+        return;
+    }
     updateReadyStatus();
+    emitWorkStateChanges(old_busy, old_loading_more, old_refreshing);
 }
 
 void ReviewController::finishEvidenceTask() {
@@ -760,37 +1139,70 @@ void ReviewController::finishDecisionTask() {
     }
 }
 
-void ReviewController::startPage(const bool reset) {
+void ReviewController::startPage(const PageTaskKind kind) {
     if (page_running_ || decision_session_.busy()) {
         return;
     }
+    const bool reset = kind != PageTaskKind::Append;
     const bool old_busy = busy();
     const bool old_loading_more = loadingMore();
+    const bool old_refreshing = refreshing();
     page_running_ = true;
-    emitWorkStateChanges(old_busy, old_loading_more);
+    page_reset_running_ = reset;
+    active_page_request_id_ = ++page_request_id_;
+    emitWorkStateChanges(old_busy, old_loading_more, old_refreshing);
     if (reset) {
-        setStatusText(QStringLiteral("Loading the first Review page…"));
+        if (scan_running_) {
+            updateScanStatus();
+        } else if (!scan_terminal_error_.isEmpty()) {
+            setStatusText(QStringLiteral("Refreshing photos retained before import stopped…"));
+        } else if (scan_terminal_cancelled_) {
+            setStatusText(QStringLiteral("Refreshing photos retained before import was cancelled…"));
+        } else if (kind == PageTaskKind::FinalReset) {
+            setStatusText(QStringLiteral("Rebuilding one stable Library view before paging…"));
+        } else {
+            setStatusText(QStringLiteral("Loading the local Library…"));
+        }
     } else {
         updateReadyStatus();
     }
+    const QVector<QString> required_representation_ids =
+        kind == PageTaskKind::FinalReset ? model_.representationIds()
+                                         : QVector<QString>{};
     page_watcher_.setFuture(QtConcurrent::run([
         backend = backend_,
         cursor_path = reset ? QString{} : next_cursor_path_,
         cursor_id = reset ? QString{} : next_cursor_representation_id_,
-        generation = generation_,
-        reset
-    ]() { return run_page(backend, cursor_path, cursor_id, generation, reset); }));
+        library_generation = library_generation_,
+        request_id = active_page_request_id_,
+        kind,
+        required_representation_ids
+    ]() {
+        return run_page(
+            backend,
+            cursor_path,
+            cursor_id,
+            library_generation,
+            request_id,
+            kind,
+            required_representation_ids
+        );
+    }));
 }
 
 void ReviewController::emitWorkStateChanges(
     const bool old_busy,
-    const bool old_loading_more
+    const bool old_loading_more,
+    const bool old_refreshing
 ) {
     if (old_busy != busy()) {
         emit busyChanged();
     }
     if (old_loading_more != loadingMore()) {
         emit loadingMoreChanged();
+    }
+    if (old_refreshing != refreshing()) {
+        emit refreshingChanged();
     }
 }
 
@@ -811,16 +1223,87 @@ void ReviewController::setStatusText(QString status) {
 }
 
 void ReviewController::updateReadyStatus() {
+    if (!scan_terminal_error_.isEmpty()) {
+        setStatusText(
+            QStringLiteral(
+                "Import stopped · %1 photos remain available · filesystem/import error: %2 · %3 decode failures · %4 preview failures"
+            )
+                .arg(total_items_)
+                .arg(scan_terminal_error_)
+                .arg(decode_hard_failures_)
+                .arg(preview_failures_)
+        );
+        return;
+    }
+    if (scan_terminal_cancelled_) {
+        setStatusText(
+            QStringLiteral(
+                "Import cancelled · %1 photos remain available · %2 filesystem issues · %3 decode failures · %4 preview failures · %5 decode jobs cancelled"
+            )
+                .arg(total_items_)
+                .arg(issue_count_)
+                .arg(decode_hard_failures_)
+                .arg(preview_failures_)
+                .arg(decode_cancelled_)
+        );
+        return;
+    }
+    if (total_items_ == 0) {
+        setStatusText(QStringLiteral("Local Library is empty · add a photo folder to begin"));
+        return;
+    }
     const QString loading = loadingMore() ? QStringLiteral(" · loading more") : QString{};
     setStatusText(
-        QStringLiteral("%1 / %2 loaded · %3 supported · %4 rebuilt · %5 issues%6")
+        QStringLiteral(
+            "%1 / %2 loaded · %3 supported · %4/%5 preview checks completed · %6 filesystem issues · %7 decode failures · %8 preview failures%9"
+        )
             .arg(model_.rowCount())
             .arg(total_items_)
             .arg(supported_files_)
+            .arg(decode_completed_)
             .arg(decode_queued_)
             .arg(issue_count_)
+            .arg(decode_hard_failures_)
+            .arg(preview_failures_)
             .arg(loading)
     );
+}
+
+void ReviewController::updateScanStatus() {
+    const quint64 catalogued = inserted_files_ + unchanged_files_ + revalidation_files_;
+    switch (scan_phase_) {
+    case BackendScanPhase::PreparingPreviews:
+        setStatusText(
+            QStringLiteral(
+                "Import catalogued %1 files · finishing %2 queued preview checks · %3 filesystem issues"
+            )
+                .arg(catalogued)
+                .arg(decode_queued_)
+                .arg(issue_count_)
+        );
+        break;
+    case BackendScanPhase::Cancelling:
+        setStatusText(
+            QStringLiteral(
+                "Stopping import safely · %1 files retained · queued checks are being cancelled · current preview may finish"
+            )
+                .arg(catalogued)
+        );
+        break;
+    case BackendScanPhase::Discovering:
+    default:
+        setStatusText(
+            QStringLiteral(
+                "Importing · %1 files checked · %2 supported · %3 catalogued · %4 preview checks queued · %5 filesystem issues"
+            )
+                .arg(files_seen_)
+                .arg(supported_files_)
+                .arg(catalogued)
+                .arg(decode_queued_)
+                .arg(issue_count_)
+        );
+        break;
+    }
 }
 
 void ReviewController::setComparisonStatusText(QString status) {

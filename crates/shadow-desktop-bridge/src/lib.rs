@@ -33,8 +33,9 @@ use shadow_catalog::{
     TechnicalObservationRevision,
 };
 use shadow_core::{
-    CachedArtifactLoader, DecodeInspectionActor, DecodeInspector, fingerprint_source,
-    scan_folder_with_inspection, technical_analysis_preprocessing_version,
+    CachedArtifactLoader, DecodeInspectionActor, DecodeInspectionSummary, DecodeInspector,
+    ScanCancellation, ScanCompletion, ScanPhase, ScanProgress, fingerprint_source,
+    scan_folder_with_inspection_controlled, technical_analysis_preprocessing_version,
 };
 use shadow_domain::operation::{
     BASIC_GRAPH_SCHEMA_VERSION, BASIC_LAYER_LABEL, CHANNEL_GAIN_OPERATION_ID,
@@ -155,7 +156,48 @@ mod ffi {
         folder_path: String,
         files_seen: u64,
         supported_files: u64,
+        inserted: u64,
+        unchanged: u64,
+        needs_revalidation: u64,
         decode_inspections_queued: u64,
+        decode_inspections_completed: u64,
+        decode_hard_failures: u64,
+        preview_failures: u64,
+        decode_inspections_cancelled: u64,
+        issue_count: u64,
+        cancelled: bool,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum FfiScanPhase {
+        Idle,
+        Discovering,
+        PreparingPreviews,
+        Cancelling,
+        Completed,
+        Cancelled,
+        Failed,
+    }
+
+    #[derive(Debug)]
+    struct FfiScanProgress {
+        valid: bool,
+        scan_id: u64,
+        update_sequence: u64,
+        phase: FfiScanPhase,
+        files_seen: u64,
+        supported_files: u64,
+        inserted: u64,
+        unchanged: u64,
+        needs_revalidation: u64,
+        decode_inspections_queued: u64,
+        /// Exact actor-drain counters. They remain zero while the job is active
+        /// and are published together in the terminal snapshot.
+        decode_inspections_completed: u64,
+        decode_hard_failures: u64,
+        preview_failures: u64,
+        decode_inspections_cancelled: u64,
+        skipped: u64,
         issue_count: u64,
     }
 
@@ -345,7 +387,14 @@ mod ffi {
             catalog_path: &str,
             cache_root: &str,
         ) -> Result<Box<DesktopSession>>;
-        fn scan_folder(self: &DesktopSession, folder_path: &str) -> Result<FfiScanReport>;
+        fn begin_folder_scan(self: &DesktopSession, scan_id: u64) -> Result<()>;
+        fn scan_folder(
+            self: &DesktopSession,
+            folder_path: &str,
+            scan_id: u64,
+        ) -> Result<FfiScanReport>;
+        fn scan_progress(self: &DesktopSession, scan_id: u64) -> Result<FfiScanProgress>;
+        fn cancel_folder_scan(self: &DesktopSession, scan_id: u64) -> Result<bool>;
         fn review_page(
             self: &DesktopSession,
             cursor_path: &str,
@@ -457,6 +506,7 @@ struct DesktopSession {
     catalog: CatalogHandle,
     loader: CachedArtifactLoader,
     cache_root: PathBuf,
+    folder_scan: Mutex<FolderScanRegistry>,
     edit_preview_sessions: Mutex<VecDeque<CachedEditPreviewSession>>,
     edit_detail_session: Mutex<Option<CachedEditDetailSession>>,
     edit_detail_render_token: AtomicU64,
@@ -464,6 +514,86 @@ struct DesktopSession {
     review_visual_signing_key: [u8; 32],
     review_comparisons: Mutex<ReviewComparisonRegistry>,
     active_review_feedback_event_ids: Mutex<HashSet<String>>,
+}
+
+#[derive(Debug, Default)]
+struct FolderScanRegistry {
+    current: Option<FolderScanState>,
+}
+
+#[derive(Debug)]
+struct FolderScanState {
+    scan_id: u64,
+    update_sequence: u64,
+    started: bool,
+    phase: ffi::FfiScanPhase,
+    files_seen: u64,
+    supported_files: u64,
+    inserted: u64,
+    unchanged: u64,
+    needs_revalidation: u64,
+    decode_inspections_queued: u64,
+    decode_inspections_completed: u64,
+    decode_hard_failures: u64,
+    preview_failures: u64,
+    decode_inspections_cancelled: u64,
+    skipped: u64,
+    issue_count: u64,
+    cancellation: ScanCancellation,
+}
+
+impl FolderScanState {
+    fn new(scan_id: u64, cancellation: ScanCancellation) -> Self {
+        Self {
+            scan_id,
+            update_sequence: 1,
+            started: false,
+            phase: ffi::FfiScanPhase::Discovering,
+            files_seen: 0,
+            supported_files: 0,
+            inserted: 0,
+            unchanged: 0,
+            needs_revalidation: 0,
+            decode_inspections_queued: 0,
+            decode_inspections_completed: 0,
+            decode_hard_failures: 0,
+            preview_failures: 0,
+            decode_inspections_cancelled: 0,
+            skipped: 0,
+            issue_count: 0,
+            cancellation,
+        }
+    }
+
+    fn is_active(&self) -> bool {
+        matches!(
+            self.phase,
+            ffi::FfiScanPhase::Discovering
+                | ffi::FfiScanPhase::PreparingPreviews
+                | ffi::FfiScanPhase::Cancelling
+        )
+    }
+
+    fn snapshot(&self) -> ffi::FfiScanProgress {
+        ffi::FfiScanProgress {
+            valid: true,
+            scan_id: self.scan_id,
+            update_sequence: self.update_sequence,
+            phase: self.phase,
+            files_seen: self.files_seen,
+            supported_files: self.supported_files,
+            inserted: self.inserted,
+            unchanged: self.unchanged,
+            needs_revalidation: self.needs_revalidation,
+            decode_inspections_queued: self.decode_inspections_queued,
+            decode_inspections_completed: self.decode_inspections_completed,
+            decode_hard_failures: self.decode_hard_failures,
+            preview_failures: self.preview_failures,
+            decode_inspections_cancelled: self.decode_inspections_cancelled,
+            skipped: self.skipped,
+            issue_count: self.issue_count,
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -507,25 +637,343 @@ struct CachedEditDetailSession {
     session: Arc<LibRawEditDetailSession>,
 }
 
+fn validate_decode_inspection_summary(
+    queued: u64,
+    summary: &DecodeInspectionSummary,
+) -> AnyResult<()> {
+    if summary.completed > queued {
+        bail!(
+            "decode worker completed {} jobs after only {queued} were queued",
+            summary.completed
+        );
+    }
+    let diagnostic_jobs = summary
+        .hard_failures
+        .saturating_add(summary.preview_failures)
+        .saturating_add(summary.cancelled);
+    if diagnostic_jobs > summary.completed {
+        bail!(
+            "decode worker reported {diagnostic_jobs} diagnostic jobs after completing only {}",
+            summary.completed
+        );
+    }
+    if summary.completed != queued {
+        bail!(
+            "decode worker completed {} of {queued} queued jobs",
+            summary.completed
+        );
+    }
+    Ok(())
+}
+
 impl DesktopSession {
-    fn scan_folder(&self, folder_path: &str) -> AnyResult<ffi::FfiScanReport> {
+    fn scan_folder(&self, folder_path: &str, scan_id: u64) -> AnyResult<ffi::FfiScanReport> {
+        let cancellation = self.folder_scan_cancellation(scan_id)?;
         let folder_path = Path::new(folder_path);
         let mut catalog = self.catalog.clone();
-        let inspector = DecodeInspectionActor::spawn_with_cache(
+        let inspector = match DecodeInspectionActor::spawn_with_cache(
             catalog.clone(),
             LibRawInspector::new(),
             &self.cache_root,
-        )?;
-        let report = scan_folder_with_inspection(&mut catalog, &inspector.handle(), folder_path)
-            .with_context(|| format!("scan {}", folder_path.display()))?;
-        inspector.shutdown()?;
+        ) {
+            Ok(inspector) => inspector,
+            Err(error) => {
+                self.finish_folder_scan_failed(scan_id)?;
+                return Err(error.into());
+            }
+        };
+        let report_result = scan_folder_with_inspection_controlled(
+            &mut catalog,
+            &inspector.handle(),
+            folder_path,
+            &cancellation,
+            |progress| {
+                let _ = self.update_folder_scan_progress(scan_id, progress);
+            },
+        )
+        .with_context(|| format!("scan {}", folder_path.display()));
+
+        let report = match report_result {
+            Ok(report) => {
+                let phase = match report.completion {
+                    ScanCompletion::Completed => ffi::FfiScanPhase::PreparingPreviews,
+                    ScanCompletion::Cancelled => ffi::FfiScanPhase::Cancelling,
+                };
+                self.update_folder_scan_report(scan_id, &report, phase)?;
+                report
+            }
+            Err(error) => {
+                cancellation.cancel();
+                let shutdown_result = inspector.shutdown_with_summary();
+                self.finish_folder_scan_failed(scan_id)?;
+                if let Err(shutdown_error) = shutdown_result {
+                    return Err(error.context(format!(
+                        "decode inspection shutdown also failed: {shutdown_error}"
+                    )));
+                }
+                return Err(error);
+            }
+        };
+
+        let summary = match inspector.shutdown_with_summary() {
+            Ok(summary) => summary,
+            Err(error) => {
+                self.finish_folder_scan_failed(scan_id)?;
+                return Err(error.into());
+            }
+        };
+        if let Err(error) =
+            validate_decode_inspection_summary(report.decode_inspections_queued, &summary)
+        {
+            self.finish_folder_scan_failed(scan_id)?;
+            return Err(error);
+        }
+        let cancelled = self.finish_folder_scan(scan_id, &report, &summary)?;
         Ok(ffi::FfiScanReport {
             folder_path: folder_path.display().to_string(),
             files_seen: report.files_seen,
             supported_files: report.supported_files,
+            inserted: report.inserted,
+            unchanged: report.unchanged,
+            needs_revalidation: report.needs_revalidation,
             decode_inspections_queued: report.decode_inspections_queued,
+            decode_inspections_completed: summary.completed,
+            decode_hard_failures: summary.hard_failures,
+            preview_failures: summary.preview_failures,
+            decode_inspections_cancelled: summary.cancelled,
             issue_count: u64::try_from(report.issues.len()).unwrap_or(u64::MAX),
+            cancelled,
         })
+    }
+
+    fn scan_progress(&self, scan_id: u64) -> AnyResult<ffi::FfiScanProgress> {
+        if scan_id == 0 {
+            bail!("scan id must be non-zero");
+        }
+        let registry = self
+            .folder_scan
+            .lock()
+            .map_err(|_| anyhow!("folder scan registry lock is poisoned"))?;
+        Ok(registry.current.as_ref().map_or(
+            ffi::FfiScanProgress {
+                valid: false,
+                scan_id,
+                update_sequence: 0,
+                phase: ffi::FfiScanPhase::Idle,
+                files_seen: 0,
+                supported_files: 0,
+                inserted: 0,
+                unchanged: 0,
+                needs_revalidation: 0,
+                decode_inspections_queued: 0,
+                decode_inspections_completed: 0,
+                decode_hard_failures: 0,
+                preview_failures: 0,
+                decode_inspections_cancelled: 0,
+                skipped: 0,
+                issue_count: 0,
+            },
+            |state| {
+                if state.scan_id == scan_id {
+                    state.snapshot()
+                } else {
+                    ffi::FfiScanProgress {
+                        valid: false,
+                        scan_id,
+                        update_sequence: 0,
+                        phase: ffi::FfiScanPhase::Idle,
+                        files_seen: 0,
+                        supported_files: 0,
+                        inserted: 0,
+                        unchanged: 0,
+                        needs_revalidation: 0,
+                        decode_inspections_queued: 0,
+                        decode_inspections_completed: 0,
+                        decode_hard_failures: 0,
+                        preview_failures: 0,
+                        decode_inspections_cancelled: 0,
+                        skipped: 0,
+                        issue_count: 0,
+                    }
+                }
+            },
+        ))
+    }
+
+    fn cancel_folder_scan(&self, scan_id: u64) -> AnyResult<bool> {
+        if scan_id == 0 {
+            bail!("scan id must be non-zero");
+        }
+        let mut registry = self
+            .folder_scan
+            .lock()
+            .map_err(|_| anyhow!("folder scan registry lock is poisoned"))?;
+        let state = registry
+            .current
+            .as_mut()
+            .filter(|state| state.scan_id == scan_id)
+            .ok_or_else(|| anyhow!("scan id {scan_id} is not current"))?;
+        if !state.is_active() {
+            return Ok(false);
+        }
+        let newly_cancelled = !state.cancellation.is_cancelled();
+        state.cancellation.cancel();
+        if state.phase != ffi::FfiScanPhase::Cancelling {
+            state.phase = ffi::FfiScanPhase::Cancelling;
+            state.update_sequence = state.update_sequence.saturating_add(1);
+        }
+        Ok(newly_cancelled)
+    }
+
+    fn begin_folder_scan(&self, scan_id: u64) -> AnyResult<()> {
+        if scan_id == 0 {
+            bail!("scan id must be non-zero");
+        }
+        let mut registry = self
+            .folder_scan
+            .lock()
+            .map_err(|_| anyhow!("folder scan registry lock is poisoned"))?;
+        if registry
+            .current
+            .as_ref()
+            .is_some_and(FolderScanState::is_active)
+        {
+            bail!("another folder scan is already active");
+        }
+        let cancellation = ScanCancellation::new();
+        registry.current = Some(FolderScanState::new(scan_id, cancellation));
+        Ok(())
+    }
+
+    fn folder_scan_cancellation(&self, scan_id: u64) -> AnyResult<ScanCancellation> {
+        let mut registry = self
+            .folder_scan
+            .lock()
+            .map_err(|_| anyhow!("folder scan registry lock is poisoned"))?;
+        let state = registry
+            .current
+            .as_mut()
+            .filter(|state| state.scan_id == scan_id && state.is_active())
+            .ok_or_else(|| anyhow!("scan id {scan_id} was not prepared"))?;
+        if state.started {
+            bail!("scan id {scan_id} has already started");
+        }
+        state.started = true;
+        Ok(state.cancellation.clone())
+    }
+
+    fn update_folder_scan_progress(&self, scan_id: u64, progress: &ScanProgress) -> AnyResult<()> {
+        let mut registry = self
+            .folder_scan
+            .lock()
+            .map_err(|_| anyhow!("folder scan registry lock is poisoned"))?;
+        let state = registry
+            .current
+            .as_mut()
+            .filter(|state| state.scan_id == scan_id)
+            .ok_or_else(|| anyhow!("scan id {scan_id} is not current"))?;
+        state.files_seen = progress.files_seen;
+        state.supported_files = progress.supported_files;
+        state.inserted = progress.inserted;
+        state.unchanged = progress.unchanged;
+        state.needs_revalidation = progress.needs_revalidation;
+        state.decode_inspections_queued = progress.decode_inspections_queued;
+        state.skipped = progress.skipped;
+        state.issue_count = progress.issue_count;
+        state.phase = if state.cancellation.is_cancelled() || progress.phase == ScanPhase::Cancelled
+        {
+            ffi::FfiScanPhase::Cancelling
+        } else {
+            ffi::FfiScanPhase::Discovering
+        };
+        state.update_sequence = state.update_sequence.saturating_add(1);
+        Ok(())
+    }
+
+    fn update_folder_scan_report(
+        &self,
+        scan_id: u64,
+        report: &shadow_core::ScanReport,
+        phase: ffi::FfiScanPhase,
+    ) -> AnyResult<()> {
+        let mut registry = self
+            .folder_scan
+            .lock()
+            .map_err(|_| anyhow!("folder scan registry lock is poisoned"))?;
+        let state = registry
+            .current
+            .as_mut()
+            .filter(|state| state.scan_id == scan_id)
+            .ok_or_else(|| anyhow!("scan id {scan_id} is not current"))?;
+        state.files_seen = report.files_seen;
+        state.supported_files = report.supported_files;
+        state.inserted = report.inserted;
+        state.unchanged = report.unchanged;
+        state.needs_revalidation = report.needs_revalidation;
+        state.decode_inspections_queued = report.decode_inspections_queued;
+        state.skipped = report.skipped;
+        state.issue_count = u64::try_from(report.issues.len()).unwrap_or(u64::MAX);
+        state.phase =
+            if state.cancellation.is_cancelled() && phase == ffi::FfiScanPhase::PreparingPreviews {
+                ffi::FfiScanPhase::Cancelling
+            } else {
+                phase
+            };
+        state.update_sequence = state.update_sequence.saturating_add(1);
+        Ok(())
+    }
+
+    fn finish_folder_scan(
+        &self,
+        scan_id: u64,
+        report: &shadow_core::ScanReport,
+        summary: &DecodeInspectionSummary,
+    ) -> AnyResult<bool> {
+        let mut registry = self
+            .folder_scan
+            .lock()
+            .map_err(|_| anyhow!("folder scan registry lock is poisoned"))?;
+        let state = registry
+            .current
+            .as_mut()
+            .filter(|state| state.scan_id == scan_id)
+            .ok_or_else(|| anyhow!("scan id {scan_id} is not current"))?;
+        state.files_seen = report.files_seen;
+        state.supported_files = report.supported_files;
+        state.inserted = report.inserted;
+        state.unchanged = report.unchanged;
+        state.needs_revalidation = report.needs_revalidation;
+        state.decode_inspections_queued = report.decode_inspections_queued;
+        state.decode_inspections_completed = summary.completed;
+        state.decode_hard_failures = summary.hard_failures;
+        state.preview_failures = summary.preview_failures;
+        state.decode_inspections_cancelled = summary.cancelled;
+        state.skipped = report.skipped;
+        state.issue_count = u64::try_from(report.issues.len()).unwrap_or(u64::MAX);
+        let cancelled =
+            report.completion == ScanCompletion::Cancelled || state.cancellation.is_cancelled();
+        state.phase = if cancelled {
+            ffi::FfiScanPhase::Cancelled
+        } else {
+            ffi::FfiScanPhase::Completed
+        };
+        state.update_sequence = state.update_sequence.saturating_add(1);
+        Ok(cancelled)
+    }
+
+    fn finish_folder_scan_failed(&self, scan_id: u64) -> AnyResult<()> {
+        let mut registry = self
+            .folder_scan
+            .lock()
+            .map_err(|_| anyhow!("folder scan registry lock is poisoned"))?;
+        let state = registry
+            .current
+            .as_mut()
+            .filter(|state| state.scan_id == scan_id)
+            .ok_or_else(|| anyhow!("scan id {scan_id} is not current"))?;
+        state.phase = ffi::FfiScanPhase::Failed;
+        state.update_sequence = state.update_sequence.saturating_add(1);
+        Ok(())
     }
 
     fn review_page(
@@ -3029,6 +3477,7 @@ fn open_desktop_session(catalog_path: &str, cache_root: &str) -> AnyResult<Box<D
         catalog,
         loader,
         cache_root,
+        folder_scan: Mutex::new(FolderScanRegistry::default()),
         edit_preview_sessions: Mutex::new(VecDeque::new()),
         edit_detail_session: Mutex::new(None),
         edit_detail_render_token: AtomicU64::new(0),
@@ -3528,8 +3977,8 @@ mod tests {
     use shadow_cache::ContentAddressedStore;
     use shadow_catalog::{CachedArtifact, RecordCachedArtifact, RegisterAsset};
     use shadow_domain::{
-        AssetLocation, EntityId, ImageDimensions, Platform, PreviewByteOrder, PreviewCodec,
-        RepresentationId, RepresentationKind,
+        AssetLocation, EntityId, ImageDimensions, ImportSessionId, Platform, PreviewByteOrder,
+        PreviewCodec, RepresentationId, RepresentationKind,
     };
 
     use super::*;
@@ -3550,6 +3999,196 @@ mod tests {
     fn desktop_session_can_back_concurrent_qt_image_requests() {
         fn assert_send_and_sync<T: Send + Sync>() {}
         assert_send_and_sync::<DesktopSession>();
+    }
+
+    #[test]
+    fn folder_scan_registry_is_fail_closed_cancel_safe_and_terminal() {
+        let root = std::env::temp_dir().join(format!(
+            "shadow-desktop-scan-registry-{}-{}",
+            std::process::id(),
+            RepresentationId::new_v7()
+        ));
+        let import_root = root.join("photos");
+        std::fs::create_dir_all(&import_root).expect("create scan fixture");
+        std::fs::write(import_root.join("one.jpg"), b"not decoded during scan")
+            .expect("write raster fixture");
+        std::fs::write(import_root.join("broken.NEF"), b"not a raw file")
+            .expect("write broken RAW fixture");
+        let session = open_desktop_session(
+            root.join("catalog.sqlite").to_str().expect("catalog path"),
+            root.join("cache").to_str().expect("cache path"),
+        )
+        .expect("open desktop session");
+
+        assert!(!session.scan_progress(41).expect("missing progress").valid);
+        session.begin_folder_scan(41).expect("prepare first scan");
+        assert!(session.begin_folder_scan(42).is_err());
+        assert!(session.cancel_folder_scan(42).is_err());
+        assert!(
+            session
+                .cancel_folder_scan(41)
+                .expect("cancel prepared scan")
+        );
+        assert!(!session.cancel_folder_scan(41).expect("repeat cancellation"));
+        assert_eq!(
+            session
+                .scan_progress(41)
+                .expect("cancelling progress")
+                .phase,
+            ffi::FfiScanPhase::Cancelling
+        );
+
+        let cancelled = session
+            .scan_folder(import_root.to_str().expect("import path"), 41)
+            .expect("collect cancelled scan");
+        assert!(cancelled.cancelled);
+        assert_eq!(cancelled.files_seen, 0);
+        assert_eq!(
+            session.scan_progress(41).expect("cancelled progress").phase,
+            ffi::FfiScanPhase::Cancelled
+        );
+        assert!(
+            session
+                .scan_folder(import_root.to_str().expect("import path"), 41)
+                .is_err()
+        );
+
+        session
+            .begin_folder_scan(42)
+            .expect("prepare replacement scan");
+        let completed = session
+            .scan_folder(import_root.to_str().expect("import path"), 42)
+            .expect("complete replacement scan");
+        assert!(!completed.cancelled);
+        assert_eq!(completed.supported_files, 2);
+        assert_eq!(completed.inserted, 2);
+        assert_eq!(completed.decode_inspections_queued, 1);
+        assert_eq!(completed.decode_inspections_completed, 1);
+        assert_eq!(completed.decode_hard_failures, 1);
+        assert_eq!(completed.preview_failures, 0);
+        assert_eq!(completed.decode_inspections_cancelled, 0);
+        let progress = session.scan_progress(42).expect("completed progress");
+        assert!(progress.valid);
+        assert_eq!(progress.scan_id, 42);
+        assert_eq!(progress.phase, ffi::FfiScanPhase::Completed);
+        assert_eq!(progress.supported_files, completed.supported_files);
+        assert_eq!(progress.inserted, completed.inserted);
+        assert_eq!(
+            progress.decode_hard_failures,
+            completed.decode_hard_failures
+        );
+        assert!(!session.scan_progress(41).expect("stale progress").valid);
+
+        drop(session);
+        std::fs::remove_dir_all(root).expect("remove scan fixture");
+    }
+
+    #[test]
+    fn decode_inspection_summary_validation_is_fail_closed() {
+        let valid = DecodeInspectionSummary {
+            completed: 4,
+            hard_failures: 1,
+            preview_failures: 1,
+            cancelled: 1,
+        };
+        validate_decode_inspection_summary(4, &valid).expect("valid terminal summary");
+
+        let partial_cancelled = DecodeInspectionSummary {
+            completed: 2,
+            cancelled: 2,
+            ..DecodeInspectionSummary::default()
+        };
+        assert!(validate_decode_inspection_summary(4, &partial_cancelled).is_err());
+
+        let impossible_total = DecodeInspectionSummary {
+            completed: 5,
+            ..DecodeInspectionSummary::default()
+        };
+        assert!(validate_decode_inspection_summary(4, &impossible_total).is_err());
+
+        let overlapping_diagnostics = DecodeInspectionSummary {
+            completed: 2,
+            hard_failures: 1,
+            preview_failures: 1,
+            cancelled: 1,
+        };
+        assert!(validate_decode_inspection_summary(2, &overlapping_diagnostics).is_err());
+    }
+
+    #[test]
+    fn preparing_preview_cancel_and_finish_are_terminally_linearized() {
+        let root = std::env::temp_dir().join(format!(
+            "shadow-desktop-scan-terminal-race-{}-{}",
+            std::process::id(),
+            RepresentationId::new_v7()
+        ));
+        let session = open_desktop_session(
+            root.join("catalog.sqlite").to_str().expect("catalog path"),
+            root.join("cache").to_str().expect("cache path"),
+        )
+        .expect("open desktop session");
+        let completed_report = shadow_core::ScanReport {
+            session_id: ImportSessionId::new_v7(),
+            completion: ScanCompletion::Completed,
+            files_seen: 4,
+            supported_files: 3,
+            inserted: 3,
+            unchanged: 0,
+            needs_revalidation: 0,
+            decode_inspections_queued: 0,
+            skipped: 1,
+            issues: Vec::new(),
+        };
+        let summary = DecodeInspectionSummary::default();
+
+        session.begin_folder_scan(501).expect("prepare late cancel");
+        drop(
+            session
+                .folder_scan_cancellation(501)
+                .expect("mark late cancel scan started"),
+        );
+        session
+            .update_folder_scan_report(501, &completed_report, ffi::FfiScanPhase::PreparingPreviews)
+            .expect("enter preview drain");
+        assert!(session.cancel_folder_scan(501).expect("win cancel race"));
+        assert!(
+            session
+                .finish_folder_scan(501, &completed_report, &summary)
+                .expect("finish cancelled job")
+        );
+        assert_eq!(
+            session.scan_progress(501).expect("cancel terminal").phase,
+            ffi::FfiScanPhase::Cancelled
+        );
+
+        session
+            .begin_folder_scan(502)
+            .expect("prepare finish winner");
+        drop(
+            session
+                .folder_scan_cancellation(502)
+                .expect("mark finish-winner scan started"),
+        );
+        session
+            .update_folder_scan_report(502, &completed_report, ffi::FfiScanPhase::PreparingPreviews)
+            .expect("enter second preview drain");
+        assert!(
+            !session
+                .finish_folder_scan(502, &completed_report, &summary)
+                .expect("win finish race")
+        );
+        assert!(
+            !session
+                .cancel_folder_scan(502)
+                .expect("late cancel rejected")
+        );
+        assert_eq!(
+            session.scan_progress(502).expect("complete terminal").phase,
+            ffi::FfiScanPhase::Completed
+        );
+
+        drop(session);
+        std::fs::remove_dir_all(root).expect("remove scan race fixture");
     }
 
     #[test]
@@ -6778,8 +7417,9 @@ mod tests {
                 root.join("cache").to_str().expect("cache path"),
             )
             .expect("open desktop session");
+            session.begin_folder_scan(1).expect("prepare real DNG scan");
             let report = session
-                .scan_folder(Path::new(&folder).to_str().expect("fixture folder"))
+                .scan_folder(Path::new(&folder).to_str().expect("fixture folder"), 1)
                 .expect("scan real DNG folder");
             let page = session.review_page("", "", 1).expect("first Review page");
 

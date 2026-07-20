@@ -23,6 +23,8 @@ use shadow_catalog::{
 use shadow_domain::{PreviewCodec, RepresentationId};
 use thiserror::Error;
 
+use crate::performance::{TechnicalPerformance, measure_if};
+
 const OBSERVATION_QUEUE_CAPACITY: usize = 16;
 
 #[cfg(test)]
@@ -91,6 +93,7 @@ pub enum TechnicalObservationError {
 pub struct TechnicalObservationActor {
     handle: TechnicalObservationHandle,
     join_handle: Option<JoinHandle<()>>,
+    profiled: bool,
 }
 
 /// Cloneable bounded-queue handle for technical analysis requests.
@@ -112,7 +115,7 @@ enum Message {
         shadow_catalog::RepresentationFingerprint,
         Completion,
     ),
-    Shutdown(SyncSender<Result<(), TechnicalObservationError>>),
+    Shutdown(SyncSender<Result<TechnicalPerformance, TechnicalObservationError>>),
 }
 
 enum Completion {
@@ -132,21 +135,54 @@ impl TechnicalObservationActor {
         cache_root: impl Into<PathBuf>,
     ) -> Result<Self, TechnicalObservationError> {
         let cache = ContentAddressedStore::open(cache_root)?;
-        Self::spawn_with_store(catalog, cache)
+        Self::spawn_with_store_mode(catalog, cache, false)
+    }
+
+    /// Starts one bounded observation worker with monotonic phase profiling.
+    ///
+    /// Profiling is explicit so the default worker performs no per-job clock
+    /// reads. Retrieve the aggregate with [`Self::shutdown_with_performance`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the cache root cannot be opened or the worker
+    /// thread cannot be created.
+    pub fn spawn_profiled(
+        catalog: CatalogHandle,
+        cache_root: impl Into<PathBuf>,
+    ) -> Result<Self, TechnicalObservationError> {
+        let cache = ContentAddressedStore::open(cache_root)?;
+        Self::spawn_with_store_mode(catalog, cache, true)
     }
 
     pub(crate) fn spawn_with_store(
         catalog: CatalogHandle,
         cache: ContentAddressedStore,
     ) -> Result<Self, TechnicalObservationError> {
+        Self::spawn_with_store_mode(catalog, cache, false)
+    }
+
+    pub(crate) fn spawn_with_store_profiled(
+        catalog: CatalogHandle,
+        cache: ContentAddressedStore,
+    ) -> Result<Self, TechnicalObservationError> {
+        Self::spawn_with_store_mode(catalog, cache, true)
+    }
+
+    fn spawn_with_store_mode(
+        catalog: CatalogHandle,
+        cache: ContentAddressedStore,
+        profiled: bool,
+    ) -> Result<Self, TechnicalObservationError> {
         let (sender, receiver) = mpsc::sync_channel(OBSERVATION_QUEUE_CAPACITY);
         let join_handle = thread::Builder::new()
             .name("shadow-technical-observer".to_owned())
-            .spawn(move || run_worker(&catalog, &cache, &receiver))
+            .spawn(move || run_worker(&catalog, &cache, &receiver, profiled))
             .map_err(TechnicalObservationError::WorkerStart)?;
         Ok(Self {
             handle: TechnicalObservationHandle { sender },
             join_handle: Some(join_handle),
+            profiled,
         })
     }
 
@@ -160,12 +196,29 @@ impl TechnicalObservationActor {
     ///
     /// Returns an error if the worker disconnected or panicked.
     pub fn shutdown(mut self) -> Result<(), TechnicalObservationError> {
+        self.stop_and_join().map(|_| ())
+    }
+
+    /// Drains submitted observations and returns the terminal phase aggregate.
+    ///
+    /// A worker created by [`Self::spawn`] returns a disabled, empty aggregate;
+    /// only [`Self::spawn_profiled`] performs per-job monotonic clock reads.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the worker disconnected or panicked.
+    pub fn shutdown_with_performance(
+        mut self,
+    ) -> Result<TechnicalPerformance, TechnicalObservationError> {
         self.stop_and_join()
     }
 
-    fn stop_and_join(&mut self) -> Result<(), TechnicalObservationError> {
+    fn stop_and_join(&mut self) -> Result<TechnicalPerformance, TechnicalObservationError> {
         let Some(join_handle) = self.join_handle.take() else {
-            return Ok(());
+            return Ok(TechnicalPerformance {
+                profiled: self.profiled,
+                ..TechnicalPerformance::default()
+            });
         };
         let (response_sender, response_receiver) = mpsc::sync_channel(0);
         if self
@@ -276,21 +329,40 @@ fn run_worker(
     catalog: &CatalogHandle,
     cache: &ContentAddressedStore,
     receiver: &Receiver<Message>,
+    profiled: bool,
 ) {
     let mut first_unobserved_error = None;
+    let mut performance = TechnicalPerformance {
+        profiled,
+        ..TechnicalPerformance::default()
+    };
     while let Ok(message) = receiver.recv() {
         match message {
             Message::Observe(artifact, completion) => {
-                let result = observe_cached_artifact(catalog, cache, artifact.as_ref());
+                let result = measure_if(
+                    profiled,
+                    &mut performance.technical_observation_total,
+                    || observe_cached_artifact(catalog, cache, artifact.as_ref()),
+                );
                 complete_observation(completion, result, &mut first_unobserved_error);
             }
             Message::ObservePreferred(representation_id, expected_source, completion) => {
-                let result =
-                    observe_preferred_artifact(catalog, cache, representation_id, expected_source);
+                let result = measure_if(
+                    profiled,
+                    &mut performance.technical_observation_total,
+                    || {
+                        observe_preferred_artifact(
+                            catalog,
+                            cache,
+                            representation_id,
+                            expected_source,
+                        )
+                    },
+                );
                 complete_observation(completion, result, &mut first_unobserved_error);
             }
             Message::Shutdown(response) => {
-                let result = first_unobserved_error.map_or(Ok(()), Err);
+                let result = first_unobserved_error.map_or(Ok(performance), Err);
                 let _ = response.send(result);
                 break;
             }
@@ -431,8 +503,8 @@ mod tests {
             generated_artifact,
             preferred_artifact,
         } = observation_fixture();
-        let observer = TechnicalObservationActor::spawn(catalog.clone(), &cache_root)
-            .expect("start technical observer");
+        let observer = TechnicalObservationActor::spawn_profiled(catalog.clone(), &cache_root)
+            .expect("start profiled technical observer");
         let outcome = observer
             .handle()
             .submit_preferred(representation_id, source)
@@ -440,7 +512,11 @@ mod tests {
             .wait()
             .expect("observe JPEG");
         assert_eq!(outcome, TechnicalObservationOutcome::Recorded);
-        observer.shutdown().expect("stop technical observer");
+        let performance = observer
+            .shutdown_with_performance()
+            .expect("stop profiled technical observer");
+        assert!(performance.profiled);
+        assert_eq!(performance.technical_observation_total.samples, 1);
 
         let revision =
             TechnicalObservationRevision::current(technical_analysis_preprocessing_version());

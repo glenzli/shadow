@@ -136,8 +136,8 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 text: window.workspaceIndex === 0
                     ? (window.controller.folderPath.length > 0
-                        ? window.controller.folderPath
-                        : "No library folder selected")
+                        ? "Local Library · " + window.controller.folderPath
+                        : "Local Library")
                     : (window.editor.sourcePath.length > 0
                         ? window.editor.sourcePath
                         : "Preparing local edit session")
@@ -168,14 +168,27 @@ ApplicationWindow {
             Button {
                 id: folderButton
                 visible: window.workspaceIndex === 0
-                text: window.controller.busy
-                    ? "SCANNING…"
+                text: window.controller.scanning
+                    ? (window.controller.scanProgress.phase === "cancelling"
+                        ? "STOPPING…" : "STOP IMPORT")
+                    : window.controller.refreshing
+                    ? "REFRESHING…"
+                    : window.controller.busy
+                    ? "LOADING…"
                     : window.controller.comparisonBusy ? "RECORDING…"
-                    : window.controller.decisionBusy ? "SAVING…" : "CHOOSE FOLDER"
-                enabled: !window.controller.busy && !window.controller.loadingMore
-                    && !window.controller.comparisonBusy
-                    && !window.controller.decisionBusy
-                onClicked: reviewWorkspace.chooseFolder()
+                    : window.controller.decisionBusy ? "SAVING…" : "ADD FOLDER"
+                enabled: window.controller.scanning
+                    ? window.controller.scanProgress.phase !== "cancelling"
+                    : !window.controller.refreshing
+                        && !window.controller.busy && !window.controller.loadingMore
+                        && !window.controller.comparisonBusy
+                        && !window.controller.decisionBusy
+                onClicked: {
+                    if (window.controller.scanning)
+                        window.controller.cancelScan()
+                    else
+                        reviewWorkspace.chooseFolder()
+                }
 
                 background: Rectangle {
                     radius: 4
@@ -256,7 +269,9 @@ ApplicationWindow {
                 Layout.preferredWidth: 15
                 Layout.preferredHeight: 15
                 visible: window.workspaceIndex === 0
-                    ? window.controller.busy || window.controller.loadingMore
+                    ? window.controller.scanning || window.controller.refreshing
+                        || window.controller.busy
+                        || window.controller.loadingMore
                         || window.controller.comparisonBusy
                         || window.controller.decisionBusy
                     : window.editor.busy

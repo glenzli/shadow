@@ -105,6 +105,16 @@ namespace {
     );
 }
 
+[[nodiscard]] int review_grid_count(QQmlApplicationEngine& engine) {
+    if (engine.rootObjects().isEmpty()) {
+        return 0;
+    }
+    const auto* const grid = engine.rootObjects().front()->findChild<QObject*>(
+        QStringLiteral("reviewGrid")
+    );
+    return grid == nullptr ? 0 : grid->property("count").toInt();
+}
+
 [[nodiscard]] bool qml_preview_is_ready(
     QQmlApplicationEngine& engine,
     const QString& source
@@ -492,6 +502,15 @@ int main(int argc, char* argv[]) {
     const bool full_detail_smoke = qEnvironmentVariableIsSet(
         "SHADOW_DESKTOP_FULL_DETAIL_SMOKE"
     );
+    const bool streaming_scan_smoke = qEnvironmentVariableIsSet(
+        "SHADOW_DESKTOP_STREAMING_SCAN_SMOKE"
+    );
+    const bool reopen_library_smoke = qEnvironmentVariableIsSet(
+        "SHADOW_DESKTOP_REOPEN_LIBRARY_SMOKE"
+    );
+    const bool cancel_scan_smoke = qEnvironmentVariableIsSet(
+        "SHADOW_DESKTOP_CANCEL_SCAN_SMOKE"
+    );
     if (open_first_edit && !record_first_comparison && !set_first_decision) {
         QObject::connect(
             &controller,
@@ -580,6 +599,7 @@ int main(int argc, char* argv[]) {
             [&controller, decision_requested]() {
                 auto* model = controller.reviewModel();
                 if (*decision_requested || model->rowCount() == 0
+                    || controller.scanning() || controller.refreshing()
                     || controller.decisionBusy()) {
                     return;
                 }
@@ -596,7 +616,187 @@ int main(int argc, char* argv[]) {
         controller.scanFolder(QUrl::fromLocalFile(initial_folder));
     }
     if (qEnvironmentVariableIsSet("SHADOW_DESKTOP_SMOKE_TEST")) {
-        if (record_first_comparison) {
+        if (cancel_scan_smoke) {
+            auto cancel_requested = std::make_shared<bool>(false);
+            auto succeeded = std::make_shared<bool>(false);
+            QObject::connect(
+                &controller,
+                &ReviewController::scanProgressChanged,
+                &application,
+                [&controller, cancel_requested]() {
+                    if (*cancel_requested || !controller.scanning()
+                        || controller.scanProgress()
+                               .value(QStringLiteral("filesSeen"))
+                               .toULongLong()
+                            == 0) {
+                        return;
+                    }
+                    *cancel_requested = true;
+                    controller.cancelScan();
+                }
+            );
+            const auto finish_cancel_smoke = [
+                &application,
+                &controller,
+                cancel_requested,
+                succeeded
+            ]() {
+                if (*succeeded || !*cancel_requested || controller.scanning()
+                    || controller.refreshing()
+                    || controller.statusText().startsWith(
+                        QStringLiteral("Final Library refresh failed")
+                    )
+                    || controller.scanProgress()
+                           .value(QStringLiteral("phase"))
+                           .toString()
+                        != QStringLiteral("cancelled")) {
+                    return;
+                }
+                *succeeded = true;
+                qInfo() << "Cooperative import cancellation smoke passed";
+                QTimer::singleShot(50, &application, &QCoreApplication::quit);
+            };
+            QObject::connect(
+                &controller,
+                &ReviewController::itemCountChanged,
+                &application,
+                finish_cancel_smoke
+            );
+            QObject::connect(
+                &controller,
+                &ReviewController::refreshingChanged,
+                &application,
+                finish_cancel_smoke
+            );
+            QTimer::singleShot(30'000, &application, [
+                &application,
+                cancel_requested,
+                succeeded
+            ]() {
+                if (!*succeeded) {
+                    qCritical() << "Cooperative import cancellation smoke failed"
+                                << "requested" << *cancel_requested;
+                    application.exit(EXIT_FAILURE);
+                }
+            });
+        } else if (streaming_scan_smoke) {
+            auto early_model_visible = std::make_shared<bool>(false);
+            auto early_qml_visible = std::make_shared<bool>(false);
+            auto succeeded = std::make_shared<bool>(false);
+            auto evaluate = std::make_shared<std::function<void()>>();
+            *evaluate = [
+                &application,
+                &controller,
+                &engine,
+                early_model_visible,
+                early_qml_visible,
+                succeeded
+            ]() {
+                if (*succeeded || !*early_model_visible || !*early_qml_visible
+                    || controller.scanning() || controller.refreshing()
+                    || controller.reviewModel()->rowCount() == 0
+                    || review_grid_count(engine) == 0
+                    || controller.statusText().startsWith(
+                        QStringLiteral("Final Library refresh failed")
+                    )
+                    || controller.scanProgress()
+                           .value(QStringLiteral("phase"))
+                           .toString()
+                        != QStringLiteral("completed")) {
+                    return;
+                }
+                *succeeded = true;
+                qInfo() << "Streaming import smoke displayed the first page before completion";
+                QTimer::singleShot(50, &application, &QCoreApplication::quit);
+            };
+            QObject::connect(
+                &controller,
+                &ReviewController::itemCountChanged,
+                &application,
+                [
+                    &application,
+                    &controller,
+                    &engine,
+                    early_model_visible,
+                    early_qml_visible,
+                    evaluate
+                ]() {
+                    if (controller.scanning()
+                        && controller.reviewModel()->rowCount() > 0) {
+                        *early_model_visible = true;
+                        QTimer::singleShot(
+                            0,
+                            &application,
+                            [&controller, &engine, early_qml_visible, evaluate]() {
+                                if (controller.scanning()
+                                    && controller.reviewModel()->rowCount() > 0
+                                    && review_grid_count(engine) > 0) {
+                                    *early_qml_visible = true;
+                                }
+                                (*evaluate)();
+                            }
+                        );
+                    }
+                    (*evaluate)();
+                }
+            );
+            QObject::connect(
+                &controller,
+                &ReviewController::scanningChanged,
+                &application,
+                [evaluate]() { (*evaluate)(); }
+            );
+            QObject::connect(
+                &controller,
+                &ReviewController::refreshingChanged,
+                &application,
+                [evaluate]() { (*evaluate)(); }
+            );
+            QTimer::singleShot(120'000, &application, [
+                &application,
+                early_model_visible,
+                early_qml_visible,
+                succeeded
+            ]() {
+                if (!*succeeded) {
+                    qCritical() << "Streaming import smoke failed"
+                                << "early model" << *early_model_visible
+                                << "early QML" << *early_qml_visible;
+                    application.exit(EXIT_FAILURE);
+                }
+            });
+        } else if (reopen_library_smoke) {
+            auto succeeded = std::make_shared<bool>(false);
+            QObject::connect(
+                &controller,
+                &ReviewController::itemCountChanged,
+                &application,
+                [&application, &controller, &engine, succeeded]() {
+                    QTimer::singleShot(
+                        0,
+                        &application,
+                        [&application, &controller, &engine, succeeded]() {
+                            if (*succeeded || controller.scanning()
+                                || controller.refreshing()
+                                || controller.reviewModel()->rowCount() == 0
+                                || review_grid_count(engine) == 0) {
+                                return;
+                            }
+                            *succeeded = true;
+                            qInfo() << "Reopen smoke loaded the persisted Library without scanning";
+                            QTimer::singleShot(
+                                50,
+                                &application,
+                                &QCoreApplication::quit
+                            );
+                        }
+                    );
+                }
+            );
+            QTimer::singleShot(30'000, &application, [&application, succeeded]() {
+                application.exit(*succeeded ? EXIT_SUCCESS : EXIT_FAILURE);
+            });
+        } else if (record_first_comparison) {
             auto comparison_succeeded = std::make_shared<bool>(false);
             QObject::connect(
                 &controller,

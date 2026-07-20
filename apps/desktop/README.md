@@ -3,10 +3,10 @@
 The first macOS Review slice is a native Qt Quick application backed by the existing Rust and C++ core:
 
 ```text
-FolderDialog / QML Review grid
-  → ReviewController (Qt UI thread + QtConcurrent job)
+startup Catalog page / Add Folder / QML Review grid
+  → ReviewController (Qt UI thread + polling timer + QtConcurrent job)
   → shadow-desktop-bridge (long-lived CXX session)
-  → shadow-core scan / decode workers
+  → shadow-core controlled scan / cancellable decode workers
   → shadow-catalog single writer
   → embedded preview or generated proxy cache
   → bounded display-luma observation worker → Catalog v9 summary
@@ -21,7 +21,9 @@ Pick / Reject / 0–5 rating command
   → forward-only current projection → append-only inverse-event undo
 ```
 
-QML never opens SQLite, calls LibRaw, or interprets blob paths. The Rust bridge returns bounded Review metadata pages using a stable path/representation cursor. Compressed visuals are not stored in the Qt model: a forced-asynchronous `QQuickImageProvider` requests a verified cache blob only when Qt needs that image and decodes only the requested display size. Every image URL carries the current model generation, so a late result from a previous folder is discarded.
+QML never opens SQLite, calls LibRaw, or interprets blob paths. The global local Library loads its existing first page at startup; Add Folder starts a separate import job and no longer clears already visible photos. The Rust bridge returns bounded Review metadata pages using a stable path/representation cursor and exposes a generation-bound progress snapshot for Qt to poll. While import is changing sort order, each live first-page snapshot is reconciled as a prefix: matching rows move or update, new rows insert, and every already loaded key outside that prefix remains in its existing tail. No pagination cursor is exposed in this phase. At terminal state Qt pages again from the stable origin until the rebuilt sorted prefix contains every still-present loaded representation, then atomically publishes that exact boundary and re-enables pagination. Compressed visuals are not stored in the Qt model: a forced-asynchronous `QQuickImageProvider` requests a verified cache blob only when Qt needs that image and decodes only the requested display size. Every image URL carries the current model generation, so a late result from an obsolete Library presentation is discarded.
+
+Import progress is intentionally absolute rather than a fabricated percentage: the scanner does not perform a separate counting walk. During active scanning the UI reports discovered/catalogued files and queued preview checks; exact completed, decode-failure, preview-failure, and cancelled-job counts are terminal summaries. The first catalogued batch can appear while enumeration and preview checks are still active, and those rows may already be opened in Precision. Manual decisions, Compare writes, Add Folder, and pagination remain disabled through the terminal stable-prefix refresh. Stop Import uses one cooperative token across enumeration and queued decode jobs; already registered assets remain durable, queued jobs skip provider work, and one in-flight provider call may finish. If cancellation reaches enumeration/catalog registration, that journal ends as `cancelled`; if it arrives only during the `PreparingPreviews` tail, enumeration may already be journaled `completed` while the desktop/FFI job still terminates `cancelled` and queued preview work stops.
 
 When the preferred cached visual is JPEG, the core also queues a maximum-512-edge
 display-luma observation on a separate bounded single-worker actor. Catalog commits
@@ -129,6 +131,8 @@ QT_QPA_PLATFORM=offscreen SHADOW_DESKTOP_SMOKE_TEST=1 \
 
 `SHADOW_DESKTOP_DATA_ROOT=/absolute/folder` overrides the local Catalog/cache directory for isolated smoke tests. Normal launches continue to use Qt's per-user application-data location.
 
+Adding `SHADOW_DESKTOP_STREAMING_SCAN_SMOKE=1` proves that both the Review model and QML Grid become non-empty while `scanning` is still true, then requires `refreshing` to settle only after the terminal stable-prefix refresh. `SHADOW_DESKTOP_CANCEL_SCAN_SMOKE=1` requests cooperative cancellation after live progress begins and likewise waits for the final Library refresh before accepting a `cancelled` terminal snapshot. After a completed scan, launch the same isolated data root without `SHADOW_DESKTOP_SCAN_FOLDER` and add `SHADOW_DESKTOP_REOPEN_LIBRARY_SMOKE=1` to prove that the persisted Library appears without rescanning.
+
 Adding `SHADOW_DESKTOP_OPEN_FIRST_EDIT=1` to a smoke run waits for the first scanned Review item, opens it through the real Precision controller, renders its scene-linear edit preview, validates all four 256-bin histogram sums and clipping bounds, and fails after 30 seconds if no generation-matched preview and analysis reach QML.
 
 Adding `SHADOW_DESKTOP_REQUEST_BEFORE=1` to that edit smoke waits for a second, lazily requested neutral-import baseline and its independent analysis sidecar. This exercises the same warm decoded session without treating the baseline as unprocessed sensor data.
@@ -158,7 +162,7 @@ Review row and records a real `Picked` decision while preserving its rating.
 Use a fresh `SHADOW_DESKTOP_DATA_ROOT` to inspect the resulting two-event ledger
 without changing a normal local Catalog.
 
-The model currently fetches 96 metadata rows per page and requests another page near the end of the grid. Scanning still completes before the first Catalog page is shown; streaming import progress and first-screen priority are separate follow-up work.
+The model fetches 96 metadata rows per page and requests another page near the end of the grid. Import publishes the first catalogued item immediately at the core boundary, then Qt polls at 150 ms and throttles live prefix reconciliation to at most every 400 ms with a 16-item stride. Pagination stays closed while paths are arriving. The terminal refresh reads stable pages from origin until it covers all keys that were already presented, so it neither drops a loaded tail nor resumes from a cursor whose preceding rows were not actually shown. An intermediate live-page failure cannot consume this terminal refresh; one explicit final attempt still runs. If that attempt fails, existing rows remain visible, pagination stays safely closed, and Add Folder or reopening Shadow can retry. Page membership is accepted before total/cursor/has-more metadata is committed. The keyed model update uses insert/move/remove/data-change signals rather than repeated model resets, preserving retained persistent indexes and avoiding unnecessary thumbnail reloads.
 
 ## Precision vertical slice
 

@@ -87,6 +87,26 @@ public:
 
     void replace(QVector<ReviewItem> items, quint64 generation);
     void append(QVector<ReviewItem> items);
+    // Appends only a current-generation page whose stable keys are unique both
+    // within the page and across the already presented rows.
+    [[nodiscard]] bool appendSnapshot(
+        QVector<ReviewItem> items,
+        quint64 generation
+    );
+    // Applies only a current-generation snapshot with unique, non-empty stable keys.
+    [[nodiscard]] bool reconcileSnapshot(
+        QVector<ReviewItem> items,
+        quint64 generation
+    );
+    // Reconciles an ordered from-origin prefix while retaining every existing
+    // row whose key is not present in that prefix. This is the live-import
+    // operation: no unstable pagination cursor is exposed while the Catalog is
+    // still changing.
+    [[nodiscard]] bool reconcilePrefixSnapshot(
+        QVector<ReviewItem> items,
+        quint64 generation
+    );
+    [[nodiscard]] QVector<QString> representationIds() const;
     [[nodiscard]] bool isGenerationCurrent(quint64 generation) const noexcept;
     [[nodiscard]] QString visualSourceFor(const QString& ticket) const;
     [[nodiscard]] std::optional<ReviewDecisionValue> decisionFor(

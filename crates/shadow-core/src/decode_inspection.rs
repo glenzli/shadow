@@ -1,11 +1,11 @@
 use std::{
     path::{Path, PathBuf},
     sync::{
-        Arc,
+        Arc, Mutex,
         mpsc::{self, Receiver, Sender, SyncSender},
     },
     thread::{self, JoinHandle},
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use shadow_cache::{CacheError, ContentAddressedStore, StoredBlob};
@@ -20,6 +20,8 @@ use shadow_domain::{
 };
 use thiserror::Error;
 
+use crate::import::ScanCancellation;
+use crate::performance::{DecodePerformance, TechnicalPerformance, measure_if};
 use crate::technical_observation::{
     TechnicalObservationActor, TechnicalObservationError, TechnicalObservationHandle,
     technical_analysis_preprocessing_version,
@@ -101,6 +103,7 @@ pub struct DecodeInspectionRequest {
 pub enum DecodeInspectionDiscardReason {
     FilesystemChanged,
     CatalogChanged,
+    Cancelled,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -128,6 +131,53 @@ pub enum PreviewCacheOutcome {
     },
     Discarded(DecodeInspectionDiscardReason),
     Failed(String),
+}
+
+/// Terminal accounting for every inspection accepted by one actor.
+///
+/// `completed` is the total number of accepted requests that reached a
+/// terminal result. The remaining counters are diagnostic subsets of that
+/// total: hard worker results, preview-only failures, and cooperative
+/// cancellation respectively.
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
+pub struct DecodeInspectionSummary {
+    pub completed: u64,
+    pub hard_failures: u64,
+    pub preview_failures: u64,
+    pub cancelled: u64,
+}
+
+/// Terminal accounting and optional phase aggregates for one decode actor.
+///
+/// Actors created with the default constructors return disabled, empty
+/// performance aggregates while preserving the exact summary contract.
+#[derive(Debug, Clone, Default, Eq, PartialEq)]
+pub struct DecodeInspectionTerminal {
+    pub summary: DecodeInspectionSummary,
+    pub decode: DecodePerformance,
+    pub technical: TechnicalPerformance,
+}
+
+impl DecodeInspectionSummary {
+    fn record(&mut self, result: &Result<DecodeInspectionOutcome, DecodeInspectionError>) {
+        self.completed = self.completed.saturating_add(1);
+        match result {
+            Err(_) => self.hard_failures = self.hard_failures.saturating_add(1),
+            Ok(
+                DecodeInspectionOutcome::Discarded(DecodeInspectionDiscardReason::Cancelled)
+                | DecodeInspectionOutcome::Recorded {
+                    preview:
+                        PreviewCacheOutcome::Discarded(DecodeInspectionDiscardReason::Cancelled),
+                    ..
+                },
+            ) => self.cancelled = self.cancelled.saturating_add(1),
+            Ok(DecodeInspectionOutcome::Recorded {
+                preview: PreviewCacheOutcome::Failed(_),
+                ..
+            }) => self.preview_failures = self.preview_failures.saturating_add(1),
+            Ok(_) => {}
+        }
+    }
 }
 
 #[derive(Debug, Error)]
@@ -161,16 +211,19 @@ pub struct DecodeInspectionActor {
     handle: DecodeInspectionHandle,
     join_handle: Option<JoinHandle<()>>,
     technical_observer: Option<TechnicalObservationActor>,
+    profiled: bool,
 }
 
 #[derive(Debug, Clone)]
 pub struct DecodeInspectionHandle {
     sender: SyncSender<Message>,
+    state: Arc<Mutex<DecodeInspectionState>>,
     provider_id: Arc<str>,
     provider_version: Arc<str>,
     proxy_variant_key: Arc<str>,
     technical_preprocessing_version: Option<Arc<str>>,
     caches_previews: bool,
+    profiled: bool,
 }
 
 #[derive(Debug)]
@@ -178,12 +231,27 @@ pub struct DecodeInspectionTicket {
     receiver: Receiver<Result<DecodeInspectionOutcome, DecodeInspectionError>>,
 }
 
+#[derive(Debug, Default)]
+struct DecodeInspectionState {
+    stopping: bool,
+    summary: DecodeInspectionSummary,
+}
+
 enum Message {
-    Inspect(
-        DecodeInspectionRequest,
-        Sender<Result<DecodeInspectionOutcome, DecodeInspectionError>>,
-    ),
-    Shutdown(SyncSender<()>),
+    Inspect(InspectionMessage),
+    Shutdown(SyncSender<DecodePerformance>),
+}
+
+struct InspectionMessage {
+    request: DecodeInspectionRequest,
+    cancellation: ScanCancellation,
+    response: Sender<Result<DecodeInspectionOutcome, DecodeInspectionError>>,
+    enqueued_at: Option<Instant>,
+}
+
+pub(crate) struct DecodeInspectionSubmission {
+    pub ticket: DecodeInspectionTicket,
+    pub queue_full_events: u64,
 }
 
 impl DecodeInspectionActor {
@@ -201,7 +269,20 @@ impl DecodeInspectionActor {
         catalog: CatalogHandle,
         inspector: impl DecodeInspector,
     ) -> Result<Self, DecodeInspectionError> {
-        Self::spawn_inner(catalog, inspector, None)
+        Self::spawn_inner(catalog, inspector, None, false)
+    }
+
+    /// Starts a decode worker with monotonic phase profiling enabled.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DecodeInspectionError::WorkerStart`] when the worker thread
+    /// cannot be created.
+    pub fn spawn_profiled(
+        catalog: CatalogHandle,
+        inspector: impl DecodeInspector,
+    ) -> Result<Self, DecodeInspectionError> {
+        Self::spawn_inner(catalog, inspector, None, true)
     }
 
     /// Starts a decode worker that also writes selected embedded previews into
@@ -217,13 +298,46 @@ impl DecodeInspectionActor {
         cache_root: impl Into<PathBuf>,
     ) -> Result<Self, DecodeInspectionError> {
         let cache = ContentAddressedStore::open(cache_root)?;
-        Self::spawn_inner(catalog, inspector, Some(cache))
+        Self::spawn_inner(catalog, inspector, Some(cache), false)
+    }
+
+    /// Starts a cached decode worker with monotonic decode and technical-
+    /// observation phase profiling enabled.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DecodeInspectionError`] when the cache root or either worker
+    /// cannot be initialized.
+    pub fn spawn_with_cache_profiled(
+        catalog: CatalogHandle,
+        inspector: impl DecodeInspector,
+        cache_root: impl Into<PathBuf>,
+    ) -> Result<Self, DecodeInspectionError> {
+        let cache = ContentAddressedStore::open(cache_root)?;
+        Self::spawn_inner(catalog, inspector, Some(cache), true)
     }
 
     fn spawn_inner(
         catalog: CatalogHandle,
         inspector: impl DecodeInspector,
         cache: Option<ContentAddressedStore>,
+        profiled: bool,
+    ) -> Result<Self, DecodeInspectionError> {
+        Self::spawn_inner_with_capacity(
+            catalog,
+            inspector,
+            cache,
+            profiled,
+            INSPECTION_QUEUE_CAPACITY,
+        )
+    }
+
+    fn spawn_inner_with_capacity(
+        catalog: CatalogHandle,
+        inspector: impl DecodeInspector,
+        cache: Option<ContentAddressedStore>,
+        profiled: bool,
+        queue_capacity: usize,
     ) -> Result<Self, DecodeInspectionError> {
         let provider_id = Arc::<str>::from(inspector.provider_id());
         let provider_version = Arc::<str>::from(inspector.provider_version());
@@ -232,7 +346,14 @@ impl DecodeInspectionActor {
         let technical_observer = cache
             .as_ref()
             .map(|cache| {
-                TechnicalObservationActor::spawn_with_store(catalog.clone(), cache.clone())
+                if profiled {
+                    TechnicalObservationActor::spawn_with_store_profiled(
+                        catalog.clone(),
+                        cache.clone(),
+                    )
+                } else {
+                    TechnicalObservationActor::spawn_with_store(catalog.clone(), cache.clone())
+                }
             })
             .transpose()?;
         let technical_handle = technical_observer
@@ -241,7 +362,9 @@ impl DecodeInspectionActor {
         let technical_preprocessing_version = technical_handle
             .as_ref()
             .map(|_| Arc::<str>::from(technical_analysis_preprocessing_version()));
-        let (sender, receiver) = mpsc::sync_channel(INSPECTION_QUEUE_CAPACITY);
+        let (sender, receiver) = mpsc::sync_channel(queue_capacity);
+        let state = Arc::new(Mutex::new(DecodeInspectionState::default()));
+        let worker_state = Arc::clone(&state);
         let join_handle = thread::Builder::new()
             .name("shadow-decode-inspector".to_owned())
             .spawn(move || {
@@ -251,20 +374,25 @@ impl DecodeInspectionActor {
                     cache.as_ref(),
                     technical_handle.as_ref(),
                     &receiver,
+                    &worker_state,
+                    profiled,
                 );
             })
             .map_err(DecodeInspectionError::WorkerStart)?;
         Ok(Self {
             handle: DecodeInspectionHandle {
                 sender,
+                state,
                 provider_id,
                 provider_version,
                 proxy_variant_key,
                 technical_preprocessing_version,
                 caches_previews,
+                profiled,
             },
             join_handle: Some(join_handle),
             technical_observer,
+            profiled,
         })
     }
 
@@ -272,43 +400,103 @@ impl DecodeInspectionActor {
         self.handle.clone()
     }
 
-    /// Drains previously submitted work, then stops the worker.
+    /// Drains submitted work, then stops the worker.
+    ///
+    /// Jobs whose shared scan token is already cancelled skip provider work,
+    /// so shutting down after a cancelled scan drains the queue quickly while
+    /// a completed scan still finishes its queued previews.
     ///
     /// # Errors
     ///
     /// Returns [`DecodeInspectionError`] if the worker disconnected or panicked.
     pub fn shutdown(mut self) -> Result<(), DecodeInspectionError> {
+        self.stop_and_join().map(|_| ())
+    }
+
+    /// Drains submitted work, stops the worker, and returns exact terminal
+    /// accounting for every accepted inspection.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DecodeInspectionError`] if either background worker
+    /// disconnects, panics, or reports a detached observation failure.
+    pub fn shutdown_with_summary(
+        mut self,
+    ) -> Result<DecodeInspectionSummary, DecodeInspectionError> {
+        self.stop_and_join().map(|terminal| terminal.summary)
+    }
+
+    /// Drains all submitted work and returns the summary plus profiled phase
+    /// aggregates.
+    ///
+    /// Default constructors preserve compatibility by returning disabled,
+    /// empty performance aggregates. Profiled constructors are the only paths
+    /// that perform per-job monotonic clock reads.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DecodeInspectionError`] if either background worker
+    /// disconnects, panics, or reports a detached observation failure.
+    pub fn shutdown_with_performance(
+        mut self,
+    ) -> Result<DecodeInspectionTerminal, DecodeInspectionError> {
         self.stop_and_join()
     }
 
-    fn stop_and_join(&mut self) -> Result<(), DecodeInspectionError> {
-        let decode_result = self.join_handle.take().map_or(Ok(()), |join_handle| {
-            let (response_sender, response_receiver) = mpsc::sync_channel(0);
-            if self
+    fn stop_and_join(&mut self) -> Result<DecodeInspectionTerminal, DecodeInspectionError> {
+        {
+            let mut state = self
                 .handle
-                .sender
-                .send(Message::Shutdown(response_sender))
-                .is_err()
-            {
-                return match join_handle.join() {
-                    Ok(()) => Err(DecodeInspectionError::WorkerUnavailable),
-                    Err(_) => Err(DecodeInspectionError::WorkerPanicked),
-                };
-            }
-            let acknowledged = response_receiver.recv();
-            if join_handle.join().is_err() {
-                return Err(DecodeInspectionError::WorkerPanicked);
-            }
-            acknowledged.map_err(|_| DecodeInspectionError::WorkerUnavailable)
-        });
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            state.stopping = true;
+        }
+        let decode_result = self.join_handle.take().map_or_else(
+            || {
+                Ok(DecodePerformance {
+                    profiled: self.profiled,
+                    ..DecodePerformance::default()
+                })
+            },
+            |join_handle| {
+                let (response_sender, response_receiver) = mpsc::sync_channel(0);
+                if self
+                    .handle
+                    .sender
+                    .send(Message::Shutdown(response_sender))
+                    .is_err()
+                {
+                    return match join_handle.join() {
+                        Ok(()) => Err(DecodeInspectionError::WorkerUnavailable),
+                        Err(_) => Err(DecodeInspectionError::WorkerPanicked),
+                    };
+                }
+                let acknowledged = response_receiver.recv();
+                if join_handle.join().is_err() {
+                    return Err(DecodeInspectionError::WorkerPanicked);
+                }
+                acknowledged.map_err(|_| DecodeInspectionError::WorkerUnavailable)
+            },
+        );
         let observation_result = self
             .technical_observer
             .take()
-            .map(TechnicalObservationActor::shutdown)
-            .transpose();
-        decode_result?;
-        observation_result?;
-        Ok(())
+            .map(TechnicalObservationActor::shutdown_with_performance)
+            .transpose()
+            .map(Option::unwrap_or_default);
+        let decode = decode_result?;
+        let technical = observation_result?;
+        let state = self
+            .handle
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        Ok(DecodeInspectionTerminal {
+            summary: state.summary,
+            decode,
+            technical,
+        })
     }
 }
 
@@ -351,12 +539,96 @@ impl DecodeInspectionHandle {
         &self,
         request: DecodeInspectionRequest,
     ) -> Result<DecodeInspectionTicket, DecodeInspectionError> {
+        self.submit_with_cancellation(request, &ScanCancellation::new())
+    }
+
+    /// Queues an inspection governed by the same token as its parent scan.
+    ///
+    /// Waiting for space in the bounded queue remains cancellation-responsive.
+    /// A job cancelled before provider work returns a discarded outcome rather
+    /// than an error.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DecodeInspectionError::WorkerUnavailable`] after shutdown or
+    /// worker disconnection.
+    pub fn submit_with_cancellation(
+        &self,
+        request: DecodeInspectionRequest,
+        cancellation: &ScanCancellation,
+    ) -> Result<DecodeInspectionTicket, DecodeInspectionError> {
+        self.submit_with_cancellation_inner(request, cancellation, false, || {})
+            .map(|submission| submission.ticket)
+    }
+
+    pub(crate) fn submit_with_cancellation_observed(
+        &self,
+        request: DecodeInspectionRequest,
+        cancellation: &ScanCancellation,
+    ) -> Result<DecodeInspectionSubmission, DecodeInspectionError> {
+        self.submit_with_cancellation_inner(request, cancellation, true, || {})
+    }
+
+    fn submit_with_cancellation_inner(
+        &self,
+        request: DecodeInspectionRequest,
+        cancellation: &ScanCancellation,
+        observe_queue_full: bool,
+        mut queue_full_hook: impl FnMut(),
+    ) -> Result<DecodeInspectionSubmission, DecodeInspectionError> {
         let (response_sender, response_receiver) = mpsc::channel();
-        self.sender
-            .send(Message::Inspect(request, response_sender))
-            .map_err(|_| DecodeInspectionError::WorkerUnavailable)?;
-        Ok(DecodeInspectionTicket {
-            receiver: response_receiver,
+        let mut message = Message::Inspect(InspectionMessage {
+            request,
+            cancellation: cancellation.clone(),
+            response: response_sender,
+            enqueued_at: self.profiled.then(Instant::now),
+        });
+        let mut queue_full_events = 0_u64;
+        loop {
+            let mut state = self
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if state.stopping {
+                return Err(DecodeInspectionError::WorkerUnavailable);
+            }
+            if cancellation.is_cancelled() {
+                if let Message::Inspect(InspectionMessage { response, .. }) = message {
+                    let result = Ok(DecodeInspectionOutcome::Discarded(
+                        DecodeInspectionDiscardReason::Cancelled,
+                    ));
+                    state.summary.record(&result);
+                    let _ = response.send(result);
+                }
+                break;
+            }
+            let send_result = self.sender.try_send(message);
+            drop(state);
+            match send_result {
+                Ok(()) => break,
+                Err(mpsc::TrySendError::Full(mut returned)) => {
+                    if observe_queue_full {
+                        queue_full_events = queue_full_events.saturating_add(1);
+                    }
+                    queue_full_hook();
+                    thread::park_timeout(Duration::from_millis(1));
+                    if let Message::Inspect(inspection) = &mut returned
+                        && inspection.enqueued_at.is_some()
+                    {
+                        inspection.enqueued_at = Some(Instant::now());
+                    }
+                    message = returned;
+                }
+                Err(mpsc::TrySendError::Disconnected(_)) => {
+                    return Err(DecodeInspectionError::WorkerUnavailable);
+                }
+            }
+        }
+        Ok(DecodeInspectionSubmission {
+            ticket: DecodeInspectionTicket {
+                receiver: response_receiver,
+            },
+            queue_full_events,
         })
     }
 }
@@ -414,21 +686,43 @@ fn run_worker(
     cache: Option<&ContentAddressedStore>,
     technical_observer: Option<&TechnicalObservationHandle>,
     receiver: &Receiver<Message>,
+    state: &Mutex<DecodeInspectionState>,
+    profiled: bool,
 ) {
+    let mut performance = DecodePerformance {
+        profiled,
+        ..DecodePerformance::default()
+    };
     while let Ok(message) = receiver.recv() {
         match message {
-            Message::Inspect(request, response) => {
-                let result = inspect_and_record(
-                    catalog,
-                    &mut inspector,
-                    cache,
-                    technical_observer,
-                    &request,
-                );
-                let _ = response.send(result);
+            Message::Inspect(inspection) => {
+                if let Some(enqueued_at) = inspection.enqueued_at {
+                    performance.queue_wait.record(enqueued_at.elapsed());
+                }
+                let result = if inspection.cancellation.is_cancelled() {
+                    Ok(DecodeInspectionOutcome::Discarded(
+                        DecodeInspectionDiscardReason::Cancelled,
+                    ))
+                } else {
+                    inspect_and_record(
+                        catalog,
+                        &mut inspector,
+                        cache,
+                        technical_observer,
+                        &inspection.request,
+                        &inspection.cancellation,
+                        &mut performance,
+                    )
+                };
+                state
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .summary
+                    .record(&result);
+                let _ = inspection.response.send(result);
             }
             Message::Shutdown(response) => {
-                let _ = response.send(());
+                let _ = response.send(performance);
                 break;
             }
         }
@@ -441,20 +735,33 @@ fn inspect_and_record(
     cache: Option<&ContentAddressedStore>,
     technical_observer: Option<&TechnicalObservationHandle>,
     request: &DecodeInspectionRequest,
+    cancellation: &ScanCancellation,
+    performance: &mut DecodePerformance,
 ) -> Result<DecodeInspectionOutcome, DecodeInspectionError> {
-    if read_source_fingerprint(&request.path)? != request.expected_source {
+    if cancellation.is_cancelled() {
+        return Ok(cancelled_outcome());
+    }
+    if read_source_fingerprint_profiled(&request.path, performance)? != request.expected_source {
         return Ok(DecodeInspectionOutcome::Discarded(
             DecodeInspectionDiscardReason::FilesystemChanged,
         ));
     }
 
-    let snapshot =
-        inspector
-            .inspect(&request.path)
-            .map_err(|message| DecodeInspectionError::Inspector {
-                path: request.path.clone(),
-                message,
-            })?;
+    if cancellation.is_cancelled() {
+        return Ok(cancelled_outcome());
+    }
+    let snapshot = measure_if(
+        performance.profiled,
+        &mut performance.provider_inspect,
+        || inspector.inspect(&request.path),
+    )
+    .map_err(|message| DecodeInspectionError::Inspector {
+        path: request.path.clone(),
+        message,
+    })?;
+    if cancellation.is_cancelled() {
+        return Ok(cancelled_outcome());
+    }
     if snapshot.provider.id != inspector.provider_id()
         || snapshot.provider.version != inspector.provider_version()
     {
@@ -470,34 +777,51 @@ fn inspect_and_record(
         });
     }
 
-    if read_source_fingerprint(&request.path)? != request.expected_source {
+    if read_source_fingerprint_profiled(&request.path, performance)? != request.expected_source {
         return Ok(DecodeInspectionOutcome::Discarded(
             DecodeInspectionDiscardReason::FilesystemChanged,
         ));
     }
+    if cancellation.is_cancelled() {
+        return Ok(cancelled_outcome());
+    }
 
     let provider_id = snapshot.provider.id.clone();
     let provider_version = snapshot.provider.version.clone();
-    let status = catalog.record_decode_snapshot(&RecordDecodeSnapshot {
-        representation_id: request.representation_id,
-        expected_source: request.expected_source,
-        snapshot,
-        inspected_at_ms: now_ms(),
-    })?;
+    let status = measure_if(
+        performance.profiled,
+        &mut performance.snapshot_catalog_commit,
+        || {
+            catalog.record_decode_snapshot(&RecordDecodeSnapshot {
+                representation_id: request.representation_id,
+                expected_source: request.expected_source,
+                snapshot,
+                inspected_at_ms: now_ms(),
+            })
+        },
+    )?;
 
     Ok(match status {
         RecordDecodeSnapshotStatus::Recorded => {
-            let preview = cache.map_or(PreviewCacheOutcome::NotRequested, |cache| {
-                cache_preview(
-                    catalog,
-                    inspector,
-                    cache,
-                    technical_observer,
-                    request,
-                    &provider_id,
-                    &provider_version,
-                )
-            });
+            let preview = if cancellation.is_cancelled() {
+                PreviewCacheOutcome::Discarded(DecodeInspectionDiscardReason::Cancelled)
+            } else {
+                cache.map_or(PreviewCacheOutcome::NotRequested, |cache| {
+                    cache_preview_with_context(
+                        inspector,
+                        PreviewCacheContext {
+                            catalog,
+                            cache,
+                            technical_observer,
+                            request,
+                            provider_id: &provider_id,
+                            provider_version: &provider_version,
+                            cancellation,
+                        },
+                        performance,
+                    )
+                })
+            };
             DecodeInspectionOutcome::Recorded {
                 provider_id,
                 provider_version,
@@ -510,32 +834,105 @@ fn inspect_and_record(
     })
 }
 
-fn cache_preview(
-    catalog: &CatalogHandle,
-    inspector: &mut impl DecodeInspector,
-    cache: &ContentAddressedStore,
-    technical_observer: Option<&TechnicalObservationHandle>,
-    request: &DecodeInspectionRequest,
-    provider_id: &str,
-    provider_version: &str,
-) -> PreviewCacheOutcome {
-    if source_changed(request) {
-        return PreviewCacheOutcome::Discarded(DecodeInspectionDiscardReason::FilesystemChanged);
-    }
-    let preview = match inspector.extract_best_preview(&request.path) {
-        Ok(preview) => preview,
-        Err(message) => return PreviewCacheOutcome::Failed(message),
-    };
-    if source_changed(request) {
-        return PreviewCacheOutcome::Discarded(DecodeInspectionDiscardReason::FilesystemChanged);
-    }
+#[derive(Debug, Copy, Clone)]
+struct PreviewCacheContext<'a> {
+    catalog: &'a CatalogHandle,
+    cache: &'a ContentAddressedStore,
+    technical_observer: Option<&'a TechnicalObservationHandle>,
+    request: &'a DecodeInspectionRequest,
+    provider_id: &'a str,
+    provider_version: &'a str,
+    cancellation: &'a ScanCancellation,
+}
 
-    let (bytes, artifact, stored_kind) = if let Some(preview) = preview {
+fn cache_preview_with_context(
+    inspector: &mut impl DecodeInspector,
+    context: PreviewCacheContext<'_>,
+    performance: &mut DecodePerformance,
+) -> PreviewCacheOutcome {
+    if context.cancellation.is_cancelled() {
+        return cancelled_preview();
+    }
+    if source_changed_profiled(context.request, performance) {
+        return PreviewCacheOutcome::Discarded(DecodeInspectionDiscardReason::FilesystemChanged);
+    }
+    let (bytes, artifact, stored_kind) =
+        match prepare_cached_visual(inspector, context, performance) {
+            Ok(prepared) => prepared,
+            Err(outcome) => return outcome,
+        };
+    if context.cancellation.is_cancelled() {
+        return cancelled_preview();
+    }
+    if source_changed_profiled(context.request, performance) {
+        return PreviewCacheOutcome::Discarded(DecodeInspectionDiscardReason::FilesystemChanged);
+    }
+    if context.cancellation.is_cancelled() {
+        return cancelled_preview();
+    }
+    let blob = match measure_if(
+        performance.profiled,
+        &mut performance.cache_blob_put,
+        || context.cache.put(&bytes),
+    ) {
+        Ok(blob) => blob,
+        Err(error) => return PreviewCacheOutcome::Failed(error.to_string()),
+    };
+    if context.cancellation.is_cancelled() {
+        return cancelled_preview();
+    }
+    if source_changed_profiled(context.request, performance) {
+        return PreviewCacheOutcome::Discarded(DecodeInspectionDiscardReason::FilesystemChanged);
+    }
+    if context.cancellation.is_cancelled() {
+        return cancelled_preview();
+    }
+    let artifact = CachedArtifact {
+        blob_algorithm: blob.digest.algorithm().to_owned(),
+        blob_digest: *blob.digest.as_bytes(),
+        blob_byte_len: blob.byte_len,
+        created_at_ms: now_ms(),
+        ..artifact
+    };
+    record_cached_visual(
+        context.catalog,
+        context.technical_observer,
+        context.request,
+        artifact,
+        stored_kind,
+        &blob,
+        performance,
+    )
+}
+
+fn prepare_cached_visual(
+    inspector: &mut impl DecodeInspector,
+    context: PreviewCacheContext<'_>,
+    performance: &mut DecodePerformance,
+) -> Result<(Vec<u8>, CachedArtifact, CachedVisualKind), PreviewCacheOutcome> {
+    if context.cancellation.is_cancelled() {
+        return Err(cancelled_preview());
+    }
+    let preview = measure_if(
+        performance.profiled,
+        &mut performance.embedded_preview_extract,
+        || inspector.extract_best_preview(&context.request.path),
+    )
+    .map_err(PreviewCacheOutcome::Failed)?;
+    if context.cancellation.is_cancelled() {
+        return Err(cancelled_preview());
+    }
+    if source_changed_profiled(context.request, performance) {
+        return Err(PreviewCacheOutcome::Discarded(
+            DecodeInspectionDiscardReason::FilesystemChanged,
+        ));
+    }
+    if let Some(preview) = preview {
         let artifact = CachedArtifact {
             role: CachedArtifactRole::EmbeddedPreview,
-            variant_key: provider_id.to_owned(),
-            generator_id: provider_id.to_owned(),
-            generator_version: provider_version.to_owned(),
+            variant_key: context.provider_id.to_owned(),
+            generator_id: context.provider_id.to_owned(),
+            generator_version: context.provider_version.to_owned(),
             provider_preview_id: Some(preview.descriptor.provider_id),
             blob_algorithm: String::new(),
             blob_digest: [0; 32],
@@ -547,61 +944,49 @@ fn cache_preview(
             channels: preview.descriptor.channels,
             created_at_ms: 0,
         };
-        (preview.bytes, artifact, CachedVisualKind::EmbeddedPreview)
-    } else {
-        let proxy = match inspector.render_proxy(&request.path) {
-            Ok(Some(proxy)) => proxy,
-            Ok(None) => return PreviewCacheOutcome::NoVisualAvailable,
-            Err(message) => return PreviewCacheOutcome::Failed(message),
-        };
-        let dimensions = proxy.dimensions;
-        let artifact = CachedArtifact {
-            role: CachedArtifactRole::GeneratedProxy,
-            variant_key: inspector.proxy_variant_key().to_owned(),
-            generator_id: provider_id.to_owned(),
-            generator_version: provider_version.to_owned(),
-            provider_preview_id: None,
-            blob_algorithm: String::new(),
-            blob_digest: [0; 32],
-            blob_byte_len: 0,
-            codec: proxy.codec,
-            byte_order: PreviewByteOrder::NotApplicable,
-            dimensions,
-            bits_per_channel: proxy.bits_per_channel,
-            channels: proxy.channels,
-            created_at_ms: 0,
-        };
-        (
-            proxy.bytes,
-            artifact,
-            CachedVisualKind::GeneratedProxy(dimensions),
-        )
-    };
-    if source_changed(request) {
-        return PreviewCacheOutcome::Discarded(DecodeInspectionDiscardReason::FilesystemChanged);
+        return Ok((preview.bytes, artifact, CachedVisualKind::EmbeddedPreview));
     }
-    let blob = match cache.put(&bytes) {
-        Ok(blob) => blob,
-        Err(error) => return PreviewCacheOutcome::Failed(error.to_string()),
-    };
-    if source_changed(request) {
-        return PreviewCacheOutcome::Discarded(DecodeInspectionDiscardReason::FilesystemChanged);
+    if context.cancellation.is_cancelled() {
+        return Err(cancelled_preview());
     }
+    let proxy = measure_if(performance.profiled, &mut performance.proxy_render, || {
+        inspector.render_proxy(&context.request.path)
+    })
+    .map_err(PreviewCacheOutcome::Failed)?
+    .ok_or(PreviewCacheOutcome::NoVisualAvailable)?;
+    if context.cancellation.is_cancelled() {
+        return Err(cancelled_preview());
+    }
+    let dimensions = proxy.dimensions;
     let artifact = CachedArtifact {
-        blob_algorithm: blob.digest.algorithm().to_owned(),
-        blob_digest: *blob.digest.as_bytes(),
-        blob_byte_len: blob.byte_len,
-        created_at_ms: now_ms(),
-        ..artifact
+        role: CachedArtifactRole::GeneratedProxy,
+        variant_key: inspector.proxy_variant_key().to_owned(),
+        generator_id: context.provider_id.to_owned(),
+        generator_version: context.provider_version.to_owned(),
+        provider_preview_id: None,
+        blob_algorithm: String::new(),
+        blob_digest: [0; 32],
+        blob_byte_len: 0,
+        codec: proxy.codec,
+        byte_order: PreviewByteOrder::NotApplicable,
+        dimensions,
+        bits_per_channel: proxy.bits_per_channel,
+        channels: proxy.channels,
+        created_at_ms: 0,
     };
-    record_cached_visual(
-        catalog,
-        technical_observer,
-        request,
+    Ok((
+        proxy.bytes,
         artifact,
-        stored_kind,
-        &blob,
-    )
+        CachedVisualKind::GeneratedProxy(dimensions),
+    ))
+}
+
+fn cancelled_outcome() -> DecodeInspectionOutcome {
+    DecodeInspectionOutcome::Discarded(DecodeInspectionDiscardReason::Cancelled)
+}
+
+fn cancelled_preview() -> PreviewCacheOutcome {
+    PreviewCacheOutcome::Discarded(DecodeInspectionDiscardReason::Cancelled)
 }
 
 fn record_cached_visual(
@@ -611,17 +996,32 @@ fn record_cached_visual(
     artifact: CachedArtifact,
     stored_kind: CachedVisualKind,
     blob: &StoredBlob,
+    performance: &mut DecodePerformance,
 ) -> PreviewCacheOutcome {
-    let status = catalog.record_cached_artifact(&RecordCachedArtifact {
-        representation_id: request.representation_id,
-        expected_source: request.expected_source,
-        artifact,
-    });
+    let status = measure_if(
+        performance.profiled,
+        &mut performance.cache_artifact_catalog_commit,
+        || {
+            catalog.record_cached_artifact(&RecordCachedArtifact {
+                representation_id: request.representation_id,
+                expected_source: request.expected_source,
+                artifact,
+            })
+        },
+    );
     match status {
         Ok(RecordCachedArtifactStatus::Recorded) => {
             if let Some(observer) = technical_observer {
-                let _ = observer
-                    .submit_preferred_detached(request.representation_id, request.expected_source);
+                let _ = measure_if(
+                    performance.profiled,
+                    &mut performance.technical_submit_wait,
+                    || {
+                        observer.submit_preferred_detached(
+                            request.representation_id,
+                            request.expected_source,
+                        )
+                    },
+                );
             }
             match stored_kind {
                 CachedVisualKind::EmbeddedPreview => PreviewCacheOutcome::StoredEmbeddedPreview {
@@ -650,14 +1050,28 @@ enum CachedVisualKind {
     GeneratedProxy(ImageDimensions),
 }
 
-fn source_changed(request: &DecodeInspectionRequest) -> bool {
-    fingerprint_source(&request.path).map_or(true, |current| current != request.expected_source)
+fn source_changed_profiled(
+    request: &DecodeInspectionRequest,
+    performance: &mut DecodePerformance,
+) -> bool {
+    measure_if(
+        performance.profiled,
+        &mut performance.source_guard_stat,
+        || fingerprint_source(&request.path),
+    )
+    .map_or(true, |current| current != request.expected_source)
 }
 
-fn read_source_fingerprint(
+fn read_source_fingerprint_profiled(
     path: &Path,
+    performance: &mut DecodePerformance,
 ) -> Result<RepresentationFingerprint, DecodeInspectionError> {
-    fingerprint_source(path).map_err(|source| DecodeInspectionError::SourceMetadata {
+    measure_if(
+        performance.profiled,
+        &mut performance.source_guard_stat,
+        || fingerprint_source(path),
+    )
+    .map_err(|source| DecodeInspectionError::SourceMetadata {
         path: path.to_path_buf(),
         source,
     })
@@ -674,7 +1088,14 @@ fn now_ms() -> i64 {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, sync::mpsc};
+    use std::{
+        fs,
+        sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+            mpsc,
+        },
+    };
 
     use shadow_catalog::{CatalogActor, RegisterAsset};
     use shadow_domain::{
@@ -745,7 +1166,223 @@ mod tests {
         assert_eq!(snapshots.len(), 1);
         assert_eq!(snapshots[0].snapshot, sample_snapshot());
 
-        worker.shutdown().expect("shutdown inspector");
+        let terminal = worker
+            .shutdown_with_performance()
+            .expect("shutdown default inspector with terminal profile");
+        assert_eq!(
+            terminal.summary,
+            DecodeInspectionSummary {
+                completed: 2,
+                hard_failures: 0,
+                preview_failures: 0,
+                cancelled: 0,
+            }
+        );
+        assert!(!terminal.decode.profiled);
+        assert_eq!(terminal.decode, DecodePerformance::default());
+        assert_eq!(terminal.technical, TechnicalPerformance::default());
+        actor.shutdown().expect("shutdown catalog");
+    }
+
+    #[test]
+    fn shutdown_summary_accounts_for_success_failures_and_local_cancellation() {
+        let fixture = Fixture::new();
+        let actor = CatalogActor::spawn(&fixture.database_path).expect("spawn catalog");
+        let catalog = actor.handle();
+        let source = fingerprint_source(&fixture.raw_path).expect("fingerprint source");
+        let registered = catalog
+            .register_asset(&fixture.registration(source))
+            .expect("register source");
+        let worker = DecodeInspectionActor::spawn_with_cache(
+            catalog.clone(),
+            SummaryInspector::default(),
+            fixture.root.join("cache"),
+        )
+        .expect("spawn summary inspector");
+        let handle = worker.handle();
+        let request = DecodeInspectionRequest {
+            representation_id: registered.representation_id,
+            path: fixture.raw_path.clone(),
+            expected_source: source,
+        };
+
+        let success = handle
+            .submit(request.clone())
+            .expect("submit successful inspection");
+        let hard_failure = handle
+            .submit(request.clone())
+            .expect("submit hard-failing inspection");
+        let preview_failure = handle
+            .submit(request.clone())
+            .expect("submit preview-failing inspection");
+        let cancelled_token = ScanCancellation::new();
+        cancelled_token.cancel();
+        let cancelled = handle
+            .submit_with_cancellation(request, &cancelled_token)
+            .expect("accept locally cancelled inspection");
+
+        assert!(matches!(
+            success.wait().expect("complete successful inspection"),
+            DecodeInspectionOutcome::Recorded {
+                preview: PreviewCacheOutcome::NoVisualAvailable,
+                ..
+            }
+        ));
+        assert!(matches!(
+            hard_failure.wait(),
+            Err(DecodeInspectionError::Inspector { .. })
+        ));
+        assert!(matches!(
+            preview_failure
+                .wait()
+                .expect("complete preview-failing inspection"),
+            DecodeInspectionOutcome::Recorded {
+                preview: PreviewCacheOutcome::Failed(_),
+                ..
+            }
+        ));
+        assert_eq!(
+            cancelled.wait().expect("complete cancelled inspection"),
+            DecodeInspectionOutcome::Discarded(DecodeInspectionDiscardReason::Cancelled)
+        );
+
+        assert_eq!(
+            worker
+                .shutdown_with_summary()
+                .expect("shutdown inspector with summary"),
+            DecodeInspectionSummary {
+                completed: 4,
+                hard_failures: 1,
+                preview_failures: 1,
+                cancelled: 1,
+            }
+        );
+        actor.shutdown().expect("shutdown catalog");
+    }
+
+    #[test]
+    fn submission_gate_rejects_a_concurrent_submit_at_the_shutdown_boundary() {
+        let fixture = Fixture::new();
+        let actor = CatalogActor::spawn(&fixture.database_path).expect("spawn catalog");
+        let catalog = actor.handle();
+        let source = fingerprint_source(&fixture.raw_path).expect("fingerprint source");
+        let registered = catalog
+            .register_asset(&fixture.registration(source))
+            .expect("register source");
+        let calls = Arc::new(AtomicUsize::new(0));
+        let inspector_calls = Arc::clone(&calls);
+        let worker = DecodeInspectionActor::spawn(catalog, move |_path: &Path| {
+            inspector_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(sample_snapshot())
+        })
+        .expect("spawn inspector");
+        let request = DecodeInspectionRequest {
+            representation_id: registered.representation_id,
+            path: fixture.raw_path.clone(),
+            expected_source: source,
+        };
+        let state = Arc::clone(&worker.handle.state);
+        let mut closing_gate = state.lock().expect("hold submission gate");
+        let handle = worker.handle();
+        let (started_sender, started_receiver) = mpsc::sync_channel(0);
+        let submit_thread = thread::spawn(move || {
+            started_sender.send(()).expect("announce concurrent submit");
+            handle.submit(request)
+        });
+        started_receiver
+            .recv()
+            .expect("concurrent submit reaches gate");
+
+        closing_gate.stopping = true;
+        drop(closing_gate);
+        assert!(matches!(
+            submit_thread.join().expect("join concurrent submit"),
+            Err(DecodeInspectionError::WorkerUnavailable)
+        ));
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            worker
+                .shutdown_with_summary()
+                .expect("shutdown closed inspector"),
+            DecodeInspectionSummary::default()
+        );
+        actor.shutdown().expect("shutdown catalog");
+    }
+
+    #[test]
+    fn profiled_submission_counts_full_queue_retries_without_timing_thresholds() {
+        let fixture = Fixture::new();
+        let actor = CatalogActor::spawn(&fixture.database_path).expect("spawn catalog");
+        let catalog = actor.handle();
+        let source = fingerprint_source(&fixture.raw_path).expect("fingerprint source");
+        let registered = catalog
+            .register_asset(&fixture.registration(source))
+            .expect("register source");
+        let (entered_sender, entered_receiver) = mpsc::sync_channel(0);
+        let (release_sender, release_receiver) = mpsc::sync_channel(0);
+        let mut first_job = true;
+        let worker = DecodeInspectionActor::spawn_inner_with_capacity(
+            catalog,
+            move |_path: &Path| {
+                if first_job {
+                    first_job = false;
+                    entered_sender.send(()).expect("announce first job");
+                    release_receiver.recv().expect("release first job");
+                }
+                Ok(sample_snapshot())
+            },
+            None,
+            true,
+            1,
+        )
+        .expect("spawn one-slot profiled worker");
+        let request = DecodeInspectionRequest {
+            representation_id: registered.representation_id,
+            path: fixture.raw_path.clone(),
+            expected_source: source,
+        };
+        let handle = worker.handle();
+        let first = handle.submit(request.clone()).expect("submit active job");
+        entered_receiver.recv().expect("first job enters provider");
+        let second = handle
+            .submit(request.clone())
+            .expect("fill the bounded queue");
+
+        let third_handle = handle.clone();
+        let (full_sender, full_receiver) = mpsc::sync_channel(0);
+        let third = thread::spawn(move || {
+            let mut announced = false;
+            third_handle.submit_with_cancellation_inner(
+                request,
+                &ScanCancellation::new(),
+                true,
+                || {
+                    if !announced {
+                        full_sender.send(()).expect("announce full queue");
+                        announced = true;
+                    }
+                },
+            )
+        });
+        full_receiver
+            .recv()
+            .expect("third submit deterministically observes a full queue");
+        release_sender.send(()).expect("release active job");
+        let third = third
+            .join()
+            .expect("join third submit")
+            .expect("submit after queue frees");
+
+        assert!(third.queue_full_events >= 1);
+        first.wait().expect("finish first job");
+        second.wait().expect("finish second job");
+        third.ticket.wait().expect("finish third job");
+        let terminal = worker
+            .shutdown_with_performance()
+            .expect("shutdown profiled worker");
+        assert_eq!(terminal.summary.completed, 3);
+        assert_eq!(terminal.decode.queue_wait.samples, 3);
+
         actor.shutdown().expect("shutdown catalog");
     }
 
@@ -790,6 +1427,80 @@ mod tests {
     }
 
     #[test]
+    fn queued_cancelled_inspections_never_begin_provider_work() {
+        let fixture = Fixture::new();
+        let actor = CatalogActor::spawn(&fixture.database_path).expect("spawn catalog");
+        let catalog = actor.handle();
+        let source = fingerprint_source(&fixture.raw_path).expect("fingerprint source");
+        let registered = catalog
+            .register_asset(&fixture.registration(source))
+            .expect("register source");
+        let calls = Arc::new(AtomicUsize::new(0));
+        let inspector_calls = Arc::clone(&calls);
+        let (entered_sender, entered_receiver) = mpsc::sync_channel(0);
+        let (release_sender, release_receiver) = mpsc::sync_channel(0);
+        let worker = DecodeInspectionActor::spawn(catalog.clone(), move |_path: &Path| {
+            inspector_calls.fetch_add(1, Ordering::SeqCst);
+            entered_sender.send(()).expect("announce provider entry");
+            release_receiver.recv().expect("release provider");
+            Ok(sample_snapshot())
+        })
+        .expect("spawn inspector");
+        let request = DecodeInspectionRequest {
+            representation_id: registered.representation_id,
+            path: fixture.raw_path.clone(),
+            expected_source: source,
+        };
+        let cancellation = ScanCancellation::new();
+        let first = worker
+            .handle()
+            .submit_with_cancellation(request.clone(), &cancellation)
+            .expect("submit active inspection");
+        entered_receiver.recv().expect("provider starts first job");
+        let queued = (0..3)
+            .map(|_| {
+                worker
+                    .handle()
+                    .submit_with_cancellation(request.clone(), &cancellation)
+                    .expect("submit queued inspection")
+            })
+            .collect::<Vec<_>>();
+
+        cancellation.cancel();
+        release_sender.send(()).expect("release active inspection");
+        assert_eq!(
+            first.wait().expect("active job observes cancellation"),
+            DecodeInspectionOutcome::Discarded(DecodeInspectionDiscardReason::Cancelled)
+        );
+        for ticket in queued {
+            assert_eq!(
+                ticket.wait().expect("queued job is discarded"),
+                DecodeInspectionOutcome::Discarded(DecodeInspectionDiscardReason::Cancelled)
+            );
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(
+            catalog
+                .decode_snapshots(registered.representation_id)
+                .expect("read snapshots")
+                .is_empty()
+        );
+
+        assert_eq!(
+            worker
+                .shutdown_with_summary()
+                .expect("shutdown inspector with cancellation summary"),
+            DecodeInspectionSummary {
+                completed: 4,
+                hard_failures: 0,
+                preview_failures: 0,
+                cancelled: 4,
+            }
+        );
+        actor.shutdown().expect("shutdown catalog");
+    }
+
+    #[test]
     fn embedded_preview_is_content_addressed_and_cataloged() {
         let fixture = Fixture::new();
         let actor = CatalogActor::spawn(&fixture.database_path).expect("spawn catalog");
@@ -799,9 +1510,12 @@ mod tests {
             .register_asset(&fixture.registration(source))
             .expect("register source");
         let cache_root = fixture.root.join("cache");
-        let worker =
-            DecodeInspectionActor::spawn_with_cache(catalog.clone(), PreviewInspector, &cache_root)
-                .expect("spawn cached inspector");
+        let worker = DecodeInspectionActor::spawn_with_cache_profiled(
+            catalog.clone(),
+            PreviewInspector,
+            &cache_root,
+        )
+        .expect("spawn profiled cached inspector");
 
         let outcome = worker
             .handle()
@@ -833,7 +1547,18 @@ mod tests {
             TEST_DISPLAY_JPEG
         );
 
-        worker.shutdown().expect("shutdown inspector");
+        let terminal = worker
+            .shutdown_with_performance()
+            .expect("shutdown profiled inspector");
+        assert!(terminal.decode.profiled);
+        assert_eq!(terminal.decode.provider_inspect.samples, 1);
+        assert_eq!(terminal.decode.embedded_preview_extract.samples, 1);
+        assert_eq!(terminal.decode.proxy_render.samples, 0);
+        assert_eq!(terminal.decode.cache_blob_put.samples, 1);
+        assert_eq!(terminal.decode.cache_artifact_catalog_commit.samples, 1);
+        assert_eq!(terminal.decode.technical_submit_wait.samples, 1);
+        assert!(terminal.technical.profiled);
+        assert_eq!(terminal.technical.technical_observation_total.samples, 1);
         actor.shutdown().expect("shutdown catalog");
     }
 
@@ -847,9 +1572,12 @@ mod tests {
             .register_asset(&fixture.registration(source))
             .expect("register source");
         let cache_root = fixture.root.join("cache");
-        let worker =
-            DecodeInspectionActor::spawn_with_cache(catalog.clone(), ProxyInspector, &cache_root)
-                .expect("spawn cached inspector");
+        let worker = DecodeInspectionActor::spawn_with_cache_profiled(
+            catalog.clone(),
+            ProxyInspector,
+            &cache_root,
+        )
+        .expect("spawn profiled cached inspector");
 
         let outcome = worker
             .handle()
@@ -890,7 +1618,16 @@ mod tests {
         );
         assert_eq!(artifacts[0].artifact.provider_preview_id, None);
 
-        worker.shutdown().expect("shutdown inspector");
+        let terminal = worker
+            .shutdown_with_performance()
+            .expect("shutdown profiled inspector");
+        assert_eq!(terminal.decode.provider_inspect.samples, 1);
+        assert_eq!(terminal.decode.embedded_preview_extract.samples, 1);
+        assert_eq!(terminal.decode.proxy_render.samples, 1);
+        assert_eq!(terminal.decode.cache_blob_put.samples, 1);
+        assert_eq!(terminal.decode.cache_artifact_catalog_commit.samples, 1);
+        assert_eq!(terminal.decode.technical_submit_wait.samples, 1);
+        assert_eq!(terminal.technical.technical_observation_total.samples, 1);
         actor.shutdown().expect("shutdown catalog");
     }
 
@@ -932,6 +1669,32 @@ mod tests {
 
     #[derive(Debug, Copy, Clone)]
     struct PreviewInspector;
+
+    #[derive(Debug, Default)]
+    struct SummaryInspector {
+        inspect_calls: usize,
+        preview_calls: usize,
+    }
+
+    impl DecodeInspector for SummaryInspector {
+        fn inspect(&mut self, _path: &Path) -> Result<DecoderSnapshot, String> {
+            self.inspect_calls += 1;
+            if self.inspect_calls == 2 {
+                Err("hard inspection fixture".into())
+            } else {
+                Ok(sample_snapshot())
+            }
+        }
+
+        fn extract_best_preview(&mut self, _path: &Path) -> Result<Option<PreviewPayload>, String> {
+            self.preview_calls += 1;
+            if self.preview_calls == 2 {
+                Err("preview failure fixture".into())
+            } else {
+                Ok(None)
+            }
+        }
+    }
 
     impl DecodeInspector for PreviewInspector {
         fn provider_id(&self) -> &'static str {

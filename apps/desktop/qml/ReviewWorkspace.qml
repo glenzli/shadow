@@ -53,12 +53,15 @@ Item {
         && rightComparisonVisualReady
     readonly property bool canSubmitComparison: comparisonReady
         && comparisonVisualsReady && comparisonBackendReady
-        && compareMode && !controller.comparisonBusy && !controller.decisionBusy
+        && compareMode && !controller.scanning && !controller.refreshing
+        && !controller.comparisonBusy && !controller.decisionBusy
     readonly property bool canMutateDecision: selectedPhotoId.length > 0
-        && !compareMode && !controller.busy && !controller.loadingMore
+        && !compareMode && !controller.scanning && !controller.refreshing
+        && !controller.busy && !controller.loadingMore
         && !controller.comparisonBusy && !controller.decisionBusy
     readonly property bool canOpenSelectedPhoto: selectedPhotoId.length > 0
         && selectedRepresentationId.length > 0 && !compareMode
+        && !controller.refreshing
         && !controller.busy && !controller.loadingMore
         && !controller.comparisonBusy && !controller.decisionBusy
 
@@ -493,6 +496,89 @@ Item {
 
                 Rectangle {
                     Layout.fillWidth: true
+                    Layout.preferredHeight: importStatusColumn.implicitHeight + 20
+                    visible: review.controller.scanning
+                        || (review.controller.refreshing
+                            && Number(review.controller.scanProgress.scanId) > 0)
+                    radius: 4
+                    color: "#1a1e23"
+                    border.color: "#343b43"
+
+                    ColumnLayout {
+                        id: importStatusColumn
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.leftMargin: 10
+                        anchors.rightMargin: 10
+                        spacing: 5
+
+                        RowLayout {
+                            Layout.fillWidth: true
+
+                            Label {
+                                text: review.controller.refreshing
+                                        && !review.controller.scanning
+                                    ? "LIBRARY REFRESH"
+                                    : review.controller.scanProgress.phase === "cancelling"
+                                    ? "STOPPING IMPORT" : "IMPORTING"
+                                color: review.accent
+                                font.pixelSize: 8
+                                font.weight: Font.Bold
+                                font.letterSpacing: 0.9
+                            }
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: review.controller.scanProgress.cataloguedFiles
+                                    + " catalogued"
+                                color: review.textPrimary
+                                horizontalAlignment: Text.AlignRight
+                                font.pixelSize: 9
+                            }
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: review.controller.scanProgress.supportedFiles
+                                + " supported · "
+                                + (review.controller.scanning
+                                    ? review.controller.scanProgress.decodeQueued
+                                        + " preview checks queued"
+                                    : review.controller.scanProgress.decodeCompleted + "/"
+                                        + review.controller.scanProgress.decodeQueued
+                                        + " preview checks completed")
+                                + " · "
+                                + review.controller.scanProgress.issueCount
+                                + " filesystem issues"
+                            color: review.textMuted
+                            elide: Text.ElideRight
+                            font.pixelSize: 9
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            visible: !review.controller.scanning
+                            text: review.controller.scanProgress.decodeHardFailures
+                                + " decode failures · "
+                                + review.controller.scanProgress.previewFailures
+                                + " preview failures · "
+                                + review.controller.scanProgress.decodeCancelled
+                                + " cancelled"
+                            color: review.textMuted
+                            elide: Text.ElideRight
+                            font.pixelSize: 9
+                        }
+
+                        ProgressBar {
+                            Layout.fillWidth: true
+                            indeterminate: true
+                        }
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
                     Layout.preferredHeight: 1
                     Layout.topMargin: 8
                     color: review.border
@@ -520,6 +606,8 @@ Item {
                     enabled: review.controller.canUndoComparison
                         && !review.controller.comparisonBusy
                         && !review.controller.decisionBusy
+                        && !review.controller.scanning
+                        && !review.controller.refreshing
                         && !review.controller.busy
                         && !review.controller.loadingMore
                     text: "FORGET LAST"
@@ -567,9 +655,12 @@ Item {
 
             GridView {
                 id: grid
+                objectName: "reviewGrid"
 
                 function maybeLoadMore() {
                     if (review.controller.hasMore
+                            && !review.controller.scanning
+                            && !review.controller.refreshing
                             && !review.controller.busy
                             && !review.controller.loadingMore
                             && contentY + height >= contentHeight - cellHeight * 2) {
@@ -784,7 +875,11 @@ Item {
                     anchors.centerIn: parent
                     width: Math.min(420, parent.width - 60)
                     visible: grid.count === 0 && !review.controller.busy
-                    text: "Choose a folder to scan RAW files.\nShadow will use embedded previews first and generate a local proxy only when needed."
+                    text: review.controller.scanning
+                        ? "Searching the folder for supported photos…\nNew RAW files will appear here as they are catalogued."
+                        : review.controller.scanProgress.phase === "failed"
+                        ? "Import stopped, and no RAW files are currently visible.\nAlready catalogued files remain safely stored."
+                        : "Add a folder to the local Library.\nShadow will use embedded previews first and generate a local proxy only when needed."
                     color: review.textMuted
                     horizontalAlignment: Text.AlignHCenter
                     wrapMode: Text.WordWrap
@@ -1216,7 +1311,8 @@ Item {
                         running: true
                     }
                     Label {
-                        text: "Building Review previews"
+                        text: review.controller.scanning
+                            ? "Finding the first photos" : "Loading local Library"
                         color: review.textPrimary
                         font.pixelSize: 14
                     }
@@ -1330,7 +1426,9 @@ Item {
                         Item { Layout.fillWidth: true }
 
                         Button {
-                            enabled: !review.compareMode && !review.controller.busy
+                            enabled: !review.compareMode && !review.controller.scanning
+                                && !review.controller.refreshing
+                                && !review.controller.busy
                                 && !review.controller.loadingMore
                                 && !review.controller.comparisonBusy
                                 && review.controller.canUndoDecision
@@ -1590,6 +1688,8 @@ Item {
                             enabled: !review.compareMode
                                 && !review.controller.comparisonBusy
                                 && !review.controller.decisionBusy
+                                && !review.controller.scanning
+                                && !review.controller.refreshing
                                 && !review.controller.busy
                                 && !review.controller.loadingMore
                                 && review.selectedPhotoId.length > 0
@@ -1609,6 +1709,8 @@ Item {
                             enabled: !review.compareMode
                                 && !review.controller.comparisonBusy
                                 && !review.controller.decisionBusy
+                                && !review.controller.scanning
+                                && !review.controller.refreshing
                                 && !review.controller.busy
                                 && !review.controller.loadingMore
                                 && review.selectedPhotoId.length > 0
@@ -1663,6 +1765,8 @@ Item {
                                 && !review.compareMode
                                 && !review.controller.comparisonBusy
                                 && !review.controller.decisionBusy
+                                && !review.controller.scanning
+                                && !review.controller.refreshing
                                 && !review.controller.busy
                                 && !review.controller.loadingMore
                             text: "COMPARE A / B"
@@ -1672,6 +1776,8 @@ Item {
                         Button {
                             enabled: !review.controller.comparisonBusy
                                 && !review.controller.decisionBusy
+                                && !review.controller.scanning
+                                && !review.controller.refreshing
                                 && !review.controller.busy
                                 && !review.controller.loadingMore
                                 && (review.leftComparisonSnapshot !== null
