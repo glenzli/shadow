@@ -1,14 +1,18 @@
 use std::{
+    collections::BTreeSet,
     path::Path,
     sync::mpsc::{self, Receiver, Sender, SyncSender},
     thread::{self, JoinHandle},
 };
 
+use shadow_ai::{
+    FeedbackEvent, FeedbackForgetFact, LearningScope, NewFeedbackEvent, NewFeedbackForgetFact,
+};
 use shadow_domain::{AssetLocation, ImportSessionId, PhotoId, RepresentationId};
 
 use crate::{
     CachedArtifactRecord, Catalog, CatalogError, CatalogStats, CatalogStore, CommitRecipe,
-    DecodeSnapshotRecord, ImportSession, ImportSessionState, ImportSessionSummary,
+    DecodeSnapshotRecord, FeedbackPage, ImportSession, ImportSessionState, ImportSessionSummary,
     InvalidateCachedArtifactStatus, RecipeCommitRecord, RecipeRefRecord, RecordCachedArtifact,
     RecordCachedArtifactStatus, RecordDecodeSnapshot, RecordDecodeSnapshotStatus, RegisterAsset,
     RegisteredAsset, RepresentationFingerprint, ReviewCursor, ReviewItemRecord, ReviewPageRecord,
@@ -89,6 +93,7 @@ enum Message {
         SyncSender<Result<Option<RecipeRefRecord>, CatalogError>>,
     ),
     SetRecipeRef(Box<SetRecipeRef>, SyncSender<Result<(), CatalogError>>),
+    Feedback(FeedbackMessage),
     BeginImportSession(
         AssetLocation,
         i64,
@@ -129,6 +134,27 @@ enum Message {
     ),
     UnfinishedImportSessions(SyncSender<Result<Vec<ImportSession>, CatalogError>>),
     Shutdown(SyncSender<()>),
+}
+
+enum FeedbackMessage {
+    AppendEvent(
+        Box<NewFeedbackEvent>,
+        SyncSender<Result<FeedbackEvent, CatalogError>>,
+    ),
+    EventsAfter(
+        LearningScope,
+        u64,
+        usize,
+        SyncSender<Result<FeedbackPage, CatalogError>>,
+    ),
+    AppendForgetFact(
+        Box<NewFeedbackForgetFact>,
+        SyncSender<Result<FeedbackForgetFact, CatalogError>>,
+    ),
+    ForgottenEventIds(
+        LearningScope,
+        SyncSender<Result<BTreeSet<String>, CatalogError>>,
+    ),
 }
 
 impl CatalogActor {
@@ -429,6 +455,77 @@ impl CatalogHandle {
         self.request(|response| Message::SetRecipeRef(Box::new(request.clone()), response))
     }
 
+    /// Appends one validated human-feedback event and returns its assigned sequence.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] when validation, referenced-photo checks, or
+    /// durable persistence fails.
+    pub fn append_feedback_event(
+        &self,
+        request: &NewFeedbackEvent,
+    ) -> Result<FeedbackEvent, CatalogError> {
+        self.request(|response| {
+            Message::Feedback(FeedbackMessage::AppendEvent(
+                Box::new(request.clone()),
+                response,
+            ))
+        })
+    }
+
+    /// Reads one bounded, ascending page after an exclusive sequence cursor.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] for an invalid page bound, unavailable actor,
+    /// or persisted integrity failure.
+    pub fn feedback_events_after(
+        &self,
+        scope: &LearningScope,
+        after_sequence_exclusive: u64,
+        limit: usize,
+    ) -> Result<FeedbackPage, CatalogError> {
+        self.request(|response| {
+            Message::Feedback(FeedbackMessage::EventsAfter(
+                scope.clone(),
+                after_sequence_exclusive,
+                limit,
+                response,
+            ))
+        })
+    }
+
+    /// Appends a non-destructive forget fact for one existing feedback event.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] when validation or persistence fails.
+    pub fn append_feedback_forget_fact(
+        &self,
+        request: &NewFeedbackForgetFact,
+    ) -> Result<FeedbackForgetFact, CatalogError> {
+        self.request(|response| {
+            Message::Feedback(FeedbackMessage::AppendForgetFact(
+                Box::new(request.clone()),
+                response,
+            ))
+        })
+    }
+
+    /// Returns every forgotten source event id in exactly one learning scope.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] when the actor is unavailable or the query fails.
+    pub fn forgotten_feedback_event_ids(
+        &self,
+        scope: &LearningScope,
+    ) -> Result<BTreeSet<String>, CatalogError> {
+        self.request(|response| {
+            Message::Feedback(FeedbackMessage::ForgottenEventIds(scope.clone(), response))
+        })
+    }
+
     /// Lists resumable import sessions.
     ///
     /// # Errors
@@ -534,12 +631,8 @@ impl CatalogStore for CatalogHandle {
 fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
     while let Ok(message) = receiver.recv() {
         match message {
-            Message::SchemaVersion(response) => {
-                let _ = response.send(catalog.schema_version());
-            }
-            Message::Stats(response) => {
-                let _ = response.send(catalog.stats());
-            }
+            Message::SchemaVersion(response) => respond(&response, catalog.schema_version()),
+            Message::Stats(response) => respond(&response, catalog.stats()),
             Message::RegisterAsset(request, response) => {
                 let _ = response.send(catalog.register_asset(&request));
             }
@@ -597,6 +690,9 @@ fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
             Message::SetRecipeRef(request, response) => {
                 let _ = response.send(catalog.set_recipe_ref(request.as_ref()));
             }
+            Message::Feedback(message) => {
+                run_feedback_message(&mut catalog, message);
+            }
             Message::BeginImportSession(root, now_ms, response) => {
                 let _ = response.send(catalog.begin_import_session(&root, now_ms));
             }
@@ -634,10 +730,32 @@ fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
     }
 }
 
+fn respond<T>(sender: &SyncSender<Result<T, CatalogError>>, result: Result<T, CatalogError>) {
+    let _ = sender.send(result);
+}
+
+fn run_feedback_message(catalog: &mut Catalog, message: FeedbackMessage) {
+    match message {
+        FeedbackMessage::AppendEvent(request, response) => {
+            let _ = response.send(catalog.append_feedback_event(request.as_ref()));
+        }
+        FeedbackMessage::EventsAfter(scope, after_sequence, limit, response) => {
+            let _ = response.send(catalog.feedback_events_after(&scope, after_sequence, limit));
+        }
+        FeedbackMessage::AppendForgetFact(request, response) => {
+            let _ = response.send(catalog.append_feedback_forget_fact(request.as_ref()));
+        }
+        FeedbackMessage::ForgottenEventIds(scope, response) => {
+            let _ = response.send(catalog.forgotten_feedback_event_ids(&scope));
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::thread;
 
+    use shadow_ai::{FeedbackAction, PresentationContext};
     use shadow_domain::{Platform, RepresentationKind};
 
     use super::*;
@@ -669,6 +787,72 @@ mod tests {
             handle.join().expect("join client thread");
         }
         assert_eq!(actor.handle().stats().expect("stats").photos, 4);
+        actor.shutdown().expect("shutdown actor");
+    }
+
+    #[test]
+    fn actor_pages_feedback_and_appends_forget_facts() {
+        let actor = CatalogActor::spawn_in_memory().expect("spawn catalog actor");
+        let handle = actor.handle();
+        let registered = handle
+            .register_asset(&RegisterAsset {
+                kind: RepresentationKind::OriginalRaw,
+                location: AssetLocation::new(
+                    Platform::MacOs,
+                    b"/photos/feedback-actor.dng".to_vec(),
+                    "/photos/feedback-actor.dng",
+                ),
+                byte_len: 42,
+                modified_at_ms: Some(100),
+                now_ms: 1_700_000_000_000,
+            })
+            .expect("register asset");
+        for event_id in ["actor-event-1", "actor-event-2"] {
+            handle
+                .append_feedback_event(&NewFeedbackEvent {
+                    event_id: event_id.into(),
+                    occurred_at_unix_ms: 1_700_000_001_000,
+                    scope: LearningScope::Global,
+                    presentation: PresentationContext {
+                        session_id: "actor-session".into(),
+                        group_id: None,
+                        candidates: vec![],
+                        active_model: None,
+                    },
+                    action: FeedbackAction::Exported {
+                        photo_id: registered.photo_id,
+                    },
+                })
+                .expect("append feedback through actor");
+        }
+
+        let first_page = handle
+            .feedback_events_after(&LearningScope::Global, 0, 1)
+            .expect("page feedback through actor");
+        assert!(first_page.has_more);
+        assert_eq!(first_page.events[0].event_id, "actor-event-1");
+        handle
+            .append_feedback_forget_fact(&NewFeedbackForgetFact {
+                fact_id: "actor-forget-1".into(),
+                target_event_id: "actor-event-1".into(),
+                occurred_at_unix_ms: 1_700_000_002_000,
+                reason: None,
+            })
+            .expect("append forget through actor");
+        assert_eq!(
+            handle
+                .forgotten_feedback_event_ids(&LearningScope::Global)
+                .expect("read forgotten through actor"),
+            BTreeSet::from(["actor-event-1".into()])
+        );
+        assert_eq!(
+            handle
+                .feedback_events_after(&LearningScope::Global, 0, 10)
+                .expect("source facts remain")
+                .events
+                .len(),
+            2
+        );
         actor.shutdown().expect("shutdown actor");
     }
 }

@@ -18,8 +18,9 @@ pub use contract::{
     InputRole, ModelProvenance, ObservationTarget, PrivacyClass, ProposalReviewLevel, TaskPriority,
 };
 pub use feedback::{
-    BatchBuildReport, FeedbackAction, FeedbackEvent, FeedbackIgnored, IncrementalTrainingBatch,
-    IncrementalTrainingPolicy, LearningScope, PairwiseExampleRef, PairwiseOutcome,
+    BatchBuildReport, FeatureSnapshotRef, FeedbackAction, FeedbackEvent, FeedbackForgetFact,
+    FeedbackIgnored, FeedbackValidationError, IncrementalTrainingBatch, IncrementalTrainingPolicy,
+    LearningScope, NewFeedbackEvent, NewFeedbackForgetFact, PairwiseExampleRef, PairwiseOutcome,
     PresentationContext, PresentedCandidate, SuggestionDecision,
     build_incremental_preference_batch,
 };

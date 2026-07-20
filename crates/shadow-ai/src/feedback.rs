@@ -5,6 +5,11 @@ use shadow_domain::{GroupId, PhotoId, RecipeCommitId};
 
 use crate::{ModelProvenance, UnitInterval};
 
+const MAX_IDENTIFIER_LENGTH: usize = 256;
+const MAX_TEXT_LENGTH: usize = 4_096;
+const MAX_PRESENTED_CANDIDATES: usize = 4_096;
+const MAX_TARGET_PHOTOS: usize = 4_096;
+
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "kind")]
 pub enum LearningScope {
@@ -109,6 +114,344 @@ pub struct FeedbackEvent {
     pub scope: LearningScope,
     pub presentation: PresentationContext,
     pub action: FeedbackAction,
+}
+
+/// Feedback waiting for the Catalog to assign its authoritative sequence.
+///
+/// Application code must never guess the next sequence. The Catalog validates
+/// this value, allocates a monotonic sequence, and returns a [`FeedbackEvent`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NewFeedbackEvent {
+    pub event_id: String,
+    pub occurred_at_unix_ms: i64,
+    pub scope: LearningScope,
+    pub presentation: PresentationContext,
+    pub action: FeedbackAction,
+}
+
+/// An append-only request to stop using one source event as training evidence.
+/// The referenced [`FeedbackEvent`] remains intact as human history.
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub struct NewFeedbackForgetFact {
+    pub fact_id: String,
+    pub target_event_id: String,
+    pub occurred_at_unix_ms: i64,
+    pub reason: Option<String>,
+}
+
+/// A durable forget fact with its Catalog-assigned sequence.
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub struct FeedbackForgetFact {
+    pub fact_id: String,
+    pub sequence: u64,
+    pub target_event_id: String,
+    pub occurred_at_unix_ms: i64,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, thiserror::Error)]
+pub enum FeedbackValidationError {
+    #[error("{field} must not be empty")]
+    EmptyString { field: &'static str },
+    #[error("{field} exceeds its maximum length of {maximum}")]
+    StringTooLong { field: &'static str, maximum: usize },
+    #[error("feedback sequence must be greater than zero")]
+    ZeroSequence,
+    #[error("presentation contains more than {maximum} candidates")]
+    TooManyCandidates { maximum: usize },
+    #[error("photo {0} appears more than once in the presentation")]
+    DuplicatePresentedPhoto(PhotoId),
+    #[error("presentation position {0} appears more than once")]
+    DuplicatePresentationPosition(u32),
+    #[error("pairwise comparison must reference two different photos")]
+    PairwisePhotosAreEqual,
+    #[error("pairwise photo {0} was not present in the presentation")]
+    PairwisePhotoNotPresented(PhotoId),
+    #[error("rating {0} is outside the supported 0 through 5 range")]
+    RatingOutOfRange(u8),
+    #[error("parameter residual {parameter:?} must be finite")]
+    NonFiniteParameterResidual { parameter: String },
+    #[error("parameters-copied feedback must contain at least one target")]
+    MissingCopyTarget,
+    #[error("parameters-copied feedback contains more than {maximum} targets")]
+    TooManyCopyTargets { maximum: usize },
+    #[error("photo {0} appears more than once in parameters-copied targets")]
+    DuplicateCopyTarget(PhotoId),
+    #[error("parameters cannot be copied from a photo to itself")]
+    CopyTargetIsSource,
+    #[error("feature dimension must be greater than zero")]
+    ZeroFeatureDimension,
+}
+
+impl NewFeedbackEvent {
+    /// Validates structure that is independent of Catalog contents.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FeedbackValidationError`] for malformed or ambiguous evidence.
+    pub fn validate(&self) -> Result<(), FeedbackValidationError> {
+        validate_feedback(
+            &self.event_id,
+            &self.scope,
+            &self.presentation,
+            &self.action,
+        )
+    }
+
+    /// Adds a Catalog-assigned sequence after validating the event.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FeedbackValidationError`] when the event is invalid or the
+    /// supplied sequence is zero.
+    pub fn with_sequence(self, sequence: u64) -> Result<FeedbackEvent, FeedbackValidationError> {
+        if sequence == 0 {
+            return Err(FeedbackValidationError::ZeroSequence);
+        }
+        self.validate()?;
+        Ok(FeedbackEvent {
+            event_id: self.event_id,
+            sequence,
+            occurred_at_unix_ms: self.occurred_at_unix_ms,
+            scope: self.scope,
+            presentation: self.presentation,
+            action: self.action,
+        })
+    }
+}
+
+impl FeedbackEvent {
+    /// Validates both the Catalog sequence and the human-evidence payload.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FeedbackValidationError`] for invalid persisted evidence.
+    pub fn validate(&self) -> Result<(), FeedbackValidationError> {
+        if self.sequence == 0 {
+            return Err(FeedbackValidationError::ZeroSequence);
+        }
+        validate_feedback(
+            &self.event_id,
+            &self.scope,
+            &self.presentation,
+            &self.action,
+        )
+    }
+}
+
+impl NewFeedbackForgetFact {
+    /// Validates an unsequenced forget fact.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FeedbackValidationError`] for empty or oversized text.
+    pub fn validate(&self) -> Result<(), FeedbackValidationError> {
+        validate_identifier("forget fact id", &self.fact_id)?;
+        validate_identifier("target feedback event id", &self.target_event_id)?;
+        if let Some(reason) = &self.reason {
+            validate_optional_text("forget reason", reason)?;
+        }
+        Ok(())
+    }
+
+    /// Adds a Catalog-assigned forget sequence.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FeedbackValidationError`] when the fact is invalid or the
+    /// supplied sequence is zero.
+    pub fn with_sequence(
+        self,
+        sequence: u64,
+    ) -> Result<FeedbackForgetFact, FeedbackValidationError> {
+        if sequence == 0 {
+            return Err(FeedbackValidationError::ZeroSequence);
+        }
+        self.validate()?;
+        Ok(FeedbackForgetFact {
+            fact_id: self.fact_id,
+            sequence,
+            target_event_id: self.target_event_id,
+            occurred_at_unix_ms: self.occurred_at_unix_ms,
+            reason: self.reason,
+        })
+    }
+}
+
+impl FeedbackForgetFact {
+    /// Validates a sequenced forget fact.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FeedbackValidationError`] for malformed persisted data.
+    pub fn validate(&self) -> Result<(), FeedbackValidationError> {
+        if self.sequence == 0 {
+            return Err(FeedbackValidationError::ZeroSequence);
+        }
+        NewFeedbackForgetFact {
+            fact_id: self.fact_id.clone(),
+            target_event_id: self.target_event_id.clone(),
+            occurred_at_unix_ms: self.occurred_at_unix_ms,
+            reason: self.reason.clone(),
+        }
+        .validate()
+    }
+}
+
+fn validate_feedback(
+    event_id: &str,
+    scope: &LearningScope,
+    presentation: &PresentationContext,
+    action: &FeedbackAction,
+) -> Result<(), FeedbackValidationError> {
+    validate_identifier("feedback event id", event_id)?;
+    if let LearningScope::Project { project_id } = scope {
+        validate_identifier("project id", project_id)?;
+    }
+    validate_identifier("presentation session id", &presentation.session_id)?;
+    if presentation.candidates.len() > MAX_PRESENTED_CANDIDATES {
+        return Err(FeedbackValidationError::TooManyCandidates {
+            maximum: MAX_PRESENTED_CANDIDATES,
+        });
+    }
+
+    let mut presented_photos = BTreeSet::new();
+    let mut positions = BTreeSet::new();
+    for candidate in &presentation.candidates {
+        if !presented_photos.insert(candidate.photo_id) {
+            return Err(FeedbackValidationError::DuplicatePresentedPhoto(
+                candidate.photo_id,
+            ));
+        }
+        if !positions.insert(candidate.position) {
+            return Err(FeedbackValidationError::DuplicatePresentationPosition(
+                candidate.position,
+            ));
+        }
+        if let Some(feature) = &candidate.feature {
+            validate_identifier("feature extractor id", &feature.extractor_id)?;
+            validate_identifier("feature extractor revision", &feature.extractor_revision)?;
+            validate_identifier(
+                "feature preprocessing version",
+                &feature.preprocessing_version,
+            )?;
+            validate_identifier("feature artifact hash", &feature.artifact_hash)?;
+            if feature.dimension == 0 {
+                return Err(FeedbackValidationError::ZeroFeatureDimension);
+            }
+        }
+    }
+    if let Some(model) = &presentation.active_model {
+        validate_identifier("model provider id", &model.provider_id)?;
+        validate_identifier("model id", &model.model_id)?;
+        validate_identifier("model revision", &model.model_revision)?;
+        validate_identifier("model sha256", &model.model_sha256)?;
+        validate_identifier("model preprocessing version", &model.preprocessing_version)?;
+        validate_identifier("model input source hash", &model.input_source_hash)?;
+        validate_identifier("model cache key", &model.cache_key)?;
+    }
+
+    validate_action(action, &presented_photos)
+}
+
+fn validate_action(
+    action: &FeedbackAction,
+    presented_photos: &BTreeSet<PhotoId>,
+) -> Result<(), FeedbackValidationError> {
+    match action {
+        FeedbackAction::PairwiseComparison { left, right, .. } => {
+            if left == right {
+                return Err(FeedbackValidationError::PairwisePhotosAreEqual);
+            }
+            for photo_id in [left, right] {
+                if !presented_photos.contains(photo_id) {
+                    return Err(FeedbackValidationError::PairwisePhotoNotPresented(
+                        *photo_id,
+                    ));
+                }
+            }
+        }
+        FeedbackAction::FlagChanged { before, after, .. } => {
+            for value in [before, after].into_iter().flatten() {
+                validate_optional_text("flag value", value)?;
+            }
+        }
+        FeedbackAction::RatingChanged { before, after, .. } => {
+            for rating in [before, after].into_iter().flatten() {
+                if *rating > 5 {
+                    return Err(FeedbackValidationError::RatingOutOfRange(*rating));
+                }
+            }
+        }
+        FeedbackAction::SuggestionReviewed { proposal_id, .. } => {
+            validate_identifier("proposal id", proposal_id)?;
+        }
+        FeedbackAction::DevelopProposalEdited {
+            proposal_id,
+            parameter_residuals,
+            ..
+        } => {
+            validate_identifier("proposal id", proposal_id)?;
+            for (parameter, residual) in parameter_residuals {
+                validate_identifier("parameter residual name", parameter)?;
+                if !residual.is_finite() {
+                    return Err(FeedbackValidationError::NonFiniteParameterResidual {
+                        parameter: parameter.clone(),
+                    });
+                }
+            }
+        }
+        FeedbackAction::ParametersCopied {
+            source_photo,
+            target_photos,
+        } => {
+            if target_photos.is_empty() {
+                return Err(FeedbackValidationError::MissingCopyTarget);
+            }
+            if target_photos.len() > MAX_TARGET_PHOTOS {
+                return Err(FeedbackValidationError::TooManyCopyTargets {
+                    maximum: MAX_TARGET_PHOTOS,
+                });
+            }
+            let mut unique = BTreeSet::new();
+            for target in target_photos {
+                if target == source_photo {
+                    return Err(FeedbackValidationError::CopyTargetIsSource);
+                }
+                if !unique.insert(*target) {
+                    return Err(FeedbackValidationError::DuplicateCopyTarget(*target));
+                }
+            }
+        }
+        FeedbackAction::Exported { .. } | FeedbackAction::ReturnedForRework { .. } => {}
+    }
+    Ok(())
+}
+
+fn validate_identifier(field: &'static str, value: &str) -> Result<(), FeedbackValidationError> {
+    if value.trim().is_empty() {
+        return Err(FeedbackValidationError::EmptyString { field });
+    }
+    if value.len() > MAX_IDENTIFIER_LENGTH {
+        return Err(FeedbackValidationError::StringTooLong {
+            field,
+            maximum: MAX_IDENTIFIER_LENGTH,
+        });
+    }
+    Ok(())
+}
+
+fn validate_optional_text(field: &'static str, value: &str) -> Result<(), FeedbackValidationError> {
+    if value.trim().is_empty() {
+        return Err(FeedbackValidationError::EmptyString { field });
+    }
+    if value.len() > MAX_TEXT_LENGTH {
+        return Err(FeedbackValidationError::StringTooLong {
+            field,
+            maximum: MAX_TEXT_LENGTH,
+        });
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]

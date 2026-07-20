@@ -5,6 +5,7 @@
 
 mod cache_artifact;
 mod decode_snapshot;
+mod feedback;
 mod import_journal;
 mod recipe;
 mod review;
@@ -29,6 +30,7 @@ pub use decode_snapshot::{
     DecodeSnapshotRecord, RecordDecodeSnapshot, RecordDecodeSnapshotStatus,
     RepresentationFingerprint,
 };
+pub use feedback::{FeedbackPage, MAX_FEEDBACK_PAGE_SIZE};
 pub use import_journal::{ImportSession, ImportSessionState, ImportSessionSummary};
 pub use recipe::{
     CommitRecipe, RecipeCommitRecord, RecipeRefKind, RecipeRefRecord, RecipeRefTarget, SetRecipeRef,
@@ -37,7 +39,7 @@ pub use review::{ReviewCursor, ReviewItemRecord, ReviewPageRecord};
 pub use store::CatalogStore;
 pub use writer::{CatalogActor, CatalogHandle};
 
-const SCHEMA_VERSION: i64 = 5;
+const SCHEMA_VERSION: i64 = 6;
 
 const MIGRATION_V1: &str = r"
 CREATE TABLE photos (
@@ -251,6 +253,68 @@ CREATE TABLE recipe_refs (
 CREATE INDEX recipe_refs_commit_idx ON recipe_refs(commit_id);
 ";
 
+const MIGRATION_V6: &str = r"
+CREATE TABLE ai_feedback_events (
+    sequence       INTEGER PRIMARY KEY NOT NULL CHECK (sequence > 0),
+    event_id       TEXT NOT NULL UNIQUE
+        CHECK (length(event_id) BETWEEN 1 AND 256),
+    occurred_at_ms INTEGER NOT NULL,
+    scope_kind     TEXT NOT NULL CHECK (scope_kind IN ('global', 'project')),
+    project_id     TEXT,
+    event_json     TEXT NOT NULL CHECK (json_valid(event_json)),
+    event_digest   BLOB NOT NULL CHECK (length(event_digest) = 32),
+    CHECK (
+        (scope_kind = 'global' AND project_id IS NULL) OR
+        (scope_kind = 'project' AND project_id IS NOT NULL
+            AND length(project_id) BETWEEN 1 AND 256)
+    )
+) STRICT;
+
+CREATE INDEX ai_feedback_events_scope_sequence_idx
+    ON ai_feedback_events(scope_kind, project_id, sequence);
+CREATE INDEX ai_feedback_events_occurred_idx
+    ON ai_feedback_events(occurred_at_ms, sequence);
+
+CREATE TRIGGER ai_feedback_events_no_update
+BEFORE UPDATE ON ai_feedback_events
+BEGIN
+    SELECT RAISE(ABORT, 'AI feedback events are append-only');
+END;
+
+CREATE TRIGGER ai_feedback_events_no_delete
+BEFORE DELETE ON ai_feedback_events
+BEGIN
+    SELECT RAISE(ABORT, 'AI feedback events are append-only');
+END;
+
+CREATE TABLE ai_feedback_forget_facts (
+    sequence           INTEGER PRIMARY KEY NOT NULL CHECK (sequence > 0),
+    fact_id            TEXT NOT NULL UNIQUE
+        CHECK (length(fact_id) BETWEEN 1 AND 256),
+    target_event_id    TEXT NOT NULL,
+    occurred_at_ms     INTEGER NOT NULL,
+    fact_json          TEXT NOT NULL CHECK (json_valid(fact_json)),
+    fact_digest        BLOB NOT NULL CHECK (length(fact_digest) = 32),
+    FOREIGN KEY (target_event_id) REFERENCES ai_feedback_events(event_id)
+        ON DELETE RESTRICT
+) STRICT;
+
+CREATE INDEX ai_feedback_forget_target_idx
+    ON ai_feedback_forget_facts(target_event_id, sequence);
+
+CREATE TRIGGER ai_feedback_forget_facts_no_update
+BEFORE UPDATE ON ai_feedback_forget_facts
+BEGIN
+    SELECT RAISE(ABORT, 'AI feedback forget facts are append-only');
+END;
+
+CREATE TRIGGER ai_feedback_forget_facts_no_delete
+BEFORE DELETE ON ai_feedback_forget_facts
+BEGIN
+    SELECT RAISE(ABORT, 'AI feedback forget facts are append-only');
+END;
+";
+
 #[derive(Debug, Error)]
 pub enum CatalogError {
     #[error("SQLite catalog error: {0}")]
@@ -312,6 +376,22 @@ pub enum CatalogError {
     DuplicateRecipeRefName(String),
     #[error("unknown persisted Recipe ref kind: {0}")]
     UnknownRecipeRefKind(String),
+    #[error("invalid AI feedback: {0}")]
+    InvalidFeedback(String),
+    #[error("AI feedback event id {0:?} already exists and cannot be overwritten")]
+    FeedbackEventAlreadyExists(String),
+    #[error("AI feedback event id {0:?} does not exist")]
+    FeedbackEventNotFound(String),
+    #[error("AI feedback forget fact id {0:?} already exists and cannot be overwritten")]
+    FeedbackForgetFactAlreadyExists(String),
+    #[error("AI feedback page limit {limit} is outside 1 through {maximum}")]
+    InvalidFeedbackPageLimit { limit: usize, maximum: usize },
+    #[error("AI feedback sequence space is exhausted")]
+    FeedbackSequenceExhausted,
+    #[error("AI feedback JSON error: {0}")]
+    FeedbackJson(serde_json::Error),
+    #[error("persisted AI feedback failed its integrity check: {0}")]
+    InvalidPersistedFeedback(&'static str),
 }
 
 #[derive(Debug)]
@@ -552,6 +632,17 @@ fn migrate(connection: &mut Connection) -> rusqlite::Result<()> {
         transaction.commit()?;
     }
 
+    let version = current_schema_version(connection)?;
+    if version < 6 {
+        let transaction = connection.transaction()?;
+        transaction.execute_batch(MIGRATION_V6)?;
+        transaction.execute(
+            "INSERT INTO schema_migrations(version, applied_at_ms) VALUES (?1, unixepoch('subsec') * 1000)",
+            [6_i64],
+        )?;
+        transaction.commit()?;
+    }
+
     let final_version = current_schema_version(connection)?;
     if final_version != SCHEMA_VERSION {
         return Err(rusqlite::Error::InvalidQuery);
@@ -694,7 +785,7 @@ mod tests {
     fn migration_creates_current_schema() {
         let catalog = Catalog::open_in_memory().expect("open catalog");
 
-        assert_eq!(catalog.schema_version().expect("schema version"), 5);
+        assert_eq!(catalog.schema_version().expect("schema version"), 6);
     }
 
     #[test]
@@ -732,7 +823,7 @@ mod tests {
         }
 
         let catalog = Catalog::open(&path).expect("migrate v2 catalog");
-        assert_eq!(catalog.schema_version().expect("schema version"), 5);
+        assert_eq!(catalog.schema_version().expect("schema version"), 6);
         let snapshot_tables: i64 = catalog
             .connection
             .query_row(
