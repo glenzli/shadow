@@ -97,8 +97,8 @@ Item {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 54
                     radius: 4
-                    color: "#20252b"
-                    border.color: "#343b43"
+                    color: precision.editor.layerEnabled ? "#20252b" : "#181c21"
+                    border.color: precision.editor.layerEnabled ? "#343b43" : "#574a36"
 
                     RowLayout {
                         anchors.fill: parent
@@ -116,22 +116,75 @@ Item {
                             spacing: 2
                             Label {
                                 text: "Basic Adjustments"
-                                color: precision.textPrimary
+                                color: precision.editor.layerEnabled
+                                    ? precision.textPrimary : precision.textSecondary
                                 font.pixelSize: 12
                                 font.weight: Font.Medium
                             }
                             Label {
-                                text: "PHOTO SCOPE · ORDERED"
-                                color: precision.accent
+                                text: precision.editor.layerEnabled
+                                    ? "PHOTO · ENABLED"
+                                    : "PHOTO · BYPASSED"
+                                color: precision.editor.layerEnabled
+                                    ? precision.accent : "#a08a65"
                                 font.pixelSize: 8
                                 font.weight: Font.DemiBold
                                 font.letterSpacing: 0.7
+                                elide: Text.ElideRight
                             }
+                        }
+
+                        Switch {
+                            id: layerEnabledSwitch
+                            Layout.preferredWidth: 38
+                            Layout.preferredHeight: 24
+                            checked: precision.editor.layerEnabled
+                            enabled: precision.editor.active
+                                && !precision.editor.stateBusy
+                            focusPolicy: Qt.StrongFocus
+                            Accessible.name: checked
+                                ? "Bypass Basic Adjustments layer"
+                                : "Enable Basic Adjustments layer"
+                            ToolTip.visible: hovered
+                            ToolTip.delay: 500
+                            ToolTip.text: checked
+                                ? "Bypass layer (values are preserved)"
+                                : "Enable layer"
+                            onToggled: precision.editor.layerEnabled = checked
+
+                            indicator: Rectangle {
+                                implicitWidth: 36
+                                implicitHeight: 20
+                                x: (layerEnabledSwitch.width - width) / 2
+                                y: (layerEnabledSwitch.height - height) / 2
+                                radius: height / 2
+                                color: layerEnabledSwitch.checked ? "#5a492a" : "#282e34"
+                                border.color: layerEnabledSwitch.activeFocus
+                                    ? precision.accent
+                                    : layerEnabledSwitch.checked ? "#8b7040" : "#4a535c"
+
+                                Rectangle {
+                                    width: 14
+                                    height: 14
+                                    y: 3
+                                    x: layerEnabledSwitch.checked ? parent.width - width - 3 : 3
+                                    radius: width / 2
+                                    color: layerEnabledSwitch.checked
+                                        ? precision.accent : precision.textMuted
+
+                                    Behavior on x {
+                                        NumberAnimation { duration: 100 }
+                                    }
+                                }
+                            }
+                            contentItem: Item {}
                         }
                     }
 
                     MouseArea {
                         anchors.fill: parent
+                        anchors.rightMargin: 58
+                        cursorShape: Qt.PointingHandCursor
                         onClicked: precision.layerExpanded = !precision.layerExpanded
                     }
                 }
@@ -140,6 +193,11 @@ Item {
                     Layout.fillWidth: true
                     spacing: 0
                     visible: precision.layerExpanded
+                    opacity: precision.editor.layerEnabled ? 1.0 : 0.42
+
+                    Behavior on opacity {
+                        NumberAnimation { duration: 100 }
+                    }
 
                     Repeater {
                         model: nodeModel
@@ -644,166 +702,177 @@ Item {
 
                                 Item { Layout.preferredHeight: 4 }
 
-                                Label {
+                                ColumnLayout {
                                     Layout.fillWidth: true
-                                    Layout.leftMargin: 18
-                                    Layout.rightMargin: 18
-                                    text: precision.nodeTitles[precision.selectedNode]
-                                    color: precision.textPrimary
-                                    font.pixelSize: 16
-                                    font.weight: Font.Medium
-                                }
-                                Label {
-                                    Layout.fillWidth: true
-                                    Layout.leftMargin: 18
-                                    Layout.rightMargin: 18
-                                    text: precision.nodeDescriptions[precision.selectedNode]
-                                    color: precision.textMuted
-                                    font.pixelSize: 10
-                                    wrapMode: Text.WordWrap
-                                }
+                                    spacing: 12
+                                    enabled: precision.editor.layerEnabled
+                                    opacity: precision.editor.layerEnabled ? 1.0 : 0.42
 
-                                Rectangle {
-                                    Layout.fillWidth: true
-                                    Layout.leftMargin: 18
-                                    Layout.rightMargin: 18
-                                    Layout.preferredHeight: 1
-                                    color: precision.border
-                                }
-
-                                ShadowSlider {
-                                    visible: precision.selectedNode === 0
-                                    Layout.fillWidth: true
-                                    Layout.leftMargin: 18
-                                    Layout.rightMargin: 18
-                                    label: "Exposure"
-                                    from: -5.0
-                                    to: 5.0
-                                    stepSize: 0.05
-                                    value: precision.editor.exposureStops
-                                    suffix: " EV"
-                                    onGestureStarted: precision.editor.beginParameterEdit("exposure")
-                                    onEdited: value => precision.editor.exposureStops = value
-                                    onGestureFinished: precision.editor.endParameterEdit("exposure")
-                                }
-
-                                ShadowSlider {
-                                    visible: precision.selectedNode === 1
-                                    Layout.fillWidth: true
-                                    Layout.leftMargin: 18
-                                    Layout.rightMargin: 18
-                                    label: "Contrast factor"
-                                    from: 0.25
-                                    to: 2.5
-                                    stepSize: 0.01
-                                    value: precision.editor.contrastFactor
-                                    suffix: "×"
-                                    onGestureStarted: precision.editor.beginParameterEdit("contrast")
-                                    onEdited: value => precision.editor.contrastFactor = value
-                                    onGestureFinished: precision.editor.endParameterEdit("contrast")
-                                }
-
-                                ToneCurveEditor {
-                                    visible: precision.selectedNode === 2
-                                    Layout.fillWidth: true
-                                    Layout.leftMargin: 18
-                                    Layout.rightMargin: 18
-                                    Layout.preferredHeight: implicitHeight
-                                    controller: precision.editor
-                                    panelColor: precision.panelRaised
-                                    plotColor: "#101317"
-                                    borderColor: precision.border
-                                    textColor: precision.textPrimary
-                                    mutedTextColor: precision.textMuted
-                                    accentColor: precision.accent
-                                }
-
-                                ShadowSlider {
-                                    visible: precision.selectedNode === 3
-                                    Layout.fillWidth: true
-                                    Layout.leftMargin: 18
-                                    Layout.rightMargin: 18
-                                    label: "Red gain"
-                                    from: 0.25
-                                    to: 2.5
-                                    stepSize: 0.01
-                                    value: precision.editor.redGain
-                                    suffix: "×"
-                                    onGestureStarted: precision.editor.beginParameterEdit("red_gain")
-                                    onEdited: value => precision.editor.redGain = value
-                                    onGestureFinished: precision.editor.endParameterEdit("red_gain")
-                                }
-                                ShadowSlider {
-                                    visible: precision.selectedNode === 3
-                                    Layout.fillWidth: true
-                                    Layout.leftMargin: 18
-                                    Layout.rightMargin: 18
-                                    label: "Green gain"
-                                    from: 0.25
-                                    to: 2.5
-                                    stepSize: 0.01
-                                    value: precision.editor.greenGain
-                                    suffix: "×"
-                                    onGestureStarted: precision.editor.beginParameterEdit("green_gain")
-                                    onEdited: value => precision.editor.greenGain = value
-                                    onGestureFinished: precision.editor.endParameterEdit("green_gain")
-                                }
-                                ShadowSlider {
-                                    visible: precision.selectedNode === 3
-                                    Layout.fillWidth: true
-                                    Layout.leftMargin: 18
-                                    Layout.rightMargin: 18
-                                    label: "Blue gain"
-                                    from: 0.25
-                                    to: 2.5
-                                    stepSize: 0.01
-                                    value: precision.editor.blueGain
-                                    suffix: "×"
-                                    onGestureStarted: precision.editor.beginParameterEdit("blue_gain")
-                                    onEdited: value => precision.editor.blueGain = value
-                                    onGestureFinished: precision.editor.endParameterEdit("blue_gain")
-                                }
-
-                                ShadowSlider {
-                                    visible: precision.selectedNode === 4
-                                    Layout.fillWidth: true
-                                    Layout.leftMargin: 18
-                                    Layout.rightMargin: 18
-                                    label: "Saturation"
-                                    from: 0.0
-                                    to: 2.5
-                                    stepSize: 0.01
-                                    value: precision.editor.saturationFactor
-                                    suffix: "×"
-                                    onGestureStarted: precision.editor.beginParameterEdit("saturation")
-                                    onEdited: value => precision.editor.saturationFactor = value
-                                    onGestureFinished: precision.editor.endParameterEdit("saturation")
-                                }
-
-                                Item { Layout.preferredHeight: 8 }
-
-                                Button {
-                                    id: resetButton
-                                    visible: precision.selectedNode !== 2
-                                    Layout.fillWidth: true
-                                    Layout.leftMargin: 18
-                                    Layout.rightMargin: 18
-                                    Layout.preferredHeight: 36
-                                    text: "RESET SLIDERS"
-                                    enabled: precision.editor.active && !precision.editor.stateBusy
-                                    onClicked: precision.editor.resetEdits()
-                                    background: Rectangle {
-                                        radius: 4
-                                        color: resetButton.down ? "#2a3037" : "#1b2025"
-                                        border.color: precision.border
+                                    Behavior on opacity {
+                                        NumberAnimation { duration: 100 }
                                     }
-                                    contentItem: Label {
-                                        text: resetButton.text
+
+                                    Label {
+                                        Layout.fillWidth: true
+                                        Layout.leftMargin: 18
+                                        Layout.rightMargin: 18
+                                        text: precision.nodeTitles[precision.selectedNode]
                                         color: precision.textPrimary
-                                        font.pixelSize: 9
-                                        font.weight: Font.DemiBold
-                                        horizontalAlignment: Text.AlignHCenter
-                                        verticalAlignment: Text.AlignVCenter
+                                        font.pixelSize: 16
+                                        font.weight: Font.Medium
+                                    }
+                                    Label {
+                                        Layout.fillWidth: true
+                                        Layout.leftMargin: 18
+                                        Layout.rightMargin: 18
+                                        text: precision.nodeDescriptions[precision.selectedNode]
+                                        color: precision.textMuted
+                                        font.pixelSize: 10
+                                        wrapMode: Text.WordWrap
+                                    }
+
+                                    Rectangle {
+                                        Layout.fillWidth: true
+                                        Layout.leftMargin: 18
+                                        Layout.rightMargin: 18
+                                        Layout.preferredHeight: 1
+                                        color: precision.border
+                                    }
+
+                                    ShadowSlider {
+                                        visible: precision.selectedNode === 0
+                                        Layout.fillWidth: true
+                                        Layout.leftMargin: 18
+                                        Layout.rightMargin: 18
+                                        label: "Exposure"
+                                        from: -5.0
+                                        to: 5.0
+                                        stepSize: 0.05
+                                        value: precision.editor.exposureStops
+                                        suffix: " EV"
+                                        onGestureStarted: precision.editor.beginParameterEdit("exposure")
+                                        onEdited: value => precision.editor.exposureStops = value
+                                        onGestureFinished: precision.editor.endParameterEdit("exposure")
+                                    }
+
+                                    ShadowSlider {
+                                        visible: precision.selectedNode === 1
+                                        Layout.fillWidth: true
+                                        Layout.leftMargin: 18
+                                        Layout.rightMargin: 18
+                                        label: "Contrast factor"
+                                        from: 0.25
+                                        to: 2.5
+                                        stepSize: 0.01
+                                        value: precision.editor.contrastFactor
+                                        suffix: "×"
+                                        onGestureStarted: precision.editor.beginParameterEdit("contrast")
+                                        onEdited: value => precision.editor.contrastFactor = value
+                                        onGestureFinished: precision.editor.endParameterEdit("contrast")
+                                    }
+
+                                    ToneCurveEditor {
+                                        visible: precision.selectedNode === 2
+                                        Layout.fillWidth: true
+                                        Layout.leftMargin: 18
+                                        Layout.rightMargin: 18
+                                        Layout.preferredHeight: implicitHeight
+                                        controller: precision.editor
+                                        panelColor: precision.panelRaised
+                                        plotColor: "#101317"
+                                        borderColor: precision.border
+                                        textColor: precision.textPrimary
+                                        mutedTextColor: precision.textMuted
+                                        accentColor: precision.accent
+                                    }
+
+                                    ShadowSlider {
+                                        visible: precision.selectedNode === 3
+                                        Layout.fillWidth: true
+                                        Layout.leftMargin: 18
+                                        Layout.rightMargin: 18
+                                        label: "Red gain"
+                                        from: 0.25
+                                        to: 2.5
+                                        stepSize: 0.01
+                                        value: precision.editor.redGain
+                                        suffix: "×"
+                                        onGestureStarted: precision.editor.beginParameterEdit("red_gain")
+                                        onEdited: value => precision.editor.redGain = value
+                                        onGestureFinished: precision.editor.endParameterEdit("red_gain")
+                                    }
+                                    ShadowSlider {
+                                        visible: precision.selectedNode === 3
+                                        Layout.fillWidth: true
+                                        Layout.leftMargin: 18
+                                        Layout.rightMargin: 18
+                                        label: "Green gain"
+                                        from: 0.25
+                                        to: 2.5
+                                        stepSize: 0.01
+                                        value: precision.editor.greenGain
+                                        suffix: "×"
+                                        onGestureStarted: precision.editor.beginParameterEdit("green_gain")
+                                        onEdited: value => precision.editor.greenGain = value
+                                        onGestureFinished: precision.editor.endParameterEdit("green_gain")
+                                    }
+                                    ShadowSlider {
+                                        visible: precision.selectedNode === 3
+                                        Layout.fillWidth: true
+                                        Layout.leftMargin: 18
+                                        Layout.rightMargin: 18
+                                        label: "Blue gain"
+                                        from: 0.25
+                                        to: 2.5
+                                        stepSize: 0.01
+                                        value: precision.editor.blueGain
+                                        suffix: "×"
+                                        onGestureStarted: precision.editor.beginParameterEdit("blue_gain")
+                                        onEdited: value => precision.editor.blueGain = value
+                                        onGestureFinished: precision.editor.endParameterEdit("blue_gain")
+                                    }
+
+                                    ShadowSlider {
+                                        visible: precision.selectedNode === 4
+                                        Layout.fillWidth: true
+                                        Layout.leftMargin: 18
+                                        Layout.rightMargin: 18
+                                        label: "Saturation"
+                                        from: 0.0
+                                        to: 2.5
+                                        stepSize: 0.01
+                                        value: precision.editor.saturationFactor
+                                        suffix: "×"
+                                        onGestureStarted: precision.editor.beginParameterEdit("saturation")
+                                        onEdited: value => precision.editor.saturationFactor = value
+                                        onGestureFinished: precision.editor.endParameterEdit("saturation")
+                                    }
+
+                                    Item { Layout.preferredHeight: 8 }
+
+                                    Button {
+                                        id: resetButton
+                                        visible: precision.selectedNode !== 2
+                                        Layout.fillWidth: true
+                                        Layout.leftMargin: 18
+                                        Layout.rightMargin: 18
+                                        Layout.preferredHeight: 36
+                                        text: "RESET SLIDERS"
+                                        enabled: precision.editor.active && !precision.editor.stateBusy
+                                        onClicked: precision.editor.resetEdits()
+                                        background: Rectangle {
+                                            radius: 4
+                                            color: resetButton.down ? "#2a3037" : "#1b2025"
+                                            border.color: precision.border
+                                        }
+                                        contentItem: Label {
+                                            text: resetButton.text
+                                            color: precision.textPrimary
+                                            font.pixelSize: 9
+                                            font.weight: Font.DemiBold
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                        }
                                     }
                                 }
 

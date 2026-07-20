@@ -56,6 +56,12 @@ class EditController final : public QObject {
     Q_PROPERTY(QString beforeErrorText READ beforeErrorText NOTIFY beforeErrorTextChanged)
     Q_PROPERTY(QString statusText READ statusText NOTIFY statusTextChanged)
     Q_PROPERTY(
+        bool layerEnabled
+        READ layerEnabled
+        WRITE setLayerEnabled
+        NOTIFY layerEnabledChanged
+    )
+    Q_PROPERTY(
         double exposureStops
         READ exposureStops
         WRITE setExposureStops
@@ -103,6 +109,7 @@ public:
     [[nodiscard]] QString beforePreviewSource() const;
     [[nodiscard]] QString beforeErrorText() const;
     [[nodiscard]] QString statusText() const;
+    [[nodiscard]] bool layerEnabled() const noexcept;
     [[nodiscard]] double exposureStops() const noexcept;
     [[nodiscard]] double contrastFactor() const noexcept;
     [[nodiscard]] double redGain() const noexcept;
@@ -114,6 +121,7 @@ public:
     [[nodiscard]] bool toneCurveEditable() const noexcept;
     [[nodiscard]] QAbstractItemModel* versions() noexcept;
 
+    void setLayerEnabled(bool enabled);
     void setExposureStops(double value);
     void setContrastFactor(double value);
     void setRedGain(double value);
@@ -158,6 +166,7 @@ signals:
     void beforePreviewSourceChanged();
     void beforeErrorTextChanged();
     void statusTextChanged();
+    void layerEnabledChanged();
     void parametersChanged();
     void toneCurveChanged();
 

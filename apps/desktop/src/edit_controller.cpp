@@ -230,6 +230,10 @@ QString EditController::statusText() const {
     return status_text_;
 }
 
+bool EditController::layerEnabled() const noexcept {
+    return settings_.layer_enabled;
+}
+
 double EditController::exposureStops() const noexcept {
     return settings_.basic.exposure_stops;
 }
@@ -268,6 +272,22 @@ bool EditController::toneCurveEditable() const noexcept {
 
 QAbstractItemModel* EditController::versions() noexcept {
     return &versions_;
+}
+
+void EditController::setLayerEnabled(const bool enabled) {
+    if (!active_ || state_running_ || settings_.layer_enabled == enabled) {
+        return;
+    }
+    const BackendEditSettings before = settings_;
+    settings_.layer_enabled = enabled;
+    recordWorkingTransition(QStringLiteral("layer_enabled"), before);
+    emit layerEnabledChanged();
+    setDirty(settings_ != committed_settings_);
+    schedulePreview(0);
+    setStatusText(
+        enabled ? QStringLiteral("Basic Adjustments enabled")
+                : QStringLiteral("Basic Adjustments bypassed · settings preserved")
+    );
 }
 
 void EditController::setExposureStops(const double value) {
@@ -413,7 +433,8 @@ void EditController::closePhoto() {
 }
 
 void EditController::beginParameterEdit(const QString& parameter_key) {
-    if (!active_ || state_running_ || parameter_key.isEmpty()) {
+    if (!active_ || state_running_ || !settings_.layer_enabled
+        || parameter_key.isEmpty()) {
         return;
     }
     const bool could_undo = canUndo();
@@ -437,7 +458,8 @@ void EditController::endParameterEdit(const QString& parameter_key) {
 }
 
 void EditController::beginToneCurveGesture(const int index) {
-    if (!active_ || state_running_ || !tone_curve_points_.isEditable()
+    if (!active_ || state_running_ || !settings_.layer_enabled
+        || !tone_curve_points_.isEditable()
         || !tone_curve_points_.selectPoint(index)) {
         return;
     }
@@ -449,7 +471,7 @@ void EditController::moveToneCurvePoint(
     const double x,
     const double y
 ) {
-    if (!active_ || state_running_) {
+    if (!active_ || state_running_ || !settings_.layer_enabled) {
         return;
     }
     const BackendEditSettings before = settings_;
@@ -466,7 +488,7 @@ void EditController::endToneCurveGesture(const int index) {
 }
 
 void EditController::addToneCurvePoint(const double x, const double y) {
-    if (!active_ || state_running_) {
+    if (!active_ || state_running_ || !settings_.layer_enabled) {
         return;
     }
     const BackendEditSettings before = settings_;
@@ -480,7 +502,7 @@ void EditController::addToneCurvePoint(const double x, const double y) {
 }
 
 void EditController::removeToneCurvePoint(const int index) {
-    if (!active_ || state_running_) {
+    if (!active_ || state_running_ || !settings_.layer_enabled) {
         return;
     }
     const BackendEditSettings before = settings_;
@@ -492,7 +514,8 @@ void EditController::removeToneCurvePoint(const int index) {
 }
 
 void EditController::resetToneCurve() {
-    if (!active_ || state_running_ || !settings_.has_tone_curve) {
+    if (!active_ || state_running_ || !settings_.layer_enabled
+        || !settings_.has_tone_curve) {
         return;
     }
     const BackendEditSettings before = settings_;
@@ -531,7 +554,7 @@ void EditController::redo() {
 }
 
 void EditController::resetEdits() {
-    if (!active_ || state_running_) {
+    if (!active_ || state_running_ || !settings_.layer_enabled) {
         return;
     }
     const BackendBasicEditParameters neutral;
@@ -791,6 +814,7 @@ void EditController::setSettings(BackendEditSettings settings) {
     if (!settings.has_tone_curve) {
         settings.tone_curve_points.clear();
     }
+    const bool layer_enabled_changed = settings_.layer_enabled != settings.layer_enabled;
     const bool basic_changed = settings_.basic != settings.basic;
     const bool curve_changed = settings_.has_tone_curve != settings.has_tone_curve
         || settings_.tone_curve_points != settings.tone_curve_points;
@@ -801,6 +825,9 @@ void EditController::setSettings(BackendEditSettings settings) {
         return;
     }
     settings_ = std::move(settings);
+    if (layer_enabled_changed) {
+        emit layerEnabledChanged();
+    }
     if (basic_changed) {
         emit parametersChanged();
     }
@@ -925,6 +952,10 @@ bool EditController::acceptParameter(
     const QString& label
 ) {
     if (!active_ || state_running_) {
+        return false;
+    }
+    if (!settings_.layer_enabled) {
+        setStatusText(QStringLiteral("Enable Basic Adjustments before editing its controls"));
         return false;
     }
     if (!std::isfinite(value) || value < minimum || value > maximum) {

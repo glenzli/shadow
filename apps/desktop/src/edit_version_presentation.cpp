@@ -22,6 +22,9 @@ namespace {
     if (key == QStringLiteral("tone_curve")) {
         return translated("Tone Curve");
     }
+    if (key == QStringLiteral("layer_enabled")) {
+        return translated("Layer bypass");
+    }
     if (key == QStringLiteral("red_channel_gain")) {
         return translated("Red gain");
     }

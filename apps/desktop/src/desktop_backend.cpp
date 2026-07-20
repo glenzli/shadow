@@ -70,6 +70,7 @@ namespace {
 ) {
     shadow::desktop::FfiEditSettings settings;
     settings.basic = ffi_parameters(source.basic);
+    settings.layer_enabled = source.layer_enabled;
     settings.has_tone_curve = source.has_tone_curve;
     settings.tone_curve_points.reserve(
         static_cast<std::size_t>(source.tone_curve_points.size())
@@ -85,6 +86,7 @@ namespace {
 ) {
     BackendEditSettings settings;
     settings.basic = edit_parameters(source.basic);
+    settings.layer_enabled = source.layer_enabled;
     settings.has_tone_curve = source.has_tone_curve;
     settings.tone_curve_points.reserve(
         checked_qt_vector_size(source.tone_curve_points.size(), "tone_curve_points")

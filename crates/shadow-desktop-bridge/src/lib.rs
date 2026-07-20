@@ -114,6 +114,7 @@ mod ffi {
     #[derive(Debug, Clone)]
     struct FfiEditSettings {
         basic: FfiBasicEditParameters,
+        layer_enabled: bool,
         has_tone_curve: bool,
         tone_curve_points: Vec<FfiToneCurvePoint>,
     }
@@ -591,10 +592,21 @@ const _: () = assert!(
         && CPU_REFERENCE_IMPLEMENTATION_REVISION == ADJUSTMENT_IMPLEMENTATION_VERSION
 );
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq)]
 struct EditSettings {
     basic: BasicEditParameters,
+    layer_enabled: bool,
     tone_curve: Option<Vec<ToneCurvePoint>>,
+}
+
+impl Default for EditSettings {
+    fn default() -> Self {
+        Self {
+            basic: BasicEditParameters::default(),
+            layer_enabled: true,
+            tone_curve: None,
+        }
+    }
 }
 
 fn edit_settings(settings: &ffi::FfiEditSettings) -> AnyResult<EditSettings> {
@@ -618,7 +630,11 @@ fn edit_settings(settings: &ffi::FfiEditSettings) -> AnyResult<EditSettings> {
                 .collect(),
         ),
     };
-    let settings = EditSettings { basic, tone_curve };
+    let settings = EditSettings {
+        basic,
+        layer_enabled: settings.layer_enabled,
+        tone_curve,
+    };
     validate_edit_settings(&settings)?;
     Ok(settings)
 }
@@ -736,6 +752,7 @@ fn ffi_edit_settings(settings: EditSettings) -> ffi::FfiEditSettings {
         .collect();
     ffi::FfiEditSettings {
         basic: ffi_basic_parameters(settings.basic),
+        layer_enabled: settings.layer_enabled,
         has_tone_curve,
         tone_curve_points,
     }
@@ -922,14 +939,15 @@ fn basic_recipe_snapshot(
     parameters: BasicEditParameters,
     template: Option<&RecipeSnapshot>,
 ) -> AnyResult<RecipeSnapshot> {
-    let tone_curve = template
+    let template_settings = template
         .map(edit_settings_from_snapshot)
         .transpose()?
-        .and_then(|settings| settings.tone_curve);
+        .unwrap_or_default();
     edit_recipe_snapshot(
         &EditSettings {
             basic: parameters,
-            tone_curve,
+            layer_enabled: template_settings.layer_enabled,
+            tone_curve: template_settings.tone_curve,
         },
         template,
     )
@@ -1030,7 +1048,7 @@ fn edit_recipe_snapshot(
         BASIC_LAYER_LABEL,
         AdjustmentScope::Photo,
         LayerContent::Inline { graph },
-        true,
+        settings.layer_enabled,
         UnitInterval::ONE,
         BlendMode::Normal,
         None,
@@ -1148,8 +1166,8 @@ fn basic_recipe_nodes(snapshot: &RecipeSnapshot) -> AnyResult<BasicRecipeNodes<'
     // versioned point payload through the same plan used by the renderer.
     compile_recipe_render_plan(snapshot)?;
     let (layer, ordered) = ordered_inline_recipe_nodes(snapshot)?;
-    if layer.label() != BASIC_LAYER_LABEL || !layer.enabled() {
-        bail!("working Recipe is not an enabled Basic adjustments layer");
+    if layer.label() != BASIC_LAYER_LABEL {
+        bail!("working Recipe is not a Basic adjustments layer");
     }
     let (exposure, contrast, tone_curve, channel_gain, saturation) = match ordered.len() {
         4 => (ordered[0], ordered[1], None, ordered[2], ordered[3]),
@@ -1260,7 +1278,11 @@ fn edit_settings_from_snapshot(snapshot: &RecipeSnapshot) -> AnyResult<EditSetti
         .tone_curve
         .map(|node| tone_curve_points_from_parameters(node.parameters()))
         .transpose()?;
-    let settings = EditSettings { basic, tone_curve };
+    let settings = EditSettings {
+        basic,
+        layer_enabled: nodes.layer.enabled(),
+        tone_curve,
+    };
     validate_edit_settings(&settings)?;
     Ok(settings)
 }
@@ -1587,6 +1609,9 @@ fn changed_basic_parameters(
 
 fn changed_edit_parameters(before: &EditSettings, after: &EditSettings) -> Vec<String> {
     let mut changed = changed_basic_parameters(before.basic, after.basic);
+    if before.layer_enabled != after.layer_enabled {
+        changed.push("layer_enabled".to_owned());
+    }
     if before.tone_curve != after.tone_curve {
         changed.push("tone_curve".to_owned());
     }
@@ -1957,22 +1982,21 @@ mod tests {
 
     #[test]
     fn neutral_before_ignores_transient_slider_parameters() {
-        let non_neutral = ffi_settings_with_tone(
+        let mut non_neutral = ffi_settings_with_tone(
             2.0,
             1.7,
             [1.4, 0.8, 1.2],
             0.6,
             &[[0.0, 0.1], [0.5, 0.8], [1.0, 1.1]],
         );
+        non_neutral.layer_enabled = false;
 
-        assert_eq!(
-            preview_edit_settings(&non_neutral, false).expect("select neutral Before"),
-            EditSettings::default()
-        );
-        assert_ne!(
-            preview_edit_settings(&non_neutral, true).expect("select current parameters"),
-            EditSettings::default()
-        );
+        let before = preview_edit_settings(&non_neutral, false).expect("select neutral Before");
+        assert_eq!(before, EditSettings::default());
+        assert!(before.layer_enabled);
+        let current = preview_edit_settings(&non_neutral, true).expect("select current parameters");
+        assert_ne!(current, EditSettings::default());
+        assert!(!current.layer_enabled);
     }
 
     #[test]
@@ -2099,6 +2123,54 @@ mod tests {
     }
 
     #[test]
+    fn layer_bypass_preserves_the_complete_recipe_and_disables_every_render_node() {
+        let points = [[0.0, -0.08], [0.4, 0.22], [0.8, 0.94], [1.0, 1.1]];
+        let mut incoming = ffi_settings_with_tone(1.25, 1.35, [1.2, 0.9, 1.05], 0.72, &points);
+        incoming.layer_enabled = false;
+        let disabled_settings = edit_settings(&incoming).expect("validate disabled settings");
+        let disabled =
+            edit_recipe_snapshot(&disabled_settings, None).expect("build disabled Recipe");
+        let disabled_identity = basic_recipe_identity(&disabled)
+            .expect("read disabled identity")
+            .expect("disabled Recipe is non-empty");
+        let plan = compile_recipe_render_plan(&disabled).expect("compile disabled Recipe");
+
+        assert!(!disabled.layers()[0].enabled());
+        assert_eq!(plan.nodes.len(), 5);
+        assert!(plan.nodes.iter().all(|node| !node.enabled));
+        assert_eq!(
+            edit_settings_from_snapshot(&disabled).unwrap(),
+            disabled_settings
+        );
+        let outgoing = ffi_edit_settings(disabled_settings.clone());
+        assert!(!outgoing.layer_enabled);
+        assert_eq!(ffi_curve_pairs(&outgoing), points);
+
+        let mut enabled_settings = disabled_settings.clone();
+        enabled_settings.layer_enabled = true;
+        let enabled = edit_recipe_snapshot(&enabled_settings, Some(&disabled))
+            .expect("re-enable existing Recipe");
+        let enabled_identity = basic_recipe_identity(&enabled)
+            .expect("read enabled identity")
+            .expect("enabled Recipe is non-empty");
+        let enabled_plan = compile_recipe_render_plan(&enabled).expect("compile enabled Recipe");
+        let enabled_round_trip =
+            edit_settings_from_snapshot(&enabled).expect("decode enabled Recipe");
+        let diff = diff_recipe_snapshots(&disabled, &enabled);
+
+        assert_eq!(enabled_identity, disabled_identity);
+        assert_eq!(enabled_round_trip.basic, disabled_settings.basic);
+        assert_eq!(enabled_round_trip.tone_curve, disabled_settings.tone_curve);
+        assert!(enabled_round_trip.layer_enabled);
+        assert!(enabled_plan.nodes.iter().all(|node| node.enabled));
+        assert_eq!(
+            changed_edit_parameters(&disabled_settings, &enabled_round_trip),
+            ["layer_enabled"]
+        );
+        assert!(!has_other_recipe_changes(&diff, &disabled, &enabled));
+    }
+
+    #[test]
     fn editing_and_resetting_tone_curve_preserves_canonical_node_identity() {
         let original_settings = edit_settings(&ffi_settings_with_tone(
             0.0,
@@ -2127,6 +2199,7 @@ mod tests {
         let reset = edit_recipe_snapshot(
             &EditSettings {
                 basic: edited_settings.basic,
+                layer_enabled: edited_settings.layer_enabled,
                 tone_curve: None,
             },
             Some(&edited),
@@ -2434,6 +2507,7 @@ mod tests {
         assert_close(neutral.settings.basic.green_channel_gain, 1.0);
         assert_close(neutral.settings.basic.blue_channel_gain, 1.0);
         assert_close(neutral.settings.basic.saturation_factor, 1.0);
+        assert!(neutral.settings.layer_enabled);
         assert!(!neutral.settings.has_tone_curve);
         assert!(neutral.settings.tone_curve_points.is_empty());
         assert!(neutral.versions.is_empty());
@@ -2826,6 +2900,101 @@ mod tests {
     }
 
     #[test]
+    fn save_reopen_and_checkout_restore_layer_bypass_without_losing_recipe_data() {
+        let (root, session, photo_id, source_path) = test_edit_session();
+        let points = [[0.0, -0.02], [0.3, 0.18], [0.75, 0.88], [1.0, 1.06]];
+        let enabled = ffi_settings_with_tone(0.7, 1.25, [1.08, 0.96, 1.02], 0.82, &points);
+        let first = session
+            .save_basic_edit_version_at(
+                &photo_id,
+                &source_path,
+                "",
+                &enabled,
+                "Enabled look",
+                1_000,
+            )
+            .expect("save enabled version");
+        let first_id = first.working_commit_id;
+        let mut disabled = enabled.clone();
+        disabled.layer_enabled = false;
+        let second = session
+            .save_basic_edit_version_at(
+                &photo_id,
+                &source_path,
+                &first_id,
+                &disabled,
+                "Bypassed look",
+                2_000,
+            )
+            .expect("save bypassed version");
+        let second_id = second.working_commit_id.clone();
+        let current_version = second
+            .versions
+            .iter()
+            .find(|version| version.is_working)
+            .expect("working bypass version");
+
+        assert_eq!(current_version.changed_basic_parameters, ["layer_enabled"]);
+        assert!(!current_version.has_other_changes);
+        assert!(!second.settings.layer_enabled);
+        assert_eq!(ffi_curve_pairs(&second.settings), points);
+
+        let parsed_photo_id: PhotoId = photo_id.parse().expect("photo id");
+        let commits = session
+            .catalog
+            .recipe_commits(parsed_photo_id)
+            .expect("list bypass history");
+        let first_record = commits
+            .iter()
+            .find(|record| record.commit.id().to_string() == first_id)
+            .expect("enabled commit remains durable");
+        let second_record = commits
+            .iter()
+            .find(|record| record.commit.id().to_string() == second_id)
+            .expect("bypassed commit is durable");
+        let first_settings = edit_settings_from_snapshot(first_record.commit.snapshot())
+            .expect("decode enabled commit");
+        let second_settings = edit_settings_from_snapshot(second_record.commit.snapshot())
+            .expect("decode bypassed commit");
+        assert!(first_settings.layer_enabled);
+        assert!(!second_settings.layer_enabled);
+        assert_eq!(first_settings.basic, second_settings.basic);
+        assert_eq!(first_settings.tone_curve, second_settings.tone_curve);
+        assert_eq!(
+            basic_recipe_identity(first_record.commit.snapshot()).unwrap(),
+            basic_recipe_identity(second_record.commit.snapshot()).unwrap()
+        );
+
+        drop(session);
+        let reopened = open_desktop_session(
+            root.join("catalog.sqlite").to_str().expect("catalog path"),
+            root.join("cache").to_str().expect("cache path"),
+        )
+        .expect("reopen desktop session");
+        let reopened_state = reopened
+            .photo_edit_state(&photo_id, &source_path)
+            .expect("read reopened bypass state");
+        assert_eq!(reopened_state.working_commit_id, second_id);
+        assert!(!reopened_state.settings.layer_enabled);
+        assert_eq!(ffi_curve_pairs(&reopened_state.settings), points);
+
+        let checked_out = reopened
+            .checkout_basic_edit_version_at(&photo_id, &source_path, &first_id, 3_000)
+            .expect("check out enabled version");
+        assert!(checked_out.settings.layer_enabled);
+        assert_eq!(ffi_curve_pairs(&checked_out.settings), points);
+        assert_close(checked_out.settings.basic.exposure_stops, 0.7);
+        assert_close(checked_out.settings.basic.contrast_factor, 1.25);
+        assert_close(checked_out.settings.basic.red_channel_gain, 1.08);
+        assert_close(checked_out.settings.basic.green_channel_gain, 0.96);
+        assert_close(checked_out.settings.basic.blue_channel_gain, 1.02);
+        assert_close(checked_out.settings.basic.saturation_factor, 0.82);
+
+        drop(reopened);
+        std::fs::remove_dir_all(root).expect("remove edit fixture");
+    }
+
+    #[test]
     fn edit_service_rejects_a_path_from_another_photo() {
         let (root, session, photo_id, source_path) = test_edit_session();
 
@@ -2853,6 +3022,7 @@ mod tests {
                 blue_channel_gain: channel_gains[2],
                 saturation_factor,
             },
+            layer_enabled: true,
             has_tone_curve: false,
             tone_curve_points: Vec::new(),
         }
@@ -3288,6 +3458,15 @@ mod tests {
                 &preview_request("", first_settings.clone(), false),
             )
             .expect("render neutral Before independently of working Recipe");
+        let mut bypassed_settings = first_settings.clone();
+        bypassed_settings.layer_enabled = false;
+        let bypassed_current = session
+            .render_basic_edit_preview(
+                &item.photo_id,
+                &item.source_path,
+                &preview_request(&first_tone_id.to_string(), bypassed_settings, true),
+            )
+            .expect("render the real DNG with every adjustment node bypassed");
         let second_tone_id =
             persist_test_tone_recipe(session, photo_id, recipe_id, Some(first_tone_id), 0.28);
         let mut second_settings = session
@@ -3320,6 +3499,7 @@ mod tests {
         assert_eq!(tone_current.bytes, old_base_after_ref_move.bytes);
         assert_ne!(tone_current.bytes, new_base_after_ref_move.bytes);
         assert_ne!(tone_current.bytes, neutral_before_first.bytes);
+        assert_eq!(bypassed_current.bytes, neutral_before_first.bytes);
         assert_eq!(neutral_before_first.bytes, neutral_before_second.bytes);
         let state = session
             .photo_edit_state(&item.photo_id, &item.source_path)

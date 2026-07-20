@@ -68,6 +68,7 @@ struct BackendToneCurvePoint final {
 
 struct BackendEditSettings final {
     BackendBasicEditParameters basic;
+    bool layer_enabled = true;
     bool has_tone_curve = false;
     QVector<BackendToneCurvePoint> tone_curve_points;
 
