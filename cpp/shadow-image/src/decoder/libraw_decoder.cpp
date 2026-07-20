@@ -6,6 +6,7 @@
 #include <climits>
 #include <cstring>
 #include <limits>
+#include <memory>
 #include <sstream>
 #include <utility>
 
@@ -322,22 +323,26 @@ public:
     }
 
     [[nodiscard]] PixelBuffer render_reference_rgb() const override {
-        LibRaw renderer;
-        renderer.imgdata.rawparams.max_raw_memory_mb = 2'048U;
-        require_libraw_success(open_path(renderer, path_), "reference open_file");
-        require_libraw_success(renderer.unpack(), "reference unpack");
+        // LibRaw embeds sizeable fixed storage in the decoder object. QtConcurrent worker
+        // threads use a substantially smaller stack than the process main thread on macOS,
+        // so keeping a temporary LibRaw here can overflow the worker before open_file runs.
+        // The renderer is independent state and belongs on the heap regardless of caller.
+        auto renderer = std::make_unique<LibRaw>();
+        renderer->imgdata.rawparams.max_raw_memory_mb = 2'048U;
+        require_libraw_success(open_path(*renderer, path_), "reference open_file");
+        require_libraw_success(renderer->unpack(), "reference unpack");
 
-        auto& parameters = renderer.imgdata.params;
+        auto& parameters = renderer->imgdata.params;
         parameters.output_bps = 16;
         parameters.use_camera_wb = 1;
         parameters.no_auto_bright = 1;
         parameters.output_color = 1;
         parameters.user_qual = 3;
-        require_libraw_success(renderer.dcraw_process(), "dcraw_process");
+        require_libraw_success(renderer->dcraw_process(), "dcraw_process");
 
         int result = LIBRAW_SUCCESS;
         ProcessedImage image(
-            renderer.dcraw_make_mem_image(&result),
+            renderer->dcraw_make_mem_image(&result),
             &LibRaw::dcraw_clear_mem
         );
         if (!image) {

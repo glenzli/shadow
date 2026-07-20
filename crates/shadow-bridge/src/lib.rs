@@ -780,29 +780,37 @@ mod tests {
     #[test]
     #[ignore = "requires SHADOW_TEST_DNG to point at a local RAW fixture"]
     fn real_dng_warm_edit_session_renders_twice() {
-        let path = std::env::var_os("SHADOW_TEST_DNG").expect("SHADOW_TEST_DNG");
-        let session = LibRawEditPreviewSession::open(Path::new(&path), 1_024)
-            .expect("prepare warm local DNG edit session");
-        let neutral = session
-            .render(BasicEditParameters::default(), 86)
-            .expect("render neutral warm preview");
-        let adjusted = session
-            .render(
-                BasicEditParameters {
-                    exposure_stops: 1.0,
-                    contrast_factor: 1.1,
-                    channel_gains: [1.05, 1.0, 0.95],
-                    saturation_factor: 1.15,
-                },
-                86,
-            )
-            .expect("render adjusted warm preview");
+        let path = PathBuf::from(std::env::var_os("SHADOW_TEST_DNG").expect("SHADOW_TEST_DNG"));
+        std::thread::Builder::new()
+            .name("small-edit-worker".to_owned())
+            .stack_size(512 * 1_024)
+            .spawn(move || {
+                let session = LibRawEditPreviewSession::open(&path, 1_024)
+                    .expect("prepare warm local DNG edit session on a small worker stack");
+                let neutral = session
+                    .render(BasicEditParameters::default(), 86)
+                    .expect("render neutral warm preview");
+                let adjusted = session
+                    .render(
+                        BasicEditParameters {
+                            exposure_stops: 1.0,
+                            contrast_factor: 1.1,
+                            channel_gains: [1.05, 1.0, 0.95],
+                            saturation_factor: 1.15,
+                        },
+                        86,
+                    )
+                    .expect("render adjusted warm preview");
 
-        assert_eq!(session.dimensions(), neutral.dimensions);
-        assert_eq!(adjusted.dimensions, neutral.dimensions);
-        assert_eq!(neutral.codec, PreviewCodec::Jpeg);
-        assert!(neutral.bytes.starts_with(&[0xff, 0xd8]));
-        assert!(adjusted.bytes.ends_with(&[0xff, 0xd9]));
-        assert_ne!(adjusted.bytes, neutral.bytes);
+                assert_eq!(session.dimensions(), neutral.dimensions);
+                assert_eq!(adjusted.dimensions, neutral.dimensions);
+                assert_eq!(neutral.codec, PreviewCodec::Jpeg);
+                assert!(neutral.bytes.starts_with(&[0xff, 0xd8]));
+                assert!(adjusted.bytes.ends_with(&[0xff, 0xd9]));
+                assert_ne!(adjusted.bytes, neutral.bytes);
+            })
+            .expect("spawn small edit worker")
+            .join()
+            .expect("small edit worker did not panic");
     }
 }
