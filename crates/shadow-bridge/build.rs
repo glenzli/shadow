@@ -19,6 +19,7 @@ fn main() {
     build
         .file(image_root.join("src/bridge/cxx_bridge.cpp"))
         .file(image_root.join("src/decoder/libraw_decoder.cpp"))
+        .file(image_root.join("src/edit/cpu_reference.cpp"))
         .file(image_root.join("src/proxy/jpeg_proxy.cpp"))
         .include(&image_include)
         .std("c++20");
@@ -81,28 +82,18 @@ fn main() {
     }
 
     println!("cargo:rerun-if-changed=src/lib.rs");
-    println!(
-        "cargo:rerun-if-changed={}",
-        image_root
-            .join("include/shadow/image/decoder.hpp")
-            .display()
-    );
-    println!(
-        "cargo:rerun-if-changed={}",
-        image_root
-            .join("include/shadow/image/cxx_bridge.hpp")
-            .display()
-    );
-    println!(
-        "cargo:rerun-if-changed={}",
-        image_root.join("src/bridge/cxx_bridge.cpp").display()
-    );
-    println!(
-        "cargo:rerun-if-changed={}",
-        image_root.join("src/decoder/libraw_decoder.cpp").display()
-    );
-    println!(
-        "cargo:rerun-if-changed={}",
-        image_root.join("src/proxy/jpeg_proxy.cpp").display()
-    );
+    for relative_path in [
+        "include/shadow/image/decoder.hpp",
+        "include/shadow/image/edit.hpp",
+        "include/shadow/image/cxx_bridge.hpp",
+        "src/bridge/cxx_bridge.cpp",
+        "src/decoder/libraw_decoder.cpp",
+        "src/edit/cpu_reference.cpp",
+        "src/proxy/jpeg_proxy.cpp",
+    ] {
+        println!(
+            "cargo:rerun-if-changed={}",
+            image_root.join(relative_path).display()
+        );
+    }
 }

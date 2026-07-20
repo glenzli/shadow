@@ -34,6 +34,9 @@ public:
         std::uint32_t max_edge,
         std::uint8_t jpeg_quality
     ) const;
+    [[nodiscard]] FfiEncodedProxy render_edited_reference_proxy(
+        const FfiBasicEditRequest& request
+    ) const;
 
 private:
     std::unique_ptr<image::DecoderProvider> provider_;

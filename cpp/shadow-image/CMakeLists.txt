@@ -21,6 +21,7 @@ endfunction()
 add_library(
     shadow-image STATIC
     src/decoder/libraw_decoder.cpp
+    src/edit/cpu_reference.cpp
     src/proxy/jpeg_proxy.cpp
 )
 add_library(Shadow::Image ALIAS shadow-image)
@@ -44,4 +45,9 @@ if(BUILD_TESTING)
     target_link_libraries(shadow-image-contract-tests PRIVATE Shadow::Image)
     shadow_image_enable_warnings(shadow-image-contract-tests)
     add_test(NAME shadow-image-contract COMMAND shadow-image-contract-tests)
+
+    add_executable(shadow-image-edit-tests tests/edit_contract_test.cpp)
+    target_link_libraries(shadow-image-edit-tests PRIVATE Shadow::Image)
+    shadow_image_enable_warnings(shadow-image-edit-tests)
+    add_test(NAME shadow-image-edit-contract COMMAND shadow-image-edit-tests)
 endif()

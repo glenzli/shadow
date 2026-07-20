@@ -115,6 +115,18 @@ mod ffi {
         bytes: Vec<u8>,
     }
 
+    #[derive(Debug)]
+    struct FfiBasicEditRequest {
+        exposure_stops: f64,
+        contrast_factor: f64,
+        red_channel_gain: f64,
+        green_channel_gain: f64,
+        blue_channel_gain: f64,
+        saturation_factor: f64,
+        max_edge: u32,
+        jpeg_quality: u8,
+    }
+
     unsafe extern "C++" {
         include!("shadow/image/cxx_bridge.hpp");
 
@@ -132,6 +144,112 @@ mod ffi {
             max_edge: u32,
             jpeg_quality: u8,
         ) -> Result<FfiEncodedProxy>;
+        fn render_edited_reference_proxy(
+            self: &DecodeHandle,
+            request: &FfiBasicEditRequest,
+        ) -> Result<FfiEncodedProxy>;
+    }
+}
+
+/// Cache-key version for the fixed-order basic edited-preview recipe.
+pub const BASIC_EDIT_PREVIEW_RECIPE_VERSION: u32 = 1;
+
+/// The first small, deterministic subset of Shadow's edit graph.
+///
+/// Execution order is exposure, contrast, resolved RGB channel gains, then
+/// saturation. `channel_gains` are post-demosaic scene-linear `[R, G, B]`
+/// multipliers. They are deliberately not advertised as RAW white balance.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BasicEditParameters {
+    pub exposure_stops: f64,
+    pub contrast_factor: f64,
+    pub channel_gains: [f64; 3],
+    pub saturation_factor: f64,
+}
+
+impl Default for BasicEditParameters {
+    fn default() -> Self {
+        Self {
+            exposure_stops: 0.0,
+            contrast_factor: 1.0,
+            channel_gains: [1.0; 3],
+            saturation_factor: 1.0,
+        }
+    }
+}
+
+/// Parameters for a bounded, standard-JPEG edited preview.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EditedProxyRequest {
+    pub edits: BasicEditParameters,
+    pub max_edge: u32,
+    pub jpeg_quality: u8,
+}
+
+impl Default for EditedProxyRequest {
+    fn default() -> Self {
+        Self {
+            edits: BasicEditParameters::default(),
+            max_edge: 2_048,
+            jpeg_quality: 88,
+        }
+    }
+}
+
+impl EditedProxyRequest {
+    fn validate(self) -> Result<(), BridgeError> {
+        validate_inclusive(
+            self.edits.exposure_stops,
+            -16.0,
+            16.0,
+            "exposure_stops must be finite and in -16..=16",
+        )?;
+        validate_inclusive(
+            self.edits.contrast_factor,
+            0.0,
+            8.0,
+            "contrast_factor must be finite and in 0..=8",
+        )?;
+        for (index, gain) in self.edits.channel_gains.into_iter().enumerate() {
+            if !gain.is_finite() || gain <= 0.0 || gain > 16.0 {
+                const MESSAGES: [&str; 3] = [
+                    "red channel gain must be finite, greater than 0, and at most 16",
+                    "green channel gain must be finite, greater than 0, and at most 16",
+                    "blue channel gain must be finite, greater than 0, and at most 16",
+                ];
+                return Err(BridgeError::InvalidEditRequest(MESSAGES[index]));
+            }
+        }
+        validate_inclusive(
+            self.edits.saturation_factor,
+            0.0,
+            8.0,
+            "saturation_factor must be finite and in 0..=8",
+        )?;
+        if !(1..=16_384).contains(&self.max_edge) {
+            return Err(BridgeError::InvalidEditRequest(
+                "max_edge must be in 1..=16384",
+            ));
+        }
+        if !(1..=100).contains(&self.jpeg_quality) {
+            return Err(BridgeError::InvalidEditRequest(
+                "jpeg_quality must be in 1..=100",
+            ));
+        }
+        Ok(())
+    }
+}
+
+fn validate_inclusive(
+    value: f64,
+    minimum: f64,
+    maximum: f64,
+    message: &'static str,
+) -> Result<(), BridgeError> {
+    if value.is_finite() && (minimum..=maximum).contains(&value) {
+        Ok(())
+    } else {
+        Err(BridgeError::InvalidEditRequest(message))
     }
 }
 
@@ -165,8 +283,51 @@ pub fn render_libraw_reference_proxy(
     })
 }
 
+/// Renders the fixed-order basic edit recipe as a bounded standard JPEG.
+///
+/// The C++ kernel decodes `LibRaw`'s 16-bit sRGB reference output into
+/// scene-linear sRGB, executes the adjustment nodes without intermediate
+/// clipping, and applies the sRGB transfer function only when encoding the
+/// JPEG. This is the first real preview renderer, not the eventual full RAW
+/// color pipeline.
+///
+/// # Errors
+///
+/// Returns [`BridgeError::InvalidEditRequest`] before RAW I/O for non-finite,
+/// out-of-range, or unbounded parameters. Decoder and encoder failures are
+/// returned as [`BridgeError::Decoder`].
+pub fn render_libraw_edited_proxy(
+    path: &Path,
+    request: EditedProxyRequest,
+) -> Result<shadow_domain::ProxyPayload, BridgeError> {
+    request.validate()?;
+    let handle = open_libraw(path)?;
+    let handle = handle.as_ref().ok_or(BridgeError::NullHandle)?;
+    let edits = request.edits;
+    let ffi_request = ffi::FfiBasicEditRequest {
+        exposure_stops: edits.exposure_stops,
+        contrast_factor: edits.contrast_factor,
+        red_channel_gain: edits.channel_gains[0],
+        green_channel_gain: edits.channel_gains[1],
+        blue_channel_gain: edits.channel_gains[2],
+        saturation_factor: edits.saturation_factor,
+        max_edge: request.max_edge,
+        jpeg_quality: request.jpeg_quality,
+    };
+    let proxy = handle.render_edited_reference_proxy(&ffi_request)?;
+    Ok(shadow_domain::ProxyPayload {
+        dimensions: dimensions(&proxy.dimensions),
+        codec: preview_codec(proxy.format),
+        bits_per_channel: proxy.bits_per_channel,
+        channels: proxy.channels,
+        bytes: proxy.bytes,
+    })
+}
+
 #[derive(Debug, Error)]
 pub enum BridgeError {
+    #[error("invalid edited proxy request: {0}")]
+    InvalidEditRequest(&'static str),
     #[error("the Mac-first decoder bridge currently requires a UTF-8 path: {0}")]
     NonUtf8Path(PathBuf),
     #[error("the C++ decoder bridge returned a null handle")]
@@ -334,6 +495,66 @@ mod tests {
     use super::*;
 
     #[test]
+    fn basic_edit_defaults_are_a_bounded_neutral_recipe() {
+        let request = EditedProxyRequest::default();
+        assert_eq!(request.edits, BasicEditParameters::default());
+        assert_eq!(request.max_edge, 2_048);
+        assert_eq!(request.jpeg_quality, 88);
+        request.validate().expect("neutral recipe is valid");
+    }
+
+    #[test]
+    fn edited_proxy_parameters_fail_closed_before_raw_io() {
+        let invalid_requests = [
+            EditedProxyRequest {
+                edits: BasicEditParameters {
+                    exposure_stops: f64::NAN,
+                    ..BasicEditParameters::default()
+                },
+                ..EditedProxyRequest::default()
+            },
+            EditedProxyRequest {
+                edits: BasicEditParameters {
+                    contrast_factor: -0.01,
+                    ..BasicEditParameters::default()
+                },
+                ..EditedProxyRequest::default()
+            },
+            EditedProxyRequest {
+                edits: BasicEditParameters {
+                    channel_gains: [1.0, 0.0, 1.0],
+                    ..BasicEditParameters::default()
+                },
+                ..EditedProxyRequest::default()
+            },
+            EditedProxyRequest {
+                edits: BasicEditParameters {
+                    saturation_factor: f64::INFINITY,
+                    ..BasicEditParameters::default()
+                },
+                ..EditedProxyRequest::default()
+            },
+            EditedProxyRequest {
+                max_edge: 0,
+                ..EditedProxyRequest::default()
+            },
+            EditedProxyRequest {
+                jpeg_quality: 0,
+                ..EditedProxyRequest::default()
+            },
+        ];
+
+        for request in invalid_requests {
+            let error = render_libraw_edited_proxy(
+                Path::new("fixture-that-must-not-be-opened.raw"),
+                request,
+            )
+            .expect_err("invalid request must fail");
+            assert!(matches!(error, BridgeError::InvalidEditRequest(_)));
+        }
+    }
+
+    #[test]
     #[ignore = "requires SHADOW_TEST_DNG to point at a local RAW fixture"]
     fn real_dng_snapshot_crosses_the_bridge() {
         let path = std::env::var_os("SHADOW_TEST_DNG").expect("SHADOW_TEST_DNG");
@@ -370,6 +591,30 @@ mod tests {
         assert_eq!(proxy.codec, PreviewCodec::Jpeg);
         assert_eq!(proxy.dimensions.width, 2_048);
         assert_eq!(proxy.dimensions.height, 1_536);
+        assert!(proxy.bytes.starts_with(&[0xff, 0xd8]));
+        assert!(proxy.bytes.ends_with(&[0xff, 0xd9]));
+    }
+
+    #[test]
+    #[ignore = "requires SHADOW_TEST_DNG to point at a local RAW fixture"]
+    fn real_dng_edited_proxy_crosses_the_bridge() {
+        let path = std::env::var_os("SHADOW_TEST_DNG").expect("SHADOW_TEST_DNG");
+        let proxy = render_libraw_edited_proxy(
+            Path::new(&path),
+            EditedProxyRequest {
+                edits: BasicEditParameters {
+                    exposure_stops: 0.5,
+                    contrast_factor: 1.1,
+                    channel_gains: [1.05, 1.0, 0.95],
+                    saturation_factor: 1.15,
+                },
+                max_edge: 1_024,
+                jpeg_quality: 86,
+            },
+        )
+        .expect("render edited local DNG proxy");
+        assert_eq!(proxy.codec, PreviewCodec::Jpeg);
+        assert_eq!(proxy.dimensions.width.max(proxy.dimensions.height), 1_024);
         assert!(proxy.bytes.starts_with(&[0xff, 0xd8]));
         assert!(proxy.bytes.ends_with(&[0xff, 0xd9]));
     }

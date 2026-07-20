@@ -1,5 +1,9 @@
 #include <shadow/image/cxx_bridge.hpp>
 
+#include <shadow/image/edit.hpp>
+
+#include <array>
+#include <cmath>
 #include <filesystem>
 #include <string>
 #include <string_view>
@@ -53,6 +57,36 @@ namespace {
         preview.encoded_bytes,
         preview.decodable,
     };
+}
+
+[[nodiscard]] FfiEncodedProxy encoded_proxy(const image::EncodedProxy& proxy) {
+    FfiEncodedProxy result;
+    result.dimensions = dimensions(proxy.dimensions);
+    result.format = preview_format(proxy.format);
+    result.bits_per_channel = proxy.bits_per_channel;
+    result.channels = proxy.channels;
+    result.bytes.reserve(proxy.bytes.size());
+    for (const auto byte : proxy.bytes) {
+        result.bytes.push_back(byte);
+    }
+    return result;
+}
+
+void validate_basic_edit_parameter(
+    const double value,
+    const double minimum,
+    const double maximum,
+    const std::string_view name,
+    const bool minimum_is_inclusive = true
+) {
+    const bool below_minimum = minimum_is_inclusive ? value < minimum : value <= minimum;
+    if (!std::isfinite(value) || below_minimum || value > maximum) {
+        throw image::DecodeError(
+            image::DecodeErrorCode::invalid_request,
+            0,
+            "edited proxy " + std::string(name) + " is outside the supported range"
+        );
+    }
 }
 
 } // namespace
@@ -157,16 +191,69 @@ FfiEncodedProxy DecodeHandle::render_reference_proxy(
         *session_,
         image::ProxyRequest{max_edge, jpeg_quality}
     );
-    FfiEncodedProxy result;
-    result.dimensions = dimensions(proxy.dimensions);
-    result.format = preview_format(proxy.format);
-    result.bits_per_channel = proxy.bits_per_channel;
-    result.channels = proxy.channels;
-    result.bytes.reserve(proxy.bytes.size());
-    for (const auto byte : proxy.bytes) {
-        result.bytes.push_back(byte);
-    }
-    return result;
+    return encoded_proxy(proxy);
+}
+
+FfiEncodedProxy DecodeHandle::render_edited_reference_proxy(
+    const FfiBasicEditRequest& request
+) const {
+    validate_basic_edit_parameter(request.exposure_stops, -16.0, 16.0, "exposure stops");
+    validate_basic_edit_parameter(request.contrast_factor, 0.0, 8.0, "contrast factor");
+    validate_basic_edit_parameter(
+        request.red_channel_gain,
+        0.0,
+        16.0,
+        "red channel gain",
+        false
+    );
+    validate_basic_edit_parameter(
+        request.green_channel_gain,
+        0.0,
+        16.0,
+        "green channel gain",
+        false
+    );
+    validate_basic_edit_parameter(
+        request.blue_channel_gain,
+        0.0,
+        16.0,
+        "blue channel gain",
+        false
+    );
+    validate_basic_edit_parameter(request.saturation_factor, 0.0, 8.0, "saturation factor");
+
+    // These are resolved post-demosaic scene-linear RGB gains, not camera-domain RAW white
+    // balance coefficients. Keeping the node name honest prevents a lossy API promise.
+    const std::array nodes{
+        image::AdjustmentNode{
+            .node_id = "basic-exposure",
+            .parameters = image::ExposureAdjustment{request.exposure_stops},
+        },
+        image::AdjustmentNode{
+            .node_id = "basic-contrast",
+            .parameters = image::ContrastAdjustment{request.contrast_factor, 0.18},
+        },
+        image::AdjustmentNode{
+            .node_id = "basic-channel-gain",
+            .parameters = image::ChannelGainAdjustment{
+                {
+                    request.red_channel_gain,
+                    request.green_channel_gain,
+                    request.blue_channel_gain,
+                }
+            },
+        },
+        image::AdjustmentNode{
+            .node_id = "basic-saturation",
+            .parameters = image::SaturationAdjustment{request.saturation_factor},
+        },
+    };
+    const auto proxy = image::render_edited_reference_proxy_jpeg(
+        *session_,
+        nodes,
+        image::ProxyRequest{request.max_edge, request.jpeg_quality}
+    );
+    return encoded_proxy(proxy);
 }
 
 std::unique_ptr<DecodeHandle> open_libraw_utf8(const rust::Str path) {

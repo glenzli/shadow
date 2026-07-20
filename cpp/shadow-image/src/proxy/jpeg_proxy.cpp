@@ -1,4 +1,4 @@
-#include <shadow/image/decoder.hpp>
+#include <shadow/image/edit.hpp>
 
 #include <jpeglib.h>
 
@@ -52,21 +52,21 @@ extern "C" void handle_jpeg_error(j_common_ptr context) {
     return static_cast<std::uint8_t>((static_cast<std::uint32_t>(value) + 128U) / 257U);
 }
 
-[[nodiscard]] std::uint16_t source_sample(
-    const PixelBuffer& source,
-    const std::size_t row_stride,
-    const std::size_t x,
-    const std::size_t y,
-    const std::size_t channel
-) {
-    const std::size_t source_channel = source.channels == 1U ? 0U : channel;
-    return source.samples[(y * row_stride) + (x * source.channels) + source_channel];
+void validate_proxy_request(const ProxyRequest request) {
+    constexpr std::uint32_t maximum_proxy_edge = 16'384;
+    if (request.max_edge == 0U || request.max_edge > maximum_proxy_edge) {
+        throw DecodeError(
+            DecodeErrorCode::invalid_request,
+            0,
+            "proxy max edge must be in 1..=16384"
+        );
+    }
+    if (request.jpeg_quality == 0U || request.jpeg_quality > 100U) {
+        throw DecodeError(DecodeErrorCode::invalid_request, 0, "JPEG quality must be in 1..=100");
+    }
 }
 
-[[nodiscard]] std::vector<std::uint8_t> resize_to_rgb8(
-    const PixelBuffer& source,
-    const Dimensions target
-) {
+[[nodiscard]] std::size_t validated_source_row_stride(const PixelBuffer& source) {
     if (
         source.bits_per_channel != 16U || (source.channels != 1U && source.channels != 3U)
         || source.dimensions.width == 0U || source.dimensions.height == 0U
@@ -75,7 +75,7 @@ extern "C" void handle_jpeg_error(j_common_ptr context) {
         throw DecodeError(
             DecodeErrorCode::unsupported_layout,
             0,
-            "proxy renderer requires non-empty 16-bit grayscale or RGB input"
+            "proxy renderer requires non-empty 16-bit grayscale or RGB sRGB input"
         );
     }
     if (
@@ -104,6 +104,25 @@ extern "C" void handle_jpeg_error(j_common_ptr context) {
     if (source.samples.size() < required_samples) {
         throw DecodeError(DecodeErrorCode::corrupt_data, 0, "proxy source buffer is truncated");
     }
+    return row_stride;
+}
+
+[[nodiscard]] std::uint16_t source_sample(
+    const PixelBuffer& source,
+    const std::size_t row_stride,
+    const std::size_t x,
+    const std::size_t y,
+    const std::size_t channel
+) {
+    const std::size_t source_channel = source.channels == 1U ? 0U : channel;
+    return source.samples[(y * row_stride) + (x * source.channels) + source_channel];
+}
+
+[[nodiscard]] std::vector<std::uint8_t> resize_to_rgb8(
+    const PixelBuffer& source,
+    const Dimensions target
+) {
+    const std::size_t row_stride = validated_source_row_stride(source);
 
     std::vector<std::uint8_t> output(checked_rgb_size(target));
     const double scale_x =
@@ -143,6 +162,138 @@ extern "C" void handle_jpeg_error(j_common_ptr context) {
                     std::clamp(std::lround(top * (1.0 - fraction_y) + bottom * fraction_y), 0L, 65'535L)
                 );
                 output[output_index + channel] = sample_to_u8(value);
+            }
+        }
+    }
+    return output;
+}
+
+[[nodiscard]] double srgb_to_scene_linear(const double encoded) noexcept {
+    constexpr double srgb_linear_threshold = 0.04045;
+    if (encoded <= srgb_linear_threshold) {
+        return encoded / 12.92;
+    }
+    return std::pow((encoded + 0.055) / 1.055, 2.4);
+}
+
+[[nodiscard]] std::uint8_t scene_linear_to_srgb8(const float sample) {
+    if (!std::isfinite(sample)) {
+        throw DecodeError(
+            DecodeErrorCode::internal,
+            0,
+            "edited proxy contains a non-finite scene-linear sample"
+        );
+    }
+
+    // The edit graph deliberately preserves negative and super-white values. JPEG cannot, so
+    // display-range clipping belongs here at the output transform rather than inside a node.
+    const double linear = std::clamp(static_cast<double>(sample), 0.0, 1.0);
+    constexpr double srgb_linear_threshold = 0.0031308;
+    const double encoded = linear <= srgb_linear_threshold
+        ? 12.92 * linear
+        : 1.055 * std::pow(linear, 1.0 / 2.4) - 0.055;
+    return static_cast<std::uint8_t>(
+        std::clamp(std::lround(encoded * 255.0), 0L, 255L)
+    );
+}
+
+[[nodiscard]] WorkingRgbSpace linear_srgb_working_space() {
+    return WorkingRgbSpace{
+        .id = "srgb-d65-linear",
+        .primaries = {
+            Chromaticity{0.6400, 0.3300},
+            Chromaticity{0.3000, 0.6000},
+            Chromaticity{0.1500, 0.0600},
+        },
+        .white_point = {0.3127, 0.3290},
+        .luminance_coefficients = {0.2126, 0.7152, 0.0722},
+    };
+}
+
+[[nodiscard]] FloatRgbImage decode_srgb_transfer(const PixelBuffer& source) {
+    const std::size_t source_stride = validated_source_row_stride(source);
+    const std::size_t sample_count = checked_rgb_size(source.dimensions);
+    const std::uint64_t row_samples =
+        static_cast<std::uint64_t>(source.dimensions.width) * 3U;
+    if (row_samples > std::numeric_limits<std::size_t>::max() / sizeof(float)) {
+        throw DecodeError(
+            DecodeErrorCode::resource_limit,
+            0,
+            "scene-linear proxy row stride overflows the address space"
+        );
+    }
+    if (sample_count > std::numeric_limits<std::size_t>::max() / sizeof(float)) {
+        throw DecodeError(
+            DecodeErrorCode::resource_limit,
+            0,
+            "scene-linear proxy buffer exceeds the address space"
+        );
+    }
+    FloatRgbImage output;
+    output.dimensions = source.dimensions;
+    output.row_stride_bytes = static_cast<std::size_t>(row_samples) * sizeof(float);
+    output.pixel_format = FloatPixelFormat::rgb_f32_native_interleaved;
+    output.transfer_function = TransferFunction::linear;
+    output.reference = ImageReference::scene_referred;
+    output.working_space = linear_srgb_working_space();
+    output.samples.resize(sample_count);
+
+    for (std::size_t y = 0; y < source.dimensions.height; ++y) {
+        for (std::size_t x = 0; x < source.dimensions.width; ++x) {
+            const std::size_t output_index =
+                (y * static_cast<std::size_t>(source.dimensions.width) + x) * 3U;
+            for (std::size_t channel = 0; channel < 3U; ++channel) {
+                const double encoded = static_cast<double>(
+                    source_sample(source, source_stride, x, y, channel)
+                ) / 65'535.0;
+                output.samples[output_index + channel] =
+                    static_cast<float>(srgb_to_scene_linear(encoded));
+            }
+        }
+    }
+    return output;
+}
+
+[[nodiscard]] std::vector<std::uint8_t> resize_linear_to_srgb8(
+    const FloatRgbImage& source,
+    const Dimensions target
+) {
+    std::vector<std::uint8_t> output(checked_rgb_size(target));
+    const std::size_t row_stride = source.row_stride_bytes / sizeof(float);
+    const double scale_x =
+        static_cast<double>(source.dimensions.width) / static_cast<double>(target.width);
+    const double scale_y =
+        static_cast<double>(source.dimensions.height) / static_cast<double>(target.height);
+
+    for (std::uint32_t output_y = 0; output_y < target.height; ++output_y) {
+        const double source_y =
+            std::max(0.0, (static_cast<double>(output_y) + 0.5) * scale_y - 0.5);
+        const auto y0 = static_cast<std::size_t>(source_y);
+        const auto y1 = std::min(y0 + 1U, static_cast<std::size_t>(source.dimensions.height - 1U));
+        const double fraction_y = source_y - static_cast<double>(y0);
+
+        for (std::uint32_t output_x = 0; output_x < target.width; ++output_x) {
+            const double source_x =
+                std::max(0.0, (static_cast<double>(output_x) + 0.5) * scale_x - 0.5);
+            const auto x0 = static_cast<std::size_t>(source_x);
+            const auto x1 =
+                std::min(x0 + 1U, static_cast<std::size_t>(source.dimensions.width - 1U));
+            const double fraction_x = source_x - static_cast<double>(x0);
+            const std::size_t output_index =
+                (static_cast<std::size_t>(output_y) * target.width + output_x) * 3U;
+
+            for (std::size_t channel = 0; channel < 3U; ++channel) {
+                const auto sample = [&, channel](const std::size_t x, const std::size_t y) {
+                    return static_cast<double>(source.samples[(y * row_stride) + (x * 3U) + channel]);
+                };
+                const double top = sample(x0, y0) * (1.0 - fraction_x)
+                    + sample(x1, y0) * fraction_x;
+                const double bottom = sample(x0, y1) * (1.0 - fraction_x)
+                    + sample(x1, y1) * fraction_x;
+                const double linear = top * (1.0 - fraction_y) + bottom * fraction_y;
+                output[output_index + channel] = scene_linear_to_srgb8(
+                    static_cast<float>(linear)
+                );
             }
         }
     }
@@ -214,20 +365,28 @@ Dimensions proxy_dimensions(const Dimensions source, const std::uint32_t max_edg
 }
 
 EncodedProxy render_reference_proxy_jpeg(const DecodeSession& session, const ProxyRequest request) {
-    constexpr std::uint32_t maximum_proxy_edge = 16'384;
-    if (request.max_edge == 0U || request.max_edge > maximum_proxy_edge) {
-        throw DecodeError(
-            DecodeErrorCode::invalid_request,
-            0,
-            "proxy max edge must be in 1..=16384"
-        );
-    }
-    if (request.jpeg_quality == 0U || request.jpeg_quality > 100U) {
-        throw DecodeError(DecodeErrorCode::invalid_request, 0, "JPEG quality must be in 1..=100");
-    }
+    validate_proxy_request(request);
     const PixelBuffer source = session.render_reference_rgb();
     const Dimensions target = proxy_dimensions(source.dimensions, request.max_edge);
     const auto rgb = resize_to_rgb8(source, target);
+
+    EncodedProxy proxy;
+    proxy.dimensions = target;
+    proxy.bytes = encode_jpeg(rgb, target, request.jpeg_quality);
+    return proxy;
+}
+
+EncodedProxy render_edited_reference_proxy_jpeg(
+    const DecodeSession& session,
+    const std::span<const AdjustmentNode> nodes,
+    const ProxyRequest request
+) {
+    validate_proxy_request(request);
+    const PixelBuffer reference_rgb = session.render_reference_rgb();
+    const FloatRgbImage scene_linear = decode_srgb_transfer(reference_rgb);
+    const FloatRgbImage edited = execute_adjustment_nodes(scene_linear, nodes);
+    const Dimensions target = proxy_dimensions(edited.dimensions, request.max_edge);
+    const auto rgb = resize_linear_to_srgb8(edited, target);
 
     EncodedProxy proxy;
     proxy.dimensions = target;

@@ -1,4 +1,5 @@
 #include <shadow/image/decoder.hpp>
+#include <shadow/image/edit.hpp>
 
 #include <array>
 #include <cstdlib>
@@ -145,6 +146,63 @@ void reference_proxy_is_bounded_standard_jpeg() {
     );
 }
 
+void edited_proxy_crosses_explicit_linear_srgb_boundary() {
+    const FakeRgbSession session;
+    const image::ProxyRequest request{.max_edge = 8, .jpeg_quality = 90};
+    const auto reference = image::render_reference_proxy_jpeg(session, request);
+    const std::array neutral_nodes{
+        image::AdjustmentNode{
+            .node_id = "exposure",
+            .parameters = image::ExposureAdjustment{},
+        },
+        image::AdjustmentNode{
+            .node_id = "contrast",
+            .parameters = image::ContrastAdjustment{},
+        },
+        image::AdjustmentNode{
+            .node_id = "channel-gain",
+            .parameters = image::ChannelGainAdjustment{},
+        },
+        image::AdjustmentNode{
+            .node_id = "saturation",
+            .parameters = image::SaturationAdjustment{},
+        },
+    };
+    const auto neutral = image::render_edited_reference_proxy_jpeg(
+        session,
+        neutral_nodes,
+        request
+    );
+    expect(
+        neutral.bytes == reference.bytes,
+        "neutral edits round-trip the sRGB transfer boundary without changing unscaled pixels"
+    );
+
+    auto adjusted_nodes = neutral_nodes;
+    adjusted_nodes[0].parameters = image::ExposureAdjustment{1.0};
+    adjusted_nodes[2].parameters = image::ChannelGainAdjustment{{1.1, 1.0, 0.9}};
+    const image::ProxyRequest small_request{.max_edge = 4, .jpeg_quality = 90};
+    const auto neutral_small = image::render_edited_reference_proxy_jpeg(
+        session,
+        neutral_nodes,
+        small_request
+    );
+    const auto adjusted = image::render_edited_reference_proxy_jpeg(
+        session,
+        adjusted_nodes,
+        small_request
+    );
+    expect(adjusted.dimensions == image::Dimensions{4, 2}, "edited preview remains bounded");
+    expect(adjusted.bytes != neutral_small.bytes, "ordered edit nodes affect the encoded result");
+    expect(
+        adjusted.bytes.size() > 4U && adjusted.bytes[0] == 0xffU
+            && adjusted.bytes[1] == 0xd8U
+            && adjusted.bytes[adjusted.bytes.size() - 2U] == 0xffU
+            && adjusted.bytes.back() == 0xd9U,
+        "edited preview is a standard JPEG"
+    );
+}
+
 } // namespace
 
 int main() {
@@ -152,5 +210,6 @@ int main() {
     largest_decodable_preview_wins();
     no_decodable_preview_is_a_valid_state();
     reference_proxy_is_bounded_standard_jpeg();
+    edited_proxy_crosses_explicit_linear_srgb_boundary();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

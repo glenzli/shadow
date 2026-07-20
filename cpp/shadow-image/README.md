@@ -29,6 +29,21 @@ Current contract rules:
 - A `DecodeSession` is thread-confined. Providers may be shared; parallel work should open independent sessions.
 - The current owned `MosaicBuffer` intentionally copies LibRaw memory. A later opaque/tiled buffer can remove that copy without changing metadata semantics.
 
+## CPU edit reference
+
+`include/shadow/image/edit.hpp` defines the first correctness-oriented edit path. Its input is
+explicitly native interleaved RGB float32, scene-referred, linear-light data with named RGB
+primaries, white point, and luminance coefficients. It is not legal to feed the decoder's
+display-referred `PixelBuffer` directly into this path: a future camera/display color transform
+must establish the declared working space first.
+
+The version-1 ordered node executor currently supports exposure, pivoted contrast, resolved
+RGB channel gains, and luma-preserving saturation. It deliberately preserves negative
+and greater-than-one scene values, performs no implicit gamut mapping or clipping, rejects
+NaN/Inf and float overflow, and refuses unknown schema/implementation versions. Node order is
+observable and stable. This linear executor is the CPU reference subset of the future typed DAG;
+masks, branching, blending, tile scheduling, and GPU implementations remain separate work.
+
 ## Build and test
 
 ```sh
