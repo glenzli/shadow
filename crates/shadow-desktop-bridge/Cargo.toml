@@ -1,0 +1,33 @@
+[package]
+name = "shadow-desktop-bridge"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+anyhow.workspace = true
+cxx.workspace = true
+shadow-bridge.workspace = true
+shadow-catalog.workspace = true
+shadow-core.workspace = true
+shadow-domain.workspace = true
+
+[build-dependencies]
+cxx-build = "=1.0.198"
+
+# CXX generates the ABI shims; all handwritten APIs in this crate remain safe.
+[lints.rust]
+unsafe_code = "allow"
+missing_debug_implementations = "warn"
+unused_must_use = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+must_use_candidate = "allow"

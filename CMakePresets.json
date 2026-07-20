@@ -17,12 +17,25 @@
         "BUILD_TESTING": "ON",
         "SHADOW_BUILD_RAW_PROBE": "ON"
       }
+    },
+    {
+      "name": "desktop-dev",
+      "inherits": "native-dev",
+      "displayName": "Shadow macOS desktop development",
+      "binaryDir": "${sourceDir}/build/desktop-dev",
+      "cacheVariables": {
+        "SHADOW_BUILD_DESKTOP": "ON"
+      }
     }
   ],
   "buildPresets": [
     {
       "name": "native-dev",
       "configurePreset": "native-dev"
+    },
+    {
+      "name": "desktop-dev",
+      "configurePreset": "desktop-dev"
     }
   ],
   "testPresets": [

@@ -6,6 +6,7 @@
 mod cache_artifact;
 mod decode_snapshot;
 mod import_journal;
+mod review;
 mod store;
 mod writer;
 
@@ -28,6 +29,7 @@ pub use decode_snapshot::{
     RepresentationFingerprint,
 };
 pub use import_journal::{ImportSession, ImportSessionState, ImportSessionSummary};
+pub use review::ReviewItemRecord;
 pub use store::CatalogStore;
 pub use writer::{CatalogActor, CatalogHandle};
 
@@ -238,6 +240,8 @@ pub enum CatalogError {
     CachedArtifactValueOutOfRange { field: &'static str },
     #[error("unknown persisted cached artifact {field}: {value}")]
     UnknownCachedArtifactValue { field: &'static str, value: String },
+    #[error("unknown persisted platform: {0}")]
+    UnknownPlatform(String),
 }
 
 #[derive(Debug)]

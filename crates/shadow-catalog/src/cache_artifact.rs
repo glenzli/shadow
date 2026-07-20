@@ -296,7 +296,7 @@ fn validate_artifact(artifact: &CachedArtifact) -> Result<(), CatalogError> {
     Ok(())
 }
 
-fn parse_role(value: String) -> Result<CachedArtifactRole, CatalogError> {
+pub(crate) fn parse_role(value: String) -> Result<CachedArtifactRole, CatalogError> {
     match value.as_str() {
         "embedded_preview" => Ok(CachedArtifactRole::EmbeddedPreview),
         "generated_proxy" => Ok(CachedArtifactRole::GeneratedProxy),
@@ -304,7 +304,7 @@ fn parse_role(value: String) -> Result<CachedArtifactRole, CatalogError> {
     }
 }
 
-fn parse_codec(value: String) -> Result<PreviewCodec, CatalogError> {
+pub(crate) fn parse_codec(value: String) -> Result<PreviewCodec, CatalogError> {
     match value.as_str() {
         "unknown" => Ok(PreviewCodec::Unknown),
         "jpeg" => Ok(PreviewCodec::Jpeg),
@@ -315,7 +315,7 @@ fn parse_codec(value: String) -> Result<PreviewCodec, CatalogError> {
     }
 }
 
-fn parse_byte_order(value: String) -> Result<PreviewByteOrder, CatalogError> {
+pub(crate) fn parse_byte_order(value: String) -> Result<PreviewByteOrder, CatalogError> {
     match value.as_str() {
         "not_applicable" => Ok(PreviewByteOrder::NotApplicable),
         "native" => Ok(PreviewByteOrder::Native),
@@ -337,25 +337,25 @@ fn sqlite_usize(value: usize, field: &'static str) -> Result<i64, CatalogError> 
     i64::try_from(value).map_err(|_| CatalogError::CachedArtifactValueOutOfRange { field })
 }
 
-fn non_negative_u64(value: i64, index: usize) -> rusqlite::Result<u64> {
+pub(crate) fn non_negative_u64(value: i64, index: usize) -> rusqlite::Result<u64> {
     u64::try_from(value).map_err(|error| conversion(index, error))
 }
 
-fn non_negative_u32(value: i64, index: usize) -> rusqlite::Result<u32> {
+pub(crate) fn non_negative_u32(value: i64, index: usize) -> rusqlite::Result<u32> {
     u32::try_from(value).map_err(|error| conversion(index, error))
 }
 
-fn non_negative_u16(value: i64, index: usize) -> rusqlite::Result<u16> {
+pub(crate) fn non_negative_u16(value: i64, index: usize) -> rusqlite::Result<u16> {
     u16::try_from(value).map_err(|error| conversion(index, error))
 }
 
-fn optional_usize(value: Option<i64>, index: usize) -> rusqlite::Result<Option<usize>> {
+pub(crate) fn optional_usize(value: Option<i64>, index: usize) -> rusqlite::Result<Option<usize>> {
     value
         .map(|value| usize::try_from(value).map_err(|error| conversion(index, error)))
         .transpose()
 }
 
-fn digest(value: Vec<u8>, index: usize) -> rusqlite::Result<[u8; 32]> {
+pub(crate) fn digest(value: Vec<u8>, index: usize) -> rusqlite::Result<[u8; 32]> {
     value.try_into().map_err(|value: Vec<u8>| {
         rusqlite::Error::FromSqlConversionFailure(
             index,

@@ -20,6 +20,10 @@ fn main() -> io::Result<()> {
         "test" => run("cargo", &["test", "--workspace"]),
         "native-configure" => run("cmake", &["--preset", "native-dev"]),
         "native-build" => run("cmake", &["--build", "--preset", "native-dev"]),
+        "desktop-build" => {
+            run("cmake", &["--preset", "desktop-dev"])?;
+            run("cmake", &["--build", "--preset", "desktop-dev"])
+        }
         "native-check" => {
             run("cmake", &["--preset", "native-dev"])?;
             run("cmake", &["--build", "--preset", "native-dev"])?;
@@ -36,7 +40,9 @@ fn main() -> io::Result<()> {
             Ok(())
         }
         _ => {
-            println!("cargo xtask <check|test|native-configure|native-build|native-check|doctor>");
+            println!(
+                "cargo xtask <check|test|native-configure|native-build|native-check|desktop-build|doctor>"
+            );
             Ok(())
         }
     }

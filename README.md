@@ -17,6 +17,7 @@ cargo xtask check
 cargo xtask test
 cargo xtask doctor
 cargo xtask native-check
+cargo xtask desktop-build
 cargo run --package shadow-cli -- init ./catalogs/demo.sqlite
 cargo run --package shadow-cli -- scan ./catalogs/demo.sqlite /path/to/photos
 cargo run --package shadow-cli -- scan-cache ./catalogs/demo.sqlite ./catalogs/cache /path/to/photos
@@ -36,10 +37,12 @@ fallback without copying the full-size RGB buffer into Rust. Cache reads verify
 the digest and byte length lazily. Snapshots from multiple decoder providers may
 coexist for one representation.
 
-`cache-read` exercises the recovery boundary used by the future Review grid.
+`cache-read` exercises the recovery boundary used by the Review grid.
 Missing or corrupt blobs conditionally invalidate only the exact Catalog record
 that failed. Corrupt bytes are retained under `quarantine/b3`; the next folder
 scan schedules the missing visual again without disturbing a concurrent newer
 artifact.
 
-The reusable C++ decoder contract is documented in [`cpp/shadow-image/README.md`](cpp/shadow-image/README.md); its Rust boundary is documented in [`crates/shadow-bridge/README.md`](crates/shadow-bridge/README.md), and cache semantics in [`crates/shadow-cache/README.md`](crates/shadow-cache/README.md). The probe intentionally uses LibRaw's reference RGB processing only as a correctness baseline; Shadow's own scene-linear color and adjustment pipeline will replace that stage. Qt is not required for this slice. The local product and research material lives under `local-reference/` and is intentionally ignored by Git.
+The first Qt Quick Review application now lives in [`apps/desktop`](apps/desktop/README.md). It selects a folder, runs the existing Rust scan/decode/cache pipeline off the UI thread, shows real embedded previews or fallback proxies, and opens a selected photo without exposing SQLite or LibRaw to QML.
+
+The reusable C++ decoder contract is documented in [`cpp/shadow-image/README.md`](cpp/shadow-image/README.md); its Rust boundary is documented in [`crates/shadow-bridge/README.md`](crates/shadow-bridge/README.md), and cache semantics in [`crates/shadow-cache/README.md`](crates/shadow-cache/README.md). The probe intentionally uses LibRaw's reference RGB processing only as a correctness baseline; Shadow's own scene-linear color and adjustment pipeline will replace that stage. The local product and research material lives under `local-reference/` and is intentionally ignored by Git.

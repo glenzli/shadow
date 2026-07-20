@@ -8,6 +8,11 @@ project(
 )
 
 option(SHADOW_BUILD_RAW_PROBE "Build the LibRaw vertical-spike probe" ON)
+option(SHADOW_BUILD_DESKTOP "Build the Qt Quick desktop application" OFF)
 
 include(CTest)
 add_subdirectory(cpp/shadow-image)
+
+if(SHADOW_BUILD_DESKTOP)
+    add_subdirectory(apps/desktop)
+endif()

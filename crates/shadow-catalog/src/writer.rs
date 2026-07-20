@@ -11,6 +11,7 @@ use crate::{
     ImportSession, ImportSessionState, ImportSessionSummary, InvalidateCachedArtifactStatus,
     RecordCachedArtifact, RecordCachedArtifactStatus, RecordDecodeSnapshot,
     RecordDecodeSnapshotStatus, RegisterAsset, RegisteredAsset, RepresentationFingerprint,
+    ReviewItemRecord,
 };
 
 #[derive(Debug)]
@@ -64,6 +65,7 @@ enum Message {
         Box<CachedArtifactRecord>,
         SyncSender<Result<InvalidateCachedArtifactStatus, CatalogError>>,
     ),
+    ReviewItems(SyncSender<Result<Vec<ReviewItemRecord>, CatalogError>>),
     BeginImportSession(
         AssetLocation,
         i64,
@@ -330,6 +332,15 @@ impl CatalogHandle {
         })
     }
 
+    /// Returns an immutable Review-grid snapshot through the Catalog actor.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] if the writer is unavailable or the query fails.
+    pub fn review_items(&self) -> Result<Vec<ReviewItemRecord>, CatalogError> {
+        self.request(Message::ReviewItems)
+    }
+
     /// Lists resumable import sessions.
     ///
     /// # Errors
@@ -479,6 +490,9 @@ fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
             }
             Message::InvalidateCachedArtifact(record, response) => {
                 let _ = response.send(catalog.invalidate_cached_artifact(record.as_ref()));
+            }
+            Message::ReviewItems(response) => {
+                let _ = response.send(catalog.review_items());
             }
             Message::BeginImportSession(root, now_ms, response) => {
                 let _ = response.send(catalog.begin_import_session(&root, now_ms));

@@ -507,6 +507,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "shadow-desktop-bridge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cxx",
+ "cxx-build",
+ "shadow-bridge",
+ "shadow-catalog",
+ "shadow-core",
+ "shadow-domain",
+]
+
+[[package]]
 name = "shadow-domain"
 version = "0.1.0"
 dependencies = [
