@@ -11,6 +11,7 @@ mod manifest;
 mod preference;
 mod resource;
 mod score;
+mod technical;
 mod value;
 
 pub use contract::{
@@ -43,5 +44,13 @@ pub use score::{
     CandidateAssessment, CandidateRank, CandidateSignals, DefectGate, PersonalPreferenceSignal,
     ScoreContribution, ScoredSignal, SelectionPolicy, SelectionWeights, VisibilityDisposition,
     rank_group,
+};
+pub use technical::{
+    DISPLAY_LUMA_CONTRACT_VERSION, DisplayLumaPlane, LUMA_HISTOGRAM_BIN_COUNT, LumaHistogram,
+    MAX_ACTIVE_LUMA_SAMPLES, MAX_DISPLAY_LUMA_BUFFER_SAMPLES, MAX_DISPLAY_LUMA_DIMENSION,
+    NEAR_BLACK_LUMA_THRESHOLD, NEAR_WHITE_LUMA_THRESHOLD, NonNegativeFinite,
+    TECHNICAL_QUALITY_IMPLEMENTATION_VERSION, TECHNICAL_QUALITY_SCHEMA_VERSION,
+    TechnicalAlgorithmProvenance, TechnicalInputProvenance, TechnicalObservationError,
+    TechnicalQualityMetrics, TechnicalQualityObservation, observe_display_luma,
 };
 pub use value::{UnitInterval, UnitIntervalError};

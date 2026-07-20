@@ -24,6 +24,13 @@ boundaries.
   Explicit pairwise choices can become incremental examples; absence of a click,
   export, dwell time, and other ambiguous behavior are not silently turned into
   negatives.
+- Deterministic CPU observations over a bounded, normalized display-luma plane:
+  a fixed histogram, exact nearest-rank percentiles, near-black/near-white
+  fractions, and two explicitly defined sharpness proxies. These measurements
+  describe the supplied display proxy only; they are not RAW exposure readings,
+  aesthetic scores, or automatic Pick/Reject decisions.
+  Sharpness proxies are only comparable at the same proxy scale and exact
+  preprocessing revision; resizing or sharpening changes their meaning.
 - A small deterministic Bradley-Terry/logistic linear preference head over frozen
   feature vectors. It is a real, serializable CPU update path, but it is not a
   substitute for the still-unselected image feature extractor.
@@ -76,8 +83,7 @@ and the two target machines before an implementation is called usable:
     guarantees, and deterministic local fallback. Remote use remains off by
     default.
 
-The intended next vertical slice is modest: compute rule-based technical signals
-from embedded previews, persist observation provenance, collect explicit Review
-feedback, and benchmark one pinned frozen embedding model behind a worker. Only
-after it passes the quality/resource gates should personal preference affect UI
-recommendations.
+The intended next vertical slice is modest: connect these rule-based display-luma
+observations to versioned proxy artifacts, persist their provenance, and benchmark
+one pinned frozen embedding model behind a worker. Only after it passes the
+quality/resource gates should personal preference affect UI recommendations.
