@@ -1,0 +1,121 @@
+#include "edit_history.hpp"
+
+#include <cstdlib>
+#include <iostream>
+#include <string>
+
+namespace {
+
+struct State final {
+    int exposure = 0;
+    int contrast = 0;
+
+    bool operator==(const State&) const = default;
+};
+
+void require(const bool condition, const std::string& message) {
+    if (!condition) {
+        std::cerr << "edit history contract failed: " << message << '\n';
+        std::exit(EXIT_FAILURE);
+    }
+}
+
+void continuous_gesture_is_one_step() {
+    SessionEditHistory<State> history;
+    State current;
+
+    history.beginGesture("exposure", current);
+    for (const int value : {1, 2, 3, 4}) {
+        const State before = current;
+        current.exposure = value;
+        history.record("exposure", before, current);
+    }
+    history.endGesture("exposure", current);
+
+    require(history.undoDepth() == 1, "a drag must create one undo step");
+    current = *history.undo(current);
+    require(current == State{}, "undo must restore the pre-drag snapshot");
+    current = *history.redo(current);
+    require(current.exposure == 4, "redo must restore the drag endpoint");
+}
+
+void switching_parameters_splits_steps() {
+    SessionEditHistory<State> history;
+    State current;
+
+    history.beginGesture("exposure", current);
+    State before = current;
+    current.exposure = 2;
+    history.record("exposure", before, current);
+
+    history.beginGesture("contrast", current);
+    before = current;
+    current.contrast = 7;
+    history.record("contrast", before, current);
+    history.endGesture("contrast", current);
+
+    require(history.undoDepth() == 2, "different parameters must be separate steps");
+    current = *history.undo(current);
+    require(
+        current.exposure == 2 && current.contrast == 0,
+        "first undo must only restore contrast"
+    );
+    current = *history.undo(current);
+    require(current == State{}, "second undo must restore exposure");
+}
+
+void a_new_edit_clears_redo() {
+    SessionEditHistory<State> history;
+    State current;
+    State before = current;
+    current.exposure = 1;
+    history.record("exposure", before, current);
+    current = *history.undo(current);
+    require(history.canRedo(), "undo must make redo available");
+
+    before = current;
+    current.contrast = 3;
+    history.record("contrast", before, current);
+    require(!history.canRedo(), "a new edit must clear the redo branch");
+}
+
+void a_net_noop_gesture_preserves_redo() {
+    SessionEditHistory<State> history;
+    State current;
+    State before = current;
+    current.exposure = 5;
+    history.record("exposure", before, current);
+    current = *history.undo(current);
+
+    history.beginGesture("contrast", current);
+    before = current;
+    current.contrast = 2;
+    history.record("contrast", before, current);
+    before = current;
+    current.contrast = 0;
+    history.record("contrast", before, current);
+    history.endGesture("contrast", current);
+
+    require(history.canRedo(), "a cancelled drag must not destroy the redo branch");
+}
+
+void clear_starts_a_new_session() {
+    SessionEditHistory<State> history;
+    State current;
+    State before = current;
+    current.exposure = 9;
+    history.record("exposure", before, current);
+    history.clear();
+    require(!history.canUndo() && !history.canRedo(), "clear must drop both stacks");
+}
+
+} // namespace
+
+int main() {
+    continuous_gesture_is_one_step();
+    switching_parameters_splits_steps();
+    a_new_edit_clears_redo();
+    a_net_noop_gesture_preserves_redo();
+    clear_starts_a_new_session();
+    return EXIT_SUCCESS;
+}

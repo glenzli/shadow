@@ -1,6 +1,7 @@
 #pragma once
 
 #include "desktop_backend.hpp"
+#include "edit_history.hpp"
 #include "edit_preview_provider.hpp"
 #include "edit_version_model.hpp"
 
@@ -40,6 +41,8 @@ class EditController final : public QObject {
     Q_PROPERTY(bool stateBusy READ stateBusy NOTIFY stateBusyChanged)
     Q_PROPERTY(bool rendering READ rendering NOTIFY renderingChanged)
     Q_PROPERTY(bool dirty READ dirty NOTIFY dirtyChanged)
+    Q_PROPERTY(bool canUndo READ canUndo NOTIFY historyChanged)
+    Q_PROPERTY(bool canRedo READ canRedo NOTIFY historyChanged)
     Q_PROPERTY(QString title READ title NOTIFY titleChanged)
     Q_PROPERTY(QString sourcePath READ sourcePath NOTIFY sourcePathChanged)
     Q_PROPERTY(QString previewSource READ previewSource NOTIFY previewSourceChanged)
@@ -80,6 +83,8 @@ public:
     [[nodiscard]] bool stateBusy() const noexcept;
     [[nodiscard]] bool rendering() const noexcept;
     [[nodiscard]] bool dirty() const noexcept;
+    [[nodiscard]] bool canUndo() const noexcept;
+    [[nodiscard]] bool canRedo() const noexcept;
     [[nodiscard]] QString title() const;
     [[nodiscard]] QString sourcePath() const;
     [[nodiscard]] QString previewSource() const;
@@ -106,6 +111,10 @@ public:
         const QString& title
     );
     Q_INVOKABLE void closePhoto();
+    Q_INVOKABLE void beginParameterEdit(const QString& parameter_key);
+    Q_INVOKABLE void endParameterEdit(const QString& parameter_key);
+    Q_INVOKABLE void undo();
+    Q_INVOKABLE void redo();
     Q_INVOKABLE void resetEdits();
     Q_INVOKABLE void revertEdits();
     Q_INVOKABLE void saveVersion(const QString& version_name);
@@ -117,6 +126,7 @@ signals:
     void stateBusyChanged();
     void renderingChanged();
     void dirtyChanged();
+    void historyChanged();
     void titleChanged();
     void sourcePathChanged();
     void previewSourceChanged();
@@ -130,14 +140,22 @@ private slots:
 
 private:
     void applyState(BackendPhotoEditState state);
-    void setParameters(BackendBasicEditParameters parameters, bool dirty);
+    void setParameters(BackendBasicEditParameters parameters);
+    void clearSessionHistory();
+    void recordWorkingTransition(
+        const QString& key,
+        const BackendBasicEditParameters& before
+    );
     void schedulePreview(int delay_ms);
     void setStatusText(QString status);
     void setDirty(bool dirty);
     void setStateRunning(bool running);
     void setPreviewRunning(bool running);
     void emitBusyChange(bool previous_busy);
-    void parameterEdited();
+    void parameterEdited(
+        const QString& key,
+        const BackendBasicEditParameters& before
+    );
     [[nodiscard]] bool acceptParameter(
         double value,
         double minimum,
@@ -151,6 +169,7 @@ private:
     QFutureWatcher<EditStateTaskResult> state_watcher_;
     QFutureWatcher<EditPreviewTaskResult> preview_watcher_;
     QTimer preview_debounce_;
+    SessionEditHistory<BackendBasicEditParameters> history_;
     BackendBasicEditParameters parameters_;
     BackendBasicEditParameters committed_parameters_;
     QString photo_id_;

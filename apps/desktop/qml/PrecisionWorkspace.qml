@@ -32,6 +32,20 @@ Item {
         previewFlick.contentY = 0
     }
 
+    Shortcut {
+        sequences: [StandardKey.Undo]
+        enabled: precision.visible && precision.editor.active
+            && precision.editor.canUndo && !precision.editor.stateBusy
+        onActivated: precision.editor.undo()
+    }
+
+    Shortcut {
+        sequences: [StandardKey.Redo]
+        enabled: precision.visible && precision.editor.active
+            && precision.editor.canRedo && !precision.editor.stateBusy
+        onActivated: precision.editor.redo()
+    }
+
     ListModel {
         id: nodeModel
         ListElement { nodeTitle: "Exposure"; nodeStage: "SCENE LINEAR" }
@@ -252,6 +266,51 @@ Item {
                                 color: precision.textMuted
                                 font.pixelSize: 8
                                 elide: Text.ElideMiddle
+                            }
+                        }
+
+                        Button {
+                            id: undoButton
+                            Layout.preferredWidth: 58
+                            Layout.preferredHeight: 27
+                            text: "UNDO"
+                            enabled: precision.editor.active && precision.editor.canUndo
+                                && !precision.editor.stateBusy
+                            onClicked: precision.editor.undo()
+                            background: Rectangle {
+                                radius: 3
+                                color: undoButton.down ? "#292f35" : "#1b2025"
+                                border.color: undoButton.enabled ? "#48515a" : precision.border
+                            }
+                            contentItem: Label {
+                                text: undoButton.text
+                                color: undoButton.enabled ? precision.textPrimary : "#606a74"
+                                font.pixelSize: 8
+                                font.weight: Font.Bold
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                        }
+                        Button {
+                            id: redoButton
+                            Layout.preferredWidth: 58
+                            Layout.preferredHeight: 27
+                            text: "REDO"
+                            enabled: precision.editor.active && precision.editor.canRedo
+                                && !precision.editor.stateBusy
+                            onClicked: precision.editor.redo()
+                            background: Rectangle {
+                                radius: 3
+                                color: redoButton.down ? "#292f35" : "#1b2025"
+                                border.color: redoButton.enabled ? "#48515a" : precision.border
+                            }
+                            contentItem: Label {
+                                text: redoButton.text
+                                color: redoButton.enabled ? precision.textPrimary : "#606a74"
+                                font.pixelSize: 8
+                                font.weight: Font.Bold
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
                             }
                         }
 
@@ -480,7 +539,9 @@ Item {
                                     stepSize: 0.05
                                     value: precision.editor.exposureStops
                                     suffix: " EV"
+                                    onGestureStarted: precision.editor.beginParameterEdit("exposure")
                                     onEdited: value => precision.editor.exposureStops = value
+                                    onGestureFinished: precision.editor.endParameterEdit("exposure")
                                 }
 
                                 ShadowSlider {
@@ -494,7 +555,9 @@ Item {
                                     stepSize: 0.01
                                     value: precision.editor.contrastFactor
                                     suffix: "×"
+                                    onGestureStarted: precision.editor.beginParameterEdit("contrast")
                                     onEdited: value => precision.editor.contrastFactor = value
+                                    onGestureFinished: precision.editor.endParameterEdit("contrast")
                                 }
 
                                 ShadowSlider {
@@ -508,7 +571,9 @@ Item {
                                     stepSize: 0.01
                                     value: precision.editor.redGain
                                     suffix: "×"
+                                    onGestureStarted: precision.editor.beginParameterEdit("red_gain")
                                     onEdited: value => precision.editor.redGain = value
+                                    onGestureFinished: precision.editor.endParameterEdit("red_gain")
                                 }
                                 ShadowSlider {
                                     visible: precision.selectedNode === 2
@@ -521,7 +586,9 @@ Item {
                                     stepSize: 0.01
                                     value: precision.editor.greenGain
                                     suffix: "×"
+                                    onGestureStarted: precision.editor.beginParameterEdit("green_gain")
                                     onEdited: value => precision.editor.greenGain = value
+                                    onGestureFinished: precision.editor.endParameterEdit("green_gain")
                                 }
                                 ShadowSlider {
                                     visible: precision.selectedNode === 2
@@ -534,7 +601,9 @@ Item {
                                     stepSize: 0.01
                                     value: precision.editor.blueGain
                                     suffix: "×"
+                                    onGestureStarted: precision.editor.beginParameterEdit("blue_gain")
                                     onEdited: value => precision.editor.blueGain = value
+                                    onGestureFinished: precision.editor.endParameterEdit("blue_gain")
                                 }
 
                                 ShadowSlider {
@@ -548,7 +617,9 @@ Item {
                                     stepSize: 0.01
                                     value: precision.editor.saturationFactor
                                     suffix: "×"
+                                    onGestureStarted: precision.editor.beginParameterEdit("saturation")
                                     onEdited: value => precision.editor.saturationFactor = value
+                                    onGestureFinished: precision.editor.endParameterEdit("saturation")
                                 }
 
                                 Item { Layout.preferredHeight: 8 }

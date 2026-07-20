@@ -160,6 +160,14 @@ bool EditController::dirty() const noexcept {
     return dirty_;
 }
 
+bool EditController::canUndo() const noexcept {
+    return history_.canUndo();
+}
+
+bool EditController::canRedo() const noexcept {
+    return history_.canRedo();
+}
+
 QString EditController::title() const {
     return title_;
 }
@@ -209,8 +217,9 @@ void EditController::setExposureStops(const double value) {
         || !acceptParameter(value, -16.0, 16.0, QStringLiteral("Exposure"))) {
         return;
     }
+    const BackendBasicEditParameters before = parameters_;
     parameters_.exposure_stops = value;
-    parameterEdited();
+    parameterEdited(QStringLiteral("exposure"), before);
 }
 
 void EditController::setContrastFactor(const double value) {
@@ -218,8 +227,9 @@ void EditController::setContrastFactor(const double value) {
         || !acceptParameter(value, 0.0, 8.0, QStringLiteral("Contrast"))) {
         return;
     }
+    const BackendBasicEditParameters before = parameters_;
     parameters_.contrast_factor = value;
-    parameterEdited();
+    parameterEdited(QStringLiteral("contrast"), before);
 }
 
 void EditController::setRedGain(const double value) {
@@ -227,8 +237,9 @@ void EditController::setRedGain(const double value) {
         || !acceptParameter(value, 0.000'001, 16.0, QStringLiteral("Red gain"))) {
         return;
     }
+    const BackendBasicEditParameters before = parameters_;
     parameters_.red_channel_gain = value;
-    parameterEdited();
+    parameterEdited(QStringLiteral("red_gain"), before);
 }
 
 void EditController::setGreenGain(const double value) {
@@ -236,8 +247,9 @@ void EditController::setGreenGain(const double value) {
         || !acceptParameter(value, 0.000'001, 16.0, QStringLiteral("Green gain"))) {
         return;
     }
+    const BackendBasicEditParameters before = parameters_;
     parameters_.green_channel_gain = value;
-    parameterEdited();
+    parameterEdited(QStringLiteral("green_gain"), before);
 }
 
 void EditController::setBlueGain(const double value) {
@@ -245,8 +257,9 @@ void EditController::setBlueGain(const double value) {
         || !acceptParameter(value, 0.000'001, 16.0, QStringLiteral("Blue gain"))) {
         return;
     }
+    const BackendBasicEditParameters before = parameters_;
     parameters_.blue_channel_gain = value;
-    parameterEdited();
+    parameterEdited(QStringLiteral("blue_gain"), before);
 }
 
 void EditController::setSaturationFactor(const double value) {
@@ -254,8 +267,9 @@ void EditController::setSaturationFactor(const double value) {
         || !acceptParameter(value, 0.0, 8.0, QStringLiteral("Saturation"))) {
         return;
     }
+    const BackendBasicEditParameters before = parameters_;
     parameters_.saturation_factor = value;
-    parameterEdited();
+    parameterEdited(QStringLiteral("saturation"), before);
 }
 
 void EditController::openPhoto(
@@ -291,7 +305,8 @@ void EditController::openPhoto(
     title_ = title;
     versions_.replace({});
     committed_parameters_ = {};
-    setParameters({}, false);
+    clearSessionHistory();
+    setParameters({});
     if (!preview_source_.isEmpty()) {
         preview_source_.clear();
         emit previewSourceChanged();
@@ -322,8 +337,62 @@ void EditController::closePhoto() {
     if (!active_) {
         return;
     }
+    clearSessionHistory();
     active_ = false;
     emit activeChanged();
+    emit historyChanged();
+}
+
+void EditController::beginParameterEdit(const QString& parameter_key) {
+    if (!active_ || state_running_ || parameter_key.isEmpty()) {
+        return;
+    }
+    const bool could_undo = canUndo();
+    const bool could_redo = canRedo();
+    history_.beginGesture(parameter_key.toStdString(), parameters_);
+    if (could_undo != canUndo() || could_redo != canRedo()) {
+        emit historyChanged();
+    }
+}
+
+void EditController::endParameterEdit(const QString& parameter_key) {
+    if (!active_ || parameter_key.isEmpty()) {
+        return;
+    }
+    const bool could_undo = canUndo();
+    const bool could_redo = canRedo();
+    history_.endGesture(parameter_key.toStdString(), parameters_);
+    if (could_undo != canUndo() || could_redo != canRedo()) {
+        emit historyChanged();
+    }
+}
+
+void EditController::undo() {
+    if (!active_ || state_running_) {
+        return;
+    }
+    const auto restored = history_.undo(parameters_);
+    emit historyChanged();
+    if (!restored) {
+        return;
+    }
+    setParameters(*restored);
+    schedulePreview(0);
+    setStatusText(QStringLiteral("Undid the last session adjustment"));
+}
+
+void EditController::redo() {
+    if (!active_ || state_running_) {
+        return;
+    }
+    const auto restored = history_.redo(parameters_);
+    emit historyChanged();
+    if (!restored) {
+        return;
+    }
+    setParameters(*restored);
+    schedulePreview(0);
+    setStatusText(QStringLiteral("Redid the last session adjustment"));
 }
 
 void EditController::resetEdits() {
@@ -331,20 +400,23 @@ void EditController::resetEdits() {
         return;
     }
     const BackendBasicEditParameters neutral;
-    const bool changed = parameters_ != neutral;
-    setParameters(neutral, neutral != committed_parameters_);
-    if (changed) {
-        schedulePreview(0);
+    if (parameters_ == neutral) {
+        return;
     }
+    const BackendBasicEditParameters before = parameters_;
+    setParameters(neutral);
+    recordWorkingTransition(QStringLiteral("reset"), before);
+    schedulePreview(0);
 }
 
 void EditController::revertEdits() {
     if (!active_ || state_running_) {
         return;
     }
-    const bool changed = parameters_ != committed_parameters_;
-    setParameters(committed_parameters_, false);
-    if (changed) {
+    if (parameters_ != committed_parameters_) {
+        const BackendBasicEditParameters before = parameters_;
+        setParameters(committed_parameters_);
+        recordWorkingTransition(QStringLiteral("revert"), before);
         schedulePreview(0);
     }
     setStatusText(QStringLiteral("Restored the current saved version"));
@@ -359,6 +431,8 @@ void EditController::saveVersion(const QString& version_name) {
         setStatusText(QStringLiteral("Enter a name for this version"));
         return;
     }
+    history_.finishGesture(parameters_);
+    emit historyChanged();
     setStateRunning(true);
     setStatusText(QStringLiteral("Saving immutable version “%1”…").arg(name));
     state_watcher_.setFuture(QtConcurrent::run(
@@ -488,20 +562,40 @@ void EditController::applyState(BackendPhotoEditState state) {
         return;
     }
     committed_parameters_ = state.parameters;
-    setParameters(state.parameters, false);
+    setParameters(state.parameters);
+    clearSessionHistory();
     versions_.replace(std::move(state.versions));
 }
 
 void EditController::setParameters(
-    const BackendBasicEditParameters parameters,
-    const bool dirty
+    const BackendBasicEditParameters parameters
 ) {
     const bool changed = parameters_ != parameters;
     parameters_ = parameters;
     if (changed) {
         emit parametersChanged();
     }
-    setDirty(dirty);
+    setDirty(parameters_ != committed_parameters_);
+}
+
+void EditController::clearSessionHistory() {
+    const bool had_history = history_.canUndo() || history_.canRedo();
+    history_.clear();
+    if (had_history) {
+        emit historyChanged();
+    }
+}
+
+void EditController::recordWorkingTransition(
+    const QString& key,
+    const BackendBasicEditParameters& before
+) {
+    const bool could_undo = canUndo();
+    const bool could_redo = canRedo();
+    history_.record(key.toStdString(), before, parameters_);
+    if (could_undo != canUndo() || could_redo != canRedo()) {
+        emit historyChanged();
+    }
 }
 
 void EditController::schedulePreview(const int delay_ms) {
@@ -557,10 +651,14 @@ void EditController::emitBusyChange(const bool previous_busy) {
     }
 }
 
-void EditController::parameterEdited() {
+void EditController::parameterEdited(
+    const QString& key,
+    const BackendBasicEditParameters& before
+) {
     if (!active_ || state_running_) {
         return;
     }
+    recordWorkingTransition(key, before);
     emit parametersChanged();
     setDirty(parameters_ != committed_parameters_);
     schedulePreview(EDIT_DEBOUNCE_MS);

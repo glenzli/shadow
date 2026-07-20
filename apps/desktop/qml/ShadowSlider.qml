@@ -18,6 +18,8 @@ Item {
     property color textPrimary: "#edf0f2"
     property color textMuted: "#8b949e"
     signal edited(real value)
+    signal gestureStarted()
+    signal gestureFinished()
 
     implicitHeight: 58
 
@@ -46,6 +48,12 @@ Item {
             Layout.fillWidth: true
             snapMode: Slider.SnapAlways
             onMoved: field.edited(value)
+            onPressedChanged: {
+                if (pressed)
+                    field.gestureStarted()
+                else
+                    field.gestureFinished()
+            }
 
             background: Rectangle {
                 x: slider.leftPadding

@@ -62,6 +62,7 @@ qt_add_executable(
     src/desktop_backend.hpp
     src/edit_controller.cpp
     src/edit_controller.hpp
+    src/edit_history.hpp
     src/edit_preview_provider.cpp
     src/edit_preview_provider.hpp
     src/edit_version_model.cpp
@@ -118,3 +119,18 @@ set_target_properties(
         MACOSX_BUNDLE_BUNDLE_VERSION "1"
         OUTPUT_NAME "Shadow"
 )
+
+if(BUILD_TESTING)
+    add_executable(shadow-edit-history-test tests/edit_history_test.cpp)
+    target_compile_features(shadow-edit-history-test PRIVATE cxx_std_20)
+    target_include_directories(shadow-edit-history-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    if(MSVC)
+        target_compile_options(shadow-edit-history-test PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(
+            shadow-edit-history-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(NAME shadow-desktop-edit-history COMMAND shadow-edit-history-test)
+endif()
