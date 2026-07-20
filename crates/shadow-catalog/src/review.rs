@@ -1,3 +1,4 @@
+use rusqlite::OptionalExtension;
 use shadow_domain::{AssetLocation, EntityId, PhotoId, Platform, RepresentationId};
 
 use crate::{
@@ -67,6 +68,53 @@ struct RawReviewItem {
 }
 
 impl Catalog {
+    /// Returns the online original-RAW source currently associated with a photo.
+    ///
+    /// This is the identity boundary used by detail/edit surfaces: callers may
+    /// show a display path, but the catalog remains authoritative for which
+    /// representation and location belong to the photo.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] for unknown persisted values or a failed query.
+    pub fn review_source(
+        &self,
+        photo_id: PhotoId,
+    ) -> Result<Option<ReviewItemRecord>, CatalogError> {
+        let mut statement = self.connection.prepare(
+            "SELECT r.photo_id, r.id, l.platform, l.native_path, l.display_path,
+                    r.byte_len, r.modified_at_ms,
+                    a.role, a.variant_key, a.generator_id, a.generator_version,
+                    a.provider_preview_id, a.blob_algorithm, a.blob_digest,
+                    a.blob_byte_len, a.codec, a.byte_order, a.width, a.height,
+                    a.bits_per_channel, a.channels, a.created_at_ms
+             FROM representations r
+             JOIN locations l ON l.id = (
+                 SELECT l2.id FROM locations l2
+                 WHERE l2.representation_id = r.id AND l2.status = 'online'
+                 ORDER BY l2.created_at_ms, l2.id
+                 LIMIT 1
+             )
+             LEFT JOIN representation_cached_artifacts a ON a.rowid = (
+                 SELECT a2.rowid FROM representation_cached_artifacts a2
+                 WHERE a2.representation_id = r.id
+                   AND a2.source_byte_len = r.byte_len
+                   AND a2.source_modified_at_ms IS r.modified_at_ms
+                 ORDER BY CASE a2.role WHEN 'embedded_preview' THEN 0 ELSE 1 END,
+                          (a2.width * a2.height) DESC,
+                          a2.variant_key
+                 LIMIT 1
+             )
+             WHERE r.photo_id = ?1 AND r.kind = 'original_raw'
+             ORDER BY r.created_at_ms, r.id
+             LIMIT 1",
+        )?;
+        let item = statement
+            .query_row([photo_id.as_bytes().as_slice()], read_raw_review_item)
+            .optional()?;
+        item.map(review_item_from_raw).transpose()
+    }
+
     /// Returns a bounded page containing one online original-RAW location per
     /// representation together with its preferred current grid visual.
     ///
@@ -122,27 +170,7 @@ impl Catalog {
 
         let mut items = Vec::new();
         for row in rows {
-            let RawReviewItem {
-                photo_id,
-                representation_id,
-                platform,
-                native_path,
-                display_path,
-                source,
-                artifact,
-            } = row?;
-            let location =
-                AssetLocation::new(parse_platform(&platform)?, native_path, display_path);
-            let visual = artifact
-                .map(|artifact| cached_artifact(representation_id, source, artifact))
-                .transpose()?;
-            items.push(ReviewItemRecord {
-                photo_id,
-                representation_id,
-                location,
-                source,
-                visual,
-            });
+            items.push(review_item_from_raw(row?)?);
         }
         let has_more = items.len() > page_size;
         items.truncate(page_size);
@@ -161,6 +189,29 @@ impl Catalog {
             total_items,
         })
     }
+}
+
+fn review_item_from_raw(raw: RawReviewItem) -> Result<ReviewItemRecord, CatalogError> {
+    let RawReviewItem {
+        photo_id,
+        representation_id,
+        platform,
+        native_path,
+        display_path,
+        source,
+        artifact,
+    } = raw;
+    let location = AssetLocation::new(parse_platform(&platform)?, native_path, display_path);
+    let visual = artifact
+        .map(|artifact| cached_artifact(representation_id, source, artifact))
+        .transpose()?;
+    Ok(ReviewItemRecord {
+        photo_id,
+        representation_id,
+        location,
+        source,
+        visual,
+    })
 }
 
 fn read_raw_review_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawReviewItem> {

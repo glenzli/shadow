@@ -11,7 +11,8 @@ use crate::{
     DecodeSnapshotRecord, ImportSession, ImportSessionState, ImportSessionSummary,
     InvalidateCachedArtifactStatus, RecipeCommitRecord, RecipeRefRecord, RecordCachedArtifact,
     RecordCachedArtifactStatus, RecordDecodeSnapshot, RecordDecodeSnapshotStatus, RegisterAsset,
-    RegisteredAsset, RepresentationFingerprint, ReviewCursor, ReviewPageRecord, SetRecipeRef,
+    RegisteredAsset, RepresentationFingerprint, ReviewCursor, ReviewItemRecord, ReviewPageRecord,
+    SetRecipeRef,
 };
 
 #[derive(Debug)]
@@ -69,6 +70,10 @@ enum Message {
         Option<ReviewCursor>,
         usize,
         SyncSender<Result<ReviewPageRecord, CatalogError>>,
+    ),
+    ReviewSource(
+        PhotoId,
+        SyncSender<Result<Option<ReviewItemRecord>, CatalogError>>,
     ),
     CommitRecipe(
         Box<CommitRecipe>,
@@ -364,6 +369,18 @@ impl CatalogHandle {
         self.request(|response| Message::ReviewPage(after.cloned(), limit, response))
     }
 
+    /// Returns the catalog-owned online RAW source for one photo.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] if the writer is unavailable or the query fails.
+    pub fn review_source(
+        &self,
+        photo_id: PhotoId,
+    ) -> Result<Option<ReviewItemRecord>, CatalogError> {
+        self.request(|response| Message::ReviewSource(photo_id, response))
+    }
+
     /// Persists an immutable Recipe commit and optional ref move through the
     /// single Catalog writer.
     ///
@@ -564,6 +581,9 @@ fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
             }
             Message::ReviewPage(after, limit, response) => {
                 let _ = response.send(catalog.review_page(after.as_ref(), limit));
+            }
+            Message::ReviewSource(photo_id, response) => {
+                let _ = response.send(catalog.review_source(photo_id));
             }
             Message::CommitRecipe(request, response) => {
                 let _ = response.send(catalog.commit_recipe(request.as_ref()));
