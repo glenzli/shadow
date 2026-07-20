@@ -8,32 +8,65 @@
 
 #include <utility>
 
+EditPreviewStore::StoredPreview& EditPreviewStore::slot(
+    const EditPreviewSlot slot
+) noexcept {
+    return slot == EditPreviewSlot::Before ? before_ : current_;
+}
+
+const EditPreviewStore::StoredPreview& EditPreviewStore::slot(
+    const EditPreviewSlot slot
+) const noexcept {
+    return slot == EditPreviewSlot::Before ? before_ : current_;
+}
+
 void EditPreviewStore::publish(
+    const EditPreviewSlot target,
     QByteArray bytes,
     const QSize dimensions,
     const quint64 generation
 ) {
     QWriteLocker lock(&lock_);
-    bytes_ = std::move(bytes);
-    dimensions_ = dimensions;
-    generation_ = generation;
+    auto& stored = slot(target);
+    stored.bytes = std::move(bytes);
+    stored.dimensions = dimensions;
+    stored.generation = generation;
 }
 
-void EditPreviewStore::clear(const quint64 generation) {
+void EditPreviewStore::clear(
+    const EditPreviewSlot target,
+    const quint64 generation
+) {
     QWriteLocker lock(&lock_);
-    bytes_.clear();
-    dimensions_ = {};
-    generation_ = generation;
+    auto& stored = slot(target);
+    stored.bytes.clear();
+    stored.dimensions = {};
+    stored.generation = generation;
 }
 
-EditPreviewStore::Snapshot EditPreviewStore::snapshot(const quint64 generation) const {
+void EditPreviewStore::clearAll(
+    const quint64 current_generation,
+    const quint64 before_generation
+) {
+    QWriteLocker lock(&lock_);
+    current_ = {};
+    current_.generation = current_generation;
+    before_ = {};
+    before_.generation = before_generation;
+}
+
+EditPreviewStore::Snapshot EditPreviewStore::snapshot(
+    const EditPreviewSlot target,
+    const quint64 generation
+) const {
     QReadLocker lock(&lock_);
-    if (generation != generation_) {
+    const auto& stored = slot(target);
+    if (generation != stored.generation) {
         return {};
     }
     return {
-        .bytes = bytes_,
-        .dimensions = dimensions_,
+        .bytes = stored.bytes,
+        .dimensions = stored.dimensions,
     };
 }
 
@@ -50,15 +83,30 @@ QImage EditPreviewProvider::requestImage(
     const QSize& requested_size
 ) {
     const qsizetype query_start = id.indexOf(QLatin1Char('?'));
+    const QString slot_name = query_start >= 0 ? id.left(query_start) : id;
+    EditPreviewSlot slot;
+    if (slot_name == QStringLiteral("current")) {
+        slot = EditPreviewSlot::Current;
+    } else if (slot_name == QStringLiteral("before")) {
+        slot = EditPreviewSlot::Before;
+    } else {
+        if (size != nullptr) {
+            *size = {};
+        }
+        return {};
+    }
     const QUrlQuery query(query_start >= 0 ? id.mid(query_start + 1) : QString{});
     bool valid_generation = false;
     const quint64 generation = query
                                    .queryItemValue(QStringLiteral("generation"))
                                    .toULongLong(&valid_generation);
     if (!valid_generation) {
+        if (size != nullptr) {
+            *size = {};
+        }
         return {};
     }
-    const auto snapshot = store_->snapshot(generation);
+    const auto snapshot = store_->snapshot(slot, generation);
     if (snapshot.bytes.isEmpty()) {
         if (size != nullptr) {
             *size = {};

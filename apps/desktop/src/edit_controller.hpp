@@ -2,6 +2,7 @@
 
 #include "desktop_backend.hpp"
 #include "edit_history.hpp"
+#include "edit_preview_contract.hpp"
 #include "edit_preview_provider.hpp"
 #include "edit_version_model.hpp"
 
@@ -30,8 +31,7 @@ struct EditStateTaskResult final {
 struct EditPreviewTaskResult final {
     BackendEditedPreview preview;
     QString error;
-    quint64 photo_generation = 0;
-    quint64 render_revision = 0;
+    EditPreviewGeneration generation;
 };
 
 class EditController final : public QObject {
@@ -40,12 +40,19 @@ class EditController final : public QObject {
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(bool stateBusy READ stateBusy NOTIFY stateBusyChanged)
     Q_PROPERTY(bool rendering READ rendering NOTIFY renderingChanged)
+    Q_PROPERTY(bool beforeRendering READ beforeRendering NOTIFY beforeRenderingChanged)
     Q_PROPERTY(bool dirty READ dirty NOTIFY dirtyChanged)
     Q_PROPERTY(bool canUndo READ canUndo NOTIFY historyChanged)
     Q_PROPERTY(bool canRedo READ canRedo NOTIFY historyChanged)
     Q_PROPERTY(QString title READ title NOTIFY titleChanged)
     Q_PROPERTY(QString sourcePath READ sourcePath NOTIFY sourcePathChanged)
     Q_PROPERTY(QString previewSource READ previewSource NOTIFY previewSourceChanged)
+    Q_PROPERTY(
+        QString beforePreviewSource
+        READ beforePreviewSource
+        NOTIFY beforePreviewSourceChanged
+    )
+    Q_PROPERTY(QString beforeErrorText READ beforeErrorText NOTIFY beforeErrorTextChanged)
     Q_PROPERTY(QString statusText READ statusText NOTIFY statusTextChanged)
     Q_PROPERTY(
         double exposureStops
@@ -82,12 +89,15 @@ public:
     [[nodiscard]] bool busy() const noexcept;
     [[nodiscard]] bool stateBusy() const noexcept;
     [[nodiscard]] bool rendering() const noexcept;
+    [[nodiscard]] bool beforeRendering() const noexcept;
     [[nodiscard]] bool dirty() const noexcept;
     [[nodiscard]] bool canUndo() const noexcept;
     [[nodiscard]] bool canRedo() const noexcept;
     [[nodiscard]] QString title() const;
     [[nodiscard]] QString sourcePath() const;
     [[nodiscard]] QString previewSource() const;
+    [[nodiscard]] QString beforePreviewSource() const;
+    [[nodiscard]] QString beforeErrorText() const;
     [[nodiscard]] QString statusText() const;
     [[nodiscard]] double exposureStops() const noexcept;
     [[nodiscard]] double contrastFactor() const noexcept;
@@ -117,6 +127,7 @@ public:
     Q_INVOKABLE void redo();
     Q_INVOKABLE void resetEdits();
     Q_INVOKABLE void revertEdits();
+    Q_INVOKABLE void requestBeforePreview();
     Q_INVOKABLE void saveVersion(const QString& version_name);
     Q_INVOKABLE void checkoutVersion(const QString& commit_id);
 
@@ -125,11 +136,14 @@ signals:
     void busyChanged();
     void stateBusyChanged();
     void renderingChanged();
+    void beforeRenderingChanged();
     void dirtyChanged();
     void historyChanged();
     void titleChanged();
     void sourcePathChanged();
     void previewSourceChanged();
+    void beforePreviewSourceChanged();
+    void beforeErrorTextChanged();
     void statusTextChanged();
     void parametersChanged();
 
@@ -147,10 +161,11 @@ private:
         const BackendBasicEditParameters& before
     );
     void schedulePreview(int delay_ms);
+    void maybeStartBeforePreview();
     void setStatusText(QString status);
     void setDirty(bool dirty);
     void setStateRunning(bool running);
-    void setPreviewRunning(bool running);
+    void setPreviewRunning(EditPreviewKind kind, bool running);
     void emitBusyChange(bool previous_busy);
     void parameterEdited(
         const QString& key,
@@ -177,12 +192,17 @@ private:
     QString source_path_;
     QString title_;
     QString preview_source_;
+    QString before_preview_source_;
+    QString before_error_text_;
     QString status_text_ = QStringLiteral("Open a photo from Review to begin editing");
     quint64 photo_generation_ = 0;
     quint64 render_revision_ = 0;
+    quint64 settled_render_revision_ = 0;
     bool active_ = false;
     bool dirty_ = false;
     bool state_running_ = false;
-    bool preview_running_ = false;
+    bool current_rendering_ = false;
+    bool before_rendering_ = false;
     bool preview_queued_ = false;
+    bool before_requested_ = false;
 };

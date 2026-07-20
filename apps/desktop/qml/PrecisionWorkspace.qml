@@ -11,6 +11,10 @@ Item {
     property int selectedNode: 0
     property bool layerExpanded: true
     property real zoomFactor: 1.0
+    property bool showBefore: false
+
+    readonly property bool beforeReady: editor.beforePreviewSource.length > 0
+    readonly property bool displayingBefore: showBefore && beforeReady
 
     readonly property color panel: "#121519"
     readonly property color panelRaised: "#181c21"
@@ -26,6 +30,13 @@ Item {
         "Independent creative RGB gains",
         "Luma-preserving color intensity"
     ]
+
+    Connections {
+        target: precision.editor
+        function onSourcePathChanged() {
+            precision.showBefore = false
+        }
+    }
 
     function resetView() {
         zoomFactor = 1.0
@@ -315,6 +326,61 @@ Item {
                             }
                         }
 
+                        Rectangle {
+                            Layout.preferredWidth: 1
+                            Layout.preferredHeight: 22
+                            color: precision.border
+                        }
+                        Button {
+                            id: afterButton
+                            Layout.preferredWidth: 52
+                            Layout.preferredHeight: 27
+                            text: "AFTER"
+                            enabled: precision.editor.active
+                            onClicked: precision.showBefore = false
+                            background: Rectangle {
+                                radius: 3
+                                color: !precision.showBefore ? "#30291d" : "#1b2025"
+                                border.color: !precision.showBefore
+                                    ? precision.accent : precision.border
+                            }
+                            contentItem: Label {
+                                text: afterButton.text
+                                color: !precision.showBefore
+                                    ? precision.accent : precision.textMuted
+                                font.pixelSize: 8
+                                font.weight: Font.Bold
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                        }
+                        Button {
+                            id: beforeButton
+                            Layout.preferredWidth: 58
+                            Layout.preferredHeight: 27
+                            text: "BEFORE"
+                            enabled: precision.editor.active
+                            onClicked: {
+                                precision.showBefore = true
+                                precision.editor.requestBeforePreview()
+                            }
+                            background: Rectangle {
+                                radius: 3
+                                color: precision.showBefore ? "#30291d" : "#1b2025"
+                                border.color: precision.showBefore
+                                    ? precision.accent : precision.border
+                            }
+                            contentItem: Label {
+                                text: beforeButton.text
+                                color: precision.showBefore
+                                    ? precision.accent : precision.textMuted
+                                font.pixelSize: 8
+                                font.weight: Font.Bold
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                        }
+
                         Label {
                             text: Math.round(precision.zoomFactor * 100) + "%"
                             color: precision.textMuted
@@ -367,7 +433,9 @@ Item {
                         id: editedPreview
                         width: previewFlick.contentWidth
                         height: previewFlick.contentHeight
-                        source: precision.editor.previewSource
+                        source: precision.displayingBefore
+                            ? precision.editor.beforePreviewSource
+                            : precision.editor.previewSource
                         fillMode: Image.PreserveAspectFit
                         asynchronous: true
                         cache: false
@@ -379,10 +447,80 @@ Item {
                 }
             }
 
+            Rectangle {
+                id: comparisonBadge
+                anchors.top: parent.top
+                anchors.right: parent.right
+                anchors.topMargin: 58
+                anchors.rightMargin: 14
+                width: comparisonBadgeLabel.implicitWidth + 18
+                height: 25
+                radius: 4
+                visible: precision.editor.active
+                    && (precision.displayingBefore
+                        || precision.editor.previewSource.length > 0)
+                color: "#c9181c21"
+                border.color: precision.displayingBefore ? precision.accent : "#45505a"
+
+                Label {
+                    id: comparisonBadgeLabel
+                    anchors.centerIn: parent
+                    text: precision.displayingBefore
+                        ? "BEFORE · NEUTRAL BASE"
+                        : "AFTER · CURRENT EDIT"
+                    color: precision.displayingBefore
+                        ? precision.accent : precision.textSecondary
+                    font.pixelSize: 8
+                    font.weight: Font.Bold
+                    font.letterSpacing: 0.7
+                }
+            }
+
+            Rectangle {
+                anchors.top: comparisonBadge.bottom
+                anchors.right: comparisonBadge.right
+                anchors.topMargin: 7
+                width: Math.min(330, beforeHintRow.implicitWidth + 20)
+                height: 30
+                radius: 4
+                visible: precision.showBefore && !precision.beforeReady
+                    && precision.editor.active
+                color: "#d9181c21"
+                border.color: precision.border
+                clip: true
+
+                Row {
+                    id: beforeHintRow
+                    anchors.centerIn: parent
+                    spacing: 7
+                    BusyIndicator {
+                        width: 14
+                        height: 14
+                        visible: precision.editor.beforeRendering
+                        running: visible
+                    }
+                    Label {
+                        width: Math.min(270, implicitWidth)
+                        text: precision.editor.beforeErrorText.length > 0
+                            ? precision.editor.beforeErrorText
+                            : precision.editor.beforeRendering
+                                ? "Preparing neutral import baseline…"
+                                : "Waiting for the current preview…"
+                        color: precision.editor.beforeErrorText.length > 0
+                            ? "#d28e82" : precision.textMuted
+                        font.pixelSize: 9
+                        elide: Text.ElideRight
+                    }
+                }
+            }
+
             Column {
                 anchors.centerIn: parent
                 spacing: 14
-                visible: precision.editor.busy || editedPreview.status === Image.Loading
+                visible: precision.editor.stateBusy
+                    || (!precision.showBefore && precision.editor.rendering)
+                    || (precision.showBefore && precision.beforeReady
+                        && editedPreview.status === Image.Loading)
                 BusyIndicator {
                     anchors.horizontalCenter: parent.horizontalCenter
                     running: parent.visible

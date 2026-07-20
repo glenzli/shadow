@@ -36,6 +36,8 @@ QT_QPA_PLATFORM=offscreen SHADOW_DESKTOP_SMOKE_TEST=1 \
 
 Adding `SHADOW_DESKTOP_OPEN_FIRST_EDIT=1` to a smoke run waits for the first scanned Review item, opens it through the real Precision controller, renders its scene-linear edit preview, and fails after 30 seconds if no preview reaches QML.
 
+Adding `SHADOW_DESKTOP_REQUEST_BEFORE=1` to that edit smoke waits for a second, lazily requested neutral-import baseline. This exercises the same warm decoded session without treating the baseline as unprocessed sensor data.
+
 The model currently fetches 96 metadata rows per page and requests another page near the end of the grid. Scanning still completes before the first Catalog page is shown; streaming import progress and first-screen priority are separate follow-up work.
 
 ## Precision vertical slice
@@ -58,5 +60,7 @@ Precision also keeps a bounded, in-memory undo/redo history for the current edit
 Each durable version row summarizes its parent-relative Recipe diff. Renderer-backed controls use readable labels such as `Exposure · Saturation`; topology and future adjustment types use semantic fallbacks without exposing internal parameter keys or commit identifiers. The current-version badge and exact parent count remain visible beside that summary.
 
 RAW preparation is cached for up to two recent `(representation, source fingerprint, edge)` sessions. A slider update reruns only the adjustment nodes and JPEG encoder; it does not reopen or decode the RAW. Undo and redo update the working parameters through the same generation-checked preview path. Rendering never disables adjustment controls: a newer revision is queued while the prior render finishes, and stale output is rejected. Preview buffers are bounded, rebuildable, and never become Catalog facts.
+
+Before/After comparison uses two independently generation-checked preview slots. `After` is the current working edit; `Before` is the neutral import baseline produced by the same decoded scene-linear working proxy with default basic-adjustment parameters. The baseline is rendered only after the user first requests it and only after the latest current preview settles.
 
 This slice intentionally implements only the four renderer-backed global operations above. Camera-domain white balance, curves, masks, crop, full-resolution tiles, export, and shared scopes remain later vertical slices; the UI does not present placeholders for them.

@@ -63,6 +63,7 @@ qt_add_executable(
     src/edit_controller.cpp
     src/edit_controller.hpp
     src/edit_history.hpp
+    src/edit_preview_contract.hpp
     src/edit_preview_provider.cpp
     src/edit_preview_provider.hpp
     src/edit_version_model.cpp
@@ -162,5 +163,32 @@ if(BUILD_TESTING)
     add_test(
         NAME shadow-desktop-edit-version-presentation
         COMMAND shadow-edit-version-presentation-test
+    )
+
+    add_executable(
+        shadow-edit-preview-contract-test
+        tests/edit_preview_contract_test.cpp
+        src/edit_preview_provider.cpp
+    )
+    target_compile_features(shadow-edit-preview-contract-test PRIVATE cxx_std_20)
+    target_include_directories(
+        shadow-edit-preview-contract-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(shadow-edit-preview-contract-test PRIVATE Qt6::Quick)
+    if(MSVC)
+        target_compile_options(
+            shadow-edit-preview-contract-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-edit-preview-contract-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-edit-preview-contract
+        COMMAND shadow-edit-preview-contract-test
     )
 endif()

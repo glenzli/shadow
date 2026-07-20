@@ -5,7 +5,13 @@
 #include <QReadWriteLock>
 #include <QSize>
 
+#include <cstdint>
 #include <memory>
+
+enum class EditPreviewSlot : std::uint8_t {
+    Current,
+    Before,
+};
 
 class EditPreviewStore final {
 public:
@@ -14,15 +20,29 @@ public:
         QSize dimensions;
     };
 
-    void publish(QByteArray bytes, QSize dimensions, quint64 generation);
-    void clear(quint64 generation);
-    [[nodiscard]] Snapshot snapshot(quint64 generation) const;
+    void publish(
+        EditPreviewSlot slot,
+        QByteArray bytes,
+        QSize dimensions,
+        quint64 generation
+    );
+    void clear(EditPreviewSlot slot, quint64 generation);
+    void clearAll(quint64 current_generation, quint64 before_generation);
+    [[nodiscard]] Snapshot snapshot(EditPreviewSlot slot, quint64 generation) const;
 
 private:
+    struct StoredPreview final {
+        QByteArray bytes;
+        QSize dimensions;
+        quint64 generation = 0;
+    };
+
+    [[nodiscard]] StoredPreview& slot(EditPreviewSlot slot) noexcept;
+    [[nodiscard]] const StoredPreview& slot(EditPreviewSlot slot) const noexcept;
+
     mutable QReadWriteLock lock_;
-    QByteArray bytes_;
-    QSize dimensions_;
-    quint64 generation_ = 0;
+    StoredPreview current_;
+    StoredPreview before_;
 };
 
 class EditPreviewProvider final : public QQuickImageProvider {

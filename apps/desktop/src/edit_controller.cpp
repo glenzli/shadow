@@ -82,12 +82,10 @@ constexpr int EDIT_DEBOUNCE_MS = 140;
     const QString& photo_id,
     const QString& source_path,
     const BackendBasicEditParameters parameters,
-    const quint64 photo_generation,
-    const quint64 render_revision
+    const EditPreviewGeneration generation
 ) {
     EditPreviewTaskResult result;
-    result.photo_generation = photo_generation;
-    result.render_revision = render_revision;
+    result.generation = generation;
     try {
         result.preview = backend->renderBasicEditPreview(
             photo_id,
@@ -145,7 +143,7 @@ bool EditController::active() const noexcept {
 }
 
 bool EditController::busy() const noexcept {
-    return state_running_ || preview_running_;
+    return state_running_ || current_rendering_ || before_rendering_;
 }
 
 bool EditController::stateBusy() const noexcept {
@@ -153,7 +151,11 @@ bool EditController::stateBusy() const noexcept {
 }
 
 bool EditController::rendering() const noexcept {
-    return preview_running_;
+    return current_rendering_;
+}
+
+bool EditController::beforeRendering() const noexcept {
+    return before_rendering_;
 }
 
 bool EditController::dirty() const noexcept {
@@ -178,6 +180,14 @@ QString EditController::sourcePath() const {
 
 QString EditController::previewSource() const {
     return preview_source_;
+}
+
+QString EditController::beforePreviewSource() const {
+    return before_preview_source_;
+}
+
+QString EditController::beforeErrorText() const {
+    return before_error_text_;
 }
 
 QString EditController::statusText() const {
@@ -297,8 +307,10 @@ void EditController::openPhoto(
 
     ++photo_generation_;
     ++render_revision_;
+    settled_render_revision_ = 0;
     preview_debounce_.stop();
     preview_queued_ = false;
+    before_requested_ = false;
     photo_id_ = photo_id;
     representation_id_ = representation_id;
     source_path_ = source_path;
@@ -311,7 +323,15 @@ void EditController::openPhoto(
         preview_source_.clear();
         emit previewSourceChanged();
     }
-    preview_store_->clear(render_revision_);
+    if (!before_preview_source_.isEmpty()) {
+        before_preview_source_.clear();
+        emit beforePreviewSourceChanged();
+    }
+    if (!before_error_text_.isEmpty()) {
+        before_error_text_.clear();
+        emit beforeErrorTextChanged();
+    }
+    preview_store_->clearAll(render_revision_, photo_generation_);
     if (!active_) {
         active_ = true;
         emit activeChanged();
@@ -422,6 +442,18 @@ void EditController::revertEdits() {
     setStatusText(QStringLiteral("Restored the current saved version"));
 }
 
+void EditController::requestBeforePreview() {
+    if (!active_ || !before_preview_source_.isEmpty()) {
+        return;
+    }
+    if (!before_error_text_.isEmpty()) {
+        before_error_text_.clear();
+        emit beforeErrorTextChanged();
+    }
+    before_requested_ = true;
+    maybeStartBeforePreview();
+}
+
 void EditController::saveVersion(const QString& version_name) {
     const QString name = version_name.trimmed();
     if (!active_ || state_running_) {
@@ -481,6 +513,7 @@ void EditController::finishStateTask() {
         if (preview_queued_) {
             preview_debounce_.start(0);
         }
+        maybeStartBeforePreview();
         return;
     }
     applyState(std::move(result.state));
@@ -500,36 +533,71 @@ void EditController::finishStateTask() {
     if (preview_queued_ && !preview_debounce_.isActive()) {
         preview_debounce_.start(0);
     }
+    maybeStartBeforePreview();
 }
 
 void EditController::finishPreviewTask() {
     EditPreviewTaskResult result = preview_watcher_.result();
-    setPreviewRunning(false);
-    const bool current = result.photo_generation == photo_generation_
-        && result.render_revision == render_revision_;
-    if (current && !result.error.isEmpty()) {
-        setStatusText(QStringLiteral("Preview render failed · %1").arg(result.error));
-    } else if (current) {
-        const QSize dimensions(
-            static_cast<int>(result.preview.width),
-            static_cast<int>(result.preview.height)
-        );
-        preview_store_->publish(
-            std::move(result.preview.bytes),
-            dimensions,
-            result.render_revision
-        );
-        preview_source_ = QStringLiteral("image://shadow-edit/current?generation=%1")
-                              .arg(result.render_revision);
-        emit previewSourceChanged();
-        setStatusText(
-            dirty_ ? QStringLiteral("Unsaved changes · preview is current")
-                   : QStringLiteral("Version and preview are current")
-        );
+    setPreviewRunning(result.generation.kind, false);
+    const bool accepted = active_ && accepts_edit_preview(
+        result.generation,
+        photo_generation_,
+        render_revision_
+    );
+
+    if (result.generation.kind == EditPreviewKind::Current && accepted) {
+        settled_render_revision_ = result.generation.current_revision;
+        if (!result.error.isEmpty()) {
+            setStatusText(QStringLiteral("Preview render failed · %1").arg(result.error));
+        } else {
+            const QSize dimensions(
+                static_cast<int>(result.preview.width),
+                static_cast<int>(result.preview.height)
+            );
+            preview_store_->publish(
+                EditPreviewSlot::Current,
+                std::move(result.preview.bytes),
+                dimensions,
+                result.generation.current_revision
+            );
+            preview_source_ = QStringLiteral("image://shadow-edit/current?generation=%1")
+                                  .arg(result.generation.current_revision);
+            emit previewSourceChanged();
+            setStatusText(
+                dirty_ ? QStringLiteral("Unsaved changes · preview is current")
+                       : QStringLiteral("Version and preview are current")
+            );
+        }
+    } else if (result.generation.kind == EditPreviewKind::NeutralBefore && accepted) {
+        before_requested_ = false;
+        if (!result.error.isEmpty()) {
+            before_error_text_ = QStringLiteral("Neutral baseline failed · %1").arg(
+                result.error
+            );
+            emit beforeErrorTextChanged();
+        } else {
+            const QSize dimensions(
+                static_cast<int>(result.preview.width),
+                static_cast<int>(result.preview.height)
+            );
+            preview_store_->publish(
+                EditPreviewSlot::Before,
+                std::move(result.preview.bytes),
+                dimensions,
+                result.generation.photo
+            );
+            before_preview_source_ = QStringLiteral(
+                "image://shadow-edit/before?generation=%1"
+            ).arg(result.generation.photo);
+            emit beforePreviewSourceChanged();
+        }
     }
-    if (preview_queued_ || result.render_revision != render_revision_) {
+
+    if (preview_queued_) {
         preview_queued_ = false;
         schedulePreview(0);
+    } else {
+        maybeStartBeforePreview();
     }
 }
 
@@ -538,11 +606,11 @@ void EditController::startPreviewRender() {
         preview_queued_ = active_;
         return;
     }
-    if (preview_running_) {
+    if (current_rendering_ || before_rendering_) {
         preview_queued_ = true;
         return;
     }
-    setPreviewRunning(true);
+    setPreviewRunning(EditPreviewKind::Current, true);
     preview_queued_ = false;
     setStatusText(QStringLiteral("Rendering bounded scene-linear preview…"));
     preview_watcher_.setFuture(QtConcurrent::run(
@@ -551,8 +619,39 @@ void EditController::startPreviewRender() {
         photo_id_,
         source_path_,
         parameters_,
-        photo_generation_,
-        render_revision_
+        EditPreviewGeneration{
+            .kind = EditPreviewKind::Current,
+            .photo = photo_generation_,
+            .current_revision = render_revision_,
+        }
+    ));
+}
+
+void EditController::maybeStartBeforePreview() {
+    if (!can_start_neutral_before(NeutralBeforeStartState{
+            .requested = before_requested_,
+            .active = active_,
+            .state_task_running = state_running_,
+            .current_rendering = current_rendering_,
+            .before_rendering = before_rendering_,
+            .current_scheduled = preview_debounce_.isActive() || preview_queued_,
+            .settled_current_revision = settled_render_revision_,
+            .current_revision = render_revision_,
+        })) {
+        return;
+    }
+    setPreviewRunning(EditPreviewKind::NeutralBefore, true);
+    preview_watcher_.setFuture(QtConcurrent::run(
+        render_preview,
+        backend_,
+        photo_id_,
+        source_path_,
+        BackendBasicEditParameters{},
+        EditPreviewGeneration{
+            .kind = EditPreviewKind::NeutralBefore,
+            .photo = photo_generation_,
+            .current_revision = 0,
+        }
     ));
 }
 
@@ -603,7 +702,7 @@ void EditController::schedulePreview(const int delay_ms) {
         return;
     }
     ++render_revision_;
-    if (preview_running_) {
+    if (current_rendering_ || before_rendering_) {
         preview_queued_ = true;
     }
     preview_debounce_.start(delay_ms);
@@ -635,13 +734,24 @@ void EditController::setStateRunning(const bool running) {
     emitBusyChange(previous_busy);
 }
 
-void EditController::setPreviewRunning(const bool running) {
-    if (preview_running_ == running) {
-        return;
-    }
+void EditController::setPreviewRunning(
+    const EditPreviewKind kind,
+    const bool running
+) {
     const bool previous_busy = busy();
-    preview_running_ = running;
-    emit renderingChanged();
+    if (kind == EditPreviewKind::Current) {
+        if (current_rendering_ == running) {
+            return;
+        }
+        current_rendering_ = running;
+        emit renderingChanged();
+    } else {
+        if (before_rendering_ == running) {
+            return;
+        }
+        before_rendering_ = running;
+        emit beforeRenderingChanged();
+    }
     emitBusyChange(previous_busy);
 }
 

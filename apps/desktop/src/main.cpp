@@ -60,6 +60,9 @@ int main(int argc, char* argv[]) {
     }
     const QString initial_folder = qEnvironmentVariable("SHADOW_DESKTOP_SCAN_FOLDER");
     const bool open_first_edit = qEnvironmentVariableIsSet("SHADOW_DESKTOP_OPEN_FIRST_EDIT");
+    const bool request_before = qEnvironmentVariableIsSet(
+        "SHADOW_DESKTOP_REQUEST_BEFORE"
+    );
     if (open_first_edit) {
         QObject::connect(
             &controller,
@@ -89,15 +92,37 @@ int main(int argc, char* argv[]) {
                 &editor,
                 &EditController::previewSourceChanged,
                 &application,
-                [&application, &editor]() {
+                [&application, &editor, request_before]() {
                     if (!editor.previewSource().isEmpty()) {
-                        QTimer::singleShot(50, &application, &QCoreApplication::quit);
+                        if (request_before) {
+                            editor.requestBeforePreview();
+                        } else {
+                            QTimer::singleShot(50, &application, &QCoreApplication::quit);
+                        }
                     }
                 }
             );
-            QTimer::singleShot(30'000, &application, [&application, &editor]() {
-                application.exit(editor.previewSource().isEmpty() ? EXIT_FAILURE : EXIT_SUCCESS);
-            });
+            if (request_before) {
+                QObject::connect(
+                    &editor,
+                    &EditController::beforePreviewSourceChanged,
+                    &application,
+                    [&application, &editor]() {
+                        if (!editor.beforePreviewSource().isEmpty()) {
+                            QTimer::singleShot(50, &application, &QCoreApplication::quit);
+                        }
+                    }
+                );
+            }
+            QTimer::singleShot(
+                30'000,
+                &application,
+                [&application, &editor, request_before]() {
+                    const bool succeeded = !editor.previewSource().isEmpty()
+                        && (!request_before || !editor.beforePreviewSource().isEmpty());
+                    application.exit(succeeded ? EXIT_SUCCESS : EXIT_FAILURE);
+                }
+            );
         } else {
             QTimer::singleShot(500, &application, &QCoreApplication::quit);
         }
