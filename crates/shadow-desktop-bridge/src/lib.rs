@@ -43,11 +43,12 @@ use shadow_domain::operation::{
 use shadow_domain::{
     AdjustmentNode, AdjustmentScope, BlendMode, CURRENT_RECIPE_SCHEMA_VERSION, DecoderSnapshot,
     EditGraph, EntityId, FiniteF64, ImageDimensions, ImageDomain, LayerContent, LayerContentDiff,
-    LayerInstance, LayerInstanceId, NodeId, NodeInput, OperationDescriptor, OperationId,
-    ParameterBlock, ParameterKey, ParameterValue, PhotoId, PortType, PreviewByteOrder,
-    PreviewCodec, PreviewPayload, ProcessingStage, ProxyPayload, RecipeCommit, RecipeCommitId,
-    RecipeDiff, RecipeId, RecipeSnapshot, RepresentationId, UnitInterval, VersionName,
-    diff_recipe_snapshots,
+    LayerInstance, LayerInstanceId, MAX_PHOTO_RATING, NewPhotoDecisionEvent, NodeId, NodeInput,
+    OperationDescriptor, OperationId, ParameterBlock, ParameterKey, ParameterValue,
+    PhotoDecisionEvent, PhotoDecisionOrigin, PhotoDecisionState, PhotoFlag, PhotoId, PortType,
+    PreviewByteOrder, PreviewCodec, PreviewPayload, ProcessingStage, ProxyPayload, RecipeCommit,
+    RecipeCommitId, RecipeDiff, RecipeId, RecipeSnapshot, RepresentationId, UnitInterval,
+    VersionName, diff_recipe_snapshots,
 };
 use uuid::Uuid;
 
@@ -61,6 +62,39 @@ mod ffi {
         KeepBoth,
         KeepNeither,
         CannotCompare,
+    }
+
+    /// Explicit manual Review flag. This is human library state, never an AI
+    /// proposal or inferred label.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum FfiDecisionFlag {
+        Unflagged,
+        Picked,
+        Rejected,
+    }
+
+    /// Current materialized manual decision for one photo. Sequence zero is
+    /// the initial unflagged/unrated state before any ledger event exists.
+    #[derive(Debug)]
+    struct FfiPhotoDecisionState {
+        photo_id: String,
+        head_sequence: u64,
+        flag: FfiDecisionFlag,
+        rating: u8,
+    }
+
+    /// Durable append receipt plus the exact CAS transition that succeeded.
+    #[derive(Debug)]
+    struct FfiReviewDecisionMutationReceipt {
+        event_id: String,
+        sequence: u64,
+        photo_id: String,
+        occurred_at_unix_ms: i64,
+        before_head_sequence: u64,
+        before_flag: FfiDecisionFlag,
+        before_rating: u8,
+        after_flag: FfiDecisionFlag,
+        after_rating: u8,
     }
 
     /// Durable identity and ordering assigned to one comparison event.
@@ -88,6 +122,9 @@ mod ffi {
         /// intentionally opaque to Qt and remains valid if Catalog preference
         /// changes after this page was produced.
         visual_handle: String,
+        decision_head_sequence: u64,
+        decision_flag: FfiDecisionFlag,
+        decision_rating: u8,
         title: String,
         source_path: String,
         visual_role: String,
@@ -277,6 +314,17 @@ mod ffi {
             self: &DesktopSession,
             event_id: &str,
         ) -> Result<FfiForgetReceipt>;
+        fn review_photo_decision_state(
+            self: &DesktopSession,
+            photo_id: &str,
+        ) -> Result<FfiPhotoDecisionState>;
+        fn set_review_photo_decision(
+            self: &DesktopSession,
+            photo_id: &str,
+            expected_head_sequence: u64,
+            flag: FfiDecisionFlag,
+            rating: u8,
+        ) -> Result<FfiReviewDecisionMutationReceipt>;
         fn photo_edit_state(
             self: &DesktopSession,
             photo_id: &str,
@@ -695,6 +743,52 @@ impl DesktopSession {
         })
     }
 
+    fn review_photo_decision_state(&self, photo_id: &str) -> AnyResult<ffi::FfiPhotoDecisionState> {
+        let photo_id: PhotoId = photo_id
+            .parse()
+            .with_context(|| format!("parse Review decision photo id {photo_id}"))?;
+        Ok(ffi_photo_decision_state(
+            photo_id,
+            self.catalog.photo_decision_state(photo_id)?,
+        ))
+    }
+
+    fn set_review_photo_decision(
+        &self,
+        photo_id: &str,
+        expected_head_sequence: u64,
+        flag: ffi::FfiDecisionFlag,
+        rating: u8,
+    ) -> AnyResult<ffi::FfiReviewDecisionMutationReceipt> {
+        let photo_id: PhotoId = photo_id
+            .parse()
+            .with_context(|| format!("parse Review decision photo id {photo_id}"))?;
+        if rating > MAX_PHOTO_RATING {
+            bail!("Review decision rating must be in 0 through {MAX_PHOTO_RATING}");
+        }
+        let before = self.catalog.photo_decision_state(photo_id)?;
+        if before.head_sequence != expected_head_sequence {
+            bail!(
+                "stale Review decision head: expected {expected_head_sequence}, current {}",
+                before.head_sequence
+            );
+        }
+        let event = self
+            .catalog
+            .append_photo_decision_event(&NewPhotoDecisionEvent {
+                event_id: Uuid::now_v7().to_string(),
+                photo_id,
+                occurred_at_unix_ms: current_time_ms()?,
+                origin: PhotoDecisionOrigin::Human,
+                expected_head_sequence,
+                before_flag: before.flag,
+                before_rating: before.rating,
+                after_flag: photo_flag(flag)?,
+                after_rating: rating,
+            })?;
+        Ok(ffi_photo_decision_receipt(event))
+    }
+
     fn photo_edit_state(
         &self,
         photo_id: &str,
@@ -1019,6 +1113,49 @@ fn pairwise_outcome(outcome: ffi::FfiPairwiseOutcome) -> AnyResult<PairwiseOutco
         ffi::FfiPairwiseOutcome::KeepNeither => Ok(PairwiseOutcome::KeepNeither),
         ffi::FfiPairwiseOutcome::CannotCompare => Ok(PairwiseOutcome::CannotCompare),
         _ => bail!("unsupported Review comparison outcome"),
+    }
+}
+
+fn photo_flag(flag: ffi::FfiDecisionFlag) -> AnyResult<PhotoFlag> {
+    match flag {
+        ffi::FfiDecisionFlag::Unflagged => Ok(PhotoFlag::Unflagged),
+        ffi::FfiDecisionFlag::Picked => Ok(PhotoFlag::Picked),
+        ffi::FfiDecisionFlag::Rejected => Ok(PhotoFlag::Rejected),
+        _ => bail!("unsupported Review decision flag"),
+    }
+}
+
+const fn ffi_decision_flag(flag: PhotoFlag) -> ffi::FfiDecisionFlag {
+    match flag {
+        PhotoFlag::Unflagged => ffi::FfiDecisionFlag::Unflagged,
+        PhotoFlag::Picked => ffi::FfiDecisionFlag::Picked,
+        PhotoFlag::Rejected => ffi::FfiDecisionFlag::Rejected,
+    }
+}
+
+fn ffi_photo_decision_state(
+    photo_id: PhotoId,
+    state: PhotoDecisionState,
+) -> ffi::FfiPhotoDecisionState {
+    ffi::FfiPhotoDecisionState {
+        photo_id: photo_id.to_string(),
+        head_sequence: state.head_sequence,
+        flag: ffi_decision_flag(state.flag),
+        rating: state.rating,
+    }
+}
+
+fn ffi_photo_decision_receipt(event: PhotoDecisionEvent) -> ffi::FfiReviewDecisionMutationReceipt {
+    ffi::FfiReviewDecisionMutationReceipt {
+        event_id: event.event_id,
+        sequence: event.sequence,
+        photo_id: event.photo_id.to_string(),
+        occurred_at_unix_ms: event.occurred_at_unix_ms,
+        before_head_sequence: event.before_head_sequence,
+        before_flag: ffi_decision_flag(event.before_flag),
+        before_rating: event.before_rating,
+        after_flag: ffi_decision_flag(event.after_flag),
+        after_rating: event.after_rating,
     }
 }
 
@@ -2319,6 +2456,9 @@ impl DesktopSession {
             photo_id: record.photo_id.to_string(),
             representation_id: record.representation_id.to_string(),
             visual_handle,
+            decision_head_sequence: record.decision.head_sequence,
+            decision_flag: ffi_decision_flag(record.decision.flag),
+            decision_rating: record.decision.rating,
             title: file_name(&record.location.display_path),
             source_path: record.location.display_path,
             visual_role,
@@ -2737,6 +2877,226 @@ mod tests {
     fn desktop_session_can_back_concurrent_qt_image_requests() {
         fn assert_send_and_sync<T: Send + Sync>() {}
         assert_send_and_sync::<DesktopSession>();
+    }
+
+    #[test]
+    fn review_decision_updates_preserve_complete_state_and_never_write_ai_feedback() {
+        let (root, session, left, _) = test_feedback_session();
+        let initial = session
+            .review_photo_decision_state(&left.photo_id)
+            .expect("read initial decision");
+        assert_eq!(initial.photo_id, left.photo_id);
+        assert_eq!(initial.head_sequence, 0);
+        assert_eq!(initial.flag, ffi::FfiDecisionFlag::Unflagged);
+        assert_eq!(initial.rating, 0);
+
+        let picked = session
+            .set_review_photo_decision(
+                &left.photo_id,
+                initial.head_sequence,
+                ffi::FfiDecisionFlag::Picked,
+                initial.rating,
+            )
+            .expect("pick photo");
+        assert_eq!(picked.photo_id, left.photo_id);
+        assert_eq!(picked.before_head_sequence, 0);
+        assert_eq!(picked.before_flag, ffi::FfiDecisionFlag::Unflagged);
+        assert_eq!(picked.before_rating, 0);
+        assert_eq!(picked.after_flag, ffi::FfiDecisionFlag::Picked);
+        assert_eq!(picked.after_rating, 0);
+        assert_eq!(picked.sequence, 1);
+        assert_eq!(
+            Uuid::parse_str(&picked.event_id).unwrap().get_version_num(),
+            7
+        );
+        assert!(picked.occurred_at_unix_ms > 0);
+
+        let rated = session
+            .set_review_photo_decision(&left.photo_id, picked.sequence, picked.after_flag, 4)
+            .expect("rate while preserving flag");
+        assert_eq!(rated.before_flag, ffi::FfiDecisionFlag::Picked);
+        assert_eq!(rated.after_flag, ffi::FfiDecisionFlag::Picked);
+        assert_eq!(rated.before_rating, 0);
+        assert_eq!(rated.after_rating, 4);
+
+        let rejected = session
+            .set_review_photo_decision(
+                &left.photo_id,
+                rated.sequence,
+                ffi::FfiDecisionFlag::Rejected,
+                rated.after_rating,
+            )
+            .expect("reject while preserving rating");
+        assert_eq!(rejected.before_rating, 4);
+        assert_eq!(rejected.after_rating, 4);
+        let current = session
+            .review_photo_decision_state(&left.photo_id)
+            .expect("read current decision");
+        assert_eq!(current.head_sequence, rejected.sequence);
+        assert_eq!(current.flag, ffi::FfiDecisionFlag::Rejected);
+        assert_eq!(current.rating, 4);
+
+        let events = session
+            .catalog
+            .photo_decision_events_after(left.photo_id.parse().unwrap(), 0, 10)
+            .expect("read decision ledger");
+        assert_eq!(events.events.len(), 3);
+        assert!(
+            events
+                .events
+                .iter()
+                .all(|event| event.origin == PhotoDecisionOrigin::Human)
+        );
+        assert!(
+            session
+                .catalog
+                .feedback_events_after(&LearningScope::Global, 0, 10)
+                .expect("read unrelated AI feedback ledger")
+                .events
+                .is_empty()
+        );
+        let review = session.review_page("", "", 10).expect("read Review page");
+        let item = review
+            .items
+            .iter()
+            .find(|item| item.photo_id == left.photo_id)
+            .expect("updated photo remains in Review page");
+        assert_eq!(item.decision_head_sequence, rejected.sequence);
+        assert_eq!(item.decision_flag, ffi::FfiDecisionFlag::Rejected);
+        assert_eq!(item.decision_rating, 4);
+
+        drop(session);
+        std::fs::remove_dir_all(root).expect("remove decision fixture");
+    }
+
+    #[test]
+    fn review_decision_stale_cas_and_invalid_or_noop_requests_append_nothing() {
+        let (root, session, left, _) = test_feedback_session();
+        let first = session
+            .set_review_photo_decision(&left.photo_id, 0, ffi::FfiDecisionFlag::Picked, 0)
+            .expect("append first decision");
+        assert!(
+            session
+                .set_review_photo_decision(&left.photo_id, 0, ffi::FfiDecisionFlag::Rejected, 0,)
+                .is_err(),
+            "stale expected head must lose CAS"
+        );
+        assert!(
+            session
+                .set_review_photo_decision(
+                    &left.photo_id,
+                    first.sequence,
+                    first.after_flag,
+                    first.after_rating,
+                )
+                .is_err(),
+            "no-op state must not become history"
+        );
+        assert!(
+            session
+                .set_review_photo_decision(
+                    &left.photo_id,
+                    first.sequence,
+                    first.after_flag,
+                    MAX_PHOTO_RATING + 1,
+                )
+                .expect_err("invalid rating must fail before Catalog")
+                .to_string()
+                .contains("0 through 5")
+        );
+        let current = session
+            .review_photo_decision_state(&left.photo_id)
+            .expect("read unchanged decision");
+        assert_eq!(current.head_sequence, first.sequence);
+        assert_eq!(current.flag, ffi::FfiDecisionFlag::Picked);
+        assert_eq!(current.rating, 0);
+        let events = session
+            .catalog
+            .photo_decision_events_after(left.photo_id.parse().unwrap(), 0, 10)
+            .expect("read unchanged ledger");
+        assert_eq!(events.events.len(), 1);
+
+        drop(session);
+        std::fs::remove_dir_all(root).expect("remove decision fixture");
+    }
+
+    #[test]
+    fn review_decision_undo_appends_and_state_survives_reopen() {
+        let (root, session, left, _) = test_feedback_session();
+        let changed = session
+            .set_review_photo_decision(&left.photo_id, 0, ffi::FfiDecisionFlag::Picked, 5)
+            .expect("append decision");
+        let undone = session
+            .set_review_photo_decision(
+                &left.photo_id,
+                changed.sequence,
+                ffi::FfiDecisionFlag::Unflagged,
+                0,
+            )
+            .expect("append inverse decision");
+        assert!(undone.sequence > changed.sequence);
+        let catalog_path = root.join("catalog.sqlite");
+        let cache_path = root.join("cache");
+        drop(session);
+
+        let reopened = open_desktop_session(
+            catalog_path.to_str().expect("catalog path"),
+            cache_path.to_str().expect("cache path"),
+        )
+        .expect("reopen decision session");
+        let state = reopened
+            .review_photo_decision_state(&left.photo_id)
+            .expect("read reopened decision");
+        assert_eq!(state.head_sequence, undone.sequence);
+        assert_eq!(state.flag, ffi::FfiDecisionFlag::Unflagged);
+        assert_eq!(state.rating, 0);
+        let events = reopened
+            .catalog
+            .photo_decision_events_after(left.photo_id.parse().unwrap(), 0, 10)
+            .expect("read append-only history");
+        assert_eq!(events.events.len(), 2);
+        assert_eq!(events.events[0].sequence, changed.sequence);
+        assert_eq!(events.events[1].sequence, undone.sequence);
+
+        drop(reopened);
+        std::fs::remove_dir_all(root).expect("remove decision fixture");
+    }
+
+    #[test]
+    fn concurrent_review_decision_cas_has_exactly_one_winner() {
+        let (root, session, left, _) = test_feedback_session();
+        let session: Arc<DesktopSession> = Arc::from(session);
+        let workers = [ffi::FfiDecisionFlag::Picked, ffi::FfiDecisionFlag::Rejected]
+            .into_iter()
+            .map(|flag| {
+                let session = Arc::clone(&session);
+                let photo_id = left.photo_id.clone();
+                thread::spawn(move || session.set_review_photo_decision(&photo_id, 0, flag, 0))
+            })
+            .collect::<Vec<_>>();
+        let results = workers
+            .into_iter()
+            .map(|worker| worker.join().expect("decision worker panicked"))
+            .collect::<Vec<_>>();
+        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+        assert_eq!(results.iter().filter(|result| result.is_err()).count(), 1);
+        let winner = results
+            .into_iter()
+            .find_map(Result::ok)
+            .expect("one winner");
+        let state = session
+            .review_photo_decision_state(&left.photo_id)
+            .expect("read winning decision");
+        assert_eq!(state.head_sequence, winner.sequence);
+        assert_eq!(state.flag, winner.after_flag);
+        let events = session
+            .catalog
+            .photo_decision_events_after(left.photo_id.parse().unwrap(), 0, 10)
+            .expect("read one winning event");
+        assert_eq!(events.events.len(), 1);
+
+        drop(session);
+        std::fs::remove_dir_all(root).expect("remove decision fixture");
     }
 
     #[test]
@@ -5047,6 +5407,7 @@ mod tests {
 
     #[test]
     #[ignore = "requires SHADOW_TEST_DNG_FOLDER to contain local RAW fixtures"]
+    #[allow(clippy::too_many_lines)]
     fn real_dng_folder_pages_metadata_and_loads_visuals_lazily() {
         let folder = std::env::var_os("SHADOW_TEST_DNG_FOLDER").expect("SHADOW_TEST_DNG_FOLDER");
         let root = std::env::temp_dir().join(format!(
@@ -5055,7 +5416,7 @@ mod tests {
             RepresentationId::new_v7()
         ));
         std::fs::create_dir_all(&root).expect("create desktop bridge fixture");
-        {
+        let (decision_photo_id, decision_sequence) = {
             let session = open_desktop_session(
                 root.join("catalog.sqlite").to_str().expect("catalog path"),
                 root.join("cache").to_str().expect("cache path"),
@@ -5072,6 +5433,9 @@ mod tests {
             assert!(page.has_more);
             assert!(page.items[0].has_visual);
             assert!(page.items[0].has_technical_observation);
+            assert_eq!(page.items[0].decision_head_sequence, 0);
+            assert_eq!(page.items[0].decision_flag, ffi::FfiDecisionFlag::Unflagged);
+            assert_eq!(page.items[0].decision_rating, 0);
             assert!(page.items[0].technical_input_width > 0);
             assert!(page.items[0].technical_input_width <= 512);
             assert!(page.items[0].technical_input_height > 0);
@@ -5089,6 +5453,24 @@ mod tests {
             assert!(!visual.requires_frame_receipt);
             assert!(visual.bytes.starts_with(&[0xff, 0xd8]));
             assert!(visual.bytes.ends_with(&[0xff, 0xd9]));
+
+            let decision = session
+                .set_review_photo_decision(
+                    &page.items[0].photo_id,
+                    page.items[0].decision_head_sequence,
+                    ffi::FfiDecisionFlag::Picked,
+                    3,
+                )
+                .expect("persist a real-DNG Review decision");
+            let refreshed = session
+                .review_page("", "", 1)
+                .expect("refresh real-DNG Review decision");
+            assert_eq!(refreshed.items[0].decision_head_sequence, decision.sequence);
+            assert_eq!(
+                refreshed.items[0].decision_flag,
+                ffi::FfiDecisionFlag::Picked
+            );
+            assert_eq!(refreshed.items[0].decision_rating, 3);
 
             let edits = ffi_parameters(0.0, 1.0, [1.0; 3], 1.0);
             let first_edit = session
@@ -5121,6 +5503,21 @@ mod tests {
                     .len(),
                 1
             );
+            (page.items[0].photo_id.clone(), decision.sequence)
+        };
+        {
+            let reopened = open_desktop_session(
+                root.join("catalog.sqlite").to_str().expect("catalog path"),
+                root.join("cache").to_str().expect("cache path"),
+            )
+            .expect("reopen real-DNG desktop session");
+            let page = reopened
+                .review_page("", "", 1)
+                .expect("page persisted real-DNG decision");
+            assert_eq!(page.items[0].photo_id, decision_photo_id);
+            assert_eq!(page.items[0].decision_head_sequence, decision_sequence);
+            assert_eq!(page.items[0].decision_flag, ffi::FfiDecisionFlag::Picked);
+            assert_eq!(page.items[0].decision_rating, 3);
         }
         std::fs::remove_dir_all(root).expect("remove desktop bridge fixture");
     }

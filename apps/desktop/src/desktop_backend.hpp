@@ -16,10 +16,19 @@ struct BackendScanReport final {
     std::uint64_t issue_count = 0;
 };
 
+enum class BackendReviewDecisionFlag : std::uint8_t {
+    Unflagged,
+    Picked,
+    Rejected,
+};
+
 struct BackendReviewItem final {
     QString photo_id;
     QString representation_id;
     QString visual_handle;
+    std::uint64_t decision_head_sequence = 0;
+    BackendReviewDecisionFlag decision_flag = BackendReviewDecisionFlag::Unflagged;
+    std::uint8_t decision_rating = 0;
     QString title;
     QString source_path;
     QString visual_role;
@@ -58,6 +67,23 @@ struct BackendReviewComparisonPresentation final {
     QString presentation_id;
     QString left_request_ticket;
     QString right_request_ticket;
+};
+
+struct BackendReviewDecisionState final {
+    QString photo_id;
+    std::uint64_t head_sequence = 0;
+    BackendReviewDecisionFlag flag = BackendReviewDecisionFlag::Unflagged;
+    std::uint8_t rating = 0;
+
+    bool operator==(const BackendReviewDecisionState&) const = default;
+};
+
+struct BackendReviewDecisionMutationReceipt final {
+    QString event_id;
+    std::uint64_t sequence = 0;
+    std::int64_t occurred_at_ms = 0;
+    BackendReviewDecisionState before;
+    BackendReviewDecisionState after;
 };
 
 enum class BackendPairwiseOutcome : std::uint8_t {
@@ -185,6 +211,15 @@ public:
     ) const;
     [[nodiscard]] BackendForgetReceipt forgetReviewFeedback(
         const QString& event_id
+    ) const;
+    [[nodiscard]] BackendReviewDecisionState reviewPhotoDecisionState(
+        const QString& photo_id
+    ) const;
+    [[nodiscard]] BackendReviewDecisionMutationReceipt setReviewPhotoDecision(
+        const QString& photo_id,
+        std::uint64_t expected_head_sequence,
+        BackendReviewDecisionFlag desired_flag,
+        std::uint8_t desired_rating
     ) const;
     [[nodiscard]] BackendPhotoEditState photoEditState(
         const QString& photo_id,

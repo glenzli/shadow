@@ -1,5 +1,7 @@
 use rusqlite::OptionalExtension;
-use shadow_domain::{AssetLocation, EntityId, PhotoId, Platform, RepresentationId};
+use shadow_domain::{
+    AssetLocation, EntityId, PhotoDecisionState, PhotoId, Platform, RepresentationId,
+};
 
 use crate::{
     CachedArtifact, CachedArtifactRecord, Catalog, CatalogError, RepresentationFingerprint,
@@ -8,6 +10,7 @@ use crate::{
         digest, non_negative_u16, non_negative_u32, non_negative_u64, optional_usize,
         parse_byte_order, parse_codec, parse_role,
     },
+    decision::photo_decision_state_from_columns,
     read_id,
     technical_observation::decode_observation,
 };
@@ -21,6 +24,7 @@ pub struct ReviewItemRecord {
     pub source: RepresentationFingerprint,
     pub visual: Option<CachedArtifactRecord>,
     pub technical: Option<TechnicalObservationSummary>,
+    pub decision: PhotoDecisionState,
 }
 
 /// Stable keyset cursor for the Review grid's path/id ordering.
@@ -69,6 +73,9 @@ struct RawReviewItem {
     source: RepresentationFingerprint,
     artifact: Option<RawArtifact>,
     technical: Option<RawTechnicalObservation>,
+    decision_head_sequence: Option<i64>,
+    decision_flag: Option<String>,
+    decision_rating: Option<i64>,
 }
 
 #[derive(Debug)]
@@ -122,7 +129,8 @@ impl Catalog {
                     a.provider_preview_id, a.blob_algorithm, a.blob_digest,
                     a.blob_byte_len, a.codec, a.byte_order, a.width, a.height,
                     a.bits_per_channel, a.channels, a.created_at_ms,
-                    t.observation_json, t.observation_digest
+                    t.observation_json, t.observation_digest,
+                    dc.head_sequence, de.after_flag, de.after_rating
              FROM representations r
              JOIN locations l ON l.id = (
                  SELECT l2.id FROM locations l2
@@ -165,6 +173,9 @@ impl Catalog {
                    AND t2.preprocessing_version = ?5
                  LIMIT 1
              )
+             LEFT JOIN photo_decision_current dc ON dc.photo_id = r.photo_id
+             LEFT JOIN photo_decision_events de
+               ON de.sequence = dc.head_sequence AND de.photo_id = r.photo_id
              WHERE r.photo_id = ?1 AND r.kind = 'original_raw'
              ORDER BY r.created_at_ms, r.id
              LIMIT 1",
@@ -236,7 +247,8 @@ impl Catalog {
                     a.provider_preview_id, a.blob_algorithm, a.blob_digest,
                     a.blob_byte_len, a.codec, a.byte_order, a.width, a.height,
                     a.bits_per_channel, a.channels, a.created_at_ms,
-                    t.observation_json, t.observation_digest
+                    t.observation_json, t.observation_digest,
+                    dc.head_sequence, de.after_flag, de.after_rating
              FROM representations r
              JOIN locations l ON l.id = (
                  SELECT l2.id FROM locations l2
@@ -279,6 +291,9 @@ impl Catalog {
                    AND t2.preprocessing_version = ?7
                  LIMIT 1
              )
+             LEFT JOIN photo_decision_current dc ON dc.photo_id = r.photo_id
+             LEFT JOIN photo_decision_events de
+               ON de.sequence = dc.head_sequence AND de.photo_id = r.photo_id
              WHERE r.kind = 'original_raw'
                AND (?1 IS NULL OR l.display_path > ?1
                     OR (l.display_path = ?1 AND r.id > ?2))
@@ -334,6 +349,9 @@ fn review_item_from_raw(
         source,
         artifact,
         technical,
+        decision_head_sequence,
+        decision_flag,
+        decision_rating,
     } = raw;
     let location = AssetLocation::new(parse_platform(&platform)?, native_path, display_path);
     let visual = artifact
@@ -358,6 +376,8 @@ fn review_item_from_raw(
         }
         _ => None,
     };
+    let decision =
+        photo_decision_state_from_columns(decision_head_sequence, decision_flag, decision_rating)?;
     Ok(ReviewItemRecord {
         photo_id,
         representation_id,
@@ -365,6 +385,7 @@ fn review_item_from_raw(
         source,
         visual,
         technical,
+        decision,
     })
 }
 
@@ -412,6 +433,9 @@ fn read_raw_review_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawReviewIt
         },
         artifact,
         technical,
+        decision_head_sequence: row.get(24)?,
+        decision_flag: row.get(25)?,
+        decision_rating: row.get(26)?,
     })
 }
 
@@ -485,13 +509,81 @@ fn parse_platform(value: &str) -> Result<Platform, CatalogError> {
 #[cfg(test)]
 mod tests {
     use shadow_ai::{DISPLAY_LUMA_CONTRACT_VERSION, DisplayLumaPlane, observe_display_luma};
-    use shadow_domain::{ImageDimensions, PreviewByteOrder, PreviewCodec, RepresentationKind};
+    use shadow_domain::{
+        ImageDimensions, NewPhotoDecisionEvent, PhotoDecisionOrigin, PhotoDecisionState, PhotoFlag,
+        PreviewByteOrder, PreviewCodec, RepresentationKind,
+    };
 
     use super::*;
     use crate::{
         CachedArtifactRole, RecordCachedArtifact, RecordTechnicalObservation, RegisterAsset,
         technical_observation::artifact_content_hash,
     };
+
+    #[test]
+    fn review_source_and_page_join_the_pointer_only_decision_projection() {
+        let mut catalog = Catalog::open_in_memory().expect("open catalog");
+        let registered = catalog
+            .register_asset(&RegisterAsset {
+                kind: RepresentationKind::OriginalRaw,
+                location: AssetLocation::new(
+                    Platform::MacOs,
+                    b"/photos/decision-join.dng".to_vec(),
+                    "/photos/decision-join.dng",
+                ),
+                byte_len: 4_096,
+                modified_at_ms: Some(123),
+                now_ms: 100,
+            })
+            .expect("register decision Review source");
+        assert_eq!(
+            catalog
+                .review_source(registered.photo_id)
+                .expect("read default Review source")
+                .expect("default Review source")
+                .decision,
+            PhotoDecisionState::default()
+        );
+        assert_eq!(
+            catalog
+                .review_page(None, 10)
+                .expect("read default Review page")
+                .items[0]
+                .decision,
+            PhotoDecisionState::default()
+        );
+
+        let event = catalog
+            .append_photo_decision_event(&NewPhotoDecisionEvent {
+                event_id: "review-decision-join".into(),
+                photo_id: registered.photo_id,
+                occurred_at_unix_ms: 1_700_000_001_000,
+                origin: PhotoDecisionOrigin::Human,
+                expected_head_sequence: 0,
+                before_flag: PhotoFlag::Unflagged,
+                before_rating: 0,
+                after_flag: PhotoFlag::Picked,
+                after_rating: 4,
+            })
+            .expect("append Review decision");
+        let expected = event.after_state().expect("decision state");
+        assert_eq!(
+            catalog
+                .review_source(registered.photo_id)
+                .expect("read decided Review source")
+                .expect("decided Review source")
+                .decision,
+            expected
+        );
+        assert_eq!(
+            catalog
+                .review_page(None, 10)
+                .expect("read decided Review page")
+                .items[0]
+                .decision,
+            expected
+        );
+    }
 
     #[test]
     fn review_query_returns_one_source_with_preferred_current_visual() {

@@ -4,6 +4,7 @@
 //! knows nothing about Qt, RAW decoding, or render jobs.
 
 mod cache_artifact;
+mod decision;
 mod decode_snapshot;
 mod feedback;
 mod import_journal;
@@ -17,7 +18,7 @@ use std::{path::Path, time::Duration};
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params, types::Type};
 use shadow_domain::{
-    AssetLocation, EntityId, LocationId, LocationStatus, PhotoId, RepresentationId,
+    AssetLocation, EntityId, LocationId, LocationStatus, PhotoFlag, PhotoId, RepresentationId,
     RepresentationKind,
 };
 use thiserror::Error;
@@ -27,6 +28,7 @@ pub use cache_artifact::{
     CachedArtifact, CachedArtifactRecord, CachedArtifactRole, InvalidateCachedArtifactStatus,
     RecordCachedArtifact, RecordCachedArtifactStatus,
 };
+pub use decision::{MAX_PHOTO_DECISION_PAGE_SIZE, PhotoDecisionPage};
 pub use decode_snapshot::{
     DecodeSnapshotRecord, RecordDecodeSnapshot, RecordDecodeSnapshotStatus,
     RepresentationFingerprint,
@@ -45,7 +47,7 @@ pub use technical_observation::{
 };
 pub use writer::{CatalogActor, CatalogHandle};
 
-const SCHEMA_VERSION: i64 = 8;
+const SCHEMA_VERSION: i64 = 9;
 
 const MIGRATION_V1: &str = r"
 CREATE TABLE photos (
@@ -374,6 +376,60 @@ CREATE INDEX representation_technical_observation_source_idx
 // made authoritative for historical evidence.
 const MIGRATION_V8: &str = r"";
 
+// The current table is deliberately only a movable pointer. Flag/rating values
+// remain authoritative in immutable, integrity-checked ledger events.
+const MIGRATION_V9: &str = r"
+CREATE TABLE photo_decision_events (
+    sequence             INTEGER PRIMARY KEY NOT NULL CHECK (sequence > 0),
+    event_id             TEXT NOT NULL UNIQUE
+        CHECK (length(event_id) BETWEEN 1 AND 256),
+    photo_id             BLOB NOT NULL CHECK (length(photo_id) = 16),
+    occurred_at_ms       INTEGER NOT NULL,
+    origin               TEXT NOT NULL CHECK (origin = 'human'),
+    before_head_sequence INTEGER NOT NULL CHECK (before_head_sequence >= 0),
+    before_flag          TEXT NOT NULL
+        CHECK (before_flag IN ('unflagged', 'picked', 'rejected')),
+    before_rating        INTEGER NOT NULL CHECK (before_rating BETWEEN 0 AND 5),
+    after_flag           TEXT NOT NULL
+        CHECK (after_flag IN ('unflagged', 'picked', 'rejected')),
+    after_rating         INTEGER NOT NULL CHECK (after_rating BETWEEN 0 AND 5),
+    event_json           TEXT NOT NULL CHECK (json_valid(event_json)),
+    event_digest         BLOB NOT NULL CHECK (length(event_digest) = 32),
+    UNIQUE (sequence, photo_id),
+    FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE RESTRICT
+) STRICT;
+
+CREATE INDEX photo_decision_events_photo_sequence_idx
+    ON photo_decision_events(photo_id, sequence);
+
+CREATE TRIGGER photo_decision_events_no_update
+BEFORE UPDATE ON photo_decision_events
+BEGIN
+    SELECT RAISE(ABORT, 'photo decision events are append-only');
+END;
+
+CREATE TRIGGER photo_decision_events_no_delete
+BEFORE DELETE ON photo_decision_events
+BEGIN
+    SELECT RAISE(ABORT, 'photo decision events are append-only');
+END;
+
+CREATE TABLE photo_decision_current (
+    photo_id      BLOB PRIMARY KEY NOT NULL CHECK (length(photo_id) = 16),
+    head_sequence INTEGER NOT NULL CHECK (head_sequence > 0),
+    FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE,
+    FOREIGN KEY (head_sequence, photo_id)
+        REFERENCES photo_decision_events(sequence, photo_id) ON DELETE RESTRICT
+) STRICT;
+
+CREATE TRIGGER photo_decision_current_only_forward
+BEFORE UPDATE OF head_sequence ON photo_decision_current
+WHEN NEW.head_sequence <= OLD.head_sequence
+BEGIN
+    SELECT RAISE(ABORT, 'photo decision head must move forward');
+END;
+";
+
 #[derive(Debug, Error)]
 pub enum CatalogError {
     #[error("SQLite catalog error: {0}")]
@@ -467,6 +523,37 @@ pub enum CatalogError {
     FeedbackJson(serde_json::Error),
     #[error("persisted AI feedback failed its integrity check: {0}")]
     InvalidPersistedFeedback(&'static str),
+    #[error("invalid photo decision: {0}")]
+    InvalidPhotoDecision(String),
+    #[error("photo decision event id {0:?} already exists and cannot be overwritten")]
+    PhotoDecisionEventAlreadyExists(String),
+    #[error(
+        "photo decision head for {photo_id} did not match expected sequence {expected}; current sequence is {actual}"
+    )]
+    PhotoDecisionHeadMismatch {
+        photo_id: PhotoId,
+        expected: u64,
+        actual: u64,
+    },
+    #[error(
+        "photo decision before-state for {photo_id} disagrees with head {head_sequence}: expected {expected_flag:?}/{expected_rating}, current {actual_flag:?}/{actual_rating}"
+    )]
+    PhotoDecisionBeforeStateMismatch {
+        photo_id: PhotoId,
+        head_sequence: u64,
+        expected_flag: PhotoFlag,
+        expected_rating: u8,
+        actual_flag: PhotoFlag,
+        actual_rating: u8,
+    },
+    #[error("photo decision history page limit {limit} is outside 1 through {maximum}")]
+    InvalidPhotoDecisionPageLimit { limit: usize, maximum: usize },
+    #[error("photo decision sequence space is exhausted")]
+    PhotoDecisionSequenceExhausted,
+    #[error("photo decision JSON error: {0}")]
+    PhotoDecisionJson(serde_json::Error),
+    #[error("persisted photo decision failed its integrity check: {0}")]
+    InvalidPersistedPhotoDecision(&'static str),
     #[error("invalid technical observation: {0}")]
     InvalidTechnicalObservation(String),
     #[error("technical observation JSON error: {0}")]
@@ -737,16 +824,8 @@ fn migrate(connection: &mut Connection) -> rusqlite::Result<()> {
         transaction.commit()?;
     }
 
-    let version = current_schema_version(connection)?;
-    if version < 8 {
-        let transaction = connection.transaction()?;
-        transaction.execute_batch(MIGRATION_V8)?;
-        transaction.execute(
-            "INSERT INTO schema_migrations(version, applied_at_ms) VALUES (?1, unixepoch('subsec') * 1000)",
-            [8_i64],
-        )?;
-        transaction.commit()?;
-    }
+    apply_migration_if_needed(connection, 8, MIGRATION_V8)?;
+    apply_migration_if_needed(connection, 9, MIGRATION_V9)?;
 
     let final_version = current_schema_version(connection)?;
     if final_version != SCHEMA_VERSION {
@@ -754,6 +833,23 @@ fn migrate(connection: &mut Connection) -> rusqlite::Result<()> {
     }
 
     Ok(())
+}
+
+fn apply_migration_if_needed(
+    connection: &mut Connection,
+    version: i64,
+    sql: &str,
+) -> rusqlite::Result<()> {
+    if current_schema_version(connection)? >= version {
+        return Ok(());
+    }
+    let transaction = connection.transaction()?;
+    transaction.execute_batch(sql)?;
+    transaction.execute(
+        "INSERT INTO schema_migrations(version, applied_at_ms) VALUES (?1, unixepoch('subsec') * 1000)",
+        [version],
+    )?;
+    transaction.commit()
 }
 
 fn current_schema_version(connection: &Connection) -> rusqlite::Result<i64> {
@@ -917,11 +1013,25 @@ mod tests {
         }
     }
 
+    fn apply_v8_marker(connection: &mut Connection) {
+        let transaction = connection.transaction().expect("start v8 migration");
+        transaction
+            .execute_batch(MIGRATION_V8)
+            .expect("apply v8 migration");
+        transaction
+            .execute(
+                "INSERT INTO schema_migrations(version, applied_at_ms) VALUES (8, 8)",
+                [],
+            )
+            .expect("record v8 migration");
+        transaction.commit().expect("commit v8 migration");
+    }
+
     #[test]
     fn migration_creates_current_schema() {
         let catalog = Catalog::open_in_memory().expect("open catalog");
 
-        assert_eq!(catalog.schema_version().expect("schema version"), 8);
+        assert_eq!(catalog.schema_version().expect("schema version"), 9);
     }
 
     #[test]
@@ -959,7 +1069,7 @@ mod tests {
         }
 
         let catalog = Catalog::open(&path).expect("migrate v2 catalog");
-        assert_eq!(catalog.schema_version().expect("schema version"), 8);
+        assert_eq!(catalog.schema_version().expect("schema version"), 9);
         let snapshot_tables: i64 = catalog
             .connection
             .query_row(
@@ -987,7 +1097,7 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM sqlite_schema", [], |row| row.get(0))
             .expect("count schema objects before v8");
 
-        migrate(&mut connection).expect("apply v8 marker");
+        apply_v8_marker(&mut connection);
 
         let objects_after: i64 = connection
             .query_row("SELECT COUNT(*) FROM sqlite_schema", [], |row| row.get(0))
@@ -997,10 +1107,15 @@ mod tests {
             8
         );
         assert_eq!(objects_after, objects_before);
+        migrate(&mut connection).expect("continue from v8 to current schema");
+        assert_eq!(
+            current_schema_version(&connection).expect("current schema version"),
+            9
+        );
     }
 
     #[test]
-    fn version_seven_legacy_feedback_remains_canonical_after_v8_migration() {
+    fn version_seven_legacy_feedback_remains_canonical_after_current_migration() {
         const PHOTO_TEXT: &str = "018f0000-0000-7000-8000-000000000001";
         const LEGACY_EVENT_TEMPLATE: &str = r#"{"event_id":"legacy-v7-event","sequence":1,"occurred_at_unix_ms":1700000001000,"scope":{"kind":"global"},"presentation":{"session_id":"legacy-review-session","group_id":null,"candidates":[{"photo_id":"__PHOTO_ID__","position":0,"visible_fraction":1.0,"inspected_at_one_to_one":false,"feature":null}],"active_model":null},"action":{"action":"exported","photo_id":"__PHOTO_ID__"}}"#;
 
@@ -1044,7 +1159,7 @@ mod tests {
         }
 
         let catalog = Catalog::open(&path).expect("migrate v7 feedback catalog");
-        assert_eq!(catalog.schema_version().expect("v8 schema version"), 8);
+        assert_eq!(catalog.schema_version().expect("current schema version"), 9);
         let (stored_json, stored_digest): (String, Vec<u8>) = catalog
             .connection
             .query_row(
@@ -1059,7 +1174,7 @@ mod tests {
 
         let page = catalog
             .feedback_events_after(&LearningScope::Global, 0, 10)
-            .expect("read legacy feedback through v8 integrity checks");
+            .expect("read legacy feedback through current integrity checks");
         assert_eq!(page.events.len(), 1);
         assert_eq!(page.events[0].event_id, "legacy-v7-event");
         assert_eq!(page.events[0].presentation.candidates.len(), 1);
@@ -1067,6 +1182,49 @@ mod tests {
 
         drop(catalog);
         std::fs::remove_dir_all(root).expect("remove v7 feedback fixture");
+    }
+
+    #[test]
+    fn version_eight_catalog_migrates_to_pointer_only_decision_ledger() {
+        let mut connection = Connection::open_in_memory().expect("open v8 fixture");
+        configure_connection(&connection, false).expect("configure v8 fixture");
+        apply_schema_through_v7(&mut connection);
+        apply_v8_marker(&mut connection);
+
+        migrate(&mut connection).expect("migrate v8 decision fixture");
+
+        assert_eq!(
+            current_schema_version(&connection).expect("schema version"),
+            9
+        );
+        let tables: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_schema
+                 WHERE type = 'table' AND name IN (
+                     'photo_decision_events', 'photo_decision_current'
+                 )",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query decision tables");
+        let triggers: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_schema
+                 WHERE type = 'trigger' AND name LIKE 'photo_decision_%'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query decision triggers");
+        let projection_columns: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('photo_decision_current')",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query pointer-only projection columns");
+        assert_eq!(tables, 2);
+        assert_eq!(triggers, 3);
+        assert_eq!(projection_columns, 2);
     }
 
     #[test]

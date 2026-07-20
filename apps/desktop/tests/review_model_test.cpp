@@ -35,6 +35,9 @@ void role_names_and_types_are_stable() {
     item.photo_id = QStringLiteral("photo-a");
     item.representation_id = QStringLiteral("representation-a");
     item.visual_handle = QStringLiteral("visual-handle-a");
+    item.decision_head_sequence = 42;
+    item.decision_flag = QStringLiteral("picked");
+    item.decision_rating = 4;
     item.has_technical_observation = true;
     item.technical_input_width = 512;
     item.technical_input_height = 341;
@@ -58,6 +61,9 @@ void role_names_and_types_are_stable() {
     };
     constexpr std::array expected_roles{
         ExpectedRole{ReviewModel::VisualHandleRole, "visualHandle"},
+        ExpectedRole{ReviewModel::DecisionHeadSequenceRole, "decisionHeadSequence"},
+        ExpectedRole{ReviewModel::DecisionFlagRole, "decisionFlag"},
+        ExpectedRole{ReviewModel::DecisionRatingRole, "decisionRating"},
         ExpectedRole{ReviewModel::HasTechnicalObservationRole, "hasTechnicalObservation"},
         ExpectedRole{ReviewModel::TechnicalInputWidthRole, "technicalInputWidth"},
         ExpectedRole{ReviewModel::TechnicalInputHeightRole, "technicalInputHeight"},
@@ -92,6 +98,23 @@ void role_names_and_types_are_stable() {
             && value(model, 0, ReviewModel::VisualHandleRole).toString()
                 == QStringLiteral("visual-handle-a"),
         "opaque visual identity must be exposed as a string"
+    );
+    require(
+        value(model, 0, ReviewModel::DecisionHeadSequenceRole).typeId()
+                == QMetaType::ULongLong
+            && value(model, 0, ReviewModel::DecisionHeadSequenceRole).toULongLong()
+                == 42,
+        "decision head must retain its full unsigned sequence"
+    );
+    require(
+        value(model, 0, ReviewModel::DecisionFlagRole).typeId()
+                == QMetaType::QString
+            && value(model, 0, ReviewModel::DecisionFlagRole).toString()
+                == QStringLiteral("picked")
+            && value(model, 0, ReviewModel::DecisionRatingRole).typeId()
+                == QMetaType::Int
+            && value(model, 0, ReviewModel::DecisionRatingRole).toInt() == 4,
+        "manual flag and rating must expose stable QML types"
     );
     require(
         value(model, 0, ReviewModel::HasTechnicalObservationRole).typeId()
@@ -134,6 +157,67 @@ void role_names_and_types_are_stable() {
             "each technical role must expose its own measurement"
         );
     }
+}
+
+void decision_updates_project_to_every_representation_of_a_photo() {
+    ReviewItem first;
+    first.photo_id = QStringLiteral("photo-a");
+    first.representation_id = QStringLiteral("representation-a1");
+
+    ReviewItem second = first;
+    second.representation_id = QStringLiteral("representation-a2");
+
+    ReviewItem other;
+    other.photo_id = QStringLiteral("photo-b");
+    other.representation_id = QStringLiteral("representation-b");
+    other.decision_head_sequence = 2;
+    other.decision_flag = QStringLiteral("rejected");
+    other.decision_rating = 1;
+
+    ReviewModel model;
+    model.replace({first, second, other}, 1);
+    require(
+        model.updateDecision(QStringLiteral("photo-a"), 9, QStringLiteral("picked"), 5),
+        "a loaded photo decision must update"
+    );
+    for (const int row : {0, 1}) {
+        require(
+            value(model, row, ReviewModel::DecisionHeadSequenceRole).toULongLong() == 9
+                && value(model, row, ReviewModel::DecisionFlagRole).toString()
+                    == QStringLiteral("picked")
+                && value(model, row, ReviewModel::DecisionRatingRole).toInt() == 5,
+            "all rows for one photo must share the materialized decision"
+        );
+    }
+    require(
+        value(model, 2, ReviewModel::DecisionHeadSequenceRole).toULongLong() == 2
+            && value(model, 2, ReviewModel::DecisionFlagRole).toString()
+                == QStringLiteral("rejected")
+            && value(model, 2, ReviewModel::DecisionRatingRole).toInt() == 1,
+        "updating one photo must not change another photo"
+    );
+    const auto projected = model.decisionFor(QStringLiteral("photo-a"));
+    require(
+        projected && projected->head_sequence == 9
+            && projected->flag == QStringLiteral("picked") && projected->rating == 5,
+        "controller lookup must read the projected full state"
+    );
+    require(
+        !model.updateDecision(QStringLiteral("missing"), 10, QStringLiteral("picked"), 1)
+            && !model.updateDecision(
+                QStringLiteral("photo-a"),
+                10,
+                QStringLiteral("future-flag"),
+                1
+            )
+            && !model.updateDecision(
+                QStringLiteral("photo-a"),
+                10,
+                QStringLiteral("picked"),
+                6
+            ),
+        "unknown rows and invalid desired states must fail closed"
+    );
 }
 
 void visual_sources_use_encoded_tickets_and_current_generation() {
@@ -273,6 +357,7 @@ void replace_and_append_keep_their_items_intact() {
 
 int main() {
     role_names_and_types_are_stable();
+    decision_updates_project_to_every_representation_of_a_photo();
     visual_sources_use_encoded_tickets_and_current_generation();
     absence_and_legitimate_zero_are_distinct();
     replace_and_append_keep_their_items_intact();

@@ -12,6 +12,9 @@ Item {
     property string selectedPhotoId: ""
     property string selectedRepresentationId: ""
     property string selectedVisualHandle: ""
+    property var selectedDecisionHeadSequence: 0
+    property string selectedDecisionFlag: "unflagged"
+    property int selectedDecisionRating: 0
     property string selectedTitle: ""
     property string selectedPath: ""
     property string selectedRole: ""
@@ -50,7 +53,14 @@ Item {
         && rightComparisonVisualReady
     readonly property bool canSubmitComparison: comparisonReady
         && comparisonVisualsReady && comparisonBackendReady
-        && compareMode && !controller.comparisonBusy
+        && compareMode && !controller.comparisonBusy && !controller.decisionBusy
+    readonly property bool canMutateDecision: selectedPhotoId.length > 0
+        && !compareMode && !controller.busy && !controller.loadingMore
+        && !controller.comparisonBusy && !controller.decisionBusy
+    readonly property bool canOpenSelectedPhoto: selectedPhotoId.length > 0
+        && selectedRepresentationId.length > 0 && !compareMode
+        && !controller.busy && !controller.loadingMore
+        && !controller.comparisonBusy && !controller.decisionBusy
 
     signal openPrecisionRequested(string photoId, string representationId,
                                   string sourcePath, string photoTitle)
@@ -93,6 +103,9 @@ Item {
         selectedPhotoId = card.photoId
         selectedRepresentationId = card.representationId
         selectedVisualHandle = card.visualHandle
+        selectedDecisionHeadSequence = card.decisionHeadSequence
+        selectedDecisionFlag = card.decisionFlag
+        selectedDecisionRating = card.decisionRating
         selectedTitle = card.title
         selectedPath = card.sourcePath
         selectedRole = card.visualRole
@@ -118,6 +131,9 @@ Item {
         selectedPhotoId = ""
         selectedRepresentationId = ""
         selectedVisualHandle = ""
+        selectedDecisionHeadSequence = 0
+        selectedDecisionFlag = "unflagged"
+        selectedDecisionRating = 0
         selectedTitle = ""
         selectedPath = ""
         selectedRole = ""
@@ -275,10 +291,27 @@ Item {
     }
 
     function openSelectedPhoto() {
-        if (selectedPhotoId.length > 0 && selectedRepresentationId.length > 0) {
-            openPrecisionRequested(selectedPhotoId, selectedRepresentationId,
-                                   selectedPath, selectedTitle)
-        }
+        if (!canOpenSelectedPhoto)
+            return
+        openPrecisionRequested(selectedPhotoId, selectedRepresentationId,
+                               selectedPath, selectedTitle)
+    }
+
+    function setSelectedFlag(flag) {
+        if (canMutateDecision)
+            controller.setPhotoFlag(selectedPhotoId, flag)
+    }
+
+    function setSelectedRating(rating) {
+        if (canMutateDecision)
+            controller.setPhotoRating(selectedPhotoId, rating)
+    }
+
+    function ratingGlyphs(rating) {
+        let text = ""
+        for (let index = 0; index < Number(rating); ++index)
+            text += "★"
+        return text
     }
 
     FolderDialog {
@@ -302,6 +335,13 @@ Item {
         }
         function onComparisonForgotten() {
             review.localComparisonStatus = ""
+        }
+        function onDecisionChanged(photoId, headSequence, flag, rating) {
+            if (review.selectedPhotoId === photoId) {
+                review.selectedDecisionHeadSequence = headSequence
+                review.selectedDecisionFlag = flag
+                review.selectedDecisionRating = rating
+            }
         }
     }
 
@@ -340,6 +380,60 @@ Item {
         enabled: review.visible && review.compareMode
             && !review.controller.comparisonBusy
         onActivated: review.exitComparison()
+    }
+
+    Shortcut {
+        sequence: "P"
+        enabled: review.visible && review.canMutateDecision
+        onActivated: review.setSelectedFlag("picked")
+    }
+
+    Shortcut {
+        sequence: "U"
+        enabled: review.visible && review.canMutateDecision
+        onActivated: review.setSelectedFlag("unflagged")
+    }
+
+    Shortcut {
+        sequence: "X"
+        enabled: review.visible && review.canMutateDecision
+        onActivated: review.setSelectedFlag("rejected")
+    }
+
+    Shortcut {
+        sequence: "0"
+        enabled: review.visible && review.canMutateDecision
+        onActivated: review.setSelectedRating(0)
+    }
+
+    Shortcut {
+        sequence: "1"
+        enabled: review.visible && review.canMutateDecision
+        onActivated: review.setSelectedRating(1)
+    }
+
+    Shortcut {
+        sequence: "2"
+        enabled: review.visible && review.canMutateDecision
+        onActivated: review.setSelectedRating(2)
+    }
+
+    Shortcut {
+        sequence: "3"
+        enabled: review.visible && review.canMutateDecision
+        onActivated: review.setSelectedRating(3)
+    }
+
+    Shortcut {
+        sequence: "4"
+        enabled: review.visible && review.canMutateDecision
+        onActivated: review.setSelectedRating(4)
+    }
+
+    Shortcut {
+        sequence: "5"
+        enabled: review.visible && review.canMutateDecision
+        onActivated: review.setSelectedRating(5)
     }
 
     RowLayout {
@@ -425,6 +519,9 @@ Item {
                     Layout.fillWidth: true
                     enabled: review.controller.canUndoComparison
                         && !review.controller.comparisonBusy
+                        && !review.controller.decisionBusy
+                        && !review.controller.busy
+                        && !review.controller.loadingMore
                     text: "FORGET LAST"
                     onClicked: review.controller.undoLastComparison()
                 }
@@ -520,6 +617,9 @@ Item {
                     required property int visualWidth
                     required property int visualHeight
                     required property string visualSource
+                    required property var decisionHeadSequence
+                    required property string decisionFlag
+                    required property int decisionRating
                     required property bool hasTechnicalObservation
                     required property int technicalInputWidth
                     required property int technicalInputHeight
@@ -557,6 +657,32 @@ Item {
                         }
 
                         Rectangle {
+                            anchors.top: parent.top
+                            anchors.right: parent.right
+                            anchors.topMargin: 12
+                            anchors.rightMargin: 12
+                            width: decisionFlagLabel.implicitWidth + 14
+                            height: 22
+                            radius: 3
+                            visible: card.decisionFlag !== "unflagged"
+                            color: card.decisionFlag === "picked"
+                                ? "#214030" : "#492a28"
+                            border.color: card.decisionFlag === "picked"
+                                ? "#609677" : "#a4645d"
+
+                            Label {
+                                id: decisionFlagLabel
+                                anchors.centerIn: parent
+                                text: card.decisionFlag === "picked" ? "PICK" : "REJECT"
+                                color: card.decisionFlag === "picked"
+                                    ? "#a7d2b6" : "#e2aaa3"
+                                font.pixelSize: 8
+                                font.weight: Font.Bold
+                                font.letterSpacing: 0.8
+                            }
+                        }
+
+                        Rectangle {
                             anchors.fill: thumbnail
                             visible: card.visualSource.length === 0
                             color: "#20252b"
@@ -590,7 +716,7 @@ Item {
 
                             Column {
                                 anchors.left: parent.left
-                                anchors.right: badge.left
+                                anchors.right: cardMetadata.left
                                 anchors.verticalCenter: parent.verticalCenter
                                 anchors.leftMargin: 10
                                 spacing: 3
@@ -610,16 +736,32 @@ Item {
                                 }
                             }
 
-                            Label {
-                                id: badge
+                            Column {
+                                id: cardMetadata
                                 anchors.right: parent.right
                                 anchors.rightMargin: 10
                                 anchors.verticalCenter: parent.verticalCenter
-                                text: card.visualRole.length > 0 ? card.visualRole.toUpperCase() : "RAW"
-                                color: card.visualRole === "embedded" ? "#9fc7a7" : review.accent
-                                font.pixelSize: 8
-                                font.weight: Font.Bold
-                                font.letterSpacing: 0.8
+                                spacing: 3
+
+                                Label {
+                                    anchors.right: parent.right
+                                    text: card.visualRole.length > 0
+                                        ? card.visualRole.toUpperCase() : "RAW"
+                                    color: card.visualRole === "embedded"
+                                        ? "#9fc7a7" : review.accent
+                                    font.pixelSize: 8
+                                    font.weight: Font.Bold
+                                    font.letterSpacing: 0.8
+                                }
+
+                                Label {
+                                    anchors.right: parent.right
+                                    visible: card.decisionRating > 0
+                                    text: review.ratingGlyphs(card.decisionRating)
+                                    color: review.accent
+                                    font.pixelSize: 9
+                                    font.letterSpacing: 0.4
+                                }
                             }
                         }
 
@@ -632,8 +774,7 @@ Item {
                             onDoubleClicked: {
                                 grid.currentIndex = card.index
                                 review.selectPhoto(card)
-                                review.openPrecisionRequested(card.photoId, card.representationId,
-                                                              card.sourcePath, card.title)
+                                review.openSelectedPhoto()
                             }
                         }
                     }
@@ -1089,10 +1230,18 @@ Item {
             color: review.panel
             border.color: review.border
 
-            ColumnLayout {
+            ScrollView {
+                id: photoInspectorScroll
+
                 anchors.fill: parent
                 anchors.margins: 18
-                spacing: 10
+                clip: true
+                contentWidth: availableWidth
+                ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+
+                ColumnLayout {
+                    width: photoInspectorScroll.availableWidth
+                    spacing: 10
 
                 Label {
                     text: "PHOTO"
@@ -1147,6 +1296,145 @@ Item {
                             : "—"
                         color: review.textPrimary
                         font.pixelSize: 10
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 1
+                    color: review.border
+                }
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 6
+
+                    RowLayout {
+                        Layout.fillWidth: true
+
+                        Label {
+                            text: "DECISION LEDGER"
+                            color: review.textMuted
+                            font.pixelSize: 9
+                            font.weight: Font.DemiBold
+                            font.letterSpacing: 1.0
+                        }
+
+                        BusyIndicator {
+                            visible: review.controller.decisionBusy
+                            running: visible
+                            Layout.preferredWidth: 16
+                            Layout.preferredHeight: 16
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        Button {
+                            enabled: !review.compareMode && !review.controller.busy
+                                && !review.controller.loadingMore
+                                && !review.controller.comparisonBusy
+                                && review.controller.canUndoDecision
+                            text: "UNDO"
+                            onClicked: review.controller.undoLastDecision()
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 5
+
+                        Repeater {
+                            model: ListModel {
+                                ListElement { flagText: "U · NONE"; flagValue: "unflagged" }
+                                ListElement { flagText: "P · PICK"; flagValue: "picked" }
+                                ListElement { flagText: "X · REJECT"; flagValue: "rejected" }
+                            }
+
+                            delegate: Button {
+                                id: flagButton
+
+                                required property string flagText
+                                required property string flagValue
+
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 30
+                                enabled: review.canMutateDecision
+                                text: flagText
+                                onClicked: review.setSelectedFlag(flagValue)
+
+                                background: Rectangle {
+                                    radius: 3
+                                    color: review.selectedDecisionFlag === flagButton.flagValue
+                                        ? (flagButton.flagValue === "picked"
+                                            ? "#214030"
+                                            : flagButton.flagValue === "rejected"
+                                                ? "#492a28" : "#343a41")
+                                        : "#20242a"
+                                    border.color: review.selectedDecisionFlag === flagButton.flagValue
+                                        ? review.accent : review.border
+                                }
+
+                                contentItem: Label {
+                                    text: flagButton.text
+                                    color: flagButton.enabled
+                                        ? review.textPrimary : "#606a74"
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                    font.pixelSize: 8
+                                    font.weight: Font.DemiBold
+                                }
+                            }
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 4
+
+                        Repeater {
+                            model: 6
+
+                            delegate: Button {
+                                id: ratingButton
+
+                                required property int index
+
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 28
+                                enabled: review.canMutateDecision
+                                text: index === 0 ? "0" : "★"
+                                onClicked: review.setSelectedRating(index)
+
+                                background: Rectangle {
+                                    radius: 3
+                                    color: review.selectedDecisionRating === ratingButton.index
+                                        ? "#3b3324" : "#20242a"
+                                    border.color: review.selectedDecisionRating === ratingButton.index
+                                        ? review.accent : review.border
+                                }
+
+                                contentItem: Label {
+                                    text: ratingButton.text
+                                    color: ratingButton.index > 0
+                                        && ratingButton.index <= review.selectedDecisionRating
+                                        ? review.accent
+                                        : ratingButton.enabled ? review.textPrimary : "#606a74"
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                    font.pixelSize: 10
+                                    font.weight: Font.DemiBold
+                                }
+                            }
+                        }
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: review.controller.decisionStatusText
+                        color: review.controller.decisionBusy
+                            ? review.accent : "#66717c"
+                        elide: Text.ElideRight
+                        font.pixelSize: 8
                     }
                 }
 
@@ -1301,6 +1589,9 @@ Item {
                             Layout.fillWidth: true
                             enabled: !review.compareMode
                                 && !review.controller.comparisonBusy
+                                && !review.controller.decisionBusy
+                                && !review.controller.busy
+                                && !review.controller.loadingMore
                                 && review.selectedPhotoId.length > 0
                                 && review.selectedRepresentationId.length > 0
                                 && review.selectedVisualHandle.length > 0
@@ -1317,6 +1608,9 @@ Item {
                             Layout.fillWidth: true
                             enabled: !review.compareMode
                                 && !review.controller.comparisonBusy
+                                && !review.controller.decisionBusy
+                                && !review.controller.busy
+                                && !review.controller.loadingMore
                                 && review.selectedPhotoId.length > 0
                                 && review.selectedRepresentationId.length > 0
                                 && review.selectedVisualHandle.length > 0
@@ -1368,12 +1662,18 @@ Item {
                             enabled: review.comparisonReady
                                 && !review.compareMode
                                 && !review.controller.comparisonBusy
+                                && !review.controller.decisionBusy
+                                && !review.controller.busy
+                                && !review.controller.loadingMore
                             text: "COMPARE A / B"
                             onClicked: review.enterComparison()
                         }
 
                         Button {
                             enabled: !review.controller.comparisonBusy
+                                && !review.controller.decisionBusy
+                                && !review.controller.busy
+                                && !review.controller.loadingMore
                                 && (review.leftComparisonSnapshot !== null
                                     || review.rightComparisonSnapshot !== null)
                             text: "CLEAR"
@@ -1386,10 +1686,7 @@ Item {
                     id: openButton
                     Layout.fillWidth: true
                     Layout.preferredHeight: 38
-                    enabled: review.selectedPhotoId.length > 0
-                        && review.selectedRepresentationId.length > 0
-                        && !review.compareMode
-                        && !review.controller.comparisonBusy
+                    enabled: review.canOpenSelectedPhoto
                     text: "OPEN IN PRECISION"
                     onClicked: review.openSelectedPhoto()
 
@@ -1410,7 +1707,7 @@ Item {
                     }
                 }
 
-                Item { Layout.fillHeight: true }
+                Item { Layout.preferredHeight: 4 }
 
                 Label {
                     Layout.fillWidth: true
@@ -1419,6 +1716,7 @@ Item {
                     wrapMode: Text.WordWrap
                     font.pixelSize: 10
                     lineHeight: 1.35
+                }
                 }
             }
         }

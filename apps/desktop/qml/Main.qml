@@ -170,9 +170,11 @@ ApplicationWindow {
                 visible: window.workspaceIndex === 0
                 text: window.controller.busy
                     ? "SCANNING…"
-                    : window.controller.comparisonBusy ? "RECORDING…" : "CHOOSE FOLDER"
+                    : window.controller.comparisonBusy ? "RECORDING…"
+                    : window.controller.decisionBusy ? "SAVING…" : "CHOOSE FOLDER"
                 enabled: !window.controller.busy && !window.controller.loadingMore
                     && !window.controller.comparisonBusy
+                    && !window.controller.decisionBusy
                 onClicked: reviewWorkspace.chooseFolder()
 
                 background: Rectangle {
@@ -255,6 +257,7 @@ ApplicationWindow {
                 visible: window.workspaceIndex === 0
                     ? window.controller.busy || window.controller.loadingMore
                         || window.controller.comparisonBusy
+                        || window.controller.decisionBusy
                     : window.editor.busy
                 running: visible
             }
@@ -262,7 +265,9 @@ ApplicationWindow {
             Label {
                 Layout.fillWidth: true
                 text: window.workspaceIndex === 0
-                    ? (window.controller.comparisonBusy
+                    ? (window.controller.decisionBusy
+                        ? window.controller.decisionStatusText
+                        : window.controller.comparisonBusy
                         ? window.controller.comparisonStatusText
                         : window.controller.statusText)
                     : window.editor.statusText

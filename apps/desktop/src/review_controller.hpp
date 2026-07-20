@@ -1,6 +1,7 @@
 #pragma once
 
 #include "desktop_backend.hpp"
+#include "review_decision_session.hpp"
 #include "review_evidence_session.hpp"
 #include "review_model.hpp"
 
@@ -38,6 +39,15 @@ struct ReviewEvidenceTaskResult final {
     ReviewEvidenceTaskKind kind = ReviewEvidenceTaskKind::Record;
 };
 
+struct ReviewDecisionTaskResult final {
+    BackendReviewDecisionMutationReceipt receipt;
+    BackendReviewDecisionState authoritative;
+    QString error;
+    QString refresh_error;
+    bool has_authoritative = false;
+    bool is_undo = false;
+};
+
 class ReviewController final : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
@@ -66,6 +76,17 @@ class ReviewController final : public QObject {
         READ comparisonStatusText
         NOTIFY comparisonStatusTextChanged
     )
+    Q_PROPERTY(bool decisionBusy READ decisionBusy NOTIFY decisionStateChanged)
+    Q_PROPERTY(
+        bool canUndoDecision
+        READ canUndoDecision
+        NOTIFY decisionStateChanged
+    )
+    Q_PROPERTY(
+        QString decisionStatusText
+        READ decisionStatusText
+        NOTIFY decisionStatusTextChanged
+    )
     Q_PROPERTY(QAbstractItemModel* model READ model CONSTANT)
 
 public:
@@ -85,6 +106,9 @@ public:
     [[nodiscard]] bool canUndoComparison() const noexcept;
     [[nodiscard]] int sessionEvidenceCount() const noexcept;
     [[nodiscard]] QString comparisonStatusText() const;
+    [[nodiscard]] bool decisionBusy() const noexcept;
+    [[nodiscard]] bool canUndoDecision() const;
+    [[nodiscard]] QString decisionStatusText() const;
     [[nodiscard]] QAbstractItemModel* model() noexcept;
     [[nodiscard]] ReviewModel* reviewModel() noexcept;
 
@@ -102,6 +126,9 @@ public:
     Q_INVOKABLE void cancelComparison(const QString& presentation_id);
     Q_INVOKABLE void recordComparison(const QString& presentation_id, int outcome);
     Q_INVOKABLE void undoLastComparison();
+    Q_INVOKABLE void setPhotoFlag(const QString& photo_id, const QString& flag);
+    Q_INVOKABLE void setPhotoRating(const QString& photo_id, int rating);
+    Q_INVOKABLE void undoLastDecision();
 
 signals:
     void busyChanged();
@@ -114,23 +141,39 @@ signals:
     void comparisonStatusTextChanged();
     void comparisonRecorded();
     void comparisonForgotten();
+    void decisionStateChanged();
+    void decisionStatusTextChanged();
+    void decisionChanged(
+        const QString& photoId,
+        qulonglong headSequence,
+        const QString& flag,
+        int rating
+    );
+    void decisionUndone();
 
 private:
     void finishScan();
     void finishPage();
     void finishEvidenceTask();
+    void finishDecisionTask();
     void startPage(bool reset);
+    void startDecisionMutation(const ReviewDecisionMutationRequest& request);
     void emitWorkStateChanges(bool old_busy, bool old_loading_more);
     void setHasMore(bool has_more);
     void setStatusText(QString status);
     void updateReadyStatus();
     void setComparisonStatusText(QString status);
+    void setDecisionStatusText(QString status);
+    void applyDecisionState(const BackendReviewDecisionState& state);
 
     std::shared_ptr<DesktopBackend> backend_;
     QString folder_path_;
     QString status_text_ = QStringLiteral("Choose a folder to build your Review library");
     QString comparison_status_text_ = QStringLiteral(
         "Explicit choices are recorded as evidence; no preference model is active"
+    );
+    QString decision_status_text_ = QStringLiteral(
+        "Flags and stars are explicit local library decisions"
     );
     QString next_cursor_path_;
     QString next_cursor_representation_id_;
@@ -144,7 +187,9 @@ private:
     bool has_more_ = false;
     ReviewModel model_;
     ReviewEvidenceSession evidence_session_;
+    ReviewDecisionSession decision_session_;
     QFutureWatcher<ScanTaskResult> scan_watcher_;
     QFutureWatcher<PageTaskResult> page_watcher_;
     QFutureWatcher<ReviewEvidenceTaskResult> evidence_watcher_;
+    QFutureWatcher<ReviewDecisionTaskResult> decision_watcher_;
 };

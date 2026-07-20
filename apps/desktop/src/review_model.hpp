@@ -7,11 +7,23 @@
 
 #include <atomic>
 #include <cstdint>
+#include <optional>
+
+struct ReviewDecisionValue final {
+    quint64 head_sequence = 0;
+    QString flag = QStringLiteral("unflagged");
+    int rating = 0;
+
+    bool operator==(const ReviewDecisionValue&) const = default;
+};
 
 struct ReviewItem final {
     QString photo_id;
     QString representation_id;
     QString visual_handle;
+    quint64 decision_head_sequence = 0;
+    QString decision_flag = QStringLiteral("unflagged");
+    int decision_rating = 0;
     QString title;
     QString source_path;
     QString visual_role;
@@ -61,6 +73,9 @@ public:
         NearWhiteFractionRole,
         LaplacianVarianceRole,
         EdgeEnergyRole,
+        DecisionHeadSequenceRole,
+        DecisionFlagRole,
+        DecisionRatingRole,
     };
     Q_ENUM(Role)
 
@@ -74,6 +89,15 @@ public:
     void append(QVector<ReviewItem> items);
     [[nodiscard]] bool isGenerationCurrent(quint64 generation) const noexcept;
     [[nodiscard]] QString visualSourceFor(const QString& ticket) const;
+    [[nodiscard]] std::optional<ReviewDecisionValue> decisionFor(
+        const QString& photo_id
+    ) const;
+    [[nodiscard]] bool updateDecision(
+        const QString& photo_id,
+        quint64 head_sequence,
+        const QString& flag,
+        int rating
+    );
 
 private:
     QVector<ReviewItem> items_;

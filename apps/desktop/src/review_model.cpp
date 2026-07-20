@@ -4,7 +4,17 @@
 #include <QUrlQuery>
 #include <QVariant>
 
+#include <algorithm>
 #include <utility>
+
+namespace {
+
+[[nodiscard]] bool is_decision_flag(const QString& flag) {
+    return flag == QStringLiteral("unflagged") || flag == QStringLiteral("picked")
+        || flag == QStringLiteral("rejected");
+}
+
+} // namespace
 
 ReviewModel::ReviewModel(QObject* parent) : QAbstractListModel(parent) {}
 
@@ -70,6 +80,12 @@ QVariant ReviewModel::data(const QModelIndex& index, const int role) const {
         return item.laplacian_variance;
     case EdgeEnergyRole:
         return item.edge_energy;
+    case DecisionHeadSequenceRole:
+        return QVariant::fromValue(item.decision_head_sequence);
+    case DecisionFlagRole:
+        return item.decision_flag;
+    case DecisionRatingRole:
+        return item.decision_rating;
     default:
         return {};
     }
@@ -100,6 +116,9 @@ QHash<int, QByteArray> ReviewModel::roleNames() const {
         {NearWhiteFractionRole, "nearWhiteFraction"},
         {LaplacianVarianceRole, "laplacianVariance"},
         {EdgeEnergyRole, "edgeEnergy"},
+        {DecisionHeadSequenceRole, "decisionHeadSequence"},
+        {DecisionFlagRole, "decisionFlag"},
+        {DecisionRatingRole, "decisionRating"},
     };
 }
 
@@ -140,4 +159,57 @@ QString ReviewModel::visualSourceFor(const QString& ticket) const {
     );
     return QStringLiteral("image://shadow/visual?%1")
         .arg(query.toString(QUrl::FullyEncoded));
+}
+
+std::optional<ReviewDecisionValue> ReviewModel::decisionFor(
+    const QString& photo_id
+) const {
+    const auto item = std::find_if(
+        items_.cbegin(),
+        items_.cend(),
+        [&photo_id](const ReviewItem& candidate) {
+            return candidate.photo_id == photo_id;
+        }
+    );
+    if (item == items_.cend()) {
+        return std::nullopt;
+    }
+    return ReviewDecisionValue{
+        .head_sequence = item->decision_head_sequence,
+        .flag = item->decision_flag,
+        .rating = item->decision_rating,
+    };
+}
+
+bool ReviewModel::updateDecision(
+    const QString& photo_id,
+    const quint64 head_sequence,
+    const QString& flag,
+    const int rating
+) {
+    if (photo_id.isEmpty() || !is_decision_flag(flag) || rating < 0 || rating > 5) {
+        return false;
+    }
+    bool found = false;
+    for (qsizetype row = 0; row < items_.size(); ++row) {
+        auto& item = items_[row];
+        if (item.photo_id != photo_id) {
+            continue;
+        }
+        found = true;
+        if (item.decision_head_sequence == head_sequence && item.decision_flag == flag
+            && item.decision_rating == rating) {
+            continue;
+        }
+        item.decision_head_sequence = head_sequence;
+        item.decision_flag = flag;
+        item.decision_rating = rating;
+        const QModelIndex changed = index(static_cast<int>(row), 0);
+        emit dataChanged(
+            changed,
+            changed,
+            {DecisionHeadSequenceRole, DecisionFlagRole, DecisionRatingRole}
+        );
+    }
+    return found;
 }

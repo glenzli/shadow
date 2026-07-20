@@ -9,12 +9,16 @@ FolderDialog / QML Review grid
   → shadow-core scan / decode workers
   → shadow-catalog single writer
   → embedded preview or generated proxy cache
-  → bounded display-luma observation worker → Catalog v8 summary
+  → bounded display-luma observation worker → Catalog v9 summary
 
 two signed exact-artifact handles / explicit outcome
   → compare-only request tickets → verified cache bytes
   → Qt decoded RGBA frame receipt → ReviewController evidence write
-  → Catalog v8 append-only Global feedback / forget fact
+  → Catalog v9 append-only Global feedback / forget fact
+
+Pick / Reject / 0–5 rating command
+  → full-state expected-head CAS → immutable human decision event
+  → forward-only current projection → append-only inverse-event undo
 ```
 
 QML never opens SQLite, calls LibRaw, or interprets blob paths. The Rust bridge returns bounded Review metadata pages using a stable path/representation cursor. Compressed visuals are not stored in the Qt model: a forced-asynchronous `QQuickImageProvider` requests a verified cache blob only when Qt needs that image and decodes only the requested display size. Every image URL carries the current model generation, so a late result from a previous folder is discarded.
@@ -28,6 +32,33 @@ and analyzer revisions. These are single-photo display-proxy facts: the grid doe
 not turn them into quality badges, sorting, Picks, or Rejects, and the application
 does not automatically compare, rank, or infer across differently
 authored/preprocessed proxies.
+
+## Review Decision Ledger vertical slice
+
+Review exposes two independent manual fields for each logical photo: an
+`Unflagged` / `Picked` / `Rejected` flag and a zero-through-five rating. `P`, `U`,
+and `X` set the flag; `0` through `5` set the rating. Grid badges and stars are
+projections of Catalog state, not inferred quality labels. Multiple loaded
+representations of the same photo update together.
+
+Each real full-state transition appends one immutable `Human` event with a global
+sequence, UUIDv7 identity, timestamp, before state, and after state. Canonical
+JSON, a BLAKE3 digest, indexed columns, foreign keys, and update/delete triggers
+protect the ledger. The current table stores only each photo's forward-moving
+head pointer. A write compares both the expected head and complete before state;
+stale or no-op commands append nothing.
+
+Undo is another transition to the prior state, never a deletion or head rewind.
+The desktop session enables it only while the authoritative flag, rating, and
+head sequence still equal the original command's after state. An intervening
+external `Picked → Rejected → Picked` history therefore remains visible and
+cannot be overwritten merely because the final values happen to match.
+
+This ledger is deliberately separate from AI feedback. The current UI records
+human state only; it does not create feature snapshots, train the preference
+head, synthesize pairwise examples, or grant a model write access to Pick,
+Reject, or rating. Color labels, bulk mutation, decision filtering, XMP
+round-trip, and durable cross-session command undo remain follow-up work.
 
 ## Review Compare Evidence vertical slice
 
@@ -64,8 +95,9 @@ artifact A → B change cannot rewrite historical evidence.
 This provenance boundary ends at the normalized decoded frame. It does not claim
 to preserve display ICC, GPU scaling, the window's final raster, or physical
 screen pixels. Legacy feedback remains readable with an explicitly absent visual
-field; Catalog v8 is a marker-only payload-contract migration and never guesses
-provenance from today's cache.
+field. Catalog v8 was a marker-only payload-contract migration and never guesses
+provenance from today's cache; current schema v9 retains that rule while adding
+the separate manual decision ledger.
 
 Available display-luma observations may appear alongside each photo as parallel
 technical facts. The UI does not subtract them, name a winner, or use them to
@@ -107,6 +139,12 @@ through the image provider, confirms their receipts, and records a left-preferre
 event. `SHADOW_DESKTOP_FORGET_RECORDED_COMPARISON=1` then appends its forget fact
 before exit. Use a fresh `SHADOW_DESKTOP_DATA_ROOT` when inspecting the resulting
 single event and fact in isolation.
+
+Adding `SHADOW_DESKTOP_SET_FIRST_DECISION=1` to a smoke run waits for the first
+Review row and records a real `Picked` decision while preserving its rating.
+`SHADOW_DESKTOP_UNDO_FIRST_DECISION=1` then appends the inverse event before exit.
+Use a fresh `SHADOW_DESKTOP_DATA_ROOT` to inspect the resulting two-event ledger
+without changing a normal local Catalog.
 
 The model currently fetches 96 metadata rows per page and requests another page near the end of the grid. Scanning still completes before the first Catalog page is shown; streaming import progress and first-screen priority are separate follow-up work.
 

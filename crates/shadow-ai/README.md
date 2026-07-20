@@ -38,7 +38,10 @@ responsibilities; the first such adapter now lives in `shadow-core` and
   substitute for the still-unselected image feature extractor.
 
 All model-derived data remains rebuildable. Human decisions, feedback events, and
-accepted edit versions remain durable application facts. A feedback candidate may
+accepted edit versions remain durable application facts. The current application
+stores manual Pick/Reject/rating transitions in a separate immutable Catalog v9
+ledger, but does not expose that ledger as AI training data or grant models write
+access to it. A feedback candidate may
 also carry the exact encoded visual artifact and the normalized decoded-frame
 receipt that were presented when the decision was made. This provenance is an
 identity contract, not proof that two differently authored proxies are comparable.
@@ -48,7 +51,7 @@ identity contract, not proof that two differently authored proxies are comparabl
 The import/decode path now sends the preferred cached JPEG visual to a dedicated
 single-worker actor with a bounded queue. It verifies the content-addressed blob,
 decodes a maximum-512-edge display-luma plane through `shadow-bridge`, runs the
-deterministic observer, and asks Catalog schema v8 to commit only against the
+deterministic observer, and asks Catalog schema v9 to commit only against the
 exact representation fingerprint, cached-artifact identity, observation schema,
 implementation version, luma contract, and preprocessing revision. Stale jobs
 are discarded. Invalid persisted observation data is treated as rebuildable and

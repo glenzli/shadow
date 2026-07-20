@@ -91,10 +91,16 @@ int main(int argc, char* argv[]) {
     const bool forget_recorded_comparison = qEnvironmentVariableIsSet(
         "SHADOW_DESKTOP_FORGET_RECORDED_COMPARISON"
     );
+    const bool set_first_decision = qEnvironmentVariableIsSet(
+        "SHADOW_DESKTOP_SET_FIRST_DECISION"
+    );
+    const bool undo_first_decision = qEnvironmentVariableIsSet(
+        "SHADOW_DESKTOP_UNDO_FIRST_DECISION"
+    );
     const bool request_before = qEnvironmentVariableIsSet(
         "SHADOW_DESKTOP_REQUEST_BEFORE"
     );
-    if (open_first_edit && !record_first_comparison) {
+    if (open_first_edit && !record_first_comparison && !set_first_decision) {
         QObject::connect(
             &controller,
             &ReviewController::itemCountChanged,
@@ -170,6 +176,27 @@ int main(int argc, char* argv[]) {
             }
         );
     }
+    if (set_first_decision && !record_first_comparison) {
+        auto decision_requested = std::make_shared<bool>(false);
+        QObject::connect(
+            &controller,
+            &ReviewController::itemCountChanged,
+            &application,
+            [&controller, decision_requested]() {
+                auto* model = controller.reviewModel();
+                if (*decision_requested || model->rowCount() == 0
+                    || controller.decisionBusy()) {
+                    return;
+                }
+                *decision_requested = true;
+                const QModelIndex first = model->index(0, 0);
+                controller.setPhotoFlag(
+                    model->data(first, ReviewModel::PhotoIdRole).toString(),
+                    QStringLiteral("picked")
+                );
+            }
+        );
+    }
     if (!initial_folder.isEmpty()) {
         controller.scanFolder(QUrl::fromLocalFile(initial_folder));
     }
@@ -204,6 +231,50 @@ int main(int argc, char* argv[]) {
                 &application,
                 [&application, comparison_succeeded]() {
                     application.exit(*comparison_succeeded ? EXIT_SUCCESS : EXIT_FAILURE);
+                }
+            );
+        } else if (set_first_decision) {
+            auto decision_succeeded = std::make_shared<bool>(false);
+            QObject::connect(
+                &controller,
+                &ReviewController::decisionChanged,
+                &application,
+                [&application, &controller, undo_first_decision, decision_succeeded](
+                    const QString&,
+                    const qulonglong,
+                    const QString& flag,
+                    const int
+                ) {
+                    if (flag != QStringLiteral("picked")
+                        || !controller.canUndoDecision()) {
+                        return;
+                    }
+                    if (undo_first_decision) {
+                        QTimer::singleShot(
+                            0,
+                            &controller,
+                            &ReviewController::undoLastDecision
+                        );
+                    } else {
+                        *decision_succeeded = true;
+                        QTimer::singleShot(50, &application, &QCoreApplication::quit);
+                    }
+                }
+            );
+            QObject::connect(
+                &controller,
+                &ReviewController::decisionUndone,
+                &application,
+                [&application, decision_succeeded]() {
+                    *decision_succeeded = true;
+                    QTimer::singleShot(50, &application, &QCoreApplication::quit);
+                }
+            );
+            QTimer::singleShot(
+                30'000,
+                &application,
+                [&application, decision_succeeded]() {
+                    application.exit(*decision_succeeded ? EXIT_SUCCESS : EXIT_FAILURE);
                 }
             );
         } else if (open_first_edit) {

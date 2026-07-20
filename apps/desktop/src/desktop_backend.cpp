@@ -169,6 +169,34 @@ namespace {
     throw std::invalid_argument("unknown pairwise outcome");
 }
 
+[[nodiscard]] BackendReviewDecisionFlag decision_flag(
+    const shadow::desktop::FfiDecisionFlag flag
+) {
+    switch (flag) {
+    case shadow::desktop::FfiDecisionFlag::Unflagged:
+        return BackendReviewDecisionFlag::Unflagged;
+    case shadow::desktop::FfiDecisionFlag::Picked:
+        return BackendReviewDecisionFlag::Picked;
+    case shadow::desktop::FfiDecisionFlag::Rejected:
+        return BackendReviewDecisionFlag::Rejected;
+    }
+    throw std::invalid_argument("unknown Review decision flag");
+}
+
+[[nodiscard]] shadow::desktop::FfiDecisionFlag ffi_decision_flag(
+    const BackendReviewDecisionFlag flag
+) {
+    switch (flag) {
+    case BackendReviewDecisionFlag::Unflagged:
+        return shadow::desktop::FfiDecisionFlag::Unflagged;
+    case BackendReviewDecisionFlag::Picked:
+        return shadow::desktop::FfiDecisionFlag::Picked;
+    case BackendReviewDecisionFlag::Rejected:
+        return shadow::desktop::FfiDecisionFlag::Rejected;
+    }
+    throw std::invalid_argument("unknown Review decision flag");
+}
+
 } // namespace
 
 struct DesktopBackend::Impl final {
@@ -218,6 +246,9 @@ BackendReviewPage DesktopBackend::reviewPage(
             .photo_id = qstring(item.photo_id),
             .representation_id = qstring(item.representation_id),
             .visual_handle = qstring(item.visual_handle),
+            .decision_head_sequence = item.decision_head_sequence,
+            .decision_flag = decision_flag(item.decision_flag),
+            .decision_rating = item.decision_rating,
             .title = qstring(item.title),
             .source_path = qstring(item.source_path),
             .visual_role = qstring(item.visual_role),
@@ -329,6 +360,50 @@ BackendForgetReceipt DesktopBackend::forgetReviewFeedback(
         .target_event_id = qstring(receipt.target_event_id),
         .sequence = receipt.sequence,
         .occurred_at_ms = receipt.occurred_at_unix_ms,
+    };
+}
+
+BackendReviewDecisionState DesktopBackend::reviewPhotoDecisionState(
+    const QString& photo_id
+) const {
+    const auto state = impl_->session->review_photo_decision_state(photo_id.toStdString());
+    return {
+        .photo_id = qstring(state.photo_id),
+        .head_sequence = state.head_sequence,
+        .flag = decision_flag(state.flag),
+        .rating = state.rating,
+    };
+}
+
+BackendReviewDecisionMutationReceipt DesktopBackend::setReviewPhotoDecision(
+    const QString& photo_id,
+    const std::uint64_t expected_head_sequence,
+    const BackendReviewDecisionFlag desired_flag,
+    const std::uint8_t desired_rating
+) const {
+    const auto receipt = impl_->session->set_review_photo_decision(
+        photo_id.toStdString(),
+        expected_head_sequence,
+        ffi_decision_flag(desired_flag),
+        desired_rating
+    );
+    const QString returned_photo_id = qstring(receipt.photo_id);
+    return {
+        .event_id = qstring(receipt.event_id),
+        .sequence = receipt.sequence,
+        .occurred_at_ms = receipt.occurred_at_unix_ms,
+        .before = {
+            .photo_id = returned_photo_id,
+            .head_sequence = receipt.before_head_sequence,
+            .flag = decision_flag(receipt.before_flag),
+            .rating = receipt.before_rating,
+        },
+        .after = {
+            .photo_id = returned_photo_id,
+            .head_sequence = receipt.sequence,
+            .flag = decision_flag(receipt.after_flag),
+            .rating = receipt.after_rating,
+        },
     };
 }
 

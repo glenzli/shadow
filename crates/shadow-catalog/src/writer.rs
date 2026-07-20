@@ -8,16 +8,19 @@ use std::{
 use shadow_ai::{
     FeedbackEvent, FeedbackForgetFact, LearningScope, NewFeedbackEvent, NewFeedbackForgetFact,
 };
-use shadow_domain::{AssetLocation, ImportSessionId, PhotoId, RecipeCommitId, RepresentationId};
+use shadow_domain::{
+    AssetLocation, ImportSessionId, NewPhotoDecisionEvent, PhotoDecisionEvent, PhotoDecisionState,
+    PhotoId, RecipeCommitId, RepresentationId,
+};
 
 use crate::{
     CachedArtifactRecord, Catalog, CatalogError, CatalogStats, CatalogStore, CommitRecipe,
     DecodeSnapshotRecord, FeedbackPage, ImportSession, ImportSessionState, ImportSessionSummary,
-    InvalidateCachedArtifactStatus, RecipeCommitRecord, RecipeRefRecord, RecordCachedArtifact,
-    RecordCachedArtifactStatus, RecordDecodeSnapshot, RecordDecodeSnapshotStatus,
-    RecordTechnicalObservation, RecordTechnicalObservationStatus, RegisterAsset, RegisteredAsset,
-    RepresentationFingerprint, ReviewCursor, ReviewItemRecord, ReviewPageRecord, SetRecipeRef,
-    TechnicalObservationRecord, TechnicalObservationRevision,
+    InvalidateCachedArtifactStatus, PhotoDecisionPage, RecipeCommitRecord, RecipeRefRecord,
+    RecordCachedArtifact, RecordCachedArtifactStatus, RecordDecodeSnapshot,
+    RecordDecodeSnapshotStatus, RecordTechnicalObservation, RecordTechnicalObservationStatus,
+    RegisterAsset, RegisteredAsset, RepresentationFingerprint, ReviewCursor, ReviewItemRecord,
+    ReviewPageRecord, SetRecipeRef, TechnicalObservationRecord, TechnicalObservationRevision,
 };
 
 #[derive(Debug)]
@@ -117,6 +120,7 @@ enum Message {
         SyncSender<Result<Option<RecipeRefRecord>, CatalogError>>,
     ),
     SetRecipeRef(Box<SetRecipeRef>, SyncSender<Result<(), CatalogError>>),
+    Decision(DecisionMessage),
     Feedback(FeedbackMessage),
     BeginImportSession(
         AssetLocation,
@@ -158,6 +162,23 @@ enum Message {
     ),
     UnfinishedImportSessions(SyncSender<Result<Vec<ImportSession>, CatalogError>>),
     Shutdown(SyncSender<()>),
+}
+
+enum DecisionMessage {
+    State(
+        PhotoId,
+        SyncSender<Result<PhotoDecisionState, CatalogError>>,
+    ),
+    Append(
+        Box<NewPhotoDecisionEvent>,
+        SyncSender<Result<PhotoDecisionEvent, CatalogError>>,
+    ),
+    EventsAfter(
+        PhotoId,
+        u64,
+        usize,
+        SyncSender<Result<PhotoDecisionPage, CatalogError>>,
+    ),
 }
 
 enum FeedbackMessage {
@@ -580,6 +601,56 @@ impl CatalogHandle {
         self.request(|response| Message::SetRecipeRef(Box::new(request.clone()), response))
     }
 
+    /// Returns one photo's current authoritative culling/rating decision.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] when the actor is unavailable, the photo is
+    /// absent, or its current pointer is invalid.
+    pub fn photo_decision_state(
+        &self,
+        photo_id: PhotoId,
+    ) -> Result<PhotoDecisionState, CatalogError> {
+        self.request(|response| Message::Decision(DecisionMessage::State(photo_id, response)))
+    }
+
+    /// Appends one decision event and advances the current pointer atomically.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] for invalid input, a stale expected head,
+    /// unavailable actor, or durable persistence failure.
+    pub fn append_photo_decision_event(
+        &self,
+        request: &NewPhotoDecisionEvent,
+    ) -> Result<PhotoDecisionEvent, CatalogError> {
+        self.request(|response| {
+            Message::Decision(DecisionMessage::Append(Box::new(request.clone()), response))
+        })
+    }
+
+    /// Reads one bounded ascending page of immutable decisions for a photo.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] when the actor is unavailable, the photo is
+    /// absent, the bound is invalid, or history integrity checks fail.
+    pub fn photo_decision_events_after(
+        &self,
+        photo_id: PhotoId,
+        after_sequence_exclusive: u64,
+        limit: usize,
+    ) -> Result<PhotoDecisionPage, CatalogError> {
+        self.request(|response| {
+            Message::Decision(DecisionMessage::EventsAfter(
+                photo_id,
+                after_sequence_exclusive,
+                limit,
+                response,
+            ))
+        })
+    }
+
     /// Appends one validated human-feedback event and returns its assigned sequence.
     ///
     /// # Errors
@@ -849,6 +920,7 @@ fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
             Message::SetRecipeRef(request, response) => {
                 let _ = response.send(catalog.set_recipe_ref(request.as_ref()));
             }
+            Message::Decision(message) => run_decision_message(&mut catalog, message),
             Message::Feedback(message) => run_feedback_message(&mut catalog, message),
             Message::BeginImportSession(root, now_ms, response) => {
                 let _ = response.send(catalog.begin_import_session(&root, now_ms));
@@ -887,6 +959,21 @@ fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
     }
 }
 
+fn run_decision_message(catalog: &mut Catalog, message: DecisionMessage) {
+    match message {
+        DecisionMessage::State(photo_id, response) => {
+            let _ = response.send(catalog.photo_decision_state(photo_id));
+        }
+        DecisionMessage::Append(request, response) => {
+            let _ = response.send(catalog.append_photo_decision_event(request.as_ref()));
+        }
+        DecisionMessage::EventsAfter(photo_id, after_sequence, limit, response) => {
+            let _ =
+                response.send(catalog.photo_decision_events_after(photo_id, after_sequence, limit));
+        }
+    }
+}
+
 fn respond<T>(sender: &SyncSender<Result<T, CatalogError>>, result: Result<T, CatalogError>) {
     let _ = sender.send(result);
 }
@@ -910,11 +997,15 @@ fn run_feedback_message(catalog: &mut Catalog, message: FeedbackMessage) {
 
 #[cfg(test)]
 mod tests {
-    use std::thread;
+    use std::{
+        sync::{Arc, Barrier},
+        thread,
+    };
 
     use shadow_ai::{FeedbackAction, PresentationContext};
     use shadow_domain::{
-        EntityId, Platform, RecipeCommit, RecipeId, RecipeSnapshot, RepresentationKind,
+        EntityId, PhotoDecisionOrigin, PhotoFlag, Platform, RecipeCommit, RecipeId, RecipeSnapshot,
+        RepresentationKind,
     };
 
     use super::*;
@@ -1067,6 +1158,84 @@ mod tests {
                 .events
                 .len(),
             2
+        );
+        actor.shutdown().expect("shutdown actor");
+    }
+
+    #[test]
+    fn concurrent_decision_cas_allows_exactly_one_writer_to_advance_the_head() {
+        let actor = CatalogActor::spawn_in_memory().expect("spawn catalog actor");
+        let handle = actor.handle();
+        let registered = handle
+            .register_asset(&RegisterAsset {
+                kind: RepresentationKind::OriginalRaw,
+                location: AssetLocation::new(
+                    Platform::MacOs,
+                    b"/photos/concurrent-decision.dng".to_vec(),
+                    "/photos/concurrent-decision.dng",
+                ),
+                byte_len: 42,
+                modified_at_ms: Some(100),
+                now_ms: 1_700_000_000_000,
+            })
+            .expect("register concurrent decision photo");
+        let barrier = Arc::new(Barrier::new(2));
+        let workers = [
+            ("concurrent-pick", PhotoFlag::Picked),
+            ("concurrent-reject", PhotoFlag::Rejected),
+        ]
+        .into_iter()
+        .map(|(event_id, after_flag)| {
+            let handle = handle.clone();
+            let barrier = Arc::clone(&barrier);
+            let photo_id = registered.photo_id;
+            thread::spawn(move || {
+                barrier.wait();
+                handle.append_photo_decision_event(&NewPhotoDecisionEvent {
+                    event_id: event_id.into(),
+                    photo_id,
+                    occurred_at_unix_ms: 1_700_000_001_000,
+                    origin: PhotoDecisionOrigin::Human,
+                    expected_head_sequence: 0,
+                    before_flag: PhotoFlag::Unflagged,
+                    before_rating: 0,
+                    after_flag,
+                    after_rating: 0,
+                })
+            })
+        })
+        .collect::<Vec<_>>();
+        let results = workers
+            .into_iter()
+            .map(|worker| worker.join().expect("decision worker panicked"))
+            .collect::<Vec<_>>();
+        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+        assert_eq!(
+            results
+                .iter()
+                .filter(|result| matches!(
+                    result,
+                    Err(CatalogError::PhotoDecisionHeadMismatch { .. })
+                ))
+                .count(),
+            1
+        );
+        let winner = results
+            .into_iter()
+            .find_map(Result::ok)
+            .expect("one winning decision");
+        assert_eq!(
+            handle
+                .photo_decision_state(registered.photo_id)
+                .expect("read winning decision"),
+            winner.after_state().expect("winning state")
+        );
+        assert_eq!(
+            handle
+                .photo_decision_events_after(registered.photo_id, 0, 10)
+                .expect("read concurrent decision history")
+                .events,
+            [winner]
         );
         actor.shutdown().expect("shutdown actor");
     }

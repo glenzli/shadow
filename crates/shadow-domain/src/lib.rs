@@ -1,6 +1,7 @@
 //! Stable domain types shared by Shadow's UI, catalog, renderer, and workers.
 
 mod asset;
+mod decision;
 mod decode;
 mod ids;
 pub mod operation;
@@ -8,6 +9,10 @@ mod recipe;
 mod recipe_diff;
 
 pub use asset::{AssetLocation, LocationStatus, Platform, RepresentationKind};
+pub use decision::{
+    MAX_PHOTO_RATING, NewPhotoDecisionEvent, PhotoDecisionEvent, PhotoDecisionOrigin,
+    PhotoDecisionState, PhotoDecisionValidationError, PhotoFlag,
+};
 pub use decode::{
     DecodeCapabilitySnapshot, DecodeProviderSnapshot, DecodeSupport, DecoderSnapshot,
     ImageDimensions, ImageMargins, PendingCorrectionsSnapshot, PreviewByteOrder, PreviewCodec,
