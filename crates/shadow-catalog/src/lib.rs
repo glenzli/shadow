@@ -3,6 +3,7 @@
 //! This crate owns schema migration and write transactions. It deliberately
 //! knows nothing about Qt, RAW decoding, or render jobs.
 
+mod decode_snapshot;
 mod import_journal;
 mod store;
 mod writer;
@@ -17,11 +18,15 @@ use shadow_domain::{
 use thiserror::Error;
 use uuid::Uuid;
 
+pub use decode_snapshot::{
+    DecodeSnapshotRecord, RecordDecodeSnapshot, RecordDecodeSnapshotStatus,
+    RepresentationFingerprint,
+};
 pub use import_journal::{ImportSession, ImportSessionState, ImportSessionSummary};
 pub use store::CatalogStore;
 pub use writer::{CatalogActor, CatalogHandle};
 
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 
 const MIGRATION_V1: &str = r"
 CREATE TABLE photos (
@@ -113,6 +118,50 @@ CREATE TABLE import_issues (
 CREATE INDEX import_issues_session_idx ON import_issues(session_id);
 ";
 
+const MIGRATION_V3: &str = r"
+CREATE TABLE representation_decode_snapshots (
+    representation_id       BLOB NOT NULL CHECK (length(representation_id) = 16),
+    provider_id              TEXT NOT NULL CHECK (length(provider_id) > 0),
+    provider_version         TEXT NOT NULL,
+    snapshot_schema          INTEGER NOT NULL CHECK (snapshot_schema = 1),
+    snapshot_json            TEXT NOT NULL CHECK (json_valid(snapshot_json)),
+    source_byte_len          INTEGER NOT NULL CHECK (source_byte_len >= 0),
+    source_modified_at_ms    INTEGER,
+    inspected_at_ms          INTEGER NOT NULL,
+    has_metadata             INTEGER NOT NULL CHECK (has_metadata IN (0, 1)),
+    has_embedded_previews    INTEGER NOT NULL CHECK (has_embedded_previews IN (0, 1)),
+    can_decode_mosaic        INTEGER NOT NULL CHECK (can_decode_mosaic IN (0, 1)),
+    can_render_reference_rgb INTEGER NOT NULL CHECK (can_render_reference_rgb IN (0, 1)),
+    has_pending_corrections  INTEGER NOT NULL CHECK (has_pending_corrections IN (0, 1)),
+    PRIMARY KEY (representation_id, provider_id),
+    FOREIGN KEY (representation_id) REFERENCES representations(id) ON DELETE CASCADE
+) STRICT;
+
+CREATE INDEX representation_decode_capability_idx
+    ON representation_decode_snapshots(can_decode_mosaic, has_embedded_previews);
+
+CREATE TABLE representation_previews (
+    representation_id   BLOB NOT NULL CHECK (length(representation_id) = 16),
+    provider_id          TEXT NOT NULL,
+    provider_preview_id  INTEGER NOT NULL CHECK (provider_preview_id >= 0),
+    codec                TEXT NOT NULL
+        CHECK (codec IN ('unknown', 'jpeg', 'bitmap', 'jpeg_xl', 'h265')),
+    width                INTEGER NOT NULL CHECK (width >= 0),
+    height               INTEGER NOT NULL CHECK (height >= 0),
+    bits_per_channel     INTEGER NOT NULL CHECK (bits_per_channel >= 0),
+    channels             INTEGER NOT NULL CHECK (channels >= 0),
+    encoded_bytes        INTEGER NOT NULL CHECK (encoded_bytes >= 0),
+    decodable            INTEGER NOT NULL CHECK (decodable IN (0, 1)),
+    PRIMARY KEY (representation_id, provider_id, provider_preview_id),
+    FOREIGN KEY (representation_id, provider_id)
+        REFERENCES representation_decode_snapshots(representation_id, provider_id)
+        ON DELETE CASCADE
+) STRICT;
+
+CREATE INDEX representation_previews_selection_idx
+    ON representation_previews(representation_id, decodable, width, height);
+";
+
 #[derive(Debug, Error)]
 pub enum CatalogError {
     #[error("SQLite catalog error: {0}")]
@@ -135,6 +184,16 @@ pub enum CatalogError {
     ActorUnavailable,
     #[error("catalog writer actor panicked")]
     ActorPanicked,
+    #[error("representation {0} does not exist")]
+    RepresentationNotFound(RepresentationId),
+    #[error("invalid decode snapshot: {0}")]
+    InvalidDecodeSnapshot(&'static str),
+    #[error("decode snapshot field {field} is outside SQLite's integer range")]
+    DecodeSnapshotValueOutOfRange { field: &'static str },
+    #[error("unsupported persisted decode snapshot schema {0}")]
+    UnsupportedDecodeSnapshotSchema(i64),
+    #[error("decode snapshot JSON error: {0}")]
+    DecodeSnapshotJson(#[from] serde_json::Error),
 }
 
 #[derive(Debug)]
@@ -342,6 +401,17 @@ fn migrate(connection: &mut Connection) -> rusqlite::Result<()> {
         transaction.commit()?;
     }
 
+    let version = current_schema_version(connection)?;
+    if version < 3 {
+        let transaction = connection.transaction()?;
+        transaction.execute_batch(MIGRATION_V3)?;
+        transaction.execute(
+            "INSERT INTO schema_migrations(version, applied_at_ms) VALUES (?1, unixepoch('subsec') * 1000)",
+            [3_i64],
+        )?;
+        transaction.commit()?;
+    }
+
     let final_version = current_schema_version(connection)?;
     if final_version != SCHEMA_VERSION {
         return Err(rusqlite::Error::InvalidQuery);
@@ -484,7 +554,59 @@ mod tests {
     fn migration_creates_current_schema() {
         let catalog = Catalog::open_in_memory().expect("open catalog");
 
-        assert_eq!(catalog.schema_version().expect("schema version"), 2);
+        assert_eq!(catalog.schema_version().expect("schema version"), 3);
+    }
+
+    #[test]
+    fn version_two_catalog_migrates_without_rebuilding_existing_tables() {
+        let root = std::env::temp_dir().join(format!("shadow-catalog-v2-{}", PhotoId::new_v7()));
+        std::fs::create_dir_all(&root).expect("create migration fixture");
+        let path = root.join("catalog.sqlite");
+        {
+            let mut connection = Connection::open(&path).expect("open v2 fixture");
+            configure_connection(&connection, false).expect("configure fixture");
+            connection
+                .execute_batch(
+                    "CREATE TABLE schema_migrations (
+                         version INTEGER PRIMARY KEY NOT NULL,
+                         applied_at_ms INTEGER NOT NULL
+                     ) STRICT;",
+                )
+                .expect("create migration table");
+            let transaction = connection.transaction().expect("start v2 fixture");
+            transaction.execute_batch(MIGRATION_V1).expect("apply v1");
+            transaction
+                .execute(
+                    "INSERT INTO schema_migrations(version, applied_at_ms) VALUES (1, 1)",
+                    [],
+                )
+                .expect("record v1");
+            transaction.execute_batch(MIGRATION_V2).expect("apply v2");
+            transaction
+                .execute(
+                    "INSERT INTO schema_migrations(version, applied_at_ms) VALUES (2, 2)",
+                    [],
+                )
+                .expect("record v2");
+            transaction.commit().expect("commit v2 fixture");
+        }
+
+        let catalog = Catalog::open(&path).expect("migrate v2 catalog");
+        assert_eq!(catalog.schema_version().expect("schema version"), 3);
+        let snapshot_tables: i64 = catalog
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_schema
+                 WHERE type = 'table' AND name IN (
+                     'representation_decode_snapshots', 'representation_previews'
+                 )",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query migrated tables");
+        assert_eq!(snapshot_tables, 2);
+        drop(catalog);
+        std::fs::remove_dir_all(root).expect("remove migration fixture");
     }
 
     #[test]

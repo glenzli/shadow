@@ -8,10 +8,10 @@ authors.workspace = true
 
 [dependencies]
 rusqlite.workspace = true
+serde_json.workspace = true
 shadow-domain.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
 
 [lints]
 workspace = true
-

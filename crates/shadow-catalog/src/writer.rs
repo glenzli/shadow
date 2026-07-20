@@ -4,11 +4,12 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-use shadow_domain::{AssetLocation, ImportSessionId};
+use shadow_domain::{AssetLocation, ImportSessionId, RepresentationId};
 
 use crate::{
-    Catalog, CatalogError, CatalogStats, CatalogStore, ImportSession, ImportSessionState,
-    ImportSessionSummary, RegisterAsset, RegisteredAsset,
+    Catalog, CatalogError, CatalogStats, CatalogStore, DecodeSnapshotRecord, ImportSession,
+    ImportSessionState, ImportSessionSummary, RecordDecodeSnapshot, RecordDecodeSnapshotStatus,
+    RegisterAsset, RegisteredAsset, RepresentationFingerprint,
 };
 
 #[derive(Debug)]
@@ -28,6 +29,18 @@ enum Message {
     RegisterAsset(
         RegisterAsset,
         SyncSender<Result<RegisteredAsset, CatalogError>>,
+    ),
+    RepresentationFingerprint(
+        RepresentationId,
+        SyncSender<Result<RepresentationFingerprint, CatalogError>>,
+    ),
+    RecordDecodeSnapshot(
+        Box<RecordDecodeSnapshot>,
+        SyncSender<Result<RecordDecodeSnapshotStatus, CatalogError>>,
+    ),
+    DecodeSnapshots(
+        RepresentationId,
+        SyncSender<Result<Vec<DecodeSnapshotRecord>, CatalogError>>,
     ),
     BeginImportSession(
         AssetLocation,
@@ -189,6 +202,45 @@ impl CatalogHandle {
         self.request(|response| Message::RegisterAsset(request.clone(), response))
     }
 
+    /// Returns the current source fingerprint for a representation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] if the writer is unavailable, the representation
+    /// is absent, or the query fails.
+    pub fn representation_fingerprint(
+        &self,
+        representation_id: RepresentationId,
+    ) -> Result<RepresentationFingerprint, CatalogError> {
+        self.request(|response| Message::RepresentationFingerprint(representation_id, response))
+    }
+
+    /// Records one decoder snapshot through the single catalog writer.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] if the writer is unavailable or persistence
+    /// fails. A normal source race is reported in the returned status.
+    pub fn record_decode_snapshot(
+        &self,
+        request: &RecordDecodeSnapshot,
+    ) -> Result<RecordDecodeSnapshotStatus, CatalogError> {
+        self.request(|response| Message::RecordDecodeSnapshot(Box::new(request.clone()), response))
+    }
+
+    /// Returns all current provider snapshots for a representation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] if the writer is unavailable, the representation
+    /// is absent, or persisted state cannot be read.
+    pub fn decode_snapshots(
+        &self,
+        representation_id: RepresentationId,
+    ) -> Result<Vec<DecodeSnapshotRecord>, CatalogError> {
+        self.request(|response| Message::DecodeSnapshots(representation_id, response))
+    }
+
     /// Lists resumable import sessions.
     ///
     /// # Errors
@@ -302,6 +354,15 @@ fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
             }
             Message::RegisterAsset(request, response) => {
                 let _ = response.send(catalog.register_asset(&request));
+            }
+            Message::RepresentationFingerprint(representation_id, response) => {
+                let _ = response.send(catalog.representation_fingerprint(representation_id));
+            }
+            Message::RecordDecodeSnapshot(request, response) => {
+                let _ = response.send(catalog.record_decode_snapshot(request.as_ref()));
+            }
+            Message::DecodeSnapshots(representation_id, response) => {
+                let _ = response.send(catalog.decode_snapshots(representation_id));
             }
             Message::BeginImportSession(root, now_ms, response) => {
                 let _ = response.send(catalog.begin_import_session(&root, now_ms));

@@ -18,13 +18,19 @@ pub enum NativePathError {
     InvalidWindowsEncoding,
 }
 
-pub(crate) fn encode_location(path: &Path) -> AssetLocation {
+/// Encodes a path losslessly for the current platform.
+///
+/// The display string is descriptive only; catalog identity always uses the
+/// native byte or UTF-16 representation.
+pub fn native_location(path: &Path) -> AssetLocation {
     AssetLocation::new(
         current_platform(),
         encode_os_str(path.as_os_str()),
         path.to_string_lossy(),
     )
 }
+
+pub(crate) use native_location as encode_location;
 
 pub(crate) fn decode_location(location: &AssetLocation) -> Result<PathBuf, NativePathError> {
     let current = current_platform();

@@ -1,10 +1,17 @@
-use std::{env, path::Path};
+use std::{
+    env,
+    path::{Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use anyhow::{Context, Result, bail};
 use shadow_bridge::inspect_libraw;
-use shadow_catalog::{CatalogActor, CatalogStats};
-use shadow_core::{ScanReport, resume_scan, scan_folder};
-use shadow_domain::{DecoderSnapshot, ImportSessionId};
+use shadow_catalog::{CatalogActor, CatalogStats, RegisterAsset};
+use shadow_core::{
+    DecodeInspectionActor, DecodeInspectionOutcome, DecodeInspectionRequest, ScanReport,
+    fingerprint_source, native_location, resume_scan, scan_folder,
+};
+use shadow_domain::{DecoderSnapshot, ImportSessionId, RepresentationKind};
 
 fn main() -> Result<()> {
     let arguments = env::args().skip(1).collect::<Vec<_>>();
@@ -42,6 +49,39 @@ fn main() -> Result<()> {
                 .with_context(|| format!("inspect RAW {raw_path}"))?;
             print_decoder_snapshot(&snapshot);
         }
+        [command, catalog_path, raw_path] if command == "inspect-store" => {
+            let raw_path = absolute_path(Path::new(raw_path))?;
+            let source = fingerprint_source(&raw_path)
+                .with_context(|| format!("read RAW metadata {}", raw_path.display()))?;
+            let actor = open_catalog(catalog_path)?;
+            let catalog = actor.handle();
+            let registered = catalog.register_asset(&RegisterAsset {
+                kind: RepresentationKind::OriginalRaw,
+                location: native_location(&raw_path),
+                byte_len: source.byte_len,
+                modified_at_ms: source.modified_at_ms,
+                now_ms: now_ms(),
+            })?;
+            let inspector = DecodeInspectionActor::spawn(catalog.clone(), |path: &Path| {
+                inspect_libraw(path).map_err(|error| error.to_string())
+            })?;
+            let outcome = inspector
+                .handle()
+                .submit(DecodeInspectionRequest {
+                    representation_id: registered.representation_id,
+                    path: raw_path,
+                    expected_source: source,
+                })?
+                .wait()?;
+            print_inspection_outcome(&outcome);
+            if matches!(outcome, DecodeInspectionOutcome::Recorded { .. }) {
+                for record in catalog.decode_snapshots(registered.representation_id)? {
+                    print_decoder_snapshot(&record.snapshot);
+                }
+            }
+            inspector.shutdown()?;
+            actor.shutdown()?;
+        }
         [command, catalog_path, folder] if command == "scan" => {
             let actor = open_catalog(catalog_path)?;
             let mut catalog = actor.handle();
@@ -66,6 +106,28 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn absolute_path(path: &Path) -> Result<PathBuf> {
+    if path.is_absolute() {
+        Ok(path.to_path_buf())
+    } else {
+        Ok(env::current_dir()
+            .context("resolve current directory")?
+            .join(path))
+    }
+}
+
+fn print_inspection_outcome(outcome: &DecodeInspectionOutcome) {
+    match outcome {
+        DecodeInspectionOutcome::Recorded {
+            provider_id,
+            provider_version,
+        } => println!("stored decoder snapshot: provider={provider_id} version={provider_version}"),
+        DecodeInspectionOutcome::Discarded(reason) => {
+            println!("discarded decoder snapshot: reason={reason:?}");
+        }
+    }
 }
 
 fn print_report(report: ScanReport) {
@@ -163,6 +225,14 @@ fn print_decoder_snapshot(snapshot: &DecoderSnapshot) {
 
 fn print_usage() {
     eprintln!(
-        "usage:\n  shadow-cli init <catalog.sqlite>\n  shadow-cli scan <catalog.sqlite> <folder>\n  shadow-cli resume <catalog.sqlite> <session-id>\n  shadow-cli recoverable <catalog.sqlite>\n  shadow-cli stats <catalog.sqlite>\n  shadow-cli inspect-raw <path>"
+        "usage:\n  shadow-cli init <catalog.sqlite>\n  shadow-cli scan <catalog.sqlite> <folder>\n  shadow-cli resume <catalog.sqlite> <session-id>\n  shadow-cli recoverable <catalog.sqlite>\n  shadow-cli stats <catalog.sqlite>\n  shadow-cli inspect-raw <path>\n  shadow-cli inspect-store <catalog.sqlite> <path>"
     );
+}
+
+fn now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .and_then(|duration| i64::try_from(duration.as_millis()).ok())
+        .unwrap_or_default()
 }
