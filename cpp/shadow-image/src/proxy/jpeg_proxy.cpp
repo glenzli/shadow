@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <limits>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace shadow::image {
@@ -52,6 +53,12 @@ extern "C" void handle_jpeg_error(j_common_ptr context) {
     return static_cast<std::uint8_t>((static_cast<std::uint32_t>(value) + 128U) / 257U);
 }
 
+void validate_jpeg_quality(const std::uint8_t jpeg_quality) {
+    if (jpeg_quality == 0U || jpeg_quality > 100U) {
+        throw DecodeError(DecodeErrorCode::invalid_request, 0, "JPEG quality must be in 1..=100");
+    }
+}
+
 void validate_proxy_request(const ProxyRequest request) {
     constexpr std::uint32_t maximum_proxy_edge = 16'384;
     if (request.max_edge == 0U || request.max_edge > maximum_proxy_edge) {
@@ -61,8 +68,16 @@ void validate_proxy_request(const ProxyRequest request) {
             "proxy max edge must be in 1..=16384"
         );
     }
-    if (request.jpeg_quality == 0U || request.jpeg_quality > 100U) {
-        throw DecodeError(DecodeErrorCode::invalid_request, 0, "JPEG quality must be in 1..=100");
+    validate_jpeg_quality(request.jpeg_quality);
+}
+
+void validate_warm_edit_max_edge(const std::uint32_t max_edge) {
+    if (max_edge == 0U || max_edge > maximum_warm_edit_preview_edge) {
+        throw DecodeError(
+            DecodeErrorCode::invalid_request,
+            0,
+            "warm edit preview max edge must be in 1..=4096"
+        );
     }
 }
 
@@ -210,11 +225,13 @@ void validate_proxy_request(const ProxyRequest request) {
     };
 }
 
-[[nodiscard]] FloatRgbImage decode_srgb_transfer(const PixelBuffer& source) {
+[[nodiscard]] FloatRgbImage resize_srgb_transfer_to_linear(
+    const PixelBuffer& source,
+    const Dimensions target
+) {
     const std::size_t source_stride = validated_source_row_stride(source);
-    const std::size_t sample_count = checked_rgb_size(source.dimensions);
-    const std::uint64_t row_samples =
-        static_cast<std::uint64_t>(source.dimensions.width) * 3U;
+    const std::size_t sample_count = checked_rgb_size(target);
+    const std::uint64_t row_samples = static_cast<std::uint64_t>(target.width) * 3U;
     if (row_samples > std::numeric_limits<std::size_t>::max() / sizeof(float)) {
         throw DecodeError(
             DecodeErrorCode::resource_limit,
@@ -230,7 +247,7 @@ void validate_proxy_request(const ProxyRequest request) {
         );
     }
     FloatRgbImage output;
-    output.dimensions = source.dimensions;
+    output.dimensions = target;
     output.row_stride_bytes = static_cast<std::size_t>(row_samples) * sizeof(float);
     output.pixel_format = FloatPixelFormat::rgb_f32_native_interleaved;
     output.transfer_function = TransferFunction::linear;
@@ -238,20 +255,49 @@ void validate_proxy_request(const ProxyRequest request) {
     output.working_space = linear_srgb_working_space();
     output.samples.resize(sample_count);
 
-    for (std::size_t y = 0; y < source.dimensions.height; ++y) {
-        for (std::size_t x = 0; x < source.dimensions.width; ++x) {
+    const double scale_x =
+        static_cast<double>(source.dimensions.width) / static_cast<double>(target.width);
+    const double scale_y =
+        static_cast<double>(source.dimensions.height) / static_cast<double>(target.height);
+
+    for (std::uint32_t output_y = 0; output_y < target.height; ++output_y) {
+        const double source_y =
+            std::max(0.0, (static_cast<double>(output_y) + 0.5) * scale_y - 0.5);
+        const auto y0 = static_cast<std::size_t>(source_y);
+        const auto y1 = std::min(y0 + 1U, static_cast<std::size_t>(source.dimensions.height - 1U));
+        const double fraction_y = source_y - static_cast<double>(y0);
+
+        for (std::uint32_t output_x = 0; output_x < target.width; ++output_x) {
+            const double source_x =
+                std::max(0.0, (static_cast<double>(output_x) + 0.5) * scale_x - 0.5);
+            const auto x0 = static_cast<std::size_t>(source_x);
+            const auto x1 =
+                std::min(x0 + 1U, static_cast<std::size_t>(source.dimensions.width - 1U));
+            const double fraction_x = source_x - static_cast<double>(x0);
             const std::size_t output_index =
-                (y * static_cast<std::size_t>(source.dimensions.width) + x) * 3U;
+                (static_cast<std::size_t>(output_y) * target.width + output_x) * 3U;
+
             for (std::size_t channel = 0; channel < 3U; ++channel) {
-                const double encoded = static_cast<double>(
-                    source_sample(source, source_stride, x, y, channel)
-                ) / 65'535.0;
+                const auto linear_sample = [&, channel](const std::size_t x, const std::size_t y) {
+                    const double encoded = static_cast<double>(
+                        source_sample(source, source_stride, x, y, channel)
+                    ) / 65'535.0;
+                    return srgb_to_scene_linear(encoded);
+                };
+                const double top = linear_sample(x0, y0) * (1.0 - fraction_x)
+                    + linear_sample(x1, y0) * fraction_x;
+                const double bottom = linear_sample(x0, y1) * (1.0 - fraction_x)
+                    + linear_sample(x1, y1) * fraction_x;
                 output.samples[output_index + channel] =
-                    static_cast<float>(srgb_to_scene_linear(encoded));
+                    static_cast<float>(top * (1.0 - fraction_y) + bottom * fraction_y);
             }
         }
     }
     return output;
+}
+
+[[nodiscard]] FloatRgbImage decode_srgb_transfer(const PixelBuffer& source) {
+    return resize_srgb_transfer_to_linear(source, source.dimensions);
 }
 
 [[nodiscard]] std::vector<std::uint8_t> resize_linear_to_srgb8(
@@ -348,6 +394,45 @@ void validate_proxy_request(const ProxyRequest request) {
 }
 
 } // namespace
+
+WarmEditPreviewSession::WarmEditPreviewSession(
+    FloatRgbImage working_proxy,
+    const std::uint32_t max_edge
+)
+    : working_proxy_(std::move(working_proxy)), max_edge_(max_edge) {}
+
+Dimensions WarmEditPreviewSession::dimensions() const noexcept {
+    return working_proxy_.dimensions;
+}
+
+std::uint32_t WarmEditPreviewSession::max_edge() const noexcept {
+    return max_edge_;
+}
+
+EncodedProxy WarmEditPreviewSession::render_jpeg(
+    const std::span<const AdjustmentNode> nodes,
+    const std::uint8_t jpeg_quality
+) const {
+    validate_jpeg_quality(jpeg_quality);
+    const FloatRgbImage edited = execute_adjustment_nodes(working_proxy_, nodes);
+    const auto rgb = resize_linear_to_srgb8(edited, edited.dimensions);
+
+    EncodedProxy proxy;
+    proxy.dimensions = edited.dimensions;
+    proxy.bytes = encode_jpeg(rgb, edited.dimensions, jpeg_quality);
+    return proxy;
+}
+
+WarmEditPreviewSession prepare_warm_edit_preview(
+    const DecodeSession& session,
+    const std::uint32_t max_edge
+) {
+    validate_warm_edit_max_edge(max_edge);
+    const PixelBuffer reference_rgb = session.render_reference_rgb();
+    const Dimensions target = proxy_dimensions(reference_rgb.dimensions, max_edge);
+    FloatRgbImage working_proxy = resize_srgb_transfer_to_linear(reference_rgb, target);
+    return WarmEditPreviewSession(std::move(working_proxy), max_edge);
+}
 
 Dimensions proxy_dimensions(const Dimensions source, const std::uint32_t max_edge) {
     if (source.width == 0U || source.height == 0U || max_edge == 0U) {

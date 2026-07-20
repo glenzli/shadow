@@ -89,6 +89,64 @@ void validate_basic_edit_parameter(
     }
 }
 
+void validate_basic_edits(const FfiBasicEditRequest& request) {
+    validate_basic_edit_parameter(request.exposure_stops, -16.0, 16.0, "exposure stops");
+    validate_basic_edit_parameter(request.contrast_factor, 0.0, 8.0, "contrast factor");
+    validate_basic_edit_parameter(
+        request.red_channel_gain,
+        0.0,
+        16.0,
+        "red channel gain",
+        false
+    );
+    validate_basic_edit_parameter(
+        request.green_channel_gain,
+        0.0,
+        16.0,
+        "green channel gain",
+        false
+    );
+    validate_basic_edit_parameter(
+        request.blue_channel_gain,
+        0.0,
+        16.0,
+        "blue channel gain",
+        false
+    );
+    validate_basic_edit_parameter(request.saturation_factor, 0.0, 8.0, "saturation factor");
+}
+
+[[nodiscard]] std::array<image::AdjustmentNode, 4> basic_edit_nodes(
+    const FfiBasicEditRequest& request
+) {
+    // These are resolved post-demosaic scene-linear RGB gains, not camera-domain RAW white
+    // balance coefficients. Keeping the node name honest prevents a lossy API promise.
+    return {
+        image::AdjustmentNode{
+            .node_id = "basic-exposure",
+            .parameters = image::ExposureAdjustment{request.exposure_stops},
+        },
+        image::AdjustmentNode{
+            .node_id = "basic-contrast",
+            .parameters = image::ContrastAdjustment{request.contrast_factor, 0.18},
+        },
+        image::AdjustmentNode{
+            .node_id = "basic-channel-gain",
+            .parameters = image::ChannelGainAdjustment{
+                {
+                    request.red_channel_gain,
+                    request.green_channel_gain,
+                    request.blue_channel_gain,
+                }
+            },
+        },
+        image::AdjustmentNode{
+            .node_id = "basic-saturation",
+            .parameters = image::SaturationAdjustment{request.saturation_factor},
+        },
+    };
+}
+
 } // namespace
 
 DecodeHandle::DecodeHandle(
@@ -197,63 +255,50 @@ FfiEncodedProxy DecodeHandle::render_reference_proxy(
 FfiEncodedProxy DecodeHandle::render_edited_reference_proxy(
     const FfiBasicEditRequest& request
 ) const {
-    validate_basic_edit_parameter(request.exposure_stops, -16.0, 16.0, "exposure stops");
-    validate_basic_edit_parameter(request.contrast_factor, 0.0, 8.0, "contrast factor");
-    validate_basic_edit_parameter(
-        request.red_channel_gain,
-        0.0,
-        16.0,
-        "red channel gain",
-        false
-    );
-    validate_basic_edit_parameter(
-        request.green_channel_gain,
-        0.0,
-        16.0,
-        "green channel gain",
-        false
-    );
-    validate_basic_edit_parameter(
-        request.blue_channel_gain,
-        0.0,
-        16.0,
-        "blue channel gain",
-        false
-    );
-    validate_basic_edit_parameter(request.saturation_factor, 0.0, 8.0, "saturation factor");
-
-    // These are resolved post-demosaic scene-linear RGB gains, not camera-domain RAW white
-    // balance coefficients. Keeping the node name honest prevents a lossy API promise.
-    const std::array nodes{
-        image::AdjustmentNode{
-            .node_id = "basic-exposure",
-            .parameters = image::ExposureAdjustment{request.exposure_stops},
-        },
-        image::AdjustmentNode{
-            .node_id = "basic-contrast",
-            .parameters = image::ContrastAdjustment{request.contrast_factor, 0.18},
-        },
-        image::AdjustmentNode{
-            .node_id = "basic-channel-gain",
-            .parameters = image::ChannelGainAdjustment{
-                {
-                    request.red_channel_gain,
-                    request.green_channel_gain,
-                    request.blue_channel_gain,
-                }
-            },
-        },
-        image::AdjustmentNode{
-            .node_id = "basic-saturation",
-            .parameters = image::SaturationAdjustment{request.saturation_factor},
-        },
-    };
+    validate_basic_edits(request);
+    const auto nodes = basic_edit_nodes(request);
     const auto proxy = image::render_edited_reference_proxy_jpeg(
         *session_,
         nodes,
         image::ProxyRequest{request.max_edge, request.jpeg_quality}
     );
     return encoded_proxy(proxy);
+}
+
+std::unique_ptr<EditPreviewHandle> DecodeHandle::prepare_edit_preview(
+    const std::uint32_t max_edge
+) const {
+    return std::make_unique<EditPreviewHandle>(
+        image::prepare_warm_edit_preview(*session_, max_edge)
+    );
+}
+
+EditPreviewHandle::EditPreviewHandle(image::WarmEditPreviewSession session)
+    : session_(std::move(session)) {}
+
+EditPreviewHandle::~EditPreviewHandle() = default;
+
+FfiDimensions EditPreviewHandle::dimensions() const noexcept {
+    return shadow::bridge::dimensions(session_.dimensions());
+}
+
+std::uint32_t EditPreviewHandle::max_edge() const noexcept {
+    return session_.max_edge();
+}
+
+FfiEncodedProxy EditPreviewHandle::render_basic_edits(
+    const FfiBasicEditRequest& request
+) const {
+    validate_basic_edits(request);
+    if (request.max_edge != session_.max_edge()) {
+        throw image::DecodeError(
+            image::DecodeErrorCode::invalid_request,
+            0,
+            "warm edit preview request does not match the prepared max edge"
+        );
+    }
+    const auto nodes = basic_edit_nodes(request);
+    return encoded_proxy(session_.render_jpeg(nodes, request.jpeg_quality));
 }
 
 std::unique_ptr<DecodeHandle> open_libraw_utf8(const rust::Str path) {

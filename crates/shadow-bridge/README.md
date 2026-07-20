@@ -14,6 +14,14 @@ Rust path
 
 No LibRaw or CXX type escapes the crate's public API. `inspect_libraw` returns a serializable descriptor snapshot; `extract_best_libraw_preview` returns the kernel-selected embedded preview or `None`; `render_libraw_reference_proxy` returns a bounded display JPEG for the no-preview fallback. `render_libraw_edited_proxy` is the first real edit path: it decodes LibRaw's sRGB reference result to scene-linear sRGB, executes exposure, contrast, resolved RGB channel gain, and saturation nodes in a fixed order, then produces a bounded standard JPEG. The RGB gains are post-demosaic adjustments, not RAW white balance. C++ exceptions become `BridgeError`; Rust panics and C++ exceptions never cross the language boundary directly.
 
+For slider interaction, `LibRawEditPreviewSession::open(path, max_edge)` performs that RAW render
+once and retains only a bounded scene-linear float working proxy. Repeated
+`render(edits, jpeg_quality)` calls execute the four basic nodes and JPEG encoding without opening
+or decoding the RAW again. The safe wrapper is `Send + Sync`: its C++ working buffer is immutable,
+each render owns all temporary state, and no LibRaw object survives preparation. The warm-session
+edge is independently capped at 4096; 1600/2048 are the intended UI choices. The existing
+`render_libraw_edited_proxy` one-shot convenience API remains available for stateless callers.
+
 Compressed embedded previews and generated proxies are small enough to cross as owned bytes. Large mosaic and RGB buffers intentionally remain in C++; their future bridge will use opaque handles and tile requests, not `Vec<u16>` copies across FFI.
 
 ## Path contract

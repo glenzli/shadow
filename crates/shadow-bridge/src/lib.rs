@@ -131,6 +131,7 @@ mod ffi {
         include!("shadow/image/cxx_bridge.hpp");
 
         type DecodeHandle;
+        type EditPreviewHandle;
 
         fn open_libraw_utf8(path: &str) -> Result<UniquePtr<DecodeHandle>>;
         fn libraw_provider_version() -> String;
@@ -148,11 +149,35 @@ mod ffi {
             self: &DecodeHandle,
             request: &FfiBasicEditRequest,
         ) -> Result<FfiEncodedProxy>;
+        fn prepare_edit_preview(
+            self: &DecodeHandle,
+            max_edge: u32,
+        ) -> Result<UniquePtr<EditPreviewHandle>>;
+        fn dimensions(self: &EditPreviewHandle) -> FfiDimensions;
+        fn max_edge(self: &EditPreviewHandle) -> u32;
+        fn render_basic_edits(
+            self: &EditPreviewHandle,
+            request: &FfiBasicEditRequest,
+        ) -> Result<FfiEncodedProxy>;
     }
 }
 
+// SAFETY: the C++ handle owns a fully prepared, immutable float working proxy. It contains no
+// decoder or borrowed state, its destructor is thread-independent, and every render allocates
+// its edit buffer and libjpeg state locally. C++ contract tests exercise repeated const renders;
+// the public Rust wrapper exposes no mutable access to the handle.
+unsafe impl Send for ffi::EditPreviewHandle {}
+// SAFETY: see the Send implementation above. Concurrent calls only read the working proxy.
+unsafe impl Sync for ffi::EditPreviewHandle {}
+
 /// Cache-key version for the fixed-order basic edited-preview recipe.
 pub const BASIC_EDIT_PREVIEW_RECIPE_VERSION: u32 = 1;
+
+/// Hard memory bound for the reusable float working proxy.
+///
+/// A square proxy at this edge consumes at most 192 MiB for interleaved RGB
+/// float32. The intended UI values are 1600 and 2048.
+pub const MAX_WARM_EDIT_PREVIEW_EDGE: u32 = 4_096;
 
 /// The first small, deterministic subset of Shadow's edit graph.
 ///
@@ -178,6 +203,39 @@ impl Default for BasicEditParameters {
     }
 }
 
+impl BasicEditParameters {
+    fn validate(self) -> Result<(), BridgeError> {
+        validate_inclusive(
+            self.exposure_stops,
+            -16.0,
+            16.0,
+            "exposure_stops must be finite and in -16..=16",
+        )?;
+        validate_inclusive(
+            self.contrast_factor,
+            0.0,
+            8.0,
+            "contrast_factor must be finite and in 0..=8",
+        )?;
+        for (index, gain) in self.channel_gains.into_iter().enumerate() {
+            if !gain.is_finite() || gain <= 0.0 || gain > 16.0 {
+                const MESSAGES: [&str; 3] = [
+                    "red channel gain must be finite, greater than 0, and at most 16",
+                    "green channel gain must be finite, greater than 0, and at most 16",
+                    "blue channel gain must be finite, greater than 0, and at most 16",
+                ];
+                return Err(BridgeError::InvalidEditRequest(MESSAGES[index]));
+            }
+        }
+        validate_inclusive(
+            self.saturation_factor,
+            0.0,
+            8.0,
+            "saturation_factor must be finite and in 0..=8",
+        )
+    }
+}
+
 /// Parameters for a bounded, standard-JPEG edited preview.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct EditedProxyRequest {
@@ -198,45 +256,33 @@ impl Default for EditedProxyRequest {
 
 impl EditedProxyRequest {
     fn validate(self) -> Result<(), BridgeError> {
-        validate_inclusive(
-            self.edits.exposure_stops,
-            -16.0,
-            16.0,
-            "exposure_stops must be finite and in -16..=16",
-        )?;
-        validate_inclusive(
-            self.edits.contrast_factor,
-            0.0,
-            8.0,
-            "contrast_factor must be finite and in 0..=8",
-        )?;
-        for (index, gain) in self.edits.channel_gains.into_iter().enumerate() {
-            if !gain.is_finite() || gain <= 0.0 || gain > 16.0 {
-                const MESSAGES: [&str; 3] = [
-                    "red channel gain must be finite, greater than 0, and at most 16",
-                    "green channel gain must be finite, greater than 0, and at most 16",
-                    "blue channel gain must be finite, greater than 0, and at most 16",
-                ];
-                return Err(BridgeError::InvalidEditRequest(MESSAGES[index]));
-            }
-        }
-        validate_inclusive(
-            self.edits.saturation_factor,
-            0.0,
-            8.0,
-            "saturation_factor must be finite and in 0..=8",
-        )?;
+        self.edits.validate()?;
         if !(1..=16_384).contains(&self.max_edge) {
             return Err(BridgeError::InvalidEditRequest(
                 "max_edge must be in 1..=16384",
             ));
         }
-        if !(1..=100).contains(&self.jpeg_quality) {
-            return Err(BridgeError::InvalidEditRequest(
-                "jpeg_quality must be in 1..=100",
-            ));
-        }
+        validate_jpeg_quality(self.jpeg_quality)
+    }
+}
+
+fn validate_warm_edit_max_edge(max_edge: u32) -> Result<(), BridgeError> {
+    if (1..=MAX_WARM_EDIT_PREVIEW_EDGE).contains(&max_edge) {
         Ok(())
+    } else {
+        Err(BridgeError::InvalidEditRequest(
+            "warm edit preview max_edge must be in 1..=4096",
+        ))
+    }
+}
+
+fn validate_jpeg_quality(jpeg_quality: u8) -> Result<(), BridgeError> {
+    if (1..=100).contains(&jpeg_quality) {
+        Ok(())
+    } else {
+        Err(BridgeError::InvalidEditRequest(
+            "jpeg_quality must be in 1..=100",
+        ))
     }
 }
 
@@ -257,6 +303,91 @@ fn validate_inclusive(
 /// an image.
 pub fn libraw_provider_version() -> String {
     ffi::libraw_provider_version()
+}
+
+/// A reusable, bounded scene-linear working proxy for interactive edits.
+///
+/// [`Self::open`] performs the RAW render and scene-linear conversion once.
+/// The resulting C++ handle retains only an immutable, max-edge-bounded RGB
+/// float buffer; it does not retain a decoder or borrow the input path. The
+/// handle is both [`Send`] and [`Sync`], and concurrent [`Self::render`] calls
+/// use independent edit and JPEG buffers.
+pub struct LibRawEditPreviewSession {
+    handle: cxx::UniquePtr<ffi::EditPreviewHandle>,
+    dimensions: ImageDimensions,
+    max_edge: u32,
+}
+
+impl std::fmt::Debug for LibRawEditPreviewSession {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("LibRawEditPreviewSession")
+            .field("dimensions", &self.dimensions)
+            .field("max_edge", &self.max_edge)
+            .finish_non_exhaustive()
+    }
+}
+
+impl LibRawEditPreviewSession {
+    /// Opens and decodes a RAW into a reusable scene-linear sRGB working proxy.
+    ///
+    /// `max_edge` must be in `1..=4096`; 1600 or 2048 are the intended UI
+    /// values. The bound is checked before the input path is opened.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BridgeError::InvalidEditRequest`] before RAW I/O for an
+    /// invalid bound, or a decoder error if preparation fails.
+    pub fn open(path: &Path, max_edge: u32) -> Result<Self, BridgeError> {
+        validate_warm_edit_max_edge(max_edge)?;
+        let decode_handle = open_libraw(path)?;
+        let decode_handle = decode_handle.as_ref().ok_or(BridgeError::NullHandle)?;
+        let handle = decode_handle.prepare_edit_preview(max_edge)?;
+        let prepared = handle.as_ref().ok_or(BridgeError::NullHandle)?;
+        let prepared_dimensions = dimensions(&prepared.dimensions());
+        let prepared_max_edge = prepared.max_edge();
+
+        Ok(Self {
+            handle,
+            dimensions: prepared_dimensions,
+            max_edge: prepared_max_edge,
+        })
+    }
+
+    /// Returns the fixed pixel dimensions of every preview from this session.
+    #[must_use]
+    pub const fn dimensions(&self) -> ImageDimensions {
+        self.dimensions
+    }
+
+    /// Returns the requested longest-edge bound used during preparation.
+    #[must_use]
+    pub const fn max_edge(&self) -> u32 {
+        self.max_edge
+    }
+
+    /// Re-runs only the fixed-order basic nodes and JPEG encoding.
+    ///
+    /// This method never opens or decodes the RAW. Since the prepared working
+    /// proxy is immutable, calls may run concurrently from worker threads.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BridgeError::InvalidEditRequest`] before entering C++ for
+    /// invalid edit values or JPEG quality, and [`BridgeError::Decoder`] for
+    /// edit or encoding failures.
+    pub fn render(
+        &self,
+        edits: BasicEditParameters,
+        jpeg_quality: u8,
+    ) -> Result<shadow_domain::ProxyPayload, BridgeError> {
+        edits.validate()?;
+        validate_jpeg_quality(jpeg_quality)?;
+        let handle = self.handle.as_ref().ok_or(BridgeError::NullHandle)?;
+        let request = ffi_edit_request(edits, self.max_edge, jpeg_quality);
+        let proxy = handle.render_basic_edits(&request)?;
+        Ok(proxy_payload(proxy))
+    }
 }
 
 /// Renders a bounded, display-referred JPEG proxy through the `LibRaw`
@@ -304,24 +435,36 @@ pub fn render_libraw_edited_proxy(
     let handle = open_libraw(path)?;
     let handle = handle.as_ref().ok_or(BridgeError::NullHandle)?;
     let edits = request.edits;
-    let ffi_request = ffi::FfiBasicEditRequest {
+    let ffi_request = ffi_edit_request(edits, request.max_edge, request.jpeg_quality);
+    let proxy = handle.render_edited_reference_proxy(&ffi_request)?;
+    Ok(proxy_payload(proxy))
+}
+
+fn ffi_edit_request(
+    edits: BasicEditParameters,
+    max_edge: u32,
+    jpeg_quality: u8,
+) -> ffi::FfiBasicEditRequest {
+    ffi::FfiBasicEditRequest {
         exposure_stops: edits.exposure_stops,
         contrast_factor: edits.contrast_factor,
         red_channel_gain: edits.channel_gains[0],
         green_channel_gain: edits.channel_gains[1],
         blue_channel_gain: edits.channel_gains[2],
         saturation_factor: edits.saturation_factor,
-        max_edge: request.max_edge,
-        jpeg_quality: request.jpeg_quality,
-    };
-    let proxy = handle.render_edited_reference_proxy(&ffi_request)?;
-    Ok(shadow_domain::ProxyPayload {
+        max_edge,
+        jpeg_quality,
+    }
+}
+
+fn proxy_payload(proxy: ffi::FfiEncodedProxy) -> shadow_domain::ProxyPayload {
+    shadow_domain::ProxyPayload {
         dimensions: dimensions(&proxy.dimensions),
         codec: preview_codec(proxy.format),
         bits_per_channel: proxy.bits_per_channel,
         channels: proxy.channels,
         bytes: proxy.bytes,
-    })
+    }
 }
 
 #[derive(Debug, Error)]
@@ -504,6 +647,21 @@ mod tests {
     }
 
     #[test]
+    fn warm_edit_session_is_send_sync_and_bounded_before_raw_io() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<LibRawEditPreviewSession>();
+
+        for max_edge in [0, MAX_WARM_EDIT_PREVIEW_EDGE + 1] {
+            let error = LibRawEditPreviewSession::open(
+                Path::new("fixture-that-must-not-be-opened.raw"),
+                max_edge,
+            )
+            .expect_err("invalid warm bound must fail before opening the RAW");
+            assert!(matches!(error, BridgeError::InvalidEditRequest(_)));
+        }
+    }
+
+    #[test]
     fn edited_proxy_parameters_fail_closed_before_raw_io() {
         let invalid_requests = [
             EditedProxyRequest {
@@ -617,5 +775,34 @@ mod tests {
         assert_eq!(proxy.dimensions.width.max(proxy.dimensions.height), 1_024);
         assert!(proxy.bytes.starts_with(&[0xff, 0xd8]));
         assert!(proxy.bytes.ends_with(&[0xff, 0xd9]));
+    }
+
+    #[test]
+    #[ignore = "requires SHADOW_TEST_DNG to point at a local RAW fixture"]
+    fn real_dng_warm_edit_session_renders_twice() {
+        let path = std::env::var_os("SHADOW_TEST_DNG").expect("SHADOW_TEST_DNG");
+        let session = LibRawEditPreviewSession::open(Path::new(&path), 1_024)
+            .expect("prepare warm local DNG edit session");
+        let neutral = session
+            .render(BasicEditParameters::default(), 86)
+            .expect("render neutral warm preview");
+        let adjusted = session
+            .render(
+                BasicEditParameters {
+                    exposure_stops: 1.0,
+                    contrast_factor: 1.1,
+                    channel_gains: [1.05, 1.0, 0.95],
+                    saturation_factor: 1.15,
+                },
+                86,
+            )
+            .expect("render adjusted warm preview");
+
+        assert_eq!(session.dimensions(), neutral.dimensions);
+        assert_eq!(adjusted.dimensions, neutral.dimensions);
+        assert_eq!(neutral.codec, PreviewCodec::Jpeg);
+        assert!(neutral.bytes.starts_with(&[0xff, 0xd8]));
+        assert!(adjusted.bytes.ends_with(&[0xff, 0xd9]));
+        assert_ne!(adjusted.bytes, neutral.bytes);
     }
 }

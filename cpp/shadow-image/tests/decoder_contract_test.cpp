@@ -105,6 +105,7 @@ public:
     }
 
     [[nodiscard]] image::PixelBuffer render_reference_rgb() const override {
+        ++reference_render_count_;
         image::PixelBuffer buffer;
         buffer.dimensions = {8, 4};
         buffer.bits_per_channel = 16;
@@ -117,9 +118,14 @@ public:
         return buffer;
     }
 
+    [[nodiscard]] std::size_t reference_render_count() const noexcept {
+        return reference_render_count_;
+    }
+
 private:
     image::AssetMetadata metadata_;
     image::DecodeCapabilities capabilities_;
+    mutable std::size_t reference_render_count_ = 0;
 };
 
 void reference_proxy_is_bounded_standard_jpeg() {
@@ -203,6 +209,73 @@ void edited_proxy_crosses_explicit_linear_srgb_boundary() {
     );
 }
 
+void warm_edit_preview_decodes_once_and_renders_repeatedly() {
+    const FakeRgbSession session;
+    const auto warm = image::prepare_warm_edit_preview(session, 4);
+    expect(session.reference_render_count() == 1U, "warm preparation renders the RAW once");
+    expect(warm.dimensions() == image::Dimensions{4, 2}, "warm working proxy is max-edge bounded");
+    expect(warm.max_edge() == 4U, "warm working proxy remembers its resource bound");
+
+    const std::array neutral_nodes{
+        image::AdjustmentNode{
+            .node_id = "exposure",
+            .parameters = image::ExposureAdjustment{},
+        },
+    };
+    auto adjusted_nodes = neutral_nodes;
+    adjusted_nodes[0].parameters = image::ExposureAdjustment{1.0};
+
+    const auto neutral = warm.render_jpeg(neutral_nodes, 90);
+    const auto adjusted = warm.render_jpeg(adjusted_nodes, 90);
+    expect(
+        session.reference_render_count() == 1U,
+        "repeated warm renders never ask the decoder for pixels again"
+    );
+    expect(neutral.dimensions == image::Dimensions{4, 2}, "warm output dimensions stay fixed");
+    expect(adjusted.dimensions == neutral.dimensions, "all warm renders share working dimensions");
+    expect(adjusted.bytes != neutral.bytes, "warm renders apply each requested edit independently");
+
+    const auto one_shot_adjusted = image::render_edited_reference_proxy_jpeg(
+        session,
+        adjusted_nodes,
+        image::ProxyRequest{.max_edge = 4, .jpeg_quality = 90}
+    );
+    expect(
+        adjusted.bytes == one_shot_adjusted.bytes,
+        "linear affine edits commute with the warm proxy's linear downsampling"
+    );
+    expect(session.reference_render_count() == 2U, "only the one-shot comparison decodes again");
+}
+
+void warm_edit_preview_bounds_fail_before_decode() {
+    const FakeRgbSession session;
+    try {
+        static_cast<void>(image::prepare_warm_edit_preview(session, 0));
+        expect(false, "zero warm edge must fail");
+    } catch (const image::DecodeError& error) {
+        expect(
+            error.code() == image::DecodeErrorCode::invalid_request,
+            "zero warm edge reports an invalid request"
+        );
+    }
+    try {
+        static_cast<void>(image::prepare_warm_edit_preview(
+            session,
+            image::maximum_warm_edit_preview_edge + 1U
+        ));
+        expect(false, "oversized warm edge must fail");
+    } catch (const image::DecodeError& error) {
+        expect(
+            error.code() == image::DecodeErrorCode::invalid_request,
+            "oversized warm edge reports an invalid request"
+        );
+    }
+    expect(
+        session.reference_render_count() == 0U,
+        "invalid warm bounds are rejected before decoder work"
+    );
+}
+
 } // namespace
 
 int main() {
@@ -211,5 +284,7 @@ int main() {
     no_decodable_preview_is_a_valid_state();
     reference_proxy_is_bounded_standard_jpeg();
     edited_proxy_crosses_explicit_linear_srgb_boundary();
+    warm_edit_preview_decodes_once_and_renders_repeatedly();
+    warm_edit_preview_bounds_fail_before_decode();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

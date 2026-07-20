@@ -97,6 +97,9 @@ enum class AdjustmentOperation : std::uint8_t {
 
 inline constexpr std::uint32_t adjustment_parameter_schema_version = 1;
 inline constexpr std::uint32_t adjustment_implementation_version = 1;
+// A square proxy at this limit occupies at most 192 MiB as interleaved RGB float32.
+// Typical 3:2 photos at the UI's 1600/2048 edge use substantially less memory.
+inline constexpr std::uint32_t maximum_warm_edit_preview_edge = 4'096;
 
 struct AdjustmentNode final {
     std::string node_id;
@@ -141,6 +144,48 @@ private:
 [[nodiscard]] FloatRgbImage execute_adjustment_nodes(
     const FloatRgbImage& input,
     std::span<const AdjustmentNode> nodes
+);
+
+// An immutable, reusable scene-linear working proxy for interactive editing. Preparation is
+// the only operation that asks DecodeSession to render the RAW. render_jpeg() owns all of its
+// temporary edit/JPEG state, so concurrent const calls are safe after construction.
+//
+// The version-1 operations are pixel-local linear/affine transforms in scene-linear RGB.
+// Therefore bilinear downsampling may happen before those operations without changing their
+// mathematical result. Nonlinear, masked, or neighborhood operations must declare a different
+// preview strategy rather than being silently routed through this class.
+class WarmEditPreviewSession final {
+public:
+    WarmEditPreviewSession(const WarmEditPreviewSession&) = delete;
+    WarmEditPreviewSession& operator=(const WarmEditPreviewSession&) = delete;
+    WarmEditPreviewSession(WarmEditPreviewSession&&) noexcept = default;
+    WarmEditPreviewSession& operator=(WarmEditPreviewSession&&) noexcept = default;
+    ~WarmEditPreviewSession() = default;
+
+    [[nodiscard]] Dimensions dimensions() const noexcept;
+    [[nodiscard]] std::uint32_t max_edge() const noexcept;
+    [[nodiscard]] EncodedProxy render_jpeg(
+        std::span<const AdjustmentNode> nodes,
+        std::uint8_t jpeg_quality = 88
+    ) const;
+
+private:
+    WarmEditPreviewSession(FloatRgbImage working_proxy, std::uint32_t max_edge);
+
+    FloatRgbImage working_proxy_;
+    std::uint32_t max_edge_ = 0;
+
+    friend WarmEditPreviewSession prepare_warm_edit_preview(
+        const DecodeSession& session,
+        std::uint32_t max_edge
+    );
+};
+
+// Decodes once and stores only a max-edge-bounded scene-linear sRGB float proxy. Conversion to
+// linear light precedes bilinear downsampling; the full-size float image is never materialized.
+[[nodiscard]] WarmEditPreviewSession prepare_warm_edit_preview(
+    const DecodeSession& session,
+    std::uint32_t max_edge = 2'048
 );
 
 // Renders a standard display-referred JPEG while keeping adjustment math in explicitly

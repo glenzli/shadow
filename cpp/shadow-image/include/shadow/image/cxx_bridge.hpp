@@ -4,11 +4,13 @@
 
 namespace shadow::bridge {
 class DecodeHandle;
+class EditPreviewHandle;
 }
 
 #include "shadow-bridge/src/lib.rs.h"
 
 #include <shadow/image/decoder.hpp>
+#include <shadow/image/edit.hpp>
 
 #include <memory>
 
@@ -37,10 +39,34 @@ public:
     [[nodiscard]] FfiEncodedProxy render_edited_reference_proxy(
         const FfiBasicEditRequest& request
     ) const;
+    [[nodiscard]] std::unique_ptr<EditPreviewHandle> prepare_edit_preview(
+        std::uint32_t max_edge
+    ) const;
 
 private:
     std::unique_ptr<image::DecoderProvider> provider_;
     std::unique_ptr<image::DecodeSession> session_;
+};
+
+// Unlike DecodeHandle, this handle no longer owns or references a decoder. Its working proxy
+// is immutable after preparation and render_basic_edits() uses only call-local state, so const
+// calls may safely run concurrently on different worker threads.
+class EditPreviewHandle final {
+public:
+    explicit EditPreviewHandle(image::WarmEditPreviewSession session);
+    ~EditPreviewHandle();
+
+    EditPreviewHandle(const EditPreviewHandle&) = delete;
+    EditPreviewHandle& operator=(const EditPreviewHandle&) = delete;
+
+    [[nodiscard]] FfiDimensions dimensions() const noexcept;
+    [[nodiscard]] std::uint32_t max_edge() const noexcept;
+    [[nodiscard]] FfiEncodedProxy render_basic_edits(
+        const FfiBasicEditRequest& request
+    ) const;
+
+private:
+    image::WarmEditPreviewSession session_;
 };
 
 [[nodiscard]] std::unique_ptr<DecodeHandle> open_libraw_utf8(rust::Str path);

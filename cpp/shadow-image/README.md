@@ -44,6 +44,16 @@ NaN/Inf and float overflow, and refuses unknown schema/implementation versions. 
 observable and stable. This linear executor is the CPU reference subset of the future typed DAG;
 masks, branching, blending, tile scheduling, and GPU implementations remain separate work.
 
+`WarmEditPreviewSession` is the interactive path for this exact version-1 subset. Preparation
+asks the decoder for reference RGB once, converts samples to scene-linear sRGB, and bilinearly
+downsamples them into an immutable float working proxy before any adjustment. This reordering is
+valid only because exposure, pivot contrast, RGB gains, and saturation are pixel-local affine
+operations in the same linear domain; future nonlinear, masked, or neighborhood nodes must use
+an explicitly different preview strategy. The warm edge is capped at 4096 (at most 192 MiB for a
+square interleaved RGB float32 proxy; typical 3:2 images and the UI's 1600/2048 choices use less).
+Each render owns its output/edit/JPEG buffers, so const renders may safely run concurrently; the
+original decoder session is neither retained nor revisited during slider interaction.
+
 ## Build and test
 
 ```sh
