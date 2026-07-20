@@ -44,6 +44,14 @@ NaN/Inf and float overflow, and refuses unknown schema/implementation versions. 
 observable and stable. This linear executor is the CPU reference subset of the future typed DAG;
 masks, branching, blending, tile scheduling, and GPU implementations remain separate work.
 
+The independent `apply_tone_curve` operator establishes a versioned CPU reference contract
+without changing that first node subset. Version 1 uses at most 256 finite control points whose
+strictly increasing x coordinates span exactly 0 through 1. It applies a piecewise-linear curve
+to each scene-linear working-RGB channel, interpolates normalized samples, and extrapolates
+negative and super-white samples with the endpoint segment slopes. It never clips. This is a
+transparent baseline for Recipe integration and parity tests; it does not claim to be a final
+perceptual, luminance-only, or display-referred tone-curve model.
+
 `WarmEditPreviewSession` is the interactive path for this exact version-1 subset. Preparation
 asks the decoder for reference RGB once, converts samples to scene-linear sRGB, and bilinearly
 downsamples them into an immutable float working proxy before any adjustment. This reordering is

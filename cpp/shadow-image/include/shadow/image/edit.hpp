@@ -82,6 +82,26 @@ struct SaturationAdjustment final {
     double factor = 1.0;
 };
 
+inline constexpr std::uint32_t tone_curve_parameter_schema_version = 1;
+inline constexpr std::uint32_t tone_curve_implementation_version = 1;
+inline constexpr std::size_t maximum_tone_curve_points = 256U;
+
+struct ToneCurvePoint final {
+    double x = 0.0;
+    double y = 0.0;
+
+    auto operator<=>(const ToneCurvePoint&) const = default;
+};
+
+// Version 1 is an intentionally simple, deterministic reference curve. Control-point x
+// coordinates span the normalized [0, 1] domain; y remains unbounded so lifted blacks and
+// super-white results are representable. The default two-point curve is exactly neutral.
+struct ToneCurve final {
+    std::uint32_t parameter_schema_version = tone_curve_parameter_schema_version;
+    std::uint32_t implementation_version = tone_curve_implementation_version;
+    std::vector<ToneCurvePoint> points{{0.0, 0.0}, {1.0, 1.0}};
+};
+
 using AdjustmentParameters = std::variant<
     ExposureAdjustment,
     ContrastAdjustment,
@@ -144,6 +164,16 @@ private:
 [[nodiscard]] FloatRgbImage execute_adjustment_nodes(
     const FloatRgbImage& input,
     std::span<const AdjustmentNode> nodes
+);
+
+// Applies the same piecewise-linear curve independently to every channel in scene-linear
+// working RGB. Samples in [0, 1] are interpolated between control points; negative and
+// greater-than-one samples are linearly extrapolated with the first and last segment slopes.
+// No clipping or implicit perceptual/luma conversion occurs. This is the version-1 CPU
+// correctness baseline, not Shadow's final perceptual tone-curve design.
+[[nodiscard]] FloatRgbImage apply_tone_curve(
+    const FloatRgbImage& input,
+    const ToneCurve& curve
 );
 
 // An immutable, reusable scene-linear working proxy for interactive editing. Preparation is

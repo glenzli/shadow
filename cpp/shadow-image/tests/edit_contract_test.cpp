@@ -289,6 +289,167 @@ void color_and_layout_assumptions_are_enforced() {
     );
 }
 
+void default_tone_curve_is_an_exact_neutral_operation() {
+    const auto input = rgb_image(
+        2,
+        {-0.5F, 0.0F, 0.25F, 1.0F, 1.5F, 3.0F, 42.0F},
+        1U
+    );
+    const auto output = image::apply_tone_curve(input, image::ToneCurve{});
+
+    expect(output.samples == input.samples, "the default tone curve preserves every float");
+    expect_close(output.samples[6], 42.0F, "tone curve does not process row padding");
+    expect_close(input.samples[4], 1.5F, "tone curve execution does not mutate its input");
+}
+
+void tone_curve_interpolates_control_points_per_channel() {
+    const auto input = rgb_image(1, {0.125F, 0.5F, 0.875F});
+    const image::ToneCurve curve{
+        .points = {
+            {0.0, 0.0},
+            {0.25, 0.1},
+            {0.75, 0.9},
+            {1.0, 1.0},
+        },
+    };
+    const auto output = image::apply_tone_curve(input, curve);
+
+    expect_close(output.samples[0], 0.05F, "tone curve interpolates the first segment");
+    expect_close(output.samples[1], 0.5F, "tone curve interpolates the middle segment");
+    expect_close(output.samples[2], 0.95F, "tone curve interpolates the last segment");
+}
+
+void tone_curve_extrapolates_without_clipping() {
+    const auto input = rgb_image(1, {-0.5F, 0.5F, 1.5F});
+    const image::ToneCurve curve{
+        .points = {
+            {0.0, 0.1},
+            {0.25, 0.2},
+            {1.0, 0.8},
+        },
+    };
+    const auto output = image::apply_tone_curve(input, curve);
+
+    expect_close(output.samples[0], -0.1F, "negative input uses the first segment slope");
+    expect_close(output.samples[1], 0.4F, "normalized input remains interpolated");
+    expect_close(output.samples[2], 1.2F, "super-white input uses the last segment slope");
+
+    const image::ToneCurve wide_output{
+        .points = {
+            {0.0, -0.5},
+            {0.5, 2.0},
+            {1.0, 1.5},
+        },
+    };
+    const auto unclipped = image::apply_tone_curve(
+        rgb_image(1, {0.0F, 0.5F, 1.0F}),
+        wide_output
+    );
+    expect_close(unclipped.samples[0], -0.5F, "curve output is not clipped at zero");
+    expect_close(unclipped.samples[1], 2.0F, "curve output is not clipped at one");
+
+    const auto through_next_stage = image::apply_tone_curve(unclipped, image::ToneCurve{});
+    expect_close(
+        through_next_stage.samples[0],
+        -0.5F,
+        "a following curve receives negative intermediate values"
+    );
+    expect_close(
+        through_next_stage.samples[1],
+        2.0F,
+        "a following curve receives super-white intermediate values"
+    );
+}
+
+void invalid_tone_curves_fail_closed() {
+    const auto input = rgb_image(1, {0.1F, 0.2F, 0.3F});
+    expect_edit_error(
+        [&] {
+            static_cast<void>(image::apply_tone_curve(
+                input,
+                image::ToneCurve{.points = {{0.0, 0.0}}}
+            ));
+        },
+        image::EditErrorCode::invalid_parameter,
+        std::nullopt,
+        "a tone curve requires at least two points"
+    );
+
+    image::ToneCurve too_many;
+    too_many.points.resize(image::maximum_tone_curve_points + 1U);
+    expect_edit_error(
+        [&] { static_cast<void>(image::apply_tone_curve(input, too_many)); },
+        image::EditErrorCode::invalid_parameter,
+        std::nullopt,
+        "the tone curve point count is bounded"
+    );
+
+    const std::array invalid_curves{
+        image::ToneCurve{.points = {{0.0, 0.0}, {0.5, 0.5}, {0.5, 0.7}, {1.0, 1.0}}},
+        image::ToneCurve{.points = {{0.0, 0.0}, {0.75, 0.5}, {0.5, 0.7}, {1.0, 1.0}}},
+        image::ToneCurve{.points = {{0.1, 0.0}, {1.0, 1.0}}},
+        image::ToneCurve{.points = {{0.0, 0.0}, {0.9, 1.0}}},
+        image::ToneCurve{
+            .points = {
+                {0.0, 0.0},
+                {0.5, std::numeric_limits<double>::quiet_NaN()},
+                {1.0, 1.0},
+            },
+        },
+        image::ToneCurve{
+            .points = {
+                {0.0, -std::numeric_limits<double>::max()},
+                {1.0, std::numeric_limits<double>::max()},
+            },
+        },
+    };
+    for (const auto& invalid : invalid_curves) {
+        expect_edit_error(
+            [&] { static_cast<void>(image::apply_tone_curve(input, invalid)); },
+            image::EditErrorCode::invalid_parameter,
+            std::nullopt,
+            "invalid tone curve geometry or numeric data is rejected"
+        );
+    }
+
+    image::ToneCurve future;
+    future.implementation_version = image::tone_curve_implementation_version + 1U;
+    expect_edit_error(
+        [&] { static_cast<void>(image::apply_tone_curve(input, future)); },
+        image::EditErrorCode::unsupported_version,
+        std::nullopt,
+        "unknown tone curve versions are rejected"
+    );
+
+    const image::ToneCurve overflowing{
+        .points = {
+            {0.0, 0.0},
+            {1.0, std::numeric_limits<double>::max()},
+        },
+    };
+    expect_edit_error(
+        [&] { static_cast<void>(image::apply_tone_curve(input, overflowing)); },
+        image::EditErrorCode::numeric_overflow,
+        std::nullopt,
+        "tone curve results outside float32 fail instead of saturating"
+    );
+}
+
+void tone_curve_is_deterministic() {
+    const auto input = rgb_image(2, {-0.2F, 0.1F, 0.33F, 0.7F, 1.0F, 1.25F});
+    const image::ToneCurve curve{
+        .points = {
+            {0.0, 0.05},
+            {0.2, 0.12},
+            {0.6, 0.72},
+            {1.0, 1.1},
+        },
+    };
+    const auto first = image::apply_tone_curve(input, curve);
+    const auto second = image::apply_tone_curve(input, curve);
+    expect(first.samples == second.samples, "identical tone curve inputs are bit-stable");
+}
+
 } // namespace
 
 int main() {
@@ -298,5 +459,10 @@ int main() {
     node_order_is_observable_and_disabled_nodes_are_skipped();
     invalid_values_and_versions_fail_closed();
     color_and_layout_assumptions_are_enforced();
+    default_tone_curve_is_an_exact_neutral_operation();
+    tone_curve_interpolates_control_points_per_channel();
+    tone_curve_extrapolates_without_clipping();
+    invalid_tone_curves_fail_closed();
+    tone_curve_is_deterministic();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

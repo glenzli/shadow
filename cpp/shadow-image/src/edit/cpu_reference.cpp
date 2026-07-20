@@ -16,6 +16,11 @@ static_assert(std::numeric_limits<float>::is_iec559);
 
 constexpr std::size_t rgb_channels = 3U;
 
+struct PreparedToneCurve final {
+    const ToneCurve* curve = nullptr;
+    std::vector<double> segment_slopes;
+};
+
 [[nodiscard]] std::string node_prefix(
     const std::size_t index,
     const AdjustmentNode& node
@@ -142,6 +147,106 @@ void validate_image(const FloatRgbImage& image) {
             "edit input contains NaN or infinity"
         );
     }
+}
+
+[[nodiscard]] PreparedToneCurve prepare_tone_curve(const ToneCurve& curve) {
+    if (
+        curve.parameter_schema_version != tone_curve_parameter_schema_version
+        || curve.implementation_version != tone_curve_implementation_version
+    ) {
+        throw EditError(
+            EditErrorCode::unsupported_version,
+            std::nullopt,
+            "tone curve supports only parameter schema 1 and implementation 1"
+        );
+    }
+    if (curve.points.size() < 2U || curve.points.size() > maximum_tone_curve_points) {
+        throw EditError(
+            EditErrorCode::invalid_parameter,
+            std::nullopt,
+            "tone curve must contain between 2 and 256 control points"
+        );
+    }
+    if (curve.points.front().x != 0.0 || curve.points.back().x != 1.0) {
+        throw EditError(
+            EditErrorCode::invalid_parameter,
+            std::nullopt,
+            "tone curve x coordinates must start at zero and end at one"
+        );
+    }
+
+    PreparedToneCurve prepared{
+        .curve = &curve,
+        .segment_slopes = {},
+    };
+    prepared.segment_slopes.reserve(curve.points.size() - 1U);
+    for (std::size_t index = 0; index < curve.points.size(); ++index) {
+        const ToneCurvePoint point = curve.points[index];
+        if (!std::isfinite(point.x) || !std::isfinite(point.y)) {
+            throw EditError(
+                EditErrorCode::invalid_parameter,
+                std::nullopt,
+                "tone curve control points must contain only finite values"
+            );
+        }
+        if (index == 0U) {
+            continue;
+        }
+
+        const ToneCurvePoint previous = curve.points[index - 1U];
+        if (point.x <= previous.x) {
+            throw EditError(
+                EditErrorCode::invalid_parameter,
+                std::nullopt,
+                "tone curve x coordinates must be strictly increasing"
+            );
+        }
+        const double slope = (point.y - previous.y) / (point.x - previous.x);
+        if (!std::isfinite(slope)) {
+            throw EditError(
+                EditErrorCode::invalid_parameter,
+                std::nullopt,
+                "tone curve segment slopes must be finite"
+            );
+        }
+        prepared.segment_slopes.push_back(slope);
+    }
+    return prepared;
+}
+
+[[nodiscard]] double evaluate_tone_curve(
+    const PreparedToneCurve& prepared,
+    const double value
+) {
+    const auto& points = prepared.curve->points;
+    const auto upper = std::upper_bound(
+        points.begin(),
+        points.end(),
+        value,
+        [](const double sample, const ToneCurvePoint& point) { return sample < point.x; }
+    );
+
+    std::size_t segment = 0U;
+    if (upper == points.end()) {
+        segment = points.size() - 2U;
+    } else if (upper != points.begin()) {
+        segment = static_cast<std::size_t>(upper - points.begin()) - 1U;
+    }
+
+    return points[segment].y
+        + (value - points[segment].x) * prepared.segment_slopes[segment];
+}
+
+[[nodiscard]] float checked_tone_curve_float(const double value) {
+    constexpr double maximum = static_cast<double>(std::numeric_limits<float>::max());
+    if (!std::isfinite(value) || value < -maximum || value > maximum) {
+        throw EditError(
+            EditErrorCode::numeric_overflow,
+            std::nullopt,
+            "tone curve pixel result exceeded finite float32 range"
+        );
+    }
+    return static_cast<float>(value);
 }
 
 void validate_node(const AdjustmentNode& node, const std::size_t index) {
@@ -377,6 +482,29 @@ FloatRgbImage execute_adjustment_nodes(
     for (std::size_t index = 0; index < nodes.size(); ++index) {
         if (nodes[index].enabled) {
             apply_node(output, nodes[index], index);
+        }
+    }
+    return output;
+}
+
+FloatRgbImage apply_tone_curve(const FloatRgbImage& input, const ToneCurve& curve) {
+    validate_image(input);
+    const PreparedToneCurve prepared = prepare_tone_curve(curve);
+
+    FloatRgbImage output = input;
+    const std::size_t stride = output.row_stride_bytes / sizeof(float);
+    for (std::uint32_t y = 0; y < output.dimensions.height; ++y) {
+        const std::size_t row = static_cast<std::size_t>(y) * stride;
+        for (std::uint32_t x = 0; x < output.dimensions.width; ++x) {
+            const std::size_t sample = row + static_cast<std::size_t>(x) * rgb_channels;
+            for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
+                output.samples[sample + channel] = checked_tone_curve_float(
+                    evaluate_tone_curve(
+                        prepared,
+                        static_cast<double>(output.samples[sample + channel])
+                    )
+                );
+            }
         }
     }
     return output;
