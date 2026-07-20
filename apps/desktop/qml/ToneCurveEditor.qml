@@ -161,6 +161,25 @@ Item {
         controller.resetToneCurve()
     }
 
+    Connections {
+        target: root.controller
+
+        function onSelectedLayerChanged() {
+            root.finishPointGesture()
+            root.clearSelection()
+        }
+    }
+
+    Connections {
+        target: root.curveModel
+
+        function onModelReset() {
+            root.finishPointGesture()
+            root.clearSelection()
+            curveCanvas.requestPaint()
+        }
+    }
+
     onHasCurveChanged: {
         if (!hasCurve) {
             finishPointGesture()

@@ -15,7 +15,10 @@
 #include <QTimer>
 #include <QUrl>
 #include <QVariant>
+#include <QVector>
 
+#include <cmath>
+#include <cstdint>
 #include <memory>
 
 namespace {
@@ -33,6 +36,291 @@ namespace {
     }
     return id;
 }
+
+class AdjustmentStackSmoke final
+    : public std::enable_shared_from_this<AdjustmentStackSmoke> {
+public:
+    static void start(
+        QCoreApplication& application,
+        ReviewController& review,
+        EditController& editor
+    ) {
+        const auto smoke = std::shared_ptr<AdjustmentStackSmoke>(
+            new AdjustmentStackSmoke(application, review, editor)
+        );
+        smoke->connectSignals();
+    }
+
+private:
+    enum class Stage : std::uint8_t {
+        AwaitInitialPreview,
+        AwaitAdjustedPreview,
+        Saving,
+        Reopening,
+        Verifying,
+        Finished,
+        Failed,
+    };
+
+    AdjustmentStackSmoke(
+        QCoreApplication& application,
+        ReviewController& review,
+        EditController& editor
+    )
+        : application_(application), review_(review), editor_(editor) {}
+
+    static QString layerId(const QVariantList& layers, const qsizetype index) {
+        return layers.at(index)
+            .toMap()
+            .value(QStringLiteral("layerId"))
+            .toString();
+    }
+
+    static bool layerEnabled(const QVariantList& layers, const qsizetype index) {
+        return layers.at(index)
+            .toMap()
+            .value(QStringLiteral("enabled"))
+            .toBool();
+    }
+
+    void connectSignals() {
+        const auto self = shared_from_this();
+        QObject::connect(
+            &editor_,
+            &EditController::previewSourceChanged,
+            &application_,
+            [self]() { self->previewChanged(); }
+        );
+        QObject::connect(
+            &editor_,
+            &EditController::stateBusyChanged,
+            &application_,
+            [self]() { self->stateBusyChanged(); }
+        );
+        QTimer::singleShot(30'000, &application_, [self]() {
+            if (self->stage_ != Stage::Finished) {
+                self->fail(QStringLiteral("timed out after 30 seconds"));
+            }
+        });
+    }
+
+    void previewChanged() {
+        if (editor_.previewSource().isEmpty()) {
+            return;
+        }
+        if (stage_ == Stage::AwaitInitialPreview) {
+            buildStack();
+        } else if (stage_ == Stage::AwaitAdjustedPreview) {
+            stage_ = Stage::Saving;
+            const auto self = shared_from_this();
+            QTimer::singleShot(0, &editor_, [self]() { self->save(); });
+        } else if (stage_ == Stage::Reopening) {
+            stage_ = Stage::Verifying;
+            const auto self = shared_from_this();
+            QTimer::singleShot(0, &editor_, [self]() { self->verifyReopen(); });
+        }
+    }
+
+    void stateBusyChanged() {
+        if (editor_.stateBusy()) {
+            return;
+        }
+        const auto self = shared_from_this();
+        if (stage_ == Stage::Saving) {
+            QTimer::singleShot(0, &editor_, [self]() { self->finishSave(); });
+        } else if (stage_ == Stage::Reopening) {
+            QTimer::singleShot(0, &editor_, [self]() {
+                if (self->stage_ == Stage::Reopening
+                    && (!self->editor_.active()
+                        || self->editor_.statusText().startsWith(
+                            QStringLiteral("Version operation failed")
+                        ))) {
+                    self->fail(QStringLiteral("the saved photo could not be reloaded"));
+                }
+            });
+        }
+    }
+
+    void buildStack() {
+        auto* const model = review_.reviewModel();
+        if (!expect(model->rowCount() > 0, QStringLiteral("Review item disappeared"))) {
+            return;
+        }
+        const QModelIndex first = model->index(0, 0);
+        photo_id_ = model->data(first, ReviewModel::PhotoIdRole).toString();
+        representation_id_ = model->data(
+            first,
+            ReviewModel::RepresentationIdRole
+        ).toString();
+        source_path_ = model->data(first, ReviewModel::SourcePathRole).toString();
+        title_ = model->data(first, ReviewModel::TitleRole).toString();
+
+        const QVariantList initial_layers = editor_.layers();
+        if (!expect(
+                initial_layers.size() == 1,
+                QStringLiteral("expected one initial layer, found %1")
+                    .arg(initial_layers.size())
+            )) {
+            return;
+        }
+        const QString initial_id = layerId(initial_layers, 0);
+        if (!expect(!initial_id.isEmpty(), QStringLiteral("initial layer has no ID"))) {
+            return;
+        }
+
+        editor_.addLayer();
+        if (!expect(editor_.layers().size() == 2, QStringLiteral("add layer failed"))) {
+            return;
+        }
+        const QString added_id = editor_.selectedLayerId();
+        editor_.setExposureStops(expected_exposure_);
+        editor_.duplicateSelectedLayer();
+        if (!expect(
+                editor_.layers().size() == 3,
+                QStringLiteral("duplicate layer failed")
+            )) {
+            return;
+        }
+        const QString duplicate_id = editor_.selectedLayerId();
+        if (!expect(
+                !added_id.isEmpty() && !duplicate_id.isEmpty()
+                    && added_id != initial_id && duplicate_id != initial_id
+                    && duplicate_id != added_id,
+                QStringLiteral("new layers did not receive unique stable IDs")
+            )) {
+            return;
+        }
+
+        editor_.moveSelectedLayer(0);
+        editor_.setLayerEnabled(false);
+        expected_layer_ids_ = {duplicate_id, initial_id, added_id};
+        const QVariantList adjusted_layers = editor_.layers();
+        if (!expect(
+                adjusted_layers.size() == 3
+                    && layerId(adjusted_layers, 0) == duplicate_id
+                    && layerId(adjusted_layers, 1) == initial_id
+                    && layerId(adjusted_layers, 2) == added_id
+                    && !layerEnabled(adjusted_layers, 0),
+                QStringLiteral("reorder or bypass failed")
+            )) {
+            return;
+        }
+        stage_ = Stage::AwaitAdjustedPreview;
+    }
+
+    void save() {
+        if (stage_ != Stage::Saving) {
+            return;
+        }
+        if (!expect(
+                !editor_.rendering() && !editor_.stateBusy(),
+                QStringLiteral("final preview did not settle before save")
+            )) {
+            return;
+        }
+        editor_.saveVersion(QStringLiteral("Adjustment Stack Smoke"));
+        expect(editor_.stateBusy(), QStringLiteral("version save did not start"));
+    }
+
+    void finishSave() {
+        if (stage_ != Stage::Saving) {
+            return;
+        }
+        if (!expect(
+                !editor_.stateBusy() && !editor_.dirty()
+                    && !editor_.statusText().startsWith(
+                        QStringLiteral("Version operation failed")
+                    ),
+                QStringLiteral("immutable version was not saved")
+            )) {
+            return;
+        }
+        editor_.closePhoto();
+        if (!expect(!editor_.active(), QStringLiteral("saved photo could not close"))) {
+            return;
+        }
+        stage_ = Stage::Reopening;
+        editor_.openPhoto(photo_id_, representation_id_, source_path_, title_);
+        expect(
+            editor_.active() && editor_.stateBusy(),
+            QStringLiteral("saved photo could not reopen")
+        );
+    }
+
+    void verifyReopen() {
+        if (stage_ != Stage::Verifying) {
+            return;
+        }
+        const QVariantList layers = editor_.layers();
+        if (!expect(
+                !editor_.stateBusy() && !editor_.rendering() && !editor_.dirty()
+                    && layers.size() == expected_layer_ids_.size(),
+                QStringLiteral("reopened stack was not clean and settled")
+            )) {
+            return;
+        }
+        for (qsizetype index = 0; index < expected_layer_ids_.size(); ++index) {
+            if (!expect(
+                    layerId(layers, index) == expected_layer_ids_.at(index),
+                    QStringLiteral("stable layer order changed after reopen")
+                )) {
+                return;
+            }
+        }
+        if (!expect(
+                !layerEnabled(layers, 0) && layerEnabled(layers, 2),
+                QStringLiteral("bypass state changed after reopen")
+            )) {
+            return;
+        }
+
+        editor_.selectLayer(0);
+        const bool duplicate_parameter_ok =
+            editor_.selectedLayerId() == expected_layer_ids_.at(0)
+            && std::abs(editor_.exposureStops() - expected_exposure_) < 1.0e-9;
+        editor_.selectLayer(2);
+        const bool source_parameter_ok =
+            editor_.selectedLayerId() == expected_layer_ids_.at(2)
+            && std::abs(editor_.exposureStops() - expected_exposure_) < 1.0e-9;
+        if (!expect(
+                duplicate_parameter_ok && source_parameter_ok,
+                QStringLiteral("layer parameters changed after reopen")
+            )) {
+            return;
+        }
+
+        stage_ = Stage::Finished;
+        qInfo() << "Adjustment Stack smoke passed with three persisted layers";
+        QTimer::singleShot(50, &application_, &QCoreApplication::quit);
+    }
+
+    bool expect(const bool condition, const QString& reason) {
+        if (!condition) {
+            fail(reason);
+        }
+        return condition;
+    }
+
+    void fail(const QString& reason) {
+        if (stage_ == Stage::Finished || stage_ == Stage::Failed) {
+            return;
+        }
+        stage_ = Stage::Failed;
+        qCritical().noquote() << "Adjustment Stack smoke failed:" << reason;
+        application_.exit(EXIT_FAILURE);
+    }
+
+    QCoreApplication& application_;
+    ReviewController& review_;
+    EditController& editor_;
+    Stage stage_ = Stage::AwaitInitialPreview;
+    QString photo_id_;
+    QString representation_id_;
+    QString source_path_;
+    QString title_;
+    QVector<QString> expected_layer_ids_;
+    const double expected_exposure_ = 0.75;
+};
 
 } // namespace
 
@@ -99,6 +387,9 @@ int main(int argc, char* argv[]) {
     );
     const bool request_before = qEnvironmentVariableIsSet(
         "SHADOW_DESKTOP_REQUEST_BEFORE"
+    );
+    const bool adjustment_stack_smoke = qEnvironmentVariableIsSet(
+        "SHADOW_DESKTOP_ADJUSTMENT_STACK_SMOKE"
     );
     if (open_first_edit && !record_first_comparison && !set_first_decision) {
         QObject::connect(
@@ -277,6 +568,8 @@ int main(int argc, char* argv[]) {
                     application.exit(*decision_succeeded ? EXIT_SUCCESS : EXIT_FAILURE);
                 }
             );
+        } else if (open_first_edit && adjustment_stack_smoke) {
+            AdjustmentStackSmoke::start(application, controller, editor);
         } else if (open_first_edit) {
             QObject::connect(
                 &editor,

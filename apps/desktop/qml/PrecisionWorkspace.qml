@@ -9,7 +9,6 @@ Item {
 
     required property var editor
     property int selectedNode: 0
-    property bool layerExpanded: true
     property real zoomFactor: 1.0
     property bool showBefore: false
 
@@ -85,197 +84,324 @@ Item {
                 anchors.margins: 16
                 spacing: 10
 
-                Label {
-                    text: "ADJUSTMENT LAYERS"
-                    color: precision.textMuted
-                    font.pixelSize: 10
-                    font.weight: Font.DemiBold
-                    font.letterSpacing: 1.5
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 6
+                    Label {
+                        Layout.fillWidth: true
+                        text: "ADJUSTMENT LAYERS"
+                        color: precision.textMuted
+                        font.pixelSize: 10
+                        font.weight: Font.DemiBold
+                        font.letterSpacing: 1.5
+                    }
+                    Label {
+                        text: precision.editor.layers.length + " / 16"
+                        color: precision.textMuted
+                        font.pixelSize: 8
+                    }
+                    Button {
+                        id: addLayerButton
+                        Layout.preferredWidth: 28
+                        Layout.preferredHeight: 26
+                        text: "+"
+                        enabled: precision.editor.canAddLayer
+                        Accessible.name: "Add adjustment layer"
+                        ToolTip.visible: hovered
+                        ToolTip.text: "Add neutral layer after the selection"
+                        onClicked: precision.editor.addLayer()
+                        background: Rectangle {
+                            radius: 3
+                            color: addLayerButton.down ? "#b9914e" : precision.accent
+                            opacity: addLayerButton.enabled ? 1.0 : 0.3
+                        }
+                        contentItem: Label {
+                            text: addLayerButton.text
+                            color: "#17130d"
+                            font.pixelSize: 16
+                            font.weight: Font.Bold
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                    }
+                }
+
+                ListView {
+                    id: layerList
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Math.min(280, Math.max(58, contentHeight))
+                    Layout.maximumHeight: 280
+                    model: precision.editor.layers
+                    spacing: 6
+                    clip: true
+                    boundsBehavior: Flickable.StopAtBounds
+
+                    delegate: Rectangle {
+                        id: layerRow
+                        required property int index
+                        required property var modelData
+
+                        readonly property bool selected:
+                            layerRow.index === precision.editor.selectedLayerIndex
+
+                        width: layerList.width
+                        height: 54
+                        radius: 4
+                        color: selected ? "#242a30" : "#181c21"
+                        border.color: selected
+                            ? precision.accent
+                            : modelData.enabled ? precision.border : "#574a36"
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: 10
+                            anchors.rightMargin: 8
+                            spacing: 7
+
+                            Rectangle {
+                                Layout.preferredWidth: 21
+                                Layout.preferredHeight: 21
+                                radius: 11
+                                color: layerRow.selected ? precision.accent : "#2a3037"
+                                Label {
+                                    anchors.centerIn: parent
+                                    text: String(layerRow.index + 1).padStart(2, "0")
+                                    color: layerRow.selected ? "#17130d" : precision.textMuted
+                                    font.pixelSize: 8
+                                    font.weight: Font.Bold
+                                }
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 2
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: layerRow.modelData.label
+                                    color: layerRow.modelData.enabled
+                                        ? precision.textPrimary : precision.textSecondary
+                                    font.pixelSize: 11
+                                    font.weight: Font.Medium
+                                    elide: Text.ElideRight
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: layerRow.modelData.enabled
+                                        ? "PHOTO · ENABLED" : "PHOTO · BYPASSED"
+                                    color: layerRow.modelData.enabled
+                                        ? precision.accent : "#a08a65"
+                                    font.pixelSize: 8
+                                    font.weight: Font.DemiBold
+                                    font.letterSpacing: 0.6
+                                    elide: Text.ElideRight
+                                }
+                            }
+
+                            Switch {
+                                id: rowEnabledSwitch
+                                Layout.preferredWidth: 36
+                                Layout.preferredHeight: 22
+                                checked: layerRow.modelData.enabled
+                                enabled: precision.editor.active && !precision.editor.stateBusy
+                                Accessible.name: checked
+                                    ? "Bypass " + layerRow.modelData.label
+                                    : "Enable " + layerRow.modelData.label
+                                ToolTip.visible: hovered
+                                ToolTip.delay: 500
+                                ToolTip.text: checked
+                                    ? "Bypass layer; preserve all values"
+                                    : "Enable layer"
+                                onClicked: {
+                                    precision.editor.selectLayer(layerRow.index)
+                                    precision.editor.layerEnabled = checked
+                                }
+                                indicator: Rectangle {
+                                    implicitWidth: 34
+                                    implicitHeight: 18
+                                    x: (rowEnabledSwitch.width - width) / 2
+                                    y: (rowEnabledSwitch.height - height) / 2
+                                    radius: height / 2
+                                    color: rowEnabledSwitch.checked ? "#5a492a" : "#282e34"
+                                    border.color: rowEnabledSwitch.checked ? "#8b7040" : "#4a535c"
+                                    Rectangle {
+                                        width: 12
+                                        height: 12
+                                        y: 3
+                                        x: rowEnabledSwitch.checked ? parent.width - width - 3 : 3
+                                        radius: width / 2
+                                        color: rowEnabledSwitch.checked
+                                            ? precision.accent : precision.textMuted
+                                    }
+                                }
+                                contentItem: Item {}
+                            }
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            anchors.rightMargin: 44
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: precision.editor.selectLayer(layerRow.index)
+                        }
+                    }
+
+                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 5
+
+                    LayerActionButton {
+                        id: copyLayerButton
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 28
+                        text: "COPY"
+                        enabled: precision.editor.hasSelectedLayer
+                            && precision.editor.canAddLayer
+                        onClicked: precision.editor.duplicateSelectedLayer()
+                    }
+                    LayerActionButton {
+                        id: deleteLayerButton
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 28
+                        text: "DELETE"
+                        enabled: precision.editor.canDeleteLayer
+                        onClicked: precision.editor.deleteSelectedLayer()
+                    }
+                    LayerActionButton {
+                        id: moveLayerUpButton
+                        Layout.preferredWidth: 32
+                        Layout.preferredHeight: 28
+                        text: "↑"
+                        enabled: precision.editor.canMoveLayerUp
+                        Accessible.name: "Move selected layer up"
+                        onClicked: precision.editor.moveSelectedLayer(
+                            precision.editor.selectedLayerIndex - 1
+                        )
+                    }
+                    LayerActionButton {
+                        id: moveLayerDownButton
+                        Layout.preferredWidth: 32
+                        Layout.preferredHeight: 28
+                        text: "↓"
+                        enabled: precision.editor.canMoveLayerDown
+                        Accessible.name: "Move selected layer down"
+                        onClicked: precision.editor.moveSelectedLayer(
+                            precision.editor.selectedLayerIndex + 1
+                        )
+                    }
                 }
 
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 54
-                    radius: 4
-                    color: precision.editor.layerEnabled ? "#20252b" : "#181c21"
-                    border.color: precision.editor.layerEnabled ? "#343b43" : "#574a36"
-
-                    RowLayout {
-                        anchors.fill: parent
-                        anchors.leftMargin: 12
-                        anchors.rightMargin: 10
-                        spacing: 8
-
-                        Label {
-                            text: precision.layerExpanded ? "▾" : "▸"
-                            color: precision.textMuted
-                            font.pixelSize: 12
-                        }
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: 2
-                            Label {
-                                text: "Basic Adjustments"
-                                color: precision.editor.layerEnabled
-                                    ? precision.textPrimary : precision.textSecondary
-                                font.pixelSize: 12
-                                font.weight: Font.Medium
-                            }
-                            Label {
-                                text: precision.editor.layerEnabled
-                                    ? "PHOTO · ENABLED"
-                                    : "PHOTO · BYPASSED"
-                                color: precision.editor.layerEnabled
-                                    ? precision.accent : "#a08a65"
-                                font.pixelSize: 8
-                                font.weight: Font.DemiBold
-                                font.letterSpacing: 0.7
-                                elide: Text.ElideRight
-                            }
-                        }
-
-                        Switch {
-                            id: layerEnabledSwitch
-                            Layout.preferredWidth: 38
-                            Layout.preferredHeight: 24
-                            checked: precision.editor.layerEnabled
-                            enabled: precision.editor.active
-                                && !precision.editor.stateBusy
-                            focusPolicy: Qt.StrongFocus
-                            Accessible.name: checked
-                                ? "Bypass Basic Adjustments layer"
-                                : "Enable Basic Adjustments layer"
-                            ToolTip.visible: hovered
-                            ToolTip.delay: 500
-                            ToolTip.text: checked
-                                ? "Bypass layer (values are preserved)"
-                                : "Enable layer"
-                            onToggled: precision.editor.layerEnabled = checked
-
-                            indicator: Rectangle {
-                                implicitWidth: 36
-                                implicitHeight: 20
-                                x: (layerEnabledSwitch.width - width) / 2
-                                y: (layerEnabledSwitch.height - height) / 2
-                                radius: height / 2
-                                color: layerEnabledSwitch.checked ? "#5a492a" : "#282e34"
-                                border.color: layerEnabledSwitch.activeFocus
-                                    ? precision.accent
-                                    : layerEnabledSwitch.checked ? "#8b7040" : "#4a535c"
-
-                                Rectangle {
-                                    width: 14
-                                    height: 14
-                                    y: 3
-                                    x: layerEnabledSwitch.checked ? parent.width - width - 3 : 3
-                                    radius: width / 2
-                                    color: layerEnabledSwitch.checked
-                                        ? precision.accent : precision.textMuted
-
-                                    Behavior on x {
-                                        NumberAnimation { duration: 100 }
-                                    }
-                                }
-                            }
-                            contentItem: Item {}
-                        }
-                    }
-
-                    MouseArea {
-                        anchors.fill: parent
-                        anchors.rightMargin: 58
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: precision.layerExpanded = !precision.layerExpanded
-                    }
+                    Layout.preferredHeight: 1
+                    color: precision.border
                 }
 
-                ColumnLayout {
+                Label {
                     Layout.fillWidth: true
-                    spacing: 0
-                    visible: precision.layerExpanded
-                    opacity: precision.editor.layerEnabled ? 1.0 : 0.42
+                    text: precision.editor.hasSelectedLayer
+                        ? "NODES · " + precision.editor.layers[
+                            precision.editor.selectedLayerIndex].label
+                        : "NODES"
+                    color: precision.textMuted
+                    font.pixelSize: 9
+                    font.weight: Font.DemiBold
+                    font.letterSpacing: 1.0
+                    elide: Text.ElideRight
+                }
 
-                    Behavior on opacity {
-                        NumberAnimation { duration: 100 }
-                    }
+                ScrollView {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    clip: true
+                    contentWidth: availableWidth
 
-                    Repeater {
-                        model: nodeModel
+                    ColumnLayout {
+                        width: parent.width
+                        spacing: 0
+                        opacity: precision.editor.layerEnabled ? 1.0 : 0.42
 
-                        delegate: Item {
-                            id: nodeRow
-                            required property int index
-                            required property string nodeTitle
-                            required property string nodeStage
+                        Repeater {
+                            model: nodeModel
 
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: 58
+                            delegate: Item {
+                                id: nodeRow
+                                required property int index
+                                required property string nodeTitle
+                                required property string nodeStage
 
-                            Rectangle {
-                                anchors.fill: parent
-                                anchors.leftMargin: 12
-                                radius: 4
-                                color: precision.selectedNode === nodeRow.index ? "#242a30" : "transparent"
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 54
 
-                                RowLayout {
+                                Rectangle {
                                     anchors.fill: parent
-                                    anchors.leftMargin: 10
-                                    anchors.rightMargin: 8
-                                    spacing: 10
+                                    radius: 4
+                                    color: precision.selectedNode === nodeRow.index
+                                        ? "#242a30" : "transparent"
 
-                                    Rectangle {
-                                        Layout.preferredWidth: 22
-                                        Layout.preferredHeight: 22
-                                        radius: 11
-                                        color: precision.selectedNode === nodeRow.index
-                                            ? precision.accent : "#2a3037"
-                                        Label {
-                                            anchors.centerIn: parent
-                                            text: String(nodeRow.index + 1).padStart(2, "0")
+                                    RowLayout {
+                                        anchors.fill: parent
+                                        anchors.leftMargin: 8
+                                        anchors.rightMargin: 8
+                                        spacing: 9
+
+                                        Rectangle {
+                                            Layout.preferredWidth: 22
+                                            Layout.preferredHeight: 22
+                                            radius: 11
                                             color: precision.selectedNode === nodeRow.index
+                                                ? precision.accent : "#2a3037"
+                                            Label {
+                                                anchors.centerIn: parent
+                                                text: String(nodeRow.index + 1).padStart(2, "0")
+                                                color: precision.selectedNode === nodeRow.index
                                                 ? "#17130d" : precision.textMuted
-                                            font.pixelSize: 8
-                                            font.weight: Font.Bold
+                                                font.pixelSize: 8
+                                                font.weight: Font.Bold
+                                            }
+                                        }
+
+                                        ColumnLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 2
+                                            Label {
+                                                Layout.fillWidth: true
+                                                text: nodeRow.nodeTitle
+                                                color: precision.textPrimary
+                                                font.pixelSize: 11
+                                                elide: Text.ElideRight
+                                            }
+                                            Label {
+                                                Layout.fillWidth: true
+                                                text: nodeRow.nodeStage
+                                                color: precision.textMuted
+                                                font.pixelSize: 8
+                                                font.letterSpacing: 0.6
+                                                elide: Text.ElideRight
+                                            }
                                         }
                                     }
 
-                                    ColumnLayout {
-                                        Layout.fillWidth: true
-                                        spacing: 2
-                                        Label {
-                                            Layout.fillWidth: true
-                                            text: nodeRow.nodeTitle
-                                            color: precision.textPrimary
-                                            font.pixelSize: 11
-                                            elide: Text.ElideRight
-                                        }
-                                        Label {
-                                            Layout.fillWidth: true
-                                            text: nodeRow.nodeStage
-                                            color: precision.textMuted
-                                            font.pixelSize: 8
-                                            font.letterSpacing: 0.6
-                                            elide: Text.ElideRight
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        enabled: precision.editor.hasSelectedLayer
+                                        onClicked: {
+                                            precision.selectedNode = nodeRow.index
+                                            rightTabs.currentIndex = 0
                                         }
                                     }
                                 }
 
-                                MouseArea {
-                                    anchors.fill: parent
-                                    onClicked: {
-                                        precision.selectedNode = nodeRow.index
-                                        rightTabs.currentIndex = 0
-                                    }
+                                Rectangle {
+                                    visible: nodeRow.index < nodeModel.count - 1
+                                    x: 19
+                                    y: 42
+                                    width: 1
+                                    height: 24
+                                    color: "#3a4149"
                                 }
-                            }
-
-                            Rectangle {
-                                visible: nodeRow.index < nodeModel.count - 1
-                                x: 34
-                                y: 44
-                                width: 1
-                                height: 26
-                                color: "#3a4149"
                             }
                         }
                     }
@@ -283,21 +409,11 @@ Item {
 
                 Label {
                     Layout.fillWidth: true
-                    text: "The layer is the reusable unit. Nodes below it are evaluated in a fixed, deterministic order."
+                    text: "Layers and their fixed nodes execute from top to bottom. Every structural change is undoable."
                     color: "#66717c"
                     wrapMode: Text.WordWrap
                     font.pixelSize: 10
                     lineHeight: 1.35
-                    topPadding: 8
-                }
-
-                Item { Layout.fillHeight: true }
-
-                Label {
-                    text: "NON-DESTRUCTIVE"
-                    color: "#64707b"
-                    font.pixelSize: 9
-                    font.letterSpacing: 1.1
                 }
             }
         }

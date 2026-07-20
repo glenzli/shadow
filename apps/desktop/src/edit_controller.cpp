@@ -1,9 +1,13 @@
 #include "edit_controller.hpp"
 
+#include "edit_stack.hpp"
+
 #include <QtConcurrent>
 
 #include <QSize>
+#include <QVariantMap>
 
+#include <algorithm>
 #include <cmath>
 #include <exception>
 #include <utility>
@@ -15,14 +19,14 @@ constexpr std::uint8_t EDIT_PREVIEW_QUALITY = 88;
 constexpr int EDIT_DEBOUNCE_MS = 140;
 
 [[nodiscard]] QVector<ToneCurvePoint> tone_curve_model_points(
-    const BackendEditSettings& settings
+    const BackendBasicEditLayer* const layer
 ) {
-    if (!settings.has_tone_curve) {
+    if (layer == nullptr || !layer->has_tone_curve) {
         return {{0.0, 0.0}, {1.0, 1.0}};
     }
     QVector<ToneCurvePoint> points;
-    points.reserve(settings.tone_curve_points.size());
-    for (const auto& point : settings.tone_curve_points) {
+    points.reserve(layer->tone_curve_points.size());
+    for (const auto& point : layer->tone_curve_points) {
         points.push_back({.x = point.x, .y = point.y});
     }
     return points;
@@ -42,6 +46,34 @@ constexpr int EDIT_DEBOUNCE_MS = 140;
 
 [[nodiscard]] QString tone_curve_gesture_key(const int index) {
     return QStringLiteral("tone_curve/%1").arg(index);
+}
+
+[[nodiscard]] bool layer_list_changed(
+    const BackendEditSettings& before,
+    const BackendEditSettings& after
+) {
+    if (before.layers.size() != after.layers.size()) {
+        return true;
+    }
+    for (qsizetype index = 0; index < before.layers.size(); ++index) {
+        const auto& left = before.layers.at(index);
+        const auto& right = after.layers.at(index);
+        if (left.layer_id != right.layer_id || left.label != right.label
+            || left.enabled != right.enabled) {
+            return true;
+        }
+    }
+    return false;
+}
+
+[[nodiscard]] QString history_layer_id(const std::string& key) {
+    const QString value = QString::fromStdString(key);
+    constexpr auto prefix = "layer/";
+    if (!value.startsWith(QLatin1StringView(prefix))) {
+        return {};
+    }
+    const qsizetype end = value.indexOf(QLatin1Char('/'), 6);
+    return end < 0 ? value.mid(6) : value.mid(6, end - 6);
 }
 
 [[nodiscard]] EditStateTaskResult load_state(
@@ -230,32 +262,87 @@ QString EditController::statusText() const {
     return status_text_;
 }
 
+QVariantList EditController::layers() const {
+    QVariantList result;
+    result.reserve(settings_.layers.size());
+    for (qsizetype index = 0; index < settings_.layers.size(); ++index) {
+        const auto& layer = settings_.layers.at(index);
+        QVariantMap item;
+        item.insert(QStringLiteral("layerId"), layer.layer_id);
+        item.insert(QStringLiteral("label"), layer.label);
+        item.insert(QStringLiteral("enabled"), layer.enabled);
+        item.insert(QStringLiteral("index"), static_cast<int>(index));
+        result.push_back(item);
+    }
+    return result;
+}
+
+int EditController::selectedLayerIndex() const noexcept {
+    return selected_layer_index_;
+}
+
+QString EditController::selectedLayerId() const {
+    const auto* const layer = selectedLayer();
+    return layer == nullptr ? QString{} : layer->layer_id;
+}
+
+bool EditController::hasSelectedLayer() const noexcept {
+    return selectedLayer() != nullptr;
+}
+
+bool EditController::canAddLayer() const noexcept {
+    return active_ && !state_running_
+        && settings_.layers.size() < EditStack::maximum_layer_count;
+}
+
+bool EditController::canDeleteLayer() const noexcept {
+    return active_ && !state_running_ && hasSelectedLayer()
+        && settings_.layers.size() > EditStack::minimum_layer_count;
+}
+
+bool EditController::canMoveLayerUp() const noexcept {
+    return active_ && !state_running_ && selected_layer_index_ > 0;
+}
+
+bool EditController::canMoveLayerDown() const noexcept {
+    const int count = static_cast<int>(settings_.layers.size());
+    return active_ && !state_running_ && selected_layer_index_ >= 0
+        && selected_layer_index_ + 1 < count;
+}
+
 bool EditController::layerEnabled() const noexcept {
-    return settings_.layer_enabled;
+    const auto* const layer = selectedLayer();
+    return layer != nullptr && layer->enabled;
 }
 
 double EditController::exposureStops() const noexcept {
-    return settings_.basic.exposure_stops;
+    const auto* const layer = selectedLayer();
+    return layer == nullptr ? 0.0 : layer->basic.exposure_stops;
 }
 
 double EditController::contrastFactor() const noexcept {
-    return settings_.basic.contrast_factor;
+    const auto* const layer = selectedLayer();
+    return layer == nullptr ? 1.0 : layer->basic.contrast_factor;
 }
 
 double EditController::redGain() const noexcept {
-    return settings_.basic.red_channel_gain;
+    const auto* const layer = selectedLayer();
+    return layer == nullptr ? 1.0 : layer->basic.red_channel_gain;
 }
 
 double EditController::greenGain() const noexcept {
-    return settings_.basic.green_channel_gain;
+    const auto* const layer = selectedLayer();
+    return layer == nullptr ? 1.0 : layer->basic.green_channel_gain;
 }
 
 double EditController::blueGain() const noexcept {
-    return settings_.basic.blue_channel_gain;
+    const auto* const layer = selectedLayer();
+    return layer == nullptr ? 1.0 : layer->basic.blue_channel_gain;
 }
 
 double EditController::saturationFactor() const noexcept {
-    return settings_.basic.saturation_factor;
+    const auto* const layer = selectedLayer();
+    return layer == nullptr ? 1.0 : layer->basic.saturation_factor;
 }
 
 QAbstractItemModel* EditController::toneCurvePoints() noexcept {
@@ -263,7 +350,8 @@ QAbstractItemModel* EditController::toneCurvePoints() noexcept {
 }
 
 bool EditController::hasToneCurve() const noexcept {
-    return settings_.has_tone_curve;
+    const auto* const layer = selectedLayer();
+    return layer != nullptr && layer->has_tone_curve;
 }
 
 bool EditController::toneCurveEditable() const noexcept {
@@ -275,78 +363,90 @@ QAbstractItemModel* EditController::versions() noexcept {
 }
 
 void EditController::setLayerEnabled(const bool enabled) {
-    if (!active_ || state_running_ || settings_.layer_enabled == enabled) {
+    const auto* const layer = selectedLayer();
+    if (!active_ || state_running_ || layer == nullptr || layer->enabled == enabled) {
         return;
     }
     const BackendEditSettings before = settings_;
-    settings_.layer_enabled = enabled;
-    recordWorkingTransition(QStringLiteral("layer_enabled"), before);
+    const QString layer_id = layer->layer_id;
+    settings_.layers[selected_layer_index_].enabled = enabled;
+    recordWorkingTransition(
+        QStringLiteral("layer/%1/enabled").arg(layer_id),
+        before
+    );
+    emit layersChanged();
     emit layerEnabledChanged();
     setDirty(settings_ != committed_settings_);
     schedulePreview(0);
     setStatusText(
-        enabled ? QStringLiteral("Basic Adjustments enabled")
-                : QStringLiteral("Basic Adjustments bypassed · settings preserved")
+        enabled ? QStringLiteral("Adjustment layer enabled")
+                : QStringLiteral("Adjustment layer bypassed · settings preserved")
     );
 }
 
 void EditController::setExposureStops(const double value) {
-    if (settings_.basic.exposure_stops == value
+    const auto* const layer = selectedLayer();
+    if (layer == nullptr || layer->basic.exposure_stops == value
         || !acceptParameter(value, -16.0, 16.0, QStringLiteral("Exposure"))) {
         return;
     }
     const BackendEditSettings before = settings_;
-    settings_.basic.exposure_stops = value;
+    settings_.layers[selected_layer_index_].basic.exposure_stops = value;
     parameterEdited(QStringLiteral("exposure"), before);
 }
 
 void EditController::setContrastFactor(const double value) {
-    if (settings_.basic.contrast_factor == value
+    const auto* const layer = selectedLayer();
+    if (layer == nullptr || layer->basic.contrast_factor == value
         || !acceptParameter(value, 0.0, 8.0, QStringLiteral("Contrast"))) {
         return;
     }
     const BackendEditSettings before = settings_;
-    settings_.basic.contrast_factor = value;
+    settings_.layers[selected_layer_index_].basic.contrast_factor = value;
     parameterEdited(QStringLiteral("contrast"), before);
 }
 
 void EditController::setRedGain(const double value) {
-    if (settings_.basic.red_channel_gain == value
+    const auto* const layer = selectedLayer();
+    if (layer == nullptr || layer->basic.red_channel_gain == value
         || !acceptParameter(value, 0.000'001, 16.0, QStringLiteral("Red gain"))) {
         return;
     }
     const BackendEditSettings before = settings_;
-    settings_.basic.red_channel_gain = value;
+    settings_.layers[selected_layer_index_].basic.red_channel_gain = value;
     parameterEdited(QStringLiteral("red_gain"), before);
 }
 
 void EditController::setGreenGain(const double value) {
-    if (settings_.basic.green_channel_gain == value
+    const auto* const layer = selectedLayer();
+    if (layer == nullptr || layer->basic.green_channel_gain == value
         || !acceptParameter(value, 0.000'001, 16.0, QStringLiteral("Green gain"))) {
         return;
     }
     const BackendEditSettings before = settings_;
-    settings_.basic.green_channel_gain = value;
+    settings_.layers[selected_layer_index_].basic.green_channel_gain = value;
     parameterEdited(QStringLiteral("green_gain"), before);
 }
 
 void EditController::setBlueGain(const double value) {
-    if (settings_.basic.blue_channel_gain == value
+    const auto* const layer = selectedLayer();
+    if (layer == nullptr || layer->basic.blue_channel_gain == value
         || !acceptParameter(value, 0.000'001, 16.0, QStringLiteral("Blue gain"))) {
         return;
     }
     const BackendEditSettings before = settings_;
-    settings_.basic.blue_channel_gain = value;
+    settings_.layers[selected_layer_index_].basic.blue_channel_gain = value;
     parameterEdited(QStringLiteral("blue_gain"), before);
 }
 
 void EditController::setSaturationFactor(const double value) {
-    if (settings_.basic.saturation_factor == value
+    const auto* const layer = selectedLayer();
+    if (layer == nullptr || layer->basic.saturation_factor == value
         || !acceptParameter(value, 0.0, 8.0, QStringLiteral("Saturation"))) {
         return;
     }
     const BackendEditSettings before = settings_;
-    settings_.basic.saturation_factor = value;
+    settings_.layers[selected_layer_index_].basic.saturation_factor = value;
     parameterEdited(QStringLiteral("saturation"), before);
 }
 
@@ -404,6 +504,7 @@ void EditController::openPhoto(
     if (!active_) {
         active_ = true;
         emit activeChanged();
+        emit layerActionsChanged();
     }
     emit titleChanged();
     emit sourcePathChanged();
@@ -429,17 +530,144 @@ void EditController::closePhoto() {
     clearSessionHistory();
     active_ = false;
     emit activeChanged();
+    emit layerActionsChanged();
     emit historyChanged();
 }
 
+void EditController::selectLayer(const int index) {
+    const int count = static_cast<int>(settings_.layers.size());
+    if (!active_ || state_running_ || index < 0 || index >= count
+        || index == selected_layer_index_) {
+        return;
+    }
+    finishActiveGesture();
+    setSettings(settings_, settings_.layers.at(index).layer_id);
+}
+
+void EditController::addLayer() {
+    if (!canAddLayer()) {
+        setStatusText(QStringLiteral("An edit can contain at most 16 adjustment layers"));
+        return;
+    }
+    finishActiveGesture();
+    BackendBasicEditLayer layer;
+    try {
+        layer = backend_->newBasicEditLayer(uniqueLayerLabel(QStringLiteral("Basic Adjustments")));
+    } catch (const std::exception& error) {
+        setStatusText(QStringLiteral("Could not create adjustment layer · %1").arg(
+            QString::fromUtf8(error.what())
+        ));
+        return;
+    }
+    const BackendEditSettings before = settings_;
+    BackendEditSettings updated = settings_;
+    int selection = selected_layer_index_;
+    if (!EditStack::insertAfterSelection(updated, layer, selection)) {
+        setStatusText(QStringLiteral("The adjustment layer could not be inserted safely"));
+        return;
+    }
+    setSettings(std::move(updated), layer.layer_id);
+    recordWorkingTransition(
+        QStringLiteral("layer/%1/add").arg(layer.layer_id),
+        before
+    );
+    schedulePreview(0);
+    setStatusText(QStringLiteral("Added adjustment layer · %1").arg(layer.label));
+}
+
+void EditController::duplicateSelectedLayer() {
+    const auto* const source = selectedLayer();
+    if (!canAddLayer() || source == nullptr) {
+        return;
+    }
+    finishActiveGesture();
+    BackendBasicEditLayer duplicate;
+    try {
+        duplicate = backend_->newBasicEditLayer(
+            uniqueLayerLabel(source->label + QStringLiteral(" Copy"))
+        );
+    } catch (const std::exception& error) {
+        setStatusText(QStringLiteral("Could not duplicate adjustment layer · %1").arg(
+            QString::fromUtf8(error.what())
+        ));
+        return;
+    }
+    duplicate.basic = source->basic;
+    duplicate.enabled = source->enabled;
+    duplicate.has_tone_curve = source->has_tone_curve;
+    duplicate.tone_curve_points = source->tone_curve_points;
+
+    const BackendEditSettings before = settings_;
+    BackendEditSettings updated = settings_;
+    int selection = selected_layer_index_;
+    if (!EditStack::insertAfterSelection(updated, duplicate, selection)) {
+        setStatusText(QStringLiteral("The duplicate layer could not be inserted safely"));
+        return;
+    }
+    setSettings(std::move(updated), duplicate.layer_id);
+    recordWorkingTransition(
+        QStringLiteral("layer/%1/duplicate").arg(duplicate.layer_id),
+        before
+    );
+    schedulePreview(0);
+    setStatusText(QStringLiteral("Duplicated adjustment layer · %1").arg(duplicate.label));
+}
+
+void EditController::deleteSelectedLayer() {
+    const auto* const selected = selectedLayer();
+    if (!canDeleteLayer() || selected == nullptr) {
+        return;
+    }
+    finishActiveGesture();
+    const QString deleted_id = selected->layer_id;
+    const QString deleted_label = selected->label;
+    const BackendEditSettings before = settings_;
+    BackendEditSettings updated = settings_;
+    int selection = selected_layer_index_;
+    if (!EditStack::deleteSelection(updated, selection)) {
+        return;
+    }
+    const QString next_id = updated.layers.at(selection).layer_id;
+    setSettings(std::move(updated), next_id);
+    recordWorkingTransition(
+        QStringLiteral("layer/%1/delete").arg(deleted_id),
+        before
+    );
+    schedulePreview(0);
+    setStatusText(QStringLiteral("Deleted adjustment layer · %1").arg(deleted_label));
+}
+
+void EditController::moveSelectedLayer(const int destination_index) {
+    const auto* const selected = selectedLayer();
+    if (!active_ || state_running_ || selected == nullptr) {
+        return;
+    }
+    finishActiveGesture();
+    const QString moved_id = selected->layer_id;
+    const BackendEditSettings before = settings_;
+    BackendEditSettings updated = settings_;
+    int selection = selected_layer_index_;
+    if (!EditStack::moveSelection(updated, selection, destination_index)) {
+        return;
+    }
+    setSettings(std::move(updated), moved_id);
+    recordWorkingTransition(
+        QStringLiteral("layer/%1/move").arg(moved_id),
+        before
+    );
+    schedulePreview(0);
+    setStatusText(QStringLiteral("Reordered adjustment layer"));
+}
+
 void EditController::beginParameterEdit(const QString& parameter_key) {
-    if (!active_ || state_running_ || !settings_.layer_enabled
+    const auto* const layer = selectedLayer();
+    if (!active_ || state_running_ || layer == nullptr || !layer->enabled
         || parameter_key.isEmpty()) {
         return;
     }
     const bool could_undo = canUndo();
     const bool could_redo = canRedo();
-    history_.beginGesture(parameter_key.toStdString(), settings_);
+    history_.beginGesture(layerHistoryKey(parameter_key).toStdString(), settings_);
     if (could_undo != canUndo() || could_redo != canRedo()) {
         emit historyChanged();
     }
@@ -451,14 +679,15 @@ void EditController::endParameterEdit(const QString& parameter_key) {
     }
     const bool could_undo = canUndo();
     const bool could_redo = canRedo();
-    history_.endGesture(parameter_key.toStdString(), settings_);
+    history_.endGesture(layerHistoryKey(parameter_key).toStdString(), settings_);
     if (could_undo != canUndo() || could_redo != canRedo()) {
         emit historyChanged();
     }
 }
 
 void EditController::beginToneCurveGesture(const int index) {
-    if (!active_ || state_running_ || !settings_.layer_enabled
+    const auto* const layer = selectedLayer();
+    if (!active_ || state_running_ || layer == nullptr || !layer->enabled
         || !tone_curve_points_.isEditable()
         || !tone_curve_points_.selectPoint(index)) {
         return;
@@ -471,15 +700,17 @@ void EditController::moveToneCurvePoint(
     const double x,
     const double y
 ) {
-    if (!active_ || state_running_ || !settings_.layer_enabled) {
+    const auto* const layer = selectedLayer();
+    if (!active_ || state_running_ || layer == nullptr || !layer->enabled) {
         return;
     }
     const BackendEditSettings before = settings_;
     if (!tone_curve_points_.movePoint(index, x, y)) {
         return;
     }
-    settings_.has_tone_curve = true;
-    settings_.tone_curve_points = backend_tone_curve_points(tone_curve_points_);
+    auto& edited = settings_.layers[selected_layer_index_];
+    edited.has_tone_curve = true;
+    edited.tone_curve_points = backend_tone_curve_points(tone_curve_points_);
     toneCurveEdited(tone_curve_gesture_key(index), before, EDIT_DEBOUNCE_MS);
 }
 
@@ -488,7 +719,8 @@ void EditController::endToneCurveGesture(const int index) {
 }
 
 void EditController::addToneCurvePoint(const double x, const double y) {
-    if (!active_ || state_running_ || !settings_.layer_enabled) {
+    const auto* const layer = selectedLayer();
+    if (!active_ || state_running_ || layer == nullptr || !layer->enabled) {
         return;
     }
     const BackendEditSettings before = settings_;
@@ -496,32 +728,37 @@ void EditController::addToneCurvePoint(const double x, const double y) {
         setStatusText(QStringLiteral("The point cannot be added inside this curve"));
         return;
     }
-    settings_.has_tone_curve = true;
-    settings_.tone_curve_points = backend_tone_curve_points(tone_curve_points_);
+    auto& edited = settings_.layers[selected_layer_index_];
+    edited.has_tone_curve = true;
+    edited.tone_curve_points = backend_tone_curve_points(tone_curve_points_);
     toneCurveEdited(QStringLiteral("tone_curve/add"), before, 0);
 }
 
 void EditController::removeToneCurvePoint(const int index) {
-    if (!active_ || state_running_ || !settings_.layer_enabled) {
+    const auto* const layer = selectedLayer();
+    if (!active_ || state_running_ || layer == nullptr || !layer->enabled) {
         return;
     }
     const BackendEditSettings before = settings_;
     if (!tone_curve_points_.removePoint(index)) {
         return;
     }
-    settings_.tone_curve_points = backend_tone_curve_points(tone_curve_points_);
+    settings_.layers[selected_layer_index_].tone_curve_points =
+        backend_tone_curve_points(tone_curve_points_);
     toneCurveEdited(QStringLiteral("tone_curve/remove"), before, 0);
 }
 
 void EditController::resetToneCurve() {
-    if (!active_ || state_running_ || !settings_.layer_enabled
-        || !settings_.has_tone_curve) {
+    const auto* const layer = selectedLayer();
+    if (!active_ || state_running_ || layer == nullptr || !layer->enabled
+        || !layer->has_tone_curve) {
         return;
     }
     const BackendEditSettings before = settings_;
     tone_curve_points_.resetLinear();
-    settings_.has_tone_curve = false;
-    settings_.tone_curve_points.clear();
+    auto& edited = settings_.layers[selected_layer_index_];
+    edited.has_tone_curve = false;
+    edited.tone_curve_points.clear();
     toneCurveEdited(QStringLiteral("tone_curve/reset"), before, 0);
 }
 
@@ -529,12 +766,25 @@ void EditController::undo() {
     if (!active_ || state_running_) {
         return;
     }
-    const auto restored = history_.undo(settings_);
+    std::string history_key;
+    const auto restored = history_.undo(settings_, &history_key);
     emit historyChanged();
     if (!restored) {
         return;
     }
-    setSettings(*restored);
+    QString preferred_id = history_layer_id(history_key);
+    const bool undoes_insert = history_key.ends_with("/add")
+        || history_key.ends_with("/duplicate");
+    if (undoes_insert && EditStack::layerIndex(*restored, preferred_id) < 0
+        && !restored->layers.isEmpty()) {
+        const int previous_index = std::clamp(
+            selected_layer_index_ - 1,
+            0,
+            static_cast<int>(restored->layers.size() - 1)
+        );
+        preferred_id = restored->layers.at(previous_index).layer_id;
+    }
+    setSettings(*restored, preferred_id);
     schedulePreview(0);
     setStatusText(QStringLiteral("Undid the last session adjustment"));
 }
@@ -543,29 +793,35 @@ void EditController::redo() {
     if (!active_ || state_running_) {
         return;
     }
-    const auto restored = history_.redo(settings_);
+    std::string history_key;
+    const auto restored = history_.redo(settings_, &history_key);
     emit historyChanged();
     if (!restored) {
         return;
     }
-    setSettings(*restored);
+    setSettings(*restored, history_layer_id(history_key));
     schedulePreview(0);
     setStatusText(QStringLiteral("Redid the last session adjustment"));
 }
 
 void EditController::resetEdits() {
-    if (!active_ || state_running_ || !settings_.layer_enabled) {
+    const auto* const layer = selectedLayer();
+    if (!active_ || state_running_ || layer == nullptr || !layer->enabled) {
         return;
     }
     const BackendBasicEditParameters neutral;
-    if (settings_.basic == neutral) {
+    if (layer->basic == neutral) {
         return;
     }
     const BackendEditSettings before = settings_;
     BackendEditSettings reset = settings_;
-    reset.basic = neutral;
-    setSettings(std::move(reset));
-    recordWorkingTransition(QStringLiteral("reset"), before);
+    reset.layers[selected_layer_index_].basic = neutral;
+    const QString layer_id = layer->layer_id;
+    setSettings(std::move(reset), layer_id);
+    recordWorkingTransition(
+        QStringLiteral("layer/%1/reset").arg(layer_id),
+        before
+    );
     schedulePreview(0);
 }
 
@@ -649,6 +905,7 @@ void EditController::finishStateTask() {
         if (result.kind == EditStateTaskKind::Open && active_) {
             active_ = false;
             emit activeChanged();
+            emit layerActionsChanged();
         }
         setStatusText(QStringLiteral("Version operation failed · %1").arg(result.error));
         if (preview_queued_) {
@@ -810,21 +1067,74 @@ void EditController::applyState(BackendPhotoEditState state) {
     versions_.replace(std::move(state.versions));
 }
 
-void EditController::setSettings(BackendEditSettings settings) {
-    if (!settings.has_tone_curve) {
-        settings.tone_curve_points.clear();
+void EditController::setSettings(
+    BackendEditSettings settings,
+    const QString& preferred_layer_id
+) {
+    if (settings.layers.size() > EditStack::maximum_layer_count) {
+        setStatusText(QStringLiteral("The saved edit exceeds the 16-layer desktop limit"));
+        return;
     }
-    const bool layer_enabled_changed = settings_.layer_enabled != settings.layer_enabled;
-    const bool basic_changed = settings_.basic != settings.basic;
-    const bool curve_changed = settings_.has_tone_curve != settings.has_tone_curve
-        || settings_.tone_curve_points != settings.tone_curve_points;
-    const auto model_points = tone_curve_model_points(settings);
+    for (auto& layer : settings.layers) {
+        if (!layer.has_tone_curve) {
+            layer.tone_curve_points.clear();
+        }
+    }
+
+    const QString old_selected_id = selectedLayerId();
+    const int old_selected_index = selected_layer_index_;
+    const BackendBasicEditLayer* const old_selected = selectedLayer();
+    const bool had_old_selection = old_selected != nullptr;
+    const BackendBasicEditLayer old_selected_value = had_old_selection
+        ? *old_selected
+        : BackendBasicEditLayer{};
+    const QString requested_id = preferred_layer_id.isEmpty()
+        ? old_selected_id
+        : preferred_layer_id;
+    const int new_selected_index = EditStack::resolvedSelection(
+        settings,
+        requested_id,
+        old_selected_index
+    );
+    const BackendBasicEditLayer* const new_selected = new_selected_index < 0
+        ? nullptr
+        : &settings.layers.at(new_selected_index);
+    const bool has_new_selection = new_selected != nullptr;
+    const bool selection_changed = old_selected_index != new_selected_index
+        || old_selected_id
+            != (has_new_selection ? new_selected->layer_id : QString{});
+    const bool layer_enabled_changed = selection_changed
+        || had_old_selection != has_new_selection
+        || (had_old_selection && has_new_selection
+            && old_selected_value.enabled != new_selected->enabled);
+    const bool basic_changed = selection_changed
+        || had_old_selection != has_new_selection
+        || (had_old_selection && has_new_selection
+            && old_selected_value.basic != new_selected->basic);
+    const bool curve_changed = selection_changed
+        || had_old_selection != has_new_selection
+        || (had_old_selection && has_new_selection
+            && (old_selected_value.has_tone_curve != new_selected->has_tone_curve
+                || old_selected_value.tone_curve_points
+                    != new_selected->tone_curve_points));
+    const bool list_changed = layer_list_changed(settings_, settings);
+    const auto model_points = tone_curve_model_points(new_selected);
     if (tone_curve_points_.points() != model_points
         && !tone_curve_points_.replace(model_points)) {
         setStatusText(QStringLiteral("The saved Tone Curve cannot be represented safely"));
         return;
     }
     settings_ = std::move(settings);
+    selected_layer_index_ = new_selected_index;
+    if (list_changed) {
+        emit layersChanged();
+    }
+    if (selection_changed) {
+        emit selectedLayerChanged();
+    }
+    if (list_changed || selection_changed) {
+        emit layerActionsChanged();
+    }
     if (layer_enabled_changed) {
         emit layerEnabledChanged();
     }
@@ -835,6 +1145,55 @@ void EditController::setSettings(BackendEditSettings settings) {
         emit toneCurveChanged();
     }
     setDirty(settings_ != committed_settings_);
+}
+
+const BackendBasicEditLayer* EditController::selectedLayer() const noexcept {
+    const int count = static_cast<int>(settings_.layers.size());
+    if (selected_layer_index_ < 0 || selected_layer_index_ >= count) {
+        return nullptr;
+    }
+    return &settings_.layers.at(selected_layer_index_);
+}
+
+QString EditController::layerHistoryKey(const QString& key) const {
+    const auto* const layer = selectedLayer();
+    return layer == nullptr
+        ? key
+        : QStringLiteral("layer/%1/%2").arg(layer->layer_id, key);
+}
+
+QString EditController::uniqueLayerLabel(const QString& base) const {
+    const QString clean_base = base.trimmed().isEmpty()
+        ? QStringLiteral("Basic Adjustments")
+        : base.trimmed();
+    const auto exists = [this](const QString& candidate) {
+        return std::any_of(
+            settings_.layers.cbegin(),
+            settings_.layers.cend(),
+            [&candidate](const BackendBasicEditLayer& layer) {
+                return layer.label == candidate;
+            }
+        );
+    };
+    if (!exists(clean_base)) {
+        return clean_base;
+    }
+    for (int suffix = 2; suffix <= EditStack::maximum_layer_count + 1; ++suffix) {
+        const QString candidate = QStringLiteral("%1 %2").arg(clean_base).arg(suffix);
+        if (!exists(candidate)) {
+            return candidate;
+        }
+    }
+    return clean_base + QStringLiteral(" Copy");
+}
+
+void EditController::finishActiveGesture() {
+    const bool could_undo = canUndo();
+    const bool could_redo = canRedo();
+    history_.finishGesture(settings_);
+    if (could_undo != canUndo() || could_redo != canRedo()) {
+        emit historyChanged();
+    }
 }
 
 void EditController::clearSessionHistory() {
@@ -891,6 +1250,7 @@ void EditController::setStateRunning(const bool running) {
     const bool previous_busy = busy();
     state_running_ = running;
     emit stateBusyChanged();
+    emit layerActionsChanged();
     emitBusyChange(previous_busy);
 }
 
@@ -928,7 +1288,7 @@ void EditController::parameterEdited(
     if (!active_ || state_running_) {
         return;
     }
-    recordWorkingTransition(key, before);
+    recordWorkingTransition(layerHistoryKey(key), before);
     emit parametersChanged();
     setDirty(settings_ != committed_settings_);
     schedulePreview(EDIT_DEBOUNCE_MS);
@@ -939,7 +1299,7 @@ void EditController::toneCurveEdited(
     const BackendEditSettings& before,
     const int preview_delay_ms
 ) {
-    recordWorkingTransition(key, before);
+    recordWorkingTransition(layerHistoryKey(key), before);
     emit toneCurveChanged();
     setDirty(settings_ != committed_settings_);
     schedulePreview(preview_delay_ms);
@@ -954,8 +1314,13 @@ bool EditController::acceptParameter(
     if (!active_ || state_running_) {
         return false;
     }
-    if (!settings_.layer_enabled) {
-        setStatusText(QStringLiteral("Enable Basic Adjustments before editing its controls"));
+    const auto* const layer = selectedLayer();
+    if (layer == nullptr) {
+        setStatusText(QStringLiteral("Select an adjustment layer before editing"));
+        return false;
+    }
+    if (!layer->enabled) {
+        setStatusText(QStringLiteral("Enable the selected layer before editing its controls"));
         return false;
     }
     if (!std::isfinite(value) || value < minimum || value > maximum) {

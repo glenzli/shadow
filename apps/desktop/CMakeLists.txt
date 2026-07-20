@@ -66,6 +66,7 @@ qt_add_executable(
     src/edit_preview_contract.hpp
     src/edit_preview_provider.cpp
     src/edit_preview_provider.hpp
+    src/edit_stack.hpp
     src/edit_version_model.cpp
     src/edit_version_model.hpp
     src/edit_version_presentation.cpp
@@ -89,6 +90,7 @@ qt_add_qml_module(
     VERSION 1.0
     QML_FILES
         qml/Main.qml
+        qml/LayerActionButton.qml
         qml/PrecisionWorkspace.qml
         qml/ReviewWorkspace.qml
         qml/ShadowSlider.qml
@@ -141,6 +143,27 @@ if(BUILD_TESTING)
         )
     endif()
     add_test(NAME shadow-desktop-edit-history COMMAND shadow-edit-history-test)
+
+    add_executable(
+        shadow-edit-stack-test
+        tests/edit_stack_test.cpp
+        src/edit_stack.hpp
+    )
+    target_compile_features(shadow-edit-stack-test PRIVATE cxx_std_20)
+    target_include_directories(
+        shadow-edit-stack-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(shadow-edit-stack-test PRIVATE Qt6::Core)
+    if(MSVC)
+        target_compile_options(shadow-edit-stack-test PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(
+            shadow-edit-stack-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(NAME shadow-desktop-edit-stack COMMAND shadow-edit-stack-test)
 
     add_executable(
         shadow-tone-curve-point-model-test

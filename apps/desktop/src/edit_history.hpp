@@ -88,7 +88,13 @@ public:
         pending_.reset();
     }
 
-    [[nodiscard]] std::optional<State> undo(const State& current) {
+    [[nodiscard]] std::optional<State> undo(
+        const State& current,
+        std::string* const restored_key = nullptr
+    ) {
+        if (restored_key != nullptr) {
+            restored_key->clear();
+        }
         finishGesture(current);
         if (undo_.empty()) {
             return std::nullopt;
@@ -100,11 +106,20 @@ public:
             return std::nullopt;
         }
         const State result = entry.before;
+        if (restored_key != nullptr) {
+            *restored_key = entry.key;
+        }
         redo_.push_back(std::move(entry));
         return result;
     }
 
-    [[nodiscard]] std::optional<State> redo(const State& current) {
+    [[nodiscard]] std::optional<State> redo(
+        const State& current,
+        std::string* const restored_key = nullptr
+    ) {
+        if (restored_key != nullptr) {
+            restored_key->clear();
+        }
         finishGesture(current);
         if (redo_.empty()) {
             return std::nullopt;
@@ -116,6 +131,9 @@ public:
             return std::nullopt;
         }
         const State result = entry.after;
+        if (restored_key != nullptr) {
+            *restored_key = entry.key;
+        }
         pushUndo(std::move(entry));
         return result;
     }

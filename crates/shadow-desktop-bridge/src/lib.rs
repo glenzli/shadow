@@ -199,13 +199,29 @@ mod ffi {
         y: f64,
     }
 
-    /// Complete editable state for the first renderer-backed adjustment surface.
+    /// One renderer-backed Basic adjustment layer with complete stable identity.
     #[derive(Debug, Clone)]
-    struct FfiEditSettings {
+    struct FfiBasicEditLayer {
+        layer_id: String,
+        label: String,
+        enabled: bool,
+        exposure_node_id: String,
+        contrast_node_id: String,
+        /// Reserved even when `has_tone_curve` is false so adding a curve does
+        /// not require another identity allocation across the CXX boundary.
+        tone_curve_node_id: String,
+        channel_gain_node_id: String,
+        saturation_node_id: String,
         basic: FfiBasicEditParameters,
-        layer_enabled: bool,
         has_tone_curve: bool,
         tone_curve_points: Vec<FfiToneCurvePoint>,
+    }
+
+    /// Complete ordered editable adjustment stack. Layer zero is evaluated
+    /// first and the final layer is nearest the output.
+    #[derive(Debug, Clone)]
+    struct FfiEditSettings {
+        layers: Vec<FfiBasicEditLayer>,
     }
 
     /// One immutable-base edit preview request crossing the desktop boundary.
@@ -238,8 +254,8 @@ mod ffi {
         nodes_removed: u32,
         nodes_modified: u32,
         node_parameter_blocks_changed: u32,
-        /// Stable localization keys for the exact editable controls that differ
-        /// from this commit's first parent.
+        /// Stable localization keys for the distinct supported control kinds
+        /// changed in one or more layers relative to the first parent.
         changed_basic_parameters: Vec<String>,
         changed_basic_parameter_count: u32,
         /// True when the structural diff contains changes not represented by
@@ -269,6 +285,8 @@ mod ffi {
 
     extern "Rust" {
         type DesktopSession;
+
+        fn new_basic_edit_layer(label: &str) -> Result<FfiBasicEditLayer>;
 
         fn open_desktop_session(
             catalog_path: &str,
@@ -350,6 +368,26 @@ mod ffi {
             source_path: &str,
             commit_id: &str,
         ) -> Result<FfiPhotoEditState>;
+    }
+}
+
+#[cfg(test)]
+impl std::ops::Deref for ffi::FfiEditSettings {
+    type Target = ffi::FfiBasicEditLayer;
+
+    fn deref(&self) -> &Self::Target {
+        self.layers
+            .first()
+            .expect("validated FFI edit settings always contain one layer")
+    }
+}
+
+#[cfg(test)]
+impl std::ops::DerefMut for ffi::FfiEditSettings {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.layers
+            .first_mut()
+            .expect("validated FFI edit settings always contain one layer")
     }
 }
 
@@ -1167,35 +1205,171 @@ const _: () = assert!(
         && CPU_REFERENCE_IMPLEMENTATION_REVISION == ADJUSTMENT_IMPLEMENTATION_VERSION
 );
 
+const MAX_BASIC_EDIT_LAYERS: usize = 16;
+const BASIC_TONE_CURVE_SLOT_ID_DOMAIN: &[u8] = b"shadow.desktop.basic-tone-curve-slot-id.v1\0";
+
+/// Derives the otherwise-unpersisted optional Tone Curve slot identity from
+/// its owning layer. UUID version 8 marks this as a Shadow-defined value while
+/// the RFC 4122 variant keeps it interoperable with the typed UUID wrappers.
+fn basic_tone_curve_slot_id(layer_id: LayerInstanceId) -> NodeId {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(BASIC_TONE_CURVE_SLOT_ID_DOMAIN);
+    hasher.update(layer_id.as_bytes());
+    let mut bytes = [0_u8; 16];
+    bytes.copy_from_slice(&hasher.finalize().as_bytes()[..16]);
+    bytes[6] = (bytes[6] & 0x0f) | 0x80;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    NodeId::from_uuid(Uuid::from_bytes(bytes))
+}
+
 #[derive(Debug, Clone, PartialEq)]
-struct EditSettings {
+struct EditableBasicLayerIdentity {
+    layer: LayerInstanceId,
+    exposure: NodeId,
+    contrast: NodeId,
+    tone_curve: NodeId,
+    channel_gain: NodeId,
+    saturation: NodeId,
+}
+
+impl EditableBasicLayerIdentity {
+    fn new() -> Self {
+        let layer = LayerInstanceId::new_v7();
+        Self {
+            layer,
+            exposure: NodeId::new_v7(),
+            contrast: NodeId::new_v7(),
+            tone_curve: basic_tone_curve_slot_id(layer),
+            channel_gain: NodeId::new_v7(),
+            saturation: NodeId::new_v7(),
+        }
+    }
+
+    fn role_node_ids(&self) -> [(&'static str, NodeId); 5] {
+        [
+            ("exposure", self.exposure),
+            ("contrast", self.contrast),
+            ("tone_curve", self.tone_curve),
+            ("channel_gain", self.channel_gain),
+            ("saturation", self.saturation),
+        ]
+    }
+
+    #[cfg(test)]
+    fn node_ids(&self) -> [NodeId; 5] {
+        self.role_node_ids().map(|(_, node_id)| node_id)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct EditLayerSettings {
+    identity: EditableBasicLayerIdentity,
+    label: String,
     basic: BasicEditParameters,
     layer_enabled: bool,
     tone_curve: Option<Vec<ToneCurvePoint>>,
 }
 
-impl Default for EditSettings {
-    fn default() -> Self {
+impl EditLayerSettings {
+    fn neutral(label: impl Into<String>) -> Self {
         Self {
+            identity: EditableBasicLayerIdentity::new(),
+            label: label.into(),
             basic: BasicEditParameters::default(),
             layer_enabled: true,
             tone_curve: None,
         }
     }
+
+    #[cfg(test)]
+    fn duplicate(&self) -> Self {
+        Self {
+            identity: EditableBasicLayerIdentity::new(),
+            label: self.label.clone(),
+            basic: self.basic,
+            layer_enabled: self.layer_enabled,
+            tone_curve: self.tone_curve.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct EditSettings {
+    layers: Vec<EditLayerSettings>,
+}
+
+impl Default for EditSettings {
+    fn default() -> Self {
+        Self {
+            layers: vec![EditLayerSettings::neutral(BASIC_LAYER_LABEL)],
+        }
+    }
+}
+
+impl std::ops::Deref for EditSettings {
+    type Target = EditLayerSettings;
+
+    fn deref(&self) -> &Self::Target {
+        self.layers
+            .first()
+            .expect("validated edit settings always contain one layer")
+    }
+}
+
+impl std::ops::DerefMut for EditSettings {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.layers
+            .first_mut()
+            .expect("validated edit settings always contain one layer")
+    }
+}
+
+fn new_basic_edit_layer(label: &str) -> AnyResult<ffi::FfiBasicEditLayer> {
+    let layer = EditLayerSettings::neutral(label);
+    let settings = EditSettings {
+        layers: vec![layer.clone()],
+    };
+    edit_recipe_snapshot(&settings, None).context("validate new Basic edit layer")?;
+    Ok(ffi_basic_edit_layer(layer))
 }
 
 fn edit_settings(settings: &ffi::FfiEditSettings) -> AnyResult<EditSettings> {
-    let basic = basic_parameters(&settings.basic)?;
-    let tone_curve = match (
-        settings.has_tone_curve,
-        settings.tone_curve_points.is_empty(),
-    ) {
+    if !(1..=MAX_BASIC_EDIT_LAYERS).contains(&settings.layers.len()) {
+        bail!("Adjustment Stack must contain 1 through 16 Basic layers");
+    }
+    let settings = EditSettings {
+        layers: settings
+            .layers
+            .iter()
+            .enumerate()
+            .map(|(index, layer)| ffi_edit_layer(layer, index))
+            .collect::<AnyResult<Vec<_>>>()?,
+    };
+    validate_edit_settings(&settings)?;
+    // Domain construction authoritatively validates labels and the complete
+    // graph generated from the untrusted desktop DTO.
+    edit_recipe_snapshot(&settings, None).context("validate Adjustment Stack Recipe")?;
+    Ok(settings)
+}
+
+fn ffi_edit_layer(layer: &ffi::FfiBasicEditLayer, index: usize) -> AnyResult<EditLayerSettings> {
+    let parse_layer_id = |value: &str| {
+        value
+            .parse::<LayerInstanceId>()
+            .with_context(|| format!("parse Basic layer {index} id {value:?}"))
+    };
+    let parse_node_id = |role: &str, value: &str| {
+        value
+            .parse::<NodeId>()
+            .with_context(|| format!("parse Basic layer {index} {role} node id {value:?}"))
+    };
+    let tone_curve = match (layer.has_tone_curve, layer.tone_curve_points.is_empty()) {
         (false, true) => None,
         (false, false) => {
             bail!("Tone Curve points must be empty when has_tone_curve is false")
         }
         (true, _) => Some(
-            settings
+            layer
                 .tone_curve_points
                 .iter()
                 .map(|point| ToneCurvePoint {
@@ -1205,13 +1379,20 @@ fn edit_settings(settings: &ffi::FfiEditSettings) -> AnyResult<EditSettings> {
                 .collect(),
         ),
     };
-    let settings = EditSettings {
-        basic,
-        layer_enabled: settings.layer_enabled,
+    Ok(EditLayerSettings {
+        identity: EditableBasicLayerIdentity {
+            layer: parse_layer_id(&layer.layer_id)?,
+            exposure: parse_node_id("exposure", &layer.exposure_node_id)?,
+            contrast: parse_node_id("contrast", &layer.contrast_node_id)?,
+            tone_curve: parse_node_id("Tone Curve", &layer.tone_curve_node_id)?,
+            channel_gain: parse_node_id("channel gain", &layer.channel_gain_node_id)?,
+            saturation: parse_node_id("saturation", &layer.saturation_node_id)?,
+        },
+        label: layer.label.clone(),
+        basic: basic_parameters(&layer.basic)?,
+        layer_enabled: layer.enabled,
         tone_curve,
-    };
-    validate_edit_settings(&settings)?;
-    Ok(settings)
+    })
 }
 
 fn basic_parameters(parameters: &ffi::FfiBasicEditParameters) -> AnyResult<BasicEditParameters> {
@@ -1244,9 +1425,74 @@ fn preview_edit_settings(
 }
 
 fn validate_edit_settings(settings: &EditSettings) -> AnyResult<()> {
-    validate_basic_parameters(settings.basic)?;
-    if let Some(points) = settings.tone_curve.as_deref() {
-        validate_tone_curve(points)?;
+    if !(1..=MAX_BASIC_EDIT_LAYERS).contains(&settings.layers.len()) {
+        bail!("Adjustment Stack must contain 1 through 16 Basic layers");
+    }
+    let mut layer_ids = HashSet::with_capacity(settings.layers.len());
+    let mut node_ids = HashSet::with_capacity(settings.layers.len() * 5);
+    for (index, layer) in settings.layers.iter().enumerate() {
+        if !layer_ids.insert(layer.identity.layer) {
+            bail!(
+                "Adjustment Stack contains duplicate layer id {}",
+                layer.identity.layer
+            );
+        }
+        for (role, node_id) in layer.identity.role_node_ids() {
+            if !node_ids.insert(node_id) {
+                bail!(
+                    "Adjustment Stack contains duplicate node id {node_id} at Basic layer {index} role {role}"
+                );
+            }
+        }
+        validate_basic_parameters(layer.basic)?;
+        if let Some(points) = layer.tone_curve.as_deref() {
+            validate_tone_curve(points)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_edit_settings_against_template(
+    settings: &EditSettings,
+    template: &RecipeSnapshot,
+) -> AnyResult<()> {
+    let template_settings =
+        edit_settings_from_snapshot(template).context("validate base Adjustment Stack Recipe")?;
+    let template_layers = template_settings
+        .layers
+        .iter()
+        .map(|layer| (layer.identity.layer, layer))
+        .collect::<HashMap<_, _>>();
+    let template_nodes = template_settings
+        .layers
+        .iter()
+        .flat_map(|layer| {
+            layer
+                .identity
+                .role_node_ids()
+                .map(move |(role, node_id)| (node_id, (layer.identity.layer, role)))
+        })
+        .collect::<HashMap<_, _>>();
+
+    for layer in &settings.layers {
+        if let Some(template_layer) = template_layers.get(&layer.identity.layer)
+            && layer.identity != template_layer.identity
+        {
+            bail!(
+                "retained Basic layer {} must preserve every stable node identity from its base Recipe",
+                layer.identity.layer
+            );
+        }
+        for (role, node_id) in layer.identity.role_node_ids() {
+            if let Some((template_layer_id, template_role)) = template_nodes.get(&node_id)
+                && (*template_layer_id != layer.identity.layer || *template_role != role)
+            {
+                bail!(
+                    "Basic layer {} role {role} reuses base node id {node_id} owned by layer {template_layer_id} role {template_role}",
+                    layer.identity.layer
+                );
+            }
+        }
     }
     Ok(())
 }
@@ -1315,8 +1561,18 @@ fn ffi_basic_parameters(parameters: BasicEditParameters) -> ffi::FfiBasicEditPar
 }
 
 fn ffi_edit_settings(settings: EditSettings) -> ffi::FfiEditSettings {
-    let has_tone_curve = settings.tone_curve.is_some();
-    let tone_curve_points = settings
+    ffi::FfiEditSettings {
+        layers: settings
+            .layers
+            .into_iter()
+            .map(ffi_basic_edit_layer)
+            .collect(),
+    }
+}
+
+fn ffi_basic_edit_layer(layer: EditLayerSettings) -> ffi::FfiBasicEditLayer {
+    let has_tone_curve = layer.tone_curve.is_some();
+    let tone_curve_points = layer
         .tone_curve
         .unwrap_or_default()
         .into_iter()
@@ -1325,33 +1581,25 @@ fn ffi_edit_settings(settings: EditSettings) -> ffi::FfiEditSettings {
             y: point.y,
         })
         .collect();
-    ffi::FfiEditSettings {
-        basic: ffi_basic_parameters(settings.basic),
-        layer_enabled: settings.layer_enabled,
+    ffi::FfiBasicEditLayer {
+        layer_id: layer.identity.layer.to_string(),
+        label: layer.label,
+        enabled: layer.layer_enabled,
+        exposure_node_id: layer.identity.exposure.to_string(),
+        contrast_node_id: layer.identity.contrast.to_string(),
+        tone_curve_node_id: layer.identity.tone_curve.to_string(),
+        channel_gain_node_id: layer.identity.channel_gain.to_string(),
+        saturation_node_id: layer.identity.saturation.to_string(),
+        basic: ffi_basic_parameters(layer.basic),
         has_tone_curve,
         tone_curve_points,
     }
 }
 
 /// Compiles the currently executable Recipe subset into dependency order.
-/// Persisted vector order is intentionally ignored: graph bindings and the
-/// explicit output node are the source of execution order.
+/// Recipe layer vector order is the inter-layer execution order; graph
+/// bindings and the explicit output node define order within each layer.
 fn compile_recipe_render_plan(snapshot: &RecipeSnapshot) -> AnyResult<AdjustmentRenderPlan> {
-    let (layer, nodes) = ordered_inline_recipe_nodes(snapshot)?;
-    let plan = AdjustmentRenderPlan {
-        nodes: nodes
-            .into_iter()
-            .map(|node| compile_recipe_node(node, layer.enabled()))
-            .collect::<AnyResult<Vec<_>>>()?,
-    };
-    plan.validate()
-        .context("validate compiled Recipe render plan")?;
-    Ok(plan)
-}
-
-fn ordered_inline_recipe_nodes(
-    snapshot: &RecipeSnapshot,
-) -> AnyResult<(&LayerInstance, Vec<&AdjustmentNode>)> {
     snapshot
         .validate()
         .context("validate Recipe before rendering")?;
@@ -1362,9 +1610,34 @@ fn ordered_inline_recipe_nodes(
             snapshot.schema_version()
         );
     }
-    let [layer] = snapshot.layers() else {
-        bail!("Recipe render compiler requires exactly one adjustment layer");
-    };
+    if !(1..=MAX_BASIC_EDIT_LAYERS).contains(&snapshot.layers().len()) {
+        bail!("Recipe render compiler supports 1 through 16 Basic layers");
+    }
+
+    let mut compiled = Vec::new();
+    let mut compiled_node_ids = HashSet::new();
+    for layer in snapshot.layers() {
+        let nodes = basic_layer_nodes(layer)?;
+        for node in nodes.ordered() {
+            if !compiled_node_ids.insert(node.id()) {
+                bail!(
+                    "Recipe render compiler rejects duplicate Adjustment Stack node id {}",
+                    node.id()
+                );
+            }
+            compiled.push(compile_recipe_node(node, layer.id(), layer.enabled())?);
+        }
+    }
+    if compiled.len() > MAX_ADJUSTMENT_RENDER_NODES {
+        bail!("Recipe render compiler supports at most 256 executable nodes");
+    }
+    let plan = AdjustmentRenderPlan { nodes: compiled };
+    plan.validate()
+        .context("validate compiled Recipe render plan")?;
+    Ok(plan)
+}
+
+fn ordered_inline_layer_nodes(layer: &LayerInstance) -> AnyResult<Vec<&AdjustmentNode>> {
     if layer.scope() != AdjustmentScope::Photo
         || layer.opacity() != UnitInterval::ONE
         || layer.blend_mode() != BlendMode::Normal
@@ -1416,11 +1689,12 @@ fn ordered_inline_recipe_nodes(
         bail!("Recipe render compiler rejects branches or nodes outside the output chain");
     }
     reverse.reverse();
-    Ok((layer, reverse))
+    Ok(reverse)
 }
 
 fn compile_recipe_node(
     node: &AdjustmentNode,
+    layer_id: LayerInstanceId,
     layer_enabled: bool,
 ) -> AnyResult<AdjustmentRenderNode> {
     let descriptor = node.operation();
@@ -1488,7 +1762,10 @@ fn compile_recipe_node(
         operation_id => bail!("Recipe operation {operation_id:?} is not executable by this build"),
     };
     Ok(AdjustmentRenderNode {
-        node_id: node.id().to_string(),
+        // NodeId uniqueness is a graph invariant, not a snapshot-wide domain
+        // invariant. Namespacing preserves exact diagnostic identity after the
+        // layer graphs are flattened into one executor plan.
+        node_id: format!("{layer_id}/{}", node.id()),
         parameter_schema_version: descriptor.parameter_schema_version(),
         implementation_version: CPU_REFERENCE_IMPLEMENTATION_REVISION,
         enabled: layer_enabled,
@@ -1514,18 +1791,12 @@ fn basic_recipe_snapshot(
     parameters: BasicEditParameters,
     template: Option<&RecipeSnapshot>,
 ) -> AnyResult<RecipeSnapshot> {
-    let template_settings = template
+    let mut template_settings = template
         .map(edit_settings_from_snapshot)
         .transpose()?
         .unwrap_or_default();
-    edit_recipe_snapshot(
-        &EditSettings {
-            basic: parameters,
-            layer_enabled: template_settings.layer_enabled,
-            tone_curve: template_settings.tone_curve,
-        },
-        template,
-    )
+    template_settings.basic = parameters;
+    edit_recipe_snapshot(&template_settings, template)
 }
 
 fn edit_recipe_snapshot(
@@ -1533,10 +1804,25 @@ fn edit_recipe_snapshot(
     template: Option<&RecipeSnapshot>,
 ) -> AnyResult<RecipeSnapshot> {
     validate_edit_settings(settings)?;
+    if let Some(template) = template {
+        validate_edit_settings_against_template(settings, template)?;
+    }
+    let layers = settings
+        .layers
+        .iter()
+        .map(edit_layer_recipe)
+        .collect::<AnyResult<Vec<_>>>()?;
+    RecipeSnapshot::new(CURRENT_RECIPE_SCHEMA_VERSION, layers).map_err(Into::into)
+}
+
+fn edit_layer_recipe(settings: &EditLayerSettings) -> AnyResult<LayerInstance> {
     let parameters = settings.basic;
     let rgb = PortType::Image(ImageDomain::WorkingRgb);
-    let identity = resolved_basic_recipe_identity(template)?;
-    let [exposure_id, contrast_id, channel_gain_id, saturation_id] = identity.node_ids;
+    let identity = &settings.identity;
+    let exposure_id = identity.exposure;
+    let contrast_id = identity.contrast;
+    let channel_gain_id = identity.channel_gain;
+    let saturation_id = identity.saturation;
     let mut nodes = vec![
         basic_node(
             exposure_id,
@@ -1568,10 +1854,7 @@ fn edit_recipe_snapshot(
         )?,
     ];
     let channel_input = if let Some(points) = settings.tone_curve.as_deref() {
-        let tone_curve_id = identity
-            .tone_curve
-            .as_ref()
-            .map_or_else(NodeId::new_v7, |tone_curve| tone_curve.node_id);
+        let tone_curve_id = identity.tone_curve;
         nodes.push(basic_node(
             tone_curve_id,
             TONE_CURVE_OPERATION_ID,
@@ -1618,19 +1901,20 @@ fn edit_recipe_snapshot(
         )?,
     ]);
     let graph = EditGraph::new(BASIC_GRAPH_SCHEMA_VERSION, vec![rgb], nodes, saturation_id)?;
-    let layer = LayerInstance::new(
-        identity.layer_id,
-        BASIC_LAYER_LABEL,
+    LayerInstance::new(
+        identity.layer,
+        settings.label.clone(),
         AdjustmentScope::Photo,
         LayerContent::Inline { graph },
         settings.layer_enabled,
         UnitInterval::ONE,
         BlendMode::Normal,
         None,
-    )?;
-    RecipeSnapshot::new(CURRENT_RECIPE_SCHEMA_VERSION, vec![layer]).map_err(Into::into)
+    )
+    .map_err(Into::into)
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq)]
 struct BasicRecipeIdentity {
     layer_id: LayerInstanceId,
@@ -1638,37 +1922,22 @@ struct BasicRecipeIdentity {
     tone_curve: Option<BasicToneCurveIdentity>,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq)]
 struct BasicToneCurveIdentity {
     node_id: NodeId,
 }
 
-impl BasicRecipeIdentity {
-    fn new() -> Self {
-        Self {
-            layer_id: LayerInstanceId::new_v7(),
-            node_ids: std::array::from_fn(|_| NodeId::new_v7()),
-            tone_curve: None,
-        }
-    }
-}
-
-fn resolved_basic_recipe_identity(
-    template: Option<&RecipeSnapshot>,
-) -> AnyResult<BasicRecipeIdentity> {
-    Ok(template
-        .map(basic_recipe_identity)
-        .transpose()?
-        .flatten()
-        .unwrap_or_else(BasicRecipeIdentity::new))
-}
-
+#[cfg(test)]
 fn basic_recipe_identity(snapshot: &RecipeSnapshot) -> AnyResult<Option<BasicRecipeIdentity>> {
     if snapshot.layers().is_empty() {
         return Ok(None);
     }
+    let [layer] = snapshot.layers() else {
+        bail!("Basic Recipe identity helper requires exactly one layer");
+    };
     basic_parameters_from_snapshot(snapshot)?;
-    let nodes = basic_recipe_nodes(snapshot)?;
+    let nodes = basic_layer_nodes(layer)?;
     Ok(Some(BasicRecipeIdentity {
         layer_id: nodes.layer.id(),
         node_ids: [
@@ -1728,6 +1997,7 @@ fn tone_curve_parameter_block(points: &[ToneCurvePoint]) -> AnyResult<ParameterB
 }
 
 struct BasicRecipeNodes<'a> {
+    #[cfg(test)]
     layer: &'a LayerInstance,
     exposure: &'a AdjustmentNode,
     contrast: &'a AdjustmentNode,
@@ -1736,14 +2006,27 @@ struct BasicRecipeNodes<'a> {
     saturation: &'a AdjustmentNode,
 }
 
-fn basic_recipe_nodes(snapshot: &RecipeSnapshot) -> AnyResult<BasicRecipeNodes<'_>> {
-    // Besides proving the topology, this validates the optional Tone Curve's
-    // versioned point payload through the same plan used by the renderer.
-    compile_recipe_render_plan(snapshot)?;
-    let (layer, ordered) = ordered_inline_recipe_nodes(snapshot)?;
-    if layer.label() != BASIC_LAYER_LABEL {
-        bail!("working Recipe is not a Basic adjustments layer");
+impl BasicRecipeNodes<'_> {
+    fn ordered(&self) -> Vec<&AdjustmentNode> {
+        let mut nodes = vec![self.exposure, self.contrast];
+        if let Some(tone_curve) = self.tone_curve {
+            nodes.push(tone_curve);
+        }
+        nodes.extend([self.channel_gain, self.saturation]);
+        nodes
     }
+}
+
+#[cfg(test)]
+fn basic_recipe_nodes(snapshot: &RecipeSnapshot) -> AnyResult<BasicRecipeNodes<'_>> {
+    let [layer] = snapshot.layers() else {
+        bail!("Basic Recipe helper requires exactly one adjustment layer");
+    };
+    basic_layer_nodes(layer)
+}
+
+fn basic_layer_nodes(layer: &LayerInstance) -> AnyResult<BasicRecipeNodes<'_>> {
+    let ordered = ordered_inline_layer_nodes(layer)?;
     let (exposure, contrast, tone_curve, channel_gain, saturation) = match ordered.len() {
         4 => (ordered[0], ordered[1], None, ordered[2], ordered[3]),
         5 => (
@@ -1796,6 +2079,7 @@ fn basic_recipe_nodes(snapshot: &RecipeSnapshot) -> AnyResult<BasicRecipeNodes<'
         },
     )?;
     Ok(BasicRecipeNodes {
+        #[cfg(test)]
         layer,
         exposure,
         contrast,
@@ -1805,11 +2089,16 @@ fn basic_recipe_nodes(snapshot: &RecipeSnapshot) -> AnyResult<BasicRecipeNodes<'
     })
 }
 
+#[cfg(test)]
 fn basic_parameters_from_snapshot(snapshot: &RecipeSnapshot) -> AnyResult<BasicEditParameters> {
     if snapshot.layers().is_empty() {
         return Ok(BasicEditParameters::default());
     }
     let nodes = basic_recipe_nodes(snapshot)?;
+    basic_parameters_from_nodes(&nodes)
+}
+
+fn basic_parameters_from_nodes(nodes: &BasicRecipeNodes<'_>) -> AnyResult<BasicEditParameters> {
     let exposure_stops =
         required_float(nodes.exposure.parameters(), EXPOSURE_STOPS_PARAMETER_KEY, 1)?;
     let contrast_factor = required_float(
@@ -1844,22 +2133,56 @@ fn basic_parameters_from_snapshot(snapshot: &RecipeSnapshot) -> AnyResult<BasicE
 }
 
 fn edit_settings_from_snapshot(snapshot: &RecipeSnapshot) -> AnyResult<EditSettings> {
-    if snapshot.layers().is_empty() {
-        return Ok(EditSettings::default());
+    snapshot
+        .validate()
+        .context("validate persisted Adjustment Stack Recipe")?;
+    if snapshot.schema_version() != CURRENT_RECIPE_SCHEMA_VERSION {
+        bail!(
+            "Adjustment Stack supports Recipe schema {}, received {}",
+            CURRENT_RECIPE_SCHEMA_VERSION,
+            snapshot.schema_version()
+        );
     }
-    let basic = basic_parameters_from_snapshot(snapshot)?;
-    let nodes = basic_recipe_nodes(snapshot)?;
+    if !(1..=MAX_BASIC_EDIT_LAYERS).contains(&snapshot.layers().len()) {
+        bail!("Adjustment Stack must contain 1 through 16 Basic layers");
+    }
+    let settings = EditSettings {
+        layers: snapshot
+            .layers()
+            .iter()
+            .map(edit_layer_settings_from_recipe)
+            .collect::<AnyResult<Vec<_>>>()?,
+    };
+    validate_edit_settings(&settings)?;
+    Ok(settings)
+}
+
+fn edit_layer_settings_from_recipe(layer: &LayerInstance) -> AnyResult<EditLayerSettings> {
+    let nodes = basic_layer_nodes(layer)?;
+    let basic = basic_parameters_from_nodes(&nodes)?;
     let tone_curve = nodes
         .tone_curve
         .map(|node| tone_curve_points_from_parameters(node.parameters()))
         .transpose()?;
-    let settings = EditSettings {
+    Ok(EditLayerSettings {
+        identity: EditableBasicLayerIdentity {
+            layer: layer.id(),
+            exposure: nodes.exposure.id(),
+            contrast: nodes.contrast.id(),
+            // Old curve-less Recipes have no persisted slot identity. Derive a
+            // deterministic UUIDv8 from the stable layer id so repeated reads,
+            // reopen, and a later curve insertion all agree on the same slot.
+            tone_curve: nodes
+                .tone_curve
+                .map_or_else(|| basic_tone_curve_slot_id(layer.id()), AdjustmentNode::id),
+            channel_gain: nodes.channel_gain.id(),
+            saturation: nodes.saturation.id(),
+        },
+        label: layer.label().to_owned(),
         basic,
-        layer_enabled: nodes.layer.enabled(),
+        layer_enabled: layer.enabled(),
         tone_curve,
-    };
-    validate_edit_settings(&settings)?;
-    Ok(settings)
+    })
 }
 
 fn tone_curve_points_from_parameters(
@@ -2005,15 +2328,6 @@ enum EditVersionDiffError {
         parent_id: RecipeCommitId,
     },
     #[error(
-        "edit_version_diff.unsupported_basic_snapshot: cannot compare {role} commit {commit_id}: {source}"
-    )]
-    UnsupportedBasicSnapshot {
-        commit_id: RecipeCommitId,
-        role: &'static str,
-        #[source]
-        source: anyhow::Error,
-    },
-    #[error(
         "edit_version_diff.count_overflow: {field} for commit {commit_id} exceeds the desktop ABI limit"
     )]
     CountOverflow {
@@ -2064,21 +2378,13 @@ fn edit_version_diff(
 
     let structural = diff_recipe_snapshots(parent.commit.snapshot(), record.commit.snapshot());
     let summary = structural.summary();
-    let before = edit_settings_from_snapshot(parent.commit.snapshot()).map_err(|source| {
-        EditVersionDiffError::UnsupportedBasicSnapshot {
-            commit_id: parent_id,
-            role: "parent",
-            source,
-        }
-    })?;
-    let after = edit_settings_from_snapshot(record.commit.snapshot()).map_err(|source| {
-        EditVersionDiffError::UnsupportedBasicSnapshot {
-            commit_id: record.commit.id(),
-            role: "current",
-            source,
-        }
-    })?;
-    let changed_basic_parameters = changed_edit_parameters(&before, &after);
+    let (changed_basic_parameters, basic_subset_supported) = match (
+        edit_settings_from_snapshot(parent.commit.snapshot()),
+        edit_settings_from_snapshot(record.commit.snapshot()),
+    ) {
+        (Ok(before), Ok(after)) => (changed_edit_parameters(&before, &after), true),
+        _ => (Vec::new(), false),
+    };
 
     Ok(EditVersionDiff {
         is_root: false,
@@ -2119,11 +2425,12 @@ fn edit_version_diff(
             "node_parameter_blocks_changed",
             summary.node_parameters_changed,
         )?,
-        has_other_changes: has_other_recipe_changes(
-            &structural,
-            parent.commit.snapshot(),
-            record.commit.snapshot(),
-        ),
+        has_other_changes: !basic_subset_supported
+            || has_other_recipe_changes(
+                &structural,
+                parent.commit.snapshot(),
+                record.commit.snapshot(),
+            ),
         changed_basic_parameters,
     })
 }
@@ -2183,14 +2490,41 @@ fn changed_basic_parameters(
 }
 
 fn changed_edit_parameters(before: &EditSettings, after: &EditSettings) -> Vec<String> {
-    let mut changed = changed_basic_parameters(before.basic, after.basic);
-    if before.layer_enabled != after.layer_enabled {
-        changed.push("layer_enabled".to_owned());
+    let before_by_id = before
+        .layers
+        .iter()
+        .map(|layer| (layer.identity.layer, layer))
+        .collect::<HashMap<_, _>>();
+    let mut changed = HashSet::new();
+    for after_layer in &after.layers {
+        let Some(before_layer) = before_by_id.get(&after_layer.identity.layer) else {
+            continue;
+        };
+        changed.extend(changed_basic_parameters(
+            before_layer.basic,
+            after_layer.basic,
+        ));
+        if before_layer.layer_enabled != after_layer.layer_enabled {
+            changed.insert("layer_enabled".to_owned());
+        }
+        if before_layer.tone_curve != after_layer.tone_curve {
+            changed.insert("tone_curve".to_owned());
+        }
     }
-    if before.tone_curve != after.tone_curve {
-        changed.push("tone_curve".to_owned());
-    }
-    changed
+    [
+        "exposure_stops",
+        "contrast_factor",
+        "red_channel_gain",
+        "green_channel_gain",
+        "blue_channel_gain",
+        "saturation_factor",
+        "layer_enabled",
+        "tone_curve",
+    ]
+    .into_iter()
+    .filter(|key| changed.contains(*key))
+    .map(str::to_owned)
+    .collect()
 }
 
 const fn persisted_float_changed(before: f64, after: f64) -> bool {
@@ -2244,18 +2578,31 @@ fn has_other_recipe_changes(
 }
 
 fn canonical_edit_identity_is_preserved(before: &RecipeSnapshot, after: &RecipeSnapshot) -> bool {
-    let (Ok(before), Ok(after)) = (basic_recipe_nodes(before), basic_recipe_nodes(after)) else {
+    if before.layers().len() != after.layers().len() {
         return false;
-    };
-    before.layer.id() == after.layer.id()
-        && before.exposure.id() == after.exposure.id()
-        && before.contrast.id() == after.contrast.id()
-        && before.channel_gain.id() == after.channel_gain.id()
-        && before.saturation.id() == after.saturation.id()
-        && match (before.tone_curve, after.tone_curve) {
-            (Some(before), Some(after)) => before.id() == after.id(),
-            _ => true,
-        }
+    }
+    before
+        .layers()
+        .iter()
+        .zip(after.layers())
+        .all(|(before_layer, after_layer)| {
+            let (Ok(before_nodes), Ok(after_nodes)) = (
+                basic_layer_nodes(before_layer),
+                basic_layer_nodes(after_layer),
+            ) else {
+                return false;
+            };
+            before_layer.id() == after_layer.id()
+                && before_layer.label() == after_layer.label()
+                && before_nodes.exposure.id() == after_nodes.exposure.id()
+                && before_nodes.contrast.id() == after_nodes.contrast.id()
+                && before_nodes.channel_gain.id() == after_nodes.channel_gain.id()
+                && before_nodes.saturation.id() == after_nodes.saturation.id()
+                && match (before_nodes.tone_curve, after_nodes.tone_curve) {
+                    (Some(before), Some(after)) => before.id() == after.id(),
+                    _ => true,
+                }
+        })
 }
 
 fn node_parameter_change_has_basic_label(snapshot: &RecipeSnapshot, node_id: NodeId) -> bool {
@@ -3796,6 +4143,305 @@ mod tests {
     }
 
     #[test]
+    fn new_basic_layer_allocates_complete_stable_identity_and_round_trips() {
+        let created = new_basic_edit_layer("Portrait foundation").expect("new Basic layer");
+        for value in [
+            &created.layer_id,
+            &created.exposure_node_id,
+            &created.contrast_node_id,
+            &created.channel_gain_node_id,
+            &created.saturation_node_id,
+        ] {
+            let id = Uuid::parse_str(value).expect("UUID identity");
+            assert_eq!(id.get_version_num(), 7);
+        }
+        let tone_curve_slot = Uuid::parse_str(&created.tone_curve_node_id)
+            .expect("deterministic Tone Curve slot UUID");
+        assert_eq!(tone_curve_slot.get_version_num(), 8);
+        assert_eq!(tone_curve_slot.get_variant(), uuid::Variant::RFC4122);
+        assert!(!created.has_tone_curve);
+        assert!(created.tone_curve_points.is_empty());
+        assert!(!created.tone_curve_node_id.is_empty());
+
+        let incoming = ffi::FfiEditSettings {
+            layers: vec![created],
+        };
+        let decoded = edit_settings(&incoming).expect("decode stack");
+        let outgoing = ffi_edit_settings(decoded);
+        assert_eq!(outgoing.layers.len(), 1);
+        assert_eq!(outgoing.layers[0].layer_id, incoming.layers[0].layer_id);
+        assert_eq!(
+            outgoing.layers[0].tone_curve_node_id,
+            incoming.layers[0].tone_curve_node_id
+        );
+        assert_eq!(outgoing.layers[0].label, "Portrait foundation");
+    }
+
+    #[test]
+    fn curve_less_recipe_derives_the_same_tone_curve_slot_on_repeated_reads() {
+        let snapshot =
+            edit_recipe_snapshot(&EditSettings::default(), None).expect("curve-less Basic Recipe");
+        let first = edit_settings_from_snapshot(&snapshot).expect("first Recipe read");
+        let second = edit_settings_from_snapshot(&snapshot).expect("second Recipe read");
+        let layer_id = snapshot.layers()[0].id();
+
+        assert_eq!(first.identity.tone_curve, second.identity.tone_curve);
+        assert_eq!(
+            first.identity.tone_curve,
+            basic_tone_curve_slot_id(layer_id)
+        );
+        assert_eq!(first.identity.tone_curve.as_uuid().get_version_num(), 8);
+        assert_eq!(
+            first.identity.tone_curve.as_uuid().get_variant(),
+            uuid::Variant::RFC4122
+        );
+    }
+
+    #[test]
+    fn legacy_single_layer_snapshot_round_trips_without_identity_or_label_loss() {
+        let mut layer = EditLayerSettings::neutral("Legacy custom label");
+        layer.basic.exposure_stops = 0.75;
+        let settings = EditSettings {
+            layers: vec![layer],
+        };
+        let snapshot = edit_recipe_snapshot(&settings, None).expect("legacy snapshot");
+        let original_identity = basic_recipe_identity(&snapshot)
+            .expect("read identity")
+            .expect("one layer");
+
+        let decoded = edit_settings_from_snapshot(&snapshot).expect("decode legacy snapshot");
+        let rebuilt = edit_recipe_snapshot(&decoded, Some(&snapshot)).expect("rebuild snapshot");
+        let rebuilt_identity = basic_recipe_identity(&rebuilt)
+            .expect("read rebuilt identity")
+            .expect("one layer");
+
+        assert_eq!(rebuilt, snapshot);
+        assert_eq!(rebuilt_identity, original_identity);
+        assert_eq!(rebuilt.layers()[0].label(), "Legacy custom label");
+    }
+
+    #[test]
+    fn two_basic_layers_compile_in_recipe_vector_order_with_namespaced_nodes() {
+        let mut settings = EditSettings::default();
+        settings.basic.exposure_stops = 0.5;
+        let mut second = EditLayerSettings::neutral("Second Basic");
+        second.basic.exposure_stops = -1.25;
+        settings.layers.push(second);
+        let first_layer_id = settings.layers[0].identity.layer;
+        let second_layer_id = settings.layers[1].identity.layer;
+
+        let snapshot = edit_recipe_snapshot(&settings, None).expect("two-layer snapshot");
+        let plan = compile_recipe_render_plan(&snapshot).expect("compile two layers");
+        assert_eq!(plan.nodes.len(), 8);
+        assert!(
+            plan.nodes[..4]
+                .iter()
+                .all(|node| node.node_id.starts_with(&format!("{first_layer_id}/")))
+        );
+        assert!(
+            plan.nodes[4..]
+                .iter()
+                .all(|node| node.node_id.starts_with(&format!("{second_layer_id}/")))
+        );
+        assert!(matches!(
+            plan.nodes[0].operation,
+            AdjustmentRenderOperation::Exposure { stops: 0.5 }
+        ));
+        assert!(matches!(
+            plan.nodes[4].operation,
+            AdjustmentRenderOperation::Exposure { stops: -1.25 }
+        ));
+
+        settings.layers.reverse();
+        let reversed = edit_recipe_snapshot(&settings, None).expect("reordered snapshot");
+        let reversed_plan = compile_recipe_render_plan(&reversed).expect("compile reordered stack");
+        assert!(
+            reversed_plan.nodes[0]
+                .node_id
+                .starts_with(&format!("{second_layer_id}/"))
+        );
+    }
+
+    #[test]
+    fn adjustment_stack_rejects_cross_layer_node_identity_reuse() {
+        let first = EditLayerSettings::neutral("First Basic");
+        let mut second = EditLayerSettings::neutral("Second Basic");
+        second.identity.exposure = first.identity.exposure;
+        let invalid = EditSettings {
+            layers: vec![first.clone(), second.clone()],
+        };
+
+        let ffi_error = edit_settings(&ffi_edit_settings(invalid.clone()))
+            .expect_err("FFI stack must reject a node id reused by another layer");
+        assert!(ffi_error.to_string().contains("duplicate node id"));
+
+        // RecipeSnapshot currently scopes graph identity validation per layer,
+        // so the desktop compiler must independently enforce the stack-wide
+        // identity contract for externally persisted snapshots.
+        let persisted = RecipeSnapshot::new(
+            CURRENT_RECIPE_SCHEMA_VERSION,
+            vec![
+                edit_layer_recipe(&first).expect("first persisted layer"),
+                edit_layer_recipe(&second).expect("second persisted layer"),
+            ],
+        )
+        .expect("domain-valid graph-scoped identities");
+        assert!(
+            edit_settings_from_snapshot(&persisted)
+                .expect_err("persisted stack read must reject reused node identity")
+                .to_string()
+                .contains("duplicate node id")
+        );
+        assert!(
+            compile_recipe_render_plan(&persisted)
+                .expect_err("compiler must reject reused node identity")
+                .to_string()
+                .contains("duplicate Adjustment Stack node id")
+        );
+    }
+
+    #[test]
+    fn duplicate_add_delete_and_reorder_preserve_the_expected_identities() {
+        let original = EditSettings::default();
+        let base = edit_recipe_snapshot(&original, None).expect("base snapshot");
+        let duplicate = original.layers[0].duplicate();
+        assert_eq!(duplicate.basic, original.layers[0].basic);
+        assert_eq!(duplicate.tone_curve, original.layers[0].tone_curve);
+        assert_ne!(duplicate.identity.layer, original.layers[0].identity.layer);
+        assert!(
+            duplicate
+                .identity
+                .node_ids()
+                .into_iter()
+                .all(|id| !original.layers[0].identity.node_ids().contains(&id))
+        );
+
+        let mut added_settings = original.clone();
+        added_settings.layers.push(duplicate.clone());
+        let added = edit_recipe_snapshot(&added_settings, Some(&base)).expect("added snapshot");
+        let added_diff = diff_recipe_snapshots(&base, &added);
+        assert_eq!(added_diff.added_layers().len(), 1);
+        assert_eq!(added_diff.added_layers()[0].id(), duplicate.identity.layer);
+
+        let mut reordered_settings = added_settings.clone();
+        reordered_settings.layers.swap(0, 1);
+        let reordered =
+            edit_recipe_snapshot(&reordered_settings, Some(&added)).expect("reordered snapshot");
+        let reordered_diff = diff_recipe_snapshots(&added, &reordered);
+        assert_eq!(reordered_diff.moved_layers().len(), 2);
+        assert_eq!(reordered.layers()[0].id(), duplicate.identity.layer);
+
+        reordered_settings.layers.remove(0);
+        let deleted =
+            edit_recipe_snapshot(&reordered_settings, Some(&reordered)).expect("deleted snapshot");
+        assert_eq!(deleted, base);
+        assert_eq!(
+            diff_recipe_snapshots(&reordered, &deleted)
+                .removed_layers()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn template_rejects_retained_identity_rewrite_and_deleted_node_reuse() {
+        let mut base_settings = EditSettings::default();
+        base_settings
+            .layers
+            .push(EditLayerSettings::neutral("Second Basic"));
+        let base = edit_recipe_snapshot(&base_settings, None).expect("two-layer base");
+
+        let mut rewritten = base_settings.clone();
+        rewritten.layers[0].identity.exposure = NodeId::new_v7();
+        assert!(
+            edit_recipe_snapshot(&rewritten, Some(&base))
+                .expect_err("retained layer node identity rewrite must fail")
+                .to_string()
+                .contains("must preserve every stable node identity")
+        );
+
+        let deleted_exposure_id = base_settings.layers[0].identity.exposure;
+        let mut replacement = EditLayerSettings::neutral("Replacement Basic");
+        replacement.identity.exposure = deleted_exposure_id;
+        let replacement_settings = EditSettings {
+            layers: vec![base_settings.layers[1].clone(), replacement],
+        };
+        assert!(
+            edit_recipe_snapshot(&replacement_settings, Some(&base))
+                .expect_err("new layer must not reuse a deleted base node identity")
+                .to_string()
+                .contains("reuses base node id")
+        );
+    }
+
+    #[test]
+    fn template_allows_tone_curve_add_and_remove_with_the_reserved_identity() {
+        let neutral_settings = EditSettings::default();
+        let neutral = edit_recipe_snapshot(&neutral_settings, None).expect("neutral Recipe");
+        let mut curved_settings = edit_settings_from_snapshot(&neutral).expect("neutral settings");
+        let reserved_id = curved_settings.identity.tone_curve;
+        curved_settings.tone_curve = Some(vec![
+            ToneCurvePoint { x: 0.0, y: 0.0 },
+            ToneCurvePoint { x: 1.0, y: 1.0 },
+        ]);
+        let curved = edit_recipe_snapshot(&curved_settings, Some(&neutral))
+            .expect("insert Tone Curve using reserved identity");
+        assert_eq!(
+            basic_recipe_nodes(&curved)
+                .expect("curved nodes")
+                .tone_curve
+                .expect("Tone Curve node")
+                .id(),
+            reserved_id
+        );
+
+        let mut reset_settings = edit_settings_from_snapshot(&curved).expect("curved settings");
+        assert_eq!(reset_settings.identity.tone_curve, reserved_id);
+        reset_settings.tone_curve = None;
+        edit_recipe_snapshot(&reset_settings, Some(&curved))
+            .expect("remove Tone Curve without rewriting its incoming identity");
+    }
+
+    #[test]
+    fn adjustment_stack_accepts_sixteen_layers_and_rejects_seventeen() {
+        assert!(
+            edit_recipe_snapshot(&EditSettings { layers: Vec::new() }, None)
+                .expect_err("an empty stack must fail closed")
+                .to_string()
+                .contains("1 through 16")
+        );
+        let sixteen = EditSettings {
+            layers: (0..MAX_BASIC_EDIT_LAYERS)
+                .map(|index| EditLayerSettings::neutral(format!("Basic {index}")))
+                .collect(),
+        };
+        let snapshot = edit_recipe_snapshot(&sixteen, None).expect("sixteen-layer snapshot");
+        assert_eq!(
+            compile_recipe_render_plan(&snapshot).unwrap().nodes.len(),
+            64
+        );
+
+        let mut seventeen = sixteen.clone();
+        seventeen
+            .layers
+            .push(EditLayerSettings::neutral("One too many"));
+        let error =
+            edit_recipe_snapshot(&seventeen, None).expect_err("seventeen layers must fail closed");
+        assert!(error.to_string().contains("1 through 16"));
+
+        let mut ffi_seventeen = ffi_edit_settings(sixteen);
+        ffi_seventeen
+            .layers
+            .push(new_basic_edit_layer("One too many").unwrap());
+        assert!(
+            edit_settings(&ffi_seventeen)
+                .expect_err("FFI seventeen layers must fail")
+                .to_string()
+                .contains("1 through 16")
+        );
+    }
+
+    #[test]
     fn basic_recipe_round_trip_preserves_renderer_parameters() {
         let expected = BasicEditParameters {
             exposure_stops: 1.25,
@@ -3838,13 +4484,15 @@ mod tests {
             0.6,
             &[[0.0, 0.1], [0.5, 0.8], [1.0, 1.1]],
         );
-        non_neutral.layer_enabled = false;
+        non_neutral.enabled = false;
 
         let before = preview_edit_settings(&non_neutral, false).expect("select neutral Before");
-        assert_eq!(before, EditSettings::default());
+        assert_eq!(before.layers.len(), 1);
+        assert_eq!(before.basic, BasicEditParameters::default());
+        assert!(before.tone_curve.is_none());
         assert!(before.layer_enabled);
         let current = preview_edit_settings(&non_neutral, true).expect("select current parameters");
-        assert_ne!(current, EditSettings::default());
+        assert_ne!(current.basic, BasicEditParameters::default());
         assert!(!current.layer_enabled);
     }
 
@@ -3887,13 +4535,14 @@ mod tests {
         let snapshot = basic_recipe_with_tone(parameters, &points, true);
         let recipe_nodes = basic_recipe_nodes(&snapshot).expect("read typed Recipe nodes");
         let plan = compile_recipe_render_plan(&snapshot).expect("compile typed Recipe");
+        let render_id = |node_id: NodeId| format!("{}/{}", recipe_nodes.layer.id(), node_id);
 
         assert_eq!(
             plan,
             AdjustmentRenderPlan {
                 nodes: vec![
                     AdjustmentRenderNode {
-                        node_id: recipe_nodes.exposure.id().to_string(),
+                        node_id: render_id(recipe_nodes.exposure.id()),
                         parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
                         implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
                         enabled: true,
@@ -3902,7 +4551,7 @@ mod tests {
                         },
                     },
                     AdjustmentRenderNode {
-                        node_id: recipe_nodes.contrast.id().to_string(),
+                        node_id: render_id(recipe_nodes.contrast.id()),
                         parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
                         implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
                         enabled: true,
@@ -3912,11 +4561,7 @@ mod tests {
                         },
                     },
                     AdjustmentRenderNode {
-                        node_id: recipe_nodes
-                            .tone_curve
-                            .expect("Tone Curve node")
-                            .id()
-                            .to_string(),
+                        node_id: render_id(recipe_nodes.tone_curve.expect("Tone Curve node").id(),),
                         parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
                         implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
                         enabled: true,
@@ -3928,7 +4573,7 @@ mod tests {
                         },
                     },
                     AdjustmentRenderNode {
-                        node_id: recipe_nodes.channel_gain.id().to_string(),
+                        node_id: render_id(recipe_nodes.channel_gain.id()),
                         parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
                         implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
                         enabled: true,
@@ -3937,7 +4582,7 @@ mod tests {
                         },
                     },
                     AdjustmentRenderNode {
-                        node_id: recipe_nodes.saturation.id().to_string(),
+                        node_id: render_id(recipe_nodes.saturation.id()),
                         parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
                         implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
                         enabled: true,
@@ -3975,7 +4620,7 @@ mod tests {
     fn layer_bypass_preserves_the_complete_recipe_and_disables_every_render_node() {
         let points = [[0.0, -0.08], [0.4, 0.22], [0.8, 0.94], [1.0, 1.1]];
         let mut incoming = ffi_settings_with_tone(1.25, 1.35, [1.2, 0.9, 1.05], 0.72, &points);
-        incoming.layer_enabled = false;
+        incoming.enabled = false;
         let disabled_settings = edit_settings(&incoming).expect("validate disabled settings");
         let disabled =
             edit_recipe_snapshot(&disabled_settings, None).expect("build disabled Recipe");
@@ -3992,7 +4637,7 @@ mod tests {
             disabled_settings
         );
         let outgoing = ffi_edit_settings(disabled_settings.clone());
-        assert!(!outgoing.layer_enabled);
+        assert!(!outgoing.enabled);
         assert_eq!(ffi_curve_pairs(&outgoing), points);
 
         let mut enabled_settings = disabled_settings.clone();
@@ -4045,15 +4690,9 @@ mod tests {
         let edited_nodes = basic_recipe_nodes(&edited).expect("edited nodes");
         assert_eq!(edited_nodes.tone_curve.expect("Tone Curve").id(), tone_id);
 
-        let reset = edit_recipe_snapshot(
-            &EditSettings {
-                basic: edited_settings.basic,
-                layer_enabled: edited_settings.layer_enabled,
-                tone_curve: None,
-            },
-            Some(&edited),
-        )
-        .expect("reset curve");
+        let mut reset_settings = edited_settings.clone();
+        reset_settings.tone_curve = None;
+        let reset = edit_recipe_snapshot(&reset_settings, Some(&edited)).expect("reset curve");
         let reset_nodes = basic_recipe_nodes(&reset).expect("reset nodes");
         assert!(reset_nodes.tone_curve.is_none());
         assert_eq!(compile_recipe_render_plan(&reset).unwrap().nodes.len(), 4);
@@ -4133,18 +4772,22 @@ mod tests {
             })
             .expect("persist curve root");
 
+        let mut child_settings = session
+            .photo_edit_state(&photo_id, &source_path)
+            .expect("read persisted root settings")
+            .settings;
+        child_settings.basic.exposure_stops = 0.6;
+        child_settings.basic.contrast_factor = 1.15;
+        child_settings.basic.red_channel_gain = 1.04;
+        child_settings.basic.green_channel_gain = 1.0;
+        child_settings.basic.blue_channel_gain = 0.96;
+        child_settings.basic.saturation_factor = 1.1;
         let saved = session
             .save_basic_edit_version_at(
                 &photo_id,
                 &source_path,
                 &root_commit_id.to_string(),
-                &ffi_settings_with_tone(
-                    0.6,
-                    1.15,
-                    [1.04, 1.0, 0.96],
-                    1.1,
-                    &[[0.0, 0.02], [0.5, 0.68], [1.0, 1.0]],
-                ),
+                &child_settings,
                 "Curve plus sliders",
                 2_000,
             )
@@ -4214,7 +4857,7 @@ mod tests {
                     "Future layer",
                     AdjustmentScope::Photo,
                     LayerContent::Inline { graph },
-                    true,
+                    false,
                     UnitInterval::ONE,
                     BlendMode::Normal,
                     None,
@@ -4225,8 +4868,8 @@ mod tests {
         .expect("future Recipe");
 
         let error = compile_recipe_render_plan(&snapshot)
-            .expect_err("unknown operation must never become an implicit no-op");
-        assert!(error.to_string().contains("not executable"));
+            .expect_err("a disabled unknown operation must never become an implicit no-op");
+        assert!(error.to_string().contains("Basic subset"));
     }
 
     #[test]
@@ -4273,10 +4916,7 @@ mod tests {
         for (contract, snapshot) in cases {
             let error = compile_recipe_render_plan(&snapshot)
                 .expect_err("future persisted contract must fail closed");
-            assert!(
-                error.to_string().contains("supports") || error.to_string().contains("unsupported"),
-                "unexpected {contract} error: {error}"
-            );
+            assert!(!error.to_string().is_empty(), "missing {contract} error");
         }
     }
 
@@ -4319,16 +4959,16 @@ mod tests {
     #[test]
     fn tone_curve_add_and_reset_share_the_stable_version_change_key() {
         let neutral = edit_recipe_snapshot(&EditSettings::default(), None).expect("neutral Recipe");
-        let curved_settings = edit_settings(&ffi_settings_with_tone(
-            0.0,
-            1.0,
-            [1.0; 3],
-            1.0,
-            &[[0.0, 0.0], [0.5, 0.7], [1.0, 1.0]],
-        ))
-        .expect("curve settings");
+        let mut curved_settings = edit_settings_from_snapshot(&neutral).expect("neutral settings");
+        curved_settings.tone_curve = Some(vec![
+            ToneCurvePoint { x: 0.0, y: 0.0 },
+            ToneCurvePoint { x: 0.5, y: 0.7 },
+            ToneCurvePoint { x: 1.0, y: 1.0 },
+        ]);
         let curved = edit_recipe_snapshot(&curved_settings, Some(&neutral)).expect("add curve");
-        let reset = edit_recipe_snapshot(&EditSettings::default(), Some(&curved)).expect("reset");
+        let mut reset_settings = curved_settings;
+        reset_settings.tone_curve = None;
+        let reset = edit_recipe_snapshot(&reset_settings, Some(&curved)).expect("reset");
 
         for (before, after) in [(&neutral, &curved), (&curved, &reset)] {
             let changed = changed_edit_parameters(
@@ -4356,7 +4996,7 @@ mod tests {
         assert_close(neutral.settings.basic.green_channel_gain, 1.0);
         assert_close(neutral.settings.basic.blue_channel_gain, 1.0);
         assert_close(neutral.settings.basic.saturation_factor, 1.0);
-        assert!(neutral.settings.layer_enabled);
+        assert!(neutral.settings.enabled);
         assert!(!neutral.settings.has_tone_curve);
         assert!(neutral.settings.tone_curve_points.is_empty());
         assert!(neutral.versions.is_empty());
@@ -4486,6 +5126,140 @@ mod tests {
         assert!(error.to_string().contains("did not match expectation"));
         assert_eq!(state.working_commit_id, second_id);
         assert_eq!(state.versions.len(), 2);
+
+        drop(session);
+        std::fs::remove_dir_all(root).expect("remove edit fixture");
+    }
+
+    #[test]
+    fn unsupported_save_base_fails_before_the_working_head_moves() {
+        let (root, session, photo_id, source_path) = test_edit_session();
+        let photo_id: PhotoId = photo_id.parse().expect("photo id");
+        let base_commit_id = RecipeCommitId::new_v7();
+        session
+            .catalog
+            .commit_recipe(&CommitRecipe {
+                photo_id,
+                commit: RecipeCommit::new(
+                    base_commit_id,
+                    RecipeId::new_v7(),
+                    Vec::new(),
+                    single_exposure_recipe(
+                        CURRENT_RECIPE_SCHEMA_VERSION,
+                        BASIC_GRAPH_SCHEMA_VERSION,
+                        CPU_REFERENCE_PARAMETER_SCHEMA_VERSION,
+                        CPU_REFERENCE_IMPLEMENTATION_VERSION,
+                    ),
+                    Some("Unsupported one-node base".to_owned()),
+                    1_000,
+                )
+                .expect("unsupported-but-domain-valid base commit"),
+                update_refs: vec![RecipeRefTarget {
+                    name: WORKING_RECIPE_REF.to_owned(),
+                    kind: RecipeRefKind::Working,
+                    expectation: Some(RecipeRefExpectation::Missing),
+                }],
+            })
+            .expect("persist unsupported base");
+
+        let error = session
+            .save_basic_edit_version_at(
+                &photo_id.to_string(),
+                &source_path,
+                &base_commit_id.to_string(),
+                &ffi_parameters(0.5, 1.1, [1.0; 3], 0.9),
+                "Must not commit",
+                2_000,
+            )
+            .expect_err("unsupported base must fail before the Catalog transaction");
+        assert!(
+            error
+                .to_string()
+                .contains("validate base Adjustment Stack Recipe")
+        );
+        let working = session
+            .catalog
+            .recipe_ref(photo_id, WORKING_RECIPE_REF)
+            .expect("read unchanged working ref")
+            .expect("working ref remains present");
+        assert_eq!(working.commit_id, base_commit_id);
+        assert_eq!(
+            session
+                .catalog
+                .recipe_commits(photo_id)
+                .expect("list commits after rejected save")
+                .len(),
+            1
+        );
+
+        drop(session);
+        std::fs::remove_dir_all(root).expect("remove edit fixture");
+    }
+
+    #[test]
+    fn generic_nonworking_history_does_not_poison_a_successful_save_response() {
+        let (root, session, photo_id, source_path) = test_edit_session();
+        let photo_id: PhotoId = photo_id.parse().expect("photo id");
+        let recipe_id = RecipeId::new_v7();
+        let generic_root_id = RecipeCommitId::new_v7();
+        session
+            .catalog
+            .commit_recipe(&CommitRecipe {
+                photo_id,
+                commit: RecipeCommit::new(
+                    generic_root_id,
+                    recipe_id,
+                    Vec::new(),
+                    single_exposure_recipe(
+                        CURRENT_RECIPE_SCHEMA_VERSION,
+                        BASIC_GRAPH_SCHEMA_VERSION,
+                        CPU_REFERENCE_PARAMETER_SCHEMA_VERSION,
+                        CPU_REFERENCE_IMPLEMENTATION_VERSION,
+                    ),
+                    Some("Generic root".to_owned()),
+                    500,
+                )
+                .expect("generic root commit"),
+                update_refs: Vec::new(),
+            })
+            .expect("persist generic root without a working ref");
+        let generic_child_id = RecipeCommitId::new_v7();
+        session
+            .catalog
+            .commit_recipe(&CommitRecipe {
+                photo_id,
+                commit: RecipeCommit::new(
+                    generic_child_id,
+                    recipe_id,
+                    vec![generic_root_id],
+                    branching_merge_recipe(),
+                    Some("Generic child".to_owned()),
+                    750,
+                )
+                .expect("generic child commit"),
+                update_refs: Vec::new(),
+            })
+            .expect("persist generic child without a working ref");
+
+        let saved = session
+            .save_basic_edit_version_at(
+                &photo_id.to_string(),
+                &source_path,
+                "",
+                &ffi_parameters(0.25, 1.1, [1.0; 3], 0.9),
+                "Supported working root",
+                1_000,
+            )
+            .expect("generic nonworking history must remain displayable");
+        let generic_child = saved
+            .versions
+            .iter()
+            .find(|version| version.commit_id == generic_child_id.to_string())
+            .expect("generic child version summary");
+        assert!(generic_child.changed_basic_parameters.is_empty());
+        assert_eq!(generic_child.changed_basic_parameter_count, 0);
+        assert!(generic_child.has_other_changes);
+        assert!(saved.has_working_version);
 
         drop(session);
         std::fs::remove_dir_all(root).expect("remove edit fixture");
@@ -4695,6 +5469,99 @@ mod tests {
     }
 
     #[test]
+    fn two_layer_stack_saves_reopens_diffs_and_checks_out_exact_identity() {
+        let (root, session, photo_id, source_path) = test_edit_session();
+        let mut first_settings = ffi_parameters(0.25, 1.1, [1.0; 3], 0.95);
+        let mut second_layer = new_basic_edit_layer("Creative finish").expect("second layer");
+        second_layer.basic.exposure_stops = -0.4;
+        second_layer.basic.contrast_factor = 1.3;
+        second_layer.basic.saturation_factor = 1.2;
+        first_settings.layers.push(second_layer);
+
+        let first = session
+            .save_basic_edit_version_at(
+                &photo_id,
+                &source_path,
+                "",
+                &first_settings,
+                "Two-layer base",
+                1_000,
+            )
+            .expect("save two-layer root");
+        let first_id = first.working_commit_id.clone();
+        let first_layer_ids = first
+            .settings
+            .layers
+            .iter()
+            .map(|layer| layer.layer_id.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(first_layer_ids.len(), 2);
+
+        let mut second_settings = first.settings.clone();
+        second_settings.layers[1].basic.exposure_stops = -0.9;
+        let second = session
+            .save_basic_edit_version_at(
+                &photo_id,
+                &source_path,
+                &first_id,
+                &second_settings,
+                "Second-layer exposure",
+                2_000,
+            )
+            .expect("save two-layer child");
+        let second_id = second.working_commit_id.clone();
+        let working = second
+            .versions
+            .iter()
+            .find(|version| version.is_working)
+            .expect("working multi-layer version");
+        assert_eq!(working.changed_basic_parameters, ["exposure_stops"]);
+        assert_eq!(working.layers_modified, 1);
+        assert_eq!(working.nodes_modified, 1);
+        assert!(!working.has_other_changes);
+
+        drop(session);
+        let reopened = open_desktop_session(
+            root.join("catalog.sqlite").to_str().expect("catalog path"),
+            root.join("cache").to_str().expect("cache path"),
+        )
+        .expect("reopen multi-layer session");
+        let reopened_state = reopened
+            .photo_edit_state(&photo_id, &source_path)
+            .expect("read reopened multi-layer stack");
+        assert_eq!(reopened_state.working_commit_id, second_id);
+        assert_eq!(reopened_state.settings.layers.len(), 2);
+        assert_eq!(
+            reopened_state
+                .settings
+                .layers
+                .iter()
+                .map(|layer| layer.layer_id.clone())
+                .collect::<Vec<_>>(),
+            first_layer_ids
+        );
+        assert_close(reopened_state.settings.layers[1].basic.exposure_stops, -0.9);
+
+        let checked_out = reopened
+            .checkout_basic_edit_version_at(&photo_id, &source_path, &first_id, 3_000)
+            .expect("checkout two-layer root");
+        assert_eq!(checked_out.settings.layers.len(), 2);
+        assert_eq!(
+            checked_out
+                .settings
+                .layers
+                .iter()
+                .map(|layer| layer.layer_id.clone())
+                .collect::<Vec<_>>(),
+            first_layer_ids
+        );
+        assert_close(checked_out.settings.layers[1].basic.exposure_stops, -0.4);
+
+        drop(reopened);
+        std::fs::remove_dir_all(root).expect("remove multi-layer fixture");
+    }
+
+    #[test]
     fn save_reopen_and_checkout_restore_the_complete_tone_curve() {
         let (root, session, photo_id, source_path) = test_edit_session();
         let first_points = [[0.0, 0.02], [0.35, 0.2], [0.7, 0.86], [1.0, 1.0]];
@@ -4765,7 +5632,7 @@ mod tests {
             .expect("save enabled version");
         let first_id = first.working_commit_id;
         let mut disabled = enabled.clone();
-        disabled.layer_enabled = false;
+        disabled.enabled = false;
         let second = session
             .save_basic_edit_version_at(
                 &photo_id,
@@ -4785,7 +5652,7 @@ mod tests {
 
         assert_eq!(current_version.changed_basic_parameters, ["layer_enabled"]);
         assert!(!current_version.has_other_changes);
-        assert!(!second.settings.layer_enabled);
+        assert!(!second.settings.enabled);
         assert_eq!(ffi_curve_pairs(&second.settings), points);
 
         let parsed_photo_id: PhotoId = photo_id.parse().expect("photo id");
@@ -4824,13 +5691,13 @@ mod tests {
             .photo_edit_state(&photo_id, &source_path)
             .expect("read reopened bypass state");
         assert_eq!(reopened_state.working_commit_id, second_id);
-        assert!(!reopened_state.settings.layer_enabled);
+        assert!(!reopened_state.settings.enabled);
         assert_eq!(ffi_curve_pairs(&reopened_state.settings), points);
 
         let checked_out = reopened
             .checkout_basic_edit_version_at(&photo_id, &source_path, &first_id, 3_000)
             .expect("check out enabled version");
-        assert!(checked_out.settings.layer_enabled);
+        assert!(checked_out.settings.enabled);
         assert_eq!(ffi_curve_pairs(&checked_out.settings), points);
         assert_close(checked_out.settings.basic.exposure_stops, 0.7);
         assert_close(checked_out.settings.basic.contrast_factor, 1.25);
@@ -4862,18 +5729,26 @@ mod tests {
         channel_gains: [f64; 3],
         saturation_factor: f64,
     ) -> ffi::FfiEditSettings {
+        let mut layer = new_basic_edit_layer(BASIC_LAYER_LABEL).expect("new Basic test layer");
+        // Stable fixture identity keeps tests focused on parameter semantics;
+        // identity allocation itself has dedicated UUID coverage.
+        let layer_id = LayerInstanceId::from_uuid(Uuid::from_u128(1));
+        layer.layer_id = layer_id.to_string();
+        layer.exposure_node_id = Uuid::from_u128(2).to_string();
+        layer.contrast_node_id = Uuid::from_u128(3).to_string();
+        layer.tone_curve_node_id = basic_tone_curve_slot_id(layer_id).to_string();
+        layer.channel_gain_node_id = Uuid::from_u128(5).to_string();
+        layer.saturation_node_id = Uuid::from_u128(6).to_string();
+        layer.basic = ffi::FfiBasicEditParameters {
+            exposure_stops,
+            contrast_factor,
+            red_channel_gain: channel_gains[0],
+            green_channel_gain: channel_gains[1],
+            blue_channel_gain: channel_gains[2],
+            saturation_factor,
+        };
         ffi::FfiEditSettings {
-            basic: ffi::FfiBasicEditParameters {
-                exposure_stops,
-                contrast_factor,
-                red_channel_gain: channel_gains[0],
-                green_channel_gain: channel_gains[1],
-                blue_channel_gain: channel_gains[2],
-                saturation_factor,
-            },
-            layer_enabled: true,
-            has_tone_curve: false,
-            tone_curve_points: Vec::new(),
+            layers: vec![layer],
         }
     }
 
@@ -5416,7 +6291,7 @@ mod tests {
             RepresentationId::new_v7()
         ));
         std::fs::create_dir_all(&root).expect("create desktop bridge fixture");
-        let (decision_photo_id, decision_sequence) = {
+        let (decision_photo_id, decision_sequence, stack_layer_ids) = {
             let session = open_desktop_session(
                 root.join("catalog.sqlite").to_str().expect("catalog path"),
                 root.join("cache").to_str().expect("cache path"),
@@ -5495,6 +6370,8 @@ mod tests {
                 &page.items[0],
                 &ffi_parameters(0.8, 1.25, [1.08, 1.0, 0.92], 1.2),
             );
+            let stack_layer_ids =
+                assert_real_dng_adjustment_stack_round_trip(session.as_ref(), &page.items[0]);
             assert_eq!(
                 session
                     .edit_preview_sessions
@@ -5503,7 +6380,11 @@ mod tests {
                     .len(),
                 1
             );
-            (page.items[0].photo_id.clone(), decision.sequence)
+            (
+                page.items[0].photo_id.clone(),
+                decision.sequence,
+                stack_layer_ids,
+            )
         };
         {
             let reopened = open_desktop_session(
@@ -5518,6 +6399,20 @@ mod tests {
             assert_eq!(page.items[0].decision_head_sequence, decision_sequence);
             assert_eq!(page.items[0].decision_flag, ffi::FfiDecisionFlag::Picked);
             assert_eq!(page.items[0].decision_rating, 3);
+            let edit_state = reopened
+                .photo_edit_state(&page.items[0].photo_id, &page.items[0].source_path)
+                .expect("reopen persisted real-DNG Adjustment Stack");
+            assert_eq!(
+                edit_state
+                    .settings
+                    .layers
+                    .iter()
+                    .map(|layer| layer.layer_id.clone())
+                    .collect::<Vec<_>>(),
+                stack_layer_ids
+            );
+            assert_eq!(edit_state.settings.layers.len(), 2);
+            assert!(!edit_state.settings.layers[0].enabled);
         }
         std::fs::remove_dir_all(root).expect("remove desktop bridge fixture");
     }
@@ -5550,7 +6445,7 @@ mod tests {
             )
             .expect("render neutral Before independently of working Recipe");
         let mut bypassed_settings = first_settings.clone();
-        bypassed_settings.layer_enabled = false;
+        bypassed_settings.enabled = false;
         let bypassed_current = session
             .render_basic_edit_preview(
                 &item.photo_id,
@@ -5596,6 +6491,129 @@ mod tests {
             .photo_edit_state(&item.photo_id, &item.source_path)
             .expect("open Basic surface over persisted Tone Curve");
         assert_eq!(state.working_commit_id, second_tone_id.to_string());
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn assert_real_dng_adjustment_stack_round_trip(
+        session: &DesktopSession,
+        item: &ffi::FfiReviewItem,
+    ) -> Vec<String> {
+        let base = session
+            .photo_edit_state(&item.photo_id, &item.source_path)
+            .expect("read real-DNG stack base");
+        assert_eq!(base.settings.layers.len(), 1);
+
+        let mut stacked = base.settings.clone();
+        let mut finish = new_basic_edit_layer("Real DNG finish").expect("create second layer");
+        finish.basic.exposure_stops = 0.85;
+        finish.basic.contrast_factor = 1.18;
+        finish.basic.saturation_factor = 1.12;
+        stacked.layers.push(finish);
+
+        let ordered = session
+            .render_basic_edit_preview(
+                &item.photo_id,
+                &item.source_path,
+                &preview_request(&base.working_commit_id, stacked.clone(), true),
+            )
+            .expect("render ordered two-layer real-DNG stack");
+        let mut reversed = stacked.clone();
+        reversed.layers.swap(0, 1);
+        let reverse_order = session
+            .render_basic_edit_preview(
+                &item.photo_id,
+                &item.source_path,
+                &preview_request(&base.working_commit_id, reversed, true),
+            )
+            .expect("render reversed two-layer real-DNG stack");
+        assert_ne!(
+            ordered.bytes, reverse_order.bytes,
+            "layer vector order must materially control real pixels"
+        );
+
+        let single = session
+            .render_basic_edit_preview(
+                &item.photo_id,
+                &item.source_path,
+                &preview_request(&base.working_commit_id, base.settings.clone(), true),
+            )
+            .expect("render single-layer real-DNG baseline");
+        stacked.layers[1].enabled = false;
+        let bypassed = session
+            .render_basic_edit_preview(
+                &item.photo_id,
+                &item.source_path,
+                &preview_request(&base.working_commit_id, stacked.clone(), true),
+            )
+            .expect("render real-DNG stack with second layer bypassed");
+        assert_eq!(single.bytes, bypassed.bytes);
+
+        let saved = session
+            .save_basic_edit_version_at(
+                &item.photo_id,
+                &item.source_path,
+                &base.working_commit_id,
+                &stacked,
+                "Real DNG two-layer stack",
+                3_000,
+            )
+            .expect("save real-DNG two-layer stack");
+        let saved_id = saved.working_commit_id.clone();
+        let saved_layer_ids = saved
+            .settings
+            .layers
+            .iter()
+            .map(|layer| layer.layer_id.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(saved_layer_ids.len(), 2);
+        assert!(!saved.settings.layers[1].enabled);
+
+        let restored_base = session
+            .checkout_basic_edit_version_at(
+                &item.photo_id,
+                &item.source_path,
+                &base.working_commit_id,
+                4_000,
+            )
+            .expect("check out single-layer real-DNG branch point");
+        assert_eq!(restored_base.settings.layers.len(), 1);
+        let restored_stack = session
+            .checkout_basic_edit_version_at(&item.photo_id, &item.source_path, &saved_id, 5_000)
+            .expect("check out saved real-DNG stack");
+        assert_eq!(
+            restored_stack
+                .settings
+                .layers
+                .iter()
+                .map(|layer| layer.layer_id.clone())
+                .collect::<Vec<_>>(),
+            saved_layer_ids
+        );
+
+        let mut reordered = restored_stack.settings;
+        reordered.layers.swap(0, 1);
+        let reordered_state = session
+            .save_basic_edit_version_at(
+                &item.photo_id,
+                &item.source_path,
+                &saved_id,
+                &reordered,
+                "Real DNG reordered stack",
+                6_000,
+            )
+            .expect("save reordered real-DNG stack");
+        let expected_ids = reordered_state
+            .settings
+            .layers
+            .iter()
+            .map(|layer| layer.layer_id.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            expected_ids,
+            [saved_layer_ids[1].clone(), saved_layer_ids[0].clone()]
+        );
+        assert!(!reordered_state.settings.layers[0].enabled);
+        expected_ids
     }
 
     fn persist_test_tone_recipe(

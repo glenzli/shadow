@@ -65,18 +65,59 @@ namespace {
     };
 }
 
+[[nodiscard]] shadow::desktop::FfiBasicEditLayer ffi_layer(
+    const BackendBasicEditLayer& source
+) {
+    shadow::desktop::FfiBasicEditLayer layer;
+    layer.layer_id = source.layer_id.toStdString();
+    layer.label = source.label.toStdString();
+    layer.exposure_node_id = source.exposure_node_id.toStdString();
+    layer.contrast_node_id = source.contrast_node_id.toStdString();
+    layer.tone_curve_node_id = source.tone_curve_node_id.toStdString();
+    layer.channel_gain_node_id = source.channel_gain_node_id.toStdString();
+    layer.saturation_node_id = source.saturation_node_id.toStdString();
+    layer.basic = ffi_parameters(source.basic);
+    layer.enabled = source.enabled;
+    layer.has_tone_curve = source.has_tone_curve;
+    layer.tone_curve_points.reserve(
+        static_cast<std::size_t>(source.tone_curve_points.size())
+    );
+    for (const auto& point : source.tone_curve_points) {
+        layer.tone_curve_points.push_back({.x = point.x, .y = point.y});
+    }
+    return layer;
+}
+
+[[nodiscard]] BackendBasicEditLayer edit_layer(
+    const shadow::desktop::FfiBasicEditLayer& source
+) {
+    BackendBasicEditLayer layer;
+    layer.layer_id = qstring(source.layer_id);
+    layer.label = qstring(source.label);
+    layer.exposure_node_id = qstring(source.exposure_node_id);
+    layer.contrast_node_id = qstring(source.contrast_node_id);
+    layer.tone_curve_node_id = qstring(source.tone_curve_node_id);
+    layer.channel_gain_node_id = qstring(source.channel_gain_node_id);
+    layer.saturation_node_id = qstring(source.saturation_node_id);
+    layer.basic = edit_parameters(source.basic);
+    layer.enabled = source.enabled;
+    layer.has_tone_curve = source.has_tone_curve;
+    layer.tone_curve_points.reserve(
+        checked_qt_vector_size(source.tone_curve_points.size(), "tone_curve_points")
+    );
+    for (const auto& point : source.tone_curve_points) {
+        layer.tone_curve_points.push_back({.x = point.x, .y = point.y});
+    }
+    return layer;
+}
+
 [[nodiscard]] shadow::desktop::FfiEditSettings ffi_settings(
     const BackendEditSettings& source
 ) {
     shadow::desktop::FfiEditSettings settings;
-    settings.basic = ffi_parameters(source.basic);
-    settings.layer_enabled = source.layer_enabled;
-    settings.has_tone_curve = source.has_tone_curve;
-    settings.tone_curve_points.reserve(
-        static_cast<std::size_t>(source.tone_curve_points.size())
-    );
-    for (const auto& point : source.tone_curve_points) {
-        settings.tone_curve_points.push_back({.x = point.x, .y = point.y});
+    settings.layers.reserve(static_cast<std::size_t>(source.layers.size()));
+    for (const auto& layer : source.layers) {
+        settings.layers.push_back(ffi_layer(layer));
     }
     return settings;
 }
@@ -85,14 +126,9 @@ namespace {
     const shadow::desktop::FfiEditSettings& source
 ) {
     BackendEditSettings settings;
-    settings.basic = edit_parameters(source.basic);
-    settings.layer_enabled = source.layer_enabled;
-    settings.has_tone_curve = source.has_tone_curve;
-    settings.tone_curve_points.reserve(
-        checked_qt_vector_size(source.tone_curve_points.size(), "tone_curve_points")
-    );
-    for (const auto& point : source.tone_curve_points) {
-        settings.tone_curve_points.push_back({.x = point.x, .y = point.y});
+    settings.layers.reserve(checked_qt_vector_size(source.layers.size(), "layers"));
+    for (const auto& layer : source.layers) {
+        settings.layers.push_back(edit_layer(layer));
     }
     return settings;
 }
@@ -415,6 +451,10 @@ BackendPhotoEditState DesktopBackend::photoEditState(
         photo_id.toStdString(),
         source_path.toStdString()
     ));
+}
+
+BackendBasicEditLayer DesktopBackend::newBasicEditLayer(const QString& label) const {
+    return edit_layer(shadow::desktop::new_basic_edit_layer(label.toStdString()));
 }
 
 BackendEditedPreview DesktopBackend::renderEditPreview(

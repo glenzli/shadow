@@ -12,6 +12,7 @@
 #include <QObject>
 #include <QString>
 #include <QTimer>
+#include <QVariantList>
 
 #include <cstdint>
 #include <memory>
@@ -55,6 +56,18 @@ class EditController final : public QObject {
     )
     Q_PROPERTY(QString beforeErrorText READ beforeErrorText NOTIFY beforeErrorTextChanged)
     Q_PROPERTY(QString statusText READ statusText NOTIFY statusTextChanged)
+    Q_PROPERTY(QVariantList layers READ layers NOTIFY layersChanged)
+    Q_PROPERTY(
+        int selectedLayerIndex
+        READ selectedLayerIndex
+        NOTIFY selectedLayerChanged
+    )
+    Q_PROPERTY(QString selectedLayerId READ selectedLayerId NOTIFY selectedLayerChanged)
+    Q_PROPERTY(bool hasSelectedLayer READ hasSelectedLayer NOTIFY selectedLayerChanged)
+    Q_PROPERTY(bool canAddLayer READ canAddLayer NOTIFY layerActionsChanged)
+    Q_PROPERTY(bool canDeleteLayer READ canDeleteLayer NOTIFY layerActionsChanged)
+    Q_PROPERTY(bool canMoveLayerUp READ canMoveLayerUp NOTIFY layerActionsChanged)
+    Q_PROPERTY(bool canMoveLayerDown READ canMoveLayerDown NOTIFY layerActionsChanged)
     Q_PROPERTY(
         bool layerEnabled
         READ layerEnabled
@@ -109,6 +122,14 @@ public:
     [[nodiscard]] QString beforePreviewSource() const;
     [[nodiscard]] QString beforeErrorText() const;
     [[nodiscard]] QString statusText() const;
+    [[nodiscard]] QVariantList layers() const;
+    [[nodiscard]] int selectedLayerIndex() const noexcept;
+    [[nodiscard]] QString selectedLayerId() const;
+    [[nodiscard]] bool hasSelectedLayer() const noexcept;
+    [[nodiscard]] bool canAddLayer() const noexcept;
+    [[nodiscard]] bool canDeleteLayer() const noexcept;
+    [[nodiscard]] bool canMoveLayerUp() const noexcept;
+    [[nodiscard]] bool canMoveLayerDown() const noexcept;
     [[nodiscard]] bool layerEnabled() const noexcept;
     [[nodiscard]] double exposureStops() const noexcept;
     [[nodiscard]] double contrastFactor() const noexcept;
@@ -136,6 +157,11 @@ public:
         const QString& title
     );
     Q_INVOKABLE void closePhoto();
+    Q_INVOKABLE void selectLayer(int index);
+    Q_INVOKABLE void addLayer();
+    Q_INVOKABLE void duplicateSelectedLayer();
+    Q_INVOKABLE void deleteSelectedLayer();
+    Q_INVOKABLE void moveSelectedLayer(int destination_index);
     Q_INVOKABLE void beginParameterEdit(const QString& parameter_key);
     Q_INVOKABLE void endParameterEdit(const QString& parameter_key);
     Q_INVOKABLE void beginToneCurveGesture(int index);
@@ -166,6 +192,9 @@ signals:
     void beforePreviewSourceChanged();
     void beforeErrorTextChanged();
     void statusTextChanged();
+    void layersChanged();
+    void selectedLayerChanged();
+    void layerActionsChanged();
     void layerEnabledChanged();
     void parametersChanged();
     void toneCurveChanged();
@@ -177,7 +206,14 @@ private slots:
 
 private:
     void applyState(BackendPhotoEditState state);
-    void setSettings(BackendEditSettings settings);
+    void setSettings(
+        BackendEditSettings settings,
+        const QString& preferred_layer_id = {}
+    );
+    [[nodiscard]] const BackendBasicEditLayer* selectedLayer() const noexcept;
+    [[nodiscard]] QString layerHistoryKey(const QString& key) const;
+    [[nodiscard]] QString uniqueLayerLabel(const QString& base) const;
+    void finishActiveGesture();
     void clearSessionHistory();
     void recordWorkingTransition(
         const QString& key,
@@ -235,4 +271,5 @@ private:
     bool before_rendering_ = false;
     bool preview_queued_ = false;
     bool before_requested_ = false;
+    int selected_layer_index_ = -1;
 };

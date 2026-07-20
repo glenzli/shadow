@@ -125,11 +125,24 @@ struct BackendToneCurvePoint final {
     auto operator<=>(const BackendToneCurvePoint&) const = default;
 };
 
-struct BackendEditSettings final {
+struct BackendBasicEditLayer final {
+    QString layer_id;
+    QString label;
+    QString exposure_node_id;
+    QString contrast_node_id;
+    QString tone_curve_node_id;
+    QString channel_gain_node_id;
+    QString saturation_node_id;
     BackendBasicEditParameters basic;
-    bool layer_enabled = true;
+    bool enabled = true;
     bool has_tone_curve = false;
     QVector<BackendToneCurvePoint> tone_curve_points;
+
+    bool operator==(const BackendBasicEditLayer&) const = default;
+};
+
+struct BackendEditSettings final {
+    QVector<BackendBasicEditLayer> layers;
 
     bool operator==(const BackendEditSettings&) const = default;
 };
@@ -225,6 +238,7 @@ public:
         const QString& photo_id,
         const QString& source_path
     ) const;
+    [[nodiscard]] BackendBasicEditLayer newBasicEditLayer(const QString& label) const;
     [[nodiscard]] BackendEditedPreview renderEditPreview(
         const QString& photo_id,
         const QString& source_path,
