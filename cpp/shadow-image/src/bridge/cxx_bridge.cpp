@@ -542,6 +542,52 @@ void require_parameter_count(
     return result;
 }
 
+[[nodiscard]] std::filesystem::path filesystem_path_from_utf8(const rust::Str path) {
+    const std::string_view utf8_bytes(path.data(), path.size());
+    std::u8string utf8_path;
+    utf8_path.reserve(utf8_bytes.size());
+    for (const char byte : utf8_bytes) {
+        utf8_path.push_back(static_cast<char8_t>(static_cast<unsigned char>(byte)));
+    }
+    return std::filesystem::path(utf8_path);
+}
+
+[[nodiscard]] std::unique_ptr<DecodeHandle> open_provider_path(
+    std::unique_ptr<image::DecoderProvider> provider,
+    const std::filesystem::path& path
+) {
+    auto session = provider->open(path);
+    return std::make_unique<DecodeHandle>(
+        std::move(provider),
+        std::move(session),
+        image::make_lensfun_optics_provider()
+    );
+}
+
+[[nodiscard]] rust::Vec<FfiOpticsProfileCandidate> optics_profile_candidates_for(
+    const image::DecodeSession& session
+) {
+    // JPEG/HEIF input may already have vendor lens corrections baked in. The first raster
+    // implementation therefore keeps automatic optics discovery RAW-only; a later explicit
+    // raster profile mode can opt in without silently applying a correction twice.
+    if (!session.capabilities().mosaic) {
+        return {};
+    }
+    const auto provider = image::make_lensfun_optics_provider();
+    const auto candidates = provider->profile_candidates(session.metadata());
+    rust::Vec<FfiOpticsProfileCandidate> result;
+    result.reserve(candidates.size());
+    for (const auto& candidate : candidates) {
+        FfiOpticsProfileCandidate ffi;
+        ffi.camera_maker = rust::String(candidate.camera_maker);
+        ffi.camera_model = rust::String(candidate.camera_model);
+        ffi.lens_maker = rust::String(candidate.lens_maker);
+        ffi.lens_model = rust::String(candidate.lens_model);
+        result.push_back(std::move(ffi));
+    }
+    return result;
+}
+
 } // namespace
 
 DecodeHandle::DecodeHandle(
@@ -799,48 +845,58 @@ FfiRenderedDetailTile FullEditDetailHandle::render_adjustment_plan_tile(
 }
 
 std::unique_ptr<DecodeHandle> open_libraw_utf8(const rust::Str path) {
-    const std::string_view utf8_bytes(path.data(), path.size());
-    std::u8string utf8_path;
-    utf8_path.reserve(utf8_bytes.size());
-    for (const char byte : utf8_bytes) {
-        utf8_path.push_back(static_cast<char8_t>(static_cast<unsigned char>(byte)));
-    }
     auto provider = image::make_libraw_decoder_provider();
-    auto session = provider->open(std::filesystem::path(utf8_path));
-    return std::make_unique<DecodeHandle>(
-        std::move(provider),
-        std::move(session),
-        image::make_lensfun_optics_provider()
-    );
+    return open_provider_path(std::move(provider), filesystem_path_from_utf8(path));
+}
+
+std::unique_ptr<DecodeHandle> open_photo_utf8(const rust::Str path) {
+    auto provider = image::make_photo_decoder_provider();
+    return open_provider_path(std::move(provider), filesystem_path_from_utf8(path));
 }
 
 rust::Vec<FfiOpticsProfileCandidate> query_libraw_optics_profiles_utf8(const rust::Str path) {
-    const std::string_view utf8_bytes(path.data(), path.size());
-    std::u8string utf8_path;
-    utf8_path.reserve(utf8_bytes.size());
-    for (const char byte : utf8_bytes) {
-        utf8_path.push_back(static_cast<char8_t>(static_cast<unsigned char>(byte)));
-    }
     auto decoder = image::make_libraw_decoder_provider();
-    auto session = decoder->open(std::filesystem::path(utf8_path));
-    const auto provider = image::make_lensfun_optics_provider();
-    const auto candidates = provider->profile_candidates(session->metadata());
-    rust::Vec<FfiOpticsProfileCandidate> result;
-    result.reserve(candidates.size());
-    for (const auto& candidate : candidates) {
-        FfiOpticsProfileCandidate ffi;
-        ffi.camera_maker = rust::String(candidate.camera_maker);
-        ffi.camera_model = rust::String(candidate.camera_model);
-        ffi.lens_maker = rust::String(candidate.lens_maker);
-        ffi.lens_model = rust::String(candidate.lens_model);
-        result.push_back(std::move(ffi));
-    }
-    return result;
+    auto session = decoder->open(filesystem_path_from_utf8(path));
+    return optics_profile_candidates_for(*session);
+}
+
+rust::Vec<FfiOpticsProfileCandidate> query_photo_optics_profiles_utf8(const rust::Str path) {
+    auto decoder = image::make_photo_decoder_provider();
+    auto session = decoder->open(filesystem_path_from_utf8(path));
+    return optics_profile_candidates_for(*session);
 }
 
 rust::String libraw_provider_version() {
     const auto provider = image::make_libraw_decoder_provider();
     return rust::String(provider->info().version);
+}
+
+rust::String photo_provider_version() {
+    const auto provider = image::make_photo_decoder_provider();
+    return rust::String(provider->info().version);
+}
+
+rust::Vec<rust::String> photo_supported_raster_extensions() {
+    rust::Vec<rust::String> result;
+    const auto extensions = image::raster_supported_file_extensions();
+    result.reserve(extensions.size());
+    for (const auto& extension : extensions) {
+        result.emplace_back(extension);
+    }
+    return result;
+}
+
+FfiEncodedProxy render_photo_reference_proxy(
+    const rust::Str path,
+    const std::uint32_t max_edge,
+    const std::uint8_t jpeg_quality
+) {
+    auto provider = image::make_photo_decoder_provider();
+    auto session = provider->open(filesystem_path_from_utf8(path));
+    return encoded_proxy(image::render_reference_proxy_jpeg(
+        *session,
+        image::ProxyRequest{max_edge, jpeg_quality}
+    ));
 }
 
 FfiDisplayLuma decode_jpeg_display_luma(

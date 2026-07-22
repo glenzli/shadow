@@ -27,6 +27,11 @@ fn main() {
         .cargo_metadata(false)
         .probe("lcms2")
         .expect("LittleCMS 2 must be discoverable through pkg-config");
+    let libheif = pkg_config::Config::new()
+        .atleast_version("1.19.7")
+        .cargo_metadata(false)
+        .probe("libheif")
+        .ok();
     println!(
         "cargo:rustc-env=SHADOW_LIBJPEG_TURBO_VERSION={}",
         libjpeg.version
@@ -37,6 +42,10 @@ fn main() {
     build
         .file(image_root.join("src/bridge/cxx_bridge.cpp"))
         .file(image_root.join("src/decoder/libraw_decoder.cpp"))
+        .file(image_root.join("src/decoder/raster_exif.cpp"))
+        .file(image_root.join("src/decoder/raster_decoder.cpp"))
+        .file(image_root.join("src/decoder/heif_decoder.cpp"))
+        .file(image_root.join("src/decoder/photo_decoder_router.cpp"))
         .file(image_root.join("src/decoder/private_decoder_plugin.cpp"))
         .file(image_root.join("src/color/lcms_color_management.cpp"))
         .file(image_root.join("src/edit/cube_lut.cpp"))
@@ -63,6 +72,21 @@ fn main() {
         }
     } else {
         build.define("SHADOW_IMAGE_HAS_LENSFUN", Some("0"));
+    }
+
+    if let Some(libheif) = &libheif {
+        build.define("SHADOW_IMAGE_HAS_LIBHEIF", Some("1"));
+        for include_path in &libheif.include_paths {
+            if target_family == "unix" {
+                build
+                    .flag("-isystem")
+                    .flag(include_path.to_string_lossy().as_ref());
+            } else {
+                build.include(include_path);
+            }
+        }
+    } else {
+        build.define("SHADOW_IMAGE_HAS_LIBHEIF", Some("0"));
     }
 
     for include_path in &libraw.include_paths {
@@ -134,6 +158,26 @@ fn main() {
     for library in &lcms2.libs {
         println!("cargo:rustc-link-lib={library}");
     }
+    if let Some(libheif) = &libheif {
+        for link_path in &libheif.link_paths {
+            println!("cargo:rustc-link-search=native={}", link_path.display());
+        }
+        for library in &libheif.libs {
+            if target_family == "unix" && library == "stdc++" {
+                continue;
+            }
+            println!("cargo:rustc-link-lib={library}");
+        }
+        for framework_path in &libheif.framework_paths {
+            println!(
+                "cargo:rustc-link-search=framework={}",
+                framework_path.display()
+            );
+        }
+        for framework in &libheif.frameworks {
+            println!("cargo:rustc-link-lib=framework={framework}");
+        }
+    }
     if target_family == "unix" && env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos") {
         println!("cargo:rustc-link-lib=dl");
     }
@@ -170,6 +214,12 @@ fn main() {
         "include/shadow/image/color_management.hpp",
         "src/bridge/cxx_bridge.cpp",
         "src/decoder/libraw_decoder.cpp",
+        "src/decoder/raster_exif.hpp",
+        "src/decoder/raster_exif.cpp",
+        "src/decoder/raster_decoder.cpp",
+        "src/decoder/heif_decoder.hpp",
+        "src/decoder/heif_decoder.cpp",
+        "src/decoder/photo_decoder_router.cpp",
         "src/decoder/private_decoder_plugin.cpp",
         "src/color/lcms_color_management.cpp",
         "src/edit/cube_lut.cpp",

@@ -2,6 +2,7 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(LibRaw REQUIRED IMPORTED_TARGET libraw)
 pkg_check_modules(Lensfun QUIET IMPORTED_TARGET lensfun)
 pkg_check_modules(LittleCms REQUIRED IMPORTED_TARGET lcms2)
+pkg_check_modules(LibHeif QUIET IMPORTED_TARGET libheif>=1.19.7)
 find_package(JPEG REQUIRED)
 
 function(shadow_image_enable_warnings target)
@@ -23,6 +24,10 @@ endfunction()
 add_library(
     shadow-image STATIC
     src/decoder/libraw_decoder.cpp
+    src/decoder/raster_exif.cpp
+    src/decoder/raster_decoder.cpp
+    src/decoder/heif_decoder.cpp
+    src/decoder/photo_decoder_router.cpp
     src/color/lcms_color_management.cpp
     src/edit/cube_lut.cpp
     src/edit/cpu_reference.cpp
@@ -56,6 +61,12 @@ if(Lensfun_FOUND)
 else()
     target_compile_definitions(shadow-image PRIVATE SHADOW_IMAGE_HAS_LENSFUN=0)
 endif()
+if(LibHeif_FOUND)
+    target_link_libraries(shadow-image PRIVATE PkgConfig::LibHeif)
+    target_compile_definitions(shadow-image PRIVATE SHADOW_IMAGE_HAS_LIBHEIF=1)
+else()
+    target_compile_definitions(shadow-image PRIVATE SHADOW_IMAGE_HAS_LIBHEIF=0)
+endif()
 shadow_image_enable_warnings(shadow-image)
 
 if(SHADOW_BUILD_RAW_PROBE)
@@ -88,6 +99,7 @@ if(BUILD_TESTING)
         shadow-image-contract-tests
         PRIVATE
             "SHADOW_TEST_PRIVATE_DECODER_PLUGIN_PATH=\"$<TARGET_FILE:shadow-image-private-decoder-test-plugin>\""
+            "SHADOW_TEST_JPEG_PATH=\"${CMAKE_SOURCE_DIR}/apps/desktop/assets/lut-preview-reference.jpg\""
     )
     shadow_image_enable_warnings(shadow-image-contract-tests)
     add_test(NAME shadow-image-contract COMMAND shadow-image-contract-tests)

@@ -24,18 +24,18 @@ use shadow_bridge::{
     COLOR_GRADING_V3_IMPLEMENTATION_VERSION as COLOR_GRADING_V3_IMPLEMENTATION_REVISION,
     COLOR_MIXER_BAND_COUNT, ColorRangeParameters, DetailTileRect, DetailTileRequest,
     FINISHING_EFFECTS_V3_IMPLEMENTATION_VERSION as FINISHING_EFFECTS_V3_IMPLEMENTATION_REVISION,
-    LibRawEditDetailSession, LibRawEditPreviewSession, MAX_ADJUSTMENT_RENDER_NODES,
-    MAX_EDIT_DETAIL_TILE_SIDE, MAX_LUT_DOCUMENT_BYTES, MAX_POINT_COLOR_RANGES,
-    MAX_TONE_CURVE_POINTS, OpticsSettings,
+    MAX_ADJUSTMENT_RENDER_NODES, MAX_EDIT_DETAIL_TILE_SIDE, MAX_LUT_DOCUMENT_BYTES,
+    MAX_POINT_COLOR_RANGES, MAX_TONE_CURVE_POINTS, OpticsSettings,
     PERCEPTUAL_COLOR_V2_IMPLEMENTATION_VERSION as PERCEPTUAL_COLOR_V2_IMPLEMENTATION_REVISION,
     PERCEPTUAL_COLOR_V2_PARAMETER_SCHEMA_VERSION, PerceptualColorParameters,
+    PhotoEditDetailSession, PhotoEditPreviewSession,
     SELECTIVE_TONE_V3_IMPLEMENTATION_VERSION as SELECTIVE_TONE_V3_IMPLEMENTATION_REVISION,
     SELECTIVE_TONE_V3_PARAMETER_SCHEMA_VERSION as SELECTIVE_TONE_V3_PARAMETER_SCHEMA_REVISION,
     SMOOTH_RGB_TONE_CURVE_IMPLEMENTATION_VERSION, SMOOTH_RGB_TONE_CURVE_PARAMETER_SCHEMA_VERSION,
     SelectiveToneParameters, SharpenParameters, SmoothRgbToneCurve,
     TECHNICAL_DETAIL_V3_IMPLEMENTATION_VERSION as TECHNICAL_DETAIL_V3_IMPLEMENTATION_REVISION,
-    ToneCurvePoint, extract_best_libraw_preview, inspect_libraw, libraw_provider_version,
-    query_libraw_optics_profiles, render_libraw_reference_proxy,
+    ToneCurvePoint, extract_best_photo_preview, inspect_photo, photo_provider_version,
+    photo_supported_raster_extensions, query_photo_optics_profiles, render_photo_reference_proxy,
 };
 use shadow_catalog::{
     CachedArtifactRecord, CachedArtifactRole, CatalogActor, CatalogHandle, CommitEditRepository,
@@ -430,7 +430,7 @@ mod ffi {
     }
 
     /// One visible full-resolution viewport. Coordinates are normalized so the
-    /// first cold request does not need to know LibRaw's oriented output size.
+    /// first cold request does not need to know the source router's oriented output size.
     #[derive(Debug)]
     struct FfiEditDetailViewportRequest {
         base_commit_id: String,
@@ -829,7 +829,7 @@ struct CachedEditPreviewSession {
     source: RepresentationFingerprint,
     max_edge: u32,
     optics: OpticsSettings,
-    session: Arc<LibRawEditPreviewSession>,
+    session: Arc<PhotoEditPreviewSession>,
 }
 
 #[derive(Debug)]
@@ -837,7 +837,7 @@ struct CachedEditDetailSession {
     representation_id: RepresentationId,
     source: RepresentationFingerprint,
     optics: OpticsSettings,
-    session: Arc<LibRawEditDetailSession>,
+    session: Arc<PhotoEditDetailSession>,
 }
 
 fn validate_decode_inspection_summary(
@@ -876,7 +876,7 @@ impl DesktopSession {
         let mut catalog = self.catalog.clone();
         let inspector = match DecodeInspectionActor::spawn_with_cache(
             catalog.clone(),
-            LibRawInspector::new(),
+            PhotoInspector::new(),
             &self.cache_root,
         ) {
             Ok(inspector) => inspector,
@@ -1562,17 +1562,15 @@ impl DesktopSession {
         source_path: &str,
     ) -> AnyResult<Vec<ffi::FfiOpticsProfileCandidate>> {
         let (_, source) = self.validated_photo_source(photo_id, source_path)?;
-        Ok(
-            query_libraw_optics_profiles(&catalog_native_path(&source)?)?
-                .into_iter()
-                .map(|candidate| ffi::FfiOpticsProfileCandidate {
-                    camera_maker: candidate.camera_maker,
-                    camera_model: candidate.camera_model,
-                    lens_maker: candidate.lens_maker,
-                    lens_model: candidate.lens_model,
-                })
-                .collect(),
-        )
+        Ok(query_photo_optics_profiles(&catalog_native_path(&source)?)?
+            .into_iter()
+            .map(|candidate| ffi::FfiOpticsProfileCandidate {
+                camera_maker: candidate.camera_maker,
+                camera_model: candidate.camera_model,
+                lens_maker: candidate.lens_maker,
+                lens_model: candidate.lens_model,
+            })
+            .collect())
     }
 
     fn render_basic_edit_preview(
@@ -1735,7 +1733,7 @@ impl DesktopSession {
         source: &ReviewItemRecord,
         max_edge: u32,
         optics: OpticsSettings,
-    ) -> AnyResult<Arc<LibRawEditPreviewSession>> {
+    ) -> AnyResult<Arc<PhotoEditPreviewSession>> {
         {
             let mut sessions = self
                 .edit_preview_sessions
@@ -1756,7 +1754,7 @@ impl DesktopSession {
             }
         }
 
-        let prepared = Arc::new(LibRawEditPreviewSession::open_with_optics(
+        let prepared = Arc::new(PhotoEditPreviewSession::open_with_optics(
             &catalog_native_path(source)?,
             max_edge,
             &optics,
@@ -1789,7 +1787,7 @@ impl DesktopSession {
         source: &ReviewItemRecord,
         render_token: u64,
         optics: OpticsSettings,
-    ) -> AnyResult<Arc<LibRawEditDetailSession>> {
+    ) -> AnyResult<Arc<PhotoEditDetailSession>> {
         const SOURCE_CHANGED: &str = "full detail source changed since Catalog registration";
         const SOURCE_METADATA_CONTEXT: &str = "read full detail source metadata";
         let native_path = catalog_native_path(source)?;
@@ -1806,7 +1804,7 @@ impl DesktopSession {
             .lock()
             .map_err(|_| anyhow!("edit detail session cache lock is poisoned"))?;
         // A newer request may have arrived while this worker waited for the
-        // single cold-decode gate. Refuse stale work before opening LibRaw.
+        // single cold-decode gate. Refuse stale work before opening the source router.
         self.ensure_current_edit_detail_render(render_token)?;
         if let Some(entry) = cached.as_ref().filter(|entry| {
             entry.representation_id == source.representation_id
@@ -1822,7 +1820,7 @@ impl DesktopSession {
             bail!("full detail source is busy rendering another photo");
         }
         *cached = None;
-        let prepared = Arc::new(LibRawEditDetailSession::open_with_optics(
+        let prepared = Arc::new(PhotoEditDetailSession::open_with_optics(
             &native_path,
             &optics,
         )?);
@@ -2210,8 +2208,8 @@ impl DesktopSession {
             .with_context(|| format!("parse photo id {photo_id}"))?;
         let source = self
             .catalog
-            .review_source(photo_id)?
-            .ok_or_else(|| anyhow!("photo {photo_id} has no online original RAW source"))?;
+            .photo_source(photo_id)?
+            .ok_or_else(|| anyhow!("photo {photo_id} has no online original photo source"))?;
         if source.location.display_path != source_path {
             bail!(
                 "source path does not belong to photo {photo_id}: expected {}, received {source_path}",
@@ -5793,54 +5791,60 @@ fn catalog_native_path(_source: &ReviewItemRecord) -> AnyResult<PathBuf> {
 }
 
 #[derive(Debug, Clone)]
-struct LibRawInspector {
+struct PhotoInspector {
     version: String,
+    original_raster_extensions: Vec<String>,
 }
 
 // The generated-library proxy is deliberately a lower-bandwidth artifact than the warm editing
 // preview. Keep its encoder request and persistent variant identity next to each other: a stale
 // or misleading key would otherwise make the catalog serve the wrong cache entry indefinitely.
-const LIBRAW_GRID_PROXY_MAX_EDGE: u32 = 2_048;
-const LIBRAW_GRID_PROXY_JPEG_QUALITY: u8 = 88;
-const LIBRAW_GRID_PROXY_VARIANT_KEY: &str = "libraw:grid-jpeg-2048-q88-444-v3";
+const PHOTO_GRID_PROXY_MAX_EDGE: u32 = 2_048;
+const PHOTO_GRID_PROXY_JPEG_QUALITY: u8 = 88;
+const PHOTO_GRID_PROXY_VARIANT_KEY: &str = "shadow-photo-router:grid-jpeg-2048-q88-444-v1";
 
-impl LibRawInspector {
+impl PhotoInspector {
     fn new() -> Self {
         Self {
-            version: libraw_provider_version(),
+            version: photo_provider_version(),
+            original_raster_extensions: photo_supported_raster_extensions(),
         }
     }
 }
 
-impl DecodeInspector for LibRawInspector {
+impl DecodeInspector for PhotoInspector {
     fn provider_id(&self) -> &'static str {
-        "libraw"
+        "shadow-photo-router"
     }
 
     fn provider_version(&self) -> &str {
         &self.version
     }
 
+    fn supported_original_raster_extensions(&self) -> Vec<String> {
+        self.original_raster_extensions.clone()
+    }
+
     fn inspect(&mut self, path: &Path) -> Result<DecoderSnapshot, String> {
-        inspect_libraw(path).map_err(|error| error.to_string())
+        inspect_photo(path).map_err(|error| error.to_string())
     }
 
     fn extract_best_preview(&mut self, path: &Path) -> Result<Option<PreviewPayload>, String> {
-        extract_best_libraw_preview(path).map_err(|error| error.to_string())
+        extract_best_photo_preview(path).map_err(|error| error.to_string())
     }
 
     fn render_proxy(&mut self, path: &Path) -> Result<Option<ProxyPayload>, String> {
-        render_libraw_reference_proxy(
+        render_photo_reference_proxy(
             path,
-            LIBRAW_GRID_PROXY_MAX_EDGE,
-            LIBRAW_GRID_PROXY_JPEG_QUALITY,
+            PHOTO_GRID_PROXY_MAX_EDGE,
+            PHOTO_GRID_PROXY_JPEG_QUALITY,
         )
         .map(Some)
         .map_err(|error| error.to_string())
     }
 
     fn proxy_variant_key(&self) -> &'static str {
-        LIBRAW_GRID_PROXY_VARIANT_KEY
+        PHOTO_GRID_PROXY_VARIANT_KEY
     }
 }
 
@@ -6458,15 +6462,20 @@ mod tests {
     }
 
     #[test]
-    fn generated_libraw_proxy_cache_identity_matches_its_encoder_request() {
-        let inspector = LibRawInspector::new();
+    fn generated_photo_proxy_cache_identity_matches_its_encoder_request() {
+        let inspector = PhotoInspector::new();
 
-        assert_eq!(LIBRAW_GRID_PROXY_MAX_EDGE, 2_048);
-        assert_eq!(LIBRAW_GRID_PROXY_JPEG_QUALITY, 88);
+        assert_eq!(inspector.provider_id(), "shadow-photo-router");
+        assert_eq!(inspector.provider_version(), photo_provider_version());
+        assert_eq!(PHOTO_GRID_PROXY_MAX_EDGE, 2_048);
+        assert_eq!(PHOTO_GRID_PROXY_JPEG_QUALITY, 88);
         assert_eq!(
             inspector.proxy_variant_key(),
-            "libraw:grid-jpeg-2048-q88-444-v3"
+            "shadow-photo-router:grid-jpeg-2048-q88-444-v1"
         );
+        let extensions = inspector.supported_original_raster_extensions();
+        assert!(extensions.contains(&"jpg".to_owned()));
+        assert!(extensions.contains(&"jpeg".to_owned()));
     }
 
     #[test]
@@ -6478,8 +6487,8 @@ mod tests {
         ));
         let import_root = root.join("photos");
         std::fs::create_dir_all(&import_root).expect("create scan fixture");
-        std::fs::write(import_root.join("one.jpg"), b"not decoded during scan")
-            .expect("write raster fixture");
+        std::fs::write(import_root.join("broken.jpg"), b"not a valid JPEG")
+            .expect("write malformed JPEG fixture");
         std::fs::write(import_root.join("broken.NEF"), b"not a raw file")
             .expect("write broken RAW fixture");
         let session = open_desktop_session(
@@ -6530,9 +6539,9 @@ mod tests {
         assert!(!completed.cancelled);
         assert_eq!(completed.supported_files, 2);
         assert_eq!(completed.inserted, 2);
-        assert_eq!(completed.decode_inspections_queued, 1);
-        assert_eq!(completed.decode_inspections_completed, 1);
-        assert_eq!(completed.decode_hard_failures, 1);
+        assert_eq!(completed.decode_inspections_queued, 2);
+        assert_eq!(completed.decode_inspections_completed, 2);
+        assert_eq!(completed.decode_hard_failures, 2);
         assert_eq!(completed.preview_failures, 0);
         assert_eq!(completed.decode_inspections_cancelled, 0);
         let progress = session.scan_progress(42).expect("completed progress");
@@ -10345,6 +10354,49 @@ mod tests {
     }
 
     #[test]
+    fn edit_service_accepts_an_original_raster_source_when_no_raw_exists() {
+        let root = std::env::temp_dir().join(format!(
+            "shadow-desktop-raster-edit-{}-{}",
+            std::process::id(),
+            RepresentationId::new_v7()
+        ));
+        std::fs::create_dir_all(&root).expect("create raster edit fixture");
+        let session = open_desktop_session(
+            root.join("catalog.sqlite").to_str().expect("catalog path"),
+            root.join("cache").to_str().expect("cache path"),
+        )
+        .expect("open raster edit session");
+        let source_path = root
+            .join("input.jpg")
+            .to_str()
+            .expect("raster source path")
+            .to_owned();
+        let registered = session
+            .catalog
+            .register_asset(&RegisterAsset {
+                kind: RepresentationKind::OriginalRaster,
+                location: AssetLocation::new(
+                    Platform::MacOs,
+                    source_path.as_bytes().to_vec(),
+                    source_path.clone(),
+                ),
+                byte_len: 2_048,
+                modified_at_ms: Some(123),
+                now_ms: 100,
+            })
+            .expect("register raster edit source");
+
+        let state = session
+            .photo_edit_state(&registered.photo_id.to_string(), &source_path)
+            .expect("resolve raster edit source through generic router path");
+        assert_eq!(state.photo_id, registered.photo_id.to_string());
+        assert_eq!(state.source_path, source_path);
+
+        drop(session);
+        std::fs::remove_dir_all(root).expect("remove raster edit fixture");
+    }
+
+    #[test]
     fn edit_service_rejects_a_path_from_another_photo() {
         let (root, session, photo_id, source_path) = test_edit_session();
 
@@ -10376,7 +10428,7 @@ mod tests {
 
         let error = session
             .render_basic_edit_detail_viewport(&photo_id, &source_path, &request)
-            .expect_err("changed source must fail before LibRaw decode");
+            .expect_err("changed source must fail before source-router decode");
         assert!(
             error
                 .to_string()

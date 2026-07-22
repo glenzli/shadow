@@ -87,12 +87,13 @@ void validate_warm_edit_max_edge(const std::uint32_t max_edge) {
         || source.dimensions.width == 0U || source.dimensions.height == 0U
         || source.primaries != RgbPrimaries::srgb_rec709_d65
         || source.transfer_function != RgbTransferFunction::linear
-        || source.reference != RgbBufferReference::processed_raw
+        || (source.reference != RgbBufferReference::processed_raw
+            && source.reference != RgbBufferReference::decoded_raster)
     ) {
         throw DecodeError(
             DecodeErrorCode::unsupported_layout,
             0,
-            "proxy renderer requires non-empty 16-bit processed linear RGB with sRGB/Rec.709-D65 primaries"
+            "proxy renderer requires non-empty 16-bit standardized linear RGB with sRGB/Rec.709-D65 primaries"
         );
     }
     if (
@@ -217,23 +218,28 @@ struct OklabColor final {
     return {input[0] * gain, input[1] * gain, input[2] * gain};
 }
 
-[[nodiscard]] LinearRgb map_linear_srgb_to_display_gamut(const LinearRgb& input) {
+[[nodiscard]] LinearRgb map_linear_srgb_to_display_gamut(
+    const LinearRgb& input,
+    const bool apply_scene_curve
+) {
     if (!std::ranges::all_of(input, [](const double value) { return std::isfinite(value); })) {
         throw DecodeError(
             DecodeErrorCode::internal,
             0,
-            "edited proxy contains a non-finite scene-linear sample"
+            "edited proxy contains a non-finite linear sample"
         );
     }
-    const LinearRgb scene_mapped = apply_neutral_scene_display_curve(input);
-    if (is_inside_display_srgb(scene_mapped)) {
-        return scene_mapped;
+    const LinearRgb display_linear = apply_scene_curve
+        ? apply_neutral_scene_display_curve(input)
+        : input;
+    if (is_inside_display_srgb(display_linear)) {
+        return display_linear;
     }
 
-    // The scene curve limits luminance, then this final bounded gamut mapper reduces chroma along
-    // the source hue ray.  Avoid independent RGB clipping, which visibly skews saturated RAW
-    // highlights and can make a tonal edit look like a color edit.
-    OklabColor lab = linear_srgb_to_oklab(scene_mapped);
+    // The RAW scene curve, when applicable, limits luminance before this final bounded gamut
+    // mapper reduces chroma along the source hue ray. Display-referred raster input deliberately
+    // bypasses that curve, but still gets the same non-hue-skewing output-gamut protection.
+    OklabColor lab = linear_srgb_to_oklab(display_linear);
     lab.lightness = std::clamp(lab.lightness, 0.0, 1.0);
     const double chroma = std::hypot(lab.a, lab.b);
     OklabColor neutral{.lightness = lab.lightness};
@@ -348,10 +354,13 @@ struct OklabColor final {
     output.row_stride_bytes = static_cast<std::size_t>(row_samples) * sizeof(float);
     output.pixel_format = FloatPixelFormat::rgb_f32_native_interleaved;
     output.transfer_function = TransferFunction::linear;
-    // LibRaw's processed-linear result remains relative scene-referred after normalization:
-    // it has no display OETF/look, but it is already WB/demosaiced/matrix-converted and is not
-    // sensor-linear data. ImageReference::scene_referred intentionally carries that distinction.
-    output.reference = ImageReference::scene_referred;
+    // A processed RAW reference remains scene-referred after normalization. A decoded JPEG/SDR
+    // HEIF reference has been transfer-decoded into linear working RGB, but retains the source's
+    // display-referred appearance. Both share the editable linear graph; only their output
+    // boundary differs.
+    output.reference = source.reference == RgbBufferReference::processed_raw
+        ? ImageReference::scene_referred
+        : ImageReference::display_referred;
     output.working_space = linear_srgb_working_space();
     output.level_zero_to_raster_scale_x = static_cast<double>(target.width)
         / static_cast<double>(source.dimensions.width);
@@ -432,21 +441,23 @@ void apply_source_baseline_exposure(
     }
 }
 
-// Lensfun operates on a processed u16 RGB raster. For an interactive preview, reduce the RAW
-// image before entering Lensfun and round-trip only the bounded proxy through that API. This
-// avoids a 45 MP geometry remap just to display 1200 px, while full-detail sessions still run
-// Lensfun on the complete native reference.
-[[nodiscard]] PixelBuffer working_to_processed_linear_reference(const FloatRgbImage& source) {
+// Lensfun operates on a standardized u16 RGB raster. For an interactive preview, reduce the
+// source before entering Lensfun and round-trip only the bounded proxy through that API. This
+// avoids a 45 MP geometry remap just to display 1200 px, while full-detail sessions still run on
+// the complete native reference. The source reference is preserved; the current Lensfun adapter
+// deliberately accepts only processed RAW, so JPEG/HEIF cannot be silently double-corrected.
+[[nodiscard]] PixelBuffer working_to_linear_reference(const FloatRgbImage& source) {
     if (
         source.pixel_format != FloatPixelFormat::rgb_f32_native_interleaved
         || source.transfer_function != TransferFunction::linear
-        || source.reference != ImageReference::scene_referred
+        || (source.reference != ImageReference::scene_referred
+            && source.reference != ImageReference::display_referred)
         || source.dimensions.width == 0U || source.dimensions.height == 0U
     ) {
         throw DecodeError(
             DecodeErrorCode::unsupported_layout,
             0,
-            "preview optics conversion requires scene-linear interleaved RGB float pixels"
+            "preview optics conversion requires standardized linear interleaved RGB float pixels"
         );
     }
     const std::size_t expected_samples = checked_rgb_size(source.dimensions);
@@ -464,7 +475,9 @@ void apply_source_baseline_exposure(
     output.row_stride_bytes = source.dimensions.width * 3U * sizeof(std::uint16_t);
     output.primaries = RgbPrimaries::srgb_rec709_d65;
     output.transfer_function = RgbTransferFunction::linear;
-    output.reference = RgbBufferReference::processed_raw;
+    output.reference = source.reference == ImageReference::scene_referred
+        ? RgbBufferReference::processed_raw
+        : RgbBufferReference::decoded_raster;
     output.samples.resize(expected_samples);
     for (std::size_t index = 0U; index < expected_samples; ++index) {
         output.samples[index] = static_cast<std::uint16_t>(std::clamp(
@@ -533,7 +546,9 @@ void validate_detail_tile_rect(
     output.row_stride_bytes = static_cast<std::size_t>(row_samples) * sizeof(float);
     output.pixel_format = FloatPixelFormat::rgb_f32_native_interleaved;
     output.transfer_function = TransferFunction::linear;
-    output.reference = ImageReference::scene_referred;
+    output.reference = source.reference == RgbBufferReference::processed_raw
+        ? ImageReference::scene_referred
+        : ImageReference::display_referred;
     output.working_space = linear_srgb_working_space();
     output.level_zero_to_raster_scale_x = 1.0;
     output.level_zero_to_raster_scale_y = 1.0;
@@ -738,10 +753,11 @@ void validate_display_output_source(const FloatRgbImage& source) {
     const auto close = [](const double actual, const double expected) {
         return std::abs(actual - expected) <= coordinate_tolerance;
     };
-    const bool is_linear_srgb =
+    const bool is_standardized_linear_srgb =
         source.pixel_format == FloatPixelFormat::rgb_f32_native_interleaved
         && source.transfer_function == TransferFunction::linear
-        && source.reference == ImageReference::scene_referred
+        && (source.reference == ImageReference::scene_referred
+            || source.reference == ImageReference::display_referred)
         && close(source.working_space.primaries[0].x, 0.6400)
         && close(source.working_space.primaries[0].y, 0.3300)
         && close(source.working_space.primaries[1].x, 0.3000)
@@ -750,11 +766,11 @@ void validate_display_output_source(const FloatRgbImage& source) {
         && close(source.working_space.primaries[2].y, 0.0600)
         && close(source.working_space.white_point.x, 0.3127)
         && close(source.working_space.white_point.y, 0.3290);
-    if (!is_linear_srgb) {
+    if (!is_standardized_linear_srgb) {
         throw DecodeError(
             DecodeErrorCode::unsupported_layout,
             0,
-            "display output transform v1 requires scene-referred linear sRGB/Rec.709-D65 working RGB"
+            "display output transform requires standardized linear sRGB/Rec.709-D65 working RGB"
         );
     }
 }
@@ -775,11 +791,14 @@ void validate_display_output_source(const FloatRgbImage& source) {
             for (std::uint32_t x = 0; x < target.width; ++x) {
                 const std::size_t source_index = source_row + static_cast<std::size_t>(x) * 3U;
                 const std::size_t output_index = output_row + static_cast<std::size_t>(x) * 3U;
-                const LinearRgb mapped = map_linear_srgb_to_display_gamut({
-                    source.samples[source_index],
-                    source.samples[source_index + 1U],
-                    source.samples[source_index + 2U],
-                });
+                const LinearRgb mapped = map_linear_srgb_to_display_gamut(
+                    {
+                        source.samples[source_index],
+                        source.samples[source_index + 1U],
+                        source.samples[source_index + 2U],
+                    },
+                    source.reference == ImageReference::scene_referred
+                );
                 const double dither = display_quantization_dither(
                     output_origin_x + x,
                     output_origin_y + y
@@ -825,7 +844,10 @@ void validate_display_output_source(const FloatRgbImage& source) {
                     + sample(x1, y1) * fraction_x;
                 linear[channel] = top * (1.0 - fraction_y) + bottom * fraction_y;
             }
-            const LinearRgb mapped = map_linear_srgb_to_display_gamut(linear);
+            const LinearRgb mapped = map_linear_srgb_to_display_gamut(
+                linear,
+                source.reference == ImageReference::scene_referred
+            );
             const double dither = display_quantization_dither(
                 output_origin_x + output_x,
                 output_origin_y + output_y
@@ -1099,7 +1121,7 @@ struct PreparedWarmEditProxy final {
         receipt.provider_version = "none";
     } else {
         auto corrected = optics_provider->correct_reference_rgb(
-            working_to_processed_linear_reference(working_proxy),
+            working_to_linear_reference(working_proxy),
             session.metadata(),
             optics_settings
         );

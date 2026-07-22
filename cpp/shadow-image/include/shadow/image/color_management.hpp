@@ -49,7 +49,9 @@ private:
 
     friend IccProfile make_linear_srgb_icc_profile();
     friend IccProfile make_display_srgb_icc_profile();
+    friend IccProfile make_display_rec709_icc_profile();
     friend IccProfile load_icc_profile(const std::filesystem::path& path);
+    friend IccProfile load_icc_profile(std::span<const std::byte> bytes);
     friend IccTransform make_icc_transform(
         const IccProfile& source,
         const IccProfile& destination,
@@ -65,9 +67,16 @@ private:
 [[nodiscard]] IccProfile make_linear_srgb_icc_profile();
 // Standard display sRGB, including its encoded transfer curve.
 [[nodiscard]] IccProfile make_display_srgb_icc_profile();
+// Rec.709 primaries/D65 with the broadcast Rec.709 SDR transfer curve. This is intentionally
+// distinct from sRGB: ordinary HEIC often signals CICP 1/1/1, and treating that as sRGB shifts
+// dark tones enough to be visible in a photographic editor.
+[[nodiscard]] IccProfile make_display_rec709_icc_profile();
 // Opens a complete `.icc`/`.icm` profile and serializes it for content identity. The source path
 // is not retained by the profile, allowing callers to close, replace, or move the original file.
 [[nodiscard]] IccProfile load_icc_profile(const std::filesystem::path& path);
+// Opens a complete in-memory ICC profile. Raster decoders use this for embedded JPEG APP2 and
+// HEIF colour profiles, so source ICC bytes never need a temporary filesystem path.
+[[nodiscard]] IccProfile load_icc_profile(std::span<const std::byte> bytes);
 
 class IccTransform final {
 public:

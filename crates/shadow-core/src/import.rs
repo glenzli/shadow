@@ -27,7 +27,7 @@ pub enum ScanError {
     Catalog(#[from] CatalogError),
     #[error("cannot decode import root path: {0}")]
     NativePath(#[from] NativePathError),
-    #[error("cannot schedule RAW inspection: {0}")]
+    #[error("cannot schedule source inspection: {0}")]
     DecodeInspection(#[from] DecodeInspectionError),
 }
 
@@ -240,12 +240,14 @@ pub fn scan_folder_profiled_controlled<C: CatalogStore + ?Sized>(
     })
 }
 
-/// Scans a folder and schedules missing RAW decode snapshots on a background
-/// inspection worker.
+/// Scans a folder and schedules missing source-inspection snapshots on a
+/// background worker.
 ///
 /// Existing current snapshots for the worker's provider are skipped. The
-/// bounded worker queue applies backpressure without running decoder code on
-/// the scanner or catalog writer threads.
+/// scheduler submits original RAW files by default and original raster files
+/// only when the chosen inspector explicitly opts in to their file extension.
+/// The bounded worker queue applies backpressure without running decoder code
+/// on the scanner or catalog writer threads.
 ///
 /// # Errors
 ///
@@ -319,8 +321,8 @@ pub fn scan_folder_with_inspection_controlled(
     )
 }
 
-/// Scans with decode reconciliation, cancellation, progress, and explicit
-/// scanner-thread profiling.
+/// Scans with source-inspection reconciliation, cancellation, progress, and
+/// explicit scanner-thread profiling.
 ///
 /// # Errors
 ///
@@ -730,7 +732,14 @@ impl DecodeScheduler<'_> {
         if cancellation.is_cancelled() {
             return Ok(false);
         }
-        if kind != RepresentationKind::OriginalRaw
+        // The scanner only discovers user-owned original files. A provider
+        // must explicitly opt into each raster extension; LibRaw and anonymous
+        // legacy inspectors remain RAW-only, while a JPEG-only provider never
+        // receives TIFF/PNG/HEIF just because those files were imported.
+        if !matches!(
+            kind,
+            RepresentationKind::OriginalRaw | RepresentationKind::OriginalRaster
+        ) || !self.inspections.supports_source(kind, path)
             || registered.status == RegistrationStatus::NeedsRevalidation
         {
             return Ok(false);
@@ -879,7 +888,7 @@ mod tests {
     };
 
     use super::*;
-    use crate::DecodeInspectionActor;
+    use crate::{DecodeInspectionActor, DecodeInspector};
     use shadow_catalog::{Catalog, CatalogActor};
     use shadow_domain::{
         DecodeCapabilitySnapshot, DecodeProviderSnapshot, DecodeSupport, DecoderSnapshot, EntityId,
@@ -1186,6 +1195,16 @@ mod tests {
             Ok(scheduled_snapshot())
         })
         .expect("spawn decode worker");
+        assert!(
+            worker
+                .handle()
+                .supports_source(RepresentationKind::OriginalRaw, Path::new("one.NEF"))
+        );
+        assert!(
+            !worker
+                .handle()
+                .supports_source(RepresentationKind::OriginalRaster, Path::new("two.jpg"))
+        );
         let first = scan_folder_with_inspection(&mut catalog, &worker.handle(), &root)
             .expect("scan and schedule");
         assert_eq!(first.decode_inspections_queued, 1);
@@ -1206,6 +1225,136 @@ mod tests {
         actor.shutdown().expect("shutdown catalog");
         fs::remove_dir_all(&root).expect("remove fixture directory");
         fs::remove_file(&database_path).expect("remove test catalog");
+    }
+
+    #[derive(Debug)]
+    struct RasterOnlyInspector {
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl DecodeInspector for RasterOnlyInspector {
+        fn provider_id(&self) -> &'static str {
+            "raster-fixture"
+        }
+
+        fn supports_original_raw(&self) -> bool {
+            false
+        }
+
+        fn supported_original_raster_extensions(&self) -> Vec<String> {
+            vec!["jpg".to_owned(), "jpeg".to_owned()]
+        }
+
+        fn inspect(&mut self, path: &Path) -> Result<DecoderSnapshot, String> {
+            assert_eq!(
+                path.extension().and_then(std::ffi::OsStr::to_str),
+                Some("jpg"),
+                "the scheduler must not submit RAW to a raster-only inspector"
+            );
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let mut snapshot = scheduled_snapshot();
+            snapshot.provider.id = self.provider_id().to_owned();
+            Ok(snapshot)
+        }
+    }
+
+    #[test]
+    fn jpeg_capable_inspector_schedules_jpeg_without_sending_raw_or_other_rasters() {
+        let test_id = PhotoId::new_v7();
+        let root = std::env::temp_dir().join(format!("shadow-raster-scan-{test_id}"));
+        let database_path = std::env::temp_dir().join(format!("shadow-raster-{test_id}.sqlite"));
+        fs::create_dir_all(&root).expect("create fixture directory");
+        fs::write(root.join("one.NEF"), b"raw").expect("write raw fixture");
+        fs::write(root.join("two.jpg"), b"jpeg").expect("write raster fixture");
+        fs::write(root.join("three.png"), b"png").expect("write unsupported raster fixture");
+        fs::write(root.join("four.tiff"), b"tiff").expect("write unsupported raster fixture");
+        fs::write(root.join("five.heic"), b"heif").expect("write unavailable HEIF fixture");
+
+        let actor = CatalogActor::spawn(&database_path).expect("spawn catalog actor");
+        let mut catalog = actor.handle();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let worker = DecodeInspectionActor::spawn(
+            catalog.clone(),
+            RasterOnlyInspector {
+                calls: Arc::clone(&calls),
+            },
+        )
+        .expect("spawn raster inspector");
+        assert!(
+            !worker
+                .handle()
+                .supports_source(RepresentationKind::OriginalRaw, Path::new("one.NEF"))
+        );
+        assert!(
+            worker
+                .handle()
+                .supports_source(RepresentationKind::OriginalRaster, Path::new("two.jpg"))
+        );
+        assert!(
+            !worker
+                .handle()
+                .supports_source(RepresentationKind::OriginalRaster, Path::new("three.png"))
+        );
+        assert!(
+            !worker
+                .handle()
+                .supports_source(RepresentationKind::OriginalRaster, Path::new("four.tiff"))
+        );
+        assert!(
+            !worker
+                .handle()
+                .supports_source(RepresentationKind::OriginalRaster, Path::new("five.heic"))
+        );
+
+        let report = scan_folder_with_inspection(&mut catalog, &worker.handle(), &root)
+            .expect("scan with raster inspection");
+        assert_eq!(report.supported_files, 5);
+        assert_eq!(report.decode_inspections_queued, 1);
+        let summary = worker
+            .shutdown_with_summary()
+            .expect("drain raster inspector");
+        assert_eq!(summary.completed, 1);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        let page = catalog
+            .review_page(None, 16)
+            .expect("read inspected sources");
+        let raw_representation_id = page
+            .items
+            .iter()
+            .find(|item| item.location.display_path.ends_with("one.NEF"))
+            .expect("registered RAW source")
+            .representation_id;
+        let raster_representation_id = page
+            .items
+            .iter()
+            .find(|item| item.location.display_path.ends_with("two.jpg"))
+            .expect("registered raster source")
+            .representation_id;
+        assert!(
+            catalog
+                .decode_snapshots(raw_representation_id)
+                .expect("read RAW snapshots")
+                .is_empty(),
+            "a raster-only inspector must not record a RAW snapshot"
+        );
+        assert_eq!(
+            catalog
+                .decode_snapshots(raster_representation_id)
+                .expect("read raster snapshots")
+                .len(),
+            1,
+            "an opted-in raster inspector must complete the ordinary snapshot path"
+        );
+
+        actor.shutdown().expect("shutdown catalog");
+        fs::remove_dir_all(&root).expect("remove fixture directory");
+        fs::remove_file(&database_path).expect("remove test catalog");
+        for extension in ["sqlite-wal", "sqlite-shm"] {
+            let sidecar = database_path.with_extension(extension);
+            if sidecar.exists() {
+                fs::remove_file(sidecar).expect("remove catalog sidecar");
+            }
+        }
     }
 
     fn scheduled_snapshot() -> DecoderSnapshot {

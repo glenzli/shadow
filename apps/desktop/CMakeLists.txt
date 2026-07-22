@@ -8,6 +8,7 @@ find_package(Iconv REQUIRED)
 pkg_check_modules(LibRaw REQUIRED IMPORTED_TARGET libraw)
 pkg_check_modules(Lensfun QUIET IMPORTED_TARGET lensfun)
 pkg_check_modules(LittleCms REQUIRED IMPORTED_TARGET lcms2)
+pkg_check_modules(LibHeif QUIET IMPORTED_TARGET libheif>=1.19.7)
 
 if(APPLE)
     enable_language(OBJCXX)
@@ -252,6 +253,12 @@ target_link_libraries(
 )
 if(Lensfun_FOUND)
     target_link_libraries(shadow-desktop PRIVATE PkgConfig::Lensfun)
+endif()
+if(LibHeif_FOUND)
+    # `shadow-desktop-rust` is a static Rust archive that compiles the same native router as the
+    # CMake image library. Propagate libheif here as well: Cargo's link metadata is consumed by
+    # Rust binaries, not by this Qt/CMake final link step.
+    target_link_libraries(shadow-desktop PRIVATE PkgConfig::LibHeif)
 endif()
 
 if(MSVC)

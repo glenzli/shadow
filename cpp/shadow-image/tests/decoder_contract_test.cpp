@@ -101,6 +101,7 @@ void icc_color_management_is_content_addressed_and_transfer_aware() {
     const auto linear_srgb = image::make_linear_srgb_icc_profile();
     const auto another_linear_srgb = image::make_linear_srgb_icc_profile();
     const auto display_srgb = image::make_display_srgb_icc_profile();
+    const auto display_rec709 = image::make_display_rec709_icc_profile();
     expect(
         linear_srgb.info().id == another_linear_srgb.info().id,
         "equivalent generated ICC profiles have stable content identities"
@@ -108,6 +109,10 @@ void icc_color_management_is_content_addressed_and_transfer_aware() {
     expect(
         linear_srgb.info().id != display_srgb.info().id,
         "linear and display sRGB profiles cannot share a cache identity"
+    );
+    expect(
+        display_rec709.info().id != display_srgb.info().id,
+        "Rec.709 and sRGB transfers cannot share a cache identity"
     );
 
     const auto identity = image::make_icc_transform(linear_srgb, linear_srgb);
@@ -132,6 +137,20 @@ void icc_color_management_is_content_addressed_and_transfer_aware() {
         expect(
             std::abs(encoded - 0.461F) < 0.01F,
             "linear-to-display ICC transform applies the sRGB transfer curve"
+        );
+    }
+
+    const auto rec709_transform = image::make_icc_transform(
+        linear_srgb,
+        display_rec709,
+        image::IccRenderingIntent::relative_colorimetric
+    );
+    std::array<float, 3U> rec709_middle_gray{0.18F, 0.18F, 0.18F};
+    rec709_transform.apply_interleaved_rgb(rec709_middle_gray);
+    for (const auto encoded : rec709_middle_gray) {
+        expect(
+            std::abs(encoded - 0.409F) < 0.01F,
+            "linear-to-display ICC transform applies the Rec.709 transfer curve"
         );
     }
 
@@ -1211,12 +1230,60 @@ void provider_identity_versions_shadow_pixel_contracts() {
         "provider identity versions RAW-development provenance semantics"
     );
     expect(
-        version.find("display=4") != std::string_view::npos,
+        version.find("display=5") != std::string_view::npos,
         "provider identity versions the display output transform for cache invalidation"
     );
     expect(
         version.find("settings=s1-w1-m1-a0-e0-") != std::string_view::npos,
         "provider identity includes a compact complete LibRaw development profile"
+    );
+}
+
+void jpeg_raster_provider_uses_the_common_non_destructive_graph() {
+    const auto provider = image::make_photo_decoder_provider();
+    const auto session = provider->open(SHADOW_TEST_JPEG_PATH);
+    expect(
+        provider->info().id == "shadow-photo-router",
+        "normal application photo entry point is provider-neutral"
+    );
+    expect(
+        session->capabilities().metadata && session->capabilities().reference_rgb
+            && !session->capabilities().mosaic,
+        "JPEG exposes metadata and editable RGB but never pretends to have a sensor mosaic"
+    );
+    expect(
+        session->previews().empty(),
+        "JPEG source relies on the colour-managed generated proxy rather than an unrotated source byte preview"
+    );
+    const image::PixelBuffer decoded = session->render_reference_rgb_for_preview(1'024U);
+    expect(
+        decoded.reference == image::RgbBufferReference::decoded_raster
+            && decoded.transfer_function == image::RgbTransferFunction::linear
+            && decoded.primaries == image::RgbPrimaries::srgb_rec709_d65
+            && decoded.bits_per_channel == 16U && decoded.channels == 3U,
+        "JPEG is colour-managed into the common linear RGB contract without being labeled RAW"
+    );
+    expect(
+        !decoded.raw_development_receipt.recorded(),
+        "JPEG never fabricates a RAW development receipt"
+    );
+
+    const image::ProxyRequest request{.max_edge = 1'024U, .jpeg_quality = 90U};
+    const auto reference = image::render_reference_proxy_jpeg(*session, request);
+    const std::array neutral_nodes{
+        image::AdjustmentNode{
+            .node_id = "neutral-raster-exposure",
+            .parameters = image::ExposureAdjustment{},
+        },
+    };
+    const auto edited = image::render_edited_reference_proxy_jpeg(
+        *session,
+        neutral_nodes,
+        request
+    );
+    expect(
+        edited.bytes == reference.bytes,
+        "JPEG follows the exact same neutral edit graph and display boundary as its reference proxy"
     );
 }
 
@@ -1375,6 +1442,7 @@ int main() {
     warm_edit_preview_bounds_fail_before_decode();
     edited_proxy_rejects_invalid_nodes_before_decode();
     provider_identity_versions_shadow_pixel_contracts();
+    jpeg_raster_provider_uses_the_common_non_destructive_graph();
     libraw_development_settings_are_explicit_and_cache_visible();
     real_libraw_boundary_and_neutral_preview_when_configured();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;

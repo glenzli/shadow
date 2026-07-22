@@ -1148,12 +1148,13 @@ void validate_image(const FloatRgbImage& image) {
     }
     if (
         image.transfer_function != TransferFunction::linear
-        || image.reference != ImageReference::scene_referred
+        || (image.reference != ImageReference::scene_referred
+            && image.reference != ImageReference::display_referred)
     ) {
         throw EditError(
             EditErrorCode::incompatible_color_encoding,
             std::nullopt,
-            "edit input must be scene-referred linear RGB"
+            "edit input must be standardized linear RGB"
         );
     }
     if (

@@ -157,6 +157,10 @@ enum Message {
         Option<TechnicalObservationRevision>,
         SyncSender<Result<Option<ReviewItemRecord>, CatalogError>>,
     ),
+    PhotoSource(
+        PhotoId,
+        SyncSender<Result<Option<ReviewItemRecord>, CatalogError>>,
+    ),
     CommitRecipe(
         Box<CommitRecipe>,
         SyncSender<Result<RecipeCommitRecord, CatalogError>>,
@@ -750,6 +754,22 @@ impl CatalogHandle {
         self.request(|response| Message::ReviewSource(photo_id, Some(revision.clone()), response))
     }
 
+    /// Returns the online original source for one photo, preferring RAW and
+    /// falling back to an original raster.
+    ///
+    /// Unlike [`Self::review_source`], this is for consumers with a
+    /// source-neutral decoder route rather than legacy RAW-only callers.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] if the writer is unavailable or the query fails.
+    pub fn photo_source(
+        &self,
+        photo_id: PhotoId,
+    ) -> Result<Option<ReviewItemRecord>, CatalogError> {
+        self.request(|response| Message::PhotoSource(photo_id, response))
+    }
+
     /// Persists an immutable Recipe commit and optional ref move through the
     /// single Catalog writer.
     ///
@@ -1258,6 +1278,9 @@ fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
                 );
                 let _ = response.send(result);
             }
+            Message::PhotoSource(photo_id, response) => {
+                let _ = response.send(catalog.photo_source(photo_id));
+            }
             Message::CommitRecipe(request, response) => {
                 let _ = response.send(catalog.commit_recipe(request.as_ref()));
             }
@@ -1445,6 +1468,41 @@ mod tests {
         assert_eq!(
             page.items[0].location.display_path,
             "/photos/library-page.dng"
+        );
+        actor.shutdown().expect("shutdown actor");
+    }
+
+    #[test]
+    fn actor_resolves_an_original_raster_through_the_source_neutral_query() {
+        let actor = CatalogActor::spawn_in_memory().expect("spawn catalog actor");
+        let handle = actor.handle();
+        let registered = handle
+            .register_asset(&RegisterAsset {
+                kind: RepresentationKind::OriginalRaster,
+                location: AssetLocation::new(
+                    Platform::MacOs,
+                    b"/photos/editable.jpg".to_vec(),
+                    "/photos/editable.jpg",
+                ),
+                byte_len: 42,
+                modified_at_ms: Some(100),
+                now_ms: 1_700_000_000_000,
+            })
+            .expect("register raster photo");
+
+        assert_eq!(
+            handle
+                .photo_source(registered.photo_id)
+                .expect("resolve source-neutral photo source")
+                .expect("online raster source")
+                .representation_id,
+            registered.representation_id
+        );
+        assert!(
+            handle
+                .review_source(registered.photo_id)
+                .expect("resolve legacy RAW-only source")
+                .is_none()
         );
         actor.shutdown().expect("shutdown actor");
     }

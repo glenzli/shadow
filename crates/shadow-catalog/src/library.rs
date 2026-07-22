@@ -592,9 +592,11 @@ impl Catalog {
     /// Returns one bounded, photo-first Library grid page.
     ///
     /// The query deliberately starts with logical photos rather than imported
-    /// folders. It selects the newest online original RAW representation and
-    /// location only as an opening target, while metadata, likes, decisions,
-    /// and album membership stay attached to the logical photo.
+    /// folders. It selects an online original source representation (RAW or
+    /// raster) and location only as an opening target, while metadata, likes,
+    /// decisions, and album membership stay attached to the logical photo.
+    /// When a logical photo has both kinds, RAW remains preferred so existing
+    /// edit/development flows keep their source choice.
     ///
     /// Pagination is keyset-based: an ordinary scroll does not become slower
     /// as a catalog grows from thousands to millions of images.
@@ -692,15 +694,19 @@ fn library_photo_query_parts(filter: &LibraryPhotoFilter) -> (String, String, Ve
     // Both correlated subqueries are backed by v12's `(photo, kind, created)`
     // and `(representation, status, created)` indexes. This keeps one logical
     // row per photo without requiring a directory-derived materialized view.
+    // Original rasters are first-class Library sources; RAW retains a stable
+    // preference only when both are attached to one logical photo.
     let from_sql = "FROM photos p
          JOIN representations r ON r.id = (
              SELECT r2.id FROM representations r2
-             WHERE r2.photo_id = p.id AND r2.kind = 'original_raw'
+             WHERE r2.photo_id = p.id
+               AND r2.kind IN ('original_raw', 'original_raster')
                AND EXISTS (
                    SELECT 1 FROM locations l2
                    WHERE l2.representation_id = r2.id AND l2.status = 'online'
                )
-             ORDER BY r2.created_at_ms DESC, r2.id DESC
+             ORDER BY CASE r2.kind WHEN 'original_raw' THEN 0 ELSE 1 END,
+                      r2.created_at_ms DESC, r2.id DESC
              LIMIT 1
          )
          JOIN locations l ON l.id = (
@@ -1406,15 +1412,52 @@ mod tests {
     use shadow_domain::{NewPhotoDecisionEvent, PhotoDecisionOrigin, Platform, RepresentationKind};
 
     fn register(catalog: &mut Catalog, path: &str) -> RegisteredAsset {
+        register_kind(catalog, path, RepresentationKind::OriginalRaw)
+    }
+
+    fn register_kind(
+        catalog: &mut Catalog,
+        path: &str,
+        kind: RepresentationKind,
+    ) -> RegisteredAsset {
         catalog
             .register_asset(&RegisterAsset {
-                kind: RepresentationKind::OriginalRaw,
+                kind,
                 location: AssetLocation::new(Platform::MacOs, path.as_bytes().to_vec(), path),
                 byte_len: 100,
                 modified_at_ms: Some(10),
                 now_ms: 20,
             })
             .expect("register source")
+    }
+
+    #[test]
+    fn photo_first_library_page_includes_original_raster_sources() {
+        let mut catalog = Catalog::open_in_memory().expect("open catalog");
+        let raw = register(&mut catalog, "/archive/original.nef");
+        let raster = register_kind(
+            &mut catalog,
+            "/archive/original.jpg",
+            RepresentationKind::OriginalRaster,
+        );
+
+        let page = catalog
+            .library_photo_page(&LibraryPhotoFilter::default(), None, 16)
+            .expect("read Library page");
+        assert_eq!(
+            catalog
+                .library_photo_count(&LibraryPhotoFilter::default())
+                .expect("count Library photos"),
+            2
+        );
+        assert_eq!(page.items.len(), 2);
+        assert!(page.items.iter().any(|item| {
+            item.photo_id == raw.photo_id && item.location.display_path == "/archive/original.nef"
+        }));
+        assert!(page.items.iter().any(|item| {
+            item.photo_id == raster.photo_id
+                && item.location.display_path == "/archive/original.jpg"
+        }));
     }
 
     #[test]

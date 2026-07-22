@@ -46,8 +46,20 @@ pub struct ReviewPageRecord {
 
 const MAX_REVIEW_PAGE_SIZE: usize = 512;
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+enum SourceSelection {
+    RawOnly,
+    RawPreferredWithRasterFallback,
+}
+
+impl SourceSelection {
+    const fn includes_original_raster(self) -> bool {
+        matches!(self, Self::RawPreferredWithRasterFallback)
+    }
+}
+
 #[derive(Debug)]
-struct RawArtifact {
+struct StoredArtifact {
     role: String,
     variant_key: String,
     generator_id: String,
@@ -66,23 +78,23 @@ struct RawArtifact {
 }
 
 #[derive(Debug)]
-struct RawReviewItem {
+struct StoredReviewItem {
     photo_id: PhotoId,
     representation_id: RepresentationId,
     platform: String,
     native_path: Vec<u8>,
     display_path: String,
     source: RepresentationFingerprint,
-    artifact: Option<RawArtifact>,
+    artifact: Option<StoredArtifact>,
     metadata_json: Option<String>,
-    technical: Option<RawTechnicalObservation>,
+    technical: Option<StoredTechnicalObservation>,
     decision_head_sequence: Option<i64>,
     decision_flag: Option<String>,
     decision_rating: Option<i64>,
 }
 
 #[derive(Debug)]
-struct RawTechnicalObservation {
+struct StoredTechnicalObservation {
     json: String,
     digest: [u8; 32],
 }
@@ -90,9 +102,11 @@ struct RawTechnicalObservation {
 impl Catalog {
     /// Returns the online original-RAW source currently associated with a photo.
     ///
-    /// This is the identity boundary used by detail/edit surfaces: callers may
-    /// show a display path, but the catalog remains authoritative for which
-    /// representation and location belong to the photo.
+    /// This is deliberately the identity boundary used by legacy RAW
+    /// detail/edit surfaces: callers may show a display path, but the catalog
+    /// remains authoritative for which RAW representation and location belong
+    /// to the photo. Source-neutral consumers must use [`Self::photo_source`]
+    /// instead.
     ///
     /// # Errors
     ///
@@ -101,7 +115,30 @@ impl Catalog {
         &self,
         photo_id: PhotoId,
     ) -> Result<Option<ReviewItemRecord>, CatalogError> {
-        self.review_source_inner(photo_id, None)
+        self.source_inner(photo_id, None, SourceSelection::RawOnly)
+    }
+
+    /// Returns the online original source for a photo, preferring RAW and
+    /// falling back to an original raster.
+    ///
+    /// This is the source-neutral selection used by an editor that can route
+    /// both kinds. The catalog chooses only an online source representation;
+    /// the caller remains responsible for ensuring that its active provider
+    /// can actually decode the returned path. [`Self::review_source`] remains
+    /// RAW-only for legacy callers that require that narrower contract.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] for unknown persisted values or a failed query.
+    pub fn photo_source(
+        &self,
+        photo_id: PhotoId,
+    ) -> Result<Option<ReviewItemRecord>, CatalogError> {
+        self.source_inner(
+            photo_id,
+            None,
+            SourceSelection::RawPreferredWithRasterFallback,
+        )
     }
 
     /// Returns the source together with a technical summary only when the
@@ -116,13 +153,14 @@ impl Catalog {
         photo_id: PhotoId,
         revision: &TechnicalObservationRevision,
     ) -> Result<Option<ReviewItemRecord>, CatalogError> {
-        self.review_source_inner(photo_id, Some(revision))
+        self.source_inner(photo_id, Some(revision), SourceSelection::RawOnly)
     }
 
-    fn review_source_inner(
+    fn source_inner(
         &self,
         photo_id: PhotoId,
         revision: Option<&TechnicalObservationRevision>,
+        selection: SourceSelection,
     ) -> Result<Option<ReviewItemRecord>, CatalogError> {
         let revision = supported_revision(revision);
         let mut statement = self.connection.prepare(
@@ -190,8 +228,11 @@ impl Catalog {
              LEFT JOIN photo_decision_current dc ON dc.photo_id = r.photo_id
              LEFT JOIN photo_decision_events de
                ON de.sequence = dc.head_sequence AND de.photo_id = r.photo_id
-             WHERE r.photo_id = ?1 AND r.kind = 'original_raw'
-             ORDER BY r.created_at_ms, r.id
+             WHERE r.photo_id = ?1
+               AND (r.kind = 'original_raw'
+                    OR (?6 != 0 AND r.kind = 'original_raster'))
+             ORDER BY CASE r.kind WHEN 'original_raw' THEN 0 ELSE 1 END,
+                      r.created_at_ms, r.id
              LIMIT 1",
         )?;
         let item = statement
@@ -202,16 +243,18 @@ impl Catalog {
                     revision.map(|value| value.implementation_version.as_str()),
                     revision.map(|value| i64::from(value.display_luma_contract_version)),
                     revision.map(|value| value.preprocessing_version.as_str()),
+                    i64::from(selection.includes_original_raster()),
                 ],
-                read_raw_review_item,
+                read_review_item,
             )
             .optional()?;
-        item.map(|raw| review_item_from_raw(raw, revision))
+        item.map(|stored| review_item_from_stored(stored, revision))
             .transpose()
     }
 
-    /// Returns a bounded page containing one online original-RAW location per
-    /// representation together with its preferred current grid visual.
+    /// Returns a bounded page containing one online original source location
+    /// (RAW or raster) per representation together with its preferred current
+    /// grid visual.
     ///
     /// Embedded previews win over generated proxies. Stale artifact rows whose
     /// source fingerprint no longer matches the representation are excluded.
@@ -321,7 +364,7 @@ impl Catalog {
              LEFT JOIN photo_decision_current dc ON dc.photo_id = r.photo_id
              LEFT JOIN photo_decision_events de
                ON de.sequence = dc.head_sequence AND de.photo_id = r.photo_id
-             WHERE r.kind = 'original_raw'
+             WHERE r.kind IN ('original_raw', 'original_raster')
                AND (?1 IS NULL OR l.display_path > ?1
                     OR (l.display_path = ?1 AND r.id > ?2))
              ORDER BY l.display_path, r.id
@@ -337,12 +380,12 @@ impl Catalog {
                 revision.map(|value| i64::from(value.display_luma_contract_version)),
                 revision.map(|value| value.preprocessing_version.as_str()),
             ],
-            read_raw_review_item,
+            read_review_item,
         )?;
 
         let mut items = Vec::new();
         for row in rows {
-            items.push(review_item_from_raw(row?, revision)?);
+            items.push(review_item_from_stored(row?, revision)?);
         }
         let has_more = items.len() > page_size;
         items.truncate(page_size);
@@ -363,11 +406,11 @@ impl Catalog {
     }
 }
 
-fn review_item_from_raw(
-    raw: RawReviewItem,
+fn review_item_from_stored(
+    stored: StoredReviewItem,
     revision: Option<&TechnicalObservationRevision>,
 ) -> Result<ReviewItemRecord, CatalogError> {
-    let RawReviewItem {
+    let StoredReviewItem {
         photo_id,
         representation_id,
         platform,
@@ -380,7 +423,7 @@ fn review_item_from_raw(
         decision_head_sequence,
         decision_flag,
         decision_rating,
-    } = raw;
+    } = stored;
     let location = AssetLocation::new(parse_platform(&platform)?, native_path, display_path);
     let visual = artifact
         .map(|artifact| cached_artifact(representation_id, source, artifact))
@@ -423,11 +466,11 @@ fn review_item_from_raw(
     })
 }
 
-fn read_raw_review_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawReviewItem> {
+fn read_review_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredReviewItem> {
     let byte_len = non_negative_u64(row.get(5)?, 5)?;
     let role = row.get::<_, Option<String>>(7)?;
     let artifact = if let Some(role) = role {
-        Some(RawArtifact {
+        Some(StoredArtifact {
             role,
             variant_key: row.get(8)?,
             generator_id: row.get(9)?,
@@ -448,14 +491,14 @@ fn read_raw_review_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawReviewIt
         None
     };
     let technical = if let Some(json) = row.get::<_, Option<String>>(22)? {
-        Some(RawTechnicalObservation {
+        Some(StoredTechnicalObservation {
             json,
             digest: digest(row.get(23)?, 23)?,
         })
     } else {
         None
     };
-    Ok(RawReviewItem {
+    Ok(StoredReviewItem {
         photo_id: read_id(row, 0)?,
         representation_id: read_id(row, 1)?,
         platform: row.get(2)?,
@@ -484,7 +527,7 @@ fn review_item_count(connection: &rusqlite::Connection) -> Result<u64, CatalogEr
     let count = connection.query_row(
         "SELECT COUNT(*)
          FROM representations r
-         WHERE r.kind = 'original_raw'
+         WHERE r.kind IN ('original_raw', 'original_raster')
            AND EXISTS (
                SELECT 1 FROM locations l
                WHERE l.representation_id = r.id AND l.status = 'online'
@@ -505,7 +548,7 @@ fn review_item_count(connection: &rusqlite::Connection) -> Result<u64, CatalogEr
 fn cached_artifact(
     representation_id: RepresentationId,
     source: RepresentationFingerprint,
-    artifact: RawArtifact,
+    artifact: StoredArtifact,
 ) -> Result<CachedArtifactRecord, CatalogError> {
     Ok(CachedArtifactRecord {
         representation_id,
@@ -617,6 +660,118 @@ mod tests {
                 .items[0]
                 .decision,
             expected
+        );
+    }
+
+    #[test]
+    fn review_page_includes_original_rasters_while_raw_edit_source_stays_raw_only() {
+        let mut catalog = Catalog::open_in_memory().expect("open catalog");
+        let raw = catalog
+            .register_asset(&RegisterAsset {
+                kind: RepresentationKind::OriginalRaw,
+                location: AssetLocation::new(
+                    Platform::MacOs,
+                    b"/photos/source.nef".to_vec(),
+                    "/photos/source.nef",
+                ),
+                byte_len: 4_096,
+                modified_at_ms: Some(123),
+                now_ms: 100,
+            })
+            .expect("register RAW review source");
+        let raster = catalog
+            .register_asset(&RegisterAsset {
+                kind: RepresentationKind::OriginalRaster,
+                location: AssetLocation::new(
+                    Platform::MacOs,
+                    b"/photos/source.jpg".to_vec(),
+                    "/photos/source.jpg",
+                ),
+                byte_len: 2_048,
+                modified_at_ms: Some(124),
+                now_ms: 101,
+            })
+            .expect("register raster review source");
+
+        let page = catalog.review_page(None, 16).expect("read Review page");
+        assert_eq!(page.total_items, 2);
+        assert!(page.items.iter().any(|item| {
+            item.representation_id == raw.representation_id
+                && item.location.display_path == "/photos/source.nef"
+        }));
+        assert!(page.items.iter().any(|item| {
+            item.representation_id == raster.representation_id
+                && item.location.display_path == "/photos/source.jpg"
+        }));
+
+        assert_eq!(
+            catalog
+                .review_source(raw.photo_id)
+                .expect("read RAW edit source")
+                .expect("RAW edit source exists")
+                .representation_id,
+            raw.representation_id
+        );
+        assert!(
+            catalog
+                .review_source(raster.photo_id)
+                .expect("read raster edit source")
+                .is_none(),
+            "a raster must not be handed to the current RAW-only editor"
+        );
+        assert_eq!(
+            catalog
+                .photo_source(raster.photo_id)
+                .expect("read source-neutral raster fallback")
+                .expect("original raster is an editable source")
+                .representation_id,
+            raster.representation_id
+        );
+
+        // A photo can own multiple source representations. Production code
+        // creates that relationship through import/linking work; the query
+        // contract itself is verified directly here.
+        catalog
+            .connection
+            .execute(
+                "UPDATE representations SET photo_id = ?1 WHERE id = ?2",
+                rusqlite::params![
+                    raw.photo_id.as_bytes().as_slice(),
+                    raster.representation_id.as_bytes().as_slice(),
+                ],
+            )
+            .expect("attach raster representation to RAW photo");
+        assert_eq!(
+            catalog
+                .photo_source(raw.photo_id)
+                .expect("read RAW-preferred source")
+                .expect("online source")
+                .representation_id,
+            raw.representation_id,
+            "an online RAW remains the first choice when both representations exist"
+        );
+
+        catalog
+            .connection
+            .execute(
+                "UPDATE locations SET status = 'offline' WHERE representation_id = ?1",
+                [raw.representation_id.as_bytes().as_slice()],
+            )
+            .expect("mark RAW source offline");
+        assert_eq!(
+            catalog
+                .photo_source(raw.photo_id)
+                .expect("read raster fallback after RAW is offline")
+                .expect("online raster fallback")
+                .representation_id,
+            raster.representation_id
+        );
+        assert!(
+            catalog
+                .review_source(raw.photo_id)
+                .expect("read RAW-only source after RAW is offline")
+                .is_none(),
+            "the legacy RAW-only query must not silently become source-neutral"
         );
     }
 

@@ -65,6 +65,12 @@ enum class RgbBufferReference : std::uint8_t {
     // camera-to-output color conversion, and integer-range scaling. This is linear-light
     // processed RGB, not an untouched sensor-linear mosaic or a lossless radiance buffer.
     processed_raw,
+    // RGB decoded from an ordinary rendered image (for example JPEG or SDR HEIF) after its
+    // embedded profile, or an explicit sRGB fallback, has been transformed to linear
+    // sRGB/Rec.709-D65. The source started display-referred, so it must not receive the RAW
+    // scene-to-display curve at the output boundary. It nevertheless shares the same linear
+    // node graph, history, LUT, cache and export pipeline as processed RAW RGB.
+    decoded_raster,
 };
 
 struct PendingCorrections final {
@@ -261,13 +267,12 @@ struct PixelBuffer final {
 // those decode semantics must increment this cache-visible contract version.
 inline constexpr std::uint32_t processed_linear_reference_rgb_contract_version = 1U;
 inline constexpr float processed_linear_reference_maximum_adjustment_threshold = 0.0F;
-// Version 4 accepts only processed linear sRGB/Rec.709-D65 input and first applies Shadow's
-// neutral scene-to-display curve on luminance.  This creates a stable toe and shoulder for
-// decoded RAW data before Oklab chroma is reduced at fixed mapped lightness and the sRGB OETF is
-// applied. JPEG proxy encoding uses 4:4:4 sampling so this output contract does not discard
-// chroma detail after scene-to-display rendering. It is a deterministic SDR display rendering,
-// not a camera-JPEG emulation.
-inline constexpr std::uint32_t display_srgb8_output_transform_version = 4U;
+// Version 5 accepts both standardized scene-referred RAW RGB and standardized display-referred
+// raster RGB. RAW first receives Shadow's neutral scene-to-display curve; JPEG/SDR HEIF keeps
+// its existing display rendering and receives only gamut mapping plus the sRGB OETF. JPEG proxy
+// encoding uses 4:4:4 sampling so this output contract does not discard chroma detail after
+// rendering. It is a deterministic SDR display rendering, not a camera-JPEG emulation.
+inline constexpr std::uint32_t display_srgb8_output_transform_version = 5U;
 // The v4 gamut mapper is bounded work per out-of-gamut pixel. 0.5 is a conservative ceiling
 // above the display-sRGB Oklab gamut; sixteen bisections resolve chroma well below one 8-bit code
 // step.
@@ -356,6 +361,23 @@ public:
 [[nodiscard]] std::unique_ptr<DecoderProvider> make_libraw_decoder_provider(
     LibRawDevelopmentSettings settings = default_libraw_development_settings()
 );
+
+// Decodes ordinary display-referred image files into Shadow's common 16-bit linear sRGB
+// reference contract. JPEG is built in through libjpeg-turbo; HEIF/HEIC availability is an
+// optional backend capability and is reported as an explicit unsupported error when omitted
+// from a local build. This provider never pretends to expose sensor mosaics or RAW development
+// provenance.
+[[nodiscard]] std::unique_ptr<DecoderProvider> make_raster_decoder_provider();
+
+// File extensions that the raster provider in this binary can actually decode. This is a
+// capability query rather than a broad format claim: the catalog must not schedule HEIF simply
+// because it recognizes the suffix when this build deliberately omitted libheif.
+[[nodiscard]] std::vector<std::string> raster_supported_file_extensions();
+
+// Routes a path to the appropriate in-process public provider. It is intentionally the desktop
+// application's normal entry point: a catalog item should not need to know whether it was shot
+// as RAW or delivered as JPEG/HEIF in order to reach the common non-destructive edit graph.
+[[nodiscard]] std::unique_ptr<DecoderProvider> make_photo_decoder_provider();
 
 [[nodiscard]] std::optional<std::size_t> select_best_preview(
     std::span<const PreviewDescriptor> previews

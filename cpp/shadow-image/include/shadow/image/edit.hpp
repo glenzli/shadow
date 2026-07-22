@@ -38,6 +38,11 @@ enum class ImageReference : std::uint8_t {
     // demosaic, color-matrix conversion, normalization, and highlight clipping may already have
     // occurred. This must not be interpreted as sensor-linear mosaic/radiance data.
     scene_referred,
+    // An ordinary rendered source (JPEG/SDR HEIF) that has been colour-managed and transfer
+    // decoded into linear working RGB. It is linear for the purpose of composable adjustments,
+    // but its original appearance is already display-referred; the output boundary therefore
+    // must apply gamut mapping and the sRGB OETF only, rather than Shadow's RAW scene curve.
+    display_referred,
 };
 
 struct Chromaticity final {

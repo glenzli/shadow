@@ -108,10 +108,21 @@ private:
 };
 
 [[nodiscard]] std::unique_ptr<DecodeHandle> open_libraw_utf8(rust::Str path);
+[[nodiscard]] std::unique_ptr<DecodeHandle> open_photo_utf8(rust::Str path);
 [[nodiscard]] rust::Vec<FfiOpticsProfileCandidate> query_libraw_optics_profiles_utf8(
     rust::Str path
 );
+[[nodiscard]] rust::Vec<FfiOpticsProfileCandidate> query_photo_optics_profiles_utf8(
+    rust::Str path
+);
 [[nodiscard]] rust::String libraw_provider_version();
+[[nodiscard]] rust::String photo_provider_version();
+[[nodiscard]] rust::Vec<rust::String> photo_supported_raster_extensions();
+[[nodiscard]] FfiEncodedProxy render_photo_reference_proxy(
+    rust::Str path,
+    std::uint32_t max_edge,
+    std::uint8_t jpeg_quality
+);
 [[nodiscard]] FfiDisplayLuma decode_jpeg_display_luma(
     rust::Slice<const std::uint8_t> encoded,
     std::uint32_t max_edge

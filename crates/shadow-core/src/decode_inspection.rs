@@ -16,7 +16,7 @@ use shadow_catalog::{
 };
 use shadow_domain::{
     DecoderSnapshot, ImageDimensions, PreviewByteOrder, PreviewPayload, ProxyPayload,
-    RepresentationId,
+    RepresentationId, RepresentationKind,
 };
 use thiserror::Error;
 
@@ -44,6 +44,28 @@ pub trait DecodeInspector: Send + 'static {
     #[allow(clippy::unnecessary_literal_bound)]
     fn provider_version(&self) -> &str {
         "1"
+    }
+
+    /// Returns whether this inspector can safely inspect an original RAW
+    /// source.
+    ///
+    /// The conservative default is RAW-only. This preserves the current
+    /// LibRaw-backed behavior. Raster formats use the separate, extension
+    /// precise [`Self::supported_original_raster_extensions`] contract so an
+    /// inspector that only understands JPEG is never sent a TIFF or PNG.
+    fn supports_original_raw(&self) -> bool {
+        true
+    }
+
+    /// Returns the lower-level raster file extensions this inspector can
+    /// actually open, without the leading period.
+    ///
+    /// The empty default is deliberate: raster files remain discoverable in
+    /// the catalog, but they are not submitted to a RAW-only inspector. A
+    /// provider may report `jpg`/`jpeg`, and conditionally `heic`/`heif` when
+    /// its optional HEIF backend is compiled in.
+    fn supported_original_raster_extensions(&self) -> Vec<String> {
+        Vec::new()
     }
 
     /// Inspects one source and returns an owned, provider-neutral snapshot.
@@ -222,6 +244,8 @@ pub struct DecodeInspectionHandle {
     provider_version: Arc<str>,
     proxy_variant_key: Arc<str>,
     technical_preprocessing_version: Option<Arc<str>>,
+    supports_original_raw: bool,
+    supported_original_raster_extensions: Arc<[String]>,
     caches_previews: bool,
     profiled: bool,
 }
@@ -342,6 +366,25 @@ impl DecodeInspectionActor {
         let provider_id = Arc::<str>::from(inspector.provider_id());
         let provider_version = Arc::<str>::from(inspector.provider_version());
         let proxy_variant_key = Arc::<str>::from(inspector.proxy_variant_key());
+        // Only directly imported originals participate in the folder scanner.
+        // Derived representations remain explicit producer-owned artifacts and
+        // must never be implicitly handed to a source decoder.
+        let supports_original_raw = inspector.supports_original_raw();
+        let mut supported_original_raster_extensions = inspector
+            .supported_original_raster_extensions()
+            .into_iter()
+            .map(|extension| {
+                extension
+                    .trim()
+                    .trim_start_matches('.')
+                    .to_ascii_lowercase()
+            })
+            .filter(|extension| !extension.is_empty())
+            .collect::<Vec<_>>();
+        supported_original_raster_extensions.sort_unstable();
+        supported_original_raster_extensions.dedup();
+        let supported_original_raster_extensions: Arc<[String]> =
+            supported_original_raster_extensions.into();
         let caches_previews = cache.is_some();
         let technical_observer = cache
             .as_ref()
@@ -387,6 +430,8 @@ impl DecodeInspectionActor {
                 provider_version,
                 proxy_variant_key,
                 technical_preprocessing_version,
+                supports_original_raw,
+                supported_original_raster_extensions,
                 caches_previews,
                 profiled,
             },
@@ -517,6 +562,33 @@ impl DecodeInspectionHandle {
 
     pub fn proxy_variant_key(&self) -> &str {
         &self.proxy_variant_key
+    }
+
+    /// Returns whether this worker explicitly supports a concrete directly
+    /// imported source path.
+    ///
+    /// This is intentionally a handle property, captured when the actor is
+    /// created, so a folder scan can reject unsupported files before it puts
+    /// work into the bounded inspection queue. Original raster support is
+    /// extension-specific: it is not enough to know that a source is merely
+    /// `OriginalRaster`.
+    pub fn supports_source(&self, kind: RepresentationKind, path: &Path) -> bool {
+        match kind {
+            RepresentationKind::OriginalRaw => self.supports_original_raw,
+            RepresentationKind::OriginalRaster => path
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .is_some_and(|extension| {
+                    self.supported_original_raster_extensions
+                        .iter()
+                        .any(|supported| supported.eq_ignore_ascii_case(extension))
+                }),
+            RepresentationKind::DerivedDng
+            | RepresentationKind::EmbeddedPreview
+            | RepresentationKind::SceneLinearRgb
+            | RepresentationKind::VendorRenderedRgb
+            | RepresentationKind::Proxy => false,
+        }
     }
 
     pub const fn caches_previews(&self) -> bool {

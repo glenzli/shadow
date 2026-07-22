@@ -136,6 +136,46 @@ constexpr std::uint64_t fnv1a_prime = 1'099'511'628'211ULL;
     return profile;
 }
 
+[[nodiscard]] cmsHPROFILE make_display_rec709_profile() {
+    const cmsCIExyY white_point{0.3127, 0.3290, 1.0};
+    const cmsCIExyYTRIPLE primaries{
+        .Red = {0.6400, 0.3300, 1.0},
+        .Green = {0.3000, 0.6000, 1.0},
+        .Blue = {0.1500, 0.0600, 1.0},
+    };
+    // The curve stored in an RGB ICC profile maps linear light to encoded device values. A
+    // 4,096-entry table keeps the Rec.709 toe continuous enough that a subsequent LCMS inverse
+    // transform is stable well below one 16-bit Shadow working sample.
+    constexpr std::size_t entries = 4'096U;
+    std::array<cmsUInt16Number, entries> table{};
+    for (std::size_t index = 0U; index < entries; ++index) {
+        const double linear = static_cast<double>(index) / static_cast<double>(entries - 1U);
+        const double encoded = linear < 0.018
+            ? 4.5 * linear
+            : 1.099 * std::pow(linear, 0.45) - 0.099;
+        table[index] = static_cast<cmsUInt16Number>(std::clamp(
+            std::llround(std::clamp(encoded, 0.0, 1.0) * 65'535.0),
+            0LL,
+            65'535LL
+        ));
+    }
+    cmsToneCurve* curve = cmsBuildTabulatedToneCurve16(
+        nullptr,
+        static_cast<cmsUInt32Number>(table.size()),
+        table.data()
+    );
+    if (curve == nullptr) {
+        throw std::runtime_error("LittleCMS could not create a Rec.709 tone curve");
+    }
+    std::array<cmsToneCurve*, rgb_channels> curves{curve, curve, curve};
+    cmsHPROFILE profile = cmsCreateRGBProfile(&white_point, &primaries, curves.data());
+    cmsFreeToneCurve(curve);
+    if (profile == nullptr) {
+        throw std::runtime_error("LittleCMS could not create a display Rec.709 profile");
+    }
+    return profile;
+}
+
 [[nodiscard]] std::shared_ptr<const IccProfile::State> make_profile_state(cmsHPROFILE profile) {
     if (profile == nullptr) {
         throw std::runtime_error("LittleCMS returned a null ICC profile");
@@ -179,10 +219,31 @@ IccProfile make_display_srgb_icc_profile() {
     return IccProfile(make_profile_state(cmsCreate_sRGBProfile()));
 }
 
+IccProfile make_display_rec709_icc_profile() {
+    return IccProfile(make_profile_state(make_display_rec709_profile()));
+}
+
 IccProfile load_icc_profile(const std::filesystem::path& path) {
     const auto profile = cmsOpenProfileFromFile(path.string().c_str(), "r");
     if (profile == nullptr) {
         throw std::runtime_error("LittleCMS could not open the requested ICC profile");
+    }
+    return IccProfile(make_profile_state(profile));
+}
+
+IccProfile load_icc_profile(const std::span<const std::byte> bytes) {
+    if (bytes.empty()) {
+        throw std::invalid_argument("LittleCMS cannot open an empty ICC profile");
+    }
+    if (bytes.size() > std::numeric_limits<cmsUInt32Number>::max()) {
+        throw std::overflow_error("ICC profile exceeds LittleCMS memory API limits");
+    }
+    const auto profile = cmsOpenProfileFromMem(
+        const_cast<std::byte*>(bytes.data()),
+        static_cast<cmsUInt32Number>(bytes.size())
+    );
+    if (profile == nullptr) {
+        throw std::runtime_error("LittleCMS could not open the embedded ICC profile");
     }
     return IccProfile(make_profile_state(profile));
 }

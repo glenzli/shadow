@@ -297,8 +297,17 @@ mod ffi {
         type FullEditDetailHandle;
 
         fn open_libraw_utf8(path: &str) -> Result<UniquePtr<DecodeHandle>>;
+        fn open_photo_utf8(path: &str) -> Result<UniquePtr<DecodeHandle>>;
         fn query_libraw_optics_profiles_utf8(path: &str) -> Result<Vec<FfiOpticsProfileCandidate>>;
+        fn query_photo_optics_profiles_utf8(path: &str) -> Result<Vec<FfiOpticsProfileCandidate>>;
         fn libraw_provider_version() -> String;
+        fn photo_provider_version() -> String;
+        fn photo_supported_raster_extensions() -> Vec<String>;
+        fn render_photo_reference_proxy(
+            path: &str,
+            max_edge: u32,
+            jpeg_quality: u8,
+        ) -> Result<FfiEncodedProxy>;
         fn decode_jpeg_display_luma(encoded: &[u8], max_edge: u32) -> Result<FfiDisplayLuma>;
         fn provider(self: &DecodeHandle) -> FfiProviderSnapshot;
         fn metadata(self: &DecodeHandle) -> FfiMetadataSnapshot;
@@ -493,6 +502,32 @@ pub fn query_libraw_optics_profiles(
         .to_str()
         .ok_or_else(|| BridgeError::NonUtf8Path(path.to_path_buf()))?;
     Ok(ffi::query_libraw_optics_profiles_utf8(utf8_path)?
+        .into_iter()
+        .map(|candidate| OpticsProfileCandidate {
+            camera_maker: candidate.camera_maker,
+            camera_model: candidate.camera_model,
+            lens_maker: candidate.lens_maker,
+            lens_model: candidate.lens_model,
+        })
+        .collect())
+}
+
+/// Enumerates optical profiles for a supported photo source selected by Shadow's decoder router.
+///
+/// RAW sources may return Lensfun candidates. Raster sources return an empty list unless a future
+/// source provider can establish safe camera/lens metadata without risking a second correction of
+/// already-developed pixels.
+///
+/// # Errors
+///
+/// Returns a path or source-router error when the photo cannot be opened and inspected.
+pub fn query_photo_optics_profiles(
+    path: &Path,
+) -> Result<Vec<OpticsProfileCandidate>, BridgeError> {
+    let utf8_path = path
+        .to_str()
+        .ok_or_else(|| BridgeError::NonUtf8Path(path.to_path_buf()))?;
+    Ok(ffi::query_photo_optics_profiles_utf8(utf8_path)?
         .into_iter()
         .map(|candidate| OpticsProfileCandidate {
             camera_maker: candidate.camera_maker,
@@ -1553,9 +1588,26 @@ pub fn libraw_provider_version() -> String {
     ffi::libraw_provider_version()
 }
 
+/// Returns the cache-facing identity of Shadow's source-neutral photo router.
+///
+/// Unlike [`libraw_provider_version`], this identity stays stable across every source type the
+/// router accepts. Catalog inspection records and generated-proxy cache entries can therefore
+/// share it without pretending every source used the same decoder.
+#[must_use]
+pub fn photo_provider_version() -> String {
+    ffi::photo_provider_version()
+}
+
+/// Returns ordinary rendered-image suffixes that the linked native photo router can genuinely
+/// open. JPEG is mandatory; HEIF/HEIC is added only when this particular build linked libheif.
+#[must_use]
+pub fn photo_supported_raster_extensions() -> Vec<String> {
+    ffi::photo_supported_raster_extensions()
+}
+
 /// A reusable, bounded processed linear-light RGB working proxy for interactive edits.
 ///
-/// [`Self::open`] asks `LibRaw` for processed linear-light sRGB-primary RGB once.
+/// [`Self::open`] asks Shadow's source router for processed linear-light sRGB-primary RGB once.
 /// The resulting C++ handle retains only an immutable, max-edge-bounded RGB
 /// float buffer; it does not retain a decoder or borrow the input path. The
 /// handle is both [`Send`] and [`Sync`], and concurrent [`Self::render`] calls
@@ -1647,9 +1699,9 @@ pub struct RenderedDetailTile {
 
 /// A reusable immutable full-resolution processed-linear u16 RGB source in sRGB primaries for 1:1 tiles.
 ///
-/// Preparation performs one `LibRaw` reference render, retains no decoder, and fails when either
-/// the metadata worst-case RGB allocation or the actual retained allocation exceeds 512 MiB.
-/// Repeated tile renders convert and edit only the requested rectangle. The wrapper is
+/// Preparation performs one source-router reference render, retains no decoder, and fails when
+/// either the metadata worst-case RGB allocation or the actual retained allocation exceeds
+/// 512 MiB. Repeated tile renders convert and edit only the requested rectangle. The wrapper is
 /// [`Send`] + [`Sync`], and concurrent renders own independent temporary buffers.
 pub struct LibRawEditDetailSession {
     handle: cxx::UniquePtr<ffi::FullEditDetailHandle>,
@@ -1658,6 +1710,18 @@ pub struct LibRawEditDetailSession {
     raw_development_receipt: RawDevelopmentReceipt,
     optics_receipt: OpticsReceipt,
 }
+
+/// Source-neutral name for an immutable interactive photo-editing session.
+///
+/// The legacy `LibRawEditPreviewSession` name remains available for source compatibility, while
+/// the constructor now enters through Shadow's photo router. RAW receipts remain explicit and
+/// absent for a raster source that did not perform RAW development.
+pub type PhotoEditPreviewSession = LibRawEditPreviewSession;
+
+/// Source-neutral name for an immutable full-resolution photo-detail session.
+///
+/// See [`PhotoEditPreviewSession`] for the compatibility and RAW-provenance contract.
+pub type PhotoEditDetailSession = LibRawEditDetailSession;
 
 impl std::fmt::Debug for LibRawEditDetailSession {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1684,14 +1748,15 @@ impl std::fmt::Debug for LibRawEditPreviewSession {
 }
 
 impl LibRawEditPreviewSession {
-    /// Opens a RAW into a reusable processed linear-light float RGB proxy in sRGB primaries.
+    /// Opens a supported photo into a reusable processed linear-light float RGB proxy in sRGB
+    /// primaries.
     ///
     /// `max_edge` must be in `1..=4096`; 1600 or 2048 are the intended UI
     /// values. The bound is checked before the input path is opened.
     ///
     /// # Errors
     ///
-    /// Returns [`BridgeError::InvalidEditRequest`] before RAW I/O for an
+    /// Returns [`BridgeError::InvalidEditRequest`] before source I/O for an
     /// invalid bound, or a decoder error if preparation fails.
     pub fn open(path: &Path, max_edge: u32) -> Result<Self, BridgeError> {
         Self::open_with_optics(path, max_edge, &OpticsSettings::default())
@@ -1709,7 +1774,7 @@ impl LibRawEditPreviewSession {
         optics: &OpticsSettings,
     ) -> Result<Self, BridgeError> {
         validate_warm_edit_max_edge(max_edge)?;
-        let mut decode_handle = open_libraw(path)?;
+        let mut decode_handle = open_photo(path)?;
         if decode_handle.is_null() {
             return Err(BridgeError::NullHandle);
         }
@@ -1745,7 +1810,8 @@ impl LibRawEditPreviewSession {
         self.max_edge
     }
 
-    /// Returns immutable provenance for the exact RAW render retained by this preview.
+    /// Returns immutable provenance for the exact RAW development, if any, retained by this
+    /// preview.
     #[must_use]
     pub const fn raw_development_receipt(&self) -> &RawDevelopmentReceipt {
         &self.raw_development_receipt
@@ -1758,7 +1824,7 @@ impl LibRawEditPreviewSession {
 
     /// Re-runs only the fixed-order basic nodes and JPEG encoding.
     ///
-    /// This method never opens or decodes the RAW. Since the prepared working
+    /// This method never reopens or decodes the source. Since the prepared working
     /// proxy is immutable, calls may run concurrently from worker threads.
     ///
     /// # Errors
@@ -1776,7 +1842,7 @@ impl LibRawEditPreviewSession {
     }
 
     /// Executes a dependency-ordered typed plan against the prepared proxy.
-    /// This method never reopens or decodes the RAW.
+    /// This method never reopens or decodes the source.
     ///
     /// # Errors
     ///
@@ -1825,7 +1891,8 @@ impl LibRawEditPreviewSession {
 }
 
 impl LibRawEditDetailSession {
-    /// Opens a RAW into immutable full-resolution processed-linear u16 RGB pixels in sRGB primaries.
+    /// Opens a supported photo into immutable full-resolution processed-linear u16 RGB pixels in
+    /// sRGB primaries.
     ///
     /// Provider metadata is checked against the worst-case RGB retention limit before the
     /// reference render starts. The returned allocation is checked independently before it is
@@ -1846,7 +1913,7 @@ impl LibRawEditDetailSession {
     /// Returns a path, decoder, resource-limit, invalid-request, or bridge-output error when
     /// validation or preparation fails.
     pub fn open_with_optics(path: &Path, optics: &OpticsSettings) -> Result<Self, BridgeError> {
-        let mut decode_handle = open_libraw(path)?;
+        let mut decode_handle = open_photo(path)?;
         if decode_handle.is_null() {
             return Err(BridgeError::NullHandle);
         }
@@ -1891,8 +1958,8 @@ impl LibRawEditDetailSession {
         self.retained_bytes
     }
 
-    /// Returns immutable provenance for the exact full-resolution RAW render retained by this
-    /// detail session.
+    /// Returns immutable provenance for the exact full-resolution RAW development, if any,
+    /// retained by this detail session.
     #[must_use]
     pub const fn raw_development_receipt(&self) -> &RawDevelopmentReceipt {
         &self.raw_development_receipt
@@ -1910,7 +1977,7 @@ impl LibRawEditDetailSession {
     /// typed nodes, expands neighborhood footprints inside the kernel, and
     /// returns the requested core as tightly packed display-encoded sRGB RGB8
     /// without compression or scaling.
-    /// No RAW I/O occurs during this method.
+    /// No source I/O occurs during this method.
     ///
     /// # Errors
     ///
@@ -1991,6 +2058,33 @@ pub fn render_libraw_reference_proxy(
         channels: proxy.channels,
         bytes: proxy.bytes,
     })
+}
+
+/// Renders a bounded display-referred JPEG proxy through Shadow's source-neutral photo router.
+///
+/// The router decides whether the source is developed through a RAW provider or decoded from a
+/// supported raster. The returned raster is always the same display-proxy contract; inspect the
+/// prepared edit session's [`RawDevelopmentReceipt`] to distinguish provider-side RAW
+/// development from a raster source.
+///
+/// # Errors
+///
+/// Returns an invalid-request, path, source-router, decode, or encoding error.
+pub fn render_photo_reference_proxy(
+    path: &Path,
+    max_edge: u32,
+    jpeg_quality: u8,
+) -> Result<shadow_domain::ProxyPayload, BridgeError> {
+    validate_proxy_max_edge(max_edge)?;
+    validate_jpeg_quality(jpeg_quality)?;
+    let utf8_path = path
+        .to_str()
+        .ok_or_else(|| BridgeError::NonUtf8Path(path.to_path_buf()))?;
+    Ok(proxy_payload(ffi::render_photo_reference_proxy(
+        utf8_path,
+        max_edge,
+        jpeg_quality,
+    )?))
 }
 
 /// Renders the fixed-order basic edit recipe as a bounded standard JPEG.
@@ -2465,6 +2559,21 @@ pub fn inspect_libraw(path: &Path) -> Result<DecoderSnapshot, BridgeError> {
     Ok(snapshot(handle))
 }
 
+/// Inspects a supported photo through Shadow's source-neutral decoder router.
+///
+/// The returned snapshot identifies the router as the cache-facing provider. The exact RAW
+/// renderer, when any, remains separately available as a prepared session's immutable
+/// [`RawDevelopmentReceipt`].
+///
+/// # Errors
+///
+/// Returns a path or source-router error when the photo cannot be opened and identified.
+pub fn inspect_photo(path: &Path) -> Result<DecoderSnapshot, BridgeError> {
+    let handle = open_photo(path)?;
+    let handle = handle.as_ref().ok_or(BridgeError::NullHandle)?;
+    Ok(snapshot(handle))
+}
+
 /// Extracts the largest decodable embedded preview selected by the image
 /// kernel. Absence of an embedded preview is a successful `None` result.
 ///
@@ -2490,11 +2599,44 @@ pub fn extract_best_libraw_preview(
     }))
 }
 
+/// Extracts the router-selected embedded preview from a supported photo source.
+///
+/// Absence of an embedded preview is a successful `None` result. A raster source may choose to
+/// expose no embedded preview and instead rely on [`render_photo_reference_proxy`].
+///
+/// # Errors
+///
+/// Returns a path or source-router error when the source cannot be opened or decoded.
+pub fn extract_best_photo_preview(
+    path: &Path,
+) -> Result<Option<shadow_domain::PreviewPayload>, BridgeError> {
+    let mut handle = open_photo(path)?;
+    if handle.is_null() {
+        return Err(BridgeError::NullHandle);
+    }
+    let payload = handle.pin_mut().decode_best_preview()?;
+    if !payload.present {
+        return Ok(None);
+    }
+    Ok(Some(shadow_domain::PreviewPayload {
+        descriptor: preview_descriptor(&payload.descriptor),
+        byte_order: preview_byte_order(payload.byte_order),
+        bytes: payload.bytes,
+    }))
+}
+
 fn open_libraw(path: &Path) -> Result<cxx::UniquePtr<ffi::DecodeHandle>, BridgeError> {
     let utf8_path = path
         .to_str()
         .ok_or_else(|| BridgeError::NonUtf8Path(path.to_path_buf()))?;
     ffi::open_libraw_utf8(utf8_path).map_err(Into::into)
+}
+
+fn open_photo(path: &Path) -> Result<cxx::UniquePtr<ffi::DecodeHandle>, BridgeError> {
+    let utf8_path = path
+        .to_str()
+        .ok_or_else(|| BridgeError::NonUtf8Path(path.to_path_buf()))?;
+    ffi::open_photo_utf8(utf8_path).map_err(Into::into)
 }
 
 fn snapshot(handle: &ffi::DecodeHandle) -> DecoderSnapshot {
@@ -3247,15 +3389,42 @@ mod tests {
     fn warm_edit_session_is_send_sync_and_bounded_before_raw_io() {
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<LibRawEditPreviewSession>();
+        assert_send_sync::<PhotoEditPreviewSession>();
+
+        assert_eq!(
+            std::any::TypeId::of::<PhotoEditPreviewSession>(),
+            std::any::TypeId::of::<LibRawEditPreviewSession>(),
+            "the source-neutral API must not add a second session allocation or threading model"
+        );
 
         for max_edge in [0, MAX_WARM_EDIT_PREVIEW_EDGE + 1] {
-            let error = LibRawEditPreviewSession::open(
+            let error = PhotoEditPreviewSession::open(
                 Path::new("fixture-that-must-not-be-opened.raw"),
                 max_edge,
             )
-            .expect_err("invalid warm bound must fail before opening the RAW");
+            .expect_err("invalid warm bound must fail before opening the source");
             assert!(matches!(error, BridgeError::InvalidEditRequest(_)));
         }
+    }
+
+    #[test]
+    fn photo_router_reference_proxy_rejects_invalid_requests_before_source_io() {
+        for (max_edge, jpeg_quality) in [(0, 82), (16_385, 82), (1_024, 0), (1_024, 101)] {
+            let error = render_photo_reference_proxy(
+                Path::new("fixture-that-must-not-be-opened.photo"),
+                max_edge,
+                jpeg_quality,
+            )
+            .expect_err("invalid generic proxy request must fail before opening the source");
+            assert!(matches!(error, BridgeError::InvalidEditRequest(_)));
+        }
+    }
+
+    #[test]
+    fn photo_router_reports_mandatory_jpeg_raster_support() {
+        let extensions = photo_supported_raster_extensions();
+        assert!(extensions.contains(&"jpg".to_owned()));
+        assert!(extensions.contains(&"jpeg".to_owned()));
     }
 
     fn valid_ffi_edit_preview_analysis() -> ffi::FfiEditPreviewAnalysis {
@@ -3404,6 +3573,12 @@ mod tests {
     fn full_edit_detail_contract_is_send_sync_and_rejects_invalid_rectangles_locally() {
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<LibRawEditDetailSession>();
+        assert_send_sync::<PhotoEditDetailSession>();
+        assert_eq!(
+            std::any::TypeId::of::<PhotoEditDetailSession>(),
+            std::any::TypeId::of::<LibRawEditDetailSession>(),
+            "the source-neutral detail API must retain the existing bounded session type"
+        );
         assert_eq!(MAX_EDIT_DETAIL_TILE_SIDE, 1_024);
         assert_eq!(MAX_EDIT_DETAIL_RETAINED_BYTES, 512 * 1_024 * 1_024);
 
@@ -3679,6 +3854,128 @@ mod tests {
         assert!(snapshot.capabilities.metadata.is_available());
         assert!(snapshot.capabilities.mosaic.is_available());
         assert!(snapshot.metadata.raw_dimensions.pixel_count() > 0);
+    }
+
+    #[test]
+    #[ignore = "requires SHADOW_TEST_DNG to point at a local RAW fixture"]
+    fn real_dng_photo_router_entries_cross_the_bridge() {
+        let path = PathBuf::from(std::env::var_os("SHADOW_TEST_DNG").expect("SHADOW_TEST_DNG"));
+
+        let snapshot = inspect_photo(&path).expect("inspect local DNG through photo router");
+        assert_eq!(snapshot.provider.id, "shadow-photo-router");
+        assert_eq!(snapshot.provider.version, photo_provider_version());
+        assert!(snapshot.capabilities.metadata.is_available());
+        assert!(snapshot.metadata.raw_dimensions.pixel_count() > 0);
+
+        let _profiles = query_photo_optics_profiles(&path)
+            .expect("query local DNG optical profiles through router");
+        let _preview = extract_best_photo_preview(&path)
+            .expect("extract local DNG embedded preview through router");
+
+        let proxy = render_photo_reference_proxy(&path, 1_024, 82)
+            .expect("render local DNG reference proxy through router");
+        assert_eq!(proxy.codec, PreviewCodec::Jpeg);
+        assert!(proxy.dimensions.width.max(proxy.dimensions.height) <= 1_024);
+        assert!(proxy.bytes.starts_with(&[0xff, 0xd8]));
+        assert!(proxy.bytes.ends_with(&[0xff, 0xd9]));
+
+        let preview = PhotoEditPreviewSession::open(&path, 1_024)
+            .expect("prepare generic local DNG preview session");
+        assert!(preview.raw_development_receipt().recorded());
+        let detail =
+            PhotoEditDetailSession::open(&path).expect("prepare generic local DNG detail session");
+        assert!(detail.raw_development_receipt().recorded());
+    }
+
+    #[test]
+    #[ignore = "requires SHADOW_TEST_JPEG to point at a local JPEG fixture"]
+    fn real_jpeg_photo_router_entries_cross_the_bridge() {
+        let path = PathBuf::from(std::env::var_os("SHADOW_TEST_JPEG").expect("SHADOW_TEST_JPEG"));
+
+        let snapshot = inspect_photo(&path).expect("inspect local JPEG through photo router");
+        assert_eq!(snapshot.provider.id, "shadow-photo-router");
+        assert_eq!(snapshot.provider.version, photo_provider_version());
+        assert!(snapshot.capabilities.metadata.is_available());
+        assert!(!snapshot.capabilities.mosaic.is_available());
+        assert!(snapshot.capabilities.reference_rgb.is_available());
+        assert!(snapshot.metadata.image_dimensions.pixel_count() > 0);
+
+        assert!(
+            query_photo_optics_profiles(&path)
+                .expect("query local JPEG optical profiles through router")
+                .is_empty()
+        );
+        assert!(
+            extract_best_photo_preview(&path)
+                .expect("extract local JPEG preview through router")
+                .is_none()
+        );
+
+        let proxy = render_photo_reference_proxy(&path, 1_024, 82)
+            .expect("render local JPEG reference proxy through router");
+        assert_eq!(proxy.codec, PreviewCodec::Jpeg);
+        assert!(proxy.dimensions.width.max(proxy.dimensions.height) <= 1_024);
+        assert!(proxy.bytes.starts_with(&[0xff, 0xd8]));
+        assert!(proxy.bytes.ends_with(&[0xff, 0xd9]));
+
+        let preview = PhotoEditPreviewSession::open(&path, 1_024)
+            .expect("prepare generic local JPEG preview session");
+        assert!(!preview.raw_development_receipt().recorded());
+        let edited = preview
+            .render(BasicEditParameters::default(), 82)
+            .expect("render neutral generic JPEG preview session");
+        assert_eq!(edited.codec, PreviewCodec::Jpeg);
+        let detail =
+            PhotoEditDetailSession::open(&path).expect("prepare generic local JPEG detail session");
+        assert!(!detail.raw_development_receipt().recorded());
+    }
+
+    #[test]
+    #[ignore = "requires SHADOW_TEST_HEIF to point at a local 8-bit SDR HEIF/HEIC fixture"]
+    fn real_heif_photo_router_entries_cross_the_bridge() {
+        let path = PathBuf::from(std::env::var_os("SHADOW_TEST_HEIF").expect("SHADOW_TEST_HEIF"));
+
+        let extensions = photo_supported_raster_extensions();
+        assert!(extensions.contains(&"heic".to_owned()));
+        assert!(extensions.contains(&"heif".to_owned()));
+
+        let snapshot = inspect_photo(&path).expect("inspect local HEIF through photo router");
+        assert_eq!(snapshot.provider.id, "shadow-photo-router");
+        assert_eq!(snapshot.provider.version, photo_provider_version());
+        assert!(snapshot.capabilities.metadata.is_available());
+        assert!(!snapshot.capabilities.mosaic.is_available());
+        assert!(snapshot.capabilities.reference_rgb.is_available());
+        assert!(snapshot.metadata.image_dimensions.pixel_count() > 0);
+        assert_eq!(snapshot.metadata.orientation, 1);
+
+        assert!(
+            query_photo_optics_profiles(&path)
+                .expect("query local HEIF optical profiles through router")
+                .is_empty()
+        );
+        assert!(
+            extract_best_photo_preview(&path)
+                .expect("extract local HEIF preview through router")
+                .is_none()
+        );
+
+        let proxy = render_photo_reference_proxy(&path, 1_024, 82)
+            .expect("render local HEIF reference proxy through router");
+        assert_eq!(proxy.codec, PreviewCodec::Jpeg);
+        assert!(proxy.dimensions.width.max(proxy.dimensions.height) <= 1_024);
+        assert!(proxy.bytes.starts_with(&[0xff, 0xd8]));
+        assert!(proxy.bytes.ends_with(&[0xff, 0xd9]));
+
+        let preview = PhotoEditPreviewSession::open(&path, 1_024)
+            .expect("prepare generic local HEIF preview session");
+        assert!(!preview.raw_development_receipt().recorded());
+        let edited = preview
+            .render(BasicEditParameters::default(), 82)
+            .expect("render neutral generic HEIF preview session");
+        assert_eq!(edited.codec, PreviewCodec::Jpeg);
+        let detail =
+            PhotoEditDetailSession::open(&path).expect("prepare generic local HEIF detail session");
+        assert!(!detail.raw_development_receipt().recorded());
     }
 
     #[test]
