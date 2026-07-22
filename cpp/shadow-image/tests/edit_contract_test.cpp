@@ -238,12 +238,14 @@ void stable_operation_ids_are_explicit() {
             == image::AdjustmentFootprint{
                 .horizontal_radius = static_cast<std::uint32_t>(
                     image::selective_tone_guided_mask_radius_level_zero
+                        * image::selective_tone_guided_filter_box_passes
                 ),
                 .vertical_radius = static_cast<std::uint32_t>(
                     image::selective_tone_guided_mask_radius_level_zero
+                        * image::selective_tone_guided_filter_box_passes
                 ),
             },
-        "guided selective tone reports its full-resolution mask support"
+        "complete guided selective tone reports both box-pass radii to the tile scheduler"
     );
     expect(
         image::locality(image::operation(nodes[9]))
@@ -853,8 +855,8 @@ void selective_tone_is_exactly_neutral_and_preserves_scene_range() {
     const std::array neutral_node{
         image::AdjustmentNode{
             .node_id = "neutral-selective-tone",
-            .parameter_schema_version = image::selective_tone_v2_parameter_schema_version,
-            .implementation_version = image::selective_tone_v2_implementation_version,
+            .parameter_schema_version = image::selective_tone_v3_parameter_schema_version,
+            .implementation_version = image::selective_tone_v3_implementation_version,
             .parameters = image::SelectiveToneAdjustment{},
         },
     };
@@ -878,8 +880,8 @@ void selective_tone_is_exactly_neutral_and_preserves_scene_range() {
     const std::array regional_node{
         image::AdjustmentNode{
             .node_id = "regional-tone",
-            .parameter_schema_version = image::selective_tone_v2_parameter_schema_version,
-            .implementation_version = image::selective_tone_v2_implementation_version,
+            .parameter_schema_version = image::selective_tone_v3_parameter_schema_version,
+            .implementation_version = image::selective_tone_v3_implementation_version,
             .parameters = image::SelectiveToneAdjustment{
                 .highlights = 0.0,
                 .shadows = 0.0,
@@ -958,8 +960,8 @@ void selective_tone_uses_fixed_photographer_facing_zones() {
     const std::array black_node{
         image::AdjustmentNode{
             .node_id = "fixed-zone-black-control",
-            .parameter_schema_version = image::selective_tone_v2_parameter_schema_version,
-            .implementation_version = image::selective_tone_v2_implementation_version,
+            .parameter_schema_version = image::selective_tone_v3_parameter_schema_version,
+            .implementation_version = image::selective_tone_v3_implementation_version,
             .parameters = image::SelectiveToneAdjustment{.blacks = 0.6},
         },
     };
@@ -994,8 +996,8 @@ void selective_tone_weights_are_smooth_and_preserve_rgb_ratios() {
     const std::array transition_node{
         image::AdjustmentNode{
             .node_id = "black-shadow-transition",
-            .parameter_schema_version = image::selective_tone_v2_parameter_schema_version,
-            .implementation_version = image::selective_tone_v2_implementation_version,
+            .parameter_schema_version = image::selective_tone_v3_parameter_schema_version,
+            .implementation_version = image::selective_tone_v3_implementation_version,
             .parameters = image::SelectiveToneAdjustment{
                 .shadows = -1.0,
                 .blacks = 1.0,
@@ -1014,8 +1016,8 @@ void selective_tone_weights_are_smooth_and_preserve_rgb_ratios() {
     const std::array shadow_node{
         image::AdjustmentNode{
             .node_id = "ratio-preserving-shadows",
-            .parameter_schema_version = image::selective_tone_v2_parameter_schema_version,
-            .implementation_version = image::selective_tone_v2_implementation_version,
+            .parameter_schema_version = image::selective_tone_v3_parameter_schema_version,
+            .implementation_version = image::selective_tone_v3_implementation_version,
             .parameters = image::SelectiveToneAdjustment{.shadows = 0.75},
         },
     };
@@ -1045,8 +1047,8 @@ void selective_tone_endpoints_reach_ordinary_detail_without_clipping() {
     const std::array node{
         image::AdjustmentNode{
             .node_id = "wide-endpoint-fields",
-            .parameter_schema_version = image::selective_tone_v2_parameter_schema_version,
-            .implementation_version = image::selective_tone_v2_implementation_version,
+            .parameter_schema_version = image::selective_tone_v3_parameter_schema_version,
+            .implementation_version = image::selective_tone_v3_implementation_version,
             .parameters = image::SelectiveToneAdjustment{
                 .whites = -1.0,
                 .blacks = 1.0,
@@ -1080,8 +1082,8 @@ void selective_tone_combined_extremes_are_monotonic_and_smooth() {
     const std::array node{
         image::AdjustmentNode{
             .node_id = "combined-selective-tone-extremes",
-            .parameter_schema_version = image::selective_tone_v2_parameter_schema_version,
-            .implementation_version = image::selective_tone_v2_implementation_version,
+            .parameter_schema_version = image::selective_tone_v3_parameter_schema_version,
+            .implementation_version = image::selective_tone_v3_implementation_version,
             .parameters = image::SelectiveToneAdjustment{
                 .highlights = -1.0,
                 .shadows = 1.0,
@@ -1137,8 +1139,8 @@ void selective_tone_uses_a_flat_region_gain_without_cross_edge_leakage() {
     const std::array node{
         image::AdjustmentNode{
             .node_id = "guided-shadow-region",
-            .parameter_schema_version = image::selective_tone_v2_parameter_schema_version,
-            .implementation_version = image::selective_tone_v2_implementation_version,
+            .parameter_schema_version = image::selective_tone_v3_parameter_schema_version,
+            .implementation_version = image::selective_tone_v3_implementation_version,
             .parameters = image::SelectiveToneAdjustment{.shadows = 0.8},
         },
     };
@@ -1146,8 +1148,11 @@ void selective_tone_uses_a_flat_region_gain_without_cross_edge_leakage() {
     const auto sample = [&output](const std::uint32_t x) {
         return output.samples[static_cast<std::size_t>(x) * 3U];
     };
-    const double far_shadow_gain = static_cast<double>(sample(32U)) / shadow_luminance;
-    const double other_flat_shadow_gain = static_cast<double>(sample(64U)) / shadow_luminance;
+    // A complete guided filter has two box supports: values within 2r of the hard edge are
+    // intentionally part of its transition region. Sample two points farther than that support
+    // from the edge to assert the true flat-field contract.
+    const double far_shadow_gain = static_cast<double>(sample(8U)) / shadow_luminance;
+    const double other_flat_shadow_gain = static_cast<double>(sample(24U)) / shadow_luminance;
     const double edge_shadow_gain = static_cast<double>(sample(127U)) / shadow_luminance;
     expect(
         std::abs(far_shadow_gain - other_flat_shadow_gain) < 1.0e-6,
@@ -1449,8 +1454,8 @@ void new_adjustments_respect_node_order() {
     input.working_space = linear_srgb();
     const image::AdjustmentNode tone{
         .node_id = "selective-highlights",
-        .parameter_schema_version = image::selective_tone_v2_parameter_schema_version,
-        .implementation_version = image::selective_tone_v2_implementation_version,
+        .parameter_schema_version = image::selective_tone_v3_parameter_schema_version,
+        .implementation_version = image::selective_tone_v3_implementation_version,
         .parameters = image::SelectiveToneAdjustment{.highlights = 0.8},
     };
     image::PerceptualColorAdjustment color_parameters;
@@ -1679,6 +1684,28 @@ void invalid_values_and_versions_fail_closed() {
         "unknown implementation versions never silently change old recipes"
     );
 
+    // v2 evaluated q = a*I+b directly. Version 3 additionally box-averages a and b, so even
+    // though the four public slider scalars have the same shape, retaining a v2 node would
+    // silently reinterpret persisted pixels. Shadow is pre-release: reject it instead.
+    const std::array discarded_selective_tone_v2{
+        image::AdjustmentNode{
+            .node_id = "discarded-selective-tone-v2",
+            .parameter_schema_version = 2U,
+            .implementation_version = 2U,
+            .parameters = image::SelectiveToneAdjustment{.shadows = 0.5},
+        },
+    };
+    expect_edit_error(
+        [&] {
+            static_cast<void>(
+                image::execute_adjustment_nodes(input, discarded_selective_tone_v2)
+            );
+        },
+        image::EditErrorCode::unsupported_version,
+        0U,
+        "the one-pass selective tone v2 contract is rejected instead of being reinterpreted"
+    );
+
     const auto maximum = std::numeric_limits<float>::max();
     const auto huge_input = rgb_image(1, {maximum, maximum, maximum});
     const std::array overflowing{
@@ -1713,8 +1740,8 @@ void new_adjustment_bounds_are_validated_without_pixels() {
     const std::array valid_edges{
         image::AdjustmentNode{
             .node_id = "selective-tone-edges",
-            .parameter_schema_version = image::selective_tone_v2_parameter_schema_version,
-            .implementation_version = image::selective_tone_v2_implementation_version,
+            .parameter_schema_version = image::selective_tone_v3_parameter_schema_version,
+            .implementation_version = image::selective_tone_v3_implementation_version,
             .parameters = image::SelectiveToneAdjustment{
                 .highlights = -1.0,
                 .shadows = 1.0,
@@ -1749,8 +1776,8 @@ void new_adjustment_bounds_are_validated_without_pixels() {
     const std::array invalid_tone{
         image::AdjustmentNode{
             .node_id = "invalid-selective-tone",
-            .parameter_schema_version = image::selective_tone_v2_parameter_schema_version,
-            .implementation_version = image::selective_tone_v2_implementation_version,
+            .parameter_schema_version = image::selective_tone_v3_parameter_schema_version,
+            .implementation_version = image::selective_tone_v3_implementation_version,
             .enabled = false,
             .parameters = image::SelectiveToneAdjustment{.highlights = 1.0001},
         },

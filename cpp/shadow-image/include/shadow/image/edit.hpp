@@ -109,11 +109,12 @@ struct SaturationAdjustment final {
 // from the broad recovery ranges (Shadows/Highlights): endpoint controls shape a tighter
 // toe/shoulder response while recovery controls apply a wider EV-domain exposure field.
 //
-// Version 2 evaluates those fields against an edge-aware, locally guided log-luminance mask,
-// then applies the resulting EV gain to the original scene-linear RGB. This lets neighbouring
-// pixels in the same tonal region share a gain (preserving local contrast) while high-contrast
-// edges remain boundaries for the mask. Zeroes are exactly neutral and do not allocate any
-// spatial working state.
+// Version 3 evaluates those fields against a complete self-guided filter in log scene
+// luminance, then applies the resulting EV gain to the original scene-linear RGB. The filter
+// averages its local linear coefficients in a second box pass, so neighbouring pixels in the
+// same tonal region share a gain (preserving local contrast) while high-contrast edges remain
+// boundaries for the mask. Zeroes are exactly neutral and do not allocate any spatial working
+// state.
 struct SelectiveToneAdjustment final {
     double highlights = 0.0;
     double shadows = 0.0;
@@ -123,15 +124,16 @@ struct SelectiveToneAdjustment final {
 
 // The four public tone controls retain their compact v1 parameter shape, but their masked
 // scene-linear processing is a different operation contract. Do not reinterpret a persisted v1
-// control set as v2: callers must explicitly create the current contract.
-inline constexpr std::uint32_t selective_tone_v2_parameter_schema_version = 2;
-inline constexpr std::uint32_t selective_tone_v2_implementation_version = 2;
+// or v2 control set as v3: callers must explicitly create the current contract.
+inline constexpr std::uint32_t selective_tone_v3_parameter_schema_version = 3;
+inline constexpr std::uint32_t selective_tone_v3_implementation_version = 3;
 
-// Native/full-resolution radius of the deterministic self-guided log-luminance mask. The
-// executor converts this independently for each raster axis, so a warm proxy and a detail tile
-// describe the same physical neighbourhood. It deliberately stays below the per-node tile-apron
-// budget, leaving multi-node graphs enough room for other spatial operations.
+// Native/full-resolution radius of each box pass in the deterministic self-guided log-luminance
+// filter. The executor converts this independently for each raster axis, so a warm proxy and a
+// detail tile describe the same physical neighbourhood. The complete guided filter consumes two
+// such passes, and therefore declares twice this radius to the tile scheduler.
 inline constexpr double selective_tone_guided_mask_radius_level_zero = 48.0;
+inline constexpr std::uint32_t selective_tone_guided_filter_box_passes = 2U;
 
 inline constexpr std::size_t perceptual_hue_band_count = 8U;
 inline constexpr std::size_t maximum_point_color_ranges = 16U;

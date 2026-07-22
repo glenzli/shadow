@@ -330,6 +330,14 @@ void require_parameter_count(
         result.parameters = image::SaturationAdjustment{source.parameters[0]};
         break;
     case FfiAdjustmentOperation::SelectiveTone:
+        if (source.parameter_schema_version
+                != image::selective_tone_v3_parameter_schema_version
+            || source.implementation_version
+                != image::selective_tone_v3_implementation_version) {
+            throw_invalid_adjustment_plan(
+                "selective tone requires the complete self-guided filter contract"
+            );
+        }
         require_parameter_count(source, 4U, "selective tone");
         result.parameters = image::SelectiveToneAdjustment{
             .highlights = source.parameters[0],

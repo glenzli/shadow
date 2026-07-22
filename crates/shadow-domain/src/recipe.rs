@@ -20,8 +20,11 @@ use crate::{
 // ordered technical-detail, creative color-grading, and finishing-effect
 // contracts. Shadow is still pre-release, so old Recipes are deliberately
 // rejected by the desktop compiler rather than silently changing their
-// pixels.
-pub const CURRENT_RECIPE_SCHEMA_VERSION: u32 = 3;
+// pixels. Schema 4 upgrades Selective Tone from a one-pass local-linear
+// response to the complete self-guided filter, including its second local
+// coefficient-average pass. Its unchanged slider shape must not conceal
+// a different pixel contract, so schema-3 Recipes are likewise rejected.
+pub const CURRENT_RECIPE_SCHEMA_VERSION: u32 = 4;
 const MAX_STABLE_NAME_BYTES: usize = 128;
 const MAX_LABEL_BYTES: usize = 512;
 const MAX_COMMIT_MESSAGE_BYTES: usize = 4_096;

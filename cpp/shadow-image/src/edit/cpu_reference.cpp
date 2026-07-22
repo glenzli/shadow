@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <new>
 #include <sstream>
 #include <type_traits>
 #include <utility>
@@ -603,14 +604,69 @@ using PreparedCurveAdjustment = std::variant<
     return static_cast<std::uint32_t>(std::max(1.0, std::ceil(scaled)));
 }
 
-// Calculate the self-guided local-linear mask used for regional tone. The guide and source are
-// both log2 scene luminance relative to 18% gray. In every box window, it uses the guided-mask
-// form q = a*I + b, with a = variance/(variance + epsilon) and b = mean - a*mean. A global
-// exposure gain is an additive offset in this domain, so the local smoothing behaviour is
-// exposure-independent. The box-window implementation uses reflected borders and a streaming
-// vertical sum rather than an integral image: it is O(width*height), needs only one float mask,
-// and is deterministic for a full frame or an apron-expanded detail tile.
-[[nodiscard]] std::vector<float> selective_tone_guided_mask(
+[[nodiscard]] std::size_t selective_tone_box_window_length(const std::uint32_t radius) {
+    if (static_cast<std::size_t>(radius)
+        > (std::numeric_limits<std::size_t>::max() - 1U) / 2U) {
+        throw EditError(
+            EditErrorCode::numeric_overflow,
+            std::nullopt,
+            "selective tone guided-filter box window exceeds the address space"
+        );
+    }
+    return static_cast<std::size_t>(radius) * 2U + 1U;
+}
+
+[[nodiscard]] std::uint32_t selective_tone_guided_filter_support_radius(
+    const double level_zero_to_raster_scale
+) {
+    const std::uint32_t local_radius = selective_tone_mask_radius(level_zero_to_raster_scale);
+    if (local_radius
+        > std::numeric_limits<std::uint32_t>::max()
+            / selective_tone_guided_filter_box_passes) {
+        throw EditError(
+            EditErrorCode::numeric_overflow,
+            std::nullopt,
+            "selective tone guided-filter support exceeds the supported integer range"
+        );
+    }
+    return local_radius * selective_tone_guided_filter_box_passes;
+}
+
+struct SelectiveToneGuidedCoefficients final {
+    std::vector<float> a;
+    std::vector<float> b;
+};
+
+[[nodiscard]] float checked_guided_filter_coefficient(
+    const double value,
+    const std::string_view label
+) {
+    constexpr double maximum = static_cast<double>(std::numeric_limits<float>::max());
+    if (!std::isfinite(value) || value < -maximum || value > maximum) {
+        throw EditError(
+            EditErrorCode::numeric_overflow,
+            std::nullopt,
+            "selective tone guided-filter " + std::string(label)
+                + " exceeded finite float32 range"
+        );
+    }
+    return static_cast<float>(value);
+}
+
+// Calculate local coefficients for the complete self-guided filter used by regional tone. The
+// guide and source are both log2 scene luminance relative to 18% gray. In every box window,
+// a = variance/(variance + epsilon) and b = mean - a*mean. A second reflected box pass averages
+// those coefficients before q = mean(a)*I + mean(b) is evaluated. This is the canonical guided
+// filter construction, rather than the earlier one-pass local-linear response. A global exposure
+// gain is an additive offset in this domain, so the smoothing behaviour is exposure-independent.
+//
+// Both box stages use rolling horizontal sums plus streaming vertical sums: O(width*height)
+// arithmetic, O(width*height) coefficient storage, and O(width) temporary rows. Keeping a and b
+// in float32 bounds the transient workspace to two scalar rasters and lets the second pass apply
+// its result directly to RGB without materializing a third full-frame mask. Reflected borders make
+// full-frame and apron-expanded tile execution deterministic when the scheduler supplies the
+// complete two-box support.
+[[nodiscard]] SelectiveToneGuidedCoefficients selective_tone_guided_coefficients(
     const FloatRgbImage& image,
     const std::array<double, 3>& luminance_weights
 ) {
@@ -620,11 +676,32 @@ using PreparedCurveAdjustment = std::variant<
         throw EditError(
             EditErrorCode::numeric_overflow,
             std::nullopt,
-            "selective tone guided-mask pixel count exceeds the address space"
+            "selective tone guided-filter pixel count exceeds the address space"
         );
     }
     const std::size_t pixels = width * height;
-    std::vector<float> mask(pixels);
+    if (
+        pixels > std::vector<float>{}.max_size()
+        || pixels > std::numeric_limits<std::size_t>::max() / (2U * sizeof(float))
+    ) {
+        throw EditError(
+            EditErrorCode::numeric_overflow,
+            std::nullopt,
+            "selective tone guided-filter workspace exceeds the address space"
+        );
+    }
+    SelectiveToneGuidedCoefficients coefficients;
+    try {
+        coefficients.a.resize(pixels);
+        coefficients.b.resize(pixels);
+    } catch (const std::bad_alloc&) {
+        throw EditError(
+            EditErrorCode::numeric_overflow,
+            std::nullopt,
+            "selective tone guided-filter workspace could not be allocated"
+        );
+    }
+
     const std::size_t stride = image.row_stride_bytes / sizeof(float);
     constexpr double minimum_positive_luminance = 5.9604644775390625e-8; // 2^-24
     constexpr double mask_edge_threshold_ev = 0.12;
@@ -635,8 +712,8 @@ using PreparedCurveAdjustment = std::variant<
     const std::uint32_t radius_y = selective_tone_mask_radius(
         image.level_zero_to_raster_scale_y
     );
-    const std::size_t window_width = static_cast<std::size_t>(radius_x) * 2U + 1U;
-    const std::size_t window_height = static_cast<std::size_t>(radius_y) * 2U + 1U;
+    const std::size_t window_width = selective_tone_box_window_length(radius_x);
+    const std::size_t window_height = selective_tone_box_window_length(radius_y);
     const auto log_luminance_at = [&image, luminance_weights, stride,
                                    minimum_positive_luminance](
                                       const std::size_t x,
@@ -647,13 +724,43 @@ using PreparedCurveAdjustment = std::variant<
                 * luminance_weights[0]
             + static_cast<double>(image.samples[sample + 1U]) * luminance_weights[1]
             + static_cast<double>(image.samples[sample + 2U]) * luminance_weights[2];
-        return std::log2(std::max(luminance, minimum_positive_luminance) / 0.18);
+        const double value = std::log2(std::max(luminance, minimum_positive_luminance) / 0.18);
+        if (!std::isfinite(value)) {
+            throw EditError(
+                EditErrorCode::numeric_overflow,
+                std::nullopt,
+                "selective tone guided-filter log luminance is non-finite"
+            );
+        }
+        return value;
     };
 
-    std::vector<double> row_mean(width);
-    std::vector<double> row_mean_square(width);
-    std::vector<double> vertical_sum(width, 0.0);
-    std::vector<double> vertical_sum_square(width, 0.0);
+    if (
+        width > std::vector<double>{}.max_size()
+        || width > std::numeric_limits<std::size_t>::max() / (4U * sizeof(double))
+    ) {
+        throw EditError(
+            EditErrorCode::numeric_overflow,
+            std::nullopt,
+            "selective tone guided-filter row workspace exceeds the address space"
+        );
+    }
+    std::vector<double> row_mean;
+    std::vector<double> row_mean_square;
+    std::vector<double> vertical_sum;
+    std::vector<double> vertical_sum_square;
+    try {
+        row_mean.resize(width);
+        row_mean_square.resize(width);
+        vertical_sum.assign(width, 0.0);
+        vertical_sum_square.assign(width, 0.0);
+    } catch (const std::bad_alloc&) {
+        throw EditError(
+            EditErrorCode::numeric_overflow,
+            std::nullopt,
+            "selective tone guided-filter row workspace could not be allocated"
+        );
+    }
 
     const auto make_horizontal_row = [&](const std::int64_t unbounded_y) {
         const std::size_t source_y = reflect101_index(unbounded_y, height);
@@ -662,10 +769,7 @@ using PreparedCurveAdjustment = std::variant<
         for (std::int64_t offset = -static_cast<std::int64_t>(radius_x);
              offset <= static_cast<std::int64_t>(radius_x);
              ++offset) {
-            const double value = log_luminance_at(
-                reflect101_index(offset, width),
-                source_y
-            );
+            const double value = log_luminance_at(reflect101_index(offset, width), source_y);
             sum += value;
             sum_square += value * value;
         }
@@ -693,7 +797,6 @@ using PreparedCurveAdjustment = std::variant<
             sum_square += added * added - removed * removed;
         }
     };
-
     const auto accumulate_row = [&make_horizontal_row, &row_mean, &row_mean_square,
                                  &vertical_sum, &vertical_sum_square](
                                     const std::int64_t source_y,
@@ -719,20 +822,11 @@ using PreparedCurveAdjustment = std::variant<
             // Cancellation can make a mathematically non-negative variance a few ulps below
             // zero on a flat field. Clamp only that roundoff, never the source luminance.
             const double variance = std::max(0.0, mean_square - mean * mean);
-            const double edge_following = variance / (variance + epsilon);
-            const double source = log_luminance_at(x, y);
-            const double guided = edge_following * source + (1.0 - edge_following) * mean;
+            const double a = std::clamp(variance / (variance + epsilon), 0.0, 1.0);
+            const double b = mean - a * mean;
             const std::size_t pixel = y * width + x;
-            if (!std::isfinite(guided)
-                || guided < -static_cast<double>(std::numeric_limits<float>::max())
-                || guided > static_cast<double>(std::numeric_limits<float>::max())) {
-                throw EditError(
-                    EditErrorCode::numeric_overflow,
-                    std::nullopt,
-                    "selective tone guided mask exceeded finite float32 range"
-                );
-            }
-            mask[pixel] = static_cast<float>(guided);
+            coefficients.a[pixel] = checked_guided_filter_coefficient(a, "a coefficient");
+            coefficients.b[pixel] = checked_guided_filter_coefficient(b, "b coefficient");
         }
         if (y + 1U < height) {
             accumulate_row(
@@ -745,7 +839,7 @@ using PreparedCurveAdjustment = std::variant<
             );
         }
     }
-    return mask;
+    return coefficients;
 }
 
 void apply_guided_selective_tone(
@@ -755,8 +849,98 @@ void apply_guided_selective_tone(
     const SelectiveToneAdjustment& parameters
 ) {
     const auto luminance_weights = image.working_space.luminance_coefficients;
-    const auto mask = selective_tone_guided_mask(image, luminance_weights);
+    const auto coefficients = selective_tone_guided_coefficients(image, luminance_weights);
+    const std::size_t width = image.dimensions.width;
+    const std::size_t height = image.dimensions.height;
     const std::size_t stride = image.row_stride_bytes / sizeof(float);
+    const std::uint32_t radius_x = selective_tone_mask_radius(
+        image.level_zero_to_raster_scale_x
+    );
+    const std::uint32_t radius_y = selective_tone_mask_radius(
+        image.level_zero_to_raster_scale_y
+    );
+    const std::size_t window_width = selective_tone_box_window_length(radius_x);
+    const std::size_t window_height = selective_tone_box_window_length(radius_y);
+    if (
+        width > std::vector<double>{}.max_size()
+        || width > std::numeric_limits<std::size_t>::max() / (4U * sizeof(double))
+    ) {
+        throw_node_error(
+            EditErrorCode::numeric_overflow,
+            node_index,
+            node,
+            "selective tone guided-filter row workspace exceeds the address space"
+        );
+    }
+    std::vector<double> row_mean_a;
+    std::vector<double> row_mean_b;
+    std::vector<double> vertical_sum_a;
+    std::vector<double> vertical_sum_b;
+    try {
+        row_mean_a.resize(width);
+        row_mean_b.resize(width);
+        vertical_sum_a.assign(width, 0.0);
+        vertical_sum_b.assign(width, 0.0);
+    } catch (const std::bad_alloc&) {
+        throw_node_error(
+            EditErrorCode::numeric_overflow,
+            node_index,
+            node,
+            "selective tone guided-filter row workspace could not be allocated"
+        );
+    }
+
+    const auto make_horizontal_row = [&](const std::int64_t unbounded_y) {
+        const std::size_t source_y = reflect101_index(unbounded_y, height);
+        double sum_a = 0.0;
+        double sum_b = 0.0;
+        for (std::int64_t offset = -static_cast<std::int64_t>(radius_x);
+             offset <= static_cast<std::int64_t>(radius_x);
+             ++offset) {
+            const std::size_t source = source_y * width + reflect101_index(offset, width);
+            sum_a += coefficients.a[source];
+            sum_b += coefficients.b[source];
+        }
+        for (std::size_t x = 0U; x < width; ++x) {
+            row_mean_a[x] = sum_a / static_cast<double>(window_width);
+            row_mean_b[x] = sum_b / static_cast<double>(window_width);
+            if (x + 1U == width) {
+                continue;
+            }
+            const std::size_t removed_x = reflect101_index(
+                static_cast<std::int64_t>(x) - static_cast<std::int64_t>(radius_x),
+                width
+            );
+            const std::size_t added_x = reflect101_index(
+                static_cast<std::int64_t>(x) + static_cast<std::int64_t>(radius_x) + 1,
+                width
+            );
+            const std::size_t removed = source_y * width + removed_x;
+            const std::size_t added = source_y * width + added_x;
+            sum_a += static_cast<double>(coefficients.a[added])
+                - static_cast<double>(coefficients.a[removed]);
+            sum_b += static_cast<double>(coefficients.b[added])
+                - static_cast<double>(coefficients.b[removed]);
+        }
+    };
+    const auto accumulate_row = [&make_horizontal_row, &row_mean_a, &row_mean_b,
+                                 &vertical_sum_a, &vertical_sum_b](
+                                    const std::int64_t source_y,
+                                    const double factor
+                                ) {
+        make_horizontal_row(source_y);
+        for (std::size_t x = 0U; x < row_mean_a.size(); ++x) {
+            vertical_sum_a[x] += factor * row_mean_a[x];
+            vertical_sum_b[x] += factor * row_mean_b[x];
+        }
+    };
+    for (std::int64_t offset = -static_cast<std::int64_t>(radius_y);
+         offset <= static_cast<std::int64_t>(radius_y);
+         ++offset) {
+        accumulate_row(offset, 1.0);
+    }
+
+    constexpr double minimum_positive_luminance = 5.9604644775390625e-8; // 2^-24
     for (std::uint32_t y = 0U; y < image.dimensions.height; ++y) {
         const std::size_t row = static_cast<std::size_t>(y) * stride;
         for (std::uint32_t x = 0U; x < image.dimensions.width; ++x) {
@@ -766,15 +950,41 @@ void apply_guided_selective_tone(
                 image.samples[sample + 1U],
                 image.samples[sample + 2U],
             };
+            const double source_luminance = input[0] * luminance_weights[0]
+                + input[1] * luminance_weights[1] + input[2] * luminance_weights[2];
+            const double source_ev = std::log2(
+                std::max(source_luminance, minimum_positive_luminance) / 0.18
+            );
+            const double mean_a = vertical_sum_a[x] / static_cast<double>(window_height);
+            const double mean_b = vertical_sum_b[x] / static_cast<double>(window_height);
+            const double mask_ev = mean_a * source_ev + mean_b;
+            if (!std::isfinite(mask_ev)) {
+                throw_node_error(
+                    EditErrorCode::numeric_overflow,
+                    node_index,
+                    node,
+                    "selective tone guided-filter output is non-finite"
+                );
+            }
             const Vector3 output = apply_selective_tone_at_mask(
                 input,
                 luminance_weights,
                 parameters,
-                static_cast<double>(mask[static_cast<std::size_t>(y) * image.dimensions.width + x])
+                mask_ev
             );
             image.samples[sample] = checked_float(output[0], node_index, node);
             image.samples[sample + 1U] = checked_float(output[1], node_index, node);
             image.samples[sample + 2U] = checked_float(output[2], node_index, node);
+        }
+        if (y + 1U < image.dimensions.height) {
+            accumulate_row(
+                static_cast<std::int64_t>(y) - static_cast<std::int64_t>(radius_y),
+                -1.0
+            );
+            accumulate_row(
+                static_cast<std::int64_t>(y) + static_cast<std::int64_t>(radius_y) + 1,
+                1.0
+            );
         }
     }
 }
@@ -1430,13 +1640,13 @@ void apply_prepared_smooth_rgb_tone_curve(
     const bool detail_effects = std::holds_alternative<SharpenAdjustment>(node.parameters);
     const std::uint32_t expected_parameter_schema = smooth_rgb_tone_curve
         ? smooth_rgb_tone_curve_parameter_schema_version
-        : selective_tone ? selective_tone_v2_parameter_schema_version
+        : selective_tone ? selective_tone_v3_parameter_schema_version
         : perceptual_color ? perceptual_color_v2_parameter_schema_version
         : detail_effects ? detail_effects_v3_parameter_schema_version
                          : adjustment_parameter_schema_version;
     const std::uint32_t expected_implementation = smooth_rgb_tone_curve
         ? smooth_rgb_tone_curve_implementation_version
-        : selective_tone ? selective_tone_v2_implementation_version
+        : selective_tone ? selective_tone_v3_implementation_version
         : perceptual_color ? perceptual_color_v2_implementation_version
                          : adjustment_implementation_version;
     const bool supported_detail_pass = detail_effects
@@ -2583,10 +2793,10 @@ AdjustmentFootprint footprint(
                     return AdjustmentFootprint{};
                 }
                 return AdjustmentFootprint{
-                    .horizontal_radius = selective_tone_mask_radius(
+                    .horizontal_radius = selective_tone_guided_filter_support_radius(
                         level_zero_to_raster_scale_x
                     ),
-                    .vertical_radius = selective_tone_mask_radius(
+                    .vertical_radius = selective_tone_guided_filter_support_radius(
                         level_zero_to_raster_scale_y
                     ),
                 };

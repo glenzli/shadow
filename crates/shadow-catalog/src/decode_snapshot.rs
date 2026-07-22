@@ -681,7 +681,7 @@ mod tests {
     #[test]
     #[allow(clippy::too_many_lines)]
     fn cached_preview_requirement_reconciles_missing_artifacts() {
-        const PROXY_KEY: &str = "libraw:grid-jpeg-2048-q95-444-v2";
+        const PROXY_KEY: &str = "libraw:grid-jpeg-2048-q88-444-v3";
         let (mut catalog, representation_id, source) = registered_catalog();
         catalog
             .record_decode_snapshot(&RecordDecodeSnapshot {
@@ -845,7 +845,7 @@ mod tests {
     #[test]
     #[allow(clippy::too_many_lines)]
     fn generated_proxy_requirement_uses_the_current_recipe_and_provider_version() {
-        const PROXY_KEY: &str = "libraw:grid-jpeg-2048-q95-444-v2";
+        const PROXY_KEY: &str = "libraw:grid-jpeg-2048-q88-444-v3";
         let (mut catalog, representation_id, source) = registered_catalog();
         let mut without_preview = snapshot("libraw", "1", &[]);
         without_preview.capabilities.embedded_previews = DecodeSupport::Unavailable;
@@ -959,7 +959,7 @@ mod tests {
                     "1",
                     source,
                     true,
-                    "libraw:grid-jpeg-2048-q95-444-v3",
+                    "libraw:grid-jpeg-2048-q88-444-v4",
                     None,
                 )
                 .expect("query newer proxy recipe")

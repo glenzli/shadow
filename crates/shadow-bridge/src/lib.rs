@@ -580,12 +580,12 @@ pub const ADJUSTMENT_PARAMETER_SCHEMA_VERSION: u32 = 1;
 /// Numeric v1 executor revision. Per-operation v2 contracts must not upgrade
 /// unrelated persisted nodes.
 pub const ADJUSTMENT_IMPLEMENTATION_VERSION: u32 = 1;
-/// Numeric parameter contract for the guided scene-linear Selective Tone mask.
-/// Its public slider shape remains four normalized values, but its spatial execution must never
-/// silently reinterpret the historical pixel-local v1 contract.
-pub const SELECTIVE_TONE_V2_PARAMETER_SCHEMA_VERSION: u32 = 2;
-/// Numeric executor revision for the guided Selective Tone mask.
-pub const SELECTIVE_TONE_V2_IMPLEMENTATION_VERSION: u32 = 2;
+/// Numeric parameter contract for the complete guided scene-linear Selective Tone filter.
+/// Its public slider shape remains four normalized values, but its second coefficient-averaging
+/// pass must never silently reinterpret the historical pixel-local v1 or one-pass v2 contract.
+pub const SELECTIVE_TONE_V3_PARAMETER_SCHEMA_VERSION: u32 = 3;
+/// Numeric executor revision for the complete guided Selective Tone filter.
+pub const SELECTIVE_TONE_V3_IMPLEMENTATION_VERSION: u32 = 3;
 /// Numeric parameter contract for the smooth master-plus-RGB Tone Curve.
 pub const SMOOTH_RGB_TONE_CURVE_PARAMETER_SCHEMA_VERSION: u32 = 2;
 /// Numeric executor revision for the smooth master-plus-RGB Tone Curve.
@@ -901,8 +901,8 @@ impl AdjustmentRenderPlan {
                 }
                 AdjustmentRenderOperation::SelectiveTone { .. } => {
                     (
-                        SELECTIVE_TONE_V2_PARAMETER_SCHEMA_VERSION,
-                        SELECTIVE_TONE_V2_IMPLEMENTATION_VERSION,
+                        SELECTIVE_TONE_V3_PARAMETER_SCHEMA_VERSION,
+                        SELECTIVE_TONE_V3_IMPLEMENTATION_VERSION,
                     ) == (node.parameter_schema_version, node.implementation_version)
                 }
                 AdjustmentRenderOperation::PerceptualColor { .. } => {
@@ -2689,8 +2689,8 @@ mod tests {
             nodes: vec![
                 AdjustmentRenderNode {
                     node_id: "selective-tone".to_owned(),
-                    parameter_schema_version: SELECTIVE_TONE_V2_PARAMETER_SCHEMA_VERSION,
-                    implementation_version: SELECTIVE_TONE_V2_IMPLEMENTATION_VERSION,
+                    parameter_schema_version: SELECTIVE_TONE_V3_PARAMETER_SCHEMA_VERSION,
+                    implementation_version: SELECTIVE_TONE_V3_IMPLEMENTATION_VERSION,
                     enabled: true,
                     operation: AdjustmentRenderOperation::SelectiveTone {
                         parameters: SelectiveToneParameters {
@@ -2950,6 +2950,27 @@ mod tests {
                 ))
             ));
         }
+
+        let one_pass_v2 = AdjustmentRenderPlan {
+            nodes: vec![AdjustmentRenderNode {
+                node_id: "discarded-selective-tone-v2".to_owned(),
+                parameter_schema_version: 2,
+                implementation_version: 2,
+                enabled: true,
+                operation: AdjustmentRenderOperation::SelectiveTone {
+                    parameters: SelectiveToneParameters {
+                        shadows: 0.5,
+                        ..SelectiveToneParameters::default()
+                    },
+                },
+            }],
+        };
+        assert!(matches!(
+            one_pass_v2.validate(),
+            Err(BridgeError::InvalidEditRequest(
+                "adjustment node uses an unsupported schema or implementation version"
+            ))
+        ));
     }
 
     #[test]

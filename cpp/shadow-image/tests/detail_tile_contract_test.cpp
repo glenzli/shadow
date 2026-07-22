@@ -568,8 +568,8 @@ void guided_selective_tone_tiles_match_full_execution_at_edges_and_boundaries() 
     const std::array plan{
         image::AdjustmentNode{
             .node_id = "guided-selective-tone",
-            .parameter_schema_version = image::selective_tone_v2_parameter_schema_version,
-            .implementation_version = image::selective_tone_v2_implementation_version,
+            .parameter_schema_version = image::selective_tone_v3_parameter_schema_version,
+            .implementation_version = image::selective_tone_v3_implementation_version,
             .parameters = image::SelectiveToneAdjustment{
                 .highlights = -0.55,
                 .shadows = 0.7,
@@ -580,8 +580,11 @@ void guided_selective_tone_tiles_match_full_execution_at_edges_and_boundaries() 
     };
     expect(
         image::footprint(plan[0].parameters).horizontal_radius
-            == static_cast<std::uint32_t>(image::selective_tone_guided_mask_radius_level_zero),
-        "guided selective tone declares the exact detail-tile apron it consumes"
+            == static_cast<std::uint32_t>(
+                image::selective_tone_guided_mask_radius_level_zero
+                    * image::selective_tone_guided_filter_box_passes
+            ),
+        "complete guided selective tone declares both box-pass supports for its detail-tile apron"
     );
     const auto full = session.render_rgb8(plan, {0, 0, dimensions.width, dimensions.height});
     std::vector<std::uint8_t> stitched(full.bytes.size(), 0U);

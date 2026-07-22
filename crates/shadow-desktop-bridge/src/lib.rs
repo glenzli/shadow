@@ -29,8 +29,8 @@ use shadow_bridge::{
     MAX_TONE_CURVE_POINTS, OpticsSettings,
     PERCEPTUAL_COLOR_V2_IMPLEMENTATION_VERSION as PERCEPTUAL_COLOR_V2_IMPLEMENTATION_REVISION,
     PERCEPTUAL_COLOR_V2_PARAMETER_SCHEMA_VERSION, PerceptualColorParameters,
-    SELECTIVE_TONE_V2_IMPLEMENTATION_VERSION as SELECTIVE_TONE_V2_IMPLEMENTATION_REVISION,
-    SELECTIVE_TONE_V2_PARAMETER_SCHEMA_VERSION as SELECTIVE_TONE_V2_PARAMETER_SCHEMA_REVISION,
+    SELECTIVE_TONE_V3_IMPLEMENTATION_VERSION as SELECTIVE_TONE_V3_IMPLEMENTATION_REVISION,
+    SELECTIVE_TONE_V3_PARAMETER_SCHEMA_VERSION as SELECTIVE_TONE_V3_PARAMETER_SCHEMA_REVISION,
     SMOOTH_RGB_TONE_CURVE_IMPLEMENTATION_VERSION, SMOOTH_RGB_TONE_CURVE_PARAMETER_SCHEMA_VERSION,
     SelectiveToneParameters, SharpenParameters, SmoothRgbToneCurve,
     TECHNICAL_DETAIL_V3_IMPLEMENTATION_VERSION as TECHNICAL_DETAIL_V3_IMPLEMENTATION_REVISION,
@@ -65,8 +65,8 @@ use shadow_domain::operation::{
     LUT_TITLE_PARAMETER_KEY, PERCEPTUAL_COLOR_OPERATION_ID,
     PERCEPTUAL_COLOR_V2_IMPLEMENTATION_VERSION, POINT_COLOR_RANGES_PARAMETER_KEY,
     RGB_WHITE_BALANCE_OPERATION_ID, SATURATION_FACTOR_PARAMETER_KEY, SATURATION_OPERATION_ID,
-    SELECTIVE_TONE_OPERATION_ID, SELECTIVE_TONE_V2_IMPLEMENTATION_VERSION,
-    SELECTIVE_TONE_V2_PARAMETER_SCHEMA_VERSION, SHADOWS_PARAMETER_KEY,
+    SELECTIVE_TONE_OPERATION_ID, SELECTIVE_TONE_V3_IMPLEMENTATION_VERSION,
+    SELECTIVE_TONE_V3_PARAMETER_SCHEMA_VERSION, SHADOWS_PARAMETER_KEY,
     SHARPEN_AMOUNT_PARAMETER_KEY, SHARPEN_MASKING_PARAMETER_KEY, SHARPEN_RADIUS_PARAMETER_KEY,
     SHARPEN_THRESHOLD_PARAMETER_KEY, TECHNICAL_DETAIL_OPERATION_ID,
     TECHNICAL_DETAIL_V3_IMPLEMENTATION_VERSION, TECHNICAL_DETAIL_V3_PARAMETER_SCHEMA_VERSION,
@@ -2493,8 +2493,8 @@ const _: () = assert!(
     CPU_REFERENCE_PARAMETER_SCHEMA_VERSION == ADJUSTMENT_PARAMETER_SCHEMA_VERSION
         && CPU_REFERENCE_IMPLEMENTATION_REVISION == ADJUSTMENT_IMPLEMENTATION_VERSION
         && TONE_CURVE_V2_PARAMETER_SCHEMA_VERSION == SMOOTH_RGB_TONE_CURVE_PARAMETER_SCHEMA_VERSION
-        && SELECTIVE_TONE_V2_PARAMETER_SCHEMA_VERSION
-            == SELECTIVE_TONE_V2_PARAMETER_SCHEMA_REVISION
+        && SELECTIVE_TONE_V3_PARAMETER_SCHEMA_VERSION
+            == SELECTIVE_TONE_V3_PARAMETER_SCHEMA_REVISION
 );
 
 const MAX_GRADE_NODES: usize = 16;
@@ -3530,8 +3530,8 @@ fn compile_recipe_node(
         && descriptor.implementation_version() == TONE_CURVE_V2_IMPLEMENTATION_VERSION;
     let is_current_selective_tone = descriptor.operation_id().as_str()
         == SELECTIVE_TONE_OPERATION_ID
-        && descriptor.parameter_schema_version() == SELECTIVE_TONE_V2_PARAMETER_SCHEMA_VERSION
-        && descriptor.implementation_version() == SELECTIVE_TONE_V2_IMPLEMENTATION_VERSION;
+        && descriptor.parameter_schema_version() == SELECTIVE_TONE_V3_PARAMETER_SCHEMA_VERSION
+        && descriptor.implementation_version() == SELECTIVE_TONE_V3_IMPLEMENTATION_VERSION;
     let is_current_perceptual_color = descriptor.operation_id().as_str()
         == PERCEPTUAL_COLOR_OPERATION_ID
         && descriptor.parameter_schema_version() == PERCEPTUAL_COLOR_V2_PARAMETER_SCHEMA_VERSION
@@ -3835,7 +3835,7 @@ fn compile_recipe_node(
         implementation_version: if is_current_tone_curve {
             SMOOTH_RGB_TONE_CURVE_IMPLEMENTATION_VERSION
         } else if is_current_selective_tone {
-            SELECTIVE_TONE_V2_IMPLEMENTATION_REVISION
+            SELECTIVE_TONE_V3_IMPLEMENTATION_REVISION
         } else if is_current_perceptual_color {
             PERCEPTUAL_COLOR_V2_IMPLEMENTATION_REVISION
         } else if is_current_technical_detail {
@@ -4138,8 +4138,8 @@ fn recipe_selective_tone_render_op(
     let rgb = PortType::Image(ImageDomain::WorkingRgb);
     let operation = OperationDescriptor::new(
         OperationId::new(SELECTIVE_TONE_OPERATION_ID)?,
-        SELECTIVE_TONE_V2_PARAMETER_SCHEMA_VERSION,
-        SELECTIVE_TONE_V2_IMPLEMENTATION_VERSION,
+        SELECTIVE_TONE_V3_PARAMETER_SCHEMA_VERSION,
+        SELECTIVE_TONE_V3_IMPLEMENTATION_VERSION,
         ProcessingStage::ToneAndLocalContrast,
         vec![rgb],
         rgb,
@@ -5168,8 +5168,8 @@ fn validate_recipe_selective_tone_render_op(
     let operation = node.operation();
     let rgb = PortType::Image(ImageDomain::WorkingRgb);
     let contract_is_supported = operation.parameter_schema_version()
-        == SELECTIVE_TONE_V2_PARAMETER_SCHEMA_VERSION
-        && operation.implementation_version() == SELECTIVE_TONE_V2_IMPLEMENTATION_VERSION;
+        == SELECTIVE_TONE_V3_PARAMETER_SCHEMA_VERSION
+        && operation.implementation_version() == SELECTIVE_TONE_V3_IMPLEMENTATION_VERSION;
     if operation.operation_id().as_str() != SELECTIVE_TONE_OPERATION_ID
         || !contract_is_supported
         || operation.stage() != ProcessingStage::ToneAndLocalContrast
@@ -5797,6 +5797,13 @@ struct LibRawInspector {
     version: String,
 }
 
+// The generated-library proxy is deliberately a lower-bandwidth artifact than the warm editing
+// preview. Keep its encoder request and persistent variant identity next to each other: a stale
+// or misleading key would otherwise make the catalog serve the wrong cache entry indefinitely.
+const LIBRAW_GRID_PROXY_MAX_EDGE: u32 = 2_048;
+const LIBRAW_GRID_PROXY_JPEG_QUALITY: u8 = 88;
+const LIBRAW_GRID_PROXY_VARIANT_KEY: &str = "libraw:grid-jpeg-2048-q88-444-v3";
+
 impl LibRawInspector {
     fn new() -> Self {
         Self {
@@ -5823,13 +5830,17 @@ impl DecodeInspector for LibRawInspector {
     }
 
     fn render_proxy(&mut self, path: &Path) -> Result<Option<ProxyPayload>, String> {
-        render_libraw_reference_proxy(path, 2_048, 88)
-            .map(Some)
-            .map_err(|error| error.to_string())
+        render_libraw_reference_proxy(
+            path,
+            LIBRAW_GRID_PROXY_MAX_EDGE,
+            LIBRAW_GRID_PROXY_JPEG_QUALITY,
+        )
+        .map(Some)
+        .map_err(|error| error.to_string())
     }
 
     fn proxy_variant_key(&self) -> &'static str {
-        "libraw:grid-jpeg-2048-q95-444-v2"
+        LIBRAW_GRID_PROXY_VARIANT_KEY
     }
 }
 
@@ -6444,6 +6455,18 @@ mod tests {
     fn desktop_session_can_back_concurrent_qt_image_requests() {
         fn assert_send_and_sync<T: Send + Sync>() {}
         assert_send_and_sync::<DesktopSession>();
+    }
+
+    #[test]
+    fn generated_libraw_proxy_cache_identity_matches_its_encoder_request() {
+        let inspector = LibRawInspector::new();
+
+        assert_eq!(LIBRAW_GRID_PROXY_MAX_EDGE, 2_048);
+        assert_eq!(LIBRAW_GRID_PROXY_JPEG_QUALITY, 88);
+        assert_eq!(
+            inspector.proxy_variant_key(),
+            "libraw:grid-jpeg-2048-q88-444-v3"
+        );
     }
 
     #[test]
@@ -9023,7 +9046,7 @@ mod tests {
                 ),
             ),
             (
-                "pre-split Recipe schema",
+                "previous Recipe schema",
                 single_exposure_recipe(
                     CURRENT_RECIPE_SCHEMA_VERSION - 1,
                     BASIC_GRAPH_SCHEMA_VERSION,
@@ -9136,6 +9159,74 @@ mod tests {
             assert!(error.to_string().contains("unsupported contract"));
             assert!(compile_recipe_render_plan(&malformed).is_err());
         }
+    }
+
+    #[test]
+    fn persisted_selective_tone_v2_is_rejected_instead_of_reinterpreted() {
+        let valid = grade_stack_recipe_v1_snapshot(&GradeStackDraft::default(), None)
+            .expect("valid current Recipe");
+        let [valid_layer] = valid.layers() else {
+            panic!("fixture contains one Grade Node")
+        };
+        let LayerContent::Inline { graph: valid_graph } = valid_layer.content() else {
+            panic!("fixture contains an inline graph")
+        };
+        let rgb = PortType::Image(ImageDomain::WorkingRgb);
+        let nodes = valid_graph
+            .nodes()
+            .iter()
+            .map(|node| {
+                if node.operation().operation_id().as_str() != SELECTIVE_TONE_OPERATION_ID {
+                    return node.clone();
+                }
+                AdjustmentNode::new(
+                    node.id(),
+                    OperationDescriptor::new(
+                        OperationId::new(SELECTIVE_TONE_OPERATION_ID).unwrap(),
+                        2,
+                        "shadow-cpu-selective-tone-guided-v2",
+                        ProcessingStage::ToneAndLocalContrast,
+                        vec![rgb],
+                        rgb,
+                        None,
+                    )
+                    .unwrap(),
+                    node.inputs().to_vec(),
+                    node.parameters().clone(),
+                    None,
+                )
+                .unwrap()
+            })
+            .collect::<Vec<_>>();
+        let graph = EditGraph::new(
+            valid_graph.schema_version(),
+            valid_graph.input_types().to_vec(),
+            nodes,
+            valid_graph.output_node(),
+        )
+        .unwrap();
+        let obsolete = RecipeSnapshot::new(
+            CURRENT_RECIPE_SCHEMA_VERSION,
+            vec![
+                LayerInstance::new(
+                    valid_layer.id(),
+                    valid_layer.label(),
+                    AdjustmentScope::Photo,
+                    LayerContent::Inline { graph },
+                    valid_layer.enabled(),
+                    UnitInterval::ONE,
+                    BlendMode::Normal,
+                    None,
+                )
+                .unwrap(),
+            ],
+        )
+        .unwrap();
+
+        let error = decode_grade_stack_draft_from_recipe_v1_snapshot(&obsolete)
+            .expect_err("one-pass Selective Tone must not be adapted to the complete filter");
+        assert!(error.to_string().contains("unsupported contract"));
+        assert!(compile_recipe_render_plan(&obsolete).is_err());
     }
 
     #[test]
