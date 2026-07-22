@@ -110,9 +110,11 @@ class PluginDecodeSession final : public DecodeSession {
 public:
     PluginDecodeSession(
         std::shared_ptr<const PluginModule> module,
-        std::unique_ptr<DecodeSession> session
+        std::unique_ptr<DecodeSession> session,
+        ProviderInfo provider_info
     )
-        : module_(std::move(module)), session_(std::move(session)) {}
+        : module_(std::move(module)), session_(std::move(session)),
+          provider_info_(std::move(provider_info)) {}
 
     [[nodiscard]] const AssetMetadata& metadata() const noexcept override {
         return session_->metadata();
@@ -135,14 +137,40 @@ public:
     }
 
     [[nodiscard]] PixelBuffer render_reference_rgb() const override {
-        return session_->render_reference_rgb();
+        return bind_provider_receipt(session_->render_reference_rgb());
+    }
+
+    [[nodiscard]] PixelBuffer render_reference_rgb_for_preview(
+        const std::uint32_t max_edge
+    ) const override {
+        // Do not silently fall back to DecodeSession's full-resolution default: a private
+        // provider may expose a legal vendor-SDK fast path whose output has different source
+        // provenance (for example half-size RAW development).
+        return bind_provider_receipt(session_->render_reference_rgb_for_preview(max_edge));
     }
 
 private:
+    [[nodiscard]] PixelBuffer bind_provider_receipt(PixelBuffer pixels) const {
+        auto& receipt = pixels.raw_development_receipt;
+        if (!receipt.recorded()) {
+            return pixels;
+        }
+        if (!receipt.uses_current_schema()) {
+            throw_plugin_error("private decoder plugin returned an unsupported RAW receipt schema");
+        }
+        // The host namespaces the provider identity that reaches catalog/cache code. A plugin may
+        // still name its vendor library in `library_version`, but cannot claim to be LibRaw or a
+        // different private module in an auditable receipt.
+        receipt.provider_id = provider_info_.id;
+        receipt.provider_version = provider_info_.version;
+        return pixels;
+    }
+
     // Member order matters: session_ dies before module_, so the private implementation's vtable
     // and any SDK destructors remain mapped while the private session is destroyed.
     std::shared_ptr<const PluginModule> module_;
     std::unique_ptr<DecodeSession> session_;
+    ProviderInfo provider_info_;
 };
 
 class PluginDecoderProvider final : public DecoderProvider {
@@ -158,7 +186,9 @@ public:
         info_ = provider_->info();
         const auto* descriptor = module_->descriptor();
         info_.id = "private." + std::string(descriptor->plugin_id) + "." + info_.id;
-        info_.version = std::string(descriptor->plugin_version) + ";" + info_.version;
+        info_.version = std::string(descriptor->plugin_version)
+            + ";shadow-private-abi-v" + std::to_string(private_decoder_plugin_abi_version)
+            + ";" + info_.version;
     }
 
     PluginDecoderProvider(const PluginDecoderProvider&) = delete;
@@ -181,7 +211,7 @@ public:
         if (session == nullptr) {
             throw_plugin_error("private decoder plugin returned a null session");
         }
-        return std::make_unique<PluginDecodeSession>(module_, std::move(session));
+        return std::make_unique<PluginDecodeSession>(module_, std::move(session), info_);
     }
 
 private:

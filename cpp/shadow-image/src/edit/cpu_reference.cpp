@@ -482,11 +482,91 @@ using PreparedCurveAdjustment = std::variant<
     return {input[0] * gain, input[1] * gain, input[2] * gain};
 }
 
-[[nodiscard]] Vector3 apply_selective_tone(
+[[nodiscard]] double adjusted_selective_tone_ev(
+    const double mask_ev,
+    const SelectiveToneAdjustment& parameters
+) noexcept {
+    // Work in a fixed scene-EV coordinate system relative to 18% middle gray.  These are
+    // photographer controls, not an auto-exposure system: translating all four zones according
+    // to the current image median made the same slider value act differently on every frame.
+    // Keeping their anchors fixed makes Recipes portable between photos and makes black/white
+    // endpoints visibly distinct from the wider shadow/highlight recovery controls.
+    // A soft logarithmic hinge has continuous derivatives and an explicit infinite tail.  The
+    // endpoint controls are anchored farther from middle gray and are narrower; the recovery
+    // controls deliberately reach into the adjacent midtones.  This separates their useful
+    // ranges while avoiding a hard mask boundary that would show as a contour in a gradient.
+    constexpr double endpoint_strength = 0.78;
+    constexpr double endpoint_boundary_ev = 1.75;
+    constexpr double endpoint_softness_ev = 0.62;
+    constexpr double recovery_strength = 0.68;
+    constexpr double shadow_boundary_ev = -0.15;
+    constexpr double highlight_boundary_ev = 0.75;
+    constexpr double recovery_softness_ev = 0.95;
+
+    // Never sum several hinge derivatives from the same source EV.  Although each field is
+    // monotonic by itself, an additive combination can fold when Black and Shadow (or Highlight
+    // and White) are both at an extreme.  Sequential composition keeps every stage strictly
+    // positive-slope because each field strength is below one.
+    const auto apply_lower = [](const double source_ev, const double amount,
+                                const double boundary, const double softness,
+                                const double strength) {
+        return source_ev + strength * amount * lower_ev_hinge(source_ev, boundary, softness);
+    };
+    const auto apply_upper = [](const double source_ev, const double amount,
+                                const double boundary, const double softness,
+                                const double strength) {
+        return source_ev + strength * amount * upper_ev_hinge(source_ev, boundary, softness);
+    };
+
+    double adjusted_ev = mask_ev;
+    adjusted_ev = apply_lower(
+        adjusted_ev,
+        parameters.blacks,
+        -endpoint_boundary_ev,
+        endpoint_softness_ev,
+        endpoint_strength
+    );
+    adjusted_ev = apply_lower(
+        adjusted_ev,
+        parameters.shadows,
+        shadow_boundary_ev,
+        recovery_softness_ev,
+        recovery_strength
+    );
+    adjusted_ev = apply_upper(
+        adjusted_ev,
+        parameters.highlights,
+        highlight_boundary_ev,
+        recovery_softness_ev,
+        recovery_strength
+    );
+    adjusted_ev = apply_upper(
+        adjusted_ev,
+        parameters.whites,
+        endpoint_boundary_ev,
+        endpoint_softness_ev,
+        endpoint_strength
+    );
+
+    return adjusted_ev;
+}
+
+[[nodiscard]] std::size_t reflect101_index(
+    std::int64_t index,
+    std::size_t extent
+) noexcept;
+
+[[nodiscard]] float checked_float(
+    double value,
+    std::size_t node_index,
+    const AdjustmentNode& node
+);
+
+[[nodiscard]] Vector3 apply_selective_tone_at_mask(
     const Vector3& input,
     const std::array<double, 3>& luminance_weights,
     const SelectiveToneAdjustment& parameters,
-    const double scene_key_ev
+    const double mask_ev
 ) noexcept {
     const double luminance = input[0] * luminance_weights[0]
         + input[1] * luminance_weights[1]
@@ -495,61 +575,208 @@ using PreparedCurveAdjustment = std::variant<
         return input;
     }
 
-    // Work in scene EV relative to 18% middle gray.  Do not move the zones all the way to the
-    // image median: that would make a uniformly dark scene's Blacks control operate only on
-    // near-zero code values. A half-strength adaptation is enough to compensate camera/exposure
-    // normalization while preserving a stable photographer-facing relationship to 18% gray.
-    const double ev = std::log2(luminance / 0.18) - 0.5 * scene_key_ev;
-    // Each control is a soft logarithmic hinge rather than a finite-width bell.  The old bell
-    // masks had a very short useful tail: Blacks was almost inert around -1 EV and Whites was
-    // almost inert around +2 EV, even though both are routine photograph detail.  A hinge
-    // reaches those tones while remaining smooth at every brightness.
-    //
-    // Apply each field as its own monotonic EV transform instead of summing their gains.  A
-    // field's strength stays below one, which means its derivative remains positive even at a
-    // maximum slider setting.  Composing positive-slope transforms lets Blacks and Shadows both
-    // be useful on the same pixel without the combined field folding back on itself.  The same
-    // is true of Highlights and Whites.  That is the important safeguard against tonal reversals
-    // / false contouring when a user pushes several controls together.
-    constexpr double recovery_strength = 0.82;
-    constexpr double endpoint_strength = 0.82;
-    constexpr double recovery_boundary_ev = 1.5;
-    constexpr double recovery_softness_ev = 0.80;
-    constexpr double endpoint_boundary_ev = 1.5;
-    constexpr double endpoint_softness_ev = 0.55;
-
-    // Evaluate the lower and upper branches independently from the same source EV, then add
-    // their deltas.  Besides keeping opposite endpoint controls symmetric around middle gray,
-    // this prevents a large Black lift from changing which pixels the Whites control considers
-    // to be highlights (and vice versa).
-    double lower_ev = ev;
-    lower_ev += endpoint_strength * parameters.blacks * lower_ev_hinge(
-        lower_ev, -endpoint_boundary_ev, endpoint_softness_ev
-    );
-    lower_ev += recovery_strength * parameters.shadows * lower_ev_hinge(
-        lower_ev, -recovery_boundary_ev, recovery_softness_ev
-    );
-
-    double upper_ev = ev;
-    upper_ev += recovery_strength * parameters.highlights * upper_ev_hinge(
-        upper_ev, recovery_boundary_ev, recovery_softness_ev
-    );
-    upper_ev += endpoint_strength * parameters.whites * upper_ev_hinge(
-        upper_ev, endpoint_boundary_ev, endpoint_softness_ev
-    );
-
-    const double adjusted_ev = lower_ev + upper_ev - ev;
-
-    // Positive Shadows/Highlights expand the corresponding tonal range; a negative value
-    // compresses/recover it.  Because the resulting adjustment is an EV delta, RGB channels
-    // receive one common gain and retain their scene-linear chromatic ratios.  There is no
-    // clipping, additive toe floor, or quantization in this stage.
-    const double stops = adjusted_ev - ev;
+    // The EV field is evaluated against the guided mask, not individual pixel luminance. The
+    // original pixel still receives a single common RGB gain, which keeps chromatic ratios
+    // intact and avoids a per-channel halo at high-contrast boundaries.
+    const double adjusted_ev = adjusted_selective_tone_ev(mask_ev, parameters);
+    const double stops = adjusted_ev - mask_ev;
     const double gain = std::exp2(stops);
     if (!(gain > 0.0) || !std::isfinite(gain)) {
         return input;
     }
     return {input[0] * gain, input[1] * gain, input[2] * gain};
+}
+
+[[nodiscard]] std::uint32_t selective_tone_mask_radius(
+    const double level_zero_to_raster_scale
+) {
+    const double scaled = selective_tone_guided_mask_radius_level_zero
+        * level_zero_to_raster_scale;
+    if (!std::isfinite(scaled) || scaled <= 0.0
+        || scaled > static_cast<double>(std::numeric_limits<std::uint32_t>::max() - 1U)) {
+        throw EditError(
+            EditErrorCode::numeric_overflow,
+            std::nullopt,
+            "selective tone guided-mask radius exceeds the supported integer range"
+        );
+    }
+    return static_cast<std::uint32_t>(std::max(1.0, std::ceil(scaled)));
+}
+
+// Calculate the self-guided local-linear mask used for regional tone. The guide and source are
+// both log2 scene luminance relative to 18% gray. In every box window, it uses the guided-mask
+// form q = a*I + b, with a = variance/(variance + epsilon) and b = mean - a*mean. A global
+// exposure gain is an additive offset in this domain, so the local smoothing behaviour is
+// exposure-independent. The box-window implementation uses reflected borders and a streaming
+// vertical sum rather than an integral image: it is O(width*height), needs only one float mask,
+// and is deterministic for a full frame or an apron-expanded detail tile.
+[[nodiscard]] std::vector<float> selective_tone_guided_mask(
+    const FloatRgbImage& image,
+    const std::array<double, 3>& luminance_weights
+) {
+    const std::size_t width = image.dimensions.width;
+    const std::size_t height = image.dimensions.height;
+    if (width > std::numeric_limits<std::size_t>::max() / height) {
+        throw EditError(
+            EditErrorCode::numeric_overflow,
+            std::nullopt,
+            "selective tone guided-mask pixel count exceeds the address space"
+        );
+    }
+    const std::size_t pixels = width * height;
+    std::vector<float> mask(pixels);
+    const std::size_t stride = image.row_stride_bytes / sizeof(float);
+    constexpr double minimum_positive_luminance = 5.9604644775390625e-8; // 2^-24
+    constexpr double mask_edge_threshold_ev = 0.12;
+    constexpr double epsilon = mask_edge_threshold_ev * mask_edge_threshold_ev;
+    const std::uint32_t radius_x = selective_tone_mask_radius(
+        image.level_zero_to_raster_scale_x
+    );
+    const std::uint32_t radius_y = selective_tone_mask_radius(
+        image.level_zero_to_raster_scale_y
+    );
+    const std::size_t window_width = static_cast<std::size_t>(radius_x) * 2U + 1U;
+    const std::size_t window_height = static_cast<std::size_t>(radius_y) * 2U + 1U;
+    const auto log_luminance_at = [&image, luminance_weights, stride,
+                                   minimum_positive_luminance](
+                                      const std::size_t x,
+                                      const std::size_t y
+                                  ) {
+        const std::size_t sample = y * stride + x * rgb_channels;
+        const double luminance = static_cast<double>(image.samples[sample])
+                * luminance_weights[0]
+            + static_cast<double>(image.samples[sample + 1U]) * luminance_weights[1]
+            + static_cast<double>(image.samples[sample + 2U]) * luminance_weights[2];
+        return std::log2(std::max(luminance, minimum_positive_luminance) / 0.18);
+    };
+
+    std::vector<double> row_mean(width);
+    std::vector<double> row_mean_square(width);
+    std::vector<double> vertical_sum(width, 0.0);
+    std::vector<double> vertical_sum_square(width, 0.0);
+
+    const auto make_horizontal_row = [&](const std::int64_t unbounded_y) {
+        const std::size_t source_y = reflect101_index(unbounded_y, height);
+        double sum = 0.0;
+        double sum_square = 0.0;
+        for (std::int64_t offset = -static_cast<std::int64_t>(radius_x);
+             offset <= static_cast<std::int64_t>(radius_x);
+             ++offset) {
+            const double value = log_luminance_at(
+                reflect101_index(offset, width),
+                source_y
+            );
+            sum += value;
+            sum_square += value * value;
+        }
+        for (std::size_t x = 0U; x < width; ++x) {
+            row_mean[x] = sum / static_cast<double>(window_width);
+            row_mean_square[x] = sum_square / static_cast<double>(window_width);
+            if (x + 1U == width) {
+                continue;
+            }
+            const double removed = log_luminance_at(
+                reflect101_index(
+                    static_cast<std::int64_t>(x) - static_cast<std::int64_t>(radius_x),
+                    width
+                ),
+                source_y
+            );
+            const double added = log_luminance_at(
+                reflect101_index(
+                    static_cast<std::int64_t>(x) + static_cast<std::int64_t>(radius_x) + 1,
+                    width
+                ),
+                source_y
+            );
+            sum += added - removed;
+            sum_square += added * added - removed * removed;
+        }
+    };
+
+    const auto accumulate_row = [&make_horizontal_row, &row_mean, &row_mean_square,
+                                 &vertical_sum, &vertical_sum_square](
+                                    const std::int64_t source_y,
+                                    const double factor
+                                ) {
+        make_horizontal_row(source_y);
+        for (std::size_t x = 0U; x < row_mean.size(); ++x) {
+            vertical_sum[x] += factor * row_mean[x];
+            vertical_sum_square[x] += factor * row_mean_square[x];
+        }
+    };
+
+    for (std::int64_t offset = -static_cast<std::int64_t>(radius_y);
+         offset <= static_cast<std::int64_t>(radius_y);
+         ++offset) {
+        accumulate_row(offset, 1.0);
+    }
+    for (std::size_t y = 0U; y < height; ++y) {
+        for (std::size_t x = 0U; x < width; ++x) {
+            const double mean = vertical_sum[x] / static_cast<double>(window_height);
+            const double mean_square = vertical_sum_square[x]
+                / static_cast<double>(window_height);
+            // Cancellation can make a mathematically non-negative variance a few ulps below
+            // zero on a flat field. Clamp only that roundoff, never the source luminance.
+            const double variance = std::max(0.0, mean_square - mean * mean);
+            const double edge_following = variance / (variance + epsilon);
+            const double source = log_luminance_at(x, y);
+            const double guided = edge_following * source + (1.0 - edge_following) * mean;
+            const std::size_t pixel = y * width + x;
+            if (!std::isfinite(guided)
+                || guided < -static_cast<double>(std::numeric_limits<float>::max())
+                || guided > static_cast<double>(std::numeric_limits<float>::max())) {
+                throw EditError(
+                    EditErrorCode::numeric_overflow,
+                    std::nullopt,
+                    "selective tone guided mask exceeded finite float32 range"
+                );
+            }
+            mask[pixel] = static_cast<float>(guided);
+        }
+        if (y + 1U < height) {
+            accumulate_row(
+                static_cast<std::int64_t>(y) - static_cast<std::int64_t>(radius_y),
+                -1.0
+            );
+            accumulate_row(
+                static_cast<std::int64_t>(y) + static_cast<std::int64_t>(radius_y) + 1,
+                1.0
+            );
+        }
+    }
+    return mask;
+}
+
+void apply_guided_selective_tone(
+    FloatRgbImage& image,
+    const AdjustmentNode& node,
+    const std::size_t node_index,
+    const SelectiveToneAdjustment& parameters
+) {
+    const auto luminance_weights = image.working_space.luminance_coefficients;
+    const auto mask = selective_tone_guided_mask(image, luminance_weights);
+    const std::size_t stride = image.row_stride_bytes / sizeof(float);
+    for (std::uint32_t y = 0U; y < image.dimensions.height; ++y) {
+        const std::size_t row = static_cast<std::size_t>(y) * stride;
+        for (std::uint32_t x = 0U; x < image.dimensions.width; ++x) {
+            const std::size_t sample = row + static_cast<std::size_t>(x) * rgb_channels;
+            const Vector3 input{
+                image.samples[sample],
+                image.samples[sample + 1U],
+                image.samples[sample + 2U],
+            };
+            const Vector3 output = apply_selective_tone_at_mask(
+                input,
+                luminance_weights,
+                parameters,
+                static_cast<double>(mask[static_cast<std::size_t>(y) * image.dimensions.width + x])
+            );
+            image.samples[sample] = checked_float(output[0], node_index, node);
+            image.samples[sample + 1U] = checked_float(output[1], node_index, node);
+            image.samples[sample + 2U] = checked_float(output[2], node_index, node);
+        }
+    }
 }
 
 [[nodiscard]] double wrap_degrees(const double degrees) noexcept {
@@ -1194,17 +1421,22 @@ void apply_prepared_smooth_rgb_tone_curve(
     const std::size_t index
 ) {
     const bool smooth_rgb_tone_curve = std::holds_alternative<SmoothRgbToneCurve>(node.parameters);
+    const bool selective_tone = std::holds_alternative<SelectiveToneAdjustment>(
+        node.parameters
+    );
     const bool perceptual_color = std::holds_alternative<PerceptualColorAdjustment>(
         node.parameters
     );
     const bool detail_effects = std::holds_alternative<SharpenAdjustment>(node.parameters);
     const std::uint32_t expected_parameter_schema = smooth_rgb_tone_curve
         ? smooth_rgb_tone_curve_parameter_schema_version
+        : selective_tone ? selective_tone_v2_parameter_schema_version
         : perceptual_color ? perceptual_color_v2_parameter_schema_version
         : detail_effects ? detail_effects_v2_parameter_schema_version
                          : adjustment_parameter_schema_version;
     const std::uint32_t expected_implementation = smooth_rgb_tone_curve
         ? smooth_rgb_tone_curve_implementation_version
+        : selective_tone ? selective_tone_v2_implementation_version
         : perceptual_color ? perceptual_color_v2_implementation_version
         : detail_effects ? detail_effects_v2_implementation_version
                          : adjustment_implementation_version;
@@ -1218,6 +1450,8 @@ void apply_prepared_smooth_rgb_tone_curve(
             node,
             smooth_rgb_tone_curve
                 ? "smooth RGB tone curve requires parameter schema 2 and implementation 2"
+                : selective_tone
+                    ? "selective tone requires the current guided-mask contract"
                 : perceptual_color
                     ? "perceptual color requires the current complete contract"
                 : detail_effects
@@ -1672,7 +1906,34 @@ void apply_edge_aware_denoise(
     const auto weights = image.working_space.luminance_coefficients;
     const double range_sigma = 0.025 + 0.18 * (1.0 - parameters.denoise_detail);
     const double inverse_range = 1.0 / (2.0 * range_sigma * range_sigma);
-    constexpr std::int64_t radius = 2;
+    // The UI defines detail radius in level-zero (native RAW) pixels. A fixed 5x5 kernel on a
+    // 1200px warm proxy would otherwise denoise a much larger physical region than the same
+    // setting on a full-detail tile. Preserve the native sigma, then convert it separately to
+    // each raster axis just as capture sharpening already does.
+    constexpr double denoise_native_sigma = 1.5;
+    constexpr double denoise_native_support = 2.0;
+    const double sigma_x = std::max(
+        0.20,
+        denoise_native_sigma * image.level_zero_to_raster_scale_x
+    );
+    const double sigma_y = std::max(
+        0.20,
+        denoise_native_sigma * image.level_zero_to_raster_scale_y
+    );
+    const std::int64_t radius_x = std::max<std::int64_t>(
+        1,
+        static_cast<std::int64_t>(std::ceil(
+            denoise_native_support * image.level_zero_to_raster_scale_x
+        ))
+    );
+    const std::int64_t radius_y = std::max<std::int64_t>(
+        1,
+        static_cast<std::int64_t>(std::ceil(
+            denoise_native_support * image.level_zero_to_raster_scale_y
+        ))
+    );
+    const double inverse_two_sigma_x_squared = 1.0 / (2.0 * sigma_x * sigma_x);
+    const double inverse_two_sigma_y_squared = 1.0 / (2.0 * sigma_y * sigma_y);
     for (std::size_t y = 0; y < height; ++y) {
         for (std::size_t x = 0; x < width; ++x) {
             const std::size_t center = y * stride + x * rgb_channels;
@@ -1683,11 +1944,11 @@ void apply_edge_aware_denoise(
                 + original[1] * weights[1] + original[2] * weights[2];
             Vector3 filtered{};
             double weight_sum = 0.0;
-            for (std::int64_t dy = -radius; dy <= radius; ++dy) {
+            for (std::int64_t dy = -radius_y; dy <= radius_y; ++dy) {
                 const std::size_t source_y = reflect101_index(
                     static_cast<std::int64_t>(y) + dy, height
                 );
-                for (std::int64_t dx = -radius; dx <= radius; ++dx) {
+                for (std::int64_t dx = -radius_x; dx <= radius_x; ++dx) {
                     const std::size_t source_x = reflect101_index(
                         static_cast<std::int64_t>(x) + dx, width
                     );
@@ -1698,7 +1959,9 @@ void apply_edge_aware_denoise(
                     const double neighbor_luma = neighbor[0] * weights[0]
                         + neighbor[1] * weights[1] + neighbor[2] * weights[2];
                     const double delta = neighbor_luma - original_luma;
-                    const double spatial = static_cast<double>(dx * dx + dy * dy) / 4.5;
+                    const double spatial = static_cast<double>(dx * dx)
+                            * inverse_two_sigma_x_squared
+                        + static_cast<double>(dy * dy) * inverse_two_sigma_y_squared;
                     const double weight = std::exp(-spatial - delta * delta * inverse_range);
                     for (std::size_t channel = 0; channel < rgb_channels; ++channel) {
                         filtered[channel] += neighbor[channel] * weight;
@@ -1983,38 +2246,43 @@ void apply_node(
                     }
                 );
             } else if constexpr (std::is_same_v<Parameters, SaturationAdjustment>) {
-                const auto weights = image.working_space.luminance_coefficients;
+                // Saturation is a chroma operation, not a linear-RGB interpolation around a
+                // working-space luma value.  The latter can make equal numeric changes look
+                // very different across hues and gives a poor neutral axis for wide-gamut
+                // working spaces.  Oklab lets this control scale perceptual chroma while
+                // retaining lightness, and the working-space transforms keep the public node
+                // independent of the particular D65 RGB primaries selected for the recipe.
+                if (parameters.factor == 1.0) {
+                    return;
+                }
+                const WorkingSpaceTransform color_transform =
+                    prepare_working_space_transform(image.working_space, node, index);
                 transform_rgb_pixels(
                     image,
                     index,
                     node,
-                    [&parameters, weights](const std::array<double, 3>& input) {
-                        const double luminance = input[0] * weights[0]
-                            + input[1] * weights[1] + input[2] * weights[2];
-                        const auto adjust = [&parameters, luminance](const double value) {
-                            return luminance + parameters.factor * (value - luminance);
-                        };
-                        return std::array{adjust(input[0]), adjust(input[1]), adjust(input[2])};
+                    [&parameters, &color_transform](const Vector3& input) {
+                        // Preserve the D65 neutral axis exactly.  Besides avoiding a needless
+                        // matrix round trip, this makes neutral grays invariant for every
+                        // saturation value, including negative scene-linear values.
+                        if (input[0] == input[1] && input[1] == input[2]) {
+                            return input;
+                        }
+                        Vector3 lab = xyz_to_oklab(multiply(color_transform.rgb_to_xyz, input));
+                        lab[1] *= parameters.factor;
+                        lab[2] *= parameters.factor;
+                        // Do not clamp here. Scene-linear RGB can legitimately carry negative
+                        // and super-white values, and gamut mapping belongs to the output
+                        // transform. checked_float() below still fails closed on non-finite or
+                        // unrepresentable results.
+                        return multiply(color_transform.xyz_to_rgb, oklab_to_xyz(lab));
                     }
                 );
             } else if constexpr (std::is_same_v<Parameters, SelectiveToneAdjustment>) {
                 if (selective_tone_is_neutral(parameters)) {
                     return;
                 }
-                const auto luminance_weights = image.working_space.luminance_coefficients;
-                transform_rgb_pixels(
-                    image,
-                    index,
-                    node,
-                    [&parameters, luminance_weights, &context](const Vector3& input) {
-                        return apply_selective_tone(
-                            input,
-                            luminance_weights,
-                            parameters,
-                            context.selective_tone_scene_key_ev
-                        );
-                    }
-                );
+                apply_guided_selective_tone(image, node, index, parameters);
             } else if constexpr (std::is_same_v<Parameters, PerceptualColorAdjustment>) {
                 if (perceptual_color_is_neutral(parameters)) {
                     return;
@@ -2203,10 +2471,10 @@ AdjustmentLocality locality(const AdjustmentOperation operation) noexcept {
     case AdjustmentOperation::smooth_rgb_tone_curve:
     case AdjustmentOperation::rgb_white_balance:
     case AdjustmentOperation::saturation:
-    case AdjustmentOperation::selective_tone:
     case AdjustmentOperation::perceptual_color:
     case AdjustmentOperation::lut_3d:
         return AdjustmentLocality::pixel_local;
+    case AdjustmentOperation::selective_tone:
     case AdjustmentOperation::sharpen:
         return AdjustmentLocality::neighborhood;
     }
@@ -2233,7 +2501,29 @@ AdjustmentFootprint footprint(
     return std::visit(
         [level_zero_to_raster_scale_x, level_zero_to_raster_scale_y](const auto& value) {
             using Parameters = std::decay_t<decltype(value)>;
-            if constexpr (std::is_same_v<Parameters, SharpenAdjustment>) {
+            if constexpr (std::is_same_v<Parameters, SelectiveToneAdjustment>) {
+                if (!normalized_amount(value.highlights)
+                    || !normalized_amount(value.shadows)
+                    || !normalized_amount(value.whites)
+                    || !normalized_amount(value.blacks)) {
+                    throw EditError(
+                        EditErrorCode::invalid_parameter,
+                        std::nullopt,
+                        "cannot calculate a footprint for malformed selective tone parameters"
+                    );
+                }
+                if (selective_tone_is_neutral(value)) {
+                    return AdjustmentFootprint{};
+                }
+                return AdjustmentFootprint{
+                    .horizontal_radius = selective_tone_mask_radius(
+                        level_zero_to_raster_scale_x
+                    ),
+                    .vertical_radius = selective_tone_mask_radius(
+                        level_zero_to_raster_scale_y
+                    ),
+                };
+            } else if constexpr (std::is_same_v<Parameters, SharpenAdjustment>) {
                 if (
                     !std::isfinite(value.amount) || value.amount < 0.0 || value.amount > 2.0
                     || !std::isfinite(value.radius) || value.radius < 0.1
@@ -2260,8 +2550,16 @@ AdjustmentFootprint footprint(
                 const double sharpen_vertical = value.amount == 0.0 ? 0.0 : std::ceil(
                     3.0 * value.radius * level_zero_to_raster_scale_y
                 );
-                const double horizontal = sharpen_horizontal + (denoise_active ? 2.0 : 0.0);
-                const double vertical = sharpen_vertical + (denoise_active ? 2.0 : 0.0);
+                const double denoise_horizontal = denoise_active ? std::max(
+                    1.0,
+                    std::ceil(2.0 * level_zero_to_raster_scale_x)
+                ) : 0.0;
+                const double denoise_vertical = denoise_active ? std::max(
+                    1.0,
+                    std::ceil(2.0 * level_zero_to_raster_scale_y)
+                ) : 0.0;
+                const double horizontal = sharpen_horizontal + denoise_horizontal;
+                const double vertical = sharpen_vertical + denoise_vertical;
                 if (
                     horizontal > std::numeric_limits<std::uint32_t>::max()
                     || vertical > std::numeric_limits<std::uint32_t>::max()
@@ -2309,14 +2607,6 @@ FloatRgbImage execute_adjustment_nodes(
             "adjustment execution context lies outside its full raster"
         );
     }
-    if (!std::isfinite(context.selective_tone_scene_key_ev)) {
-        throw EditError(
-            EditErrorCode::non_finite_value,
-            std::nullopt,
-            "selective tone scene key must be finite"
-        );
-    }
-
     FloatRgbImage output = input;
     for (std::size_t index = 0; index < nodes.size(); ++index) {
         if (nodes[index].enabled) {

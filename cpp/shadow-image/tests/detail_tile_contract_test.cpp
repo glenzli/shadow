@@ -51,6 +51,22 @@ void expect(const bool condition, const std::string_view message) {
     };
 }
 
+[[nodiscard]] std::array<double, 3> oklab_to_linear_srgb(
+    const std::array<double, 3>& lab
+) {
+    const double l_root = lab[0] + 0.3963377774 * lab[1] + 0.2158037573 * lab[2];
+    const double m_root = lab[0] - 0.1055613458 * lab[1] - 0.0638541728 * lab[2];
+    const double s_root = lab[0] - 0.0894841775 * lab[1] - 1.2914855480 * lab[2];
+    const double l = l_root * l_root * l_root;
+    const double m = m_root * m_root * m_root;
+    const double s = s_root * s_root * s_root;
+    return {
+        4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+        -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+        -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s,
+    };
+}
+
 [[nodiscard]] double oklab_hue_degrees(const std::array<double, 3>& rgb) {
     constexpr double radians_to_degrees = 57.2957795130823208768;
     const auto lab = linear_srgb_to_oklab(rgb);
@@ -339,7 +355,7 @@ void processed_linear_contract_is_required_before_editing() {
 }
 
 void display_gamut_mapping_preserves_oklab_hue_with_bounded_work() {
-    static_assert(image::display_srgb8_output_transform_version == 3U);
+    static_assert(image::display_srgb8_output_transform_version == 4U);
     static_assert(image::display_srgb8_gamut_search_iterations <= 16U);
     static_assert(image::display_srgb8_maximum_oklab_chroma == 0.5);
 
@@ -360,13 +376,19 @@ void display_gamut_mapping_preserves_oklab_hue_with_bounded_work() {
     constexpr double source_red = 32'768.0 / 65'535.0;
     constexpr double source_green = 16'384.0 / 65'535.0;
     constexpr double source_blue = 8'192.0 / 65'535.0;
-    constexpr double luminance = source_red * 0.2627 + source_green * 0.6780
-        + source_blue * 0.0593;
-    const std::array<double, 3> unclipped{
-        luminance + (source_red - luminance) * 4.0,
-        luminance + (source_green - luminance) * 4.0,
-        luminance + (source_blue - luminance) * 4.0,
-    };
+    // Saturation is a perceptual Oklab chroma scale in the edit pipeline.  Construct the
+    // pre-gamut expected hue from that same operation.  The neutral scene-display curve later
+    // applies one common positive RGB gain, which leaves an Oklab hue unchanged; the former
+    // linear-RGB/luma reference described an obsolete SaturationAdjustment implementation and
+    // therefore made a correct hue-preserving map look like a regression.
+    std::array<double, 3> saturated_lab = linear_srgb_to_oklab({
+        source_red,
+        source_green,
+        source_blue,
+    });
+    saturated_lab[1] *= 4.0;
+    saturated_lab[2] *= 4.0;
+    const auto saturated_unclipped = oklab_to_linear_srgb(saturated_lab);
     const std::array<double, 3> mapped{
         srgb8_to_linear(rendered.bytes[0]),
         srgb8_to_linear(rendered.bytes[1]),
@@ -378,8 +400,11 @@ void display_gamut_mapping_preserves_oklab_hue_with_bounded_work() {
         "display output desaturates along Oklab hue instead of clipping RGB independently"
     );
     expect(
-        circular_hue_distance(oklab_hue_degrees(unclipped), oklab_hue_degrees(mapped)) < 1.5,
-        "8-bit gamut output preserves the source Oklab hue within quantization tolerance"
+        circular_hue_distance(
+            oklab_hue_degrees(saturated_unclipped),
+            oklab_hue_degrees(mapped)
+        ) < 1.5,
+        "8-bit gamut output preserves the saturated Oklab hue within quantization tolerance"
     );
 }
 
@@ -515,6 +540,80 @@ void neighborhood_tiles_accumulate_two_sharpen_footprints_without_seams() {
     );
 }
 
+void guided_selective_tone_tiles_match_full_execution_at_edges_and_boundaries() {
+    constexpr image::Dimensions dimensions{224, 72};
+    auto source = reference_rgb(dimensions);
+    for (std::uint32_t y = 0U; y < dimensions.height; ++y) {
+        for (std::uint32_t x = 0U; x < dimensions.width; ++x) {
+            // A broad dark region with gentle texture meets a three-stop highlight edge. This
+            // exercises both the self-guided mask and a tile boundary that crosses the edge.
+            const double base = x < 112U ? 0.045 + 0.004 * std::sin(
+                static_cast<double>(x + y) * 0.18
+            ) : 0.72 + 0.02 * std::cos(static_cast<double>(y) * 0.24);
+            const auto encoded = static_cast<std::uint16_t>(std::clamp(
+                std::llround(base * 65'535.0),
+                0LL,
+                65'535LL
+            ));
+            const std::size_t offset = (
+                static_cast<std::size_t>(y) * dimensions.width + x
+            ) * 3U;
+            source.samples[offset] = encoded;
+            source.samples[offset + 1U] = encoded;
+            source.samples[offset + 2U] = encoded;
+        }
+    }
+    SyntheticDecodeSession decoder(metadata(dimensions), std::move(source));
+    const auto session = image::prepare_full_edit_detail(decoder);
+    const std::array plan{
+        image::AdjustmentNode{
+            .node_id = "guided-selective-tone",
+            .parameter_schema_version = image::selective_tone_v2_parameter_schema_version,
+            .implementation_version = image::selective_tone_v2_implementation_version,
+            .parameters = image::SelectiveToneAdjustment{
+                .highlights = -0.55,
+                .shadows = 0.7,
+                .whites = -0.15,
+                .blacks = 0.2,
+            },
+        },
+    };
+    expect(
+        image::footprint(plan[0].parameters).horizontal_radius
+            == static_cast<std::uint32_t>(image::selective_tone_guided_mask_radius_level_zero),
+        "guided selective tone declares the exact detail-tile apron it consumes"
+    );
+    const auto full = session.render_rgb8(plan, {0, 0, dimensions.width, dimensions.height});
+    std::vector<std::uint8_t> stitched(full.bytes.size(), 0U);
+    constexpr std::array tiles{
+        image::DetailTileRect{0U, 0U, 73U, 29U},
+        image::DetailTileRect{73U, 0U, 76U, 29U},
+        image::DetailTileRect{149U, 0U, 75U, 29U},
+        image::DetailTileRect{0U, 29U, 73U, 43U},
+        image::DetailTileRect{73U, 29U, 76U, 43U},
+        image::DetailTileRect{149U, 29U, 75U, 43U},
+    };
+    for (const image::DetailTileRect rect : tiles) {
+        const auto tile = session.render_rgb8(plan, rect);
+        for (std::uint32_t row = 0U; row < rect.height; ++row) {
+            const auto begin = tile.bytes.cbegin()
+                + static_cast<std::ptrdiff_t>(row * tile.row_stride_bytes);
+            const std::size_t destination = (
+                static_cast<std::size_t>(rect.y + row) * dimensions.width + rect.x
+            ) * 3U;
+            std::copy_n(
+                begin,
+                static_cast<std::ptrdiff_t>(tile.row_stride_bytes),
+                stitched.begin() + static_cast<std::ptrdiff_t>(destination)
+            );
+        }
+    }
+    expect(
+        stitched == full.bytes,
+        "guided selective tone produces identical full-frame and apron-expanded tiled cores"
+    );
+}
+
 void neighborhood_resource_limits_fail_closed_before_allocation() {
     constexpr image::Dimensions dimensions{32, 32};
     SyntheticDecodeSession decoder(metadata(dimensions), reference_rgb(dimensions));
@@ -600,6 +699,7 @@ int main() {
     display_gamut_mapping_preserves_oklab_hue_with_bounded_work();
     irregular_tiles_match_one_full_pixel_local_execution_without_seams();
     neighborhood_tiles_accumulate_two_sharpen_footprints_without_seams();
+    guided_selective_tone_tiles_match_full_execution_at_edges_and_boundaries();
     neighborhood_resource_limits_fail_closed_before_allocation();
     tile_shape_bounds_and_plan_fail_closed();
     metadata_limit_fails_before_reference_render();

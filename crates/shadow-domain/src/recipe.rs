@@ -13,7 +13,10 @@ use crate::{
     OutputTargetId, RecipeCommitId, RecipeId, SelectionId, ShootId, VersionId,
 };
 
-pub const CURRENT_RECIPE_SCHEMA_VERSION: u32 = 1;
+// Version 2 moves the post-demosaic creative white-balance transform ahead of exposure and tone
+// controls. Shadow is still in its pre-release recipe phase, so incompatible v1 recipe graphs
+// are rejected rather than silently reinterpreted under the new scene-linear ordering.
+pub const CURRENT_RECIPE_SCHEMA_VERSION: u32 = 2;
 const MAX_STABLE_NAME_BYTES: usize = 128;
 const MAX_LABEL_BYTES: usize = 512;
 const MAX_COMMIT_MESSAGE_BYTES: usize = 4_096;
@@ -1922,8 +1925,9 @@ mod tests {
                 .parse::<RecipeId>()
                 .expect("fixed recipe id"),
             Vec::new(),
-            RecipeSnapshot::new(CURRENT_RECIPE_SCHEMA_VERSION, vec![inline, shared])
-                .expect("fixed Recipe v1 snapshot"),
+            // Keep a true v1 fixture here: historical data must remain round-trippable at the
+            // domain layer even though the desktop renderer now rejects its old graph order.
+            RecipeSnapshot::new(1, vec![inline, shared]).expect("fixed Recipe v1 snapshot"),
             Some("Recipe v1 golden".into()),
             1_721_500_000_123,
         )

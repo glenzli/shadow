@@ -25,7 +25,9 @@
 namespace {
 
 constexpr std::uint32_t EDIT_PREVIEW_EDGE = 1'200;
-constexpr std::uint8_t EDIT_PREVIEW_QUALITY = 88;
+// Interactive grading needs more headroom than gallery thumbnails. The image core also uses
+// 4:4:4 JPEG sampling for these proxies so color-slider feedback does not add chroma blocks.
+constexpr std::uint8_t EDIT_PREVIEW_QUALITY = 95;
 constexpr int EDIT_PREVIEW_THROTTLE_MS = 16;
 constexpr int EDIT_AUTOSAVE_DEBOUNCE_MS = 700;
 constexpr std::uint32_t EDIT_DETAIL_TILE_SIDE = 512;

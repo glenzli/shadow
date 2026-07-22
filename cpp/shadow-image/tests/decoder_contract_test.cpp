@@ -28,12 +28,73 @@ void expect(const bool condition, const std::string_view message) {
     }
 }
 
+[[nodiscard]] bool jpeg_uses_444_chroma_sampling(const std::span<const std::uint8_t> bytes) {
+    if (bytes.size() < 4U || bytes[0] != 0xffU || bytes[1] != 0xd8U) {
+        return false;
+    }
+    std::size_t offset = 2U;
+    while (offset + 4U <= bytes.size()) {
+        if (bytes[offset] != 0xffU) {
+            return false;
+        }
+        while (offset < bytes.size() && bytes[offset] == 0xffU) {
+            ++offset;
+        }
+        if (offset >= bytes.size()) {
+            return false;
+        }
+        const std::uint8_t marker = bytes[offset++];
+        if (marker == 0xd9U || marker == 0xdaU) {
+            return false;
+        }
+        if (marker == 0x01U || (marker >= 0xd0U && marker <= 0xd7U)) {
+            continue;
+        }
+        if (offset + 2U > bytes.size()) {
+            return false;
+        }
+        const std::size_t length = (static_cast<std::size_t>(bytes[offset]) << 8U)
+            | bytes[offset + 1U];
+        if (length < 2U || offset + length > bytes.size()) {
+            return false;
+        }
+        const bool start_of_frame = marker >= 0xc0U && marker <= 0xcfU
+            && marker != 0xc4U && marker != 0xc8U && marker != 0xccU;
+        if (start_of_frame) {
+            if (length < 11U || bytes[offset + 7U] != 3U) {
+                return false;
+            }
+            for (std::size_t component = 0U; component < 3U; ++component) {
+                const std::size_t sampling = offset + 9U + component * 3U;
+                if (sampling >= offset + length || bytes[sampling] != 0x11U) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        offset += length;
+    }
+    return false;
+}
+
 void pending_corrections_are_explicit() {
     image::PendingCorrections empty;
     expect(!empty.has_pending(), "empty correction state must not be pending");
 
     image::PendingCorrections stage_three{{0U, 0U, 76U}};
     expect(stage_three.has_pending(), "a DNG opcode list must be reported as pending");
+}
+
+void raw_development_receipt_is_explicitly_absent_until_a_provider_records_it() {
+    const image::PixelBuffer generic;
+    expect(
+        !generic.raw_development_receipt.recorded(),
+        "generic processed RGB never pretends to carry RAW provenance"
+    );
+    expect(
+        image::raw_development_receipt_schema_version == 1U,
+        "RAW development receipt schema is explicitly versioned"
+    );
 }
 
 void icc_color_management_is_content_addressed_and_transfer_aware() {
@@ -108,6 +169,18 @@ void private_decoder_plugin_abi_is_explicit_and_fail_closed() {
         );
     }
 
+    auto legacy_abi = valid;
+    legacy_abi.abi_version -= 1U;
+    try {
+        image::validate_private_decoder_plugin_descriptor(legacy_abi);
+        expect(false, "legacy private decoder ABI must be rejected before provider construction");
+    } catch (const image::DecodeError& error) {
+        expect(
+            error.code() == image::DecodeErrorCode::unsupported,
+            "legacy private decoder ABI fails closed as unsupported"
+        );
+    }
+
     auto invalid_id = valid;
     invalid_id.plugin_id = "vendor sdk";
     try {
@@ -128,8 +201,8 @@ void private_decoder_plugin_loads_an_explicit_local_module() {
         "private plugin identity remains namespaced by its explicit local module"
     );
     expect(
-        provider->info().version == "1.0.0;1.0.0",
-        "private plugin version participates in provider identity"
+        provider->info().version == "1.0.0;shadow-private-abi-v2;1.0.0",
+        "private plugin version and host ABI participate in provider identity"
     );
     const auto session = provider->open("does-not-need-to-exist.raw");
     expect(
@@ -140,6 +213,22 @@ void private_decoder_plugin_loads_an_explicit_local_module() {
     expect(
         pixels.samples == std::vector<std::uint16_t>({0U, 1U, 2U, 3U, 4U, 5U}),
         "private plugin reference RGB crosses the provider-neutral contract"
+    );
+    expect(
+        pixels.raw_development_receipt.uses_current_schema()
+            && pixels.raw_development_receipt.provider_id
+                == "private.test-private-provider.fixture"
+            && pixels.raw_development_receipt.provider_version == provider->info().version
+            && pixels.raw_development_receipt.library_version == "private-fixture-sdk",
+        "private plugin receipts are bound to the host provider identity without hiding SDK detail"
+    );
+    const auto preview_pixels = session->render_reference_rgb_for_preview(1U);
+    expect(
+        preview_pixels.dimensions == image::Dimensions{1U, 1U}
+            && preview_pixels.samples == std::vector<std::uint16_t>({9U, 8U, 7U})
+            && preview_pixels.raw_development_receipt.provider_id
+                == "private.test-private-provider.fixture",
+        "private plugin fast preview is forwarded instead of falling back to full RGB"
     );
 #else
     expect(false, "private decoder plugin test target path must be configured");
@@ -451,6 +540,9 @@ public:
         expect(settings.enabled, "pipeline sends enabled optics settings to its provider");
         auto corrected = input;
         std::fill(corrected.samples.begin(), corrected.samples.end(), 0U);
+        // A third-party optics implementation may allocate or copy only raster pixels. The
+        // source-development receipt is owned by preparation and must survive this behaviour.
+        corrected.raw_development_receipt = {};
         return {
             .receipt = {
                 .status = image::OpticsProfileStatus::matched,
@@ -570,8 +662,12 @@ public:
         image::AssetMetadata metadata = {}
     )
         : metadata_(std::move(metadata)), buffer_(std::move(buffer)) {
-        metadata_.raw_dimensions = buffer_.dimensions;
-        metadata_.image_dimensions = buffer_.dimensions;
+        if (metadata_.raw_dimensions.width == 0U || metadata_.raw_dimensions.height == 0U) {
+            metadata_.raw_dimensions = buffer_.dimensions;
+        }
+        if (metadata_.image_dimensions.width == 0U || metadata_.image_dimensions.height == 0U) {
+            metadata_.image_dimensions = buffer_.dimensions;
+        }
         capabilities_.metadata = true;
         capabilities_.reference_rgb = true;
     }
@@ -606,6 +702,58 @@ private:
     image::PixelBuffer buffer_;
 };
 
+void raw_development_receipt_survives_prepared_edit_sessions() {
+    auto source = optics_reference_buffer(8U, 4U);
+    source.raw_development_receipt = image::RawDevelopmentReceipt{
+        .schema_version = image::raw_development_receipt_schema_version,
+        .provider_id = "fixture-provider",
+        .provider_version = "fixture-provider-v1",
+        .library_version = "fixture-library-v1",
+        .development_settings_signature = "fixture-request-v1",
+        .processed_linear_reference_contract_version = 7U,
+        .declared_image_dimensions = {8U, 4U},
+        .rendered_dimensions = {8U, 4U},
+        .orientation = 5,
+        .half_size = true,
+        .use_camera_white_balance = true,
+        .use_camera_matrix = true,
+        .output_bits_per_channel = 16U,
+        .output_color = 1,
+        .gamma_inverse_power = 1.0,
+        .gamma_linear_toe_slope = 1.0,
+        .process_warnings = 0x1024U,
+    };
+    const RetainedRgbSession session(std::move(source));
+
+    const auto warm = image::prepare_warm_edit_preview(session, 8U);
+    expect(
+        warm.raw_development_receipt().recorded()
+            && warm.raw_development_receipt().provider_id == "fixture-provider"
+            && warm.raw_development_receipt().half_size
+            && warm.raw_development_receipt().process_warnings == 0x1024U,
+        "warm preparation retains RAW development provenance after pixel conversion"
+    );
+
+    const auto detail = image::prepare_full_edit_detail(session);
+    expect(
+        detail.raw_development_receipt().recorded()
+            && detail.raw_development_receipt().provider_version == "fixture-provider-v1"
+            && detail.raw_development_receipt().orientation == 5
+            && detail.raw_development_receipt().rendered_dimensions
+                == image::Dimensions{8U, 4U},
+        "full-detail preparation retains RAW development provenance with its source raster"
+    );
+
+    const FakeOpticsProvider discarding_optics;
+    const auto detail_after_optics = image::prepare_full_edit_detail(session, &discarding_optics);
+    expect(
+        detail_after_optics.raw_development_receipt().uses_current_schema()
+            && detail_after_optics.raw_development_receipt().provider_id == "fixture-provider"
+            && detail_after_optics.raw_development_receipt().process_warnings == 0x1024U,
+        "full-detail preparation retains source provenance when an optics provider replaces pixels"
+    );
+}
+
 template <std::size_t Size>
 [[nodiscard]] std::uint64_t sum_counts(const std::array<std::uint64_t, Size>& values) {
     std::uint64_t sum = 0U;
@@ -636,6 +784,10 @@ void reference_proxy_is_bounded_standard_jpeg() {
     expect(
         proxy.bytes[proxy.bytes.size() - 2U] == 0xffU && proxy.bytes.back() == 0xd9U,
         "proxy output ends with JPEG EOI"
+    );
+    expect(
+        jpeg_uses_444_chroma_sampling(proxy.bytes),
+        "interactive/reference JPEG proxies preserve 4:4:4 chroma sampling"
     );
 }
 
@@ -809,6 +961,48 @@ void warm_edit_preview_decodes_once_and_renders_repeatedly() {
         "linear affine edits commute with the warm proxy's linear downsampling"
     );
     expect(session.reference_render_count() == 2U, "only the one-shot comparison decodes again");
+}
+
+void rotated_raw_preview_preserves_native_effect_radius() {
+    // LibRaw returns its processed raster in output orientation. This fixture mirrors a camera
+    // whose metadata still advertises an 8x4 sensor frame while the rendered RGB has been
+    // transposed to 4x8. A matching already-oriented metadata fixture must produce exactly the
+    // same native-pixel denoise footprint and therefore the same warm-preview bytes.
+    const auto source = optics_reference_buffer(4U, 8U);
+    image::AssetMetadata rotated_metadata;
+    rotated_metadata.raw_dimensions = {8U, 4U};
+    rotated_metadata.image_dimensions = {8U, 4U};
+    rotated_metadata.orientation = 5;
+    const RetainedRgbSession rotated(source, rotated_metadata);
+
+    image::AssetMetadata canonical_metadata;
+    canonical_metadata.raw_dimensions = {4U, 8U};
+    canonical_metadata.image_dimensions = {4U, 8U};
+    const RetainedRgbSession canonical(source, canonical_metadata);
+
+    const std::array nodes{
+        image::AdjustmentNode{
+            .node_id = "orientation-aware-native-denoise",
+            .parameter_schema_version = image::detail_effects_v2_parameter_schema_version,
+            .implementation_version = image::detail_effects_v2_implementation_version,
+            .parameters = image::SharpenAdjustment{
+                .denoise_luminance = 0.7,
+                .denoise_color = 0.3,
+            },
+        },
+    };
+    const auto rotated_proxy = image::prepare_warm_edit_preview(rotated, 8U).render_jpeg(
+        nodes,
+        100U
+    );
+    const auto canonical_proxy = image::prepare_warm_edit_preview(canonical, 8U).render_jpeg(
+        nodes,
+        100U
+    );
+    expect(
+        rotated_proxy.bytes == canonical_proxy.bytes,
+        "rotated RAW metadata uses the oriented full raster for native-radius effects"
+    );
 }
 
 void warm_edit_preview_analysis_is_pre_jpeg_and_strictly_pre_clamp() {
@@ -1005,17 +1199,24 @@ void provider_identity_versions_shadow_pixel_contracts() {
     const auto provider = image::make_libraw_decoder_provider();
     const std::string_view version = provider->info().version;
     expect(
-        version.find("shadow-processed-linear-srgb16-v1") != std::string_view::npos,
+        version.size() <= 128U,
+        "provider identity remains valid for catalog content identities"
+    );
+    expect(
+        version.find("linear=1") != std::string_view::npos,
         "provider identity versions the processed-linear reference RGB contract"
     );
     expect(
-        version.find("shadow-display-srgb8-v3") != std::string_view::npos,
+        version.find("receipt=1") != std::string_view::npos,
+        "provider identity versions RAW-development provenance semantics"
+    );
+    expect(
+        version.find("display=4") != std::string_view::npos,
         "provider identity versions the display output transform for cache invalidation"
     );
     expect(
-        version.find("shadow-libraw-develop-v1;wb=camera;matrix=camera")
-            != std::string_view::npos,
-        "provider identity includes the complete LibRaw development profile"
+        version.find("settings=s1-w1-m1-a0-e0-") != std::string_view::npos,
+        "provider identity includes a compact complete LibRaw development profile"
     );
 }
 
@@ -1078,6 +1279,50 @@ void real_libraw_boundary_and_neutral_preview_when_configured() {
         decoded.reference == image::RgbBufferReference::processed_raw,
         "real LibRaw boundary cannot be mistaken for untouched sensor-linear data"
     );
+    const auto& receipt = decoded.raw_development_receipt;
+    expect(receipt.recorded(), "real LibRaw render records RAW-development provenance");
+    expect(
+        receipt.schema_version == image::raw_development_receipt_schema_version,
+        "real LibRaw receipt names the supported schema"
+    );
+    expect(receipt.provider_id == "libraw", "receipt identifies the LibRaw provider");
+    expect(
+        receipt.provider_version == provider->info().version && !receipt.library_version.empty(),
+        "receipt carries both provider identity and linked LibRaw release"
+    );
+    expect(
+        receipt.development_settings_signature
+            == image::libraw_development_settings_signature(
+                image::default_libraw_development_settings()
+            ),
+        "receipt carries the exact development settings signature"
+    );
+    expect(
+        receipt.processed_linear_reference_contract_version
+            == image::processed_linear_reference_rgb_contract_version,
+        "receipt carries the processed-linear pixel contract"
+    );
+    expect(
+        receipt.rendered_dimensions == decoded.dimensions
+            && receipt.orientation == decoder->metadata().orientation,
+        "receipt records the actual rendered raster and LibRaw orientation"
+    );
+    expect(!receipt.half_size, "full reference rendering is never recorded as half-size");
+    expect(
+        receipt.use_camera_white_balance && receipt.use_camera_matrix
+            && !receipt.use_auto_brightness && !receipt.use_exposure_correction,
+        "receipt exposes Shadow's fixed LibRaw source-development switches"
+    );
+    expect(
+        receipt.brightness == 1.0F && receipt.maximum_adjustment_threshold == 0.0F
+            && receipt.output_bits_per_channel == 16U && receipt.output_color == 1
+            && receipt.gamma_inverse_power == 1.0 && receipt.gamma_linear_toe_slope == 1.0,
+        "receipt exposes the fixed linear output transfer and output format request"
+    );
+    expect(
+        receipt.declared_dng_opcode_lists == decoder->capabilities().pending_corrections,
+        "receipt preserves declared DNG opcode lists alongside LibRaw processing warnings"
+    );
 
     RetainedRgbSession retained(std::move(decoded), decoder->metadata());
     const std::uint32_t source_edge = std::max(
@@ -1111,6 +1356,7 @@ void real_libraw_boundary_and_neutral_preview_when_configured() {
 
 int main() {
     pending_corrections_are_explicit();
+    raw_development_receipt_is_explicitly_absent_until_a_provider_records_it();
     icc_color_management_is_content_addressed_and_transfer_aware();
     private_decoder_plugin_abi_is_explicit_and_fail_closed();
     private_decoder_plugin_loads_an_explicit_local_module();
@@ -1119,10 +1365,12 @@ int main() {
     optics_runs_before_preview_and_full_detail_preparation();
     largest_decodable_preview_wins();
     no_decodable_preview_is_a_valid_state();
+    raw_development_receipt_survives_prepared_edit_sessions();
     reference_proxy_is_bounded_standard_jpeg();
     dng_baseline_exposure_is_a_consistent_source_rendering_step();
     edited_proxy_applies_one_explicit_display_srgb_boundary();
     warm_edit_preview_decodes_once_and_renders_repeatedly();
+    rotated_raw_preview_preserves_native_effect_radius();
     warm_edit_preview_analysis_is_pre_jpeg_and_strictly_pre_clamp();
     warm_edit_preview_bounds_fail_before_decode();
     edited_proxy_rejects_invalid_nodes_before_decode();

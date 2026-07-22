@@ -29,6 +29,8 @@ use shadow_bridge::{
     MAX_TONE_CURVE_POINTS, OpticsSettings,
     PERCEPTUAL_COLOR_V2_IMPLEMENTATION_VERSION as PERCEPTUAL_COLOR_V2_IMPLEMENTATION_REVISION,
     PERCEPTUAL_COLOR_V2_PARAMETER_SCHEMA_VERSION, PerceptualColorParameters,
+    SELECTIVE_TONE_V2_IMPLEMENTATION_VERSION as SELECTIVE_TONE_V2_IMPLEMENTATION_REVISION,
+    SELECTIVE_TONE_V2_PARAMETER_SCHEMA_VERSION as SELECTIVE_TONE_V2_PARAMETER_SCHEMA_REVISION,
     SMOOTH_RGB_TONE_CURVE_IMPLEMENTATION_VERSION, SMOOTH_RGB_TONE_CURVE_PARAMETER_SCHEMA_VERSION,
     SelectiveToneParameters, SharpenParameters, SmoothRgbToneCurve, ToneCurvePoint,
     extract_best_libraw_preview, inspect_libraw, libraw_provider_version,
@@ -61,6 +63,7 @@ use shadow_domain::operation::{
     PERCEPTUAL_COLOR_OPERATION_ID, PERCEPTUAL_COLOR_V2_IMPLEMENTATION_VERSION,
     POINT_COLOR_RANGES_PARAMETER_KEY, RGB_WHITE_BALANCE_OPERATION_ID,
     SATURATION_FACTOR_PARAMETER_KEY, SATURATION_OPERATION_ID, SELECTIVE_TONE_OPERATION_ID,
+    SELECTIVE_TONE_V2_IMPLEMENTATION_VERSION, SELECTIVE_TONE_V2_PARAMETER_SCHEMA_VERSION,
     SHADOWS_PARAMETER_KEY, SHARPEN_AMOUNT_PARAMETER_KEY, SHARPEN_MASKING_PARAMETER_KEY,
     SHARPEN_OPERATION_ID, SHARPEN_RADIUS_PARAMETER_KEY, SHARPEN_THRESHOLD_PARAMETER_KEY,
     TONE_CURVE_BLUE_POINTS_PARAMETER_KEY, TONE_CURVE_GREEN_POINTS_PARAMETER_KEY,
@@ -2106,11 +2109,9 @@ impl DesktopSession {
         let base_commit_id = if base_commit_id.is_empty() {
             None
         } else {
-            Some(
-                base_commit_id
-                    .parse::<RecipeCommitId>()
-                    .with_context(|| format!("parse autosave base Recipe commit id {base_commit_id}"))?,
-            )
+            Some(base_commit_id.parse::<RecipeCommitId>().with_context(|| {
+                format!("parse autosave base Recipe commit id {base_commit_id}")
+            })?)
         };
         let expected_working_commit_id = if expected_working_commit_id.is_empty() {
             None
@@ -2132,7 +2133,9 @@ impl DesktopSession {
             .map(|commit_id| {
                 self.catalog
                     .recipe_commit(photo_id, commit_id)?
-                    .ok_or_else(|| anyhow!("autosave base Recipe commit {commit_id} is unavailable"))
+                    .ok_or_else(|| {
+                        anyhow!("autosave base Recipe commit {commit_id} is unavailable")
+                    })
             })
             .transpose()?;
         let snapshot = grade_stack_recipe_v1_snapshot(
@@ -2159,10 +2162,8 @@ impl DesktopSession {
                 name: WORKING_RECIPE_REF.to_owned(),
                 kind: RecipeRefKind::Working,
                 expectation: Some(
-                    expected_working_commit_id.map_or(
-                        RecipeRefExpectation::Missing,
-                        RecipeRefExpectation::At,
-                    ),
+                    expected_working_commit_id
+                        .map_or(RecipeRefExpectation::Missing, RecipeRefExpectation::At),
                 ),
             }],
         })?;
@@ -2483,6 +2484,8 @@ const _: () = assert!(
     CPU_REFERENCE_PARAMETER_SCHEMA_VERSION == ADJUSTMENT_PARAMETER_SCHEMA_VERSION
         && CPU_REFERENCE_IMPLEMENTATION_REVISION == ADJUSTMENT_IMPLEMENTATION_VERSION
         && TONE_CURVE_V2_PARAMETER_SCHEMA_VERSION == SMOOTH_RGB_TONE_CURVE_PARAMETER_SCHEMA_VERSION
+        && SELECTIVE_TONE_V2_PARAMETER_SCHEMA_VERSION
+            == SELECTIVE_TONE_V2_PARAMETER_SCHEMA_REVISION
 );
 
 const MAX_GRADE_NODES: usize = 16;
@@ -3485,6 +3488,10 @@ fn compile_recipe_node(
     let is_current_tone_curve = descriptor.operation_id().as_str() == TONE_CURVE_OPERATION_ID
         && descriptor.parameter_schema_version() == TONE_CURVE_V2_PARAMETER_SCHEMA_VERSION
         && descriptor.implementation_version() == TONE_CURVE_V2_IMPLEMENTATION_VERSION;
+    let is_current_selective_tone = descriptor.operation_id().as_str()
+        == SELECTIVE_TONE_OPERATION_ID
+        && descriptor.parameter_schema_version() == SELECTIVE_TONE_V2_PARAMETER_SCHEMA_VERSION
+        && descriptor.implementation_version() == SELECTIVE_TONE_V2_IMPLEMENTATION_VERSION;
     let is_current_perceptual_color = descriptor.operation_id().as_str()
         == PERCEPTUAL_COLOR_OPERATION_ID
         && descriptor.parameter_schema_version() == PERCEPTUAL_COLOR_V2_PARAMETER_SCHEMA_VERSION
@@ -3494,6 +3501,7 @@ fn compile_recipe_node(
         && descriptor.implementation_version() == DETAIL_EFFECTS_V2_IMPLEMENTATION_VERSION;
     if (!is_base_contract
         && !is_current_tone_curve
+        && !is_current_selective_tone
         && !is_current_perceptual_color
         && !is_current_detail_effects)
         || descriptor.input_types() != [rgb]
@@ -3552,7 +3560,7 @@ fn compile_recipe_node(
             }
         }
         RGB_WHITE_BALANCE_OPERATION_ID => {
-            require_stage(node, ProcessingStage::CreativeColor)?;
+            require_stage(node, ProcessingStage::SceneLinearFoundation)?;
             AdjustmentRenderOperation::RgbWhiteBalance {
                 temperature: required_float(
                     node.parameters(),
@@ -3570,6 +3578,9 @@ fn compile_recipe_node(
         }
         SELECTIVE_TONE_OPERATION_ID => {
             require_stage(node, ProcessingStage::ToneAndLocalContrast)?;
+            if !is_current_selective_tone {
+                bail!("Recipe Selective Tone uses a discarded contract");
+            }
             AdjustmentRenderOperation::SelectiveTone {
                 parameters: SelectiveToneParameters {
                     highlights: required_float(node.parameters(), HIGHLIGHTS_PARAMETER_KEY, 4)?,
@@ -3765,6 +3776,8 @@ fn compile_recipe_node(
         parameter_schema_version: descriptor.parameter_schema_version(),
         implementation_version: if is_current_tone_curve {
             SMOOTH_RGB_TONE_CURVE_IMPLEMENTATION_VERSION
+        } else if is_current_selective_tone {
+            SELECTIVE_TONE_V2_IMPLEMENTATION_REVISION
         } else if is_current_perceptual_color {
             PERCEPTUAL_COLOR_V2_IMPLEMENTATION_REVISION
         } else if is_current_detail_effects {
@@ -3839,11 +3852,32 @@ fn encode_grade_node_as_recipe_v1_layer(grade_node: &GradeNodeDraft) -> AnyResul
     let lut_id = identity.lut_render_op_id;
     let sharpen_id = identity.sharpen_render_op_id;
     let mut nodes = vec![
+        // This is a scene-linear, post-demosaic chromatic adaptation rather than sensor-domain
+        // white balance. It must still precede exposure and tone mapping: otherwise a white-
+        // balance change changes how the RGB tone curve and highlight shoulder treat a neutral.
+        recipe_v1_render_op(
+            white_balance_id,
+            RGB_WHITE_BALANCE_OPERATION_ID,
+            ProcessingStage::SceneLinearFoundation,
+            NodeInput::GraphInput { index: 0 },
+            parameter_block([
+                (
+                    WHITE_BALANCE_TEMPERATURE_PARAMETER_KEY,
+                    ParameterValue::Float(FiniteF64::new(parameters.white_balance_temperature)?),
+                ),
+                (
+                    WHITE_BALANCE_TINT_PARAMETER_KEY,
+                    ParameterValue::Float(FiniteF64::new(parameters.white_balance_tint)?),
+                ),
+            ])?,
+        )?,
         recipe_v1_render_op(
             exposure_id,
             EXPOSURE_OPERATION_ID,
             ProcessingStage::SceneLinearFoundation,
-            NodeInput::GraphInput { index: 0 },
+            NodeInput::Node {
+                node_id: white_balance_id,
+            },
             parameter_block([(
                 EXPOSURE_STOPS_PARAMETER_KEY,
                 ParameterValue::Float(FiniteF64::new(parameters.exposure_stops)?),
@@ -3867,31 +3901,12 @@ fn encode_grade_node_as_recipe_v1_layer(grade_node: &GradeNodeDraft) -> AnyResul
                 ),
             ])?,
         )?,
-        recipe_v1_render_op(
+        recipe_selective_tone_render_op(
             selective_tone_id,
-            SELECTIVE_TONE_OPERATION_ID,
-            ProcessingStage::ToneAndLocalContrast,
             NodeInput::Node {
                 node_id: contrast_id,
             },
-            parameter_block([
-                (
-                    HIGHLIGHTS_PARAMETER_KEY,
-                    ParameterValue::Float(FiniteF64::new(fine.selective_tone.highlights)?),
-                ),
-                (
-                    SHADOWS_PARAMETER_KEY,
-                    ParameterValue::Float(FiniteF64::new(fine.selective_tone.shadows)?),
-                ),
-                (
-                    WHITES_PARAMETER_KEY,
-                    ParameterValue::Float(FiniteF64::new(fine.selective_tone.whites)?),
-                ),
-                (
-                    BLACKS_PARAMETER_KEY,
-                    ParameterValue::Float(FiniteF64::new(fine.selective_tone.blacks)?),
-                ),
-            ])?,
+            fine.selective_tone,
         )?,
     ];
     let channel_input = if let Some(tone_curve) = grade_node.tone_curve.as_ref() {
@@ -3909,29 +3924,11 @@ fn encode_grade_node_as_recipe_v1_layer(grade_node: &GradeNodeDraft) -> AnyResul
     };
     nodes.extend([
         recipe_v1_render_op(
-            white_balance_id,
-            RGB_WHITE_BALANCE_OPERATION_ID,
-            ProcessingStage::CreativeColor,
-            NodeInput::Node {
-                node_id: channel_input,
-            },
-            parameter_block([
-                (
-                    WHITE_BALANCE_TEMPERATURE_PARAMETER_KEY,
-                    ParameterValue::Float(FiniteF64::new(parameters.white_balance_temperature)?),
-                ),
-                (
-                    WHITE_BALANCE_TINT_PARAMETER_KEY,
-                    ParameterValue::Float(FiniteF64::new(parameters.white_balance_tint)?),
-                ),
-            ])?,
-        )?,
-        recipe_v1_render_op(
             saturation_id,
             SATURATION_OPERATION_ID,
             ProcessingStage::CreativeColor,
             NodeInput::Node {
-                node_id: white_balance_id,
+                node_id: channel_input,
             },
             parameter_block([(
                 SATURATION_FACTOR_PARAMETER_KEY,
@@ -4034,6 +4031,48 @@ fn recipe_v1_render_op(
         None,
     )?;
     AdjustmentNode::new(id, operation, vec![input], parameters, None).map_err(Into::into)
+}
+
+fn recipe_selective_tone_render_op(
+    id: NodeId,
+    input: NodeInput,
+    parameters: SelectiveToneParameters,
+) -> AnyResult<AdjustmentNode> {
+    let rgb = PortType::Image(ImageDomain::WorkingRgb);
+    let operation = OperationDescriptor::new(
+        OperationId::new(SELECTIVE_TONE_OPERATION_ID)?,
+        SELECTIVE_TONE_V2_PARAMETER_SCHEMA_VERSION,
+        SELECTIVE_TONE_V2_IMPLEMENTATION_VERSION,
+        ProcessingStage::ToneAndLocalContrast,
+        vec![rgb],
+        rgb,
+        None,
+    )?;
+    AdjustmentNode::new(
+        id,
+        operation,
+        vec![input],
+        parameter_block([
+            (
+                HIGHLIGHTS_PARAMETER_KEY,
+                ParameterValue::Float(FiniteF64::new(parameters.highlights)?),
+            ),
+            (
+                SHADOWS_PARAMETER_KEY,
+                ParameterValue::Float(FiniteF64::new(parameters.shadows)?),
+            ),
+            (
+                WHITES_PARAMETER_KEY,
+                ParameterValue::Float(FiniteF64::new(parameters.whites)?),
+            ),
+            (
+                BLACKS_PARAMETER_KEY,
+                ParameterValue::Float(FiniteF64::new(parameters.blacks)?),
+            ),
+        ])?,
+        None,
+    )
+    .map_err(Into::into)
 }
 
 fn recipe_tone_curve_render_op(
@@ -4480,12 +4519,16 @@ struct GradeNodeRecipeV1RenderOps<'a> {
 
 impl GradeNodeRecipeV1RenderOps<'_> {
     fn ordered(&self) -> Vec<&AdjustmentNode> {
-        let mut nodes = vec![self.exposure, self.contrast, self.selective_tone];
+        let mut nodes = vec![
+            self.white_balance,
+            self.exposure,
+            self.contrast,
+            self.selective_tone,
+        ];
         if let Some(tone_curve) = self.tone_curve {
             nodes.push(tone_curve);
         }
         nodes.extend([
-            self.white_balance,
             self.saturation,
             self.perceptual_color,
             self.lut,
@@ -4511,26 +4554,26 @@ fn grade_node_recipe_v1_render_ops(
 ) -> AnyResult<GradeNodeRecipeV1RenderOps<'_>> {
     let ordered = ordered_inline_layer_nodes(layer)?;
     let (
+        white_balance,
         exposure,
         contrast,
         selective_tone,
         tone_curve,
-        white_balance,
         saturation,
         perceptual_color,
         lut,
         sharpen,
     ) = match ordered.len() {
         8 => (
-            ordered[0], ordered[1], ordered[2], None, ordered[3], ordered[4], ordered[5],
+            ordered[0], ordered[1], ordered[2], ordered[3], None, ordered[4], ordered[5],
             ordered[6], ordered[7],
         ),
         9 => (
             ordered[0],
             ordered[1],
             ordered[2],
-            Some(ordered[3]),
-            ordered[4],
+            ordered[3],
+            Some(ordered[4]),
             ordered[5],
             ordered[6],
             ordered[7],
@@ -4539,10 +4582,18 @@ fn grade_node_recipe_v1_render_ops(
         _ => bail!("working Recipe is not the current complete Grade Node shape"),
     };
     validate_recipe_v1_render_op(
+        white_balance,
+        RGB_WHITE_BALANCE_OPERATION_ID,
+        ProcessingStage::SceneLinearFoundation,
+        NodeInput::GraphInput { index: 0 },
+    )?;
+    validate_recipe_v1_render_op(
         exposure,
         EXPOSURE_OPERATION_ID,
         ProcessingStage::SceneLinearFoundation,
-        NodeInput::GraphInput { index: 0 },
+        NodeInput::Node {
+            node_id: white_balance.id(),
+        },
     )?;
     validate_recipe_v1_render_op(
         contrast,
@@ -4552,10 +4603,8 @@ fn grade_node_recipe_v1_render_ops(
             node_id: exposure.id(),
         },
     )?;
-    validate_recipe_v1_render_op(
+    validate_recipe_selective_tone_render_op(
         selective_tone,
-        SELECTIVE_TONE_OPERATION_ID,
-        ProcessingStage::ToneAndLocalContrast,
         NodeInput::Node {
             node_id: contrast.id(),
         },
@@ -4571,19 +4620,11 @@ fn grade_node_recipe_v1_render_ops(
         color_input = tone_curve.id();
     }
     validate_recipe_v1_render_op(
-        white_balance,
-        RGB_WHITE_BALANCE_OPERATION_ID,
-        ProcessingStage::CreativeColor,
-        NodeInput::Node {
-            node_id: color_input,
-        },
-    )?;
-    validate_recipe_v1_render_op(
         saturation,
         SATURATION_OPERATION_ID,
         ProcessingStage::CreativeColor,
         NodeInput::Node {
-            node_id: white_balance.id(),
+            node_id: color_input,
         },
     )?;
     validate_recipe_perceptual_color_render_op(
@@ -4967,6 +5008,29 @@ fn validate_recipe_tone_curve_render_op(node: &AdjustmentNode, input: NodeInput)
         || node.mask_reference().is_some()
     {
         bail!("working Recipe Tone Curve has an unsupported contract");
+    }
+    Ok(())
+}
+
+fn validate_recipe_selective_tone_render_op(
+    node: &AdjustmentNode,
+    input: NodeInput,
+) -> AnyResult<()> {
+    let operation = node.operation();
+    let rgb = PortType::Image(ImageDomain::WorkingRgb);
+    let contract_is_supported = operation.parameter_schema_version()
+        == SELECTIVE_TONE_V2_PARAMETER_SCHEMA_VERSION
+        && operation.implementation_version() == SELECTIVE_TONE_V2_IMPLEMENTATION_VERSION;
+    if operation.operation_id().as_str() != SELECTIVE_TONE_OPERATION_ID
+        || !contract_is_supported
+        || operation.stage() != ProcessingStage::ToneAndLocalContrast
+        || operation.input_types() != [rgb]
+        || operation.output_type() != rgb
+        || operation.seed().is_some()
+        || node.inputs() != [input]
+        || node.mask_reference().is_some()
+    {
+        bail!("working Recipe Selective Tone has an unsupported contract");
     }
     Ok(())
 }
@@ -5608,7 +5672,7 @@ impl DecodeInspector for LibRawInspector {
     }
 
     fn proxy_variant_key(&self) -> &'static str {
-        "libraw:grid-jpeg-2048-q88-v1"
+        "libraw:grid-jpeg-2048-q95-444-v2"
     }
 }
 
@@ -7666,11 +7730,11 @@ mod tests {
                 .starts_with(&format!("{second_grade_node_id}/"))
         }));
         assert!(matches!(
-            plan.nodes[0].operation,
+            plan.nodes[1].operation,
             AdjustmentRenderOperation::Exposure { stops: 0.5 }
         ));
         assert!(matches!(
-            plan.nodes[8].operation,
+            plan.nodes[9].operation,
             AdjustmentRenderOperation::Exposure { stops: -1.25 }
         ));
 
@@ -7991,7 +8055,7 @@ mod tests {
         let plan = compile_recipe_render_plan(&snapshot).expect("compile fine controls");
         assert_eq!(plan.nodes.len(), 8);
         assert!(matches!(
-            plan.nodes[2].operation,
+            plan.nodes[3].operation,
             AdjustmentRenderOperation::SelectiveTone { parameters }
                 if parameters == expected.selective_tone
         ));
@@ -8244,7 +8308,7 @@ mod tests {
             TONE_CURVE_V2_IMPLEMENTATION_VERSION
         );
         assert!(matches!(
-            compile_recipe_render_plan(&snapshot).unwrap().nodes[3].operation,
+            compile_recipe_render_plan(&snapshot).unwrap().nodes[4].operation,
             AdjustmentRenderOperation::SmoothRgbToneCurve { .. }
         ));
 
@@ -8343,19 +8407,19 @@ mod tests {
 
         plan.validate().expect("current complete plan");
         assert_eq!(plan.nodes.len(), 9);
-        assert_eq!(plan.nodes[0].node_id, render_id(recipe_nodes.exposure.id()));
-        assert_eq!(plan.nodes[1].node_id, render_id(recipe_nodes.contrast.id()));
         assert_eq!(
-            plan.nodes[2].node_id,
+            plan.nodes[0].node_id,
+            render_id(recipe_nodes.white_balance.id())
+        );
+        assert_eq!(plan.nodes[1].node_id, render_id(recipe_nodes.exposure.id()));
+        assert_eq!(plan.nodes[2].node_id, render_id(recipe_nodes.contrast.id()));
+        assert_eq!(
+            plan.nodes[3].node_id,
             render_id(recipe_nodes.selective_tone.id())
         );
         assert_eq!(
-            plan.nodes[3].node_id,
-            render_id(recipe_nodes.tone_curve.expect("Tone Curve node").id())
-        );
-        assert_eq!(
             plan.nodes[4].node_id,
-            render_id(recipe_nodes.white_balance.id())
+            render_id(recipe_nodes.tone_curve.expect("Tone Curve node").id())
         );
         assert_eq!(
             plan.nodes[5].node_id,
@@ -8369,25 +8433,32 @@ mod tests {
         assert_eq!(plan.nodes[8].node_id, render_id(recipe_nodes.sharpen.id()));
         assert_eq!(
             plan.nodes[0].operation,
+            AdjustmentRenderOperation::RgbWhiteBalance {
+                temperature: parameters.white_balance_temperature,
+                tint: parameters.white_balance_tint,
+            }
+        );
+        assert_eq!(
+            plan.nodes[1].operation,
             AdjustmentRenderOperation::Exposure {
                 stops: parameters.exposure_stops,
             }
         );
         assert_eq!(
-            plan.nodes[1].operation,
+            plan.nodes[2].operation,
             AdjustmentRenderOperation::Contrast {
                 factor: parameters.contrast_factor,
                 pivot: CONTRAST_PIVOT,
             }
         );
         assert_eq!(
-            plan.nodes[2].operation,
+            plan.nodes[3].operation,
             AdjustmentRenderOperation::SelectiveTone {
                 parameters: SelectiveToneParameters::default(),
             }
         );
         assert_eq!(
-            plan.nodes[3].operation,
+            plan.nodes[4].operation,
             AdjustmentRenderOperation::SmoothRgbToneCurve {
                 curves: Box::new(SmoothRgbToneCurve {
                     master: points
@@ -8396,13 +8467,6 @@ mod tests {
                         .collect(),
                     ..SmoothRgbToneCurve::default()
                 }),
-            }
-        );
-        assert_eq!(
-            plan.nodes[4].operation,
-            AdjustmentRenderOperation::RgbWhiteBalance {
-                temperature: parameters.white_balance_temperature,
-                tint: parameters.white_balance_tint,
             }
         );
         assert_eq!(
@@ -8449,7 +8513,7 @@ mod tests {
 
         assert_eq!(plan.nodes.len(), 9);
         assert!(matches!(
-            &plan.nodes[3].operation,
+            &plan.nodes[4].operation,
             AdjustmentRenderOperation::SmoothRgbToneCurve { curves }
                 if matches!(
                     settings.tone_curve.as_ref().expect("Tone Curve"),
@@ -8578,7 +8642,7 @@ mod tests {
         assert_eq!(basic_parameters_from_snapshot(&updated).unwrap(), changed);
         assert_eq!(updated_identity, original_identity);
         assert!(matches!(
-            &plan.nodes[3].operation,
+            &plan.nodes[4].operation,
             AdjustmentRenderOperation::SmoothRgbToneCurve { curves }
                 if curves.master == points
                     .into_iter()
@@ -8656,7 +8720,7 @@ mod tests {
         assert_eq!(child.commit.parents(), [root_commit_id]);
         assert_eq!(child_identity, root_identity);
         assert!(matches!(
-            &plan.nodes[3].operation,
+            &plan.nodes[4].operation,
             AdjustmentRenderOperation::SmoothRgbToneCurve { curves }
                 if curves.master == [
                     ToneCurvePoint { x: 0.0, y: 0.02 },
@@ -9246,10 +9310,7 @@ mod tests {
                 .catalog
                 .recipe_ref(
                     parsed_photo_id,
-                    &format!(
-                        "{NAMED_VERSION_REF_PREFIX}{}",
-                        autosaved.working_commit_id
-                    )
+                    &format!("{NAMED_VERSION_REF_PREFIX}{}", autosaved.working_commit_id)
                 )
                 .expect("read autosave version ref")
                 .is_none()

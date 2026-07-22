@@ -580,6 +580,12 @@ pub const ADJUSTMENT_PARAMETER_SCHEMA_VERSION: u32 = 1;
 /// Numeric v1 executor revision. Per-operation v2 contracts must not upgrade
 /// unrelated persisted nodes.
 pub const ADJUSTMENT_IMPLEMENTATION_VERSION: u32 = 1;
+/// Numeric parameter contract for the guided scene-linear Selective Tone mask.
+/// Its public slider shape remains four normalized values, but its spatial execution must never
+/// silently reinterpret the historical pixel-local v1 contract.
+pub const SELECTIVE_TONE_V2_PARAMETER_SCHEMA_VERSION: u32 = 2;
+/// Numeric executor revision for the guided Selective Tone mask.
+pub const SELECTIVE_TONE_V2_IMPLEMENTATION_VERSION: u32 = 2;
 /// Numeric parameter contract for the smooth master-plus-RGB Tone Curve.
 pub const SMOOTH_RGB_TONE_CURVE_PARAMETER_SCHEMA_VERSION: u32 = 2;
 /// Numeric executor revision for the smooth master-plus-RGB Tone Curve.
@@ -636,8 +642,8 @@ impl Default for SmoothRgbToneCurve {
     }
 }
 
-/// Pixel-local tonal zones in the processed linear-light RGB working space. Values are normalized user intent in
-/// `[-1, 1]`; the executor owns the versioned EV weighting and strength.
+/// Guided local tonal zones in the processed linear-light RGB working space. Values are normalized
+/// user intent in `[-1, 1]`; the executor owns the versioned EV weighting, mask, and strength.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SelectiveToneParameters {
     pub highlights: f64,
@@ -879,6 +885,10 @@ impl AdjustmentRenderPlan {
                 AdjustmentRenderOperation::SmoothRgbToneCurve { .. } => (
                     SMOOTH_RGB_TONE_CURVE_PARAMETER_SCHEMA_VERSION,
                     SMOOTH_RGB_TONE_CURVE_IMPLEMENTATION_VERSION,
+                ),
+                AdjustmentRenderOperation::SelectiveTone { .. } => (
+                    SELECTIVE_TONE_V2_PARAMETER_SCHEMA_VERSION,
+                    SELECTIVE_TONE_V2_IMPLEMENTATION_VERSION,
                 ),
                 AdjustmentRenderOperation::PerceptualColor { .. } => (
                     PERCEPTUAL_COLOR_V2_PARAMETER_SCHEMA_VERSION,
@@ -1340,7 +1350,7 @@ impl Default for EditedProxyRequest {
         Self {
             edits: BasicEditParameters::default(),
             max_edge: 2_048,
-            jpeg_quality: 88,
+            jpeg_quality: 95,
         }
     }
 }
@@ -2521,7 +2531,7 @@ mod tests {
         let request = EditedProxyRequest::default();
         assert_eq!(request.edits, BasicEditParameters::default());
         assert_eq!(request.max_edge, 2_048);
-        assert_eq!(request.jpeg_quality, 88);
+        assert_eq!(request.jpeg_quality, 95);
         request.validate().expect("neutral recipe is valid");
     }
 
@@ -2655,8 +2665,8 @@ mod tests {
             nodes: vec![
                 AdjustmentRenderNode {
                     node_id: "selective-tone".to_owned(),
-                    parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
-                    implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
+                    parameter_schema_version: SELECTIVE_TONE_V2_PARAMETER_SCHEMA_VERSION,
+                    implementation_version: SELECTIVE_TONE_V2_IMPLEMENTATION_VERSION,
                     enabled: true,
                     operation: AdjustmentRenderOperation::SelectiveTone {
                         parameters: SelectiveToneParameters {

@@ -185,6 +185,65 @@ struct MosaicBuffer final {
     std::vector<std::uint16_t> samples;
 };
 
+// A renderer-produced record of the exact RAW-development request that yielded a processed
+// reference raster. It intentionally lives beside the pixels, rather than in Recipe data: RAW
+// provider behavior is source provenance, while a recipe is only the photographer's editable
+// intent. A default/empty receipt means that a generic provider did not expose one; callers must
+// not infer sensor-domain behavior from the absence of a receipt.
+//
+// `provider_version` is Shadow's complete cache-visible provider identity. `library_version`
+// separately identifies the underlying renderer/library release when the provider has one; it
+// may be empty for a provider that intentionally does not expose that implementation detail.
+// `process_warnings` preserves a renderer's complete warning bit mask without collapsing future
+// warning bits into a lossy boolean set.
+inline constexpr std::uint32_t raw_development_receipt_schema_version = 1U;
+
+struct RawDevelopmentReceipt final {
+    // Zero means that the provider did not record RAW-development provenance for this buffer.
+    std::uint32_t schema_version = 0U;
+    std::string provider_id;
+    std::string provider_version;
+    std::string library_version;
+    std::string development_settings_signature;
+    std::uint32_t processed_linear_reference_contract_version = 0U;
+
+    // These are LibRaw's declared pre-render image dimensions and orientation alongside the
+    // actual output raster. They make a half-size or orientation-related difference auditable
+    // without assuming that the metadata dimensions already describe the processed bitmap.
+    Dimensions declared_image_dimensions;
+    Dimensions rendered_dimensions;
+    std::int32_t orientation = 0;
+    bool half_size = false;
+
+    bool use_camera_white_balance = false;
+    bool use_camera_matrix = false;
+    bool use_auto_brightness = false;
+    bool use_exposure_correction = false;
+    float brightness = 0.0F;
+    float maximum_adjustment_threshold = 0.0F;
+    std::uint16_t output_bits_per_channel = 0U;
+    std::int32_t demosaic_quality = 0;
+    std::int32_t output_color = 0;
+    double gamma_inverse_power = 0.0;
+    double gamma_linear_toe_slope = 0.0;
+
+    // Opcode lengths describe the source declarations, not a claim that a particular LibRaw
+    // build did or did not apply a stage. Consult process_warnings for the renderer's outcome.
+    PendingCorrections declared_dng_opcode_lists;
+    std::uint32_t process_warnings = 0U;
+
+    [[nodiscard]] bool recorded() const noexcept {
+        return schema_version != 0U;
+    }
+
+    // A caller may use `recorded()` to distinguish generic RGB input from provider-rendered RAW,
+    // but must use this guard before interpreting the fields of a known schema. It keeps a future
+    // private provider from being silently parsed as the current contract.
+    [[nodiscard]] bool uses_current_schema() const noexcept {
+        return schema_version == raw_development_receipt_schema_version;
+    }
+};
+
 struct PixelBuffer final {
     Dimensions dimensions;
     std::uint16_t bits_per_channel = 0;
@@ -194,6 +253,7 @@ struct PixelBuffer final {
     RgbTransferFunction transfer_function = RgbTransferFunction::unknown;
     RgbBufferReference reference = RgbBufferReference::unknown;
     std::vector<std::uint16_t> samples;
+    RawDevelopmentReceipt raw_development_receipt;
 };
 
 // Version 1 fixes linear gamma, camera WB/matrix conversion, unit brightness, no exposure or
@@ -201,12 +261,14 @@ struct PixelBuffer final {
 // those decode semantics must increment this cache-visible contract version.
 inline constexpr std::uint32_t processed_linear_reference_rgb_contract_version = 1U;
 inline constexpr float processed_linear_reference_maximum_adjustment_threshold = 0.0F;
-// Version 3 accepts only processed linear sRGB/Rec.709-D65 input and first applies Shadow's
+// Version 4 accepts only processed linear sRGB/Rec.709-D65 input and first applies Shadow's
 // neutral scene-to-display curve on luminance.  This creates a stable toe and shoulder for
 // decoded RAW data before Oklab chroma is reduced at fixed mapped lightness and the sRGB OETF is
-// applied.  It is a deterministic SDR display rendering, not a camera-JPEG emulation.
-inline constexpr std::uint32_t display_srgb8_output_transform_version = 3U;
-// The v3 gamut mapper is bounded work per out-of-gamut pixel. 0.5 is a conservative ceiling
+// applied. JPEG proxy encoding uses 4:4:4 sampling so this output contract does not discard
+// chroma detail after scene-to-display rendering. It is a deterministic SDR display rendering,
+// not a camera-JPEG emulation.
+inline constexpr std::uint32_t display_srgb8_output_transform_version = 4U;
+// The v4 gamut mapper is bounded work per out-of-gamut pixel. 0.5 is a conservative ceiling
 // above the display-sRGB Oklab gamut; sixteen bisections resolve chroma well below one 8-bit code
 // step.
 inline constexpr double display_srgb8_maximum_oklab_chroma = 0.5;
@@ -214,7 +276,7 @@ inline constexpr std::uint32_t display_srgb8_gamut_search_iterations = 16U;
 
 struct ProxyRequest final {
     std::uint32_t max_edge = 2'048;
-    std::uint8_t jpeg_quality = 88;
+    std::uint8_t jpeg_quality = 95;
 };
 
 struct EncodedProxy final {

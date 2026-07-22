@@ -667,7 +667,7 @@ mod tests {
             .expect("register source");
         let artifact = CachedArtifact {
             role: CachedArtifactRole::GeneratedProxy,
-            variant_key: "libraw:grid-jpeg-2048-q88-v1".into(),
+            variant_key: "libraw:grid-jpeg-2048-q95-444-v2".into(),
             generator_id: "libraw".into(),
             generator_version: "1".into(),
             provider_preview_id: None,

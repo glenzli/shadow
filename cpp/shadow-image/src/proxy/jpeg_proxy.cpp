@@ -432,112 +432,6 @@ void apply_source_baseline_exposure(
     }
 }
 
-// Estimate an image key from a bounded regular sampling grid instead of inspecting every pixel.
-// It is intentionally robust and inexpensive: the key only steers broad regional tone zones, it
-// is not an auto-exposure decision. The result is expressed in EV relative to 18% gray.
-[[nodiscard]] double estimate_scene_key_ev(const FloatRgbImage& image) {
-    constexpr std::uint32_t maximum_key_samples_per_axis = 160U;
-    constexpr double minimum_luminance = 1.0e-5;
-    constexpr double maximum_scene_key_ev = 8.0;
-    const std::uint32_t samples_x = std::min(
-        maximum_key_samples_per_axis,
-        image.dimensions.width
-    );
-    const std::uint32_t samples_y = std::min(
-        maximum_key_samples_per_axis,
-        image.dimensions.height
-    );
-    const std::size_t stride = image.row_stride_bytes / sizeof(float);
-    const auto weights = image.working_space.luminance_coefficients;
-    std::vector<double> values;
-    values.reserve(static_cast<std::size_t>(samples_x) * samples_y);
-    for (std::uint32_t sample_y = 0U; sample_y < samples_y; ++sample_y) {
-        const std::uint32_t y = std::min(
-            image.dimensions.height - 1U,
-            static_cast<std::uint32_t>(
-                (static_cast<std::uint64_t>(sample_y) * image.dimensions.height)
-                / samples_y
-            )
-        );
-        const std::size_t row = static_cast<std::size_t>(y) * stride;
-        for (std::uint32_t sample_x = 0U; sample_x < samples_x; ++sample_x) {
-            const std::uint32_t x = std::min(
-                image.dimensions.width - 1U,
-                static_cast<std::uint32_t>(
-                    (static_cast<std::uint64_t>(sample_x) * image.dimensions.width)
-                    / samples_x
-                )
-            );
-            const std::size_t offset = row + static_cast<std::size_t>(x) * 3U;
-            const double luminance = static_cast<double>(image.samples[offset]) * weights[0]
-                + static_cast<double>(image.samples[offset + 1U]) * weights[1]
-                + static_cast<double>(image.samples[offset + 2U]) * weights[2];
-            if (std::isfinite(luminance) && luminance > minimum_luminance) {
-                values.push_back(std::log2(luminance / 0.18));
-            }
-        }
-    }
-    if (values.empty()) {
-        return 0.0;
-    }
-    const auto middle = values.begin() + static_cast<std::ptrdiff_t>(values.size() / 2U);
-    std::nth_element(values.begin(), middle, values.end());
-    return std::clamp(*middle, -maximum_scene_key_ev, maximum_scene_key_ev);
-}
-
-[[nodiscard]] double estimate_scene_key_ev(
-    const PixelBuffer& image,
-    const double dng_baseline_exposure_stops
-) {
-    constexpr std::uint32_t maximum_key_samples_per_axis = 160U;
-    constexpr double minimum_luminance = 1.0e-5;
-    constexpr double maximum_scene_key_ev = 8.0;
-    const std::uint32_t samples_x = std::min(
-        maximum_key_samples_per_axis,
-        image.dimensions.width
-    );
-    const std::uint32_t samples_y = std::min(
-        maximum_key_samples_per_axis,
-        image.dimensions.height
-    );
-    const std::size_t stride = validated_source_row_stride(image);
-    const auto weights = linear_srgb_working_space().luminance_coefficients;
-    std::vector<double> values;
-    values.reserve(static_cast<std::size_t>(samples_x) * samples_y);
-    for (std::uint32_t sample_y = 0U; sample_y < samples_y; ++sample_y) {
-        const std::uint32_t y = std::min(
-            image.dimensions.height - 1U,
-            static_cast<std::uint32_t>(
-                (static_cast<std::uint64_t>(sample_y) * image.dimensions.height)
-                / samples_y
-            )
-        );
-        for (std::uint32_t sample_x = 0U; sample_x < samples_x; ++sample_x) {
-            const std::uint32_t x = std::min(
-                image.dimensions.width - 1U,
-                static_cast<std::uint32_t>(
-                    (static_cast<std::uint64_t>(sample_x) * image.dimensions.width)
-                    / samples_x
-                )
-            );
-            const double luminance = (
-                static_cast<double>(source_sample(image, stride, x, y, 0U)) * weights[0]
-                + static_cast<double>(source_sample(image, stride, x, y, 1U)) * weights[1]
-                + static_cast<double>(source_sample(image, stride, x, y, 2U)) * weights[2]
-            ) / 65'535.0;
-            if (std::isfinite(luminance) && luminance > minimum_luminance) {
-                values.push_back(std::log2(luminance / 0.18) + dng_baseline_exposure_stops);
-            }
-        }
-    }
-    if (values.empty()) {
-        return 0.0;
-    }
-    const auto middle = values.begin() + static_cast<std::ptrdiff_t>(values.size() / 2U);
-    std::nth_element(values.begin(), middle, values.end());
-    return std::clamp(*middle, -maximum_scene_key_ev, maximum_scene_key_ev);
-}
-
 // Lensfun operates on a processed u16 RGB raster. For an interactive preview, reduce the RAW
 // image before entering Lensfun and round-trip only the bounded proxy through that API. This
 // avoids a 45 MP geometry remap just to display 1200 px, while full-detail sessions still run
@@ -952,15 +846,13 @@ struct PreparedEditPreviewPixels final {
 
 [[nodiscard]] PreparedEditPreviewPixels prepare_edit_preview_pixels(
     const FloatRgbImage& working_proxy,
-    const std::span<const AdjustmentNode> nodes,
-    const double selective_tone_scene_key_ev
+    const std::span<const AdjustmentNode> nodes
 ) {
     FloatRgbImage edited = execute_adjustment_nodes(
         working_proxy,
         nodes,
         AdjustmentExecutionContext{
             .full_dimensions = working_proxy.dimensions,
-            .selective_tone_scene_key_ev = selective_tone_scene_key_ev,
         }
     );
     auto rgb = resize_working_to_display_srgb8(edited, edited.dimensions);
@@ -1078,6 +970,15 @@ struct PreparedEditPreviewPixels final {
     encoder.input_components = 3;
     encoder.in_color_space = JCS_RGB;
     jpeg_set_defaults(&encoder);
+    // A warm edit proxy is the user's active grading surface, not a tiny gallery thumbnail.
+    // Libjpeg defaults to chroma subsampling, which makes subtle hue and saturation adjustments
+    // look blockier than the linear RGB render that produced them. Keep full 4:4:4 chroma until
+    // the desktop bridge grows a lossless GPU upload format; thumbnail/cache callers may still
+    // choose their own size and quality.
+    for (int component = 0; component < encoder.num_components; ++component) {
+        encoder.comp_info[component].h_samp_factor = 1;
+        encoder.comp_info[component].v_samp_factor = 1;
+    }
     jpeg_set_quality(&encoder, quality, TRUE);
     encoder.optimize_coding = TRUE;
     jpeg_start_compress(&encoder, TRUE);
@@ -1101,15 +1002,29 @@ struct PreparedEditPreviewPixels final {
 
 struct PreparedReferenceRgb final {
     PixelBuffer pixels;
+    RawDevelopmentReceipt raw_development_receipt;
     OpticsProfileReceipt optics_receipt;
     double dng_baseline_exposure_stops = 0.0;
 };
 
 struct PreparedWarmEditProxy final {
     FloatRgbImage working_proxy;
+    RawDevelopmentReceipt raw_development_receipt;
     OpticsProfileReceipt optics_receipt;
-    double selective_tone_scene_key_ev = 0.0;
 };
+
+// LibRaw's `sizes.flip` describes the output raster orientation. Its processed RGB is already
+// rotated/flipped into that coordinate system, so a 90-degree orientation must also swap the
+// level-zero dimensions used to translate native-pixel radii into a warm preview. Treat unknown
+// values conservatively as unrotated metadata; the known dcraw/LibRaw 5/6 values are the two
+// transposed cases seen in current providers.
+[[nodiscard]] Dimensions oriented_full_dimensions(const AssetMetadata& metadata) noexcept {
+    Dimensions dimensions = metadata.image_dimensions;
+    if (metadata.orientation == 5 || metadata.orientation == 6) {
+        std::swap(dimensions.width, dimensions.height);
+    }
+    return dimensions;
+}
 
 [[nodiscard]] PreparedReferenceRgb prepare_reference_rgb(
     const DecodeSession& session,
@@ -1117,6 +1032,10 @@ struct PreparedWarmEditProxy final {
     const OpticsSettings& optics_settings
 ) {
     PixelBuffer pixels = session.render_reference_rgb();
+    // Decoder provenance belongs to the source render, not to a later optical remap. Preserve it
+    // independently before passing the buffer to arbitrary provider implementations, which may
+    // correctly allocate a new PixelBuffer without knowing Shadow's future sidecar fields.
+    RawDevelopmentReceipt raw_development_receipt = pixels.raw_development_receipt;
     const double dng_baseline_exposure_stops = usable_dng_baseline_exposure_stops(
         session.metadata()
     );
@@ -1127,6 +1046,7 @@ struct PreparedWarmEditProxy final {
         receipt.provider_version = "none";
         return {
             .pixels = std::move(pixels),
+            .raw_development_receipt = std::move(raw_development_receipt),
             .optics_receipt = std::move(receipt),
             .dng_baseline_exposure_stops = dng_baseline_exposure_stops,
         };
@@ -1142,6 +1062,7 @@ struct PreparedWarmEditProxy final {
     }
     return {
         .pixels = std::move(pixels),
+        .raw_development_receipt = std::move(raw_development_receipt),
         .optics_receipt = std::move(receipt),
         .dng_baseline_exposure_stops = dng_baseline_exposure_stops,
     };
@@ -1154,12 +1075,16 @@ struct PreparedWarmEditProxy final {
     const OpticsSettings& optics_settings
 ) {
     PixelBuffer preview_reference = session.render_reference_rgb_for_preview(max_edge);
+    // The float working proxy intentionally contains only pixels and scale metadata. Retain the
+    // decoder's receipt separately before the RGB conversion so a prepared session can report
+    // the exact RAW-development request that created its source raster.
+    RawDevelopmentReceipt raw_development_receipt = preview_reference.raw_development_receipt;
     const Dimensions target = proxy_dimensions(preview_reference.dimensions, max_edge);
     FloatRgbImage working_proxy = resize_processed_linear_to_working(preview_reference, target);
     // LibRaw may use a half-size demosaic above. Detail-and-effects radii remain expressed in
-    // native level-zero pixels, so preserve the relationship to the metadata's full image
-    // dimensions rather than accidentally doubling an effect radius on a warm preview.
-    const Dimensions full_dimensions = session.metadata().image_dimensions;
+    // native level-zero pixels, so preserve the relationship to the *oriented* full output
+    // dimensions rather than accidentally doubling one axis for a rotated camera frame.
+    const Dimensions full_dimensions = oriented_full_dimensions(session.metadata());
     if (full_dimensions.width > 0U && full_dimensions.height > 0U) {
         working_proxy.level_zero_to_raster_scale_x = static_cast<double>(target.width)
             / static_cast<double>(full_dimensions.width);
@@ -1191,11 +1116,10 @@ struct PreparedWarmEditProxy final {
         working_proxy,
         usable_dng_baseline_exposure_stops(session.metadata())
     );
-    const double selective_tone_scene_key_ev = estimate_scene_key_ev(working_proxy);
     return {
         .working_proxy = std::move(working_proxy),
+        .raw_development_receipt = std::move(raw_development_receipt),
         .optics_receipt = std::move(receipt),
-        .selective_tone_scene_key_ev = selective_tone_scene_key_ev,
     };
 }
 
@@ -1204,12 +1128,12 @@ struct PreparedWarmEditProxy final {
 WarmEditPreviewSession::WarmEditPreviewSession(
     FloatRgbImage working_proxy,
     const std::uint32_t max_edge,
-    OpticsProfileReceipt optics_receipt,
-    const double selective_tone_scene_key_ev
+    RawDevelopmentReceipt raw_development_receipt,
+    OpticsProfileReceipt optics_receipt
 )
     : working_proxy_(std::move(working_proxy)), max_edge_(max_edge),
-      optics_receipt_(std::move(optics_receipt)),
-      selective_tone_scene_key_ev_(selective_tone_scene_key_ev) {}
+      raw_development_receipt_(std::move(raw_development_receipt)),
+      optics_receipt_(std::move(optics_receipt)) {}
 
 Dimensions WarmEditPreviewSession::dimensions() const noexcept {
     return working_proxy_.dimensions;
@@ -1217,6 +1141,10 @@ Dimensions WarmEditPreviewSession::dimensions() const noexcept {
 
 std::uint32_t WarmEditPreviewSession::max_edge() const noexcept {
     return max_edge_;
+}
+
+const RawDevelopmentReceipt& WarmEditPreviewSession::raw_development_receipt() const noexcept {
+    return raw_development_receipt_;
 }
 
 const OpticsProfileReceipt& WarmEditPreviewSession::optics_receipt() const noexcept {
@@ -1230,8 +1158,7 @@ EncodedProxy WarmEditPreviewSession::render_jpeg(
     validate_jpeg_quality(jpeg_quality);
     auto prepared = prepare_edit_preview_pixels(
         working_proxy_,
-        nodes,
-        selective_tone_scene_key_ev_
+        nodes
     );
     EncodedProxy proxy;
     proxy.dimensions = prepared.edited.dimensions;
@@ -1246,8 +1173,7 @@ AnalyzedEditPreview WarmEditPreviewSession::render_jpeg_with_analysis(
     validate_jpeg_quality(jpeg_quality);
     auto prepared = prepare_edit_preview_pixels(
         working_proxy_,
-        nodes,
-        selective_tone_scene_key_ev_
+        nodes
     );
     auto analysis = analyze_edit_preview(prepared.edited, prepared.rgb);
 
@@ -1280,22 +1206,22 @@ WarmEditPreviewSession prepare_warm_edit_preview(
     return WarmEditPreviewSession(
         std::move(prepared.working_proxy),
         max_edge,
-        std::move(prepared.optics_receipt),
-        prepared.selective_tone_scene_key_ev
+        std::move(prepared.raw_development_receipt),
+        std::move(prepared.optics_receipt)
     );
 }
 
 FullEditDetailSession::FullEditDetailSession(
     PixelBuffer reference_rgb,
     const std::uint64_t retained_bytes,
+    RawDevelopmentReceipt raw_development_receipt,
     OpticsProfileReceipt optics_receipt,
-    const double dng_baseline_exposure_stops,
-    const double selective_tone_scene_key_ev
+    const double dng_baseline_exposure_stops
 )
     : reference_rgb_(std::move(reference_rgb)), retained_bytes_(retained_bytes),
+      raw_development_receipt_(std::move(raw_development_receipt)),
       optics_receipt_(std::move(optics_receipt)),
-      dng_baseline_exposure_stops_(dng_baseline_exposure_stops),
-      selective_tone_scene_key_ev_(selective_tone_scene_key_ev) {}
+      dng_baseline_exposure_stops_(dng_baseline_exposure_stops) {}
 
 Dimensions FullEditDetailSession::dimensions() const noexcept {
     return reference_rgb_.dimensions;
@@ -1303,6 +1229,10 @@ Dimensions FullEditDetailSession::dimensions() const noexcept {
 
 std::uint64_t FullEditDetailSession::retained_bytes() const noexcept {
     return retained_bytes_;
+}
+
+const RawDevelopmentReceipt& FullEditDetailSession::raw_development_receipt() const noexcept {
+    return raw_development_receipt_;
 }
 
 const OpticsProfileReceipt& FullEditDetailSession::optics_receipt() const noexcept {
@@ -1330,7 +1260,6 @@ RenderedDetailTile FullEditDetailSession::render_rgb8(
             .origin_x = working_rect.x,
             .origin_y = working_rect.y,
             .full_dimensions = reference_rgb_.dimensions,
-            .selective_tone_scene_key_ev = selective_tone_scene_key_ev_,
         }
     );
     const Dimensions dimensions{rect.width, rect.height};
@@ -1357,17 +1286,13 @@ FullEditDetailSession prepare_full_edit_detail(
     preflight_detail_metadata(session.metadata());
     auto reference = prepare_reference_rgb(session, optics_provider, optics_settings);
     static_cast<void>(validated_source_row_stride(reference.pixels));
-    const double selective_tone_scene_key_ev = estimate_scene_key_ev(
-        reference.pixels,
-        reference.dng_baseline_exposure_stops
-    );
     const std::uint64_t retained_bytes = checked_detail_retained_bytes(reference.pixels);
     return FullEditDetailSession(
         std::move(reference.pixels),
         retained_bytes,
+        std::move(reference.raw_development_receipt),
         std::move(reference.optics_receipt),
-        reference.dng_baseline_exposure_stops,
-        selective_tone_scene_key_ev
+        reference.dng_baseline_exposure_stops
     );
 }
 

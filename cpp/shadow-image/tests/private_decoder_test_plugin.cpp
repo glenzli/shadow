@@ -48,6 +48,37 @@ public:
         result.transfer_function = RgbTransferFunction::linear;
         result.reference = RgbBufferReference::processed_raw;
         result.samples = {0U, 1U, 2U, 3U, 4U, 5U};
+        // Deliberately use a non-host identity: the public adapter must bind a recorded receipt
+        // to its namespaced provider identity before it reaches the caller.
+        result.raw_development_receipt = RawDevelopmentReceipt{
+            .schema_version = raw_development_receipt_schema_version,
+            .provider_id = "spoofed-provider",
+            .provider_version = "spoofed-version",
+            .library_version = "private-fixture-sdk",
+        };
+        return result;
+    }
+
+    [[nodiscard]] PixelBuffer render_reference_rgb_for_preview(
+        const std::uint32_t max_edge
+    ) const override {
+        if (max_edge != 1U) {
+            return render_reference_rgb();
+        }
+        PixelBuffer result;
+        result.dimensions = {1U, 1U};
+        result.bits_per_channel = 16U;
+        result.channels = 3U;
+        result.row_stride_bytes = 3U * sizeof(std::uint16_t);
+        result.primaries = RgbPrimaries::srgb_rec709_d65;
+        result.transfer_function = RgbTransferFunction::linear;
+        result.reference = RgbBufferReference::processed_raw;
+        result.samples = {9U, 8U, 7U};
+        result.raw_development_receipt = RawDevelopmentReceipt{
+            .schema_version = raw_development_receipt_schema_version,
+            .provider_id = "spoofed-provider",
+            .provider_version = "spoofed-version",
+        };
         return result;
     }
 
@@ -84,15 +115,15 @@ constexpr PrivateDecoderPluginDescriptor descriptor{
 } // namespace
 
 extern "C" const PrivateDecoderPluginDescriptor*
-shadow_private_decoder_plugin_descriptor_v1() {
+shadow_private_decoder_plugin_descriptor_v2() {
     return &descriptor;
 }
 
-extern "C" DecoderProvider* shadow_create_private_decoder_provider_v1() {
+extern "C" DecoderProvider* shadow_create_private_decoder_provider_v2() {
     return new TestProvider();
 }
 
-extern "C" void shadow_destroy_private_decoder_provider_v1(DecoderProvider* provider) {
+extern "C" void shadow_destroy_private_decoder_provider_v2(DecoderProvider* provider) {
     delete provider;
 }
 

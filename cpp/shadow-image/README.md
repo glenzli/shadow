@@ -32,7 +32,7 @@ Current contract rules:
   demosaic, camera-to-output conversion, and fixed integer-range scaling; histogram brightness and
   frame-adaptive maximum adjustment are disabled. This is neither encoded sRGB nor untouched
   sensor-linear data, and it is not Shadow's final RAW color pipeline.
-- `render_reference_proxy_jpeg` bounds the longest edge (2048 and quality 88 in the first recipe) and rejects unbounded requests. Its version belongs in the cache key.
+- `render_reference_proxy_jpeg` bounds the longest edge (2048, quality 95, and 4:4:4 chroma in the current recipe) and rejects unbounded requests. Its version belongs in the cache key.
 - `decode_jpeg_display_luma` is a separate analysis path over compressed display proxies. It requires 8-bit libjpeg-turbo with in-memory sources, rejects encoded inputs above 128 MiB and source headers above 65,535 per axis or 100 million pixels, applies a stricter 50-million-pixel limit to multi-scan inputs, caps libjpeg memory at 256 MiB, and bounds scaled intermediates before emitting a tightly packed normalized `float` luma plane with a caller-selected edge in 1 through 512. Corrupt-data warnings, including synthesized end-of-image recovery for truncation, fail closed.
 - A `DecodeSession` is thread-confined. Providers may be shared; parallel work should open independent sessions.
 - The current owned `MosaicBuffer` intentionally copies LibRaw memory. A later opaque/tiled buffer can remove that copy without changing metadata semantics.

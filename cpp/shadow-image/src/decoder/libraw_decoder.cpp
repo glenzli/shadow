@@ -3,6 +3,7 @@
 #include <libraw/libraw.h>
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <climits>
 #include <cstdint>
@@ -17,7 +18,53 @@ namespace shadow::image {
 namespace {
 
 using ProcessedImage = std::unique_ptr<libraw_processed_image_t, void (*)(libraw_processed_image_t*)>;
-inline constexpr std::uint32_t libraw_capability_contract_version = 2U;
+inline constexpr std::uint32_t libraw_capability_contract_version = 3U;
+inline constexpr int libraw_reference_output_color = 1;
+inline constexpr double libraw_reference_gamma_inverse_power = 1.0;
+inline constexpr double libraw_reference_gamma_linear_toe_slope = 1.0;
+
+// This is intentionally distinct from the verbose receipt signature below. Provider versions
+// become part of catalog ContentIdentity, whose text fields are capped at 128 bytes. Preserve
+// every output-affecting LibRaw setting in a compact, reversible form rather than letting an
+// explanatory sentence make a valid cache identity impossible to persist.
+[[nodiscard]] std::string compact_libraw_development_settings_identity(
+    const LibRawDevelopmentSettings& settings
+) {
+    std::ostringstream identity;
+    identity << "s" << settings.schema_version
+             << "-w" << (settings.use_camera_white_balance ? 1 : 0)
+             << "-m" << (settings.use_camera_matrix ? 1 : 0)
+             << "-a" << (settings.use_auto_brightness ? 1 : 0)
+             << "-e" << (settings.use_exposure_correction ? 1 : 0)
+             << "-b" << std::hex << std::bit_cast<std::uint32_t>(settings.brightness)
+             << "-x" << std::bit_cast<std::uint32_t>(settings.maximum_adjustment_threshold)
+             << std::dec << "-p" << settings.output_bits_per_channel
+             << "-q" << settings.demosaic_quality;
+    return identity.str();
+}
+
+void configure_reference_render_parameters(
+    LibRaw& renderer,
+    const LibRawDevelopmentSettings& settings,
+    const bool half_size
+) {
+    auto& parameters = renderer.imgdata.params;
+    // These requests are deliberately installed before open/unpack. LibRaw documents that
+    // camera WB/matrix and half-size can affect earlier decode stages for some formats, so doing
+    // it only before dcraw_process would make the receipt claim more than the decoder guaranteed.
+    parameters.gamm[0] = libraw_reference_gamma_inverse_power;
+    parameters.gamm[1] = libraw_reference_gamma_linear_toe_slope;
+    parameters.output_bps = static_cast<int>(settings.output_bits_per_channel);
+    parameters.use_camera_wb = settings.use_camera_white_balance ? 1 : 0;
+    parameters.use_camera_matrix = settings.use_camera_matrix ? 1 : 0;
+    parameters.bright = settings.brightness;
+    parameters.exp_correc = settings.use_exposure_correction ? 1 : 0;
+    parameters.no_auto_bright = settings.use_auto_brightness ? 0 : 1;
+    parameters.adjust_maximum_thr = settings.maximum_adjustment_threshold;
+    parameters.output_color = libraw_reference_output_color;
+    parameters.user_qual = static_cast<int>(settings.demosaic_quality);
+    parameters.half_size = half_size ? 1 : 0;
+}
 
 [[nodiscard]] DecodeErrorCode map_libraw_error(const int result) noexcept {
     switch (result) {
@@ -236,9 +283,10 @@ class LibRawSession final : public DecodeSession {
 public:
     explicit LibRawSession(
         std::filesystem::path path,
-        LibRawDevelopmentSettings settings
+        LibRawDevelopmentSettings settings,
+        ProviderInfo provider_info
     )
-        : path_(std::move(path)), settings_(settings) {
+        : path_(std::move(path)), settings_(settings), provider_info_(std::move(provider_info)) {
         decoder_.imgdata.rawparams.max_raw_memory_mb = 2'048U;
         require_libraw_success(open_path(decoder_, path_), "open_file");
 
@@ -402,30 +450,24 @@ private:
         // The renderer is independent state and belongs on the heap regardless of caller.
         auto renderer = std::make_unique<LibRaw>();
         renderer->imgdata.rawparams.max_raw_memory_mb = 2'048U;
+        configure_reference_render_parameters(*renderer, settings_, half_size);
         require_libraw_success(open_path(*renderer, path_), "reference open_file");
         require_libraw_success(renderer->unpack(), "reference unpack");
 
+        // LibRaw may update `sizes.width` and `sizes.height` while producing its output bitmap.
+        // Snapshot the source declaration before `dcraw_process()` so a half-size receipt can
+        // distinguish its original image geometry from the rendered raster.
+        const Dimensions declared_image_dimensions{
+            renderer->imgdata.sizes.width,
+            renderer->imgdata.sizes.height,
+        };
+        const std::int32_t declared_orientation = renderer->imgdata.sizes.flip;
+        const PendingCorrections declared_dng_opcode_lists = pending_corrections(renderer->imgdata);
+        // Re-assert the same request after unpack as a defensive guard against a LibRaw build
+        // that initializes a postprocess default while loading metadata. The pre-open call above
+        // remains the important one for formats where these switches influence loading itself.
+        configure_reference_render_parameters(*renderer, settings_, half_size);
         auto& parameters = renderer->imgdata.params;
-        // LibRaw's gamm values are (inverse power, linear-toe slope). Its defaults describe a
-        // BT.709 transfer curve even for 16-bit output. 1/1 is LibRaw's documented linear curve
-        // (the dcraw -4 contract); do not later approximate the default curve as encoded sRGB.
-        parameters.gamm[0] = 1.0;
-        parameters.gamm[1] = 1.0;
-        parameters.output_bps = static_cast<int>(settings_.output_bits_per_channel);
-        parameters.use_camera_wb = settings_.use_camera_white_balance ? 1 : 0;
-        parameters.use_camera_matrix = settings_.use_camera_matrix ? 1 : 0;
-        parameters.bright = settings_.brightness;
-        parameters.exp_correc = settings_.use_exposure_correction ? 1 : 0;
-        parameters.no_auto_bright = settings_.use_auto_brightness ? 0 : 1;
-        // LibRaw otherwise defaults adjust_maximum_thr to 0.75 and may derive a new white
-        // maximum from this frame's channel maxima. Zero is the documented disable value, so
-        // the processed-linear scale is stable rather than content-adaptive.
-        parameters.adjust_maximum_thr = settings_.maximum_adjustment_threshold;
-        // LibRaw output_color=1 converts processed RGB to sRGB/Rec.709 D65 primaries. Gamma is
-        // controlled independently above, so the resulting integer samples remain linear-light.
-        parameters.output_color = 1;
-        parameters.user_qual = static_cast<int>(settings_.demosaic_quality);
-        parameters.half_size = half_size ? 1 : 0;
         require_libraw_success(renderer->dcraw_process(), "dcraw_process");
 
         int result = LIBRAW_SUCCESS;
@@ -499,6 +541,32 @@ private:
         buffer.reference = RgbBufferReference::processed_raw;
         buffer.samples.resize(sample_count);
         std::memcpy(buffer.samples.data(), image->data, byte_count);
+        buffer.raw_development_receipt = RawDevelopmentReceipt{
+            .schema_version = raw_development_receipt_schema_version,
+            .provider_id = provider_info_.id,
+            .provider_version = provider_info_.version,
+            .library_version = std::string(LibRaw::version()),
+            .development_settings_signature = libraw_development_settings_signature(settings_),
+            .processed_linear_reference_contract_version =
+                processed_linear_reference_rgb_contract_version,
+            .declared_image_dimensions = declared_image_dimensions,
+            .rendered_dimensions = buffer.dimensions,
+            .orientation = declared_orientation,
+            .half_size = half_size,
+            .use_camera_white_balance = parameters.use_camera_wb != 0,
+            .use_camera_matrix = parameters.use_camera_matrix != 0,
+            .use_auto_brightness = parameters.no_auto_bright == 0,
+            .use_exposure_correction = parameters.exp_correc != 0,
+            .brightness = parameters.bright,
+            .maximum_adjustment_threshold = parameters.adjust_maximum_thr,
+            .output_bits_per_channel = static_cast<std::uint16_t>(parameters.output_bps),
+            .demosaic_quality = parameters.user_qual,
+            .output_color = parameters.output_color,
+            .gamma_inverse_power = parameters.gamm[0],
+            .gamma_linear_toe_slope = parameters.gamm[1],
+            .declared_dng_opcode_lists = declared_dng_opcode_lists,
+            .process_warnings = renderer->imgdata.process_warnings,
+        };
         return buffer;
     }
 
@@ -512,6 +580,7 @@ private:
 
     std::filesystem::path path_;
     LibRawDevelopmentSettings settings_;
+    ProviderInfo provider_info_;
     LibRaw decoder_;
     AssetMetadata metadata_;
     DecodeCapabilities capabilities_;
@@ -528,15 +597,15 @@ public:
         // Provider version participates in generated-proxy/cache identity. Include Shadow's
         // reference/output contracts so a transfer or gamut-mapping change cannot reuse bytes
         // generated under the same linked LibRaw release.
-        info_.version = std::string(LibRaw::version())
-            + ";shadow-decoder-capabilities-v"
-            + std::to_string(libraw_capability_contract_version)
-            + ";shadow-processed-linear-srgb16-v"
-            + std::to_string(processed_linear_reference_rgb_contract_version)
-            + ";shadow-display-srgb8-v"
-            + std::to_string(display_srgb8_output_transform_version)
-            + ";"
-            + libraw_development_settings_signature(settings_);
+        info_.version = "libraw=" + std::string(LibRaw::version())
+            + ";cap=" + std::to_string(libraw_capability_contract_version)
+            + ";linear=" + std::to_string(processed_linear_reference_rgb_contract_version)
+            + ";receipt=" + std::to_string(raw_development_receipt_schema_version)
+            + ";display=" + std::to_string(display_srgb8_output_transform_version)
+            + ";settings=" + compact_libraw_development_settings_identity(settings_);
+        if (info_.version.size() > 128U) {
+            throw std::invalid_argument("LibRaw provider cache identity exceeds 128 bytes");
+        }
         info_.dng_sdk = (capabilities & LIBRAW_CAPS_DNGSDK) != 0U;
         info_.rawspeed =
             (capabilities & (LIBRAW_CAPS_RAWSPEED | LIBRAW_CAPS_RAWSPEED3)) != 0U;
@@ -550,7 +619,7 @@ public:
     [[nodiscard]] std::unique_ptr<DecodeSession> open(
         const std::filesystem::path& path
     ) const override {
-        return std::make_unique<LibRawSession>(path, settings_);
+        return std::make_unique<LibRawSession>(path, settings_, info_);
     }
 
 private:

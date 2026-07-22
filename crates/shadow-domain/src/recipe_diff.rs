@@ -730,8 +730,8 @@ mod tests {
 
     use super::*;
     use crate::{
-        EntityId, FiniteF64, ImageDomain, LayerRevisionId, OperationId, ParameterKey,
-        ParameterValue, ProcessingStage, RecipeValidationError,
+        CURRENT_RECIPE_SCHEMA_VERSION, EntityId, FiniteF64, ImageDomain, LayerRevisionId,
+        OperationId, ParameterKey, ParameterValue, ProcessingStage, RecipeValidationError,
     };
 
     fn entity<T: EntityId>(value: u128) -> T {
@@ -831,7 +831,7 @@ mod tests {
     fn optics_are_a_first_class_recipe_diff_without_layer_noise() {
         let before = RecipeSnapshot::empty();
         let after = RecipeSnapshot::new_with_input_settings(
-            1,
+            CURRENT_RECIPE_SCHEMA_VERSION,
             RecipeInputSettings::new(crate::RecipeOpticsSettings::new(
                 true, false, true, true, true,
             )),

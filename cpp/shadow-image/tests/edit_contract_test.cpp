@@ -211,6 +211,9 @@ void stable_operation_ids_are_explicit() {
         "sharpen has a stable operation id"
     );
     for (std::size_t index = 0U; index < 9U; ++index) {
+        if (index == 6U) {
+            continue;
+        }
         expect(
             image::locality(image::operation(nodes[index]))
                 == image::AdjustmentLocality::pixel_local,
@@ -221,6 +224,27 @@ void stable_operation_ids_are_explicit() {
             "pixel-local adjustment operations declare a zero raster footprint"
         );
     }
+    expect(
+        image::locality(image::operation(nodes[6]))
+            == image::AdjustmentLocality::neighborhood,
+        "guided selective tone explicitly declares neighborhood execution"
+    );
+    expect(
+        image::footprint(image::SelectiveToneAdjustment{}) == image::AdjustmentFootprint{},
+        "neutral selective tone has no required footprint"
+    );
+    expect(
+        image::footprint(image::SelectiveToneAdjustment{.shadows = 0.25})
+            == image::AdjustmentFootprint{
+                .horizontal_radius = static_cast<std::uint32_t>(
+                    image::selective_tone_guided_mask_radius_level_zero
+                ),
+                .vertical_radius = static_cast<std::uint32_t>(
+                    image::selective_tone_guided_mask_radius_level_zero
+                ),
+            },
+        "guided selective tone reports its full-resolution mask support"
+    );
     expect(
         image::locality(image::operation(nodes[9]))
             == image::AdjustmentLocality::neighborhood,
@@ -697,7 +721,18 @@ void rgb_white_balance_and_saturation_have_numeric_contracts() {
     );
     expect(neutral.samples == input.samples, "neutral RGB white balance is an exact no-op");
 
-    const double expected_luminance = 0.2 * 0.2627 + 0.4 * 0.6780 + 0.6 * 0.0593;
+    const auto saturation_identity = image::execute_adjustment_nodes(
+        input,
+        std::array{image::AdjustmentNode{
+            .node_id = "neutral-saturation",
+            .parameters = image::SaturationAdjustment{.factor = 1.0},
+        }}
+    );
+    expect(
+        saturation_identity.samples == input.samples,
+        "unit saturation is an exact no-op without a perceptual round trip"
+    );
+
     const std::array monochrome{
         image::AdjustmentNode{
             .node_id = "saturation",
@@ -705,13 +740,16 @@ void rgb_white_balance_and_saturation_have_numeric_contracts() {
         },
     };
     const auto desaturated = image::execute_adjustment_nodes(input, monochrome);
-    for (const float sample : desaturated.samples) {
-        expect_close(
-            sample,
-            static_cast<float>(expected_luminance),
-            "zero saturation produces working-space luminance"
-        );
-    }
+    expect_close(
+        desaturated.samples[0],
+        desaturated.samples[1],
+        "zero saturation produces an Oklab-neutral working RGB sample"
+    );
+    expect_close(
+        desaturated.samples[1],
+        desaturated.samples[2],
+        "zero saturation removes chroma without an RGB-luma approximation"
+    );
 
     const std::array boosted{
         image::AdjustmentNode{
@@ -720,11 +758,54 @@ void rgb_white_balance_and_saturation_have_numeric_contracts() {
         },
     };
     const auto saturated = image::execute_adjustment_nodes(input, boosted);
-    const double output_luminance = saturated.samples[0] * 0.2627
-        + saturated.samples[1] * 0.6780 + saturated.samples[2] * 0.0593;
     expect(
-        std::abs(output_luminance - expected_luminance) < 1.0e-5,
-        "saturation preserves the declared working-space luminance"
+        saturated.samples != input.samples,
+        "perceptual saturation changes chromatic samples"
+    );
+
+    const auto neutral_gray = rgb_image(1, {-0.25F, -0.25F, -0.25F});
+    const auto boosted_gray = image::execute_adjustment_nodes(
+        neutral_gray,
+        std::array{image::AdjustmentNode{
+            .node_id = "gray-saturation",
+            .parameters = image::SaturationAdjustment{.factor = 4.0},
+        }}
+    );
+    expect(
+        boosted_gray.samples == neutral_gray.samples,
+        "perceptual saturation preserves the D65 neutral axis exactly, including negative data"
+    );
+
+    const auto extended = image::execute_adjustment_nodes(
+        rgb_image(1, {0.1F, 0.4F, 2.0F}),
+        std::array{image::AdjustmentNode{
+            .node_id = "extended-gamut-saturation",
+            .parameters = image::SaturationAdjustment{.factor = 2.0},
+        }}
+    );
+    expect(
+        std::ranges::all_of(extended.samples, [](const float sample) {
+            return std::isfinite(sample);
+        }),
+        "perceptual saturation keeps extended-gamut scene-linear output finite"
+    );
+    expect(
+        *std::max_element(extended.samples.begin(), extended.samples.end()) > 1.0F,
+        "perceptual saturation does not clip super-white scene-linear output"
+    );
+
+    const auto negative_extended = image::execute_adjustment_nodes(
+        rgb_image(1, {-0.125F, 0.32F, 1.8F}),
+        std::array{image::AdjustmentNode{
+            .node_id = "negative-extended-gamut-saturation",
+            .parameters = image::SaturationAdjustment{.factor = 1.5},
+        }}
+    );
+    expect(
+        std::ranges::all_of(negative_extended.samples, [](const float sample) {
+            return std::isfinite(sample);
+        }),
+        "perceptual saturation accepts negative extended-gamut scene-linear samples"
     );
 }
 
@@ -737,6 +818,8 @@ void selective_tone_is_exactly_neutral_and_preserves_scene_range() {
     const std::array neutral_node{
         image::AdjustmentNode{
             .node_id = "neutral-selective-tone",
+            .parameter_schema_version = image::selective_tone_v2_parameter_schema_version,
+            .implementation_version = image::selective_tone_v2_implementation_version,
             .parameters = image::SelectiveToneAdjustment{},
         },
     };
@@ -760,6 +843,8 @@ void selective_tone_is_exactly_neutral_and_preserves_scene_range() {
     const std::array regional_node{
         image::AdjustmentNode{
             .node_id = "regional-tone",
+            .parameter_schema_version = image::selective_tone_v2_parameter_schema_version,
+            .implementation_version = image::selective_tone_v2_implementation_version,
             .parameters = image::SelectiveToneAdjustment{
                 .highlights = 0.0,
                 .shadows = 0.0,
@@ -773,10 +858,9 @@ void selective_tone_is_exactly_neutral_and_preserves_scene_range() {
         adjusted.samples[0] > black * 2.0F && adjusted.samples[0] < 0.1F,
         "black control lifts the visible deep-shadow toe without turning it into middle gray"
     );
-    expect_close(
-        adjusted.samples[3],
-        middle_gray,
-        "black and white controls leave scene-linear middle gray untouched"
+    expect(
+        std::abs(adjusted.samples[3] - middle_gray) < 0.002F,
+        "opposed endpoint controls leave scene-linear middle gray effectively neutral"
     );
     expect(
         adjusted.samples[6] < white && adjusted.samples[6] > 0.0F,
@@ -834,31 +918,34 @@ void scene_contrast_is_restrained_and_preserves_the_middle_gray_anchor() {
     );
 }
 
-void selective_tone_adapts_partly_to_the_image_scene_key() {
+void selective_tone_uses_fixed_photographer_facing_zones() {
     const auto input = rgb_image(1, {0.06F, 0.06F, 0.06F});
     const std::array black_node{
         image::AdjustmentNode{
-            .node_id = "scene-key-black-control",
+            .node_id = "fixed-zone-black-control",
+            .parameter_schema_version = image::selective_tone_v2_parameter_schema_version,
+            .implementation_version = image::selective_tone_v2_implementation_version,
             .parameters = image::SelectiveToneAdjustment{.blacks = 0.6},
         },
     };
     const auto canonical = image::execute_adjustment_nodes(input, black_node);
-    const auto high_key = image::execute_adjustment_nodes(
+    const auto tiled = image::execute_adjustment_nodes(
         input,
         black_node,
         image::AdjustmentExecutionContext{
-            .full_dimensions = input.dimensions,
-            .selective_tone_scene_key_ev = 2.0,
+            .origin_x = 64U,
+            .origin_y = 128U,
+            .full_dimensions = {512U, 512U},
         }
     );
     expect(
-        high_key.samples[0] > canonical.samples[0] * 1.2F,
-        "scene-key adaptation keeps the Blacks control effective on a bright-normalized RAW"
+        canonical.samples[0] > input.samples[0],
+        "Blacks has a visible lift in its fixed dark scene-EV region"
     );
     expect_close(
-        high_key.samples[1] / high_key.samples[0],
-        1.0F,
-        "scene-key tone adaptation remains luminance-driven and preserves neutral RGB ratios"
+        tiled.samples[0],
+        canonical.samples[0],
+        "tile coordinates cannot move the fixed photographer-facing tone zones"
     );
 }
 
@@ -872,6 +959,8 @@ void selective_tone_weights_are_smooth_and_preserve_rgb_ratios() {
     const std::array transition_node{
         image::AdjustmentNode{
             .node_id = "black-shadow-transition",
+            .parameter_schema_version = image::selective_tone_v2_parameter_schema_version,
+            .implementation_version = image::selective_tone_v2_implementation_version,
             .parameters = image::SelectiveToneAdjustment{
                 .shadows = -1.0,
                 .blacks = 1.0,
@@ -890,6 +979,8 @@ void selective_tone_weights_are_smooth_and_preserve_rgb_ratios() {
     const std::array shadow_node{
         image::AdjustmentNode{
             .node_id = "ratio-preserving-shadows",
+            .parameter_schema_version = image::selective_tone_v2_parameter_schema_version,
+            .implementation_version = image::selective_tone_v2_implementation_version,
             .parameters = image::SelectiveToneAdjustment{.shadows = 0.75},
         },
     };
@@ -919,6 +1010,8 @@ void selective_tone_endpoints_reach_ordinary_detail_without_clipping() {
     const std::array node{
         image::AdjustmentNode{
             .node_id = "wide-endpoint-fields",
+            .parameter_schema_version = image::selective_tone_v2_parameter_schema_version,
+            .implementation_version = image::selective_tone_v2_implementation_version,
             .parameters = image::SelectiveToneAdjustment{
                 .whites = -1.0,
                 .blacks = 1.0,
@@ -952,6 +1045,8 @@ void selective_tone_combined_extremes_are_monotonic_and_smooth() {
     const std::array node{
         image::AdjustmentNode{
             .node_id = "combined-selective-tone-extremes",
+            .parameter_schema_version = image::selective_tone_v2_parameter_schema_version,
+            .implementation_version = image::selective_tone_v2_implementation_version,
             .parameters = image::SelectiveToneAdjustment{
                 .highlights = -1.0,
                 .shadows = 1.0,
@@ -991,6 +1086,46 @@ void selective_tone_combined_extremes_are_monotonic_and_smooth() {
         previous_ev = current_ev;
         have_previous = true;
     }
+}
+
+void selective_tone_uses_a_flat_region_gain_without_cross_edge_leakage() {
+    constexpr std::uint32_t width = 256U;
+    constexpr float shadow_luminance = 0.18F * 0.25F; // -2 EV relative to middle gray.
+    constexpr float highlight_luminance = 0.18F * 8.0F; // +3 EV.
+    std::vector<float> samples;
+    samples.reserve(static_cast<std::size_t>(width) * 3U);
+    for (std::uint32_t x = 0U; x < width; ++x) {
+        const float value = x < width / 2U ? shadow_luminance : highlight_luminance;
+        samples.insert(samples.end(), {value, value, value});
+    }
+    const auto input = rgb_raster(width, 1U, std::move(samples));
+    const std::array node{
+        image::AdjustmentNode{
+            .node_id = "guided-shadow-region",
+            .parameter_schema_version = image::selective_tone_v2_parameter_schema_version,
+            .implementation_version = image::selective_tone_v2_implementation_version,
+            .parameters = image::SelectiveToneAdjustment{.shadows = 0.8},
+        },
+    };
+    const auto output = image::execute_adjustment_nodes(input, node);
+    const auto sample = [&output](const std::uint32_t x) {
+        return output.samples[static_cast<std::size_t>(x) * 3U];
+    };
+    const double far_shadow_gain = static_cast<double>(sample(32U)) / shadow_luminance;
+    const double other_flat_shadow_gain = static_cast<double>(sample(64U)) / shadow_luminance;
+    const double edge_shadow_gain = static_cast<double>(sample(127U)) / shadow_luminance;
+    expect(
+        std::abs(far_shadow_gain - other_flat_shadow_gain) < 1.0e-6,
+        "guided selective tone applies one deterministic gain inside a uniform tonal region"
+    );
+    expect(
+        std::abs(std::log2(edge_shadow_gain / far_shadow_gain)) < 0.08,
+        "guided selective tone keeps a high-contrast boundary from leaking a bright-region mask into shadows"
+    );
+    expect(
+        sample(127U) > shadow_luminance && sample(128U) > highlight_luminance,
+        "guided selective tone remains directional on both sides of a preserved edge"
+    );
 }
 
 void perceptual_color_is_exactly_neutral_for_identity_and_low_chroma() {
@@ -1279,6 +1414,8 @@ void new_adjustments_respect_node_order() {
     input.working_space = linear_srgb();
     const image::AdjustmentNode tone{
         .node_id = "selective-highlights",
+        .parameter_schema_version = image::selective_tone_v2_parameter_schema_version,
+        .implementation_version = image::selective_tone_v2_implementation_version,
         .parameters = image::SelectiveToneAdjustment{.highlights = 0.8},
     };
     image::PerceptualColorAdjustment color_parameters;
@@ -1541,6 +1678,8 @@ void new_adjustment_bounds_are_validated_without_pixels() {
     const std::array valid_edges{
         image::AdjustmentNode{
             .node_id = "selective-tone-edges",
+            .parameter_schema_version = image::selective_tone_v2_parameter_schema_version,
+            .implementation_version = image::selective_tone_v2_implementation_version,
             .parameters = image::SelectiveToneAdjustment{
                 .highlights = -1.0,
                 .shadows = 1.0,
@@ -1575,6 +1714,8 @@ void new_adjustment_bounds_are_validated_without_pixels() {
     const std::array invalid_tone{
         image::AdjustmentNode{
             .node_id = "invalid-selective-tone",
+            .parameter_schema_version = image::selective_tone_v2_parameter_schema_version,
+            .implementation_version = image::selective_tone_v2_implementation_version,
             .enabled = false,
             .parameters = image::SelectiveToneAdjustment{.highlights = 1.0001},
         },
@@ -2179,10 +2320,11 @@ int main() {
     rgb_white_balance_and_saturation_have_numeric_contracts();
     selective_tone_is_exactly_neutral_and_preserves_scene_range();
     scene_contrast_is_restrained_and_preserves_the_middle_gray_anchor();
-    selective_tone_adapts_partly_to_the_image_scene_key();
+    selective_tone_uses_fixed_photographer_facing_zones();
     selective_tone_weights_are_smooth_and_preserve_rgb_ratios();
     selective_tone_endpoints_reach_ordinary_detail_without_clipping();
     selective_tone_combined_extremes_are_monotonic_and_smooth();
+    selective_tone_uses_a_flat_region_gain_without_cross_edge_leakage();
     perceptual_color_is_exactly_neutral_for_identity_and_low_chroma();
     perceptual_color_range_wraps_across_the_hue_seam();
     perceptual_hue_bands_route_named_linear_srgb_colors();

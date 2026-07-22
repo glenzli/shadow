@@ -364,7 +364,7 @@ impl DecodeInspector for LibRawInspector {
     }
 
     fn proxy_variant_key(&self) -> &'static str {
-        "libraw:grid-jpeg-2048-q88-v1"
+        "libraw:grid-jpeg-2048-q95-444-v2"
     }
 }
 

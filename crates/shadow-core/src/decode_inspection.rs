@@ -79,7 +79,7 @@ pub trait DecodeInspector: Send + 'static {
 
     #[allow(clippy::unnecessary_literal_bound)]
     fn proxy_variant_key(&self) -> &str {
-        "anonymous:grid-jpeg-2048-q88-v1"
+        "anonymous:grid-jpeg-2048-q95-444-v2"
     }
 }
 

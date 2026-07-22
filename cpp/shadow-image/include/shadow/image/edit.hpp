@@ -87,35 +87,51 @@ struct ContrastAdjustment final {
 };
 
 struct RgbWhiteBalanceAdjustment final {
-    // Post-demosaic creative white balance in the declared D65 working space.
+    // Post-demosaic, scene-linear creative white balance in the declared D65 working space.
     // Temperature and tint are normalized user intent in [-1, 1]. Positive
     // temperature warms the image; positive tint moves away from green toward
-    // magenta. This is deliberately distinct from sensor-domain RAW WB.
+    // magenta. This runs before the tone controls in Shadow's default recipe, but is still
+    // deliberately distinct from sensor-domain RAW WB.
     double temperature = 0.0;
     double tint = 0.0;
 };
 
 struct SaturationAdjustment final {
-    // Luma-preserving linear-RGB interpolation. factor=0 is monochrome, 1 is neutral.
+    // Perceptual Oklab/Oklch chroma scaling in the declared D65 working space. factor=0 is
+    // monochrome at the same Oklab lightness; factor=1 is an exact no-op. This deliberately
+    // leaves scene-linear extended-gamut values unclamped so later output rendering, rather
+    // than a creative control, owns gamut mapping.
     double factor = 1.0;
 };
 
 // Scene-referred regional tone controls expressed as bounded, implementation-independent
 // amounts. Their implementation deliberately distinguishes the endpoints (Blacks/Whites)
 // from the broad recovery ranges (Shadows/Highlights): endpoint controls shape a tighter
-// toe/shoulder response while recovery controls apply a wider EV-domain exposure field. Both
-// use continuous scene-EV fields rather than hard thresholds, so useful dark/bright detail can
-// be affected without quantizing, clipping, or folding the tonal order.
+// toe/shoulder response while recovery controls apply a wider EV-domain exposure field.
 //
-// This is intentionally not a clone of any particular RAW developer. It is Shadow's compact,
-// ratio-preserving baseline that later local-masking implementations can refine without
-// changing the public control vocabulary. Zeroes are exactly neutral.
+// Version 2 evaluates those fields against an edge-aware, locally guided log-luminance mask,
+// then applies the resulting EV gain to the original scene-linear RGB. This lets neighbouring
+// pixels in the same tonal region share a gain (preserving local contrast) while high-contrast
+// edges remain boundaries for the mask. Zeroes are exactly neutral and do not allocate any
+// spatial working state.
 struct SelectiveToneAdjustment final {
     double highlights = 0.0;
     double shadows = 0.0;
     double whites = 0.0;
     double blacks = 0.0;
 };
+
+// The four public tone controls retain their compact v1 parameter shape, but their masked
+// scene-linear processing is a different operation contract. Do not reinterpret a persisted v1
+// control set as v2: callers must explicitly create the current contract.
+inline constexpr std::uint32_t selective_tone_v2_parameter_schema_version = 2;
+inline constexpr std::uint32_t selective_tone_v2_implementation_version = 2;
+
+// Native/full-resolution radius of the deterministic self-guided log-luminance mask. The
+// executor converts this independently for each raster axis, so a warm proxy and a detail tile
+// describe the same physical neighbourhood. It deliberately stays below the per-node tile-apron
+// budget, leaving multi-node graphs enough room for other spatial operations.
+inline constexpr double selective_tone_guided_mask_radius_level_zero = 48.0;
 
 inline constexpr std::size_t perceptual_hue_band_count = 8U;
 inline constexpr std::size_t maximum_point_color_ranges = 16U;
@@ -356,17 +372,12 @@ struct AdjustmentExecutionContext final {
     std::uint32_t origin_x = 0;
     std::uint32_t origin_y = 0;
     Dimensions full_dimensions{};
-    // Robust image-level log-luminance key relative to 18% gray. The renderer supplies this for
-    // RAW-backed preview and detail sessions so regional tone controls do not become ineffective
-    // merely because a camera or exposure places its entire scene above/below a fixed numeric
-    // zone. Zero preserves the standalone executor's canonical 18%-gray behavior.
-    double selective_tone_scene_key_ev = 0.0;
 };
 
 // Executes an intentionally compact subset of the future typed edit graph. The recommended
-// default pipeline order is Exposure -> Contrast -> SelectiveTone -> ToneCurve (legacy or
-// SmoothRgbToneCurve) -> RgbWhiteBalance -> Saturation -> PerceptualColor, but that is a recipe
-// convention: this executor always applies nodes in the supplied span order.
+// default pipeline order is RgbWhiteBalance -> Exposure -> Contrast -> SelectiveTone ->
+// ToneCurve (legacy or SmoothRgbToneCurve) -> Saturation -> PerceptualColor, but that is a
+// recipe convention: this executor always applies nodes in the supplied span order.
 // Disabled nodes are skipped and the input is never mutated. The executor does not clamp
 // negative or >1 values and rejects NaN/Inf rather than silently contaminating caches.
 [[nodiscard]] FloatRgbImage execute_adjustment_nodes(
@@ -448,28 +459,31 @@ public:
 
     [[nodiscard]] Dimensions dimensions() const noexcept;
     [[nodiscard]] std::uint32_t max_edge() const noexcept;
+    // Provenance of the provider render retained by this preview. It remains separate from the
+    // editable recipe and from the later optical-correction receipt.
+    [[nodiscard]] const RawDevelopmentReceipt& raw_development_receipt() const noexcept;
     [[nodiscard]] const OpticsProfileReceipt& optics_receipt() const noexcept;
     [[nodiscard]] EncodedProxy render_jpeg(
         std::span<const AdjustmentNode> nodes,
-        std::uint8_t jpeg_quality = 88
+        std::uint8_t jpeg_quality = 95
     ) const;
     [[nodiscard]] AnalyzedEditPreview render_jpeg_with_analysis(
         std::span<const AdjustmentNode> nodes,
-        std::uint8_t jpeg_quality = 88
+        std::uint8_t jpeg_quality = 95
     ) const;
 
 private:
     WarmEditPreviewSession(
         FloatRgbImage working_proxy,
         std::uint32_t max_edge,
-        OpticsProfileReceipt optics_receipt,
-        double selective_tone_scene_key_ev
+        RawDevelopmentReceipt raw_development_receipt,
+        OpticsProfileReceipt optics_receipt
     );
 
     FloatRgbImage working_proxy_;
     std::uint32_t max_edge_ = 0;
+    RawDevelopmentReceipt raw_development_receipt_;
     OpticsProfileReceipt optics_receipt_;
-    double selective_tone_scene_key_ev_ = 0.0;
 
     friend WarmEditPreviewSession prepare_warm_edit_preview(
         const DecodeSession& session,
@@ -511,6 +525,7 @@ public:
 
     [[nodiscard]] Dimensions dimensions() const noexcept;
     [[nodiscard]] std::uint64_t retained_bytes() const noexcept;
+    [[nodiscard]] const RawDevelopmentReceipt& raw_development_receipt() const noexcept;
     [[nodiscard]] const OpticsProfileReceipt& optics_receipt() const noexcept;
     [[nodiscard]] RenderedDetailTile render_rgb8(
         std::span<const AdjustmentNode> nodes,
@@ -521,19 +536,21 @@ private:
     FullEditDetailSession(
         PixelBuffer reference_rgb,
         std::uint64_t retained_bytes,
+        RawDevelopmentReceipt raw_development_receipt,
         OpticsProfileReceipt optics_receipt,
-        double dng_baseline_exposure_stops,
-        double selective_tone_scene_key_ev
+        double dng_baseline_exposure_stops
     );
 
     PixelBuffer reference_rgb_;
     std::uint64_t retained_bytes_ = 0;
+    // Kept separately from the post-optics raster: an independently implemented OpticsProvider
+    // is allowed to allocate a new PixelBuffer and must not be able to erase decoder provenance.
+    RawDevelopmentReceipt raw_development_receipt_;
     OpticsProfileReceipt optics_receipt_;
     // A valid DNG BaselineExposure is part of the source rendering, rather than an editable
     // user node. Retain only the scalar so full-resolution data stays immutable and tiles apply
     // the same source appearance as the warm proxy immediately before the edit graph.
     double dng_baseline_exposure_stops_ = 0.0;
-    double selective_tone_scene_key_ev_ = 0.0;
 
     friend FullEditDetailSession prepare_full_edit_detail(
         const DecodeSession& session,

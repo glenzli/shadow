@@ -45,6 +45,11 @@ pub const SATURATION_OPERATION_ID: &str = "shadow.saturation";
 pub const SATURATION_FACTOR_PARAMETER_KEY: &str = "factor";
 
 pub const SELECTIVE_TONE_OPERATION_ID: &str = "shadow.selective_tone";
+/// The current Selective Tone evaluator uses an edge-aware guided log-luminance mask. It keeps
+/// the four existing slider values but is intentionally a new persisted contract rather than a
+/// reinterpretation of the old pixel-local evaluator.
+pub const SELECTIVE_TONE_V2_PARAMETER_SCHEMA_VERSION: u32 = 2;
+pub const SELECTIVE_TONE_V2_IMPLEMENTATION_VERSION: &str = "shadow-cpu-selective-tone-guided-v2";
 pub const HIGHLIGHTS_PARAMETER_KEY: &str = "highlights";
 pub const SHADOWS_PARAMETER_KEY: &str = "shadows";
 pub const WHITES_PARAMETER_KEY: &str = "whites";
