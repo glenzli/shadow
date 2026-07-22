@@ -8,12 +8,16 @@ authors.workspace = true
 
 [dependencies]
 cxx.workspace = true
+serde.workspace = true
 shadow-domain.workspace = true
 thiserror.workspace = true
 
 [build-dependencies]
 cxx-build = "=1.0.198"
 pkg-config = "=0.3.33"
+
+[dev-dependencies]
+serde_json.workspace = true
 
 # CXX requires an `unsafe extern "C++"` declaration. Handwritten callers stay
 # behind the safe `inspect_libraw` API; the rest of the workspace still forbids

@@ -472,6 +472,8 @@ dependencies = [
  "cxx",
  "cxx-build",
  "pkg-config",
+ "serde",
+ "serde_json",
  "shadow-domain",
  "thiserror",
 ]

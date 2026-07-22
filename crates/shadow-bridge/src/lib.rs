@@ -5,6 +5,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use serde::{Deserialize, Serialize};
 use shadow_domain::{
     DecodeCapabilitySnapshot, DecodeProviderSnapshot, DecodeSupport, DecoderSnapshot,
     ImageDimensions, ImageMargins, PendingCorrectionsSnapshot, PreviewCodec,
@@ -74,6 +75,39 @@ mod ffi {
         applied_vignetting: bool,
         vignetting_used_distance_fallback: bool,
         applied_scaling: bool,
+    }
+
+    // Deliberately a fixed field set: this is source-render provenance rather than an
+    // extensible recipe payload. New renderer semantics require a new receipt schema instead
+    // of silently overloading a map or an untyped byte document.
+    #[derive(Debug)]
+    #[allow(clippy::struct_excessive_bools)]
+    struct FfiRawDevelopmentReceipt {
+        schema_version: u32,
+        provider_id: String,
+        provider_version: String,
+        library_version: String,
+        development_settings_signature: String,
+        processed_linear_reference_contract_version: u32,
+        declared_image_dimensions: FfiDimensions,
+        rendered_dimensions: FfiDimensions,
+        orientation: i32,
+        half_size: bool,
+        use_camera_white_balance: bool,
+        use_camera_matrix: bool,
+        use_auto_brightness: bool,
+        use_exposure_correction: bool,
+        brightness: f32,
+        maximum_adjustment_threshold: f32,
+        output_bits_per_channel: u16,
+        demosaic_quality: i32,
+        output_color: i32,
+        gamma_inverse_power: f64,
+        gamma_linear_toe_slope: f64,
+        dng_opcode_list_1_bytes: u32,
+        dng_opcode_list_2_bytes: u32,
+        dng_opcode_list_3_bytes: u32,
+        process_warnings: u32,
     }
 
     #[derive(Debug)]
@@ -269,6 +303,11 @@ mod ffi {
         fn provider(self: &DecodeHandle) -> FfiProviderSnapshot;
         fn metadata(self: &DecodeHandle) -> FfiMetadataSnapshot;
         fn capabilities(self: &DecodeHandle) -> FfiCapabilitySnapshot;
+        // The current public Rust API opens a prepared session directly. Keep this lower-level
+        // read-only accessor for C++/future bridge callers, where it reports an explicit default
+        // before a source render is prepared.
+        #[allow(dead_code)]
+        fn raw_development_receipt(self: &DecodeHandle) -> FfiRawDevelopmentReceipt;
         fn previews(self: &DecodeHandle) -> Vec<FfiPreviewSnapshot>;
         fn decode_best_preview(self: Pin<&mut DecodeHandle>) -> Result<FfiPreviewPayload>;
         fn configure_optics(
@@ -292,6 +331,7 @@ mod ffi {
         fn dimensions(self: &EditPreviewHandle) -> FfiDimensions;
         fn max_edge(self: &EditPreviewHandle) -> u32;
         fn optics_receipt(self: &EditPreviewHandle) -> FfiOpticsReceipt;
+        fn raw_development_receipt(self: &EditPreviewHandle) -> FfiRawDevelopmentReceipt;
         fn render_adjustment_plan(
             self: &EditPreviewHandle,
             request: &FfiAdjustmentRenderRequest,
@@ -303,6 +343,7 @@ mod ffi {
         fn dimensions(self: &FullEditDetailHandle) -> FfiDimensions;
         fn retained_bytes(self: &FullEditDetailHandle) -> u64;
         fn optics_receipt(self: &FullEditDetailHandle) -> FfiOpticsReceipt;
+        fn raw_development_receipt(self: &FullEditDetailHandle) -> FfiRawDevelopmentReceipt;
         fn render_adjustment_plan_tile(
             self: &FullEditDetailHandle,
             request: &FfiAdjustmentDetailTileRequest,
@@ -379,6 +420,58 @@ pub struct OpticsReceipt {
     pub applied_scaling: bool,
 }
 
+/// The exact provider-side RAW-development request that produced an editable source raster.
+///
+/// This is immutable source provenance, not a photographer-editable recipe. A zero
+/// `schema_version` is an explicit absence: it means that the active source provider did not
+/// report RAW-development provenance. Callers must not infer sensor-domain behavior from it.
+///
+/// The serialized shape intentionally mirrors the fixed C++ receipt field-for-field. If the
+/// source renderer changes what a recorded field means, it must increment
+/// `schema_version`; consumers can then preserve rather than misinterpret an unknown receipt.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[allow(clippy::struct_excessive_bools)]
+pub struct RawDevelopmentReceipt {
+    pub schema_version: u32,
+    pub provider_id: String,
+    pub provider_version: String,
+    pub library_version: String,
+    pub development_settings_signature: String,
+    pub processed_linear_reference_contract_version: u32,
+    pub declared_image_dimensions: ImageDimensions,
+    pub rendered_dimensions: ImageDimensions,
+    pub orientation: i32,
+    pub half_size: bool,
+    pub use_camera_white_balance: bool,
+    pub use_camera_matrix: bool,
+    pub use_auto_brightness: bool,
+    pub use_exposure_correction: bool,
+    pub brightness: f32,
+    pub maximum_adjustment_threshold: f32,
+    pub output_bits_per_channel: u16,
+    pub demosaic_quality: i32,
+    pub output_color: i32,
+    pub gamma_inverse_power: f64,
+    pub gamma_linear_toe_slope: f64,
+    pub declared_dng_opcode_list_bytes: [u32; 3],
+    pub process_warnings: u32,
+}
+
+impl RawDevelopmentReceipt {
+    /// Matches the currently supported C++ `RawDevelopmentReceipt` schema.
+    pub const CURRENT_SCHEMA_VERSION: u32 = 1;
+
+    #[must_use]
+    pub const fn recorded(&self) -> bool {
+        self.schema_version != 0
+    }
+
+    #[must_use]
+    pub const fn uses_current_schema(&self) -> bool {
+        self.schema_version == Self::CURRENT_SCHEMA_VERSION
+    }
+}
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct OpticsProfileCandidate {
     pub camera_maker: String,
@@ -440,6 +533,39 @@ fn optics_receipt(receipt: ffi::FfiOpticsReceipt) -> OpticsReceipt {
         applied_vignetting: receipt.applied_vignetting,
         vignetting_used_distance_fallback: receipt.vignetting_used_distance_fallback,
         applied_scaling: receipt.applied_scaling,
+    }
+}
+
+fn raw_development_receipt(receipt: ffi::FfiRawDevelopmentReceipt) -> RawDevelopmentReceipt {
+    RawDevelopmentReceipt {
+        schema_version: receipt.schema_version,
+        provider_id: receipt.provider_id,
+        provider_version: receipt.provider_version,
+        library_version: receipt.library_version,
+        development_settings_signature: receipt.development_settings_signature,
+        processed_linear_reference_contract_version: receipt
+            .processed_linear_reference_contract_version,
+        declared_image_dimensions: dimensions(&receipt.declared_image_dimensions),
+        rendered_dimensions: dimensions(&receipt.rendered_dimensions),
+        orientation: receipt.orientation,
+        half_size: receipt.half_size,
+        use_camera_white_balance: receipt.use_camera_white_balance,
+        use_camera_matrix: receipt.use_camera_matrix,
+        use_auto_brightness: receipt.use_auto_brightness,
+        use_exposure_correction: receipt.use_exposure_correction,
+        brightness: receipt.brightness,
+        maximum_adjustment_threshold: receipt.maximum_adjustment_threshold,
+        output_bits_per_channel: receipt.output_bits_per_channel,
+        demosaic_quality: receipt.demosaic_quality,
+        output_color: receipt.output_color,
+        gamma_inverse_power: receipt.gamma_inverse_power,
+        gamma_linear_toe_slope: receipt.gamma_linear_toe_slope,
+        declared_dng_opcode_list_bytes: [
+            receipt.dng_opcode_list_1_bytes,
+            receipt.dng_opcode_list_2_bytes,
+            receipt.dng_opcode_list_3_bytes,
+        ],
+        process_warnings: receipt.process_warnings,
     }
 }
 
@@ -1438,6 +1564,7 @@ pub struct LibRawEditPreviewSession {
     handle: cxx::UniquePtr<ffi::EditPreviewHandle>,
     dimensions: ImageDimensions,
     max_edge: u32,
+    raw_development_receipt: RawDevelopmentReceipt,
     optics_receipt: OpticsReceipt,
 }
 
@@ -1528,6 +1655,7 @@ pub struct LibRawEditDetailSession {
     handle: cxx::UniquePtr<ffi::FullEditDetailHandle>,
     dimensions: ImageDimensions,
     retained_bytes: u64,
+    raw_development_receipt: RawDevelopmentReceipt,
     optics_receipt: OpticsReceipt,
 }
 
@@ -1537,6 +1665,7 @@ impl std::fmt::Debug for LibRawEditDetailSession {
             .debug_struct("LibRawEditDetailSession")
             .field("dimensions", &self.dimensions)
             .field("retained_bytes", &self.retained_bytes)
+            .field("raw_development_receipt", &self.raw_development_receipt)
             .field("optics_receipt", &self.optics_receipt)
             .finish_non_exhaustive()
     }
@@ -1548,6 +1677,7 @@ impl std::fmt::Debug for LibRawEditPreviewSession {
             .debug_struct("LibRawEditPreviewSession")
             .field("dimensions", &self.dimensions)
             .field("max_edge", &self.max_edge)
+            .field("raw_development_receipt", &self.raw_development_receipt)
             .field("optics_receipt", &self.optics_receipt)
             .finish_non_exhaustive()
     }
@@ -1591,12 +1721,14 @@ impl LibRawEditPreviewSession {
         let prepared = handle.as_ref().ok_or(BridgeError::NullHandle)?;
         let prepared_dimensions = dimensions(&prepared.dimensions());
         let prepared_max_edge = prepared.max_edge();
+        let raw_development_receipt = raw_development_receipt(prepared.raw_development_receipt());
         let optics_receipt = optics_receipt(prepared.optics_receipt());
 
         Ok(Self {
             handle,
             dimensions: prepared_dimensions,
             max_edge: prepared_max_edge,
+            raw_development_receipt,
             optics_receipt,
         })
     }
@@ -1611,6 +1743,12 @@ impl LibRawEditPreviewSession {
     #[must_use]
     pub const fn max_edge(&self) -> u32 {
         self.max_edge
+    }
+
+    /// Returns immutable provenance for the exact RAW render retained by this preview.
+    #[must_use]
+    pub const fn raw_development_receipt(&self) -> &RawDevelopmentReceipt {
+        &self.raw_development_receipt
     }
 
     #[must_use]
@@ -1720,6 +1858,7 @@ impl LibRawEditDetailSession {
         let prepared = handle.as_ref().ok_or(BridgeError::NullHandle)?;
         let prepared_dimensions = dimensions(&prepared.dimensions());
         let retained_bytes = prepared.retained_bytes();
+        let raw_development_receipt = raw_development_receipt(prepared.raw_development_receipt());
         let optics_receipt = optics_receipt(prepared.optics_receipt());
         if prepared_dimensions.width == 0 || prepared_dimensions.height == 0 {
             return Err(BridgeError::InvalidEditDetailOutput(
@@ -1735,6 +1874,7 @@ impl LibRawEditDetailSession {
             handle,
             dimensions: prepared_dimensions,
             retained_bytes,
+            raw_development_receipt,
             optics_receipt,
         })
     }
@@ -1749,6 +1889,13 @@ impl LibRawEditDetailSession {
     #[must_use]
     pub const fn retained_bytes(&self) -> u64 {
         self.retained_bytes
+    }
+
+    /// Returns immutable provenance for the exact full-resolution RAW render retained by this
+    /// detail session.
+    #[must_use]
+    pub const fn raw_development_receipt(&self) -> &RawDevelopmentReceipt {
+        &self.raw_development_receipt
     }
 
     #[must_use]
@@ -2467,6 +2614,129 @@ const fn support(value: bool) -> DecodeSupport {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn recorded_ffi_raw_development_receipt() -> ffi::FfiRawDevelopmentReceipt {
+        ffi::FfiRawDevelopmentReceipt {
+            schema_version: RawDevelopmentReceipt::CURRENT_SCHEMA_VERSION,
+            provider_id: "fixture-provider".to_owned(),
+            provider_version: "fixture-provider-v1".to_owned(),
+            library_version: "fixture-library-v1".to_owned(),
+            development_settings_signature: "fixture-request-v1".to_owned(),
+            processed_linear_reference_contract_version: 7,
+            declared_image_dimensions: ffi::FfiDimensions {
+                width: 8,
+                height: 4,
+            },
+            rendered_dimensions: ffi::FfiDimensions {
+                width: 4,
+                height: 2,
+            },
+            orientation: 5,
+            half_size: true,
+            use_camera_white_balance: true,
+            use_camera_matrix: true,
+            use_auto_brightness: false,
+            use_exposure_correction: false,
+            brightness: 1.25,
+            maximum_adjustment_threshold: 0.125,
+            output_bits_per_channel: 16,
+            demosaic_quality: 3,
+            output_color: 1,
+            gamma_inverse_power: 1.0,
+            gamma_linear_toe_slope: 1.0,
+            dng_opcode_list_1_bytes: 11,
+            dng_opcode_list_2_bytes: 22,
+            dng_opcode_list_3_bytes: 33,
+            process_warnings: 0x1024,
+        }
+    }
+
+    #[test]
+    #[allow(clippy::float_cmp)] // The bridge contract preserves native scalar bits verbatim.
+    fn raw_development_receipt_bridge_preserves_default_and_recorded_fields() {
+        let default = raw_development_receipt(ffi::FfiRawDevelopmentReceipt {
+            schema_version: 0,
+            provider_id: String::new(),
+            provider_version: String::new(),
+            library_version: String::new(),
+            development_settings_signature: String::new(),
+            processed_linear_reference_contract_version: 0,
+            declared_image_dimensions: ffi::FfiDimensions {
+                width: 0,
+                height: 0,
+            },
+            rendered_dimensions: ffi::FfiDimensions {
+                width: 0,
+                height: 0,
+            },
+            orientation: 0,
+            half_size: false,
+            use_camera_white_balance: false,
+            use_camera_matrix: false,
+            use_auto_brightness: false,
+            use_exposure_correction: false,
+            brightness: 0.0,
+            maximum_adjustment_threshold: 0.0,
+            output_bits_per_channel: 0,
+            demosaic_quality: 0,
+            output_color: 0,
+            gamma_inverse_power: 0.0,
+            gamma_linear_toe_slope: 0.0,
+            dng_opcode_list_1_bytes: 0,
+            dng_opcode_list_2_bytes: 0,
+            dng_opcode_list_3_bytes: 0,
+            process_warnings: 0,
+        });
+        assert_eq!(default, RawDevelopmentReceipt::default());
+        assert!(!default.recorded());
+        assert!(!default.uses_current_schema());
+
+        let recorded = raw_development_receipt(recorded_ffi_raw_development_receipt());
+        assert_eq!(
+            recorded,
+            RawDevelopmentReceipt {
+                schema_version: 1,
+                provider_id: "fixture-provider".to_owned(),
+                provider_version: "fixture-provider-v1".to_owned(),
+                library_version: "fixture-library-v1".to_owned(),
+                development_settings_signature: "fixture-request-v1".to_owned(),
+                processed_linear_reference_contract_version: 7,
+                declared_image_dimensions: ImageDimensions {
+                    width: 8,
+                    height: 4,
+                },
+                rendered_dimensions: ImageDimensions {
+                    width: 4,
+                    height: 2,
+                },
+                orientation: 5,
+                half_size: true,
+                use_camera_white_balance: true,
+                use_camera_matrix: true,
+                use_auto_brightness: false,
+                use_exposure_correction: false,
+                brightness: 1.25,
+                maximum_adjustment_threshold: 0.125,
+                output_bits_per_channel: 16,
+                demosaic_quality: 3,
+                output_color: 1,
+                gamma_inverse_power: 1.0,
+                gamma_linear_toe_slope: 1.0,
+                declared_dng_opcode_list_bytes: [11, 22, 33],
+                process_warnings: 0x1024,
+            }
+        );
+        assert!(recorded.recorded());
+        assert!(recorded.uses_current_schema());
+
+        let serialized = serde_json::to_vec(&recorded).expect("serialize receipt");
+        assert_eq!(
+            serde_json::from_slice::<RawDevelopmentReceipt>(&serialized)
+                .expect("deserialize receipt"),
+            recorded,
+            "the bridge's fixed receipt remains serializable without losing provenance"
+        );
+    }
 
     const TINY_GRAYSCALE_JPEG: &[u8] = &[
         0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00,
@@ -3409,6 +3679,46 @@ mod tests {
         assert!(snapshot.capabilities.metadata.is_available());
         assert!(snapshot.capabilities.mosaic.is_available());
         assert!(snapshot.metadata.raw_dimensions.pixel_count() > 0);
+    }
+
+    #[test]
+    #[ignore = "requires SHADOW_TEST_DNG to point at a local RAW fixture"]
+    fn real_dng_raw_development_receipts_cross_all_prepared_handles() {
+        let path = PathBuf::from(std::env::var_os("SHADOW_TEST_DNG").expect("SHADOW_TEST_DNG"));
+        let handle = open_libraw(&path).expect("open local DNG");
+        let decoder = handle.as_ref().expect("non-null decoder handle");
+
+        let before_preparation = raw_development_receipt(decoder.raw_development_receipt());
+        assert_eq!(before_preparation, RawDevelopmentReceipt::default());
+
+        let preview_handle = decoder
+            .prepare_edit_preview(1_024)
+            .expect("prepare local DNG warm preview");
+        let preview = preview_handle.as_ref().expect("non-null preview handle");
+        let preview_receipt = raw_development_receipt(preview.raw_development_receipt());
+        assert!(preview_receipt.recorded());
+        assert!(preview_receipt.uses_current_schema());
+        assert_eq!(preview_receipt.provider_id, "libraw");
+        assert_eq!(
+            raw_development_receipt(decoder.raw_development_receipt()),
+            preview_receipt,
+            "DecodeHandle reports the last source render it prepared"
+        );
+
+        let detail_handle = decoder
+            .prepare_edit_detail()
+            .expect("prepare local DNG full detail");
+        let detail = detail_handle.as_ref().expect("non-null detail handle");
+        let detail_receipt = raw_development_receipt(detail.raw_development_receipt());
+        assert!(detail_receipt.recorded());
+        assert!(detail_receipt.uses_current_schema());
+        assert_eq!(detail_receipt.provider_id, "libraw");
+        assert!(!detail_receipt.half_size);
+        assert_eq!(
+            raw_development_receipt(decoder.raw_development_receipt()),
+            detail_receipt,
+            "DecodeHandle updates its read-only receipt when a new source render is prepared"
+        );
     }
 
     #[test]

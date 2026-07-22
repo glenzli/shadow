@@ -175,6 +175,39 @@ template <std::size_t Size>
     return result;
 }
 
+[[nodiscard]] FfiRawDevelopmentReceipt raw_development_receipt(
+    const image::RawDevelopmentReceipt& receipt
+) {
+    FfiRawDevelopmentReceipt result;
+    result.schema_version = receipt.schema_version;
+    result.provider_id = rust::String(receipt.provider_id);
+    result.provider_version = rust::String(receipt.provider_version);
+    result.library_version = rust::String(receipt.library_version);
+    result.development_settings_signature = rust::String(receipt.development_settings_signature);
+    result.processed_linear_reference_contract_version =
+        receipt.processed_linear_reference_contract_version;
+    result.declared_image_dimensions = dimensions(receipt.declared_image_dimensions);
+    result.rendered_dimensions = dimensions(receipt.rendered_dimensions);
+    result.orientation = receipt.orientation;
+    result.half_size = receipt.half_size;
+    result.use_camera_white_balance = receipt.use_camera_white_balance;
+    result.use_camera_matrix = receipt.use_camera_matrix;
+    result.use_auto_brightness = receipt.use_auto_brightness;
+    result.use_exposure_correction = receipt.use_exposure_correction;
+    result.brightness = receipt.brightness;
+    result.maximum_adjustment_threshold = receipt.maximum_adjustment_threshold;
+    result.output_bits_per_channel = receipt.output_bits_per_channel;
+    result.demosaic_quality = receipt.demosaic_quality;
+    result.output_color = receipt.output_color;
+    result.gamma_inverse_power = receipt.gamma_inverse_power;
+    result.gamma_linear_toe_slope = receipt.gamma_linear_toe_slope;
+    result.dng_opcode_list_1_bytes = receipt.declared_dng_opcode_lists.dng_opcode_list_bytes[0];
+    result.dng_opcode_list_2_bytes = receipt.declared_dng_opcode_lists.dng_opcode_list_bytes[1];
+    result.dng_opcode_list_3_bytes = receipt.declared_dng_opcode_lists.dng_opcode_list_bytes[2];
+    result.process_warnings = receipt.process_warnings;
+    return result;
+}
+
 inline constexpr std::size_t maximum_adjustment_nodes = 256U;
 inline constexpr std::size_t maximum_adjustment_node_id_bytes = 256U;
 
@@ -604,6 +637,10 @@ FfiCapabilitySnapshot DecodeHandle::capabilities() const {
     };
 }
 
+FfiRawDevelopmentReceipt DecodeHandle::raw_development_receipt() const {
+    return shadow::bridge::raw_development_receipt(raw_development_receipt_);
+}
+
 rust::Vec<FfiPreviewSnapshot> DecodeHandle::previews() const {
     rust::Vec<FfiPreviewSnapshot> snapshots;
     snapshots.reserve(session_->previews().size());
@@ -660,14 +697,14 @@ FfiEncodedProxy DecodeHandle::render_adjustment_plan(
 std::unique_ptr<EditPreviewHandle> DecodeHandle::prepare_edit_preview(
     const std::uint32_t max_edge
 ) const {
-    return std::make_unique<EditPreviewHandle>(
-        image::prepare_warm_edit_preview(
-            *session_,
-            max_edge,
-            optics_provider_.get(),
-            optics_settings_
-        )
+    auto prepared = image::prepare_warm_edit_preview(
+        *session_,
+        max_edge,
+        optics_provider_.get(),
+        optics_settings_
     );
+    raw_development_receipt_ = prepared.raw_development_receipt();
+    return std::make_unique<EditPreviewHandle>(std::move(prepared));
 }
 
 EditPreviewHandle::EditPreviewHandle(image::WarmEditPreviewSession session)
@@ -685,6 +722,10 @@ std::uint32_t EditPreviewHandle::max_edge() const noexcept {
 
 FfiOpticsReceipt EditPreviewHandle::optics_receipt() const {
     return shadow::bridge::optics_receipt(session_.optics_receipt());
+}
+
+FfiRawDevelopmentReceipt EditPreviewHandle::raw_development_receipt() const {
+    return shadow::bridge::raw_development_receipt(session_.raw_development_receipt());
 }
 
 FfiEncodedProxy EditPreviewHandle::render_adjustment_plan(
@@ -718,9 +759,13 @@ FfiAnalyzedEditPreview EditPreviewHandle::render_adjustment_plan_with_analysis(
 }
 
 std::unique_ptr<FullEditDetailHandle> DecodeHandle::prepare_edit_detail() const {
-    return std::make_unique<FullEditDetailHandle>(
-        image::prepare_full_edit_detail(*session_, optics_provider_.get(), optics_settings_)
+    auto prepared = image::prepare_full_edit_detail(
+        *session_,
+        optics_provider_.get(),
+        optics_settings_
     );
+    raw_development_receipt_ = prepared.raw_development_receipt();
+    return std::make_unique<FullEditDetailHandle>(std::move(prepared));
 }
 
 FullEditDetailHandle::FullEditDetailHandle(image::FullEditDetailSession session)
@@ -738,6 +783,10 @@ std::uint64_t FullEditDetailHandle::retained_bytes() const noexcept {
 
 FfiOpticsReceipt FullEditDetailHandle::optics_receipt() const {
     return shadow::bridge::optics_receipt(session_.optics_receipt());
+}
+
+FfiRawDevelopmentReceipt FullEditDetailHandle::raw_development_receipt() const {
+    return shadow::bridge::raw_development_receipt(session_.raw_development_receipt());
 }
 
 FfiRenderedDetailTile FullEditDetailHandle::render_adjustment_plan_tile(

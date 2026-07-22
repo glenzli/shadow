@@ -33,6 +33,9 @@ public:
     [[nodiscard]] FfiProviderSnapshot provider() const;
     [[nodiscard]] FfiMetadataSnapshot metadata() const;
     [[nodiscard]] FfiCapabilitySnapshot capabilities() const;
+    // The last prepared RAW source render. It is explicitly empty until a render-backed edit
+    // session is prepared, rather than causing a hidden second RAW decode merely for metadata.
+    [[nodiscard]] FfiRawDevelopmentReceipt raw_development_receipt() const;
     [[nodiscard]] rust::Vec<FfiPreviewSnapshot> previews() const;
     [[nodiscard]] FfiPreviewPayload decode_best_preview();
     void configure_optics(const FfiOpticsSettings& settings);
@@ -53,6 +56,7 @@ private:
     std::unique_ptr<image::DecodeSession> session_;
     std::shared_ptr<const image::OpticsProvider> optics_provider_;
     image::OpticsSettings optics_settings_;
+    mutable image::RawDevelopmentReceipt raw_development_receipt_;
 };
 
 // Unlike DecodeHandle, this handle no longer owns or references a decoder. Its working proxy
@@ -69,6 +73,7 @@ public:
     [[nodiscard]] FfiDimensions dimensions() const noexcept;
     [[nodiscard]] std::uint32_t max_edge() const noexcept;
     [[nodiscard]] FfiOpticsReceipt optics_receipt() const;
+    [[nodiscard]] FfiRawDevelopmentReceipt raw_development_receipt() const;
     [[nodiscard]] FfiEncodedProxy render_adjustment_plan(
         const FfiAdjustmentRenderRequest& request
     ) const;
@@ -93,6 +98,7 @@ public:
     [[nodiscard]] FfiDimensions dimensions() const noexcept;
     [[nodiscard]] std::uint64_t retained_bytes() const noexcept;
     [[nodiscard]] FfiOpticsReceipt optics_receipt() const;
+    [[nodiscard]] FfiRawDevelopmentReceipt raw_development_receipt() const;
     [[nodiscard]] FfiRenderedDetailTile render_adjustment_plan_tile(
         const FfiAdjustmentDetailTileRequest& request
     ) const;
