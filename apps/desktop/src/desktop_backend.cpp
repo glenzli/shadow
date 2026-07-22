@@ -889,6 +889,7 @@ BackendEditedPreview DesktopBackend::renderEditPreview(
             .applied_distortion = payload.optics_applied_distortion,
             .applied_tca = payload.optics_applied_tca,
             .applied_vignetting = payload.optics_applied_vignetting,
+            .vignetting_used_distance_fallback = payload.optics_vignetting_used_distance_fallback,
             .applied_scaling = payload.optics_applied_scaling,
         },
         .width = payload.width,

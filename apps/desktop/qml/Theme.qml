@@ -75,6 +75,7 @@ QtObject {
     readonly property color track: effectiveDark ? "#3b4652" : "#d0d6dd"
     readonly property color separatorStrong: effectiveDark ? "#404852" : "#bbc4cd"
     readonly property color previewHudBorder: effectiveDark ? "#45505a" : "#909ba5"
+    readonly property color previewCompareDivider: effectiveDark ? "#dce8f2" : "#273746"
 
     // Text and icons
     readonly property color textPrimary: effectiveDark ? "#f1f4f6" : "#20252a"

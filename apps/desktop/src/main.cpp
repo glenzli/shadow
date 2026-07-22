@@ -540,7 +540,17 @@ int main(int argc, char* argv[]) {
         title_bar_height
     );
 #endif
-    const QString initial_folder = qEnvironmentVariable("SHADOW_DESKTOP_SCAN_FOLDER");
+    QString initial_folder = qEnvironmentVariable("SHADOW_DESKTOP_SCAN_FOLDER");
+#if defined(SHADOW_DESKTOP_DEV_SAMPLE_FOLDER)
+    if (initial_folder.isEmpty()) {
+        const QDir development_samples(
+            QString::fromUtf8(SHADOW_DESKTOP_DEV_SAMPLE_FOLDER)
+        );
+        if (development_samples.exists()) {
+            initial_folder = development_samples.absolutePath();
+        }
+    }
+#endif
     const bool open_first_edit = qEnvironmentVariableIsSet("SHADOW_DESKTOP_OPEN_FIRST_EDIT");
     const bool record_first_comparison = qEnvironmentVariableIsSet(
         "SHADOW_DESKTOP_RECORD_FIRST_COMPARISON"

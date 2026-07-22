@@ -398,11 +398,19 @@ public:
             );
         }
 
-        // LibRaw does not expose a broadly reliable focus-distance field.  Do not invent one:
-        // lens vignetting calibration is distance-dependent, so it remains intentionally off
-        // until a provider supplies a valid distance in metres.
-        const bool has_vignetting_inputs = finite_positive(metadata.aperture_f_number)
-            && finite_positive(metadata.focus_distance_meters);
+        // LibRaw does not expose a broadly reliable focus-distance field. Lightroom-like
+        // workflows nevertheless apply the ordinary lens profile in this situation: distance
+        // matters chiefly for close-focus corrections, while the far-distance calibration is
+        // normally the useful default. Use an explicit 1 km approximation and report it in the
+        // receipt instead of turning vignetting off for almost every LibRaw asset.
+        const bool has_vignetting_aperture = finite_positive(metadata.aperture_f_number);
+        const bool has_vignetting_distance = finite_positive(metadata.focus_distance_meters);
+        const bool request_vignetting = settings.correct_vignetting && has_vignetting_aperture;
+        const float vignetting_distance_meters = has_vignetting_distance
+            ? static_cast<float>(metadata.focus_distance_meters)
+            : 1000.0F;
+        const bool vignetting_uses_distance_fallback = request_vignetting
+            && !has_vignetting_distance;
 
 #if LF_VERSION_MICRO >= 99
         // Lensfun 0.3.99+ replaced Initialize() with focused enable calls. Keep the adapter on
@@ -422,10 +430,10 @@ public:
         if (settings.correct_tca) {
             modifier.EnableTCACorrection();
         }
-        if (settings.correct_vignetting && has_vignetting_inputs) {
+        if (request_vignetting) {
             modifier.EnableVignettingCorrection(
                 static_cast<float>(metadata.aperture_f_number),
-                static_cast<float>(metadata.focus_distance_meters)
+                vignetting_distance_meters
             );
         }
 
@@ -442,9 +450,9 @@ public:
         }
 #else
         // Lensfun 0.3.4 configures all requested corrections in one Initialize() call. A scale
-        // of zero asks Lensfun to compute its calibrated automatic scale; passing distance=1000
-        // is only an API placeholder when vignetting is not requested and never enables a
-        // distance-dependent correction without real provider metadata.
+        // of zero asks Lensfun to compute its calibrated automatic scale. At normal focus
+        // distances, 1000 m is our documented fallback for a missing portable focus field;
+        // when vignetting is not requested it remains an inert API placeholder.
         int requested_flags = 0;
         if (settings.correct_distortion) {
             requested_flags |= LF_MODIFY_DISTORTION;
@@ -452,7 +460,7 @@ public:
         if (settings.correct_tca) {
             requested_flags |= LF_MODIFY_TCA;
         }
-        if (settings.correct_vignetting && has_vignetting_inputs) {
+        if (request_vignetting) {
             requested_flags |= LF_MODIFY_VIGNETTING;
         }
         const auto geometry_requested =
@@ -471,8 +479,8 @@ public:
             match.lens,
             LF_PF_U16,
             static_cast<float>(metadata.focal_length_mm),
-            has_vignetting_inputs ? static_cast<float>(metadata.aperture_f_number) : 0.0F,
-            has_vignetting_inputs ? static_cast<float>(metadata.focus_distance_meters) : 1000.0F,
+            request_vignetting ? static_cast<float>(metadata.aperture_f_number) : 0.0F,
+            request_vignetting ? vignetting_distance_meters : 1000.0F,
             settings.automatic_scale && geometry_requested ? 0.0F : 1.0F,
             match.lens->Type,
             requested_flags,
@@ -493,6 +501,8 @@ public:
             .applied_distortion = (flags & LF_MODIFY_DISTORTION) != 0,
             .applied_tca = (flags & LF_MODIFY_TCA) != 0,
             .applied_vignetting = (flags & LF_MODIFY_VIGNETTING) != 0,
+            .vignetting_used_distance_fallback = vignetting_uses_distance_fallback
+                && (flags & LF_MODIFY_VIGNETTING) != 0,
             .applied_scaling = applied_scaling,
         };
         if (
@@ -516,6 +526,7 @@ public:
             );
             if (!modified) {
                 receipt.applied_vignetting = false;
+                receipt.vignetting_used_distance_fallback = false;
             }
         }
 

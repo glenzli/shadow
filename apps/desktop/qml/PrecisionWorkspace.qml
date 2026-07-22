@@ -10,11 +10,14 @@ Item {
 
     required property var editor
     required property var lutLibrary
+    required property var captureMetadata
     signal openLutLibraryRequested()
     signal openOpticsProfileLibraryRequested()
     property real zoomFactor: 1.0
     property bool fitView: true
-    property bool showBefore: false
+    property bool comparisonActive: false
+    property int comparisonMode: 1
+    property real comparisonPosition: 0.5
     property real requestedDetailCenterX: 0.5
     property real requestedDetailCenterY: 0.5
     property bool detailImageReady: false
@@ -23,11 +26,25 @@ Item {
     property bool suppressViewportTracking: false
     property string readyPreviewGeneration: ""
     property bool previewFrameReady: false
+    property bool beforeFrameReady: false
     property int mixerViewMode: 0
     property int selectedMixerBand: 0
 
+    readonly property int comparisonWhole: 0
+    readonly property int comparisonWipeVertical: 1
+    readonly property int comparisonWipeHorizontal: 2
+    readonly property int comparisonSideBySide: 3
+    readonly property int comparisonStacked: 4
     readonly property bool beforeReady: editor.beforePreviewSource.length > 0
-    readonly property bool displayingBefore: showBefore && beforeReady
+    readonly property string visiblePreviewSource: editor.previewSource.length > 0
+        ? editor.previewSource : editor.provisionalPreviewSource
+    readonly property bool showingProvisionalPreview: editor.previewSource.length === 0
+        && editor.provisionalPreviewSource.length > 0
+    readonly property bool displayingBefore: comparisonActive && beforeReady
+        && comparisonMode === comparisonWhole
+    readonly property bool dualComparison: comparisonActive && beforeReady
+        && (comparisonMode === comparisonSideBySide
+            || comparisonMode === comparisonStacked)
     readonly property var displayedHistogram: displayingBefore
         ? editor.beforeHistogram : editor.histogram
     readonly property real deviceScale: Math.max(1.0, Screen.devicePixelRatio)
@@ -45,7 +62,7 @@ Item {
         ? Math.max(0.0001, fitScale)
         : zoomFactor / deviceScale
     readonly property bool showingFullDetail: !fitView && zoomFactor >= 1.0
-        && !displayingBefore && editor.detailMode && editor.detailTiles.length > 0
+        && !comparisonActive && editor.detailMode && editor.detailTiles.length > 0
         && detailImageReady
 
     readonly property color panel: Theme.panel
@@ -65,6 +82,72 @@ Item {
         { "name": qsTr("Purple"), "color": "#8a5bcf", "hueLow": "#526fd9", "hueHigh": "#c34eb5", "oklchHue": 293.9376 },
         { "name": qsTr("Magenta"), "color": "#d04fa4", "hueLow": "#9856c9", "hueHigh": "#e34e73", "oklchHue": 328.3634 }
     ]
+
+    function joinedIdentity(make, model) {
+        const parts = []
+        const cleanMake = String(make || "").trim()
+        const cleanModel = String(model || "").trim()
+        if (cleanMake.length > 0)
+            parts.push(cleanMake)
+        if (cleanModel.length > 0 && cleanModel !== cleanMake)
+            parts.push(cleanModel)
+        return parts.join(" ")
+    }
+
+    function formatShutter(seconds) {
+        const value = Number(seconds)
+        if (!(value > 0))
+            return "—"
+        if (value >= 1)
+            return qsTr("%1 s").arg(
+                value.toLocaleString(Qt.locale(), "f", value < 10 ? 1 : 0))
+        const reciprocal = Math.round(1 / value)
+        return reciprocal > 1 ? qsTr("1/%1 s").arg(reciprocal)
+                              : qsTr("%1 s").arg(
+                                  value.toLocaleString(Qt.locale(), "f", 2))
+    }
+
+    function captureSettingSummary() {
+        if (!captureMetadata || !captureMetadata.available)
+            return ""
+        const values = []
+        values.push(formatShutter(captureMetadata.exposureTimeSeconds))
+        values.push(Number(captureMetadata.apertureFNumber) > 0
+            ? qsTr("f/%1").arg(Number(captureMetadata.apertureFNumber)
+                .toLocaleString(Qt.locale(), "f", 1)) : "—")
+        values.push(Number(captureMetadata.isoSpeed) > 0
+            ? qsTr("ISO %1").arg(Math.round(Number(captureMetadata.isoSpeed)))
+            : "—")
+        values.push(Number(captureMetadata.focalLengthMm) > 0
+            ? qsTr("%1 mm").arg(Number(captureMetadata.focalLengthMm)
+                .toLocaleString(Qt.locale(), "f", 1)) : "—")
+        return values.join("   ·   ")
+    }
+
+    // A switch expresses the requested setting; this label expresses the result Lensfun actually
+    // supplied for the currently rendered image. Keeping the two separate makes missing or
+    // uncalibrated profile data immediately visible instead of making an enabled switch look
+    // like proof that correction happened.
+    function opticsEffectState(key) {
+        const receipt = editor.opticsReceipt
+        if (!receipt.valid || receipt.status !== "matched")
+            return ""
+        if (key === "master") {
+            return receipt.appliedDistortion || receipt.appliedTca || receipt.appliedVignetting
+                ? qsTr("Applied") : qsTr("No calibrated correction")
+        }
+        if (key === "distortion")
+            return receipt.appliedDistortion ? qsTr("Applied") : qsTr("No data")
+        if (key === "tca")
+            return receipt.appliedTca ? qsTr("Applied") : qsTr("No data")
+        if (key === "vignetting") {
+            if (!receipt.appliedVignetting)
+                return qsTr("No data")
+            return receipt.vignettingUsedDistanceFallback
+                ? qsTr("Applied · far focus") : qsTr("Applied")
+        }
+        return receipt.appliedScaling ? qsTr("Applied") : qsTr("Not needed")
+    }
 
     function fineValue(key) {
         // Reading the revision makes generic key lookups reactive without
@@ -132,11 +215,55 @@ Item {
                 normalizedX, normalizedY, readyPreviewGeneration)
     }
 
+    function comparisonModeName(mode) {
+        if (mode === comparisonWhole)
+            return qsTr("Original only")
+        if (mode === comparisonWipeVertical)
+            return qsTr("Vertical wipe")
+        if (mode === comparisonWipeHorizontal)
+            return qsTr("Horizontal wipe")
+        if (mode === comparisonSideBySide)
+            return qsTr("Side by side")
+        return qsTr("Top and bottom")
+    }
+
+    function comparisonModeIcon(mode) {
+        if (mode === comparisonWipeVertical)
+            return "qrc:/icons/compare-wipe-vertical.svg"
+        if (mode === comparisonWipeHorizontal)
+            return "qrc:/icons/compare-wipe-horizontal.svg"
+        if (mode === comparisonSideBySide)
+            return "qrc:/icons/compare-side-by-side.svg"
+        if (mode === comparisonStacked)
+            return "qrc:/icons/compare-stacked.svg"
+        return "qrc:/icons/before-after.svg"
+    }
+
+    function activateComparison(mode) {
+        resetView()
+        comparisonMode = mode
+        comparisonPosition = 0.5
+        comparisonActive = true
+        editor.requestBeforePreview()
+    }
+
+    function updateComparisonPosition(sourceItem, sourceX, sourceY) {
+        const mapped = sourceItem.mapToItem(photoSurface, sourceX, sourceY)
+        if (comparisonMode === comparisonWipeVertical) {
+            comparisonPosition = Math.max(0.02, Math.min(
+                0.98, mapped.x / Math.max(1, photoSurface.width)))
+        } else if (comparisonMode === comparisonWipeHorizontal) {
+            comparisonPosition = Math.max(0.02, Math.min(
+                0.98, mapped.y / Math.max(1, photoSurface.height)))
+        }
+    }
+
     Connections {
         target: precision.editor
         function onSourcePathChanged() {
-            precision.showBefore = false
+            precision.comparisonActive = false
             precision.previewFrameReady = false
+            precision.beforeFrameReady = false
             precision.readyPreviewGeneration = ""
             precision.resetView()
         }
@@ -223,7 +350,7 @@ Item {
     }
 
     function requestVisibleDetail() {
-        if (fitView || zoomFactor < 1.0 || displayingBefore || !editor.active) {
+        if (fitView || zoomFactor < 1.0 || comparisonActive || !editor.active) {
             editor.leaveDetailMode()
             return
         }
@@ -248,7 +375,7 @@ Item {
     }
 
     function directViewportPositionChanged() {
-        if (!componentReady || fitView || zoomFactor < 1.0 || displayingBefore
+        if (!componentReady || fitView || zoomFactor < 1.0 || comparisonActive
                 || !editor.active || previewFlick.moving || previewFlick.flicking
                 || suppressViewportTracking
                 || (!editor.detailMode && !detailImageReady))
@@ -263,7 +390,7 @@ Item {
         if (editor.detailMode)
             editor.leaveDetailMode()
         fitView = false
-        showBefore = false
+        comparisonActive = false
         zoomFactor = value
         Qt.callLater(function() {
             precision.centerOnNormalized(centerX, centerY)
@@ -283,6 +410,17 @@ Item {
         enabled: precision.visible && precision.editor.active
             && precision.editor.canRedo && !precision.editor.stateBusy
         onActivated: precision.editor.redo()
+    }
+
+    Shortcut {
+        sequence: "Y"
+        enabled: precision.visible && precision.editor.active
+        onActivated: {
+            if (precision.comparisonActive)
+                precision.comparisonActive = false
+            else
+                precision.activateComparison(precision.comparisonMode)
+        }
     }
 
     RowLayout {
@@ -584,24 +722,97 @@ Item {
                             }
                         }
 
-                        ShadowIconButton {
-                            id: beforeAfterButton
-                            source: "qrc:/icons/before-after.svg"
-                            variant: ShadowIconButton.Secondary
-                            selected: precision.showBefore
-                            toolTipText: precision.showBefore
-                                ? qsTr("Show edited image")
-                                : qsTr("Show original image")
-                            accessibleName: toolTipText
-                            Accessible.checked: selected
-                            enabled: precision.editor.active
-                            onClicked: {
-                                if (precision.showBefore) {
-                                    precision.showBefore = false
-                                } else {
-                                    precision.resetView()
-                                    precision.showBefore = true
-                                    precision.editor.requestBeforePreview()
+                        RowLayout {
+                            spacing: 2
+
+                            ShadowIconButton {
+                                id: beforeAfterButton
+                                source: precision.comparisonModeIcon(
+                                    precision.comparisonMode)
+                                variant: ShadowIconButton.Secondary
+                                selected: precision.comparisonActive
+                                toolTipText: precision.comparisonActive
+                                    ? qsTr("Disable comparison")
+                                    : qsTr("Compare with original · %1").arg(
+                                        precision.comparisonModeName(
+                                            precision.comparisonMode))
+                                accessibleName: toolTipText
+                                Accessible.checked: selected
+                                enabled: precision.editor.active
+                                onClicked: {
+                                    if (precision.comparisonActive)
+                                        precision.comparisonActive = false
+                                    else
+                                        precision.activateComparison(
+                                            precision.comparisonMode)
+                                }
+                            }
+
+                            ShadowIconButton {
+                                id: comparisonModeButton
+                                source: "qrc:/icons/chevron-down.svg"
+                                buttonSize: 24
+                                iconSize: 12
+                                toolTipText: qsTr("Choose comparison layout")
+                                accessibleName: toolTipText
+                                enabled: precision.editor.active
+                                onClicked: comparisonModePopup.open()
+
+                                Popup {
+                                    id: comparisonModePopup
+                                    parent: comparisonModeButton
+                                    x: Math.round((comparisonModeButton.width
+                                        - width) / 2)
+                                    y: comparisonModeButton.height + 6
+                                    width: comparisonModeRow.implicitWidth + 16
+                                    height: comparisonModeRow.implicitHeight + 16
+                                    padding: 8
+                                    modal: false
+                                    closePolicy: Popup.CloseOnEscape
+                                        | Popup.CloseOnPressOutside
+
+                                    background: Rectangle {
+                                        radius: Theme.controlRadius
+                                        color: Theme.panelRaised
+                                        border.width: 1
+                                        border.color: Theme.borderStrong
+                                    }
+
+                                    contentItem: Row {
+                                        id: comparisonModeRow
+                                        spacing: 4
+
+                                        Repeater {
+                                            model: [
+                                                { "mode": precision.comparisonWhole,
+                                                  "icon": "qrc:/icons/before-after.svg" },
+                                                { "mode": precision.comparisonWipeVertical,
+                                                  "icon": "qrc:/icons/compare-wipe-vertical.svg" },
+                                                { "mode": precision.comparisonWipeHorizontal,
+                                                  "icon": "qrc:/icons/compare-wipe-horizontal.svg" },
+                                                { "mode": precision.comparisonSideBySide,
+                                                  "icon": "qrc:/icons/compare-side-by-side.svg" },
+                                                { "mode": precision.comparisonStacked,
+                                                  "icon": "qrc:/icons/compare-stacked.svg" }
+                                            ]
+
+                                            delegate: ShadowIconButton {
+                                                required property var modelData
+                                                source: modelData.icon
+                                                variant: ShadowIconButton.Secondary
+                                                selected: precision.comparisonMode
+                                                    === modelData.mode
+                                                toolTipText: precision.comparisonModeName(
+                                                    modelData.mode)
+                                                accessibleName: toolTipText
+                                                onClicked: {
+                                                    comparisonModePopup.close()
+                                                    precision.activateComparison(
+                                                        modelData.mode)
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -683,18 +894,21 @@ Item {
                         id: photoSurface
                         x: (previewFlick.contentWidth - width) / 2
                         y: (previewFlick.contentHeight - height) / 2
-                        width: precision.imagePixelWidth * precision.displayScale
-                        height: precision.imagePixelHeight * precision.displayScale
+                        width: precision.dualComparison
+                            ? previewFlick.width
+                            : precision.imagePixelWidth * precision.displayScale
+                        height: precision.dualComparison
+                            ? previewFlick.height
+                            : precision.imagePixelHeight * precision.displayScale
 
                         Image {
                             id: editedPreview
                             anchors.fill: parent
-                            source: precision.displayingBefore
-                                ? precision.editor.beforePreviewSource
-                                : precision.editor.previewSource
+                            source: precision.visiblePreviewSource
                             fillMode: Image.Stretch
                             asynchronous: true
                             cache: false
+                            visible: !precision.dualComparison
                             // Keep the last decoded texture on screen until the
                             // replacement generation is actually ready. Without
                             // this, every slider update briefly exposes the
@@ -716,6 +930,327 @@ Item {
                                 } else if (status === Image.Error) {
                                     precision.readyPreviewGeneration = ""
                                 }
+                            }
+                        }
+
+                        Item {
+                            id: beforeClip
+                            x: 0
+                            y: 0
+                            width: precision.comparisonMode
+                                === precision.comparisonWipeVertical
+                                ? photoSurface.width
+                                    * precision.comparisonPosition
+                                : photoSurface.width
+                            height: precision.comparisonMode
+                                === precision.comparisonWipeHorizontal
+                                ? photoSurface.height
+                                    * precision.comparisonPosition
+                                : photoSurface.height
+                            clip: true
+                            visible: precision.comparisonActive
+                                && precision.beforeReady
+                            z: 20
+
+                            Image {
+                                id: beforePreviewImage
+                                x: 0
+                                y: 0
+                                width: photoSurface.width
+                                height: photoSurface.height
+                                source: precision.editor.beforePreviewSource
+                                fillMode: Image.Stretch
+                                asynchronous: true
+                                cache: false
+                                retainWhileLoading: true
+                                smooth: true
+                                onSourceChanged: precision.beforeFrameReady = false
+                                onStatusChanged: {
+                                    if (status === Image.Ready)
+                                        precision.beforeFrameReady = true
+                                    else if (status === Image.Null
+                                            || status === Image.Error)
+                                        precision.beforeFrameReady = false
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            id: dualCompareSurface
+                            anchors.fill: parent
+                            visible: precision.dualComparison
+                            color: Theme.photoCanvas
+                            z: 30
+
+                            Item {
+                                id: dualBeforePane
+                                x: 0
+                                y: 0
+                                width: precision.comparisonMode
+                                    === precision.comparisonSideBySide
+                                    ? parent.width / 2 : parent.width
+                                height: precision.comparisonMode
+                                    === precision.comparisonStacked
+                                    ? parent.height / 2 : parent.height
+                                clip: true
+
+                                Image {
+                                    anchors.fill: parent
+                                    anchors.margins: 10
+                                    source: precision.editor.beforePreviewSource
+                                    fillMode: Image.PreserveAspectFit
+                                    asynchronous: true
+                                    cache: false
+                                    retainWhileLoading: true
+                                    smooth: true
+                                }
+
+                                Rectangle {
+                                    anchors.left: parent.left
+                                    anchors.top: parent.top
+                                    anchors.margins: 14
+                                    width: dualBeforeLabel.implicitWidth + 14
+                                    height: 23
+                                    radius: 4
+                                    color: Theme.previewHudStrongOverlay
+                                    border.color: Theme.previewHudBorder
+
+                                    Label {
+                                        id: dualBeforeLabel
+                                        anchors.centerIn: parent
+                                        text: qsTr("BEFORE")
+                                        color: precision.textSecondary
+                                        font.pixelSize: 8
+                                        font.weight: Font.Bold
+                                        font.letterSpacing: 0.7
+                                    }
+                                }
+                            }
+
+                            Item {
+                                id: dualAfterPane
+                                x: precision.comparisonMode
+                                    === precision.comparisonSideBySide
+                                    ? parent.width / 2 : 0
+                                y: precision.comparisonMode
+                                    === precision.comparisonStacked
+                                    ? parent.height / 2 : 0
+                                width: precision.comparisonMode
+                                    === precision.comparisonSideBySide
+                                    ? parent.width / 2 : parent.width
+                                height: precision.comparisonMode
+                                    === precision.comparisonStacked
+                                    ? parent.height / 2 : parent.height
+                                clip: true
+
+                                Image {
+                                    anchors.fill: parent
+                                    anchors.margins: 10
+                                    source: precision.visiblePreviewSource
+                                    fillMode: Image.PreserveAspectFit
+                                    asynchronous: true
+                                    cache: false
+                                    retainWhileLoading: true
+                                    smooth: true
+                                }
+
+                                Rectangle {
+                                    anchors.left: parent.left
+                                    anchors.top: parent.top
+                                    anchors.margins: 14
+                                    width: dualAfterLabel.implicitWidth + 14
+                                    height: 23
+                                    radius: 4
+                                    color: Theme.previewHudStrongOverlay
+                                    border.color: Theme.previewHudBorder
+
+                                    Label {
+                                        id: dualAfterLabel
+                                        anchors.centerIn: parent
+                                        text: qsTr("AFTER")
+                                        color: precision.textSecondary
+                                        font.pixelSize: 8
+                                        font.weight: Font.Bold
+                                        font.letterSpacing: 0.7
+                                    }
+                                }
+                            }
+
+                            Rectangle {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                width: 1
+                                height: parent.height
+                                visible: precision.comparisonMode
+                                    === precision.comparisonSideBySide
+                                color: Theme.previewHudBorder
+                            }
+
+                            Rectangle {
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: parent.width
+                                height: 1
+                                visible: precision.comparisonMode
+                                    === precision.comparisonStacked
+                                color: Theme.previewHudBorder
+                            }
+                        }
+
+                        Rectangle {
+                            id: verticalComparisonDivider
+                            x: Math.round(photoSurface.width
+                                * precision.comparisonPosition)
+                            y: 0
+                            width: 1
+                            height: photoSurface.height
+                            visible: precision.comparisonActive
+                                && precision.beforeReady
+                                && precision.comparisonMode
+                                    === precision.comparisonWipeVertical
+                            color: Theme.previewCompareDivider
+                            z: 80
+
+                            Rectangle {
+                                anchors.centerIn: parent
+                                width: 18
+                                height: 32
+                                radius: 9
+                                color: Theme.previewHudStrongOverlay
+                                border.width: 1
+                                border.color: Theme.previewCompareDivider
+
+                                Rectangle {
+                                    anchors.centerIn: parent
+                                    width: 2
+                                    height: 14
+                                    radius: 1
+                                    color: Theme.previewCompareDivider
+                                }
+                            }
+
+                            MouseArea {
+                                id: verticalDividerDragArea
+                                x: -12
+                                y: 0
+                                width: 25
+                                height: parent.height
+                                hoverEnabled: true
+                                preventStealing: true
+                                cursorShape: Qt.SizeHorCursor
+                                onPressed: mouse => precision.updateComparisonPosition(
+                                    verticalDividerDragArea, mouse.x, mouse.y)
+                                onPositionChanged: mouse => {
+                                    if (pressed)
+                                        precision.updateComparisonPosition(
+                                            verticalDividerDragArea,
+                                            mouse.x, mouse.y)
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            id: horizontalComparisonDivider
+                            x: 0
+                            y: Math.round(photoSurface.height
+                                * precision.comparisonPosition)
+                            width: photoSurface.width
+                            height: 1
+                            visible: precision.comparisonActive
+                                && precision.beforeReady
+                                && precision.comparisonMode
+                                    === precision.comparisonWipeHorizontal
+                            color: Theme.previewCompareDivider
+                            z: 80
+
+                            Rectangle {
+                                anchors.centerIn: parent
+                                width: 32
+                                height: 18
+                                radius: 9
+                                color: Theme.previewHudStrongOverlay
+                                border.width: 1
+                                border.color: Theme.previewCompareDivider
+
+                                Rectangle {
+                                    anchors.centerIn: parent
+                                    width: 14
+                                    height: 2
+                                    radius: 1
+                                    color: Theme.previewCompareDivider
+                                }
+                            }
+
+                            MouseArea {
+                                id: horizontalDividerDragArea
+                                x: 0
+                                y: -12
+                                width: parent.width
+                                height: 25
+                                hoverEnabled: true
+                                preventStealing: true
+                                cursorShape: Qt.SizeVerCursor
+                                onPressed: mouse => precision.updateComparisonPosition(
+                                    horizontalDividerDragArea, mouse.x, mouse.y)
+                                onPositionChanged: mouse => {
+                                    if (pressed)
+                                        precision.updateComparisonPosition(
+                                            horizontalDividerDragArea,
+                                            mouse.x, mouse.y)
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            id: wipeBeforeBadge
+                            x: 12
+                            y: 12
+                            width: wipeBeforeLabel.implicitWidth + 14
+                            height: 23
+                            radius: 4
+                            visible: precision.comparisonActive
+                                && precision.beforeReady
+                                && (precision.comparisonMode
+                                    === precision.comparisonWipeVertical
+                                    || precision.comparisonMode
+                                        === precision.comparisonWipeHorizontal)
+                            color: Theme.previewHudStrongOverlay
+                            border.color: Theme.previewHudBorder
+                            z: 90
+
+                            Label {
+                                id: wipeBeforeLabel
+                                anchors.centerIn: parent
+                                text: qsTr("BEFORE")
+                                color: precision.textSecondary
+                                font.pixelSize: 8
+                                font.weight: Font.Bold
+                                font.letterSpacing: 0.7
+                            }
+                        }
+
+                        Rectangle {
+                            id: wipeAfterBadge
+                            x: precision.comparisonMode
+                                === precision.comparisonWipeVertical
+                                ? photoSurface.width - width - 12 : 12
+                            y: precision.comparisonMode
+                                === precision.comparisonWipeHorizontal
+                                ? photoSurface.height - height - 12 : 12
+                            width: wipeAfterLabel.implicitWidth + 14
+                            height: 23
+                            radius: 4
+                            visible: wipeBeforeBadge.visible
+                            color: Theme.previewHudStrongOverlay
+                            border.color: Theme.previewHudBorder
+                            z: 90
+
+                            Label {
+                                id: wipeAfterLabel
+                                anchors.centerIn: parent
+                                text: qsTr("AFTER")
+                                color: precision.textSecondary
+                                font.pixelSize: 8
+                                font.weight: Font.Bold
+                                font.letterSpacing: 0.7
                             }
                         }
 
@@ -750,7 +1285,7 @@ Item {
                             z: 100
                             enabled: (precision.editor.pointColorPickerActive
                                     || precision.editor.whiteBalancePickerActive)
-                                && !precision.displayingBefore
+                                && !precision.comparisonActive
                                 && precision.previewFrameReady
                                 && precision.readyPreviewGeneration.length > 0
                             cursorShape: Qt.CrossCursor
@@ -794,21 +1329,34 @@ Item {
                 height: 25
                 radius: 4
                 visible: precision.editor.active
-                    && (precision.displayingBefore
-                        || precision.editor.previewSource.length > 0)
+                    && (precision.comparisonActive
+                        || precision.visiblePreviewSource.length > 0)
                 color: Theme.previewHudOverlay
-                border.color: precision.displayingBefore
+                border.color: precision.comparisonActive
                     ? precision.accent : Theme.previewHudBorder
 
                 Label {
                     id: comparisonBadgeLabel
                     anchors.centerIn: parent
-                    text: precision.displayingBefore
-                        ? qsTr("BEFORE · NEUTRAL BASE")
+                    text: precision.comparisonActive
+                        ? precision.comparisonMode === precision.comparisonWhole
+                            ? qsTr("BEFORE · NEUTRAL BASE")
+                            : precision.comparisonMode
+                                === precision.comparisonWipeVertical
+                                ? qsTr("BEFORE / AFTER · VERTICAL WIPE")
+                                : precision.comparisonMode
+                                    === precision.comparisonWipeHorizontal
+                                    ? qsTr("BEFORE / AFTER · HORIZONTAL WIPE")
+                                    : precision.comparisonMode
+                                        === precision.comparisonSideBySide
+                                        ? qsTr("BEFORE / AFTER · SIDE BY SIDE")
+                                        : qsTr("BEFORE / AFTER · TOP / BOTTOM")
                         : precision.showingFullDetail
                             ? qsTr("AFTER · FULL-RES RGB DETAIL")
+                            : precision.showingProvisionalPreview
+                                ? qsTr("LIBRARY PREVIEW · DEVELOPING RAW")
                             : qsTr("AFTER · CURRENT EDIT PROXY")
-                    color: precision.displayingBefore
+                    color: precision.comparisonActive
                         ? precision.accent : precision.textSecondary
                     font.pixelSize: 8
                     font.weight: Font.Bold
@@ -823,7 +1371,7 @@ Item {
                 width: Math.min(350, detailHintRow.implicitWidth + 20)
                 height: 30
                 radius: 4
-                visible: !precision.displayingBefore && !precision.fitView
+                visible: !precision.comparisonActive && !precision.fitView
                     && precision.zoomFactor >= 1.0
                     && (precision.editor.detailRendering
                         || precision.editor.detailErrorText.length > 0
@@ -867,7 +1415,8 @@ Item {
                 width: Math.min(330, beforeHintRow.implicitWidth + 20)
                 height: 30
                 radius: 4
-                visible: precision.showBefore && !precision.beforeReady
+                visible: precision.comparisonActive
+                    && (!precision.beforeReady || !precision.beforeFrameReady)
                     && precision.editor.active
                 color: Theme.previewHudStrongOverlay
                 border.color: precision.border
@@ -904,7 +1453,7 @@ Item {
                 visible: !precision.previewFrameReady
                     && (precision.editor.stateBusy
                         || precision.editor.rendering
-                        || (precision.showBefore
+                        || (precision.comparisonActive
                             && precision.editor.beforeRendering))
                 BusyIndicator {
                     anchors.horizontalCenter: parent.horizontalCenter
@@ -979,6 +1528,80 @@ Item {
                     secondaryTextColor: precision.textSecondary
                     mutedTextColor: precision.textMuted
                     accentColor: precision.accent
+                }
+
+                Rectangle {
+                    id: captureMetadataPanel
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 58
+                    color: precision.panel
+
+                    readonly property bool metadataMatches:
+                        precision.captureMetadata
+                        && precision.captureMetadata.representationId
+                            === precision.editor.representationId
+                    readonly property bool metadataAvailable:
+                        metadataMatches && precision.captureMetadata.available
+
+                    Rectangle {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        height: 1
+                        color: precision.border
+                    }
+
+                    Column {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.leftMargin: 14
+                        anchors.rightMargin: 14
+                        spacing: 4
+
+                        Label {
+                            width: parent.width
+                            text: captureMetadataPanel.metadataAvailable
+                                ? precision.joinedIdentity(
+                                    precision.captureMetadata.cameraMake,
+                                    precision.captureMetadata.cameraModel)
+                                : captureMetadataPanel.metadataMatches
+                                    && precision.captureMetadata.pending
+                                    ? qsTr("Preparing capture metadata…")
+                                    : qsTr("Capture metadata unavailable")
+                            color: captureMetadataPanel.metadataAvailable
+                                ? precision.textPrimary : precision.textMuted
+                            font.pixelSize: 10
+                            font.weight: captureMetadataPanel.metadataAvailable
+                                ? Font.Medium : Font.Normal
+                            elide: Text.ElideRight
+                        }
+
+                        RowLayout {
+                            width: parent.width
+                            spacing: 8
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: captureMetadataPanel.metadataAvailable
+                                    ? precision.captureSettingSummary() : ""
+                                color: precision.textSecondary
+                                font.pixelSize: 9
+                                elide: Text.ElideRight
+                            }
+                            Label {
+                                Layout.maximumWidth: parent.width * 0.42
+                                visible: captureMetadataPanel.metadataAvailable
+                                    && text.length > 0
+                                text: precision.joinedIdentity(
+                                    precision.captureMetadata.lensMake,
+                                    precision.captureMetadata.lensModel)
+                                color: precision.textMuted
+                                font.pixelSize: 9
+                                elide: Text.ElideRight
+                            }
+                        }
+                    }
                 }
 
                 TabBar {
@@ -1480,7 +2103,7 @@ Item {
                                                     && precision.editor.pointColors.length < 16
                                                     && precision.previewFrameReady
                                                     && precision.readyPreviewGeneration.length > 0
-                                                    && !precision.displayingBefore
+                                                    && !precision.comparisonActive
                                                 toolTipText: qsTr("Add a Point Color sample from the image")
                                                 accessibleName: toolTipText
                                                 onClicked: precision.editor.setPointColorPickerActive(
@@ -2112,6 +2735,18 @@ Item {
                                                         text: parent.modelData.name
                                                         color: parent.enabled ? Theme.textSecondary : Theme.textDisabled
                                                         font.pixelSize: 10
+                                                    }
+
+                                                    Label {
+                                                        readonly property bool applied:
+                                                            precision.opticsEffectState(
+                                                                parent.modelData.key).startsWith(
+                                                                    qsTr("Applied"))
+                                                        text: precision.opticsEffectState(parent.modelData.key)
+                                                        color: applied ? Theme.successText : Theme.textMuted
+                                                        font.pixelSize: 9
+                                                        elide: Text.ElideRight
+                                                        visible: text.length > 0
                                                     }
 
                                                     Switch {

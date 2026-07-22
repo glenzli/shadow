@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <climits>
+#include <cstdint>
 #include <cstring>
 #include <limits>
 #include <memory>
@@ -16,6 +17,7 @@ namespace shadow::image {
 namespace {
 
 using ProcessedImage = std::unique_ptr<libraw_processed_image_t, void (*)(libraw_processed_image_t*)>;
+inline constexpr std::uint32_t libraw_capability_contract_version = 2U;
 
 [[nodiscard]] DecodeErrorCode map_libraw_error(const int result) noexcept {
     switch (result) {
@@ -242,11 +244,17 @@ public:
 
         metadata_ = read_metadata(decoder_);
         previews_ = read_previews(decoder_.imgdata);
+        libraw_decoder_info_t decoder_info{};
+        const bool decoder_can_unpack =
+            decoder_.get_decoder_info(&decoder_info) == LIBRAW_SUCCESS
+            && (decoder_info.decoder_flags
+                & (LIBRAW_DECODER_UNSUPPORTED_FORMAT | LIBRAW_DECODER_NOTSET)) == 0U;
         capabilities_.metadata = true;
         capabilities_.embedded_previews = !previews_.empty();
-        capabilities_.mosaic =
-            decoder_.imgdata.idata.filters != 0U || decoder_.imgdata.idata.colors == 1;
-        capabilities_.reference_rgb = true;
+        capabilities_.mosaic = decoder_can_unpack
+            && (decoder_.imgdata.idata.filters != 0U
+                || decoder_.imgdata.idata.colors == 1);
+        capabilities_.reference_rgb = decoder_can_unpack;
         capabilities_.pending_corrections = pending_corrections(decoder_.imgdata);
     }
 
@@ -361,6 +369,33 @@ public:
     }
 
     [[nodiscard]] PixelBuffer render_reference_rgb() const override {
+        return render_reference_rgb_impl(false);
+    }
+
+    [[nodiscard]] PixelBuffer render_reference_rgb_for_preview(
+        const std::uint32_t max_edge
+    ) const override {
+        if (max_edge == 0U) {
+            throw DecodeError(
+                DecodeErrorCode::invalid_request,
+                LIBRAW_BAD_CROP,
+                "preview reference edge must be non-zero"
+            );
+        }
+        const std::uint64_t native_edge = std::max(
+            static_cast<std::uint64_t>(metadata_.image_dimensions.width),
+            static_cast<std::uint64_t>(metadata_.image_dimensions.height)
+        );
+        // LibRaw's half-size mode is a genuine reduced demosaic path, not a post-process
+        // resize. It avoids spending full-resolution CPU and memory bandwidth on a source whose
+        // next step is a 1200–2048 px interactive proxy. Keep full quality for smaller files and
+        // for any request where a half-size raster would not materially reduce work.
+        const bool use_half_size = native_edge > static_cast<std::uint64_t>(max_edge) * 2U;
+        return render_reference_rgb_impl(use_half_size);
+    }
+
+private:
+    [[nodiscard]] PixelBuffer render_reference_rgb_impl(const bool half_size) const {
         // LibRaw embeds sizeable fixed storage in the decoder object. QtConcurrent worker
         // threads use a substantially smaller stack than the process main thread on macOS,
         // so keeping a temporary LibRaw here can overflow the worker before open_file runs.
@@ -390,6 +425,7 @@ public:
         // controlled independently above, so the resulting integer samples remain linear-light.
         parameters.output_color = 1;
         parameters.user_qual = static_cast<int>(settings_.demosaic_quality);
+        parameters.half_size = half_size ? 1 : 0;
         require_libraw_success(renderer->dcraw_process(), "dcraw_process");
 
         int result = LIBRAW_SUCCESS;
@@ -466,7 +502,6 @@ public:
         return buffer;
     }
 
-private:
     void ensure_unpacked() {
         if (unpacked_) {
             return;
@@ -494,6 +529,8 @@ public:
         // reference/output contracts so a transfer or gamut-mapping change cannot reuse bytes
         // generated under the same linked LibRaw release.
         info_.version = std::string(LibRaw::version())
+            + ";shadow-decoder-capabilities-v"
+            + std::to_string(libraw_capability_contract_version)
             + ";shadow-processed-linear-srgb16-v"
             + std::to_string(processed_linear_reference_rgb_contract_version)
             + ";shadow-display-srgb8-v"

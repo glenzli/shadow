@@ -167,7 +167,7 @@ ApplicationWindow {
         libraryFolderDialog.open()
     }
 
-    function openPrecision(photoId, representationId, sourcePath, photoTitle) {
+    function openPrecision(photoId, representationId, sourcePath, photoTitle, previewSource) {
         if (editor.active && editor.photoId === photoId
                 && editor.representationId === representationId
                 && editor.sourcePath === sourcePath) {
@@ -175,7 +175,8 @@ ApplicationWindow {
             workspaceIndex = 1
             return
         }
-        if (editor.openPhoto(photoId, representationId, sourcePath, photoTitle)) {
+        if (editor.openPhoto(photoId, representationId, sourcePath, photoTitle,
+                             previewSource || "")) {
             reviewWorkspace.precisionOpenStatus = ""
             workspaceIndex = 1
         } else {
@@ -466,8 +467,10 @@ ApplicationWindow {
             Layout.fillHeight: true
             controller: window.controller
             preferences: window.preferences
-            onOpenPrecisionRequested: (photoId, representationId, sourcePath, photoTitle) => {
-                window.openPrecision(photoId, representationId, sourcePath, photoTitle)
+            onOpenPrecisionRequested: (photoId, representationId, sourcePath, photoTitle,
+                                        previewSource) => {
+                window.openPrecision(photoId, representationId, sourcePath, photoTitle,
+                                     previewSource)
             }
         }
 
@@ -477,6 +480,19 @@ ApplicationWindow {
             Layout.fillHeight: true
             editor: window.editor
             lutLibrary: window.lutLibrary
+            captureMetadata: ({
+                representationId: reviewWorkspace.selectedRepresentationId,
+                pending: window.controller.scanning || window.controller.refreshing,
+                available: reviewWorkspace.selectedHasMetadata,
+                cameraMake: reviewWorkspace.selectedCameraMake,
+                cameraModel: reviewWorkspace.selectedCameraModel,
+                lensMake: reviewWorkspace.selectedLensMake,
+                lensModel: reviewWorkspace.selectedLensModel,
+                isoSpeed: reviewWorkspace.selectedIsoSpeed,
+                exposureTimeSeconds: reviewWorkspace.selectedExposureTimeSeconds,
+                apertureFNumber: reviewWorkspace.selectedApertureFNumber,
+                focalLengthMm: reviewWorkspace.selectedFocalLengthMm
+            })
             onOpenLutLibraryRequested: window.openLutManager()
             onOpenOpticsProfileLibraryRequested: window.openOpticsProfileManager()
         }

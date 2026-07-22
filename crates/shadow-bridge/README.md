@@ -68,8 +68,11 @@ Cargo uses CXX 1.0.198 and compiles the same `shadow-image` sources used by CMak
 ```sh
 cargo test --package shadow-bridge
 cargo run --package shadow-cli -- inspect-raw /absolute/path/to/input.dng
+cargo xtask raw-smoke /absolute/path/to/raw-fixtures
 ```
 
 The ignored `real_dng_snapshot_crosses_the_bridge` and
 `real_dng_full_edit_detail_session_renders_deterministic_tiles` tests can be enabled with an
-absolute local fixture path in `SHADOW_TEST_DNG`.
+absolute local fixture path in `SHADOW_TEST_DNG`. The ignored
+`real_raw_folder_smoke_matrix` recursively checks a mixed-vendor fixture directory supplied by
+`SHADOW_TEST_RAW_FOLDER`; `cargo xtask raw-smoke` is its repository-level entry point.

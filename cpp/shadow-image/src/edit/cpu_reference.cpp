@@ -403,6 +403,87 @@ using PreparedCurveAdjustment = std::variant<
     return normalized * normalized * (3.0 - 2.0 * normalized);
 }
 
+// Map scene-linear luminance through a bounded contrast curve while keeping its RGB chromatic
+// ratios intact.  The pivot is first mapped into a finite "display-like" domain, so even a
+// strong contrast setting never drives a positive input below zero or turns a bright RAW value
+// into a hard clip.  This is deliberately a global, per-pixel operation: it must give the same
+// result for a full image and for an independently rendered detail tile.
+[[nodiscard]] Vector3 apply_scene_contrast(
+    const Vector3& input,
+    const std::array<double, 3>& luminance_weights,
+    const ContrastAdjustment& parameters
+) noexcept {
+    if (parameters.factor == 1.0) {
+        return input;
+    }
+
+    const double luminance = input[0] * luminance_weights[0]
+        + input[1] * luminance_weights[1]
+        + input[2] * luminance_weights[2];
+    if (!(luminance > 0.0)) {
+        return input;
+    }
+
+    // The public UI uses 0.18. Keep a finite denominator for programmatic requests that use a
+    // zero pivot, rather than risking a divide-by-zero in the curved representation.
+    const double pivot = std::max(parameters.pivot, 1.0e-6);
+    if (parameters.factor == 0.0) {
+        const double gain = pivot / luminance;
+        return {input[0] * gain, input[1] * gain, input[2] * gain};
+    }
+
+    const double normalized = luminance / (luminance + pivot);
+    // Factor is multiplicative in the public contract, but maps to a restrained signed amount
+    // internally. The clamp protects scripted factor values (the bridge allows up to 8x) from
+    // producing an unstable shoulder.
+    const double amount = std::clamp(std::log2(parameters.factor) * 0.35, -0.70, 0.70);
+    const double shaped = normalized
+        + amount * 2.0 * normalized * (1.0 - normalized) * (2.0 * normalized - 1.0);
+    const double bounded = std::clamp(shaped, 1.0e-7, 1.0 - 1.0e-7);
+    const double adjusted_luminance = pivot * bounded / (1.0 - bounded);
+    const double gain = adjusted_luminance / luminance;
+    return {input[0] * gain, input[1] * gain, input[2] * gain};
+}
+
+[[nodiscard]] Vector3 apply_selective_tone(
+    const Vector3& input,
+    const std::array<double, 3>& luminance_weights,
+    const SelectiveToneAdjustment& parameters
+) noexcept {
+    const double luminance = input[0] * luminance_weights[0]
+        + input[1] * luminance_weights[1]
+        + input[2] * luminance_weights[2];
+    if (!(luminance > 0.0)) {
+        return input;
+    }
+
+    const double ev = std::log2(luminance / 0.18);
+    // These four weights form a smooth partition of the ordinary scene-linear range. The old
+    // white region did not start until about 2.0 linear, even though most decoded RAW previews
+    // are normalized near 1.0, making Whites appear broken. The new shoulder begins around
+    // 0.4 and reaches its full effect just above 1.4, while the black region now reaches the
+    // deep but visible detail photographers actually expect the Blacks slider to affect.
+    const double blacks = 1.0 - smoothstep(-4.0, -2.2, ev);
+    const double shadows = smoothstep(-4.0, -2.2, ev)
+        * (1.0 - smoothstep(-0.5, 1.5, ev));
+    const double highlights = smoothstep(-0.5, 1.5, ev)
+        * (1.0 - smoothstep(1.2, 3.0, ev));
+    const double whites = smoothstep(1.2, 3.0, ev);
+    // Keep the endpoint intentionally gentler than the old two-stop multiplier. This is a
+    // regional recovery tool, not a second exposure control; exposure remains the predictable
+    // way to translate the entire scene.
+    const double stops = 1.25
+        * (parameters.blacks * blacks
+           + parameters.shadows * shadows
+           + parameters.highlights * highlights
+           + parameters.whites * whites);
+    if (stops == 0.0) {
+        return input;
+    }
+    const double gain = std::exp2(stops);
+    return {input[0] * gain, input[1] * gain, input[2] * gain};
+}
+
 [[nodiscard]] double wrap_degrees(const double degrees) noexcept {
     double wrapped = std::fmod(degrees, 360.0);
     if (wrapped < 0.0) {
@@ -1790,16 +1871,13 @@ void apply_node(
                     }
                 );
             } else if constexpr (std::is_same_v<Parameters, ContrastAdjustment>) {
+                const auto luminance_weights = image.working_space.luminance_coefficients;
                 transform_rgb_pixels(
                     image,
                     index,
                     node,
-                    [&parameters](const std::array<double, 3>& input) {
-                        const auto adjust = [&parameters](const double value) {
-                            return parameters.pivot
-                                + (value - parameters.pivot) * parameters.factor;
-                        };
-                        return std::array{adjust(input[0]), adjust(input[1]), adjust(input[2])};
+                    [&parameters, luminance_weights](const Vector3& input) {
+                        return apply_scene_contrast(input, luminance_weights, parameters);
                     }
                 );
             } else if constexpr (std::is_same_v<Parameters, ToneCurve>) {
@@ -1861,34 +1939,7 @@ void apply_node(
                     index,
                     node,
                     [&parameters, luminance_weights](const Vector3& input) {
-                        const double luminance = input[0] * luminance_weights[0]
-                            + input[1] * luminance_weights[1]
-                            + input[2] * luminance_weights[2];
-                        if (luminance <= 0.0) {
-                            return input;
-                        }
-
-                        const double ev = std::log2(luminance / 0.18);
-                        const double black_weight = 1.0 - smoothstep(-6.0, -3.5, ev);
-                        const double shadow_weight = smoothstep(-6.0, -3.5, ev)
-                            * (1.0 - smoothstep(-1.5, 0.5, ev));
-                        const double highlight_weight = smoothstep(0.5, 1.5, ev)
-                            * (1.0 - smoothstep(3.5, 5.5, ev));
-                        const double white_weight = smoothstep(3.5, 5.5, ev);
-                        const double stops = 2.0
-                            * (parameters.blacks * black_weight
-                               + parameters.shadows * shadow_weight
-                               + parameters.highlights * highlight_weight
-                               + parameters.whites * white_weight);
-                        if (stops == 0.0) {
-                            return input;
-                        }
-                        const double gain = std::exp2(stops);
-                        return Vector3{
-                            input[0] * gain,
-                            input[1] * gain,
-                            input[2] * gain,
-                        };
+                        return apply_selective_tone(input, luminance_weights, parameters);
                     }
                 );
             } else if constexpr (std::is_same_v<Parameters, PerceptualColorAdjustment>) {

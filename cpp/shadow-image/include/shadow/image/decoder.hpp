@@ -262,6 +262,16 @@ public:
     [[nodiscard]] virtual PreviewPayload decode_preview(std::size_t id) = 0;
     [[nodiscard]] virtual MosaicBuffer decode_mosaic() = 0;
     [[nodiscard]] virtual PixelBuffer render_reference_rgb() const = 0;
+    // Interactive preview is allowed to ask a provider for a bounded-quality reference. The
+    // default keeps third-party/provider test implementations exact; LibRaw overrides it with
+    // its documented half-size RAW path only when the native frame is far larger than the
+    // requested preview. Full-detail rendering always calls render_reference_rgb().
+    [[nodiscard]] virtual PixelBuffer render_reference_rgb_for_preview(
+        std::uint32_t max_edge
+    ) const {
+        (void)max_edge;
+        return render_reference_rgb();
+    }
 };
 
 class DecoderProvider {

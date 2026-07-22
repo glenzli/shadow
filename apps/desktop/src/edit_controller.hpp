@@ -72,6 +72,11 @@ class EditController final : public QObject {
     Q_PROPERTY(QString sourcePath READ sourcePath NOTIFY sourcePathChanged)
     Q_PROPERTY(QString previewSource READ previewSource NOTIFY previewSourceChanged)
     Q_PROPERTY(
+        QString provisionalPreviewSource
+        READ provisionalPreviewSource
+        NOTIFY provisionalPreviewSourceChanged
+    )
+    Q_PROPERTY(
         QString beforePreviewSource
         READ beforePreviewSource
         NOTIFY beforePreviewSourceChanged
@@ -219,6 +224,7 @@ public:
     [[nodiscard]] QString title() const;
     [[nodiscard]] QString sourcePath() const;
     [[nodiscard]] QString previewSource() const;
+    [[nodiscard]] QString provisionalPreviewSource() const;
     [[nodiscard]] QString beforePreviewSource() const;
     [[nodiscard]] QVariantMap histogram() const;
     [[nodiscard]] QVariantMap beforeHistogram() const;
@@ -281,7 +287,8 @@ public:
         const QString& photo_id,
         const QString& representation_id,
         const QString& source_path,
-        const QString& title
+        const QString& title,
+        const QString& provisional_preview_source = {}
     );
     Q_INVOKABLE void closePhoto();
     Q_INVOKABLE void selectGradeNode(int index);
@@ -383,6 +390,7 @@ signals:
     void titleChanged();
     void sourcePathChanged();
     void previewSourceChanged();
+    void provisionalPreviewSourceChanged();
     void beforePreviewSourceChanged();
     void histogramChanged();
     void beforeHistogramChanged();
@@ -479,6 +487,7 @@ private:
     QString source_path_;
     QString title_;
     QString preview_source_;
+    QString provisional_preview_source_;
     QString before_preview_source_;
     QVariantMap histogram_;
     QVariantMap before_histogram_;

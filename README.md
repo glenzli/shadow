@@ -23,6 +23,7 @@ cargo xtask test
 cargo xtask doctor
 cargo xtask native-check
 cargo xtask desktop-build
+cargo xtask raw-smoke ./local-reference/sample-assets/raw
 cargo run --package shadow-cli -- init ./catalogs/demo.sqlite
 cargo run --package shadow-cli -- scan ./catalogs/demo.sqlite /path/to/photos
 cargo run --package shadow-cli -- scan-cache ./catalogs/demo.sqlite ./catalogs/cache /path/to/photos
@@ -31,6 +32,16 @@ cargo run --package shadow-cli -- inspect-raw /path/to/input.dng
 cargo run --package shadow-cli -- inspect-store ./catalogs/demo.sqlite ./catalogs/cache /path/to/input.dng
 ./build/native-dev/cpp/shadow-image/shadow-raw-probe /path/to/input.dng ./bench-results/raw-probe
 ```
+
+`raw-smoke` recursively discovers common camera RAW extensions and exercises metadata,
+embedded-preview extraction, a bounded reference render, and optical-profile discovery for every
+local fixture. With no directory argument it uses the ignored
+`local-reference/sample-assets/raw/` directory, so proprietary sample files never enter Git.
+Recognized formats that cannot expose mosaic/RGB pixels pass only when the provider reports that
+limitation truthfully and a valid embedded preview remains available; the matrix reports them as
+`preview-only` instead of hiding them behind the first decoder failure.
+The non-Release desktop app also scans that fixture directory on startup, making newly added
+local RAW samples available in the persistent development Library without manual folder import.
 
 `inspect-store` exercises the first complete background path: it registers one
 RAW representation, decodes its provider-neutral capability snapshot away from

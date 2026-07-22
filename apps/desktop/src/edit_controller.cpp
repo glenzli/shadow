@@ -236,6 +236,8 @@ edit_message(const char *const source,
         {QStringLiteral("appliedDistortion"), receipt.applied_distortion},
         {QStringLiteral("appliedTca"), receipt.applied_tca},
         {QStringLiteral("appliedVignetting"), receipt.applied_vignetting},
+        {QStringLiteral("vignettingUsedDistanceFallback"),
+            receipt.vignetting_used_distance_fallback},
         {QStringLiteral("appliedScaling"), receipt.applied_scaling},
     };
 }
@@ -770,6 +772,10 @@ QString EditController::sourcePath() const {
 
 QString EditController::previewSource() const {
     return preview_source_;
+}
+
+QString EditController::provisionalPreviewSource() const {
+    return provisional_preview_source_;
 }
 
 QString EditController::beforePreviewSource() const {
@@ -1917,7 +1923,8 @@ bool EditController::openPhoto(
     const QString& photo_id,
     const QString& representation_id,
     const QString& source_path,
-    const QString& title
+    const QString& title,
+    const QString& provisional_preview_source
 ) {
     if (state_running_) {
     setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
@@ -1960,6 +1967,10 @@ bool EditController::openPhoto(
     representation_id_ = representation_id;
     source_path_ = source_path;
     title_ = title;
+    if (provisional_preview_source_ != provisional_preview_source) {
+        provisional_preview_source_ = provisional_preview_source;
+        emit provisionalPreviewSourceChanged();
+    }
     versions_.replace({});
     base_commit_id_.clear();
     durable_working_commit_id_.clear();
@@ -2019,6 +2030,10 @@ void EditController::closePhoto() {
     if (!optics_receipt_.isEmpty()) {
         optics_receipt_.clear();
         emit opticsReceiptChanged();
+    }
+    if (!provisional_preview_source_.isEmpty()) {
+        provisional_preview_source_.clear();
+        emit provisionalPreviewSourceChanged();
     }
     active_ = false;
     emit activeChanged();
@@ -2619,6 +2634,12 @@ void EditController::finishPreviewTask() {
             preview_source_ = QStringLiteral("image://shadow-edit/current?generation=%1")
                                   .arg(result.generation.current_revision);
             emit previewSourceChanged();
+            if (!provisional_preview_source_.isEmpty()) {
+                // Publish the authoritative RAW render first, so QML never reveals an empty
+                // canvas between the cached Library visual and the local edit preview.
+                provisional_preview_source_.clear();
+                emit provisionalPreviewSourceChanged();
+            }
             if (accepted) {
                 const QVariantMap new_receipt = optics_receipt_map(result.preview.optics);
                 if (optics_receipt_ != new_receipt) {

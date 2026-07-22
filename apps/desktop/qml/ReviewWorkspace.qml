@@ -97,7 +97,8 @@ Item {
     }
 
     signal openPrecisionRequested(string photoId, string representationId,
-                                  string sourcePath, string photoTitle)
+                                  string sourcePath, string photoTitle,
+                                  string previewSource)
 
     MetadataWindow {
         id: metadataWindow
@@ -460,7 +461,7 @@ Item {
         if (!canOpenSelectedPhoto)
             return
         openPrecisionRequested(selectedPhotoId, selectedRepresentationId,
-                               selectedPath, selectedTitle)
+                               selectedPath, selectedTitle, selectedVisualSource)
     }
 
     function reportPrecisionOpenFailure(message) {
@@ -927,6 +928,16 @@ Item {
                     }
 
                     onHasMetadataChanged: refreshSelectedMetadata()
+                    onCameraMakeChanged: refreshSelectedMetadata()
+                    onCameraModelChanged: refreshSelectedMetadata()
+                    onLensMakeChanged: refreshSelectedMetadata()
+                    onLensModelChanged: refreshSelectedMetadata()
+                    onIsoSpeedChanged: refreshSelectedMetadata()
+                    onExposureTimeSecondsChanged: refreshSelectedMetadata()
+                    onApertureFNumberChanged: refreshSelectedMetadata()
+                    onFocalLengthMmChanged: refreshSelectedMetadata()
+                    onFocalLength35mmChanged: refreshSelectedMetadata()
+                    onCapturedAtUnixSecondsChanged: refreshSelectedMetadata()
 
                     Accessible.role: Accessible.ListItem
                     Accessible.name: card.title

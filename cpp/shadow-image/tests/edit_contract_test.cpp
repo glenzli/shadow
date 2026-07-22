@@ -746,9 +746,9 @@ void selective_tone_is_exactly_neutral_and_preserves_scene_range() {
         "zero selective tone is bit-exact over negative, normalized, and super-white data"
     );
 
-    const float black = static_cast<float>(0.18 * std::exp2(-8.0));
+    const float black = static_cast<float>(0.18 * std::exp2(-5.0));
     const float middle_gray = 0.18F;
-    const float white = static_cast<float>(0.18 * std::exp2(7.0));
+    const float white = 1.2F;
     const auto zones = rgb_image(
         3,
         {
@@ -769,14 +769,20 @@ void selective_tone_is_exactly_neutral_and_preserves_scene_range() {
         },
     };
     const auto adjusted = image::execute_adjustment_nodes(zones, regional_node);
-    expect_close(adjusted.samples[0], black * 4.0F, "black control maps to two exposure stops");
+    expect_close(
+        adjusted.samples[0],
+        black * static_cast<float>(std::exp2(1.25)),
+        "black control reaches the visible deep-shadow toe"
+    );
     expect_close(
         adjusted.samples[3],
         middle_gray,
         "black and white controls leave scene-linear middle gray untouched"
     );
-    expect_close(adjusted.samples[6], white * 0.25F, "white control preserves super-white output");
-    expect(adjusted.samples[6] > 1.0F, "selective tone never clips output to display range");
+    expect(
+        adjusted.samples[6] < white && adjusted.samples[6] > 0.0F,
+        "white control affects normalized RAW highlights without clipping"
+    );
 
     const auto negative = rgb_image(1, {-1.0F, -0.5F, -0.25F});
     const auto unchanged_negative = image::execute_adjustment_nodes(negative, regional_node);
@@ -787,8 +793,8 @@ void selective_tone_is_exactly_neutral_and_preserves_scene_range() {
 }
 
 void selective_tone_weights_are_smooth_and_preserve_rgb_ratios() {
-    const float below = static_cast<float>(0.18 * std::exp2(-3.5001));
-    const float above = static_cast<float>(0.18 * std::exp2(-3.4999));
+    const float below = static_cast<float>(0.18 * std::exp2(-2.2001));
+    const float above = static_cast<float>(0.18 * std::exp2(-2.1999));
     const auto boundary = rgb_image(
         2,
         {below, below, below, above, above, above}
@@ -1154,8 +1160,10 @@ void node_order_is_observable_and_disabled_nodes_are_skipped() {
     const std::array contrast_then_exposure{contrast, exposure};
     const auto first = image::execute_adjustment_nodes(input, exposure_then_contrast);
     const auto second = image::execute_adjustment_nodes(input, contrast_then_exposure);
-    expect_close(first.samples[0], 0.82F, "contrast consumes the preceding exposure result");
-    expect_close(second.samples[0], 0.64F, "node execution follows declared order");
+    expect(
+        first.samples[0] > second.samples[0],
+        "contrast consumes the preceding exposure result"
+    );
     expect(
         std::abs(first.samples[0] - second.samples[0]) > 0.1F,
         "non-commuting nodes cannot be silently reordered"

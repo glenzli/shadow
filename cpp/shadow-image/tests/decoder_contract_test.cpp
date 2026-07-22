@@ -291,6 +291,22 @@ void lensfun_adapter_applies_a_real_profile_when_a_test_database_is_available() 
         );
     }
 
+    auto missing_distance_metadata = metadata;
+    missing_distance_metadata.focus_distance_meters = 0.0;
+    const auto far_distance_result = provider->correct_reference_rgb(
+        input,
+        missing_distance_metadata,
+        image::default_optics_settings()
+    );
+    expect(
+        far_distance_result.receipt.applied_vignetting,
+        "Lensfun retains ordinary vignetting correction when focus distance is absent"
+    );
+    expect(
+        far_distance_result.receipt.vignetting_used_distance_fallback,
+        "Lensfun receipt discloses the far-distance vignetting approximation"
+    );
+
     auto manual_metadata = metadata;
     manual_metadata.lens_make.clear();
     manual_metadata.lens_model.clear();

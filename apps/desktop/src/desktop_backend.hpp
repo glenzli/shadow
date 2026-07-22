@@ -312,6 +312,7 @@ struct BackendOpticsReceipt final {
     bool applied_distortion = false;
     bool applied_tca = false;
     bool applied_vignetting = false;
+    bool vignetting_used_distance_fallback = false;
     bool applied_scaling = false;
 };
 

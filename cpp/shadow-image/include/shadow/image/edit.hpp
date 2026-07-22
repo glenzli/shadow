@@ -79,7 +79,9 @@ struct ExposureAdjustment final {
 };
 
 struct ContrastAdjustment final {
-    // output = pivot + (input - pivot) * factor. factor=1 is neutral.
+    // A scene-linear, luminance-preserving S curve centered at pivot. factor=1 is neutral.
+    // Unlike an affine per-channel scale, this keeps the toe and shoulder finite and retains
+    // chromatic ratios instead of producing negative colour channels in deep shadows.
     double factor = 1.0;
     double pivot = 0.18;
 };
@@ -99,8 +101,9 @@ struct SaturationAdjustment final {
 };
 
 // Lightroom-style regional tone controls expressed as bounded, implementation-independent
-// amounts. The CPU reference maps each amount to at most two exposure stops and blends the
-// regions with smooth weights in scene-linear luminance/EV. Zeroes are exactly neutral.
+// amounts. The CPU reference maps each amount to a bounded scene-linear gain and partitions
+// the reachable RAW preview range into smooth black, shadow, highlight, and white regions.
+// Zeroes are exactly neutral.
 struct SelectiveToneAdjustment final {
     double highlights = 0.0;
     double shadows = 0.0;

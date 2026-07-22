@@ -72,6 +72,7 @@ mod ffi {
         applied_distortion: bool,
         applied_tca: bool,
         applied_vignetting: bool,
+        vignetting_used_distance_fallback: bool,
         applied_scaling: bool,
     }
 
@@ -331,6 +332,7 @@ pub const BASIC_EDIT_PREVIEW_RECIPE_VERSION: u32 = 1;
 pub const OPTICS_SETTINGS_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[allow(clippy::struct_excessive_bools)] // Mirrors independent persisted correction switches.
 pub struct OpticsSettings {
     pub enabled: bool,
     pub correct_distortion: bool,
@@ -360,6 +362,7 @@ impl Default for OpticsSettings {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
+#[allow(clippy::struct_excessive_bools)] // Availability and application are distinct receipt facts.
 pub struct OpticsReceipt {
     pub status: String,
     pub provider_id: String,
@@ -372,6 +375,7 @@ pub struct OpticsReceipt {
     pub applied_distortion: bool,
     pub applied_tca: bool,
     pub applied_vignetting: bool,
+    pub vignetting_used_distance_fallback: bool,
     pub applied_scaling: bool,
 }
 
@@ -385,6 +389,10 @@ pub struct OpticsProfileCandidate {
 
 /// Enumerates Lensfun lenses compatible with the camera identified by a RAW.
 /// The result is sorted and deduplicated by stable maker/model identity.
+///
+/// # Errors
+///
+/// Returns a path or decoder error when the RAW cannot be opened and inspected.
 pub fn query_libraw_optics_profiles(
     path: &Path,
 ) -> Result<Vec<OpticsProfileCandidate>, BridgeError> {
@@ -430,6 +438,7 @@ fn optics_receipt(receipt: ffi::FfiOpticsReceipt) -> OpticsReceipt {
         applied_distortion: receipt.applied_distortion,
         applied_tca: receipt.applied_tca,
         applied_vignetting: receipt.applied_vignetting,
+        vignetting_used_distance_fallback: receipt.vignetting_used_distance_fallback,
         applied_scaling: receipt.applied_scaling,
     }
 }
@@ -1521,13 +1530,19 @@ impl LibRawEditPreviewSession {
     /// Returns [`BridgeError::InvalidEditRequest`] before RAW I/O for an
     /// invalid bound, or a decoder error if preparation fails.
     pub fn open(path: &Path, max_edge: u32) -> Result<Self, BridgeError> {
-        Self::open_with_optics(path, max_edge, OpticsSettings::default())
+        Self::open_with_optics(path, max_edge, &OpticsSettings::default())
     }
 
+    /// Opens a reusable preview session with explicit input-stage optical correction settings.
+    ///
+    /// # Errors
+    ///
+    /// Returns an invalid-request, path, decoder, resource-limit, or bridge-output error when
+    /// validation or preparation fails.
     pub fn open_with_optics(
         path: &Path,
         max_edge: u32,
-        optics: OpticsSettings,
+        optics: &OpticsSettings,
     ) -> Result<Self, BridgeError> {
         validate_warm_edit_max_edge(max_edge)?;
         let mut decode_handle = open_libraw(path)?;
@@ -1536,7 +1551,7 @@ impl LibRawEditPreviewSession {
         }
         decode_handle
             .pin_mut()
-            .configure_optics(&ffi_optics_settings(&optics))?;
+            .configure_optics(&ffi_optics_settings(optics))?;
         let decode_handle = decode_handle.as_ref().ok_or(BridgeError::NullHandle)?;
         let handle = decode_handle.prepare_edit_preview(max_edge)?;
         let prepared = handle.as_ref().ok_or(BridgeError::NullHandle)?;
@@ -1649,17 +1664,23 @@ impl LibRawEditDetailSession {
     /// Returns a path, decoder, resource-limit, or invalid bridge-output error. Sources whose
     /// worst-case or actual retained allocation exceeds 512 MiB fail closed.
     pub fn open(path: &Path) -> Result<Self, BridgeError> {
-        Self::open_with_optics(path, OpticsSettings::default())
+        Self::open_with_optics(path, &OpticsSettings::default())
     }
 
-    pub fn open_with_optics(path: &Path, optics: OpticsSettings) -> Result<Self, BridgeError> {
+    /// Opens a full-resolution detail session with explicit input-stage optical settings.
+    ///
+    /// # Errors
+    ///
+    /// Returns a path, decoder, resource-limit, invalid-request, or bridge-output error when
+    /// validation or preparation fails.
+    pub fn open_with_optics(path: &Path, optics: &OpticsSettings) -> Result<Self, BridgeError> {
         let mut decode_handle = open_libraw(path)?;
         if decode_handle.is_null() {
             return Err(BridgeError::NullHandle);
         }
         decode_handle
             .pin_mut()
-            .configure_optics(&ffi_optics_settings(&optics))?;
+            .configure_optics(&ffi_optics_settings(optics))?;
         let decode_handle = decode_handle.as_ref().ok_or(BridgeError::NullHandle)?;
         let handle = decode_handle.prepare_edit_detail()?;
         let prepared = handle.as_ref().ok_or(BridgeError::NullHandle)?;
@@ -3163,6 +3184,165 @@ mod tests {
             .expect_err("invalid request must fail");
             assert!(matches!(error, BridgeError::InvalidEditRequest(_)));
         }
+    }
+
+    #[test]
+    #[ignore = "requires SHADOW_TEST_RAW_FOLDER to contain local RAW fixtures"]
+    #[allow(clippy::too_many_lines)] // Keeps the end-to-end local fixture contract in one test.
+    fn real_raw_folder_smoke_matrix() {
+        fn collect_raws(directory: &Path, paths: &mut Vec<std::path::PathBuf>) {
+            let entries = std::fs::read_dir(directory).unwrap_or_else(|error| {
+                panic!("read RAW fixture directory {directory:?}: {error}")
+            });
+            for entry in entries {
+                let entry = entry.unwrap_or_else(|error| panic!("read RAW fixture entry: {error}"));
+                let path = entry.path();
+                if path.is_dir() {
+                    collect_raws(&path, paths);
+                    continue;
+                }
+                let extension = path
+                    .extension()
+                    .and_then(std::ffi::OsStr::to_str)
+                    .unwrap_or_default()
+                    .to_ascii_lowercase();
+                if matches!(
+                    extension.as_str(),
+                    "3fr"
+                        | "arw"
+                        | "cr2"
+                        | "cr3"
+                        | "dng"
+                        | "erf"
+                        | "fff"
+                        | "iiq"
+                        | "kdc"
+                        | "mef"
+                        | "mos"
+                        | "mrw"
+                        | "nef"
+                        | "nrw"
+                        | "orf"
+                        | "pef"
+                        | "raf"
+                        | "raw"
+                        | "rw2"
+                        | "rwl"
+                        | "sr2"
+                        | "srf"
+                        | "srw"
+                ) {
+                    paths.push(path);
+                }
+            }
+        }
+
+        let folder = std::env::var_os("SHADOW_TEST_RAW_FOLDER")
+            .expect("SHADOW_TEST_RAW_FOLDER must identify a fixture directory");
+        let folder = Path::new(&folder);
+        let mut paths = Vec::new();
+        collect_raws(folder, &mut paths);
+        paths.sort();
+        assert!(
+            !paths.is_empty(),
+            "RAW fixture directory contains no supported files"
+        );
+
+        let mut failures = Vec::new();
+        let mut passed = 0_usize;
+        let mut preview_only = 0_usize;
+        for path in paths {
+            let result = (|| -> Result<(String, bool), String> {
+                const FULL_DECODE_UNAVAILABLE: &str = "mosaic/reference RGB unavailable";
+                const CAPABILITY_MISMATCH: &str = "mosaic and reference RGB capabilities disagree";
+                let snapshot =
+                    inspect_libraw(&path).map_err(|error| format!("inspect: {error}"))?;
+                if snapshot.provider.id != "libraw" {
+                    return Err(format!("unexpected provider {}", snapshot.provider.id));
+                }
+                if !snapshot.capabilities.metadata.is_available() {
+                    return Err("metadata unavailable".to_owned());
+                }
+                if snapshot.metadata.raw_dimensions.pixel_count() == 0 {
+                    return Err("invalid RAW dimensions".to_owned());
+                }
+
+                let preview = extract_best_libraw_preview(&path)
+                    .map_err(|error| format!("extract preview: {error}"))?
+                    .map(|preview| {
+                        if preview.descriptor.dimensions.pixel_count() == 0
+                            || preview.bytes.is_empty()
+                        {
+                            return Err("invalid embedded preview".to_owned());
+                        }
+                        Ok(preview)
+                    })
+                    .transpose()?;
+
+                let mosaic_available = snapshot.capabilities.mosaic.is_available();
+                let reference_rgb_available = snapshot.capabilities.reference_rgb.is_available();
+                if mosaic_available != reference_rgb_available {
+                    return Err(CAPABILITY_MISMATCH.to_owned());
+                }
+
+                let profile_count = query_libraw_optics_profiles(&path)
+                    .map_err(|error| format!("query Lensfun profiles: {error}"))?
+                    .len();
+                let summary = format!(
+                    "{} {} · {}x{} · {profile_count} compatible optical profiles",
+                    snapshot.metadata.normalized_make,
+                    snapshot.metadata.normalized_model,
+                    snapshot.metadata.raw_dimensions.width,
+                    snapshot.metadata.raw_dimensions.height,
+                );
+                if !mosaic_available {
+                    if preview.is_none() {
+                        return Err(format!("{FULL_DECODE_UNAVAILABLE}; no embedded preview"));
+                    }
+                    return Ok((format!("{summary} · embedded-preview fallback"), true));
+                }
+
+                let proxy = render_libraw_reference_proxy(&path, 1_024, 82)
+                    .map_err(|error| format!("render reference proxy: {error}"))?;
+                if proxy.codec != PreviewCodec::Jpeg {
+                    return Err(format!("unexpected proxy codec: {:?}", proxy.codec));
+                }
+                if proxy.dimensions.width.max(proxy.dimensions.height) > 1_024
+                    || proxy.dimensions.pixel_count() == 0
+                    || proxy.bytes.is_empty()
+                {
+                    return Err("invalid bounded reference proxy".to_owned());
+                }
+
+                Ok((summary, false))
+            })();
+
+            match result {
+                Ok((summary, used_preview_only)) => {
+                    passed += 1;
+                    if used_preview_only {
+                        preview_only += 1;
+                        eprintln!("RAW smoke preview-only: {} · {summary}", path.display());
+                    } else {
+                        eprintln!("RAW smoke ok: {} · {summary}", path.display());
+                    }
+                }
+                Err(error) => {
+                    eprintln!("RAW smoke failed: {} · {error}", path.display());
+                    failures.push(format!("{} · {error}", path.display()));
+                }
+            }
+        }
+
+        assert!(
+            failures.is_empty(),
+            "RAW smoke matrix: {passed} passed ({preview_only} preview-only), {} failed:\n{}",
+            failures.len(),
+            failures.join("\n")
+        );
+        eprintln!(
+            "RAW smoke matrix passed: {passed} files · {preview_only} preview-only fallbacks"
+        );
     }
 
     #[test]

@@ -22,6 +22,9 @@ Rust consumes owned metadata/capability/preview snapshots, the selected embedded
 Current contract rules:
 
 - A file without an embedded preview is valid and can still expose mosaic/RGB capabilities.
+- A recognized file whose LibRaw decoder is flagged `UNSUPPORTED_FORMAT` keeps factual metadata
+  and embedded-preview capabilities but does not advertise mosaic/reference-RGB support. This is
+  the expected preview-only path for Nikon Z9 HE/HE* NEF until an external provider is available.
 - Preview IDs are provider IDs, not vector positions. `select_best_preview` chooses the largest decodable candidate.
 - DNG opcode lists are surfaced as `PendingCorrections` until Shadow can prove they were applied.
 - `render_reference_rgb` explicitly returns processed, linear-light 16-bit RGB in

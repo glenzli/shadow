@@ -18,7 +18,7 @@ namespace shadow::image {
 // sampling its own already-cropped pixels when distortion/TCA require coordinates elsewhere in
 // the complete image.
 inline constexpr std::uint32_t optics_settings_schema_version = 1U;
-inline constexpr std::uint32_t optics_implementation_version = 1U;
+inline constexpr std::uint32_t optics_implementation_version = 2U;
 
 struct OpticsSettings final {
     std::uint32_t schema_version = optics_settings_schema_version;
@@ -68,6 +68,11 @@ struct OpticsProfileReceipt final {
     bool applied_distortion = false;
     bool applied_tca = false;
     bool applied_vignetting = false;
+    // RAW files frequently omit a portable focus-distance field. Lensfun's vignetting
+    // calibration is still useful at normal/long focus distances, so the provider may apply it
+    // with an explicit far-distance approximation. This makes that approximation auditable
+    // instead of silently pretending an unavailable maker-note value was exact.
+    bool vignetting_used_distance_fallback = false;
     bool applied_scaling = false;
 };
 

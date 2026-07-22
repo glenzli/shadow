@@ -515,6 +515,7 @@ mod ffi {
         optics_applied_distortion: bool,
         optics_applied_tca: bool,
         optics_applied_vignetting: bool,
+        optics_vignetting_used_distance_fallback: bool,
         optics_applied_scaling: bool,
     }
 
@@ -1600,6 +1601,7 @@ impl DesktopSession {
             optics_applied_distortion: optics.applied_distortion,
             optics_applied_tca: optics.applied_tca,
             optics_applied_vignetting: optics.applied_vignetting,
+            optics_vignetting_used_distance_fallback: optics.vignetting_used_distance_fallback,
             optics_applied_scaling: optics.applied_scaling,
         })
     }
@@ -1734,7 +1736,7 @@ impl DesktopSession {
         let prepared = Arc::new(LibRawEditPreviewSession::open_with_optics(
             &catalog_native_path(source)?,
             max_edge,
-            optics.clone(),
+            &optics,
         )?);
         let mut sessions = self
             .edit_preview_sessions
@@ -1752,7 +1754,7 @@ impl DesktopSession {
             representation_id: source.representation_id,
             source: source.source,
             max_edge,
-            optics: optics.clone(),
+            optics,
             session: Arc::clone(&prepared),
         });
         sessions.truncate(2);
@@ -1799,7 +1801,7 @@ impl DesktopSession {
         *cached = None;
         let prepared = Arc::new(LibRawEditDetailSession::open_with_optics(
             &native_path,
-            optics.clone(),
+            &optics,
         )?);
         let decoded_source = fingerprint_source(&native_path).context(SOURCE_METADATA_CONTEXT)?;
         if decoded_source != source.source {
@@ -10474,30 +10476,36 @@ mod tests {
             let report = session
                 .scan_folder(Path::new(&folder).to_str().expect("fixture folder"), 1)
                 .expect("scan real DNG folder");
-            let page = session.review_page("", "", 1).expect("first Review page");
+            let first_page = session.review_page("", "", 1).expect("first Review page");
 
             assert!(report.supported_files >= 2);
-            assert_eq!(page.items.len(), 1);
-            assert!(page.total_items >= 2);
-            assert!(page.has_more);
-            assert!(page.items[0].has_visual);
-            assert!(page.items[0].has_technical_observation);
-            assert_eq!(page.items[0].decision_head_sequence, 0);
-            assert_eq!(page.items[0].decision_flag, ffi::FfiDecisionFlag::Unflagged);
-            assert_eq!(page.items[0].decision_rating, 0);
-            assert!(page.items[0].technical_input_width > 0);
-            assert!(page.items[0].technical_input_width <= 512);
-            assert!(page.items[0].technical_input_height > 0);
-            assert!(page.items[0].technical_input_height <= 512);
+            assert_eq!(first_page.items.len(), 1);
+            assert!(first_page.total_items >= 2);
+            assert!(first_page.has_more);
+            let page = session
+                .review_page("", "", 96)
+                .expect("complete Review page");
+            let item = page
+                .items
+                .iter()
+                .find(|item| item.has_visual && item.has_technical_observation)
+                .expect("at least one JPEG visual has a technical observation");
+            assert_eq!(item.decision_head_sequence, 0);
+            assert_eq!(item.decision_flag, ffi::FfiDecisionFlag::Unflagged);
+            assert_eq!(item.decision_rating, 0);
+            assert!(item.technical_input_width > 0);
+            assert!(item.technical_input_width <= 512);
+            assert!(item.technical_input_height > 0);
+            assert!(item.technical_input_height <= 512);
             assert_eq!(
-                page.items[0].technical_preprocessing_version,
+                item.technical_preprocessing_version,
                 technical_analysis_preprocessing_version()
             );
-            assert!((0.0..=1.0).contains(&page.items[0].mean_luma));
-            assert!(page.items[0].laplacian_variance >= 0.0);
-            assert!(page.items[0].edge_energy >= 0.0);
+            assert!((0.0..=1.0).contains(&item.mean_luma));
+            assert!(item.laplacian_variance >= 0.0);
+            assert!(item.edge_energy >= 0.0);
             let visual = session
-                .load_review_visual(&page.items[0].visual_handle)
+                .load_review_visual(&item.visual_handle)
                 .expect("load first visual lazily");
             assert!(!visual.requires_frame_receipt);
             assert!(visual.bytes.starts_with(&[0xff, 0xd8]));
@@ -10505,34 +10513,36 @@ mod tests {
 
             let decision = session
                 .set_review_photo_decision(
-                    &page.items[0].photo_id,
-                    page.items[0].decision_head_sequence,
+                    &item.photo_id,
+                    item.decision_head_sequence,
                     ffi::FfiDecisionFlag::Picked,
                     3,
                 )
                 .expect("persist a real-DNG Review decision");
             let refreshed = session
-                .review_page("", "", 1)
+                .review_page("", "", 96)
                 .expect("refresh real-DNG Review decision");
-            assert_eq!(refreshed.items[0].decision_head_sequence, decision.sequence);
-            assert_eq!(
-                refreshed.items[0].decision_flag,
-                ffi::FfiDecisionFlag::Picked
-            );
-            assert_eq!(refreshed.items[0].decision_rating, 3);
+            let refreshed_item = refreshed
+                .items
+                .iter()
+                .find(|candidate| candidate.photo_id == item.photo_id)
+                .expect("refresh selected real-DNG item");
+            assert_eq!(refreshed_item.decision_head_sequence, decision.sequence);
+            assert_eq!(refreshed_item.decision_flag, ffi::FfiDecisionFlag::Picked);
+            assert_eq!(refreshed_item.decision_rating, 3);
 
             let edits = ffi_parameters(0.0, 1.0, [0.0; 2], 1.0);
             let first_edit = session
                 .render_basic_edit_preview(
-                    &page.items[0].photo_id,
-                    &page.items[0].source_path,
+                    &item.photo_id,
+                    &item.source_path,
                     &preview_request("", edits, true),
                 )
                 .expect("prepare and render first edited preview");
             let second_edit = session
                 .render_basic_edit_preview(
-                    &page.items[0].photo_id,
-                    &page.items[0].source_path,
+                    &item.photo_id,
+                    &item.source_path,
                     &preview_request("", ffi_parameters(0.5, 1.1, [0.05, 0.0], 1.15), true),
                 )
                 .expect("reuse prepared edit preview session");
@@ -10544,11 +10554,11 @@ mod tests {
             assert_ne!(first_edit.luma_histogram, second_edit.luma_histogram);
             assert_persisted_tone_recipe_and_neutral_before(
                 session.as_ref(),
-                &page.items[0],
+                item,
                 &ffi_parameters(0.8, 1.25, [0.08, 0.0], 1.2),
             );
             let stack_grade_node_ids =
-                assert_real_dng_grade_stack_round_trip(session.as_ref(), &page.items[0]);
+                assert_real_dng_grade_stack_round_trip(session.as_ref(), item);
             assert_eq!(
                 session
                     .edit_preview_sessions
@@ -10558,7 +10568,7 @@ mod tests {
                 1
             );
             (
-                page.items[0].photo_id.clone(),
+                item.photo_id.clone(),
                 decision.sequence,
                 stack_grade_node_ids,
             )
@@ -10570,14 +10580,18 @@ mod tests {
             )
             .expect("reopen real-DNG desktop session");
             let page = reopened
-                .review_page("", "", 1)
+                .review_page("", "", 96)
                 .expect("page persisted real-DNG decision");
-            assert_eq!(page.items[0].photo_id, decision_photo_id);
-            assert_eq!(page.items[0].decision_head_sequence, decision_sequence);
-            assert_eq!(page.items[0].decision_flag, ffi::FfiDecisionFlag::Picked);
-            assert_eq!(page.items[0].decision_rating, 3);
+            let item = page
+                .items
+                .iter()
+                .find(|item| item.photo_id == decision_photo_id)
+                .expect("reopen selected real-DNG item");
+            assert_eq!(item.decision_head_sequence, decision_sequence);
+            assert_eq!(item.decision_flag, ffi::FfiDecisionFlag::Picked);
+            assert_eq!(item.decision_rating, 3);
             let edit_state = reopened
-                .photo_edit_state(&page.items[0].photo_id, &page.items[0].source_path)
+                .photo_edit_state(&item.photo_id, &item.source_path)
                 .expect("reopen persisted real-DNG Grade Stack");
             assert_eq!(
                 edit_state

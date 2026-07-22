@@ -1,4 +1,4 @@
-use std::{env, io, process::Command};
+use std::{env, io, path::PathBuf, process::Command};
 
 fn main() -> io::Result<()> {
     let command = env::args().nth(1).unwrap_or_else(|| "help".to_owned());
@@ -33,6 +33,7 @@ fn main() -> io::Result<()> {
             run("cmake", &["--build", "--preset", "native-dev"])?;
             run("ctest", &["--preset", "native-dev"])
         }
+        "raw-smoke" => raw_smoke(env::args_os().nth(2)),
         "doctor" => {
             doctor("rustc", &["--version"]);
             doctor("cargo", &["--version"]);
@@ -45,10 +46,56 @@ fn main() -> io::Result<()> {
         }
         _ => {
             println!(
-                "cargo xtask <check|test|native-configure|native-build|native-check|desktop-build|desktop-release|doctor>"
+                "cargo xtask <check|test|native-configure|native-build|native-check|desktop-build|desktop-release|raw-smoke [fixture-directory]|doctor>"
             );
             Ok(())
         }
+    }
+}
+
+fn raw_smoke(folder: Option<std::ffi::OsString>) -> io::Result<()> {
+    let repository_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("xtask lives directly below the repository root")
+        .to_path_buf();
+    let folder = folder.map_or_else(
+        || repository_root.join("local-reference/sample-assets/raw"),
+        |path| {
+            let path = PathBuf::from(path);
+            if path.is_absolute() {
+                path
+            } else {
+                repository_root.join(path)
+            }
+        },
+    );
+    if !folder.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("RAW fixture directory does not exist: {}", folder.display()),
+        ));
+    }
+    let folder = folder.canonicalize()?;
+
+    let status = Command::new("cargo")
+        .current_dir(repository_root)
+        .env("SHADOW_TEST_RAW_FOLDER", &folder)
+        .args([
+            "test",
+            "-p",
+            "shadow-bridge",
+            "real_raw_folder_smoke_matrix",
+            "--",
+            "--ignored",
+            "--nocapture",
+        ])
+        .status()?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(io::Error::other(format!(
+            "RAW smoke matrix exited with status {status}"
+        )))
     }
 }
 

@@ -143,6 +143,14 @@ QT_QPA_PLATFORM=offscreen SHADOW_DESKTOP_SMOKE_TEST=1 \
 
 `SHADOW_DESKTOP_SCAN_FOLDER=/absolute/folder` optionally starts one scan after launch. It is intended for local visual regression and does not bypass the folder picker in normal use.
 
+Non-Release desktop builds also scan the ignored
+`local-reference/sample-assets/raw/` fixture folder at startup when no explicit
+`SHADOW_DESKTOP_SCAN_FOLDER` is supplied. The import is idempotent, so the
+development Library automatically picks up newly added local DNG/RAW fixtures
+without duplicating existing assets. Keeping this scope on the source fixtures
+also prevents generated `raw-probe/` JPEG/PGM/PPM artifacts from entering the
+Library. Release builds never embed or scan this repository-local path.
+
 `SHADOW_DESKTOP_DATA_ROOT=/absolute/folder` overrides the local Catalog/cache directory for isolated smoke tests. Normal launches continue to use Qt's per-user application-data location.
 
 Adding `SHADOW_DESKTOP_STREAMING_SCAN_SMOKE=1` proves that both the Review model and QML Grid become non-empty while `scanning` is still true, then requires `refreshing` to settle only after the terminal stable-prefix refresh. `SHADOW_DESKTOP_CANCEL_SCAN_SMOKE=1` requests cooperative cancellation after live progress begins and likewise waits for the final Library refresh before accepting a `cancelled` terminal snapshot. After a completed scan, launch the same isolated data root without `SHADOW_DESKTOP_SCAN_FOLDER` and add `SHADOW_DESKTOP_REOPEN_LIBRARY_SMOKE=1` to prove that the persisted Library appears without rescanning.

@@ -253,7 +253,23 @@ void render_reference_rgb(image::DecodeSession& session, const fs::path& output_
               << "timing.reference_rgb_ms=" << timer.elapsed_ms() << '\n';
 }
 
-int run(const fs::path& input_path, const fs::path& output_directory) {
+void render_warm_preview_reference_rgb(image::DecodeSession& session) {
+    constexpr std::uint32_t warm_preview_edge = 1'200U;
+    const Stopwatch timer;
+    const image::PixelBuffer rendered = session.render_reference_rgb_for_preview(warm_preview_edge);
+    std::cout << "preview_reference.status=ok\n"
+              << "preview_reference.requested_max_edge=" << warm_preview_edge << '\n'
+              << "preview_reference.dimensions=" << rendered.dimensions.width << 'x'
+              << rendered.dimensions.height << '\n'
+              << "preview_reference.samples=" << rendered.samples.size() << '\n'
+              << "timing.preview_reference_ms=" << timer.elapsed_ms() << '\n';
+}
+
+int run(
+    const fs::path& input_path,
+    const fs::path& output_directory,
+    const bool preview_only
+) {
     fs::create_directories(output_directory);
     const auto provider = image::make_libraw_decoder_provider();
 
@@ -265,6 +281,10 @@ int run(const fs::path& input_path, const fs::path& output_directory) {
               << "timing.open_ms=" << open_timer.elapsed_ms() << '\n';
     print_session(provider->info(), *session);
     extract_best_preview(*session, output_directory);
+    render_warm_preview_reference_rgb(*session);
+    if (preview_only) {
+        return 0;
+    }
     inspect_mosaic(*session, output_directory);
     render_reference_rgb(*session, output_directory);
     return 0;
@@ -273,13 +293,15 @@ int run(const fs::path& input_path, const fs::path& output_directory) {
 } // namespace
 
 int main(const int argument_count, char** arguments) {
-    if (argument_count != 3) {
-        std::cerr << "usage: shadow-raw-probe <input-raw> <output-directory>\n";
+    const bool preview_only = argument_count == 4
+        && std::string_view(arguments[3]) == "--preview-only";
+    if (argument_count != 3 && !preview_only) {
+        std::cerr << "usage: shadow-raw-probe <input-raw> <output-directory> [--preview-only]\n";
         return 2;
     }
 
     try {
-        return run(arguments[1], arguments[2]);
+        return run(arguments[1], arguments[2], preview_only);
     } catch (const image::DecodeError& error) {
         std::cerr << "shadow-raw-probe: " << error.what() << " [provider="
                   << error.provider_code() << "]\n";

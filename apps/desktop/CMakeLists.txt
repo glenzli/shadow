@@ -126,6 +126,10 @@ qt_add_resources(
         icons/check.svg
         icons/clear.svg
         icons/compare.svg
+        icons/compare-side-by-side.svg
+        icons/compare-stacked.svg
+        icons/compare-wipe-horizontal.svg
+        icons/compare-wipe-vertical.svg
         icons/duplicate.svg
         icons/edit.svg
         icons/eyedropper.svg
@@ -215,6 +219,17 @@ qt_add_translations(
 )
 
 target_compile_features(shadow-desktop PRIVATE cxx_std_20)
+if(NOT CMAKE_BUILD_TYPE STREQUAL "Release")
+    file(TO_CMAKE_PATH
+        "${PROJECT_SOURCE_DIR}/local-reference/sample-assets/raw"
+        SHADOW_DESKTOP_DEV_SAMPLE_FOLDER
+    )
+    target_compile_definitions(
+        shadow-desktop
+        PRIVATE
+            SHADOW_DESKTOP_DEV_SAMPLE_FOLDER="${SHADOW_DESKTOP_DEV_SAMPLE_FOLDER}"
+    )
+endif()
 target_include_directories(
     shadow-desktop
     PRIVATE

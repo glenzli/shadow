@@ -68,9 +68,12 @@ ApplicationWindow {
                     font.letterSpacing: 0.8
                 }
                 Label {
-                    text: root.editor.opticsManualProfile
+                    readonly property var receipt: root.editor.opticsReceipt
+                    text: (root.editor.opticsManualProfile
                         ? qsTr("Manual · %1").arg(root.editor.opticsLensProfile)
-                        : qsTr("Automatic profile matching")
+                        : qsTr("Automatic profile matching"))
+                        + (receipt.valid && receipt.providerVersion.length > 0
+                            ? " · " + receipt.providerVersion : "")
                     color: Theme.textMuted
                     font.pixelSize: 10
                     elide: Text.ElideRight
@@ -198,7 +201,9 @@ ApplicationWindow {
 
         Label {
             Layout.fillWidth: true
-            text: qsTr("Double-click a profile to use it. The selection is saved with the edit recipe and can be undone.")
+            text: root.candidates.length > 0
+                ? qsTr("%1 compatible profiles · Double-click one to use it. The selection is saved with the edit recipe and can be undone.").arg(root.candidates.length)
+                : qsTr("Double-click a profile to use it. The selection is saved with the edit recipe and can be undone.")
             color: Theme.textMuted
             font.pixelSize: 10
             wrapMode: Text.WordWrap

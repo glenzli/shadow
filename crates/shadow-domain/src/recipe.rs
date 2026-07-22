@@ -982,6 +982,7 @@ impl LayerRevision {
 /// changing geometry after a local edit would invalidate every downstream
 /// coordinate and cache identity.
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[allow(clippy::struct_excessive_bools)] // Each persisted switch controls an independent correction.
 pub struct RecipeOpticsSettings {
     enabled: bool,
     correct_distortion: bool,
@@ -1015,6 +1016,7 @@ impl Default for RecipeOpticsSettings {
 }
 
 impl RecipeOpticsSettings {
+    #[allow(clippy::fn_params_excessive_bools)] // Mirrors the explicit persisted correction switches.
     pub fn new(
         enabled: bool,
         correct_distortion: bool,
@@ -1032,6 +1034,7 @@ impl RecipeOpticsSettings {
         }
     }
 
+    #[must_use]
     pub fn with_manual_profile(
         mut self,
         camera_maker: impl Into<String>,
@@ -1146,6 +1149,12 @@ impl RecipeSnapshot {
         Self::new_with_input_settings(schema_version, RecipeInputSettings::default(), layers)
     }
 
+    /// Creates a complete recipe with input-stage settings and validates all nested invariants.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an unsupported schema, incomplete optical profile, invalid layer, or
+    /// duplicate layer identity.
     pub fn new_with_input_settings(
         schema_version: u32,
         input_settings: RecipeInputSettings,

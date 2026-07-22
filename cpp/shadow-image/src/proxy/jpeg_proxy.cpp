@@ -345,6 +345,51 @@ struct OklabColor final {
     return resize_processed_linear_to_working(source, source.dimensions);
 }
 
+// Lensfun operates on a processed u16 RGB raster. For an interactive preview, reduce the RAW
+// image before entering Lensfun and round-trip only the bounded proxy through that API. This
+// avoids a 45 MP geometry remap just to display 1200 px, while full-detail sessions still run
+// Lensfun on the complete native reference.
+[[nodiscard]] PixelBuffer working_to_processed_linear_reference(const FloatRgbImage& source) {
+    if (
+        source.pixel_format != FloatPixelFormat::rgb_f32_native_interleaved
+        || source.transfer_function != TransferFunction::linear
+        || source.reference != ImageReference::scene_referred
+        || source.dimensions.width == 0U || source.dimensions.height == 0U
+    ) {
+        throw DecodeError(
+            DecodeErrorCode::unsupported_layout,
+            0,
+            "preview optics conversion requires scene-linear interleaved RGB float pixels"
+        );
+    }
+    const std::size_t expected_samples = checked_rgb_size(source.dimensions);
+    if (source.samples.size() != expected_samples) {
+        throw DecodeError(
+            DecodeErrorCode::corrupt_data,
+            0,
+            "preview optics conversion found an invalid float RGB layout"
+        );
+    }
+    PixelBuffer output;
+    output.dimensions = source.dimensions;
+    output.bits_per_channel = 16U;
+    output.channels = 3U;
+    output.row_stride_bytes = source.dimensions.width * 3U * sizeof(std::uint16_t);
+    output.primaries = RgbPrimaries::srgb_rec709_d65;
+    output.transfer_function = RgbTransferFunction::linear;
+    output.reference = RgbBufferReference::processed_raw;
+    output.samples.resize(expected_samples);
+    for (std::size_t index = 0U; index < expected_samples; ++index) {
+        output.samples[index] = static_cast<std::uint16_t>(std::clamp(
+            std::llround(std::clamp(static_cast<double>(source.samples[index]), 0.0, 1.0)
+                * 65'535.0),
+            0LL,
+            65'535LL
+        ));
+    }
+    return output;
+}
+
 void validate_detail_tile_rect(
     const DetailTileRect rect,
     const Dimensions full_dimensions
@@ -848,6 +893,11 @@ struct PreparedReferenceRgb final {
     OpticsProfileReceipt optics_receipt;
 };
 
+struct PreparedWarmEditProxy final {
+    FloatRgbImage working_proxy;
+    OpticsProfileReceipt optics_receipt;
+};
+
 [[nodiscard]] PreparedReferenceRgb prepare_reference_rgb(
     const DecodeSession& session,
     const OpticsProvider* optics_provider,
@@ -871,6 +921,52 @@ struct PreparedReferenceRgb final {
         pixels = std::move(*corrected.corrected_reference_rgb);
     }
     return {.pixels = std::move(pixels), .optics_receipt = std::move(receipt)};
+}
+
+[[nodiscard]] PreparedWarmEditProxy prepare_warm_edit_proxy_from_preview_reference(
+    const DecodeSession& session,
+    const std::uint32_t max_edge,
+    const OpticsProvider* optics_provider,
+    const OpticsSettings& optics_settings
+) {
+    PixelBuffer preview_reference = session.render_reference_rgb_for_preview(max_edge);
+    const Dimensions target = proxy_dimensions(preview_reference.dimensions, max_edge);
+    FloatRgbImage working_proxy = resize_processed_linear_to_working(preview_reference, target);
+    // LibRaw may use a half-size demosaic above. Detail-and-effects radii remain expressed in
+    // native level-zero pixels, so preserve the relationship to the metadata's full image
+    // dimensions rather than accidentally doubling an effect radius on a warm preview.
+    const Dimensions full_dimensions = session.metadata().image_dimensions;
+    if (full_dimensions.width > 0U && full_dimensions.height > 0U) {
+        working_proxy.level_zero_to_raster_scale_x = static_cast<double>(target.width)
+            / static_cast<double>(full_dimensions.width);
+        working_proxy.level_zero_to_raster_scale_y = static_cast<double>(target.height)
+            / static_cast<double>(full_dimensions.height);
+    }
+
+    OpticsProfileReceipt receipt;
+    if (optics_provider == nullptr) {
+        receipt.status = OpticsProfileStatus::disabled;
+        receipt.provider_id = "none";
+        receipt.provider_version = "none";
+    } else {
+        auto corrected = optics_provider->correct_reference_rgb(
+            working_to_processed_linear_reference(working_proxy),
+            session.metadata(),
+            optics_settings
+        );
+        receipt = std::move(corrected.receipt);
+        if (corrected.corrected_reference_rgb.has_value()) {
+            const double level_zero_scale_x = working_proxy.level_zero_to_raster_scale_x;
+            const double level_zero_scale_y = working_proxy.level_zero_to_raster_scale_y;
+            working_proxy = copy_processed_linear_to_working(*corrected.corrected_reference_rgb);
+            working_proxy.level_zero_to_raster_scale_x = level_zero_scale_x;
+            working_proxy.level_zero_to_raster_scale_y = level_zero_scale_y;
+        }
+    }
+    return {
+        .working_proxy = std::move(working_proxy),
+        .optics_receipt = std::move(receipt),
+    };
 }
 
 } // namespace
@@ -935,13 +1031,16 @@ WarmEditPreviewSession prepare_warm_edit_preview(
     const OpticsSettings& optics_settings
 ) {
     validate_warm_edit_max_edge(max_edge);
-    auto reference = prepare_reference_rgb(session, optics_provider, optics_settings);
-    const Dimensions target = proxy_dimensions(reference.pixels.dimensions, max_edge);
-    FloatRgbImage working_proxy = resize_processed_linear_to_working(reference.pixels, target);
-    return WarmEditPreviewSession(
-        std::move(working_proxy),
+    auto prepared = prepare_warm_edit_proxy_from_preview_reference(
+        session,
         max_edge,
-        std::move(reference.optics_receipt)
+        optics_provider,
+        optics_settings
+    );
+    return WarmEditPreviewSession(
+        std::move(prepared.working_proxy),
+        max_edge,
+        std::move(prepared.optics_receipt)
     );
 }
 
@@ -1036,7 +1135,7 @@ Dimensions proxy_dimensions(const Dimensions source, const std::uint32_t max_edg
 
 EncodedProxy render_reference_proxy_jpeg(const DecodeSession& session, const ProxyRequest request) {
     validate_proxy_request(request);
-    const PixelBuffer source = session.render_reference_rgb();
+    const PixelBuffer source = session.render_reference_rgb_for_preview(request.max_edge);
     const Dimensions target = proxy_dimensions(source.dimensions, request.max_edge);
     const FloatRgbImage working = resize_processed_linear_to_working(source, target);
     const auto rgb = resize_working_to_display_srgb8(working, target);
@@ -1056,16 +1155,13 @@ EncodedProxy render_edited_reference_proxy_jpeg(
 ) {
     validate_proxy_request(request);
     validate_adjustment_nodes(nodes);
-    auto reference = prepare_reference_rgb(session, optics_provider, optics_settings);
-    const FloatRgbImage scene_linear = copy_processed_linear_to_working(reference.pixels);
-    const FloatRgbImage edited = execute_adjustment_nodes(scene_linear, nodes);
-    const Dimensions target = proxy_dimensions(edited.dimensions, request.max_edge);
-    const auto rgb = resize_working_to_display_srgb8(edited, target);
-
-    EncodedProxy proxy;
-    proxy.dimensions = target;
-    proxy.bytes = encode_jpeg(rgb, target, request.jpeg_quality);
-    return proxy;
+    const WarmEditPreviewSession preview = prepare_warm_edit_preview(
+        session,
+        request.max_edge,
+        optics_provider,
+        optics_settings
+    );
+    return preview.render_jpeg(nodes, request.jpeg_quality);
 }
 
 } // namespace shadow::image

@@ -170,6 +170,7 @@ template <std::size_t Size>
     result.applied_distortion = receipt.applied_distortion;
     result.applied_tca = receipt.applied_tca;
     result.applied_vignetting = receipt.applied_vignetting;
+    result.vignetting_used_distance_fallback = receipt.vignetting_used_distance_fallback;
     result.applied_scaling = receipt.applied_scaling;
     return result;
 }
