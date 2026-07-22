@@ -4,20 +4,20 @@
 
 #include <algorithm>
 
-namespace EditStack {
+namespace GradeNodeStack {
 
-inline constexpr int minimum_layer_count = 1;
-inline constexpr int maximum_layer_count = 16;
+inline constexpr int minimum_grade_node_count = 1;
+inline constexpr int maximum_grade_node_count = 16;
 
-[[nodiscard]] inline int layerIndex(
-    const BackendEditSettings& settings,
-    const QString& layer_id
+[[nodiscard]] inline int gradeNodeIndex(
+    const BackendGradeStack& grade_stack,
+    const QString& grade_node_id
 ) noexcept {
-    if (layer_id.isEmpty()) {
+    if (grade_node_id.isEmpty()) {
         return -1;
     }
-    for (qsizetype index = 0; index < settings.layers.size(); ++index) {
-        if (settings.layers.at(index).layer_id == layer_id) {
+    for (qsizetype index = 0; index < grade_stack.grade_nodes.size(); ++index) {
+        if (grade_stack.grade_nodes.at(index).grade_node_id == grade_node_id) {
             return static_cast<int>(index);
         }
     }
@@ -25,77 +25,107 @@ inline constexpr int maximum_layer_count = 16;
 }
 
 [[nodiscard]] inline int resolvedSelection(
-    const BackendEditSettings& settings,
-    const QString& preferred_layer_id,
+    const BackendGradeStack& grade_stack,
+    const QString& preferred_grade_node_id,
     const int fallback_index
 ) noexcept {
-    const int preferred = layerIndex(settings, preferred_layer_id);
+    const int preferred = gradeNodeIndex(grade_stack, preferred_grade_node_id);
     if (preferred >= 0) {
         return preferred;
     }
-    if (settings.layers.isEmpty()) {
+    if (grade_stack.grade_nodes.isEmpty()) {
         return -1;
     }
-    const int last = static_cast<int>(settings.layers.size() - 1);
+    const int last = static_cast<int>(grade_stack.grade_nodes.size() - 1);
     return std::clamp(fallback_index, 0, last);
 }
 
 [[nodiscard]] inline bool canInsert(
-    const BackendEditSettings& settings,
-    const BackendBasicEditLayer& layer
+    const BackendGradeStack& grade_stack,
+    const BackendGradeNode& grade_node
 ) noexcept {
-    return settings.layers.size() < maximum_layer_count
-        && !layer.layer_id.isEmpty()
-        && layerIndex(settings, layer.layer_id) < 0;
+    return grade_stack.grade_nodes.size() < maximum_grade_node_count
+        && !grade_node.grade_node_id.isEmpty()
+        && gradeNodeIndex(grade_stack, grade_node.grade_node_id) < 0;
 }
 
 inline bool insertAfterSelection(
-    BackendEditSettings& settings,
-    const BackendBasicEditLayer& layer,
+    BackendGradeStack& grade_stack,
+    const BackendGradeNode& grade_node,
     int& selected_index
 ) {
-    if (!canInsert(settings, layer)) {
+    if (!canInsert(grade_stack, grade_node)) {
         return false;
     }
-    const int count = static_cast<int>(settings.layers.size());
+    const int count = static_cast<int>(grade_stack.grade_nodes.size());
     const int insertion_index = selected_index >= 0 && selected_index < count
         ? selected_index + 1
         : count;
-    settings.layers.insert(insertion_index, layer);
+    grade_stack.grade_nodes.insert(insertion_index, grade_node);
     selected_index = insertion_index;
     return true;
 }
 
 inline bool deleteSelection(
-    BackendEditSettings& settings,
+    BackendGradeStack& grade_stack,
     int& selected_index
 ) {
-    const int count = static_cast<int>(settings.layers.size());
-    if (count <= minimum_layer_count || selected_index < 0
+    const int count = static_cast<int>(grade_stack.grade_nodes.size());
+    if (count <= minimum_grade_node_count || selected_index < 0
         || selected_index >= count) {
         return false;
     }
-    settings.layers.removeAt(selected_index);
+    grade_stack.grade_nodes.removeAt(selected_index);
     selected_index = std::min(
         selected_index,
-        static_cast<int>(settings.layers.size() - 1)
+        static_cast<int>(grade_stack.grade_nodes.size() - 1)
     );
     return true;
 }
 
 inline bool moveSelection(
-    BackendEditSettings& settings,
+    BackendGradeStack& grade_stack,
     int& selected_index,
     const int destination_index
 ) {
-    const int count = static_cast<int>(settings.layers.size());
+    const int count = static_cast<int>(grade_stack.grade_nodes.size());
     if (selected_index < 0 || selected_index >= count || destination_index < 0
         || destination_index >= count || destination_index == selected_index) {
         return false;
     }
-    settings.layers.move(selected_index, destination_index);
+    grade_stack.grade_nodes.move(selected_index, destination_index);
     selected_index = destination_index;
     return true;
 }
 
-} // namespace EditStack
+inline bool resetSelection(
+    BackendGradeStack& grade_stack,
+    const int selected_index
+) {
+    const int count = static_cast<int>(grade_stack.grade_nodes.size());
+    if (selected_index < 0 || selected_index >= count) {
+        return false;
+    }
+    auto& grade_node = grade_stack.grade_nodes[selected_index];
+    const BackendBasicEditParameters neutral;
+    const BackendFineEditParameters neutral_fine;
+    if (grade_node.basic == neutral
+        && grade_node.tone_curve_kind == ToneCurveKind::None
+        && grade_node.tone_curve_master_points.isEmpty()
+        && grade_node.tone_curve_red_points.isEmpty()
+        && grade_node.tone_curve_green_points.isEmpty()
+        && grade_node.tone_curve_blue_points.isEmpty()
+        && grade_node.fine == neutral_fine) {
+        return false;
+    }
+    grade_node.basic = neutral;
+    grade_node.fine = neutral_fine;
+    grade_node.tone_curve_kind = ToneCurveKind::None;
+    grade_node.tone_curve_master_points.clear();
+    grade_node.tone_curve_red_points.clear();
+    grade_node.tone_curve_green_points.clear();
+    grade_node.tone_curve_blue_points.clear();
+    return true;
+}
+
+} // namespace GradeNodeStack

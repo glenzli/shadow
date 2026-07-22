@@ -54,6 +54,9 @@ public:
         buffer.channels = 3U;
         buffer.row_stride_bytes =
             static_cast<std::size_t>(dimensions_.width) * 3U * sizeof(std::uint16_t);
+        buffer.primaries = image::RgbPrimaries::srgb_rec709_d65;
+        buffer.transfer_function = image::RgbTransferFunction::linear;
+        buffer.reference = image::RgbBufferReference::processed_raw;
         buffer.samples.resize(
             static_cast<std::size_t>(dimensions_.pixel_count()) * 3U
         );

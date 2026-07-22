@@ -26,6 +26,15 @@
       "cacheVariables": {
         "SHADOW_BUILD_DESKTOP": "ON"
       }
+    },
+    {
+      "name": "desktop-release",
+      "inherits": "desktop-dev",
+      "displayName": "Shadow macOS desktop optimized",
+      "binaryDir": "${sourceDir}/build/desktop-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
     }
   ],
   "buildPresets": [
@@ -36,6 +45,10 @@
     {
       "name": "desktop-dev",
       "configurePreset": "desktop-dev"
+    },
+    {
+      "name": "desktop-release",
+      "configurePreset": "desktop-release"
     }
   ],
   "testPresets": [

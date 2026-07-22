@@ -10,7 +10,7 @@ use serde::Serialize;
 use crate::{
     AdjustmentNode, AdjustmentScope, BlendMode, EditGraph, LayerContent, LayerId, LayerInstance,
     LayerInstanceId, LayerRevisionSelector, MaskReference, NodeId, NodeInput, OperationDescriptor,
-    ParameterBlock, PortType, RecipeSnapshot, UnitInterval,
+    ParameterBlock, PortType, RecipeInputSettings, RecipeSnapshot, UnitInterval,
 };
 
 /// The exact values on either side of one structural change.
@@ -354,6 +354,7 @@ impl LayerModification {
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct RecipeDiff {
     schema_version: Option<ValueChange<u32>>,
+    input_settings: Option<ValueChange<RecipeInputSettings>>,
     added_layers: Vec<IndexedLayer>,
     removed_layers: Vec<IndexedLayer>,
     moved_layers: Vec<LayerMove>,
@@ -363,6 +364,10 @@ pub struct RecipeDiff {
 impl RecipeDiff {
     pub const fn schema_version(&self) -> Option<&ValueChange<u32>> {
         self.schema_version.as_ref()
+    }
+
+    pub const fn input_settings(&self) -> Option<&ValueChange<RecipeInputSettings>> {
+        self.input_settings.as_ref()
     }
 
     pub fn added_layers(&self) -> &[IndexedLayer] {
@@ -383,6 +388,7 @@ impl RecipeDiff {
 
     pub const fn is_empty(&self) -> bool {
         self.schema_version.is_none()
+            && self.input_settings.is_none()
             && self.added_layers.is_empty()
             && self.removed_layers.is_empty()
             && self.moved_layers.is_empty()
@@ -404,6 +410,7 @@ impl RecipeDiff {
 #[derive(Debug, Copy, Clone, Default, Eq, PartialEq, Serialize)]
 pub struct RecipeDiffSummary {
     pub recipe_schema_changed: bool,
+    pub input_settings_changed: bool,
     pub layers_added: usize,
     pub layers_removed: usize,
     pub layers_moved: usize,
@@ -428,6 +435,7 @@ impl From<&RecipeDiff> for RecipeDiffSummary {
     fn from(diff: &RecipeDiff) -> Self {
         let mut summary = Self {
             recipe_schema_changed: diff.schema_version.is_some(),
+            input_settings_changed: diff.input_settings.is_some(),
             layers_added: diff.added_layers.len(),
             layers_removed: diff.removed_layers.len(),
             layers_moved: diff.moved_layers.len(),
@@ -473,6 +481,9 @@ impl fmt::Display for RecipeDiffSummary {
         let mut parts = Vec::new();
         if self.recipe_schema_changed {
             parts.push("recipe schema changed".to_owned());
+        }
+        if self.input_settings_changed {
+            parts.push("input settings changed".to_owned());
         }
         push_count(&mut parts, self.layers_added, "layer added", "layers added");
         push_count(
@@ -534,6 +545,10 @@ fn push_count(parts: &mut Vec<String>, count: usize, singular: &str, plural: &st
 /// persisted values. Floating-point parameters are never epsilon-compared.
 pub fn diff_recipe_snapshots(before: &RecipeSnapshot, after: &RecipeSnapshot) -> RecipeDiff {
     let schema_version = changed(before.schema_version(), after.schema_version());
+    let input_settings = changed(
+        before.input_settings().clone(),
+        after.input_settings().clone(),
+    );
     let before_layers = before
         .layers()
         .iter()
@@ -596,6 +611,7 @@ pub fn diff_recipe_snapshots(before: &RecipeSnapshot, after: &RecipeSnapshot) ->
 
     RecipeDiff {
         schema_version,
+        input_settings,
         added_layers,
         removed_layers,
         moved_layers,
@@ -759,7 +775,7 @@ mod tests {
                 parameter("factor", 1.0),
             ),
             (
-                "shadow.channel_gain",
+                "shadow.rgb_white_balance",
                 ProcessingStage::CreativeColor,
                 parameter("red", 1.0),
             ),
@@ -809,6 +825,26 @@ mod tests {
 
     fn snapshot(layers: Vec<LayerInstance>) -> RecipeSnapshot {
         RecipeSnapshot::new(1, layers).expect("snapshot")
+    }
+
+    #[test]
+    fn optics_are_a_first_class_recipe_diff_without_layer_noise() {
+        let before = RecipeSnapshot::empty();
+        let after = RecipeSnapshot::new_with_input_settings(
+            1,
+            RecipeInputSettings::new(crate::RecipeOpticsSettings::new(
+                true, false, true, true, true,
+            )),
+            Vec::new(),
+        )
+        .expect("optics snapshot");
+
+        let diff = diff_recipe_snapshots(&before, &after);
+        assert!(diff.input_settings().is_some());
+        assert!(diff.added_layers().is_empty());
+        assert!(diff.modified_layers().is_empty());
+        assert!(diff.summary().input_settings_changed);
+        assert_eq!(diff.compact_summary(), "input settings changed");
     }
 
     #[test]

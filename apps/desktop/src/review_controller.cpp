@@ -1,7 +1,10 @@
 #include "review_controller.hpp"
 
-#include <QtConcurrentRun>
+#include <QCoreApplication>
+#include <QEvent>
 #include <QSet>
+#include <QSettings>
+#include <QtConcurrentRun>
 
 #include <algorithm>
 #include <limits>
@@ -15,6 +18,13 @@ constexpr std::uint32_t REVIEW_PAGE_SIZE = 96;
 constexpr int SCAN_PROGRESS_POLL_MS = 150;
 constexpr quint64 STREAM_REFRESH_STRIDE = 16;
 constexpr qint64 STREAM_REFRESH_MIN_INTERVAL_MS = 400;
+constexpr auto color_labels_settings_key = "review/color_labels";
+
+[[nodiscard]] LocalizedUiMessage review_message(
+    const char *const source,
+    const std::initializer_list<LocalizedUiArgument> arguments = {}) {
+  return {"ReviewController", source, arguments};
+}
 
 [[nodiscard]] ScanTaskResult run_scan(
     const std::shared_ptr<DesktopBackend>& backend,
@@ -146,6 +156,22 @@ constexpr qint64 STREAM_REFRESH_MIN_INTERVAL_MS = 400;
             .visual_width = item.visual_width,
             .visual_height = item.visual_height,
             .has_visual = item.has_visual,
+            .has_metadata = item.has_metadata,
+            .camera_make = std::move(item.camera_make),
+            .camera_model = std::move(item.camera_model),
+            .lens_make = std::move(item.lens_make),
+            .lens_model = std::move(item.lens_model),
+            .captured_at_unix_seconds = item.captured_at_unix_seconds,
+            .iso_speed = item.iso_speed,
+            .exposure_time_seconds = item.exposure_time_seconds,
+            .aperture_f_number = item.aperture_f_number,
+            .focal_length_mm = item.focal_length_mm,
+            .focal_length_35mm = item.focal_length_35mm,
+            .raw_width = item.raw_width,
+            .raw_height = item.raw_height,
+            .sensor_bits = item.sensor_bits,
+            .cfa_pattern = std::move(item.cfa_pattern),
+            .dng_version = std::move(item.dng_version),
             .has_technical_observation = item.has_technical_observation,
             .technical_input_width = item.technical_input_width,
             .technical_input_height = item.technical_input_height,
@@ -287,9 +313,40 @@ constexpr qint64 STREAM_REFRESH_MIN_INTERVAL_MS = 400;
 
 ReviewController::ReviewController(
     std::shared_ptr<DesktopBackend> backend,
+    const QString& isolated_settings_file,
     QObject* parent
 )
-    : QObject(parent), backend_(std::move(backend)), model_(this) {
+    : QObject(parent),
+      backend_(std::move(backend)),
+      model_(this),
+      filtered_model_(this),
+      settings_(isolated_settings_file.isEmpty()
+              ? std::make_unique<QSettings>()
+              : std::make_unique<QSettings>(
+                    isolated_settings_file,
+                    QSettings::IniFormat
+                )) {
+    model_.restoreColorLabels(
+        settings_->value(QString::fromLatin1(color_labels_settings_key)).toMap()
+    );
+    filtered_model_.setSourceModel(&model_);
+    connect(
+        &filtered_model_,
+        &ReviewFilterModel::filtersChanged,
+        this,
+        &ReviewController::filtersChanged
+    );
+    const auto notify_filtered_count = [this]() { emit filtersChanged(); };
+    connect(&filtered_model_, &QAbstractItemModel::modelReset,
+            this, notify_filtered_count);
+    connect(&filtered_model_, &QAbstractItemModel::rowsInserted,
+            this, [notify_filtered_count](const QModelIndex&, const int, const int) {
+                notify_filtered_count();
+            });
+    connect(&filtered_model_, &QAbstractItemModel::rowsRemoved,
+            this, [notify_filtered_count](const QModelIndex&, const int, const int) {
+                notify_filtered_count();
+            });
     model_.replace({}, library_generation_);
     scan_progress_timer_.setInterval(SCAN_PROGRESS_POLL_MS);
     scan_progress_timer_.setTimerType(Qt::CoarseTimer);
@@ -323,7 +380,10 @@ ReviewController::ReviewController(
         this,
         &ReviewController::pollScanProgress
     );
-    QTimer::singleShot(0, this, [this]() {
+  if (auto *const application = QCoreApplication::instance()) {
+    application->installEventFilter(this);
+  }
+  QTimer::singleShot(0, this, [this]() {
         startPage(
             scan_running_ ? PageTaskKind::StreamingPrefix
                           : PageTaskKind::InitialReset
@@ -371,7 +431,7 @@ QString ReviewController::folderPath() const {
 }
 
 QString ReviewController::statusText() const {
-    return status_text_;
+    return status_message_.translated();
 }
 
 QVariantMap ReviewController::scanProgress() const {
@@ -441,7 +501,7 @@ int ReviewController::sessionEvidenceCount() const noexcept {
 }
 
 QString ReviewController::comparisonStatusText() const {
-    return comparison_status_text_;
+    return comparison_status_message_.translated();
 }
 
 bool ReviewController::decisionBusy() const noexcept {
@@ -453,11 +513,27 @@ bool ReviewController::canUndoDecision() const {
 }
 
 QString ReviewController::decisionStatusText() const {
-    return decision_status_text_;
+    return decision_status_message_.translated();
+}
+
+QString ReviewController::filterFlag() const {
+    return filtered_model_.flagFilter();
+}
+
+int ReviewController::filterMinimumRating() const noexcept {
+    return filtered_model_.minimumRating();
+}
+
+QString ReviewController::filterColorLabel() const {
+    return filtered_model_.colorFilter();
+}
+
+int ReviewController::filteredItemCount() const noexcept {
+    return filtered_model_.rowCount();
 }
 
 QAbstractItemModel* ReviewController::model() noexcept {
-    return &model_;
+    return &filtered_model_;
 }
 
 ReviewModel* ReviewController::reviewModel() noexcept {
@@ -471,7 +547,8 @@ void ReviewController::scanFolder(const QUrl& folder_url) {
     }
     const QString path = folder_url.toLocalFile();
     if (path.isEmpty()) {
-        setStatusText(QStringLiteral("The selected folder is not a local path"));
+    setStatusMessage(review_message(QT_TRANSLATE_NOOP(
+        "ReviewController", "The selected folder is not a local path")));
         return;
     }
 
@@ -485,9 +562,9 @@ void ReviewController::scanFolder(const QUrl& folder_url) {
     try {
         backend_->beginFolderScan(scan_generation_);
     } catch (const std::exception& error) {
-        setStatusText(
-            QStringLiteral("Could not start import · %1")
-                .arg(QString::fromUtf8(error.what()))
+    setStatusMessage(review_message(
+        QT_TRANSLATE_NOOP("ReviewController", "Could not start import · %1"),
+        {QString::fromUtf8(error.what())})
         );
         return;
     }
@@ -537,9 +614,9 @@ void ReviewController::cancelScan() {
             return;
         }
     } catch (const std::exception& error) {
-        setStatusText(
-            QStringLiteral("Could not cancel import · %1")
-                .arg(QString::fromUtf8(error.what()))
+    setStatusMessage(review_message(
+        QT_TRANSLATE_NOOP("ReviewController", "Could not cancel import · %1"),
+        {QString::fromUtf8(error.what())})
         );
         return;
     }
@@ -566,7 +643,8 @@ QVariantMap ReviewController::prepareComparison(
     }
     if (left_visual_handle.trimmed().isEmpty()
         || right_visual_handle.trimmed().isEmpty()) {
-        setComparisonStatusText(QStringLiteral("Choose two verified visuals before comparing"));
+    setComparisonStatusMessage(review_message(QT_TRANSLATE_NOOP(
+        "ReviewController", "Choose two verified visuals before comparing")));
         return {};
     }
     try {
@@ -574,8 +652,9 @@ QVariantMap ReviewController::prepareComparison(
             left_visual_handle,
             right_visual_handle
         );
-        setComparisonStatusText(
-            QStringLiteral("Loading two exact Compare frames with durable provenance…")
+    setComparisonStatusMessage(review_message(QT_TRANSLATE_NOOP(
+        "ReviewController",
+        "Loading two exact Compare frames with durable provenance…"))
         );
         return {
             {QStringLiteral("presentationId"), presentation.presentation_id},
@@ -591,9 +670,10 @@ QVariantMap ReviewController::prepareComparison(
             },
         };
     } catch (const std::exception& error) {
-        setComparisonStatusText(
-            QStringLiteral("Cannot prepare exact comparison · %1")
-                .arg(QString::fromUtf8(error.what()))
+    setComparisonStatusMessage(review_message(
+        QT_TRANSLATE_NOOP("ReviewController",
+                          "Cannot prepare exact comparison · %1"),
+        {QString::fromUtf8(error.what())})
         );
         return {};
     }
@@ -618,14 +698,16 @@ bool ReviewController::confirmComparisonReady(
             left_request_ticket,
             right_request_ticket
         );
-        setComparisonStatusText(
-            QStringLiteral("Exact encoded artifacts and decoded Compare frames verified")
+    setComparisonStatusMessage(review_message(QT_TRANSLATE_NOOP(
+        "ReviewController",
+        "Exact encoded artifacts and decoded Compare frames verified"))
         );
         return true;
     } catch (const std::exception& error) {
-        setComparisonStatusText(
-            QStringLiteral("Comparison frame verification failed · %1")
-                .arg(QString::fromUtf8(error.what()))
+    setComparisonStatusMessage(review_message(
+        QT_TRANSLATE_NOOP("ReviewController",
+                          "Comparison frame verification failed · %1"),
+        {QString::fromUtf8(error.what())})
         );
         return false;
     }
@@ -638,11 +720,13 @@ void ReviewController::cancelComparison(const QString& presentation_id) {
     }
     try {
         backend_->cancelReviewComparison(presentation_id);
-        setComparisonStatusText(QStringLiteral("Comparison presentation closed"));
+    setComparisonStatusMessage(review_message(QT_TRANSLATE_NOOP(
+        "ReviewController", "Comparison presentation closed")));
     } catch (const std::exception& error) {
-        setComparisonStatusText(
-            QStringLiteral("Cannot close comparison presentation · %1")
-                .arg(QString::fromUtf8(error.what()))
+    setComparisonStatusMessage(review_message(
+        QT_TRANSLATE_NOOP("ReviewController",
+                          "Cannot close comparison presentation · %1"),
+        {QString::fromUtf8(error.what())})
         );
     }
 }
@@ -653,11 +737,13 @@ void ReviewController::recordComparison(
 ) {
     const auto resolved_outcome = pairwise_outcome(outcome);
     if (!resolved_outcome) {
-        setComparisonStatusText(QStringLiteral("Comparison outcome is not supported"));
+    setComparisonStatusMessage(review_message(QT_TRANSLATE_NOOP(
+        "ReviewController", "Comparison outcome is not supported")));
         return;
     }
     if (presentation_id.trimmed().isEmpty()) {
-        setComparisonStatusText(QStringLiteral("Prepare and verify the comparison first"));
+    setComparisonStatusMessage(review_message(QT_TRANSLATE_NOOP(
+        "ReviewController", "Prepare and verify the comparison first")));
         return;
     }
     if (decision_session_.busy() || scan_running_ || refreshing() || page_running_) {
@@ -667,7 +753,8 @@ void ReviewController::recordComparison(
         return;
     }
     emit comparisonStateChanged();
-    setComparisonStatusText(QStringLiteral("Recording append-only comparison evidence…"));
+  setComparisonStatusMessage(review_message(QT_TRANSLATE_NOOP(
+      "ReviewController", "Recording append-only comparison evidence…")));
     evidence_watcher_.setFuture(QtConcurrent::run(
         record_comparison,
         backend_,
@@ -685,7 +772,8 @@ void ReviewController::undoLastComparison() {
         return;
     }
     emit comparisonStateChanged();
-    setComparisonStatusText(QStringLiteral("Appending a forget fact for the latest evidence…"));
+  setComparisonStatusMessage(review_message(QT_TRANSLATE_NOOP(
+      "ReviewController", "Appending a forget fact for the latest evidence…")));
     evidence_watcher_.setFuture(QtConcurrent::run(
         forget_comparison,
         backend_,
@@ -699,7 +787,8 @@ void ReviewController::setPhotoFlag(
 ) {
     const auto desired_flag = decision_flag(flag);
     if (!desired_flag) {
-        setDecisionStatusText(QStringLiteral("Unsupported Review flag"));
+    setDecisionStatusMessage(review_message(
+        QT_TRANSLATE_NOOP("ReviewController", "Unsupported Review flag")));
         return;
     }
     if (scan_running_ || refreshing() || page_running_ || evidence_session_.busy()
@@ -708,14 +797,18 @@ void ReviewController::setPhotoFlag(
     }
     const auto current_value = model_.decisionFor(photo_id);
     if (!current_value) {
-        setDecisionStatusText(QStringLiteral("Select a loaded photo before setting a flag"));
+    setDecisionStatusMessage(review_message(QT_TRANSLATE_NOOP(
+        "ReviewController", "Select a loaded photo before setting a flag")));
         return;
     }
     BackendReviewDecisionState current;
     try {
         current = backend_decision_state(photo_id, *current_value);
     } catch (const std::exception& error) {
-        setDecisionStatusText(QString::fromUtf8(error.what()));
+    setDecisionStatusMessage(review_message(
+        QT_TRANSLATE_NOOP("ReviewController",
+                          "Could not read the current flag decision · %1"),
+        {QString::fromUtf8(error.what())}));
         return;
     }
     const auto request = decision_session_.beginSet(
@@ -724,10 +817,12 @@ void ReviewController::setPhotoFlag(
         static_cast<std::uint8_t>(current_value->rating)
     );
     if (!request) {
-        setDecisionStatusText(QStringLiteral("Flag already matches the selected photo"));
+    setDecisionStatusMessage(review_message(QT_TRANSLATE_NOOP(
+        "ReviewController", "Flag already matches the selected photo")));
         return;
     }
-    setDecisionStatusText(QStringLiteral("Appending an explicit flag decision…"));
+  setDecisionStatusMessage(review_message(QT_TRANSLATE_NOOP(
+      "ReviewController", "Appending an explicit flag decision…")));
     startDecisionMutation(*request);
 }
 
@@ -736,7 +831,8 @@ void ReviewController::setPhotoRating(
     const int rating
 ) {
     if (rating < 0 || rating > 5) {
-        setDecisionStatusText(QStringLiteral("Rating must be between 0 and 5 stars"));
+    setDecisionStatusMessage(review_message(QT_TRANSLATE_NOOP(
+        "ReviewController", "Rating must be between 0 and 5 stars")));
         return;
     }
     if (scan_running_ || refreshing() || page_running_ || evidence_session_.busy()
@@ -745,14 +841,18 @@ void ReviewController::setPhotoRating(
     }
     const auto current_value = model_.decisionFor(photo_id);
     if (!current_value) {
-        setDecisionStatusText(QStringLiteral("Select a loaded photo before setting a rating"));
+    setDecisionStatusMessage(review_message(QT_TRANSLATE_NOOP(
+        "ReviewController", "Select a loaded photo before setting a rating")));
         return;
     }
     BackendReviewDecisionState current;
     try {
         current = backend_decision_state(photo_id, *current_value);
     } catch (const std::exception& error) {
-        setDecisionStatusText(QString::fromUtf8(error.what()));
+    setDecisionStatusMessage(review_message(
+        QT_TRANSLATE_NOOP("ReviewController",
+                          "Could not read the current star rating · %1"),
+        {QString::fromUtf8(error.what())}));
         return;
     }
     const BackendReviewDecisionFlag current_flag = current.flag;
@@ -762,11 +862,47 @@ void ReviewController::setPhotoRating(
         static_cast<std::uint8_t>(rating)
     );
     if (!request) {
-        setDecisionStatusText(QStringLiteral("Rating already matches the selected photo"));
+    setDecisionStatusMessage(review_message(QT_TRANSLATE_NOOP(
+        "ReviewController", "Rating already matches the selected photo")));
         return;
     }
-    setDecisionStatusText(QStringLiteral("Appending an explicit star rating…"));
+  setDecisionStatusMessage(review_message(QT_TRANSLATE_NOOP(
+      "ReviewController", "Appending an explicit star rating…")));
     startDecisionMutation(*request);
+}
+
+void ReviewController::setPhotoColorLabel(
+    const QString& photo_id,
+    const QString& color_label
+) {
+    if (scan_running_ || refreshing() || page_running_ || evidence_session_.busy()
+        || decision_session_.busy()) {
+        return;
+    }
+    const QString normalized = color_label.trimmed().toLower();
+    if (!model_.setColorLabel(photo_id, normalized)) {
+        return;
+    }
+    persistColorLabels();
+    setDecisionStatusMessage(review_message(QT_TRANSLATE_NOOP(
+        "ReviewController", "Updated the local color label")));
+    emit colorLabelChanged(photo_id, normalized);
+}
+
+void ReviewController::clearFilters() {
+    filtered_model_.clearFilters();
+}
+
+void ReviewController::setFilterFlag(const QString& filter) {
+    filtered_model_.setFlagFilter(filter);
+}
+
+void ReviewController::setFilterMinimumRating(const int rating) {
+    filtered_model_.setMinimumRating(rating);
+}
+
+void ReviewController::setFilterColorLabel(const QString& color_label) {
+    filtered_model_.setColorFilter(color_label);
 }
 
 void ReviewController::undoLastDecision() {
@@ -776,17 +912,20 @@ void ReviewController::undoLastDecision() {
     }
     const auto request = decision_session_.beginUndo();
     if (!request) {
-        setDecisionStatusText(
+    setDecisionStatusMessage(review_message(
             decision_session_.undoDepth() > 0
-                ? QStringLiteral(
-                      "Local undo is disabled because the authoritative decision changed"
-                  )
-                : QStringLiteral("No decision from this app session is available to undo")
+                ? QT_TRANSLATE_NOOP("ReviewController",
+                                "Local undo is disabled because the "
+                                "authoritative decision changed")
+                : QT_TRANSLATE_NOOP(
+                  "ReviewController",
+                  "No decision from this app session is available to undo"))
         );
         emit decisionStateChanged();
         return;
     }
-    setDecisionStatusText(QStringLiteral("Appending an inverse decision event…"));
+  setDecisionStatusMessage(review_message(QT_TRANSLATE_NOOP(
+      "ReviewController", "Appending an inverse decision event…")));
     startDecisionMutation(*request);
 }
 
@@ -851,9 +990,10 @@ void ReviewController::pollScanProgress() {
         progress = backend_->scanProgress(scan_generation_);
     } catch (const std::exception& error) {
         if (scan_running_) {
-            setStatusText(
-                QStringLiteral("Import progress unavailable · %1")
-                    .arg(QString::fromUtf8(error.what()))
+      setStatusMessage(
+          review_message(QT_TRANSLATE_NOOP("ReviewController",
+                                           "Import progress unavailable · %1"),
+                         {QString::fromUtf8(error.what())})
             );
         }
         return;
@@ -922,11 +1062,11 @@ void ReviewController::finishPage() {
                                  old_refreshing](QString error) {
         if (result.kind != PageTaskKind::FinalReset
             && final_page_refresh_pending_ && !scan_running_) {
-            setStatusText(
-                QStringLiteral(
-                    "Live Library refresh failed · rebuilding one stable final view · %1"
-                )
-                    .arg(error)
+      setStatusMessage(review_message(
+          QT_TRANSLATE_NOOP("ReviewController",
+                            "Live Library refresh failed · rebuilding one "
+                            "stable final view · %1"),
+          {std::move(error)})
             );
             emitWorkStateChanges(old_busy, old_loading_more, old_refreshing);
             final_page_refresh_pending_ = false;
@@ -937,23 +1077,26 @@ void ReviewController::finishPage() {
             final_page_refresh_pending_ = false;
             terminal_refresh_active_ = false;
             setHasMore(false);
-            setStatusText(
-                QStringLiteral(
-                    "Final Library refresh failed · visible photos retained · add the folder again or reopen Shadow to retry · %1"
-                )
-                    .arg(error)
+      setStatusMessage(review_message(
+          QT_TRANSLATE_NOOP(
+              "ReviewController",
+              "Final Library refresh failed · visible photos retained · add "
+              "the folder again or reopen Shadow to retry · %1"),
+          {std::move(error)})
             );
         } else if (scan_running_) {
-            setStatusText(
-                QStringLiteral(
-                    "Live Library refresh delayed · import is still safe and continuing · %1"
-                )
-                    .arg(error)
+      setStatusMessage(review_message(
+          QT_TRANSLATE_NOOP("ReviewController",
+                            "Live Library refresh delayed · import is still "
+                            "safe and continuing · %1"),
+          {std::move(error)})
             );
         } else {
-            setStatusText(
-                QStringLiteral("Library refresh failed · existing photos retained · %1")
-                    .arg(error)
+      setStatusMessage(review_message(
+          QT_TRANSLATE_NOOP(
+              "ReviewController",
+              "Library refresh failed · existing photos retained · %1"),
+          {std::move(error)})
             );
         }
         emitWorkStateChanges(old_busy, old_loading_more, old_refreshing);
@@ -1048,11 +1191,12 @@ void ReviewController::finishEvidenceTask() {
     if (!result.error.isEmpty()) {
         evidence_session_.fail();
         emit comparisonStateChanged();
-        setComparisonStatusText(
-            (result.kind == ReviewEvidenceTaskKind::Record
-                 ? QStringLiteral("Evidence write failed · pair retained · %1")
-                 : QStringLiteral("Forget write failed · evidence retained · %1"))
-                .arg(result.error)
+    setComparisonStatusMessage(review_message(result.kind == ReviewEvidenceTaskKind::Record
+                 ? QT_TRANSLATE_NOOP("ReviewController",
+                                "Evidence write failed · pair retained · %1")
+                 : QT_TRANSLATE_NOOP("ReviewController",
+                                "Forget write failed · evidence retained · %1"),
+        {result.error})
         );
         return;
     }
@@ -1060,13 +1204,16 @@ void ReviewController::finishEvidenceTask() {
     if (result.kind == ReviewEvidenceTaskKind::Record) {
         if (!evidence_session_.completeRecord(result.feedback.event_id)) {
             emit comparisonStateChanged();
-            setComparisonStatusText(QStringLiteral("Evidence receipt was invalid; pair retained"));
+      setComparisonStatusMessage(review_message(QT_TRANSLATE_NOOP(
+          "ReviewController", "Evidence receipt was invalid; pair retained")));
             return;
         }
         emit comparisonStateChanged();
-        setComparisonStatusText(
-            QStringLiteral("Preference evidence recorded · sequence %1 · model not active")
-                .arg(result.feedback.sequence)
+    setComparisonStatusMessage(review_message(
+        QT_TRANSLATE_NOOP(
+            "ReviewController",
+            "Preference evidence recorded · sequence %1 · model not active"),
+        {result.feedback.sequence})
         );
         emit comparisonRecorded();
         return;
@@ -1074,12 +1221,14 @@ void ReviewController::finishEvidenceTask() {
 
     if (!evidence_session_.completeForget(result.forget.target_event_id)) {
         emit comparisonStateChanged();
-        setComparisonStatusText(QStringLiteral("Forget receipt was invalid; evidence retained"));
+    setComparisonStatusMessage(review_message(QT_TRANSLATE_NOOP(
+        "ReviewController", "Forget receipt was invalid; evidence retained")));
         return;
     }
     emit comparisonStateChanged();
-    setComparisonStatusText(
-        QStringLiteral("Latest evidence forgotten non-destructively · source event retained")
+  setComparisonStatusMessage(review_message(QT_TRANSLATE_NOOP(
+      "ReviewController",
+      "Latest evidence forgotten non-destructively · source event retained"))
     );
     emit comparisonForgotten();
 }
@@ -1094,25 +1243,30 @@ void ReviewController::finishDecisionTask() {
         emit decisionStateChanged();
         if (result.is_undo && result.has_authoritative
             && !decision_session_.canUndo()) {
-            setDecisionStatusText(
-                QStringLiteral(
-                    "Undo blocked · authoritative decision changed outside this session"
-                )
+      setDecisionStatusMessage(review_message(QT_TRANSLATE_NOOP(
+          "ReviewController", "Undo blocked · authoritative decision changed "
+                              "outside this session"))
             );
         } else if (result.is_undo && decision_session_.canUndo()) {
-            setDecisionStatusText(
-                QStringLiteral("Undo write failed · unchanged state remains retryable · %1")
-                    .arg(result.error)
+      setDecisionStatusMessage(review_message(
+          QT_TRANSLATE_NOOP(
+              "ReviewController",
+              "Undo write failed · unchanged state remains retryable · %1"),
+          {result.error})
             );
         } else if (result.has_authoritative) {
-            setDecisionStatusText(
-                QStringLiteral("Decision write failed · authoritative state refreshed · %1")
-                    .arg(result.error)
+      setDecisionStatusMessage(review_message(
+          QT_TRANSLATE_NOOP(
+              "ReviewController",
+              "Decision write failed · authoritative state refreshed · %1"),
+          {result.error})
             );
         } else {
-            setDecisionStatusText(
-                QStringLiteral("Decision write failed · refresh also failed · %1 · %2")
-                    .arg(result.error, result.refresh_error)
+      setDecisionStatusMessage(review_message(
+          QT_TRANSLATE_NOOP(
+              "ReviewController",
+              "Decision write failed · refresh also failed · %1 · %2"),
+          {result.error, result.refresh_error})
             );
         }
         return;
@@ -1120,21 +1274,26 @@ void ReviewController::finishDecisionTask() {
 
     if (!decision_session_.complete(result.receipt)) {
         emit decisionStateChanged();
-        setDecisionStatusText(QStringLiteral("Decision receipt was invalid; local state retained"));
+    setDecisionStatusMessage(review_message(QT_TRANSLATE_NOOP(
+        "ReviewController",
+        "Decision receipt was invalid; local state retained")));
         return;
     }
     applyDecisionState(result.receipt.after);
     emit decisionStateChanged();
     if (result.is_undo) {
-        setDecisionStatusText(
-            QStringLiteral("Inverse decision appended · sequence %1 · history retained")
-                .arg(result.receipt.sequence)
+    setDecisionStatusMessage(review_message(
+        QT_TRANSLATE_NOOP(
+            "ReviewController",
+            "Inverse decision appended · sequence %1 · history retained"),
+        {result.receipt.sequence})
         );
         emit decisionUndone();
     } else {
-        setDecisionStatusText(
-            QStringLiteral("Manual decision recorded · sequence %1")
-                .arg(result.receipt.sequence)
+    setDecisionStatusMessage(review_message(
+        QT_TRANSLATE_NOOP("ReviewController",
+                          "Manual decision recorded · sequence %1"),
+        {result.receipt.sequence})
         );
     }
 }
@@ -1155,13 +1314,20 @@ void ReviewController::startPage(const PageTaskKind kind) {
         if (scan_running_) {
             updateScanStatus();
         } else if (!scan_terminal_error_.isEmpty()) {
-            setStatusText(QStringLiteral("Refreshing photos retained before import stopped…"));
+      setStatusMessage(review_message(QT_TRANSLATE_NOOP(
+          "ReviewController",
+          "Refreshing photos retained before import stopped…")));
         } else if (scan_terminal_cancelled_) {
-            setStatusText(QStringLiteral("Refreshing photos retained before import was cancelled…"));
+      setStatusMessage(review_message(QT_TRANSLATE_NOOP(
+          "ReviewController",
+          "Refreshing photos retained before import was cancelled…")));
         } else if (kind == PageTaskKind::FinalReset) {
-            setStatusText(QStringLiteral("Rebuilding one stable Library view before paging…"));
+      setStatusMessage(review_message(QT_TRANSLATE_NOOP(
+          "ReviewController",
+          "Rebuilding one stable Library view before paging…")));
         } else {
-            setStatusText(QStringLiteral("Loading the local Library…"));
+      setStatusMessage(review_message(
+          QT_TRANSLATE_NOOP("ReviewController", "Loading the local Library…")));
         }
     } else {
         updateReadyStatus();
@@ -1214,58 +1380,85 @@ void ReviewController::setHasMore(const bool has_more) {
     emit hasMoreChanged();
 }
 
-void ReviewController::setStatusText(QString status) {
-    if (status_text_ == status) {
+bool ReviewController::eventFilter(QObject *const watched,
+                                   QEvent *const event) {
+  if (watched == QCoreApplication::instance() &&
+      event->type() == QEvent::LanguageChange) {
+    retranslateUi();
+  }
+  return QObject::eventFilter(watched, event);
+}
+
+void ReviewController::retranslateUi() {
+  emit statusTextChanged();
+  emit comparisonStatusTextChanged();
+  emit decisionStatusTextChanged();
+}
+
+void ReviewController::setStatusMessage(LocalizedUiMessage status) {
+    if (status_message_ == status) {
         return;
     }
-    status_text_ = std::move(status);
+  status_message_ = std::move(status);
     emit statusTextChanged();
 }
 
 void ReviewController::updateReadyStatus() {
     if (!scan_terminal_error_.isEmpty()) {
-        setStatusText(
-            QStringLiteral(
-                "Import stopped · %1 photos remain available · filesystem/import error: %2 · %3 decode failures · %4 preview failures"
-            )
-                .arg(total_items_)
-                .arg(scan_terminal_error_)
-                .arg(decode_hard_failures_)
-                .arg(preview_failures_)
+    setStatusMessage(review_message(
+        QT_TRANSLATE_NOOP(
+            "ReviewController",
+            "Import stopped · %1 photos remain available · filesystem/import "
+            "error: %2 · %3 decode failures · %4 preview failures"),
+        {
+            total_items_,
+            scan_terminal_error_,
+            decode_hard_failures_,
+            preview_failures_,
+        })
         );
         return;
     }
     if (scan_terminal_cancelled_) {
-        setStatusText(
-            QStringLiteral(
-                "Import cancelled · %1 photos remain available · %2 filesystem issues · %3 decode failures · %4 preview failures · %5 decode jobs cancelled"
-            )
-                .arg(total_items_)
-                .arg(issue_count_)
-                .arg(decode_hard_failures_)
-                .arg(preview_failures_)
-                .arg(decode_cancelled_)
+    setStatusMessage(review_message(
+        QT_TRANSLATE_NOOP("ReviewController",
+                          "Import cancelled · %1 photos remain available · %2 "
+                          "filesystem issues · %3 decode failures · %4 preview "
+                          "failures · %5 decode jobs cancelled"),
+        {
+            total_items_,
+            issue_count_,
+            decode_hard_failures_,
+            preview_failures_,
+            decode_cancelled_,
+        })
         );
         return;
     }
     if (total_items_ == 0) {
-        setStatusText(QStringLiteral("Local Library is empty · add a photo folder to begin"));
+    setStatusMessage(review_message(QT_TRANSLATE_NOOP(
+        "ReviewController",
+        "Local Library is empty · add a photo folder to begin")));
         return;
     }
-    const QString loading = loadingMore() ? QStringLiteral(" · loading more") : QString{};
-    setStatusText(
-        QStringLiteral(
-            "%1 / %2 loaded · %3 supported · %4/%5 preview checks completed · %6 filesystem issues · %7 decode failures · %8 preview failures%9"
-        )
-            .arg(model_.rowCount())
-            .arg(total_items_)
-            .arg(supported_files_)
-            .arg(decode_completed_)
-            .arg(decode_queued_)
-            .arg(issue_count_)
-            .arg(decode_hard_failures_)
-            .arg(preview_failures_)
-            .arg(loading)
+    const char *const source = loadingMore() ? QT_TRANSLATE_NOOP(
+                "ReviewController",
+                "%1 / %2 loaded · %3 supported · %4/%5 preview checks "
+                "completed · %6 filesystem issues · %7 decode failures · %8 "
+                "preview failures · loading more") : QT_TRANSLATE_NOOP("ReviewController",
+                              "%1 / %2 loaded · %3 supported · %4/%5 preview "
+                              "checks completed · %6 filesystem issues · %7 "
+                              "decode failures · %8 preview failures");
+  setStatusMessage(review_message(source, {
+                                              model_.rowCount(),
+                                              total_items_,
+                                              supported_files_,
+                                              decode_completed_,
+                                              decode_queued_,
+                                              issue_count_,
+                                              decode_hard_failures_,
+                                              preview_failures_,
+                                          })
     );
 }
 
@@ -1273,52 +1466,54 @@ void ReviewController::updateScanStatus() {
     const quint64 catalogued = inserted_files_ + unchanged_files_ + revalidation_files_;
     switch (scan_phase_) {
     case BackendScanPhase::PreparingPreviews:
-        setStatusText(
-            QStringLiteral(
-                "Import catalogued %1 files · finishing %2 queued preview checks · %3 filesystem issues"
-            )
-                .arg(catalogued)
-                .arg(decode_queued_)
-                .arg(issue_count_)
+    setStatusMessage(review_message(
+        QT_TRANSLATE_NOOP("ReviewController",
+                          "Import catalogued %1 files · finishing %2 queued "
+                          "preview checks · %3 filesystem issues"),
+        {catalogued, decode_queued_, issue_count_})
         );
         break;
     case BackendScanPhase::Cancelling:
-        setStatusText(
-            QStringLiteral(
-                "Stopping import safely · %1 files retained · queued checks are being cancelled · current preview may finish"
-            )
-                .arg(catalogued)
+    setStatusMessage(review_message(
+        QT_TRANSLATE_NOOP(
+            "ReviewController",
+            "Stopping import safely · %1 files retained · queued checks are "
+            "being cancelled · current preview may finish"),
+        {catalogued})
         );
         break;
     case BackendScanPhase::Discovering:
     default:
-        setStatusText(
-            QStringLiteral(
-                "Importing · %1 files checked · %2 supported · %3 catalogued · %4 preview checks queued · %5 filesystem issues"
-            )
-                .arg(files_seen_)
-                .arg(supported_files_)
-                .arg(catalogued)
-                .arg(decode_queued_)
-                .arg(issue_count_)
+    setStatusMessage(review_message(
+        QT_TRANSLATE_NOOP(
+            "ReviewController",
+            "Importing · %1 files checked · %2 supported · %3 catalogued · %4 "
+            "preview checks queued · %5 filesystem issues"),
+        {
+            files_seen_,
+            supported_files_,
+            catalogued,
+            decode_queued_,
+            issue_count_,
+        })
         );
         break;
     }
 }
 
-void ReviewController::setComparisonStatusText(QString status) {
-    if (comparison_status_text_ == status) {
+void ReviewController::setComparisonStatusMessage(LocalizedUiMessage status) {
+    if (comparison_status_message_ == status) {
         return;
     }
-    comparison_status_text_ = std::move(status);
+  comparison_status_message_ = std::move(status);
     emit comparisonStatusTextChanged();
 }
 
-void ReviewController::setDecisionStatusText(QString status) {
-    if (decision_status_text_ == status) {
+void ReviewController::setDecisionStatusMessage(LocalizedUiMessage status) {
+    if (decision_status_message_ == status) {
         return;
     }
-    decision_status_text_ = std::move(status);
+  decision_status_message_ = std::move(status);
     emit decisionStatusTextChanged();
 }
 
@@ -1336,4 +1531,12 @@ void ReviewController::applyDecisionState(
     );
     (void)projected;
     emit decisionChanged(state.photo_id, state.head_sequence, flag, rating);
+}
+
+void ReviewController::persistColorLabels() {
+    settings_->setValue(
+        QString::fromLatin1(color_labels_settings_key),
+        model_.colorLabels()
+    );
+    settings_->sync();
 }

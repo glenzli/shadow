@@ -3,6 +3,7 @@
 #include <QAbstractListModel>
 #include <QHash>
 #include <QString>
+#include <QVariantMap>
 #include <QVector>
 
 #include <atomic>
@@ -30,6 +31,22 @@ struct ReviewItem final {
     std::uint32_t visual_width = 0;
     std::uint32_t visual_height = 0;
     bool has_visual = false;
+    bool has_metadata = false;
+    QString camera_make;
+    QString camera_model;
+    QString lens_make;
+    QString lens_model;
+    std::int64_t captured_at_unix_seconds = 0;
+    double iso_speed = 0.0;
+    double exposure_time_seconds = 0.0;
+    double aperture_f_number = 0.0;
+    double focal_length_mm = 0.0;
+    double focal_length_35mm = 0.0;
+    std::uint32_t raw_width = 0;
+    std::uint32_t raw_height = 0;
+    std::uint32_t sensor_bits = 0;
+    QString cfa_pattern;
+    QString dng_version;
     bool has_technical_observation = false;
     std::uint32_t technical_input_width = 0;
     std::uint32_t technical_input_height = 0;
@@ -60,6 +77,22 @@ public:
         VisualWidthRole,
         VisualHeightRole,
         VisualSourceRole,
+        HasMetadataRole,
+        CameraMakeRole,
+        CameraModelRole,
+        LensMakeRole,
+        LensModelRole,
+        CapturedAtUnixSecondsRole,
+        IsoSpeedRole,
+        ExposureTimeSecondsRole,
+        ApertureFNumberRole,
+        FocalLengthMmRole,
+        FocalLength35mmRole,
+        RawWidthRole,
+        RawHeightRole,
+        SensorBitsRole,
+        CfaPatternRole,
+        DngVersionRole,
         HasTechnicalObservationRole,
         TechnicalInputWidthRole,
         TechnicalInputHeightRole,
@@ -76,6 +109,7 @@ public:
         DecisionHeadSequenceRole,
         DecisionFlagRole,
         DecisionRatingRole,
+        ColorLabelRole,
     };
     Q_ENUM(Role)
 
@@ -118,8 +152,15 @@ public:
         const QString& flag,
         int rating
     );
+    [[nodiscard]] bool setColorLabel(
+        const QString& photo_id,
+        const QString& color_label
+    );
+    void restoreColorLabels(const QVariantMap& labels);
+    [[nodiscard]] QVariantMap colorLabels() const;
 
 private:
     QVector<ReviewItem> items_;
+    QHash<QString, QString> color_labels_;
     std::atomic<quint64> generation_ = 0;
 };

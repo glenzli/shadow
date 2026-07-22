@@ -666,7 +666,10 @@ mod tests {
     #[test]
     fn migration_six_creates_immutable_feedback_storage() {
         let catalog = Catalog::open_in_memory().expect("open catalog");
-        assert_eq!(catalog.schema_version().expect("schema version"), 9);
+        assert_eq!(
+            catalog.schema_version().expect("schema version"),
+            crate::SCHEMA_VERSION
+        );
         let tables: i64 = catalog
             .connection
             .query_row(

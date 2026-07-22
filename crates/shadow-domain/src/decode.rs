@@ -81,6 +81,22 @@ pub struct RawMetadataSnapshot {
     pub white_level: u32,
     pub as_shot_neutral: [f64; 4],
     pub baseline_exposure: f64,
+    #[serde(default)]
+    pub iso_speed: f64,
+    #[serde(default)]
+    pub exposure_time_seconds: f64,
+    #[serde(default)]
+    pub aperture_f_number: f64,
+    #[serde(default)]
+    pub focal_length_mm: f64,
+    #[serde(default)]
+    pub captured_at_unix_seconds: i64,
+    #[serde(default)]
+    pub lens_make: String,
+    #[serde(default)]
+    pub lens_model: String,
+    #[serde(default)]
+    pub focal_length_35mm: f64,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
@@ -211,6 +227,14 @@ mod tests {
                 white_level: 4095,
                 as_shot_neutral: [0.64, 1.0, 0.966, 0.0],
                 baseline_exposure: -0.5,
+                iso_speed: 100.0,
+                exposure_time_seconds: 1.0 / 125.0,
+                aperture_f_number: 5.6,
+                focal_length_mm: 35.0,
+                captured_at_unix_seconds: 1_700_000_000,
+                lens_make: "Pentax".into(),
+                lens_model: "smc PENTAX-DA 35mm".into(),
+                focal_length_35mm: 52.0,
             },
             capabilities: DecodeCapabilitySnapshot {
                 metadata: DecodeSupport::Available,

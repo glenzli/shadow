@@ -12,14 +12,15 @@ Rust path
 → pure shadow-domain types
 ```
 
-No LibRaw or CXX type escapes the crate's public API. `inspect_libraw` returns a serializable descriptor snapshot; `extract_best_libraw_preview` returns the kernel-selected embedded preview or `None`; `render_libraw_reference_proxy` returns a bounded display JPEG for the no-preview fallback. The edit boundary accepts a bounded, dependency-ordered `AdjustmentRenderPlan` containing exposure, contrast, Tone Curve, resolved RGB channel gain, and saturation nodes. Plans contain at most 256 uniquely identified nodes and validate versions, finite parameters, and Tone Curve structure before execution. Graph topology, processing stages, masks, layer blending, and shared revisions are compiled before this boundary rather than interpreted here. `render_libraw_edited_proxy` remains the four-node Basic compatibility API, while `render_libraw_adjustment_plan` is the typed one-shot path. RGB gains are post-demosaic adjustments, not RAW white balance. C++ exceptions become `BridgeError`; Rust panics and C++ exceptions never cross the language boundary directly.
+No LibRaw or CXX type escapes the crate's public API. `inspect_libraw` returns a serializable descriptor snapshot; `extract_best_libraw_preview` returns the kernel-selected embedded preview or `None`; `render_libraw_reference_proxy` returns a bounded display JPEG for the no-preview fallback. The edit boundary accepts a bounded, dependency-ordered `AdjustmentRenderPlan` containing exposure, contrast, selective tone, Tone Curve, processed-RGB white balance, saturation, perceptual color, and detail/effects nodes. Plans contain at most 256 uniquely identified nodes and validate versions, finite parameters, Tone Curve structure, and operation-specific bounds before execution. Graph topology, processing stages, masks, layer blending, and shared revisions are compiled before this boundary rather than interpreted here. `render_libraw_adjustment_plan` is the typed one-shot path. RGB temperature/tint is a post-demosaic CAT16 adaptation, not RAW sensor-domain white balance. C++ exceptions become `BridgeError`; Rust panics and C++ exceptions never cross the language boundary directly.
 
-For slider interaction, `LibRawEditPreviewSession::open(path, max_edge)` performs that RAW render
-once and retains only a bounded scene-linear float working proxy. Repeated
+For slider interaction, `LibRawEditPreviewSession::open(path, max_edge)` asks LibRaw for
+processed linear-light 16-bit RGB in sRGB/Rec.709-D65 primaries once, normalizes/downsamples it,
+and retains only a bounded linear float working proxy. Repeated
 `render(edits, jpeg_quality)` calls provide the four-node Basic compatibility path;
 `render_plan(plan, jpeg_quality)` executes a validated typed plan. The parallel
 `render_plan_with_analysis` path returns that JPEG together with four exact 256-bin histograms
-from the uncompressed display-sRGB proxy before JPEG encoding and strict scene-linear `< 0` /
+from the uncompressed display-encoded sRGB proxy before JPEG encoding and strict processed-linear working-RGB `< 0` /
 `> 1` per-channel and any-channel clipping counts from before output clamping. Rust validates the
 analysis version, dimensions, bin lengths/sums, and clipping union bounds before exposing fixed
 arrays. Neither render path reopens nor decodes the
@@ -31,10 +32,13 @@ edge is independently capped at 4096; 1600/2048 are the intended UI choices. The
 `LibRawEditDetailSession::open(path)` is the separate 1:1 path. It checks decoder metadata against
 a worst-case RGB u16 allocation before the reference render starts, verifies the actual retained
 allocation independently, and rejects either above 512 MiB. Its opaque C++ handle retains the
-immutable full-resolution u16 sRGB source but no decoder. `render_plan_tile` accepts an unscaled,
-in-bounds rectangle whose width and height are each at most 1024, converts only that crop to
-scene-linear float, executes the same typed pixel-local plan, and returns tightly packed RGB8 sRGB
-bytes. It deliberately does not JPEG-encode individual tiles, avoiding independent chroma/block
+immutable full-resolution processed-linear u16 RGB source in sRGB primaries but no decoder.
+`render_plan_tile` accepts an unscaled, in-bounds rectangle whose width and height are each at
+most 1024. Pixel-local plans normalize only that crop. Neighborhood plans such as Sharpen first
+expand it by the conservative sum of enabled operation footprints, capped at a 512-pixel apron
+and a 2048-pixel working side, execute on that expanded linear-float region, and return only the
+requested core as tightly packed display-encoded sRGB RGB8 bytes. It deliberately does not JPEG-encode
+individual tiles, avoiding independent chroma/block
 boundaries at tile seams. The detail wrapper is also `Send + Sync`; concurrent calls read the
 retained source and own all crop/edit/output memory independently.
 

@@ -2,10 +2,12 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdlib>
 #include <iostream>
 #include <limits>
 #include <span>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -21,6 +23,42 @@ void expect(const bool condition, const std::string_view message) {
         std::cerr << "FAILED: " << message << '\n';
         ++failures;
     }
+}
+
+[[nodiscard]] double srgb8_to_linear(const std::uint8_t sample) {
+    const double encoded = static_cast<double>(sample) / 255.0;
+    return encoded <= 0.04045
+        ? encoded / 12.92
+        : std::pow((encoded + 0.055) / 1.055, 2.4);
+}
+
+[[nodiscard]] std::array<double, 3> linear_srgb_to_oklab(
+    const std::array<double, 3>& rgb
+) {
+    const double l = std::cbrt(
+        0.4122214708 * rgb[0] + 0.5363325363 * rgb[1] + 0.0514459929 * rgb[2]
+    );
+    const double m = std::cbrt(
+        0.2119034982 * rgb[0] + 0.6806995451 * rgb[1] + 0.1073969566 * rgb[2]
+    );
+    const double s = std::cbrt(
+        0.0883024619 * rgb[0] + 0.2817188376 * rgb[1] + 0.6299787005 * rgb[2]
+    );
+    return {
+        0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+        1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+        0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s,
+    };
+}
+
+[[nodiscard]] double oklab_hue_degrees(const std::array<double, 3>& rgb) {
+    constexpr double radians_to_degrees = 57.2957795130823208768;
+    const auto lab = linear_srgb_to_oklab(rgb);
+    return std::atan2(lab[2], lab[1]) * radians_to_degrees;
+}
+
+[[nodiscard]] double circular_hue_distance(const double first, const double second) {
+    return std::abs(std::remainder(first - second, 360.0));
 }
 
 class SyntheticDecodeSession final : public image::DecodeSession {
@@ -89,7 +127,9 @@ private:
     result.channels = 3;
     result.row_stride_bytes = static_cast<std::size_t>(dimensions.width) * 3U
         * sizeof(std::uint16_t);
-    result.color_space = image::ColorSpace::srgb;
+    result.primaries = image::RgbPrimaries::srgb_rec709_d65;
+    result.transfer_function = image::RgbTransferFunction::linear;
+    result.reference = image::RgbBufferReference::processed_raw;
     result.samples.resize(static_cast<std::size_t>(dimensions.pixel_count()) * 3U);
     for (std::uint32_t y = 0; y < dimensions.height; ++y) {
         for (std::uint32_t x = 0; x < dimensions.width; ++x) {
@@ -111,7 +151,9 @@ private:
     result.bits_per_channel = 16;
     result.channels = 1;
     result.row_stride_bytes = row_samples * sizeof(std::uint16_t);
-    result.color_space = image::ColorSpace::srgb;
+    result.primaries = image::RgbPrimaries::srgb_rec709_d65;
+    result.transfer_function = image::RgbTransferFunction::linear;
+    result.reference = image::RgbBufferReference::processed_raw;
     result.samples = {
         1, 257, 32'768, 65'534, 11'111, 22'222,
         65'534, 32'768, 257, 1, 33'333, 44'444,
@@ -200,7 +242,7 @@ void adjustments_apply_only_to_the_requested_crop() {
     );
 }
 
-void grayscale_padding_and_midtones_match_the_existing_transfer_contract() {
+void processed_linear_grayscale_is_encoded_once_and_padding_is_ignored() {
     constexpr image::Dimensions dimensions{4, 2};
     SyntheticDecodeSession decoder(metadata(dimensions), grayscale_with_padding());
     const auto session = image::prepare_full_edit_detail(decoder);
@@ -211,25 +253,82 @@ void grayscale_padding_and_midtones_match_the_existing_transfer_contract() {
     expect(
         full.bytes == std::vector<std::uint8_t>{
             0, 0, 0,
-            1, 1, 1,
-            128, 128, 128,
+            13, 13, 13,
+            188, 188, 188,
             255, 255, 255,
             255, 255, 255,
-            128, 128, 128,
-            1, 1, 1,
+            188, 188, 188,
+            13, 13, 13,
             0, 0, 0,
         },
-        "neutral detail preserves midtone sRGB quantization and replicates grayscale"
+        "neutral detail applies the sRGB output transfer once to processed-linear grayscale"
     );
     const auto crop = session.render_rgb8(neutral_plan(), {1, 0, 2, 2});
     expect(
         crop.bytes == std::vector<std::uint8_t>{
-            1, 1, 1,
-            128, 128, 128,
-            128, 128, 128,
-            1, 1, 1,
+            13, 13, 13,
+            188, 188, 188,
+            188, 188, 188,
+            13, 13, 13,
         },
         "detail crop honors padded source rows without reading padding samples"
+    );
+}
+
+void processed_linear_contract_is_required_before_editing() {
+    constexpr image::Dimensions dimensions{1, 1};
+    auto invalid = reference_rgb(dimensions);
+    invalid.transfer_function = image::RgbTransferFunction::unknown;
+    SyntheticDecodeSession decoder(metadata(dimensions), std::move(invalid));
+    expect_decode_error(
+        [&decoder] { static_cast<void>(image::prepare_full_edit_detail(decoder)); },
+        image::DecodeErrorCode::unsupported_layout,
+        "an unspecified integer transfer function cannot enter the linear working pipeline"
+    );
+}
+
+void display_gamut_mapping_preserves_oklab_hue_with_bounded_work() {
+    static_assert(image::display_srgb8_output_transform_version == 1U);
+    static_assert(image::display_srgb8_gamut_search_iterations <= 16U);
+    static_assert(image::display_srgb8_maximum_oklab_chroma == 0.5);
+
+    constexpr image::Dimensions dimensions{1, 1};
+    auto source = reference_rgb(dimensions);
+    source.samples = {32'768U, 16'384U, 8'192U};
+    SyntheticDecodeSession decoder(metadata(dimensions), std::move(source));
+    const auto session = image::prepare_full_edit_detail(decoder);
+    const std::array plan{
+        image::AdjustmentNode{
+            .node_id = "out-of-gamut-saturation",
+            .parameters = image::SaturationAdjustment{.factor = 4.0},
+        },
+    };
+    const auto rendered = session.render_rgb8(plan, {0, 0, 1, 1});
+    expect(rendered.bytes.size() == 3U, "gamut-mapped detail returns one RGB8 pixel");
+
+    constexpr double source_red = 32'768.0 / 65'535.0;
+    constexpr double source_green = 16'384.0 / 65'535.0;
+    constexpr double source_blue = 8'192.0 / 65'535.0;
+    constexpr double luminance = source_red * 0.2627 + source_green * 0.6780
+        + source_blue * 0.0593;
+    const std::array<double, 3> unclipped{
+        luminance + (source_red - luminance) * 4.0,
+        luminance + (source_green - luminance) * 4.0,
+        luminance + (source_blue - luminance) * 4.0,
+    };
+    const std::array<double, 3> mapped{
+        srgb8_to_linear(rendered.bytes[0]),
+        srgb8_to_linear(rendered.bytes[1]),
+        srgb8_to_linear(rendered.bytes[2]),
+    };
+    const std::array<std::uint8_t, 3> independently_clipped{255U, 0U, 0U};
+    expect(
+        !std::equal(rendered.bytes.begin(), rendered.bytes.end(), independently_clipped.begin()),
+        "display output desaturates along Oklab hue instead of clipping RGB independently"
+    );
+    expect(
+        circular_hue_distance(oklab_hue_degrees(unclipped), oklab_hue_degrees(mapped)) < 1.5,
+        "8-bit gamut output preserves the source Oklab hue within quantization tolerance"
     );
 }
 
@@ -253,9 +352,10 @@ void irregular_tiles_match_one_full_pixel_local_execution_without_seams() {
             },
         },
         image::AdjustmentNode{
-            .node_id = "gain",
-            .parameters = image::ChannelGainAdjustment{
-                .channel_gains = {1.1, 0.95, 1.05},
+            .node_id = "white-balance",
+            .parameters = image::RgbWhiteBalanceAdjustment{
+                .temperature = 0.1,
+                .tint = -0.05,
             },
         },
         image::AdjustmentNode{
@@ -292,6 +392,96 @@ void irregular_tiles_match_one_full_pixel_local_execution_without_seams() {
     expect(
         stitched == full.bytes,
         "irregular tiles match one full execution across nonlinear and disabled nodes"
+    );
+}
+
+void neighborhood_tiles_accumulate_two_sharpen_footprints_without_seams() {
+    constexpr image::Dimensions dimensions{160, 50};
+    SyntheticDecodeSession decoder(metadata(dimensions), reference_rgb(dimensions));
+    const auto session = image::prepare_full_edit_detail(decoder);
+    const std::array plan{
+        image::AdjustmentNode{
+            .node_id = "wide-sharpen-first",
+            .parameter_schema_version = image::detail_effects_v2_parameter_schema_version,
+            .implementation_version = image::detail_effects_v2_implementation_version,
+            .parameters = image::SharpenAdjustment{
+                .amount = 0.7,
+                .radius = 5.0,
+                .threshold = 0.05,
+                .masking = 0.2,
+            },
+        },
+        image::AdjustmentNode{
+            .node_id = "wide-sharpen-second",
+            .parameter_schema_version = image::detail_effects_v2_parameter_schema_version,
+            .implementation_version = image::detail_effects_v2_implementation_version,
+            .parameters = image::SharpenAdjustment{
+                .amount = 0.4,
+                .radius = 5.0,
+                .threshold = 0.1,
+                .masking = 0.5,
+            },
+        },
+    };
+    const auto first_support = image::footprint(plan[0].parameters);
+    const auto second_support = image::footprint(plan[1].parameters);
+    expect(
+        first_support.horizontal_radius + second_support.horizontal_radius == 30U,
+        "two radius-five sharpen nodes require the sum of both 15-pixel supports"
+    );
+
+    const auto full = session.render_rgb8(plan, {0, 0, dimensions.width, dimensions.height});
+    std::vector<std::uint8_t> stitched(full.bytes.size(), 0U);
+    constexpr std::array x_segments{
+        std::pair<std::uint32_t, std::uint32_t>{0U, 37U},
+        std::pair<std::uint32_t, std::uint32_t>{37U, 41U},
+        std::pair<std::uint32_t, std::uint32_t>{78U, 82U},
+    };
+    constexpr std::array y_segments{
+        std::pair<std::uint32_t, std::uint32_t>{0U, 19U},
+        std::pair<std::uint32_t, std::uint32_t>{19U, 31U},
+    };
+    for (const auto [x, width] : x_segments) {
+        for (const auto [y, height] : y_segments) {
+            const image::DetailTileRect rect{x, y, width, height};
+            const auto tile = session.render_rgb8(plan, rect);
+            for (std::uint32_t row = 0U; row < height; ++row) {
+                const auto source = tile.bytes.cbegin()
+                    + static_cast<std::ptrdiff_t>(row * tile.row_stride_bytes);
+                const std::size_t destination =
+                    (static_cast<std::size_t>(y + row) * dimensions.width + x) * 3U;
+                std::copy_n(
+                    source,
+                    static_cast<std::ptrdiff_t>(tile.row_stride_bytes),
+                    stitched.begin() + static_cast<std::ptrdiff_t>(destination)
+                );
+            }
+        }
+    }
+    expect(
+        stitched == full.bytes,
+        "two sequential neighborhood nodes render identically as full and irregular tiled images"
+    );
+}
+
+void neighborhood_resource_limits_fail_closed_before_allocation() {
+    constexpr image::Dimensions dimensions{32, 32};
+    SyntheticDecodeSession decoder(metadata(dimensions), reference_rgb(dimensions));
+    const auto session = image::prepare_full_edit_detail(decoder);
+    std::vector<image::AdjustmentNode> plan;
+    plan.reserve(35U);
+    for (std::size_t index = 0U; index < 35U; ++index) {
+        plan.push_back(image::AdjustmentNode{
+            .node_id = "apron-limit-sharpen-" + std::to_string(index),
+            .parameter_schema_version = image::detail_effects_v2_parameter_schema_version,
+            .implementation_version = image::detail_effects_v2_implementation_version,
+            .parameters = image::SharpenAdjustment{.amount = 1.0, .radius = 5.0},
+        });
+    }
+    expect_decode_error(
+        [&] { static_cast<void>(session.render_rgb8(plan, {0, 0, 1, 1})); },
+        image::DecodeErrorCode::resource_limit,
+        "a spatial plan exceeding the 512-pixel cumulative apron fails closed"
     );
 }
 
@@ -352,8 +542,12 @@ void metadata_limit_fails_before_reference_render() {
 int main() {
     preparation_retains_one_immutable_source_and_tiles_exactly();
     adjustments_apply_only_to_the_requested_crop();
-    grayscale_padding_and_midtones_match_the_existing_transfer_contract();
+    processed_linear_grayscale_is_encoded_once_and_padding_is_ignored();
+    processed_linear_contract_is_required_before_editing();
+    display_gamut_mapping_preserves_oklab_hue_with_bounded_work();
     irregular_tiles_match_one_full_pixel_local_execution_without_seams();
+    neighborhood_tiles_accumulate_two_sharpen_footprints_without_seams();
+    neighborhood_resource_limits_fail_closed_before_allocation();
     tile_shape_bounds_and_plan_fail_closed();
     metadata_limit_fails_before_reference_render();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;

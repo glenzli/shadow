@@ -1,11 +1,16 @@
+#include <shadow/image/color_management.hpp>
 #include <shadow/image/decoder.hpp>
 #include <shadow/image/edit.hpp>
+#include <shadow/image/optics.hpp>
+#include <shadow/image/private_decoder_plugin.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cstdlib>
 #include <future>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -29,6 +34,280 @@ void pending_corrections_are_explicit() {
 
     image::PendingCorrections stage_three{{0U, 0U, 76U}};
     expect(stage_three.has_pending(), "a DNG opcode list must be reported as pending");
+}
+
+void icc_color_management_is_content_addressed_and_transfer_aware() {
+    const auto linear_srgb = image::make_linear_srgb_icc_profile();
+    const auto another_linear_srgb = image::make_linear_srgb_icc_profile();
+    const auto display_srgb = image::make_display_srgb_icc_profile();
+    expect(
+        linear_srgb.info().id == another_linear_srgb.info().id,
+        "equivalent generated ICC profiles have stable content identities"
+    );
+    expect(
+        linear_srgb.info().id != display_srgb.info().id,
+        "linear and display sRGB profiles cannot share a cache identity"
+    );
+
+    const auto identity = image::make_icc_transform(linear_srgb, linear_srgb);
+    std::array<float, 6U> samples{0.18F, 0.5F, 1.2F, 0.0F, 0.25F, 0.75F};
+    const auto before = samples;
+    identity.apply_interleaved_rgb(samples);
+    for (std::size_t index = 0U; index < samples.size(); ++index) {
+        expect(
+            std::abs(samples[index] - before[index]) < 1.0e-5F,
+            "linear sRGB ICC identity transform preserves scene-linear samples"
+        );
+    }
+
+    const auto display_transform = image::make_icc_transform(
+        linear_srgb,
+        display_srgb,
+        image::IccRenderingIntent::relative_colorimetric
+    );
+    std::array<float, 3U> middle_gray{0.18F, 0.18F, 0.18F};
+    display_transform.apply_interleaved_rgb(middle_gray);
+    for (const auto encoded : middle_gray) {
+        expect(
+            std::abs(encoded - 0.461F) < 0.01F,
+            "linear-to-display ICC transform applies the sRGB transfer curve"
+        );
+    }
+
+    try {
+        std::array<float, 2U> malformed{0.0F, 0.0F};
+        identity.apply_interleaved_rgb(malformed);
+        expect(false, "ICC transform rejects non-RGB sample counts");
+    } catch (const std::invalid_argument&) {
+        expect(true, "ICC transform reports malformed RGB sample counts");
+    }
+}
+
+void private_decoder_plugin_abi_is_explicit_and_fail_closed() {
+    const image::PrivateDecoderPluginDescriptor valid{
+        .abi_version = image::private_decoder_plugin_abi_version,
+        .plugin_id = "nikon-local",
+        .plugin_version = "0.1.0",
+    };
+    try {
+        image::validate_private_decoder_plugin_descriptor(valid);
+        expect(true, "private decoder plugin ABI accepts a valid descriptor");
+    } catch (const image::DecodeError&) {
+        expect(false, "valid private decoder plugin descriptor must not throw");
+    }
+
+    auto future_abi = valid;
+    future_abi.abi_version += 1U;
+    try {
+        image::validate_private_decoder_plugin_descriptor(future_abi);
+        expect(false, "future private decoder ABI must be rejected");
+    } catch (const image::DecodeError& error) {
+        expect(
+            error.code() == image::DecodeErrorCode::unsupported,
+            "private decoder ABI mismatch reports unsupported"
+        );
+    }
+
+    auto invalid_id = valid;
+    invalid_id.plugin_id = "vendor sdk";
+    try {
+        image::validate_private_decoder_plugin_descriptor(invalid_id);
+        expect(false, "private decoder identifiers cannot contain spaces");
+    } catch (const image::DecodeError&) {
+        expect(true, "invalid private decoder id is rejected");
+    }
+}
+
+void private_decoder_plugin_loads_an_explicit_local_module() {
+#if defined(SHADOW_TEST_PRIVATE_DECODER_PLUGIN_PATH)
+    const auto provider = image::load_private_decoder_plugin(
+        SHADOW_TEST_PRIVATE_DECODER_PLUGIN_PATH
+    );
+    expect(
+        provider->info().id == "private.test-private-provider.fixture",
+        "private plugin identity remains namespaced by its explicit local module"
+    );
+    expect(
+        provider->info().version == "1.0.0;1.0.0",
+        "private plugin version participates in provider identity"
+    );
+    const auto session = provider->open("does-not-need-to-exist.raw");
+    expect(
+        session->metadata().model == "Private decoder test fixture",
+        "private provider session stays callable through the host adapter"
+    );
+    const auto pixels = session->render_reference_rgb();
+    expect(
+        pixels.samples == std::vector<std::uint16_t>({0U, 1U, 2U, 3U, 4U, 5U}),
+        "private plugin reference RGB crosses the provider-neutral contract"
+    );
+#else
+    expect(false, "private decoder plugin test target path must be configured");
+#endif
+}
+
+[[nodiscard]] image::PixelBuffer optics_reference_buffer(
+    const std::uint32_t width = 96U,
+    const std::uint32_t height = 64U
+) {
+    image::PixelBuffer buffer;
+    buffer.dimensions = {width, height};
+    buffer.bits_per_channel = 16U;
+    buffer.channels = 3U;
+    buffer.row_stride_bytes = static_cast<std::size_t>(width) * 3U * sizeof(std::uint16_t);
+    buffer.primaries = image::RgbPrimaries::srgb_rec709_d65;
+    buffer.transfer_function = image::RgbTransferFunction::linear;
+    buffer.reference = image::RgbBufferReference::processed_raw;
+    buffer.samples.resize(static_cast<std::size_t>(width) * height * 3U);
+    for (std::uint32_t y = 0U; y < height; ++y) {
+        for (std::uint32_t x = 0U; x < width; ++x) {
+            const auto index = (static_cast<std::size_t>(y) * width + x) * 3U;
+            buffer.samples[index] = static_cast<std::uint16_t>(
+                static_cast<std::uint64_t>(x) * 65'535U / (width - 1U)
+            );
+            buffer.samples[index + 1U] = static_cast<std::uint16_t>(
+                static_cast<std::uint64_t>(y) * 65'535U / (height - 1U)
+            );
+            buffer.samples[index + 2U] = static_cast<std::uint16_t>(
+                (static_cast<std::uint64_t>(x + y) * 65'535U) / (width + height - 2U)
+            );
+        }
+    }
+    return buffer;
+}
+
+void optics_settings_are_explicit_and_provider_safe() {
+    const auto defaults = image::default_optics_settings();
+    expect(defaults.schema_version == image::optics_settings_schema_version,
+           "optics defaults declare the current schema");
+    expect(defaults.enabled && defaults.correct_distortion && defaults.correct_tca
+               && defaults.correct_vignetting && defaults.automatic_scale,
+           "optics defaults preserve all automatic profile corrections");
+    const auto default_signature = image::optics_settings_signature(defaults);
+    auto no_tca = defaults;
+    no_tca.correct_tca = false;
+    expect(
+        image::optics_settings_signature(no_tca) != default_signature,
+        "every optics choice participates in cache identity"
+    );
+
+    const auto provider = image::make_lensfun_optics_provider();
+    auto disabled = defaults;
+    disabled.enabled = false;
+    const auto disabled_result = provider->correct_reference_rgb(
+        optics_reference_buffer(),
+        image::AssetMetadata{},
+        disabled
+    );
+    expect(
+        disabled_result.receipt.status == image::OpticsProfileStatus::disabled,
+        "disabled optics do not require profile metadata"
+    );
+    expect(
+        !disabled_result.corrected_reference_rgb.has_value(),
+        "disabled optics do not duplicate the reference raster"
+    );
+
+    auto unsupported_schema = defaults;
+    unsupported_schema.schema_version += 1U;
+    try {
+        static_cast<void>(image::optics_settings_signature(unsupported_schema));
+        expect(false, "unknown optics settings schemas must fail closed");
+    } catch (const image::DecodeError& error) {
+        expect(
+            error.code() == image::DecodeErrorCode::invalid_request,
+            "unknown optics schema reports invalid request"
+        );
+    }
+}
+
+void lensfun_adapter_applies_a_real_profile_when_a_test_database_is_available() {
+    const auto* database = std::getenv("SHADOW_TEST_LENSFUN_DB");
+    if (database == nullptr || *database == '\0') {
+        return;
+    }
+    const auto provider = image::make_lensfun_optics_provider(database);
+    expect(provider->info().available, "test Lensfun database loads");
+    if (!provider->info().available) {
+        return;
+    }
+    image::AssetMetadata metadata;
+    metadata.make = "Nikon Corporation";
+    metadata.model = "Nikon D850";
+    metadata.normalized_make = "Nikon";
+    metadata.normalized_model = "D850";
+    metadata.lens_make = "Nikon";
+    metadata.lens_model = "Nikon AF Nikkor 50mm f/1.4D";
+    metadata.focal_length_mm = 50.0;
+    metadata.focal_length_35mm = 50.0;
+    metadata.aperture_f_number = 1.4;
+    metadata.focus_distance_meters = 10.0;
+
+    const auto profile_candidates = provider->profile_candidates(metadata);
+    expect(
+        !profile_candidates.empty(),
+        "Lensfun enumerates profiles compatible with a matched camera"
+    );
+    if (profile_candidates.empty()) {
+        return;
+    }
+
+    auto pentax_metadata = metadata;
+    pentax_metadata.make = "Pentax";
+    pentax_metadata.model = "K10D";
+    pentax_metadata.normalized_make = "Pentax";
+    pentax_metadata.normalized_model = "K10D";
+    expect(
+        !provider->profile_candidates(pentax_metadata).empty(),
+        "Lensfun profile enumeration accepts the Pentax K10D EXIF identity"
+    );
+
+    const auto input = optics_reference_buffer();
+    const auto result = provider->correct_reference_rgb(
+        input,
+        metadata,
+        image::default_optics_settings()
+    );
+    expect(
+        result.receipt.status == image::OpticsProfileStatus::matched,
+        "Lensfun matches the camera/lens profile from RAW metadata"
+    );
+    expect(result.receipt.applied_distortion, "Lensfun applies calibrated distortion correction");
+    expect(result.receipt.applied_tca, "Lensfun applies calibrated TCA correction");
+    expect(result.receipt.applied_vignetting, "Lensfun applies calibrated vignetting correction");
+    expect(result.receipt.applied_scaling, "Lensfun auto-scale is applied with geometry correction");
+    expect(
+        result.corrected_reference_rgb.has_value(),
+        "an active Lensfun profile materializes a corrected raster"
+    );
+    if (result.corrected_reference_rgb.has_value()) {
+        expect(
+            result.corrected_reference_rgb->dimensions == input.dimensions,
+            "optics preserves the image canvas dimensions"
+        );
+        expect(
+            result.corrected_reference_rgb->samples != input.samples,
+            "profile correction changes the synthetic gradient"
+        );
+    }
+
+    auto manual_metadata = metadata;
+    manual_metadata.lens_make.clear();
+    manual_metadata.lens_model.clear();
+    auto manual_settings = image::default_optics_settings();
+    manual_settings.camera_profile_maker = profile_candidates.front().camera_maker;
+    manual_settings.camera_profile_model = profile_candidates.front().camera_model;
+    manual_settings.lens_profile_maker = profile_candidates.front().lens_maker;
+    manual_settings.lens_profile_model = profile_candidates.front().lens_model;
+    const auto manual_result = provider->correct_reference_rgb(
+        input,
+        manual_metadata,
+        manual_settings
+    );
+    expect(
+        manual_result.receipt.status == image::OpticsProfileStatus::matched,
+        "an explicit camera/lens profile works without EXIF lens identity"
+    );
 }
 
 void largest_decodable_preview_wins() {
@@ -87,6 +366,13 @@ void no_decodable_preview_is_a_valid_state() {
 
 class FakeRgbSession final : public image::DecodeSession {
 public:
+    FakeRgbSession() {
+        metadata_.raw_dimensions = {8U, 4U};
+        metadata_.image_dimensions = {8U, 4U};
+        capabilities_.metadata = true;
+        capabilities_.reference_rgb = true;
+    }
+
     [[nodiscard]] const image::AssetMetadata& metadata() const noexcept override {
         return metadata_;
     }
@@ -114,6 +400,9 @@ public:
         buffer.bits_per_channel = 16;
         buffer.channels = 3;
         buffer.row_stride_bytes = 8U * 3U * sizeof(std::uint16_t);
+        buffer.primaries = image::RgbPrimaries::srgb_rec709_d65;
+        buffer.transfer_function = image::RgbTransferFunction::linear;
+        buffer.reference = image::RgbBufferReference::processed_raw;
         buffer.samples.resize(8U * 4U * 3U);
         for (std::size_t index = 0; index < buffer.samples.size(); ++index) {
             buffer.samples[index] = static_cast<std::uint16_t>((index * 997U) % 65'536U);
@@ -130,6 +419,81 @@ private:
     image::DecodeCapabilities capabilities_;
     mutable std::size_t reference_render_count_ = 0;
 };
+
+class FakeOpticsProvider final : public image::OpticsProvider {
+public:
+    [[nodiscard]] const image::OpticsProviderInfo& info() const noexcept override {
+        return info_;
+    }
+
+    [[nodiscard]] image::OpticsCorrectionResult correct_reference_rgb(
+        const image::PixelBuffer& input,
+        const image::AssetMetadata&,
+        const image::OpticsSettings& settings
+    ) const override {
+        ++correction_count_;
+        expect(settings.enabled, "pipeline sends enabled optics settings to its provider");
+        auto corrected = input;
+        std::fill(corrected.samples.begin(), corrected.samples.end(), 0U);
+        return {
+            .receipt = {
+                .status = image::OpticsProfileStatus::matched,
+                .provider_id = "fake-optics",
+                .provider_version = "test-v1",
+                .camera_profile = "Test camera",
+                .lens_profile = "Test lens",
+                .distortion_available = true,
+                .applied_distortion = true,
+            },
+            .corrected_reference_rgb = std::move(corrected),
+        };
+    }
+
+    [[nodiscard]] std::size_t correction_count() const noexcept {
+        return correction_count_;
+    }
+
+private:
+    image::OpticsProviderInfo info_{
+        .id = "fake-optics",
+        .version = "test-v1",
+        .available = true,
+    };
+    mutable std::size_t correction_count_ = 0U;
+};
+
+void optics_runs_before_preview_and_full_detail_preparation() {
+    const FakeRgbSession session;
+    const FakeOpticsProvider optics;
+    const auto warm = image::prepare_warm_edit_preview(session, 8U, &optics);
+    expect(
+        warm.optics_receipt().status == image::OpticsProfileStatus::matched,
+        "warm preview retains the applied optics receipt"
+    );
+    expect(
+        warm.optics_receipt().applied_distortion,
+        "warm preview receives the provider's optical source"
+    );
+    expect(optics.correction_count() == 1U, "warm preview applies optics once during preparation");
+
+    const auto detail = image::prepare_full_edit_detail(session, &optics);
+    expect(
+        detail.optics_receipt().status == image::OpticsProfileStatus::matched,
+        "full detail retains the applied optics receipt"
+    );
+    expect(
+        detail.optics_receipt().camera_profile == "Test camera",
+        "full detail carries profile identity instead of a hidden transform"
+    );
+    expect(optics.correction_count() == 2U, "full detail prepares an independent immutable source");
+
+    const std::array no_nodes{image::AdjustmentNode{
+        .node_id = "neutral-exposure",
+        .parameters = image::ExposureAdjustment{},
+    }};
+    const auto proxy = warm.render_jpeg(no_nodes);
+    expect(!proxy.bytes.empty(), "optically prepared warm preview still encodes normally");
+}
 
 class BoundaryRgbSession final : public image::DecodeSession {
 public:
@@ -160,7 +524,9 @@ public:
             .bits_per_channel = 16,
             .channels = 3,
             .row_stride_bytes = 5U * 3U * sizeof(std::uint16_t),
-            .color_space = image::ColorSpace::srgb,
+            .primaries = image::RgbPrimaries::srgb_rec709_d65,
+            .transfer_function = image::RgbTransferFunction::linear,
+            .reference = image::RgbBufferReference::processed_raw,
             .samples = {
                 0U, 0U, 0U,
                 65'535U, 65'535U, 65'535U,
@@ -179,6 +545,45 @@ private:
     image::AssetMetadata metadata_;
     image::DecodeCapabilities capabilities_;
     mutable std::size_t reference_render_count_ = 0;
+};
+
+class RetainedRgbSession final : public image::DecodeSession {
+public:
+    explicit RetainedRgbSession(image::PixelBuffer buffer) : buffer_(std::move(buffer)) {
+        metadata_.raw_dimensions = buffer_.dimensions;
+        metadata_.image_dimensions = buffer_.dimensions;
+        capabilities_.metadata = true;
+        capabilities_.reference_rgb = true;
+    }
+
+    [[nodiscard]] const image::AssetMetadata& metadata() const noexcept override {
+        return metadata_;
+    }
+
+    [[nodiscard]] const image::DecodeCapabilities& capabilities() const noexcept override {
+        return capabilities_;
+    }
+
+    [[nodiscard]] std::span<const image::PreviewDescriptor> previews() const noexcept override {
+        return {};
+    }
+
+    [[nodiscard]] image::PreviewPayload decode_preview(std::size_t) override {
+        throw image::DecodeError(image::DecodeErrorCode::no_preview, 0, "no preview");
+    }
+
+    [[nodiscard]] image::MosaicBuffer decode_mosaic() override {
+        throw image::DecodeError(image::DecodeErrorCode::unsupported, 0, "no mosaic");
+    }
+
+    [[nodiscard]] image::PixelBuffer render_reference_rgb() const override {
+        return buffer_;
+    }
+
+private:
+    image::AssetMetadata metadata_;
+    image::DecodeCapabilities capabilities_;
+    image::PixelBuffer buffer_;
 };
 
 template <std::size_t Size>
@@ -214,7 +619,7 @@ void reference_proxy_is_bounded_standard_jpeg() {
     );
 }
 
-void edited_proxy_crosses_explicit_linear_srgb_boundary() {
+void edited_proxy_applies_one_explicit_display_srgb_boundary() {
     const FakeRgbSession session;
     const image::ProxyRequest request{.max_edge = 8, .jpeg_quality = 90};
     const auto reference = image::render_reference_proxy_jpeg(session, request);
@@ -232,8 +637,8 @@ void edited_proxy_crosses_explicit_linear_srgb_boundary() {
             .parameters = image::ToneCurve{},
         },
         image::AdjustmentNode{
-            .node_id = "channel-gain",
-            .parameters = image::ChannelGainAdjustment{},
+            .node_id = "rgb-white-balance",
+            .parameters = image::RgbWhiteBalanceAdjustment{},
         },
         image::AdjustmentNode{
             .node_id = "saturation",
@@ -247,12 +652,15 @@ void edited_proxy_crosses_explicit_linear_srgb_boundary() {
     );
     expect(
         neutral.bytes == reference.bytes,
-        "neutral edits round-trip the sRGB transfer boundary without changing unscaled pixels"
+        "neutral edits share the one display-sRGB output transform with the reference path"
     );
 
     auto adjusted_nodes = neutral_nodes;
     adjusted_nodes[0].parameters = image::ExposureAdjustment{1.0};
-    adjusted_nodes[3].parameters = image::ChannelGainAdjustment{{1.1, 1.0, 0.9}};
+    adjusted_nodes[3].parameters = image::RgbWhiteBalanceAdjustment{
+        .temperature = 0.2,
+        .tint = -0.05,
+    };
     const image::ProxyRequest small_request{.max_edge = 4, .jpeg_quality = 90};
     const auto neutral_small = image::render_edited_reference_proxy_jpeg(
         session,
@@ -509,17 +917,134 @@ void edited_proxy_rejects_invalid_nodes_before_decode() {
     );
 }
 
+void provider_identity_versions_shadow_pixel_contracts() {
+    static_assert(image::processed_linear_reference_rgb_contract_version == 1U);
+    static_assert(image::processed_linear_reference_maximum_adjustment_threshold == 0.0F);
+    const auto provider = image::make_libraw_decoder_provider();
+    const std::string_view version = provider->info().version;
+    expect(
+        version.find("shadow-processed-linear-srgb16-v1") != std::string_view::npos,
+        "provider identity versions the processed-linear reference RGB contract"
+    );
+    expect(
+        version.find("shadow-display-srgb8-v1") != std::string_view::npos,
+        "provider identity versions the display output transform for cache invalidation"
+    );
+    expect(
+        version.find("shadow-libraw-develop-v1;wb=camera;matrix=camera")
+            != std::string_view::npos,
+        "provider identity includes the complete LibRaw development profile"
+    );
+}
+
+void libraw_development_settings_are_explicit_and_cache_visible() {
+    const image::LibRawDevelopmentSettings defaults = image::default_libraw_development_settings();
+    expect(
+        defaults.schema_version == image::libraw_development_settings_schema_version,
+        "default LibRaw settings name their schema"
+    );
+    expect(defaults.use_camera_white_balance, "default LibRaw settings use camera white balance");
+    expect(defaults.use_camera_matrix, "default LibRaw settings use the camera matrix");
+    expect(!defaults.use_auto_brightness, "default LibRaw settings disable auto brightness");
+    expect(
+        !defaults.use_exposure_correction,
+        "default LibRaw settings disable implicit exposure correction"
+    );
+    expect(
+        defaults.maximum_adjustment_threshold
+            == image::processed_linear_reference_maximum_adjustment_threshold,
+        "default LibRaw settings preserve the stable maximum scale"
+    );
+
+    auto tweaked = defaults;
+    tweaked.brightness = 1.25F;
+    const auto default_provider = image::make_libraw_decoder_provider(defaults);
+    const auto tweaked_provider = image::make_libraw_decoder_provider(tweaked);
+    expect(
+        default_provider->info().version != tweaked_provider->info().version,
+        "a LibRaw processing tweak invalidates generated-cache identity"
+    );
+
+    auto invalid = defaults;
+    invalid.output_bits_per_channel = 8U;
+    try {
+        static_cast<void>(image::make_libraw_decoder_provider(invalid));
+        expect(false, "LibRaw provider rejects an output depth outside the reference contract");
+    } catch (const std::invalid_argument&) {
+    }
+}
+
+void real_libraw_boundary_and_neutral_preview_when_configured() {
+    const char* fixture = std::getenv("SHADOW_TEST_DNG");
+    if (fixture == nullptr || *fixture == '\0') {
+        return;
+    }
+
+    const auto provider = image::make_libraw_decoder_provider();
+    const auto decoder = provider->open(fixture);
+    image::PixelBuffer decoded = decoder->render_reference_rgb();
+    expect(decoded.bits_per_channel == 16U, "real LibRaw boundary returns 16-bit samples");
+    expect(
+        decoded.primaries == image::RgbPrimaries::srgb_rec709_d65,
+        "real LibRaw boundary declares its sRGB/Rec.709-D65 primaries"
+    );
+    expect(
+        decoded.transfer_function == image::RgbTransferFunction::linear,
+        "real LibRaw boundary declares the configured linear transfer"
+    );
+    expect(
+        decoded.reference == image::RgbBufferReference::processed_raw,
+        "real LibRaw boundary cannot be mistaken for untouched sensor-linear data"
+    );
+
+    RetainedRgbSession retained(std::move(decoded));
+    const std::uint32_t source_edge = std::max(
+        retained.metadata().image_dimensions.width,
+        retained.metadata().image_dimensions.height
+    );
+    expect(source_edge <= 16'384U, "real neutral fixture fits the bounded proxy contract");
+    if (source_edge > 16'384U) {
+        return;
+    }
+    const image::ProxyRequest request{.max_edge = source_edge, .jpeg_quality = 90};
+    const auto reference = image::render_reference_proxy_jpeg(retained, request);
+    const std::array neutral_nodes{
+        image::AdjustmentNode{
+            .node_id = "neutral-real-exposure",
+            .parameters = image::ExposureAdjustment{},
+        },
+    };
+    const auto neutral = image::render_edited_reference_proxy_jpeg(
+        retained,
+        neutral_nodes,
+        request
+    );
+    expect(
+        neutral.bytes == reference.bytes,
+        "real processed-linear pixels follow one identical neutral display transform"
+    );
+}
+
 } // namespace
 
 int main() {
     pending_corrections_are_explicit();
+    icc_color_management_is_content_addressed_and_transfer_aware();
+    private_decoder_plugin_abi_is_explicit_and_fail_closed();
+    private_decoder_plugin_loads_an_explicit_local_module();
+    optics_settings_are_explicit_and_provider_safe();
+    lensfun_adapter_applies_a_real_profile_when_a_test_database_is_available();
+    optics_runs_before_preview_and_full_detail_preparation();
     largest_decodable_preview_wins();
     no_decodable_preview_is_a_valid_state();
     reference_proxy_is_bounded_standard_jpeg();
-    edited_proxy_crosses_explicit_linear_srgb_boundary();
+    edited_proxy_applies_one_explicit_display_srgb_boundary();
     warm_edit_preview_decodes_once_and_renders_repeatedly();
     warm_edit_preview_analysis_is_pre_jpeg_and_strictly_pre_clamp();
     warm_edit_preview_bounds_fail_before_decode();
     edited_proxy_rejects_invalid_nodes_before_decode();
+    provider_identity_versions_shadow_pixel_contracts();
+    libraw_development_settings_are_explicit_and_cache_visible();
+    real_libraw_boundary_and_neutral_preview_when_configured();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

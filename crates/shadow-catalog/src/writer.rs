@@ -9,18 +9,21 @@ use shadow_ai::{
     FeedbackEvent, FeedbackForgetFact, LearningScope, NewFeedbackEvent, NewFeedbackForgetFact,
 };
 use shadow_domain::{
-    AssetLocation, ImportSessionId, NewPhotoDecisionEvent, PhotoDecisionEvent, PhotoDecisionState,
-    PhotoId, RecipeCommitId, RepresentationId,
+    AssetLocation, EditCommitId, EditObjectId, ImportSessionId, NewPhotoDecisionEvent,
+    PhotoDecisionEvent, PhotoDecisionState, PhotoId, RecipeCommitId, RepresentationId,
 };
 
 use crate::{
-    CachedArtifactRecord, Catalog, CatalogError, CatalogStats, CatalogStore, CommitRecipe,
-    DecodeSnapshotRecord, FeedbackPage, ImportSession, ImportSessionState, ImportSessionSummary,
+    CachedArtifactRecord, Catalog, CatalogError, CatalogStats, CatalogStore, CommitEditRepository,
+    CommitRecipe, CommitRecipeAndEditRepository, CommitRecipeAndEditRepositoryResult,
+    DecodeSnapshotRecord, EditObjectPackWrite, EditObjectRecord, EditRepositoryCommitRecord,
+    EditRepositoryRefRecord, FeedbackPage, ImportSession, ImportSessionState, ImportSessionSummary,
     InvalidateCachedArtifactStatus, PhotoDecisionPage, RecipeCommitRecord, RecipeRefRecord,
     RecordCachedArtifact, RecordCachedArtifactStatus, RecordDecodeSnapshot,
     RecordDecodeSnapshotStatus, RecordTechnicalObservation, RecordTechnicalObservationStatus,
     RegisterAsset, RegisteredAsset, RepresentationFingerprint, ReviewCursor, ReviewItemRecord,
-    ReviewPageRecord, SetRecipeRef, TechnicalObservationRecord, TechnicalObservationRevision,
+    ReviewPageRecord, SetRecipeRef, StoreEditObjectPackResult, TechnicalObservationRecord,
+    TechnicalObservationRevision,
 };
 
 #[derive(Debug)]
@@ -120,6 +123,30 @@ enum Message {
         SyncSender<Result<Option<RecipeRefRecord>, CatalogError>>,
     ),
     SetRecipeRef(Box<SetRecipeRef>, SyncSender<Result<(), CatalogError>>),
+    StoreEditObjectPack(
+        Box<EditObjectPackWrite>,
+        SyncSender<Result<StoreEditObjectPackResult, CatalogError>>,
+    ),
+    EditObject(
+        EditObjectId,
+        SyncSender<Result<Option<EditObjectRecord>, CatalogError>>,
+    ),
+    CommitEditRepository(
+        Box<CommitEditRepository>,
+        SyncSender<Result<EditRepositoryCommitRecord, CatalogError>>,
+    ),
+    CommitRecipeAndEditRepository(
+        Box<CommitRecipeAndEditRepository>,
+        SyncSender<Result<CommitRecipeAndEditRepositoryResult, CatalogError>>,
+    ),
+    EditRepositoryCommit(
+        EditCommitId,
+        SyncSender<Result<Option<EditRepositoryCommitRecord>, CatalogError>>,
+    ),
+    EditRepositoryRef(
+        String,
+        SyncSender<Result<Option<EditRepositoryRefRecord>, CatalogError>>,
+    ),
     Decision(DecisionMessage),
     Feedback(FeedbackMessage),
     BeginImportSession(
@@ -601,6 +628,86 @@ impl CatalogHandle {
         self.request(|response| Message::SetRecipeRef(Box::new(request.clone()), response))
     }
 
+    /// Stores a topologically unordered pack of immutable edit objects through
+    /// the Catalog's single writer transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] if an object is invalid, an edge target is
+    /// absent, persisted content conflicts, or the actor is unavailable.
+    pub fn store_edit_object_pack(
+        &self,
+        request: &EditObjectPackWrite,
+    ) -> Result<StoreEditObjectPackResult, CatalogError> {
+        self.request(|response| Message::StoreEditObjectPack(Box::new(request.clone()), response))
+    }
+
+    /// Reads and integrity-checks one content-addressed edit object.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] if persisted bytes or indexed edges are corrupt
+    /// or the actor is unavailable.
+    pub fn edit_object(&self, id: EditObjectId) -> Result<Option<EditObjectRecord>, CatalogError> {
+        self.request(|response| Message::EditObject(id, response))
+    }
+
+    /// Writes one Library-wide immutable edit commit and advances guarded refs
+    /// in the same Catalog transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] for missing roots/parents, stale ref heads,
+    /// content collisions, or an unavailable actor.
+    pub fn commit_edit_repository(
+        &self,
+        request: &CommitEditRepository,
+    ) -> Result<EditRepositoryCommitRecord, CatalogError> {
+        self.request(|response| Message::CommitEditRepository(Box::new(request.clone()), response))
+    }
+
+    /// Atomically publishes one per-photo compatibility commit and its
+    /// Library-wide repository commit through the single writer.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] if either commit/ref set is invalid or stale,
+    /// persistence fails, or the actor is unavailable.
+    pub fn commit_recipe_and_edit_repository(
+        &self,
+        request: &CommitRecipeAndEditRepository,
+    ) -> Result<CommitRecipeAndEditRepositoryResult, CatalogError> {
+        self.request(|response| {
+            Message::CommitRecipeAndEditRepository(Box::new(request.clone()), response)
+        })
+    }
+
+    /// Reads and integrity-checks one Library-wide edit commit.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] when persisted data is invalid or the actor is
+    /// unavailable.
+    pub fn edit_repository_commit(
+        &self,
+        id: EditCommitId,
+    ) -> Result<Option<EditRepositoryCommitRecord>, CatalogError> {
+        self.request(|response| Message::EditRepositoryCommit(id, response))
+    }
+
+    /// Resolves one guarded Library-wide branch, named version, or tag.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] for an invalid name, invalid persisted data, or
+    /// an unavailable actor.
+    pub fn edit_repository_ref(
+        &self,
+        name: &str,
+    ) -> Result<Option<EditRepositoryRefRecord>, CatalogError> {
+        self.request(|response| Message::EditRepositoryRef(name.to_owned(), response))
+    }
+
     /// Returns one photo's current authoritative culling/rating decision.
     ///
     /// # Errors
@@ -920,6 +1027,24 @@ fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
             Message::SetRecipeRef(request, response) => {
                 let _ = response.send(catalog.set_recipe_ref(request.as_ref()));
             }
+            Message::StoreEditObjectPack(request, response) => {
+                let _ = response.send(catalog.store_edit_object_pack(request.as_ref()));
+            }
+            Message::EditObject(id, response) => {
+                respond(&response, catalog.edit_object(id));
+            }
+            Message::CommitEditRepository(request, response) => {
+                let _ = response.send(catalog.commit_edit_repository(request.as_ref()));
+            }
+            Message::CommitRecipeAndEditRepository(request, response) => {
+                let _ = response.send(catalog.commit_recipe_and_edit_repository(request.as_ref()));
+            }
+            Message::EditRepositoryCommit(id, response) => {
+                respond(&response, catalog.edit_repository_commit(id));
+            }
+            Message::EditRepositoryRef(name, response) => {
+                let _ = response.send(catalog.edit_repository_ref(&name));
+            }
             Message::Decision(message) => run_decision_message(&mut catalog, message),
             Message::Feedback(message) => run_feedback_message(&mut catalog, message),
             Message::BeginImportSession(root, now_ms, response) => {
@@ -1004,9 +1129,13 @@ mod tests {
 
     use shadow_ai::{FeedbackAction, PresentationContext};
     use shadow_domain::{
-        EntityId, PhotoDecisionOrigin, PhotoFlag, Platform, RecipeCommit, RecipeId, RecipeSnapshot,
-        RepresentationKind,
+        EditEntityEntryV1, EditEntityMapV1, EditObject, EditObjectKind, EditObjectPack,
+        EditRepositoryCommit, EditRepositoryCommitPayloadV1, EditRepositoryRefExpectation,
+        EditRepositoryRefKind, EntityId, LibraryRootV1, PhotoDecisionOrigin, PhotoFlag, Platform,
+        RecipeCommit, RecipeId, RecipeSnapshot, RepresentationKind,
     };
+
+    use crate::EditRepositoryRefUpdate;
 
     use super::*;
 
@@ -1093,6 +1222,91 @@ mod tests {
                 .is_none()
         );
 
+        actor.shutdown().expect("shutdown actor");
+    }
+
+    #[test]
+    fn actor_serializes_library_object_pack_commit_and_ref() {
+        let actor = CatalogActor::spawn_in_memory().expect("spawn catalog actor");
+        let handle = actor.handle();
+        let photo = EditObject::from_canonical_json(
+            EditObjectKind::PhotoEditState,
+            1,
+            &serde_json::json!({ "photo": "actor-photo" }),
+        )
+        .expect("build photo object");
+        let photo = EditObjectPack::new(photo, Vec::new()).expect("pack photo object");
+        let photo_map = EditEntityMapV1::new(vec![EditEntityEntryV1 {
+            key: "photo/actor-photo".into(),
+            value: photo.object().id(),
+        }])
+        .expect("build photo map")
+        .into_object_pack()
+        .expect("pack photo map");
+        let root = LibraryRootV1 {
+            photo_recipes: Some(photo_map.object().id()),
+            shared_grade_heads: None,
+            masks: None,
+            styles: None,
+            output_states: None,
+        }
+        .into_object_pack()
+        .expect("pack Library root");
+        let root_id = root.object().id();
+        assert_eq!(
+            handle
+                .store_edit_object_pack(&EditObjectPackWrite {
+                    objects: vec![root, photo_map, photo],
+                    created_at_ms: 10,
+                })
+                .expect("store object pack")
+                .inserted,
+            3
+        );
+        let commit = EditRepositoryCommit::new(EditRepositoryCommitPayloadV1 {
+            root: root_id,
+            parents: Vec::new(),
+            message: Some("Actor Library checkpoint".into()),
+            created_at_ms: 11,
+        })
+        .expect("build Library commit");
+        handle
+            .commit_edit_repository(&CommitEditRepository {
+                commit: commit.clone(),
+                update_refs: vec![EditRepositoryRefUpdate {
+                    name: "heads/main".into(),
+                    kind: EditRepositoryRefKind::Branch,
+                    expected: EditRepositoryRefExpectation::Missing,
+                    updated_at_ms: 11,
+                }],
+            })
+            .expect("commit Library state");
+
+        assert_eq!(
+            handle
+                .edit_repository_commit(commit.id())
+                .expect("read Library commit")
+                .expect("Library commit exists")
+                .commit,
+            commit
+        );
+        assert_eq!(
+            handle
+                .edit_repository_ref("heads/main")
+                .expect("read Library head")
+                .expect("Library head exists")
+                .commit_id,
+            commit.id()
+        );
+        assert_eq!(
+            handle
+                .edit_object(root_id)
+                .expect("read Library root")
+                .expect("Library root exists")
+                .object
+                .id(),
+            root_id
+        );
         actor.shutdown().expect("shutdown actor");
     }
 

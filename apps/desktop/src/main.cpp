@@ -1,8 +1,15 @@
 #include "desktop_backend.hpp"
 #include "edit_controller.hpp"
 #include "edit_preview_provider.hpp"
+#include "lut_library.hpp"
+#include "lut_preview_provider.hpp"
 #include "review_controller.hpp"
 #include "thumbnail_provider.hpp"
+#include "ui_preferences.hpp"
+
+#if defined(Q_OS_MACOS)
+#include "mac_titlebar.hpp"
+#endif
 
 #include <QDebug>
 #include <QColorSpace>
@@ -18,6 +25,7 @@
 #include <QUrlQuery>
 #include <QVariant>
 #include <QVector>
+#include <QWindow>
 
 #include <cmath>
 #include <cstdint>
@@ -144,16 +152,16 @@ void after_qml_preview_ready(
     QTimer::singleShot(0, &application, *poll);
 }
 
-class AdjustmentStackSmoke final
-    : public std::enable_shared_from_this<AdjustmentStackSmoke> {
+class GradeStackSmoke final
+    : public std::enable_shared_from_this<GradeStackSmoke> {
 public:
     static void start(
         QCoreApplication& application,
         ReviewController& review,
         EditController& editor
     ) {
-        const auto smoke = std::shared_ptr<AdjustmentStackSmoke>(
-            new AdjustmentStackSmoke(application, review, editor)
+        const auto smoke = std::shared_ptr<GradeStackSmoke>(
+            new GradeStackSmoke(application, review, editor)
         );
         smoke->connectSignals();
     }
@@ -169,22 +177,28 @@ private:
         Failed,
     };
 
-    AdjustmentStackSmoke(
+    GradeStackSmoke(
         QCoreApplication& application,
         ReviewController& review,
         EditController& editor
     )
         : application_(application), review_(review), editor_(editor) {}
 
-    static QString layerId(const QVariantList& layers, const qsizetype index) {
-        return layers.at(index)
+    static QString gradeNodeId(
+        const QVariantList& grade_nodes,
+        const qsizetype index
+    ) {
+        return grade_nodes.at(index)
             .toMap()
-            .value(QStringLiteral("layerId"))
+            .value(QStringLiteral("gradeNodeId"))
             .toString();
     }
 
-    static bool layerEnabled(const QVariantList& layers, const qsizetype index) {
-        return layers.at(index)
+    static bool gradeNodeEnabled(
+        const QVariantList& grade_nodes,
+        const qsizetype index
+    ) {
+        return grade_nodes.at(index)
             .toMap()
             .value(QStringLiteral("enabled"))
             .toBool();
@@ -262,52 +276,58 @@ private:
         source_path_ = model->data(first, ReviewModel::SourcePathRole).toString();
         title_ = model->data(first, ReviewModel::TitleRole).toString();
 
-        const QVariantList initial_layers = editor_.layers();
+        const QVariantList initial_grade_nodes = editor_.gradeNodes();
         if (!expect(
-                initial_layers.size() == 1,
-                QStringLiteral("expected one initial layer, found %1")
-                    .arg(initial_layers.size())
+                initial_grade_nodes.size() == 1,
+                QStringLiteral("expected one initial Grade Node, found %1")
+                    .arg(initial_grade_nodes.size())
             )) {
             return;
         }
-        const QString initial_id = layerId(initial_layers, 0);
-        if (!expect(!initial_id.isEmpty(), QStringLiteral("initial layer has no ID"))) {
+        const QString initial_id = gradeNodeId(initial_grade_nodes, 0);
+        if (!expect(
+                !initial_id.isEmpty(),
+                QStringLiteral("initial Grade Node has no ID")
+            )) {
             return;
         }
 
-        editor_.addLayer();
-        if (!expect(editor_.layers().size() == 2, QStringLiteral("add layer failed"))) {
-            return;
-        }
-        const QString added_id = editor_.selectedLayerId();
-        editor_.setExposureStops(expected_exposure_);
-        editor_.duplicateSelectedLayer();
+        editor_.addGradeNode();
         if (!expect(
-                editor_.layers().size() == 3,
-                QStringLiteral("duplicate layer failed")
+                editor_.gradeNodes().size() == 2,
+                QStringLiteral("add Grade Node failed")
             )) {
             return;
         }
-        const QString duplicate_id = editor_.selectedLayerId();
+        const QString added_id = editor_.selectedGradeNodeId();
+        editor_.setExposureStops(expected_exposure_);
+        editor_.duplicateSelectedGradeNode();
+        if (!expect(
+                editor_.gradeNodes().size() == 3,
+                QStringLiteral("duplicate Grade Node failed")
+            )) {
+            return;
+        }
+        const QString duplicate_id = editor_.selectedGradeNodeId();
         if (!expect(
                 !added_id.isEmpty() && !duplicate_id.isEmpty()
                     && added_id != initial_id && duplicate_id != initial_id
                     && duplicate_id != added_id,
-                QStringLiteral("new layers did not receive unique stable IDs")
+                QStringLiteral("new Grade Nodes did not receive unique stable IDs")
             )) {
             return;
         }
 
-        editor_.moveSelectedLayer(0);
-        editor_.setLayerEnabled(false);
-        expected_layer_ids_ = {duplicate_id, initial_id, added_id};
-        const QVariantList adjusted_layers = editor_.layers();
+        editor_.moveSelectedGradeNode(0);
+        editor_.setGradeNodeEnabled(false);
+        expected_grade_node_ids_ = {duplicate_id, initial_id, added_id};
+        const QVariantList adjusted_grade_nodes = editor_.gradeNodes();
         if (!expect(
-                adjusted_layers.size() == 3
-                    && layerId(adjusted_layers, 0) == duplicate_id
-                    && layerId(adjusted_layers, 1) == initial_id
-                    && layerId(adjusted_layers, 2) == added_id
-                    && !layerEnabled(adjusted_layers, 0),
+                adjusted_grade_nodes.size() == 3
+                    && gradeNodeId(adjusted_grade_nodes, 0) == duplicate_id
+                    && gradeNodeId(adjusted_grade_nodes, 1) == initial_id
+                    && gradeNodeId(adjusted_grade_nodes, 2) == added_id
+                    && !gradeNodeEnabled(adjusted_grade_nodes, 0),
                 QStringLiteral("reorder or bypass failed")
             )) {
             return;
@@ -325,7 +345,7 @@ private:
             )) {
             return;
         }
-        editor_.saveVersion(QStringLiteral("Adjustment Stack Smoke"));
+        editor_.saveVersion(QStringLiteral("Grade Stack Smoke"));
         expect(editor_.stateBusy(), QStringLiteral("version save did not start"));
     }
 
@@ -358,46 +378,48 @@ private:
         if (stage_ != Stage::Verifying) {
             return;
         }
-        const QVariantList layers = editor_.layers();
+        const QVariantList grade_nodes = editor_.gradeNodes();
         if (!expect(
                 !editor_.stateBusy() && !editor_.rendering() && !editor_.dirty()
-                    && layers.size() == expected_layer_ids_.size(),
+                    && grade_nodes.size() == expected_grade_node_ids_.size(),
                 QStringLiteral("reopened stack was not clean and settled")
             )) {
             return;
         }
-        for (qsizetype index = 0; index < expected_layer_ids_.size(); ++index) {
+        for (qsizetype index = 0; index < expected_grade_node_ids_.size(); ++index) {
             if (!expect(
-                    layerId(layers, index) == expected_layer_ids_.at(index),
-                    QStringLiteral("stable layer order changed after reopen")
+                    gradeNodeId(grade_nodes, index)
+                        == expected_grade_node_ids_.at(index),
+                    QStringLiteral("stable Grade Node order changed after reopen")
                 )) {
                 return;
             }
         }
         if (!expect(
-                !layerEnabled(layers, 0) && layerEnabled(layers, 2),
+                !gradeNodeEnabled(grade_nodes, 0)
+                    && gradeNodeEnabled(grade_nodes, 2),
                 QStringLiteral("bypass state changed after reopen")
             )) {
             return;
         }
 
-        editor_.selectLayer(0);
+        editor_.selectGradeNode(0);
         const bool duplicate_parameter_ok =
-            editor_.selectedLayerId() == expected_layer_ids_.at(0)
+            editor_.selectedGradeNodeId() == expected_grade_node_ids_.at(0)
             && std::abs(editor_.exposureStops() - expected_exposure_) < 1.0e-9;
-        editor_.selectLayer(2);
+        editor_.selectGradeNode(2);
         const bool source_parameter_ok =
-            editor_.selectedLayerId() == expected_layer_ids_.at(2)
+            editor_.selectedGradeNodeId() == expected_grade_node_ids_.at(2)
             && std::abs(editor_.exposureStops() - expected_exposure_) < 1.0e-9;
         if (!expect(
                 duplicate_parameter_ok && source_parameter_ok,
-                QStringLiteral("layer parameters changed after reopen")
+                QStringLiteral("Grade Node parameters changed after reopen")
             )) {
             return;
         }
 
         stage_ = Stage::Finished;
-        qInfo() << "Adjustment Stack smoke passed with three persisted layers";
+        qInfo() << "Grade Stack smoke passed with three persisted Grade Nodes";
         QTimer::singleShot(50, &application_, &QCoreApplication::quit);
     }
 
@@ -413,7 +435,7 @@ private:
             return;
         }
         stage_ = Stage::Failed;
-        qCritical().noquote() << "Adjustment Stack smoke failed:" << reason;
+        qCritical().noquote() << "Grade Stack smoke failed:" << reason;
         application_.exit(EXIT_FAILURE);
     }
 
@@ -425,7 +447,7 @@ private:
     QString representation_id_;
     QString source_path_;
     QString title_;
-    QVector<QString> expected_layer_ids_;
+    QVector<QString> expected_grade_node_ids_;
     const double expected_exposure_ = 0.75;
 };
 
@@ -446,6 +468,15 @@ int main(int argc, char* argv[]) {
     QDir().mkpath(application_data);
     const QString catalog_path = QDir(application_data).filePath(QStringLiteral("catalog.sqlite"));
     const QString cache_root = QDir(application_data).filePath(QStringLiteral("cache"));
+    const QString isolated_settings_file =
+        qEnvironmentVariableIsSet("SHADOW_DESKTOP_DATA_ROOT")
+        ? QDir(application_data).filePath(QStringLiteral("ui-preferences.ini"))
+        : QString{};
+    UiPreferences preferences(application, isolated_settings_file);
+    LutLibrary lut_library(
+        isolated_settings_file,
+        QDir(application_data).filePath(QStringLiteral("lut-store"))
+    );
 
     std::shared_ptr<DesktopBackend> backend;
     try {
@@ -454,10 +485,11 @@ int main(int argc, char* argv[]) {
         qCritical() << "Cannot start Shadow's local backend:" << error.what();
         return EXIT_FAILURE;
     }
-    ReviewController controller(backend);
+    ReviewController controller(backend, isolated_settings_file);
     auto edit_preview_store = std::make_shared<EditPreviewStore>();
     EditController editor(backend, edit_preview_store);
     QQmlApplicationEngine engine;
+    preferences.attachEngine(engine);
     auto* const thumbnail_provider = new ThumbnailProvider(
         backend,
         controller.reviewModel()
@@ -471,14 +503,43 @@ int main(int argc, char* argv[]) {
         QStringLiteral("shadow-edit"),
         edit_preview_provider
     );
+    engine.addImageProvider(
+        QStringLiteral("shadow-lut"),
+        new LutPreviewProvider(
+            QDir(application_data).filePath(QStringLiteral("lut-store")),
+            QDir(cache_root).filePath(QStringLiteral("lut-previews"))
+        )
+    );
     engine.setInitialProperties({
         {QStringLiteral("controller"), QVariant::fromValue(&controller)},
         {QStringLiteral("editor"), QVariant::fromValue(&editor)},
+        {QStringLiteral("preferences"), QVariant::fromValue(&preferences)},
+        {QStringLiteral("lutLibrary"), QVariant::fromValue(&lut_library)},
     });
     engine.loadFromModule("Shadow.App", "Main");
     if (engine.rootObjects().isEmpty()) {
         return EXIT_FAILURE;
     }
+    if (qEnvironmentVariableIsSet("SHADOW_DESKTOP_OPEN_LUT_LIBRARY")) {
+        QMetaObject::invokeMethod(
+            engine.rootObjects().front(),
+            "openLutManager",
+            Qt::DirectConnection
+        );
+    }
+#if defined(Q_OS_MACOS)
+    QObject* const root_object = engine.rootObjects().constFirst();
+    QObject* const title_toolbar = root_object->findChild<QObject*>(
+        QStringLiteral("titleToolBar")
+    );
+    const int title_bar_height = title_toolbar == nullptr
+        ? 44
+        : qRound(title_toolbar->property("height").toReal());
+    installMacTitleBarAlignment(
+        qobject_cast<QWindow*>(root_object),
+        title_bar_height
+    );
+#endif
     const QString initial_folder = qEnvironmentVariable("SHADOW_DESKTOP_SCAN_FOLDER");
     const bool open_first_edit = qEnvironmentVariableIsSet("SHADOW_DESKTOP_OPEN_FIRST_EDIT");
     const bool record_first_comparison = qEnvironmentVariableIsSet(
@@ -496,8 +557,8 @@ int main(int argc, char* argv[]) {
     const bool request_before = qEnvironmentVariableIsSet(
         "SHADOW_DESKTOP_REQUEST_BEFORE"
     );
-    const bool adjustment_stack_smoke = qEnvironmentVariableIsSet(
-        "SHADOW_DESKTOP_ADJUSTMENT_STACK_SMOKE"
+    const bool grade_stack_smoke = qEnvironmentVariableIsSet(
+        "SHADOW_DESKTOP_GRADE_STACK_SMOKE"
     );
     const bool full_detail_smoke = qEnvironmentVariableIsSet(
         "SHADOW_DESKTOP_FULL_DETAIL_SMOKE"
@@ -510,6 +571,15 @@ int main(int argc, char* argv[]) {
     );
     const bool cancel_scan_smoke = qEnvironmentVariableIsSet(
         "SHADOW_DESKTOP_CANCEL_SCAN_SMOKE"
+    );
+    const bool i18n_smoke = qEnvironmentVariableIsSet(
+        "SHADOW_DESKTOP_I18N_SMOKE"
+    );
+    const bool close_lifecycle_smoke = qEnvironmentVariableIsSet(
+        "SHADOW_DESKTOP_CLOSE_SMOKE"
+    );
+    const bool dirty_close_smoke = qEnvironmentVariableIsSet(
+        "SHADOW_DESKTOP_DIRTY_CLOSE_SMOKE"
     );
     if (open_first_edit && !record_first_comparison && !set_first_decision) {
         QObject::connect(
@@ -616,7 +686,177 @@ int main(int argc, char* argv[]) {
         controller.scanFolder(QUrl::fromLocalFile(initial_folder));
     }
     if (qEnvironmentVariableIsSet("SHADOW_DESKTOP_SMOKE_TEST")) {
-        if (cancel_scan_smoke) {
+        if (dirty_close_smoke) {
+            auto close_started = std::make_shared<bool>(false);
+            auto attempt_close = std::make_shared<std::function<void()>>();
+            *attempt_close = [
+                &application,
+                &editor,
+                &engine,
+                close_started
+            ]() {
+                if (*close_started || !editor.active() || editor.stateBusy()
+                    || editor.gradeNodes().isEmpty()) {
+                    return;
+                }
+                *close_started = true;
+                editor.setExposureStops(editor.exposureStops() + 0.25);
+                if (!editor.dirty()) {
+                    qCritical() << "Dirty close smoke could not create working changes";
+                    application.exit(EXIT_FAILURE);
+                    return;
+                }
+                auto* const window = qobject_cast<QWindow*>(
+                    engine.rootObjects().front()
+                );
+                if (window == nullptr || window->close()) {
+                    qCritical() << "Dirty close smoke bypassed the discard confirmation";
+                    application.exit(EXIT_FAILURE);
+                    return;
+                }
+                QTimer::singleShot(
+                    0,
+                    &application,
+                    [&application, &engine]() {
+                        QObject* const root_object = engine.rootObjects().front();
+                        QObject* const dialog = root_object->findChild<QObject*>(
+                            QStringLiteral("discardQuitDialog")
+                        );
+                        if (dialog == nullptr
+                            || !dialog->property("visible").toBool()
+                            || !QMetaObject::invokeMethod(
+                                root_object,
+                                "discardWorkingChangesAndClose",
+                                Qt::DirectConnection
+                            )) {
+                            qCritical() << "Dirty close smoke could not discard and quit";
+                            application.exit(EXIT_FAILURE);
+                        }
+                    }
+                );
+            };
+            QObject::connect(
+                &editor,
+                &EditController::stateBusyChanged,
+                &application,
+                [attempt_close]() { (*attempt_close)(); }
+            );
+            QObject::connect(
+                &editor,
+                &EditController::gradeNodesChanged,
+                &application,
+                [attempt_close]() { (*attempt_close)(); }
+            );
+            QTimer::singleShot(30'000, &application, [&application]() {
+                qCritical() << "Dirty close lifecycle smoke timed out";
+                application.exit(EXIT_FAILURE);
+            });
+        } else if (close_lifecycle_smoke) {
+            auto* const window = qobject_cast<QWindow*>(engine.rootObjects().front());
+            if (window == nullptr) {
+                qCritical() << "Close lifecycle smoke could not find the main window";
+                application.exit(EXIT_FAILURE);
+            } else {
+                QTimer::singleShot(0, window, [window]() { window->close(); });
+            }
+            QTimer::singleShot(10'000, &application, [&application]() {
+                qCritical() << "Close lifecycle smoke timed out";
+                application.exit(EXIT_FAILURE);
+            });
+        } else if (i18n_smoke) {
+            QObject* const root_object = engine.rootObjects().front();
+            QObject* const settings_button = root_object->findChild<QObject*>(
+                QStringLiteral("settingsButton")
+            );
+            if (settings_button == nullptr) {
+                qCritical() << "I18n smoke could not find the Settings control";
+                application.exit(EXIT_FAILURE);
+            } else {
+                preferences.setLanguageMode(QStringLiteral("en"));
+                preferences.setLanguageMode(QStringLiteral("zh_CN"));
+                QTimer::singleShot(
+                    0,
+                    &application,
+                    [&application, &controller, &preferences, root_object,
+                     settings_button]() {
+                        const QString chinese_controller_status =
+                            controller.statusText();
+                        if (preferences.effectiveLanguage()
+                                != QStringLiteral("zh_CN")
+                            || settings_button->property("text").toString()
+                                != QString::fromUtf8("设置")
+                            || chinese_controller_status.isEmpty()) {
+                            qCritical() << "I18n smoke did not apply Simplified Chinese";
+                            application.exit(EXIT_FAILURE);
+                            return;
+                        }
+                        preferences.setLanguageMode(QStringLiteral("en"));
+                        QTimer::singleShot(
+                            0,
+                            &application,
+                            [&application, &controller, &preferences, root_object,
+                             settings_button, chinese_controller_status]() {
+                                QObject* const current_button =
+                                    root_object->findChild<QObject*>(
+                                        QStringLiteral("settingsButton")
+                                    );
+                                if (current_button != settings_button
+                                    || preferences.effectiveLanguage()
+                                        != QStringLiteral("en")
+                                    || settings_button->property("text").toString()
+                                        != QStringLiteral("Settings")
+                                    || controller.statusText()
+                                        == chinese_controller_status) {
+                                    qCritical() << "I18n smoke did not retranslate in place";
+                                    application.exit(EXIT_FAILURE);
+                                    return;
+                                }
+                                const QString english_controller_status =
+                                    controller.statusText();
+                                preferences.setLanguageMode(QStringLiteral("zh_CN"));
+                                QTimer::singleShot(
+                                    0,
+                                    &application,
+                                    [&application, &controller, &preferences,
+                                     settings_button, english_controller_status]() {
+                                        const bool succeeded =
+                                            preferences.effectiveLanguage()
+                                                == QStringLiteral("zh_CN")
+                                            && settings_button
+                                                   ->property("text")
+                                                   .toString()
+                                                == QString::fromUtf8("设置")
+                                            && !controller.statusText().isEmpty()
+                                            && controller.statusText()
+                                                != english_controller_status;
+                                        if (!succeeded) {
+                                            qCritical()
+                                                << "I18n smoke did not restore Simplified Chinese"
+                                                << "language"
+                                                << preferences.effectiveLanguage()
+                                                << "button"
+                                                << settings_button
+                                                       ->property("text")
+                                                       .toString()
+                                                << "status"
+                                                << controller.statusText()
+                                                << "English status"
+                                                << english_controller_status;
+                                        }
+                                        application.exit(
+                                            succeeded ? EXIT_SUCCESS : EXIT_FAILURE
+                                        );
+                                    }
+                                );
+                            }
+                        );
+                    }
+                );
+            }
+            QTimer::singleShot(10'000, &application, [&application]() {
+                application.exit(EXIT_FAILURE);
+            });
+        } else if (cancel_scan_smoke) {
             auto cancel_requested = std::make_shared<bool>(false);
             auto succeeded = std::make_shared<bool>(false);
             QObject::connect(
@@ -931,8 +1171,8 @@ int main(int argc, char* argv[]) {
             QTimer::singleShot(120'000, &application, [&application, succeeded]() {
                 application.exit(*succeeded ? EXIT_SUCCESS : EXIT_FAILURE);
             });
-        } else if (open_first_edit && adjustment_stack_smoke) {
-            AdjustmentStackSmoke::start(application, controller, editor);
+        } else if (open_first_edit && grade_stack_smoke) {
+            GradeStackSmoke::start(application, controller, editor);
         } else if (open_first_edit) {
             auto current_wait_started = std::make_shared<bool>(false);
             auto before_wait_started = std::make_shared<bool>(false);

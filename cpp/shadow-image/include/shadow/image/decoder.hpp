@@ -47,8 +47,24 @@ enum class ByteOrder : std::uint8_t {
     big_endian,
 };
 
-enum class ColorSpace : std::uint8_t {
-    srgb,
+// PixelBuffer names primaries, transfer, and processing reference separately. In particular,
+// "sRGB primaries" must never be read as "sRGB-encoded samples".
+enum class RgbPrimaries : std::uint8_t {
+    unknown,
+    srgb_rec709_d65,
+};
+
+enum class RgbTransferFunction : std::uint8_t {
+    unknown,
+    linear,
+};
+
+enum class RgbBufferReference : std::uint8_t {
+    unknown,
+    // RGB produced after a RAW provider's black subtraction, white balance, demosaic,
+    // camera-to-output color conversion, and integer-range scaling. This is linear-light
+    // processed RGB, not an untouched sensor-linear mosaic or a lossless radiance buffer.
+    processed_raw,
 };
 
 struct PendingCorrections final {
@@ -65,6 +81,36 @@ struct ProviderInfo final {
     bool rawspeed = false;
     bool jpeg = false;
 };
+
+// All of LibRaw's user-visible processing switches are concentrated here rather than being
+// spread across preview and detail render code. This is the configuration boundary between
+// Shadow's provider-neutral decoder contract and LibRaw's private processing API. It deliberately
+// describes the reference/development raster only; sensor-domain RAW white balance, DNG opcodes,
+// optical profiles and camera-specific colour transforms will become separate pipeline stages.
+//
+// `demosaic_quality` maps directly to LibRaw's documented `user_qual` selector. It remains an
+// implementation detail for now because the available algorithms vary with the linked LibRaw
+// build. Shadow's UI will expose intent presets only after every provider can honour them.
+struct LibRawDevelopmentSettings final {
+    std::uint32_t schema_version = 1;
+    bool use_camera_white_balance = true;
+    bool use_camera_matrix = true;
+    bool use_auto_brightness = false;
+    bool use_exposure_correction = false;
+    float brightness = 1.0F;
+    float maximum_adjustment_threshold = 0.0F;
+    std::uint16_t output_bits_per_channel = 16;
+    std::int32_t demosaic_quality = 3;
+
+    auto operator<=>(const LibRawDevelopmentSettings&) const = default;
+};
+
+inline constexpr std::uint32_t libraw_development_settings_schema_version = 1U;
+
+[[nodiscard]] LibRawDevelopmentSettings default_libraw_development_settings() noexcept;
+[[nodiscard]] std::string libraw_development_settings_signature(
+    const LibRawDevelopmentSettings& settings
+);
 
 struct DecodeCapabilities final {
     bool metadata = false;
@@ -92,6 +138,18 @@ struct AssetMetadata final {
     std::uint32_t white_level = 0;
     std::array<double, 4> as_shot_neutral{};
     double baseline_exposure = 0.0;
+    double iso_speed = 0.0;
+    double exposure_time_seconds = 0.0;
+    double aperture_f_number = 0.0;
+    double focal_length_mm = 0.0;
+    // Approximate focus distance in metres when a provider can establish it.  Zero means
+    // unknown, never infinity or a guessed substitute. Lens vignetting calibration is
+    // distance-dependent, so optical correction must leave that component disabled without it.
+    double focus_distance_meters = 0.0;
+    std::int64_t captured_at_unix_seconds = 0;
+    std::string lens_make;
+    std::string lens_model;
+    double focal_length_35mm = 0.0;
 };
 
 struct PreviewDescriptor final {
@@ -132,9 +190,25 @@ struct PixelBuffer final {
     std::uint16_t bits_per_channel = 0;
     std::uint16_t channels = 0;
     std::size_t row_stride_bytes = 0;
-    ColorSpace color_space = ColorSpace::srgb;
+    RgbPrimaries primaries = RgbPrimaries::unknown;
+    RgbTransferFunction transfer_function = RgbTransferFunction::unknown;
+    RgbBufferReference reference = RgbBufferReference::unknown;
     std::vector<std::uint16_t> samples;
 };
+
+// Version 1 fixes linear gamma, camera WB/matrix conversion, unit brightness, no exposure or
+// histogram auto-brightening, and no frame-content adaptive maximum rescaling. Any change to
+// those decode semantics must increment this cache-visible contract version.
+inline constexpr std::uint32_t processed_linear_reference_rgb_contract_version = 1U;
+inline constexpr float processed_linear_reference_maximum_adjustment_threshold = 0.0F;
+// Version 1 accepts only processed linear sRGB/Rec.709-D65 input, maps out-of-gamut RGB at the
+// final display boundary by reducing Oklab chroma at fixed (display-clamped) lightness, then
+// applies the sRGB OETF and 8-bit quantization. It is gamut mapping, not HDR tone mapping.
+inline constexpr std::uint32_t display_srgb8_output_transform_version = 1U;
+// The v1 mapper is bounded work per out-of-gamut pixel. 0.5 is a conservative ceiling above
+// the display-sRGB Oklab gamut; sixteen bisections resolve chroma well below one 8-bit code step.
+inline constexpr double display_srgb8_maximum_oklab_chroma = 0.5;
+inline constexpr std::uint32_t display_srgb8_gamut_search_iterations = 16U;
 
 struct ProxyRequest final {
     std::uint32_t max_edge = 2'048;
@@ -205,7 +279,9 @@ public:
     ) const = 0;
 };
 
-[[nodiscard]] std::unique_ptr<DecoderProvider> make_libraw_decoder_provider();
+[[nodiscard]] std::unique_ptr<DecoderProvider> make_libraw_decoder_provider(
+    LibRawDevelopmentSettings settings = default_libraw_development_settings()
+);
 
 [[nodiscard]] std::optional<std::size_t> select_best_preview(
     std::span<const PreviewDescriptor> previews

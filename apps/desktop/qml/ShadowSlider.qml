@@ -12,74 +12,125 @@ Item {
     property alias from: slider.from
     property alias to: slider.to
     property alias stepSize: slider.stepSize
+    property real neutralValue: from
     property int decimals: 2
+    property real displayMultiplier: 1.0
     property string suffix: ""
-    property color accent: "#d8b36a"
-    property color textPrimary: "#edf0f2"
-    property color textMuted: "#8b949e"
+    property color accent: Theme.accent
+    property bool semanticTrack: false
+    property color trackStartColor: Theme.track
+    property color trackMiddleColor: Theme.track
+    property color trackEndColor: Theme.track
+    property color textPrimary: Theme.textPrimary
+    property color textMuted: Theme.textMuted
+    property int labelWidth: Math.max(48, Math.min(58, Math.round(width * 0.19)))
+    property int valueWidth: 54
+    property bool gestureActive: false
+
+    readonly property string formattedValue: qsTr("%1%2")
+        .arg(Number(slider.value * displayMultiplier).toLocaleString(
+            Qt.locale(), "f", decimals))
+        .arg(suffix)
+
     signal edited(real value)
     signal gestureStarted()
     signal gestureFinished()
 
-    implicitHeight: 58
+    implicitHeight: 24
+    activeFocusOnTab: false
 
-    ColumnLayout {
+    function beginGesture() {
+        if (gestureActive)
+            return
+        gestureActive = true
+        gestureStarted()
+    }
+
+    function finishGesture() {
+        keyboardSettle.stop()
+        if (!gestureActive)
+            return
+        gestureActive = false
+        gestureFinished()
+    }
+
+    onEnabledChanged: {
+        if (!enabled)
+            finishGesture()
+    }
+
+    Timer {
+        id: keyboardSettle
+        interval: 240
+        repeat: false
+        onTriggered: field.finishGesture()
+    }
+
+    RowLayout {
         anchors.fill: parent
-        spacing: 6
+        spacing: 4
 
-        RowLayout {
+        Label {
+            id: fieldLabel
+
+            Layout.preferredWidth: field.labelWidth
+            Layout.minimumWidth: 0
+            text: field.label
+            color: field.enabled ? field.textPrimary : Theme.textDisabled
+            font.pixelSize: 10
+            elide: Text.ElideRight
+            horizontalAlignment: Text.AlignRight
+            verticalAlignment: Text.AlignVCenter
+
+            HoverHandler { id: labelHover }
+            ToolTip.visible: labelHover.hovered && fieldLabel.truncated
+            ToolTip.delay: 500
+            ToolTip.text: field.label
+        }
+
+        ShadowInlineSlider {
+            id: slider
+
             Layout.fillWidth: true
-            Label {
-                Layout.fillWidth: true
-                text: field.label
-                color: field.textPrimary
-                font.pixelSize: 11
+            Layout.minimumWidth: 64
+            neutralValue: field.neutralValue
+            accent: field.accent
+            semanticTrack: field.semanticTrack
+            trackStartColor: field.trackStartColor
+            trackMiddleColor: field.trackMiddleColor
+            trackEndColor: field.trackEndColor
+            snapMode: Slider.SnapAlways
+            enabled: field.enabled
+            Accessible.name: field.label
+            Accessible.description: field.formattedValue
+
+            onMoved: {
+                if (!pressed) {
+                    field.beginGesture()
+                    keyboardSettle.restart()
+                }
+                field.edited(value)
             }
-            Label {
-                text: Number(slider.value).toFixed(field.decimals) + field.suffix
-                color: field.textMuted
-                font.family: "Menlo"
-                font.pixelSize: 10
+            onPressedChanged: {
+                if (pressed) {
+                    keyboardSettle.stop()
+                    field.beginGesture()
+                } else if (field.gestureActive) {
+                    field.finishGesture()
+                }
             }
         }
 
-        Slider {
-            id: slider
-            Layout.fillWidth: true
-            snapMode: Slider.SnapAlways
-            onMoved: field.edited(value)
-            onPressedChanged: {
-                if (pressed)
-                    field.gestureStarted()
-                else
-                    field.gestureFinished()
-            }
-
-            background: Rectangle {
-                x: slider.leftPadding
-                y: slider.topPadding + slider.availableHeight / 2 - height / 2
-                width: slider.availableWidth
-                height: 3
-                radius: 1.5
-                color: "#30363d"
-
-                Rectangle {
-                    width: slider.visualPosition * parent.width
-                    height: parent.height
-                    radius: parent.radius
-                    color: field.accent
-                }
-            }
-
-            handle: Rectangle {
-                x: slider.leftPadding + slider.visualPosition * (slider.availableWidth - width)
-                y: slider.topPadding + slider.availableHeight / 2 - height / 2
-                implicitWidth: 13
-                implicitHeight: 13
-                radius: 6.5
-                color: slider.pressed ? "#f0ce89" : field.accent
-                border.color: "#17130d"
-            }
+        Label {
+            Layout.preferredWidth: field.valueWidth
+            Layout.minimumWidth: field.valueWidth
+            text: field.formattedValue
+            color: field.enabled ? field.textMuted : Theme.textDisabled
+            font.family: "Menlo"
+            font.pixelSize: 9
+            horizontalAlignment: Text.AlignRight
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideLeft
         }
     }
 }

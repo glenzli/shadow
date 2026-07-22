@@ -1,6 +1,11 @@
 use std::{env, path::PathBuf};
 
+#[allow(clippy::too_many_lines)] // Native source tracking stays beside the matching CXX build.
 fn main() {
+    // The desktop CMake target may provide an explicit Lensfun prefix via this pkg-config search
+    // path. Reconfigure the native bridge whenever that choice changes; its availability changes
+    // both the compiled adapter and the cache-visible optical behavior.
+    println!("cargo:rerun-if-env-changed=PKG_CONFIG_PATH");
     let crate_root = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("crate root"));
     let repository_root = crate_root.join("../..");
     let image_root = repository_root.join("cpp/shadow-image");
@@ -14,22 +19,52 @@ fn main() {
         .cargo_metadata(false)
         .probe("libjpeg")
         .expect("libjpeg-turbo must be discoverable through pkg-config");
+    let lensfun = pkg_config::Config::new()
+        .cargo_metadata(false)
+        .probe("lensfun")
+        .ok();
+    let lcms2 = pkg_config::Config::new()
+        .cargo_metadata(false)
+        .probe("lcms2")
+        .expect("LittleCMS 2 must be discoverable through pkg-config");
     println!(
         "cargo:rustc-env=SHADOW_LIBJPEG_TURBO_VERSION={}",
         libjpeg.version
     );
+    let target_family = env::var("CARGO_CFG_TARGET_FAMILY").unwrap_or_default();
 
     let mut build = cxx_build::bridge("src/lib.rs");
     build
         .file(image_root.join("src/bridge/cxx_bridge.cpp"))
         .file(image_root.join("src/decoder/libraw_decoder.cpp"))
+        .file(image_root.join("src/decoder/private_decoder_plugin.cpp"))
+        .file(image_root.join("src/color/lcms_color_management.cpp"))
+        .file(image_root.join("src/edit/cube_lut.cpp"))
         .file(image_root.join("src/edit/cpu_reference.cpp"))
+        .file(image_root.join("src/optics/lensfun_optics.cpp"))
         .file(image_root.join("src/proxy/jpeg_display_luma.cpp"))
         .file(image_root.join("src/proxy/jpeg_proxy.cpp"))
         .include(&image_include)
         .std("c++20");
 
-    let target_family = env::var("CARGO_CFG_TARGET_FAMILY").unwrap_or_default();
+    // Put the selected Lensfun headers before generic Homebrew include roots contributed by
+    // LibRaw/LCMS. This keeps the headers and dylib from the same pkg-config identity when a
+    // stable and a development Lensfun installation coexist.
+    if let Some(lensfun) = &lensfun {
+        build.define("SHADOW_IMAGE_HAS_LENSFUN", Some("1"));
+        for include_path in &lensfun.include_paths {
+            if target_family == "unix" {
+                build
+                    .flag("-isystem")
+                    .flag(include_path.to_string_lossy().as_ref());
+            } else {
+                build.include(include_path);
+            }
+        }
+    } else {
+        build.define("SHADOW_IMAGE_HAS_LENSFUN", Some("0"));
+    }
+
     for include_path in &libraw.include_paths {
         if target_family == "unix" {
             build
@@ -48,7 +83,15 @@ fn main() {
             build.include(include_path);
         }
     }
-
+    for include_path in &lcms2.include_paths {
+        if target_family == "unix" {
+            build
+                .flag("-isystem")
+                .flag(include_path.to_string_lossy().as_ref());
+        } else {
+            build.include(include_path);
+        }
+    }
     if env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
         build.flag("/W4").flag("/permissive-");
     } else {
@@ -85,16 +128,53 @@ fn main() {
     for library in &libjpeg.libs {
         println!("cargo:rustc-link-lib={library}");
     }
+    for link_path in &lcms2.link_paths {
+        println!("cargo:rustc-link-search=native={}", link_path.display());
+    }
+    for library in &lcms2.libs {
+        println!("cargo:rustc-link-lib={library}");
+    }
+    if target_family == "unix" && env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos") {
+        println!("cargo:rustc-link-lib=dl");
+    }
+    if let Some(lensfun) = &lensfun {
+        for link_path in &lensfun.link_paths {
+            println!("cargo:rustc-link-search=native={}", link_path.display());
+        }
+        for library in &lensfun.libs {
+            if target_family == "unix" && library == "stdc++" {
+                continue;
+            }
+            println!("cargo:rustc-link-lib={library}");
+        }
+        for framework_path in &lensfun.framework_paths {
+            println!(
+                "cargo:rustc-link-search=framework={}",
+                framework_path.display()
+            );
+        }
+        for framework in &lensfun.frameworks {
+            println!("cargo:rustc-link-lib=framework={framework}");
+        }
+    }
 
     println!("cargo:rerun-if-changed=src/lib.rs");
     for relative_path in [
         "include/shadow/image/decoder.hpp",
+        "include/shadow/image/private_decoder_plugin.hpp",
         "include/shadow/image/display_luma.hpp",
         "include/shadow/image/edit.hpp",
+        "include/shadow/image/lut.hpp",
+        "include/shadow/image/optics.hpp",
         "include/shadow/image/cxx_bridge.hpp",
+        "include/shadow/image/color_management.hpp",
         "src/bridge/cxx_bridge.cpp",
         "src/decoder/libraw_decoder.cpp",
+        "src/decoder/private_decoder_plugin.cpp",
+        "src/color/lcms_color_management.cpp",
+        "src/edit/cube_lut.cpp",
         "src/edit/cpu_reference.cpp",
+        "src/optics/lensfun_optics.cpp",
         "src/proxy/display_rgb_math.hpp",
         "src/proxy/jpeg_display_luma.cpp",
         "src/proxy/jpeg_proxy.cpp",

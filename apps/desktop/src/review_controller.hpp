@@ -1,12 +1,14 @@
 #pragma once
 
 #include "desktop_backend.hpp"
+#include "localized_ui_message.hpp"
 #include "review_decision_session.hpp"
 #include "review_evidence_session.hpp"
+#include "review_filter_model.hpp"
 #include "review_model.hpp"
 
-#include <QFutureWatcher>
 #include <QElapsedTimer>
+#include <QFutureWatcher>
 #include <QObject>
 #include <QString>
 #include <QTimer>
@@ -15,6 +17,8 @@
 
 #include <cstdint>
 #include <memory>
+
+class QSettings;
 
 struct ScanTaskResult final {
     BackendScanReport report;
@@ -100,11 +104,35 @@ class ReviewController final : public QObject {
         READ decisionStatusText
         NOTIFY decisionStatusTextChanged
     )
+    Q_PROPERTY(
+        QString filterFlag
+        READ filterFlag
+        WRITE setFilterFlag
+        NOTIFY filtersChanged
+    )
+    Q_PROPERTY(
+        int filterMinimumRating
+        READ filterMinimumRating
+        WRITE setFilterMinimumRating
+        NOTIFY filtersChanged
+    )
+    Q_PROPERTY(
+        QString filterColorLabel
+        READ filterColorLabel
+        WRITE setFilterColorLabel
+        NOTIFY filtersChanged
+    )
+    Q_PROPERTY(
+        int filteredItemCount
+        READ filteredItemCount
+        NOTIFY filtersChanged
+    )
     Q_PROPERTY(QAbstractItemModel* model READ model CONSTANT)
 
 public:
     explicit ReviewController(
         std::shared_ptr<DesktopBackend> backend,
+        const QString& isolated_settings_file = {},
         QObject* parent = nullptr
     );
     ~ReviewController() override;
@@ -125,8 +153,16 @@ public:
     [[nodiscard]] bool decisionBusy() const noexcept;
     [[nodiscard]] bool canUndoDecision() const;
     [[nodiscard]] QString decisionStatusText() const;
+    [[nodiscard]] QString filterFlag() const;
+    [[nodiscard]] int filterMinimumRating() const noexcept;
+    [[nodiscard]] QString filterColorLabel() const;
+    [[nodiscard]] int filteredItemCount() const noexcept;
     [[nodiscard]] QAbstractItemModel* model() noexcept;
     [[nodiscard]] ReviewModel* reviewModel() noexcept;
+
+    void setFilterFlag(const QString& filter);
+    void setFilterMinimumRating(int rating);
+    void setFilterColorLabel(const QString& color_label);
 
     Q_INVOKABLE void scanFolder(const QUrl& folder_url);
     Q_INVOKABLE void cancelScan();
@@ -145,7 +181,13 @@ public:
     Q_INVOKABLE void undoLastComparison();
     Q_INVOKABLE void setPhotoFlag(const QString& photo_id, const QString& flag);
     Q_INVOKABLE void setPhotoRating(const QString& photo_id, int rating);
+    Q_INVOKABLE void setPhotoColorLabel(
+        const QString& photo_id,
+        const QString& color_label
+    );
+    Q_INVOKABLE void clearFilters();
     Q_INVOKABLE void undoLastDecision();
+  Q_INVOKABLE void retranslateUi();
 
 signals:
     void busyChanged();
@@ -169,6 +211,8 @@ signals:
         const QString& flag,
         int rating
     );
+    void colorLabelChanged(const QString& photoId, const QString& colorLabel);
+    void filtersChanged();
     void decisionUndone();
 
 private:
@@ -186,22 +230,34 @@ private:
         bool old_refreshing
     );
     void setHasMore(bool has_more);
-    void setStatusText(QString status);
+  bool eventFilter(QObject *watched, QEvent *event) override;
+  void setStatusMessage(LocalizedUiMessage status);
     void updateScanStatus();
     void updateReadyStatus();
-    void setComparisonStatusText(QString status);
-    void setDecisionStatusText(QString status);
+    void setComparisonStatusMessage(LocalizedUiMessage status);
+    void setDecisionStatusMessage(LocalizedUiMessage status);
     void applyDecisionState(const BackendReviewDecisionState& state);
+    void persistColorLabels();
 
     std::shared_ptr<DesktopBackend> backend_;
     QString folder_path_;
-    QString status_text_ = QStringLiteral("Choose a folder to build your Review library");
-    QString comparison_status_text_ = QStringLiteral(
-        "Explicit choices are recorded as evidence; no preference model is active"
-    );
-    QString decision_status_text_ = QStringLiteral(
-        "Flags and stars are explicit local library decisions"
-    );
+  LocalizedUiMessage status_message_{
+      "ReviewController",
+      QT_TRANSLATE_NOOP("ReviewController",
+                        "Choose a folder to build your Review library"),
+  };
+  LocalizedUiMessage comparison_status_message_{
+      "ReviewController",
+      QT_TRANSLATE_NOOP("ReviewController",
+                        "Explicit choices are recorded as evidence; no "
+                        "preference model is active"),
+  };
+  LocalizedUiMessage decision_status_message_{
+      "ReviewController",
+      QT_TRANSLATE_NOOP("ReviewController",
+                        "Flags and stars are explicit local library decisions"
+    ),
+  };
     QString next_cursor_path_;
     QString next_cursor_representation_id_;
     quint64 library_generation_ = 1;
@@ -236,6 +292,8 @@ private:
     QElapsedTimer scan_clock_;
     QTimer scan_progress_timer_;
     ReviewModel model_;
+    ReviewFilterModel filtered_model_;
+    std::unique_ptr<QSettings> settings_;
     ReviewEvidenceSession evidence_session_;
     ReviewDecisionSession decision_session_;
     QFutureWatcher<ScanTaskResult> scan_watcher_;

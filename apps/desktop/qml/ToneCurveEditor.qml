@@ -9,17 +9,25 @@ Item {
 
     required property var controller
 
-    property color panelColor: "#181c21"
-    property color plotColor: "#101317"
-    property color borderColor: "#343b43"
-    property color gridColor: "#293038"
-    property color textColor: "#edf0f2"
-    property color mutedTextColor: "#8b949e"
-    property color accentColor: "#d8b36a"
+    property color panelColor: Theme.panelRaised
+    property color plotColor: Theme.chrome
+    property color borderColor: Theme.borderStrong
+    property color gridColor: Theme.curveGrid
+    property color textColor: Theme.textPrimary
+    property color mutedTextColor: Theme.textMuted
+    property color accentColor: Theme.accent
+    property color identityColor: Theme.curveIdentity
 
     readonly property bool hasCurve: Boolean(controller && controller.hasToneCurve)
+    readonly property bool hasAnyCurve: Boolean(controller && controller.hasAnyToneCurve)
+    readonly property bool smoothCurve: Boolean(controller && controller.toneCurveSmooth)
+    readonly property int currentChannel: controller ? controller.toneCurveChannel : 0
     readonly property bool curveEditable: Boolean(controller && controller.toneCurveEditable)
     readonly property var curveModel: controller ? controller.toneCurvePoints : null
+    readonly property color currentCurveColor: currentChannel === 1
+        ? Theme.curveRed : currentChannel === 2
+            ? Theme.curveGreen : currentChannel === 3
+                ? Theme.curveBlue : accentColor
 
     property int selectedPoint: -1
     property bool selectedPointDeletable: false
@@ -32,7 +40,7 @@ Item {
     readonly property real authoredPointGap: 1.0 / 4096.0
 
     implicitWidth: 320
-    implicitHeight: 430
+    implicitHeight: 398
     activeFocusOnTab: true
 
     function clamp(value, lower, upper) {
@@ -161,10 +169,18 @@ Item {
         controller.resetToneCurve()
     }
 
+    function changeChannel(channel) {
+        if (channel === currentChannel)
+            return
+        finishPointGesture()
+        clearSelection()
+        controller.selectToneCurveChannel(channel)
+    }
+
     Connections {
         target: root.controller
 
-        function onSelectedLayerChanged() {
+        function onSelectedGradeNodeChanged() {
             root.finishPointGesture()
             root.clearSelection()
         }
@@ -176,6 +192,10 @@ Item {
         function onModelReset() {
             root.finishPointGesture()
             root.clearSelection()
+            curveCanvas.requestPaint()
+        }
+
+        function onPointsChanged() {
             curveCanvas.requestPaint()
         }
     }
@@ -193,6 +213,12 @@ Item {
             finishPointGesture()
     }
 
+    onGridColorChanged: curveCanvas.requestPaint()
+    onAccentColorChanged: curveCanvas.requestPaint()
+    onIdentityColorChanged: curveCanvas.requestPaint()
+    onSmoothCurveChanged: curveCanvas.requestPaint()
+    onCurrentCurveColorChanged: curveCanvas.requestPaint()
+
     Keys.onPressed: event => {
         if ((event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace)
                 && selectedPointDeletable && curveEditable) {
@@ -203,7 +229,7 @@ Item {
 
     ColumnLayout {
         anchors.fill: parent
-        spacing: 10
+        spacing: 7
 
         RowLayout {
             Layout.fillWidth: true
@@ -214,16 +240,19 @@ Item {
                 spacing: 2
 
                 Label {
-                    text: "Point Curve"
+                    text: qsTr("Point Curve")
                     color: root.textColor
-                    font.pixelSize: 12
+                    font.pixelSize: 11
                     font.weight: Font.DemiBold
                 }
 
                 Label {
-                    text: root.hasCurve ? "Shape light and contrast directly" : "Neutral tones"
+                    text: root.smoothCurve
+                        ? qsTr("Smooth RGB curve")
+                        : qsTr("Linear preview")
                     color: root.mutedTextColor
                     font.pixelSize: 9
+                    elide: Text.ElideRight
                 }
             }
 
@@ -231,13 +260,15 @@ Item {
                 Layout.preferredWidth: curveStateLabel.implicitWidth + 16
                 Layout.preferredHeight: 22
                 radius: 11
-                color: root.hasCurve ? "#30291d" : "#20252b"
-                border.color: root.hasCurve ? "#5d4b2d" : root.borderColor
+                color: root.hasCurve ? Theme.accentSurface : Theme.surfaceSubtle
+                border.color: root.hasCurve ? Theme.accentBorder : root.borderColor
 
                 Label {
                     id: curveStateLabel
                     anchors.centerIn: parent
-                    text: root.hasCurve ? "ACTIVE" : "NEUTRAL"
+                    text: !root.smoothCurve
+                        ? qsTr("LEGACY")
+                        : root.hasCurve ? qsTr("ACTIVE") : qsTr("NEUTRAL")
                     color: root.hasCurve ? root.accentColor : root.mutedTextColor
                     font.pixelSize: 8
                     font.weight: Font.Bold
@@ -246,9 +277,64 @@ Item {
             }
         }
 
+        TabBar {
+            id: channelTabs
+
+            Layout.fillWidth: true
+            Layout.preferredHeight: 30
+            spacing: 0
+            currentIndex: root.currentChannel
+            background: Rectangle {
+                radius: Theme.compactControlRadius
+                color: Theme.surfaceSubtle
+                border.color: root.borderColor
+            }
+
+            ShadowTabButton {
+                width: channelTabs.width / 4
+                compact: true
+                activeColor: root.accentColor
+                minimumTabWidth: 0
+                underlineInset: 20
+                text: qsTr("RGB")
+                toolTipText: qsTr("Master RGB curve")
+                onClicked: root.changeChannel(0)
+            }
+            ShadowTabButton {
+                width: channelTabs.width / 4
+                compact: true
+                activeColor: Theme.curveRed
+                minimumTabWidth: 0
+                underlineInset: 20
+                text: qsTr("R")
+                toolTipText: qsTr("Red channel curve")
+                onClicked: root.changeChannel(1)
+            }
+            ShadowTabButton {
+                width: channelTabs.width / 4
+                compact: true
+                activeColor: Theme.curveGreen
+                minimumTabWidth: 0
+                underlineInset: 20
+                text: qsTr("G")
+                toolTipText: qsTr("Green channel curve")
+                onClicked: root.changeChannel(2)
+            }
+            ShadowTabButton {
+                width: channelTabs.width / 4
+                compact: true
+                activeColor: Theme.curveBlue
+                minimumTabWidth: 0
+                underlineInset: 20
+                text: qsTr("B")
+                toolTipText: qsTr("Blue channel curve")
+                onClicked: root.changeChannel(3)
+            }
+        }
+
         Item {
             Layout.fillWidth: true
-            Layout.preferredHeight: Math.max(220, Math.min(350, root.width))
+            Layout.preferredHeight: Math.max(210, Math.min(320, root.width))
 
             Rectangle {
                 id: curveFrame
@@ -293,27 +379,32 @@ Item {
                         }
 
                         context.lineWidth = 1
-                        context.strokeStyle = "#59636e"
+                        context.strokeStyle = root.identityColor
                         context.beginPath()
                         context.moveTo(left, bottom)
                         context.lineTo(right, top)
                         context.stroke()
 
-                        if (!root.hasCurve || pointRepeater.count < 2)
+                        if (!root.hasCurve || !root.curveModel
+                                || pointRepeater.count < 2)
                             return
 
+                        const sampleCount = Math.max(65, Math.min(
+                            513, Math.ceil(right - left) + 1))
+                        const samples = root.curveModel.sampledPoints(
+                            sampleCount, root.smoothCurve)
+                        if (!samples || samples.length < 2)
+                            return
                         let started = false
                         context.lineWidth = 2.25
                         context.lineCap = "round"
                         context.lineJoin = "round"
-                        context.strokeStyle = root.accentColor
+                        context.strokeStyle = root.currentCurveColor
                         context.beginPath()
-                        for (let index = 0; index < pointRepeater.count; ++index) {
-                            const point = root.pointItem(index)
-                            if (!point)
-                                continue
-                            const x = root.plotX(root.pointXValue(index))
-                            const y = root.plotY(root.pointYValue(index))
+                        for (let index = 0; index < samples.length; ++index) {
+                            const sample = samples[index]
+                            const x = root.plotX(Number(sample.x))
+                            const y = root.plotY(Number(sample.y))
                             if (!started) {
                                 context.moveTo(x, y)
                                 started = true
@@ -336,7 +427,7 @@ Item {
                     hoverEnabled: true
                     cursorShape: enabled ? Qt.CrossCursor : Qt.ArrowCursor
 
-                    onDoubleClicked: mouse => {
+                    onClicked: mouse => {
                         const position = mapToItem(curveFrame, mouse.x, mouse.y)
                         root.addPointAt(position.x, position.y)
                     }
@@ -351,7 +442,7 @@ Item {
 
                     Label {
                         width: parent.width
-                        text: "Neutral curve"
+                        text: qsTr("Neutral curve")
                         color: root.textColor
                         font.pixelSize: 13
                         font.weight: Font.Medium
@@ -361,8 +452,8 @@ Item {
                     Label {
                         width: parent.width
                         text: root.curveEditable
-                            ? "Double-click anywhere to add your first point"
-                            : "This curve is currently view-only"
+                            ? qsTr("Click anywhere to add your first point")
+                            : qsTr("This curve is currently view-only")
                         color: root.mutedTextColor
                         font.pixelSize: 9
                         wrapMode: Text.WordWrap
@@ -421,9 +512,9 @@ Item {
                             height: width
                             radius: width / 2
                             color: root.selectedPoint === pointHandle.index
-                                ? root.accentColor : root.plotColor
+                                ? root.currentCurveColor : root.plotColor
                             border.width: 2
-                            border.color: root.accentColor
+                            border.color: root.currentCurveColor
                         }
 
                         MouseArea {
@@ -472,73 +563,60 @@ Item {
 
         RowLayout {
             Layout.fillWidth: true
-            spacing: 8
+            spacing: 5
 
             Label {
                 Layout.fillWidth: true
+                Layout.minimumWidth: 0
                 text: root.selectedPoint >= 0
-                    ? "Selected · " + Math.round(root.selectedPointX * 100)
-                        + "% → " + Math.round(root.selectedPointY * 100) + "%"
-                    : (root.hasCurve ? "Double-click to add · drag to shape" : "No adjustment applied")
+                    ? qsTr("Selected · %L1% → %L2%")
+                        .arg(Math.round(root.selectedPointX * 100))
+                        .arg(Math.round(root.selectedPointY * 100))
+                    : (root.hasCurve
+                        ? qsTr("Click to add · drag to shape")
+                        : qsTr("No adjustment applied"))
                 color: root.mutedTextColor
                 font.pixelSize: 9
                 elide: Text.ElideRight
             }
 
-            Button {
+            ShadowButton {
                 id: removePointButton
 
-                text: "REMOVE POINT"
-                flat: true
+                text: qsTr("REMOVE")
+                compact: true
+                variant: ShadowButton.Ghost
                 enabled: root.curveEditable && root.selectedPointDeletable
                 onClicked: root.removeSelectedPoint()
-
-                background: Rectangle {
-                    radius: 4
-                    color: removePointButton.down ? "#2b3036" : "transparent"
-                    border.color: removePointButton.enabled ? root.borderColor : "#24292f"
-                }
-
-                contentItem: Label {
-                    text: removePointButton.text
-                    color: removePointButton.enabled ? root.textColor : "#59616a"
-                    font.pixelSize: 8
-                    font.weight: Font.DemiBold
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                }
             }
 
-            Button {
+            ShadowButton {
                 id: resetCurveButton
 
-                text: "RESET CURVE"
-                flat: true
+                text: qsTr("RESET")
+                compact: true
+                variant: ShadowButton.Ghost
                 enabled: root.hasCurve
                 onClicked: root.resetCurve()
+            }
 
-                background: Rectangle {
-                    radius: 4
-                    color: resetCurveButton.down ? "#2b3036" : "transparent"
-                    border.color: resetCurveButton.enabled ? root.borderColor : "#24292f"
-                }
+            ShadowButton {
+                id: resetAllCurvesButton
 
-                contentItem: Label {
-                    text: resetCurveButton.text
-                    color: resetCurveButton.enabled ? root.textColor : "#59616a"
-                    font.pixelSize: 8
-                    font.weight: Font.DemiBold
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                }
+                text: qsTr("RESET ALL")
+                compact: true
+                variant: ShadowButton.Ghost
+                enabled: root.hasAnyCurve
+                Accessible.name: qsTr("Reset all Tone Curve channels")
+                onClicked: root.controller.resetAllToneCurves()
             }
         }
 
         Label {
             Layout.fillWidth: true
             visible: !root.curveEditable
-            text: "This curve is preserved exactly. Reset Curve is still available."
-            color: "#a99268"
+            text: qsTr("This curve is preserved exactly. Reset Curve is still available.")
+            color: Theme.accentTextMuted
             font.pixelSize: 9
             wrapMode: Text.WordWrap
         }

@@ -1,12 +1,139 @@
 #include "tone_curve_point_model.hpp"
 
 #include <QList>
+#include <QPointF>
 #include <QVariant>
 
 #include <algorithm>
 #include <cmath>
 #include <iterator>
 #include <utility>
+
+namespace {
+
+constexpr int MAXIMUM_PREVIEW_SAMPLE_COUNT = 4'097;
+
+[[nodiscard]] bool same_nonzero_sign(
+    const double left,
+    const double right
+) noexcept {
+    return (left > 0.0 && right > 0.0) || (left < 0.0 && right < 0.0);
+}
+
+[[nodiscard]] double pchip_endpoint_derivative(
+    const double first_width,
+    const double second_width,
+    const double first_slope,
+    const double second_slope
+) noexcept {
+    double derivative = ((2.0 * first_width + second_width) * first_slope
+                            - first_width * second_slope)
+        / (first_width + second_width);
+    if (first_slope == 0.0 || !same_nonzero_sign(derivative, first_slope)) {
+        return 0.0;
+    }
+    if (!same_nonzero_sign(first_slope, second_slope)
+        && std::abs(derivative) > 3.0 * std::abs(first_slope)) {
+        derivative = 3.0 * first_slope;
+    }
+    return derivative;
+}
+
+[[nodiscard]] QVector<double> pchip_derivatives(
+    const QVector<ToneCurvePoint>& points
+) {
+    const int point_count = static_cast<int>(points.size());
+    QVector<double> widths(point_count - 1, 0.0);
+    QVector<double> slopes(point_count - 1, 0.0);
+    for (int index = 0; index + 1 < point_count; ++index) {
+        widths[index] = points.at(index + 1).x - points.at(index).x;
+        slopes[index] = (points.at(index + 1).y - points.at(index).y)
+            / widths.at(index);
+    }
+
+    QVector<double> derivatives(point_count, 0.0);
+    if (point_count == 2) {
+        derivatives[0] = slopes[0];
+        derivatives[1] = slopes[0];
+        return derivatives;
+    }
+
+    derivatives[0] = pchip_endpoint_derivative(
+        widths[0],
+        widths[1],
+        slopes[0],
+        slopes[1]
+    );
+    for (int index = 1; index + 1 < point_count; ++index) {
+        const double previous_slope = slopes.at(index - 1);
+        const double next_slope = slopes.at(index);
+        if (!same_nonzero_sign(previous_slope, next_slope)) {
+            derivatives[index] = 0.0;
+            continue;
+        }
+        const double previous_width = widths.at(index - 1);
+        const double next_width = widths.at(index);
+        const double first_weight = 2.0 * next_width + previous_width;
+        const double second_weight = next_width + 2.0 * previous_width;
+        derivatives[index] = (first_weight + second_weight)
+            / (first_weight / previous_slope + second_weight / next_slope);
+    }
+    const int last_interval = static_cast<int>(widths.size()) - 1;
+    derivatives[point_count - 1] = pchip_endpoint_derivative(
+        widths.at(last_interval),
+        widths.at(last_interval - 1),
+        slopes.at(last_interval),
+        slopes.at(last_interval - 1)
+    );
+    return derivatives;
+}
+
+[[nodiscard]] double evaluate_curve(
+    const QVector<ToneCurvePoint>& points,
+    const QVector<double>& derivatives,
+    const double value,
+    const bool smooth
+) {
+    const auto upper = std::upper_bound(
+        points.cbegin(),
+        points.cend(),
+        value,
+        [](const double sample, const ToneCurvePoint& point) {
+            return sample < point.x;
+        }
+    );
+    int segment = 0;
+    if (upper == points.cend()) {
+        segment = static_cast<int>(points.size()) - 2;
+    } else if (upper != points.cbegin()) {
+        segment = static_cast<int>(std::distance(points.cbegin(), upper)) - 1;
+    }
+    const ToneCurvePoint left = points.at(segment);
+    const ToneCurvePoint right = points.at(segment + 1);
+    const double width = right.x - left.x;
+    if (!smooth) {
+        return left.y + (value - left.x) * (right.y - left.y) / width;
+    }
+    if (value <= points.front().x) {
+        return points.front().y
+            + (value - points.front().x) * derivatives.front();
+    }
+    if (value >= points.back().x) {
+        return points.back().y
+            + (value - points.back().x) * derivatives.back();
+    }
+    const double t = (value - left.x) / width;
+    const double t_squared = t * t;
+    const double t_cubed = t_squared * t;
+    const double h00 = 2.0 * t_cubed - 3.0 * t_squared + 1.0;
+    const double h10 = t_cubed - 2.0 * t_squared + t;
+    const double h01 = -2.0 * t_cubed + 3.0 * t_squared;
+    const double h11 = t_cubed - t_squared;
+    return h00 * left.y + h10 * width * derivatives.at(segment)
+        + h01 * right.y + h11 * width * derivatives.at(segment + 1);
+}
+
+} // namespace
 
 ToneCurvePointModel::ToneCurvePointModel(QObject* parent)
     : QAbstractListModel(parent),
@@ -65,6 +192,36 @@ bool ToneCurvePointModel::isEditable() const noexcept {
 
 int ToneCurvePointModel::selectedIndex() const noexcept {
     return selected_index_;
+}
+
+QVariantList ToneCurvePointModel::sampledPoints(
+    const int sample_count,
+    const bool smooth
+) const {
+    if (sample_count < 2 || sample_count > MAXIMUM_PREVIEW_SAMPLE_COUNT
+        || !isValidPersistedCurve(points_)) {
+        return {};
+    }
+    const QVector<double> derivatives = smooth
+        ? pchip_derivatives(points_)
+        : QVector<double>{};
+    const bool identity = points_.size() == 2
+        && points_.at(0) == ToneCurvePoint{0.0, 0.0}
+        && points_.at(1) == ToneCurvePoint{1.0, 1.0};
+    QVariantList samples;
+    samples.reserve(sample_count);
+    const double denominator = static_cast<double>(sample_count - 1);
+    for (int index = 0; index < sample_count; ++index) {
+        const double x = static_cast<double>(index) / denominator;
+        const double y = smooth && identity
+            ? x
+            : evaluate_curve(points_, derivatives, x, smooth);
+        if (!std::isfinite(y)) {
+            return {};
+        }
+        samples.push_back(QVariant::fromValue(QPointF{x, y}));
+    }
+    return samples;
 }
 
 bool ToneCurvePointModel::replace(QVector<ToneCurvePoint> points) {

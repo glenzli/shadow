@@ -49,6 +49,20 @@ struct NeutralBeforeStartState final {
         || result.current_revision == current_revision;
 }
 
+// A completed current-preview frame can still improve visual feedback while a
+// newer Recipe revision is queued. It is safe to present only for the same
+// photo and never as a neutral-before frame. Exact acceptance above remains the
+// gate for declaring the preview settled and publishing its histogram.
+[[nodiscard]] constexpr bool can_present_edit_preview(
+    const EditPreviewGeneration result,
+    const std::uint64_t current_photo,
+    const std::uint64_t current_revision
+) noexcept {
+    return result.kind == EditPreviewKind::Current
+        && result.photo == current_photo
+        && result.current_revision <= current_revision;
+}
+
 [[nodiscard]] constexpr bool accepts_edit_detail(
     const EditDetailGeneration result,
     const std::uint64_t current_photo,

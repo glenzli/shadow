@@ -10,7 +10,7 @@ namespace {
 struct State final {
     int exposure = 0;
     int contrast = 0;
-    bool layer_enabled = true;
+    bool grade_node_enabled = true;
     std::vector<int> curve_y{0, 100};
 
     bool operator==(const State&) const = default;
@@ -107,25 +107,25 @@ void a_new_edit_clears_redo() {
     require(!history.canRedo(), "a new edit must clear the redo branch");
 }
 
-void layer_bypass_is_atomic_and_preserves_adjustments() {
+void grade_node_bypass_is_atomic_and_preserves_adjustments() {
     SessionEditHistory<State> history;
     State current;
     current.exposure = 4;
     current.curve_y = {0, 72};
 
     const State before = current;
-    current.layer_enabled = false;
-    history.record("layer_enabled", before, current);
+    current.grade_node_enabled = false;
+    history.record("grade_node_enabled", before, current);
 
-    require(history.undoDepth() == 1, "layer bypass must create one undo step");
+    require(history.undoDepth() == 1, "Grade Node bypass must create one undo step");
     current = *history.undo(current);
-    require(current.layer_enabled, "undo must enable the layer again");
+    require(current.grade_node_enabled, "undo must enable the Grade Node again");
     require(
         current.exposure == 4 && current.curve_y == std::vector<int>({0, 72}),
         "bypass undo must preserve the complete adjustment payload"
     );
     current = *history.redo(current);
-    require(!current.layer_enabled, "redo must restore the bypass state");
+    require(!current.grade_node_enabled, "redo must restore the bypass state");
     require(
         current.exposure == 4 && current.curve_y == std::vector<int>({0, 72}),
         "bypass redo must preserve the complete adjustment payload"
@@ -169,7 +169,7 @@ int main() {
     switching_parameters_splits_steps();
     tone_curve_drag_is_one_atomic_recipe_step();
     a_new_edit_clears_redo();
-    layer_bypass_is_atomic_and_preserves_adjustments();
+    grade_node_bypass_is_atomic_and_preserves_adjustments();
     a_net_noop_gesture_preserves_redo();
     clear_starts_a_new_session();
     return EXIT_SUCCESS;

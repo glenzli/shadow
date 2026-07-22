@@ -1,5 +1,6 @@
 #include <shadow/image/edit.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdlib>
@@ -31,12 +32,79 @@ void expect_close(const float actual, const float expected, const std::string_vi
     }
 }
 
+void expect_close_double(
+    const double actual,
+    const double expected,
+    const double tolerance,
+    const std::string_view message
+) {
+    if (std::abs(actual - expected) > tolerance) {
+        std::cerr << "FAILED: " << message << " (actual=" << actual
+                  << ", expected=" << expected << ", tolerance=" << tolerance << ")\n";
+        ++failures;
+    }
+}
+
 [[nodiscard]] image::WorkingRgbSpace linear_rec2020() {
     return image::WorkingRgbSpace{
         .id = "linear-rec2020-d65",
         .primaries = {{{0.708, 0.292}, {0.170, 0.797}, {0.131, 0.046}}},
         .white_point = {0.3127, 0.3290},
         .luminance_coefficients = {0.2627, 0.6780, 0.0593},
+    };
+}
+
+[[nodiscard]] image::WorkingRgbSpace linear_srgb() {
+    return image::WorkingRgbSpace{
+        .id = "linear-srgb-d65",
+        .primaries = {{{0.640, 0.330}, {0.300, 0.600}, {0.150, 0.060}}},
+        .white_point = {0.3127, 0.3290},
+        .luminance_coefficients = {0.2126, 0.7152, 0.0722},
+    };
+}
+
+[[nodiscard]] float linear_srgb_component_from_8_bit(const int value) {
+    const double encoded = static_cast<double>(value) / 255.0;
+    return static_cast<float>(
+        encoded <= 0.04045
+            ? encoded / 12.92
+            : std::pow((encoded + 0.055) / 1.055, 2.4)
+    );
+}
+
+[[nodiscard]] std::array<float, 3> linear_srgb_from_oklch(
+    const double lightness,
+    const double chroma,
+    const double hue_degrees
+) {
+    constexpr double test_pi = 3.141592653589793238462643383279502884;
+    const double hue = hue_degrees * test_pi / 180.0;
+    const double a = chroma * std::cos(hue);
+    const double b = chroma * std::sin(hue);
+    const double l_root = lightness + 0.3963377774 * a + 0.2158037573 * b;
+    const double m_root = lightness - 0.1055613458 * a - 0.0638541728 * b;
+    const double s_root = lightness - 0.0894841775 * a - 1.2914855480 * b;
+    const double l = l_root * l_root * l_root;
+    const double m = m_root * m_root * m_root;
+    const double s = s_root * s_root * s_root;
+    const std::array xyz{
+        1.2268798758459240 * l - 0.5578149944602170 * m + 0.2813910456659646 * s,
+        -0.0405757452148009 * l + 1.1122868032803173 * m - 0.0717110580655164 * s,
+        -0.0763729366746600 * l - 0.4214933324022431 * m + 1.5869240198367816 * s,
+    };
+    return {
+        static_cast<float>(
+            3.240969941904521 * xyz[0] - 1.537383177570093 * xyz[1]
+            - 0.498610760293000 * xyz[2]
+        ),
+        static_cast<float>(
+            -0.969243636280880 * xyz[0] + 1.875967501507720 * xyz[1]
+            + 0.041555057407175 * xyz[2]
+        ),
+        static_cast<float>(
+            0.055630079696993 * xyz[0] - 0.203976958888970 * xyz[1]
+            + 1.056971514242878 * xyz[2]
+        ),
     };
 }
 
@@ -49,6 +117,22 @@ void expect_close(const float actual, const float expected, const std::string_vi
     return image::FloatRgbImage{
         .dimensions = {width, 1},
         .row_stride_bytes = stride * sizeof(float),
+        .pixel_format = image::FloatPixelFormat::rgb_f32_native_interleaved,
+        .transfer_function = image::TransferFunction::linear,
+        .reference = image::ImageReference::scene_referred,
+        .working_space = linear_rec2020(),
+        .samples = std::move(samples),
+    };
+}
+
+[[nodiscard]] image::FloatRgbImage rgb_raster(
+    const std::uint32_t width,
+    const std::uint32_t height,
+    std::vector<float> samples
+) {
+    return image::FloatRgbImage{
+        .dimensions = {width, height},
+        .row_stride_bytes = static_cast<std::size_t>(width) * 3U * sizeof(float),
         .pixel_format = image::FloatPixelFormat::rgb_f32_native_interleaved,
         .transfer_function = image::TransferFunction::linear,
         .reference = image::ImageReference::scene_referred,
@@ -78,8 +162,13 @@ void stable_operation_ids_are_explicit() {
         image::AdjustmentParameters{image::ExposureAdjustment{}},
         image::AdjustmentParameters{image::ContrastAdjustment{}},
         image::AdjustmentParameters{image::ToneCurve{}},
-        image::AdjustmentParameters{image::ChannelGainAdjustment{}},
+        image::AdjustmentParameters{image::SmoothRgbToneCurve{}},
+        image::AdjustmentParameters{image::RgbWhiteBalanceAdjustment{}},
         image::AdjustmentParameters{image::SaturationAdjustment{}},
+        image::AdjustmentParameters{image::SelectiveToneAdjustment{}},
+        image::AdjustmentParameters{image::PerceptualColorAdjustment{}},
+        image::AdjustmentParameters{image::CubeLutAdjustment{}},
+        image::AdjustmentParameters{image::SharpenAdjustment{}},
     };
     expect(
         image::operation_id(image::operation(nodes[0])) == "shadow.exposure",
@@ -91,16 +180,467 @@ void stable_operation_ids_are_explicit() {
     );
     expect(
         image::operation_id(image::operation(nodes[2])) == "shadow.tone_curve",
-        "tone curve has a stable operation id"
+        "legacy tone curve has a stable operation id"
     );
     expect(
-        image::operation_id(image::operation(nodes[3])) == "shadow.channel_gain",
-        "channel gain has a stable operation id"
+        image::operation_id(image::operation(nodes[3])) == "shadow.tone_curve",
+        "smooth RGB tone curve shares the stable versioned operation id"
     );
     expect(
-        image::operation_id(image::operation(nodes[4])) == "shadow.saturation",
+        image::operation_id(image::operation(nodes[4])) == "shadow.rgb_white_balance",
+        "RGB white balance has a stable operation id"
+    );
+    expect(
+        image::operation_id(image::operation(nodes[5])) == "shadow.saturation",
         "saturation has a stable operation id"
     );
+    expect(
+        image::operation_id(image::operation(nodes[6])) == "shadow.selective_tone",
+        "selective tone has a stable operation id"
+    );
+    expect(
+        image::operation_id(image::operation(nodes[7])) == "shadow.perceptual_color",
+        "perceptual color has a stable operation id"
+    );
+    expect(
+        image::operation_id(image::operation(nodes[8])) == "shadow.lut_3d",
+        "3D LUT has a stable operation id"
+    );
+    expect(
+        image::operation_id(image::operation(nodes[9])) == "shadow.sharpen",
+        "sharpen has a stable operation id"
+    );
+    for (std::size_t index = 0U; index < 9U; ++index) {
+        expect(
+            image::locality(image::operation(nodes[index]))
+                == image::AdjustmentLocality::pixel_local,
+            "existing adjustment operations explicitly declare pixel-local execution"
+        );
+        expect(
+            image::footprint(nodes[index]) == image::AdjustmentFootprint{},
+            "pixel-local adjustment operations declare a zero raster footprint"
+        );
+    }
+    expect(
+        image::locality(image::operation(nodes[9]))
+            == image::AdjustmentLocality::neighborhood,
+        "sharpen explicitly declares neighborhood execution"
+    );
+    expect(
+        image::footprint(image::SharpenAdjustment{}) == image::AdjustmentFootprint{},
+        "neutral sharpen has no required footprint"
+    );
+    expect(
+        image::footprint(
+            image::SharpenAdjustment{.amount = 1.0, .radius = 2.0},
+            0.25,
+            0.5
+        ) == image::AdjustmentFootprint{.horizontal_radius = 2, .vertical_radius = 3},
+        "sharpen footprint converts level-0 sigma independently to each raster axis"
+    );
+}
+
+void cube_lut_is_exactly_bypassable_and_blends_deterministically() {
+    constexpr std::string_view identity_cube = R"cube(
+LUT_3D_SIZE 2
+0 0 0
+1 0 0
+0 1 0
+1 1 0
+0 0 1
+1 0 1
+0 1 1
+1 1 1
+)cube";
+    auto lut = image::parse_cube_lut(identity_cube);
+    for (auto& entry : lut.entries) {
+        entry[0] = 1.0F - entry[0];
+    }
+    const auto input = rgb_image(1, {0.25F, 0.5F, 0.75F});
+    const image::AdjustmentNode half{
+        .node_id = "lut-half",
+        .parameters = image::CubeLutAdjustment{
+            .lut = lut,
+            .intensity = 0.5,
+        },
+    };
+    const auto output = image::execute_adjustment_nodes(input, std::span{&half, 1U});
+    expect_close(output.samples[0], 0.5F, "LUT intensity blends sampled red");
+    expect_close(output.samples[1], 0.5F, "LUT preserves sampled green");
+    expect_close(output.samples[2], 0.75F, "LUT preserves sampled blue");
+
+    const image::AdjustmentNode empty_bypass{
+        .node_id = "lut-empty-bypass",
+        .parameters = image::CubeLutAdjustment{},
+    };
+    const auto bypass = image::execute_adjustment_nodes(
+        input,
+        std::span{&empty_bypass, 1U}
+    );
+    expect(bypass.samples == input.samples, "an unselected zero-strength LUT is bit-exact");
+
+    const image::AdjustmentNode missing_active{
+        .node_id = "lut-missing-active",
+        .parameters = image::CubeLutAdjustment{.intensity = 0.5},
+    };
+    expect_edit_error(
+        [&] {
+            static_cast<void>(image::execute_adjustment_nodes(
+                input,
+                std::span{&missing_active, 1U}
+            ));
+        },
+        image::EditErrorCode::invalid_parameter,
+        0U,
+        "an active LUT requires valid cube data"
+    );
+}
+
+void sharpen_is_neutral_on_identity_and_flat_fields() {
+    const auto varied = rgb_image(
+        4,
+        {-0.25F, 0.1F, 2.0F, 0.2F, 0.4F, 0.8F, 0.0F, 0.0F, 0.0F, 4.0F, 2.0F, 1.0F}
+    );
+    const std::array neutral_node{
+        image::AdjustmentNode{
+            .node_id = "neutral-sharpen",
+            .parameter_schema_version = image::detail_effects_v2_parameter_schema_version,
+            .implementation_version = image::detail_effects_v2_implementation_version,
+            .parameters = image::SharpenAdjustment{},
+        },
+    };
+    const auto neutral = image::execute_adjustment_nodes(varied, neutral_node);
+    expect(
+        neutral.samples == varied.samples,
+        "zero-amount sharpen is bit-exact over negative and super-white scene values"
+    );
+
+    const auto flat = rgb_image(
+        7,
+        {
+            0.2F, 0.4F, 0.8F, 0.2F, 0.4F, 0.8F, 0.2F, 0.4F, 0.8F,
+            0.2F, 0.4F, 0.8F, 0.2F, 0.4F, 0.8F, 0.2F, 0.4F, 0.8F,
+            0.2F, 0.4F, 0.8F,
+        }
+    );
+    const std::array active_node{
+        image::AdjustmentNode{
+            .node_id = "flat-sharpen",
+            .parameter_schema_version = image::detail_effects_v2_parameter_schema_version,
+            .implementation_version = image::detail_effects_v2_implementation_version,
+            .parameters = image::SharpenAdjustment{
+                .amount = 2.0,
+                .radius = 5.0,
+                .threshold = 0.0,
+                .masking = 1.0,
+            },
+        },
+    };
+    const auto unchanged_flat = image::execute_adjustment_nodes(flat, active_node);
+    expect(
+        unchanged_flat.samples == flat.samples,
+        "a constant linear-RGB field remains bit-exact under active luminance sharpening"
+    );
+}
+
+void sharpen_emphasizes_log_luminance_without_chromatic_fringes() {
+    const auto impulse = rgb_image(
+        5,
+        {
+            0.02F, 0.04F, 0.08F,
+            0.02F, 0.04F, 0.08F,
+            0.10F, 0.20F, 0.40F,
+            0.02F, 0.04F, 0.08F,
+            0.02F, 0.04F, 0.08F,
+        }
+    );
+    const std::array nodes{
+        image::AdjustmentNode{
+            .node_id = "log-luma-unsharp",
+            .parameter_schema_version = image::detail_effects_v2_parameter_schema_version,
+            .implementation_version = image::detail_effects_v2_implementation_version,
+            .parameters = image::SharpenAdjustment{
+                .amount = 1.0,
+                .radius = 1.0,
+                .threshold = 0.0,
+                .masking = 0.0,
+            },
+        },
+    };
+    const auto output = image::execute_adjustment_nodes(impulse, nodes);
+    expect(
+        output.samples[6] > impulse.samples[6],
+        "log-luminance unsharp masking increases a bright impulse"
+    );
+    expect(
+        output.samples[3] < impulse.samples[3],
+        "log-luminance unsharp masking creates the expected neighboring edge contrast"
+    );
+    expect_close(
+        output.samples[7] / output.samples[6],
+        2.0F,
+        "sharpen applies one gain to red and green instead of sharpening channels separately"
+    );
+    expect_close(
+        output.samples[8] / output.samples[6],
+        4.0F,
+        "sharpen preserves the input blue-to-red ratio without chromatic fringes"
+    );
+    expect(
+        std::ranges::all_of(output.samples, [](const float sample) {
+            return std::isfinite(sample);
+        }),
+        "sharpen produces finite unclamped float output"
+    );
+}
+
+void point_color_current_contract_applies_ranges_in_order() {
+    const auto warm = linear_srgb_from_oklch(0.62, 0.16, 35.0);
+    const auto cool = linear_srgb_from_oklch(0.62, 0.16, 225.0);
+    auto input = rgb_image(
+        2,
+        {warm[0], warm[1], warm[2], cool[0], cool[1], cool[2]}
+    );
+    input.working_space = linear_srgb();
+
+    image::PerceptualColorAdjustment parameters;
+    parameters.color_range = image::PerceptualColorRange{
+        .enabled = true,
+        .center_degrees = 35.0,
+        .width_degrees = 25.0,
+        .softness = 0.5,
+        .saturation = -0.5,
+    };
+    parameters.additional_color_ranges.push_back(image::PerceptualColorRange{
+        .enabled = true,
+        .center_degrees = 180.0,
+        .width_degrees = 180.0,
+        .softness = 0.0,
+        .lightness = 0.4,
+    });
+    const std::array current_nodes{
+        image::AdjustmentNode{
+            .node_id = "multi-point-color",
+            .parameter_schema_version = image::perceptual_color_v2_parameter_schema_version,
+            .implementation_version = image::perceptual_color_v2_implementation_version,
+            .parameters = parameters,
+        },
+    };
+    const auto output = image::execute_adjustment_nodes(input, current_nodes);
+    expect(
+        output.samples[0] != input.samples[0] || output.samples[1] != input.samples[1]
+            || output.samples[2] != input.samples[2],
+        "the primary Point Color sample changes its selected warm hue"
+    );
+    expect(
+        output.samples[3] != input.samples[3] || output.samples[4] != input.samples[4]
+            || output.samples[5] != input.samples[5],
+        "an additional Point Color sample changes its selected cool hue"
+    );
+
+    auto obsolete_node = current_nodes;
+    obsolete_node[0].parameter_schema_version = image::adjustment_parameter_schema_version;
+    obsolete_node[0].implementation_version = image::adjustment_implementation_version;
+    expect_edit_error(
+        [&] { image::validate_adjustment_nodes(obsolete_node); },
+        image::EditErrorCode::unsupported_version,
+        0U,
+        "an obsolete Point Color contract is rejected instead of upgraded"
+    );
+}
+
+void detail_effects_current_contract_is_observable_and_obsolete_contract_is_rejected() {
+    const auto input = rgb_raster(
+        3,
+        2,
+        {
+            0.08F, 0.10F, 0.12F, 0.22F, 0.18F, 0.15F, 0.9F, 0.8F, 0.7F,
+            0.12F, 0.16F, 0.20F, 0.35F, 0.30F, 0.25F, 1.2F, 1.0F, 0.8F,
+        }
+    );
+    image::SharpenAdjustment parameters;
+    parameters.denoise_luminance = 0.35;
+    parameters.denoise_color = 0.2;
+    parameters.dehaze = 0.25;
+    parameters.defringe_purple_amount = 0.3;
+    parameters.defringe_green_amount = 0.2;
+    parameters.shadows_hue = 215.0;
+    parameters.shadows_saturation = 0.25;
+    parameters.highlights_hue = 45.0;
+    parameters.highlights_saturation = 0.2;
+    parameters.grain_amount = 0.25;
+    parameters.vignette_amount = -0.35;
+    const std::array current_nodes{
+        image::AdjustmentNode{
+            .node_id = "detail-effects-current",
+            .parameter_schema_version = image::detail_effects_v2_parameter_schema_version,
+            .implementation_version = image::detail_effects_v2_implementation_version,
+            .parameters = parameters,
+        },
+    };
+    const auto output = image::execute_adjustment_nodes(input, current_nodes);
+    expect(
+        output.samples != input.samples,
+        "Detail & Effects produces an observable result for active professional controls"
+    );
+    expect(
+        std::ranges::all_of(output.samples, [](const float sample) {
+            return std::isfinite(sample);
+        }),
+        "Detail & Effects keeps every output sample finite"
+    );
+
+    auto obsolete_node = current_nodes;
+    obsolete_node[0].parameter_schema_version = image::adjustment_parameter_schema_version;
+    obsolete_node[0].implementation_version = image::adjustment_implementation_version;
+    expect_edit_error(
+        [&] { image::validate_adjustment_nodes(obsolete_node); },
+        image::EditErrorCode::unsupported_version,
+        0U,
+        "an obsolete Detail & Effects contract is rejected instead of upgraded"
+    );
+}
+
+void purple_and_green_defringe_ranges_are_independent() {
+    const auto purple = linear_srgb_from_oklch(0.62, 0.16, 305.0);
+    const auto green = linear_srgb_from_oklch(0.62, 0.16, 135.0);
+    const auto input = rgb_image(
+        2,
+        {purple[0], purple[1], purple[2], green[0], green[1], green[2]}
+    );
+
+    image::SharpenAdjustment purple_parameters;
+    purple_parameters.defringe_purple_amount = 0.8;
+    const std::array purple_nodes{
+        image::AdjustmentNode{
+            .node_id = "purple-defringe",
+            .parameter_schema_version = image::detail_effects_v2_parameter_schema_version,
+            .implementation_version = image::detail_effects_v2_implementation_version,
+            .parameters = purple_parameters,
+        },
+    };
+    const auto purple_output = image::execute_adjustment_nodes(input, purple_nodes);
+    expect(
+        std::abs(purple_output.samples[0] - input.samples[0]) > 1.0e-4F
+            || std::abs(purple_output.samples[1] - input.samples[1]) > 1.0e-4F
+            || std::abs(purple_output.samples[2] - input.samples[2]) > 1.0e-4F,
+        "purple defringe changes a purple-range sample"
+    );
+    for (std::size_t channel = 3U; channel < 6U; ++channel) {
+        expect_close(
+            purple_output.samples[channel],
+            input.samples[channel],
+            "purple defringe leaves a green-range sample unchanged"
+        );
+    }
+
+    image::SharpenAdjustment green_parameters;
+    green_parameters.defringe_green_amount = 0.8;
+    const std::array green_nodes{
+        image::AdjustmentNode{
+            .node_id = "green-defringe",
+            .parameter_schema_version = image::detail_effects_v2_parameter_schema_version,
+            .implementation_version = image::detail_effects_v2_implementation_version,
+            .parameters = green_parameters,
+        },
+    };
+    const auto green_output = image::execute_adjustment_nodes(input, green_nodes);
+    for (std::size_t channel = 0U; channel < 3U; ++channel) {
+        expect_close(
+            green_output.samples[channel],
+            input.samples[channel],
+            "green defringe leaves a purple-range sample unchanged"
+        );
+    }
+    expect(
+        std::abs(green_output.samples[3] - input.samples[3]) > 1.0e-4F
+            || std::abs(green_output.samples[4] - input.samples[4]) > 1.0e-4F
+            || std::abs(green_output.samples[5] - input.samples[5]) > 1.0e-4F,
+        "green defringe changes a green-range sample"
+    );
+
+    auto invalid_parameters = purple_parameters;
+    invalid_parameters.defringe_purple_hue_low = 320.0;
+    invalid_parameters.defringe_purple_hue_high = 325.0;
+    const std::array invalid_nodes{
+        image::AdjustmentNode{
+            .node_id = "invalid-defringe-range",
+            .parameter_schema_version = image::detail_effects_v2_parameter_schema_version,
+            .implementation_version = image::detail_effects_v2_implementation_version,
+            .parameters = invalid_parameters,
+        },
+    };
+    expect_edit_error(
+        [&] { image::validate_adjustment_nodes(invalid_nodes); },
+        image::EditErrorCode::invalid_parameter,
+        0U,
+        "defringe hue ranges reject spans smaller than ten degrees"
+    );
+}
+
+void global_effect_coordinates_are_tile_invariant() {
+    std::vector<float> full_samples;
+    full_samples.reserve(4U * 3U * 3U);
+    for (std::size_t index = 0; index < 12U; ++index) {
+        const float value = 0.15F + static_cast<float>(index) * 0.025F;
+        full_samples.insert(full_samples.end(), {value, value * 0.9F, value * 0.8F});
+    }
+    const auto full_input = rgb_raster(4, 3, full_samples);
+    image::SharpenAdjustment parameters;
+    parameters.grain_amount = 0.7;
+    parameters.grain_size = 0.75;
+    parameters.grain_roughness = 0.65;
+    parameters.vignette_amount = -0.6;
+    parameters.vignette_midpoint = 0.35;
+    parameters.vignette_roundness = 0.25;
+    const std::array nodes{
+        image::AdjustmentNode{
+            .node_id = "global-effects",
+            .parameter_schema_version = image::detail_effects_v2_parameter_schema_version,
+            .implementation_version = image::detail_effects_v2_implementation_version,
+            .parameters = parameters,
+        },
+    };
+    const image::AdjustmentExecutionContext full_context{
+        .full_dimensions = {4, 3},
+    };
+    const auto full_output = image::execute_adjustment_nodes(full_input, nodes, full_context);
+
+    for (std::uint32_t tile_index = 0; tile_index < 2U; ++tile_index) {
+        std::vector<float> tile_samples;
+        tile_samples.reserve(2U * 3U * 3U);
+        for (std::uint32_t y = 0; y < 3U; ++y) {
+            const std::size_t source = (static_cast<std::size_t>(y) * 4U + tile_index * 2U) * 3U;
+            tile_samples.insert(
+                tile_samples.end(),
+                full_samples.begin() + static_cast<std::ptrdiff_t>(source),
+                full_samples.begin() + static_cast<std::ptrdiff_t>(source + 6U)
+            );
+        }
+        const auto tile_input = rgb_raster(2, 3, std::move(tile_samples));
+        const image::AdjustmentExecutionContext tile_context{
+            .origin_x = tile_index * 2U,
+            .origin_y = 0,
+            .full_dimensions = {4, 3},
+        };
+        const auto tile_output = image::execute_adjustment_nodes(tile_input, nodes, tile_context);
+        for (std::uint32_t y = 0; y < 3U; ++y) {
+            for (std::uint32_t x = 0; x < 2U; ++x) {
+                for (std::size_t channel = 0; channel < 3U; ++channel) {
+                    const std::size_t tile_sample =
+                        (static_cast<std::size_t>(y) * 2U + x) * 3U + channel;
+                    const std::size_t full_sample =
+                        (static_cast<std::size_t>(y) * 4U + tile_index * 2U + x) * 3U
+                        + channel;
+                    expect_close(
+                        tile_output.samples[tile_sample],
+                        full_output.samples[full_sample],
+                        "grain and vignette remain identical across independently rendered tiles"
+                    );
+                }
+            }
+        }
+    }
 }
 
 void exposure_preserves_unclipped_scene_range_and_padding() {
@@ -119,20 +659,43 @@ void exposure_preserves_unclipped_scene_range_and_padding() {
     expect_close(input.samples[1], 0.5F, "node execution does not mutate its input");
 }
 
-void channel_gain_and_saturation_have_numeric_contracts() {
+void rgb_white_balance_and_saturation_have_numeric_contracts() {
     const auto input = rgb_image(1, {0.2F, 0.4F, 0.6F});
-    const std::array channel_gain{
+    const std::array warm_white_balance{
         image::AdjustmentNode{
-            .node_id = "channel-gain",
-            .parameters = image::ChannelGainAdjustment{
-                .channel_gains = {2.0, 1.0, 0.5},
+            .node_id = "warm-white-balance",
+            .parameters = image::RgbWhiteBalanceAdjustment{
+                .temperature = 0.75,
             },
         },
     };
-    const auto balanced = image::execute_adjustment_nodes(input, channel_gain);
-    expect_close(balanced.samples[0], 0.4F, "channel gain scales red");
-    expect_close(balanced.samples[1], 0.4F, "channel gain scales green");
-    expect_close(balanced.samples[2], 0.3F, "channel gain scales blue");
+    const auto balanced = image::execute_adjustment_nodes(input, warm_white_balance);
+    expect(
+        balanced.samples[0] / input.samples[0] > balanced.samples[2] / input.samples[2],
+        "positive temperature warms processed RGB relative to blue"
+    );
+
+    const auto magenta_tint = image::execute_adjustment_nodes(
+        rgb_image(1, {0.4F, 0.4F, 0.4F}),
+        std::array{image::AdjustmentNode{
+            .node_id = "magenta-tint",
+            .parameters = image::RgbWhiteBalanceAdjustment{.tint = 0.6},
+        }}
+    );
+    expect(
+        magenta_tint.samples[1] < magenta_tint.samples[0]
+            && magenta_tint.samples[1] < magenta_tint.samples[2],
+        "positive tint moves a neutral sample away from green toward magenta"
+    );
+
+    const auto neutral = image::execute_adjustment_nodes(
+        input,
+        std::array{image::AdjustmentNode{
+            .node_id = "neutral-white-balance",
+            .parameters = image::RgbWhiteBalanceAdjustment{},
+        }}
+    );
+    expect(neutral.samples == input.samples, "neutral RGB white balance is an exact no-op");
 
     const double expected_luminance = 0.2 * 0.2627 + 0.4 * 0.6780 + 0.6 * 0.0593;
     const std::array monochrome{
@@ -162,6 +725,418 @@ void channel_gain_and_saturation_have_numeric_contracts() {
     expect(
         std::abs(output_luminance - expected_luminance) < 1.0e-5,
         "saturation preserves the declared working-space luminance"
+    );
+}
+
+void selective_tone_is_exactly_neutral_and_preserves_scene_range() {
+    const auto neutral_input = rgb_image(
+        2,
+        {-0.5F, 0.0F, 0.25F, 1.0F, 1.5F, 3.0F, 42.0F},
+        1U
+    );
+    const std::array neutral_node{
+        image::AdjustmentNode{
+            .node_id = "neutral-selective-tone",
+            .parameters = image::SelectiveToneAdjustment{},
+        },
+    };
+    const auto neutral = image::execute_adjustment_nodes(neutral_input, neutral_node);
+    expect(
+        neutral.samples == neutral_input.samples,
+        "zero selective tone is bit-exact over negative, normalized, and super-white data"
+    );
+
+    const float black = static_cast<float>(0.18 * std::exp2(-8.0));
+    const float middle_gray = 0.18F;
+    const float white = static_cast<float>(0.18 * std::exp2(7.0));
+    const auto zones = rgb_image(
+        3,
+        {
+            black, black, black,
+            middle_gray, middle_gray, middle_gray,
+            white, white, white,
+        }
+    );
+    const std::array regional_node{
+        image::AdjustmentNode{
+            .node_id = "regional-tone",
+            .parameters = image::SelectiveToneAdjustment{
+                .highlights = 0.0,
+                .shadows = 0.0,
+                .whites = -1.0,
+                .blacks = 1.0,
+            },
+        },
+    };
+    const auto adjusted = image::execute_adjustment_nodes(zones, regional_node);
+    expect_close(adjusted.samples[0], black * 4.0F, "black control maps to two exposure stops");
+    expect_close(
+        adjusted.samples[3],
+        middle_gray,
+        "black and white controls leave scene-linear middle gray untouched"
+    );
+    expect_close(adjusted.samples[6], white * 0.25F, "white control preserves super-white output");
+    expect(adjusted.samples[6] > 1.0F, "selective tone never clips output to display range");
+
+    const auto negative = rgb_image(1, {-1.0F, -0.5F, -0.25F});
+    const auto unchanged_negative = image::execute_adjustment_nodes(negative, regional_node);
+    expect(
+        unchanged_negative.samples == negative.samples,
+        "non-positive scene luminance is retained instead of being clamped or log-transformed"
+    );
+}
+
+void selective_tone_weights_are_smooth_and_preserve_rgb_ratios() {
+    const float below = static_cast<float>(0.18 * std::exp2(-3.5001));
+    const float above = static_cast<float>(0.18 * std::exp2(-3.4999));
+    const auto boundary = rgb_image(
+        2,
+        {below, below, below, above, above, above}
+    );
+    const std::array transition_node{
+        image::AdjustmentNode{
+            .node_id = "black-shadow-transition",
+            .parameters = image::SelectiveToneAdjustment{
+                .shadows = -1.0,
+                .blacks = 1.0,
+            },
+        },
+    };
+    const auto transition = image::execute_adjustment_nodes(boundary, transition_node);
+    expect(
+        std::abs(transition.samples[3] - transition.samples[0]) < 1.0e-5F,
+        "selective tone remains continuous across the black/shadow blend boundary"
+    );
+
+    const auto colored = rgb_image(1, {0.02F, 0.04F, 0.08F});
+    const std::array shadow_node{
+        image::AdjustmentNode{
+            .node_id = "ratio-preserving-shadows",
+            .parameters = image::SelectiveToneAdjustment{.shadows = 0.75},
+        },
+    };
+    const auto scaled = image::execute_adjustment_nodes(colored, shadow_node);
+    expect_close(
+        scaled.samples[1] / scaled.samples[0],
+        2.0F,
+        "selective tone scales green by the same exposure gain as red"
+    );
+    expect_close(
+        scaled.samples[2] / scaled.samples[0],
+        4.0F,
+        "selective tone scales blue by the same exposure gain as red"
+    );
+}
+
+void perceptual_color_is_exactly_neutral_for_identity_and_low_chroma() {
+    auto input = rgb_image(
+        2,
+        {0.25F, 0.25F, 0.25F, 0.5F, 0.50000006F, 0.5F}
+    );
+    input.working_space = linear_srgb();
+
+    image::PerceptualColorAdjustment neutral_parameters;
+    neutral_parameters.color_range.enabled = true;
+    neutral_parameters.color_range.center_degrees = 360.0;
+    neutral_parameters.color_range.width_degrees = 1.0;
+    neutral_parameters.color_range.softness = 0.0;
+    const std::array neutral_node{
+        image::AdjustmentNode{
+            .node_id = "neutral-perceptual-color",
+            .parameter_schema_version = image::perceptual_color_v2_parameter_schema_version,
+            .implementation_version = image::perceptual_color_v2_implementation_version,
+            .parameters = neutral_parameters,
+        },
+    };
+    const auto neutral = image::execute_adjustment_nodes(input, neutral_node);
+    expect(
+        neutral.samples == input.samples,
+        "neutral perceptual color is bit-exact even when its range selector is enabled"
+    );
+
+    image::PerceptualColorAdjustment aggressive;
+    aggressive.vibrance = 1.0;
+    aggressive.hue.fill(1.0);
+    aggressive.saturation.fill(1.0);
+    aggressive.lightness.fill(1.0);
+    aggressive.color_range = image::PerceptualColorRange{
+        .enabled = true,
+        .center_degrees = 0.0,
+        .width_degrees = 180.0,
+        .softness = 1.0,
+        .hue_shift_degrees = 180.0,
+        .saturation = 1.0,
+        .lightness = 1.0,
+    };
+    const std::array aggressive_node{
+        image::AdjustmentNode{
+            .node_id = "undefined-hue-guard",
+            .parameter_schema_version = image::perceptual_color_v2_parameter_schema_version,
+            .implementation_version = image::perceptual_color_v2_implementation_version,
+            .parameters = aggressive,
+        },
+    };
+    const auto achromatic = image::execute_adjustment_nodes(input, aggressive_node);
+    expect(
+        achromatic.samples == input.samples,
+        "gray and near-gray pixels do not acquire an arbitrary hue at low Oklch chroma"
+    );
+}
+
+void perceptual_color_range_wraps_across_the_hue_seam() {
+    auto input = rgb_image(2, {1.0F, 0.05F, 0.05F, 1.0F, 0.0F, 1.0F});
+    input.working_space = linear_srgb();
+
+    image::PerceptualColorAdjustment centered_at_zero;
+    centered_at_zero.color_range = image::PerceptualColorRange{
+        .enabled = true,
+        .center_degrees = 0.0,
+        .width_degrees = 40.0,
+        .softness = 0.25,
+        .hue_shift_degrees = 20.0,
+        .saturation = 0.3,
+        .lightness = 0.2,
+    };
+    image::PerceptualColorAdjustment centered_at_360 = centered_at_zero;
+    centered_at_360.color_range.center_degrees = 360.0;
+    const std::array zero_node{
+        image::AdjustmentNode{
+            .node_id = "range-at-zero",
+            .parameter_schema_version = image::perceptual_color_v2_parameter_schema_version,
+            .implementation_version = image::perceptual_color_v2_implementation_version,
+            .parameters = centered_at_zero,
+        },
+    };
+    const std::array full_turn_node{
+        image::AdjustmentNode{
+            .node_id = "range-at-360",
+            .parameter_schema_version = image::perceptual_color_v2_parameter_schema_version,
+            .implementation_version = image::perceptual_color_v2_implementation_version,
+            .parameters = centered_at_360,
+        },
+    };
+    const auto zero = image::execute_adjustment_nodes(input, zero_node);
+    const auto full_turn = image::execute_adjustment_nodes(input, full_turn_node);
+    expect(
+        zero.samples == full_turn.samples,
+        "range centers zero and 360 are identical at the circular hue seam"
+    );
+    expect(
+        zero.samples != input.samples,
+        "the seam-spanning range adjusts colors on both sides of zero degrees"
+    );
+}
+
+void perceptual_hue_bands_route_named_linear_srgb_colors() {
+    struct RouteCase final {
+        std::string_view name;
+        std::array<float, 3> rgb;
+        std::size_t expected_band;
+    };
+    const float half_encoded = linear_srgb_component_from_8_bit(128);
+    const std::array route_cases{
+        RouteCase{"red", {1.0F, 0.0F, 0.0F}, 0U},
+        RouteCase{"orange", {1.0F, half_encoded, 0.0F}, 1U},
+        RouteCase{"yellow", {1.0F, 1.0F, 0.0F}, 2U},
+        RouteCase{"green", {0.0F, 1.0F, 0.0F}, 3U},
+        RouteCase{"cyan", {0.0F, 1.0F, 1.0F}, 4U},
+        RouteCase{"blue", {0.0F, 0.0F, 1.0F}, 5U},
+        RouteCase{"purple", {half_encoded, 0.0F, 1.0F}, 6U},
+        RouteCase{"magenta", {1.0F, 0.0F, 1.0F}, 7U},
+    };
+
+    for (const RouteCase& route : route_cases) {
+        std::array<double, image::perceptual_hue_band_count> responses{};
+        for (std::size_t band = 0U; band < responses.size(); ++band) {
+            auto input = rgb_image(1, {route.rgb[0], route.rgb[1], route.rgb[2]});
+            input.working_space = linear_srgb();
+            image::PerceptualColorAdjustment parameters;
+            parameters.lightness[band] = 0.75;
+            const std::array nodes{
+                image::AdjustmentNode{
+            .node_id = "named-color-routing",
+            .parameter_schema_version = image::perceptual_color_v2_parameter_schema_version,
+            .implementation_version = image::perceptual_color_v2_implementation_version,
+                    .parameters = parameters,
+                },
+            };
+            const auto output = image::execute_adjustment_nodes(input, nodes);
+            for (std::size_t channel = 0U; channel < 3U; ++channel) {
+                responses[band] += std::abs(
+                    static_cast<double>(output.samples[channel] - input.samples[channel])
+                );
+            }
+        }
+
+        const auto strongest = std::max_element(responses.begin(), responses.end());
+        const std::size_t strongest_band = static_cast<std::size_t>(
+            strongest - responses.begin()
+        );
+        expect(
+            strongest_band == route.expected_band,
+            std::string("Oklch color-mixer anchor routes ") + std::string(route.name)
+                + " to its named band"
+        );
+        for (std::size_t band = 0U; band < responses.size(); ++band) {
+            if (band == route.expected_band) {
+                continue;
+            }
+            expect(
+                responses[route.expected_band] > responses[band] * 1000.0 + 1.0e-7,
+                std::string("named Oklch anchor dominates every neighboring band for ")
+                    + std::string(route.name)
+            );
+        }
+    }
+}
+
+void perceptual_hue_bands_are_smooth_and_cover_the_color_wheel() {
+    std::vector<float> wheel_samples;
+    constexpr std::size_t wheel_sample_count = 24U;
+    wheel_samples.reserve(wheel_sample_count * 3U);
+    for (std::size_t sample = 0U; sample < wheel_sample_count; ++sample) {
+        const auto rgb = linear_srgb_from_oklch(
+            0.65,
+            0.06,
+            360.0 * static_cast<double>(sample) / wheel_sample_count
+        );
+        wheel_samples.insert(wheel_samples.end(), rgb.begin(), rgb.end());
+    }
+    auto input = rgb_image(wheel_sample_count, std::move(wheel_samples));
+    input.working_space = linear_srgb();
+    image::PerceptualColorAdjustment desaturate;
+    desaturate.saturation.fill(-1.0);
+    const std::array nodes{
+        image::AdjustmentNode{
+            .node_id = "all-hue-desaturation",
+            .parameter_schema_version = image::perceptual_color_v2_parameter_schema_version,
+            .implementation_version = image::perceptual_color_v2_implementation_version,
+            .parameters = desaturate,
+        },
+    };
+    const auto output = image::execute_adjustment_nodes(input, nodes);
+    for (std::size_t pixel = 0U; pixel < wheel_sample_count; ++pixel) {
+        const std::size_t sample = pixel * 3U;
+        const float minimum = std::min({
+            output.samples[sample],
+            output.samples[sample + 1U],
+            output.samples[sample + 2U],
+        });
+        const float maximum = std::max({
+            output.samples[sample],
+            output.samples[sample + 1U],
+            output.samples[sample + 2U],
+        });
+        expect(
+            maximum - minimum < 1.0e-4F,
+            "eight neighboring hue-band weights form a complete smooth color-wheel partition"
+        );
+    }
+
+    const auto seam_below = linear_srgb_from_oklch(0.65, 0.08, 359.999);
+    const auto seam_above = linear_srgb_from_oklch(0.65, 0.08, 0.001);
+    auto seam_input = rgb_image(
+        2,
+        {
+            seam_below[0], seam_below[1], seam_below[2],
+            seam_above[0], seam_above[1], seam_above[2],
+        }
+    );
+    seam_input.working_space = linear_srgb();
+    image::PerceptualColorAdjustment seam_parameters;
+    seam_parameters.hue[7] = -1.0;
+    seam_parameters.hue[0] = 1.0;
+    const std::array seam_nodes{
+        image::AdjustmentNode{
+            .node_id = "magenta-red-seam",
+            .parameter_schema_version = image::perceptual_color_v2_parameter_schema_version,
+            .implementation_version = image::perceptual_color_v2_implementation_version,
+            .parameters = seam_parameters,
+        },
+    };
+    const auto seam_output = image::execute_adjustment_nodes(seam_input, seam_nodes);
+    for (std::size_t channel = 0U; channel < 3U; ++channel) {
+        expect(
+            std::abs(seam_output.samples[channel] - seam_output.samples[channel + 3U])
+                < 1.0e-4F,
+            "non-uniform Oklch hue weights remain continuous across the 360-degree seam"
+        );
+    }
+
+    auto muted = rgb_image(1, {0.50F, 0.42F, 0.40F});
+    muted.working_space = linear_srgb();
+    image::PerceptualColorAdjustment vibrance;
+    vibrance.vibrance = 1.0;
+    const std::array vibrance_node{
+        image::AdjustmentNode{
+            .node_id = "adaptive-vibrance",
+            .parameter_schema_version = image::perceptual_color_v2_parameter_schema_version,
+            .implementation_version = image::perceptual_color_v2_implementation_version,
+            .parameters = vibrance,
+        },
+    };
+    const auto boosted = image::execute_adjustment_nodes(muted, vibrance_node);
+    expect(
+        boosted.samples != muted.samples,
+        "vibrance increases the Oklch chroma of a muted color"
+    );
+}
+
+void perceptual_color_supports_d65_rgb_primaries_without_gamut_clipping() {
+    const auto rec2020_input = rgb_image(1, {2.0F, 0.3F, 0.1F});
+    image::PerceptualColorAdjustment parameters;
+    parameters.vibrance = 0.5;
+    parameters.hue[0] = 0.5;
+    parameters.hue[1] = 0.5;
+    const std::array nodes{
+        image::AdjustmentNode{
+            .node_id = "rec2020-perceptual-color",
+            .parameter_schema_version = image::perceptual_color_v2_parameter_schema_version,
+            .implementation_version = image::perceptual_color_v2_implementation_version,
+            .parameters = parameters,
+        },
+    };
+    const auto output = image::execute_adjustment_nodes(rec2020_input, nodes);
+    expect(
+        std::ranges::all_of(output.samples, [](const float value) {
+            return std::isfinite(value);
+        }),
+        "primaries-derived D65 conversion supports finite Rec.2020 pixels"
+    );
+    expect(
+        std::ranges::any_of(output.samples, [](const float value) { return value > 1.0F; }),
+        "perceptual color retains scene-linear values above display white"
+    );
+}
+
+void new_adjustments_respect_node_order() {
+    auto input = rgb_image(1, {0.8F, 0.2F, 0.1F});
+    input.working_space = linear_srgb();
+    const image::AdjustmentNode tone{
+        .node_id = "selective-highlights",
+        .parameters = image::SelectiveToneAdjustment{.highlights = 0.8},
+    };
+    image::PerceptualColorAdjustment color_parameters;
+    color_parameters.color_range = image::PerceptualColorRange{
+        .enabled = true,
+        .center_degrees = 30.0,
+        .width_degrees = 180.0,
+        .softness = 0.0,
+        .lightness = 0.8,
+    };
+    const image::AdjustmentNode color{
+            .node_id = "perceptual-lightness",
+            .parameter_schema_version = image::perceptual_color_v2_parameter_schema_version,
+            .implementation_version = image::perceptual_color_v2_implementation_version,
+        .parameters = color_parameters,
+    };
+    const std::array tone_then_color{tone, color};
+    const std::array color_then_tone{color, tone};
+    const auto first = image::execute_adjustment_nodes(input, tone_then_color);
+    const auto second = image::execute_adjustment_nodes(input, color_then_tone);
+    expect(
+        std::abs(first.samples[0] - second.samples[0]) > 1.0e-4F,
+        "selective tone and perceptual color execute in declared node order"
     );
 }
 
@@ -381,6 +1356,120 @@ void invalid_values_and_versions_fail_closed() {
     );
 }
 
+void new_adjustment_bounds_are_validated_without_pixels() {
+    image::PerceptualColorAdjustment edge_color;
+    edge_color.vibrance = -1.0;
+    edge_color.hue.fill(1.0);
+    edge_color.saturation.fill(-1.0);
+    edge_color.lightness.fill(1.0);
+    edge_color.color_range = image::PerceptualColorRange{
+        .enabled = true,
+        .center_degrees = 360.0,
+        .width_degrees = 180.0,
+        .softness = 1.0,
+        .hue_shift_degrees = -180.0,
+        .saturation = 1.0,
+        .lightness = -1.0,
+    };
+    const std::array valid_edges{
+        image::AdjustmentNode{
+            .node_id = "selective-tone-edges",
+            .parameters = image::SelectiveToneAdjustment{
+                .highlights = -1.0,
+                .shadows = 1.0,
+                .whites = -1.0,
+                .blacks = 1.0,
+            },
+        },
+        image::AdjustmentNode{
+            .node_id = "perceptual-color-edges",
+            .parameter_schema_version = image::perceptual_color_v2_parameter_schema_version,
+            .implementation_version = image::perceptual_color_v2_implementation_version,
+            .parameters = edge_color,
+        },
+        image::AdjustmentNode{
+            .node_id = "sharpen-edges",
+            .parameter_schema_version = image::detail_effects_v2_parameter_schema_version,
+            .implementation_version = image::detail_effects_v2_implementation_version,
+            .parameters = image::SharpenAdjustment{
+                .amount = 2.0,
+                .radius = 5.0,
+                .threshold = 1.0,
+                .masking = 1.0,
+            },
+        },
+    };
+    try {
+        image::validate_adjustment_nodes(valid_edges);
+    } catch (const image::EditError&) {
+        expect(false, "inclusive adjustment parameter boundaries are accepted");
+    }
+
+    const std::array invalid_tone{
+        image::AdjustmentNode{
+            .node_id = "invalid-selective-tone",
+            .enabled = false,
+            .parameters = image::SelectiveToneAdjustment{.highlights = 1.0001},
+        },
+    };
+    expect_edit_error(
+        [&] { image::validate_adjustment_nodes(invalid_tone); },
+        image::EditErrorCode::invalid_parameter,
+        0U,
+        "disabled selective tone nodes still validate bounded parameters"
+    );
+
+    image::PerceptualColorAdjustment invalid_band;
+    invalid_band.hue[3] = std::numeric_limits<double>::quiet_NaN();
+    const std::array invalid_band_node{
+        image::AdjustmentNode{
+            .node_id = "invalid-hue-band",
+            .parameter_schema_version = image::perceptual_color_v2_parameter_schema_version,
+            .implementation_version = image::perceptual_color_v2_implementation_version,
+            .parameters = invalid_band,
+        },
+    };
+    expect_edit_error(
+        [&] { image::validate_adjustment_nodes(invalid_band_node); },
+        image::EditErrorCode::invalid_parameter,
+        0U,
+        "non-finite hue band parameters fail closed"
+    );
+
+    image::PerceptualColorAdjustment invalid_range;
+    invalid_range.color_range.width_degrees = 0.0;
+    const std::array invalid_range_node{
+        image::AdjustmentNode{
+            .node_id = "invalid-color-range",
+            .parameter_schema_version = image::perceptual_color_v2_parameter_schema_version,
+            .implementation_version = image::perceptual_color_v2_implementation_version,
+            .parameters = invalid_range,
+        },
+    };
+    expect_edit_error(
+        [&] { image::validate_adjustment_nodes(invalid_range_node); },
+        image::EditErrorCode::invalid_parameter,
+        0U,
+        "disabled color ranges retain valid serializable geometry"
+    );
+
+    const std::array invalid_sharpen{
+        image::AdjustmentNode{
+            .node_id = "invalid-disabled-sharpen",
+            .parameter_schema_version = image::detail_effects_v2_parameter_schema_version,
+            .implementation_version = image::detail_effects_v2_implementation_version,
+            .enabled = false,
+            .parameters = image::SharpenAdjustment{.amount = 2.0001},
+        },
+    };
+    expect_edit_error(
+        [&] { image::validate_adjustment_nodes(invalid_sharpen); },
+        image::EditErrorCode::invalid_parameter,
+        0U,
+        "disabled sharpen nodes still fail closed outside their declared bounds"
+    );
+}
+
 void color_and_layout_assumptions_are_enforced() {
     auto nonlinear = rgb_image(1, {0.1F, 0.2F, 0.3F});
     nonlinear.transfer_function = image::TransferFunction::unknown;
@@ -407,6 +1496,343 @@ void color_and_layout_assumptions_are_enforced() {
         image::EditErrorCode::invalid_image_layout,
         std::nullopt,
         "truncated float images are rejected"
+    );
+
+    auto invalid_scale = rgb_image(1, {0.1F, 0.2F, 0.3F});
+    invalid_scale.level_zero_to_raster_scale_x = 0.0;
+    expect_edit_error(
+        [&] { static_cast<void>(image::execute_adjustment_nodes(invalid_scale, {})); },
+        image::EditErrorCode::invalid_image_layout,
+        std::nullopt,
+        "spatial raster scale metadata must be finite and positive"
+    );
+
+    auto non_d65 = rgb_image(1, {0.8F, 0.2F, 0.1F});
+    non_d65.working_space.white_point = {0.3457, 0.3585};
+    image::PerceptualColorAdjustment color;
+    color.vibrance = 0.5;
+    const std::array color_node{
+        image::AdjustmentNode{
+            .node_id = "d65-only-oklab",
+            .parameter_schema_version = image::perceptual_color_v2_parameter_schema_version,
+            .implementation_version = image::perceptual_color_v2_implementation_version,
+            .parameters = color,
+        },
+    };
+    expect_edit_error(
+        [&] { static_cast<void>(image::execute_adjustment_nodes(non_d65, color_node)); },
+        image::EditErrorCode::invalid_working_space,
+        0U,
+        "Oklab conversion rejects a non-D65 working space instead of misinterpreting it"
+    );
+}
+
+void smooth_rgb_tone_curve_is_an_exact_identity_operation() {
+    const auto input = rgb_image(
+        2,
+        {-0.5F, 0.0F, 0.25F, 1.0F, 1.5F, 3.0F, 42.0F},
+        1U
+    );
+    const image::SmoothRgbToneCurve curve;
+    const auto direct = image::apply_smooth_rgb_tone_curve(input, curve);
+    expect(
+        direct.samples == input.samples,
+        "four identity PCHIP curves preserve every float and row-padding sample exactly"
+    );
+
+    const std::array node{
+        image::AdjustmentNode{
+            .node_id = "smooth-identity",
+            .parameter_schema_version = image::smooth_rgb_tone_curve_parameter_schema_version,
+            .implementation_version = image::smooth_rgb_tone_curve_implementation_version,
+            .parameters = curve,
+        },
+    };
+    const auto through_graph = image::execute_adjustment_nodes(input, node);
+    expect(
+        through_graph.samples == input.samples,
+        "the schema-2 typed node keeps the exact identity fast path"
+    );
+}
+
+void smooth_tone_curve_uses_shape_preserving_cubic_hermite_interpolation() {
+    const image::ToneCurveSet points{
+        .points = {{0.0, 0.0}, {0.5, 0.25}, {1.0, 1.0}},
+    };
+    const image::SmoothRgbToneCurve curve{.master = points};
+    const auto output = image::apply_smooth_rgb_tone_curve(
+        rgb_image(1, {0.25F, 0.5F, 0.75F}),
+        curve
+    );
+    const auto repeated = image::apply_smooth_rgb_tone_curve(
+        rgb_image(1, {0.25F, 0.5F, 0.75F}),
+        curve
+    );
+    expect(output.samples == repeated.samples, "PCHIP evaluation is bit-stable across runs");
+    expect_close(output.samples[0], 0.078125F, "PCHIP bends smoothly below the first chord");
+    expect_close(output.samples[1], 0.25F, "PCHIP passes through its interior knot exactly");
+    expect_close(output.samples[2], 0.546875F, "PCHIP bends smoothly below the last chord");
+    expect(
+        output.samples[0] != 0.125F && output.samples[2] != 0.625F,
+        "version 2 does not silently fall back to version-1 piecewise-linear interpolation"
+    );
+
+    const auto samples = image::sample_smooth_tone_curve(points, 4'097U);
+    const std::size_t knot = 2'048U;
+    expect_close_double(
+        samples[1'024U].y,
+        static_cast<double>(output.samples[0]),
+        1.0e-7,
+        "the public UI sampler matches pixel rendering at quarter scale"
+    );
+    expect_close_double(
+        samples[3'072U].y,
+        static_cast<double>(output.samples[2]),
+        1.0e-7,
+        "the public UI sampler matches pixel rendering at three-quarter scale"
+    );
+    const double step = samples[1].x - samples[0].x;
+    const double left_derivative = (samples[knot].y - samples[knot - 1U].y) / step;
+    const double right_derivative = (samples[knot + 1U].y - samples[knot].y) / step;
+    expect_close_double(left_derivative, 0.75, 0.01, "PCHIP left derivative reaches the knot");
+    expect_close_double(right_derivative, 0.75, 0.01, "PCHIP right derivative leaves the knot");
+    expect_close_double(
+        left_derivative,
+        right_derivative,
+        0.01,
+        "the visible curve is C1 continuous at an interior control point"
+    );
+}
+
+void smooth_tone_curve_allows_authored_reversals_without_spurious_overshoot() {
+    const image::ToneCurveSet curve{
+        .points = {
+            {0.0, 0.0},
+            {0.25, 0.8},
+            {0.5, 0.2},
+            {0.75, 0.9},
+            {1.0, 0.4},
+        },
+    };
+    const auto samples = image::sample_smooth_tone_curve(curve, 1'001U);
+    for (const auto sample : samples) {
+        const auto upper = std::upper_bound(
+            curve.points.begin(),
+            curve.points.end(),
+            sample.x,
+            [](const double x, const image::ToneCurvePoint& point) { return x < point.x; }
+        );
+        const std::size_t segment = upper == curve.points.begin()
+            ? 0U
+            : std::min(
+                  static_cast<std::size_t>(upper - curve.points.begin()) - 1U,
+                  curve.points.size() - 2U
+              );
+        const double lower = std::min(curve.points[segment].y, curve.points[segment + 1U].y);
+        const double upper_value = std::max(
+            curve.points[segment].y,
+            curve.points[segment + 1U].y
+        );
+        expect(
+            sample.y >= lower - 1.0e-12 && sample.y <= upper_value + 1.0e-12,
+            "PCHIP stays within the authored endpoint range of every rising or falling interval"
+        );
+    }
+    expect_close_double(samples[250].y, 0.8, 1.0e-12, "an authored local maximum is retained");
+    expect_close_double(samples[500].y, 0.2, 1.0e-12, "an authored local minimum is retained");
+    expect_close_double(samples[750].y, 0.9, 1.0e-12, "a second reversal is retained");
+
+    const image::ToneCurveSet irregular_monotone{
+        .points = {
+            {0.0, 0.0},
+            {0.05, 0.1},
+            {0.2, 0.12},
+            {0.85, 0.9},
+            {1.0, 1.0},
+        },
+    };
+    const auto irregular_samples = image::sample_smooth_tone_curve(irregular_monotone, 1'001U);
+    for (std::size_t index = 1U; index < irregular_samples.size(); ++index) {
+        expect(
+            irregular_samples[index].y >= irregular_samples[index - 1U].y - 1.0e-12,
+            "weighted PCHIP remains monotone across non-uniform x spacing"
+        );
+    }
+}
+
+void smooth_rgb_tone_curve_applies_master_before_individual_channels() {
+    const image::ToneCurveSet add_tenth{.points = {{0.0, 0.1}, {1.0, 1.1}}};
+    const auto red_only = image::apply_smooth_rgb_tone_curve(
+        rgb_image(1, {0.25F, 0.25F, 0.25F}),
+        image::SmoothRgbToneCurve{.red = add_tenth}
+    );
+    expect_close(red_only.samples[0], 0.35F, "a red curve changes the red component");
+    expect_close(red_only.samples[1], 0.25F, "a red curve leaves green bit-exact");
+    expect_close(red_only.samples[2], 0.25F, "a red curve leaves blue bit-exact");
+
+    const image::ToneCurveSet double_value{.points = {{0.0, 0.0}, {1.0, 2.0}}};
+    const image::SmoothRgbToneCurve curve{
+        .master = double_value,
+        .red = add_tenth,
+    };
+    const auto output = image::apply_smooth_rgb_tone_curve(
+        rgb_image(1, {0.25F, 0.25F, 0.25F}),
+        curve
+    );
+    expect_close(output.samples[0], 0.6F, "red evaluates channel(master(input))");
+    expect_close(output.samples[1], 0.5F, "neutral green receives only the master curve");
+    expect_close(output.samples[2], 0.5F, "neutral blue receives only the master curve");
+    expect(
+        std::abs(output.samples[0] - 0.7F) > 0.05F,
+        "the non-commuting master/channel order is locked by a numeric sentinel"
+    );
+}
+
+void smooth_tone_curve_uses_linear_endpoint_tangent_extrapolation() {
+    const image::ToneCurveSet two_point{
+        .points = {{0.0, 0.1}, {1.0, 0.9}},
+    };
+    const image::SmoothRgbToneCurve linear{.master = two_point};
+    const auto two_point_output = image::apply_smooth_rgb_tone_curve(
+        rgb_image(1, {-0.5F, 0.5F, 1.5F}),
+        linear
+    );
+    expect_close(two_point_output.samples[0], -0.3F, "two-point PCHIP extrapolates below zero");
+    expect_close(two_point_output.samples[1], 0.5F, "two-point PCHIP is linear in-domain");
+    expect_close(two_point_output.samples[2], 1.3F, "two-point PCHIP preserves super-white range");
+
+    const image::ToneCurveSet curved{
+        .points = {{0.0, 0.0}, {0.5, 0.25}, {1.0, 1.0}},
+    };
+    const auto curved_output = image::apply_smooth_rgb_tone_curve(
+        rgb_image(1, {-0.5F, 0.5F, 1.5F}),
+        image::SmoothRgbToneCurve{.master = curved}
+    );
+    expect_close(curved_output.samples[0], 0.0F, "lower extrapolation uses the zero endpoint tangent");
+    expect_close(curved_output.samples[1], 0.25F, "curved PCHIP still passes through its knot");
+    expect_close(curved_output.samples[2], 2.0F, "upper extrapolation uses the finite endpoint tangent");
+}
+
+void invalid_smooth_rgb_tone_curves_fail_closed_with_versions_and_provenance() {
+    const auto input = rgb_image(1, {0.1F, 0.2F, 0.3F});
+    const std::array wrong_node_version{
+        image::AdjustmentNode{
+            .node_id = "smooth-wrong-node-version",
+            .parameters = image::SmoothRgbToneCurve{},
+        },
+    };
+    expect_edit_error(
+        [&] { static_cast<void>(image::execute_adjustment_nodes(input, wrong_node_version)); },
+        image::EditErrorCode::unsupported_version,
+        0U,
+        "a smooth curve cannot masquerade as a schema-1 adjustment node"
+    );
+
+    const std::array mixed_outer_version{
+        image::AdjustmentNode{
+            .node_id = "smooth-mixed-outer-version",
+            .parameter_schema_version = image::smooth_rgb_tone_curve_parameter_schema_version,
+            .implementation_version = image::adjustment_implementation_version,
+            .parameters = image::SmoothRgbToneCurve{},
+        },
+    };
+    expect_edit_error(
+        [&] { static_cast<void>(image::execute_adjustment_nodes(input, mixed_outer_version)); },
+        image::EditErrorCode::unsupported_version,
+        0U,
+        "schema 2 cannot be paired with the legacy outer implementation version"
+    );
+
+    image::SmoothRgbToneCurve mixed_inner;
+    mixed_inner.parameter_schema_version = image::tone_curve_parameter_schema_version;
+    const std::array mixed_inner_version{
+        image::AdjustmentNode{
+            .node_id = "smooth-mixed-inner-version",
+            .parameter_schema_version = image::smooth_rgb_tone_curve_parameter_schema_version,
+            .implementation_version = image::smooth_rgb_tone_curve_implementation_version,
+            .parameters = mixed_inner,
+        },
+    };
+    expect_edit_error(
+        [&] { static_cast<void>(image::execute_adjustment_nodes(input, mixed_inner_version)); },
+        image::EditErrorCode::unsupported_version,
+        0U,
+        "a schema-2 node cannot contain a legacy inner point-curve schema"
+    );
+
+    image::SmoothRgbToneCurve future;
+    future.implementation_version += 1U;
+    const std::array unsupported{
+        image::AdjustmentNode{
+            .node_id = "smooth-future-version",
+            .parameter_schema_version = image::smooth_rgb_tone_curve_parameter_schema_version,
+            .implementation_version = image::smooth_rgb_tone_curve_implementation_version,
+            .parameters = future,
+        },
+    };
+    expect_edit_error(
+        [&] { static_cast<void>(image::execute_adjustment_nodes(input, unsupported)); },
+        image::EditErrorCode::unsupported_version,
+        0U,
+        "the nested smooth-curve implementation contract is also version-checked"
+    );
+
+    image::SmoothRgbToneCurve malformed;
+    malformed.red.points = {{0.0, 0.0}, {0.5, 0.3}, {0.5, 0.6}, {1.0, 1.0}};
+    const std::array malformed_node{
+        image::AdjustmentNode{
+            .node_id = "malformed-red-curve",
+            .parameter_schema_version = image::smooth_rgb_tone_curve_parameter_schema_version,
+            .implementation_version = image::smooth_rgb_tone_curve_implementation_version,
+            .enabled = false,
+            .parameters = malformed,
+        },
+    };
+    expect_edit_error(
+        [&] { static_cast<void>(image::execute_adjustment_nodes(input, malformed_node)); },
+        image::EditErrorCode::invalid_parameter,
+        0U,
+        "invalid geometry in any channel retains typed-node provenance"
+    );
+
+    image::SmoothRgbToneCurve overflowing;
+    overflowing.red.points = {
+        {0.0, std::numeric_limits<double>::max()},
+        {1.0, std::numeric_limits<double>::max()},
+    };
+    const std::array overflowing_node{
+        image::AdjustmentNode{
+            .node_id = "overflowing-red-curve",
+            .parameter_schema_version = image::smooth_rgb_tone_curve_parameter_schema_version,
+            .implementation_version = image::smooth_rgb_tone_curve_implementation_version,
+            .parameters = overflowing,
+        },
+    };
+    expect_edit_error(
+        [&] { static_cast<void>(image::execute_adjustment_nodes(input, overflowing_node)); },
+        image::EditErrorCode::numeric_overflow,
+        0U,
+        "finite double curve output that exceeds float32 fails with node provenance"
+    );
+
+    expect_edit_error(
+        [&] {
+            static_cast<void>(image::sample_smooth_tone_curve(image::ToneCurveSet{}, 1U));
+        },
+        image::EditErrorCode::invalid_parameter,
+        std::nullopt,
+        "curve preview sampling rejects an undersized request"
+    );
+    expect_edit_error(
+        [&] {
+            static_cast<void>(image::sample_smooth_tone_curve(
+                image::ToneCurveSet{},
+                image::maximum_tone_curve_preview_samples + 1U
+            ));
+        },
+        image::EditErrorCode::invalid_parameter,
+        std::nullopt,
+        "curve preview sampling is resource-bounded"
     );
 }
 
@@ -575,14 +2001,36 @@ void tone_curve_is_deterministic() {
 
 int main() {
     stable_operation_ids_are_explicit();
+    cube_lut_is_exactly_bypassable_and_blends_deterministically();
+    sharpen_is_neutral_on_identity_and_flat_fields();
+    sharpen_emphasizes_log_luminance_without_chromatic_fringes();
+    point_color_current_contract_applies_ranges_in_order();
+    detail_effects_current_contract_is_observable_and_obsolete_contract_is_rejected();
+    purple_and_green_defringe_ranges_are_independent();
+    global_effect_coordinates_are_tile_invariant();
     exposure_preserves_unclipped_scene_range_and_padding();
-    channel_gain_and_saturation_have_numeric_contracts();
+    rgb_white_balance_and_saturation_have_numeric_contracts();
+    selective_tone_is_exactly_neutral_and_preserves_scene_range();
+    selective_tone_weights_are_smooth_and_preserve_rgb_ratios();
+    perceptual_color_is_exactly_neutral_for_identity_and_low_chroma();
+    perceptual_color_range_wraps_across_the_hue_seam();
+    perceptual_hue_bands_route_named_linear_srgb_colors();
+    perceptual_hue_bands_are_smooth_and_cover_the_color_wheel();
+    perceptual_color_supports_d65_rgb_primaries_without_gamut_clipping();
+    new_adjustments_respect_node_order();
     node_order_is_observable_and_disabled_nodes_are_skipped();
     tone_curve_node_is_neutral_and_respects_declared_order();
     tone_curve_node_disable_and_unclipped_range_are_preserved();
     invalid_tone_curve_nodes_report_their_index();
     invalid_values_and_versions_fail_closed();
+    new_adjustment_bounds_are_validated_without_pixels();
     color_and_layout_assumptions_are_enforced();
+    smooth_rgb_tone_curve_is_an_exact_identity_operation();
+    smooth_tone_curve_uses_shape_preserving_cubic_hermite_interpolation();
+    smooth_tone_curve_allows_authored_reversals_without_spurious_overshoot();
+    smooth_rgb_tone_curve_applies_master_before_individual_channels();
+    smooth_tone_curve_uses_linear_endpoint_tangent_extrapolation();
+    invalid_smooth_rgb_tone_curves_fail_closed_with_versions_and_provenance();
     default_tone_curve_is_an_exact_neutral_operation();
     tone_curve_interpolates_control_points_per_channel();
     tone_curve_extrapolates_without_clipping();

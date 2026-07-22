@@ -11,13 +11,18 @@ Item {
     property bool beforeView: false
     property string displayGeneration: ""
 
-    property color panelColor: "#101317"
-    property color plotColor: "#0b0e11"
-    property color borderColor: "#2a3037"
-    property color textColor: "#edf0f2"
-    property color secondaryTextColor: "#bdc4ca"
-    property color mutedTextColor: "#8b949e"
-    property color accentColor: "#d8b36a"
+    property color panelColor: Theme.chrome
+    property color plotColor: Theme.plot
+    property color borderColor: Theme.border
+    property color textColor: Theme.textPrimary
+    property color secondaryTextColor: Theme.textSecondary
+    property color mutedTextColor: Theme.textMuted
+    property color accentColor: Theme.accent
+    property color histogramGridColor: Theme.histogramGrid
+    property color histogramRedFillColor: Theme.histogramRedFill
+    property color histogramGreenFillColor: Theme.histogramGreenFill
+    property color histogramBlueFillColor: Theme.histogramBlueFill
+    property color histogramLumaStrokeColor: Theme.histogramLumaStroke
 
     readonly property bool hasData: root.mapBoolean("valid", false) && root.binList("red").length
                                     === 256 && root.binList("green").length === 256 && root.binList(
@@ -78,10 +83,11 @@ Item {
     function clippedPercent(fraction) {
         const percent = Math.max(0, Number(fraction)) * 100;
         if (!Number.isFinite(percent) || percent === 0)
-            return "0%";
+            return qsTr("0%");
         if (percent < 0.01)
-            return "<0.01%";
-        return percent.toFixed(percent < 1 ? 2 : 1) + "%";
+            return qsTr("<0.01%");
+        return qsTr("%1%").arg(
+            percent.toLocaleString(Qt.locale(), "f", percent < 1 ? 2 : 1));
     }
 
     function pixelCountText(value) {
@@ -91,13 +97,27 @@ Item {
         return count.toLocaleString(Qt.locale(), "f", 0);
     }
 
-    function channelClipText(name) {
+    function clipTooltip(name, pixelCount) {
         const counts = root.binList(name);
-        if (counts.length !== 3)
-            return "";
-        return "\nR " + root.pixelCountText(counts[0])
-            + " · G " + root.pixelCountText(counts[1])
-            + " · B " + root.pixelCountText(counts[2]);
+        const formattedPixels = root.pixelCountText(pixelCount);
+        if (name === "belowZero") {
+            return counts.length === 3
+                ? qsTr("Any RGB channel below 0 before display clamp · %1 proxy pixels\nR %2 · G %3 · B %4")
+                    .arg(formattedPixels)
+                    .arg(root.pixelCountText(counts[0]))
+                    .arg(root.pixelCountText(counts[1]))
+                    .arg(root.pixelCountText(counts[2]))
+                : qsTr("Any RGB channel below 0 before display clamp · %1 proxy pixels")
+                    .arg(formattedPixels);
+        }
+        return counts.length === 3
+            ? qsTr("Any RGB channel above 1 before display clamp · %1 proxy pixels\nR %2 · G %3 · B %4")
+                .arg(formattedPixels)
+                .arg(root.pixelCountText(counts[0]))
+                .arg(root.pixelCountText(counts[1]))
+                .arg(root.pixelCountText(counts[2]))
+            : qsTr("Any RGB channel above 1 before display clamp · %1 proxy pixels")
+                .arg(formattedPixels);
     }
 
     function maximumBinCount() {
@@ -153,16 +173,21 @@ Item {
 
     onAnalysisChanged: histogramCanvas.requestPaint()
     onVisibleChanged: histogramCanvas.requestPaint()
+    onHistogramGridColorChanged: histogramCanvas.requestPaint()
+    onHistogramRedFillColorChanged: histogramCanvas.requestPaint()
+    onHistogramGreenFillColorChanged: histogramCanvas.requestPaint()
+    onHistogramBlueFillColorChanged: histogramCanvas.requestPaint()
+    onHistogramLumaStrokeColorChanged: histogramCanvas.requestPaint()
 
     Rectangle {
         anchors.fill: parent
-        anchors.leftMargin: 10
-        anchors.rightMargin: 10
+        anchors.leftMargin: 14
+        anchors.rightMargin: 14
         anchors.topMargin: 8
-        anchors.bottomMargin: 8
-        radius: 4
+        anchors.bottomMargin: 4
+        radius: 0
         color: root.panelColor
-        border.color: root.borderColor
+        border.width: 0
         clip: true
 
         ColumnLayout {
@@ -180,7 +205,7 @@ Item {
                     spacing: 6
 
                     Label {
-                        text: "HISTOGRAM"
+                        text: qsTr("HISTOGRAM")
                         color: root.mutedTextColor
                         font.pixelSize: 9
                         font.weight: Font.DemiBold
@@ -196,7 +221,7 @@ Item {
                         Layout.preferredWidth: 5
                         Layout.preferredHeight: 5
                         radius: 3
-                        color: root.updating ? root.accentColor : "#68727c"
+                        color: root.updating ? root.accentColor : Theme.textPlaceholder
 
                         SequentialAnimation on opacity {
                             running: root.updating
@@ -214,7 +239,7 @@ Item {
 
                     Label {
                         visible: root.updating || root.presentationStale
-                        text: root.updating ? "UPDATING" : "STALE"
+                        text: root.updating ? qsTr("UPDATING") : qsTr("STALE")
                         color: root.updating ? root.accentColor : root.mutedTextColor
                         font.pixelSize: 7
                         font.weight: Font.Bold
@@ -222,7 +247,8 @@ Item {
                     }
 
                     Label {
-                        text: root.beforeView ? "BEFORE · WARM PROXY" : "CURRENT · WARM PROXY"
+                        text: root.beforeView
+                            ? qsTr("BEFORE · WARM PROXY") : qsTr("CURRENT · WARM PROXY")
                         color: root.beforeView ? root.accentColor : root.secondaryTextColor
                         font.pixelSize: 7
                         font.weight: Font.Bold
@@ -237,7 +263,7 @@ Item {
                 Layout.leftMargin: 7
                 Layout.rightMargin: 7
                 color: root.plotColor
-                border.color: "#22282e"
+                border.color: Theme.histogramFrameBorder
                 clip: true
 
                 Canvas {
@@ -256,7 +282,7 @@ Item {
                         context.clearRect(0, 0, width, height);
 
                         context.lineWidth = 1;
-                        context.strokeStyle = "rgba(78, 87, 96, 0.24)";
+                        context.strokeStyle = root.histogramGridColor;
                         for (let index = 1; index < 4; ++index) {
                             const x = index / 4 * width;
                             context.beginPath();
@@ -269,13 +295,13 @@ Item {
                         if (maximum <= 0)
                             return;
                         root.fillChannel(context, root.binList("red"), maximum, width, height,
-                                         "rgba(235, 80, 76, 0.25)");
+                                         root.histogramRedFillColor);
                         root.fillChannel(context, root.binList("green"), maximum, width, height,
-                                         "rgba(86, 207, 118, 0.22)");
+                                         root.histogramGreenFillColor);
                         root.fillChannel(context, root.binList("blue"), maximum, width, height,
-                                         "rgba(78, 135, 238, 0.27)");
+                                         root.histogramBlueFillColor);
                         root.strokeChannel(context, root.binList("luma"), maximum, width,
-                                           height, "rgba(239, 243, 246, 0.92)");
+                                           height, root.histogramLumaStrokeColor);
                     }
                 }
 
@@ -284,8 +310,8 @@ Item {
                     anchors.top: parent.top
                     anchors.margins: 5
                     visible: root.hasData
-                    text: "LOG"
-                    color: "#66717c"
+                    text: qsTr("LOG")
+                    color: Theme.textSubtle
                     font.pixelSize: 6
                     font.weight: Font.Bold
                     font.letterSpacing: 0.5
@@ -296,9 +322,11 @@ Item {
                     anchors.top: parent.top
                     anchors.margins: 5
                     visible: root.hasData
-                    text: root.sampleWidth + "×" + root.sampleHeight + (root.approximate
-                                                                        ? " · APPROX" : "")
-                    color: "#66717c"
+                    text: root.approximate
+                        ? qsTr("%L1×%L2 · APPROX")
+                            .arg(root.sampleWidth).arg(root.sampleHeight)
+                        : qsTr("%L1×%L2").arg(root.sampleWidth).arg(root.sampleHeight)
+                    color: Theme.textSubtle
                     font.pixelSize: 6
                     font.weight: Font.DemiBold
                     font.letterSpacing: 0.35
@@ -308,7 +336,8 @@ Item {
                     anchors.centerIn: parent
                     width: parent.width - 24
                     visible: !root.hasData
-                    text: root.updating ? "Analyzing the warm preview…" : "Histogram unavailable"
+                    text: root.updating
+                        ? qsTr("Analyzing the warm preview…") : qsTr("Histogram unavailable")
                     color: root.updating ? root.secondaryTextColor : root.mutedTextColor
                     font.pixelSize: 9
                     horizontalAlignment: Text.AlignHCenter
@@ -329,17 +358,19 @@ Item {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 21
                     radius: 3
-                    color: root.hasData && root.shadowPixels > 0 ? "#1b2935" : "#161a1e"
+                    color: root.hasData && root.shadowPixels > 0
+                        ? Theme.shadowClipSurface : Theme.clippingIdleSurface
                     border.color: root.hasData && root.shadowPixels > 0
-                                  ? "#47657c" : root.borderColor
+                                  ? Theme.shadowClipBorder : root.borderColor
 
                     Label {
                         anchors.centerIn: parent
                         text: root.hasData
-                            ? "◀  SHADOWS  " + root.clippedPercent(root.shadowFraction)
-                            : "SHADOWS  —"
+                            ? qsTr("◀  SHADOWS  %1").arg(
+                                root.clippedPercent(root.shadowFraction))
+                            : qsTr("SHADOWS  —")
                         color: root.hasData && root.shadowPixels > 0
-                            ? "#88b9dc" : root.mutedTextColor
+                            ? Theme.shadowClipText : root.mutedTextColor
                         font.pixelSize: 8
                         font.weight: Font.Bold
                         font.letterSpacing: 0.35
@@ -351,9 +382,7 @@ Item {
                         acceptedButtons: Qt.NoButton
                         ToolTip.visible: containsMouse && root.hasData
                         ToolTip.delay: 450
-                        ToolTip.text: "Any RGB channel below 0 before display clamp · "
-                                      + root.pixelCountText(root.shadowPixels) + " proxy pixels"
-                                      + root.channelClipText("belowZero")
+                        ToolTip.text: root.clipTooltip("belowZero", root.shadowPixels)
                     }
                 }
 
@@ -363,17 +392,19 @@ Item {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 21
                     radius: 3
-                    color: root.hasData && root.highlightPixels > 0 ? "#332421" : "#161a1e"
+                    color: root.hasData && root.highlightPixels > 0
+                        ? Theme.highlightClipSurface : Theme.clippingIdleSurface
                     border.color: root.hasData && root.highlightPixels > 0
-                                  ? "#765048" : root.borderColor
+                                  ? Theme.highlightClipBorder : root.borderColor
 
                     Label {
                         anchors.centerIn: parent
                         text: root.hasData
-                            ? "HIGHLIGHTS  " + root.clippedPercent(root.highlightFraction) + "  ▶"
-                            : "HIGHLIGHTS  —"
+                            ? qsTr("HIGHLIGHTS  %1  ▶").arg(
+                                root.clippedPercent(root.highlightFraction))
+                            : qsTr("HIGHLIGHTS  —")
                         color: root.hasData && root.highlightPixels > 0
-                            ? "#dfa096" : root.mutedTextColor
+                            ? Theme.highlightClipText : root.mutedTextColor
                         font.pixelSize: 8
                         font.weight: Font.Bold
                         font.letterSpacing: 0.35
@@ -385,9 +416,7 @@ Item {
                         acceptedButtons: Qt.NoButton
                         ToolTip.visible: containsMouse && root.hasData
                         ToolTip.delay: 450
-                        ToolTip.text: "Any RGB channel above 1 before display clamp · "
-                                      + root.pixelCountText(root.highlightPixels) + " proxy pixels"
-                                      + root.channelClipText("aboveOne")
+                        ToolTip.text: root.clipTooltip("aboveOne", root.highlightPixels)
                     }
                 }
             }

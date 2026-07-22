@@ -3,6 +3,7 @@
 #include <libraw/libraw.h>
 
 #include <algorithm>
+#include <cmath>
 #include <climits>
 #include <cstring>
 #include <limits>
@@ -95,6 +96,29 @@ void require_libraw_success(const int result, const std::string_view operation) 
     return result;
 }
 
+void validate_development_settings(const LibRawDevelopmentSettings& settings) {
+    if (settings.schema_version != libraw_development_settings_schema_version) {
+        throw std::invalid_argument("unsupported LibRaw development settings schema version");
+    }
+    if (!std::isfinite(settings.brightness) || settings.brightness <= 0.0F
+        || settings.brightness > 8.0F) {
+        throw std::invalid_argument("LibRaw brightness must be finite and in (0, 8]");
+    }
+    if (!std::isfinite(settings.maximum_adjustment_threshold)
+        || settings.maximum_adjustment_threshold < 0.0F
+        || settings.maximum_adjustment_threshold > 1.0F) {
+        throw std::invalid_argument(
+            "LibRaw maximum adjustment threshold must be finite and in [0, 1]"
+        );
+    }
+    if (settings.output_bits_per_channel != 16U) {
+        throw std::invalid_argument("Shadow's processed-linear LibRaw contract requires 16-bit output");
+    }
+    if (settings.demosaic_quality < 0 || settings.demosaic_quality > 13) {
+        throw std::invalid_argument("LibRaw demosaic quality must be in [0, 13]");
+    }
+}
+
 [[nodiscard]] PreviewFormat preview_format(const LibRaw_internal_thumbnail_formats format) noexcept {
     switch (format) {
     case LIBRAW_INTERNAL_THUMBNAIL_JPEG:
@@ -146,6 +170,8 @@ void require_libraw_success(const int result, const std::string_view operation) 
     const auto& sizes = decoder.imgdata.sizes;
     const auto& color = decoder.imgdata.color;
     const auto& dng = color.dng_levels;
+    const auto& capture = decoder.imgdata.other;
+    const auto& lens = decoder.imgdata.lens;
 
     AssetMetadata metadata;
     metadata.make = identity.make;
@@ -167,6 +193,14 @@ void require_libraw_success(const int result, const std::string_view operation) 
         metadata.as_shot_neutral[index] = dng.asshotneutral[index];
     }
     metadata.baseline_exposure = dng.baseline_exposure;
+    metadata.iso_speed = capture.iso_speed;
+    metadata.exposure_time_seconds = capture.shutter;
+    metadata.aperture_f_number = capture.aperture;
+    metadata.focal_length_mm = capture.focal_len;
+    metadata.captured_at_unix_seconds = static_cast<std::int64_t>(capture.timestamp);
+    metadata.lens_make = lens.LensMake;
+    metadata.lens_model = lens.Lens;
+    metadata.focal_length_35mm = lens.FocalLengthIn35mmFormat;
     return metadata;
 }
 
@@ -198,7 +232,11 @@ void require_libraw_success(const int result, const std::string_view operation) 
 
 class LibRawSession final : public DecodeSession {
 public:
-    explicit LibRawSession(std::filesystem::path path) : path_(std::move(path)) {
+    explicit LibRawSession(
+        std::filesystem::path path,
+        LibRawDevelopmentSettings settings
+    )
+        : path_(std::move(path)), settings_(settings) {
         decoder_.imgdata.rawparams.max_raw_memory_mb = 2'048U;
         require_libraw_success(open_path(decoder_, path_), "open_file");
 
@@ -333,11 +371,25 @@ public:
         require_libraw_success(renderer->unpack(), "reference unpack");
 
         auto& parameters = renderer->imgdata.params;
-        parameters.output_bps = 16;
-        parameters.use_camera_wb = 1;
-        parameters.no_auto_bright = 1;
+        // LibRaw's gamm values are (inverse power, linear-toe slope). Its defaults describe a
+        // BT.709 transfer curve even for 16-bit output. 1/1 is LibRaw's documented linear curve
+        // (the dcraw -4 contract); do not later approximate the default curve as encoded sRGB.
+        parameters.gamm[0] = 1.0;
+        parameters.gamm[1] = 1.0;
+        parameters.output_bps = static_cast<int>(settings_.output_bits_per_channel);
+        parameters.use_camera_wb = settings_.use_camera_white_balance ? 1 : 0;
+        parameters.use_camera_matrix = settings_.use_camera_matrix ? 1 : 0;
+        parameters.bright = settings_.brightness;
+        parameters.exp_correc = settings_.use_exposure_correction ? 1 : 0;
+        parameters.no_auto_bright = settings_.use_auto_brightness ? 0 : 1;
+        // LibRaw otherwise defaults adjust_maximum_thr to 0.75 and may derive a new white
+        // maximum from this frame's channel maxima. Zero is the documented disable value, so
+        // the processed-linear scale is stable rather than content-adaptive.
+        parameters.adjust_maximum_thr = settings_.maximum_adjustment_threshold;
+        // LibRaw output_color=1 converts processed RGB to sRGB/Rec.709 D65 primaries. Gamma is
+        // controlled independently above, so the resulting integer samples remain linear-light.
         parameters.output_color = 1;
-        parameters.user_qual = 3;
+        parameters.user_qual = static_cast<int>(settings_.demosaic_quality);
         require_libraw_success(renderer->dcraw_process(), "dcraw_process");
 
         int result = LIBRAW_SUCCESS;
@@ -406,7 +458,9 @@ public:
         buffer.bits_per_channel = image->bits;
         buffer.channels = image->colors;
         buffer.row_stride_bytes = width * channels * sizeof(std::uint16_t);
-        buffer.color_space = ColorSpace::srgb;
+        buffer.primaries = RgbPrimaries::srgb_rec709_d65;
+        buffer.transfer_function = RgbTransferFunction::linear;
+        buffer.reference = RgbBufferReference::processed_raw;
         buffer.samples.resize(sample_count);
         std::memcpy(buffer.samples.data(), image->data, byte_count);
         return buffer;
@@ -422,6 +476,7 @@ private:
     }
 
     std::filesystem::path path_;
+    LibRawDevelopmentSettings settings_;
     LibRaw decoder_;
     AssetMetadata metadata_;
     DecodeCapabilities capabilities_;
@@ -431,10 +486,20 @@ private:
 
 class LibRawProvider final : public DecoderProvider {
 public:
-    LibRawProvider() {
+    explicit LibRawProvider(LibRawDevelopmentSettings settings) : settings_(settings) {
+        validate_development_settings(settings_);
         const unsigned capabilities = LibRaw::capabilities();
         info_.id = "libraw";
-        info_.version = LibRaw::version();
+        // Provider version participates in generated-proxy/cache identity. Include Shadow's
+        // reference/output contracts so a transfer or gamut-mapping change cannot reuse bytes
+        // generated under the same linked LibRaw release.
+        info_.version = std::string(LibRaw::version())
+            + ";shadow-processed-linear-srgb16-v"
+            + std::to_string(processed_linear_reference_rgb_contract_version)
+            + ";shadow-display-srgb8-v"
+            + std::to_string(display_srgb8_output_transform_version)
+            + ";"
+            + libraw_development_settings_signature(settings_);
         info_.dng_sdk = (capabilities & LIBRAW_CAPS_DNGSDK) != 0U;
         info_.rawspeed =
             (capabilities & (LIBRAW_CAPS_RAWSPEED | LIBRAW_CAPS_RAWSPEED3)) != 0U;
@@ -448,10 +513,11 @@ public:
     [[nodiscard]] std::unique_ptr<DecodeSession> open(
         const std::filesystem::path& path
     ) const override {
-        return std::make_unique<LibRawSession>(path);
+        return std::make_unique<LibRawSession>(path, settings_);
     }
 
 private:
+    LibRawDevelopmentSettings settings_;
     ProviderInfo info_;
 };
 
@@ -482,8 +548,38 @@ int DecodeError::provider_code() const noexcept {
     return provider_code_;
 }
 
-std::unique_ptr<DecoderProvider> make_libraw_decoder_provider() {
-    return std::make_unique<LibRawProvider>();
+LibRawDevelopmentSettings default_libraw_development_settings() noexcept {
+    return LibRawDevelopmentSettings{
+        .schema_version = libraw_development_settings_schema_version,
+        .use_camera_white_balance = true,
+        .use_camera_matrix = true,
+        .use_auto_brightness = false,
+        .use_exposure_correction = false,
+        .brightness = 1.0F,
+        .maximum_adjustment_threshold = processed_linear_reference_maximum_adjustment_threshold,
+        .output_bits_per_channel = 16U,
+        .demosaic_quality = 3,
+    };
+}
+
+std::string libraw_development_settings_signature(const LibRawDevelopmentSettings& settings) {
+    std::ostringstream signature;
+    signature << "shadow-libraw-develop-v" << settings.schema_version
+              << ";wb=" << (settings.use_camera_white_balance ? "camera" : "none")
+              << ";matrix=" << (settings.use_camera_matrix ? "camera" : "none")
+              << ";auto-bright=" << (settings.use_auto_brightness ? "on" : "off")
+              << ";exposure=" << (settings.use_exposure_correction ? "on" : "off")
+              << ";bright=" << settings.brightness
+              << ";max-adjust=" << settings.maximum_adjustment_threshold
+              << ";bps=" << settings.output_bits_per_channel
+              << ";qual=" << settings.demosaic_quality;
+    return signature.str();
+}
+
+std::unique_ptr<DecoderProvider> make_libraw_decoder_provider(
+    const LibRawDevelopmentSettings settings
+) {
+    return std::make_unique<LibRawProvider>(settings);
 }
 
 std::optional<std::size_t> select_best_preview(

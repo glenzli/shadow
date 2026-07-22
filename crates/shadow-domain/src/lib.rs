@@ -3,6 +3,7 @@
 mod asset;
 mod decision;
 mod decode;
+mod edit_repository;
 mod ids;
 pub mod operation;
 mod recipe;
@@ -18,18 +19,24 @@ pub use decode::{
     ImageDimensions, ImageMargins, PendingCorrectionsSnapshot, PreviewByteOrder, PreviewCodec,
     PreviewDescriptorSnapshot, PreviewPayload, ProxyPayload, RawMetadataSnapshot,
 };
+pub use edit_repository::{
+    EditCommitId, EditEntityChangeV1, EditEntityEntryV1, EditEntityMapV1, EditObject,
+    EditObjectEdge, EditObjectId, EditObjectKind, EditObjectPack, EditRepositoryCommit,
+    EditRepositoryCommitPayloadV1, EditRepositoryError, EditRepositoryRefExpectation,
+    EditRepositoryRefKind, LibraryRootV1,
+};
 pub use ids::{
-    BranchId, CollectionId, EntityId, GroupId, ImportSessionId, LayerId, LayerInstanceId,
-    LayerRevisionId, LocationId, MaskId, NodeId, OutputTargetId, PhotoId, RecipeCommitId, RecipeId,
-    RepresentationId, SelectionId, ShootId, StyleId, VersionId,
+    BranchId, CollectionId, EntityId, GradeNodeId, GroupId, ImportSessionId, LayerId,
+    LayerInstanceId, LayerRevisionId, LocationId, MaskId, NodeId, OutputTargetId, PhotoId,
+    RecipeCommitId, RecipeId, RepresentationId, SelectionId, ShootId, StyleId, VersionId,
 };
 pub use recipe::{
     AdjustmentNode, AdjustmentScope, BlendMode, BranchName, CURRENT_RECIPE_SCHEMA_VERSION,
     EditGraph, FiniteF64, GraphValidationError, ImageDomain, LayerContent, LayerInstance,
     LayerRevision, LayerRevisionSelector, MaskCoordinateSpace, MaskReference, NamedVersion,
     NodeInput, OperationDescriptor, OperationId, ParameterBlock, ParameterKey, ParameterValue,
-    PortType, ProcessingStage, RecipeBranch, RecipeCommit, RecipeHistory, RecipeSnapshot,
-    RecipeValidationError, UnitInterval, VersionName,
+    PortType, ProcessingStage, RecipeBranch, RecipeCommit, RecipeHistory, RecipeInputSettings,
+    RecipeOpticsSettings, RecipeSnapshot, RecipeValidationError, UnitInterval, VersionName,
 };
 pub use recipe_diff::{
     GraphDiff, IndexedLayer, LayerContentDiff, LayerContentKind, LayerInstanceDiff,

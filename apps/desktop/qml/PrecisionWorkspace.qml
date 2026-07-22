@@ -9,7 +9,9 @@ Item {
     id: precision
 
     required property var editor
-    property int selectedNode: 0
+    required property var lutLibrary
+    signal openLutLibraryRequested()
+    signal openOpticsProfileLibraryRequested()
     property real zoomFactor: 1.0
     property bool fitView: true
     property bool showBefore: false
@@ -20,6 +22,9 @@ Item {
     property bool componentReady: false
     property bool suppressViewportTracking: false
     property string readyPreviewGeneration: ""
+    property bool previewFrameReady: false
+    property int mixerViewMode: 0
+    property int selectedMixerBand: 0
 
     readonly property bool beforeReady: editor.beforePreviewSource.length > 0
     readonly property bool displayingBefore: showBefore && beforeReady
@@ -43,28 +48,96 @@ Item {
         && !displayingBefore && editor.detailMode && editor.detailTiles.length > 0
         && detailImageReady
 
-    readonly property color panel: "#121519"
-    readonly property color panelRaised: "#181c21"
-    readonly property color border: "#2a3037"
-    readonly property color textPrimary: "#edf0f2"
-    readonly property color textSecondary: "#bdc4ca"
-    readonly property color textMuted: "#8b949e"
-    readonly property color accent: "#d8b36a"
-    readonly property var nodeTitles: [
-        "Exposure", "Contrast", "Tone Curve", "RGB Channel Gain", "Saturation"
+    readonly property color panel: Theme.panel
+    readonly property color panelRaised: Theme.panelRaised
+    readonly property color border: Theme.border
+    readonly property color textPrimary: Theme.textPrimary
+    readonly property color textSecondary: Theme.textSecondary
+    readonly property color textMuted: Theme.textMuted
+    readonly property color accent: Theme.accent
+    readonly property var colorMixerBands: [
+        { "name": qsTr("Red"), "color": "#f04b4b", "hueLow": "#d94881", "hueHigh": "#f28a39", "oklchHue": 29.2339 },
+        { "name": qsTr("Orange"), "color": "#f28a39", "hueLow": "#ef4c42", "hueHigh": "#e8c63c", "oklchHue": 52.9847 },
+        { "name": qsTr("Yellow"), "color": "#e8c63c", "hueLow": "#f19a3d", "hueHigh": "#72bc4a", "oklchHue": 109.7692 },
+        { "name": qsTr("Green"), "color": "#55b96c", "hueLow": "#b0c747", "hueHigh": "#35b6a4", "oklchHue": 142.4953 },
+        { "name": qsTr("Aqua"), "color": "#32b8bd", "hueLow": "#43ae75", "hueHigh": "#3a8fdb", "oklchHue": 194.7689 },
+        { "name": qsTr("Blue"), "color": "#477fdb", "hueLow": "#36a4d3", "hueHigh": "#755bd3", "oklchHue": 264.0520 },
+        { "name": qsTr("Purple"), "color": "#8a5bcf", "hueLow": "#526fd9", "hueHigh": "#c34eb5", "oklchHue": 293.9376 },
+        { "name": qsTr("Magenta"), "color": "#d04fa4", "hueLow": "#9856c9", "hueHigh": "#e34e73", "oklchHue": 328.3634 }
     ]
-    readonly property var nodeDescriptions: [
-        "Scene-linear exposure in stops",
-        "Pivot contrast in the tone stage",
-        "Versioned point curve in the tone stage",
-        "Independent creative RGB gains",
-        "Luma-preserving color intensity"
-    ]
+
+    function fineValue(key) {
+        // Reading the revision makes generic key lookups reactive without
+        // exposing dozens of one-off Q_PROPERTY accessors.
+        const revision = editor.parameterRevision
+        return revision >= 0 ? editor.parameterValue(key) : 0
+    }
+
+    function mixerComponent(tabIndex) {
+        return tabIndex === 0 ? "hue"
+            : tabIndex === 1 ? "saturation" : "lightness"
+    }
+
+    function mixerValue(index, component) {
+        const revision = editor.parameterRevision
+        return revision >= 0 ? editor.colorMixerValue(index, component) : 0
+    }
+
+    function mixerTrackStart(band, component) {
+        if (component === "hue")
+            return band.hueLow
+        if (component === "saturation")
+            return Theme.effectiveDark ? "#4b5055" : "#a9adb1"
+        return Qt.darker(band.color, 3.2)
+    }
+
+    function mixerTrackMiddle(band, component) {
+        if (component === "hue")
+            return band.color
+        if (component === "saturation")
+            return Qt.darker(band.color, 1.35)
+        return band.color
+    }
+
+    function mixerTrackEnd(band, component) {
+        if (component === "hue")
+            return band.hueHigh
+        if (component === "saturation")
+            return Qt.lighter(band.color, 1.18)
+        return Qt.lighter(band.color, Theme.effectiveDark ? 1.9 : 1.55)
+    }
+
+    function pickPreviewColor(sourceItem, sourceX, sourceY) {
+        if (!previewFrameReady || readyPreviewGeneration.length === 0
+                || editedPreview.status !== Image.Ready)
+            return
+        const mapped = editedPreview.mapFromItem(sourceItem, sourceX, sourceY)
+        const paintedWidth = Math.max(1, editedPreview.paintedWidth)
+        const paintedHeight = Math.max(1, editedPreview.paintedHeight)
+        const paintedX = (editedPreview.width - paintedWidth) / 2
+        const paintedY = (editedPreview.height - paintedHeight) / 2
+        if (mapped.x < paintedX || mapped.y < paintedY
+                || mapped.x > paintedX + paintedWidth
+                || mapped.y > paintedY + paintedHeight)
+            return
+        const normalizedX = Math.max(0, Math.min(
+            1, (mapped.x - paintedX) / paintedWidth))
+        const normalizedY = Math.max(0, Math.min(
+            1, (mapped.y - paintedY) / paintedHeight))
+        if (editor.whiteBalancePickerActive)
+            editor.setWhiteBalanceFromPreview(
+                normalizedX, normalizedY, readyPreviewGeneration)
+        else
+            editor.addPointColorFromPreview(
+                normalizedX, normalizedY, readyPreviewGeneration)
+    }
 
     Connections {
         target: precision.editor
         function onSourcePathChanged() {
             precision.showBefore = false
+            precision.previewFrameReady = false
+            precision.readyPreviewGeneration = ""
             precision.resetView()
         }
         function onDetailGeometryChanged() {
@@ -212,15 +285,6 @@ Item {
         onActivated: precision.editor.redo()
     }
 
-    ListModel {
-        id: nodeModel
-        ListElement { nodeTitle: "Exposure"; nodeStage: "SCENE LINEAR" }
-        ListElement { nodeTitle: "Contrast"; nodeStage: "TONE" }
-        ListElement { nodeTitle: "Tone Curve"; nodeStage: "TONE · OPTIONAL" }
-        ListElement { nodeTitle: "RGB Channel Gain"; nodeStage: "CREATIVE COLOR" }
-        ListElement { nodeTitle: "Saturation"; nodeStage: "CREATIVE COLOR" }
-    }
-
     RowLayout {
         anchors.fill: parent
         spacing: 0
@@ -229,11 +293,19 @@ Item {
             Layout.preferredWidth: Math.max(220, Math.min(252, precision.width * 0.19))
             Layout.fillHeight: true
             color: precision.panel
-            border.color: precision.border
+            border.width: 0
+
+            Rectangle {
+                anchors.top: parent.top
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                width: 1
+                color: precision.border
+            }
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: 16
+                anchors.margins: Theme.panelPadding
                 spacing: 10
 
                 RowLayout {
@@ -241,68 +313,55 @@ Item {
                     spacing: 6
                     Label {
                         Layout.fillWidth: true
-                        text: "ADJUSTMENT LAYERS"
-                        color: precision.textMuted
-                        font.pixelSize: 10
+                        text: qsTr("GRADE NODES")
+                        color: precision.textSecondary
+                        font.pixelSize: 11
                         font.weight: Font.DemiBold
-                        font.letterSpacing: 1.5
+                        font.letterSpacing: 0.35
                     }
                     Label {
-                        text: precision.editor.layers.length + " / 16"
+                        text: qsTr("%L1 / %L2")
+                            .arg(precision.editor.gradeNodes.length).arg(16)
                         color: precision.textMuted
-                        font.pixelSize: 8
+                        font.pixelSize: 10
                     }
-                    Button {
-                        id: addLayerButton
-                        Layout.preferredWidth: 28
-                        Layout.preferredHeight: 26
-                        text: "+"
-                        enabled: precision.editor.canAddLayer
-                        Accessible.name: "Add adjustment layer"
-                        ToolTip.visible: hovered
-                        ToolTip.text: "Add neutral layer after the selection"
-                        onClicked: precision.editor.addLayer()
-                        background: Rectangle {
-                            radius: 3
-                            color: addLayerButton.down ? "#b9914e" : precision.accent
-                            opacity: addLayerButton.enabled ? 1.0 : 0.3
-                        }
-                        contentItem: Label {
-                            text: addLayerButton.text
-                            color: "#17130d"
-                            font.pixelSize: 16
-                            font.weight: Font.Bold
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
+                    ShadowIconButton {
+                        id: addGradeNodeButton
+                        source: "qrc:/icons/node-add.svg"
+                        variant: ShadowIconButton.Secondary
+                        foregroundColor: precision.accent
+                        enabled: precision.editor.canAddGradeNode
+                        toolTipText: qsTr("Add a neutral Grade Node after the selection")
+                        accessibleName: qsTr("Add Grade Node")
+                        onClicked: precision.editor.addGradeNode()
                     }
                 }
 
                 ListView {
-                    id: layerList
+                    id: gradeNodeList
+                    objectName: "gradeNodeList"
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Math.min(280, Math.max(58, contentHeight))
-                    Layout.maximumHeight: 280
-                    model: precision.editor.layers
+                    Layout.fillHeight: true
+                    model: precision.editor.gradeNodes
                     spacing: 6
                     clip: true
                     boundsBehavior: Flickable.StopAtBounds
 
                     delegate: Rectangle {
-                        id: layerRow
+                        id: gradeNodeRow
                         required property int index
                         required property var modelData
 
                         readonly property bool selected:
-                            layerRow.index === precision.editor.selectedLayerIndex
+                            gradeNodeRow.index
+                                === precision.editor.selectedGradeNodeIndex
 
-                        width: layerList.width
-                        height: 54
-                        radius: 4
-                        color: selected ? "#242a30" : "#181c21"
-                        border.color: selected
-                            ? precision.accent
-                            : modelData.enabled ? precision.border : "#574a36"
+                        width: gradeNodeList.width
+                        height: 52
+                        radius: 6
+                        color: selected ? Theme.accentSurfaceQuiet : Theme.panelRaised
+                        border.width: selected ? 1 : 0
+                        border.color: Theme.accentBorder
 
                         RowLayout {
                             anchors.fill: parent
@@ -311,15 +370,19 @@ Item {
                             spacing: 7
 
                             Rectangle {
-                                Layout.preferredWidth: 21
-                                Layout.preferredHeight: 21
-                                radius: 11
-                                color: layerRow.selected ? precision.accent : "#2a3037"
+                                Layout.preferredWidth: 22
+                                Layout.preferredHeight: 22
+                                radius: 5
+                                color: gradeNodeRow.selected
+                                    ? Theme.accentSurface : Theme.surfaceSubtle
+                                border.width: gradeNodeRow.selected ? 1 : 0
+                                border.color: Theme.accentBorder
                                 Label {
                                     anchors.centerIn: parent
-                                    text: String(layerRow.index + 1).padStart(2, "0")
-                                    color: layerRow.selected ? "#17130d" : precision.textMuted
-                                    font.pixelSize: 8
+                                    text: String(gradeNodeRow.index + 1).padStart(2, "0")
+                                    color: gradeNodeRow.selected
+                                        ? precision.accent : precision.textMuted
+                                    font.pixelSize: 9
                                     font.weight: Font.Bold
                                 }
                             }
@@ -329,8 +392,8 @@ Item {
                                 spacing: 2
                                 Label {
                                     Layout.fillWidth: true
-                                    text: layerRow.modelData.label
-                                    color: layerRow.modelData.enabled
+                                    text: gradeNodeRow.modelData.label
+                                    color: gradeNodeRow.modelData.enabled
                                         ? precision.textPrimary : precision.textSecondary
                                     font.pixelSize: 11
                                     font.weight: Font.Medium
@@ -338,13 +401,17 @@ Item {
                                 }
                                 Label {
                                     Layout.fillWidth: true
-                                    text: layerRow.modelData.enabled
-                                        ? "PHOTO · ENABLED" : "PHOTO · BYPASSED"
-                                    color: layerRow.modelData.enabled
-                                        ? precision.accent : "#a08a65"
-                                    font.pixelSize: 8
+                                    text: gradeNodeRow.modelData.enabled
+                                        ? qsTr("LOCAL GRADE · ENABLED")
+                                        : qsTr("LOCAL GRADE · BYPASSED")
+                                    color: gradeNodeRow.modelData.enabled
+                                        ? (gradeNodeRow.selected
+                                            ? Theme.accentTextMuted
+                                            : precision.textMuted)
+                                        : Theme.textMuted
+                                    font.pixelSize: 9
                                     font.weight: Font.DemiBold
-                                    font.letterSpacing: 0.6
+                                    font.letterSpacing: 0.2
                                     elide: Text.ElideRight
                                 }
                             }
@@ -353,19 +420,19 @@ Item {
                                 id: rowEnabledSwitch
                                 Layout.preferredWidth: 36
                                 Layout.preferredHeight: 22
-                                checked: layerRow.modelData.enabled
+                                checked: gradeNodeRow.modelData.enabled
                                 enabled: precision.editor.active && !precision.editor.stateBusy
                                 Accessible.name: checked
-                                    ? "Bypass " + layerRow.modelData.label
-                                    : "Enable " + layerRow.modelData.label
+                                    ? qsTr("Bypass %1").arg(gradeNodeRow.modelData.label)
+                                    : qsTr("Enable %1").arg(gradeNodeRow.modelData.label)
                                 ToolTip.visible: hovered
                                 ToolTip.delay: 500
                                 ToolTip.text: checked
-                                    ? "Bypass layer; preserve all values"
-                                    : "Enable layer"
+                                    ? qsTr("Bypass Grade Node; preserve all adjustments")
+                                    : qsTr("Enable Grade Node")
                                 onClicked: {
-                                    precision.editor.selectLayer(layerRow.index)
-                                    precision.editor.layerEnabled = checked
+                                    precision.editor.selectGradeNode(gradeNodeRow.index)
+                                    precision.editor.gradeNodeEnabled = checked
                                 }
                                 indicator: Rectangle {
                                     implicitWidth: 34
@@ -373,8 +440,10 @@ Item {
                                     x: (rowEnabledSwitch.width - width) / 2
                                     y: (rowEnabledSwitch.height - height) / 2
                                     radius: height / 2
-                                    color: rowEnabledSwitch.checked ? "#5a492a" : "#282e34"
-                                    border.color: rowEnabledSwitch.checked ? "#8b7040" : "#4a535c"
+                                    color: rowEnabledSwitch.checked
+                                        ? Theme.switchOnSurface : Theme.switchOffSurface
+                                    border.color: rowEnabledSwitch.checked
+                                        ? Theme.switchOnBorder : Theme.switchOffBorder
                                     Rectangle {
                                         width: 12
                                         height: 12
@@ -393,7 +462,8 @@ Item {
                             anchors.fill: parent
                             anchors.rightMargin: 44
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: precision.editor.selectLayer(layerRow.index)
+                            onClicked: precision.editor.selectGradeNode(
+                                gradeNodeRow.index)
                         }
                     }
 
@@ -404,45 +474,47 @@ Item {
                     Layout.fillWidth: true
                     spacing: 5
 
-                    LayerActionButton {
-                        id: copyLayerButton
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 28
-                        text: "COPY"
-                        enabled: precision.editor.hasSelectedLayer
-                            && precision.editor.canAddLayer
-                        onClicked: precision.editor.duplicateSelectedLayer()
+                    Item { Layout.fillWidth: true }
+
+                    ShadowIconButton {
+                        id: copyGradeNodeButton
+                        source: "qrc:/icons/duplicate.svg"
+                        toolTipText: qsTr("Duplicate selected Grade Node")
+                        accessibleName: toolTipText
+                        enabled: precision.editor.hasSelectedGradeNode
+                            && precision.editor.canAddGradeNode
+                        onClicked: precision.editor.duplicateSelectedGradeNode()
                     }
-                    LayerActionButton {
-                        id: deleteLayerButton
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 28
-                        text: "DELETE"
-                        enabled: precision.editor.canDeleteLayer
-                        onClicked: precision.editor.deleteSelectedLayer()
+                    ShadowIconButton {
+                        id: deleteGradeNodeButton
+                        source: "qrc:/icons/trash.svg"
+                        toolTipText: qsTr("Delete selected Grade Node")
+                        accessibleName: toolTipText
+                        enabled: precision.editor.canDeleteGradeNode
+                        onClicked: precision.editor.deleteSelectedGradeNode()
                     }
-                    LayerActionButton {
-                        id: moveLayerUpButton
-                        Layout.preferredWidth: 32
-                        Layout.preferredHeight: 28
-                        text: "↑"
-                        enabled: precision.editor.canMoveLayerUp
-                        Accessible.name: "Move selected layer up"
-                        onClicked: precision.editor.moveSelectedLayer(
-                            precision.editor.selectedLayerIndex - 1
+                    ShadowIconButton {
+                        id: moveGradeNodeUpButton
+                        source: "qrc:/icons/move-up.svg"
+                        enabled: precision.editor.canMoveGradeNodeUp
+                        toolTipText: qsTr("Move selected Grade Node up")
+                        accessibleName: toolTipText
+                        onClicked: precision.editor.moveSelectedGradeNode(
+                            precision.editor.selectedGradeNodeIndex - 1
                         )
                     }
-                    LayerActionButton {
-                        id: moveLayerDownButton
-                        Layout.preferredWidth: 32
-                        Layout.preferredHeight: 28
-                        text: "↓"
-                        enabled: precision.editor.canMoveLayerDown
-                        Accessible.name: "Move selected layer down"
-                        onClicked: precision.editor.moveSelectedLayer(
-                            precision.editor.selectedLayerIndex + 1
+                    ShadowIconButton {
+                        id: moveGradeNodeDownButton
+                        source: "qrc:/icons/move-down.svg"
+                        enabled: precision.editor.canMoveGradeNodeDown
+                        toolTipText: qsTr("Move selected Grade Node down")
+                        accessibleName: toolTipText
+                        onClicked: precision.editor.moveSelectedGradeNode(
+                            precision.editor.selectedGradeNodeIndex + 1
                         )
                     }
+
+                    Item { Layout.fillWidth: true }
                 }
 
                 Rectangle {
@@ -453,116 +525,8 @@ Item {
 
                 Label {
                     Layout.fillWidth: true
-                    text: precision.editor.hasSelectedLayer
-                        ? "NODES · " + precision.editor.layers[
-                            precision.editor.selectedLayerIndex].label
-                        : "NODES"
-                    color: precision.textMuted
-                    font.pixelSize: 9
-                    font.weight: Font.DemiBold
-                    font.letterSpacing: 1.0
-                    elide: Text.ElideRight
-                }
-
-                ScrollView {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    clip: true
-                    contentWidth: availableWidth
-
-                    ColumnLayout {
-                        width: parent.width
-                        spacing: 0
-                        opacity: precision.editor.layerEnabled ? 1.0 : 0.42
-
-                        Repeater {
-                            model: nodeModel
-
-                            delegate: Item {
-                                id: nodeRow
-                                required property int index
-                                required property string nodeTitle
-                                required property string nodeStage
-
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: 54
-
-                                Rectangle {
-                                    anchors.fill: parent
-                                    radius: 4
-                                    color: precision.selectedNode === nodeRow.index
-                                        ? "#242a30" : "transparent"
-
-                                    RowLayout {
-                                        anchors.fill: parent
-                                        anchors.leftMargin: 8
-                                        anchors.rightMargin: 8
-                                        spacing: 9
-
-                                        Rectangle {
-                                            Layout.preferredWidth: 22
-                                            Layout.preferredHeight: 22
-                                            radius: 11
-                                            color: precision.selectedNode === nodeRow.index
-                                                ? precision.accent : "#2a3037"
-                                            Label {
-                                                anchors.centerIn: parent
-                                                text: String(nodeRow.index + 1).padStart(2, "0")
-                                                color: precision.selectedNode === nodeRow.index
-                                                ? "#17130d" : precision.textMuted
-                                                font.pixelSize: 8
-                                                font.weight: Font.Bold
-                                            }
-                                        }
-
-                                        ColumnLayout {
-                                            Layout.fillWidth: true
-                                            spacing: 2
-                                            Label {
-                                                Layout.fillWidth: true
-                                                text: nodeRow.nodeTitle
-                                                color: precision.textPrimary
-                                                font.pixelSize: 11
-                                                elide: Text.ElideRight
-                                            }
-                                            Label {
-                                                Layout.fillWidth: true
-                                                text: nodeRow.nodeStage
-                                                color: precision.textMuted
-                                                font.pixelSize: 8
-                                                font.letterSpacing: 0.6
-                                                elide: Text.ElideRight
-                                            }
-                                        }
-                                    }
-
-                                    MouseArea {
-                                        anchors.fill: parent
-                                        enabled: precision.editor.hasSelectedLayer
-                                        onClicked: {
-                                            precision.selectedNode = nodeRow.index
-                                            rightTabs.currentIndex = 0
-                                        }
-                                    }
-                                }
-
-                                Rectangle {
-                                    visible: nodeRow.index < nodeModel.count - 1
-                                    x: 19
-                                    y: 42
-                                    width: 1
-                                    height: 24
-                                    color: "#3a4149"
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Label {
-                    Layout.fillWidth: true
-                    text: "Layers and their fixed nodes execute from top to bottom. Every structural change is undoable."
-                    color: "#66717c"
+                    text: qsTr("Grade Nodes execute from top to bottom. Each node contains a complete, non-destructive grade.")
+                    color: Theme.textSubtle
                     wrapMode: Text.WordWrap
                     font.pixelSize: 10
                     lineHeight: 1.35
@@ -573,7 +537,7 @@ Item {
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            color: "#090b0d"
+            color: Theme.photoCanvas
 
             ColumnLayout {
                 anchors.fill: parent
@@ -581,9 +545,17 @@ Item {
 
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 46
-                    color: "#101317"
-                    border.color: precision.border
+                    Layout.preferredHeight: 42
+                    color: Theme.chrome
+                    border.width: 0
+
+                    Rectangle {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        height: 1
+                        color: precision.border
+                    }
 
                     RowLayout {
                         anchors.fill: parent
@@ -596,7 +568,8 @@ Item {
                             spacing: 0
                             Label {
                                 Layout.fillWidth: true
-                                text: precision.editor.active ? precision.editor.title : "No photo open"
+                                text: precision.editor.active
+                                    ? precision.editor.title : qsTr("No photo open")
                                 color: precision.textPrimary
                                 font.pixelSize: 12
                                 font.weight: Font.Medium
@@ -611,169 +584,72 @@ Item {
                             }
                         }
 
-                        Button {
-                            id: undoButton
-                            Layout.preferredWidth: 58
-                            Layout.preferredHeight: 27
-                            text: "UNDO"
-                            enabled: precision.editor.active && precision.editor.canUndo
-                                && !precision.editor.stateBusy
-                            onClicked: precision.editor.undo()
-                            background: Rectangle {
-                                radius: 3
-                                color: undoButton.down ? "#292f35" : "#1b2025"
-                                border.color: undoButton.enabled ? "#48515a" : precision.border
-                            }
-                            contentItem: Label {
-                                text: undoButton.text
-                                color: undoButton.enabled ? precision.textPrimary : "#606a74"
-                                font.pixelSize: 8
-                                font.weight: Font.Bold
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
-                        }
-                        Button {
-                            id: redoButton
-                            Layout.preferredWidth: 58
-                            Layout.preferredHeight: 27
-                            text: "REDO"
-                            enabled: precision.editor.active && precision.editor.canRedo
-                                && !precision.editor.stateBusy
-                            onClicked: precision.editor.redo()
-                            background: Rectangle {
-                                radius: 3
-                                color: redoButton.down ? "#292f35" : "#1b2025"
-                                border.color: redoButton.enabled ? "#48515a" : precision.border
-                            }
-                            contentItem: Label {
-                                text: redoButton.text
-                                color: redoButton.enabled ? precision.textPrimary : "#606a74"
-                                font.pixelSize: 8
-                                font.weight: Font.Bold
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
-                        }
-
-                        Rectangle {
-                            Layout.preferredWidth: 1
-                            Layout.preferredHeight: 22
-                            color: precision.border
-                        }
-                        Button {
-                            id: afterButton
-                            Layout.preferredWidth: 52
-                            Layout.preferredHeight: 27
-                            text: "AFTER"
-                            enabled: precision.editor.active
-                            onClicked: precision.showBefore = false
-                            background: Rectangle {
-                                radius: 3
-                                color: !precision.showBefore ? "#30291d" : "#1b2025"
-                                border.color: !precision.showBefore
-                                    ? precision.accent : precision.border
-                            }
-                            contentItem: Label {
-                                text: afterButton.text
-                                color: !precision.showBefore
-                                    ? precision.accent : precision.textMuted
-                                font.pixelSize: 8
-                                font.weight: Font.Bold
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
-                        }
-                        Button {
-                            id: beforeButton
-                            Layout.preferredWidth: 58
-                            Layout.preferredHeight: 27
-                            text: "BEFORE"
+                        ShadowIconButton {
+                            id: beforeAfterButton
+                            source: "qrc:/icons/before-after.svg"
+                            variant: ShadowIconButton.Secondary
+                            selected: precision.showBefore
+                            toolTipText: precision.showBefore
+                                ? qsTr("Show edited image")
+                                : qsTr("Show original image")
+                            accessibleName: toolTipText
+                            Accessible.checked: selected
                             enabled: precision.editor.active
                             onClicked: {
-                                precision.resetView()
-                                precision.showBefore = true
-                                precision.editor.requestBeforePreview()
-                            }
-                            background: Rectangle {
-                                radius: 3
-                                color: precision.showBefore ? "#30291d" : "#1b2025"
-                                border.color: precision.showBefore
-                                    ? precision.accent : precision.border
-                            }
-                            contentItem: Label {
-                                text: beforeButton.text
-                                color: precision.showBefore
-                                    ? precision.accent : precision.textMuted
-                                font.pixelSize: 8
-                                font.weight: Font.Bold
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
+                                if (precision.showBefore) {
+                                    precision.showBefore = false
+                                } else {
+                                    precision.resetView()
+                                    precision.showBefore = true
+                                    precision.editor.requestBeforePreview()
+                                }
                             }
                         }
 
                         Label {
                             text: precision.fitView
-                                ? "FIT"
-                                : Math.round(precision.zoomFactor * 100) + "%"
+                                ? qsTr("FIT")
+                                : qsTr("%L1%").arg(
+                                    Math.round(precision.zoomFactor * 100))
                             color: precision.textMuted
                             font.family: "Menlo"
                             font.pixelSize: 9
                         }
-                        Slider {
+                        ShadowInlineSlider {
                             id: zoomSlider
                             Layout.preferredWidth: 112
+                            Layout.minimumWidth: 72
                             from: 0.25
                             to: 4.0
                             stepSize: 0.05
                             value: precision.zoomFactor
+                            enabled: precision.editor.active
+                                && !precision.editor.stateBusy
                             onMoved: precision.setPixelZoom(value)
                         }
-                        Button {
+                        ShadowButton {
                             id: actualPixelsButton
                             Layout.preferredWidth: 52
-                            Layout.preferredHeight: 27
-                            text: "100%"
+                            Layout.preferredHeight: 30
+                            compact: true
+                            variant: ShadowButton.Secondary
+                            selected: !precision.fitView
+                                && Math.abs(precision.zoomFactor - 1.0) < 0.001
+                            text: qsTr("100%")
                             enabled: precision.editor.active
                             onClicked: precision.setPixelZoom(1.0)
-                            background: Rectangle {
-                                radius: 3
-                                color: !precision.fitView
-                                    && Math.abs(precision.zoomFactor - 1.0) < 0.001
-                                    ? "#30291d" : "#1b2025"
-                                border.color: !precision.fitView
-                                    && Math.abs(precision.zoomFactor - 1.0) < 0.001
-                                    ? precision.accent : precision.border
-                            }
-                            contentItem: Label {
-                                text: actualPixelsButton.text
-                                color: actualPixelsButton.enabled
-                                    ? precision.textSecondary : "#606a74"
-                                font.pixelSize: 9
-                                font.weight: Font.Bold
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
                         }
-                        Button {
+                        ShadowIconButton {
                             id: fitButton
-                            Layout.preferredWidth: 46
-                            Layout.preferredHeight: 27
-                            text: "FIT"
+                            source: "qrc:/icons/fit-view.svg"
+                            variant: ShadowIconButton.Secondary
+                            selected: precision.fitView
+                            toolTipText: qsTr("Fit image to window")
+                            accessibleName: toolTipText
+                            Accessible.checked: selected
+                            enabled: precision.editor.active
+                                && !precision.editor.stateBusy
                             onClicked: precision.resetView()
-                            background: Rectangle {
-                                radius: 3
-                                color: fitButton.down ? "#292f35" : "#1b2025"
-                                border.color: precision.border
-                            }
-                            contentItem: Label {
-                                text: fitButton.text
-                                color: precision.textMuted
-                                font.pixelSize: 9
-                                font.weight: Font.Bold
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
                         }
                     }
                 }
@@ -819,13 +695,25 @@ Item {
                             fillMode: Image.Stretch
                             asynchronous: true
                             cache: false
+                            // Keep the last decoded texture on screen until the
+                            // replacement generation is actually ready. Without
+                            // this, every slider update briefly exposes the
+                            // canvas while Qt decodes the next JPEG.
+                            retainWhileLoading: true
                             smooth: true
-                            onSourceChanged: precision.readyPreviewGeneration = ""
+                            onSourceChanged: {
+                                precision.previewFrameReady = false
+                                precision.readyPreviewGeneration = ""
+                            }
                             onStatusChanged: {
                                 if (status === Image.Ready) {
+                                    precision.previewFrameReady = true
                                     precision.readyPreviewGeneration
                                         = precision.previewGeneration(source)
-                                } else if (status === Image.Error || status === Image.Null) {
+                                } else if (status === Image.Null) {
+                                    precision.previewFrameReady = false
+                                    precision.readyPreviewGeneration = ""
+                                } else if (status === Image.Error) {
                                     precision.readyPreviewGeneration = ""
                                 }
                             }
@@ -854,6 +742,20 @@ Item {
                                     }
                                 }
                             }
+                        }
+
+                        MouseArea {
+                            id: pointColorPickArea
+                            anchors.fill: parent
+                            z: 100
+                            enabled: (precision.editor.pointColorPickerActive
+                                    || precision.editor.whiteBalancePickerActive)
+                                && !precision.displayingBefore
+                                && precision.previewFrameReady
+                                && precision.readyPreviewGeneration.length > 0
+                            cursorShape: Qt.CrossCursor
+                            onClicked: mouse => precision.pickPreviewColor(
+                                pointColorPickArea, mouse.x, mouse.y)
                         }
                     }
 
@@ -894,17 +796,18 @@ Item {
                 visible: precision.editor.active
                     && (precision.displayingBefore
                         || precision.editor.previewSource.length > 0)
-                color: "#c9181c21"
-                border.color: precision.displayingBefore ? precision.accent : "#45505a"
+                color: Theme.previewHudOverlay
+                border.color: precision.displayingBefore
+                    ? precision.accent : Theme.previewHudBorder
 
                 Label {
                     id: comparisonBadgeLabel
                     anchors.centerIn: parent
                     text: precision.displayingBefore
-                        ? "BEFORE · NEUTRAL BASE"
+                        ? qsTr("BEFORE · NEUTRAL BASE")
                         : precision.showingFullDetail
-                            ? "AFTER · FULL-RES RGB DETAIL"
-                            : "AFTER · CURRENT EDIT PROXY"
+                            ? qsTr("AFTER · FULL-RES RGB DETAIL")
+                            : qsTr("AFTER · CURRENT EDIT PROXY")
                     color: precision.displayingBefore
                         ? precision.accent : precision.textSecondary
                     font.pixelSize: 8
@@ -925,10 +828,10 @@ Item {
                     && (precision.editor.detailRendering
                         || precision.editor.detailErrorText.length > 0
                         || precision.detailImageLoadFailed)
-                color: "#d9181c21"
+                color: Theme.previewHudStrongOverlay
                 border.color: precision.editor.detailErrorText.length > 0
                     || precision.detailImageLoadFailed
-                    ? "#8b5148" : precision.border
+                    ? Theme.errorBorder : precision.border
                 clip: true
 
                 Row {
@@ -946,11 +849,11 @@ Item {
                         text: precision.editor.detailErrorText.length > 0
                             ? precision.editor.detailErrorText
                             : precision.detailImageLoadFailed
-                                ? "Full-detail viewport unavailable · showing proxy"
-                                : "Preparing exact local full-resolution pixels…"
+                                ? qsTr("Full-detail viewport unavailable · showing proxy")
+                                : qsTr("Preparing exact local full-resolution pixels…")
                         color: precision.editor.detailErrorText.length > 0
                             || precision.detailImageLoadFailed
-                            ? "#d28e82" : precision.textMuted
+                            ? Theme.errorText : precision.textMuted
                         font.pixelSize: 9
                         elide: Text.ElideRight
                     }
@@ -966,7 +869,7 @@ Item {
                 radius: 4
                 visible: precision.showBefore && !precision.beforeReady
                     && precision.editor.active
-                color: "#d9181c21"
+                color: Theme.previewHudStrongOverlay
                 border.color: precision.border
                 clip: true
 
@@ -985,10 +888,10 @@ Item {
                         text: precision.editor.beforeErrorText.length > 0
                             ? precision.editor.beforeErrorText
                             : precision.editor.beforeRendering
-                                ? "Preparing neutral import baseline…"
-                                : "Waiting for the current preview…"
+                                ? qsTr("Preparing neutral import baseline…")
+                                : qsTr("Waiting for the current preview…")
                         color: precision.editor.beforeErrorText.length > 0
-                            ? "#d28e82" : precision.textMuted
+                            ? Theme.errorText : precision.textMuted
                         font.pixelSize: 9
                         elide: Text.ElideRight
                     }
@@ -998,16 +901,18 @@ Item {
             Column {
                 anchors.centerIn: parent
                 spacing: 14
-                visible: precision.editor.stateBusy
-                    || (!precision.showBefore && precision.editor.rendering)
-                    || (precision.showBefore && precision.beforeReady
-                        && editedPreview.status === Image.Loading)
+                visible: !precision.previewFrameReady
+                    && (precision.editor.stateBusy
+                        || precision.editor.rendering
+                        || (precision.showBefore
+                            && precision.editor.beforeRendering))
                 BusyIndicator {
                     anchors.horizontalCenter: parent.horizontalCenter
                     running: parent.visible
                 }
                 Label {
-                    text: precision.editor.active ? "Rendering local edit" : "Opening photo"
+                    text: precision.editor.active
+                        ? qsTr("Rendering local edit") : qsTr("Opening photo")
                     color: precision.textPrimary
                     font.pixelSize: 12
                 }
@@ -1018,11 +923,15 @@ Item {
                 width: Math.min(390, parent.width - 60)
                 spacing: 10
                 visible: !precision.editor.busy
-                    && (!precision.editor.active || editedPreview.status === Image.Error)
+                    && (!precision.editor.active
+                        || (!precision.previewFrameReady
+                            && editedPreview.status === Image.Error))
                 Label {
                     anchors.horizontalCenter: parent.horizontalCenter
-                    text: editedPreview.status === Image.Error ? "PREVIEW ERROR" : "NO PHOTO OPEN"
-                    color: editedPreview.status === Image.Error ? "#d28e82" : precision.textMuted
+                    text: editedPreview.status === Image.Error
+                        ? qsTr("PREVIEW ERROR") : qsTr("NO PHOTO OPEN")
+                    color: editedPreview.status === Image.Error
+                        ? Theme.errorText : precision.textMuted
                     font.pixelSize: 12
                     font.weight: Font.DemiBold
                     font.letterSpacing: 1.2
@@ -1043,7 +952,15 @@ Item {
             Layout.preferredWidth: Math.max(304, Math.min(348, precision.width * 0.24))
             Layout.fillHeight: true
             color: precision.panel
-            border.color: precision.border
+            border.width: 0
+
+            Rectangle {
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.bottom: parent.bottom
+                width: 1
+                color: precision.border
+            }
 
             ColumnLayout {
                 anchors.fill: parent
@@ -1051,13 +968,13 @@ Item {
 
                 EditHistogram {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 166
+                    Layout.preferredHeight: 158
                     analysis: precision.displayedHistogram
                     beforeView: precision.displayingBefore
                     displayGeneration: precision.readyPreviewGeneration
-                    panelColor: precision.panelRaised
-                    plotColor: "#0b0e11"
-                    borderColor: precision.border
+                    panelColor: precision.panel
+                    plotColor: Theme.plot
+                    borderColor: Theme.transparent
                     textColor: precision.textPrimary
                     secondaryTextColor: precision.textSecondary
                     mutedTextColor: precision.textMuted
@@ -1067,54 +984,34 @@ Item {
                 TabBar {
                     id: rightTabs
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 44
-                    background: Rectangle { color: "#101317" }
+                    Layout.topMargin: 2
+                    Layout.preferredHeight: 36
+                    spacing: 0
+                    background: Rectangle {
+                        color: Theme.transparent
 
-                    TabButton {
-                        id: adjustTab
-                        text: "ADJUST"
-                        background: Rectangle {
-                            color: "transparent"
-                            Rectangle {
-                                anchors.left: parent.left
-                                anchors.right: parent.right
-                                anchors.bottom: parent.bottom
-                                height: 2
-                                color: adjustTab.checked ? precision.accent : "transparent"
-                            }
-                        }
-                        contentItem: Label {
-                            text: adjustTab.text
-                            color: adjustTab.checked ? precision.accent : precision.textMuted
-                            font.pixelSize: 10
-                            font.weight: Font.DemiBold
-                            font.letterSpacing: 1.1
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
+                        Rectangle {
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.bottom: parent.bottom
+                            height: 1
+                            color: precision.border
                         }
                     }
-                    TabButton {
+
+                    ShadowTabButton {
+                        id: adjustTab
+                        text: qsTr("ADJUST")
+                        minimumTabWidth: 0
+                        underlineInset: 32
+                        underlineMaximumWidth: 52
+                    }
+                    ShadowTabButton {
                         id: versionsTab
-                        text: "VERSIONS"
-                        background: Rectangle {
-                            color: "transparent"
-                            Rectangle {
-                                anchors.left: parent.left
-                                anchors.right: parent.right
-                                anchors.bottom: parent.bottom
-                                height: 2
-                                color: versionsTab.checked ? precision.accent : "transparent"
-                            }
-                        }
-                        contentItem: Label {
-                            text: versionsTab.text
-                            color: versionsTab.checked ? precision.accent : precision.textMuted
-                            font.pixelSize: 10
-                            font.weight: Font.DemiBold
-                            font.letterSpacing: 1.1
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
+                        text: qsTr("VERSIONS")
+                        minimumTabWidth: 0
+                        underlineInset: 32
+                        underlineMaximumWidth: 52
                     }
                 }
 
@@ -1131,16 +1028,18 @@ Item {
 
                             ColumnLayout {
                                 width: parent.width
-                                spacing: 12
+                                spacing: 7
                                 enabled: precision.editor.active && !precision.editor.stateBusy
 
                                 Item { Layout.preferredHeight: 4 }
 
                                 ColumnLayout {
+                                    objectName: "gradeNodeInspector"
                                     Layout.fillWidth: true
-                                    spacing: 12
-                                    enabled: precision.editor.layerEnabled
-                                    opacity: precision.editor.layerEnabled ? 1.0 : 0.42
+                                    spacing: 8
+                                    enabled: precision.editor.gradeNodeEnabled
+                                    opacity: precision.editor.gradeNodeEnabled
+                                        ? 1.0 : 0.42
 
                                     Behavior on opacity {
                                         NumberAnimation { duration: 100 }
@@ -1148,190 +1047,1319 @@ Item {
 
                                     Label {
                                         Layout.fillWidth: true
-                                        Layout.leftMargin: 18
-                                        Layout.rightMargin: 18
-                                        text: precision.nodeTitles[precision.selectedNode]
+                                        Layout.leftMargin: 14
+                                        Layout.rightMargin: 14
+                                        text: precision.editor.hasSelectedGradeNode
+                                            ? precision.editor.gradeNodes[
+                                                precision.editor
+                                                    .selectedGradeNodeIndex].label
+                                            : qsTr("No Grade Node selected")
                                         color: precision.textPrimary
                                         font.pixelSize: 16
                                         font.weight: Font.Medium
+                                        elide: Text.ElideRight
                                     }
                                     Label {
                                         Layout.fillWidth: true
-                                        Layout.leftMargin: 18
-                                        Layout.rightMargin: 18
-                                        text: precision.nodeDescriptions[precision.selectedNode]
+                                        Layout.leftMargin: 14
+                                        Layout.rightMargin: 14
+                                        text: qsTr("One complete, non-destructive grade. Its Light, Tone, and Color adjustments travel together when this node is copied, shared, or versioned.")
                                         color: precision.textMuted
                                         font.pixelSize: 10
                                         wrapMode: Text.WordWrap
                                     }
 
-                                    Rectangle {
+                                    ShadowAdjustmentSection {
                                         Layout.fillWidth: true
-                                        Layout.leftMargin: 18
-                                        Layout.rightMargin: 18
-                                        Layout.preferredHeight: 1
-                                        color: precision.border
-                                    }
+                                        title: qsTr("LIGHT")
+                                        expanded: true
 
-                                    ShadowSlider {
-                                        visible: precision.selectedNode === 0
-                                        Layout.fillWidth: true
-                                        Layout.leftMargin: 18
-                                        Layout.rightMargin: 18
-                                        label: "Exposure"
-                                        from: -5.0
-                                        to: 5.0
-                                        stepSize: 0.05
-                                        value: precision.editor.exposureStops
-                                        suffix: " EV"
-                                        onGestureStarted: precision.editor.beginParameterEdit("exposure")
-                                        onEdited: value => precision.editor.exposureStops = value
-                                        onGestureFinished: precision.editor.endParameterEdit("exposure")
-                                    }
-
-                                    ShadowSlider {
-                                        visible: precision.selectedNode === 1
-                                        Layout.fillWidth: true
-                                        Layout.leftMargin: 18
-                                        Layout.rightMargin: 18
-                                        label: "Contrast factor"
-                                        from: 0.25
-                                        to: 2.5
-                                        stepSize: 0.01
-                                        value: precision.editor.contrastFactor
-                                        suffix: "×"
-                                        onGestureStarted: precision.editor.beginParameterEdit("contrast")
-                                        onEdited: value => precision.editor.contrastFactor = value
-                                        onGestureFinished: precision.editor.endParameterEdit("contrast")
-                                    }
-
-                                    ToneCurveEditor {
-                                        visible: precision.selectedNode === 2
-                                        Layout.fillWidth: true
-                                        Layout.leftMargin: 18
-                                        Layout.rightMargin: 18
-                                        Layout.preferredHeight: implicitHeight
-                                        controller: precision.editor
-                                        panelColor: precision.panelRaised
-                                        plotColor: "#101317"
-                                        borderColor: precision.border
-                                        textColor: precision.textPrimary
-                                        mutedTextColor: precision.textMuted
-                                        accentColor: precision.accent
-                                    }
-
-                                    ShadowSlider {
-                                        visible: precision.selectedNode === 3
-                                        Layout.fillWidth: true
-                                        Layout.leftMargin: 18
-                                        Layout.rightMargin: 18
-                                        label: "Red gain"
-                                        from: 0.25
-                                        to: 2.5
-                                        stepSize: 0.01
-                                        value: precision.editor.redGain
-                                        suffix: "×"
-                                        onGestureStarted: precision.editor.beginParameterEdit("red_gain")
-                                        onEdited: value => precision.editor.redGain = value
-                                        onGestureFinished: precision.editor.endParameterEdit("red_gain")
-                                    }
-                                    ShadowSlider {
-                                        visible: precision.selectedNode === 3
-                                        Layout.fillWidth: true
-                                        Layout.leftMargin: 18
-                                        Layout.rightMargin: 18
-                                        label: "Green gain"
-                                        from: 0.25
-                                        to: 2.5
-                                        stepSize: 0.01
-                                        value: precision.editor.greenGain
-                                        suffix: "×"
-                                        onGestureStarted: precision.editor.beginParameterEdit("green_gain")
-                                        onEdited: value => precision.editor.greenGain = value
-                                        onGestureFinished: precision.editor.endParameterEdit("green_gain")
-                                    }
-                                    ShadowSlider {
-                                        visible: precision.selectedNode === 3
-                                        Layout.fillWidth: true
-                                        Layout.leftMargin: 18
-                                        Layout.rightMargin: 18
-                                        label: "Blue gain"
-                                        from: 0.25
-                                        to: 2.5
-                                        stepSize: 0.01
-                                        value: precision.editor.blueGain
-                                        suffix: "×"
-                                        onGestureStarted: precision.editor.beginParameterEdit("blue_gain")
-                                        onEdited: value => precision.editor.blueGain = value
-                                        onGestureFinished: precision.editor.endParameterEdit("blue_gain")
-                                    }
-
-                                    ShadowSlider {
-                                        visible: precision.selectedNode === 4
-                                        Layout.fillWidth: true
-                                        Layout.leftMargin: 18
-                                        Layout.rightMargin: 18
-                                        label: "Saturation"
-                                        from: 0.0
-                                        to: 2.5
-                                        stepSize: 0.01
-                                        value: precision.editor.saturationFactor
-                                        suffix: "×"
-                                        onGestureStarted: precision.editor.beginParameterEdit("saturation")
-                                        onEdited: value => precision.editor.saturationFactor = value
-                                        onGestureFinished: precision.editor.endParameterEdit("saturation")
-                                    }
-
-                                    Item { Layout.preferredHeight: 8 }
-
-                                    Button {
-                                        id: resetButton
-                                        visible: precision.selectedNode !== 2
-                                        Layout.fillWidth: true
-                                        Layout.leftMargin: 18
-                                        Layout.rightMargin: 18
-                                        Layout.preferredHeight: 36
-                                        text: "RESET SLIDERS"
-                                        enabled: precision.editor.active && !precision.editor.stateBusy
-                                        onClicked: precision.editor.resetEdits()
-                                        background: Rectangle {
-                                            radius: 4
-                                            color: resetButton.down ? "#2a3037" : "#1b2025"
-                                            border.color: precision.border
+                                        ShadowSlider {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 14
+                                            Layout.rightMargin: 14
+                                            label: qsTr("Exposure")
+                                            from: -5.0
+                                            to: 5.0
+                                            neutralValue: 0.0
+                                            stepSize: 0.05
+                                            value: precision.editor.exposureStops
+                                            suffix: " EV"
+                                            onGestureStarted: precision.editor.beginParameterEdit("exposure")
+                                            onEdited: value => precision.editor.exposureStops = value
+                                            onGestureFinished: precision.editor.endParameterEdit("exposure")
                                         }
-                                        contentItem: Label {
-                                            text: resetButton.text
-                                            color: precision.textPrimary
+
+                                        ShadowSlider {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 14
+                                            Layout.rightMargin: 14
+                                            label: qsTr("Contrast")
+                                            from: 0.25
+                                            to: 2.5
+                                            neutralValue: 1.0
+                                            stepSize: 0.01
+                                            value: precision.editor.contrastFactor
+                                            suffix: "×"
+                                            onGestureStarted: precision.editor.beginParameterEdit("contrast")
+                                            onEdited: value => precision.editor.contrastFactor = value
+                                            onGestureFinished: precision.editor.endParameterEdit("contrast")
+                                        }
+
+                                        Repeater {
+                                            model: [
+                                                { "key": "highlights", "name": qsTr("Highlights") },
+                                                { "key": "shadows", "name": qsTr("Shadows") },
+                                                { "key": "whites", "name": qsTr("Whites") },
+                                                { "key": "blacks", "name": qsTr("Blacks") }
+                                            ]
+                                            delegate: ShadowSlider {
+                                                required property var modelData
+                                                Layout.fillWidth: true
+                                                Layout.leftMargin: 14
+                                                Layout.rightMargin: 14
+                                                label: modelData.name
+                                                from: -1.0
+                                                to: 1.0
+                                                neutralValue: 0.0
+                                                stepSize: 0.01
+                                                decimals: 0
+                                                displayMultiplier: 100
+                                                suffix: "%"
+                                                value: precision.fineValue(modelData.key)
+                                                onGestureStarted: precision.editor.beginParameterEdit(modelData.key)
+                                                onEdited: value => precision.editor.setParameterValue(modelData.key, value)
+                                                onGestureFinished: precision.editor.endParameterEdit(modelData.key)
+                                            }
+                                        }
+                                    }
+
+                                    ShadowAdjustmentSection {
+                                        Layout.fillWidth: true
+                                        title: qsTr("TONE CURVE")
+
+                                        ToneCurveEditor {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 14
+                                            Layout.rightMargin: 14
+                                            Layout.preferredHeight: implicitHeight
+                                            controller: precision.editor
+                                            panelColor: precision.panelRaised
+                                            plotColor: Theme.chrome
+                                            borderColor: precision.border
+                                            textColor: precision.textPrimary
+                                            mutedTextColor: precision.textMuted
+                                            accentColor: precision.accent
+                                        }
+                                    }
+
+                                    ShadowAdjustmentSection {
+                                        Layout.fillWidth: true
+                                        title: qsTr("COLOR")
+                                        expanded: true
+
+                                        ShadowSlider {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 14
+                                            Layout.rightMargin: 14
+                                            label: qsTr("Saturation")
+                                            from: 0.0
+                                            to: 2.5
+                                            neutralValue: 1.0
+                                            stepSize: 0.01
+                                            value: precision.editor.saturationFactor
+                                            suffix: "×"
+                                            onGestureStarted: precision.editor.beginParameterEdit("saturation")
+                                            onEdited: value => precision.editor.saturationFactor = value
+                                            onGestureFinished: precision.editor.endParameterEdit("saturation")
+                                        }
+
+                                        ShadowSlider {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 14
+                                            Layout.rightMargin: 14
+                                            label: qsTr("Vibrance")
+                                            from: -1.0
+                                            to: 1.0
+                                            neutralValue: 0.0
+                                            stepSize: 0.01
+                                            decimals: 0
+                                            displayMultiplier: 100
+                                            suffix: "%"
+                                            value: precision.fineValue("vibrance")
+                                            onGestureStarted: precision.editor.beginParameterEdit("vibrance")
+                                            onEdited: value => precision.editor.setParameterValue("vibrance", value)
+                                            onGestureFinished: precision.editor.endParameterEdit("vibrance")
+                                        }
+                                    }
+
+                                    ShadowAdjustmentSection {
+                                        Layout.fillWidth: true
+                                        title: qsTr("WHITE BALANCE")
+
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 14
+                                            Layout.rightMargin: 14
+                                            spacing: 6
+                                            Item { Layout.fillWidth: true }
+                                            ShadowIconButton {
+                                                source: "qrc:/icons/eyedropper.svg"
+                                                selected: precision.editor.whiteBalancePickerActive
+                                                toolTipText: qsTr("Pick a neutral area for White Balance")
+                                                accessibleName: toolTipText
+                                                onClicked: precision.editor.setWhiteBalancePickerActive(
+                                                    !precision.editor.whiteBalancePickerActive)
+                                            }
+                                        }
+
+                                        ShadowSlider {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 14
+                                            Layout.rightMargin: 14
+                                            label: qsTr("Temperature")
+                                            from: -1.0
+                                            to: 1.0
+                                            neutralValue: 0.0
+                                            stepSize: 0.005
+                                            decimals: 0
+                                            displayMultiplier: 100
+                                            value: precision.editor.whiteBalanceTemperature
+                                            semanticTrack: true
+                                            trackStartColor: "#3979dc"
+                                            trackMiddleColor: Theme.track
+                                            trackEndColor: "#e49a3a"
+                                            onGestureStarted: precision.editor.beginParameterEdit("white_balance_temperature")
+                                            onEdited: value => precision.editor.whiteBalanceTemperature = value
+                                            onGestureFinished: precision.editor.endParameterEdit("white_balance_temperature")
+                                        }
+
+                                        ShadowSlider {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 14
+                                            Layout.rightMargin: 14
+                                            label: qsTr("Tint")
+                                            from: -1.0
+                                            to: 1.0
+                                            neutralValue: 0.0
+                                            stepSize: 0.005
+                                            decimals: 0
+                                            displayMultiplier: 100
+                                            value: precision.editor.whiteBalanceTint
+                                            semanticTrack: true
+                                            trackStartColor: "#48a56a"
+                                            trackMiddleColor: Theme.track
+                                            trackEndColor: "#c65ab4"
+                                            onGestureStarted: precision.editor.beginParameterEdit("white_balance_tint")
+                                            onEdited: value => precision.editor.whiteBalanceTint = value
+                                            onGestureFinished: precision.editor.endParameterEdit("white_balance_tint")
+                                        }
+                                    }
+
+                                    ShadowAdjustmentSection {
+                                        Layout.fillWidth: true
+                                        title: qsTr("COLOR MIXER")
+
+                                        TabBar {
+                                            id: mixerViewTabs
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 14
+                                            Layout.rightMargin: 14
+                                            Layout.preferredHeight: 28
+                                            background: Rectangle {
+                                                radius: Theme.controlRadius
+                                                color: Theme.surfaceSubtle
+                                                border.color: precision.border
+                                            }
+                                            onCurrentIndexChanged: precision.mixerViewMode = currentIndex
+                                            ShadowTabButton { text: qsTr("HSL"); compact: true }
+                                            ShadowTabButton { text: qsTr("COLOR"); compact: true }
+                                        }
+
+                                        TabBar {
+                                            id: mixerTabs
+                                            visible: precision.mixerViewMode === 0
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 14
+                                            Layout.rightMargin: 14
+                                            Layout.preferredHeight: visible ? 28 : 0
+                                            background: Item {}
+                                            ShadowTabButton { text: qsTr("HUE"); compact: true }
+                                            ShadowTabButton { text: qsTr("SATURATION"); compact: true }
+                                            ShadowTabButton { text: qsTr("LUMINANCE"); compact: true }
+                                        }
+
+                                        Repeater {
+                                            model: precision.mixerViewMode === 0
+                                                ? precision.colorMixerBands : []
+                                            delegate: ShadowSlider {
+                                                required property int index
+                                                required property var modelData
+                                                readonly property string component:
+                                                    precision.mixerComponent(mixerTabs.currentIndex)
+                                                Layout.fillWidth: true
+                                                Layout.leftMargin: 14
+                                                Layout.rightMargin: 14
+                                                label: modelData.name
+                                                accent: modelData.color
+                                                semanticTrack: true
+                                                trackStartColor: precision.mixerTrackStart(
+                                                    modelData, component)
+                                                trackMiddleColor: precision.mixerTrackMiddle(
+                                                    modelData, component)
+                                                trackEndColor: precision.mixerTrackEnd(
+                                                    modelData, component)
+                                                from: -1.0
+                                                to: 1.0
+                                                neutralValue: 0.0
+                                                stepSize: 0.01
+                                                decimals: 0
+                                                displayMultiplier: 100
+                                                suffix: "%"
+                                                value: precision.mixerValue(index, component)
+                                                onGestureStarted: precision.editor.beginParameterEdit(
+                                                    "color_mixer/" + component + "/" + index)
+                                                onEdited: value => precision.editor.setColorMixerValue(
+                                                    index, component, value)
+                                                onGestureFinished: precision.editor.endParameterEdit(
+                                                    "color_mixer/" + component + "/" + index)
+                                            }
+                                        }
+
+                                        RowLayout {
+                                            visible: precision.mixerViewMode === 1
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 20
+                                            Layout.rightMargin: 20
+                                            Layout.topMargin: visible ? 7 : 0
+                                            Layout.bottomMargin: visible ? 5 : 0
+                                            Layout.preferredHeight: visible ? 30 : 0
+                                            spacing: 8
+
+                                            Item { Layout.fillWidth: true }
+
+                                            Repeater {
+                                                model: precision.colorMixerBands
+
+                                                delegate: Rectangle {
+                                                    required property int index
+                                                    required property var modelData
+                                                    Layout.preferredWidth: 18
+                                                    Layout.preferredHeight: 18
+                                                    Layout.alignment: Qt.AlignHCenter
+                                                    radius: 9
+                                                    color: modelData.color
+                                                    border.width: precision.selectedMixerBand
+                                                        === index ? 2 : 1
+                                                    border.color: precision.selectedMixerBand === index
+                                                        ? Theme.selectionForeground : Theme.borderStrong
+                                                    opacity: precision.selectedMixerBand === index ? 1 : 0.72
+
+                                                    TapHandler {
+                                                        onTapped: precision.selectedMixerBand = parent.index
+                                                    }
+
+                                                    ToolTip.visible: swatchHover.hovered
+                                                    ToolTip.delay: 450
+                                                    ToolTip.text: modelData.name
+                                                    HoverHandler { id: swatchHover }
+                                                }
+                                            }
+
+                                            Item { Layout.fillWidth: true }
+                                        }
+
+                                        Repeater {
+                                            model: precision.mixerViewMode === 1 ? [
+                                                { "component": "hue", "name": qsTr("Hue") },
+                                                { "component": "saturation", "name": qsTr("Saturation") },
+                                                { "component": "lightness", "name": qsTr("Luminance") }
+                                            ] : []
+
+                                            delegate: ShadowSlider {
+                                                required property int index
+                                                required property var modelData
+                                                readonly property int bandIndex:
+                                                    precision.selectedMixerBand
+                                                readonly property var band:
+                                                    precision.colorMixerBands[bandIndex]
+                                                Layout.fillWidth: true
+                                                Layout.leftMargin: 14
+                                                Layout.rightMargin: 14
+                                                Layout.topMargin: index === 0 ? 4 : 0
+                                                label: modelData.name
+                                                accent: band.color
+                                                semanticTrack: true
+                                                trackStartColor: precision.mixerTrackStart(
+                                                    band, modelData.component)
+                                                trackMiddleColor: precision.mixerTrackMiddle(
+                                                    band, modelData.component)
+                                                trackEndColor: precision.mixerTrackEnd(
+                                                    band, modelData.component)
+                                                from: -1.0
+                                                to: 1.0
+                                                neutralValue: 0.0
+                                                stepSize: 0.01
+                                                decimals: 0
+                                                displayMultiplier: 100
+                                                suffix: "%"
+                                                value: precision.mixerValue(
+                                                    bandIndex, modelData.component)
+                                                onGestureStarted: precision.editor.beginParameterEdit(
+                                                    "color_mixer/" + modelData.component
+                                                        + "/" + bandIndex)
+                                                onEdited: value => precision.editor.setColorMixerValue(
+                                                    bandIndex, modelData.component, value)
+                                                onGestureFinished: precision.editor.endParameterEdit(
+                                                    "color_mixer/" + modelData.component
+                                                        + "/" + bandIndex)
+                                            }
+                                        }
+                                    }
+
+                                    ShadowAdjustmentSection {
+                                        Layout.fillWidth: true
+                                        title: qsTr("POINT COLOR")
+
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 20
+                                            Layout.rightMargin: 20
+                                            Layout.topMargin: 5
+                                            Layout.bottomMargin: 6
+                                            spacing: 8
+
+                                            Label {
+                                                text: qsTr("Samples")
+                                                color: precision.textMuted
+                                                font.pixelSize: 10
+                                            }
+
+                                            RowLayout {
+                                                Layout.fillWidth: true
+                                                spacing: 5
+
+                                                Repeater {
+                                                    model: precision.editor.pointColors
+
+                                                    delegate: Rectangle {
+                                                        required property var modelData
+                                                        Layout.preferredWidth: 20
+                                                        Layout.preferredHeight: 20
+                                                        radius: 10
+                                                        color: modelData.swatch
+                                                        border.width: precision.editor.selectedPointColorIndex
+                                                            === modelData.index ? 2 : 1
+                                                        border.color: precision.editor.selectedPointColorIndex
+                                                            === modelData.index
+                                                            ? precision.accent : Theme.borderStrong
+
+                                                        TapHandler {
+                                                            onTapped: precision.editor.selectPointColor(
+                                                                parent.modelData.index)
+                                                        }
+                                                    }
+                                                }
+
+                                                Label {
+                                                    visible: precision.editor.pointColors.length === 0
+                                                    text: qsTr("Pick one or more colors from the image")
+                                                    color: Theme.textQuiet
+                                                    font.pixelSize: 9
+                                                    elide: Text.ElideRight
+                                                    Layout.fillWidth: true
+                                                }
+
+                                                Item { Layout.fillWidth: true }
+                                            }
+
+                                            ShadowIconButton {
+                                                source: "qrc:/icons/eyedropper.svg"
+                                                selected: precision.editor.pointColorPickerActive
+                                                enabled: precision.editor.active
+                                                    && precision.editor.pointColors.length < 16
+                                                    && precision.previewFrameReady
+                                                    && precision.readyPreviewGeneration.length > 0
+                                                    && !precision.displayingBefore
+                                                toolTipText: qsTr("Add a Point Color sample from the image")
+                                                accessibleName: toolTipText
+                                                onClicked: precision.editor.setPointColorPickerActive(
+                                                    !precision.editor.pointColorPickerActive)
+                                            }
+
+                                            ShadowIconButton {
+                                                source: "qrc:/icons/trash.svg"
+                                                variant: ShadowIconButton.Danger
+                                                enabled: precision.editor.selectedPointColorIndex >= 0
+                                                toolTipText: qsTr("Remove selected Point Color sample")
+                                                accessibleName: toolTipText
+                                                onClicked: precision.editor.removeSelectedPointColor()
+                                            }
+                                        }
+
+                                        Rectangle {
+                                            visible: precision.editor.selectedPointColorIndex >= 0
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 26
+                                            Layout.rightMargin: 26
+                                            Layout.topMargin: visible ? 5 : 0
+                                            Layout.bottomMargin: visible ? 7 : 0
+                                            Layout.preferredHeight: visible ? 8 : 0
+                                            radius: 4
+                                            gradient: Gradient {
+                                                orientation: Gradient.Horizontal
+                                                // Positions are Oklch hue angles / 360, not HSV
+                                                // sextants. The colors are display-sRGB samples
+                                                // whose linear values define the mixer anchors.
+                                                GradientStop { position: 0.000000; color: "#eb6f9a" }
+                                                GradientStop { position: 0.081205; color: "#ff0000" }
+                                                GradientStop { position: 0.147180; color: "#ff8000" }
+                                                GradientStop { position: 0.304914; color: "#ffff00" }
+                                                GradientStop { position: 0.395820; color: "#00ff00" }
+                                                GradientStop { position: 0.541025; color: "#00ffff" }
+                                                GradientStop { position: 0.733478; color: "#0000ff" }
+                                                GradientStop { position: 0.816493; color: "#8000ff" }
+                                                GradientStop { position: 0.912121; color: "#ff00ff" }
+                                                GradientStop { position: 1.000000; color: "#eb6f9a" }
+                                            }
+                                            Rectangle {
+                                                x: Math.max(0, Math.min(parent.width - width,
+                                                    ((precision.fineValue("color_range_center")
+                                                        % 360) + 360) % 360
+                                                        / 360 * parent.width - width / 2))
+                                                y: -3
+                                                width: 4
+                                                height: parent.height + 6
+                                                radius: 2
+                                                color: Theme.selectionForeground
+                                                border.color: Theme.accentHandleBorder
+                                            }
+                                        }
+
+                                        Repeater {
+                                            model: [
+                                                { "key": "color_range_center", "name": qsTr("Target hue (OKLCh)"), "from": 0, "to": 360, "neutral": 0, "step": 1, "scale": 1, "suffix": "°" },
+                                                { "key": "color_range_width", "name": qsTr("Range"), "from": 1, "to": 180, "neutral": 30, "step": 1, "scale": 1, "suffix": "°" },
+                                                { "key": "color_range_softness", "name": qsTr("Softness"), "from": 0, "to": 1, "neutral": 0.5, "step": 0.01, "scale": 100, "suffix": "%" },
+                                                { "key": "color_range_hue", "name": qsTr("Hue shift"), "from": -180, "to": 180, "neutral": 0, "step": 1, "scale": 1, "suffix": "°" },
+                                                { "key": "color_range_saturation", "name": qsTr("Saturation"), "from": -1, "to": 1, "neutral": 0, "step": 0.01, "scale": 100, "suffix": "%" },
+                                                { "key": "color_range_lightness", "name": qsTr("Lightness"), "from": -1, "to": 1, "neutral": 0, "step": 0.01, "scale": 100, "suffix": "%" }
+                                            ]
+                                            delegate: ShadowSlider {
+                                                visible: precision.editor.selectedPointColorIndex >= 0
+                                                required property var modelData
+                                                Layout.fillWidth: true
+                                                Layout.leftMargin: 14
+                                                Layout.rightMargin: 14
+                                                label: modelData.name
+                                                from: modelData.from
+                                                to: modelData.to
+                                                neutralValue: modelData.neutral
+                                                stepSize: modelData.step
+                                                decimals: 0
+                                                displayMultiplier: modelData.scale
+                                                suffix: modelData.suffix
+                                                value: precision.fineValue(modelData.key)
+                                                enabled: precision.editor.selectedPointColorIndex >= 0
+                                                onGestureStarted: precision.editor.beginParameterEdit(modelData.key)
+                                                onEdited: value => precision.editor.setParameterValue(modelData.key, value)
+                                                onGestureFinished: precision.editor.endParameterEdit(modelData.key)
+                                            }
+                                        }
+                                    }
+
+                                    ShadowAdjustmentSection {
+                                        Layout.fillWidth: true
+                                        title: qsTr("COLOR GRADING")
+
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 12
+                                            Layout.rightMargin: 12
+                                            spacing: 8
+
+                                            Repeater {
+                                                model: [
+                                                    { "range": "shadows", "label": qsTr("Shadows"), "hue": "shadows_hue", "saturation": "shadows_saturation", "luminance": "shadows_luminance" },
+                                                    { "range": "midtones", "label": qsTr("Midtones"), "hue": "midtones_hue", "saturation": "midtones_saturation", "luminance": "midtones_luminance" },
+                                                    { "range": "highlights", "label": qsTr("Highlights"), "hue": "highlights_hue", "saturation": "highlights_saturation", "luminance": "highlights_luminance" }
+                                                ]
+                                                delegate: ShadowColorWheel {
+                                                    required property var modelData
+                                                    Layout.fillWidth: true
+                                                    label: modelData.label
+                                                    hue: precision.fineValue(modelData.hue)
+                                                    saturation: precision.fineValue(modelData.saturation)
+                                                    luminance: precision.fineValue(modelData.luminance)
+                                                    onWheelGestureStarted: precision.editor.beginParameterEdit(
+                                                        "color_grading/" + modelData.range + "/wheel")
+                                                    onWheelEdited: (hue, saturation) =>
+                                                        precision.editor.setColorGradingWheel(
+                                                            modelData.range, hue, saturation)
+                                                    onWheelGestureFinished: precision.editor.endParameterEdit(
+                                                        "color_grading/" + modelData.range + "/wheel")
+                                                    onLuminanceGestureStarted: precision.editor.beginParameterEdit(
+                                                        modelData.luminance)
+                                                    onLuminanceEdited: value =>
+                                                        precision.editor.setParameterValue(
+                                                            modelData.luminance, value)
+                                                    onLuminanceGestureFinished: precision.editor.endParameterEdit(
+                                                        modelData.luminance)
+                                                }
+                                            }
+                                        }
+
+                                        Repeater {
+                                            model: [
+                                                { "key": "grading_blending", "name": qsTr("Blending"), "from": 0, "neutral": 0.5 },
+                                                { "key": "grading_balance", "name": qsTr("Balance"), "from": -1, "neutral": 0 }
+                                            ]
+                                            delegate: ShadowSlider {
+                                                required property var modelData
+                                                Layout.fillWidth: true
+                                                Layout.leftMargin: 14
+                                                Layout.rightMargin: 14
+                                                label: modelData.name
+                                                from: modelData.from; to: 1
+                                                neutralValue: modelData.neutral
+                                                stepSize: 0.01; decimals: 0
+                                                displayMultiplier: 100; suffix: "%"
+                                                value: precision.fineValue(modelData.key)
+                                                onGestureStarted: precision.editor.beginParameterEdit(modelData.key)
+                                                onEdited: value => precision.editor.setParameterValue(modelData.key, value)
+                                                onGestureFinished: precision.editor.endParameterEdit(modelData.key)
+                                            }
+                                        }
+                                    }
+
+                                    ShadowAdjustmentSection {
+                                        id: lutSection
+                                        Layout.fillWidth: true
+                                        title: qsTr("LUT")
+                                        summary: precision.editor.hasLut
+                                            ? precision.editor.lutTitle : qsTr("None")
+
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 14
+                                            Layout.rightMargin: 14
+                                            spacing: 6
+
+                                            Rectangle {
+                                                id: lutSelector
+                                                Layout.fillWidth: true
+                                                Layout.preferredHeight: 52
+                                                radius: Theme.controlRadius
+                                                color: lutSelectorMouse.pressed
+                                                    ? Theme.buttonPressedSurface
+                                                    : lutSelectorMouse.containsMouse
+                                                        ? Theme.buttonHoverSurface
+                                                        : Theme.buttonSurface
+                                                border.width: 1
+                                                border.color: lutSelectorMouse.containsMouse
+                                                    ? Theme.borderStrong : Theme.buttonBorder
+
+                                                RowLayout {
+                                                    anchors.fill: parent
+                                                    anchors.leftMargin: 10
+                                                    anchors.rightMargin: 9
+                                                    spacing: 8
+
+                                                    Rectangle {
+                                                        Layout.preferredWidth: 62
+                                                        Layout.preferredHeight: 38
+                                                        radius: Theme.compactControlRadius
+                                                        clip: true
+                                                        color: Theme.photoCanvas
+                                                        border.color: Theme.border
+
+                                                        Image {
+                                                            anchors.fill: parent
+                                                            source: "image://shadow-lut/"
+                                                                + (precision.editor.hasLut
+                                                                    ? precision.editor.lutResourceId
+                                                                    : "original")
+                                                            sourceSize.width: 124
+                                                            sourceSize.height: 76
+                                                            asynchronous: true
+                                                            cache: true
+                                                            fillMode: Image.PreserveAspectCrop
+                                                        }
+                                                    }
+
+                                                    Label {
+                                                        Layout.fillWidth: true
+                                                        text: precision.editor.hasLut
+                                                            ? precision.editor.lutTitle
+                                                            : qsTr("Choose a LUT")
+                                                        color: precision.editor.hasLut
+                                                            ? precision.textPrimary
+                                                            : precision.textMuted
+                                                        font.pixelSize: 10
+                                                        elide: Text.ElideRight
+                                                    }
+
+                                                    ShadowIcon {
+                                                        Layout.preferredWidth: 14
+                                                        Layout.preferredHeight: 14
+                                                        size: 14
+                                                        source: "qrc:/icons/chevron-down.svg"
+                                                        color: precision.textSecondary
+                                                        rotation: lutPicker.opened ? 180 : 0
+                                                    }
+                                                }
+
+                                                MouseArea {
+                                                    id: lutSelectorMouse
+                                                    anchors.fill: parent
+                                                    hoverEnabled: true
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    enabled: precision.editor.active
+                                                        && !precision.editor.stateBusy
+                                                    onClicked: lutPicker.open()
+                                                }
+
+                                                Popup {
+                                                    id: lutPicker
+                                                    parent: lutSelector
+                                                    x: 0
+                                                    y: lutSelector.height + 5
+                                                    width: Math.max(lutSelector.width, 270)
+                                                    height: Math.min(360,
+                                                        68 + Math.max(1,
+                                                            precision.lutLibrary.availableEntries.length) * 62)
+                                                    padding: 5
+                                                    modal: false
+                                                    closePolicy: Popup.CloseOnEscape
+                                                        | Popup.CloseOnPressOutside
+
+                                                    background: Rectangle {
+                                                        radius: Theme.controlRadius
+                                                        color: Theme.panelRaised
+                                                        border.width: 1
+                                                        border.color: Theme.borderStrong
+                                                    }
+
+                                                    contentItem: ListView {
+                                                        id: lutPickerList
+                                                        clip: true
+                                                        spacing: 2
+                                                        model: precision.lutLibrary.availableEntries
+
+                                                        header: Rectangle {
+                                                            width: lutPickerList.width
+                                                            height: 60
+                                                            radius: Theme.compactControlRadius
+                                                            color: noneLutMouse.containsMouse
+                                                                ? Theme.buttonGhostHover
+                                                                : Theme.transparent
+
+                                                            RowLayout {
+                                                                anchors.fill: parent
+                                                                anchors.leftMargin: 7
+                                                                anchors.rightMargin: 9
+                                                                spacing: 9
+
+                                                                Rectangle {
+                                                                    Layout.preferredWidth: 68
+                                                                    Layout.preferredHeight: 44
+                                                                    radius: Theme.compactControlRadius
+                                                                    clip: true
+                                                                    color: Theme.photoCanvas
+                                                                    border.color: Theme.border
+
+                                                                    Image {
+                                                                        anchors.fill: parent
+                                                                        source: "image://shadow-lut/original"
+                                                                        sourceSize.width: 136
+                                                                        sourceSize.height: 88
+                                                                        asynchronous: true
+                                                                        cache: true
+                                                                        fillMode: Image.PreserveAspectCrop
+                                                                    }
+                                                                }
+
+                                                                Label {
+                                                                    Layout.fillWidth: true
+                                                                    text: qsTr("No LUT")
+                                                                    color: precision.editor.hasLut
+                                                                        ? precision.textSecondary
+                                                                        : precision.accent
+                                                                    font.pixelSize: 10
+                                                                    font.weight: precision.editor.hasLut
+                                                                        ? Font.Normal : Font.DemiBold
+                                                                }
+                                                            }
+
+                                                            MouseArea {
+                                                                id: noneLutMouse
+                                                                anchors.fill: parent
+                                                                hoverEnabled: true
+                                                                cursorShape: Qt.PointingHandCursor
+                                                                onClicked: {
+                                                                    precision.editor.clearLut()
+                                                                    lutPicker.close()
+                                                                }
+                                                            }
+                                                        }
+
+                                                        delegate: Rectangle {
+                                                            id: lutOptionRow
+                                                            required property var modelData
+                                                            width: lutPickerList.width
+                                                            height: 60
+                                                            radius: Theme.compactControlRadius
+                                                            readonly property bool current:
+                                                                precision.editor.lutResourceId
+                                                                    === modelData.id
+                                                            color: current
+                                                                ? Theme.accentSurfaceQuiet
+                                                                : lutEntryMouse.containsMouse
+                                                                    ? Theme.buttonGhostHover
+                                                                    : Theme.transparent
+
+                                                            RowLayout {
+                                                                anchors.fill: parent
+                                                                anchors.leftMargin: 10
+                                                                anchors.rightMargin: 8
+                                                                spacing: 8
+
+                                                                Rectangle {
+                                                                    Layout.preferredWidth: 68
+                                                                    Layout.preferredHeight: 44
+                                                                    radius: Theme.compactControlRadius
+                                                                    clip: true
+                                                                    color: Theme.photoCanvas
+                                                                    border.color: lutOptionRow.current
+                                                                        ? Theme.accentBorder : Theme.border
+
+                                                                    Image {
+                                                                        anchors.fill: parent
+                                                                        source: "image://shadow-lut/"
+                                                                            + lutOptionRow.modelData.id
+                                                                        sourceSize.width: 136
+                                                                        sourceSize.height: 88
+                                                                        asynchronous: true
+                                                                        cache: true
+                                                                        fillMode: Image.PreserveAspectCrop
+                                                                    }
+                                                                }
+
+                                                                ColumnLayout {
+                                                                    Layout.fillWidth: true
+                                                                    spacing: 1
+
+                                                                    Label {
+                                                                        Layout.fillWidth: true
+                                                                        text: lutOptionRow.modelData.title
+                                                                        color: lutOptionRow.current
+                                                                            ? precision.accent
+                                                                            : precision.textPrimary
+                                                                        font.pixelSize: 10
+                                                                        font.weight: lutOptionRow.current
+                                                                            ? Font.DemiBold : Font.Normal
+                                                                        elide: Text.ElideRight
+                                                                    }
+                                                                    Label {
+                                                                        text: qsTr("%1³").arg(
+                                                                            lutOptionRow.modelData.size)
+                                                                        color: precision.textMuted
+                                                                        font.pixelSize: 9
+                                                                    }
+                                                                }
+                                                            }
+
+                                                            MouseArea {
+                                                                id: lutEntryMouse
+                                                                anchors.fill: parent
+                                                                hoverEnabled: true
+                                                                cursorShape: Qt.PointingHandCursor
+                                                                onClicked: {
+                                                                    precision.editor.setLutResource(
+                                                                        lutOptionRow.modelData.id,
+                                                                        lutOptionRow.modelData.title,
+                                                                        lutOptionRow.modelData.managedPath)
+                                                                    lutPicker.close()
+                                                                }
+                                                            }
+                                                        }
+
+                                                        Label {
+                                                            anchors.centerIn: parent
+                                                            visible: precision.lutLibrary.availableEntries.length === 0
+                                                            text: qsTr("No LUTs in the Library")
+                                                            color: precision.textMuted
+                                                            font.pixelSize: 10
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            ShadowIconButton {
+                                                Layout.preferredWidth: Theme.controlHeight
+                                                Layout.preferredHeight: Theme.controlHeight
+                                                Layout.alignment: Qt.AlignVCenter
+                                                buttonSize: Theme.controlHeight
+                                                variant: ShadowIconButton.Secondary
+                                                source: "qrc:/icons/library-manage.svg"
+                                                toolTipText: qsTr("Manage LUT Library")
+                                                onClicked: precision.openLutLibraryRequested()
+                                            }
+
+                                            ShadowIconButton {
+                                                visible: precision.editor.hasLut
+                                                Layout.preferredWidth: visible
+                                                    ? Theme.controlHeight : 0
+                                                Layout.preferredHeight: Theme.controlHeight
+                                                Layout.alignment: Qt.AlignVCenter
+                                                buttonSize: Theme.controlHeight
+                                                variant: ShadowIconButton.Ghost
+                                                source: "qrc:/icons/clear.svg"
+                                                toolTipText: qsTr("Remove LUT from this Grade Node")
+                                                onClicked: precision.editor.clearLut()
+                                            }
+                                        }
+
+                                        ShadowSlider {
+                                            visible: precision.editor.hasLut
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 14
+                                            Layout.rightMargin: 14
+                                            label: qsTr("Intensity")
+                                            from: 0
+                                            to: 1
+                                            neutralValue: 1
+                                            stepSize: 0.01
+                                            decimals: 0
+                                            displayMultiplier: 100
+                                            suffix: "%"
+                                            value: precision.editor.lutIntensity
+                                            onGestureStarted: precision.editor.beginParameterEdit(
+                                                "lut_intensity")
+                                            onEdited: value => precision.editor.lutIntensity = value
+                                            onGestureFinished: precision.editor.endParameterEdit(
+                                                "lut_intensity")
+                                        }
+
+                                        RowLayout {
+                                            visible: precision.lutLibrary.availableEntries.length === 0
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 14
+                                            Layout.rightMargin: 14
+
+                                            Label {
+                                                Layout.fillWidth: true
+                                                text: qsTr("Add .cube folders in the LUT Library first")
+                                                color: precision.textMuted
+                                                font.pixelSize: 9
+                                            }
+                                            Label {
+                                                text: qsTr("MANAGE")
+                                                color: precision.accent
+                                                font.pixelSize: 9
+                                                font.weight: Font.DemiBold
+
+                                                TapHandler {
+                                                    onTapped: precision.openLutLibraryRequested()
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    ShadowAdjustmentSection {
+                                        Layout.fillWidth: true
+                                        title: qsTr("DETAIL")
+
+                                        Label {
+                                            Layout.leftMargin: 14
+                                            text: qsTr("SHARPENING")
+                                            color: Theme.textMuted
                                             font.pixelSize: 9
                                             font.weight: Font.DemiBold
-                                            horizontalAlignment: Text.AlignHCenter
-                                            verticalAlignment: Text.AlignVCenter
+                                            font.letterSpacing: 0.7
+                                        }
+
+                                        Repeater {
+                                            model: [
+                                                { "key": "sharpen_amount", "name": qsTr("Amount"), "from": 0, "to": 2, "neutral": 0, "step": 0.01, "decimals": 0, "scale": 100, "suffix": "%" },
+                                                { "key": "sharpen_radius", "name": qsTr("Radius"), "from": 0.1, "to": 5, "neutral": 1, "step": 0.1, "decimals": 1, "scale": 1, "suffix": " px" },
+                                                { "key": "sharpen_threshold", "name": qsTr("Threshold"), "from": 0, "to": 1, "neutral": 0, "step": 0.01, "decimals": 0, "scale": 100, "suffix": "%" },
+                                                { "key": "sharpen_masking", "name": qsTr("Masking"), "from": 0, "to": 1, "neutral": 0, "step": 0.01, "decimals": 0, "scale": 100, "suffix": "%" }
+                                            ]
+                                            delegate: ShadowSlider {
+                                                required property var modelData
+                                                Layout.fillWidth: true
+                                                Layout.leftMargin: 14
+                                                Layout.rightMargin: 14
+                                                label: modelData.name
+                                                from: modelData.from
+                                                to: modelData.to
+                                                neutralValue: modelData.neutral
+                                                stepSize: modelData.step
+                                                decimals: modelData.decimals
+                                                displayMultiplier: modelData.scale
+                                                suffix: modelData.suffix
+                                                value: precision.fineValue(modelData.key)
+                                                onGestureStarted: precision.editor.beginParameterEdit(modelData.key)
+                                                onEdited: value => precision.editor.setParameterValue(modelData.key, value)
+                                                onGestureFinished: precision.editor.endParameterEdit(modelData.key)
+                                            }
+                                        }
+
+                                        Label {
+                                            Layout.leftMargin: 14
+                                            Layout.topMargin: 4
+                                            text: qsTr("NOISE REDUCTION")
+                                            color: Theme.textMuted
+                                            font.pixelSize: 9
+                                            font.weight: Font.DemiBold
+                                            font.letterSpacing: 0.7
+                                        }
+
+                                        Repeater {
+                                            model: [
+                                                { "key": "denoise_luminance", "name": qsTr("Luminance"), "neutral": 0 },
+                                                { "key": "denoise_detail", "name": qsTr("Detail"), "neutral": 0.5 },
+                                                { "key": "denoise_color", "name": qsTr("Color"), "neutral": 0 }
+                                            ]
+                                            delegate: ShadowSlider {
+                                                required property var modelData
+                                                Layout.fillWidth: true
+                                                Layout.leftMargin: 14
+                                                Layout.rightMargin: 14
+                                                label: modelData.name
+                                                from: 0; to: 1; neutralValue: modelData.neutral
+                                                stepSize: 0.01; decimals: 0
+                                                displayMultiplier: 100; suffix: "%"
+                                                value: precision.fineValue(modelData.key)
+                                                onGestureStarted: precision.editor.beginParameterEdit(modelData.key)
+                                                onEdited: value => precision.editor.setParameterValue(modelData.key, value)
+                                                onGestureFinished: precision.editor.endParameterEdit(modelData.key)
+                                            }
                                         }
                                     }
+
+                                    ShadowAdjustmentSection {
+                                        Layout.fillWidth: true
+                                        title: qsTr("OPTICS")
+
+                                        ColumnLayout {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 14
+                                            Layout.rightMargin: 14
+                                            spacing: 5
+
+                                            RowLayout {
+                                                Layout.fillWidth: true
+                                                spacing: 6
+                                                Label {
+                                                    Layout.fillWidth: true
+                                                    text: {
+                                                    const receipt = precision.editor.opticsReceipt
+                                                    if (!receipt.valid)
+                                                        return qsTr("Preparing lens profile…")
+                                                    if (receipt.status === "matched")
+                                                        return receipt.lensProfile.length > 0
+                                                            ? receipt.lensProfile
+                                                            : qsTr("Lens profile matched")
+                                                    if (receipt.status === "disabled")
+                                                        return qsTr("Automatic correction is bypassed")
+                                                    if (receipt.status === "provider_unavailable")
+                                                        return qsTr("Lensfun provider unavailable")
+                                                    if (receipt.status === "camera_not_found")
+                                                        return qsTr("Camera profile not found")
+                                                    if (receipt.status === "lens_not_found")
+                                                        return qsTr("Lens profile not found")
+                                                    return qsTr("Insufficient lens metadata")
+                                                    }
+                                                    color: precision.editor.opticsReceipt.status === "matched"
+                                                        ? Theme.successText : Theme.textMuted
+                                                    font.pixelSize: 10
+                                                    elide: Text.ElideRight
+                                                }
+                                                ShadowIconButton {
+                                                    source: "qrc:/icons/library-manage.svg"
+                                                    buttonSize: 26
+                                                    toolTipText: qsTr("Choose optical profile")
+                                                    accessibleName: toolTipText
+                                                    onClicked: precision.openOpticsProfileLibraryRequested()
+                                                }
+                                            }
+
+                                            Repeater {
+                                                model: [
+                                                    { "key": "master", "name": qsTr("Automatic lens correction") },
+                                                    { "key": "distortion", "name": qsTr("Distortion") },
+                                                    { "key": "tca", "name": qsTr("Chromatic aberration") },
+                                                    { "key": "vignetting", "name": qsTr("Lens vignetting") },
+                                                    { "key": "scale", "name": qsTr("Automatic crop") }
+                                                ]
+                                                delegate: RowLayout {
+                                                    required property var modelData
+                                                    Layout.fillWidth: true
+                                                    Layout.preferredHeight: 24
+                                                    spacing: 8
+
+                                                    readonly property bool optionChecked:
+                                                        modelData.key === "master" ? precision.editor.opticsEnabled
+                                                        : modelData.key === "distortion" ? precision.editor.opticsDistortionEnabled
+                                                        : modelData.key === "tca" ? precision.editor.opticsTcaEnabled
+                                                        : modelData.key === "vignetting" ? precision.editor.opticsVignettingEnabled
+                                                        : precision.editor.opticsAutomaticScale
+
+                                                    Label {
+                                                        Layout.fillWidth: true
+                                                        text: parent.modelData.name
+                                                        color: parent.enabled ? Theme.textSecondary : Theme.textDisabled
+                                                        font.pixelSize: 10
+                                                    }
+
+                                                    Switch {
+                                                        id: opticsSwitch
+                                                        Layout.preferredWidth: 34
+                                                        Layout.preferredHeight: 20
+                                                        checked: parent.optionChecked
+                                                        enabled: precision.editor.active
+                                                            && !precision.editor.stateBusy
+                                                            && (parent.modelData.key === "master"
+                                                                || precision.editor.opticsEnabled)
+                                                        onToggled: {
+                                                            if (parent.modelData.key === "master")
+                                                                precision.editor.opticsEnabled = checked
+                                                            else if (parent.modelData.key === "distortion")
+                                                                precision.editor.opticsDistortionEnabled = checked
+                                                            else if (parent.modelData.key === "tca")
+                                                                precision.editor.opticsTcaEnabled = checked
+                                                            else if (parent.modelData.key === "vignetting")
+                                                                precision.editor.opticsVignettingEnabled = checked
+                                                            else
+                                                                precision.editor.opticsAutomaticScale = checked
+                                                        }
+                                                        indicator: Rectangle {
+                                                            implicitWidth: 32
+                                                            implicitHeight: 16
+                                                            x: (opticsSwitch.width - width) / 2
+                                                            y: (opticsSwitch.height - height) / 2
+                                                            radius: height / 2
+                                                            color: opticsSwitch.checked
+                                                                ? Theme.switchOnSurface : Theme.switchOffSurface
+                                                            border.color: opticsSwitch.checked
+                                                                ? Theme.switchOnBorder : Theme.switchOffBorder
+                                                            opacity: opticsSwitch.enabled ? 1 : 0.45
+                                                            Rectangle {
+                                                                width: 10; height: 10; y: 3
+                                                                x: opticsSwitch.checked ? parent.width - width - 3 : 3
+                                                                radius: width / 2
+                                                                color: opticsSwitch.checked ? precision.accent : precision.textMuted
+                                                            }
+                                                        }
+                                                        contentItem: Item {}
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        Rectangle {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 14
+                                            Layout.rightMargin: 14
+                                            Layout.preferredHeight: 1
+                                            color: Theme.border
+                                        }
+
+                                        Label {
+                                            Layout.leftMargin: 14
+                                            text: qsTr("DEFRINGE")
+                                            color: Theme.textMuted
+                                            font.pixelSize: 9
+                                            font.weight: Font.DemiBold
+                                            font.letterSpacing: 0.7
+                                        }
+
+                                        ShadowSlider {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 14
+                                            Layout.rightMargin: 14
+                                            label: qsTr("Purple amount")
+                                            from: 0; to: 1; neutralValue: 0
+                                            stepSize: 0.01; decimals: 0
+                                            displayMultiplier: 100; suffix: "%"
+                                            value: precision.fineValue("defringe_purple_amount")
+                                            onGestureStarted: precision.editor.beginParameterEdit(
+                                                "defringe_purple_amount")
+                                            onEdited: value => precision.editor.setParameterValue(
+                                                "defringe_purple_amount", value)
+                                            onGestureFinished: precision.editor.endParameterEdit(
+                                                "defringe_purple_amount")
+                                        }
+
+                                        ShadowHueRange {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 14
+                                            Layout.rightMargin: 14
+                                            label: qsTr("Purple hue")
+                                            accent: "#b66bd3"
+                                            lowerValue: precision.fineValue(
+                                                "defringe_purple_hue_low")
+                                            upperValue: precision.fineValue(
+                                                "defringe_purple_hue_high")
+                                            onGestureStarted: precision.editor.beginParameterEdit(
+                                                "optics/defringe/purple/hue_range")
+                                            onEdited: (lowerValue, upperValue) =>
+                                                precision.editor.setDefringeHueRange(
+                                                    "purple", lowerValue, upperValue)
+                                            onGestureFinished: precision.editor.endParameterEdit(
+                                                "optics/defringe/purple/hue_range")
+                                        }
+
+                                        ShadowSlider {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 14
+                                            Layout.rightMargin: 14
+                                            label: qsTr("Green amount")
+                                            from: 0; to: 1; neutralValue: 0
+                                            stepSize: 0.01; decimals: 0
+                                            displayMultiplier: 100; suffix: "%"
+                                            value: precision.fineValue("defringe_green_amount")
+                                            onGestureStarted: precision.editor.beginParameterEdit(
+                                                "defringe_green_amount")
+                                            onEdited: value => precision.editor.setParameterValue(
+                                                "defringe_green_amount", value)
+                                            onGestureFinished: precision.editor.endParameterEdit(
+                                                "defringe_green_amount")
+                                        }
+
+                                        ShadowHueRange {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 14
+                                            Layout.rightMargin: 14
+                                            label: qsTr("Green hue")
+                                            accent: "#58a66b"
+                                            lowerValue: precision.fineValue(
+                                                "defringe_green_hue_low")
+                                            upperValue: precision.fineValue(
+                                                "defringe_green_hue_high")
+                                            onGestureStarted: precision.editor.beginParameterEdit(
+                                                "optics/defringe/green/hue_range")
+                                            onEdited: (lowerValue, upperValue) =>
+                                                precision.editor.setDefringeHueRange(
+                                                    "green", lowerValue, upperValue)
+                                            onGestureFinished: precision.editor.endParameterEdit(
+                                                "optics/defringe/green/hue_range")
+                                        }
+                                    }
+
+                                    ShadowAdjustmentSection {
+                                        Layout.fillWidth: true
+                                        title: qsTr("EFFECTS")
+
+                                        ShadowSlider {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 14
+                                            Layout.rightMargin: 14
+                                            label: qsTr("Dehaze")
+                                            from: -1; to: 1; neutralValue: 0
+                                            stepSize: 0.01; decimals: 0
+                                            displayMultiplier: 100; suffix: "%"
+                                            value: precision.fineValue("dehaze")
+                                            onGestureStarted: precision.editor.beginParameterEdit("dehaze")
+                                            onEdited: value => precision.editor.setParameterValue(
+                                                "dehaze", value)
+                                            onGestureFinished: precision.editor.endParameterEdit("dehaze")
+                                        }
+
+                                        Label {
+                                            Layout.leftMargin: 14
+                                            Layout.topMargin: 4
+                                            text: qsTr("GRAIN")
+                                            color: Theme.textMuted
+                                            font.pixelSize: 9
+                                            font.weight: Font.DemiBold
+                                            font.letterSpacing: 0.7
+                                        }
+
+                                        Repeater {
+                                            model: [
+                                                { "key": "grain_amount", "name": qsTr("Amount"), "neutral": 0 },
+                                                { "key": "grain_size", "name": qsTr("Size"), "neutral": 0.5 },
+                                                { "key": "grain_roughness", "name": qsTr("Roughness"), "neutral": 0.5 }
+                                            ]
+                                            delegate: ShadowSlider {
+                                                required property var modelData
+                                                Layout.fillWidth: true; Layout.leftMargin: 14; Layout.rightMargin: 14
+                                                label: modelData.name; from: 0; to: 1
+                                                neutralValue: modelData.neutral; stepSize: 0.01; decimals: 0
+                                                displayMultiplier: 100; suffix: "%"
+                                                value: precision.fineValue(modelData.key)
+                                                onGestureStarted: precision.editor.beginParameterEdit(modelData.key)
+                                                onEdited: value => precision.editor.setParameterValue(modelData.key, value)
+                                                onGestureFinished: precision.editor.endParameterEdit(modelData.key)
+                                            }
+                                        }
+
+                                        Label {
+                                            Layout.leftMargin: 14
+                                            Layout.topMargin: 4
+                                            text: qsTr("POST-CROP VIGNETTE")
+                                            color: Theme.textMuted
+                                            font.pixelSize: 9
+                                            font.weight: Font.DemiBold
+                                            font.letterSpacing: 0.7
+                                        }
+
+                                        Repeater {
+                                            model: [
+                                                { "key": "vignette_amount", "name": qsTr("Amount"), "from": -1, "neutral": 0 },
+                                                { "key": "vignette_midpoint", "name": qsTr("Midpoint"), "from": 0, "neutral": 0.5 },
+                                                { "key": "vignette_roundness", "name": qsTr("Roundness"), "from": -1, "neutral": 0 },
+                                                { "key": "vignette_feather", "name": qsTr("Feather"), "from": 0, "neutral": 0.5 },
+                                                { "key": "vignette_highlights", "name": qsTr("Highlights"), "from": 0, "neutral": 0 }
+                                            ]
+                                            delegate: ShadowSlider {
+                                                required property var modelData
+                                                Layout.fillWidth: true; Layout.leftMargin: 14; Layout.rightMargin: 14
+                                                label: modelData.name; from: modelData.from; to: 1
+                                                neutralValue: modelData.neutral; stepSize: 0.01; decimals: 0
+                                                displayMultiplier: 100; suffix: "%"
+                                                value: precision.fineValue(modelData.key)
+                                                onGestureStarted: precision.editor.beginParameterEdit(modelData.key)
+                                                onEdited: value => precision.editor.setParameterValue(modelData.key, value)
+                                                onGestureFinished: precision.editor.endParameterEdit(modelData.key)
+                                            }
+                                        }
+                                    }
+
                                 }
 
-                                Button {
-                                    id: revertButton
+                                RowLayout {
                                     Layout.fillWidth: true
-                                    Layout.leftMargin: 18
-                                    Layout.rightMargin: 18
-                                    Layout.preferredHeight: 36
-                                    text: "REVERT TO SAVED VERSION"
-                                    enabled: precision.editor.active && precision.editor.dirty
-                                        && !precision.editor.stateBusy
-                                    onClicked: precision.editor.revertEdits()
-                                    background: Rectangle {
-                                        radius: 4
-                                        color: revertButton.down ? "#352c20" : "#211d18"
-                                        border.color: revertButton.enabled ? "#5d4b2d" : precision.border
+                                    Layout.leftMargin: 14
+                                    Layout.rightMargin: 14
+                                    Layout.topMargin: 4
+                                    spacing: 4
+
+                                    Item { Layout.fillWidth: true }
+
+                                    ShadowIconButton {
+                                        id: resetButton
+                                        source: "qrc:/icons/redo.svg"
+                                        toolTipText: qsTr("Reset the selected Grade Node")
+                                        accessibleName: toolTipText
+                                        enabled: precision.editor.active
+                                            && precision.editor.hasSelectedGradeNode
+                                            && !precision.editor.stateBusy
+                                        onClicked: precision.editor.resetSelectedGradeNode()
                                     }
-                                    contentItem: Label {
-                                        text: revertButton.text
-                                        color: revertButton.enabled ? precision.accent : "#606a74"
-                                        font.pixelSize: 9
-                                        font.weight: Font.DemiBold
-                                        horizontalAlignment: Text.AlignHCenter
-                                        verticalAlignment: Text.AlignVCenter
+
+                                    ShadowIconButton {
+                                        id: revertButton
+                                        source: "qrc:/icons/clear.svg"
+                                        toolTipText: qsTr("Revert all working changes to the Library version")
+                                        accessibleName: toolTipText
+                                        enabled: precision.editor.active
+                                            && precision.editor.dirty
+                                            && !precision.editor.stateBusy
+                                        onClicked: precision.editor.revertEdits()
                                     }
                                 }
 
@@ -1347,25 +2375,64 @@ Item {
                             spacing: 10
 
                             Label {
-                                text: "SAVE CURRENT LOOK"
+                                text: qsTr("CREATE LIBRARY VERSION")
                                 color: precision.textMuted
                                 font.pixelSize: 10
                                 font.weight: Font.DemiBold
                                 font.letterSpacing: 1.2
                             }
 
+                            Rectangle {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: draftSummary.implicitHeight + 20
+                                radius: Theme.controlRadius
+                                color: precision.editor.dirty
+                                    ? Theme.accentSurfaceQuiet : Theme.panelRaised
+                                border.color: precision.editor.dirty
+                                    ? Theme.accentBorder : precision.border
+
+                                ColumnLayout {
+                                    id: draftSummary
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    anchors.leftMargin: 10
+                                    anchors.rightMargin: 10
+                                    spacing: 3
+
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: precision.editor.dirty
+                                            ? qsTr("WORKING CHANGES")
+                                            : qsTr("CURRENT VERSION")
+                                        color: precision.editor.dirty
+                                            ? precision.accent : precision.textSecondary
+                                        font.pixelSize: 9
+                                        font.weight: Font.DemiBold
+                                        font.letterSpacing: 0.8
+                                    }
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: qsTr("Undo and redo stay in this editing session. Creating a version records one atomic Library state, including this photo and every shared Grade Node change.")
+                                        color: precision.textMuted
+                                        font.pixelSize: 9
+                                        wrapMode: Text.WordWrap
+                                    }
+                                }
+                            }
+
                             TextField {
                                 id: versionLabel
                                 Layout.fillWidth: true
-                                Layout.preferredHeight: 38
+                                Layout.preferredHeight: Theme.controlHeight
                                 enabled: precision.editor.active && !precision.editor.stateBusy
-                                placeholderText: "Version name"
+                                placeholderText: qsTr("Version name")
                                 color: precision.textPrimary
-                                placeholderTextColor: "#68727c"
+                                placeholderTextColor: Theme.textPlaceholder
                                 selectByMouse: true
                                 background: Rectangle {
-                                    radius: 4
-                                    color: "#181c21"
+                                    radius: Theme.controlRadius
+                                    color: Theme.panelRaised
                                     border.color: versionLabel.activeFocus ? precision.accent : precision.border
                                 }
                                 onAccepted: {
@@ -1377,30 +2444,18 @@ Item {
                                 }
                             }
 
-                            Button {
+                            ShadowButton {
                                 id: saveButton
                                 Layout.fillWidth: true
-                                Layout.preferredHeight: 38
-                                text: precision.editor.stateBusy ? "SAVING…" : "SAVE VERSION"
+                                Layout.preferredHeight: Theme.controlHeight
+                                text: precision.editor.stateBusy
+                                    ? qsTr("CREATING…") : qsTr("CREATE VERSION")
+                                variant: ShadowButton.Primary
                                 enabled: precision.editor.active && !precision.editor.stateBusy
                                     && versionLabel.text.trim().length > 0
                                 onClicked: {
                                     precision.editor.saveVersion(versionLabel.text.trim())
                                     versionLabel.clear()
-                                }
-                                background: Rectangle {
-                                    radius: 4
-                                    color: saveButton.enabled
-                                        ? (saveButton.down ? "#b9914e" : precision.accent)
-                                        : "#252a30"
-                                }
-                                contentItem: Label {
-                                    text: saveButton.text
-                                    color: saveButton.enabled ? "#17130d" : "#606a74"
-                                    font.pixelSize: 10
-                                    font.weight: Font.Bold
-                                    horizontalAlignment: Text.AlignHCenter
-                                    verticalAlignment: Text.AlignVCenter
                                 }
                             }
 
@@ -1414,14 +2469,14 @@ Item {
                                 Layout.fillWidth: true
                                 Label {
                                     Layout.fillWidth: true
-                                    text: "HISTORY"
+                                    text: qsTr("THIS PHOTO")
                                     color: precision.textMuted
                                     font.pixelSize: 10
                                     font.weight: Font.DemiBold
                                     font.letterSpacing: 1.2
                                 }
                                 Label {
-                                    text: versionList.count
+                                    text: qsTr("%L1").arg(versionList.count)
                                     color: precision.textMuted
                                     font.pixelSize: 9
                                 }
@@ -1440,16 +2495,18 @@ Item {
                                     required property string commitId
                                     required property string label
                                     required property string createdAtText
-                                    required property bool current
+                                    required property bool selected
                                     required property int parentCount
                                     required property string changeSummary
                                     required property string parentSummary
 
                                     width: versionList.width
                                     height: 78
-                                    radius: 4
-                                    color: current ? "#242820" : "#181c21"
-                                    border.color: current ? "#625334" : precision.border
+                                    radius: Theme.controlRadius
+                                    color: selected
+                                        ? Theme.currentRevisionSurface : Theme.panelRaised
+                                    border.color: selected
+                                        ? Theme.currentRevisionBorder : precision.border
 
                                     Column {
                                         anchors.left: parent.left
@@ -1475,8 +2532,9 @@ Item {
                                         }
                                         Label {
                                             width: parent.width
-                                            text: versionRow.createdAtText + "  ·  "
-                                                + versionRow.parentSummary
+                                            text: qsTr("%1  ·  %2")
+                                                .arg(versionRow.createdAtText)
+                                                .arg(versionRow.parentSummary)
                                             color: precision.textMuted
                                             font.pixelSize: 9
                                             elide: Text.ElideRight
@@ -1488,8 +2546,11 @@ Item {
                                         anchors.right: parent.right
                                         anchors.rightMargin: 10
                                         anchors.verticalCenter: parent.verticalCenter
-                                        text: versionRow.current ? "CURRENT" : "CHECKOUT"
-                                        color: versionRow.current ? precision.accent : precision.textMuted
+                                        text: versionRow.selected
+                                            ? (precision.editor.versionDraft
+                                                ? qsTr("LOADED") : qsTr("CURRENT"))
+                                            : qsTr("LOAD")
+                                        color: versionRow.selected ? precision.accent : precision.textMuted
                                         font.pixelSize: 8
                                         font.weight: Font.Bold
                                         font.letterSpacing: 0.7
@@ -1497,9 +2558,9 @@ Item {
 
                                     MouseArea {
                                         anchors.fill: parent
-                                        enabled: !versionRow.current && !precision.editor.stateBusy
+                                        enabled: !versionRow.selected && !precision.editor.stateBusy
                                         cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                                        onClicked: precision.editor.checkoutVersion(versionRow.commitId)
+                                        onClicked: precision.editor.loadVersionDraft(versionRow.commitId)
                                     }
                                 }
 
@@ -1507,7 +2568,7 @@ Item {
                                     anchors.centerIn: parent
                                     width: parent.width - 20
                                     visible: versionList.count === 0
-                                    text: "Saved looks will appear here. Checking one out changes the working edit without deleting newer versions."
+                                    text: qsTr("Saved looks will appear here. Loading one creates working changes without deleting newer versions; create a version to keep the result.")
                                     color: precision.textMuted
                                     font.pixelSize: 10
                                     horizontalAlignment: Text.AlignHCenter

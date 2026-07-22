@@ -45,6 +45,44 @@ mod ffi {
         bottom: u32,
     }
 
+    #[derive(Debug, Clone)]
+    struct FfiOpticsSettings {
+        schema_version: u32,
+        enabled: bool,
+        correct_distortion: bool,
+        correct_tca: bool,
+        correct_vignetting: bool,
+        automatic_scale: bool,
+        camera_profile_maker: String,
+        camera_profile_model: String,
+        lens_profile_maker: String,
+        lens_profile_model: String,
+    }
+
+    #[derive(Debug)]
+    struct FfiOpticsReceipt {
+        status: String,
+        provider_id: String,
+        provider_version: String,
+        camera_profile: String,
+        lens_profile: String,
+        distortion_available: bool,
+        tca_available: bool,
+        vignetting_available: bool,
+        applied_distortion: bool,
+        applied_tca: bool,
+        applied_vignetting: bool,
+        applied_scaling: bool,
+    }
+
+    #[derive(Debug)]
+    struct FfiOpticsProfileCandidate {
+        camera_maker: String,
+        camera_model: String,
+        lens_maker: String,
+        lens_model: String,
+    }
+
     #[derive(Debug)]
     struct FfiProviderSnapshot {
         id: String,
@@ -76,6 +114,14 @@ mod ffi {
         as_shot_neutral_b: f64,
         as_shot_neutral_g2: f64,
         baseline_exposure: f64,
+        iso_speed: f64,
+        exposure_time_seconds: f64,
+        aperture_f_number: f64,
+        focal_length_mm: f64,
+        captured_at_unix_seconds: i64,
+        lens_make: String,
+        lens_model: String,
+        focal_length_35mm: f64,
     }
 
     #[derive(Debug)]
@@ -153,8 +199,13 @@ mod ffi {
         Exposure,
         Contrast,
         ToneCurve,
-        ChannelGain,
+        SmoothRgbToneCurve,
+        RgbWhiteBalance,
         Saturation,
+        SelectiveTone,
+        PerceptualColor,
+        Lut3D,
+        Sharpen,
     }
 
     #[derive(Debug)]
@@ -165,6 +216,13 @@ mod ffi {
         implementation_version: u32,
         enabled: bool,
         parameters: Vec<f64>,
+        /// Operation-specific immutable binary document. Only Lut3D accepts
+        /// a validated `.cube` document; every other operation requires empty.
+        payload: Vec<u8>,
+        /// Lengths for grouped variable-size parameters. Smooth RGB Tone Curve
+        /// stores master/R/G/B point counts; Perceptual Color stores the number
+        /// of additional sampled color ranges.
+        parameter_group_lengths: Vec<u32>,
     }
 
     #[derive(Debug)]
@@ -204,6 +262,7 @@ mod ffi {
         type FullEditDetailHandle;
 
         fn open_libraw_utf8(path: &str) -> Result<UniquePtr<DecodeHandle>>;
+        fn query_libraw_optics_profiles_utf8(path: &str) -> Result<Vec<FfiOpticsProfileCandidate>>;
         fn libraw_provider_version() -> String;
         fn decode_jpeg_display_luma(encoded: &[u8], max_edge: u32) -> Result<FfiDisplayLuma>;
         fn provider(self: &DecodeHandle) -> FfiProviderSnapshot;
@@ -211,6 +270,10 @@ mod ffi {
         fn capabilities(self: &DecodeHandle) -> FfiCapabilitySnapshot;
         fn previews(self: &DecodeHandle) -> Vec<FfiPreviewSnapshot>;
         fn decode_best_preview(self: Pin<&mut DecodeHandle>) -> Result<FfiPreviewPayload>;
+        fn configure_optics(
+            self: Pin<&mut DecodeHandle>,
+            settings: &FfiOpticsSettings,
+        ) -> Result<()>;
         fn render_reference_proxy(
             self: &DecodeHandle,
             max_edge: u32,
@@ -227,6 +290,7 @@ mod ffi {
         fn prepare_edit_detail(self: &DecodeHandle) -> Result<UniquePtr<FullEditDetailHandle>>;
         fn dimensions(self: &EditPreviewHandle) -> FfiDimensions;
         fn max_edge(self: &EditPreviewHandle) -> u32;
+        fn optics_receipt(self: &EditPreviewHandle) -> FfiOpticsReceipt;
         fn render_adjustment_plan(
             self: &EditPreviewHandle,
             request: &FfiAdjustmentRenderRequest,
@@ -237,6 +301,7 @@ mod ffi {
         ) -> Result<FfiAnalyzedEditPreview>;
         fn dimensions(self: &FullEditDetailHandle) -> FfiDimensions;
         fn retained_bytes(self: &FullEditDetailHandle) -> u64;
+        fn optics_receipt(self: &FullEditDetailHandle) -> FfiOpticsReceipt;
         fn render_adjustment_plan_tile(
             self: &FullEditDetailHandle,
             request: &FfiAdjustmentDetailTileRequest,
@@ -262,6 +327,113 @@ unsafe impl Sync for ffi::FullEditDetailHandle {}
 /// Cache-key version for the fixed-order basic edited-preview recipe.
 pub const BASIC_EDIT_PREVIEW_RECIPE_VERSION: u32 = 1;
 
+/// Persisted input-transform contract understood by the C++ optics provider.
+pub const OPTICS_SETTINGS_SCHEMA_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub struct OpticsSettings {
+    pub enabled: bool,
+    pub correct_distortion: bool,
+    pub correct_tca: bool,
+    pub correct_vignetting: bool,
+    pub automatic_scale: bool,
+    pub camera_profile_maker: String,
+    pub camera_profile_model: String,
+    pub lens_profile_maker: String,
+    pub lens_profile_model: String,
+}
+
+impl Default for OpticsSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            correct_distortion: true,
+            correct_tca: true,
+            correct_vignetting: true,
+            automatic_scale: true,
+            camera_profile_maker: String::new(),
+            camera_profile_model: String::new(),
+            lens_profile_maker: String::new(),
+            lens_profile_model: String::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct OpticsReceipt {
+    pub status: String,
+    pub provider_id: String,
+    pub provider_version: String,
+    pub camera_profile: String,
+    pub lens_profile: String,
+    pub distortion_available: bool,
+    pub tca_available: bool,
+    pub vignetting_available: bool,
+    pub applied_distortion: bool,
+    pub applied_tca: bool,
+    pub applied_vignetting: bool,
+    pub applied_scaling: bool,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct OpticsProfileCandidate {
+    pub camera_maker: String,
+    pub camera_model: String,
+    pub lens_maker: String,
+    pub lens_model: String,
+}
+
+/// Enumerates Lensfun lenses compatible with the camera identified by a RAW.
+/// The result is sorted and deduplicated by stable maker/model identity.
+pub fn query_libraw_optics_profiles(
+    path: &Path,
+) -> Result<Vec<OpticsProfileCandidate>, BridgeError> {
+    let utf8_path = path
+        .to_str()
+        .ok_or_else(|| BridgeError::NonUtf8Path(path.to_path_buf()))?;
+    Ok(ffi::query_libraw_optics_profiles_utf8(utf8_path)?
+        .into_iter()
+        .map(|candidate| OpticsProfileCandidate {
+            camera_maker: candidate.camera_maker,
+            camera_model: candidate.camera_model,
+            lens_maker: candidate.lens_maker,
+            lens_model: candidate.lens_model,
+        })
+        .collect())
+}
+
+fn ffi_optics_settings(settings: &OpticsSettings) -> ffi::FfiOpticsSettings {
+    ffi::FfiOpticsSettings {
+        schema_version: OPTICS_SETTINGS_SCHEMA_VERSION,
+        enabled: settings.enabled,
+        correct_distortion: settings.correct_distortion,
+        correct_tca: settings.correct_tca,
+        correct_vignetting: settings.correct_vignetting,
+        automatic_scale: settings.automatic_scale,
+        camera_profile_maker: settings.camera_profile_maker.clone(),
+        camera_profile_model: settings.camera_profile_model.clone(),
+        lens_profile_maker: settings.lens_profile_maker.clone(),
+        lens_profile_model: settings.lens_profile_model.clone(),
+    }
+}
+
+fn optics_receipt(receipt: ffi::FfiOpticsReceipt) -> OpticsReceipt {
+    OpticsReceipt {
+        status: receipt.status,
+        provider_id: receipt.provider_id,
+        provider_version: receipt.provider_version,
+        camera_profile: receipt.camera_profile,
+        lens_profile: receipt.lens_profile,
+        distortion_available: receipt.distortion_available,
+        tca_available: receipt.tca_available,
+        vignetting_available: receipt.vignetting_available,
+        applied_distortion: receipt.applied_distortion,
+        applied_tca: receipt.applied_tca,
+        applied_vignetting: receipt.applied_vignetting,
+        applied_scaling: receipt.applied_scaling,
+    }
+}
+
 /// Hard memory bound for the reusable float working proxy.
 ///
 /// A square proxy at this edge consumes at most 192 MiB for interleaved RGB
@@ -273,9 +445,9 @@ pub const EDIT_PREVIEW_HISTOGRAM_BIN_COUNT: usize = 256;
 
 /// Exact semantic contract for warm edit-preview analysis.
 ///
-/// Histograms cover the complete uncompressed display-sRGB RGB8 warm proxy
+/// Histograms cover the complete uncompressed display-encoded sRGB RGB8 warm proxy
 /// immediately before JPEG encoding. Clipping counts inspect the edited
-/// scene-linear samples before display clamping and use strict `< 0` and `> 1`
+/// processed-linear working-RGB samples before display clamping and use strict `< 0` and `> 1`
 /// comparisons; exact zero and one are not clipped.
 pub const EDIT_PREVIEW_ANALYSIS_VERSION: &str = concat!(
     "shadow.edit-preview-analysis.v1:rgb8-before-jpeg:rec709-encoded-q16:",
@@ -393,32 +565,256 @@ pub fn decode_jpeg_display_luma(
     })
 }
 
-/// Current numeric contract understood by the C++ adjustment executor.
+/// Numeric v1 contract used by the existing adjustment operations and the
+/// historical linear Tone Curve.
 pub const ADJUSTMENT_PARAMETER_SCHEMA_VERSION: u32 = 1;
-/// Current numeric implementation contract understood by the C++ executor.
+/// Numeric v1 executor revision. Per-operation v2 contracts must not upgrade
+/// unrelated persisted nodes.
 pub const ADJUSTMENT_IMPLEMENTATION_VERSION: u32 = 1;
+/// Numeric parameter contract for the smooth master-plus-RGB Tone Curve.
+pub const SMOOTH_RGB_TONE_CURVE_PARAMETER_SCHEMA_VERSION: u32 = 2;
+/// Numeric executor revision for the smooth master-plus-RGB Tone Curve.
+pub const SMOOTH_RGB_TONE_CURVE_IMPLEMENTATION_VERSION: u32 = 2;
 /// Hard bound for one linearized render plan crossing the language boundary.
 pub const MAX_ADJUSTMENT_RENDER_NODES: usize = 256;
+/// Hard bound for one immutable `.cube` document crossing the render bridge.
+pub const MAX_LUT_DOCUMENT_BYTES: usize = 16 * 1_024 * 1_024;
 /// Hard bound for diagnostic node identities crossing the language boundary.
 pub const MAX_ADJUSTMENT_NODE_ID_BYTES: usize = 256;
 /// Mirrors the CPU reference Tone Curve bound without exposing a C++ type.
 pub const MAX_TONE_CURVE_POINTS: usize = 256;
+/// Fixed hue anchors used by the first perceptual Color Mixer contract.
+pub const COLOR_MIXER_BAND_COUNT: usize = 8;
+pub const MAX_POINT_COLOR_RANGES: usize = 16;
+pub const PERCEPTUAL_COLOR_V2_PARAMETER_SCHEMA_VERSION: u32 = 2;
+pub const PERCEPTUAL_COLOR_V2_IMPLEMENTATION_VERSION: u32 = 2;
+pub const DETAIL_EFFECTS_V2_PARAMETER_SCHEMA_VERSION: u32 = 2;
+pub const DETAIL_EFFECTS_V2_IMPLEMENTATION_VERSION: u32 = 2;
 
-/// One point in the version-1 piecewise-linear Tone Curve contract.
+/// One authored point shared by the legacy linear and smooth RGB Tone Curve
+/// contracts. The surrounding operation version determines interpolation.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ToneCurvePoint {
     pub x: f64,
     pub y: f64,
 }
 
+/// Version-2 Tone Curve payload. Every channel stores an explicit curve;
+/// neutral channel curves are represented by `(0, 0), (1, 1)` rather than an
+/// absent value so persistence and FFI have one canonical shape.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SmoothRgbToneCurve {
+    pub master: Vec<ToneCurvePoint>,
+    pub red: Vec<ToneCurvePoint>,
+    pub green: Vec<ToneCurvePoint>,
+    pub blue: Vec<ToneCurvePoint>,
+}
+
+impl Default for SmoothRgbToneCurve {
+    fn default() -> Self {
+        let identity = || {
+            vec![
+                ToneCurvePoint { x: 0.0, y: 0.0 },
+                ToneCurvePoint { x: 1.0, y: 1.0 },
+            ]
+        };
+        Self {
+            master: identity(),
+            red: identity(),
+            green: identity(),
+            blue: identity(),
+        }
+    }
+}
+
+/// Pixel-local tonal zones in the processed linear-light RGB working space. Values are normalized user intent in
+/// `[-1, 1]`; the executor owns the versioned EV weighting and strength.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SelectiveToneParameters {
+    pub highlights: f64,
+    pub shadows: f64,
+    pub whites: f64,
+    pub blacks: f64,
+}
+
+impl Default for SelectiveToneParameters {
+    fn default() -> Self {
+        Self {
+            highlights: 0.0,
+            shadows: 0.0,
+            whites: 0.0,
+            blacks: 0.0,
+        }
+    }
+}
+
+/// One soft, circular hue range layered on top of the fixed Color Mixer.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ColorRangeParameters {
+    pub enabled: bool,
+    pub center_hue_degrees: f64,
+    pub width_degrees: f64,
+    pub softness: f64,
+    pub hue_shift_degrees: f64,
+    pub saturation: f64,
+    pub lightness: f64,
+}
+
+impl Default for ColorRangeParameters {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            center_hue_degrees: 0.0,
+            width_degrees: 30.0,
+            softness: 0.5,
+            hue_shift_degrees: 0.0,
+            saturation: 0.0,
+            lightness: 0.0,
+        }
+    }
+}
+
+/// Perceptual color controls evaluated together so Oklab conversion happens
+/// once per pixel instead of once per UI slider.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PerceptualColorParameters {
+    pub vibrance: f64,
+    pub hue_shifts: [f64; COLOR_MIXER_BAND_COUNT],
+    pub saturation: [f64; COLOR_MIXER_BAND_COUNT],
+    pub lightness: [f64; COLOR_MIXER_BAND_COUNT],
+    pub color_range: ColorRangeParameters,
+    pub additional_color_ranges: Vec<ColorRangeParameters>,
+}
+
+impl Default for PerceptualColorParameters {
+    fn default() -> Self {
+        Self {
+            vibrance: 0.0,
+            hue_shifts: [0.0; COLOR_MIXER_BAND_COUNT],
+            saturation: [0.0; COLOR_MIXER_BAND_COUNT],
+            lightness: [0.0; COLOR_MIXER_BAND_COUNT],
+            color_range: ColorRangeParameters::default(),
+            additional_color_ranges: Vec::new(),
+        }
+    }
+}
+
+/// Spatial sharpening, detail, and finishing controls. `radius` is the
+/// level-0 Gaussian sigma in pixels; the remaining values are normalized user
+/// intent.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SharpenParameters {
+    pub amount: f64,
+    pub radius: f64,
+    pub threshold: f64,
+    pub masking: f64,
+    pub denoise_luminance: f64,
+    pub denoise_detail: f64,
+    pub denoise_color: f64,
+    pub dehaze: f64,
+    pub defringe_purple_amount: f64,
+    pub defringe_purple_hue_low: f64,
+    pub defringe_purple_hue_high: f64,
+    pub defringe_green_amount: f64,
+    pub defringe_green_hue_low: f64,
+    pub defringe_green_hue_high: f64,
+    pub shadows_hue: f64,
+    pub shadows_saturation: f64,
+    pub shadows_luminance: f64,
+    pub midtones_hue: f64,
+    pub midtones_saturation: f64,
+    pub midtones_luminance: f64,
+    pub highlights_hue: f64,
+    pub highlights_saturation: f64,
+    pub highlights_luminance: f64,
+    pub grading_blending: f64,
+    pub grading_balance: f64,
+    pub grain_amount: f64,
+    pub grain_size: f64,
+    pub grain_roughness: f64,
+    pub vignette_amount: f64,
+    pub vignette_midpoint: f64,
+    pub vignette_roundness: f64,
+    pub vignette_feather: f64,
+    pub vignette_highlights: f64,
+}
+
+impl Default for SharpenParameters {
+    fn default() -> Self {
+        Self {
+            amount: 0.0,
+            radius: 1.0,
+            threshold: 0.0,
+            masking: 0.0,
+            denoise_luminance: 0.0,
+            denoise_detail: 0.5,
+            denoise_color: 0.0,
+            dehaze: 0.0,
+            defringe_purple_amount: 0.0,
+            defringe_purple_hue_low: 270.0,
+            defringe_purple_hue_high: 340.0,
+            defringe_green_amount: 0.0,
+            defringe_green_hue_low: 100.0,
+            defringe_green_hue_high: 165.0,
+            shadows_hue: 0.0,
+            shadows_saturation: 0.0,
+            shadows_luminance: 0.0,
+            midtones_hue: 0.0,
+            midtones_saturation: 0.0,
+            midtones_luminance: 0.0,
+            highlights_hue: 0.0,
+            highlights_saturation: 0.0,
+            highlights_luminance: 0.0,
+            grading_blending: 0.5,
+            grading_balance: 0.0,
+            grain_amount: 0.0,
+            grain_size: 0.5,
+            grain_roughness: 0.5,
+            vignette_amount: 0.0,
+            vignette_midpoint: 0.5,
+            vignette_roundness: 0.0,
+            vignette_feather: 0.5,
+            vignette_highlights: 0.0,
+        }
+    }
+}
+
 /// Typed pixel operation in execution order.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AdjustmentRenderOperation {
-    Exposure { stops: f64 },
-    Contrast { factor: f64, pivot: f64 },
-    ToneCurve { points: Vec<ToneCurvePoint> },
-    ChannelGain { channel_gains: [f64; 3] },
-    Saturation { factor: f64 },
+    Exposure {
+        stops: f64,
+    },
+    Contrast {
+        factor: f64,
+        pivot: f64,
+    },
+    ToneCurve {
+        points: Vec<ToneCurvePoint>,
+    },
+    SmoothRgbToneCurve {
+        curves: Box<SmoothRgbToneCurve>,
+    },
+    RgbWhiteBalance {
+        temperature: f64,
+        tint: f64,
+    },
+    Saturation {
+        factor: f64,
+    },
+    SelectiveTone {
+        parameters: SelectiveToneParameters,
+    },
+    PerceptualColor {
+        parameters: Box<PerceptualColorParameters>,
+    },
+    Lut3D {
+        document: Vec<u8>,
+        intensity: f64,
+    },
+    Sharpen {
+        parameters: Box<SharpenParameters>,
+    },
 }
 
 /// A bounded, versioned node ready for the C++ reference executor.
@@ -435,7 +831,8 @@ pub struct AdjustmentRenderNode {
 ///
 /// Graph topology, stages, masks, layer blending, and shared revisions are
 /// deliberately compiled before this boundary. This type contains only the
-/// pixel-local operations the current CPU reference backend can execute.
+/// operations the current CPU reference backend can execute. Neighborhood
+/// footprint scheduling remains inside the C++ image kernel.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AdjustmentRenderPlan {
     pub nodes: Vec<AdjustmentRenderNode>,
@@ -469,9 +866,25 @@ impl AdjustmentRenderPlan {
                     "adjustment render plan contains duplicate node ids",
                 ));
             }
-            if node.parameter_schema_version != ADJUSTMENT_PARAMETER_SCHEMA_VERSION
-                || node.implementation_version != ADJUSTMENT_IMPLEMENTATION_VERSION
-            {
+            let expected_contract = match &node.operation {
+                AdjustmentRenderOperation::SmoothRgbToneCurve { .. } => (
+                    SMOOTH_RGB_TONE_CURVE_PARAMETER_SCHEMA_VERSION,
+                    SMOOTH_RGB_TONE_CURVE_IMPLEMENTATION_VERSION,
+                ),
+                AdjustmentRenderOperation::PerceptualColor { .. } => (
+                    PERCEPTUAL_COLOR_V2_PARAMETER_SCHEMA_VERSION,
+                    PERCEPTUAL_COLOR_V2_IMPLEMENTATION_VERSION,
+                ),
+                AdjustmentRenderOperation::Sharpen { .. } => (
+                    DETAIL_EFFECTS_V2_PARAMETER_SCHEMA_VERSION,
+                    DETAIL_EFFECTS_V2_IMPLEMENTATION_VERSION,
+                ),
+                _ => (
+                    ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+                    ADJUSTMENT_IMPLEMENTATION_VERSION,
+                ),
+            };
+            if (node.parameter_schema_version, node.implementation_version) != expected_contract {
                 return Err(BridgeError::InvalidEditRequest(
                     "adjustment node uses an unsupported schema or implementation version",
                 ));
@@ -482,20 +895,11 @@ impl AdjustmentRenderPlan {
     }
 }
 
-#[allow(clippy::float_cmp)] // Tone Curve schema requires exact normalized endpoints.
+#[allow(clippy::float_cmp)] // Tone Curve schemas require exact normalized endpoints.
 fn validate_render_operation(operation: &AdjustmentRenderOperation) -> Result<(), BridgeError> {
-    let finite = |value: f64| {
-        if value.is_finite() {
-            Ok(())
-        } else {
-            Err(BridgeError::InvalidEditRequest(
-                "adjustment render parameters must be finite",
-            ))
-        }
-    };
     match operation {
         AdjustmentRenderOperation::Exposure { stops } => {
-            finite(*stops)?;
+            validate_finite_render_parameter(*stops)?;
             let gain = stops.exp2();
             if gain.is_finite() && gain > 0.0 {
                 Ok(())
@@ -506,8 +910,8 @@ fn validate_render_operation(operation: &AdjustmentRenderOperation) -> Result<()
             }
         }
         AdjustmentRenderOperation::Contrast { factor, pivot } => {
-            finite(*factor)?;
-            finite(*pivot)?;
+            validate_finite_render_parameter(*factor)?;
+            validate_finite_render_parameter(*pivot)?;
             if *factor >= 0.0 && *pivot >= 0.0 {
                 Ok(())
             } else {
@@ -516,53 +920,26 @@ fn validate_render_operation(operation: &AdjustmentRenderOperation) -> Result<()
                 ))
             }
         }
-        AdjustmentRenderOperation::ToneCurve { points } => {
-            if !(2..=MAX_TONE_CURVE_POINTS).contains(&points.len()) {
-                return Err(BridgeError::InvalidEditRequest(
-                    "tone curve must contain 2 through 256 points",
-                ));
-            }
-            if points.first().is_none_or(|point| point.x != 0.0)
-                || points.last().is_none_or(|point| point.x != 1.0)
-            {
-                return Err(BridgeError::InvalidEditRequest(
-                    "tone curve x coordinates must start at zero and end at one",
-                ));
-            }
-            let mut previous: Option<ToneCurvePoint> = None;
-            for point in points {
-                finite(point.x)?;
-                finite(point.y)?;
-                if let Some(previous_point) = previous {
-                    if point.x <= previous_point.x {
-                        return Err(BridgeError::InvalidEditRequest(
-                            "tone curve x coordinates must be strictly increasing",
-                        ));
-                    }
-                    let slope = (point.y - previous_point.y) / (point.x - previous_point.x);
-                    if !slope.is_finite() {
-                        return Err(BridgeError::InvalidEditRequest(
-                            "tone curve segment slopes must be finite",
-                        ));
-                    }
-                }
-                previous = Some(*point);
+        AdjustmentRenderOperation::ToneCurve { points } => validate_tone_curve_points(points),
+        AdjustmentRenderOperation::SmoothRgbToneCurve { curves } => {
+            for points in [&curves.master, &curves.red, &curves.green, &curves.blue] {
+                validate_tone_curve_points(points)?;
             }
             Ok(())
         }
-        AdjustmentRenderOperation::ChannelGain { channel_gains } => {
-            for gain in channel_gains {
-                finite(*gain)?;
-                if *gain <= 0.0 {
+        AdjustmentRenderOperation::RgbWhiteBalance { temperature, tint } => {
+            for value in [temperature, tint] {
+                validate_finite_render_parameter(*value)?;
+                if !(-1.0..=1.0).contains(value) {
                     return Err(BridgeError::InvalidEditRequest(
-                        "channel gains must be positive",
+                        "RGB white balance values must be in -1..=1",
                     ));
                 }
             }
             Ok(())
         }
         AdjustmentRenderOperation::Saturation { factor } => {
-            finite(*factor)?;
+            validate_finite_render_parameter(*factor)?;
             if *factor >= 0.0 {
                 Ok(())
             } else {
@@ -571,19 +948,273 @@ fn validate_render_operation(operation: &AdjustmentRenderOperation) -> Result<()
                 ))
             }
         }
+        AdjustmentRenderOperation::SelectiveTone { parameters } => {
+            validate_selective_tone(*parameters)
+        }
+        AdjustmentRenderOperation::PerceptualColor { parameters } => {
+            validate_perceptual_color(parameters)
+        }
+        AdjustmentRenderOperation::Lut3D {
+            document,
+            intensity,
+        } => {
+            validate_finite_render_parameter(*intensity)?;
+            if !(0.0..=1.0).contains(intensity) {
+                return Err(BridgeError::InvalidEditRequest(
+                    "3D LUT intensity must be in 0..=1",
+                ));
+            }
+            if document.is_empty() {
+                if *intensity == 0.0 {
+                    Ok(())
+                } else {
+                    Err(BridgeError::InvalidEditRequest(
+                        "an active 3D LUT requires a document",
+                    ))
+                }
+            } else if document.len() <= MAX_LUT_DOCUMENT_BYTES {
+                Ok(())
+            } else {
+                Err(BridgeError::InvalidEditRequest(
+                    "3D LUT document exceeds 16 MiB",
+                ))
+            }
+        }
+        AdjustmentRenderOperation::Sharpen { parameters } => validate_sharpen(parameters),
     }
+}
+
+#[allow(clippy::float_cmp)] // Tone Curve schemas require exact normalized endpoints.
+fn validate_tone_curve_points(points: &[ToneCurvePoint]) -> Result<(), BridgeError> {
+    if !(2..=MAX_TONE_CURVE_POINTS).contains(&points.len()) {
+        return Err(BridgeError::InvalidEditRequest(
+            "tone curve must contain 2 through 256 points",
+        ));
+    }
+    if points.first().is_none_or(|point| point.x != 0.0)
+        || points.last().is_none_or(|point| point.x != 1.0)
+    {
+        return Err(BridgeError::InvalidEditRequest(
+            "tone curve x coordinates must start at zero and end at one",
+        ));
+    }
+    let mut previous: Option<ToneCurvePoint> = None;
+    for point in points {
+        validate_finite_render_parameter(point.x)?;
+        validate_finite_render_parameter(point.y)?;
+        if let Some(previous_point) = previous {
+            if point.x <= previous_point.x {
+                return Err(BridgeError::InvalidEditRequest(
+                    "tone curve x coordinates must be strictly increasing",
+                ));
+            }
+            let slope = (point.y - previous_point.y) / (point.x - previous_point.x);
+            if !slope.is_finite() {
+                return Err(BridgeError::InvalidEditRequest(
+                    "tone curve segment slopes must be finite",
+                ));
+            }
+        }
+        previous = Some(*point);
+    }
+    Ok(())
+}
+
+fn validate_finite_render_parameter(value: f64) -> Result<(), BridgeError> {
+    if value.is_finite() {
+        Ok(())
+    } else {
+        Err(BridgeError::InvalidEditRequest(
+            "adjustment render parameters must be finite",
+        ))
+    }
+}
+
+fn validate_selective_tone(parameters: SelectiveToneParameters) -> Result<(), BridgeError> {
+    for value in [
+        parameters.highlights,
+        parameters.shadows,
+        parameters.whites,
+        parameters.blacks,
+    ] {
+        validate_finite_render_parameter(value)?;
+        if !(-1.0..=1.0).contains(&value) {
+            return Err(BridgeError::InvalidEditRequest(
+                "selective tone values must be in -1..=1",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_perceptual_color(parameters: &PerceptualColorParameters) -> Result<(), BridgeError> {
+    validate_finite_render_parameter(parameters.vibrance)?;
+    if !(-1.0..=1.0).contains(&parameters.vibrance) {
+        return Err(BridgeError::InvalidEditRequest(
+            "vibrance must be in -1..=1",
+        ));
+    }
+    for values in [
+        &parameters.hue_shifts,
+        &parameters.saturation,
+        &parameters.lightness,
+    ] {
+        for value in values {
+            validate_finite_render_parameter(*value)?;
+            if !(-1.0..=1.0).contains(value) {
+                return Err(BridgeError::InvalidEditRequest(
+                    "Color Mixer values must be in -1..=1",
+                ));
+            }
+        }
+    }
+    if 1 + parameters.additional_color_ranges.len() > MAX_POINT_COLOR_RANGES {
+        return Err(BridgeError::InvalidEditRequest(
+            "Point Color supports at most 16 ordered ranges",
+        ));
+    }
+    for range in
+        std::iter::once(&parameters.color_range).chain(parameters.additional_color_ranges.iter())
+    {
+        for value in [
+            range.center_hue_degrees,
+            range.width_degrees,
+            range.softness,
+            range.hue_shift_degrees,
+            range.saturation,
+            range.lightness,
+        ] {
+            validate_finite_render_parameter(value)?;
+        }
+        if !(0.0..=360.0).contains(&range.center_hue_degrees)
+            || !(1.0..=180.0).contains(&range.width_degrees)
+            || !(0.0..=1.0).contains(&range.softness)
+            || !(-180.0..=180.0).contains(&range.hue_shift_degrees)
+            || !(-1.0..=1.0).contains(&range.saturation)
+            || !(-1.0..=1.0).contains(&range.lightness)
+        {
+            return Err(BridgeError::InvalidEditRequest(
+                "perceptual color range parameters are outside their contract",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_sharpen(parameters: &SharpenParameters) -> Result<(), BridgeError> {
+    for value in [
+        parameters.amount,
+        parameters.radius,
+        parameters.threshold,
+        parameters.masking,
+        parameters.denoise_luminance,
+        parameters.denoise_detail,
+        parameters.denoise_color,
+        parameters.defringe_purple_amount,
+        parameters.defringe_green_amount,
+        parameters.shadows_saturation,
+        parameters.midtones_saturation,
+        parameters.highlights_saturation,
+        parameters.grading_blending,
+        parameters.grain_amount,
+        parameters.grain_size,
+        parameters.grain_roughness,
+        parameters.vignette_midpoint,
+        parameters.vignette_feather,
+        parameters.vignette_highlights,
+    ] {
+        validate_finite_render_parameter(value)?;
+    }
+    for value in [
+        parameters.dehaze,
+        parameters.shadows_luminance,
+        parameters.midtones_luminance,
+        parameters.highlights_luminance,
+        parameters.grading_balance,
+        parameters.vignette_amount,
+        parameters.vignette_roundness,
+    ] {
+        validate_finite_render_parameter(value)?;
+        if !(-1.0..=1.0).contains(&value) {
+            return Err(BridgeError::InvalidEditRequest(
+                "signed Detail & Effects values must be in -1..=1",
+            ));
+        }
+    }
+    for value in [
+        parameters.shadows_hue,
+        parameters.midtones_hue,
+        parameters.highlights_hue,
+    ] {
+        validate_finite_render_parameter(value)?;
+        if !(0.0..=360.0).contains(&value) {
+            return Err(BridgeError::InvalidEditRequest(
+                "Color Grading hue values must be in 0..=360",
+            ));
+        }
+    }
+    for value in [
+        parameters.defringe_purple_hue_low,
+        parameters.defringe_purple_hue_high,
+        parameters.defringe_green_hue_low,
+        parameters.defringe_green_hue_high,
+    ] {
+        validate_finite_render_parameter(value)?;
+        if !(0.0..=360.0).contains(&value) {
+            return Err(BridgeError::InvalidEditRequest(
+                "defringe hue values must be in 0..=360",
+            ));
+        }
+    }
+    if parameters.defringe_purple_hue_low + 10.0 > parameters.defringe_purple_hue_high
+        || parameters.defringe_green_hue_low + 10.0 > parameters.defringe_green_hue_high
+    {
+        return Err(BridgeError::InvalidEditRequest(
+            "defringe hue ranges must have at least a 10 degree span",
+        ));
+    }
+    if !(0.0..=2.0).contains(&parameters.amount)
+        || !(0.1..=5.0).contains(&parameters.radius)
+        || !(0.0..=1.0).contains(&parameters.threshold)
+        || !(0.0..=1.0).contains(&parameters.masking)
+        || [
+            parameters.denoise_luminance,
+            parameters.denoise_detail,
+            parameters.denoise_color,
+            parameters.defringe_purple_amount,
+            parameters.defringe_green_amount,
+            parameters.shadows_saturation,
+            parameters.midtones_saturation,
+            parameters.highlights_saturation,
+            parameters.grading_blending,
+            parameters.grain_amount,
+            parameters.grain_size,
+            parameters.grain_roughness,
+            parameters.vignette_midpoint,
+            parameters.vignette_feather,
+            parameters.vignette_highlights,
+        ]
+        .into_iter()
+        .any(|value| !(0.0..=1.0).contains(&value))
+    {
+        return Err(BridgeError::InvalidEditRequest(
+            "sharpen parameters are outside their contract",
+        ));
+    }
+    Ok(())
 }
 
 /// The first small, deterministic subset of Shadow's edit graph.
 ///
-/// Execution order is exposure, contrast, resolved RGB channel gains, then
-/// saturation. `channel_gains` are post-demosaic scene-linear `[R, G, B]`
-/// multipliers. They are deliberately not advertised as RAW white balance.
+/// Execution order is exposure, contrast, processed-RGB white balance, then
+/// saturation. Temperature/tint are creative D65 chromatic adaptation and are
+/// deliberately not advertised as sensor-domain RAW white balance.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BasicEditParameters {
     pub exposure_stops: f64,
     pub contrast_factor: f64,
-    pub channel_gains: [f64; 3],
+    pub white_balance_temperature: f64,
+    pub white_balance_tint: f64,
     pub saturation_factor: f64,
 }
 
@@ -592,7 +1223,8 @@ impl Default for BasicEditParameters {
         Self {
             exposure_stops: 0.0,
             contrast_factor: 1.0,
-            channel_gains: [1.0; 3],
+            white_balance_temperature: 0.0,
+            white_balance_tint: 0.0,
             saturation_factor: 1.0,
         }
     }
@@ -612,16 +1244,18 @@ impl BasicEditParameters {
             8.0,
             "contrast_factor must be finite and in 0..=8",
         )?;
-        for (index, gain) in self.channel_gains.into_iter().enumerate() {
-            if !gain.is_finite() || gain <= 0.0 || gain > 16.0 {
-                const MESSAGES: [&str; 3] = [
-                    "red channel gain must be finite, greater than 0, and at most 16",
-                    "green channel gain must be finite, greater than 0, and at most 16",
-                    "blue channel gain must be finite, greater than 0, and at most 16",
-                ];
-                return Err(BridgeError::InvalidEditRequest(MESSAGES[index]));
-            }
-        }
+        validate_inclusive(
+            self.white_balance_temperature,
+            -1.0,
+            1.0,
+            "white_balance_temperature must be finite and in -1..=1",
+        )?;
+        validate_inclusive(
+            self.white_balance_tint,
+            -1.0,
+            1.0,
+            "white_balance_tint must be finite and in -1..=1",
+        )?;
         validate_inclusive(
             self.saturation_factor,
             0.0,
@@ -666,9 +1300,10 @@ pub fn basic_adjustment_render_plan(
                 },
             ),
             node(
-                "basic-channel-gain",
-                AdjustmentRenderOperation::ChannelGain {
-                    channel_gains: edits.channel_gains,
+                "basic-rgb-white-balance",
+                AdjustmentRenderOperation::RgbWhiteBalance {
+                    temperature: edits.white_balance_temperature,
+                    tint: edits.white_balance_tint,
                 },
             ),
             node(
@@ -742,15 +1377,16 @@ fn validate_inclusive(
     }
 }
 
-/// Returns the version string of the linked `LibRaw` provider without opening
-/// an image.
+/// Returns the complete generated-image identity without opening an image:
+/// linked `LibRaw` version plus Shadow's processed-linear reference-RGB and
+/// display-output transform versions.
 pub fn libraw_provider_version() -> String {
     ffi::libraw_provider_version()
 }
 
-/// A reusable, bounded scene-linear working proxy for interactive edits.
+/// A reusable, bounded processed linear-light RGB working proxy for interactive edits.
 ///
-/// [`Self::open`] performs the RAW render and scene-linear conversion once.
+/// [`Self::open`] asks `LibRaw` for processed linear-light sRGB-primary RGB once.
 /// The resulting C++ handle retains only an immutable, max-edge-bounded RGB
 /// float buffer; it does not retain a decoder or borrow the input path. The
 /// handle is both [`Send`] and [`Sync`], and concurrent [`Self::render`] calls
@@ -759,13 +1395,14 @@ pub struct LibRawEditPreviewSession {
     handle: cxx::UniquePtr<ffi::EditPreviewHandle>,
     dimensions: ImageDimensions,
     max_edge: u32,
+    optics_receipt: OpticsReceipt,
 }
 
 /// Transient analysis of one complete warm-proxy edit render.
 ///
-/// The four histograms are derived from uncompressed display-sRGB RGB8 bytes
+/// The four histograms are derived from uncompressed display-encoded sRGB RGB8 bytes
 /// before JPEG encoding. Per-channel and any-channel clipping counts are
-/// derived from the same render's scene-linear samples before output clamping;
+/// derived from the same render's processed-linear working-RGB samples before output clamping;
 /// they are not sensor-domain exposure measurements.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct EditPreviewAnalysis {
@@ -829,7 +1466,7 @@ impl DetailTileRequest {
     }
 }
 
-/// Packed RGB8 sRGB bytes for one exact full-resolution rectangle.
+/// Packed display-encoded sRGB RGB8 bytes for one exact full-resolution rectangle.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct RenderedDetailTile {
     pub rect: DetailTileRect,
@@ -838,7 +1475,7 @@ pub struct RenderedDetailTile {
     pub bytes: Vec<u8>,
 }
 
-/// A reusable immutable full-resolution u16 sRGB source for 1:1 edit tiles.
+/// A reusable immutable full-resolution processed-linear u16 RGB source in sRGB primaries for 1:1 tiles.
 ///
 /// Preparation performs one `LibRaw` reference render, retains no decoder, and fails when either
 /// the metadata worst-case RGB allocation or the actual retained allocation exceeds 512 MiB.
@@ -848,6 +1485,7 @@ pub struct LibRawEditDetailSession {
     handle: cxx::UniquePtr<ffi::FullEditDetailHandle>,
     dimensions: ImageDimensions,
     retained_bytes: u64,
+    optics_receipt: OpticsReceipt,
 }
 
 impl std::fmt::Debug for LibRawEditDetailSession {
@@ -856,6 +1494,7 @@ impl std::fmt::Debug for LibRawEditDetailSession {
             .debug_struct("LibRawEditDetailSession")
             .field("dimensions", &self.dimensions)
             .field("retained_bytes", &self.retained_bytes)
+            .field("optics_receipt", &self.optics_receipt)
             .finish_non_exhaustive()
     }
 }
@@ -866,12 +1505,13 @@ impl std::fmt::Debug for LibRawEditPreviewSession {
             .debug_struct("LibRawEditPreviewSession")
             .field("dimensions", &self.dimensions)
             .field("max_edge", &self.max_edge)
+            .field("optics_receipt", &self.optics_receipt)
             .finish_non_exhaustive()
     }
 }
 
 impl LibRawEditPreviewSession {
-    /// Opens and decodes a RAW into a reusable scene-linear sRGB working proxy.
+    /// Opens a RAW into a reusable processed linear-light float RGB proxy in sRGB primaries.
     ///
     /// `max_edge` must be in `1..=4096`; 1600 or 2048 are the intended UI
     /// values. The bound is checked before the input path is opened.
@@ -881,18 +1521,34 @@ impl LibRawEditPreviewSession {
     /// Returns [`BridgeError::InvalidEditRequest`] before RAW I/O for an
     /// invalid bound, or a decoder error if preparation fails.
     pub fn open(path: &Path, max_edge: u32) -> Result<Self, BridgeError> {
+        Self::open_with_optics(path, max_edge, OpticsSettings::default())
+    }
+
+    pub fn open_with_optics(
+        path: &Path,
+        max_edge: u32,
+        optics: OpticsSettings,
+    ) -> Result<Self, BridgeError> {
         validate_warm_edit_max_edge(max_edge)?;
-        let decode_handle = open_libraw(path)?;
+        let mut decode_handle = open_libraw(path)?;
+        if decode_handle.is_null() {
+            return Err(BridgeError::NullHandle);
+        }
+        decode_handle
+            .pin_mut()
+            .configure_optics(&ffi_optics_settings(&optics))?;
         let decode_handle = decode_handle.as_ref().ok_or(BridgeError::NullHandle)?;
         let handle = decode_handle.prepare_edit_preview(max_edge)?;
         let prepared = handle.as_ref().ok_or(BridgeError::NullHandle)?;
         let prepared_dimensions = dimensions(&prepared.dimensions());
         let prepared_max_edge = prepared.max_edge();
+        let optics_receipt = optics_receipt(prepared.optics_receipt());
 
         Ok(Self {
             handle,
             dimensions: prepared_dimensions,
             max_edge: prepared_max_edge,
+            optics_receipt,
         })
     }
 
@@ -906,6 +1562,11 @@ impl LibRawEditPreviewSession {
     #[must_use]
     pub const fn max_edge(&self) -> u32 {
         self.max_edge
+    }
+
+    #[must_use]
+    pub const fn optics_receipt(&self) -> &OpticsReceipt {
+        &self.optics_receipt
     }
 
     /// Re-runs only the fixed-order basic nodes and JPEG encoding.
@@ -977,7 +1638,7 @@ impl LibRawEditPreviewSession {
 }
 
 impl LibRawEditDetailSession {
-    /// Opens and decodes a RAW into an immutable full-resolution u16 sRGB source.
+    /// Opens a RAW into immutable full-resolution processed-linear u16 RGB pixels in sRGB primaries.
     ///
     /// Provider metadata is checked against the worst-case RGB retention limit before the
     /// reference render starts. The returned allocation is checked independently before it is
@@ -988,12 +1649,23 @@ impl LibRawEditDetailSession {
     /// Returns a path, decoder, resource-limit, or invalid bridge-output error. Sources whose
     /// worst-case or actual retained allocation exceeds 512 MiB fail closed.
     pub fn open(path: &Path) -> Result<Self, BridgeError> {
-        let decode_handle = open_libraw(path)?;
+        Self::open_with_optics(path, OpticsSettings::default())
+    }
+
+    pub fn open_with_optics(path: &Path, optics: OpticsSettings) -> Result<Self, BridgeError> {
+        let mut decode_handle = open_libraw(path)?;
+        if decode_handle.is_null() {
+            return Err(BridgeError::NullHandle);
+        }
+        decode_handle
+            .pin_mut()
+            .configure_optics(&ffi_optics_settings(&optics))?;
         let decode_handle = decode_handle.as_ref().ok_or(BridgeError::NullHandle)?;
         let handle = decode_handle.prepare_edit_detail()?;
         let prepared = handle.as_ref().ok_or(BridgeError::NullHandle)?;
         let prepared_dimensions = dimensions(&prepared.dimensions());
         let retained_bytes = prepared.retained_bytes();
+        let optics_receipt = optics_receipt(prepared.optics_receipt());
         if prepared_dimensions.width == 0 || prepared_dimensions.height == 0 {
             return Err(BridgeError::InvalidEditDetailOutput(
                 "prepared dimensions must be non-zero",
@@ -1008,6 +1680,7 @@ impl LibRawEditDetailSession {
             handle,
             dimensions: prepared_dimensions,
             retained_bytes,
+            optics_receipt,
         })
     }
 
@@ -1023,11 +1696,18 @@ impl LibRawEditDetailSession {
         self.retained_bytes
     }
 
+    #[must_use]
+    pub const fn optics_receipt(&self) -> &OpticsReceipt {
+        &self.optics_receipt
+    }
+
     /// Executes a dependency-ordered typed plan against one exact full-resolution rectangle.
     ///
     /// Plan and rectangle shape/bounds are rejected in Rust before entering C++. The C++ kernel
-    /// validates them again, converts only the crop to scene-linear float, executes the existing
-    /// pixel-local nodes, and returns tightly packed RGB8 sRGB without compression or scaling.
+    /// validates them again, normalizes only the processed-linear crop to float, executes the
+    /// typed nodes, expands neighborhood footprints inside the kernel, and
+    /// returns the requested core as tightly packed display-encoded sRGB RGB8
+    /// without compression or scaling.
     /// No RAW I/O occurs during this method.
     ///
     /// # Errors
@@ -1089,7 +1769,7 @@ impl LibRawEditDetailSession {
 
 /// Renders a bounded, display-referred JPEG proxy through the `LibRaw`
 /// reference path. This is a fallback for RAW files without an embedded
-/// preview, not Shadow's eventual scene-linear renderer.
+/// preview, not Shadow's eventual camera-domain renderer.
 ///
 /// # Errors
 ///
@@ -1113,11 +1793,15 @@ pub fn render_libraw_reference_proxy(
 
 /// Renders the fixed-order basic edit recipe as a bounded standard JPEG.
 ///
-/// The C++ kernel decodes `LibRaw`'s 16-bit sRGB reference output into
-/// scene-linear sRGB, executes the adjustment nodes without intermediate
-/// clipping, and applies the sRGB transfer function only when encoding the
-/// JPEG. This is the first real preview renderer, not the eventual full RAW
-/// color pipeline.
+/// The C++ kernel configures `LibRaw` to emit 16-bit processed linear-light RGB
+/// in sRGB/Rec.709-D65 primaries, normalizes it into the float working proxy,
+/// and executes adjustment nodes without intermediate clipping. The versioned
+/// display boundary then performs hue-preserving Oklab gamut mapping and the
+/// sRGB transfer only while encoding RGB8/JPEG. The `LibRaw` result has already
+/// undergone black subtraction, white balance, demosaic, camera-to-output color
+/// conversion, and fixed integer scaling (with frame-adaptive maximum disabled);
+/// it is not untouched sensor-linear mosaic/radiance data or
+/// the eventual full RAW color pipeline.
 ///
 /// # Errors
 ///
@@ -1206,24 +1890,163 @@ const fn detail_tile_rect(rect: ffi::FfiDetailTileRect) -> DetailTileRect {
     }
 }
 
+// The flat CXX wire record is intentionally assembled in one auditable operation.
+#[allow(clippy::too_many_lines)]
 fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustmentNode {
-    let (operation, parameters) = match &node.operation {
-        AdjustmentRenderOperation::Exposure { stops } => {
-            (ffi::FfiAdjustmentOperation::Exposure, vec![*stops])
-        }
-        AdjustmentRenderOperation::Contrast { factor, pivot } => {
-            (ffi::FfiAdjustmentOperation::Contrast, vec![*factor, *pivot])
-        }
+    let (operation, parameters, parameter_group_lengths, payload) = match &node.operation {
+        AdjustmentRenderOperation::Exposure { stops } => (
+            ffi::FfiAdjustmentOperation::Exposure,
+            vec![*stops],
+            vec![],
+            vec![],
+        ),
+        AdjustmentRenderOperation::Contrast { factor, pivot } => (
+            ffi::FfiAdjustmentOperation::Contrast,
+            vec![*factor, *pivot],
+            vec![],
+            vec![],
+        ),
         AdjustmentRenderOperation::ToneCurve { points } => (
             ffi::FfiAdjustmentOperation::ToneCurve,
             points.iter().flat_map(|point| [point.x, point.y]).collect(),
+            vec![],
+            vec![],
         ),
-        AdjustmentRenderOperation::ChannelGain { channel_gains } => (
-            ffi::FfiAdjustmentOperation::ChannelGain,
-            channel_gains.to_vec(),
+        AdjustmentRenderOperation::SmoothRgbToneCurve { curves } => {
+            let channel_point_counts = [&curves.master, &curves.red, &curves.green, &curves.blue]
+                .map(|points| {
+                    u32::try_from(points.len())
+                        .expect("validated Tone Curve channel count always fits u32")
+                })
+                .to_vec();
+            let flattened = [&curves.master, &curves.red, &curves.green, &curves.blue]
+                .into_iter()
+                .flat_map(|points| points.iter().flat_map(|point| [point.x, point.y]))
+                .collect();
+            (
+                ffi::FfiAdjustmentOperation::SmoothRgbToneCurve,
+                flattened,
+                channel_point_counts,
+                vec![],
+            )
+        }
+        AdjustmentRenderOperation::RgbWhiteBalance { temperature, tint } => (
+            ffi::FfiAdjustmentOperation::RgbWhiteBalance,
+            vec![*temperature, *tint],
+            vec![],
+            vec![],
         ),
-        AdjustmentRenderOperation::Saturation { factor } => {
-            (ffi::FfiAdjustmentOperation::Saturation, vec![*factor])
+        AdjustmentRenderOperation::Saturation { factor } => (
+            ffi::FfiAdjustmentOperation::Saturation,
+            vec![*factor],
+            vec![],
+            vec![],
+        ),
+        AdjustmentRenderOperation::SelectiveTone { parameters } => (
+            ffi::FfiAdjustmentOperation::SelectiveTone,
+            vec![
+                parameters.highlights,
+                parameters.shadows,
+                parameters.whites,
+                parameters.blacks,
+            ],
+            vec![],
+            vec![],
+        ),
+        AdjustmentRenderOperation::PerceptualColor { parameters } => {
+            let mut flattened =
+                Vec::with_capacity(32 + parameters.additional_color_ranges.len() * 7);
+            flattened.push(parameters.vibrance);
+            flattened.extend(parameters.hue_shifts);
+            flattened.extend(parameters.saturation);
+            flattened.extend(parameters.lightness);
+            flattened.extend([
+                if parameters.color_range.enabled {
+                    1.0
+                } else {
+                    0.0
+                },
+                parameters.color_range.center_hue_degrees,
+                parameters.color_range.width_degrees,
+                parameters.color_range.softness,
+                parameters.color_range.hue_shift_degrees,
+                parameters.color_range.saturation,
+                parameters.color_range.lightness,
+            ]);
+            for range in &parameters.additional_color_ranges {
+                flattened.extend([
+                    if range.enabled { 1.0 } else { 0.0 },
+                    range.center_hue_degrees,
+                    range.width_degrees,
+                    range.softness,
+                    range.hue_shift_degrees,
+                    range.saturation,
+                    range.lightness,
+                ]);
+            }
+            (
+                ffi::FfiAdjustmentOperation::PerceptualColor,
+                flattened,
+                vec![
+                    u32::try_from(parameters.additional_color_ranges.len())
+                        .expect("validated Point Color range count fits u32"),
+                ],
+                vec![],
+            )
+        }
+        AdjustmentRenderOperation::Lut3D {
+            document,
+            intensity,
+        } => (
+            ffi::FfiAdjustmentOperation::Lut3D,
+            vec![*intensity],
+            vec![],
+            document.clone(),
+        ),
+        AdjustmentRenderOperation::Sharpen { parameters } => {
+            let mut flattened = vec![
+                parameters.amount,
+                parameters.radius,
+                parameters.threshold,
+                parameters.masking,
+            ];
+            flattened.extend([
+                parameters.denoise_luminance,
+                parameters.denoise_detail,
+                parameters.denoise_color,
+                parameters.dehaze,
+                parameters.defringe_purple_amount,
+                parameters.defringe_purple_hue_low,
+                parameters.defringe_purple_hue_high,
+                parameters.defringe_green_amount,
+                parameters.defringe_green_hue_low,
+                parameters.defringe_green_hue_high,
+                parameters.shadows_hue,
+                parameters.shadows_saturation,
+                parameters.shadows_luminance,
+                parameters.midtones_hue,
+                parameters.midtones_saturation,
+                parameters.midtones_luminance,
+                parameters.highlights_hue,
+                parameters.highlights_saturation,
+                parameters.highlights_luminance,
+                parameters.grading_blending,
+                parameters.grading_balance,
+                parameters.grain_amount,
+                parameters.grain_size,
+                parameters.grain_roughness,
+                parameters.vignette_amount,
+                parameters.vignette_midpoint,
+                parameters.vignette_roundness,
+                parameters.vignette_feather,
+                parameters.vignette_highlights,
+            ]);
+            (
+                ffi::FfiAdjustmentOperation::Sharpen,
+                flattened,
+                vec![],
+                vec![],
+            )
         }
     };
     ffi::FfiAdjustmentNode {
@@ -1233,6 +2056,8 @@ fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustmentNode {
         implementation_version: node.implementation_version,
         enabled: node.enabled,
         parameters,
+        payload,
+        parameter_group_lengths,
     }
 }
 
@@ -1512,6 +2337,14 @@ fn snapshot(handle: &ffi::DecodeHandle) -> DecoderSnapshot {
                 metadata.as_shot_neutral_g2,
             ],
             baseline_exposure: metadata.baseline_exposure,
+            iso_speed: metadata.iso_speed,
+            exposure_time_seconds: metadata.exposure_time_seconds,
+            aperture_f_number: metadata.aperture_f_number,
+            focal_length_mm: metadata.focal_length_mm,
+            captured_at_unix_seconds: metadata.captured_at_unix_seconds,
+            lens_make: metadata.lens_make,
+            lens_model: metadata.lens_model,
+            focal_length_35mm: metadata.focal_length_35mm,
         },
         capabilities: DecodeCapabilitySnapshot {
             metadata: support(capabilities.metadata),
@@ -1689,8 +2522,9 @@ mod tests {
         ));
         assert!(matches!(
             plan.nodes[2].operation,
-            AdjustmentRenderOperation::ChannelGain {
-                channel_gains: [1.0, 1.0, 1.0]
+            AdjustmentRenderOperation::RgbWhiteBalance {
+                temperature: 0.0,
+                tint: 0.0
             }
         ));
         assert!(matches!(
@@ -1761,8 +2595,9 @@ mod tests {
                     ToneCurvePoint { x: 1.0, y: 1.0 },
                 ],
             },
-            AdjustmentRenderOperation::ChannelGain {
-                channel_gains: [1.0, 0.0, 1.0],
+            AdjustmentRenderOperation::RgbWhiteBalance {
+                temperature: 0.0,
+                tint: 2.0,
             },
             AdjustmentRenderOperation::Saturation { factor: -0.1 },
         ] {
@@ -1771,6 +2606,261 @@ mod tests {
             };
             assert!(matches!(
                 invalid.validate(),
+                Err(BridgeError::InvalidEditRequest(_))
+            ));
+        }
+    }
+
+    #[test]
+    #[allow(clippy::float_cmp)] // FFI flattening is an exact in-memory contract.
+    fn extended_plan_validates_and_flattens_the_stable_ffi_contract() {
+        let perceptual = PerceptualColorParameters {
+            vibrance: 0.2,
+            hue_shifts: [0.1; COLOR_MIXER_BAND_COUNT],
+            saturation: [-0.2; COLOR_MIXER_BAND_COUNT],
+            lightness: [0.3; COLOR_MIXER_BAND_COUNT],
+            color_range: ColorRangeParameters {
+                enabled: true,
+                center_hue_degrees: 45.0,
+                width_degrees: 60.0,
+                softness: 0.4,
+                hue_shift_degrees: 15.0,
+                saturation: 0.5,
+                lightness: -0.6,
+            },
+            additional_color_ranges: Vec::new(),
+        };
+        let plan = AdjustmentRenderPlan {
+            nodes: vec![
+                AdjustmentRenderNode {
+                    node_id: "selective-tone".to_owned(),
+                    parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+                    implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
+                    enabled: true,
+                    operation: AdjustmentRenderOperation::SelectiveTone {
+                        parameters: SelectiveToneParameters {
+                            highlights: -1.0,
+                            shadows: -0.25,
+                            whites: 0.5,
+                            blacks: 1.0,
+                        },
+                    },
+                },
+                AdjustmentRenderNode {
+                    node_id: "perceptual-color".to_owned(),
+                    parameter_schema_version: PERCEPTUAL_COLOR_V2_PARAMETER_SCHEMA_VERSION,
+                    implementation_version: PERCEPTUAL_COLOR_V2_IMPLEMENTATION_VERSION,
+                    enabled: true,
+                    operation: AdjustmentRenderOperation::PerceptualColor {
+                        parameters: Box::new(perceptual),
+                    },
+                },
+                AdjustmentRenderNode {
+                    node_id: "sharpen".to_owned(),
+                    parameter_schema_version: DETAIL_EFFECTS_V2_PARAMETER_SCHEMA_VERSION,
+                    implementation_version: DETAIL_EFFECTS_V2_IMPLEMENTATION_VERSION,
+                    enabled: true,
+                    operation: AdjustmentRenderOperation::Sharpen {
+                        parameters: Box::new(SharpenParameters {
+                            amount: 1.25,
+                            radius: 2.5,
+                            threshold: 0.15,
+                            masking: 0.75,
+                            ..SharpenParameters::default()
+                        }),
+                    },
+                },
+            ],
+        };
+
+        plan.validate().expect("extended plan is valid");
+        let selective_ffi = ffi_render_node(&plan.nodes[0]);
+        assert!(matches!(
+            selective_ffi.operation,
+            ffi::FfiAdjustmentOperation::SelectiveTone
+        ));
+        assert_eq!(selective_ffi.parameters, [-1.0, -0.25, 0.5, 1.0]);
+
+        let perceptual_ffi = ffi_render_node(&plan.nodes[1]);
+        assert!(matches!(
+            perceptual_ffi.operation,
+            ffi::FfiAdjustmentOperation::PerceptualColor
+        ));
+        assert_eq!(perceptual_ffi.parameters.len(), 32);
+        assert_eq!(perceptual_ffi.parameter_group_lengths, [0]);
+        assert_eq!(perceptual_ffi.parameters[0], 0.2);
+        assert_eq!(&perceptual_ffi.parameters[1..9], &[0.1; 8]);
+        assert_eq!(&perceptual_ffi.parameters[9..17], &[-0.2; 8]);
+        assert_eq!(&perceptual_ffi.parameters[17..25], &[0.3; 8]);
+        assert_eq!(
+            &perceptual_ffi.parameters[25..],
+            &[1.0, 45.0, 60.0, 0.4, 15.0, 0.5, -0.6]
+        );
+
+        let sharpen_ffi = ffi_render_node(&plan.nodes[2]);
+        assert!(matches!(
+            sharpen_ffi.operation,
+            ffi::FfiAdjustmentOperation::Sharpen
+        ));
+        assert_eq!(sharpen_ffi.parameters.len(), 33);
+        assert_eq!(&sharpen_ffi.parameters[..4], &[1.25, 2.5, 0.15, 0.75]);
+        assert_eq!(
+            &sharpen_ffi.parameters[4..],
+            &[
+                0.0, 0.5, 0.0, 0.0, 0.0, 270.0, 340.0, 0.0, 100.0, 165.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                0.0, 0.0, 0.0, 0.0, 0.5, 0.0, 0.0, 0.5, 0.5, 0.0, 0.5, 0.0, 0.5, 0.0,
+            ]
+        );
+    }
+
+    #[test]
+    #[allow(clippy::float_cmp)] // FFI flattening is an exact in-memory contract.
+    fn smooth_rgb_tone_curve_uses_explicit_group_lengths_and_v2_contract() {
+        let curves = SmoothRgbToneCurve {
+            master: vec![
+                ToneCurvePoint { x: 0.0, y: 0.02 },
+                ToneCurvePoint { x: 0.5, y: 0.62 },
+                ToneCurvePoint { x: 1.0, y: 1.0 },
+            ],
+            red: SmoothRgbToneCurve::default().red,
+            green: vec![
+                ToneCurvePoint { x: 0.0, y: 0.0 },
+                ToneCurvePoint { x: 0.25, y: 0.2 },
+                ToneCurvePoint { x: 0.8, y: 0.9 },
+                ToneCurvePoint { x: 1.0, y: 1.0 },
+            ],
+            blue: SmoothRgbToneCurve::default().blue,
+        };
+        let node = AdjustmentRenderNode {
+            node_id: "smooth-rgb-curve".to_owned(),
+            parameter_schema_version: SMOOTH_RGB_TONE_CURVE_PARAMETER_SCHEMA_VERSION,
+            implementation_version: SMOOTH_RGB_TONE_CURVE_IMPLEMENTATION_VERSION,
+            enabled: true,
+            operation: AdjustmentRenderOperation::SmoothRgbToneCurve {
+                curves: Box::new(curves),
+            },
+        };
+        AdjustmentRenderPlan {
+            nodes: vec![node.clone()],
+        }
+        .validate()
+        .expect("smooth RGB Tone Curve v2 contract");
+
+        let encoded = ffi_render_node(&node);
+        assert!(matches!(
+            encoded.operation,
+            ffi::FfiAdjustmentOperation::SmoothRgbToneCurve
+        ));
+        assert_eq!(encoded.parameter_group_lengths, [3, 2, 4, 2]);
+        assert_eq!(encoded.parameters.len(), 22);
+        assert_eq!(&encoded.parameters[..6], &[0.0, 0.02, 0.5, 0.62, 1.0, 1.0]);
+
+        for (parameter_schema_version, implementation_version) in [
+            (
+                ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+                SMOOTH_RGB_TONE_CURVE_IMPLEMENTATION_VERSION,
+            ),
+            (
+                SMOOTH_RGB_TONE_CURVE_PARAMETER_SCHEMA_VERSION,
+                ADJUSTMENT_IMPLEMENTATION_VERSION,
+            ),
+        ] {
+            let mut mixed = node.clone();
+            mixed.parameter_schema_version = parameter_schema_version;
+            mixed.implementation_version = implementation_version;
+            assert!(matches!(
+                AdjustmentRenderPlan { nodes: vec![mixed] }.validate(),
+                Err(BridgeError::InvalidEditRequest(
+                    "adjustment node uses an unsupported schema or implementation version"
+                ))
+            ));
+        }
+
+        let mut malformed = SmoothRgbToneCurve::default();
+        malformed.blue.clear();
+        let malformed = AdjustmentRenderPlan {
+            nodes: vec![AdjustmentRenderNode {
+                node_id: "malformed-smooth-rgb-curve".to_owned(),
+                parameter_schema_version: SMOOTH_RGB_TONE_CURVE_PARAMETER_SCHEMA_VERSION,
+                implementation_version: SMOOTH_RGB_TONE_CURVE_IMPLEMENTATION_VERSION,
+                enabled: true,
+                operation: AdjustmentRenderOperation::SmoothRgbToneCurve {
+                    curves: Box::new(malformed),
+                },
+            }],
+        };
+        assert!(matches!(
+            malformed.validate(),
+            Err(BridgeError::InvalidEditRequest(_))
+        ));
+    }
+
+    #[test]
+    fn extended_plan_rejects_non_finite_and_out_of_range_values() {
+        let node = |operation| AdjustmentRenderPlan {
+            nodes: vec![AdjustmentRenderNode {
+                node_id: "invalid-extended-control".to_owned(),
+                parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+                implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
+                enabled: true,
+                operation,
+            }],
+        };
+
+        for parameters in [
+            SelectiveToneParameters {
+                highlights: 1.01,
+                ..SelectiveToneParameters::default()
+            },
+            SelectiveToneParameters {
+                shadows: f64::NAN,
+                ..SelectiveToneParameters::default()
+            },
+        ] {
+            assert!(matches!(
+                node(AdjustmentRenderOperation::SelectiveTone { parameters }).validate(),
+                Err(BridgeError::InvalidEditRequest(_))
+            ));
+        }
+
+        let mut invalid_mixer = PerceptualColorParameters::default();
+        invalid_mixer.hue_shifts[3] = -1.01;
+        let mut invalid_disabled_range = PerceptualColorParameters::default();
+        invalid_disabled_range.color_range.enabled = false;
+        invalid_disabled_range.color_range.width_degrees = 0.0;
+        for parameters in [invalid_mixer, invalid_disabled_range] {
+            assert!(matches!(
+                node(AdjustmentRenderOperation::PerceptualColor {
+                    parameters: Box::new(parameters),
+                })
+                .validate(),
+                Err(BridgeError::InvalidEditRequest(_))
+            ));
+        }
+
+        for parameters in [
+            SharpenParameters {
+                amount: 2.01,
+                ..SharpenParameters::default()
+            },
+            SharpenParameters {
+                radius: 0.09,
+                ..SharpenParameters::default()
+            },
+            SharpenParameters {
+                threshold: 1.01,
+                ..SharpenParameters::default()
+            },
+            SharpenParameters {
+                masking: f64::NAN,
+                ..SharpenParameters::default()
+            },
+        ] {
+            assert!(matches!(
+                node(AdjustmentRenderOperation::Sharpen {
+                    parameters: Box::new(parameters),
+                })
+                .validate(),
                 Err(BridgeError::InvalidEditRequest(_))
             ));
         }
@@ -2043,7 +3133,7 @@ mod tests {
             },
             EditedProxyRequest {
                 edits: BasicEditParameters {
-                    channel_gains: [1.0, 0.0, 1.0],
+                    white_balance_temperature: 2.0,
                     ..BasicEditParameters::default()
                 },
                 ..EditedProxyRequest::default()
@@ -2087,6 +3177,18 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires SHADOW_TEST_DNG to identify a camera present in Lensfun"]
+    fn real_dng_enumerates_compatible_lensfun_profiles() {
+        let path = std::env::var_os("SHADOW_TEST_DNG").expect("SHADOW_TEST_DNG");
+        let candidates =
+            query_libraw_optics_profiles(Path::new(&path)).expect("query Lensfun candidates");
+        assert!(!candidates.is_empty());
+        assert!(candidates.iter().all(|candidate| {
+            !candidate.camera_model.is_empty() && !candidate.lens_model.is_empty()
+        }));
+    }
+
+    #[test]
     #[ignore = "requires SHADOW_TEST_DNG_WITH_PREVIEW to point at a local RAW fixture"]
     fn real_dng_embedded_preview_crosses_the_bridge() {
         let path =
@@ -2126,7 +3228,8 @@ mod tests {
                 edits: BasicEditParameters {
                     exposure_stops: 0.5,
                     contrast_factor: 1.1,
-                    channel_gains: [1.05, 1.0, 0.95],
+                    white_balance_temperature: 0.12,
+                    white_balance_tint: 0.04,
                     saturation_factor: 1.15,
                 },
                 max_edge: 1_024,
@@ -2166,7 +3269,8 @@ mod tests {
                         BasicEditParameters {
                             exposure_stops: 1.0,
                             contrast_factor: 1.1,
-                            channel_gains: [1.05, 1.0, 0.95],
+                            white_balance_temperature: 0.12,
+                            white_balance_tint: 0.04,
                             saturation_factor: 1.15,
                         },
                         86,

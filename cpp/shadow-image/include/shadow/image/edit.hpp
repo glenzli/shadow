@@ -1,5 +1,9 @@
 #pragma once
 
+#include <shadow/image/lut.hpp>
+
+#include <shadow/image/optics.hpp>
+
 #include <shadow/image/decoder.hpp>
 
 #include <array>
@@ -29,6 +33,10 @@ enum class TransferFunction : std::uint8_t {
 
 enum class ImageReference : std::uint8_t {
     unknown,
+    // Relative processed scene-referred RGB: values remain linear-light and no display OETF or
+    // look/tone rendering has been applied, but camera black subtraction, white balance,
+    // demosaic, color-matrix conversion, normalization, and highlight clipping may already have
+    // occurred. This must not be interpreted as sensor-linear mosaic/radiance data.
     scene_referred,
 };
 
@@ -57,6 +65,11 @@ struct FloatRgbImage final {
     TransferFunction transfer_function = TransferFunction::unknown;
     ImageReference reference = ImageReference::unknown;
     WorkingRgbSpace working_space;
+    // The raster's sampling density relative to level-0/full-resolution pixels. A full-detail
+    // image is 1x1; a 1/4-size warm proxy is approximately 0.25x0.25. Spatial operations use
+    // these values to keep their public radius expressed in level-0 pixels.
+    double level_zero_to_raster_scale_x = 1.0;
+    double level_zero_to_raster_scale_y = 1.0;
     std::vector<float> samples;
 };
 
@@ -71,10 +84,13 @@ struct ContrastAdjustment final {
     double pivot = 0.18;
 };
 
-struct ChannelGainAdjustment final {
-    // Positive scene-linear R, G, B multipliers. This is deliberately not named white
-    // balance: camera-domain WB and chromatic adaptation need richer color semantics.
-    std::array<double, 3> channel_gains{1.0, 1.0, 1.0};
+struct RgbWhiteBalanceAdjustment final {
+    // Post-demosaic creative white balance in the declared D65 working space.
+    // Temperature and tint are normalized user intent in [-1, 1]. Positive
+    // temperature warms the image; positive tint moves away from green toward
+    // magenta. This is deliberately distinct from sensor-domain RAW WB.
+    double temperature = 0.0;
+    double tint = 0.0;
 };
 
 struct SaturationAdjustment final {
@@ -82,9 +98,107 @@ struct SaturationAdjustment final {
     double factor = 1.0;
 };
 
+// Lightroom-style regional tone controls expressed as bounded, implementation-independent
+// amounts. The CPU reference maps each amount to at most two exposure stops and blends the
+// regions with smooth weights in scene-linear luminance/EV. Zeroes are exactly neutral.
+struct SelectiveToneAdjustment final {
+    double highlights = 0.0;
+    double shadows = 0.0;
+    double whites = 0.0;
+    double blacks = 0.0;
+};
+
+inline constexpr std::size_t perceptual_hue_band_count = 8U;
+inline constexpr std::size_t maximum_point_color_ranges = 16U;
+inline constexpr std::uint32_t perceptual_color_v2_parameter_schema_version = 2;
+inline constexpr std::uint32_t perceptual_color_v2_implementation_version = 2;
+
+// Optional circular hue selection evaluated against the source Oklch hue. width_degrees is the
+// half-width of the selected range; softness is the fraction of that half-width used as a smooth
+// edge. Hue distance is circular, so a range centered at zero naturally spans the 0/360 seam.
+struct PerceptualColorRange final {
+    bool enabled = false;
+    double center_degrees = 0.0;
+    double width_degrees = 30.0;
+    double softness = 0.5;
+    double hue_shift_degrees = 0.0;
+    double saturation = 0.0;
+    double lightness = 0.0;
+};
+
+// Perceptual color controls evaluated in Oklab/Oklch. The public band order is red, orange,
+// yellow, green, aqua, blue, purple, magenta. Implementation-version 1 anchors those names at
+// the non-uniform Oklch hues of representative linear-sRGB colors and uses a smooth periodic
+// partition of unity between adjacent anchors; it must never be interpreted as an HSV wheel.
+// hue values in [-1, 1] map to [-30, 30] degrees; saturation/lightness and vibrance are
+// normalized amounts in [-1, 1]. Achromatic pixels are deliberately left unchanged because
+// hue is undefined at low chroma.
+struct PerceptualColorAdjustment final {
+    double vibrance = 0.0;
+    std::array<double, perceptual_hue_band_count> hue{};
+    std::array<double, perceptual_hue_band_count> saturation{};
+    std::array<double, perceptual_hue_band_count> lightness{};
+    PerceptualColorRange color_range;
+    std::vector<PerceptualColorRange> additional_color_ranges;
+};
+
+// Immutable 3D `.cube` resource applied in processed working RGB. Intensity
+// linearly blends the sampled result with the node input; zero is an exact
+// no-op and permits an empty LUT for a stable, unselected Recipe slot.
+struct CubeLutAdjustment final {
+    CubeLut3D lut;
+    double intensity = 0.0;
+};
+
+// Luminance-only unsharp masking in scene-linear RGB. radius is the level-0 Gaussian sigma;
+// threshold maps linearly to at most 0.25 EV of soft-thresholding. A common gain is applied to
+// R, G, and B so sharpening cannot introduce chromatic fringes by treating channels separately.
+struct SharpenAdjustment final {
+    double amount = 0.0;
+    double radius = 1.0;
+    double threshold = 0.0;
+    double masking = 0.0;
+    double denoise_luminance = 0.0;
+    double denoise_detail = 0.5;
+    double denoise_color = 0.0;
+    double dehaze = 0.0;
+    double defringe_purple_amount = 0.0;
+    double defringe_purple_hue_low = 270.0;
+    double defringe_purple_hue_high = 340.0;
+    double defringe_green_amount = 0.0;
+    double defringe_green_hue_low = 100.0;
+    double defringe_green_hue_high = 165.0;
+    double shadows_hue = 0.0;
+    double shadows_saturation = 0.0;
+    double shadows_luminance = 0.0;
+    double midtones_hue = 0.0;
+    double midtones_saturation = 0.0;
+    double midtones_luminance = 0.0;
+    double highlights_hue = 0.0;
+    double highlights_saturation = 0.0;
+    double highlights_luminance = 0.0;
+    double grading_blending = 0.5;
+    double grading_balance = 0.0;
+    double grain_amount = 0.0;
+    double grain_size = 0.5;
+    double grain_roughness = 0.5;
+    double vignette_amount = 0.0;
+    double vignette_midpoint = 0.5;
+    double vignette_roundness = 0.0;
+    double vignette_feather = 0.5;
+    double vignette_highlights = 0.0;
+};
+
+inline constexpr std::uint32_t detail_effects_v2_parameter_schema_version = 2;
+inline constexpr std::uint32_t detail_effects_v2_implementation_version = 2;
+
 inline constexpr std::uint32_t tone_curve_parameter_schema_version = 1;
 inline constexpr std::uint32_t tone_curve_implementation_version = 1;
+inline constexpr std::uint32_t smooth_rgb_tone_curve_parameter_schema_version = 2;
+inline constexpr std::uint32_t smooth_rgb_tone_curve_implementation_version = 2;
+// Per individual curve, for both the legacy curve and each v2 master/channel set.
 inline constexpr std::size_t maximum_tone_curve_points = 256U;
+inline constexpr std::size_t maximum_tone_curve_preview_samples = 4'097U;
 
 struct ToneCurvePoint final {
     double x = 0.0;
@@ -102,19 +216,63 @@ struct ToneCurve final {
     std::vector<ToneCurvePoint> points{{0.0, 0.0}, {1.0, 1.0}};
 };
 
+// One set of interpolation knots for the version-2 RGB point-curve contract. The
+// implementation fits a local, shape-preserving Fritsch-Butland PCHIP through these
+// points. Strictly increasing x coordinates span [0, 1]; y remains unbounded.
+struct ToneCurveSet final {
+    std::vector<ToneCurvePoint> points{{0.0, 0.0}, {1.0, 1.0}};
+};
+
+// Version 2 groups the overall/master and three channel curves into one atomic
+// adjustment. Each channel is evaluated as channel(master(input)); all four identity
+// curves are an exact no-op. Negative and super-white inputs use linear endpoint-tangent
+// extrapolation rather than clipping or extending a cubic polynomial beyond [0, 1].
+struct SmoothRgbToneCurve final {
+    std::uint32_t parameter_schema_version = smooth_rgb_tone_curve_parameter_schema_version;
+    std::uint32_t implementation_version = smooth_rgb_tone_curve_implementation_version;
+    ToneCurveSet master;
+    ToneCurveSet red;
+    ToneCurveSet green;
+    ToneCurveSet blue;
+};
+
 using AdjustmentParameters = std::variant<
     ExposureAdjustment,
     ContrastAdjustment,
     ToneCurve,
-    ChannelGainAdjustment,
-    SaturationAdjustment>;
+    SmoothRgbToneCurve,
+    RgbWhiteBalanceAdjustment,
+    SaturationAdjustment,
+    SelectiveToneAdjustment,
+    PerceptualColorAdjustment,
+    CubeLutAdjustment,
+    SharpenAdjustment>;
 
 enum class AdjustmentOperation : std::uint8_t {
     exposure,
     contrast,
     tone_curve,
-    channel_gain,
+    smooth_rgb_tone_curve,
+    rgb_white_balance,
     saturation,
+    selective_tone,
+    perceptual_color,
+    lut_3d,
+    sharpen,
+};
+
+enum class AdjustmentLocality : std::uint8_t {
+    pixel_local,
+    neighborhood,
+};
+
+// Conservative integer support, in pixels of the raster being executed. Sequential
+// neighborhood operations require the sum of their footprints, not merely the maximum.
+struct AdjustmentFootprint final {
+    std::uint32_t horizontal_radius = 0;
+    std::uint32_t vertical_radius = 0;
+
+    auto operator<=>(const AdjustmentFootprint&) const = default;
 };
 
 inline constexpr std::uint32_t adjustment_parameter_schema_version = 1;
@@ -129,6 +287,8 @@ inline constexpr std::uint64_t maximum_full_edit_detail_retained_bytes = 512ULL 
 // Detail work stays tile-local so one request cannot accidentally materialize another full-size
 // float image while the immutable 16-bit source is resident.
 inline constexpr std::uint32_t maximum_edit_detail_tile_side = 1'024;
+inline constexpr std::uint32_t maximum_edit_detail_total_apron = 512;
+inline constexpr std::uint32_t maximum_edit_detail_working_side = 2'048;
 
 struct AdjustmentNode final {
     std::string node_id;
@@ -166,6 +326,14 @@ private:
 
 [[nodiscard]] AdjustmentOperation operation(const AdjustmentParameters& parameters) noexcept;
 [[nodiscard]] std::string_view operation_id(AdjustmentOperation operation) noexcept;
+[[nodiscard]] AdjustmentLocality locality(AdjustmentOperation operation) noexcept;
+// The supplied scales are level-0-to-raster sampling densities. Invalid/non-finite scales or
+// malformed parameters fail closed; callers normally validate the full node plan first.
+[[nodiscard]] AdjustmentFootprint footprint(
+    const AdjustmentParameters& parameters,
+    double level_zero_to_raster_scale_x = 1.0,
+    double level_zero_to_raster_scale_y = 1.0
+);
 
 // Validates the complete adjustment plan without requiring image pixels. All nodes, including
 // disabled ones, are checked for supported versions, finite parameters, and valid Tone Curve
@@ -173,14 +341,24 @@ private:
 // dependent overflow remains the responsibility of execute_adjustment_nodes().
 void validate_adjustment_nodes(std::span<const AdjustmentNode> nodes);
 
+// Global raster coordinates keep deterministic grain and radial effects identical between a
+// full proxy and independently rendered detail tiles. Zero full dimensions mean "use input".
+struct AdjustmentExecutionContext final {
+    std::uint32_t origin_x = 0;
+    std::uint32_t origin_y = 0;
+    Dimensions full_dimensions{};
+};
+
 // Executes an intentionally compact subset of the future typed edit graph. The recommended
-// default pipeline order is Exposure -> Contrast -> ToneCurve -> ChannelGain -> Saturation, but
-// that is a recipe convention: this executor always applies nodes in the supplied span order.
+// default pipeline order is Exposure -> Contrast -> SelectiveTone -> ToneCurve (legacy or
+// SmoothRgbToneCurve) -> RgbWhiteBalance -> Saturation -> PerceptualColor, but that is a recipe
+// convention: this executor always applies nodes in the supplied span order.
 // Disabled nodes are skipped and the input is never mutated. The executor does not clamp
 // negative or >1 values and rejects NaN/Inf rather than silently contaminating caches.
 [[nodiscard]] FloatRgbImage execute_adjustment_nodes(
     const FloatRgbImage& input,
-    std::span<const AdjustmentNode> nodes
+    std::span<const AdjustmentNode> nodes,
+    AdjustmentExecutionContext context = {}
 );
 
 // Applies the same piecewise-linear curve independently to every channel in scene-linear
@@ -191,6 +369,21 @@ void validate_adjustment_nodes(std::span<const AdjustmentNode> nodes);
 [[nodiscard]] FloatRgbImage apply_tone_curve(
     const FloatRgbImage& input,
     const ToneCurve& curve
+);
+
+// Applies the version-2 master/R/G/B curve set in processed linear-light working RGB.
+// This is the standalone equivalent of a SmoothRgbToneCurve adjustment node.
+[[nodiscard]] FloatRgbImage apply_smooth_rgb_tone_curve(
+    const FloatRgbImage& input,
+    const SmoothRgbToneCurve& curve
+);
+
+// Samples the exact version-2 core evaluator at uniformly spaced x coordinates in [0, 1].
+// UI code should draw these samples instead of fitting an unrelated display-only Bezier.
+// sample_count must be between 2 and maximum_tone_curve_preview_samples, inclusive.
+[[nodiscard]] std::vector<ToneCurvePoint> sample_smooth_tone_curve(
+    const ToneCurveSet& curve,
+    std::size_t sample_count
 );
 
 // An immutable, reusable scene-linear working proxy for interactive editing. Preparation is
@@ -241,6 +434,7 @@ public:
 
     [[nodiscard]] Dimensions dimensions() const noexcept;
     [[nodiscard]] std::uint32_t max_edge() const noexcept;
+    [[nodiscard]] const OpticsProfileReceipt& optics_receipt() const noexcept;
     [[nodiscard]] EncodedProxy render_jpeg(
         std::span<const AdjustmentNode> nodes,
         std::uint8_t jpeg_quality = 88
@@ -251,14 +445,21 @@ public:
     ) const;
 
 private:
-    WarmEditPreviewSession(FloatRgbImage working_proxy, std::uint32_t max_edge);
+    WarmEditPreviewSession(
+        FloatRgbImage working_proxy,
+        std::uint32_t max_edge,
+        OpticsProfileReceipt optics_receipt
+    );
 
     FloatRgbImage working_proxy_;
     std::uint32_t max_edge_ = 0;
+    OpticsProfileReceipt optics_receipt_;
 
     friend WarmEditPreviewSession prepare_warm_edit_preview(
         const DecodeSession& session,
-        std::uint32_t max_edge
+        std::uint32_t max_edge,
+        const OpticsProvider* optics_provider,
+        const OpticsSettings& optics_settings
     );
 };
 
@@ -281,9 +482,9 @@ struct RenderedDetailTile final {
     std::vector<std::uint8_t> bytes;
 };
 
-// An immutable complete 16-bit sRGB reference image used only for 1:1 detail requests. No
-// decoder survives preparation; each const render allocates and edits only the requested tile,
-// which makes concurrent renders independent after construction.
+// An immutable complete processed-linear 16-bit image in sRGB primaries, used only for 1:1
+// detail requests. No decoder survives preparation; each const render allocates and edits only
+// the requested tile, which makes concurrent renders independent after construction.
 class FullEditDetailSession final {
 public:
     FullEditDetailSession(const FullEditDetailSession&) = delete;
@@ -294,38 +495,57 @@ public:
 
     [[nodiscard]] Dimensions dimensions() const noexcept;
     [[nodiscard]] std::uint64_t retained_bytes() const noexcept;
+    [[nodiscard]] const OpticsProfileReceipt& optics_receipt() const noexcept;
     [[nodiscard]] RenderedDetailTile render_rgb8(
         std::span<const AdjustmentNode> nodes,
         DetailTileRect rect
     ) const;
 
 private:
-    FullEditDetailSession(PixelBuffer reference_rgb, std::uint64_t retained_bytes);
+    FullEditDetailSession(
+        PixelBuffer reference_rgb,
+        std::uint64_t retained_bytes,
+        OpticsProfileReceipt optics_receipt
+    );
 
     PixelBuffer reference_rgb_;
     std::uint64_t retained_bytes_ = 0;
+    OpticsProfileReceipt optics_receipt_;
 
-    friend FullEditDetailSession prepare_full_edit_detail(const DecodeSession& session);
+    friend FullEditDetailSession prepare_full_edit_detail(
+        const DecodeSession& session,
+        const OpticsProvider* optics_provider,
+        const OpticsSettings& optics_settings
+    );
 };
 
-// Decodes once and stores only a max-edge-bounded scene-linear sRGB float proxy. Conversion to
-// linear light precedes bilinear downsampling; the full-size float image is never materialized.
+// Decodes processed linear-light sRGB-primary u16 once and stores only a max-edge-bounded linear
+// float proxy. Normalization precedes bilinear downsampling; no transfer is decoded and the
+// full-size float image is never materialized.
 [[nodiscard]] WarmEditPreviewSession prepare_warm_edit_preview(
     const DecodeSession& session,
-    std::uint32_t max_edge = 2'048
+    std::uint32_t max_edge = 2'048,
+    const OpticsProvider* optics_provider = nullptr,
+    const OpticsSettings& optics_settings = default_optics_settings()
 );
 
 // Checks the provider metadata against the worst-case RGB u16 retention bound before asking it
 // to render pixels, then independently checks the actual retained vector allocation.
-[[nodiscard]] FullEditDetailSession prepare_full_edit_detail(const DecodeSession& session);
+[[nodiscard]] FullEditDetailSession prepare_full_edit_detail(
+    const DecodeSession& session,
+    const OpticsProvider* optics_provider = nullptr,
+    const OpticsSettings& optics_settings = default_optics_settings()
+);
 
-// Renders a standard display-referred JPEG while keeping adjustment math in explicitly
-// scene-referred linear sRGB. The LibRaw reference buffer is decoded from its sRGB transfer
-// function before node execution and encoded back to sRGB only at the output boundary.
+// Renders a standard display-referred JPEG while keeping adjustment math in explicitly linear
+// sRGB working RGB. LibRaw is configured to provide processed linear-light u16; the versioned
+// output boundary gamut-maps and applies the sRGB transfer only after node execution.
 [[nodiscard]] EncodedProxy render_edited_reference_proxy_jpeg(
     const DecodeSession& session,
     std::span<const AdjustmentNode> nodes,
-    ProxyRequest request = {}
+    ProxyRequest request = {},
+    const OpticsProvider* optics_provider = nullptr,
+    const OpticsSettings& optics_settings = default_optics_settings()
 );
 
 } // namespace shadow::image

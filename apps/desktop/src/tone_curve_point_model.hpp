@@ -2,6 +2,7 @@
 
 #include <QAbstractListModel>
 #include <QHash>
+#include <QVariantList>
 #include <QVector>
 
 struct ToneCurvePoint final {
@@ -51,6 +52,13 @@ public:
     [[nodiscard]] bool isEditable() const noexcept;
     [[nodiscard]] int selectedIndex() const noexcept;
 
+    /// Returns a bounded, uniformly sampled preview path using the same
+    /// shape-preserving PCHIP equations as the image kernel.
+    Q_INVOKABLE QVariantList sampledPoints(
+        int sample_count,
+        bool smooth
+    ) const;
+
     /// Replaces the model with a valid persisted curve without clamping it.
     /// Invalid input leaves the current model untouched.
     [[nodiscard]] bool replace(QVector<ToneCurvePoint> points);
@@ -71,6 +79,10 @@ public:
     /// Replaces any current curve with the editable identity line.
     void resetLinear();
 
+    [[nodiscard]] static bool isValidPersistedCurve(
+        const QVector<ToneCurvePoint>& points
+    ) noexcept;
+
 signals:
     void pointsChanged();
     void editableChanged();
@@ -78,9 +90,6 @@ signals:
     void pointCountChanged();
 
 private:
-    [[nodiscard]] static bool isValidPersistedCurve(
-        const QVector<ToneCurvePoint>& points
-    ) noexcept;
     [[nodiscard]] static bool supportsActiveEditing(
         const QVector<ToneCurvePoint>& points
     ) noexcept;

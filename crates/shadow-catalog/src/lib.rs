@@ -6,6 +6,7 @@
 mod cache_artifact;
 mod decision;
 mod decode_snapshot;
+mod edit_repository;
 mod feedback;
 mod import_journal;
 mod recipe;
@@ -33,6 +34,11 @@ pub use decode_snapshot::{
     DecodeSnapshotRecord, RecordDecodeSnapshot, RecordDecodeSnapshotStatus,
     RepresentationFingerprint,
 };
+pub use edit_repository::{
+    CommitEditRepository, CommitRecipeAndEditRepository, CommitRecipeAndEditRepositoryResult,
+    EditObjectPackWrite, EditObjectRecord, EditRepositoryCommitRecord, EditRepositoryRefRecord,
+    EditRepositoryRefUpdate, StoreEditObjectPackResult,
+};
 pub use feedback::{FeedbackPage, MAX_FEEDBACK_PAGE_SIZE};
 pub use import_journal::{ImportSession, ImportSessionState, ImportSessionSummary};
 pub use recipe::{
@@ -47,7 +53,7 @@ pub use technical_observation::{
 };
 pub use writer::{CatalogActor, CatalogHandle};
 
-const SCHEMA_VERSION: i64 = 9;
+const SCHEMA_VERSION: i64 = 10;
 
 const MIGRATION_V1: &str = r"
 CREATE TABLE photos (
@@ -430,6 +436,91 @@ BEGIN
 END;
 ";
 
+// Library-level edit history is deliberately parallel to the legacy per-photo
+// Recipe tables. Version 10 only establishes immutable content-addressed
+// objects, global commits, ordered parents, and CAS-updated refs. It does not
+// rewrite, bootstrap, or otherwise reinterpret any Recipe v1 row.
+const MIGRATION_V10: &str = r"
+CREATE TABLE edit_objects (
+    digest          BLOB PRIMARY KEY NOT NULL CHECK (length(digest) = 32),
+    hash_algorithm  TEXT NOT NULL CHECK (hash_algorithm = 'blake3-256'),
+    kind            TEXT NOT NULL CHECK (length(kind) > 0),
+    format_version  INTEGER NOT NULL CHECK (format_version > 0),
+    payload_codec   TEXT NOT NULL CHECK (payload_codec = 'canonical-json'),
+    payload         TEXT NOT NULL CHECK (json_valid(payload)),
+    created_at_ms   INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX edit_objects_kind_idx
+    ON edit_objects(kind, format_version, created_at_ms);
+
+CREATE TRIGGER edit_objects_no_update
+BEFORE UPDATE ON edit_objects
+BEGIN
+    SELECT RAISE(ABORT, 'edit objects are immutable');
+END;
+
+CREATE TABLE edit_object_edges (
+    source_digest BLOB NOT NULL CHECK (length(source_digest) = 32),
+    role          TEXT NOT NULL CHECK (length(role) > 0),
+    position      INTEGER NOT NULL CHECK (position >= 0),
+    target_digest BLOB NOT NULL CHECK (length(target_digest) = 32),
+    PRIMARY KEY (source_digest, role, position),
+    FOREIGN KEY (source_digest) REFERENCES edit_objects(digest) ON DELETE CASCADE,
+    FOREIGN KEY (target_digest) REFERENCES edit_objects(digest) ON DELETE RESTRICT
+) STRICT;
+
+CREATE INDEX edit_object_edges_target_idx ON edit_object_edges(target_digest);
+
+CREATE TRIGGER edit_object_edges_no_update
+BEFORE UPDATE ON edit_object_edges
+BEGIN
+    SELECT RAISE(ABORT, 'edit object edges are immutable');
+END;
+
+CREATE TABLE edit_repository_commits (
+    id              BLOB PRIMARY KEY NOT NULL CHECK (length(id) = 32),
+    root_digest     BLOB NOT NULL CHECK (length(root_digest) = 32),
+    format_version  INTEGER NOT NULL CHECK (format_version = 1),
+    commit_json     TEXT NOT NULL CHECK (json_valid(commit_json)),
+    created_at_ms   INTEGER NOT NULL,
+    FOREIGN KEY (root_digest) REFERENCES edit_objects(digest) ON DELETE RESTRICT
+) STRICT;
+
+CREATE INDEX edit_repository_commits_root_idx ON edit_repository_commits(root_digest);
+CREATE INDEX edit_repository_commits_time_idx
+    ON edit_repository_commits(created_at_ms DESC, id);
+
+CREATE TRIGGER edit_repository_commits_no_update
+BEFORE UPDATE ON edit_repository_commits
+BEGIN
+    SELECT RAISE(ABORT, 'edit repository commits are immutable');
+END;
+
+CREATE TABLE edit_repository_commit_parents (
+    commit_id BLOB NOT NULL CHECK (length(commit_id) = 32),
+    parent_id BLOB NOT NULL CHECK (length(parent_id) = 32),
+    position  INTEGER NOT NULL CHECK (position >= 0),
+    PRIMARY KEY (commit_id, position),
+    UNIQUE (commit_id, parent_id),
+    FOREIGN KEY (commit_id) REFERENCES edit_repository_commits(id) ON DELETE CASCADE,
+    FOREIGN KEY (parent_id) REFERENCES edit_repository_commits(id) ON DELETE RESTRICT
+) STRICT;
+
+CREATE INDEX edit_repository_commit_parents_parent_idx
+    ON edit_repository_commit_parents(parent_id);
+
+CREATE TABLE edit_repository_refs (
+    name          TEXT PRIMARY KEY NOT NULL CHECK (length(name) BETWEEN 1 AND 256),
+    kind          TEXT NOT NULL CHECK (kind IN ('branch', 'named_version', 'tag')),
+    commit_id     BLOB NOT NULL CHECK (length(commit_id) = 32),
+    updated_at_ms INTEGER NOT NULL,
+    FOREIGN KEY (commit_id) REFERENCES edit_repository_commits(id) ON DELETE RESTRICT
+) STRICT;
+
+CREATE INDEX edit_repository_refs_commit_idx ON edit_repository_refs(commit_id);
+";
+
 #[derive(Debug, Error)]
 pub enum CatalogError {
     #[error("SQLite catalog error: {0}")]
@@ -562,6 +653,32 @@ pub enum CatalogError {
     TechnicalObservationValueOutOfRange { field: &'static str },
     #[error("persisted technical observation failed its integrity check: {0}")]
     InvalidPersistedTechnicalObservation(&'static str),
+    #[error("invalid edit repository object: {0}")]
+    InvalidEditObject(String),
+    #[error("edit object {0} does not exist")]
+    EditObjectNotFound(shadow_domain::EditObjectId),
+    #[error("content-addressed edit object {0} conflicts with persisted bytes or edges")]
+    EditObjectCollision(shadow_domain::EditObjectId),
+    #[error("invalid edit repository commit: {0}")]
+    InvalidEditRepositoryCommit(String),
+    #[error("edit repository commit {0} does not exist")]
+    EditRepositoryCommitNotFound(shadow_domain::EditCommitId),
+    #[error("content-addressed edit repository commit {0} conflicts with persisted bytes")]
+    EditRepositoryCommitCollision(shadow_domain::EditCommitId),
+    #[error("invalid edit repository ref name: {0:?}")]
+    InvalidEditRepositoryRefName(String),
+    #[error("edit repository ref name {0:?} appears more than once in one commit")]
+    DuplicateEditRepositoryRefName(String),
+    #[error(
+        "edit repository ref {name:?} did not match expectation {expected:?}; current commit is {actual:?}"
+    )]
+    EditRepositoryRefExpectationMismatch {
+        name: String,
+        expected: shadow_domain::EditRepositoryRefExpectation,
+        actual: Option<shadow_domain::EditCommitId>,
+    },
+    #[error("unknown persisted edit repository ref kind: {0}")]
+    UnknownEditRepositoryRefKind(String),
 }
 
 #[derive(Debug)]
@@ -826,6 +943,7 @@ fn migrate(connection: &mut Connection) -> rusqlite::Result<()> {
 
     apply_migration_if_needed(connection, 8, MIGRATION_V8)?;
     apply_migration_if_needed(connection, 9, MIGRATION_V9)?;
+    apply_migration_if_needed(connection, 10, MIGRATION_V10)?;
 
     let final_version = current_schema_version(connection)?;
     if final_version != SCHEMA_VERSION {
@@ -1031,7 +1149,7 @@ mod tests {
     fn migration_creates_current_schema() {
         let catalog = Catalog::open_in_memory().expect("open catalog");
 
-        assert_eq!(catalog.schema_version().expect("schema version"), 9);
+        assert_eq!(catalog.schema_version().expect("schema version"), 10);
     }
 
     #[test]
@@ -1069,7 +1187,7 @@ mod tests {
         }
 
         let catalog = Catalog::open(&path).expect("migrate v2 catalog");
-        assert_eq!(catalog.schema_version().expect("schema version"), 9);
+        assert_eq!(catalog.schema_version().expect("schema version"), 10);
         let snapshot_tables: i64 = catalog
             .connection
             .query_row(
@@ -1110,7 +1228,7 @@ mod tests {
         migrate(&mut connection).expect("continue from v8 to current schema");
         assert_eq!(
             current_schema_version(&connection).expect("current schema version"),
-            9
+            10
         );
     }
 
@@ -1159,7 +1277,10 @@ mod tests {
         }
 
         let catalog = Catalog::open(&path).expect("migrate v7 feedback catalog");
-        assert_eq!(catalog.schema_version().expect("current schema version"), 9);
+        assert_eq!(
+            catalog.schema_version().expect("current schema version"),
+            10
+        );
         let (stored_json, stored_digest): (String, Vec<u8>) = catalog
             .connection
             .query_row(
@@ -1195,7 +1316,7 @@ mod tests {
 
         assert_eq!(
             current_schema_version(&connection).expect("schema version"),
-            9
+            10
         );
         let tables: i64 = connection
             .query_row(

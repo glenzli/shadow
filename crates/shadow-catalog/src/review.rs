@@ -1,6 +1,7 @@
 use rusqlite::OptionalExtension;
 use shadow_domain::{
-    AssetLocation, EntityId, PhotoDecisionState, PhotoId, Platform, RepresentationId,
+    AssetLocation, DecoderSnapshot, EntityId, PhotoDecisionState, PhotoId, Platform,
+    RawMetadataSnapshot, RepresentationId,
 };
 
 use crate::{
@@ -23,6 +24,7 @@ pub struct ReviewItemRecord {
     pub location: AssetLocation,
     pub source: RepresentationFingerprint,
     pub visual: Option<CachedArtifactRecord>,
+    pub metadata: Option<RawMetadataSnapshot>,
     pub technical: Option<TechnicalObservationSummary>,
     pub decision: PhotoDecisionState,
 }
@@ -72,6 +74,7 @@ struct RawReviewItem {
     display_path: String,
     source: RepresentationFingerprint,
     artifact: Option<RawArtifact>,
+    metadata_json: Option<String>,
     technical: Option<RawTechnicalObservation>,
     decision_head_sequence: Option<i64>,
     decision_flag: Option<String>,
@@ -130,6 +133,7 @@ impl Catalog {
                     a.blob_byte_len, a.codec, a.byte_order, a.width, a.height,
                     a.bits_per_channel, a.channels, a.created_at_ms,
                     t.observation_json, t.observation_digest,
+                    s.snapshot_json,
                     dc.head_sequence, de.after_flag, de.after_rating
              FROM representations r
              JOIN locations l ON l.id = (
@@ -171,6 +175,16 @@ impl Catalog {
                    AND t2.implementation_version = ?3
                    AND t2.display_luma_contract_version = ?4
                    AND t2.preprocessing_version = ?5
+                 LIMIT 1
+             )
+             LEFT JOIN representation_decode_snapshots s ON s.rowid = (
+                 SELECT s2.rowid FROM representation_decode_snapshots s2
+                 WHERE s2.representation_id = r.id
+                   AND s2.source_byte_len = r.byte_len
+                   AND s2.source_modified_at_ms IS r.modified_at_ms
+                   AND s2.has_metadata = 1
+                 ORDER BY CASE s2.provider_id WHEN 'libraw' THEN 0 ELSE 1 END,
+                          s2.inspected_at_ms DESC
                  LIMIT 1
              )
              LEFT JOIN photo_decision_current dc ON dc.photo_id = r.photo_id
@@ -229,6 +243,8 @@ impl Catalog {
         self.review_page_inner(after, requested_limit, Some(revision))
     }
 
+    // Keeping the positional SQL projection beside its row decoder makes schema drift auditable.
+    #[allow(clippy::too_many_lines)]
     fn review_page_inner(
         &self,
         after: Option<&ReviewCursor>,
@@ -248,6 +264,7 @@ impl Catalog {
                     a.blob_byte_len, a.codec, a.byte_order, a.width, a.height,
                     a.bits_per_channel, a.channels, a.created_at_ms,
                     t.observation_json, t.observation_digest,
+                    s.snapshot_json,
                     dc.head_sequence, de.after_flag, de.after_rating
              FROM representations r
              JOIN locations l ON l.id = (
@@ -289,6 +306,16 @@ impl Catalog {
                    AND t2.implementation_version = ?5
                    AND t2.display_luma_contract_version = ?6
                    AND t2.preprocessing_version = ?7
+                 LIMIT 1
+             )
+             LEFT JOIN representation_decode_snapshots s ON s.rowid = (
+                 SELECT s2.rowid FROM representation_decode_snapshots s2
+                 WHERE s2.representation_id = r.id
+                   AND s2.source_byte_len = r.byte_len
+                   AND s2.source_modified_at_ms IS r.modified_at_ms
+                   AND s2.has_metadata = 1
+                 ORDER BY CASE s2.provider_id WHEN 'libraw' THEN 0 ELSE 1 END,
+                          s2.inspected_at_ms DESC
                  LIMIT 1
              )
              LEFT JOIN photo_decision_current dc ON dc.photo_id = r.photo_id
@@ -348,6 +375,7 @@ fn review_item_from_raw(
         display_path,
         source,
         artifact,
+        metadata_json,
         technical,
         decision_head_sequence,
         decision_flag,
@@ -357,6 +385,11 @@ fn review_item_from_raw(
     let visual = artifact
         .map(|artifact| cached_artifact(representation_id, source, artifact))
         .transpose()?;
+    // Decode snapshots are replaceable caches. A corrupt optional metadata payload must not
+    // make the Review grid unusable; the inspection queue can rebuild it independently.
+    let metadata = metadata_json
+        .and_then(|json| serde_json::from_str::<DecoderSnapshot>(&json).ok())
+        .map(|snapshot| snapshot.metadata);
     let technical = match (technical, visual.as_ref(), revision) {
         (Some(technical), Some(visual), Some(revision)) => {
             let observation = decode_observation(
@@ -384,6 +417,7 @@ fn review_item_from_raw(
         location,
         source,
         visual,
+        metadata,
         technical,
         decision,
     })
@@ -432,10 +466,11 @@ fn read_raw_review_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawReviewIt
             modified_at_ms: row.get(6)?,
         },
         artifact,
+        metadata_json: row.get(24)?,
         technical,
-        decision_head_sequence: row.get(24)?,
-        decision_flag: row.get(25)?,
-        decision_rating: row.get(26)?,
+        decision_head_sequence: row.get(25)?,
+        decision_flag: row.get(26)?,
+        decision_rating: row.get(27)?,
     })
 }
 

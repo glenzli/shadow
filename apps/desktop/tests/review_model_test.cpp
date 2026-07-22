@@ -127,6 +127,7 @@ void role_names_and_types_are_stable() {
         ExpectedRole{ReviewModel::DecisionHeadSequenceRole, "decisionHeadSequence"},
         ExpectedRole{ReviewModel::DecisionFlagRole, "decisionFlag"},
         ExpectedRole{ReviewModel::DecisionRatingRole, "decisionRating"},
+        ExpectedRole{ReviewModel::ColorLabelRole, "colorLabel"},
         ExpectedRole{ReviewModel::HasTechnicalObservationRole, "hasTechnicalObservation"},
         ExpectedRole{ReviewModel::TechnicalInputWidthRole, "technicalInputWidth"},
         ExpectedRole{ReviewModel::TechnicalInputHeightRole, "technicalInputHeight"},
@@ -220,6 +221,50 @@ void role_names_and_types_are_stable() {
             "each technical role must expose its own measurement"
         );
     }
+}
+
+void color_labels_are_local_and_survive_page_refreshes() {
+    ReviewItem first = keyed_item("a", "A");
+    ReviewItem second = first;
+    second.representation_id = QStringLiteral("a-secondary");
+    ReviewItem other = keyed_item("b", "B");
+
+    ReviewModel model;
+    model.replace({first, second, other}, 1);
+    require(
+        model.setColorLabel(QStringLiteral("a-photo"), QStringLiteral("blue")),
+        "a valid color label must update every loaded representation"
+    );
+    require(
+        value(model, 0, ReviewModel::ColorLabelRole).toString()
+                == QStringLiteral("blue")
+            && value(model, 1, ReviewModel::ColorLabelRole).toString()
+                == QStringLiteral("blue")
+            && value(model, 2, ReviewModel::ColorLabelRole).toString()
+                == QStringLiteral("none"),
+        "color labels must be photo-local and never leak to another photo"
+    );
+    require(
+        model.colorLabels().value(QStringLiteral("a-photo")).toString()
+            == QStringLiteral("blue"),
+        "the color-label persistence projection must retain the semantic value"
+    );
+
+    ReviewItem refreshed = first;
+    refreshed.title = QStringLiteral("A refreshed");
+    require(
+        model.reconcileSnapshot({refreshed, other}, 1),
+        "a current review refresh must reconcile after a local color label"
+    );
+    require(
+        value(model, 0, ReviewModel::ColorLabelRole).toString()
+                == QStringLiteral("blue"),
+        "a catalog refresh must preserve locally persisted color labels"
+    );
+    require(
+        !model.setColorLabel(QStringLiteral("a-photo"), QStringLiteral("orange")),
+        "unsupported color labels must fail closed"
+    );
 }
 
 void decision_updates_project_to_every_representation_of_a_photo() {
@@ -675,6 +720,7 @@ void identical_snapshot_reconciliation_is_a_signal_free_no_op() {
 
 int main() {
     role_names_and_types_are_stable();
+    color_labels_are_local_and_survive_page_refreshes();
     decision_updates_project_to_every_representation_of_a_photo();
     visual_sources_use_encoded_tickets_and_current_generation();
     absence_and_legitimate_zero_are_distinct();

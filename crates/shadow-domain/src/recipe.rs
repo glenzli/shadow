@@ -976,9 +976,158 @@ impl LayerRevision {
     }
 }
 
+/// Input-stage optical corrections applied before creative Grade Nodes.
+///
+/// These switches belong to the Recipe rather than an individual layer:
+/// changing geometry after a local edit would invalidate every downstream
+/// coordinate and cache identity.
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub struct RecipeOpticsSettings {
+    enabled: bool,
+    correct_distortion: bool,
+    correct_tca: bool,
+    correct_vignetting: bool,
+    automatic_scale: bool,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    camera_profile_maker: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    camera_profile_model: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    lens_profile_maker: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    lens_profile_model: String,
+}
+
+impl Default for RecipeOpticsSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            correct_distortion: true,
+            correct_tca: true,
+            correct_vignetting: true,
+            automatic_scale: true,
+            camera_profile_maker: String::new(),
+            camera_profile_model: String::new(),
+            lens_profile_maker: String::new(),
+            lens_profile_model: String::new(),
+        }
+    }
+}
+
+impl RecipeOpticsSettings {
+    pub fn new(
+        enabled: bool,
+        correct_distortion: bool,
+        correct_tca: bool,
+        correct_vignetting: bool,
+        automatic_scale: bool,
+    ) -> Self {
+        Self {
+            enabled,
+            correct_distortion,
+            correct_tca,
+            correct_vignetting,
+            automatic_scale,
+            ..Self::default()
+        }
+    }
+
+    pub fn with_manual_profile(
+        mut self,
+        camera_maker: impl Into<String>,
+        camera_model: impl Into<String>,
+        lens_maker: impl Into<String>,
+        lens_model: impl Into<String>,
+    ) -> Self {
+        self.camera_profile_maker = camera_maker.into();
+        self.camera_profile_model = camera_model.into();
+        self.lens_profile_maker = lens_maker.into();
+        self.lens_profile_model = lens_model.into();
+        self
+    }
+
+    pub const fn enabled(&self) -> bool {
+        self.enabled
+    }
+
+    pub const fn correct_distortion(&self) -> bool {
+        self.correct_distortion
+    }
+
+    pub const fn correct_tca(&self) -> bool {
+        self.correct_tca
+    }
+
+    pub const fn correct_vignetting(&self) -> bool {
+        self.correct_vignetting
+    }
+
+    pub const fn automatic_scale(&self) -> bool {
+        self.automatic_scale
+    }
+
+    pub fn camera_profile_maker(&self) -> &str {
+        &self.camera_profile_maker
+    }
+    pub fn camera_profile_model(&self) -> &str {
+        &self.camera_profile_model
+    }
+    pub fn lens_profile_maker(&self) -> &str {
+        &self.lens_profile_maker
+    }
+    pub fn lens_profile_model(&self) -> &str {
+        &self.lens_profile_model
+    }
+    pub fn uses_manual_profile(&self) -> bool {
+        !self.camera_profile_model.is_empty() && !self.lens_profile_model.is_empty()
+    }
+
+    fn validate(&self) -> Result<(), RecipeValidationError> {
+        for (kind, value) in [
+            ("camera profile maker", self.camera_profile_maker.as_str()),
+            ("camera profile model", self.camera_profile_model.as_str()),
+            ("lens profile maker", self.lens_profile_maker.as_str()),
+            ("lens profile model", self.lens_profile_model.as_str()),
+        ] {
+            if !value.is_empty() {
+                validate_text(value, MAX_LABEL_BYTES, kind, display_name_character)?;
+            }
+        }
+        let has_camera = !self.camera_profile_model.is_empty();
+        let has_lens = !self.lens_profile_model.is_empty();
+        let has_orphan_maker = (!self.camera_profile_maker.is_empty() && !has_camera)
+            || (!self.lens_profile_maker.is_empty() && !has_lens);
+        if has_camera != has_lens || has_orphan_maker {
+            return Err(RecipeValidationError::IncompleteOpticsProfile);
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct RecipeInputSettings {
+    optics: RecipeOpticsSettings,
+}
+
+impl RecipeInputSettings {
+    pub const fn new(optics: RecipeOpticsSettings) -> Self {
+        Self { optics }
+    }
+
+    pub const fn optics(&self) -> &RecipeOpticsSettings {
+        &self.optics
+    }
+
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RecipeSnapshot {
     schema_version: u32,
+    #[serde(default, skip_serializing_if = "RecipeInputSettings::is_default")]
+    input_settings: RecipeInputSettings,
     layers: Vec<LayerInstance>,
 }
 
@@ -994,8 +1143,17 @@ impl RecipeSnapshot {
         schema_version: u32,
         layers: Vec<LayerInstance>,
     ) -> Result<Self, RecipeValidationError> {
+        Self::new_with_input_settings(schema_version, RecipeInputSettings::default(), layers)
+    }
+
+    pub fn new_with_input_settings(
+        schema_version: u32,
+        input_settings: RecipeInputSettings,
+        layers: Vec<LayerInstance>,
+    ) -> Result<Self, RecipeValidationError> {
         let recipe = Self {
             schema_version,
+            input_settings,
             layers,
         };
         recipe.validate()?;
@@ -1005,12 +1163,17 @@ impl RecipeSnapshot {
     pub fn empty() -> Self {
         Self {
             schema_version: CURRENT_RECIPE_SCHEMA_VERSION,
+            input_settings: RecipeInputSettings::default(),
             layers: Vec::new(),
         }
     }
 
     pub const fn schema_version(&self) -> u32 {
         self.schema_version
+    }
+
+    pub const fn input_settings(&self) -> &RecipeInputSettings {
+        &self.input_settings
     }
 
     pub fn layers(&self) -> &[LayerInstance] {
@@ -1026,6 +1189,7 @@ impl RecipeSnapshot {
         if self.schema_version == 0 {
             return Err(RecipeValidationError::ZeroRecipeSchemaVersion);
         }
+        self.input_settings.optics.validate()?;
         let mut ids = HashSet::with_capacity(self.layers.len());
         for layer in &self.layers {
             if !ids.insert(layer.id) {
@@ -1525,6 +1689,8 @@ pub enum RecipeValidationError {
     },
     #[error("recipe schema version must be non-zero")]
     ZeroRecipeSchemaVersion,
+    #[error("manual optics profile must identify both a camera and a lens")]
+    IncompleteOpticsProfile,
     #[error("layer instance {0} appears more than once")]
     DuplicateLayerInstance(LayerInstanceId),
     #[error("layer {0} follows a mutable shared head and must be pinned before commit")]
@@ -1638,6 +1804,135 @@ mod tests {
             None,
         )
         .expect("valid layer")
+    }
+
+    #[test]
+    fn recipe_rejects_an_incomplete_manual_optics_identity() {
+        let optics = RecipeOpticsSettings {
+            camera_profile_maker: "Pentax".to_owned(),
+            camera_profile_model: "K10D".to_owned(),
+            lens_profile_maker: String::new(),
+            lens_profile_model: String::new(),
+            ..RecipeOpticsSettings::default()
+        };
+        assert_eq!(
+            RecipeSnapshot::new_with_input_settings(
+                CURRENT_RECIPE_SCHEMA_VERSION,
+                RecipeInputSettings::new(optics),
+                Vec::new(),
+            ),
+            Err(RecipeValidationError::IncompleteOpticsProfile)
+        );
+    }
+
+    fn recipe_v1_golden_commit() -> RecipeCommit {
+        let image = PortType::Image(ImageDomain::WorkingRgb);
+        let node_id = "00000000-0000-7000-8000-000000000020"
+            .parse::<NodeId>()
+            .expect("fixed node id");
+        let mask_id = "00000000-0000-7000-8000-000000000030"
+            .parse::<MaskId>()
+            .expect("fixed mask id");
+        let mask = MaskReference::new(mask_id, 3, MaskCoordinateSpace::Original)
+            .expect("fixed mask reference");
+        let parameters = [
+            (
+                ParameterKey::new("tone.enabled").expect("fixed parameter key"),
+                ParameterValue::Bool(true),
+            ),
+            (
+                ParameterKey::new("tone.exposure_ev").expect("fixed parameter key"),
+                ParameterValue::Float(FiniteF64::new(0.35).expect("fixed finite value")),
+            ),
+        ]
+        .into_iter()
+        .collect();
+        let adjustment = AdjustmentNode::new(
+            node_id,
+            OperationDescriptor::new(
+                OperationId::new("shadow.exposure").expect("fixed operation id"),
+                1,
+                "cpu-reference-v1",
+                ProcessingStage::SceneLinearFoundation,
+                vec![image],
+                image,
+                Some(42),
+            )
+            .expect("fixed operation"),
+            vec![NodeInput::GraphInput { index: 0 }],
+            parameters,
+            Some(mask),
+        )
+        .expect("fixed adjustment");
+        let graph =
+            EditGraph::new(1, vec![image], vec![adjustment], node_id).expect("fixed edit graph");
+        let inline = LayerInstance::new(
+            "00000000-0000-7000-8000-000000000010"
+                .parse::<LayerInstanceId>()
+                .expect("fixed layer instance id"),
+            "Natural foundation",
+            AdjustmentScope::Photo,
+            LayerContent::Inline { graph },
+            true,
+            UnitInterval::new(0.875).expect("fixed opacity"),
+            BlendMode::SoftLight,
+            Some(mask),
+        )
+        .expect("fixed inline layer");
+        let shared = LayerInstance::new(
+            "00000000-0000-7000-8000-000000000040"
+                .parse::<LayerInstanceId>()
+                .expect("fixed shared instance id"),
+            "Shared portrait look",
+            AdjustmentScope::Selection(
+                "00000000-0000-7000-8000-000000000070"
+                    .parse::<SelectionId>()
+                    .expect("fixed selection id"),
+            ),
+            LayerContent::Shared {
+                layer_id: "00000000-0000-7000-8000-000000000050"
+                    .parse::<LayerId>()
+                    .expect("fixed shared layer id"),
+                revision: LayerRevisionSelector::Pinned(
+                    "00000000-0000-7000-8000-000000000060"
+                        .parse::<LayerRevisionId>()
+                        .expect("fixed shared revision id"),
+                ),
+            },
+            false,
+            UnitInterval::new(0.5).expect("fixed opacity"),
+            BlendMode::Luminosity,
+            None,
+        )
+        .expect("fixed shared layer");
+        RecipeCommit::new(
+            "00000000-0000-7000-8000-000000000001"
+                .parse::<RecipeCommitId>()
+                .expect("fixed commit id"),
+            "00000000-0000-7000-8000-000000000002"
+                .parse::<RecipeId>()
+                .expect("fixed recipe id"),
+            Vec::new(),
+            RecipeSnapshot::new(CURRENT_RECIPE_SCHEMA_VERSION, vec![inline, shared])
+                .expect("fixed Recipe v1 snapshot"),
+            Some("Recipe v1 golden".into()),
+            1_721_500_000_123,
+        )
+        .expect("fixed Recipe v1 commit")
+    }
+
+    #[test]
+    fn recipe_v1_json_wire_is_an_exact_golden() {
+        const RECIPE_V1_JSON: &str = r#"{"id":"00000000-0000-7000-8000-000000000001","recipe_id":"00000000-0000-7000-8000-000000000002","parents":[],"snapshot":{"schema_version":1,"layers":[{"id":"00000000-0000-7000-8000-000000000010","label":"Natural foundation","scope":{"kind":"photo"},"content":{"kind":"inline","graph":{"schema_version":1,"input_types":[{"kind":"image","value":"working_rgb"}],"nodes":[{"id":"00000000-0000-7000-8000-000000000020","operation":{"operation_id":"shadow.exposure","parameter_schema_version":1,"implementation_version":"cpu-reference-v1","stage":"scene_linear_foundation","input_types":[{"kind":"image","value":"working_rgb"}],"output_type":{"kind":"image","value":"working_rgb"},"seed":42},"inputs":[{"source":"graph_input","index":0}],"parameters":{"tone.enabled":{"type":"bool","value":true},"tone.exposure_ev":{"type":"float","value":0.35}},"mask_reference":{"mask_id":"00000000-0000-7000-8000-000000000030","revision":3,"coordinate_space":"original"}}],"output_node":"00000000-0000-7000-8000-000000000020"}},"enabled":true,"opacity":0.875,"blend_mode":"soft_light","mask":{"mask_id":"00000000-0000-7000-8000-000000000030","revision":3,"coordinate_space":"original"}},{"id":"00000000-0000-7000-8000-000000000040","label":"Shared portrait look","scope":{"kind":"selection","target":"00000000-0000-7000-8000-000000000070"},"content":{"kind":"shared","layer_id":"00000000-0000-7000-8000-000000000050","revision":{"mode":"pinned","revision_id":"00000000-0000-7000-8000-000000000060"}},"enabled":false,"opacity":0.5,"blend_mode":"luminosity","mask":null}]},"message":"Recipe v1 golden","created_at_ms":1721500000123}"#;
+        let encoded = serde_json::to_vec(&recipe_v1_golden_commit())
+            .expect("serialize fixed Recipe v1 commit");
+
+        assert_eq!(encoded.as_slice(), RECIPE_V1_JSON.as_bytes());
+
+        let decoded: RecipeCommit =
+            serde_json::from_slice(RECIPE_V1_JSON.as_bytes()).expect("read Recipe v1 golden");
+        decoded.validate().expect("Recipe v1 golden remains valid");
+        assert_eq!(decoded, recipe_v1_golden_commit());
     }
 
     #[test]

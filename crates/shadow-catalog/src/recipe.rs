@@ -96,75 +96,10 @@ impl Catalog {
         &mut self,
         request: &CommitRecipe,
     ) -> Result<RecipeCommitRecord, CatalogError> {
-        request
-            .commit
-            .validate()
-            .map_err(|error| CatalogError::InvalidRecipe(error.to_string()))?;
-        let mut ref_names = std::collections::BTreeSet::new();
-        for target in &request.update_refs {
-            validate_ref_name(&target.name)?;
-            if !ref_names.insert(&target.name) {
-                return Err(CatalogError::DuplicateRecipeRefName(target.name.clone()));
-            }
-        }
-        let commit_json =
-            serde_json::to_string(&request.commit).map_err(CatalogError::RecipeJson)?;
-        let snapshot_json =
-            serde_json::to_vec(request.commit.snapshot()).map_err(CatalogError::RecipeJson)?;
-        let snapshot_digest = *blake3::hash(&snapshot_json).as_bytes();
         let transaction = self.connection.transaction()?;
-        ensure_photo(&transaction, request.photo_id)?;
-        ensure_commit_absent(&transaction, request.commit.id())?;
-        for parent in request.commit.parents() {
-            ensure_commit_owner(&transaction, request.photo_id, *parent)?;
-        }
-        for target in &request.update_refs {
-            ensure_ref_expectation(&transaction, request.photo_id, target)?;
-        }
-        transaction.execute(
-            "INSERT INTO recipe_commits(
-                 id, photo_id, recipe_id, commit_json, snapshot_digest, created_at_ms
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![
-                request.commit.id().as_bytes().as_slice(),
-                request.photo_id.as_bytes().as_slice(),
-                request.commit.recipe_id().as_bytes().as_slice(),
-                commit_json,
-                snapshot_digest.as_slice(),
-                request.commit.created_at_ms(),
-            ],
-        )?;
-        for (position, parent) in request.commit.parents().iter().enumerate() {
-            let position = i64::try_from(position).map_err(|error| {
-                CatalogError::Sqlite(rusqlite::Error::ToSqlConversionFailure(Box::new(error)))
-            })?;
-            transaction.execute(
-                "INSERT INTO recipe_commit_parents(commit_id, parent_id, photo_id, position)
-                 VALUES (?1, ?2, ?3, ?4)",
-                params![
-                    request.commit.id().as_bytes().as_slice(),
-                    parent.as_bytes().as_slice(),
-                    request.photo_id.as_bytes().as_slice(),
-                    position,
-                ],
-            )?;
-        }
-        for target in &request.update_refs {
-            upsert_ref(
-                &transaction,
-                request.photo_id,
-                &target.name,
-                target.kind,
-                request.commit.id(),
-                request.commit.created_at_ms(),
-            )?;
-        }
+        let record = commit_recipe_in_transaction(&transaction, request)?;
         transaction.commit()?;
-        Ok(RecipeCommitRecord {
-            photo_id: request.photo_id,
-            commit: request.commit.clone(),
-            snapshot_digest,
-        })
+        Ok(record)
     }
 
     /// Returns every immutable commit for a photo, newest author timestamp first.
@@ -308,6 +243,78 @@ impl Catalog {
         transaction.commit()?;
         Ok(())
     }
+}
+
+pub(crate) fn commit_recipe_in_transaction(
+    transaction: &Transaction<'_>,
+    request: &CommitRecipe,
+) -> Result<RecipeCommitRecord, CatalogError> {
+    request
+        .commit
+        .validate()
+        .map_err(|error| CatalogError::InvalidRecipe(error.to_string()))?;
+    let mut ref_names = std::collections::BTreeSet::new();
+    for target in &request.update_refs {
+        validate_ref_name(&target.name)?;
+        if !ref_names.insert(&target.name) {
+            return Err(CatalogError::DuplicateRecipeRefName(target.name.clone()));
+        }
+    }
+    let commit_json = serde_json::to_string(&request.commit).map_err(CatalogError::RecipeJson)?;
+    let snapshot_json =
+        serde_json::to_vec(request.commit.snapshot()).map_err(CatalogError::RecipeJson)?;
+    let snapshot_digest = *blake3::hash(&snapshot_json).as_bytes();
+    ensure_photo(transaction, request.photo_id)?;
+    ensure_commit_absent(transaction, request.commit.id())?;
+    for parent in request.commit.parents() {
+        ensure_commit_owner(transaction, request.photo_id, *parent)?;
+    }
+    for target in &request.update_refs {
+        ensure_ref_expectation(transaction, request.photo_id, target)?;
+    }
+    transaction.execute(
+        "INSERT INTO recipe_commits(
+             id, photo_id, recipe_id, commit_json, snapshot_digest, created_at_ms
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            request.commit.id().as_bytes().as_slice(),
+            request.photo_id.as_bytes().as_slice(),
+            request.commit.recipe_id().as_bytes().as_slice(),
+            commit_json,
+            snapshot_digest.as_slice(),
+            request.commit.created_at_ms(),
+        ],
+    )?;
+    for (position, parent) in request.commit.parents().iter().enumerate() {
+        let position = i64::try_from(position).map_err(|error| {
+            CatalogError::Sqlite(rusqlite::Error::ToSqlConversionFailure(Box::new(error)))
+        })?;
+        transaction.execute(
+            "INSERT INTO recipe_commit_parents(commit_id, parent_id, photo_id, position)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![
+                request.commit.id().as_bytes().as_slice(),
+                parent.as_bytes().as_slice(),
+                request.photo_id.as_bytes().as_slice(),
+                position,
+            ],
+        )?;
+    }
+    for target in &request.update_refs {
+        upsert_ref(
+            transaction,
+            request.photo_id,
+            &target.name,
+            target.kind,
+            request.commit.id(),
+            request.commit.created_at_ms(),
+        )?;
+    }
+    Ok(RecipeCommitRecord {
+        photo_id: request.photo_id,
+        commit: request.commit.clone(),
+        snapshot_digest,
+    })
 }
 
 fn decode_recipe_record(
@@ -806,6 +813,162 @@ mod tests {
         );
         drop(catalog);
         std::fs::remove_dir_all(root).expect("remove test root");
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn v9_recipe_row_remains_byte_exact_after_appending_a_child_commit() {
+        const ROOT_COMMIT_JSON: &str = r#"{
+  "id": "00000000-0000-7000-8000-000000000101",
+  "recipe_id": "00000000-0000-7000-8000-000000000102",
+  "parents": [],
+  "snapshot": { "schema_version": 1, "layers": [] },
+  "message": "v9 byte-preservation golden",
+  "created_at_ms": 1721500000100
+}"#;
+        const SNAPSHOT_JSON: &[u8] = br#"{"schema_version":1,"layers":[]}"#;
+        const SNAPSHOT_DIGEST: [u8; 32] = [
+            0xa1, 0x3b, 0xc3, 0x3a, 0x18, 0x2b, 0x9f, 0xe3, 0x47, 0x6e, 0x1c, 0xb0, 0xdc, 0x1c,
+            0x3b, 0x93, 0x9b, 0xdf, 0xb0, 0x3f, 0x72, 0x58, 0x47, 0xdb, 0x81, 0xa5, 0x1d, 0xd5,
+            0x33, 0xa0, 0x55, 0x40,
+        ];
+
+        let root_dir = std::env::temp_dir().join(format!(
+            "shadow-recipe-v9-golden-{}-{}",
+            std::process::id(),
+            RecipeCommitId::new_v7()
+        ));
+        std::fs::create_dir_all(&root_dir).expect("create v9 fixture root");
+        let path = root_dir.join("catalog.sqlite");
+        let photo_id = "00000000-0000-7000-8000-000000000100"
+            .parse::<PhotoId>()
+            .expect("fixed photo id");
+        assert_eq!(
+            blake3::hash(SNAPSHOT_JSON).as_bytes(),
+            &SNAPSHOT_DIGEST,
+            "Recipe v1 snapshot digest changed"
+        );
+        let root: RecipeCommit =
+            serde_json::from_str(ROOT_COMMIT_JSON).expect("parse raw v9 commit JSON");
+        root.validate().expect("raw v9 commit remains valid");
+        {
+            let mut connection = rusqlite::Connection::open(&path).expect("open v9 fixture");
+            connection
+                .execute_batch(
+                    "PRAGMA foreign_keys = ON;
+                     CREATE TABLE schema_migrations (
+                         version       INTEGER PRIMARY KEY NOT NULL,
+                         applied_at_ms INTEGER NOT NULL
+                     ) STRICT;",
+                )
+                .expect("initialize v9 fixture");
+            for (version, sql) in [
+                (1_i64, crate::MIGRATION_V1),
+                (2, crate::MIGRATION_V2),
+                (3, crate::MIGRATION_V3),
+                (4, crate::MIGRATION_V4),
+                (5, crate::MIGRATION_V5),
+                (6, crate::MIGRATION_V6),
+                (7, crate::MIGRATION_V7),
+                (8, crate::MIGRATION_V8),
+                (9, crate::MIGRATION_V9),
+            ] {
+                let transaction = connection.transaction().expect("start v9 migration");
+                transaction
+                    .execute_batch(sql)
+                    .expect("apply v9 fixture migration");
+                transaction
+                    .execute(
+                        "INSERT INTO schema_migrations(version, applied_at_ms)
+                         VALUES (?1, ?1)",
+                        [version],
+                    )
+                    .expect("record v9 fixture migration");
+                transaction.commit().expect("commit v9 fixture migration");
+            }
+            connection
+                .execute(
+                    "INSERT INTO photos(id, created_at_ms) VALUES (?1, ?2)",
+                    params![photo_id.as_bytes().as_slice(), 1_721_500_000_000_i64],
+                )
+                .expect("insert v9 fixture photo");
+            connection
+                .execute(
+                    "INSERT INTO recipe_commits(
+                     id, photo_id, recipe_id, commit_json, snapshot_digest, created_at_ms
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    params![
+                        root.id().as_bytes().as_slice(),
+                        photo_id.as_bytes().as_slice(),
+                        root.recipe_id().as_bytes().as_slice(),
+                        ROOT_COMMIT_JSON,
+                        SNAPSHOT_DIGEST.as_slice(),
+                        root.created_at_ms(),
+                    ],
+                )
+                .expect("insert raw v9 Recipe row");
+        }
+
+        let mut catalog = Catalog::open(&path).expect("open and migrate v9 Recipe fixture");
+        assert!(
+            catalog.schema_version().expect("current schema") >= 9,
+            "v9 fixture migrated backwards"
+        );
+
+        let loaded = catalog
+            .recipe_commit(photo_id, root.id())
+            .expect("read raw v9 Recipe row")
+            .expect("raw v9 Recipe row exists");
+        assert_eq!(loaded.commit, root);
+        assert_eq!(loaded.snapshot_digest, SNAPSHOT_DIGEST);
+
+        let read_raw_root = |catalog: &Catalog| {
+            catalog
+                .connection
+                .query_row(
+                    "SELECT CAST(commit_json AS BLOB), snapshot_digest
+                     FROM recipe_commits WHERE id = ?1",
+                    [root.id().as_bytes().as_slice()],
+                    |row| Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, Vec<u8>>(1)?)),
+                )
+                .expect("read raw Recipe bytes")
+        };
+        let before = read_raw_root(&catalog);
+        assert_eq!(before.0.as_slice(), ROOT_COMMIT_JSON.as_bytes());
+        assert_eq!(before.1.as_slice(), SNAPSHOT_DIGEST.as_slice());
+
+        let child = RecipeCommit::new(
+            "00000000-0000-7000-8000-000000000103"
+                .parse::<RecipeCommitId>()
+                .expect("fixed child commit id"),
+            root.recipe_id(),
+            vec![root.id()],
+            RecipeSnapshot::empty(),
+            Some("child of raw v9 commit".into()),
+            1_721_500_000_200,
+        )
+        .expect("valid child commit");
+        catalog
+            .commit_recipe(&CommitRecipe {
+                photo_id,
+                commit: child.clone(),
+                update_refs: Vec::new(),
+            })
+            .expect("append child to raw v9 commit");
+
+        let after = read_raw_root(&catalog);
+        assert_eq!(after, before, "appending a child rewrote its v9 parent row");
+        assert_eq!(
+            catalog
+                .recipe_commit(photo_id, child.id())
+                .expect("read appended child")
+                .expect("appended child exists")
+                .commit
+                .parents(),
+            &[root.id()]
+        );
+        drop(catalog);
+        std::fs::remove_dir_all(root_dir).expect("remove v9 fixture root");
     }
 
     fn catalog_with_photo(path: &str) -> (Catalog, PhotoId) {

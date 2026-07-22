@@ -57,9 +57,8 @@ namespace {
     return {
         .exposure_stops = source.exposure_stops,
         .contrast_factor = source.contrast_factor,
-        .red_channel_gain = source.red_channel_gain,
-        .green_channel_gain = source.green_channel_gain,
-        .blue_channel_gain = source.blue_channel_gain,
+        .white_balance_temperature = source.white_balance_temperature,
+        .white_balance_tint = source.white_balance_tint,
         .saturation_factor = source.saturation_factor,
     };
 }
@@ -70,79 +69,347 @@ namespace {
     return {
         .exposure_stops = source.exposure_stops,
         .contrast_factor = source.contrast_factor,
-        .red_channel_gain = source.red_channel_gain,
-        .green_channel_gain = source.green_channel_gain,
-        .blue_channel_gain = source.blue_channel_gain,
+        .white_balance_temperature = source.white_balance_temperature,
+        .white_balance_tint = source.white_balance_tint,
         .saturation_factor = source.saturation_factor,
     };
 }
 
-[[nodiscard]] shadow::desktop::FfiBasicEditLayer ffi_layer(
-    const BackendBasicEditLayer& source
-) {
-    shadow::desktop::FfiBasicEditLayer layer;
-    layer.layer_id = source.layer_id.toStdString();
-    layer.label = source.label.toStdString();
-    layer.exposure_node_id = source.exposure_node_id.toStdString();
-    layer.contrast_node_id = source.contrast_node_id.toStdString();
-    layer.tone_curve_node_id = source.tone_curve_node_id.toStdString();
-    layer.channel_gain_node_id = source.channel_gain_node_id.toStdString();
-    layer.saturation_node_id = source.saturation_node_id.toStdString();
-    layer.basic = ffi_parameters(source.basic);
-    layer.enabled = source.enabled;
-    layer.has_tone_curve = source.has_tone_curve;
-    layer.tone_curve_points.reserve(
-        static_cast<std::size_t>(source.tone_curve_points.size())
-    );
-    for (const auto& point : source.tone_curve_points) {
-        layer.tone_curve_points.push_back({.x = point.x, .y = point.y});
+template <std::size_t Size>
+[[nodiscard]] rust::Vec<double> ffi_values(const std::array<double, Size>& source) {
+    rust::Vec<double> result;
+    result.reserve(source.size());
+    for (const double value : source) {
+        result.push_back(value);
     }
-    return layer;
+    return result;
 }
 
-[[nodiscard]] BackendBasicEditLayer edit_layer(
-    const shadow::desktop::FfiBasicEditLayer& source
+template <std::size_t Size>
+[[nodiscard]] std::array<double, Size> edit_values(
+    const rust::Vec<double>& source,
+    const char* const field
 ) {
-    BackendBasicEditLayer layer;
-    layer.layer_id = qstring(source.layer_id);
-    layer.label = qstring(source.label);
-    layer.exposure_node_id = qstring(source.exposure_node_id);
-    layer.contrast_node_id = qstring(source.contrast_node_id);
-    layer.tone_curve_node_id = qstring(source.tone_curve_node_id);
-    layer.channel_gain_node_id = qstring(source.channel_gain_node_id);
-    layer.saturation_node_id = qstring(source.saturation_node_id);
-    layer.basic = edit_parameters(source.basic);
-    layer.enabled = source.enabled;
-    layer.has_tone_curve = source.has_tone_curve;
-    layer.tone_curve_points.reserve(
-        checked_qt_vector_size(source.tone_curve_points.size(), "tone_curve_points")
-    );
-    for (const auto& point : source.tone_curve_points) {
-        layer.tone_curve_points.push_back({.x = point.x, .y = point.y});
+    if (source.size() != Size) {
+        throw std::length_error(
+            std::string("desktop bridge vector has invalid size: ") + field
+        );
     }
-    return layer;
+    std::array<double, Size> result{};
+    for (std::size_t index = 0; index < Size; ++index) {
+        result[index] = source[index];
+    }
+    return result;
 }
 
-[[nodiscard]] shadow::desktop::FfiEditSettings ffi_settings(
-    const BackendEditSettings& source
+[[nodiscard]] shadow::desktop::FfiFineEditParameters ffi_fine_parameters(
+    const BackendFineEditParameters& source
+) {
+    shadow::desktop::FfiFineEditParameters result;
+    result.highlights = source.highlights;
+    result.shadows = source.shadows;
+    result.whites = source.whites;
+    result.blacks = source.blacks;
+    result.vibrance = source.vibrance;
+    result.mixer_hue = ffi_values(source.mixer_hue);
+    result.mixer_saturation = ffi_values(source.mixer_saturation);
+    result.mixer_lightness = ffi_values(source.mixer_lightness);
+    result.color_range_enabled = source.color_range_enabled;
+    result.color_range_center = source.color_range_center;
+    result.color_range_width = source.color_range_width;
+    result.color_range_softness = source.color_range_softness;
+    result.color_range_hue = source.color_range_hue;
+    result.color_range_saturation = source.color_range_saturation;
+    result.color_range_lightness = source.color_range_lightness;
+    result.point_color_ranges.reserve(
+        static_cast<std::size_t>(source.additional_point_colors.size()) * 7U
+    );
+    for (const auto& range : source.additional_point_colors) {
+        for (const double value : std::array{
+                 range.enabled ? 1.0 : 0.0,
+                 range.center_degrees,
+                 range.width_degrees,
+                 range.softness,
+                 range.hue_shift_degrees,
+                 range.saturation,
+                 range.lightness,
+             }) {
+            result.point_color_ranges.push_back(value);
+        }
+    }
+    result.lut_resource_id = source.lut_resource_id.toStdString();
+    result.lut_title = source.lut_title.toStdString();
+    result.lut_managed_path = source.lut_managed_path.toStdString();
+    result.lut_intensity = source.lut_intensity;
+    result.sharpen_amount = source.sharpen_amount;
+    result.sharpen_radius = source.sharpen_radius;
+    result.sharpen_threshold = source.sharpen_threshold;
+    result.sharpen_masking = source.sharpen_masking;
+    result.denoise_luminance = source.denoise_luminance;
+    result.denoise_detail = source.denoise_detail;
+    result.denoise_color = source.denoise_color;
+    result.dehaze = source.dehaze;
+    result.defringe_purple_amount = source.defringe_purple_amount;
+    result.defringe_purple_hue_low = source.defringe_purple_hue_low;
+    result.defringe_purple_hue_high = source.defringe_purple_hue_high;
+    result.defringe_green_amount = source.defringe_green_amount;
+    result.defringe_green_hue_low = source.defringe_green_hue_low;
+    result.defringe_green_hue_high = source.defringe_green_hue_high;
+    result.shadows_hue = source.shadows_hue;
+    result.shadows_saturation = source.shadows_saturation;
+    result.shadows_luminance = source.shadows_luminance;
+    result.midtones_hue = source.midtones_hue;
+    result.midtones_saturation = source.midtones_saturation;
+    result.midtones_luminance = source.midtones_luminance;
+    result.highlights_hue = source.highlights_hue;
+    result.highlights_saturation = source.highlights_saturation;
+    result.highlights_luminance = source.highlights_luminance;
+    result.grading_blending = source.grading_blending;
+    result.grading_balance = source.grading_balance;
+    result.grain_amount = source.grain_amount;
+    result.grain_size = source.grain_size;
+    result.grain_roughness = source.grain_roughness;
+    result.vignette_amount = source.vignette_amount;
+    result.vignette_midpoint = source.vignette_midpoint;
+    result.vignette_roundness = source.vignette_roundness;
+    result.vignette_feather = source.vignette_feather;
+    result.vignette_highlights = source.vignette_highlights;
+    return result;
+}
+
+[[nodiscard]] BackendFineEditParameters edit_fine_parameters(
+    const shadow::desktop::FfiFineEditParameters& source
+) {
+    if (source.point_color_ranges.size() % 7U != 0U) {
+        throw std::length_error("Point Color range vector has invalid size");
+    }
+    QVector<BackendPointColorRange> additional_point_colors;
+    additional_point_colors.reserve(checked_qt_vector_size(
+        source.point_color_ranges.size() / 7U,
+        "point_color_ranges"
+    ));
+    for (std::size_t index = 0; index < source.point_color_ranges.size(); index += 7U) {
+        additional_point_colors.push_back({
+            .enabled = source.point_color_ranges[index] == 1.0,
+            .center_degrees = source.point_color_ranges[index + 1U],
+            .width_degrees = source.point_color_ranges[index + 2U],
+            .softness = source.point_color_ranges[index + 3U],
+            .hue_shift_degrees = source.point_color_ranges[index + 4U],
+            .saturation = source.point_color_ranges[index + 5U],
+            .lightness = source.point_color_ranges[index + 6U],
+        });
+    }
+    return {
+        .highlights = source.highlights,
+        .shadows = source.shadows,
+        .whites = source.whites,
+        .blacks = source.blacks,
+        .vibrance = source.vibrance,
+        .mixer_hue = edit_values<BACKEND_COLOR_MIXER_BAND_COUNT>(
+            source.mixer_hue,
+            "mixer_hue"
+        ),
+        .mixer_saturation = edit_values<BACKEND_COLOR_MIXER_BAND_COUNT>(
+            source.mixer_saturation,
+            "mixer_saturation"
+        ),
+        .mixer_lightness = edit_values<BACKEND_COLOR_MIXER_BAND_COUNT>(
+            source.mixer_lightness,
+            "mixer_lightness"
+        ),
+        .color_range_enabled = source.color_range_enabled,
+        .color_range_center = source.color_range_center,
+        .color_range_width = source.color_range_width,
+        .color_range_softness = source.color_range_softness,
+        .color_range_hue = source.color_range_hue,
+        .color_range_saturation = source.color_range_saturation,
+        .color_range_lightness = source.color_range_lightness,
+        .additional_point_colors = std::move(additional_point_colors),
+        .lut_resource_id = qstring(source.lut_resource_id),
+        .lut_title = qstring(source.lut_title),
+        .lut_managed_path = qstring(source.lut_managed_path),
+        .lut_intensity = source.lut_intensity,
+        .sharpen_amount = source.sharpen_amount,
+        .sharpen_radius = source.sharpen_radius,
+        .sharpen_threshold = source.sharpen_threshold,
+        .sharpen_masking = source.sharpen_masking,
+        .denoise_luminance = source.denoise_luminance,
+        .denoise_detail = source.denoise_detail,
+        .denoise_color = source.denoise_color,
+        .dehaze = source.dehaze,
+        .defringe_purple_amount = source.defringe_purple_amount,
+        .defringe_purple_hue_low = source.defringe_purple_hue_low,
+        .defringe_purple_hue_high = source.defringe_purple_hue_high,
+        .defringe_green_amount = source.defringe_green_amount,
+        .defringe_green_hue_low = source.defringe_green_hue_low,
+        .defringe_green_hue_high = source.defringe_green_hue_high,
+        .shadows_hue = source.shadows_hue,
+        .shadows_saturation = source.shadows_saturation,
+        .shadows_luminance = source.shadows_luminance,
+        .midtones_hue = source.midtones_hue,
+        .midtones_saturation = source.midtones_saturation,
+        .midtones_luminance = source.midtones_luminance,
+        .highlights_hue = source.highlights_hue,
+        .highlights_saturation = source.highlights_saturation,
+        .highlights_luminance = source.highlights_luminance,
+        .grading_blending = source.grading_blending,
+        .grading_balance = source.grading_balance,
+        .grain_amount = source.grain_amount,
+        .grain_size = source.grain_size,
+        .grain_roughness = source.grain_roughness,
+        .vignette_amount = source.vignette_amount,
+        .vignette_midpoint = source.vignette_midpoint,
+        .vignette_roundness = source.vignette_roundness,
+        .vignette_feather = source.vignette_feather,
+        .vignette_highlights = source.vignette_highlights,
+    };
+}
+
+[[nodiscard]] shadow::desktop::FfiGradeNode ffi_grade_node(
+    const BackendGradeNode& source
+) {
+    shadow::desktop::FfiGradeNode grade_node;
+    grade_node.grade_node_id = source.grade_node_id.toStdString();
+    grade_node.label = source.label.toStdString();
+    grade_node.exposure_render_op_id = source.exposure_render_op_id.toStdString();
+    grade_node.contrast_render_op_id = source.contrast_render_op_id.toStdString();
+    grade_node.selective_tone_render_op_id =
+        source.selective_tone_render_op_id.toStdString();
+    grade_node.tone_curve_render_op_id = source.tone_curve_render_op_id.toStdString();
+    grade_node.white_balance_render_op_id = source.white_balance_render_op_id.toStdString();
+    grade_node.saturation_render_op_id = source.saturation_render_op_id.toStdString();
+    grade_node.perceptual_color_render_op_id =
+        source.perceptual_color_render_op_id.toStdString();
+    grade_node.lut_render_op_id = source.lut_render_op_id.toStdString();
+    grade_node.sharpen_render_op_id = source.sharpen_render_op_id.toStdString();
+    grade_node.basic = ffi_parameters(source.basic);
+    grade_node.fine = ffi_fine_parameters(source.fine);
+    grade_node.enabled = source.enabled;
+    switch (source.tone_curve_kind) {
+    case ToneCurveKind::None:
+        grade_node.tone_curve_kind = shadow::desktop::FfiToneCurveKind::None;
+        break;
+    case ToneCurveKind::SmoothRgb:
+        grade_node.tone_curve_kind = shadow::desktop::FfiToneCurveKind::SmoothRgb;
+        break;
+    }
+    const auto append_points = [](
+        auto& target,
+        const QVector<BackendToneCurvePoint>& points
+    ) {
+        target.reserve(static_cast<std::size_t>(points.size()));
+        for (const auto& point : points) {
+            target.push_back({.x = point.x, .y = point.y});
+        }
+    };
+    append_points(grade_node.tone_curve_master_points, source.tone_curve_master_points);
+    append_points(grade_node.tone_curve_red_points, source.tone_curve_red_points);
+    append_points(grade_node.tone_curve_green_points, source.tone_curve_green_points);
+    append_points(grade_node.tone_curve_blue_points, source.tone_curve_blue_points);
+    return grade_node;
+}
+
+[[nodiscard]] BackendGradeNode grade_node(
+    const shadow::desktop::FfiGradeNode& source
+) {
+    BackendGradeNode grade_node;
+    grade_node.grade_node_id = qstring(source.grade_node_id);
+    grade_node.label = qstring(source.label);
+    grade_node.exposure_render_op_id = qstring(source.exposure_render_op_id);
+    grade_node.contrast_render_op_id = qstring(source.contrast_render_op_id);
+    grade_node.selective_tone_render_op_id =
+        qstring(source.selective_tone_render_op_id);
+    grade_node.tone_curve_render_op_id = qstring(source.tone_curve_render_op_id);
+    grade_node.white_balance_render_op_id = qstring(source.white_balance_render_op_id);
+    grade_node.saturation_render_op_id = qstring(source.saturation_render_op_id);
+    grade_node.perceptual_color_render_op_id =
+        qstring(source.perceptual_color_render_op_id);
+    grade_node.lut_render_op_id = qstring(source.lut_render_op_id);
+    grade_node.sharpen_render_op_id = qstring(source.sharpen_render_op_id);
+    grade_node.basic = edit_parameters(source.basic);
+    grade_node.fine = edit_fine_parameters(source.fine);
+    grade_node.enabled = source.enabled;
+    switch (source.tone_curve_kind) {
+    case shadow::desktop::FfiToneCurveKind::None:
+        grade_node.tone_curve_kind = ToneCurveKind::None;
+        break;
+    case shadow::desktop::FfiToneCurveKind::SmoothRgb:
+        grade_node.tone_curve_kind = ToneCurveKind::SmoothRgb;
+        break;
+    default:
+        throw std::invalid_argument("desktop bridge received an unknown Tone Curve kind");
+    }
+    const auto append_points = [](auto& target, const auto& points, const char* field) {
+        target.reserve(checked_qt_vector_size(points.size(), field));
+        for (const auto& point : points) {
+            target.push_back({.x = point.x, .y = point.y});
+        }
+    };
+    append_points(
+        grade_node.tone_curve_master_points,
+        source.tone_curve_master_points,
+        "tone_curve_master_points"
+    );
+    append_points(
+        grade_node.tone_curve_red_points,
+        source.tone_curve_red_points,
+        "tone_curve_red_points"
+    );
+    append_points(
+        grade_node.tone_curve_green_points,
+        source.tone_curve_green_points,
+        "tone_curve_green_points"
+    );
+    append_points(
+        grade_node.tone_curve_blue_points,
+        source.tone_curve_blue_points,
+        "tone_curve_blue_points"
+    );
+    return grade_node;
+}
+
+[[nodiscard]] shadow::desktop::FfiEditSettings ffi_grade_stack(
+    const BackendGradeStack& source
 ) {
     shadow::desktop::FfiEditSettings settings;
-    settings.layers.reserve(static_cast<std::size_t>(source.layers.size()));
-    for (const auto& layer : source.layers) {
-        settings.layers.push_back(ffi_layer(layer));
+    settings.optics.enabled = source.optics.enabled;
+    settings.optics.correct_distortion = source.optics.correct_distortion;
+    settings.optics.correct_tca = source.optics.correct_tca;
+    settings.optics.correct_vignetting = source.optics.correct_vignetting;
+    settings.optics.automatic_scale = source.optics.automatic_scale;
+    settings.optics.camera_profile_maker = source.optics.camera_profile_maker.toStdString();
+    settings.optics.camera_profile_model = source.optics.camera_profile_model.toStdString();
+    settings.optics.lens_profile_maker = source.optics.lens_profile_maker.toStdString();
+    settings.optics.lens_profile_model = source.optics.lens_profile_model.toStdString();
+    settings.grade_nodes.reserve(static_cast<std::size_t>(source.grade_nodes.size()));
+    for (const auto& grade_node : source.grade_nodes) {
+        settings.grade_nodes.push_back(ffi_grade_node(grade_node));
     }
     return settings;
 }
 
-[[nodiscard]] BackendEditSettings edit_settings(
+[[nodiscard]] BackendGradeStack grade_stack(
     const shadow::desktop::FfiEditSettings& source
 ) {
-    BackendEditSettings settings;
-    settings.layers.reserve(checked_qt_vector_size(source.layers.size(), "layers"));
-    for (const auto& layer : source.layers) {
-        settings.layers.push_back(edit_layer(layer));
+    BackendGradeStack grade_stack;
+    grade_stack.optics = {
+        .enabled = source.optics.enabled,
+        .correct_distortion = source.optics.correct_distortion,
+        .correct_tca = source.optics.correct_tca,
+        .correct_vignetting = source.optics.correct_vignetting,
+        .automatic_scale = source.optics.automatic_scale,
+        .camera_profile_maker = qstring(source.optics.camera_profile_maker),
+        .camera_profile_model = qstring(source.optics.camera_profile_model),
+        .lens_profile_maker = qstring(source.optics.lens_profile_maker),
+        .lens_profile_model = qstring(source.optics.lens_profile_model),
+    };
+    grade_stack.grade_nodes.reserve(
+        checked_qt_vector_size(source.grade_nodes.size(), "grade_nodes")
+    );
+    for (const auto& grade_node : source.grade_nodes) {
+        grade_stack.grade_nodes.push_back(::grade_node(grade_node));
     }
-    return settings;
+    return grade_stack;
 }
 
 [[nodiscard]] BackendPhotoEditState edit_state(
@@ -151,27 +418,29 @@ namespace {
     BackendPhotoEditState state;
     state.photo_id = qstring(source.photo_id);
     state.source_path = qstring(source.source_path);
-    state.working_commit_id = qstring(source.working_commit_id);
+    state.base_commit_id = qstring(source.working_commit_id);
     state.recipe_id = qstring(source.recipe_id);
-    state.settings = edit_settings(source.settings);
-    state.has_working_version = source.has_working_version;
+    state.grade_stack = grade_stack(source.settings);
+    state.has_base_version = source.has_working_version;
+    state.is_version_draft = source.is_version_draft;
     state.versions.reserve(checked_qt_vector_size(source.versions.size(), "versions"));
     for (const auto& version : source.versions) {
         BackendEditVersion converted;
         converted.commit_id = qstring(version.commit_id);
         converted.name = qstring(version.name);
         converted.created_at_ms = version.created_at_ms;
-        converted.is_working = version.is_working;
+        converted.is_selected = version.is_working;
         converted.is_root = version.is_root;
         converted.recipe_schema_changed = version.recipe_schema_changed;
-        converted.layers_added = version.layers_added;
-        converted.layers_removed = version.layers_removed;
-        converted.layers_moved = version.layers_moved;
-        converted.layers_modified = version.layers_modified;
-        converted.nodes_added = version.nodes_added;
-        converted.nodes_removed = version.nodes_removed;
-        converted.nodes_modified = version.nodes_modified;
-        converted.node_parameter_blocks_changed = version.node_parameter_blocks_changed;
+        converted.grade_nodes_added = version.grade_nodes_added;
+        converted.grade_nodes_removed = version.grade_nodes_removed;
+        converted.grade_nodes_moved = version.grade_nodes_moved;
+        converted.grade_nodes_modified = version.grade_nodes_modified;
+        converted.render_ops_added = version.render_ops_added;
+        converted.render_ops_removed = version.render_ops_removed;
+        converted.render_ops_modified = version.render_ops_modified;
+        converted.render_op_parameter_blocks_changed =
+            version.render_op_parameter_blocks_changed;
         converted.changed_basic_parameter_count = version.changed_basic_parameter_count;
         converted.has_other_changes = version.has_other_changes;
         converted.parent_commit_ids.reserve(
@@ -364,6 +633,22 @@ BackendReviewPage DesktopBackend::reviewPage(
             .visual_width = item.visual_width,
             .visual_height = item.visual_height,
             .has_visual = item.has_visual,
+            .has_metadata = item.has_metadata,
+            .camera_make = qstring(item.camera_make),
+            .camera_model = qstring(item.camera_model),
+            .lens_make = qstring(item.lens_make),
+            .lens_model = qstring(item.lens_model),
+            .captured_at_unix_seconds = item.captured_at_unix_seconds,
+            .iso_speed = item.iso_speed,
+            .exposure_time_seconds = item.exposure_time_seconds,
+            .aperture_f_number = item.aperture_f_number,
+            .focal_length_mm = item.focal_length_mm,
+            .focal_length_35mm = item.focal_length_35mm,
+            .raw_width = item.raw_width,
+            .raw_height = item.raw_height,
+            .sensor_bits = item.sensor_bits,
+            .cfa_pattern = qstring(item.cfa_pattern),
+            .dng_version = qstring(item.dng_version),
             .has_technical_observation = item.has_technical_observation,
             .technical_input_width = item.technical_input_width,
             .technical_input_height = item.technical_input_height,
@@ -526,22 +811,42 @@ BackendPhotoEditState DesktopBackend::photoEditState(
     ));
 }
 
-BackendBasicEditLayer DesktopBackend::newBasicEditLayer(const QString& label) const {
-    return edit_layer(shadow::desktop::new_basic_edit_layer(label.toStdString()));
+QVariantList DesktopBackend::opticsProfileCandidates(
+    const QString& photo_id,
+    const QString& source_path
+) const {
+    const auto candidates = impl_->session->optics_profile_candidates(
+        photo_id.toStdString(), source_path.toStdString()
+    );
+    QVariantList result;
+    result.reserve(checked_qt_vector_size(candidates.size(), "optics_profile_candidates"));
+    for (const auto& candidate : candidates) {
+        result.push_back(QVariantMap{
+            {QStringLiteral("cameraMaker"), qstring(candidate.camera_maker)},
+            {QStringLiteral("cameraModel"), qstring(candidate.camera_model)},
+            {QStringLiteral("lensMaker"), qstring(candidate.lens_maker)},
+            {QStringLiteral("lensModel"), qstring(candidate.lens_model)},
+        });
+    }
+    return result;
+}
+
+BackendGradeNode DesktopBackend::newBasicGradeNode(const QString& label) const {
+    return grade_node(shadow::desktop::new_basic_grade_node(label.toStdString()));
 }
 
 BackendEditedPreview DesktopBackend::renderEditPreview(
     const QString& photo_id,
     const QString& source_path,
     const QString& base_commit_id,
-    const BackendEditSettings& settings,
+    const BackendGradeStack& grade_stack,
     const std::uint32_t max_edge,
     const std::uint8_t jpeg_quality,
     const bool use_working_recipe
 ) const {
     shadow::desktop::FfiEditPreviewRequest request;
     request.base_commit_id = base_commit_id.toStdString();
-    request.settings = ffi_settings(settings);
+    request.settings = ffi_grade_stack(grade_stack);
     request.max_edge = max_edge;
     request.jpeg_quality = jpeg_quality;
     request.use_working_recipe = use_working_recipe;
@@ -572,6 +877,20 @@ BackendEditedPreview DesktopBackend::renderEditPreview(
             .shadow_clipped_pixels = payload.shadow_clipped_pixels,
             .highlight_clipped_pixels = payload.highlight_clipped_pixels,
         },
+        .optics = {
+            .status = qstring(payload.optics_status),
+            .provider_id = qstring(payload.optics_provider_id),
+            .provider_version = qstring(payload.optics_provider_version),
+            .camera_profile = qstring(payload.optics_camera_profile),
+            .lens_profile = qstring(payload.optics_lens_profile),
+            .distortion_available = payload.optics_distortion_available,
+            .tca_available = payload.optics_tca_available,
+            .vignetting_available = payload.optics_vignetting_available,
+            .applied_distortion = payload.optics_applied_distortion,
+            .applied_tca = payload.optics_applied_tca,
+            .applied_vignetting = payload.optics_applied_vignetting,
+            .applied_scaling = payload.optics_applied_scaling,
+        },
         .width = payload.width,
         .height = payload.height,
     };
@@ -585,7 +904,7 @@ BackendEditedDetailViewport DesktopBackend::renderEditDetailViewport(
     const QString& photo_id,
     const QString& source_path,
     const QString& base_commit_id,
-    const BackendEditSettings& settings,
+    const BackendGradeStack& grade_stack,
     const std::uint64_t render_token,
     const double center_x,
     const double center_y,
@@ -596,7 +915,7 @@ BackendEditedDetailViewport DesktopBackend::renderEditDetailViewport(
 ) const {
     shadow::desktop::FfiEditDetailViewportRequest request;
     request.base_commit_id = base_commit_id.toStdString();
-    request.settings = ffi_settings(settings);
+    request.settings = ffi_grade_stack(grade_stack);
     request.render_token = render_token;
     request.center_x = center_x;
     request.center_y = center_y;
@@ -631,20 +950,22 @@ BackendPhotoEditState DesktopBackend::saveEditVersion(
     const QString& photo_id,
     const QString& source_path,
     const QString& base_commit_id,
-    const BackendEditSettings& settings,
+    const QString& expected_working_commit_id,
+    const BackendGradeStack& grade_stack,
     const QString& version_name
 ) const {
-    const auto ffi = ffi_settings(settings);
+    const auto ffi = ffi_grade_stack(grade_stack);
     return edit_state(impl_->session->save_basic_edit_version(
         photo_id.toStdString(),
         source_path.toStdString(),
         base_commit_id.toStdString(),
+        expected_working_commit_id.toStdString(),
         ffi,
         version_name.toStdString()
     ));
 }
 
-BackendPhotoEditState DesktopBackend::checkoutEditVersion(
+BackendPhotoEditState DesktopBackend::loadEditVersionDraft(
     const QString& photo_id,
     const QString& source_path,
     const QString& commit_id

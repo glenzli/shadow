@@ -5,6 +5,7 @@
 #include <QList>
 #include <QMetaType>
 #include <QModelIndex>
+#include <QPointF>
 #include <QVariant>
 #include <QVector>
 
@@ -267,6 +268,44 @@ void active_point_limit_is_enforced_without_rejecting_the_curve() {
     require(model.movePoint(16, 0.51, 0.6), "existing points remain editable at the cap");
 }
 
+void preview_sampling_matches_the_versioned_curve_contracts() {
+    ToneCurvePointModel identity;
+    const QVariantList identity_samples = identity.sampledPoints(5, true);
+    require(identity_samples.size() == 5, "identity curve preview sample count");
+    for (int index = 0; index < identity_samples.size(); ++index) {
+        const QPointF point = identity_samples.at(index).toPointF();
+        const double expected = static_cast<double>(index) / 4.0;
+        require(
+            point.x() == expected && point.y() == expected,
+            "the smooth identity preview must be exact"
+        );
+    }
+
+    ToneCurvePointModel shaped;
+    require(
+        shaped.replace({{0.0, 0.0}, {0.5, 0.75}, {1.0, 1.0}}),
+        "test curve must load"
+    );
+    const QVariantList smooth = shaped.sampledPoints(5, true);
+    const QVariantList legacy = shaped.sampledPoints(5, false);
+    require(
+        std::abs(smooth.at(1).toPointF().y() - 0.453125) < 1e-12,
+        "PCHIP preview must match the image-kernel landmark equation"
+    );
+    require(
+        std::abs(legacy.at(1).toPointF().y() - 0.375) < 1e-12,
+        "legacy preview must retain piecewise-linear interpolation"
+    );
+    double previous = -std::numeric_limits<double>::infinity();
+    for (const QVariant& sample : shaped.sampledPoints(257, true)) {
+        const double y = sample.toPointF().y();
+        require(y >= previous && y >= 0.0 && y <= 1.0,
+                "shape-preserving PCHIP must not overshoot a monotone curve");
+        previous = y;
+    }
+    require(shaped.sampledPoints(1, true).isEmpty(), "sample bounds are enforced");
+}
+
 } // namespace
 
 int main() {
@@ -276,5 +315,6 @@ int main() {
     removal_and_reset_keep_selection_and_signals_coherent();
     large_and_tightly_spaced_legal_curves_are_lossless_read_only_data();
     active_point_limit_is_enforced_without_rejecting_the_curve();
+    preview_sampling_matches_the_versioned_curve_contracts();
     return EXIT_SUCCESS;
 }

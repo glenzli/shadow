@@ -24,7 +24,11 @@ Current contract rules:
 - A file without an embedded preview is valid and can still expose mosaic/RGB capabilities.
 - Preview IDs are provider IDs, not vector positions. `select_best_preview` chooses the largest decodable candidate.
 - DNG opcode lists are surfaced as `PendingCorrections` until Shadow can prove they were applied.
-- `render_reference_rgb` is a correctness/fallback path. It is not Shadow's final scene-linear color pipeline.
+- `render_reference_rgb` explicitly returns processed, linear-light 16-bit RGB in
+  sRGB/Rec.709-D65 primaries. LibRaw has already applied black subtraction, white balance,
+  demosaic, camera-to-output conversion, and fixed integer-range scaling; histogram brightness and
+  frame-adaptive maximum adjustment are disabled. This is neither encoded sRGB nor untouched
+  sensor-linear data, and it is not Shadow's final RAW color pipeline.
 - `render_reference_proxy_jpeg` bounds the longest edge (2048 and quality 88 in the first recipe) and rejects unbounded requests. Its version belongs in the cache key.
 - `decode_jpeg_display_luma` is a separate analysis path over compressed display proxies. It requires 8-bit libjpeg-turbo with in-memory sources, rejects encoded inputs above 128 MiB and source headers above 65,535 per axis or 100 million pixels, applies a stricter 50-million-pixel limit to multi-scan inputs, caps libjpeg memory at 256 MiB, and bounds scaled intermediates before emitting a tightly packed normalized `float` luma plane with a caller-selected edge in 1 through 512. Corrupt-data warnings, including synthesized end-of-image recovery for truncation, fail closed.
 - A `DecodeSession` is thread-confined. Providers may be shared; parallel work should open independent sessions.
@@ -35,11 +39,12 @@ Current contract rules:
 `include/shadow/image/edit.hpp` defines the first correctness-oriented edit path. Its input is
 explicitly native interleaved RGB float32, scene-referred, linear-light data with named RGB
 primaries, white point, and luminance coefficients. It is not legal to feed the decoder's
-display-referred `PixelBuffer` directly into this path: a future camera/display color transform
-must establish the declared working space first.
+integer `PixelBuffer` directly into this path: the proxy boundary validates its explicit
+processed-linear contract, normalizes it, and establishes the declared float working space.
 
-The version-1 ordered node executor currently supports exposure, pivoted contrast, the versioned
-piecewise-linear Tone Curve, resolved RGB channel gains, and luma-preserving saturation. It
+The ordered node executor currently supports exposure, pivoted contrast, versioned RGB Tone
+Curves, processed-RGB CAT16 temperature/tint adaptation, luma-preserving saturation, selective
+tone, perceptual color controls, and detail/effects. It
 deliberately preserves negative
 and greater-than-one scene values, performs no implicit gamut mapping or clipping, rejects
 NaN/Inf and float overflow, and refuses unknown schema/implementation versions. Node order is
@@ -57,9 +62,9 @@ transparent baseline for parity tests; it does not claim to be a final
 perceptual, luminance-only, or display-referred tone-curve model.
 
 `WarmEditPreviewSession` is the interactive path for this exact version-1 subset. Preparation
-asks the decoder for reference RGB once, converts samples to scene-linear sRGB, and bilinearly
-downsamples them into an immutable float working proxy before any adjustment. Exposure, pivot
-contrast, RGB gains, and saturation follow the current linear proxy assumptions. Tone Curve is
+asks the decoder for processed linear RGB once, normalizes the samples, and bilinearly downsamples
+them into an immutable linear-sRGB float working proxy before any adjustment. Exposure, pivot
+contrast, RGB white balance, and saturation follow the current linear proxy assumptions. Tone Curve is
 nonlinear, so executing it on the prepared proxy is an interactive approximation rather than a
 bit-equivalent full-resolution result; masked and neighborhood nodes require an explicitly
 different preview strategy. The warm edge is capped at 4096 (at most 192 MiB for a
@@ -69,11 +74,20 @@ original decoder session is neither retained nor revisited during slider interac
 
 `render_jpeg_with_analysis` freezes a transient sidecar from that same complete warm render.
 R/G/B and encoded Rec.709 luma each use 256 `u64` bins over the uncompressed display-sRGB
-RGB8 result immediately before JPEG encoding. Separate per-channel and any-channel counts inspect
-the edited scene-linear values immediately before output clamping and use strict `< 0` and `> 1`;
-exact endpoints are not called clipped. The sidecar is complete-proxy output analysis, not RAW
-sensor exposure, full-resolution statistics, or persisted evidence. It owns no extra per-pixel
-luma plane and remains call-local for concurrent renders.
+RGB8 result immediately before JPEG encoding. Output-transform v1 accepts only the declared
+linear-sRGB working space, reduces out-of-gamut Oklab chroma along a constant-hue ray, clamps
+display lightness only at black/white, then applies the sRGB transfer and quantization. It is not
+an HDR tone mapper. Separate per-channel and any-channel counts inspect the edited scene-linear
+values before that display transform and use strict `< 0` and `> 1`; exact endpoints are not
+called clipped. The sidecar is complete-proxy output analysis, not RAW sensor exposure,
+full-resolution statistics, or persisted evidence. It owns no extra per-pixel luma plane and
+remains call-local for concurrent renders.
+
+`include/shadow/image/lut.hpp` provides the first LUT resource contract. It strictly parses
+bounded 3D `.cube` documents (2³ through 65³ entries), preserves explicit domains and canonical
+red-fastest storage order, rejects 1D/malformed files, and provides clamped-domain trilinear
+sampling. LUT resource ownership and Grade Node persistence remain outside this image-kernel
+format/parser boundary.
 
 ## Display-luma analysis boundary
 

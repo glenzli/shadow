@@ -137,6 +137,43 @@ template <std::size_t Size>
     return result;
 }
 
+[[nodiscard]] rust::String optics_status(const image::OpticsProfileStatus status) {
+    switch (status) {
+    case image::OpticsProfileStatus::disabled:
+        return rust::String("disabled");
+    case image::OpticsProfileStatus::provider_unavailable:
+        return rust::String("provider_unavailable");
+    case image::OpticsProfileStatus::insufficient_metadata:
+        return rust::String("insufficient_metadata");
+    case image::OpticsProfileStatus::camera_not_found:
+        return rust::String("camera_not_found");
+    case image::OpticsProfileStatus::lens_not_found:
+        return rust::String("lens_not_found");
+    case image::OpticsProfileStatus::incompatible_input:
+        return rust::String("incompatible_input");
+    case image::OpticsProfileStatus::matched:
+        return rust::String("matched");
+    }
+    return rust::String("provider_unavailable");
+}
+
+[[nodiscard]] FfiOpticsReceipt optics_receipt(const image::OpticsProfileReceipt& receipt) {
+    FfiOpticsReceipt result;
+    result.status = optics_status(receipt.status);
+    result.provider_id = rust::String(receipt.provider_id);
+    result.provider_version = rust::String(receipt.provider_version);
+    result.camera_profile = rust::String(receipt.camera_profile);
+    result.lens_profile = rust::String(receipt.lens_profile);
+    result.distortion_available = receipt.distortion_available;
+    result.tca_available = receipt.tca_available;
+    result.vignetting_available = receipt.vignetting_available;
+    result.applied_distortion = receipt.applied_distortion;
+    result.applied_tca = receipt.applied_tca;
+    result.applied_vignetting = receipt.applied_vignetting;
+    result.applied_scaling = receipt.applied_scaling;
+    return result;
+}
+
 inline constexpr std::size_t maximum_adjustment_nodes = 256U;
 inline constexpr std::size_t maximum_adjustment_node_id_bytes = 256U;
 
@@ -178,6 +215,21 @@ void require_parameter_count(
         .enabled = source.enabled,
     };
 
+    if (
+        source.operation != FfiAdjustmentOperation::SmoothRgbToneCurve
+        && source.operation != FfiAdjustmentOperation::PerceptualColor
+        && !source.parameter_group_lengths.empty()
+    ) {
+        throw_invalid_adjustment_plan(
+            "only operations with grouped parameter contracts accept group lengths"
+        );
+    }
+    if (source.operation != FfiAdjustmentOperation::Lut3D && !source.payload.empty()) {
+        throw_invalid_adjustment_plan(
+            "only the 3D LUT operation accepts an immutable binary payload"
+        );
+    }
+
     switch (source.operation) {
     case FfiAdjustmentOperation::Exposure:
         require_parameter_count(source, 1U, "exposure");
@@ -218,18 +270,197 @@ void require_parameter_count(
         result.parameters = std::move(curve);
         break;
     }
-    case FfiAdjustmentOperation::ChannelGain:
-        require_parameter_count(source, 3U, "channel gain");
-        result.parameters = image::ChannelGainAdjustment{{
-            source.parameters[0],
-            source.parameters[1],
-            source.parameters[2],
-        }};
+    case FfiAdjustmentOperation::SmoothRgbToneCurve: {
+        if (source.parameter_group_lengths.size() != 4U) {
+            throw_invalid_adjustment_plan(
+                "smooth RGB tone curve requires four channel point counts"
+            );
+        }
+        std::size_t total_point_count = 0U;
+        for (const std::uint32_t count : source.parameter_group_lengths) {
+            if (count < 2U || count > image::maximum_tone_curve_points) {
+                throw_invalid_adjustment_plan(
+                    "each smooth RGB tone curve channel requires 2 through 256 points"
+                );
+            }
+            total_point_count += static_cast<std::size_t>(count);
+        }
+        if (source.parameters.size() != total_point_count * 2U) {
+            throw_invalid_adjustment_plan(
+                "smooth RGB tone curve grouped lengths do not match its flattened points"
+            );
+        }
+
+        image::SmoothRgbToneCurve curve;
+        curve.parameter_schema_version = source.parameter_schema_version;
+        curve.implementation_version = source.implementation_version;
+        std::size_t point_offset = 0U;
+        const auto append_channel = [&](
+            image::ToneCurveSet& channel,
+            const std::uint32_t point_count
+        ) {
+            channel.points.clear();
+            channel.points.reserve(static_cast<std::size_t>(point_count));
+            for (std::uint32_t point = 0U; point < point_count; ++point) {
+                const std::size_t parameter = (point_offset + point) * 2U;
+                channel.points.push_back(image::ToneCurvePoint{
+                    source.parameters[parameter],
+                    source.parameters[parameter + 1U],
+                });
+            }
+            point_offset += static_cast<std::size_t>(point_count);
+        };
+        append_channel(curve.master, source.parameter_group_lengths[0]);
+        append_channel(curve.red, source.parameter_group_lengths[1]);
+        append_channel(curve.green, source.parameter_group_lengths[2]);
+        append_channel(curve.blue, source.parameter_group_lengths[3]);
+        result.parameters = std::move(curve);
+        break;
+    }
+    case FfiAdjustmentOperation::RgbWhiteBalance:
+        require_parameter_count(source, 2U, "RGB white balance");
+        result.parameters = image::RgbWhiteBalanceAdjustment{
+            .temperature = source.parameters[0],
+            .tint = source.parameters[1],
+        };
         break;
     case FfiAdjustmentOperation::Saturation:
         require_parameter_count(source, 1U, "saturation");
         result.parameters = image::SaturationAdjustment{source.parameters[0]};
         break;
+    case FfiAdjustmentOperation::SelectiveTone:
+        require_parameter_count(source, 4U, "selective tone");
+        result.parameters = image::SelectiveToneAdjustment{
+            .highlights = source.parameters[0],
+            .shadows = source.parameters[1],
+            .whites = source.parameters[2],
+            .blacks = source.parameters[3],
+        };
+        break;
+    case FfiAdjustmentOperation::PerceptualColor: {
+        if (source.parameter_schema_version
+                != image::perceptual_color_v2_parameter_schema_version
+            || source.implementation_version
+                != image::perceptual_color_v2_implementation_version
+            || source.parameter_group_lengths.size() != 1U) {
+            throw_invalid_adjustment_plan(
+                "perceptual color requires the current ordered-range contract"
+            );
+        }
+        const std::size_t additional_count = source.parameter_group_lengths[0];
+        if (additional_count + 1U > image::maximum_point_color_ranges
+            || source.parameters.size() != 32U + additional_count * 7U) {
+            throw_invalid_adjustment_plan(
+                "perceptual color has an invalid ordered range payload"
+            );
+        }
+        if (source.parameters[25] != 0.0 && source.parameters[25] != 1.0) {
+            throw_invalid_adjustment_plan(
+                "perceptual color range enabled flag must be zero or one"
+            );
+        }
+        image::PerceptualColorAdjustment parameters;
+        parameters.vibrance = source.parameters[0];
+        for (std::size_t index = 0; index < image::perceptual_hue_band_count; ++index) {
+            parameters.hue[index] = source.parameters[1U + index];
+            parameters.saturation[index] = source.parameters[9U + index];
+            parameters.lightness[index] = source.parameters[17U + index];
+        }
+        parameters.color_range = image::PerceptualColorRange{
+            .enabled = source.parameters[25] == 1.0,
+            .center_degrees = source.parameters[26],
+            .width_degrees = source.parameters[27],
+            .softness = source.parameters[28],
+            .hue_shift_degrees = source.parameters[29],
+            .saturation = source.parameters[30],
+            .lightness = source.parameters[31],
+        };
+        parameters.additional_color_ranges.reserve(additional_count);
+        for (std::size_t range_index = 0U; range_index < additional_count; ++range_index) {
+            const std::size_t offset = 32U + range_index * 7U;
+            if (source.parameters[offset] != 0.0 && source.parameters[offset] != 1.0) {
+                throw_invalid_adjustment_plan(
+                    "perceptual color range enabled flag must be zero or one"
+                );
+            }
+            parameters.additional_color_ranges.push_back(image::PerceptualColorRange{
+                .enabled = source.parameters[offset] == 1.0,
+                .center_degrees = source.parameters[offset + 1U],
+                .width_degrees = source.parameters[offset + 2U],
+                .softness = source.parameters[offset + 3U],
+                .hue_shift_degrees = source.parameters[offset + 4U],
+                .saturation = source.parameters[offset + 5U],
+                .lightness = source.parameters[offset + 6U],
+            });
+        }
+        result.parameters = parameters;
+        break;
+    }
+    case FfiAdjustmentOperation::Lut3D: {
+        require_parameter_count(source, 1U, "3D LUT");
+        image::CubeLutAdjustment parameters{
+            .lut = {},
+            .intensity = source.parameters[0],
+        };
+        if (!source.payload.empty()) {
+            parameters.lut = image::parse_cube_lut(std::string_view(
+                reinterpret_cast<const char*>(source.payload.data()),
+                source.payload.size()
+            ));
+        }
+        result.parameters = std::move(parameters);
+        break;
+    }
+    case FfiAdjustmentOperation::Sharpen: {
+        if (source.parameter_schema_version
+                != image::detail_effects_v2_parameter_schema_version
+            || source.implementation_version
+                != image::detail_effects_v2_implementation_version) {
+            throw_invalid_adjustment_plan(
+                "detail and effects requires the current complete contract"
+            );
+        }
+        require_parameter_count(source, 33U, "detail and effects");
+        image::SharpenAdjustment parameters{
+            .amount = source.parameters[0],
+            .radius = source.parameters[1],
+            .threshold = source.parameters[2],
+            .masking = source.parameters[3],
+        };
+        {
+            parameters.denoise_luminance = source.parameters[4];
+            parameters.denoise_detail = source.parameters[5];
+            parameters.denoise_color = source.parameters[6];
+            parameters.dehaze = source.parameters[7];
+            parameters.defringe_purple_amount = source.parameters[8];
+            parameters.defringe_purple_hue_low = source.parameters[9];
+            parameters.defringe_purple_hue_high = source.parameters[10];
+            parameters.defringe_green_amount = source.parameters[11];
+            parameters.defringe_green_hue_low = source.parameters[12];
+            parameters.defringe_green_hue_high = source.parameters[13];
+            parameters.shadows_hue = source.parameters[14];
+            parameters.shadows_saturation = source.parameters[15];
+            parameters.shadows_luminance = source.parameters[16];
+            parameters.midtones_hue = source.parameters[17];
+            parameters.midtones_saturation = source.parameters[18];
+            parameters.midtones_luminance = source.parameters[19];
+            parameters.highlights_hue = source.parameters[20];
+            parameters.highlights_saturation = source.parameters[21];
+            parameters.highlights_luminance = source.parameters[22];
+            parameters.grading_blending = source.parameters[23];
+            parameters.grading_balance = source.parameters[24];
+            parameters.grain_amount = source.parameters[25];
+            parameters.grain_size = source.parameters[26];
+            parameters.grain_roughness = source.parameters[27];
+            parameters.vignette_amount = source.parameters[28];
+            parameters.vignette_midpoint = source.parameters[29];
+            parameters.vignette_roundness = source.parameters[30];
+            parameters.vignette_feather = source.parameters[31];
+            parameters.vignette_highlights = source.parameters[32];
+        }
+        result.parameters = parameters;
+        break;
+    }
     default:
         throw_invalid_adjustment_plan("adjustment node operation is unsupported");
     }
@@ -258,11 +489,32 @@ void require_parameter_count(
 
 DecodeHandle::DecodeHandle(
     std::unique_ptr<image::DecoderProvider> provider,
-    std::unique_ptr<image::DecodeSession> session
+    std::unique_ptr<image::DecodeSession> session,
+    std::shared_ptr<const image::OpticsProvider> optics_provider
 )
-    : provider_(std::move(provider)), session_(std::move(session)) {}
+    : provider_(std::move(provider)), session_(std::move(session)),
+      optics_provider_(std::move(optics_provider)) {}
 
 DecodeHandle::~DecodeHandle() = default;
+
+void DecodeHandle::configure_optics(const FfiOpticsSettings& settings) {
+    image::OpticsSettings configured{
+        settings.schema_version,
+        settings.enabled,
+        settings.correct_distortion,
+        settings.correct_tca,
+        settings.correct_vignetting,
+        settings.automatic_scale,
+        std::string(settings.camera_profile_maker),
+        std::string(settings.camera_profile_model),
+        std::string(settings.lens_profile_maker),
+        std::string(settings.lens_profile_model),
+    };
+    // The signature function is the authoritative schema/combination validator
+    // shared with cache identity construction.
+    (void)image::optics_settings_signature(configured);
+    optics_settings_ = configured;
+}
 
 FfiProviderSnapshot DecodeHandle::provider() const {
     const auto& info = provider_->info();
@@ -303,6 +555,14 @@ FfiMetadataSnapshot DecodeHandle::metadata() const {
     snapshot.as_shot_neutral_b = metadata.as_shot_neutral[2];
     snapshot.as_shot_neutral_g2 = metadata.as_shot_neutral[3];
     snapshot.baseline_exposure = metadata.baseline_exposure;
+    snapshot.iso_speed = metadata.iso_speed;
+    snapshot.exposure_time_seconds = metadata.exposure_time_seconds;
+    snapshot.aperture_f_number = metadata.aperture_f_number;
+    snapshot.focal_length_mm = metadata.focal_length_mm;
+    snapshot.captured_at_unix_seconds = metadata.captured_at_unix_seconds;
+    snapshot.lens_make = rust::String(metadata.lens_make);
+    snapshot.lens_model = rust::String(metadata.lens_model);
+    snapshot.focal_length_35mm = metadata.focal_length_35mm;
     return snapshot;
 }
 
@@ -366,7 +626,9 @@ FfiEncodedProxy DecodeHandle::render_adjustment_plan(
     const auto proxy = image::render_edited_reference_proxy_jpeg(
         *session_,
         nodes,
-        image::ProxyRequest{request.max_edge, request.jpeg_quality}
+        image::ProxyRequest{request.max_edge, request.jpeg_quality},
+        optics_provider_.get(),
+        optics_settings_
     );
     return encoded_proxy(proxy);
 }
@@ -375,7 +637,12 @@ std::unique_ptr<EditPreviewHandle> DecodeHandle::prepare_edit_preview(
     const std::uint32_t max_edge
 ) const {
     return std::make_unique<EditPreviewHandle>(
-        image::prepare_warm_edit_preview(*session_, max_edge)
+        image::prepare_warm_edit_preview(
+            *session_,
+            max_edge,
+            optics_provider_.get(),
+            optics_settings_
+        )
     );
 }
 
@@ -390,6 +657,10 @@ FfiDimensions EditPreviewHandle::dimensions() const noexcept {
 
 std::uint32_t EditPreviewHandle::max_edge() const noexcept {
     return session_.max_edge();
+}
+
+FfiOpticsReceipt EditPreviewHandle::optics_receipt() const {
+    return shadow::bridge::optics_receipt(session_.optics_receipt());
 }
 
 FfiEncodedProxy EditPreviewHandle::render_adjustment_plan(
@@ -424,7 +695,7 @@ FfiAnalyzedEditPreview EditPreviewHandle::render_adjustment_plan_with_analysis(
 
 std::unique_ptr<FullEditDetailHandle> DecodeHandle::prepare_edit_detail() const {
     return std::make_unique<FullEditDetailHandle>(
-        image::prepare_full_edit_detail(*session_)
+        image::prepare_full_edit_detail(*session_, optics_provider_.get(), optics_settings_)
     );
 }
 
@@ -439,6 +710,10 @@ FfiDimensions FullEditDetailHandle::dimensions() const noexcept {
 
 std::uint64_t FullEditDetailHandle::retained_bytes() const noexcept {
     return session_.retained_bytes();
+}
+
+FfiOpticsReceipt FullEditDetailHandle::optics_receipt() const {
+    return shadow::bridge::optics_receipt(session_.optics_receipt());
 }
 
 FfiRenderedDetailTile FullEditDetailHandle::render_adjustment_plan_tile(
@@ -459,7 +734,35 @@ std::unique_ptr<DecodeHandle> open_libraw_utf8(const rust::Str path) {
     }
     auto provider = image::make_libraw_decoder_provider();
     auto session = provider->open(std::filesystem::path(utf8_path));
-    return std::make_unique<DecodeHandle>(std::move(provider), std::move(session));
+    return std::make_unique<DecodeHandle>(
+        std::move(provider),
+        std::move(session),
+        image::make_lensfun_optics_provider()
+    );
+}
+
+rust::Vec<FfiOpticsProfileCandidate> query_libraw_optics_profiles_utf8(const rust::Str path) {
+    const std::string_view utf8_bytes(path.data(), path.size());
+    std::u8string utf8_path;
+    utf8_path.reserve(utf8_bytes.size());
+    for (const char byte : utf8_bytes) {
+        utf8_path.push_back(static_cast<char8_t>(static_cast<unsigned char>(byte)));
+    }
+    auto decoder = image::make_libraw_decoder_provider();
+    auto session = decoder->open(std::filesystem::path(utf8_path));
+    const auto provider = image::make_lensfun_optics_provider();
+    const auto candidates = provider->profile_candidates(session->metadata());
+    rust::Vec<FfiOpticsProfileCandidate> result;
+    result.reserve(candidates.size());
+    for (const auto& candidate : candidates) {
+        FfiOpticsProfileCandidate ffi;
+        ffi.camera_maker = rust::String(candidate.camera_maker);
+        ffi.camera_model = rust::String(candidate.camera_model);
+        ffi.lens_maker = rust::String(candidate.lens_maker);
+        ffi.lens_model = rust::String(candidate.lens_model);
+        result.push_back(std::move(ffi));
+    }
+    return result;
 }
 
 rust::String libraw_provider_version() {

@@ -237,7 +237,7 @@ void inspect_mosaic(image::DecodeSession& session, const fs::path& output_direct
 void render_reference_rgb(image::DecodeSession& session, const fs::path& output_directory) {
     const Stopwatch timer;
     const image::PixelBuffer rendered = session.render_reference_rgb();
-    const fs::path output_path = output_directory / "reference-srgb-16bit.ppm";
+    const fs::path output_path = output_directory / "reference-linear-srgb-16bit.ppm";
     write_u16_pnm(output_path, rendered.dimensions, rendered.channels, rendered.samples);
 
     std::cout << "reference_rgb.status=ok\n"
@@ -245,6 +245,9 @@ void render_reference_rgb(image::DecodeSession& session, const fs::path& output_
               << rendered.dimensions.height << '\n'
               << "reference_rgb.bits=" << rendered.bits_per_channel << '\n'
               << "reference_rgb.colors=" << rendered.channels << '\n'
+              << "reference_rgb.transfer=linear\n"
+              << "reference_rgb.primaries=srgb-rec709-d65\n"
+              << "reference_rgb.reference=processed-raw\n"
               << "reference_rgb.samples=" << rendered.samples.size() << '\n'
               << "reference_rgb.output=" << output_path.string() << '\n'
               << "timing.reference_rgb_ms=" << timer.elapsed_ms() << '\n';

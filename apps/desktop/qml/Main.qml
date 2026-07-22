@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Dialogs
 import QtQuick.Layouts
 
 ApplicationWindow {
@@ -9,224 +10,447 @@ ApplicationWindow {
 
     required property var controller
     required property var editor
+    required property var preferences
+    required property var lutLibrary
     property int workspaceIndex: 0
+    property bool closeAfterDiscard: false
 
     width: 1480
     height: 920
-    minimumWidth: 1080
+    minimumWidth: 1200
     minimumHeight: 680
+    // Keep the native frame and traffic-light controls, but let the app chrome
+    // paint through the title-bar area. The ToolBar below consumes SafeArea
+    // margins and delegates drags on its empty surface to the window manager.
+    flags: Qt.Window | Qt.ExpandedClientAreaHint | Qt.NoTitleBarBackgroundHint
     visible: true
-    color: "#0c0e10"
-    title: workspaceIndex === 0 ? "Shadow · Review" : "Shadow · Precision"
+    color: Theme.window
+    // Propagate the same design tokens into any remaining Qt Quick Control
+    // that has not yet been promoted to a Shadow semantic component.
+    palette.window: Theme.window
+    palette.windowText: Theme.textPrimary
+    palette.base: Theme.panelRaised
+    palette.alternateBase: Theme.panel
+    palette.text: Theme.textPrimary
+    palette.button: Theme.buttonSurface
+    palette.buttonText: Theme.textPrimary
+    palette.mid: Theme.border
+    palette.dark: Theme.borderStrong
+    palette.light: Theme.panelRaised
+    palette.highlight: Theme.accent
+    palette.highlightedText: Theme.selectionForeground
+    palette.placeholderText: Theme.textPlaceholder
+    palette.disabled.text: Theme.textDisabled
+    palette.disabled.buttonText: Theme.textDisabled
+    palette.disabled.button: Theme.buttonDisabledSurface
+    readonly property string descriptiveTitle: workspaceIndex === 0
+        ? qsTr("Shadow · Review")
+        : workspaceIndex === 1
+            ? qsTr("Shadow · Precision") : qsTr("Shadow · Library")
+    // macOS would otherwise draw a second native title beside our integrated
+    // navigation. Mission Control and the Dock still receive the app identity.
+    title: Qt.platform.os === "osx" ? "" : descriptiveTitle
 
-    readonly property color panel: "#121519"
-    readonly property color panelRaised: "#181c21"
-    readonly property color border: "#2a3037"
-    readonly property color textPrimary: "#edf0f2"
-    readonly property color textMuted: "#8b949e"
-    readonly property color accent: "#d8b36a"
+    readonly property color panel: Theme.panel
+    readonly property color panelRaised: Theme.panelRaised
+    readonly property color border: Theme.border
+    readonly property color textPrimary: Theme.textPrimary
+    readonly property color textMuted: Theme.textMuted
+    readonly property color accent: Theme.accent
+
+    function synchronizeTheme() {
+        const configuredMode = String(preferences.appearanceMode)
+        if (configuredMode === "light")
+            Theme.mode = Theme.Light
+        else if (configuredMode === "dark")
+            Theme.mode = Theme.Dark
+        else
+            Theme.mode = Theme.System
+
+        const effectiveAppearance = String(preferences.effectiveAppearance)
+        Theme.effectiveDark = effectiveAppearance === "dark"
+            ? true
+            : effectiveAppearance === "light" ? false : Boolean(preferences.dark)
+    }
+
+    Component.onCompleted: synchronizeTheme()
+
+    Connections {
+        target: window.preferences
+
+        function onAppearanceModeChanged() {
+            window.synchronizeTheme()
+        }
+
+        function onEffectiveAppearanceChanged() {
+            window.synchronizeTheme()
+        }
+    }
+
+    PreferencesMenu {
+        id: preferencesMenu
+        preferences: window.preferences
+        onOpenLutLibraryRequested: window.openLutManager()
+    }
+
+    LutManagerWindow {
+        id: lutManager
+        lutLibrary: window.lutLibrary
+    }
+
+    OpticsProfileManagerWindow {
+        id: opticsProfileManager
+        editor: window.editor
+    }
+
+    function openLutManager() {
+        lutManager.openManager()
+    }
+
+    function openOpticsProfileManager() {
+        opticsProfileManager.openManager()
+    }
+
+    FolderDialog {
+        id: libraryFolderDialog
+        title: qsTr("Choose a photo folder")
+        onAccepted: window.controller.scanFolder(selectedFolder)
+    }
 
     function showReview() {
         workspaceIndex = 0
     }
 
     function showPrecision() {
+        if (workspaceIndex === 0 && reviewWorkspace.canOpenSelectedPhoto) {
+            if (editor.active
+                    && editor.photoId === reviewWorkspace.selectedPhotoId
+                    && editor.representationId
+                        === reviewWorkspace.selectedRepresentationId
+                    && editor.sourcePath === reviewWorkspace.selectedPath) {
+                reviewWorkspace.precisionOpenStatus = ""
+                workspaceIndex = 1
+                return
+            }
+            reviewWorkspace.openSelectedPhoto()
+            return
+        }
         if (editor.active || editor.busy)
             workspaceIndex = 1
     }
 
-    function openPrecision(photoId, representationId, sourcePath, photoTitle) {
-        editor.openPhoto(photoId, representationId, sourcePath, photoTitle)
-        workspaceIndex = 1
+    function showLibrary() {
+        workspaceIndex = 2
     }
 
-    onClosing: close => {
-        if (editor.dirty) {
-            editor.closePhoto()
-            workspaceIndex = 1
-            close.accepted = false
+    function colorLabelName(label) {
+        switch (String(label).toLowerCase()) {
+        case "red": return qsTr("Red")
+        case "yellow": return qsTr("Yellow")
+        case "green": return qsTr("Green")
+        case "blue": return qsTr("Blue")
+        case "purple": return qsTr("Purple")
+        default: return ""
         }
     }
 
-    header: Rectangle {
-        height: 58
-        color: "#101317"
-        border.color: window.border
+    function filterFlagToolTip(flag) {
+        switch (String(flag).toLowerCase()) {
+        case "unflagged": return qsTr("Filter unflagged photos")
+        case "picked": return qsTr("Filter flagged photos")
+        case "rejected": return qsTr("Filter rejected photos")
+        default: return qsTr("Clear all Library filters")
+        }
+    }
 
-        RowLayout {
-            anchors.fill: parent
-            anchors.leftMargin: 20
-            anchors.rightMargin: 16
-            spacing: 14
+    function chooseLibraryFolder() {
+        libraryFolderDialog.open()
+    }
 
-            Label {
-                text: "SHADOW"
-                color: window.textPrimary
-                font.pixelSize: 17
-                font.weight: Font.DemiBold
-                font.letterSpacing: 3.2
+    function openPrecision(photoId, representationId, sourcePath, photoTitle) {
+        if (editor.active && editor.photoId === photoId
+                && editor.representationId === representationId
+                && editor.sourcePath === sourcePath) {
+            reviewWorkspace.precisionOpenStatus = ""
+            workspaceIndex = 1
+            return
+        }
+        if (editor.openPhoto(photoId, representationId, sourcePath, photoTitle)) {
+            reviewWorkspace.precisionOpenStatus = ""
+            workspaceIndex = 1
+        } else {
+            reviewWorkspace.reportPrecisionOpenFailure(editor.statusText)
+        }
+    }
+
+    function discardWorkingChangesAndClose() {
+        if (editor.stateBusy) {
+            Qt.callLater(() => discardQuitDialog.open())
+            return
+        }
+        editor.revertEdits()
+        if (editor.dirty) {
+            Qt.callLater(() => discardQuitDialog.open())
+            return
+        }
+        closeAfterDiscard = true
+        discardQuitDialog.close()
+        Qt.callLater(window.close)
+    }
+
+    onClosing: close => {
+        if (editor.dirty && !closeAfterDiscard) {
+            workspaceIndex = 1
+            close.accepted = false
+            discardQuitDialog.open()
+        }
+    }
+
+    Dialog {
+        id: discardQuitDialog
+        objectName: "discardQuitDialog"
+        anchors.centerIn: parent
+        width: Math.min(440, window.width - 48)
+        modal: true
+        focus: true
+        title: qsTr("Discard working changes?")
+        closePolicy: Popup.CloseOnEscape
+
+        contentItem: Label {
+            text: window.editor.stateBusy
+                ? qsTr("Shadow is finishing a version operation. Wait for it to finish before discarding changes and quitting.")
+                : qsTr("These working changes have not been recorded as a Library version. Discard them and quit Shadow?")
+            wrapMode: Text.WordWrap
+        }
+
+        footer: DialogButtonBox {
+            ShadowButton {
+                text: qsTr("Cancel")
+                variant: ShadowButton.Ghost
+                DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
             }
 
+            ShadowButton {
+                id: discardQuitButton
+                text: qsTr("Discard and Quit")
+                variant: ShadowButton.Danger
+                enabled: !window.editor.stateBusy
+                DialogButtonBox.buttonRole: DialogButtonBox.DestructiveRole
+            }
+
+            onRejected: discardQuitDialog.reject()
+            onDiscarded: window.discardWorkingChangesAndClose()
+        }
+
+        Connections {
+            target: window.editor
+
+            function onStateBusyChanged() {
+                discardQuitButton.enabled = !window.editor.stateBusy
+            }
+        }
+    }
+
+    header: ToolBar {
+        id: titleToolBar
+        objectName: "titleToolBar"
+        Accessible.name: window.descriptiveTitle
+        implicitHeight: 44
+        topPadding: 0
+        // macOS aligns its native window controls with this 44px region in
+        // the platform-specific title-bar adapter, so QML stays geometric.
+        bottomPadding: 0
+        leftPadding: Math.max(
+            SafeArea.margins.left,
+            Qt.platform.os === "osx"
+                && window.visibility !== Window.FullScreen ? 96 : 16
+        )
+        rightPadding: Math.max(
+            SafeArea.margins.right,
+            Qt.platform.os === "windows" ? 152 : 16
+        )
+
+        background: Rectangle {
+            color: Theme.chrome
+
             Rectangle {
-                Layout.preferredWidth: 1
-                Layout.preferredHeight: 24
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                height: 1
                 color: window.border
             }
+        }
 
-            Button {
-                id: reviewModeButton
-                Layout.preferredWidth: 92
-                Layout.preferredHeight: 40
-                text: "REVIEW"
-                flat: true
-                onClicked: window.showReview()
+        contentItem: Item {
+            Item {
+                anchors.fill: parent
 
-                background: Item {
-                    Rectangle {
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.bottom: parent.bottom
-                        height: 2
-                        color: window.workspaceIndex === 0 ? window.accent : "transparent"
+                DragHandler {
+                    target: null
+                    acceptedButtons: Qt.LeftButton
+                    onActiveChanged: {
+                        if (active)
+                            window.startSystemMove()
                     }
                 }
-                contentItem: Label {
-                    text: reviewModeButton.text
-                    color: window.workspaceIndex === 0 ? window.accent : window.textMuted
-                    font.pixelSize: 11
-                    font.weight: Font.DemiBold
-                    font.letterSpacing: 1.4
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                }
             }
 
-            Button {
-                id: precisionModeButton
-                Layout.preferredWidth: 108
-                Layout.preferredHeight: 40
-                text: "PRECISION"
-                flat: true
-                enabled: window.editor.active || window.editor.busy
-                onClicked: window.showPrecision()
-
-                background: Item {
-                    Rectangle {
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.bottom: parent.bottom
-                        height: 2
-                        color: window.workspaceIndex === 1 ? window.accent : "transparent"
-                    }
-                }
-                contentItem: Label {
-                    text: precisionModeButton.text
-                    color: !precisionModeButton.enabled
-                        ? "#4b535c"
-                        : window.workspaceIndex === 1 ? window.accent : window.textMuted
-                    font.pixelSize: 11
-                    font.weight: Font.DemiBold
-                    font.letterSpacing: 1.4
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                }
-            }
-
-            Label {
-                Layout.fillWidth: true
-                text: window.workspaceIndex === 0
-                    ? (window.controller.folderPath.length > 0
-                        ? "Local Library · " + window.controller.folderPath
-                        : "Local Library")
-                    : (window.editor.sourcePath.length > 0
-                        ? window.editor.sourcePath
-                        : "Preparing local edit session")
-                color: window.textMuted
-                elide: Text.ElideMiddle
-                horizontalAlignment: Text.AlignHCenter
-            }
-
-            Rectangle {
-                visible: window.workspaceIndex === 1 && window.editor.active
-                Layout.preferredWidth: dirtyLabel.implicitWidth + 20
-                Layout.preferredHeight: 26
-                radius: 13
-                color: window.editor.dirty ? "#30291d" : "#19241f"
-                border.color: window.editor.dirty ? "#5d4b2d" : "#294436"
+            Row {
+                id: brandMark
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 10
 
                 Label {
-                    id: dirtyLabel
-                    anchors.centerIn: parent
-                    text: window.editor.dirty ? "UNSAVED" : "SAVED"
-                    color: window.editor.dirty ? window.accent : "#91bda0"
-                    font.pixelSize: 9
-                    font.weight: Font.Bold
-                    font.letterSpacing: 0.8
-                }
-            }
-
-            Button {
-                id: folderButton
-                visible: window.workspaceIndex === 0
-                text: window.controller.scanning
-                    ? (window.controller.scanProgress.phase === "cancelling"
-                        ? "STOPPING…" : "STOP IMPORT")
-                    : window.controller.refreshing
-                    ? "REFRESHING…"
-                    : window.controller.busy
-                    ? "LOADING…"
-                    : window.controller.comparisonBusy ? "RECORDING…"
-                    : window.controller.decisionBusy ? "SAVING…" : "ADD FOLDER"
-                enabled: window.controller.scanning
-                    ? window.controller.scanProgress.phase !== "cancelling"
-                    : !window.controller.refreshing
-                        && !window.controller.busy && !window.controller.loadingMore
-                        && !window.controller.comparisonBusy
-                        && !window.controller.decisionBusy
-                onClicked: {
-                    if (window.controller.scanning)
-                        window.controller.cancelScan()
-                    else
-                        reviewWorkspace.chooseFolder()
-                }
-
-                background: Rectangle {
-                    radius: 4
-                    color: folderButton.down ? "#b9914e" : window.accent
-                }
-                contentItem: Label {
-                    text: folderButton.text
-                    color: "#17130d"
-                    font.pixelSize: 11
-                    font.weight: Font.Bold
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                }
-            }
-
-            Button {
-                id: closeEditButton
-                visible: window.workspaceIndex === 1
-                text: "CLOSE EDIT"
-                enabled: !window.editor.stateBusy
-                onClicked: {
-                    window.editor.closePhoto()
-                    if (!window.editor.active)
-                        window.showReview()
-                }
-
-                background: Rectangle {
-                    radius: 4
-                    color: closeEditButton.down ? "#272d33" : window.panelRaised
-                    border.color: window.border
-                }
-                contentItem: Label {
-                    text: closeEditButton.text
+                    text: "SHADOW"
                     color: window.textPrimary
-                    font.pixelSize: 10
+                    font.pixelSize: 14
                     font.weight: Font.DemiBold
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
+                    font.letterSpacing: 2.5
+                }
+
+                Rectangle {
+                    width: 1
+                    height: 18
+                    anchors.verticalCenter: parent.verticalCenter
+                    color: window.border
+                }
+            }
+
+            Row {
+                id: workspaceTabs
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.verticalCenter: parent.verticalCenter
+                height: titleToolBar.availableHeight
+                spacing: 10
+
+                ShadowTabButton {
+                    id: reviewModeButton
+                    height: parent.height
+                    active: window.workspaceIndex === 0
+                    iconSource: "qrc:/icons/review-grid.svg"
+                    iconSize: 18
+                    minimumTabWidth: 46
+                    underlineInset: 22
+                    underlineBottomMargin: -titleToolBar.bottomPadding
+                    text: qsTr("REVIEW")
+                    toolTipText: text
+                    onClicked: window.showReview()
+                }
+
+                ShadowTabButton {
+                    id: precisionModeButton
+                    height: parent.height
+                    active: window.workspaceIndex === 1
+                    iconSource: "qrc:/icons/edit.svg"
+                    iconSize: 18
+                    minimumTabWidth: 46
+                    underlineInset: 22
+                    underlineBottomMargin: -titleToolBar.bottomPadding
+                    text: qsTr("PRECISION")
+                    toolTipText: text
+                    enabled: window.editor.active || window.editor.busy
+                        || reviewWorkspace.canOpenSelectedPhoto
+                    onClicked: window.showPrecision()
+                }
+            }
+
+            Row {
+                id: titleActions
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 4
+
+                Row {
+                    visible: window.workspaceIndex === 1 && window.editor.active
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 6
+
+                    Rectangle {
+                        width: 7
+                        height: 7
+                        anchors.verticalCenter: parent.verticalCenter
+                        radius: width / 2
+                        color: window.editor.dirty ? Theme.warningText : Theme.savedText
+                    }
+
+                    Label {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: window.editor.dirty ? qsTr("UNSAVED") : qsTr("SAVED")
+                        color: window.editor.dirty ? Theme.warningText : Theme.savedText
+                        font.pixelSize: 9
+                        font.weight: Font.DemiBold
+                        font.letterSpacing: 0.65
+                    }
+                }
+
+                Row {
+                    visible: window.workspaceIndex === 1
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 2
+
+                    ShadowIconButton {
+                        id: globalUndoButton
+                        source: "qrc:/icons/undo.svg"
+                        toolTipText: qsTr("Undo")
+                        accessibleName: toolTipText
+                        enabled: window.editor.active && window.editor.canUndo
+                            && !window.editor.stateBusy
+                        onClicked: window.editor.undo()
+                    }
+
+                    ShadowIconButton {
+                        id: globalRedoButton
+                        source: "qrc:/icons/redo.svg"
+                        toolTipText: qsTr("Redo")
+                        accessibleName: toolTipText
+                        enabled: window.editor.active && window.editor.canRedo
+                            && !window.editor.stateBusy
+                        onClicked: window.editor.redo()
+                    }
+                }
+
+                ShadowIconButton {
+                    id: libraryButton
+                    anchors.verticalCenter: parent.verticalCenter
+                    source: "qrc:/icons/library-manage.svg"
+                    text: qsTr("Library Management")
+                    toolTipText: text
+                    accessibleName: text
+                    selected: window.workspaceIndex === 2
+                    Accessible.checked: selected
+                    variant: window.controller.scanning
+                        || window.controller.refreshing
+                        ? ShadowIconButton.Tinted : ShadowIconButton.Ghost
+                    onClicked: window.showLibrary()
+                }
+
+                ShadowIconButton {
+                    id: closeEditButton
+                    visible: window.workspaceIndex === 1
+                    anchors.verticalCenter: parent.verticalCenter
+                    source: "qrc:/icons/clear.svg"
+                    text: qsTr("Return to Review")
+                    toolTipText: text
+                    accessibleName: text
+                    onClicked: window.showReview()
+                }
+
+                ShadowIconButton {
+                    id: settingsButton
+                    objectName: "settingsButton"
+                    anchors.verticalCenter: parent.verticalCenter
+                    buttonSize: 28
+                    source: "qrc:/icons/settings.svg"
+                    text: qsTr("Settings")
+                    toolTipText: text
+                    accessibleName: text
+                    onClicked: preferencesMenu.popup(
+                        settingsButton,
+                        settingsButton.width - preferencesMenu.width,
+                        settingsButton.height + titleToolBar.bottomPadding + 4
+                    )
                 }
             }
         }
@@ -241,6 +465,7 @@ ApplicationWindow {
             Layout.fillWidth: true
             Layout.fillHeight: true
             controller: window.controller
+            preferences: window.preferences
             onOpenPrecisionRequested: (photoId, representationId, sourcePath, photoTitle) => {
                 window.openPrecision(photoId, representationId, sourcePath, photoTitle)
             }
@@ -251,24 +476,34 @@ ApplicationWindow {
             Layout.fillWidth: true
             Layout.fillHeight: true
             editor: window.editor
+            lutLibrary: window.lutLibrary
+            onOpenLutLibraryRequested: window.openLutManager()
+            onOpenOpticsProfileLibraryRequested: window.openOpticsProfileManager()
+        }
+
+        LibraryWorkspace {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            controller: window.controller
+            onChooseFolderRequested: window.chooseLibraryFolder()
         }
     }
 
     footer: Rectangle {
-        height: 30
-        color: "#101317"
+        height: window.workspaceIndex === 0 ? 40 : 30
+        color: Theme.chrome
         border.color: window.border
 
         RowLayout {
             anchors.fill: parent
             anchors.leftMargin: 14
             anchors.rightMargin: 14
-            spacing: 10
+            spacing: 7
 
             BusyIndicator {
                 Layout.preferredWidth: 15
                 Layout.preferredHeight: 15
-                visible: window.workspaceIndex === 0
+                visible: window.workspaceIndex !== 1
                     ? window.controller.scanning || window.controller.refreshing
                         || window.controller.busy
                         || window.controller.loadingMore
@@ -278,9 +513,129 @@ ApplicationWindow {
                 running: visible
             }
 
+            Rectangle {
+                visible: window.workspaceIndex === 0
+                Layout.alignment: Qt.AlignVCenter
+                Layout.preferredHeight: 28
+                implicitWidth: filterControls.implicitWidth + 12
+                radius: 7
+                color: window.controller.filterFlag !== "all"
+                    || window.controller.filterMinimumRating > 0
+                    || window.controller.filterColorLabel !== "all"
+                    ? Theme.accentSurfaceQuiet : Theme.surfaceSubtle
+
+                Row {
+                    id: filterControls
+                    anchors.centerIn: parent
+                    spacing: 2
+
+                    ShadowIcon {
+                        anchors.verticalCenter: parent.verticalCenter
+                        source: "qrc:/icons/filter.svg"
+                        size: 14
+                        color: Theme.textMuted
+                    }
+
+                    Label {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: qsTr("FILTER")
+                        color: Theme.textMuted
+                        font.pixelSize: 9
+                        font.letterSpacing: 0.7
+                    }
+
+                    ShadowIconButton {
+                        buttonSize: 24
+                        iconSize: 14
+                        source: "qrc:/icons/clear.svg"
+                        selected: window.controller.filterFlag === "all"
+                            && window.controller.filterMinimumRating === 0
+                            && window.controller.filterColorLabel === "all"
+                        toolTipText: qsTr("Clear all Library filters")
+                        accessibleName: toolTipText
+                        onClicked: window.controller.clearFilters()
+                    }
+
+                    Repeater {
+                        model: ListModel {
+                            ListElement { filterValue: "unflagged"; iconSource: "qrc:/icons/unflag.svg" }
+                            ListElement { filterValue: "picked"; iconSource: "qrc:/icons/pick.svg" }
+                            ListElement { filterValue: "rejected"; iconSource: "qrc:/icons/reject.svg" }
+                        }
+
+                        delegate: ShadowIconButton {
+                            required property string filterValue
+                            required property url iconSource
+                            buttonSize: 24
+                            iconSize: 15
+                            source: iconSource
+                            selected: window.controller.filterFlag === filterValue
+                            toolTipText: window.filterFlagToolTip(filterValue)
+                            accessibleName: toolTipText
+                            onClicked: window.controller.filterFlag = selected
+                                ? "all" : filterValue
+                        }
+                    }
+
+                    Rectangle {
+                        width: 1
+                        height: 16
+                        anchors.verticalCenter: parent.verticalCenter
+                        color: window.border
+                    }
+
+                    Repeater {
+                        model: 5
+
+                        delegate: ShadowIconButton {
+                            required property int index
+                            buttonSize: 24
+                            iconSize: 15
+                            source: "qrc:/icons/star-filled.svg"
+                            selected: window.controller.filterMinimumRating
+                                === index + 1
+                            foregroundColor: window.controller.filterMinimumRating
+                                >= index + 1 ? Theme.labelYellow : Theme.textMuted
+                            toolTipText: qsTr("Filter %L1 stars and above")
+                                .arg(index + 1)
+                            accessibleName: toolTipText
+                            onClicked: window.controller.filterMinimumRating
+                                = selected ? 0 : index + 1
+                        }
+                    }
+
+                    Rectangle {
+                        width: 1
+                        height: 16
+                        anchors.verticalCenter: parent.verticalCenter
+                        color: window.border
+                    }
+
+                    Repeater {
+                        model: ["red", "yellow", "green", "blue", "purple"]
+
+                        delegate: ShadowColorLabelButton {
+                            required property string modelData
+                            labelColor: Theme.colorLabel(modelData)
+                            selected: window.controller.filterColorLabel === modelData
+                            toolTipText: qsTr("Filter %1 color label").arg(
+                                window.colorLabelName(modelData)
+                            )
+                            accessibleName: toolTipText
+                            onClicked: window.controller.filterColorLabel = selected
+                                ? "all" : modelData
+                        }
+                    }
+                }
+            }
+
             Label {
                 Layout.fillWidth: true
                 text: window.workspaceIndex === 0
+                    ? qsTr("%L1 / %L2 photos").arg(
+                        window.controller.filteredItemCount
+                    ).arg(window.controller.itemCount)
+                    : window.workspaceIndex !== 1
                     ? (window.controller.decisionBusy
                         ? window.controller.decisionStatusText
                         : window.controller.comparisonBusy
@@ -291,9 +646,164 @@ ApplicationWindow {
                 font.pixelSize: 10
                 elide: Text.ElideRight
             }
+
+            Rectangle {
+                visible: window.workspaceIndex === 0
+                Layout.alignment: Qt.AlignVCenter
+                Layout.preferredHeight: 28
+                implicitWidth: selectionControls.implicitWidth + 12
+                radius: 7
+                color: reviewWorkspace.canMutateDecision
+                    ? Theme.accentSurfaceQuiet : Theme.buttonDisabledGhostSurface
+
+                Row {
+                    id: selectionControls
+                    anchors.centerIn: parent
+                    spacing: 2
+
+                    Label {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: reviewWorkspace.canMutateDecision
+                            ? qsTr("SELECTED") : qsTr("NO SELECTION")
+                        color: reviewWorkspace.canMutateDecision
+                            ? Theme.accentTextMuted : Theme.textDisabledQuiet
+                        font.pixelSize: 9
+                        font.letterSpacing: 0.7
+                    }
+
+                    Row {
+                        visible: reviewWorkspace.canMutateDecision
+                        spacing: 2
+
+                        ShadowIconButton {
+                            buttonSize: 24
+                            iconSize: 14
+                            source: "qrc:/icons/undo.svg"
+                            toolTipText: qsTr("Undo the last decision")
+                            accessibleName: toolTipText
+                            enabled: window.controller.canUndoDecision
+                            onClicked: window.controller.undoLastDecision()
+                        }
+
+                        Rectangle {
+                            width: 1
+                            height: 16
+                            anchors.verticalCenter: parent.verticalCenter
+                            color: window.border
+                        }
+
+                        Repeater {
+                            model: ListModel {
+                                ListElement { actionId: "none"; flagValue: "unflagged"; iconSource: "qrc:/icons/unflag.svg" }
+                                ListElement { actionId: "pick"; flagValue: "picked"; iconSource: "qrc:/icons/pick.svg" }
+                                ListElement { actionId: "reject"; flagValue: "rejected"; iconSource: "qrc:/icons/reject.svg" }
+                            }
+
+                            delegate: ShadowIconButton {
+                                required property string flagValue
+                                required property url iconSource
+                                buttonSize: 24
+                                iconSize: 15
+                                source: iconSource
+                                toolTipText: flagValue === "picked"
+                                    ? qsTr("Mark as picked (P)")
+                                    : flagValue === "rejected"
+                                        ? qsTr("Mark as rejected (X)")
+                                        : qsTr("Clear decision flag (U)")
+                                accessibleName: toolTipText
+                                selected: reviewWorkspace.selectedDecisionFlag === flagValue
+                                selectedSurfaceColor: flagValue === "picked"
+                                    ? Theme.successSurface
+                                    : flagValue === "rejected"
+                                        ? Theme.dangerSurface : Theme.accentSurface
+                                selectedHoverSurfaceColor: selectedSurfaceColor
+                                selectedPressedSurfaceColor: selectedSurfaceColor
+                                selectedIconColor: flagValue === "picked"
+                                    ? Theme.successText
+                                    : flagValue === "rejected"
+                                        ? Theme.dangerText : Theme.accent
+                                onClicked: reviewWorkspace.setSelectedFlag(flagValue)
+                            }
+                        }
+
+                        Rectangle {
+                            width: 1
+                            height: 16
+                            anchors.verticalCenter: parent.verticalCenter
+                            color: window.border
+                        }
+
+                        ShadowIconButton {
+                            buttonSize: 24
+                            iconSize: 13
+                            source: "qrc:/icons/clear.svg"
+                            selected: reviewWorkspace.selectedDecisionRating === 0
+                            toolTipText: qsTr("Clear rating (0)")
+                            accessibleName: toolTipText
+                            onClicked: reviewWorkspace.setSelectedRating(0)
+                        }
+
+                        Repeater {
+                            model: 5
+
+                            delegate: ShadowIconButton {
+                                required property int index
+                                buttonSize: 24
+                                iconSize: 15
+                                source: index < reviewWorkspace.selectedDecisionRating
+                                    ? "qrc:/icons/star-filled.svg" : "qrc:/icons/star.svg"
+                                foregroundColor: index < reviewWorkspace.selectedDecisionRating
+                                    ? Theme.labelYellow : Theme.textMuted
+                                toolTipText: qsTr("Set rating to %L1 stars (%L1)")
+                                    .arg(index + 1)
+                                accessibleName: toolTipText
+                                onClicked: reviewWorkspace.setSelectedRating(index + 1)
+                            }
+                        }
+
+                        Rectangle {
+                            width: 1
+                            height: 16
+                            anchors.verticalCenter: parent.verticalCenter
+                            color: window.border
+                        }
+
+                        ShadowIconButton {
+                            buttonSize: 24
+                            iconSize: 13
+                            source: "qrc:/icons/clear.svg"
+                            selected: reviewWorkspace.selectedColorLabel === "none"
+                            toolTipText: qsTr("Clear local color label")
+                            accessibleName: toolTipText
+                            onClicked: window.controller.setPhotoColorLabel(
+                                reviewWorkspace.selectedPhotoId, "none")
+                        }
+
+                        Repeater {
+                            model: ["red", "yellow", "green", "blue", "purple"]
+
+                            delegate: ShadowColorLabelButton {
+                                required property string modelData
+                                labelColor: Theme.colorLabel(modelData)
+                                selected: reviewWorkspace.selectedColorLabel === modelData
+                                toolTipText: qsTr("Set %1 color label").arg(
+                                    window.colorLabelName(modelData)
+                                )
+                                accessibleName: toolTipText
+                                onClicked: window.controller.setPhotoColorLabel(
+                                    reviewWorkspace.selectedPhotoId, modelData)
+                            }
+                        }
+                    }
+                }
+            }
+
             Label {
-                text: window.workspaceIndex === 0 ? "REVIEW" : "PRECISION"
-                color: "#56616b"
+                visible: window.workspaceIndex !== 0
+                text: window.workspaceIndex === 1
+                    ? qsTr("PRECISION")
+                    : qsTr("LIBRARY")
+                color: Theme.textFaint
                 font.pixelSize: 9
                 font.letterSpacing: 0.8
             }

@@ -13,7 +13,7 @@ public:
         CommitIdRole = Qt::UserRole + 1,
         LabelRole,
         CreatedAtTextRole,
-        CurrentRole,
+        SelectedRole,
         ParentCountRole,
         ChangeSummaryRole,
         ParentSummaryRole,
@@ -27,7 +27,11 @@ public:
     [[nodiscard]] QHash<int, QByteArray> roleNames() const override;
 
     void replace(QVector<BackendEditVersion> versions);
+    void setSelectedCommit(const QString& commit_id);
+  Q_INVOKABLE void retranslateUi();
 
 private:
-    QVector<BackendEditVersion> versions_;
+  bool eventFilter(QObject *watched, QEvent *event) override;
+
+  QVector<BackendEditVersion> versions_;
 };

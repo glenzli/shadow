@@ -22,7 +22,8 @@ class DecodeHandle final {
 public:
     DecodeHandle(
         std::unique_ptr<image::DecoderProvider> provider,
-        std::unique_ptr<image::DecodeSession> session
+        std::unique_ptr<image::DecodeSession> session,
+        std::shared_ptr<const image::OpticsProvider> optics_provider
     );
     ~DecodeHandle();
 
@@ -34,6 +35,7 @@ public:
     [[nodiscard]] FfiCapabilitySnapshot capabilities() const;
     [[nodiscard]] rust::Vec<FfiPreviewSnapshot> previews() const;
     [[nodiscard]] FfiPreviewPayload decode_best_preview();
+    void configure_optics(const FfiOpticsSettings& settings);
     [[nodiscard]] FfiEncodedProxy render_reference_proxy(
         std::uint32_t max_edge,
         std::uint8_t jpeg_quality
@@ -49,6 +51,8 @@ public:
 private:
     std::unique_ptr<image::DecoderProvider> provider_;
     std::unique_ptr<image::DecodeSession> session_;
+    std::shared_ptr<const image::OpticsProvider> optics_provider_;
+    image::OpticsSettings optics_settings_;
 };
 
 // Unlike DecodeHandle, this handle no longer owns or references a decoder. Its working proxy
@@ -64,6 +68,7 @@ public:
 
     [[nodiscard]] FfiDimensions dimensions() const noexcept;
     [[nodiscard]] std::uint32_t max_edge() const noexcept;
+    [[nodiscard]] FfiOpticsReceipt optics_receipt() const;
     [[nodiscard]] FfiEncodedProxy render_adjustment_plan(
         const FfiAdjustmentRenderRequest& request
     ) const;
@@ -87,6 +92,7 @@ public:
 
     [[nodiscard]] FfiDimensions dimensions() const noexcept;
     [[nodiscard]] std::uint64_t retained_bytes() const noexcept;
+    [[nodiscard]] FfiOpticsReceipt optics_receipt() const;
     [[nodiscard]] FfiRenderedDetailTile render_adjustment_plan_tile(
         const FfiAdjustmentDetailTileRequest& request
     ) const;
@@ -96,6 +102,9 @@ private:
 };
 
 [[nodiscard]] std::unique_ptr<DecodeHandle> open_libraw_utf8(rust::Str path);
+[[nodiscard]] rust::Vec<FfiOpticsProfileCandidate> query_libraw_optics_profiles_utf8(
+    rust::Str path
+);
 [[nodiscard]] rust::String libraw_provider_version();
 [[nodiscard]] FfiDisplayLuma decode_jpeg_display_luma(
     rust::Slice<const std::uint8_t> encoded,

@@ -66,6 +66,7 @@ entity_id!(NodeId);
 entity_id!(LayerId);
 entity_id!(LayerInstanceId);
 entity_id!(LayerRevisionId);
+entity_id!(GradeNodeId);
 entity_id!(MaskId);
 entity_id!(BranchId);
 entity_id!(VersionId);

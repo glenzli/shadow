@@ -2,10 +2,13 @@
 
 #include <QByteArray>
 #include <QString>
+#include <QVariantList>
+#include <QVariantMap>
 #include <QVector>
 
-#include <cstdint>
+#include <array>
 #include <compare>
+#include <cstdint>
 #include <memory>
 
 struct BackendScanReport final {
@@ -72,6 +75,22 @@ struct BackendReviewItem final {
     std::uint32_t visual_width = 0;
     std::uint32_t visual_height = 0;
     bool has_visual = false;
+    bool has_metadata = false;
+    QString camera_make;
+    QString camera_model;
+    QString lens_make;
+    QString lens_model;
+    std::int64_t captured_at_unix_seconds = 0;
+    double iso_speed = 0.0;
+    double exposure_time_seconds = 0.0;
+    double aperture_f_number = 0.0;
+    double focal_length_mm = 0.0;
+    double focal_length_35mm = 0.0;
+    std::uint32_t raw_width = 0;
+    std::uint32_t raw_height = 0;
+    std::uint32_t sensor_bits = 0;
+    QString cfa_pattern;
+    QString dng_version;
     bool has_technical_observation = false;
     std::uint32_t technical_input_width = 0;
     std::uint32_t technical_input_height = 0;
@@ -147,12 +166,83 @@ struct BackendForgetReceipt final {
 struct BackendBasicEditParameters final {
     double exposure_stops = 0.0;
     double contrast_factor = 1.0;
-    double red_channel_gain = 1.0;
-    double green_channel_gain = 1.0;
-    double blue_channel_gain = 1.0;
+    double white_balance_temperature = 0.0;
+    double white_balance_tint = 0.0;
     double saturation_factor = 1.0;
 
     auto operator<=>(const BackendBasicEditParameters&) const = default;
+};
+
+inline constexpr std::size_t BACKEND_COLOR_MIXER_BAND_COUNT = 8U;
+
+struct BackendPointColorRange final {
+    bool enabled = true;
+    double center_degrees = 0.0;
+    double width_degrees = 30.0;
+    double softness = 0.5;
+    double hue_shift_degrees = 0.0;
+    double saturation = 0.0;
+    double lightness = 0.0;
+
+    auto operator<=>(const BackendPointColorRange&) const = default;
+};
+
+struct BackendFineEditParameters final {
+    double highlights = 0.0;
+    double shadows = 0.0;
+    double whites = 0.0;
+    double blacks = 0.0;
+    double vibrance = 0.0;
+    std::array<double, BACKEND_COLOR_MIXER_BAND_COUNT> mixer_hue{};
+    std::array<double, BACKEND_COLOR_MIXER_BAND_COUNT> mixer_saturation{};
+    std::array<double, BACKEND_COLOR_MIXER_BAND_COUNT> mixer_lightness{};
+    bool color_range_enabled = false;
+    double color_range_center = 0.0;
+    double color_range_width = 30.0;
+    double color_range_softness = 0.5;
+    double color_range_hue = 0.0;
+    double color_range_saturation = 0.0;
+    double color_range_lightness = 0.0;
+    QVector<BackendPointColorRange> additional_point_colors;
+    QString lut_resource_id;
+    QString lut_title;
+    QString lut_managed_path;
+    double lut_intensity = 1.0;
+    double sharpen_amount = 0.0;
+    double sharpen_radius = 1.0;
+    double sharpen_threshold = 0.0;
+    double sharpen_masking = 0.0;
+    double denoise_luminance = 0.0;
+    double denoise_detail = 0.5;
+    double denoise_color = 0.0;
+    double dehaze = 0.0;
+    double defringe_purple_amount = 0.0;
+    double defringe_purple_hue_low = 270.0;
+    double defringe_purple_hue_high = 340.0;
+    double defringe_green_amount = 0.0;
+    double defringe_green_hue_low = 100.0;
+    double defringe_green_hue_high = 165.0;
+    double shadows_hue = 0.0;
+    double shadows_saturation = 0.0;
+    double shadows_luminance = 0.0;
+    double midtones_hue = 0.0;
+    double midtones_saturation = 0.0;
+    double midtones_luminance = 0.0;
+    double highlights_hue = 0.0;
+    double highlights_saturation = 0.0;
+    double highlights_luminance = 0.0;
+    double grading_blending = 0.5;
+    double grading_balance = 0.0;
+    double grain_amount = 0.0;
+    double grain_size = 0.5;
+    double grain_roughness = 0.5;
+    double vignette_amount = 0.0;
+    double vignette_midpoint = 0.5;
+    double vignette_roundness = 0.0;
+    double vignette_feather = 0.5;
+    double vignette_highlights = 0.0;
+
+    auto operator<=>(const BackendFineEditParameters&) const = default;
 };
 
 struct BackendToneCurvePoint final {
@@ -162,26 +252,67 @@ struct BackendToneCurvePoint final {
     auto operator<=>(const BackendToneCurvePoint&) const = default;
 };
 
-struct BackendBasicEditLayer final {
-    QString layer_id;
-    QString label;
-    QString exposure_node_id;
-    QString contrast_node_id;
-    QString tone_curve_node_id;
-    QString channel_gain_node_id;
-    QString saturation_node_id;
-    BackendBasicEditParameters basic;
-    bool enabled = true;
-    bool has_tone_curve = false;
-    QVector<BackendToneCurvePoint> tone_curve_points;
-
-    bool operator==(const BackendBasicEditLayer&) const = default;
+enum class ToneCurveKind : std::uint8_t {
+    None,
+    SmoothRgb,
 };
 
-struct BackendEditSettings final {
-    QVector<BackendBasicEditLayer> layers;
+struct BackendGradeNode final {
+    QString grade_node_id;
+    QString label;
+    QString exposure_render_op_id;
+    QString contrast_render_op_id;
+    QString selective_tone_render_op_id;
+    QString tone_curve_render_op_id;
+    QString white_balance_render_op_id;
+    QString saturation_render_op_id;
+    QString perceptual_color_render_op_id;
+    QString lut_render_op_id;
+    QString sharpen_render_op_id;
+    BackendBasicEditParameters basic;
+    BackendFineEditParameters fine;
+    bool enabled = true;
+    ToneCurveKind tone_curve_kind = ToneCurveKind::None;
+    QVector<BackendToneCurvePoint> tone_curve_master_points;
+    QVector<BackendToneCurvePoint> tone_curve_red_points;
+    QVector<BackendToneCurvePoint> tone_curve_green_points;
+    QVector<BackendToneCurvePoint> tone_curve_blue_points;
 
-    bool operator==(const BackendEditSettings&) const = default;
+    bool operator==(const BackendGradeNode&) const = default;
+};
+
+struct BackendGradeStack final {
+    struct Optics final {
+        bool enabled = true;
+        bool correct_distortion = true;
+        bool correct_tca = true;
+        bool correct_vignetting = true;
+        bool automatic_scale = true;
+        QString camera_profile_maker;
+        QString camera_profile_model;
+        QString lens_profile_maker;
+        QString lens_profile_model;
+
+        bool operator==(const Optics&) const = default;
+    } optics;
+    QVector<BackendGradeNode> grade_nodes;
+
+    bool operator==(const BackendGradeStack&) const = default;
+};
+
+struct BackendOpticsReceipt final {
+    QString status;
+    QString provider_id;
+    QString provider_version;
+    QString camera_profile;
+    QString lens_profile;
+    bool distortion_available = false;
+    bool tca_available = false;
+    bool vignetting_available = false;
+    bool applied_distortion = false;
+    bool applied_tca = false;
+    bool applied_vignetting = false;
+    bool applied_scaling = false;
 };
 
 struct BackendEditVersion final {
@@ -189,17 +320,19 @@ struct BackendEditVersion final {
     QString name;
     std::int64_t created_at_ms = 0;
     QVector<QString> parent_commit_ids;
-    bool is_working = false;
+    // The commit whose snapshot is currently shown in Precision. During a
+    // version draft this is the loaded base, not the durable Library head.
+    bool is_selected = false;
     bool is_root = false;
     bool recipe_schema_changed = false;
-    std::uint32_t layers_added = 0;
-    std::uint32_t layers_removed = 0;
-    std::uint32_t layers_moved = 0;
-    std::uint32_t layers_modified = 0;
-    std::uint32_t nodes_added = 0;
-    std::uint32_t nodes_removed = 0;
-    std::uint32_t nodes_modified = 0;
-    std::uint32_t node_parameter_blocks_changed = 0;
+    std::uint32_t grade_nodes_added = 0;
+    std::uint32_t grade_nodes_removed = 0;
+    std::uint32_t grade_nodes_moved = 0;
+    std::uint32_t grade_nodes_modified = 0;
+    std::uint32_t render_ops_added = 0;
+    std::uint32_t render_ops_removed = 0;
+    std::uint32_t render_ops_modified = 0;
+    std::uint32_t render_op_parameter_blocks_changed = 0;
     QVector<QString> changed_basic_parameters;
     std::uint32_t changed_basic_parameter_count = 0;
     bool has_other_changes = false;
@@ -208,11 +341,14 @@ struct BackendEditVersion final {
 struct BackendPhotoEditState final {
     QString photo_id;
     QString source_path;
-    QString working_commit_id;
+    // Immutable commit used as the base of the visible edit. For a loaded
+    // draft this intentionally differs from the durable working ref.
+    QString base_commit_id;
     QString recipe_id;
-    BackendEditSettings settings;
+    BackendGradeStack grade_stack;
     QVector<BackendEditVersion> versions;
-    bool has_working_version = false;
+    bool has_base_version = false;
+    bool is_version_draft = false;
 };
 
 struct BackendEditPreviewAnalysis final {
@@ -233,6 +369,7 @@ struct BackendEditPreviewAnalysis final {
 struct BackendEditedPreview final {
     QByteArray bytes;
     BackendEditPreviewAnalysis analysis;
+    BackendOpticsReceipt optics;
     std::uint32_t width = 0;
     std::uint32_t height = 0;
 };
@@ -313,12 +450,16 @@ public:
         const QString& photo_id,
         const QString& source_path
     ) const;
-    [[nodiscard]] BackendBasicEditLayer newBasicEditLayer(const QString& label) const;
+    [[nodiscard]] QVariantList opticsProfileCandidates(
+        const QString& photo_id,
+        const QString& source_path
+    ) const;
+    [[nodiscard]] BackendGradeNode newBasicGradeNode(const QString& label) const;
     [[nodiscard]] BackendEditedPreview renderEditPreview(
         const QString& photo_id,
         const QString& source_path,
         const QString& base_commit_id,
-        const BackendEditSettings& settings,
+        const BackendGradeStack& grade_stack,
         std::uint32_t max_edge,
         std::uint8_t jpeg_quality,
         bool use_working_recipe
@@ -328,7 +469,7 @@ public:
         const QString& photo_id,
         const QString& source_path,
         const QString& base_commit_id,
-        const BackendEditSettings& settings,
+        const BackendGradeStack& grade_stack,
         std::uint64_t render_token,
         double center_x,
         double center_y,
@@ -341,10 +482,11 @@ public:
         const QString& photo_id,
         const QString& source_path,
         const QString& base_commit_id,
-        const BackendEditSettings& settings,
+        const QString& expected_working_commit_id,
+        const BackendGradeStack& grade_stack,
         const QString& version_name
     ) const;
-    [[nodiscard]] BackendPhotoEditState checkoutEditVersion(
+    [[nodiscard]] BackendPhotoEditState loadEditVersionDraft(
         const QString& photo_id,
         const QString& source_path,
         const QString& commit_id

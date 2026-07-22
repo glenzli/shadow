@@ -15,6 +15,15 @@ namespace {
         || flag == QStringLiteral("rejected");
 }
 
+[[nodiscard]] bool is_color_label(const QString& color_label) {
+    return color_label == QStringLiteral("none")
+        || color_label == QStringLiteral("red")
+        || color_label == QStringLiteral("yellow")
+        || color_label == QStringLiteral("green")
+        || color_label == QStringLiteral("blue")
+        || color_label == QStringLiteral("purple");
+}
+
 [[nodiscard]] bool has_unique_stable_keys(const QVector<ReviewItem>& items) {
     QSet<QString> keys;
     keys.reserve(items.size());
@@ -65,6 +74,22 @@ void append_role(QList<int>& roles, const int role) {
     if (current.visual_height != replacement.visual_height) {
         append_role(roles, ReviewModel::VisualHeightRole);
     }
+    if (current.has_metadata != replacement.has_metadata) append_role(roles, ReviewModel::HasMetadataRole);
+    if (current.camera_make != replacement.camera_make) append_role(roles, ReviewModel::CameraMakeRole);
+    if (current.camera_model != replacement.camera_model) append_role(roles, ReviewModel::CameraModelRole);
+    if (current.lens_make != replacement.lens_make) append_role(roles, ReviewModel::LensMakeRole);
+    if (current.lens_model != replacement.lens_model) append_role(roles, ReviewModel::LensModelRole);
+    if (current.captured_at_unix_seconds != replacement.captured_at_unix_seconds) append_role(roles, ReviewModel::CapturedAtUnixSecondsRole);
+    if (current.iso_speed != replacement.iso_speed) append_role(roles, ReviewModel::IsoSpeedRole);
+    if (current.exposure_time_seconds != replacement.exposure_time_seconds) append_role(roles, ReviewModel::ExposureTimeSecondsRole);
+    if (current.aperture_f_number != replacement.aperture_f_number) append_role(roles, ReviewModel::ApertureFNumberRole);
+    if (current.focal_length_mm != replacement.focal_length_mm) append_role(roles, ReviewModel::FocalLengthMmRole);
+    if (current.focal_length_35mm != replacement.focal_length_35mm) append_role(roles, ReviewModel::FocalLength35mmRole);
+    if (current.raw_width != replacement.raw_width) append_role(roles, ReviewModel::RawWidthRole);
+    if (current.raw_height != replacement.raw_height) append_role(roles, ReviewModel::RawHeightRole);
+    if (current.sensor_bits != replacement.sensor_bits) append_role(roles, ReviewModel::SensorBitsRole);
+    if (current.cfa_pattern != replacement.cfa_pattern) append_role(roles, ReviewModel::CfaPatternRole);
+    if (current.dng_version != replacement.dng_version) append_role(roles, ReviewModel::DngVersionRole);
     if (current.has_technical_observation
         != replacement.has_technical_observation) {
         append_role(roles, ReviewModel::HasTechnicalObservationRole);
@@ -159,6 +184,22 @@ QVariant ReviewModel::data(const QModelIndex& index, const int role) const {
             return QString{};
         }
         return visualSourceFor(item.visual_handle);
+    case HasMetadataRole: return item.has_metadata;
+    case CameraMakeRole: return item.camera_make;
+    case CameraModelRole: return item.camera_model;
+    case LensMakeRole: return item.lens_make;
+    case LensModelRole: return item.lens_model;
+    case CapturedAtUnixSecondsRole: return QVariant::fromValue(item.captured_at_unix_seconds);
+    case IsoSpeedRole: return item.iso_speed;
+    case ExposureTimeSecondsRole: return item.exposure_time_seconds;
+    case ApertureFNumberRole: return item.aperture_f_number;
+    case FocalLengthMmRole: return item.focal_length_mm;
+    case FocalLength35mmRole: return item.focal_length_35mm;
+    case RawWidthRole: return QVariant::fromValue(item.raw_width);
+    case RawHeightRole: return QVariant::fromValue(item.raw_height);
+    case SensorBitsRole: return QVariant::fromValue(item.sensor_bits);
+    case CfaPatternRole: return item.cfa_pattern;
+    case DngVersionRole: return item.dng_version;
     case HasTechnicalObservationRole:
         return item.has_technical_observation;
     case TechnicalInputWidthRole:
@@ -191,6 +232,8 @@ QVariant ReviewModel::data(const QModelIndex& index, const int role) const {
         return item.decision_flag;
     case DecisionRatingRole:
         return item.decision_rating;
+    case ColorLabelRole:
+        return color_labels_.value(item.photo_id, QStringLiteral("none"));
     default:
         return {};
     }
@@ -208,6 +251,22 @@ QHash<int, QByteArray> ReviewModel::roleNames() const {
         {VisualWidthRole, "visualWidth"},
         {VisualHeightRole, "visualHeight"},
         {VisualSourceRole, "visualSource"},
+        {HasMetadataRole, "hasMetadata"},
+        {CameraMakeRole, "cameraMake"},
+        {CameraModelRole, "cameraModel"},
+        {LensMakeRole, "lensMake"},
+        {LensModelRole, "lensModel"},
+        {CapturedAtUnixSecondsRole, "capturedAtUnixSeconds"},
+        {IsoSpeedRole, "isoSpeed"},
+        {ExposureTimeSecondsRole, "exposureTimeSeconds"},
+        {ApertureFNumberRole, "apertureFNumber"},
+        {FocalLengthMmRole, "focalLengthMm"},
+        {FocalLength35mmRole, "focalLength35mm"},
+        {RawWidthRole, "rawWidth"},
+        {RawHeightRole, "rawHeight"},
+        {SensorBitsRole, "sensorBits"},
+        {CfaPatternRole, "cfaPattern"},
+        {DngVersionRole, "dngVersion"},
         {HasTechnicalObservationRole, "hasTechnicalObservation"},
         {TechnicalInputWidthRole, "technicalInputWidth"},
         {TechnicalInputHeightRole, "technicalInputHeight"},
@@ -224,6 +283,7 @@ QHash<int, QByteArray> ReviewModel::roleNames() const {
         {DecisionHeadSequenceRole, "decisionHeadSequence"},
         {DecisionFlagRole, "decisionFlag"},
         {DecisionRatingRole, "decisionRating"},
+        {ColorLabelRole, "colorLabel"},
     };
 }
 
@@ -452,4 +512,61 @@ bool ReviewModel::updateDecision(
         );
     }
     return found;
+}
+
+bool ReviewModel::setColorLabel(
+    const QString& photo_id,
+    const QString& color_label
+) {
+    if (photo_id.isEmpty() || !is_color_label(color_label)) {
+        return false;
+    }
+    const QString current = color_labels_.value(photo_id, QStringLiteral("none"));
+    if (current == color_label) {
+        return false;
+    }
+    if (color_label == QStringLiteral("none")) {
+        color_labels_.remove(photo_id);
+    } else {
+        color_labels_.insert(photo_id, color_label);
+    }
+    for (qsizetype row = 0; row < items_.size(); ++row) {
+        if (items_.at(row).photo_id != photo_id) {
+            continue;
+        }
+        const QModelIndex changed = index(static_cast<int>(row), 0);
+        emit dataChanged(changed, changed, {ColorLabelRole});
+    }
+    return true;
+}
+
+void ReviewModel::restoreColorLabels(const QVariantMap& labels) {
+    QHash<QString, QString> restored;
+    restored.reserve(labels.size());
+    for (auto it = labels.cbegin(); it != labels.cend(); ++it) {
+        const QString label = it.value().toString().trimmed().toLower();
+        if (!it.key().isEmpty() && label != QStringLiteral("none")
+            && is_color_label(label)) {
+            restored.insert(it.key(), label);
+        }
+    }
+    if (restored == color_labels_) {
+        return;
+    }
+    color_labels_ = std::move(restored);
+    if (!items_.isEmpty()) {
+        emit dataChanged(
+            index(0, 0),
+            index(static_cast<int>(items_.size() - 1), 0),
+            {ColorLabelRole}
+        );
+    }
+}
+
+QVariantMap ReviewModel::colorLabels() const {
+    QVariantMap labels;
+    for (auto it = color_labels_.cbegin(); it != color_labels_.cend(); ++it) {
+        labels.insert(it.key(), it.value());
+    }
+    return labels;
 }

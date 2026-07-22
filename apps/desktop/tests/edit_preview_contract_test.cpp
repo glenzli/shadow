@@ -220,6 +220,10 @@ void stale_result_rules_are_kind_specific() {
     static_assert(!accepts_edit_preview(current, 5, 9));
     static_assert(accepts_edit_preview(before, 4, 99));
     static_assert(!accepts_edit_preview(before, 5, 99));
+    static_assert(can_present_edit_preview(current, 4, 9));
+    static_assert(can_present_edit_preview(current, 4, 10));
+    static_assert(!can_present_edit_preview(current, 5, 10));
+    static_assert(!can_present_edit_preview(before, 4, 10));
 
     constexpr EditDetailGeneration detail{
         .photo = 4,

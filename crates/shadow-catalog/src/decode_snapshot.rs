@@ -484,6 +484,14 @@ mod tests {
                 white_level: 4_095,
                 as_shot_neutral: [0.64, 1.0, 0.966, 0.0],
                 baseline_exposure: -0.5,
+                iso_speed: 100.0,
+                exposure_time_seconds: 1.0 / 125.0,
+                aperture_f_number: 5.6,
+                focal_length_mm: 35.0,
+                captured_at_unix_seconds: 1_700_000_000,
+                lens_make: "Pentax".into(),
+                lens_model: "smc PENTAX-DA 35mm".into(),
+                focal_length_35mm: 52.0,
             },
             capabilities: DecodeCapabilitySnapshot {
                 metadata: DecodeSupport::Available,
@@ -800,6 +808,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn generated_proxy_requirement_uses_the_current_recipe_and_provider_version() {
         const PROXY_KEY: &str = "libraw:grid-jpeg-2048-q88-v1";
         let (mut catalog, representation_id, source) = registered_catalog();
@@ -826,6 +835,46 @@ mod tests {
                     None,
                 )
                 .expect("query missing generated proxy")
+        );
+
+        catalog
+            .record_cached_artifact(&RecordCachedArtifact {
+                representation_id,
+                expected_source: source,
+                artifact: CachedArtifact {
+                    role: CachedArtifactRole::GeneratedProxy,
+                    variant_key: PROXY_KEY.into(),
+                    generator_id: "libraw".into(),
+                    generator_version: "stale".into(),
+                    provider_preview_id: None,
+                    blob_algorithm: "blake3-256".into(),
+                    blob_digest: [1; 32],
+                    blob_byte_len: 456_789,
+                    codec: PreviewCodec::Jpeg,
+                    byte_order: shadow_domain::PreviewByteOrder::NotApplicable,
+                    dimensions: ImageDimensions {
+                        width: 2_048,
+                        height: 1_365,
+                    },
+                    bits_per_channel: 8,
+                    channels: 3,
+                    created_at_ms: 788,
+                },
+            })
+            .expect("record generated proxy from stale provider version");
+
+        assert!(
+            !catalog
+                .is_decode_output_current(
+                    representation_id,
+                    "libraw",
+                    "1",
+                    source,
+                    true,
+                    PROXY_KEY,
+                    None,
+                )
+                .expect("generator version mismatch must not hit")
         );
 
         catalog

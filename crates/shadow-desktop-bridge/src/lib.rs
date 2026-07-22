@@ -20,17 +20,25 @@ use shadow_ai::{
 };
 use shadow_bridge::{
     ADJUSTMENT_IMPLEMENTATION_VERSION, ADJUSTMENT_PARAMETER_SCHEMA_VERSION, AdjustmentRenderNode,
-    AdjustmentRenderOperation, AdjustmentRenderPlan, BasicEditParameters, DetailTileRect,
-    DetailTileRequest, LibRawEditDetailSession, LibRawEditPreviewSession,
-    MAX_ADJUSTMENT_RENDER_NODES, MAX_EDIT_DETAIL_TILE_SIDE, MAX_TONE_CURVE_POINTS, ToneCurvePoint,
+    AdjustmentRenderOperation, AdjustmentRenderPlan, BasicEditParameters, COLOR_MIXER_BAND_COUNT,
+    ColorRangeParameters,
+    DETAIL_EFFECTS_V2_IMPLEMENTATION_VERSION as DETAIL_EFFECTS_V2_IMPLEMENTATION_REVISION,
+    DETAIL_EFFECTS_V2_PARAMETER_SCHEMA_VERSION, DetailTileRect, DetailTileRequest,
+    LibRawEditDetailSession, LibRawEditPreviewSession, MAX_ADJUSTMENT_RENDER_NODES,
+    MAX_EDIT_DETAIL_TILE_SIDE, MAX_LUT_DOCUMENT_BYTES, MAX_POINT_COLOR_RANGES,
+    MAX_TONE_CURVE_POINTS, OpticsSettings,
+    PERCEPTUAL_COLOR_V2_IMPLEMENTATION_VERSION as PERCEPTUAL_COLOR_V2_IMPLEMENTATION_REVISION,
+    PERCEPTUAL_COLOR_V2_PARAMETER_SCHEMA_VERSION, PerceptualColorParameters,
+    SMOOTH_RGB_TONE_CURVE_IMPLEMENTATION_VERSION, SMOOTH_RGB_TONE_CURVE_PARAMETER_SCHEMA_VERSION,
+    SelectiveToneParameters, SharpenParameters, SmoothRgbToneCurve, ToneCurvePoint,
     extract_best_libraw_preview, inspect_libraw, libraw_provider_version,
-    render_libraw_reference_proxy,
+    query_libraw_optics_profiles, render_libraw_reference_proxy,
 };
 use shadow_catalog::{
-    CachedArtifactRecord, CachedArtifactRole, CatalogActor, CatalogHandle, CommitRecipe,
+    CachedArtifactRecord, CachedArtifactRole, CatalogActor, CatalogHandle, CommitEditRepository,
+    CommitRecipe, CommitRecipeAndEditRepository, EditObjectPackWrite, EditRepositoryRefUpdate,
     RecipeCommitRecord, RecipeRefExpectation, RecipeRefKind, RecipeRefTarget,
-    RepresentationFingerprint, ReviewCursor, ReviewItemRecord, SetRecipeRef,
-    TechnicalObservationRevision,
+    RepresentationFingerprint, ReviewCursor, ReviewItemRecord, TechnicalObservationRevision,
 };
 use shadow_core::{
     CachedArtifactLoader, DecodeInspectionActor, DecodeInspectionSummary, DecodeInspector,
@@ -38,22 +46,41 @@ use shadow_core::{
     scan_folder_with_inspection_controlled, technical_analysis_preprocessing_version,
 };
 use shadow_domain::operation::{
-    BASIC_GRAPH_SCHEMA_VERSION, BASIC_LAYER_LABEL, CHANNEL_GAIN_OPERATION_ID,
-    CHANNEL_GAINS_PARAMETER_KEY, CONTRAST_FACTOR_PARAMETER_KEY, CONTRAST_OPERATION_ID,
-    CONTRAST_PIVOT_PARAMETER_KEY, CPU_REFERENCE_IMPLEMENTATION_REVISION,
-    CPU_REFERENCE_IMPLEMENTATION_VERSION, CPU_REFERENCE_PARAMETER_SCHEMA_VERSION,
-    EXPOSURE_OPERATION_ID, EXPOSURE_STOPS_PARAMETER_KEY, SATURATION_FACTOR_PARAMETER_KEY,
-    SATURATION_OPERATION_ID, TONE_CURVE_OPERATION_ID, TONE_CURVE_POINTS_PARAMETER_KEY,
+    BASIC_GRAPH_SCHEMA_VERSION, BASIC_LAYER_LABEL, BLACKS_PARAMETER_KEY,
+    COLOR_MIXER_HUE_PARAMETER_KEY, COLOR_MIXER_LIGHTNESS_PARAMETER_KEY,
+    COLOR_MIXER_SATURATION_PARAMETER_KEY, COLOR_RANGE_CENTER_PARAMETER_KEY,
+    COLOR_RANGE_ENABLED_PARAMETER_KEY, COLOR_RANGE_HUE_PARAMETER_KEY,
+    COLOR_RANGE_LIGHTNESS_PARAMETER_KEY, COLOR_RANGE_SATURATION_PARAMETER_KEY,
+    COLOR_RANGE_SOFTNESS_PARAMETER_KEY, COLOR_RANGE_WIDTH_PARAMETER_KEY,
+    CONTRAST_FACTOR_PARAMETER_KEY, CONTRAST_OPERATION_ID, CONTRAST_PIVOT_PARAMETER_KEY,
+    CPU_REFERENCE_IMPLEMENTATION_REVISION, CPU_REFERENCE_IMPLEMENTATION_VERSION,
+    CPU_REFERENCE_PARAMETER_SCHEMA_VERSION, DETAIL_EFFECTS_PARAMETERS_KEY,
+    DETAIL_EFFECTS_V2_IMPLEMENTATION_VERSION, EXPOSURE_OPERATION_ID, EXPOSURE_STOPS_PARAMETER_KEY,
+    HIGHLIGHTS_PARAMETER_KEY, LUT_3D_OPERATION_ID, LUT_INTENSITY_PARAMETER_KEY,
+    LUT_MANAGED_PATH_PARAMETER_KEY, LUT_RESOURCE_ID_PARAMETER_KEY, LUT_TITLE_PARAMETER_KEY,
+    PERCEPTUAL_COLOR_OPERATION_ID, PERCEPTUAL_COLOR_V2_IMPLEMENTATION_VERSION,
+    POINT_COLOR_RANGES_PARAMETER_KEY, RGB_WHITE_BALANCE_OPERATION_ID,
+    SATURATION_FACTOR_PARAMETER_KEY, SATURATION_OPERATION_ID, SELECTIVE_TONE_OPERATION_ID,
+    SHADOWS_PARAMETER_KEY, SHARPEN_AMOUNT_PARAMETER_KEY, SHARPEN_MASKING_PARAMETER_KEY,
+    SHARPEN_OPERATION_ID, SHARPEN_RADIUS_PARAMETER_KEY, SHARPEN_THRESHOLD_PARAMETER_KEY,
+    TONE_CURVE_BLUE_POINTS_PARAMETER_KEY, TONE_CURVE_GREEN_POINTS_PARAMETER_KEY,
+    TONE_CURVE_MASTER_POINTS_PARAMETER_KEY, TONE_CURVE_OPERATION_ID,
+    TONE_CURVE_RED_POINTS_PARAMETER_KEY, TONE_CURVE_V2_IMPLEMENTATION_VERSION,
+    TONE_CURVE_V2_PARAMETER_SCHEMA_VERSION, VIBRANCE_PARAMETER_KEY,
+    WHITE_BALANCE_TEMPERATURE_PARAMETER_KEY, WHITE_BALANCE_TINT_PARAMETER_KEY,
+    WHITES_PARAMETER_KEY,
 };
 use shadow_domain::{
     AdjustmentNode, AdjustmentScope, BlendMode, CURRENT_RECIPE_SCHEMA_VERSION, DecoderSnapshot,
-    EditGraph, EntityId, FiniteF64, ImageDimensions, ImageDomain, LayerContent, LayerContentDiff,
-    LayerInstance, LayerInstanceId, MAX_PHOTO_RATING, NewPhotoDecisionEvent, NodeId, NodeInput,
+    EditEntityMapV1, EditGraph, EditObject, EditObjectKind, EditObjectPack, EditRepositoryCommit,
+    EditRepositoryCommitPayloadV1, EditRepositoryRefExpectation, EditRepositoryRefKind, EntityId,
+    FiniteF64, ImageDimensions, ImageDomain, LayerContent, LayerContentDiff, LayerInstance,
+    LayerInstanceId, LibraryRootV1, MAX_PHOTO_RATING, NewPhotoDecisionEvent, NodeId, NodeInput,
     OperationDescriptor, OperationId, ParameterBlock, ParameterKey, ParameterValue,
     PhotoDecisionEvent, PhotoDecisionOrigin, PhotoDecisionState, PhotoFlag, PhotoId, PortType,
     PreviewByteOrder, PreviewCodec, PreviewPayload, ProcessingStage, ProxyPayload, RecipeCommit,
-    RecipeCommitId, RecipeDiff, RecipeId, RecipeSnapshot, RepresentationId, UnitInterval,
-    VersionName, diff_recipe_snapshots,
+    RecipeCommitId, RecipeDiff, RecipeId, RecipeInputSettings, RecipeOpticsSettings,
+    RecipeSnapshot, RepresentationId, UnitInterval, VersionName, diff_recipe_snapshots,
 };
 use uuid::Uuid;
 
@@ -136,6 +163,22 @@ mod ffi {
         visual_width: u32,
         visual_height: u32,
         has_visual: bool,
+        has_metadata: bool,
+        camera_make: String,
+        camera_model: String,
+        lens_make: String,
+        lens_model: String,
+        captured_at_unix_seconds: i64,
+        iso_speed: f64,
+        exposure_time_seconds: f64,
+        aperture_f_number: f64,
+        focal_length_mm: f64,
+        focal_length_35mm: f64,
+        raw_width: u32,
+        raw_height: u32,
+        sensor_bits: u32,
+        cfa_pattern: String,
+        dng_version: String,
         has_technical_observation: bool,
         technical_input_width: u32,
         technical_input_height: u32,
@@ -228,46 +271,140 @@ mod ffi {
     }
 
     /// The first renderer-backed edit subset exposed to Qt.
-    #[derive(Debug, Clone, Copy)]
+    #[derive(Debug, Clone)]
     struct FfiBasicEditParameters {
         exposure_stops: f64,
         contrast_factor: f64,
-        red_channel_gain: f64,
-        green_channel_gain: f64,
-        blue_channel_gain: f64,
+        white_balance_temperature: f64,
+        white_balance_tint: f64,
         saturation_factor: f64,
     }
 
-    /// One exact point in the versioned piecewise-linear Tone Curve contract.
-    #[derive(Debug, Clone, Copy)]
+    /// Extended precision controls. Fixed-band vectors always contain eight
+    /// normalized values in red→orange→yellow→green→aqua→blue→purple→magenta
+    /// order; the Rust adapter rejects every other shape before rendering.
+    #[derive(Debug, Clone)]
+    struct FfiFineEditParameters {
+        highlights: f64,
+        shadows: f64,
+        whites: f64,
+        blacks: f64,
+        vibrance: f64,
+        mixer_hue: Vec<f64>,
+        mixer_saturation: Vec<f64>,
+        mixer_lightness: Vec<f64>,
+        color_range_enabled: bool,
+        color_range_center: f64,
+        color_range_width: f64,
+        color_range_softness: f64,
+        color_range_hue: f64,
+        color_range_saturation: f64,
+        color_range_lightness: f64,
+        /// Ordered additional Point Color ranges, flattened as seven values each.
+        point_color_ranges: Vec<f64>,
+        lut_resource_id: String,
+        lut_title: String,
+        lut_managed_path: String,
+        lut_intensity: f64,
+        sharpen_amount: f64,
+        sharpen_radius: f64,
+        sharpen_threshold: f64,
+        sharpen_masking: f64,
+        denoise_luminance: f64,
+        denoise_detail: f64,
+        denoise_color: f64,
+        dehaze: f64,
+        defringe_purple_amount: f64,
+        defringe_purple_hue_low: f64,
+        defringe_purple_hue_high: f64,
+        defringe_green_amount: f64,
+        defringe_green_hue_low: f64,
+        defringe_green_hue_high: f64,
+        shadows_hue: f64,
+        shadows_saturation: f64,
+        shadows_luminance: f64,
+        midtones_hue: f64,
+        midtones_saturation: f64,
+        midtones_luminance: f64,
+        highlights_hue: f64,
+        highlights_saturation: f64,
+        highlights_luminance: f64,
+        grading_blending: f64,
+        grading_balance: f64,
+        grain_amount: f64,
+        grain_size: f64,
+        grain_roughness: f64,
+        vignette_amount: f64,
+        vignette_midpoint: f64,
+        vignette_roundness: f64,
+        vignette_feather: f64,
+        vignette_highlights: f64,
+    }
+
+    /// One exact authored point in the current smooth RGB curve contract.
+    #[derive(Debug, Clone)]
     struct FfiToneCurvePoint {
         x: f64,
         y: f64,
     }
 
-    /// One renderer-backed Basic adjustment layer with complete stable identity.
-    #[derive(Debug, Clone)]
-    struct FfiBasicEditLayer {
-        layer_id: String,
-        label: String,
-        enabled: bool,
-        exposure_node_id: String,
-        contrast_node_id: String,
-        /// Reserved even when `has_tone_curve` is false so adding a curve does
-        /// not require another identity allocation across the CXX boundary.
-        tone_curve_node_id: String,
-        channel_gain_node_id: String,
-        saturation_node_id: String,
-        basic: FfiBasicEditParameters,
-        has_tone_curve: bool,
-        tone_curve_points: Vec<FfiToneCurvePoint>,
+    /// Explicit Tone Curve persistence/execution contract.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum FfiToneCurveKind {
+        None,
+        SmoothRgb,
     }
 
-    /// Complete ordered editable adjustment stack. Layer zero is evaluated
-    /// first and the final layer is nearest the output.
+    /// One user-managed Grade Node. All eight Recipe v1 adapter identities are
+    /// explicit: persisted Recipes may contain legal non-derived ids, and a
+    /// Qt round trip must return those exact values. They are not user-facing
+    /// nodes.
+    #[derive(Debug, Clone)]
+    struct FfiGradeNode {
+        grade_node_id: String,
+        label: String,
+        enabled: bool,
+        exposure_render_op_id: String,
+        contrast_render_op_id: String,
+        selective_tone_render_op_id: String,
+        /// Reserved even when `tone_curve_kind` is `None` so adding a curve does
+        /// not require another identity allocation across the CXX boundary.
+        tone_curve_render_op_id: String,
+        white_balance_render_op_id: String,
+        saturation_render_op_id: String,
+        perceptual_color_render_op_id: String,
+        lut_render_op_id: String,
+        sharpen_render_op_id: String,
+        basic: FfiBasicEditParameters,
+        fine: FfiFineEditParameters,
+        tone_curve_kind: FfiToneCurveKind,
+        /// Every active curve stores explicit master, red, green, and blue
+        /// point sets.
+        tone_curve_master_points: Vec<FfiToneCurvePoint>,
+        tone_curve_red_points: Vec<FfiToneCurvePoint>,
+        tone_curve_green_points: Vec<FfiToneCurvePoint>,
+        tone_curve_blue_points: Vec<FfiToneCurvePoint>,
+    }
+
+    /// Complete ordered editable Grade Stack. Grade Node zero is evaluated
+    /// first and the final Grade Node is nearest the output.
     #[derive(Debug, Clone)]
     struct FfiEditSettings {
-        layers: Vec<FfiBasicEditLayer>,
+        optics: FfiOpticsSettings,
+        grade_nodes: Vec<FfiGradeNode>,
+    }
+
+    #[derive(Debug, Clone)]
+    struct FfiOpticsSettings {
+        enabled: bool,
+        correct_distortion: bool,
+        correct_tca: bool,
+        correct_vignetting: bool,
+        automatic_scale: bool,
+        camera_profile_maker: String,
+        camera_profile_model: String,
+        lens_profile_maker: String,
+        lens_profile_model: String,
     }
 
     /// One immutable-base edit preview request crossing the desktop boundary.
@@ -304,21 +441,24 @@ mod ffi {
         name: String,
         created_at_ms: i64,
         parent_commit_ids: Vec<String>,
+        /// Marks the commit whose pixels are currently loaded in the editor.
+        /// For a historical draft this is intentionally not the durable
+        /// Catalog `working` ref.
         is_working: bool,
         /// Root commits have no parent snapshot to compare with. All counters
         /// are zero and `changed_basic_parameters` is empty for roots.
         is_root: bool,
         recipe_schema_changed: bool,
-        layers_added: u32,
-        layers_removed: u32,
-        layers_moved: u32,
-        layers_modified: u32,
-        nodes_added: u32,
-        nodes_removed: u32,
-        nodes_modified: u32,
-        node_parameter_blocks_changed: u32,
+        grade_nodes_added: u32,
+        grade_nodes_removed: u32,
+        grade_nodes_moved: u32,
+        grade_nodes_modified: u32,
+        render_ops_added: u32,
+        render_ops_removed: u32,
+        render_ops_modified: u32,
+        render_op_parameter_blocks_changed: u32,
         /// Stable localization keys for the distinct supported control kinds
-        /// changed in one or more layers relative to the first parent.
+        /// changed in one or more Grade Nodes relative to the first parent.
         changed_basic_parameters: Vec<String>,
         changed_basic_parameter_count: u32,
         /// True when the structural diff contains changes not represented by
@@ -326,12 +466,20 @@ mod ffi {
         has_other_changes: bool,
     }
 
-    /// Durable state for one photo's basic adjustment surface.
+    /// One photo's current desktop edit state. Loading an immutable historical
+    /// version returns a non-persistent draft: `working_commit_id` is then the
+    /// draft's content base while the durable `working` ref remains untouched.
     #[derive(Debug)]
     struct FfiPhotoEditState {
         photo_id: String,
         source_path: String,
+        /// True when `working_commit_id` identifies the content currently
+        /// loaded into the editor. Historical drafts also satisfy this.
         has_working_version: bool,
+        is_version_draft: bool,
+        /// The content base currently loaded by the editor. When
+        /// `is_version_draft` is true, callers must retain and separately pass
+        /// the durable working head as `expected_working_commit_id` on save.
         working_commit_id: String,
         recipe_id: String,
         settings: FfiEditSettings,
@@ -356,6 +504,26 @@ mod ffi {
         pixel_count: u64,
         shadow_clipped_pixels: u64,
         highlight_clipped_pixels: u64,
+        optics_status: String,
+        optics_provider_id: String,
+        optics_provider_version: String,
+        optics_camera_profile: String,
+        optics_lens_profile: String,
+        optics_distortion_available: bool,
+        optics_tca_available: bool,
+        optics_vignetting_available: bool,
+        optics_applied_distortion: bool,
+        optics_applied_tca: bool,
+        optics_applied_vignetting: bool,
+        optics_applied_scaling: bool,
+    }
+
+    #[derive(Debug)]
+    struct FfiOpticsProfileCandidate {
+        camera_maker: String,
+        camera_model: String,
+        lens_maker: String,
+        lens_model: String,
     }
 
     /// Tightly packed display-sRGB RGB8 pixels for one level-zero tile.
@@ -381,7 +549,7 @@ mod ffi {
     extern "Rust" {
         type DesktopSession;
 
-        fn new_basic_edit_layer(label: &str) -> Result<FfiBasicEditLayer>;
+        fn new_basic_grade_node(label: &str) -> Result<FfiGradeNode>;
 
         fn open_desktop_session(
             catalog_path: &str,
@@ -450,6 +618,11 @@ mod ffi {
             photo_id: &str,
             source_path: &str,
         ) -> Result<FfiPhotoEditState>;
+        fn optics_profile_candidates(
+            self: &DesktopSession,
+            photo_id: &str,
+            source_path: &str,
+        ) -> Result<Vec<FfiOpticsProfileCandidate>>;
         fn render_basic_edit_preview(
             self: &DesktopSession,
             photo_id: &str,
@@ -463,11 +636,15 @@ mod ffi {
             source_path: &str,
             request: &FfiEditDetailViewportRequest,
         ) -> Result<FfiEditedDetailViewport>;
+        /// Saves the draft against `base_commit_id` while independently
+        /// compare-and-swapping the durable Catalog working ref against
+        /// `expected_working_commit_id`.
         fn save_basic_edit_version(
             self: &DesktopSession,
             photo_id: &str,
             source_path: &str,
             base_commit_id: &str,
+            expected_working_commit_id: &str,
             settings: &FfiEditSettings,
             version_name: &str,
         ) -> Result<FfiPhotoEditState>;
@@ -482,21 +659,21 @@ mod ffi {
 
 #[cfg(test)]
 impl std::ops::Deref for ffi::FfiEditSettings {
-    type Target = ffi::FfiBasicEditLayer;
+    type Target = ffi::FfiGradeNode;
 
     fn deref(&self) -> &Self::Target {
-        self.layers
+        self.grade_nodes
             .first()
-            .expect("validated FFI edit settings always contain one layer")
+            .expect("validated FFI edit settings always contain one Grade Node")
     }
 }
 
 #[cfg(test)]
 impl std::ops::DerefMut for ffi::FfiEditSettings {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.layers
+        self.grade_nodes
             .first_mut()
-            .expect("validated FFI edit settings always contain one layer")
+            .expect("validated FFI edit settings always contain one Grade Node")
     }
 }
 
@@ -627,6 +804,7 @@ struct CachedEditPreviewSession {
     representation_id: RepresentationId,
     source: RepresentationFingerprint,
     max_edge: u32,
+    optics: OpticsSettings,
     session: Arc<LibRawEditPreviewSession>,
 }
 
@@ -634,6 +812,7 @@ struct CachedEditPreviewSession {
 struct CachedEditDetailSession {
     representation_id: RepresentationId,
     source: RepresentationFingerprint,
+    optics: OpticsSettings,
     session: Arc<LibRawEditDetailSession>,
 }
 
@@ -1353,6 +1532,25 @@ impl DesktopSession {
         self.photo_edit_state_for(photo_id, &source.location.display_path)
     }
 
+    fn optics_profile_candidates(
+        &self,
+        photo_id: &str,
+        source_path: &str,
+    ) -> AnyResult<Vec<ffi::FfiOpticsProfileCandidate>> {
+        let (_, source) = self.validated_photo_source(photo_id, source_path)?;
+        Ok(
+            query_libraw_optics_profiles(&catalog_native_path(&source)?)?
+                .into_iter()
+                .map(|candidate| ffi::FfiOpticsProfileCandidate {
+                    camera_maker: candidate.camera_maker,
+                    camera_model: candidate.camera_model,
+                    lens_maker: candidate.lens_maker,
+                    lens_model: candidate.lens_model,
+                })
+                .collect(),
+        )
+    }
+
     fn render_basic_edit_preview(
         &self,
         photo_id: &str,
@@ -1366,10 +1564,15 @@ impl DesktopSession {
             &request.settings,
             request.use_working_recipe,
         )?;
-        let session = self.edit_preview_session(&source, request.max_edge)?;
+        let session = self.edit_preview_session(
+            &source,
+            request.max_edge,
+            bridge_optics_settings(&request.settings.optics),
+        )?;
         let rendered = session.render_plan_with_analysis(&plan, request.jpeg_quality)?;
         let proxy = rendered.proxy;
         let analysis = rendered.analysis;
+        let optics = session.optics_receipt();
         Ok(ffi::FfiEditedPreview {
             width: proxy.dimensions.width,
             height: proxy.dimensions.height,
@@ -1386,6 +1589,18 @@ impl DesktopSession {
             pixel_count: analysis.pixel_count,
             shadow_clipped_pixels: analysis.shadow_clipped_pixels,
             highlight_clipped_pixels: analysis.highlight_clipped_pixels,
+            optics_status: optics.status.clone(),
+            optics_provider_id: optics.provider_id.clone(),
+            optics_provider_version: optics.provider_version.clone(),
+            optics_camera_profile: optics.camera_profile.clone(),
+            optics_lens_profile: optics.lens_profile.clone(),
+            optics_distortion_available: optics.distortion_available,
+            optics_tca_available: optics.tca_available,
+            optics_vignetting_available: optics.vignetting_available,
+            optics_applied_distortion: optics.applied_distortion,
+            optics_applied_tca: optics.applied_tca,
+            optics_applied_vignetting: optics.applied_vignetting,
+            optics_applied_scaling: optics.applied_scaling,
         })
     }
 
@@ -1405,7 +1620,11 @@ impl DesktopSession {
             request.use_working_recipe,
         )?;
         self.ensure_current_edit_detail_render(request.render_token)?;
-        let session = self.edit_detail_session(&source, request.render_token)?;
+        let session = self.edit_detail_session(
+            &source,
+            request.render_token,
+            bridge_optics_settings(&request.settings.optics),
+        )?;
         self.ensure_current_edit_detail_render(request.render_token)?;
         let full_dimensions = session.dimensions();
         let rects = detail_viewport_rects(
@@ -1460,7 +1679,7 @@ impl DesktopSession {
         settings: &ffi::FfiEditSettings,
         use_working_recipe: bool,
     ) -> AnyResult<AdjustmentRenderPlan> {
-        let edits = preview_edit_settings(settings, use_working_recipe)?;
+        let grade_stack = preview_grade_stack_draft_recipe_v1(settings, use_working_recipe)?;
         // Sliders and their immutable base commit travel as one render
         // generation. Never resolve the movable working ref here: it may have
         // advanced while this worker was queued, which would create a hybrid
@@ -1482,7 +1701,7 @@ impl DesktopSession {
         let template = working_commit
             .as_ref()
             .map(|record| record.commit.snapshot());
-        let snapshot = edit_recipe_snapshot(&edits, template)?;
+        let snapshot = grade_stack_recipe_v1_snapshot(&grade_stack, template)?;
         compile_recipe_render_plan(&snapshot)
     }
 
@@ -1490,6 +1709,7 @@ impl DesktopSession {
         &self,
         source: &ReviewItemRecord,
         max_edge: u32,
+        optics: OpticsSettings,
     ) -> AnyResult<Arc<LibRawEditPreviewSession>> {
         {
             let mut sessions = self
@@ -1500,6 +1720,7 @@ impl DesktopSession {
                 entry.representation_id == source.representation_id
                     && entry.source == source.source
                     && entry.max_edge == max_edge
+                    && entry.optics == optics
             }) {
                 let entry = sessions
                     .remove(index)
@@ -1510,9 +1731,10 @@ impl DesktopSession {
             }
         }
 
-        let prepared = Arc::new(LibRawEditPreviewSession::open(
+        let prepared = Arc::new(LibRawEditPreviewSession::open_with_optics(
             &catalog_native_path(source)?,
             max_edge,
+            optics.clone(),
         )?);
         let mut sessions = self
             .edit_preview_sessions
@@ -1522,6 +1744,7 @@ impl DesktopSession {
             entry.representation_id == source.representation_id
                 && entry.source == source.source
                 && entry.max_edge == max_edge
+                && entry.optics == optics
         }) {
             return Ok(Arc::clone(&entry.session));
         }
@@ -1529,6 +1752,7 @@ impl DesktopSession {
             representation_id: source.representation_id,
             source: source.source,
             max_edge,
+            optics: optics.clone(),
             session: Arc::clone(&prepared),
         });
         sessions.truncate(2);
@@ -1539,6 +1763,7 @@ impl DesktopSession {
         &self,
         source: &ReviewItemRecord,
         render_token: u64,
+        optics: OpticsSettings,
     ) -> AnyResult<Arc<LibRawEditDetailSession>> {
         const SOURCE_CHANGED: &str = "full detail source changed since Catalog registration";
         const SOURCE_METADATA_CONTEXT: &str = "read full detail source metadata";
@@ -1559,7 +1784,9 @@ impl DesktopSession {
         // single cold-decode gate. Refuse stale work before opening LibRaw.
         self.ensure_current_edit_detail_render(render_token)?;
         if let Some(entry) = cached.as_ref().filter(|entry| {
-            entry.representation_id == source.representation_id && entry.source == source.source
+            entry.representation_id == source.representation_id
+                && entry.source == source.source
+                && entry.optics == optics
         }) {
             return Ok(Arc::clone(&entry.session));
         }
@@ -1570,7 +1797,10 @@ impl DesktopSession {
             bail!("full detail source is busy rendering another photo");
         }
         *cached = None;
-        let prepared = Arc::new(LibRawEditDetailSession::open(&native_path)?);
+        let prepared = Arc::new(LibRawEditDetailSession::open_with_optics(
+            &native_path,
+            optics.clone(),
+        )?);
         let decoded_source = fingerprint_source(&native_path).context(SOURCE_METADATA_CONTEXT)?;
         if decoded_source != source.source {
             bail!(SOURCE_CHANGED);
@@ -1578,6 +1808,7 @@ impl DesktopSession {
         *cached = Some(CachedEditDetailSession {
             representation_id: source.representation_id,
             source: source.source,
+            optics,
             session: Arc::clone(&prepared),
         });
         Ok(prepared)
@@ -1588,19 +1819,129 @@ impl DesktopSession {
         photo_id: &str,
         source_path: &str,
         base_commit_id: &str,
+        expected_working_commit_id: &str,
         settings: &ffi::FfiEditSettings,
         version_name: &str,
     ) -> AnyResult<ffi::FfiPhotoEditState> {
-        self.save_basic_edit_version_at(
+        self.save_basic_edit_version_at_with_expected(
             photo_id,
             source_path,
             base_commit_id,
+            expected_working_commit_id,
             settings,
             version_name,
             current_time_ms()?,
         )
     }
 
+    fn prepare_library_edit_version(
+        &self,
+        photo_id: PhotoId,
+        recipe_commit: &RecipeCommit,
+        version_name: &VersionName,
+        created_at_ms: i64,
+    ) -> AnyResult<(EditObjectPackWrite, CommitEditRepository)> {
+        let head = self.catalog.edit_repository_ref(LIBRARY_EDIT_MAIN_REF)?;
+        let (parent, root, photo_map) = if let Some(head) = head {
+            if head.kind != EditRepositoryRefKind::Branch {
+                bail!("Library edit ref {LIBRARY_EDIT_MAIN_REF} is not a branch");
+            }
+            let repository_commit = self
+                .catalog
+                .edit_repository_commit(head.commit_id)?
+                .ok_or_else(|| anyhow!("Library edit head commit {} is missing", head.commit_id))?;
+            let root_record = self
+                .catalog
+                .edit_object(repository_commit.commit.payload().root)?
+                .ok_or_else(|| {
+                    anyhow!(
+                        "Library edit root {} is missing",
+                        repository_commit.commit.payload().root
+                    )
+                })?;
+            let root = LibraryRootV1::from_object(&root_record.object)
+                .context("decode Library edit root")?;
+            let photo_map = if let Some(map_id) = root.photo_recipes {
+                let map_record = self
+                    .catalog
+                    .edit_object(map_id)?
+                    .ok_or_else(|| anyhow!("Library photo edit map {map_id} is missing"))?;
+                EditEntityMapV1::from_object(&map_record.object)
+                    .context("decode Library photo edit map")?
+            } else {
+                EditEntityMapV1::new(Vec::new())?
+            };
+            (Some(head.commit_id), root, photo_map)
+        } else {
+            (
+                None,
+                LibraryRootV1 {
+                    photo_recipes: None,
+                    shared_grade_heads: None,
+                    masks: None,
+                    styles: None,
+                    output_states: None,
+                },
+                EditEntityMapV1::new(Vec::new())?,
+            )
+        };
+
+        // The render recipe is wrapped as an immutable leaf while the Library
+        // repository remains the authoritative cross-entity history.
+        let recipe_object =
+            EditObject::from_canonical_json(EditObjectKind::LegacyRecipe, 1, recipe_commit)?;
+        let recipe_pack = EditObjectPack::new(recipe_object, Vec::new())?;
+        let photo_key = format!("{LIBRARY_PHOTO_EDIT_KEY_PREFIX}{photo_id}");
+        let photo_map = photo_map.with_entry(photo_key, recipe_pack.object().id())?;
+        let photo_map_pack = photo_map.into_object_pack()?;
+        let root_pack = LibraryRootV1 {
+            photo_recipes: Some(photo_map_pack.object().id()),
+            shared_grade_heads: root.shared_grade_heads,
+            masks: root.masks,
+            styles: root.styles,
+            output_states: root.output_states,
+        }
+        .into_object_pack()?;
+        let repository_commit = EditRepositoryCommit::new(EditRepositoryCommitPayloadV1 {
+            root: root_pack.object().id(),
+            parents: parent.into_iter().collect(),
+            message: Some(version_name.as_str().to_owned()),
+            created_at_ms,
+        })?;
+        let expected = parent.map_or(
+            EditRepositoryRefExpectation::Missing,
+            EditRepositoryRefExpectation::At,
+        );
+        let version_ref = format!(
+            "{LIBRARY_EDIT_VERSION_REF_PREFIX}{}",
+            repository_commit.id()
+        );
+        Ok((
+            EditObjectPackWrite {
+                objects: vec![root_pack, photo_map_pack, recipe_pack],
+                created_at_ms,
+            },
+            CommitEditRepository {
+                commit: repository_commit,
+                update_refs: vec![
+                    EditRepositoryRefUpdate {
+                        name: LIBRARY_EDIT_MAIN_REF.into(),
+                        kind: EditRepositoryRefKind::Branch,
+                        expected,
+                        updated_at_ms: created_at_ms,
+                    },
+                    EditRepositoryRefUpdate {
+                        name: version_ref,
+                        kind: EditRepositoryRefKind::NamedVersion,
+                        expected: EditRepositoryRefExpectation::Missing,
+                        updated_at_ms: created_at_ms,
+                    },
+                ],
+            },
+        ))
+    }
+
+    #[cfg(test)]
     fn save_basic_edit_version_at(
         &self,
         photo_id: &str,
@@ -1610,10 +1951,32 @@ impl DesktopSession {
         version_name: &str,
         created_at_ms: i64,
     ) -> AnyResult<ffi::FfiPhotoEditState> {
+        self.save_basic_edit_version_at_with_expected(
+            photo_id,
+            source_path,
+            base_commit_id,
+            base_commit_id,
+            settings,
+            version_name,
+            created_at_ms,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn save_basic_edit_version_at_with_expected(
+        &self,
+        photo_id: &str,
+        source_path: &str,
+        base_commit_id: &str,
+        expected_working_commit_id: &str,
+        settings: &ffi::FfiEditSettings,
+        version_name: &str,
+        created_at_ms: i64,
+    ) -> AnyResult<ffi::FfiPhotoEditState> {
         let (photo_id, source) = self.validated_photo_source(photo_id, source_path)?;
         let version_name =
             VersionName::new(version_name).context("validate basic edit version name")?;
-        let settings = edit_settings(settings)?;
+        let grade_stack = decode_grade_stack_draft_recipe_v1(settings)?;
         let base_commit_id = if base_commit_id.is_empty() {
             None
         } else {
@@ -1623,20 +1986,34 @@ impl DesktopSession {
                     .with_context(|| format!("parse save base commit id {base_commit_id}"))?,
             )
         };
-        let working_record = base_commit_id
+        let expected_working_commit_id = if expected_working_commit_id.is_empty() {
+            None
+        } else {
+            Some(
+                expected_working_commit_id
+                    .parse::<RecipeCommitId>()
+                    .with_context(|| {
+                        format!(
+                            "parse expected working Recipe commit id {expected_working_commit_id}"
+                        )
+                    })?,
+            )
+        };
+        // The content parent and the movable durable head are deliberately
+        // independent. Loading a historical version uses the old commit as its
+        // content base while CAS still guards the latest durable working ref.
+        let base_record = base_commit_id
             .map(|commit_id| {
                 self.catalog
                     .recipe_commit(photo_id, commit_id)?
                     .ok_or_else(|| anyhow!("save base Recipe commit {commit_id} is unavailable"))
             })
             .transpose()?;
-        let snapshot = edit_recipe_snapshot(
-            &settings,
-            working_record
-                .as_ref()
-                .map(|record| record.commit.snapshot()),
+        let snapshot = grade_stack_recipe_v1_snapshot(
+            &grade_stack,
+            base_record.as_ref().map(|record| record.commit.snapshot()),
         )?;
-        let (recipe_id, parents) = if let Some(record) = working_record.as_ref() {
+        let (recipe_id, parents) = if let Some(record) = base_record.as_ref() {
             (record.commit.recipe_id(), vec![record.commit.id()])
         } else {
             (RecipeId::new_v7(), Vec::new())
@@ -1650,15 +2027,15 @@ impl DesktopSession {
             Some(version_name.as_str().to_owned()),
             created_at_ms,
         )?;
-        self.catalog.commit_recipe(&CommitRecipe {
+        let recipe_request = CommitRecipe {
             photo_id,
-            commit,
+            commit: commit.clone(),
             update_refs: vec![
                 RecipeRefTarget {
                     name: WORKING_RECIPE_REF.to_owned(),
                     kind: RecipeRefKind::Working,
                     expectation: Some(
-                        base_commit_id
+                        expected_working_commit_id
                             .map_or(RecipeRefExpectation::Missing, RecipeRefExpectation::At),
                     ),
                 },
@@ -1668,7 +2045,18 @@ impl DesktopSession {
                     expectation: Some(RecipeRefExpectation::Missing),
                 },
             ],
-        })?;
+        };
+        let (object_pack, repository) =
+            self.prepare_library_edit_version(photo_id, &commit, &version_name, created_at_ms)?;
+        // Object insertion can safely precede publication: failed CAS leaves
+        // only unreachable immutable objects. Both commits and both ref sets
+        // are published in the following single SQLite transaction.
+        self.catalog.store_edit_object_pack(&object_pack)?;
+        self.catalog
+            .commit_recipe_and_edit_repository(&CommitRecipeAndEditRepository {
+                recipe: recipe_request,
+                repository,
+            })?;
         self.photo_edit_state_for(photo_id, &source.location.display_path)
     }
 
@@ -1678,31 +2066,19 @@ impl DesktopSession {
         source_path: &str,
         commit_id: &str,
     ) -> AnyResult<ffi::FfiPhotoEditState> {
-        self.checkout_basic_edit_version_at(photo_id, source_path, commit_id, current_time_ms()?)
-    }
-
-    fn checkout_basic_edit_version_at(
-        &self,
-        photo_id: &str,
-        source_path: &str,
-        commit_id: &str,
-        updated_at_ms: i64,
-    ) -> AnyResult<ffi::FfiPhotoEditState> {
         let (photo_id, source) = self.validated_photo_source(photo_id, source_path)?;
         let commit_id: RecipeCommitId = commit_id
             .parse()
             .with_context(|| format!("parse Recipe commit id {commit_id}"))?;
         let commits = self.catalog.recipe_commits(photo_id)?;
         let record = commit_record(&commits, commit_id)?;
-        edit_settings_from_snapshot(record.commit.snapshot())?;
-        self.catalog.set_recipe_ref(&SetRecipeRef {
+        decode_grade_stack_draft_from_recipe_v1_snapshot(record.commit.snapshot())?;
+        self.photo_edit_state_for_selected(
             photo_id,
-            name: WORKING_RECIPE_REF.to_owned(),
-            kind: RecipeRefKind::Working,
-            commit_id,
-            updated_at_ms,
-        })?;
-        self.photo_edit_state_for(photo_id, &source.location.display_path)
+            &source.location.display_path,
+            Some(commit_id),
+            true,
+        )
     }
 
     fn validated_photo_source(
@@ -1732,28 +2108,43 @@ impl DesktopSession {
         source_path: &str,
     ) -> AnyResult<ffi::FfiPhotoEditState> {
         let working = self.catalog.recipe_ref(photo_id, WORKING_RECIPE_REF)?;
+        self.photo_edit_state_for_selected(
+            photo_id,
+            source_path,
+            working.map(|reference| reference.commit_id),
+            false,
+        )
+    }
+
+    fn photo_edit_state_for_selected(
+        &self,
+        photo_id: PhotoId,
+        source_path: &str,
+        selected_commit_id: Option<RecipeCommitId>,
+        is_version_draft: bool,
+    ) -> AnyResult<ffi::FfiPhotoEditState> {
         let commits = self.catalog.recipe_commits(photo_id)?;
-        let working_record = working
-            .as_ref()
-            .map(|reference| commit_record(&commits, reference.commit_id))
+        let selected_record = selected_commit_id
+            .map(|commit_id| commit_record(&commits, commit_id))
             .transpose()?;
-        let settings = working_record.map_or_else(
-            || Ok(EditSettings::default()),
-            |record| edit_settings_from_snapshot(record.commit.snapshot()),
+        let grade_stack = selected_record.map_or_else(
+            || Ok(GradeStackDraft::default()),
+            |record| decode_grade_stack_draft_from_recipe_v1_snapshot(record.commit.snapshot()),
         )?;
-        let working_id = working_record.map(|record| record.commit.id());
-        let recipe_id = working_record.map(|record| record.commit.recipe_id());
+        let selected_id = selected_record.map(|record| record.commit.id());
+        let recipe_id = selected_record.map(|record| record.commit.recipe_id());
         let versions = commits
             .iter()
-            .map(|record| ffi_edit_version(record, &commits, working_id))
+            .map(|record| ffi_edit_version(record, &commits, selected_id))
             .collect::<AnyResult<Vec<_>>>()?;
         Ok(ffi::FfiPhotoEditState {
             photo_id: photo_id.to_string(),
             source_path: source_path.to_owned(),
-            has_working_version: working_id.is_some(),
-            working_commit_id: working_id.map_or_else(String::new, |id| id.to_string()),
+            has_working_version: selected_id.is_some(),
+            is_version_draft,
+            working_commit_id: selected_id.map_or_else(String::new, |id| id.to_string()),
             recipe_id: recipe_id.map_or_else(String::new, |id| id.to_string()),
-            settings: ffi_edit_settings(settings),
+            settings: encode_grade_stack_draft_recipe_v1(grade_stack),
             versions,
         })
     }
@@ -1761,6 +2152,9 @@ impl DesktopSession {
 
 const WORKING_RECIPE_REF: &str = "working";
 const NAMED_VERSION_REF_PREFIX: &str = "versions/";
+const LIBRARY_EDIT_MAIN_REF: &str = "heads/main";
+const LIBRARY_EDIT_VERSION_REF_PREFIX: &str = "versions/";
+const LIBRARY_PHOTO_EDIT_KEY_PREFIX: &str = "photo/";
 const CONTRAST_PIVOT: f64 = 0.18;
 const GRID_VISUAL_HANDLE_PREFIX: &str = "shadow-grid-visual-v1.";
 const GRID_VISUAL_HANDLE_SCHEMA_VERSION: u8 = 1;
@@ -1975,18 +2369,26 @@ fn ffi_photo_decision_receipt(event: PhotoDecisionEvent) -> ffi::FfiReviewDecisi
 const _: () = assert!(
     CPU_REFERENCE_PARAMETER_SCHEMA_VERSION == ADJUSTMENT_PARAMETER_SCHEMA_VERSION
         && CPU_REFERENCE_IMPLEMENTATION_REVISION == ADJUSTMENT_IMPLEMENTATION_VERSION
+        && TONE_CURVE_V2_PARAMETER_SCHEMA_VERSION == SMOOTH_RGB_TONE_CURVE_PARAMETER_SCHEMA_VERSION
 );
 
-const MAX_BASIC_EDIT_LAYERS: usize = 16;
-const BASIC_TONE_CURVE_SLOT_ID_DOMAIN: &[u8] = b"shadow.desktop.basic-tone-curve-slot-id.v1\0";
+const MAX_GRADE_NODES: usize = 16;
+const RECIPE_V1_TONE_CURVE_RENDER_OP_ID_DOMAIN: &[u8] =
+    b"shadow.desktop.basic-tone-curve-slot-id.v1\0";
+const RECIPE_V1_SELECTIVE_TONE_RENDER_OP_ID_DOMAIN: &[u8] =
+    b"shadow.desktop.selective-tone-slot-id.v1\0";
+const RECIPE_V1_PERCEPTUAL_COLOR_RENDER_OP_ID_DOMAIN: &[u8] =
+    b"shadow.desktop.perceptual-color-slot-id.v1\0";
+const RECIPE_V1_LUT_RENDER_OP_ID_DOMAIN: &[u8] = b"shadow.desktop.lut-slot-id.v1\0";
+const RECIPE_V1_SHARPEN_RENDER_OP_ID_DOMAIN: &[u8] = b"shadow.desktop.sharpen-slot-id.v1\0";
 
-/// Derives the otherwise-unpersisted optional Tone Curve slot identity from
-/// its owning layer. UUID version 8 marks this as a Shadow-defined value while
-/// the RFC 4122 variant keeps it interoperable with the typed UUID wrappers.
-fn basic_tone_curve_slot_id(layer_id: LayerInstanceId) -> NodeId {
+/// Derives the reserved identity of a render-operation slot from its owning
+/// Grade Node. UUID version 8 marks this as a Shadow-defined value while the
+/// RFC 4122 variant keeps it interoperable with the typed UUID wrappers.
+fn recipe_v1_derived_render_op_id(domain: &[u8], grade_node_id: LayerInstanceId) -> NodeId {
     let mut hasher = blake3::Hasher::new();
-    hasher.update(BASIC_TONE_CURVE_SLOT_ID_DOMAIN);
-    hasher.update(layer_id.as_bytes());
+    hasher.update(domain);
+    hasher.update(grade_node_id.as_bytes());
     let mut bytes = [0_u8; 16];
     bytes.copy_from_slice(&hasher.finalize().as_bytes()[..16]);
     bytes[6] = (bytes[6] & 0x0f) | 0x80;
@@ -1994,61 +2396,136 @@ fn basic_tone_curve_slot_id(layer_id: LayerInstanceId) -> NodeId {
     NodeId::from_uuid(Uuid::from_bytes(bytes))
 }
 
-#[derive(Debug, Clone, PartialEq)]
-struct EditableBasicLayerIdentity {
-    layer: LayerInstanceId,
-    exposure: NodeId,
-    contrast: NodeId,
-    tone_curve: NodeId,
-    channel_gain: NodeId,
-    saturation: NodeId,
+fn recipe_v1_tone_curve_render_op_id(grade_node_id: LayerInstanceId) -> NodeId {
+    recipe_v1_derived_render_op_id(RECIPE_V1_TONE_CURVE_RENDER_OP_ID_DOMAIN, grade_node_id)
 }
 
-impl EditableBasicLayerIdentity {
+fn recipe_v1_selective_tone_render_op_id(grade_node_id: LayerInstanceId) -> NodeId {
+    recipe_v1_derived_render_op_id(RECIPE_V1_SELECTIVE_TONE_RENDER_OP_ID_DOMAIN, grade_node_id)
+}
+
+fn recipe_v1_perceptual_color_render_op_id(grade_node_id: LayerInstanceId) -> NodeId {
+    recipe_v1_derived_render_op_id(
+        RECIPE_V1_PERCEPTUAL_COLOR_RENDER_OP_ID_DOMAIN,
+        grade_node_id,
+    )
+}
+
+fn recipe_v1_sharpen_render_op_id(grade_node_id: LayerInstanceId) -> NodeId {
+    recipe_v1_derived_render_op_id(RECIPE_V1_SHARPEN_RENDER_OP_ID_DOMAIN, grade_node_id)
+}
+
+fn recipe_v1_lut_render_op_id(grade_node_id: LayerInstanceId) -> NodeId {
+    recipe_v1_derived_render_op_id(RECIPE_V1_LUT_RENDER_OP_ID_DOMAIN, grade_node_id)
+}
+
+#[derive(Debug, Clone, PartialEq)]
+#[allow(clippy::struct_field_names)]
+struct GradeNodeRecipeV1Identity {
+    grade_node_id: LayerInstanceId,
+    exposure_render_op_id: NodeId,
+    contrast_render_op_id: NodeId,
+    tone_curve_render_op_id: NodeId,
+    selective_tone_render_op_id: NodeId,
+    white_balance_render_op_id: NodeId,
+    saturation_render_op_id: NodeId,
+    perceptual_color_render_op_id: NodeId,
+    lut_render_op_id: NodeId,
+    sharpen_render_op_id: NodeId,
+}
+
+impl GradeNodeRecipeV1Identity {
     fn new() -> Self {
-        let layer = LayerInstanceId::new_v7();
+        let grade_node_id = LayerInstanceId::new_v7();
         Self {
-            layer,
-            exposure: NodeId::new_v7(),
-            contrast: NodeId::new_v7(),
-            tone_curve: basic_tone_curve_slot_id(layer),
-            channel_gain: NodeId::new_v7(),
-            saturation: NodeId::new_v7(),
+            grade_node_id,
+            exposure_render_op_id: NodeId::new_v7(),
+            contrast_render_op_id: NodeId::new_v7(),
+            tone_curve_render_op_id: recipe_v1_tone_curve_render_op_id(grade_node_id),
+            selective_tone_render_op_id: recipe_v1_selective_tone_render_op_id(grade_node_id),
+            white_balance_render_op_id: NodeId::new_v7(),
+            saturation_render_op_id: NodeId::new_v7(),
+            perceptual_color_render_op_id: recipe_v1_perceptual_color_render_op_id(grade_node_id),
+            lut_render_op_id: recipe_v1_lut_render_op_id(grade_node_id),
+            sharpen_render_op_id: recipe_v1_sharpen_render_op_id(grade_node_id),
         }
     }
 
-    fn role_node_ids(&self) -> [(&'static str, NodeId); 5] {
+    /// Recipe v1 stores the controls inside one Grade Node as eight atomic
+    /// `AdjustmentNode`s. These are compiler/adapter identities, not Grade
+    /// Nodes exposed to the product surface.
+    fn recipe_v1_render_op_ids(&self) -> [(&'static str, NodeId); 9] {
         [
-            ("exposure", self.exposure),
-            ("contrast", self.contrast),
-            ("tone_curve", self.tone_curve),
-            ("channel_gain", self.channel_gain),
-            ("saturation", self.saturation),
+            ("exposure", self.exposure_render_op_id),
+            ("contrast", self.contrast_render_op_id),
+            ("selective_tone", self.selective_tone_render_op_id),
+            ("tone_curve", self.tone_curve_render_op_id),
+            ("rgb_white_balance", self.white_balance_render_op_id),
+            ("saturation", self.saturation_render_op_id),
+            ("perceptual_color", self.perceptual_color_render_op_id),
+            ("lut", self.lut_render_op_id),
+            ("sharpen", self.sharpen_render_op_id),
         ]
     }
 
     #[cfg(test)]
-    fn node_ids(&self) -> [NodeId; 5] {
-        self.role_node_ids().map(|(_, node_id)| node_id)
+    fn recipe_v1_render_op_id_values(&self) -> [NodeId; 9] {
+        self.recipe_v1_render_op_ids()
+            .map(|(_, render_op_id)| render_op_id)
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
-struct EditLayerSettings {
-    identity: EditableBasicLayerIdentity,
+struct GradeNodeDraft {
+    recipe_v1_identity: GradeNodeRecipeV1Identity,
     label: String,
     basic: BasicEditParameters,
-    layer_enabled: bool,
-    tone_curve: Option<Vec<ToneCurvePoint>>,
+    fine: FineEditParameters,
+    enabled: bool,
+    tone_curve: Option<ToneCurveDraft>,
 }
 
-impl EditLayerSettings {
+/// The one supported authored curve contract stored by immutable Recipes.
+#[derive(Debug, Clone, PartialEq)]
+enum ToneCurveDraft {
+    SmoothRgb(Box<SmoothRgbToneCurve>),
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+struct FineEditParameters {
+    selective_tone: SelectiveToneParameters,
+    perceptual_color: PerceptualColorParameters,
+    lut: LutEditParameters,
+    sharpen: SharpenParameters,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct LutEditParameters {
+    resource_id: String,
+    title: String,
+    managed_path: String,
+    intensity: f64,
+}
+
+impl Default for LutEditParameters {
+    fn default() -> Self {
+        Self {
+            resource_id: String::new(),
+            title: String::new(),
+            managed_path: String::new(),
+            intensity: 1.0,
+        }
+    }
+}
+
+impl GradeNodeDraft {
     fn neutral(label: impl Into<String>) -> Self {
         Self {
-            identity: EditableBasicLayerIdentity::new(),
+            recipe_v1_identity: GradeNodeRecipeV1Identity::new(),
             label: label.into(),
             basic: BasicEditParameters::default(),
-            layer_enabled: true,
+            fine: FineEditParameters::default(),
+            enabled: true,
             tone_curve: None,
         }
     }
@@ -2056,212 +2533,390 @@ impl EditLayerSettings {
     #[cfg(test)]
     fn duplicate(&self) -> Self {
         Self {
-            identity: EditableBasicLayerIdentity::new(),
+            recipe_v1_identity: GradeNodeRecipeV1Identity::new(),
             label: self.label.clone(),
             basic: self.basic,
-            layer_enabled: self.layer_enabled,
+            fine: self.fine.clone(),
+            enabled: self.enabled,
             tone_curve: self.tone_curve.clone(),
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
-struct EditSettings {
-    layers: Vec<EditLayerSettings>,
+struct GradeStackDraft {
+    optics: RecipeOpticsSettings,
+    grade_nodes: Vec<GradeNodeDraft>,
 }
 
-impl Default for EditSettings {
+fn recipe_optics_settings(settings: &ffi::FfiOpticsSettings) -> RecipeOpticsSettings {
+    RecipeOpticsSettings::new(
+        settings.enabled,
+        settings.correct_distortion,
+        settings.correct_tca,
+        settings.correct_vignetting,
+        settings.automatic_scale,
+    )
+    .with_manual_profile(
+        settings.camera_profile_maker.clone(),
+        settings.camera_profile_model.clone(),
+        settings.lens_profile_maker.clone(),
+        settings.lens_profile_model.clone(),
+    )
+}
+
+fn ffi_optics_settings(settings: &RecipeOpticsSettings) -> ffi::FfiOpticsSettings {
+    ffi::FfiOpticsSettings {
+        enabled: settings.enabled(),
+        correct_distortion: settings.correct_distortion(),
+        correct_tca: settings.correct_tca(),
+        correct_vignetting: settings.correct_vignetting(),
+        automatic_scale: settings.automatic_scale(),
+        camera_profile_maker: settings.camera_profile_maker().to_owned(),
+        camera_profile_model: settings.camera_profile_model().to_owned(),
+        lens_profile_maker: settings.lens_profile_maker().to_owned(),
+        lens_profile_model: settings.lens_profile_model().to_owned(),
+    }
+}
+
+fn bridge_optics_settings(settings: &ffi::FfiOpticsSettings) -> OpticsSettings {
+    OpticsSettings {
+        enabled: settings.enabled,
+        correct_distortion: settings.correct_distortion,
+        correct_tca: settings.correct_tca,
+        correct_vignetting: settings.correct_vignetting,
+        automatic_scale: settings.automatic_scale,
+        camera_profile_maker: settings.camera_profile_maker.clone(),
+        camera_profile_model: settings.camera_profile_model.clone(),
+        lens_profile_maker: settings.lens_profile_maker.clone(),
+        lens_profile_model: settings.lens_profile_model.clone(),
+    }
+}
+
+impl Default for GradeStackDraft {
     fn default() -> Self {
         Self {
-            layers: vec![EditLayerSettings::neutral(BASIC_LAYER_LABEL)],
+            optics: RecipeOpticsSettings::default(),
+            grade_nodes: vec![GradeNodeDraft::neutral(BASIC_LAYER_LABEL)],
         }
     }
 }
 
-impl std::ops::Deref for EditSettings {
-    type Target = EditLayerSettings;
+impl std::ops::Deref for GradeStackDraft {
+    type Target = GradeNodeDraft;
 
     fn deref(&self) -> &Self::Target {
-        self.layers
+        self.grade_nodes
             .first()
-            .expect("validated edit settings always contain one layer")
+            .expect("validated Grade Stack always contains one Grade Node")
     }
 }
 
-impl std::ops::DerefMut for EditSettings {
+impl std::ops::DerefMut for GradeStackDraft {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.layers
+        self.grade_nodes
             .first_mut()
-            .expect("validated edit settings always contain one layer")
+            .expect("validated Grade Stack always contains one Grade Node")
     }
 }
 
-fn new_basic_edit_layer(label: &str) -> AnyResult<ffi::FfiBasicEditLayer> {
-    let layer = EditLayerSettings::neutral(label);
-    let settings = EditSettings {
-        layers: vec![layer.clone()],
+fn new_basic_grade_node(label: &str) -> AnyResult<ffi::FfiGradeNode> {
+    let grade_node = GradeNodeDraft::neutral(label);
+    let grade_stack = GradeStackDraft {
+        optics: RecipeOpticsSettings::default(),
+        grade_nodes: vec![grade_node.clone()],
     };
-    edit_recipe_snapshot(&settings, None).context("validate new Basic edit layer")?;
-    Ok(ffi_basic_edit_layer(layer))
+    grade_stack_recipe_v1_snapshot(&grade_stack, None).context("validate new Basic Grade Node")?;
+    Ok(encode_grade_node_draft_recipe_v1(grade_node))
 }
 
-fn edit_settings(settings: &ffi::FfiEditSettings) -> AnyResult<EditSettings> {
-    if !(1..=MAX_BASIC_EDIT_LAYERS).contains(&settings.layers.len()) {
-        bail!("Adjustment Stack must contain 1 through 16 Basic layers");
+fn decode_grade_stack_draft_recipe_v1(
+    settings: &ffi::FfiEditSettings,
+) -> AnyResult<GradeStackDraft> {
+    if !(1..=MAX_GRADE_NODES).contains(&settings.grade_nodes.len()) {
+        bail!("Grade Stack must contain 1 through 16 Grade Nodes");
     }
-    let settings = EditSettings {
-        layers: settings
-            .layers
+    let grade_stack = GradeStackDraft {
+        optics: recipe_optics_settings(&settings.optics),
+        grade_nodes: settings
+            .grade_nodes
             .iter()
             .enumerate()
-            .map(|(index, layer)| ffi_edit_layer(layer, index))
+            .map(|(index, grade_node)| decode_grade_node_draft_recipe_v1(grade_node, index))
             .collect::<AnyResult<Vec<_>>>()?,
     };
-    validate_edit_settings(&settings)?;
+    validate_grade_stack_draft_recipe_v1(&grade_stack)?;
     // Domain construction authoritatively validates labels and the complete
     // graph generated from the untrusted desktop DTO.
-    edit_recipe_snapshot(&settings, None).context("validate Adjustment Stack Recipe")?;
-    Ok(settings)
+    grade_stack_recipe_v1_snapshot(&grade_stack, None).context("validate Grade Stack Recipe v1")?;
+    Ok(grade_stack)
 }
 
-fn ffi_edit_layer(layer: &ffi::FfiBasicEditLayer, index: usize) -> AnyResult<EditLayerSettings> {
-    let parse_layer_id = |value: &str| {
+fn decode_grade_node_draft_recipe_v1(
+    grade_node: &ffi::FfiGradeNode,
+    index: usize,
+) -> AnyResult<GradeNodeDraft> {
+    let parse_grade_node_id = |value: &str| {
         value
             .parse::<LayerInstanceId>()
-            .with_context(|| format!("parse Basic layer {index} id {value:?}"))
+            .with_context(|| format!("parse Grade Node {index} id {value:?}"))
     };
-    let parse_node_id = |role: &str, value: &str| {
-        value
-            .parse::<NodeId>()
-            .with_context(|| format!("parse Basic layer {index} {role} node id {value:?}"))
+    let parse_render_op_id = |role: &str, value: &str| {
+        value.parse::<NodeId>().with_context(|| {
+            format!("parse Grade Node {index} Recipe v1 {role} render-op id {value:?}")
+        })
     };
-    let tone_curve = match (layer.has_tone_curve, layer.tone_curve_points.is_empty()) {
-        (false, true) => None,
-        (false, false) => {
-            bail!("Tone Curve points must be empty when has_tone_curve is false")
+    let points = |source: &[ffi::FfiToneCurvePoint]| {
+        source
+            .iter()
+            .map(|point| ToneCurvePoint {
+                x: point.x,
+                y: point.y,
+            })
+            .collect::<Vec<_>>()
+    };
+    let master = points(&grade_node.tone_curve_master_points);
+    let red = points(&grade_node.tone_curve_red_points);
+    let green = points(&grade_node.tone_curve_green_points);
+    let blue = points(&grade_node.tone_curve_blue_points);
+    let tone_curve = match grade_node.tone_curve_kind {
+        ffi::FfiToneCurveKind::None => {
+            if [&master, &red, &green, &blue]
+                .into_iter()
+                .any(|channel| !channel.is_empty())
+            {
+                bail!("Tone Curve points must be empty when kind is None")
+            }
+            None
         }
-        (true, _) => Some(
-            layer
-                .tone_curve_points
-                .iter()
-                .map(|point| ToneCurvePoint {
-                    x: point.x,
-                    y: point.y,
-                })
-                .collect(),
-        ),
+        ffi::FfiToneCurveKind::SmoothRgb => {
+            Some(ToneCurveDraft::SmoothRgb(Box::new(SmoothRgbToneCurve {
+                master,
+                red,
+                green,
+                blue,
+            })))
+        }
+        _ => bail!("Tone Curve kind is not supported by this desktop build"),
     };
-    Ok(EditLayerSettings {
-        identity: EditableBasicLayerIdentity {
-            layer: parse_layer_id(&layer.layer_id)?,
-            exposure: parse_node_id("exposure", &layer.exposure_node_id)?,
-            contrast: parse_node_id("contrast", &layer.contrast_node_id)?,
-            tone_curve: parse_node_id("Tone Curve", &layer.tone_curve_node_id)?,
-            channel_gain: parse_node_id("channel gain", &layer.channel_gain_node_id)?,
-            saturation: parse_node_id("saturation", &layer.saturation_node_id)?,
+    let grade_node_id = parse_grade_node_id(&grade_node.grade_node_id)?;
+    Ok(GradeNodeDraft {
+        recipe_v1_identity: GradeNodeRecipeV1Identity {
+            grade_node_id,
+            exposure_render_op_id: parse_render_op_id(
+                "exposure",
+                &grade_node.exposure_render_op_id,
+            )?,
+            contrast_render_op_id: parse_render_op_id(
+                "contrast",
+                &grade_node.contrast_render_op_id,
+            )?,
+            tone_curve_render_op_id: parse_render_op_id(
+                "Tone Curve",
+                &grade_node.tone_curve_render_op_id,
+            )?,
+            selective_tone_render_op_id: parse_render_op_id(
+                "selective tone",
+                &grade_node.selective_tone_render_op_id,
+            )?,
+            white_balance_render_op_id: parse_render_op_id(
+                "channel gain",
+                &grade_node.white_balance_render_op_id,
+            )?,
+            saturation_render_op_id: parse_render_op_id(
+                "saturation",
+                &grade_node.saturation_render_op_id,
+            )?,
+            perceptual_color_render_op_id: parse_render_op_id(
+                "perceptual color",
+                &grade_node.perceptual_color_render_op_id,
+            )?,
+            lut_render_op_id: parse_render_op_id("LUT", &grade_node.lut_render_op_id)?,
+            sharpen_render_op_id: parse_render_op_id("sharpen", &grade_node.sharpen_render_op_id)?,
         },
-        label: layer.label.clone(),
-        basic: basic_parameters(&layer.basic)?,
-        layer_enabled: layer.enabled,
+        label: grade_node.label.clone(),
+        basic: basic_parameters(&grade_node.basic)?,
+        fine: fine_parameters(&grade_node.fine)?,
+        enabled: grade_node.enabled,
         tone_curve,
     })
+}
+
+fn fixed_color_mixer(values: &[f64], name: &str) -> AnyResult<[f64; COLOR_MIXER_BAND_COUNT]> {
+    values.try_into().map_err(|_| {
+        anyhow!("{name} must contain exactly {COLOR_MIXER_BAND_COUNT} hue-band values")
+    })
+}
+
+fn fine_parameters(parameters: &ffi::FfiFineEditParameters) -> AnyResult<FineEditParameters> {
+    let parameters = FineEditParameters {
+        selective_tone: SelectiveToneParameters {
+            highlights: parameters.highlights,
+            shadows: parameters.shadows,
+            whites: parameters.whites,
+            blacks: parameters.blacks,
+        },
+        perceptual_color: PerceptualColorParameters {
+            vibrance: parameters.vibrance,
+            hue_shifts: fixed_color_mixer(&parameters.mixer_hue, "mixer_hue")?,
+            saturation: fixed_color_mixer(&parameters.mixer_saturation, "mixer_saturation")?,
+            lightness: fixed_color_mixer(&parameters.mixer_lightness, "mixer_lightness")?,
+            color_range: ColorRangeParameters {
+                enabled: parameters.color_range_enabled,
+                center_hue_degrees: parameters.color_range_center,
+                width_degrees: parameters.color_range_width,
+                softness: parameters.color_range_softness,
+                hue_shift_degrees: parameters.color_range_hue,
+                saturation: parameters.color_range_saturation,
+                lightness: parameters.color_range_lightness,
+            },
+            additional_color_ranges: point_color_ranges_from_vector_optional(
+                &parameters.point_color_ranges,
+            )?,
+        },
+        lut: LutEditParameters {
+            resource_id: parameters.lut_resource_id.clone(),
+            title: parameters.lut_title.clone(),
+            managed_path: parameters.lut_managed_path.clone(),
+            intensity: parameters.lut_intensity,
+        },
+        sharpen: SharpenParameters {
+            amount: parameters.sharpen_amount,
+            radius: parameters.sharpen_radius,
+            threshold: parameters.sharpen_threshold,
+            masking: parameters.sharpen_masking,
+            denoise_luminance: parameters.denoise_luminance,
+            denoise_detail: parameters.denoise_detail,
+            denoise_color: parameters.denoise_color,
+            dehaze: parameters.dehaze,
+            defringe_purple_amount: parameters.defringe_purple_amount,
+            defringe_purple_hue_low: parameters.defringe_purple_hue_low,
+            defringe_purple_hue_high: parameters.defringe_purple_hue_high,
+            defringe_green_amount: parameters.defringe_green_amount,
+            defringe_green_hue_low: parameters.defringe_green_hue_low,
+            defringe_green_hue_high: parameters.defringe_green_hue_high,
+            shadows_hue: parameters.shadows_hue,
+            shadows_saturation: parameters.shadows_saturation,
+            shadows_luminance: parameters.shadows_luminance,
+            midtones_hue: parameters.midtones_hue,
+            midtones_saturation: parameters.midtones_saturation,
+            midtones_luminance: parameters.midtones_luminance,
+            highlights_hue: parameters.highlights_hue,
+            highlights_saturation: parameters.highlights_saturation,
+            highlights_luminance: parameters.highlights_luminance,
+            grading_blending: parameters.grading_blending,
+            grading_balance: parameters.grading_balance,
+            grain_amount: parameters.grain_amount,
+            grain_size: parameters.grain_size,
+            grain_roughness: parameters.grain_roughness,
+            vignette_amount: parameters.vignette_amount,
+            vignette_midpoint: parameters.vignette_midpoint,
+            vignette_roundness: parameters.vignette_roundness,
+            vignette_feather: parameters.vignette_feather,
+            vignette_highlights: parameters.vignette_highlights,
+        },
+    };
+    validate_fine_parameters(&parameters)?;
+    Ok(parameters)
 }
 
 fn basic_parameters(parameters: &ffi::FfiBasicEditParameters) -> AnyResult<BasicEditParameters> {
     let parameters = BasicEditParameters {
         exposure_stops: parameters.exposure_stops,
         contrast_factor: parameters.contrast_factor,
-        channel_gains: [
-            parameters.red_channel_gain,
-            parameters.green_channel_gain,
-            parameters.blue_channel_gain,
-        ],
+        white_balance_temperature: parameters.white_balance_temperature,
+        white_balance_tint: parameters.white_balance_tint,
         saturation_factor: parameters.saturation_factor,
     };
     validate_basic_parameters(parameters)?;
     Ok(parameters)
 }
 
-fn preview_edit_settings(
+fn preview_grade_stack_draft_recipe_v1(
     settings: &ffi::FfiEditSettings,
     use_working_recipe: bool,
-) -> AnyResult<EditSettings> {
+) -> AnyResult<GradeStackDraft> {
     if use_working_recipe {
-        edit_settings(settings)
+        decode_grade_stack_draft_recipe_v1(settings)
     } else {
         // Before is a product-level neutral import baseline, not merely a
         // render that happens to omit the persisted working Recipe. Both the
         // current slider state and Tone Curve must be excluded.
-        Ok(EditSettings::default())
+        Ok(GradeStackDraft::default())
     }
 }
 
-fn validate_edit_settings(settings: &EditSettings) -> AnyResult<()> {
-    if !(1..=MAX_BASIC_EDIT_LAYERS).contains(&settings.layers.len()) {
-        bail!("Adjustment Stack must contain 1 through 16 Basic layers");
+fn validate_grade_stack_draft_recipe_v1(grade_stack: &GradeStackDraft) -> AnyResult<()> {
+    if !(1..=MAX_GRADE_NODES).contains(&grade_stack.grade_nodes.len()) {
+        bail!("Grade Stack must contain 1 through 16 Grade Nodes");
     }
-    let mut layer_ids = HashSet::with_capacity(settings.layers.len());
-    let mut node_ids = HashSet::with_capacity(settings.layers.len() * 5);
-    for (index, layer) in settings.layers.iter().enumerate() {
-        if !layer_ids.insert(layer.identity.layer) {
+    let mut grade_node_ids = HashSet::with_capacity(grade_stack.grade_nodes.len());
+    let mut render_op_ids = HashSet::with_capacity(grade_stack.grade_nodes.len() * 8);
+    for (index, grade_node) in grade_stack.grade_nodes.iter().enumerate() {
+        let identity = &grade_node.recipe_v1_identity;
+        if !grade_node_ids.insert(identity.grade_node_id) {
             bail!(
-                "Adjustment Stack contains duplicate layer id {}",
-                layer.identity.layer
+                "Grade Stack contains duplicate Grade Node id {}",
+                identity.grade_node_id
             );
         }
-        for (role, node_id) in layer.identity.role_node_ids() {
-            if !node_ids.insert(node_id) {
+        for (role, render_op_id) in identity.recipe_v1_render_op_ids() {
+            if !render_op_ids.insert(render_op_id) {
                 bail!(
-                    "Adjustment Stack contains duplicate node id {node_id} at Basic layer {index} role {role}"
+                    "Grade Stack contains duplicate Recipe v1 render-op id {render_op_id} at Grade Node {index} role {role}"
                 );
             }
         }
-        validate_basic_parameters(layer.basic)?;
-        if let Some(points) = layer.tone_curve.as_deref() {
-            validate_tone_curve(points)?;
+        validate_basic_parameters(grade_node.basic)?;
+        validate_fine_parameters(&grade_node.fine)?;
+        if let Some(tone_curve) = grade_node.tone_curve.as_ref() {
+            validate_tone_curve_draft(tone_curve)?;
         }
     }
     Ok(())
 }
 
-fn validate_edit_settings_against_template(
-    settings: &EditSettings,
+fn validate_grade_stack_draft_against_recipe_v1_template(
+    grade_stack: &GradeStackDraft,
     template: &RecipeSnapshot,
 ) -> AnyResult<()> {
-    let template_settings =
-        edit_settings_from_snapshot(template).context("validate base Adjustment Stack Recipe")?;
-    let template_layers = template_settings
-        .layers
+    let template_grade_stack = decode_grade_stack_draft_from_recipe_v1_snapshot(template)
+        .context("validate base Grade Stack Recipe v1")?;
+    let template_grade_nodes = template_grade_stack
+        .grade_nodes
         .iter()
-        .map(|layer| (layer.identity.layer, layer))
+        .map(|grade_node| (grade_node.recipe_v1_identity.grade_node_id, grade_node))
         .collect::<HashMap<_, _>>();
-    let template_nodes = template_settings
-        .layers
+    let template_render_ops = template_grade_stack
+        .grade_nodes
         .iter()
-        .flat_map(|layer| {
-            layer
-                .identity
-                .role_node_ids()
-                .map(move |(role, node_id)| (node_id, (layer.identity.layer, role)))
+        .flat_map(|grade_node| {
+            let grade_node_id = grade_node.recipe_v1_identity.grade_node_id;
+            grade_node
+                .recipe_v1_identity
+                .recipe_v1_render_op_ids()
+                .map(move |(role, render_op_id)| (render_op_id, (grade_node_id, role)))
         })
         .collect::<HashMap<_, _>>();
 
-    for layer in &settings.layers {
-        if let Some(template_layer) = template_layers.get(&layer.identity.layer)
-            && layer.identity != template_layer.identity
+    for grade_node in &grade_stack.grade_nodes {
+        let identity = &grade_node.recipe_v1_identity;
+        if let Some(template_grade_node) = template_grade_nodes.get(&identity.grade_node_id)
+            && identity != &template_grade_node.recipe_v1_identity
         {
             bail!(
-                "retained Basic layer {} must preserve every stable node identity from its base Recipe",
-                layer.identity.layer
+                "retained Grade Node {} must preserve every stable Recipe v1 render-op identity from its base Recipe",
+                identity.grade_node_id
             );
         }
-        for (role, node_id) in layer.identity.role_node_ids() {
-            if let Some((template_layer_id, template_role)) = template_nodes.get(&node_id)
-                && (*template_layer_id != layer.identity.layer || *template_role != role)
+        for (role, render_op_id) in identity.recipe_v1_render_op_ids() {
+            if let Some((template_grade_node_id, template_role)) =
+                template_render_ops.get(&render_op_id)
+                && (*template_grade_node_id != identity.grade_node_id || *template_role != role)
             {
                 bail!(
-                    "Basic layer {} role {role} reuses base node id {node_id} owned by layer {template_layer_id} role {template_role}",
-                    layer.identity.layer
+                    "Grade Node {} role {role} reuses base Recipe v1 render-op id {render_op_id} owned by Grade Node {template_grade_node_id} role {template_role}",
+                    identity.grade_node_id
                 );
             }
         }
@@ -2299,18 +2954,163 @@ fn validate_tone_curve(points: &[ToneCurvePoint]) -> AnyResult<()> {
     Ok(())
 }
 
+fn validate_tone_curve_draft(tone_curve: &ToneCurveDraft) -> AnyResult<()> {
+    match tone_curve {
+        ToneCurveDraft::SmoothRgb(curves) => {
+            for (channel, points) in [
+                ("master", curves.master.as_slice()),
+                ("red", curves.red.as_slice()),
+                ("green", curves.green.as_slice()),
+                ("blue", curves.blue.as_slice()),
+            ] {
+                validate_tone_curve(points)
+                    .with_context(|| format!("validate smooth Tone Curve {channel} channel"))?;
+            }
+            Ok(())
+        }
+    }
+}
+
 fn validate_basic_parameters(parameters: BasicEditParameters) -> AnyResult<()> {
     validate_range(parameters.exposure_stops, -16.0, 16.0, "exposure stops")?;
     validate_range(parameters.contrast_factor, 0.0, 8.0, "contrast factor")?;
-    for (name, gain) in ["red", "green", "blue"]
-        .into_iter()
-        .zip(parameters.channel_gains)
+    validate_range(
+        parameters.white_balance_temperature,
+        -1.0,
+        1.0,
+        "RGB white balance temperature",
+    )?;
+    validate_range(
+        parameters.white_balance_tint,
+        -1.0,
+        1.0,
+        "RGB white balance tint",
+    )?;
+    validate_range(parameters.saturation_factor, 0.0, 8.0, "saturation factor")
+}
+
+fn validate_lut_parameters(parameters: &LutEditParameters) -> AnyResult<()> {
+    validate_range(parameters.intensity, 0.0, 1.0, "LUT intensity")?;
+    if parameters.resource_id.is_empty() {
+        if !parameters.title.is_empty() || !parameters.managed_path.is_empty() {
+            bail!("an unselected LUT must not retain title or managed path");
+        }
+        return Ok(());
+    }
+    if parameters.resource_id.len() != 64
+        || !parameters
+            .resource_id
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
     {
-        if !gain.is_finite() || gain <= 0.0 || gain > 16.0 {
-            bail!("{name} channel gain must be finite, greater than zero, and at most 16");
+        bail!("LUT resource id must be a lowercase SHA-256 digest");
+    }
+    if parameters.title.trim().is_empty() || parameters.title.len() > 512 {
+        bail!("selected LUT title must contain 1 through 512 bytes");
+    }
+    let managed_path = Path::new(&parameters.managed_path);
+    if !managed_path.is_absolute()
+        || managed_path.extension().and_then(|value| value.to_str()) != Some("cube")
+        || managed_path.file_stem().and_then(|value| value.to_str())
+            != Some(parameters.resource_id.as_str())
+    {
+        bail!("selected LUT must reference its content-addressed managed .cube path");
+    }
+    Ok(())
+}
+
+fn validate_fine_parameters(parameters: &FineEditParameters) -> AnyResult<()> {
+    let tone = parameters.selective_tone;
+    for (name, value) in [
+        ("highlights", tone.highlights),
+        ("shadows", tone.shadows),
+        ("whites", tone.whites),
+        ("blacks", tone.blacks),
+    ] {
+        validate_range(value, -1.0, 1.0, name)?;
+    }
+    let color = &parameters.perceptual_color;
+    validate_range(color.vibrance, -1.0, 1.0, "vibrance")?;
+    for (name, values) in [
+        ("Color Mixer hue", color.hue_shifts),
+        ("Color Mixer saturation", color.saturation),
+        ("Color Mixer lightness", color.lightness),
+    ] {
+        for value in values {
+            validate_range(value, -1.0, 1.0, name)?;
         }
     }
-    validate_range(parameters.saturation_factor, 0.0, 8.0, "saturation factor")
+    if 1 + color.additional_color_ranges.len() > MAX_POINT_COLOR_RANGES {
+        bail!("Point Color supports at most {MAX_POINT_COLOR_RANGES} ordered ranges");
+    }
+    for range in std::iter::once(&color.color_range).chain(color.additional_color_ranges.iter()) {
+        validate_range(range.center_hue_degrees, 0.0, 360.0, "color range center")?;
+        validate_range(range.width_degrees, 1.0, 180.0, "color range width")?;
+        validate_range(range.softness, 0.0, 1.0, "color range softness")?;
+        validate_range(range.hue_shift_degrees, -180.0, 180.0, "color range hue")?;
+        validate_range(range.saturation, -1.0, 1.0, "color range saturation")?;
+        validate_range(range.lightness, -1.0, 1.0, "color range lightness")?;
+    }
+    validate_lut_parameters(&parameters.lut)?;
+    let sharpen = parameters.sharpen;
+    validate_range(sharpen.amount, 0.0, 2.0, "sharpen amount")?;
+    validate_range(sharpen.radius, 0.1, 5.0, "sharpen radius")?;
+    validate_range(sharpen.threshold, 0.0, 1.0, "sharpen threshold")?;
+    validate_range(sharpen.masking, 0.0, 1.0, "sharpen masking")?;
+    for (name, value) in [
+        ("luminance noise reduction", sharpen.denoise_luminance),
+        ("noise reduction detail", sharpen.denoise_detail),
+        ("color noise reduction", sharpen.denoise_color),
+        ("purple defringe amount", sharpen.defringe_purple_amount),
+        ("green defringe amount", sharpen.defringe_green_amount),
+        ("shadow grading saturation", sharpen.shadows_saturation),
+        ("midtone grading saturation", sharpen.midtones_saturation),
+        (
+            "highlight grading saturation",
+            sharpen.highlights_saturation,
+        ),
+        ("grading blending", sharpen.grading_blending),
+        ("grain amount", sharpen.grain_amount),
+        ("grain size", sharpen.grain_size),
+        ("grain roughness", sharpen.grain_roughness),
+        ("vignette midpoint", sharpen.vignette_midpoint),
+        ("vignette feather", sharpen.vignette_feather),
+        ("vignette highlights", sharpen.vignette_highlights),
+    ] {
+        validate_range(value, 0.0, 1.0, name)?;
+    }
+    for (name, value) in [
+        ("dehaze", sharpen.dehaze),
+        ("shadow grading luminance", sharpen.shadows_luminance),
+        ("midtone grading luminance", sharpen.midtones_luminance),
+        ("highlight grading luminance", sharpen.highlights_luminance),
+        ("grading balance", sharpen.grading_balance),
+        ("vignette amount", sharpen.vignette_amount),
+        ("vignette roundness", sharpen.vignette_roundness),
+    ] {
+        validate_range(value, -1.0, 1.0, name)?;
+    }
+    for (name, value) in [
+        ("shadow grading hue", sharpen.shadows_hue),
+        ("midtone grading hue", sharpen.midtones_hue),
+        ("highlight grading hue", sharpen.highlights_hue),
+    ] {
+        validate_range(value, 0.0, 360.0, name)?;
+    }
+    for (name, value) in [
+        ("purple defringe hue low", sharpen.defringe_purple_hue_low),
+        ("purple defringe hue high", sharpen.defringe_purple_hue_high),
+        ("green defringe hue low", sharpen.defringe_green_hue_low),
+        ("green defringe hue high", sharpen.defringe_green_hue_high),
+    ] {
+        validate_range(value, 0.0, 360.0, name)?;
+    }
+    if sharpen.defringe_purple_hue_low + 10.0 > sharpen.defringe_purple_hue_high
+        || sharpen.defringe_green_hue_low + 10.0 > sharpen.defringe_green_hue_high
+    {
+        bail!("defringe hue ranges must have at least a 10 degree span");
+    }
+    Ok(())
 }
 
 fn validate_range(value: f64, minimum: f64, maximum: f64, name: &str) -> AnyResult<()> {
@@ -2325,52 +3125,146 @@ fn ffi_basic_parameters(parameters: BasicEditParameters) -> ffi::FfiBasicEditPar
     ffi::FfiBasicEditParameters {
         exposure_stops: parameters.exposure_stops,
         contrast_factor: parameters.contrast_factor,
-        red_channel_gain: parameters.channel_gains[0],
-        green_channel_gain: parameters.channel_gains[1],
-        blue_channel_gain: parameters.channel_gains[2],
+        white_balance_temperature: parameters.white_balance_temperature,
+        white_balance_tint: parameters.white_balance_tint,
         saturation_factor: parameters.saturation_factor,
     }
 }
 
-fn ffi_edit_settings(settings: EditSettings) -> ffi::FfiEditSettings {
+fn ffi_fine_parameters(parameters: &FineEditParameters) -> ffi::FfiFineEditParameters {
+    let tone = parameters.selective_tone;
+    let color = &parameters.perceptual_color;
+    let range = color.color_range;
+    ffi::FfiFineEditParameters {
+        highlights: tone.highlights,
+        shadows: tone.shadows,
+        whites: tone.whites,
+        blacks: tone.blacks,
+        vibrance: color.vibrance,
+        mixer_hue: color.hue_shifts.to_vec(),
+        mixer_saturation: color.saturation.to_vec(),
+        mixer_lightness: color.lightness.to_vec(),
+        color_range_enabled: range.enabled,
+        color_range_center: range.center_hue_degrees,
+        color_range_width: range.width_degrees,
+        color_range_softness: range.softness,
+        color_range_hue: range.hue_shift_degrees,
+        color_range_saturation: range.saturation,
+        color_range_lightness: range.lightness,
+        point_color_ranges: color
+            .additional_color_ranges
+            .iter()
+            .flat_map(|range| {
+                [
+                    if range.enabled { 1.0 } else { 0.0 },
+                    range.center_hue_degrees,
+                    range.width_degrees,
+                    range.softness,
+                    range.hue_shift_degrees,
+                    range.saturation,
+                    range.lightness,
+                ]
+            })
+            .collect(),
+        lut_resource_id: parameters.lut.resource_id.clone(),
+        lut_title: parameters.lut.title.clone(),
+        lut_managed_path: parameters.lut.managed_path.clone(),
+        lut_intensity: parameters.lut.intensity,
+        sharpen_amount: parameters.sharpen.amount,
+        sharpen_radius: parameters.sharpen.radius,
+        sharpen_threshold: parameters.sharpen.threshold,
+        sharpen_masking: parameters.sharpen.masking,
+        denoise_luminance: parameters.sharpen.denoise_luminance,
+        denoise_detail: parameters.sharpen.denoise_detail,
+        denoise_color: parameters.sharpen.denoise_color,
+        dehaze: parameters.sharpen.dehaze,
+        defringe_purple_amount: parameters.sharpen.defringe_purple_amount,
+        defringe_purple_hue_low: parameters.sharpen.defringe_purple_hue_low,
+        defringe_purple_hue_high: parameters.sharpen.defringe_purple_hue_high,
+        defringe_green_amount: parameters.sharpen.defringe_green_amount,
+        defringe_green_hue_low: parameters.sharpen.defringe_green_hue_low,
+        defringe_green_hue_high: parameters.sharpen.defringe_green_hue_high,
+        shadows_hue: parameters.sharpen.shadows_hue,
+        shadows_saturation: parameters.sharpen.shadows_saturation,
+        shadows_luminance: parameters.sharpen.shadows_luminance,
+        midtones_hue: parameters.sharpen.midtones_hue,
+        midtones_saturation: parameters.sharpen.midtones_saturation,
+        midtones_luminance: parameters.sharpen.midtones_luminance,
+        highlights_hue: parameters.sharpen.highlights_hue,
+        highlights_saturation: parameters.sharpen.highlights_saturation,
+        highlights_luminance: parameters.sharpen.highlights_luminance,
+        grading_blending: parameters.sharpen.grading_blending,
+        grading_balance: parameters.sharpen.grading_balance,
+        grain_amount: parameters.sharpen.grain_amount,
+        grain_size: parameters.sharpen.grain_size,
+        grain_roughness: parameters.sharpen.grain_roughness,
+        vignette_amount: parameters.sharpen.vignette_amount,
+        vignette_midpoint: parameters.sharpen.vignette_midpoint,
+        vignette_roundness: parameters.sharpen.vignette_roundness,
+        vignette_feather: parameters.sharpen.vignette_feather,
+        vignette_highlights: parameters.sharpen.vignette_highlights,
+    }
+}
+
+fn encode_grade_stack_draft_recipe_v1(grade_stack: GradeStackDraft) -> ffi::FfiEditSettings {
     ffi::FfiEditSettings {
-        layers: settings
-            .layers
+        optics: ffi_optics_settings(&grade_stack.optics),
+        grade_nodes: grade_stack
+            .grade_nodes
             .into_iter()
-            .map(ffi_basic_edit_layer)
+            .map(encode_grade_node_draft_recipe_v1)
             .collect(),
     }
 }
 
-fn ffi_basic_edit_layer(layer: EditLayerSettings) -> ffi::FfiBasicEditLayer {
-    let has_tone_curve = layer.tone_curve.is_some();
-    let tone_curve_points = layer
-        .tone_curve
-        .unwrap_or_default()
-        .into_iter()
-        .map(|point| ffi::FfiToneCurvePoint {
-            x: point.x,
-            y: point.y,
-        })
-        .collect();
-    ffi::FfiBasicEditLayer {
-        layer_id: layer.identity.layer.to_string(),
-        label: layer.label,
-        enabled: layer.layer_enabled,
-        exposure_node_id: layer.identity.exposure.to_string(),
-        contrast_node_id: layer.identity.contrast.to_string(),
-        tone_curve_node_id: layer.identity.tone_curve.to_string(),
-        channel_gain_node_id: layer.identity.channel_gain.to_string(),
-        saturation_node_id: layer.identity.saturation.to_string(),
-        basic: ffi_basic_parameters(layer.basic),
-        has_tone_curve,
-        tone_curve_points,
+fn encode_grade_node_draft_recipe_v1(grade_node: GradeNodeDraft) -> ffi::FfiGradeNode {
+    let ffi_points = |points: Vec<ToneCurvePoint>| {
+        points
+            .into_iter()
+            .map(|point| ffi::FfiToneCurvePoint {
+                x: point.x,
+                y: point.y,
+            })
+            .collect::<Vec<_>>()
+    };
+    let (tone_curve_kind, master, red, green, blue) = match grade_node.tone_curve {
+        None => (ffi::FfiToneCurveKind::None, vec![], vec![], vec![], vec![]),
+        Some(ToneCurveDraft::SmoothRgb(curves)) => (
+            ffi::FfiToneCurveKind::SmoothRgb,
+            ffi_points(curves.master),
+            ffi_points(curves.red),
+            ffi_points(curves.green),
+            ffi_points(curves.blue),
+        ),
+    };
+    let identity = grade_node.recipe_v1_identity;
+    ffi::FfiGradeNode {
+        grade_node_id: identity.grade_node_id.to_string(),
+        label: grade_node.label,
+        enabled: grade_node.enabled,
+        exposure_render_op_id: identity.exposure_render_op_id.to_string(),
+        contrast_render_op_id: identity.contrast_render_op_id.to_string(),
+        selective_tone_render_op_id: identity.selective_tone_render_op_id.to_string(),
+        tone_curve_render_op_id: identity.tone_curve_render_op_id.to_string(),
+        white_balance_render_op_id: identity.white_balance_render_op_id.to_string(),
+        saturation_render_op_id: identity.saturation_render_op_id.to_string(),
+        perceptual_color_render_op_id: identity.perceptual_color_render_op_id.to_string(),
+        lut_render_op_id: identity.lut_render_op_id.to_string(),
+        sharpen_render_op_id: identity.sharpen_render_op_id.to_string(),
+        basic: ffi_basic_parameters(grade_node.basic),
+        fine: ffi_fine_parameters(&grade_node.fine),
+        tone_curve_kind,
+        tone_curve_master_points: master,
+        tone_curve_red_points: red,
+        tone_curve_green_points: green,
+        tone_curve_blue_points: blue,
     }
 }
 
-/// Compiles the currently executable Recipe subset into dependency order.
-/// Recipe layer vector order is the inter-layer execution order; graph
-/// bindings and the explicit output node define order within each layer.
+/// Compiles the currently executable Recipe v1 adapter subset into dependency
+/// order. Recipe `LayerInstance` vector order is the Grade Node execution
+/// order; graph bindings and the explicit output node define the private
+/// render-operation order within each Grade Node.
 fn compile_recipe_render_plan(snapshot: &RecipeSnapshot) -> AnyResult<AdjustmentRenderPlan> {
     snapshot
         .validate()
@@ -2382,18 +3276,18 @@ fn compile_recipe_render_plan(snapshot: &RecipeSnapshot) -> AnyResult<Adjustment
             snapshot.schema_version()
         );
     }
-    if !(1..=MAX_BASIC_EDIT_LAYERS).contains(&snapshot.layers().len()) {
-        bail!("Recipe render compiler supports 1 through 16 Basic layers");
+    if !(1..=MAX_GRADE_NODES).contains(&snapshot.layers().len()) {
+        bail!("Recipe v1 render compiler supports 1 through 16 Grade Nodes");
     }
 
     let mut compiled = Vec::new();
     let mut compiled_node_ids = HashSet::new();
     for layer in snapshot.layers() {
-        let nodes = basic_layer_nodes(layer)?;
+        let nodes = grade_node_recipe_v1_render_ops(layer)?;
         for node in nodes.ordered() {
             if !compiled_node_ids.insert(node.id()) {
                 bail!(
-                    "Recipe render compiler rejects duplicate Adjustment Stack node id {}",
+                    "Recipe v1 render compiler rejects duplicate render-op id {}",
                     node.id()
                 );
             }
@@ -2464,15 +3358,31 @@ fn ordered_inline_layer_nodes(layer: &LayerInstance) -> AnyResult<Vec<&Adjustmen
     Ok(reverse)
 }
 
+#[allow(clippy::too_many_lines)] // Keep the exhaustive operation-contract mapping auditable.
 fn compile_recipe_node(
     node: &AdjustmentNode,
     layer_id: LayerInstanceId,
-    layer_enabled: bool,
+    grade_node_enabled: bool,
 ) -> AnyResult<AdjustmentRenderNode> {
     let descriptor = node.operation();
     let rgb = PortType::Image(ImageDomain::WorkingRgb);
-    if descriptor.parameter_schema_version() != CPU_REFERENCE_PARAMETER_SCHEMA_VERSION
-        || descriptor.implementation_version() != CPU_REFERENCE_IMPLEMENTATION_VERSION
+    let is_base_contract = descriptor.parameter_schema_version()
+        == CPU_REFERENCE_PARAMETER_SCHEMA_VERSION
+        && descriptor.implementation_version() == CPU_REFERENCE_IMPLEMENTATION_VERSION;
+    let is_current_tone_curve = descriptor.operation_id().as_str() == TONE_CURVE_OPERATION_ID
+        && descriptor.parameter_schema_version() == TONE_CURVE_V2_PARAMETER_SCHEMA_VERSION
+        && descriptor.implementation_version() == TONE_CURVE_V2_IMPLEMENTATION_VERSION;
+    let is_current_perceptual_color = descriptor.operation_id().as_str()
+        == PERCEPTUAL_COLOR_OPERATION_ID
+        && descriptor.parameter_schema_version() == PERCEPTUAL_COLOR_V2_PARAMETER_SCHEMA_VERSION
+        && descriptor.implementation_version() == PERCEPTUAL_COLOR_V2_IMPLEMENTATION_VERSION;
+    let is_current_detail_effects = descriptor.operation_id().as_str() == SHARPEN_OPERATION_ID
+        && descriptor.parameter_schema_version() == DETAIL_EFFECTS_V2_PARAMETER_SCHEMA_VERSION
+        && descriptor.implementation_version() == DETAIL_EFFECTS_V2_IMPLEMENTATION_VERSION;
+    if (!is_base_contract
+        && !is_current_tone_curve
+        && !is_current_perceptual_color
+        && !is_current_detail_effects)
         || descriptor.input_types() != [rgb]
         || descriptor.output_type() != rgb
         || descriptor.seed().is_some()
@@ -2500,35 +3410,236 @@ fn compile_recipe_node(
         }
         TONE_CURVE_OPERATION_ID => {
             require_stage(node, ProcessingStage::ToneAndLocalContrast)?;
-            let flattened =
-                required_float_vector(node.parameters(), TONE_CURVE_POINTS_PARAMETER_KEY, 1)?;
-            if flattened.len() % 2 != 0 {
-                bail!("Recipe Tone Curve points must contain flattened x/y pairs");
+            if !is_current_tone_curve {
+                bail!("Recipe Tone Curve uses a discarded contract");
             }
-            AdjustmentRenderOperation::ToneCurve {
-                points: flattened
-                    .chunks_exact(2)
-                    .map(|point| ToneCurvePoint {
-                        x: point[0],
-                        y: point[1],
-                    })
-                    .collect(),
+            AdjustmentRenderOperation::SmoothRgbToneCurve {
+                curves: Box::new(SmoothRgbToneCurve {
+                    master: tone_curve_points_from_vector(&required_float_vector(
+                        node.parameters(),
+                        TONE_CURVE_MASTER_POINTS_PARAMETER_KEY,
+                        4,
+                    )?)?,
+                    red: tone_curve_points_from_vector(&required_float_vector(
+                        node.parameters(),
+                        TONE_CURVE_RED_POINTS_PARAMETER_KEY,
+                        4,
+                    )?)?,
+                    green: tone_curve_points_from_vector(&required_float_vector(
+                        node.parameters(),
+                        TONE_CURVE_GREEN_POINTS_PARAMETER_KEY,
+                        4,
+                    )?)?,
+                    blue: tone_curve_points_from_vector(&required_float_vector(
+                        node.parameters(),
+                        TONE_CURVE_BLUE_POINTS_PARAMETER_KEY,
+                        4,
+                    )?)?,
+                }),
             }
         }
-        CHANNEL_GAIN_OPERATION_ID => {
+        RGB_WHITE_BALANCE_OPERATION_ID => {
             require_stage(node, ProcessingStage::CreativeColor)?;
-            let gains = required_float_vector(node.parameters(), CHANNEL_GAINS_PARAMETER_KEY, 1)?;
-            let [red, green, blue] = gains.as_slice() else {
-                bail!("Recipe channel gain must contain exactly three values");
-            };
-            AdjustmentRenderOperation::ChannelGain {
-                channel_gains: [*red, *green, *blue],
+            AdjustmentRenderOperation::RgbWhiteBalance {
+                temperature: required_float(
+                    node.parameters(),
+                    WHITE_BALANCE_TEMPERATURE_PARAMETER_KEY,
+                    2,
+                )?,
+                tint: required_float(node.parameters(), WHITE_BALANCE_TINT_PARAMETER_KEY, 2)?,
             }
         }
         SATURATION_OPERATION_ID => {
             require_stage(node, ProcessingStage::CreativeColor)?;
             AdjustmentRenderOperation::Saturation {
                 factor: required_float(node.parameters(), SATURATION_FACTOR_PARAMETER_KEY, 1)?,
+            }
+        }
+        SELECTIVE_TONE_OPERATION_ID => {
+            require_stage(node, ProcessingStage::ToneAndLocalContrast)?;
+            AdjustmentRenderOperation::SelectiveTone {
+                parameters: SelectiveToneParameters {
+                    highlights: required_float(node.parameters(), HIGHLIGHTS_PARAMETER_KEY, 4)?,
+                    shadows: required_float(node.parameters(), SHADOWS_PARAMETER_KEY, 4)?,
+                    whites: required_float(node.parameters(), WHITES_PARAMETER_KEY, 4)?,
+                    blacks: required_float(node.parameters(), BLACKS_PARAMETER_KEY, 4)?,
+                },
+            }
+        }
+        PERCEPTUAL_COLOR_OPERATION_ID => {
+            require_stage(node, ProcessingStage::CreativeColor)?;
+            if !is_current_perceptual_color {
+                bail!("Recipe Color Mixer uses a discarded contract");
+            }
+            let expected_len = 12;
+            AdjustmentRenderOperation::PerceptualColor {
+                parameters: Box::new(PerceptualColorParameters {
+                    vibrance: required_float(
+                        node.parameters(),
+                        VIBRANCE_PARAMETER_KEY,
+                        expected_len,
+                    )?,
+                    hue_shifts: fixed_color_mixer(
+                        &required_float_vector(
+                            node.parameters(),
+                            COLOR_MIXER_HUE_PARAMETER_KEY,
+                            expected_len,
+                        )?,
+                        "Recipe Color Mixer hue",
+                    )?,
+                    saturation: fixed_color_mixer(
+                        &required_float_vector(
+                            node.parameters(),
+                            COLOR_MIXER_SATURATION_PARAMETER_KEY,
+                            expected_len,
+                        )?,
+                        "Recipe Color Mixer saturation",
+                    )?,
+                    lightness: fixed_color_mixer(
+                        &required_float_vector(
+                            node.parameters(),
+                            COLOR_MIXER_LIGHTNESS_PARAMETER_KEY,
+                            expected_len,
+                        )?,
+                        "Recipe Color Mixer lightness",
+                    )?,
+                    color_range: ColorRangeParameters {
+                        enabled: required_bool(
+                            node.parameters(),
+                            COLOR_RANGE_ENABLED_PARAMETER_KEY,
+                            expected_len,
+                        )?,
+                        center_hue_degrees: required_float(
+                            node.parameters(),
+                            COLOR_RANGE_CENTER_PARAMETER_KEY,
+                            expected_len,
+                        )?,
+                        width_degrees: required_float(
+                            node.parameters(),
+                            COLOR_RANGE_WIDTH_PARAMETER_KEY,
+                            expected_len,
+                        )?,
+                        softness: required_float(
+                            node.parameters(),
+                            COLOR_RANGE_SOFTNESS_PARAMETER_KEY,
+                            expected_len,
+                        )?,
+                        hue_shift_degrees: required_float(
+                            node.parameters(),
+                            COLOR_RANGE_HUE_PARAMETER_KEY,
+                            expected_len,
+                        )?,
+                        saturation: required_float(
+                            node.parameters(),
+                            COLOR_RANGE_SATURATION_PARAMETER_KEY,
+                            expected_len,
+                        )?,
+                        lightness: required_float(
+                            node.parameters(),
+                            COLOR_RANGE_LIGHTNESS_PARAMETER_KEY,
+                            expected_len,
+                        )?,
+                    },
+                    additional_color_ranges: point_color_ranges_from_vector(
+                        &required_float_vector(
+                            node.parameters(),
+                            POINT_COLOR_RANGES_PARAMETER_KEY,
+                            expected_len,
+                        )?,
+                    )?,
+                }),
+            }
+        }
+        LUT_3D_OPERATION_ID => {
+            require_stage(node, ProcessingStage::CreativeColor)?;
+            let expected_len = 4;
+            let resource_id = required_text(
+                node.parameters(),
+                LUT_RESOURCE_ID_PARAMETER_KEY,
+                expected_len,
+            )?;
+            let _title = required_text(node.parameters(), LUT_TITLE_PARAMETER_KEY, expected_len)?;
+            let managed_path = required_text(
+                node.parameters(),
+                LUT_MANAGED_PATH_PARAMETER_KEY,
+                expected_len,
+            )?;
+            let requested_intensity =
+                required_float(node.parameters(), LUT_INTENSITY_PARAMETER_KEY, expected_len)?;
+            if resource_id.is_empty() {
+                if !managed_path.is_empty() {
+                    bail!("unselected LUT has a managed path");
+                }
+                AdjustmentRenderOperation::Lut3D {
+                    document: Vec::new(),
+                    intensity: 0.0,
+                }
+            } else {
+                let path = Path::new(&managed_path);
+                if resource_id.len() != 64
+                    || !resource_id
+                        .bytes()
+                        .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+                    || !path.is_absolute()
+                    || path.extension().and_then(|value| value.to_str()) != Some("cube")
+                    || path.file_stem().and_then(|value| value.to_str())
+                        != Some(resource_id.as_str())
+                {
+                    bail!("Recipe LUT does not reference a content-addressed managed resource");
+                }
+                let metadata = std::fs::metadata(path)
+                    .with_context(|| format!("inspect managed LUT {managed_path:?}"))?;
+                if metadata.len() == 0
+                    || metadata.len() > u64::try_from(MAX_LUT_DOCUMENT_BYTES).unwrap()
+                {
+                    bail!("managed LUT must contain 1 byte through 16 MiB");
+                }
+                AdjustmentRenderOperation::Lut3D {
+                    document: std::fs::read(path)
+                        .with_context(|| format!("read managed LUT {managed_path:?}"))?,
+                    intensity: requested_intensity,
+                }
+            }
+        }
+        SHARPEN_OPERATION_ID => {
+            require_stage(node, ProcessingStage::DetailAndEffects)?;
+            if !is_current_detail_effects {
+                bail!("Recipe Detail & Effects uses a discarded contract");
+            }
+            let expected_len = 5;
+            let mut parameters = SharpenParameters {
+                amount: required_float(
+                    node.parameters(),
+                    SHARPEN_AMOUNT_PARAMETER_KEY,
+                    expected_len,
+                )?,
+                radius: required_float(
+                    node.parameters(),
+                    SHARPEN_RADIUS_PARAMETER_KEY,
+                    expected_len,
+                )?,
+                threshold: required_float(
+                    node.parameters(),
+                    SHARPEN_THRESHOLD_PARAMETER_KEY,
+                    expected_len,
+                )?,
+                masking: required_float(
+                    node.parameters(),
+                    SHARPEN_MASKING_PARAMETER_KEY,
+                    expected_len,
+                )?,
+                ..SharpenParameters::default()
+            };
+            apply_detail_effect_values(
+                &mut parameters,
+                &required_float_vector(
+                    node.parameters(),
+                    DETAIL_EFFECTS_PARAMETERS_KEY,
+                    expected_len,
+                )?,
+            )?;
+            AdjustmentRenderOperation::Sharpen {
+                parameters: Box::new(parameters),
             }
         }
         operation_id => bail!("Recipe operation {operation_id:?} is not executable by this build"),
@@ -2539,8 +3650,16 @@ fn compile_recipe_node(
         // layer graphs are flattened into one executor plan.
         node_id: format!("{layer_id}/{}", node.id()),
         parameter_schema_version: descriptor.parameter_schema_version(),
-        implementation_version: CPU_REFERENCE_IMPLEMENTATION_REVISION,
-        enabled: layer_enabled,
+        implementation_version: if is_current_tone_curve {
+            SMOOTH_RGB_TONE_CURVE_IMPLEMENTATION_VERSION
+        } else if is_current_perceptual_color {
+            PERCEPTUAL_COLOR_V2_IMPLEMENTATION_REVISION
+        } else if is_current_detail_effects {
+            DETAIL_EFFECTS_V2_IMPLEMENTATION_REVISION
+        } else {
+            CPU_REFERENCE_IMPLEMENTATION_REVISION
+        },
+        enabled: grade_node_enabled,
         operation,
     })
 }
@@ -2563,40 +3682,51 @@ fn basic_recipe_snapshot(
     parameters: BasicEditParameters,
     template: Option<&RecipeSnapshot>,
 ) -> AnyResult<RecipeSnapshot> {
-    let mut template_settings = template
-        .map(edit_settings_from_snapshot)
+    let mut grade_stack = template
+        .map(decode_grade_stack_draft_from_recipe_v1_snapshot)
         .transpose()?
         .unwrap_or_default();
-    template_settings.basic = parameters;
-    edit_recipe_snapshot(&template_settings, template)
+    grade_stack.basic = parameters;
+    grade_stack_recipe_v1_snapshot(&grade_stack, template)
 }
 
-fn edit_recipe_snapshot(
-    settings: &EditSettings,
+fn grade_stack_recipe_v1_snapshot(
+    grade_stack: &GradeStackDraft,
     template: Option<&RecipeSnapshot>,
 ) -> AnyResult<RecipeSnapshot> {
-    validate_edit_settings(settings)?;
+    validate_grade_stack_draft_recipe_v1(grade_stack)?;
     if let Some(template) = template {
-        validate_edit_settings_against_template(settings, template)?;
+        validate_grade_stack_draft_against_recipe_v1_template(grade_stack, template)?;
     }
-    let layers = settings
-        .layers
+    let recipe_v1_layers = grade_stack
+        .grade_nodes
         .iter()
-        .map(edit_layer_recipe)
+        .map(encode_grade_node_as_recipe_v1_layer)
         .collect::<AnyResult<Vec<_>>>()?;
-    RecipeSnapshot::new(CURRENT_RECIPE_SCHEMA_VERSION, layers).map_err(Into::into)
+    RecipeSnapshot::new_with_input_settings(
+        CURRENT_RECIPE_SCHEMA_VERSION,
+        RecipeInputSettings::new(grade_stack.optics.clone()),
+        recipe_v1_layers,
+    )
+    .map_err(Into::into)
 }
 
-fn edit_layer_recipe(settings: &EditLayerSettings) -> AnyResult<LayerInstance> {
-    let parameters = settings.basic;
+#[allow(clippy::too_many_lines)] // The canonical persisted graph is clearest as one explicit chain.
+fn encode_grade_node_as_recipe_v1_layer(grade_node: &GradeNodeDraft) -> AnyResult<LayerInstance> {
+    let parameters = grade_node.basic;
+    let fine = &grade_node.fine;
     let rgb = PortType::Image(ImageDomain::WorkingRgb);
-    let identity = &settings.identity;
-    let exposure_id = identity.exposure;
-    let contrast_id = identity.contrast;
-    let channel_gain_id = identity.channel_gain;
-    let saturation_id = identity.saturation;
+    let identity = &grade_node.recipe_v1_identity;
+    let exposure_id = identity.exposure_render_op_id;
+    let contrast_id = identity.contrast_render_op_id;
+    let selective_tone_id = identity.selective_tone_render_op_id;
+    let white_balance_id = identity.white_balance_render_op_id;
+    let saturation_id = identity.saturation_render_op_id;
+    let perceptual_color_id = identity.perceptual_color_render_op_id;
+    let lut_id = identity.lut_render_op_id;
+    let sharpen_id = identity.sharpen_render_op_id;
     let mut nodes = vec![
-        basic_node(
+        recipe_v1_render_op(
             exposure_id,
             EXPOSURE_OPERATION_ID,
             ProcessingStage::SceneLinearFoundation,
@@ -2606,7 +3736,7 @@ fn edit_layer_recipe(settings: &EditLayerSettings) -> AnyResult<LayerInstance> {
                 ParameterValue::Float(FiniteF64::new(parameters.exposure_stops)?),
             )])?,
         )?,
-        basic_node(
+        recipe_v1_render_op(
             contrast_id,
             CONTRAST_OPERATION_ID,
             ProcessingStage::ToneAndLocalContrast,
@@ -2624,61 +3754,104 @@ fn edit_layer_recipe(settings: &EditLayerSettings) -> AnyResult<LayerInstance> {
                 ),
             ])?,
         )?,
-    ];
-    let channel_input = if let Some(points) = settings.tone_curve.as_deref() {
-        let tone_curve_id = identity.tone_curve;
-        nodes.push(basic_node(
-            tone_curve_id,
-            TONE_CURVE_OPERATION_ID,
+        recipe_v1_render_op(
+            selective_tone_id,
+            SELECTIVE_TONE_OPERATION_ID,
             ProcessingStage::ToneAndLocalContrast,
             NodeInput::Node {
                 node_id: contrast_id,
             },
-            tone_curve_parameter_block(points)?,
+            parameter_block([
+                (
+                    HIGHLIGHTS_PARAMETER_KEY,
+                    ParameterValue::Float(FiniteF64::new(fine.selective_tone.highlights)?),
+                ),
+                (
+                    SHADOWS_PARAMETER_KEY,
+                    ParameterValue::Float(FiniteF64::new(fine.selective_tone.shadows)?),
+                ),
+                (
+                    WHITES_PARAMETER_KEY,
+                    ParameterValue::Float(FiniteF64::new(fine.selective_tone.whites)?),
+                ),
+                (
+                    BLACKS_PARAMETER_KEY,
+                    ParameterValue::Float(FiniteF64::new(fine.selective_tone.blacks)?),
+                ),
+            ])?,
+        )?,
+    ];
+    let channel_input = if let Some(tone_curve) = grade_node.tone_curve.as_ref() {
+        let tone_curve_id = identity.tone_curve_render_op_id;
+        nodes.push(recipe_tone_curve_render_op(
+            tone_curve_id,
+            NodeInput::Node {
+                node_id: selective_tone_id,
+            },
+            tone_curve,
         )?);
         tone_curve_id
     } else {
-        contrast_id
+        selective_tone_id
     };
     nodes.extend([
-        basic_node(
-            channel_gain_id,
-            CHANNEL_GAIN_OPERATION_ID,
+        recipe_v1_render_op(
+            white_balance_id,
+            RGB_WHITE_BALANCE_OPERATION_ID,
             ProcessingStage::CreativeColor,
             NodeInput::Node {
                 node_id: channel_input,
             },
-            parameter_block([(
-                CHANNEL_GAINS_PARAMETER_KEY,
-                ParameterValue::FloatVector(
-                    parameters
-                        .channel_gains
-                        .into_iter()
-                        .map(FiniteF64::new)
-                        .collect::<Result<Vec<_>, _>>()?,
+            parameter_block([
+                (
+                    WHITE_BALANCE_TEMPERATURE_PARAMETER_KEY,
+                    ParameterValue::Float(FiniteF64::new(parameters.white_balance_temperature)?),
                 ),
-            )])?,
+                (
+                    WHITE_BALANCE_TINT_PARAMETER_KEY,
+                    ParameterValue::Float(FiniteF64::new(parameters.white_balance_tint)?),
+                ),
+            ])?,
         )?,
-        basic_node(
+        recipe_v1_render_op(
             saturation_id,
             SATURATION_OPERATION_ID,
             ProcessingStage::CreativeColor,
             NodeInput::Node {
-                node_id: channel_gain_id,
+                node_id: white_balance_id,
             },
             parameter_block([(
                 SATURATION_FACTOR_PARAMETER_KEY,
                 ParameterValue::Float(FiniteF64::new(parameters.saturation_factor)?),
             )])?,
         )?,
+        recipe_perceptual_color_render_op(
+            perceptual_color_id,
+            NodeInput::Node {
+                node_id: saturation_id,
+            },
+            &fine.perceptual_color,
+        )?,
+        recipe_lut_render_op(
+            lut_id,
+            NodeInput::Node {
+                node_id: perceptual_color_id,
+            },
+            &fine.lut,
+        )?,
+        recipe_detail_effects_render_op(
+            sharpen_id,
+            NodeInput::Node { node_id: lut_id },
+            &fine.sharpen,
+        )?,
     ]);
-    let graph = EditGraph::new(BASIC_GRAPH_SCHEMA_VERSION, vec![rgb], nodes, saturation_id)?;
+    let graph = EditGraph::new(BASIC_GRAPH_SCHEMA_VERSION, vec![rgb], nodes, sharpen_id)?;
     LayerInstance::new(
-        identity.layer,
-        settings.label.clone(),
+        identity.grade_node_id,
+        grade_node.label.clone(),
         AdjustmentScope::Photo,
         LayerContent::Inline { graph },
-        settings.layer_enabled,
+        grade_node.enabled,
         UnitInterval::ONE,
         BlendMode::Normal,
         None,
@@ -2688,20 +3861,22 @@ fn edit_layer_recipe(settings: &EditLayerSettings) -> AnyResult<LayerInstance> {
 
 #[cfg(test)]
 #[derive(Debug, Clone, PartialEq)]
-struct BasicRecipeIdentity {
-    layer_id: LayerInstanceId,
-    node_ids: [NodeId; 4],
-    tone_curve: Option<BasicToneCurveIdentity>,
+struct GradeNodeRecipeV1TestIdentity {
+    grade_node_id: LayerInstanceId,
+    render_op_ids: [NodeId; 8],
+    tone_curve: Option<RecipeV1ToneCurveTestIdentity>,
 }
 
 #[cfg(test)]
 #[derive(Debug, Clone, PartialEq)]
-struct BasicToneCurveIdentity {
-    node_id: NodeId,
+struct RecipeV1ToneCurveTestIdentity {
+    render_op_id: NodeId,
 }
 
 #[cfg(test)]
-fn basic_recipe_identity(snapshot: &RecipeSnapshot) -> AnyResult<Option<BasicRecipeIdentity>> {
+fn single_grade_node_recipe_v1_identity(
+    snapshot: &RecipeSnapshot,
+) -> AnyResult<Option<GradeNodeRecipeV1TestIdentity>> {
     if snapshot.layers().is_empty() {
         return Ok(None);
     }
@@ -2709,22 +3884,26 @@ fn basic_recipe_identity(snapshot: &RecipeSnapshot) -> AnyResult<Option<BasicRec
         bail!("Basic Recipe identity helper requires exactly one layer");
     };
     basic_parameters_from_snapshot(snapshot)?;
-    let nodes = basic_layer_nodes(layer)?;
-    Ok(Some(BasicRecipeIdentity {
-        layer_id: nodes.layer.id(),
-        node_ids: [
+    let nodes = grade_node_recipe_v1_render_ops(layer)?;
+    Ok(Some(GradeNodeRecipeV1TestIdentity {
+        grade_node_id: nodes.layer.id(),
+        render_op_ids: [
             nodes.exposure.id(),
             nodes.contrast.id(),
-            nodes.channel_gain.id(),
+            nodes.selective_tone.id(),
+            nodes.white_balance.id(),
             nodes.saturation.id(),
+            nodes.perceptual_color.id(),
+            nodes.lut.id(),
+            nodes.sharpen.id(),
         ],
-        tone_curve: nodes
-            .tone_curve
-            .map(|node| BasicToneCurveIdentity { node_id: node.id() }),
+        tone_curve: nodes.tone_curve.map(|node| RecipeV1ToneCurveTestIdentity {
+            render_op_id: node.id(),
+        }),
     }))
 }
 
-fn basic_node(
+fn recipe_v1_render_op(
     id: NodeId,
     operation_id: &str,
     stage: ProcessingStage,
@@ -2744,6 +3923,31 @@ fn basic_node(
     AdjustmentNode::new(id, operation, vec![input], parameters, None).map_err(Into::into)
 }
 
+fn recipe_tone_curve_render_op(
+    id: NodeId,
+    input: NodeInput,
+    tone_curve: &ToneCurveDraft,
+) -> AnyResult<AdjustmentNode> {
+    let rgb = PortType::Image(ImageDomain::WorkingRgb);
+    let operation = OperationDescriptor::new(
+        OperationId::new(TONE_CURVE_OPERATION_ID)?,
+        TONE_CURVE_V2_PARAMETER_SCHEMA_VERSION,
+        TONE_CURVE_V2_IMPLEMENTATION_VERSION,
+        ProcessingStage::ToneAndLocalContrast,
+        vec![rgb],
+        rgb,
+        None,
+    )?;
+    AdjustmentNode::new(
+        id,
+        operation,
+        vec![input],
+        tone_curve_parameter_block(tone_curve)?,
+        None,
+    )
+    .map_err(Into::into)
+}
+
 fn parameter_block<const N: usize>(
     entries: [(&str, ParameterValue); N],
 ) -> AnyResult<ParameterBlock> {
@@ -2754,69 +3958,480 @@ fn parameter_block<const N: usize>(
     Ok(ParameterBlock::new(values))
 }
 
-fn tone_curve_parameter_block(points: &[ToneCurvePoint]) -> AnyResult<ParameterBlock> {
-    validate_tone_curve(points)?;
-    parameter_block([(
-        TONE_CURVE_POINTS_PARAMETER_KEY,
+fn point_color_ranges_from_vector(flattened: &[f64]) -> AnyResult<Vec<ColorRangeParameters>> {
+    if !flattened.len().is_multiple_of(7) {
+        bail!("Point Color range storage must contain groups of seven values");
+    }
+    let ranges = flattened
+        .chunks_exact(7)
+        .map(|values| {
+            let enabled = match values[0].to_bits() {
+                bits if bits == 0.0_f64.to_bits() => false,
+                bits if bits == 1.0_f64.to_bits() => true,
+                _ => bail!("Point Color enabled values must be zero or one"),
+            };
+            Ok(ColorRangeParameters {
+                enabled,
+                center_hue_degrees: values[1],
+                width_degrees: values[2],
+                softness: values[3],
+                hue_shift_degrees: values[4],
+                saturation: values[5],
+                lightness: values[6],
+            })
+        })
+        .collect::<AnyResult<Vec<_>>>()?;
+    if ranges.len() + 1 > MAX_POINT_COLOR_RANGES {
+        bail!("Point Color supports at most {MAX_POINT_COLOR_RANGES} ordered ranges");
+    }
+    Ok(ranges)
+}
+
+fn point_color_ranges_from_vector_optional(
+    flattened: &[f64],
+) -> AnyResult<Vec<ColorRangeParameters>> {
+    if flattened.is_empty() {
+        Ok(Vec::new())
+    } else {
+        point_color_ranges_from_vector(flattened)
+    }
+}
+
+fn perceptual_color_parameter_block(
+    parameters: &PerceptualColorParameters,
+) -> AnyResult<ParameterBlock> {
+    let range = parameters.color_range;
+    let mut entries = vec![
+        (
+            VIBRANCE_PARAMETER_KEY,
+            ParameterValue::Float(FiniteF64::new(parameters.vibrance)?),
+        ),
+        (
+            COLOR_MIXER_HUE_PARAMETER_KEY,
+            ParameterValue::FloatVector(
+                parameters
+                    .hue_shifts
+                    .into_iter()
+                    .map(FiniteF64::new)
+                    .collect::<Result<Vec<_>, _>>()?,
+            ),
+        ),
+        (
+            COLOR_MIXER_SATURATION_PARAMETER_KEY,
+            ParameterValue::FloatVector(
+                parameters
+                    .saturation
+                    .into_iter()
+                    .map(FiniteF64::new)
+                    .collect::<Result<Vec<_>, _>>()?,
+            ),
+        ),
+        (
+            COLOR_MIXER_LIGHTNESS_PARAMETER_KEY,
+            ParameterValue::FloatVector(
+                parameters
+                    .lightness
+                    .into_iter()
+                    .map(FiniteF64::new)
+                    .collect::<Result<Vec<_>, _>>()?,
+            ),
+        ),
+        (
+            COLOR_RANGE_ENABLED_PARAMETER_KEY,
+            ParameterValue::Bool(range.enabled),
+        ),
+        (
+            COLOR_RANGE_CENTER_PARAMETER_KEY,
+            ParameterValue::Float(FiniteF64::new(range.center_hue_degrees)?),
+        ),
+        (
+            COLOR_RANGE_WIDTH_PARAMETER_KEY,
+            ParameterValue::Float(FiniteF64::new(range.width_degrees)?),
+        ),
+        (
+            COLOR_RANGE_SOFTNESS_PARAMETER_KEY,
+            ParameterValue::Float(FiniteF64::new(range.softness)?),
+        ),
+        (
+            COLOR_RANGE_HUE_PARAMETER_KEY,
+            ParameterValue::Float(FiniteF64::new(range.hue_shift_degrees)?),
+        ),
+        (
+            COLOR_RANGE_SATURATION_PARAMETER_KEY,
+            ParameterValue::Float(FiniteF64::new(range.saturation)?),
+        ),
+        (
+            COLOR_RANGE_LIGHTNESS_PARAMETER_KEY,
+            ParameterValue::Float(FiniteF64::new(range.lightness)?),
+        ),
+    ];
+    let flattened = parameters
+        .additional_color_ranges
+        .iter()
+        .flat_map(|range| {
+            [
+                if range.enabled { 1.0 } else { 0.0 },
+                range.center_hue_degrees,
+                range.width_degrees,
+                range.softness,
+                range.hue_shift_degrees,
+                range.saturation,
+                range.lightness,
+            ]
+        })
+        .map(FiniteF64::new)
+        .collect::<Result<Vec<_>, _>>()?;
+    entries.push((
+        POINT_COLOR_RANGES_PARAMETER_KEY,
+        ParameterValue::FloatVector(flattened),
+    ));
+    let values = entries
+        .into_iter()
+        .map(|(key, value)| Ok((ParameterKey::new(key)?, value)))
+        .collect::<AnyResult<BTreeMap<_, _>>>()?;
+    Ok(ParameterBlock::new(values))
+}
+
+fn recipe_perceptual_color_render_op(
+    id: NodeId,
+    input: NodeInput,
+    parameters: &PerceptualColorParameters,
+) -> AnyResult<AdjustmentNode> {
+    let rgb = PortType::Image(ImageDomain::WorkingRgb);
+    let operation = OperationDescriptor::new(
+        OperationId::new(PERCEPTUAL_COLOR_OPERATION_ID)?,
+        PERCEPTUAL_COLOR_V2_PARAMETER_SCHEMA_VERSION,
+        PERCEPTUAL_COLOR_V2_IMPLEMENTATION_VERSION,
+        ProcessingStage::CreativeColor,
+        vec![rgb],
+        rgb,
+        None,
+    )?;
+    AdjustmentNode::new(
+        id,
+        operation,
+        vec![input],
+        perceptual_color_parameter_block(parameters)?,
+        None,
+    )
+    .map_err(Into::into)
+}
+
+fn recipe_lut_render_op(
+    id: NodeId,
+    input: NodeInput,
+    parameters: &LutEditParameters,
+) -> AnyResult<AdjustmentNode> {
+    let rgb = PortType::Image(ImageDomain::WorkingRgb);
+    let operation = OperationDescriptor::new(
+        OperationId::new(LUT_3D_OPERATION_ID)?,
+        CPU_REFERENCE_PARAMETER_SCHEMA_VERSION,
+        CPU_REFERENCE_IMPLEMENTATION_VERSION,
+        ProcessingStage::CreativeColor,
+        vec![rgb],
+        rgb,
+        None,
+    )?;
+    AdjustmentNode::new(
+        id,
+        operation,
+        vec![input],
+        parameter_block([
+            (
+                LUT_RESOURCE_ID_PARAMETER_KEY,
+                ParameterValue::Text(parameters.resource_id.clone()),
+            ),
+            (
+                LUT_TITLE_PARAMETER_KEY,
+                ParameterValue::Text(parameters.title.clone()),
+            ),
+            (
+                LUT_MANAGED_PATH_PARAMETER_KEY,
+                ParameterValue::Text(parameters.managed_path.clone()),
+            ),
+            (
+                LUT_INTENSITY_PARAMETER_KEY,
+                ParameterValue::Float(FiniteF64::new(parameters.intensity)?),
+            ),
+        ])?,
+        None,
+    )
+    .map_err(Into::into)
+}
+
+fn detail_effect_values(parameters: &SharpenParameters) -> [f64; 29] {
+    [
+        parameters.denoise_luminance,
+        parameters.denoise_detail,
+        parameters.denoise_color,
+        parameters.dehaze,
+        parameters.defringe_purple_amount,
+        parameters.defringe_purple_hue_low,
+        parameters.defringe_purple_hue_high,
+        parameters.defringe_green_amount,
+        parameters.defringe_green_hue_low,
+        parameters.defringe_green_hue_high,
+        parameters.shadows_hue,
+        parameters.shadows_saturation,
+        parameters.shadows_luminance,
+        parameters.midtones_hue,
+        parameters.midtones_saturation,
+        parameters.midtones_luminance,
+        parameters.highlights_hue,
+        parameters.highlights_saturation,
+        parameters.highlights_luminance,
+        parameters.grading_blending,
+        parameters.grading_balance,
+        parameters.grain_amount,
+        parameters.grain_size,
+        parameters.grain_roughness,
+        parameters.vignette_amount,
+        parameters.vignette_midpoint,
+        parameters.vignette_roundness,
+        parameters.vignette_feather,
+        parameters.vignette_highlights,
+    ]
+}
+
+fn apply_detail_effect_values(parameters: &mut SharpenParameters, values: &[f64]) -> AnyResult<()> {
+    let [
+        denoise_luminance,
+        denoise_detail,
+        denoise_color,
+        dehaze,
+        defringe_purple_amount,
+        defringe_purple_hue_low,
+        defringe_purple_hue_high,
+        defringe_green_amount,
+        defringe_green_hue_low,
+        defringe_green_hue_high,
+        shadows_hue,
+        shadows_saturation,
+        shadows_luminance,
+        midtones_hue,
+        midtones_saturation,
+        midtones_luminance,
+        highlights_hue,
+        highlights_saturation,
+        highlights_luminance,
+        grading_blending,
+        grading_balance,
+        grain_amount,
+        grain_size,
+        grain_roughness,
+        vignette_amount,
+        vignette_midpoint,
+        vignette_roundness,
+        vignette_feather,
+        vignette_highlights,
+    ] = values
+    else {
+        bail!("Detail & Effects storage must contain exactly 29 values");
+    };
+    parameters.denoise_luminance = *denoise_luminance;
+    parameters.denoise_detail = *denoise_detail;
+    parameters.denoise_color = *denoise_color;
+    parameters.dehaze = *dehaze;
+    parameters.defringe_purple_amount = *defringe_purple_amount;
+    parameters.defringe_purple_hue_low = *defringe_purple_hue_low;
+    parameters.defringe_purple_hue_high = *defringe_purple_hue_high;
+    parameters.defringe_green_amount = *defringe_green_amount;
+    parameters.defringe_green_hue_low = *defringe_green_hue_low;
+    parameters.defringe_green_hue_high = *defringe_green_hue_high;
+    parameters.shadows_hue = *shadows_hue;
+    parameters.shadows_saturation = *shadows_saturation;
+    parameters.shadows_luminance = *shadows_luminance;
+    parameters.midtones_hue = *midtones_hue;
+    parameters.midtones_saturation = *midtones_saturation;
+    parameters.midtones_luminance = *midtones_luminance;
+    parameters.highlights_hue = *highlights_hue;
+    parameters.highlights_saturation = *highlights_saturation;
+    parameters.highlights_luminance = *highlights_luminance;
+    parameters.grading_blending = *grading_blending;
+    parameters.grading_balance = *grading_balance;
+    parameters.grain_amount = *grain_amount;
+    parameters.grain_size = *grain_size;
+    parameters.grain_roughness = *grain_roughness;
+    parameters.vignette_amount = *vignette_amount;
+    parameters.vignette_midpoint = *vignette_midpoint;
+    parameters.vignette_roundness = *vignette_roundness;
+    parameters.vignette_feather = *vignette_feather;
+    parameters.vignette_highlights = *vignette_highlights;
+    Ok(())
+}
+
+fn recipe_detail_effects_render_op(
+    id: NodeId,
+    input: NodeInput,
+    parameters: &SharpenParameters,
+) -> AnyResult<AdjustmentNode> {
+    let rgb = PortType::Image(ImageDomain::WorkingRgb);
+    let operation = OperationDescriptor::new(
+        OperationId::new(SHARPEN_OPERATION_ID)?,
+        DETAIL_EFFECTS_V2_PARAMETER_SCHEMA_VERSION,
+        DETAIL_EFFECTS_V2_IMPLEMENTATION_VERSION,
+        ProcessingStage::DetailAndEffects,
+        vec![rgb],
+        rgb,
+        None,
+    )?;
+    let mut entries = vec![
+        (
+            SHARPEN_AMOUNT_PARAMETER_KEY,
+            ParameterValue::Float(FiniteF64::new(parameters.amount)?),
+        ),
+        (
+            SHARPEN_RADIUS_PARAMETER_KEY,
+            ParameterValue::Float(FiniteF64::new(parameters.radius)?),
+        ),
+        (
+            SHARPEN_THRESHOLD_PARAMETER_KEY,
+            ParameterValue::Float(FiniteF64::new(parameters.threshold)?),
+        ),
+        (
+            SHARPEN_MASKING_PARAMETER_KEY,
+            ParameterValue::Float(FiniteF64::new(parameters.masking)?),
+        ),
+    ];
+    entries.push((
+        DETAIL_EFFECTS_PARAMETERS_KEY,
         ParameterValue::FloatVector(
-            points
-                .iter()
-                .flat_map(|point| [point.x, point.y])
+            detail_effect_values(parameters)
+                .into_iter()
                 .map(FiniteF64::new)
                 .collect::<Result<Vec<_>, _>>()?,
         ),
-    )])
+    ));
+    let values = entries
+        .into_iter()
+        .map(|(key, value)| Ok((ParameterKey::new(key)?, value)))
+        .collect::<AnyResult<BTreeMap<_, _>>>()?;
+    AdjustmentNode::new(
+        id,
+        operation,
+        vec![input],
+        ParameterBlock::new(values),
+        None,
+    )
+    .map_err(Into::into)
 }
 
-struct BasicRecipeNodes<'a> {
+fn tone_curve_parameter_value(points: &[ToneCurvePoint]) -> AnyResult<ParameterValue> {
+    validate_tone_curve(points)?;
+    Ok(ParameterValue::FloatVector(
+        points
+            .iter()
+            .flat_map(|point| [point.x, point.y])
+            .map(FiniteF64::new)
+            .collect::<Result<Vec<_>, _>>()?,
+    ))
+}
+
+fn tone_curve_parameter_block(tone_curve: &ToneCurveDraft) -> AnyResult<ParameterBlock> {
+    validate_tone_curve_draft(tone_curve)?;
+    match tone_curve {
+        ToneCurveDraft::SmoothRgb(curves) => parameter_block([
+            (
+                TONE_CURVE_MASTER_POINTS_PARAMETER_KEY,
+                tone_curve_parameter_value(&curves.master)?,
+            ),
+            (
+                TONE_CURVE_RED_POINTS_PARAMETER_KEY,
+                tone_curve_parameter_value(&curves.red)?,
+            ),
+            (
+                TONE_CURVE_GREEN_POINTS_PARAMETER_KEY,
+                tone_curve_parameter_value(&curves.green)?,
+            ),
+            (
+                TONE_CURVE_BLUE_POINTS_PARAMETER_KEY,
+                tone_curve_parameter_value(&curves.blue)?,
+            ),
+        ]),
+    }
+}
+
+struct GradeNodeRecipeV1RenderOps<'a> {
     #[cfg(test)]
     layer: &'a LayerInstance,
     exposure: &'a AdjustmentNode,
     contrast: &'a AdjustmentNode,
+    selective_tone: &'a AdjustmentNode,
     tone_curve: Option<&'a AdjustmentNode>,
-    channel_gain: &'a AdjustmentNode,
+    white_balance: &'a AdjustmentNode,
     saturation: &'a AdjustmentNode,
+    perceptual_color: &'a AdjustmentNode,
+    lut: &'a AdjustmentNode,
+    sharpen: &'a AdjustmentNode,
 }
 
-impl BasicRecipeNodes<'_> {
+impl GradeNodeRecipeV1RenderOps<'_> {
     fn ordered(&self) -> Vec<&AdjustmentNode> {
-        let mut nodes = vec![self.exposure, self.contrast];
+        let mut nodes = vec![self.exposure, self.contrast, self.selective_tone];
         if let Some(tone_curve) = self.tone_curve {
             nodes.push(tone_curve);
         }
-        nodes.extend([self.channel_gain, self.saturation]);
+        nodes.extend([
+            self.white_balance,
+            self.saturation,
+            self.perceptual_color,
+            self.lut,
+            self.sharpen,
+        ]);
         nodes
     }
 }
 
 #[cfg(test)]
-fn basic_recipe_nodes(snapshot: &RecipeSnapshot) -> AnyResult<BasicRecipeNodes<'_>> {
+fn single_grade_node_recipe_v1_render_ops(
+    snapshot: &RecipeSnapshot,
+) -> AnyResult<GradeNodeRecipeV1RenderOps<'_>> {
     let [layer] = snapshot.layers() else {
         bail!("Basic Recipe helper requires exactly one adjustment layer");
     };
-    basic_layer_nodes(layer)
+    grade_node_recipe_v1_render_ops(layer)
 }
 
-fn basic_layer_nodes(layer: &LayerInstance) -> AnyResult<BasicRecipeNodes<'_>> {
+#[allow(clippy::too_many_lines)] // The canonical chain contract is intentionally explicit.
+fn grade_node_recipe_v1_render_ops(
+    layer: &LayerInstance,
+) -> AnyResult<GradeNodeRecipeV1RenderOps<'_>> {
     let ordered = ordered_inline_layer_nodes(layer)?;
-    let (exposure, contrast, tone_curve, channel_gain, saturation) = match ordered.len() {
-        4 => (ordered[0], ordered[1], None, ordered[2], ordered[3]),
-        5 => (
+    let (
+        exposure,
+        contrast,
+        selective_tone,
+        tone_curve,
+        white_balance,
+        saturation,
+        perceptual_color,
+        lut,
+        sharpen,
+    ) = match ordered.len() {
+        8 => (
+            ordered[0], ordered[1], ordered[2], None, ordered[3], ordered[4], ordered[5],
+            ordered[6], ordered[7],
+        ),
+        9 => (
             ordered[0],
             ordered[1],
-            Some(ordered[2]),
-            ordered[3],
+            ordered[2],
+            Some(ordered[3]),
             ordered[4],
+            ordered[5],
+            ordered[6],
+            ordered[7],
+            ordered[8],
         ),
-        _ => bail!("working Recipe is not the supported four/five-node Basic subset"),
+        _ => bail!("working Recipe is not the current complete Grade Node shape"),
     };
-    validate_basic_node(
+    validate_recipe_v1_render_op(
         exposure,
         EXPOSURE_OPERATION_ID,
         ProcessingStage::SceneLinearFoundation,
         NodeInput::GraphInput { index: 0 },
     )?;
-    validate_basic_node(
+    validate_recipe_v1_render_op(
         contrast,
         CONTRAST_OPERATION_ID,
         ProcessingStage::ToneAndLocalContrast,
@@ -2824,40 +4439,67 @@ fn basic_layer_nodes(layer: &LayerInstance) -> AnyResult<BasicRecipeNodes<'_>> {
             node_id: exposure.id(),
         },
     )?;
-    if let Some(tone_curve) = tone_curve {
-        validate_basic_node(
-            tone_curve,
-            TONE_CURVE_OPERATION_ID,
-            ProcessingStage::ToneAndLocalContrast,
-            NodeInput::Node {
-                node_id: contrast.id(),
-            },
-        )?;
-    }
-    validate_basic_node(
-        channel_gain,
-        CHANNEL_GAIN_OPERATION_ID,
-        ProcessingStage::CreativeColor,
+    validate_recipe_v1_render_op(
+        selective_tone,
+        SELECTIVE_TONE_OPERATION_ID,
+        ProcessingStage::ToneAndLocalContrast,
         NodeInput::Node {
-            node_id: tone_curve.map_or_else(|| contrast.id(), AdjustmentNode::id),
+            node_id: contrast.id(),
         },
     )?;
-    validate_basic_node(
+    let mut color_input = selective_tone.id();
+    if let Some(tone_curve) = tone_curve {
+        validate_recipe_tone_curve_render_op(
+            tone_curve,
+            NodeInput::Node {
+                node_id: color_input,
+            },
+        )?;
+        color_input = tone_curve.id();
+    }
+    validate_recipe_v1_render_op(
+        white_balance,
+        RGB_WHITE_BALANCE_OPERATION_ID,
+        ProcessingStage::CreativeColor,
+        NodeInput::Node {
+            node_id: color_input,
+        },
+    )?;
+    validate_recipe_v1_render_op(
         saturation,
         SATURATION_OPERATION_ID,
         ProcessingStage::CreativeColor,
         NodeInput::Node {
-            node_id: channel_gain.id(),
+            node_id: white_balance.id(),
         },
     )?;
-    Ok(BasicRecipeNodes {
+    validate_recipe_perceptual_color_render_op(
+        perceptual_color,
+        NodeInput::Node {
+            node_id: saturation.id(),
+        },
+    )?;
+    validate_recipe_v1_render_op(
+        lut,
+        LUT_3D_OPERATION_ID,
+        ProcessingStage::CreativeColor,
+        NodeInput::Node {
+            node_id: perceptual_color.id(),
+        },
+    )?;
+    validate_recipe_detail_effects_render_op(sharpen, NodeInput::Node { node_id: lut.id() })?;
+    Ok(GradeNodeRecipeV1RenderOps {
         #[cfg(test)]
         layer,
         exposure,
         contrast,
+        selective_tone,
         tone_curve,
-        channel_gain,
+        white_balance,
         saturation,
+        perceptual_color,
+        lut,
+        sharpen,
     })
 }
 
@@ -2866,11 +4508,13 @@ fn basic_parameters_from_snapshot(snapshot: &RecipeSnapshot) -> AnyResult<BasicE
     if snapshot.layers().is_empty() {
         return Ok(BasicEditParameters::default());
     }
-    let nodes = basic_recipe_nodes(snapshot)?;
+    let nodes = single_grade_node_recipe_v1_render_ops(snapshot)?;
     basic_parameters_from_nodes(&nodes)
 }
 
-fn basic_parameters_from_nodes(nodes: &BasicRecipeNodes<'_>) -> AnyResult<BasicEditParameters> {
+fn basic_parameters_from_nodes(
+    nodes: &GradeNodeRecipeV1RenderOps<'_>,
+) -> AnyResult<BasicEditParameters> {
     let exposure_stops =
         required_float(nodes.exposure.parameters(), EXPOSURE_STOPS_PARAMETER_KEY, 1)?;
     let contrast_factor = required_float(
@@ -2882,18 +4526,19 @@ fn basic_parameters_from_nodes(nodes: &BasicRecipeNodes<'_>) -> AnyResult<BasicE
     if pivot != CONTRAST_PIVOT {
         bail!("working Recipe uses unsupported contrast pivot {pivot}");
     }
-    let channel_gains = required_float_vector(
-        nodes.channel_gain.parameters(),
-        CHANNEL_GAINS_PARAMETER_KEY,
-        1,
-    )?;
-    let [red, green, blue] = channel_gains.as_slice() else {
-        bail!("working Recipe channel_gains must contain exactly three values");
-    };
     let parameters = BasicEditParameters {
         exposure_stops,
         contrast_factor,
-        channel_gains: [*red, *green, *blue],
+        white_balance_temperature: required_float(
+            nodes.white_balance.parameters(),
+            WHITE_BALANCE_TEMPERATURE_PARAMETER_KEY,
+            2,
+        )?,
+        white_balance_tint: required_float(
+            nodes.white_balance.parameters(),
+            WHITE_BALANCE_TINT_PARAMETER_KEY,
+            2,
+        )?,
         saturation_factor: required_float(
             nodes.saturation.parameters(),
             SATURATION_FACTOR_PARAMETER_KEY,
@@ -2904,64 +4549,259 @@ fn basic_parameters_from_nodes(nodes: &BasicRecipeNodes<'_>) -> AnyResult<BasicE
     Ok(parameters)
 }
 
-fn edit_settings_from_snapshot(snapshot: &RecipeSnapshot) -> AnyResult<EditSettings> {
+// This decoder mirrors the deliberately flat, versioned fine-edit recipe in one place.
+#[allow(clippy::too_many_lines)]
+fn fine_parameters_from_nodes(
+    nodes: &GradeNodeRecipeV1RenderOps<'_>,
+) -> AnyResult<FineEditParameters> {
+    let node = nodes.selective_tone;
+    let selective_tone = SelectiveToneParameters {
+        highlights: required_float(node.parameters(), HIGHLIGHTS_PARAMETER_KEY, 4)?,
+        shadows: required_float(node.parameters(), SHADOWS_PARAMETER_KEY, 4)?,
+        whites: required_float(node.parameters(), WHITES_PARAMETER_KEY, 4)?,
+        blacks: required_float(node.parameters(), BLACKS_PARAMETER_KEY, 4)?,
+    };
+    let perceptual_color = {
+        let node = nodes.perceptual_color;
+        let expected_len = 12;
+        PerceptualColorParameters {
+            vibrance: required_float(node.parameters(), VIBRANCE_PARAMETER_KEY, expected_len)?,
+            hue_shifts: fixed_color_mixer(
+                &required_float_vector(
+                    node.parameters(),
+                    COLOR_MIXER_HUE_PARAMETER_KEY,
+                    expected_len,
+                )?,
+                "Recipe Color Mixer hue",
+            )?,
+            saturation: fixed_color_mixer(
+                &required_float_vector(
+                    node.parameters(),
+                    COLOR_MIXER_SATURATION_PARAMETER_KEY,
+                    expected_len,
+                )?,
+                "Recipe Color Mixer saturation",
+            )?,
+            lightness: fixed_color_mixer(
+                &required_float_vector(
+                    node.parameters(),
+                    COLOR_MIXER_LIGHTNESS_PARAMETER_KEY,
+                    expected_len,
+                )?,
+                "Recipe Color Mixer lightness",
+            )?,
+            color_range: ColorRangeParameters {
+                enabled: required_bool(
+                    node.parameters(),
+                    COLOR_RANGE_ENABLED_PARAMETER_KEY,
+                    expected_len,
+                )?,
+                center_hue_degrees: required_float(
+                    node.parameters(),
+                    COLOR_RANGE_CENTER_PARAMETER_KEY,
+                    expected_len,
+                )?,
+                width_degrees: required_float(
+                    node.parameters(),
+                    COLOR_RANGE_WIDTH_PARAMETER_KEY,
+                    expected_len,
+                )?,
+                softness: required_float(
+                    node.parameters(),
+                    COLOR_RANGE_SOFTNESS_PARAMETER_KEY,
+                    expected_len,
+                )?,
+                hue_shift_degrees: required_float(
+                    node.parameters(),
+                    COLOR_RANGE_HUE_PARAMETER_KEY,
+                    expected_len,
+                )?,
+                saturation: required_float(
+                    node.parameters(),
+                    COLOR_RANGE_SATURATION_PARAMETER_KEY,
+                    expected_len,
+                )?,
+                lightness: required_float(
+                    node.parameters(),
+                    COLOR_RANGE_LIGHTNESS_PARAMETER_KEY,
+                    expected_len,
+                )?,
+            },
+            additional_color_ranges: point_color_ranges_from_vector(&required_float_vector(
+                node.parameters(),
+                POINT_COLOR_RANGES_PARAMETER_KEY,
+                expected_len,
+            )?)?,
+        }
+    };
+    let lut = {
+        let node = nodes.lut;
+        let expected_len = 4;
+        LutEditParameters {
+            resource_id: required_text(
+                node.parameters(),
+                LUT_RESOURCE_ID_PARAMETER_KEY,
+                expected_len,
+            )?,
+            title: required_text(node.parameters(), LUT_TITLE_PARAMETER_KEY, expected_len)?,
+            managed_path: required_text(
+                node.parameters(),
+                LUT_MANAGED_PATH_PARAMETER_KEY,
+                expected_len,
+            )?,
+            intensity: required_float(
+                node.parameters(),
+                LUT_INTENSITY_PARAMETER_KEY,
+                expected_len,
+            )?,
+        }
+    };
+    let sharpen = {
+        let node = nodes.sharpen;
+        let expected_len = 5;
+        let mut parameters = SharpenParameters {
+            amount: required_float(
+                node.parameters(),
+                SHARPEN_AMOUNT_PARAMETER_KEY,
+                expected_len,
+            )?,
+            radius: required_float(
+                node.parameters(),
+                SHARPEN_RADIUS_PARAMETER_KEY,
+                expected_len,
+            )?,
+            threshold: required_float(
+                node.parameters(),
+                SHARPEN_THRESHOLD_PARAMETER_KEY,
+                expected_len,
+            )?,
+            masking: required_float(
+                node.parameters(),
+                SHARPEN_MASKING_PARAMETER_KEY,
+                expected_len,
+            )?,
+            ..SharpenParameters::default()
+        };
+        apply_detail_effect_values(
+            &mut parameters,
+            &required_float_vector(
+                node.parameters(),
+                DETAIL_EFFECTS_PARAMETERS_KEY,
+                expected_len,
+            )?,
+        )?;
+        parameters
+    };
+    let parameters = FineEditParameters {
+        selective_tone,
+        perceptual_color,
+        lut,
+        sharpen,
+    };
+    validate_fine_parameters(&parameters)?;
+    Ok(parameters)
+}
+
+fn decode_grade_stack_draft_from_recipe_v1_snapshot(
+    snapshot: &RecipeSnapshot,
+) -> AnyResult<GradeStackDraft> {
     snapshot
         .validate()
-        .context("validate persisted Adjustment Stack Recipe")?;
+        .context("validate persisted Grade Stack Recipe v1")?;
     if snapshot.schema_version() != CURRENT_RECIPE_SCHEMA_VERSION {
         bail!(
-            "Adjustment Stack supports Recipe schema {}, received {}",
+            "Grade Stack adapter supports Recipe schema {}, received {}",
             CURRENT_RECIPE_SCHEMA_VERSION,
             snapshot.schema_version()
         );
     }
-    if !(1..=MAX_BASIC_EDIT_LAYERS).contains(&snapshot.layers().len()) {
-        bail!("Adjustment Stack must contain 1 through 16 Basic layers");
+    if !(1..=MAX_GRADE_NODES).contains(&snapshot.layers().len()) {
+        bail!("Grade Stack must contain 1 through 16 Grade Nodes");
     }
-    let settings = EditSettings {
-        layers: snapshot
+    let grade_stack = GradeStackDraft {
+        optics: snapshot.input_settings().optics().clone(),
+        grade_nodes: snapshot
             .layers()
             .iter()
-            .map(edit_layer_settings_from_recipe)
+            .map(decode_grade_node_draft_from_recipe_v1_layer)
             .collect::<AnyResult<Vec<_>>>()?,
     };
-    validate_edit_settings(&settings)?;
-    Ok(settings)
+    validate_grade_stack_draft_recipe_v1(&grade_stack)?;
+    Ok(grade_stack)
 }
 
-fn edit_layer_settings_from_recipe(layer: &LayerInstance) -> AnyResult<EditLayerSettings> {
-    let nodes = basic_layer_nodes(layer)?;
+fn decode_grade_node_draft_from_recipe_v1_layer(
+    layer: &LayerInstance,
+) -> AnyResult<GradeNodeDraft> {
+    let nodes = grade_node_recipe_v1_render_ops(layer)?;
     let basic = basic_parameters_from_nodes(&nodes)?;
+    let fine = fine_parameters_from_nodes(&nodes)?;
     let tone_curve = nodes
         .tone_curve
-        .map(|node| tone_curve_points_from_parameters(node.parameters()))
+        .map(tone_curve_draft_from_node)
         .transpose()?;
-    Ok(EditLayerSettings {
-        identity: EditableBasicLayerIdentity {
-            layer: layer.id(),
-            exposure: nodes.exposure.id(),
-            contrast: nodes.contrast.id(),
-            // Old curve-less Recipes have no persisted slot identity. Derive a
-            // deterministic UUIDv8 from the stable layer id so repeated reads,
-            // reopen, and a later curve insertion all agree on the same slot.
-            tone_curve: nodes
-                .tone_curve
-                .map_or_else(|| basic_tone_curve_slot_id(layer.id()), AdjustmentNode::id),
-            channel_gain: nodes.channel_gain.id(),
-            saturation: nodes.saturation.id(),
+    Ok(GradeNodeDraft {
+        recipe_v1_identity: GradeNodeRecipeV1Identity {
+            grade_node_id: layer.id(),
+            exposure_render_op_id: nodes.exposure.id(),
+            contrast_render_op_id: nodes.contrast.id(),
+            // Curve-less Recipes reserve a deterministic UUIDv8 slot so a
+            // later curve insertion keeps a stable operation identity.
+            tone_curve_render_op_id: nodes.tone_curve.map_or_else(
+                || recipe_v1_tone_curve_render_op_id(layer.id()),
+                AdjustmentNode::id,
+            ),
+            selective_tone_render_op_id: nodes.selective_tone.id(),
+            white_balance_render_op_id: nodes.white_balance.id(),
+            saturation_render_op_id: nodes.saturation.id(),
+            perceptual_color_render_op_id: nodes.perceptual_color.id(),
+            lut_render_op_id: nodes.lut.id(),
+            sharpen_render_op_id: nodes.sharpen.id(),
         },
         label: layer.label().to_owned(),
         basic,
-        layer_enabled: layer.enabled(),
+        fine,
+        enabled: layer.enabled(),
         tone_curve,
     })
 }
 
-fn tone_curve_points_from_parameters(
-    parameters: &ParameterBlock,
-) -> AnyResult<Vec<ToneCurvePoint>> {
-    let flattened = required_float_vector(parameters, TONE_CURVE_POINTS_PARAMETER_KEY, 1)?;
-    if flattened.len() % 2 != 0 {
+fn tone_curve_draft_from_node(node: &AdjustmentNode) -> AnyResult<ToneCurveDraft> {
+    let operation = node.operation();
+    if operation.parameter_schema_version() == TONE_CURVE_V2_PARAMETER_SCHEMA_VERSION
+        && operation.implementation_version() == TONE_CURVE_V2_IMPLEMENTATION_VERSION
+    {
+        let parameters = node.parameters();
+        let curves = SmoothRgbToneCurve {
+            master: tone_curve_points_from_vector(&required_float_vector(
+                parameters,
+                TONE_CURVE_MASTER_POINTS_PARAMETER_KEY,
+                4,
+            )?)?,
+            red: tone_curve_points_from_vector(&required_float_vector(
+                parameters,
+                TONE_CURVE_RED_POINTS_PARAMETER_KEY,
+                4,
+            )?)?,
+            green: tone_curve_points_from_vector(&required_float_vector(
+                parameters,
+                TONE_CURVE_GREEN_POINTS_PARAMETER_KEY,
+                4,
+            )?)?,
+            blue: tone_curve_points_from_vector(&required_float_vector(
+                parameters,
+                TONE_CURVE_BLUE_POINTS_PARAMETER_KEY,
+                4,
+            )?)?,
+        };
+        validate_tone_curve_draft(&ToneCurveDraft::SmoothRgb(Box::new(curves.clone())))?;
+        return Ok(ToneCurveDraft::SmoothRgb(Box::new(curves)));
+    }
+    bail!("persisted Tone Curve uses an unsupported contract")
+}
+
+fn tone_curve_points_from_vector(flattened: &[f64]) -> AnyResult<Vec<ToneCurvePoint>> {
+    if !flattened.len().is_multiple_of(2) {
         bail!("Recipe Tone Curve points must contain flattened x/y pairs");
     }
     let points = flattened
@@ -2975,7 +4815,7 @@ fn tone_curve_points_from_parameters(
     Ok(points)
 }
 
-fn validate_basic_node(
+fn validate_recipe_v1_render_op(
     node: &AdjustmentNode,
     operation_id: &str,
     stage: ProcessingStage,
@@ -2994,6 +4834,72 @@ fn validate_basic_node(
         || node.mask_reference().is_some()
     {
         bail!("working Recipe node {operation_id} has an unsupported contract");
+    }
+    Ok(())
+}
+
+fn validate_recipe_tone_curve_render_op(node: &AdjustmentNode, input: NodeInput) -> AnyResult<()> {
+    let operation = node.operation();
+    let rgb = PortType::Image(ImageDomain::WorkingRgb);
+    let contract_is_supported = operation.parameter_schema_version()
+        == TONE_CURVE_V2_PARAMETER_SCHEMA_VERSION
+        && operation.implementation_version() == TONE_CURVE_V2_IMPLEMENTATION_VERSION;
+    if operation.operation_id().as_str() != TONE_CURVE_OPERATION_ID
+        || !contract_is_supported
+        || operation.stage() != ProcessingStage::ToneAndLocalContrast
+        || operation.input_types() != [rgb]
+        || operation.output_type() != rgb
+        || operation.seed().is_some()
+        || node.inputs() != [input]
+        || node.mask_reference().is_some()
+    {
+        bail!("working Recipe Tone Curve has an unsupported contract");
+    }
+    Ok(())
+}
+
+fn validate_recipe_perceptual_color_render_op(
+    node: &AdjustmentNode,
+    input: NodeInput,
+) -> AnyResult<()> {
+    let operation = node.operation();
+    let rgb = PortType::Image(ImageDomain::WorkingRgb);
+    let contract_is_supported = operation.parameter_schema_version()
+        == PERCEPTUAL_COLOR_V2_PARAMETER_SCHEMA_VERSION
+        && operation.implementation_version() == PERCEPTUAL_COLOR_V2_IMPLEMENTATION_VERSION;
+    if operation.operation_id().as_str() != PERCEPTUAL_COLOR_OPERATION_ID
+        || !contract_is_supported
+        || operation.stage() != ProcessingStage::CreativeColor
+        || operation.input_types() != [rgb]
+        || operation.output_type() != rgb
+        || operation.seed().is_some()
+        || node.inputs() != [input]
+        || node.mask_reference().is_some()
+    {
+        bail!("working Recipe Point Color has an unsupported contract");
+    }
+    Ok(())
+}
+
+fn validate_recipe_detail_effects_render_op(
+    node: &AdjustmentNode,
+    input: NodeInput,
+) -> AnyResult<()> {
+    let operation = node.operation();
+    let rgb = PortType::Image(ImageDomain::WorkingRgb);
+    let contract_is_supported = operation.parameter_schema_version()
+        == DETAIL_EFFECTS_V2_PARAMETER_SCHEMA_VERSION
+        && operation.implementation_version() == DETAIL_EFFECTS_V2_IMPLEMENTATION_VERSION;
+    if operation.operation_id().as_str() != SHARPEN_OPERATION_ID
+        || !contract_is_supported
+        || operation.stage() != ProcessingStage::DetailAndEffects
+        || operation.input_types() != [rgb]
+        || operation.output_type() != rgb
+        || operation.seed().is_some()
+        || node.inputs() != [input]
+        || node.mask_reference().is_some()
+    {
+        bail!("working Recipe Detail & Effects has an unsupported contract");
     }
     Ok(())
 }
@@ -3032,6 +4938,34 @@ fn required_float_vector(
     }
 }
 
+fn required_bool(parameters: &ParameterBlock, key: &str, expected_len: usize) -> AnyResult<bool> {
+    if parameters.len() != expected_len {
+        bail!("basic node has unexpected parameter count");
+    }
+    let key = ParameterKey::new(key)?;
+    match parameters.get(&key) {
+        Some(ParameterValue::Bool(value)) => Ok(*value),
+        _ => bail!(
+            "basic node parameter {} is missing or not a boolean",
+            key.as_str()
+        ),
+    }
+}
+
+fn required_text(parameters: &ParameterBlock, key: &str, expected_len: usize) -> AnyResult<String> {
+    if parameters.len() != expected_len {
+        bail!("basic node has unexpected parameter count");
+    }
+    let key = ParameterKey::new(key)?;
+    match parameters.get(&key) {
+        Some(ParameterValue::Text(value)) => Ok(value.clone()),
+        _ => bail!(
+            "basic node parameter {} is missing or not text",
+            key.as_str()
+        ),
+    }
+}
+
 fn commit_record(
     commits: &[RecipeCommitRecord],
     commit_id: RecipeCommitId,
@@ -3065,14 +4999,14 @@ fn ffi_edit_version(
         is_working: working_id == Some(record.commit.id()),
         is_root: diff.is_root,
         recipe_schema_changed: diff.recipe_schema_changed,
-        layers_added: diff.layers_added,
-        layers_removed: diff.layers_removed,
-        layers_moved: diff.layers_moved,
-        layers_modified: diff.layers_modified,
-        nodes_added: diff.nodes_added,
-        nodes_removed: diff.nodes_removed,
-        nodes_modified: diff.nodes_modified,
-        node_parameter_blocks_changed: diff.node_parameter_blocks_changed,
+        grade_nodes_added: diff.grade_nodes_added,
+        grade_nodes_removed: diff.grade_nodes_removed,
+        grade_nodes_moved: diff.grade_nodes_moved,
+        grade_nodes_modified: diff.grade_nodes_modified,
+        render_ops_added: diff.render_ops_added,
+        render_ops_removed: diff.render_ops_removed,
+        render_ops_modified: diff.render_ops_modified,
+        render_op_parameter_blocks_changed: diff.render_op_parameter_blocks_changed,
         changed_basic_parameter_count: checked_count(
             record.commit.id(),
             "changed_basic_parameters",
@@ -3112,14 +5046,14 @@ enum EditVersionDiffError {
 struct EditVersionDiff {
     is_root: bool,
     recipe_schema_changed: bool,
-    layers_added: u32,
-    layers_removed: u32,
-    layers_moved: u32,
-    layers_modified: u32,
-    nodes_added: u32,
-    nodes_removed: u32,
-    nodes_modified: u32,
-    node_parameter_blocks_changed: u32,
+    grade_nodes_added: u32,
+    grade_nodes_removed: u32,
+    grade_nodes_moved: u32,
+    grade_nodes_modified: u32,
+    render_ops_added: u32,
+    render_ops_removed: u32,
+    render_ops_modified: u32,
+    render_op_parameter_blocks_changed: u32,
     changed_basic_parameters: Vec<String>,
     has_other_changes: bool,
 }
@@ -3151,50 +5085,54 @@ fn edit_version_diff(
     let structural = diff_recipe_snapshots(parent.commit.snapshot(), record.commit.snapshot());
     let summary = structural.summary();
     let (changed_basic_parameters, basic_subset_supported) = match (
-        edit_settings_from_snapshot(parent.commit.snapshot()),
-        edit_settings_from_snapshot(record.commit.snapshot()),
+        decode_grade_stack_draft_from_recipe_v1_snapshot(parent.commit.snapshot()),
+        decode_grade_stack_draft_from_recipe_v1_snapshot(record.commit.snapshot()),
     ) {
-        (Ok(before), Ok(after)) => (changed_edit_parameters(&before, &after), true),
+        (Ok(before), Ok(after)) => (changed_grade_parameters_recipe_v1(&before, &after), true),
         _ => (Vec::new(), false),
     };
 
     Ok(EditVersionDiff {
         is_root: false,
         recipe_schema_changed: summary.recipe_schema_changed,
-        layers_added: checked_summary_count(
+        grade_nodes_added: checked_summary_count(
             record.commit.id(),
-            "layers_added",
+            "grade_nodes_added",
             summary.layers_added,
         )?,
-        layers_removed: checked_summary_count(
+        grade_nodes_removed: checked_summary_count(
             record.commit.id(),
-            "layers_removed",
+            "grade_nodes_removed",
             summary.layers_removed,
         )?,
-        layers_moved: checked_summary_count(
+        grade_nodes_moved: checked_summary_count(
             record.commit.id(),
-            "layers_moved",
+            "grade_nodes_moved",
             summary.layers_moved,
         )?,
-        layers_modified: checked_summary_count(
+        grade_nodes_modified: checked_summary_count(
             record.commit.id(),
-            "layers_modified",
+            "grade_nodes_modified",
             summary.layers_modified,
         )?,
-        nodes_added: checked_summary_count(record.commit.id(), "nodes_added", summary.nodes_added)?,
-        nodes_removed: checked_summary_count(
+        render_ops_added: checked_summary_count(
             record.commit.id(),
-            "nodes_removed",
+            "render_ops_added",
+            summary.nodes_added,
+        )?,
+        render_ops_removed: checked_summary_count(
+            record.commit.id(),
+            "render_ops_removed",
             summary.nodes_removed,
         )?,
-        nodes_modified: checked_summary_count(
+        render_ops_modified: checked_summary_count(
             record.commit.id(),
-            "nodes_modified",
+            "render_ops_modified",
             summary.nodes_modified,
         )?,
-        node_parameter_blocks_changed: checked_summary_count(
+        render_op_parameter_blocks_changed: checked_summary_count(
             record.commit.id(),
-            "node_parameter_blocks_changed",
+            "render_op_parameter_blocks_changed",
             summary.node_parameters_changed,
         )?,
         has_other_changes: !basic_subset_supported
@@ -3236,19 +5174,14 @@ fn changed_basic_parameters(
     }
     for (key, before, after) in [
         (
-            "red_channel_gain",
-            before.channel_gains[0],
-            after.channel_gains[0],
+            "white_balance_temperature",
+            before.white_balance_temperature,
+            after.white_balance_temperature,
         ),
         (
-            "green_channel_gain",
-            before.channel_gains[1],
-            after.channel_gains[1],
-        ),
-        (
-            "blue_channel_gain",
-            before.channel_gains[2],
-            after.channel_gains[2],
+            "white_balance_tint",
+            before.white_balance_tint,
+            after.white_balance_tint,
         ),
     ] {
         if persisted_float_changed(before, after) {
@@ -3261,37 +5194,130 @@ fn changed_basic_parameters(
     changed
 }
 
-fn changed_edit_parameters(before: &EditSettings, after: &EditSettings) -> Vec<String> {
+fn changed_fine_parameters(before: &FineEditParameters, after: &FineEditParameters) -> Vec<String> {
+    let mut changed = Vec::new();
+    for (key, before, after) in [
+        (
+            "highlights",
+            before.selective_tone.highlights,
+            after.selective_tone.highlights,
+        ),
+        (
+            "shadows",
+            before.selective_tone.shadows,
+            after.selective_tone.shadows,
+        ),
+        (
+            "whites",
+            before.selective_tone.whites,
+            after.selective_tone.whites,
+        ),
+        (
+            "blacks",
+            before.selective_tone.blacks,
+            after.selective_tone.blacks,
+        ),
+        (
+            "vibrance",
+            before.perceptual_color.vibrance,
+            after.perceptual_color.vibrance,
+        ),
+    ] {
+        if persisted_float_changed(before, after) {
+            changed.push(key.to_owned());
+        }
+    }
+    if persisted_array_changed(
+        before.perceptual_color.hue_shifts,
+        after.perceptual_color.hue_shifts,
+    ) {
+        changed.push("color_mixer_hue".to_owned());
+    }
+    if persisted_array_changed(
+        before.perceptual_color.saturation,
+        after.perceptual_color.saturation,
+    ) {
+        changed.push("color_mixer_saturation".to_owned());
+    }
+    if persisted_array_changed(
+        before.perceptual_color.lightness,
+        after.perceptual_color.lightness,
+    ) {
+        changed.push("color_mixer_lightness".to_owned());
+    }
+    if before.perceptual_color.color_range != after.perceptual_color.color_range {
+        changed.push("color_range".to_owned());
+    }
+    if before.lut != after.lut {
+        changed.push("lut".to_owned());
+    }
+    if before.sharpen != after.sharpen {
+        changed.push("sharpening".to_owned());
+    }
+    changed
+}
+
+fn persisted_array_changed<const N: usize>(before: [f64; N], after: [f64; N]) -> bool {
+    before
+        .into_iter()
+        .zip(after)
+        .any(|(before, after)| persisted_float_changed(before, after))
+}
+
+fn changed_grade_parameters_recipe_v1(
+    before: &GradeStackDraft,
+    after: &GradeStackDraft,
+) -> Vec<String> {
     let before_by_id = before
-        .layers
+        .grade_nodes
         .iter()
-        .map(|layer| (layer.identity.layer, layer))
+        .map(|grade_node| (grade_node.recipe_v1_identity.grade_node_id, grade_node))
         .collect::<HashMap<_, _>>();
     let mut changed = HashSet::new();
-    for after_layer in &after.layers {
-        let Some(before_layer) = before_by_id.get(&after_layer.identity.layer) else {
+    if before.optics != after.optics {
+        changed.insert("optics".to_owned());
+    }
+    for after_grade_node in &after.grade_nodes {
+        let Some(before_grade_node) =
+            before_by_id.get(&after_grade_node.recipe_v1_identity.grade_node_id)
+        else {
             continue;
         };
         changed.extend(changed_basic_parameters(
-            before_layer.basic,
-            after_layer.basic,
+            before_grade_node.basic,
+            after_grade_node.basic,
         ));
-        if before_layer.layer_enabled != after_layer.layer_enabled {
-            changed.insert("layer_enabled".to_owned());
+        changed.extend(changed_fine_parameters(
+            &before_grade_node.fine,
+            &after_grade_node.fine,
+        ));
+        if before_grade_node.enabled != after_grade_node.enabled {
+            changed.insert("grade_node_enabled".to_owned());
         }
-        if before_layer.tone_curve != after_layer.tone_curve {
+        if before_grade_node.tone_curve != after_grade_node.tone_curve {
             changed.insert("tone_curve".to_owned());
         }
     }
     [
         "exposure_stops",
         "contrast_factor",
-        "red_channel_gain",
-        "green_channel_gain",
-        "blue_channel_gain",
+        "white_balance_temperature",
+        "white_balance_tint",
         "saturation_factor",
-        "layer_enabled",
+        "grade_node_enabled",
         "tone_curve",
+        "highlights",
+        "shadows",
+        "whites",
+        "blacks",
+        "vibrance",
+        "color_mixer_hue",
+        "color_mixer_saturation",
+        "color_mixer_lightness",
+        "color_range",
+        "lut",
+        "sharpening",
+        "optics",
     ]
     .into_iter()
     .filter(|key| changed.contains(*key))
@@ -3320,7 +5346,7 @@ fn has_other_recipe_changes(
         return true;
     }
 
-    if canonical_edit_identity_is_preserved(before, after) {
+    if canonical_grade_stack_recipe_v1_identity_is_preserved(before, after) {
         return false;
     }
 
@@ -3349,7 +5375,10 @@ fn has_other_recipe_changes(
     })
 }
 
-fn canonical_edit_identity_is_preserved(before: &RecipeSnapshot, after: &RecipeSnapshot) -> bool {
+fn canonical_grade_stack_recipe_v1_identity_is_preserved(
+    before: &RecipeSnapshot,
+    after: &RecipeSnapshot,
+) -> bool {
     if before.layers().len() != after.layers().len() {
         return false;
     }
@@ -3359,8 +5388,8 @@ fn canonical_edit_identity_is_preserved(before: &RecipeSnapshot, after: &RecipeS
         .zip(after.layers())
         .all(|(before_layer, after_layer)| {
             let (Ok(before_nodes), Ok(after_nodes)) = (
-                basic_layer_nodes(before_layer),
-                basic_layer_nodes(after_layer),
+                grade_node_recipe_v1_render_ops(before_layer),
+                grade_node_recipe_v1_render_ops(after_layer),
             ) else {
                 return false;
             };
@@ -3368,8 +5397,11 @@ fn canonical_edit_identity_is_preserved(before: &RecipeSnapshot, after: &RecipeS
                 && before_layer.label() == after_layer.label()
                 && before_nodes.exposure.id() == after_nodes.exposure.id()
                 && before_nodes.contrast.id() == after_nodes.contrast.id()
-                && before_nodes.channel_gain.id() == after_nodes.channel_gain.id()
+                && before_nodes.white_balance.id() == after_nodes.white_balance.id()
                 && before_nodes.saturation.id() == after_nodes.saturation.id()
+                && before_nodes.selective_tone.id() == after_nodes.selective_tone.id()
+                && before_nodes.perceptual_color.id() == after_nodes.perceptual_color.id()
+                && before_nodes.sharpen.id() == after_nodes.sharpen.id()
                 && match (before_nodes.tone_curve, after_nodes.tone_curve) {
                     (Some(before), Some(after)) => before.id() == after.id(),
                     _ => true,
@@ -3389,8 +5421,11 @@ fn node_parameter_change_has_basic_label(snapshot: &RecipeSnapshot, node_id: Nod
                     EXPOSURE_OPERATION_ID
                         | CONTRAST_OPERATION_ID
                         | TONE_CURVE_OPERATION_ID
-                        | CHANNEL_GAIN_OPERATION_ID
+                        | RGB_WHITE_BALANCE_OPERATION_ID
                         | SATURATION_OPERATION_ID
+                        | SELECTIVE_TONE_OPERATION_ID
+                        | PERCEPTUAL_COLOR_OPERATION_ID
+                        | SHARPEN_OPERATION_ID
                 )
         })
     })
@@ -3502,6 +5537,8 @@ fn parse_cursor(path: &str, representation_id: &str) -> AnyResult<Option<ReviewC
 }
 
 impl DesktopSession {
+    // Keeping the complete Review DTO mapping together prevents silent EXIF field omissions.
+    #[allow(clippy::too_many_lines)]
     fn review_item(&self, record: ReviewItemRecord) -> AnyResult<ffi::FfiReviewItem> {
         let visual_handle = record
             .visual
@@ -3526,6 +5563,64 @@ impl DesktopSession {
             },
         );
         let technical = record.technical;
+        let metadata = record.metadata;
+        let has_metadata = metadata.is_some();
+        let (
+            camera_make,
+            camera_model,
+            lens_make,
+            lens_model,
+            captured_at_unix_seconds,
+            iso_speed,
+            exposure_time_seconds,
+            aperture_f_number,
+            focal_length_mm,
+            focal_length_35mm,
+            raw_width,
+            raw_height,
+            sensor_bits,
+            cfa_pattern,
+            dng_version,
+        ) = metadata.map_or_else(
+            || {
+                (
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                    0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0,
+                    0,
+                    0,
+                    String::new(),
+                    String::new(),
+                )
+            },
+            |metadata| {
+                (
+                    metadata.make,
+                    metadata.model,
+                    metadata.lens_make,
+                    metadata.lens_model,
+                    metadata.captured_at_unix_seconds,
+                    metadata.iso_speed,
+                    metadata.exposure_time_seconds,
+                    metadata.aperture_f_number,
+                    metadata.focal_length_mm,
+                    metadata.focal_length_35mm,
+                    metadata.raw_dimensions.width,
+                    metadata.raw_dimensions.height,
+                    metadata.sensor_bits,
+                    metadata.cfa_pattern,
+                    metadata.dng_version.unwrap_or_default(),
+                )
+            },
+        );
         let has_technical_observation = technical.is_some();
         let (
             technical_input_width,
@@ -3587,6 +5682,22 @@ impl DesktopSession {
             visual_width,
             visual_height,
             has_visual,
+            has_metadata,
+            camera_make,
+            camera_model,
+            lens_make,
+            lens_model,
+            captured_at_unix_seconds,
+            iso_speed,
+            exposure_time_seconds,
+            aperture_f_number,
+            focal_length_mm,
+            focal_length_35mm,
+            raw_width,
+            raw_height,
+            sensor_bits,
+            cfa_pattern,
+            dng_version,
             has_technical_observation,
             technical_input_width,
             technical_input_height,
@@ -4248,7 +6359,7 @@ mod tests {
     fn detail_request_rejects_an_excessive_grid_before_source_work() {
         let mut request = ffi::FfiEditDetailViewportRequest {
             base_commit_id: String::new(),
-            settings: ffi_parameters(0.0, 1.0, [1.0; 3], 1.0),
+            settings: ffi_parameters(0.0, 1.0, [0.0; 2], 1.0),
             render_token: 1,
             center_x: 0.5,
             center_y: 0.5,
@@ -5210,137 +7321,277 @@ mod tests {
     }
 
     #[test]
-    fn new_basic_layer_allocates_complete_stable_identity_and_round_trips() {
-        let created = new_basic_edit_layer("Portrait foundation").expect("new Basic layer");
+    fn new_basic_grade_node_allocates_complete_stable_identity_and_round_trips() {
+        let created = new_basic_grade_node("Portrait foundation").expect("new Basic Grade Node");
         for value in [
-            &created.layer_id,
-            &created.exposure_node_id,
-            &created.contrast_node_id,
-            &created.channel_gain_node_id,
-            &created.saturation_node_id,
+            &created.grade_node_id,
+            &created.exposure_render_op_id,
+            &created.contrast_render_op_id,
+            &created.white_balance_render_op_id,
+            &created.saturation_render_op_id,
         ] {
             let id = Uuid::parse_str(value).expect("UUID identity");
             assert_eq!(id.get_version_num(), 7);
         }
-        let tone_curve_slot = Uuid::parse_str(&created.tone_curve_node_id)
+        let tone_curve_slot = Uuid::parse_str(&created.tone_curve_render_op_id)
             .expect("deterministic Tone Curve slot UUID");
         assert_eq!(tone_curve_slot.get_version_num(), 8);
         assert_eq!(tone_curve_slot.get_variant(), uuid::Variant::RFC4122);
-        assert!(!created.has_tone_curve);
-        assert!(created.tone_curve_points.is_empty());
-        assert!(!created.tone_curve_node_id.is_empty());
+        for value in [
+            &created.selective_tone_render_op_id,
+            &created.perceptual_color_render_op_id,
+            &created.sharpen_render_op_id,
+        ] {
+            let id = Uuid::parse_str(value).expect("deterministic fine-edit slot UUID");
+            assert_eq!(id.get_version_num(), 8);
+            assert_eq!(id.get_variant(), uuid::Variant::RFC4122);
+        }
+        assert_eq!(created.tone_curve_kind, ffi::FfiToneCurveKind::None);
+        assert!(created.tone_curve_master_points.is_empty());
+        assert!(created.tone_curve_red_points.is_empty());
+        assert!(created.tone_curve_green_points.is_empty());
+        assert!(created.tone_curve_blue_points.is_empty());
+        assert!(!created.tone_curve_render_op_id.is_empty());
 
         let incoming = ffi::FfiEditSettings {
-            layers: vec![created],
+            optics: ffi::FfiOpticsSettings {
+                enabled: true,
+                correct_distortion: false,
+                correct_tca: true,
+                correct_vignetting: false,
+                automatic_scale: true,
+                camera_profile_maker: "Pentax".to_owned(),
+                camera_profile_model: "K10D".to_owned(),
+                lens_profile_maker: "smc Pentax".to_owned(),
+                lens_profile_model: "DA 35mm".to_owned(),
+            },
+            grade_nodes: vec![created],
         };
-        let decoded = edit_settings(&incoming).expect("decode stack");
-        let outgoing = ffi_edit_settings(decoded);
-        assert_eq!(outgoing.layers.len(), 1);
-        assert_eq!(outgoing.layers[0].layer_id, incoming.layers[0].layer_id);
+        let decoded = decode_grade_stack_draft_recipe_v1(&incoming).expect("decode Grade Stack");
+        let outgoing = encode_grade_stack_draft_recipe_v1(decoded);
+        assert_eq!(outgoing.grade_nodes.len(), 1);
         assert_eq!(
-            outgoing.layers[0].tone_curve_node_id,
-            incoming.layers[0].tone_curve_node_id
+            outgoing.grade_nodes[0].grade_node_id,
+            incoming.grade_nodes[0].grade_node_id
         );
-        assert_eq!(outgoing.layers[0].label, "Portrait foundation");
+        assert_eq!(
+            outgoing.grade_nodes[0].tone_curve_render_op_id,
+            incoming.grade_nodes[0].tone_curve_render_op_id
+        );
+        assert_eq!(
+            outgoing.grade_nodes[0].selective_tone_render_op_id,
+            incoming.grade_nodes[0].selective_tone_render_op_id
+        );
+        assert_eq!(
+            outgoing.grade_nodes[0].perceptual_color_render_op_id,
+            incoming.grade_nodes[0].perceptual_color_render_op_id
+        );
+        assert_eq!(
+            outgoing.grade_nodes[0].sharpen_render_op_id,
+            incoming.grade_nodes[0].sharpen_render_op_id
+        );
+        assert_eq!(outgoing.grade_nodes[0].label, "Portrait foundation");
+        assert!(outgoing.optics.enabled);
+        assert!(!outgoing.optics.correct_distortion);
+        assert!(outgoing.optics.correct_tca);
+        assert!(!outgoing.optics.correct_vignetting);
+        assert!(outgoing.optics.automatic_scale);
+        assert_eq!(outgoing.optics.camera_profile_model, "K10D");
+        assert_eq!(outgoing.optics.lens_profile_model, "DA 35mm");
+    }
+
+    #[test]
+    fn explicit_fine_edit_render_op_ids_survive_recipe_ffi_recipe_round_trip() {
+        let mut grade_node = GradeNodeDraft::neutral("Imported fine-edit identities");
+        let selective_tone_id =
+            NodeId::from_uuid(Uuid::from_u128(0x11111111_2222_4333_8444_555555555555));
+        let perceptual_color_id =
+            NodeId::from_uuid(Uuid::from_u128(0xaaaaaaaa_bbbb_4ccc_8ddd_eeeeeeeeeeee));
+        let sharpen_id = NodeId::from_uuid(Uuid::from_u128(0x01234567_89ab_4cde_8fed_cba987654321));
+        assert_ne!(
+            selective_tone_id,
+            recipe_v1_selective_tone_render_op_id(grade_node.recipe_v1_identity.grade_node_id)
+        );
+        assert_ne!(
+            perceptual_color_id,
+            recipe_v1_perceptual_color_render_op_id(grade_node.recipe_v1_identity.grade_node_id)
+        );
+        assert_ne!(
+            sharpen_id,
+            recipe_v1_sharpen_render_op_id(grade_node.recipe_v1_identity.grade_node_id)
+        );
+        grade_node.recipe_v1_identity.selective_tone_render_op_id = selective_tone_id;
+        grade_node.recipe_v1_identity.perceptual_color_render_op_id = perceptual_color_id;
+        grade_node.recipe_v1_identity.sharpen_render_op_id = sharpen_id;
+        grade_node.fine.selective_tone.highlights = -0.35;
+        grade_node.fine.perceptual_color.vibrance = 0.42;
+
+        let snapshot = grade_stack_recipe_v1_snapshot(
+            &GradeStackDraft {
+                optics: RecipeOpticsSettings::default(),
+                grade_nodes: vec![grade_node],
+            },
+            None,
+        )
+        .expect("Recipe with externally allocated fine-edit identities");
+        let recipe_decoded = decode_grade_stack_draft_from_recipe_v1_snapshot(&snapshot)
+            .expect("decode Recipe before crossing Qt FFI");
+        let ffi_settings = encode_grade_stack_draft_recipe_v1(recipe_decoded);
+        assert_eq!(
+            ffi_settings.selective_tone_render_op_id,
+            selective_tone_id.to_string()
+        );
+        assert_eq!(
+            ffi_settings.perceptual_color_render_op_id,
+            perceptual_color_id.to_string()
+        );
+        assert_eq!(ffi_settings.sharpen_render_op_id, sharpen_id.to_string());
+
+        let ffi_decoded = decode_grade_stack_draft_recipe_v1(&ffi_settings)
+            .expect("decode Grade Stack after Qt FFI round trip");
+        assert_eq!(
+            ffi_decoded.recipe_v1_identity.selective_tone_render_op_id,
+            selective_tone_id
+        );
+        assert_eq!(
+            ffi_decoded.recipe_v1_identity.perceptual_color_render_op_id,
+            perceptual_color_id
+        );
+        assert_eq!(
+            ffi_decoded.recipe_v1_identity.sharpen_render_op_id,
+            sharpen_id
+        );
+        let rebuilt = grade_stack_recipe_v1_snapshot(&ffi_decoded, Some(&snapshot))
+            .expect("save the FFI round-tripped Recipe");
+        assert_eq!(rebuilt, snapshot);
     }
 
     #[test]
     fn curve_less_recipe_derives_the_same_tone_curve_slot_on_repeated_reads() {
-        let snapshot =
-            edit_recipe_snapshot(&EditSettings::default(), None).expect("curve-less Basic Recipe");
-        let first = edit_settings_from_snapshot(&snapshot).expect("first Recipe read");
-        let second = edit_settings_from_snapshot(&snapshot).expect("second Recipe read");
-        let layer_id = snapshot.layers()[0].id();
+        let snapshot = grade_stack_recipe_v1_snapshot(&GradeStackDraft::default(), None)
+            .expect("curve-less Basic Recipe");
+        let first =
+            decode_grade_stack_draft_from_recipe_v1_snapshot(&snapshot).expect("first Recipe read");
+        let second = decode_grade_stack_draft_from_recipe_v1_snapshot(&snapshot)
+            .expect("second Recipe read");
+        let grade_node_id = snapshot.layers()[0].id();
 
-        assert_eq!(first.identity.tone_curve, second.identity.tone_curve);
         assert_eq!(
-            first.identity.tone_curve,
-            basic_tone_curve_slot_id(layer_id)
+            first.recipe_v1_identity.tone_curve_render_op_id,
+            second.recipe_v1_identity.tone_curve_render_op_id
         );
-        assert_eq!(first.identity.tone_curve.as_uuid().get_version_num(), 8);
         assert_eq!(
-            first.identity.tone_curve.as_uuid().get_variant(),
+            first.recipe_v1_identity.tone_curve_render_op_id,
+            recipe_v1_tone_curve_render_op_id(grade_node_id)
+        );
+        assert_eq!(
+            first
+                .recipe_v1_identity
+                .tone_curve_render_op_id
+                .as_uuid()
+                .get_version_num(),
+            8
+        );
+        assert_eq!(
+            first
+                .recipe_v1_identity
+                .tone_curve_render_op_id
+                .as_uuid()
+                .get_variant(),
             uuid::Variant::RFC4122
         );
     }
 
     #[test]
-    fn legacy_single_layer_snapshot_round_trips_without_identity_or_label_loss() {
-        let mut layer = EditLayerSettings::neutral("Legacy custom label");
-        layer.basic.exposure_stops = 0.75;
-        let settings = EditSettings {
-            layers: vec![layer],
+    fn current_single_layer_snapshot_round_trips_without_identity_or_label_loss() {
+        let mut grade_node = GradeNodeDraft::neutral("Custom grade");
+        grade_node.basic.exposure_stops = 0.75;
+        let grade_stack = GradeStackDraft {
+            optics: RecipeOpticsSettings::default(),
+            grade_nodes: vec![grade_node],
         };
-        let snapshot = edit_recipe_snapshot(&settings, None).expect("legacy snapshot");
-        let original_identity = basic_recipe_identity(&snapshot)
+        let snapshot =
+            grade_stack_recipe_v1_snapshot(&grade_stack, None).expect("current snapshot");
+        let original_identity = single_grade_node_recipe_v1_identity(&snapshot)
             .expect("read identity")
             .expect("one layer");
 
-        let decoded = edit_settings_from_snapshot(&snapshot).expect("decode legacy snapshot");
-        let rebuilt = edit_recipe_snapshot(&decoded, Some(&snapshot)).expect("rebuild snapshot");
-        let rebuilt_identity = basic_recipe_identity(&rebuilt)
+        let decoded = decode_grade_stack_draft_from_recipe_v1_snapshot(&snapshot)
+            .expect("decode current snapshot");
+        let rebuilt =
+            grade_stack_recipe_v1_snapshot(&decoded, Some(&snapshot)).expect("rebuild snapshot");
+        let rebuilt_identity = single_grade_node_recipe_v1_identity(&rebuilt)
             .expect("read rebuilt identity")
             .expect("one layer");
 
         assert_eq!(rebuilt, snapshot);
         assert_eq!(rebuilt_identity, original_identity);
-        assert_eq!(rebuilt.layers()[0].label(), "Legacy custom label");
+        assert_eq!(rebuilt.layers()[0].label(), "Custom grade");
     }
 
     #[test]
-    fn two_basic_layers_compile_in_recipe_vector_order_with_namespaced_nodes() {
-        let mut settings = EditSettings::default();
-        settings.basic.exposure_stops = 0.5;
-        let mut second = EditLayerSettings::neutral("Second Basic");
+    fn two_grade_nodes_compile_in_recipe_vector_order_with_namespaced_render_ops() {
+        let mut grade_stack = GradeStackDraft::default();
+        grade_stack.basic.exposure_stops = 0.5;
+        let mut second = GradeNodeDraft::neutral("Second Basic");
         second.basic.exposure_stops = -1.25;
-        settings.layers.push(second);
-        let first_layer_id = settings.layers[0].identity.layer;
-        let second_layer_id = settings.layers[1].identity.layer;
+        grade_stack.grade_nodes.push(second);
+        let first_grade_node_id = grade_stack.grade_nodes[0].recipe_v1_identity.grade_node_id;
+        let second_grade_node_id = grade_stack.grade_nodes[1].recipe_v1_identity.grade_node_id;
 
-        let snapshot = edit_recipe_snapshot(&settings, None).expect("two-layer snapshot");
-        let plan = compile_recipe_render_plan(&snapshot).expect("compile two layers");
-        assert_eq!(plan.nodes.len(), 8);
+        let snapshot =
+            grade_stack_recipe_v1_snapshot(&grade_stack, None).expect("two-node snapshot");
+        let plan = compile_recipe_render_plan(&snapshot).expect("compile two Grade Nodes");
+        assert_eq!(plan.nodes.len(), 16);
         assert!(
-            plan.nodes[..4]
+            plan.nodes[..8]
                 .iter()
-                .all(|node| node.node_id.starts_with(&format!("{first_layer_id}/")))
+                .all(|node| node.node_id.starts_with(&format!("{first_grade_node_id}/")))
         );
-        assert!(
-            plan.nodes[4..]
-                .iter()
-                .all(|node| node.node_id.starts_with(&format!("{second_layer_id}/")))
-        );
+        assert!(plan.nodes[8..].iter().all(|node| {
+            node.node_id
+                .starts_with(&format!("{second_grade_node_id}/"))
+        }));
         assert!(matches!(
             plan.nodes[0].operation,
             AdjustmentRenderOperation::Exposure { stops: 0.5 }
         ));
         assert!(matches!(
-            plan.nodes[4].operation,
+            plan.nodes[8].operation,
             AdjustmentRenderOperation::Exposure { stops: -1.25 }
         ));
 
-        settings.layers.reverse();
-        let reversed = edit_recipe_snapshot(&settings, None).expect("reordered snapshot");
+        grade_stack.grade_nodes.reverse();
+        let reversed =
+            grade_stack_recipe_v1_snapshot(&grade_stack, None).expect("reordered snapshot");
         let reversed_plan = compile_recipe_render_plan(&reversed).expect("compile reordered stack");
         assert!(
             reversed_plan.nodes[0]
                 .node_id
-                .starts_with(&format!("{second_layer_id}/"))
+                .starts_with(&format!("{second_grade_node_id}/"))
         );
     }
 
     #[test]
-    fn adjustment_stack_rejects_cross_layer_node_identity_reuse() {
-        let first = EditLayerSettings::neutral("First Basic");
-        let mut second = EditLayerSettings::neutral("Second Basic");
-        second.identity.exposure = first.identity.exposure;
-        let invalid = EditSettings {
-            layers: vec![first.clone(), second.clone()],
+    fn grade_stack_rejects_cross_grade_node_render_op_identity_reuse() {
+        let first = GradeNodeDraft::neutral("First Basic");
+        let mut second = GradeNodeDraft::neutral("Second Basic");
+        second.recipe_v1_identity.exposure_render_op_id =
+            first.recipe_v1_identity.exposure_render_op_id;
+        let invalid = GradeStackDraft {
+            optics: RecipeOpticsSettings::default(),
+            grade_nodes: vec![first.clone(), second.clone()],
         };
 
-        let ffi_error = edit_settings(&ffi_edit_settings(invalid.clone()))
-            .expect_err("FFI stack must reject a node id reused by another layer");
-        assert!(ffi_error.to_string().contains("duplicate node id"));
+        let ffi_error = decode_grade_stack_draft_recipe_v1(&encode_grade_stack_draft_recipe_v1(
+            invalid.clone(),
+        ))
+        .expect_err("FFI stack must reject a render-op id reused by another Grade Node");
+        assert!(
+            ffi_error
+                .to_string()
+                .contains("duplicate Recipe v1 render-op id")
+        );
 
         // RecipeSnapshot currently scopes graph identity validation per layer,
         // so the desktop compiler must independently enforce the stack-wide
@@ -5348,59 +7599,75 @@ mod tests {
         let persisted = RecipeSnapshot::new(
             CURRENT_RECIPE_SCHEMA_VERSION,
             vec![
-                edit_layer_recipe(&first).expect("first persisted layer"),
-                edit_layer_recipe(&second).expect("second persisted layer"),
+                encode_grade_node_as_recipe_v1_layer(&first).expect("first persisted Grade Node"),
+                encode_grade_node_as_recipe_v1_layer(&second).expect("second persisted Grade Node"),
             ],
         )
         .expect("domain-valid graph-scoped identities");
         assert!(
-            edit_settings_from_snapshot(&persisted)
-                .expect_err("persisted stack read must reject reused node identity")
+            decode_grade_stack_draft_from_recipe_v1_snapshot(&persisted)
+                .expect_err("persisted stack read must reject reused render-op identity")
                 .to_string()
-                .contains("duplicate node id")
+                .contains("duplicate Recipe v1 render-op id")
         );
         assert!(
             compile_recipe_render_plan(&persisted)
-                .expect_err("compiler must reject reused node identity")
+                .expect_err("compiler must reject reused render-op identity")
                 .to_string()
-                .contains("duplicate Adjustment Stack node id")
+                .contains("duplicate render-op id")
         );
     }
 
     #[test]
     fn duplicate_add_delete_and_reorder_preserve_the_expected_identities() {
-        let original = EditSettings::default();
-        let base = edit_recipe_snapshot(&original, None).expect("base snapshot");
-        let duplicate = original.layers[0].duplicate();
-        assert_eq!(duplicate.basic, original.layers[0].basic);
-        assert_eq!(duplicate.tone_curve, original.layers[0].tone_curve);
-        assert_ne!(duplicate.identity.layer, original.layers[0].identity.layer);
+        let mut original = GradeStackDraft::default();
+        original.fine.selective_tone.shadows = 0.2;
+        original.fine.perceptual_color.vibrance = 0.35;
+        let base = grade_stack_recipe_v1_snapshot(&original, None).expect("base snapshot");
+        let duplicate = original.grade_nodes[0].duplicate();
+        assert_eq!(duplicate.basic, original.grade_nodes[0].basic);
+        assert_eq!(duplicate.fine, original.grade_nodes[0].fine);
+        assert_eq!(duplicate.tone_curve, original.grade_nodes[0].tone_curve);
+        assert_ne!(
+            duplicate.recipe_v1_identity.grade_node_id,
+            original.grade_nodes[0].recipe_v1_identity.grade_node_id
+        );
         assert!(
             duplicate
-                .identity
-                .node_ids()
+                .recipe_v1_identity
+                .recipe_v1_render_op_id_values()
                 .into_iter()
-                .all(|id| !original.layers[0].identity.node_ids().contains(&id))
+                .all(|id| !original.grade_nodes[0]
+                    .recipe_v1_identity
+                    .recipe_v1_render_op_id_values()
+                    .contains(&id))
         );
 
         let mut added_settings = original.clone();
-        added_settings.layers.push(duplicate.clone());
-        let added = edit_recipe_snapshot(&added_settings, Some(&base)).expect("added snapshot");
+        added_settings.grade_nodes.push(duplicate.clone());
+        let added =
+            grade_stack_recipe_v1_snapshot(&added_settings, Some(&base)).expect("added snapshot");
         let added_diff = diff_recipe_snapshots(&base, &added);
         assert_eq!(added_diff.added_layers().len(), 1);
-        assert_eq!(added_diff.added_layers()[0].id(), duplicate.identity.layer);
+        assert_eq!(
+            added_diff.added_layers()[0].id(),
+            duplicate.recipe_v1_identity.grade_node_id
+        );
 
         let mut reordered_settings = added_settings.clone();
-        reordered_settings.layers.swap(0, 1);
-        let reordered =
-            edit_recipe_snapshot(&reordered_settings, Some(&added)).expect("reordered snapshot");
+        reordered_settings.grade_nodes.swap(0, 1);
+        let reordered = grade_stack_recipe_v1_snapshot(&reordered_settings, Some(&added))
+            .expect("reordered snapshot");
         let reordered_diff = diff_recipe_snapshots(&added, &reordered);
         assert_eq!(reordered_diff.moved_layers().len(), 2);
-        assert_eq!(reordered.layers()[0].id(), duplicate.identity.layer);
+        assert_eq!(
+            reordered.layers()[0].id(),
+            duplicate.recipe_v1_identity.grade_node_id
+        );
 
-        reordered_settings.layers.remove(0);
-        let deleted =
-            edit_recipe_snapshot(&reordered_settings, Some(&reordered)).expect("deleted snapshot");
+        reordered_settings.grade_nodes.remove(0);
+        let deleted = grade_stack_recipe_v1_snapshot(&reordered_settings, Some(&reordered))
+            .expect("deleted snapshot");
         assert_eq!(deleted, base);
         assert_eq!(
             diff_recipe_snapshots(&reordered, &deleted)
@@ -5412,49 +7679,53 @@ mod tests {
 
     #[test]
     fn template_rejects_retained_identity_rewrite_and_deleted_node_reuse() {
-        let mut base_settings = EditSettings::default();
+        let mut base_settings = GradeStackDraft::default();
         base_settings
-            .layers
-            .push(EditLayerSettings::neutral("Second Basic"));
-        let base = edit_recipe_snapshot(&base_settings, None).expect("two-layer base");
+            .grade_nodes
+            .push(GradeNodeDraft::neutral("Second Basic"));
+        let base = grade_stack_recipe_v1_snapshot(&base_settings, None).expect("two-node base");
 
         let mut rewritten = base_settings.clone();
-        rewritten.layers[0].identity.exposure = NodeId::new_v7();
+        rewritten.grade_nodes[0]
+            .recipe_v1_identity
+            .exposure_render_op_id = NodeId::new_v7();
         assert!(
-            edit_recipe_snapshot(&rewritten, Some(&base))
-                .expect_err("retained layer node identity rewrite must fail")
+            grade_stack_recipe_v1_snapshot(&rewritten, Some(&base))
+                .expect_err("retained Grade Node render-op identity rewrite must fail")
                 .to_string()
-                .contains("must preserve every stable node identity")
+                .contains("must preserve every stable Recipe v1 render-op identity")
         );
 
-        let deleted_exposure_id = base_settings.layers[0].identity.exposure;
-        let mut replacement = EditLayerSettings::neutral("Replacement Basic");
-        replacement.identity.exposure = deleted_exposure_id;
-        let replacement_settings = EditSettings {
-            layers: vec![base_settings.layers[1].clone(), replacement],
+        let deleted_exposure_id = base_settings.grade_nodes[0]
+            .recipe_v1_identity
+            .exposure_render_op_id;
+        let mut replacement = GradeNodeDraft::neutral("Replacement Basic");
+        replacement.recipe_v1_identity.exposure_render_op_id = deleted_exposure_id;
+        let replacement_settings = GradeStackDraft {
+            optics: RecipeOpticsSettings::default(),
+            grade_nodes: vec![base_settings.grade_nodes[1].clone(), replacement],
         };
         assert!(
-            edit_recipe_snapshot(&replacement_settings, Some(&base))
-                .expect_err("new layer must not reuse a deleted base node identity")
+            grade_stack_recipe_v1_snapshot(&replacement_settings, Some(&base))
+                .expect_err("new Grade Node must not reuse a deleted base render-op identity")
                 .to_string()
-                .contains("reuses base node id")
+                .contains("reuses base Recipe v1 render-op id")
         );
     }
 
     #[test]
     fn template_allows_tone_curve_add_and_remove_with_the_reserved_identity() {
-        let neutral_settings = EditSettings::default();
-        let neutral = edit_recipe_snapshot(&neutral_settings, None).expect("neutral Recipe");
-        let mut curved_settings = edit_settings_from_snapshot(&neutral).expect("neutral settings");
-        let reserved_id = curved_settings.identity.tone_curve;
-        curved_settings.tone_curve = Some(vec![
-            ToneCurvePoint { x: 0.0, y: 0.0 },
-            ToneCurvePoint { x: 1.0, y: 1.0 },
-        ]);
-        let curved = edit_recipe_snapshot(&curved_settings, Some(&neutral))
+        let neutral_settings = GradeStackDraft::default();
+        let neutral =
+            grade_stack_recipe_v1_snapshot(&neutral_settings, None).expect("neutral Recipe");
+        let mut curved_settings = decode_grade_stack_draft_from_recipe_v1_snapshot(&neutral)
+            .expect("neutral Grade Stack");
+        let reserved_id = curved_settings.recipe_v1_identity.tone_curve_render_op_id;
+        curved_settings.tone_curve = Some(ToneCurveDraft::SmoothRgb(Box::default()));
+        let curved = grade_stack_recipe_v1_snapshot(&curved_settings, Some(&neutral))
             .expect("insert Tone Curve using reserved identity");
         assert_eq!(
-            basic_recipe_nodes(&curved)
+            single_grade_node_recipe_v1_render_ops(&curved)
                 .expect("curved nodes")
                 .tone_curve
                 .expect("Tone Curve node")
@@ -5462,47 +7733,59 @@ mod tests {
             reserved_id
         );
 
-        let mut reset_settings = edit_settings_from_snapshot(&curved).expect("curved settings");
-        assert_eq!(reset_settings.identity.tone_curve, reserved_id);
+        let mut reset_settings =
+            decode_grade_stack_draft_from_recipe_v1_snapshot(&curved).expect("curved Grade Stack");
+        assert_eq!(
+            reset_settings.recipe_v1_identity.tone_curve_render_op_id,
+            reserved_id
+        );
         reset_settings.tone_curve = None;
-        edit_recipe_snapshot(&reset_settings, Some(&curved))
+        grade_stack_recipe_v1_snapshot(&reset_settings, Some(&curved))
             .expect("remove Tone Curve without rewriting its incoming identity");
     }
 
     #[test]
-    fn adjustment_stack_accepts_sixteen_layers_and_rejects_seventeen() {
+    fn grade_stack_accepts_sixteen_grade_nodes_and_rejects_seventeen() {
         assert!(
-            edit_recipe_snapshot(&EditSettings { layers: Vec::new() }, None)
-                .expect_err("an empty stack must fail closed")
-                .to_string()
-                .contains("1 through 16")
+            grade_stack_recipe_v1_snapshot(
+                &GradeStackDraft {
+                    optics: RecipeOpticsSettings::default(),
+                    grade_nodes: Vec::new()
+                },
+                None
+            )
+            .expect_err("an empty stack must fail closed")
+            .to_string()
+            .contains("1 through 16")
         );
-        let sixteen = EditSettings {
-            layers: (0..MAX_BASIC_EDIT_LAYERS)
-                .map(|index| EditLayerSettings::neutral(format!("Basic {index}")))
+        let sixteen = GradeStackDraft {
+            optics: RecipeOpticsSettings::default(),
+            grade_nodes: (0..MAX_GRADE_NODES)
+                .map(|index| GradeNodeDraft::neutral(format!("Basic {index}")))
                 .collect(),
         };
-        let snapshot = edit_recipe_snapshot(&sixteen, None).expect("sixteen-layer snapshot");
+        let snapshot =
+            grade_stack_recipe_v1_snapshot(&sixteen, None).expect("sixteen-node snapshot");
         assert_eq!(
             compile_recipe_render_plan(&snapshot).unwrap().nodes.len(),
-            64
+            128
         );
 
         let mut seventeen = sixteen.clone();
         seventeen
-            .layers
-            .push(EditLayerSettings::neutral("One too many"));
-        let error =
-            edit_recipe_snapshot(&seventeen, None).expect_err("seventeen layers must fail closed");
+            .grade_nodes
+            .push(GradeNodeDraft::neutral("One too many"));
+        let error = grade_stack_recipe_v1_snapshot(&seventeen, None)
+            .expect_err("seventeen Grade Nodes must fail closed");
         assert!(error.to_string().contains("1 through 16"));
 
-        let mut ffi_seventeen = ffi_edit_settings(sixteen);
+        let mut ffi_seventeen = encode_grade_stack_draft_recipe_v1(sixteen);
         ffi_seventeen
-            .layers
-            .push(new_basic_edit_layer("One too many").unwrap());
+            .grade_nodes
+            .push(new_basic_grade_node("One too many").unwrap());
         assert!(
-            edit_settings(&ffi_seventeen)
-                .expect_err("FFI seventeen layers must fail")
+            decode_grade_stack_draft_recipe_v1(&ffi_seventeen)
+                .expect_err("FFI seventeen Grade Nodes must fail")
                 .to_string()
                 .contains("1 through 16")
         );
@@ -5513,7 +7796,8 @@ mod tests {
         let expected = BasicEditParameters {
             exposure_stops: 1.25,
             contrast_factor: 1.4,
-            channel_gains: [1.2, 0.95, 0.8],
+            white_balance_temperature: 0.2,
+            white_balance_tint: -0.05,
             saturation_factor: 0.75,
         };
 
@@ -5524,22 +7808,345 @@ mod tests {
     }
 
     #[test]
+    fn fine_edit_round_trip_preserves_every_parameter_and_execution_slot() {
+        let expected = FineEditParameters {
+            selective_tone: SelectiveToneParameters {
+                highlights: -0.35,
+                shadows: 0.4,
+                whites: 0.15,
+                blacks: -0.2,
+            },
+            perceptual_color: PerceptualColorParameters {
+                vibrance: 0.3,
+                hue_shifts: [-0.4, -0.3, -0.2, -0.1, 0.1, 0.2, 0.3, 0.4],
+                saturation: [0.45, 0.35, 0.25, 0.15, -0.15, -0.25, -0.35, -0.45],
+                lightness: [-0.5, -0.25, 0.0, 0.25, 0.5, 0.25, 0.0, -0.25],
+                color_range: ColorRangeParameters {
+                    enabled: true,
+                    center_hue_degrees: 359.5,
+                    width_degrees: 72.0,
+                    softness: 0.65,
+                    hue_shift_degrees: -42.0,
+                    saturation: 0.55,
+                    lightness: -0.3,
+                },
+                additional_color_ranges: vec![ColorRangeParameters {
+                    enabled: true,
+                    center_hue_degrees: 145.0,
+                    width_degrees: 24.0,
+                    softness: 0.4,
+                    hue_shift_degrees: 8.0,
+                    saturation: -0.2,
+                    lightness: 0.1,
+                }],
+            },
+            lut: LutEditParameters::default(),
+            sharpen: SharpenParameters {
+                amount: 1.35,
+                radius: 2.4,
+                threshold: 0.18,
+                masking: 0.72,
+                denoise_luminance: 0.3,
+                dehaze: 0.2,
+                shadows_hue: 220.0,
+                shadows_saturation: 0.18,
+                grain_amount: 0.12,
+                vignette_amount: -0.2,
+                ..SharpenParameters::default()
+            },
+        };
+        let grade_stack = GradeStackDraft {
+            optics: RecipeOpticsSettings::default(),
+            grade_nodes: vec![GradeNodeDraft {
+                fine: expected.clone(),
+                ..GradeNodeDraft::neutral(BASIC_LAYER_LABEL)
+            }],
+        };
+
+        let ffi_round_trip = decode_grade_stack_draft_recipe_v1(
+            &encode_grade_stack_draft_recipe_v1(grade_stack.clone()),
+        )
+        .expect("FFI fine controls round trip");
+        assert_eq!(ffi_round_trip.fine, expected);
+
+        let snapshot =
+            grade_stack_recipe_v1_snapshot(&grade_stack, None).expect("persist fine controls");
+        let persisted = decode_grade_stack_draft_from_recipe_v1_snapshot(&snapshot)
+            .expect("decode persisted fine controls");
+        assert_eq!(persisted.fine, expected);
+
+        let plan = compile_recipe_render_plan(&snapshot).expect("compile fine controls");
+        assert_eq!(plan.nodes.len(), 8);
+        assert!(matches!(
+            plan.nodes[2].operation,
+            AdjustmentRenderOperation::SelectiveTone { parameters }
+                if parameters == expected.selective_tone
+        ));
+        assert!(matches!(
+            &plan.nodes[5].operation,
+            AdjustmentRenderOperation::PerceptualColor { parameters }
+                if parameters.as_ref() == &expected.perceptual_color
+        ));
+        assert!(matches!(
+            &plan.nodes[7].operation,
+            AdjustmentRenderOperation::Sharpen { parameters }
+                if parameters.as_ref() == &expected.sharpen
+        ));
+    }
+
+    #[test]
+    fn managed_lut_round_trips_and_compiles_the_exact_document_and_strength() {
+        let root = std::env::temp_dir().join(format!(
+            "shadow-managed-lut-test-{}-{}",
+            std::process::id(),
+            Uuid::now_v7()
+        ));
+        std::fs::create_dir_all(&root).expect("create LUT fixture root");
+        let resource_id = "a".repeat(64);
+        let path = root.join(format!("{resource_id}.cube"));
+        let document = b"LUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n1 1 1\n";
+        std::fs::write(&path, document).expect("write managed LUT fixture");
+
+        let mut grade_node = GradeNodeDraft::neutral(BASIC_LAYER_LABEL);
+        grade_node.fine.lut = LutEditParameters {
+            resource_id: resource_id.clone(),
+            title: "Identity test LUT".to_owned(),
+            managed_path: path.to_str().expect("UTF-8 LUT path").to_owned(),
+            intensity: 0.37,
+        };
+        let grade_stack = GradeStackDraft {
+            optics: RecipeOpticsSettings::default(),
+            grade_nodes: vec![grade_node],
+        };
+        let snapshot = grade_stack_recipe_v1_snapshot(&grade_stack, None)
+            .expect("persist managed LUT selection");
+        let round_trip = decode_grade_stack_draft_from_recipe_v1_snapshot(&snapshot)
+            .expect("decode managed LUT selection");
+        assert_eq!(round_trip.fine.lut, grade_stack.fine.lut);
+
+        let plan = compile_recipe_render_plan(&snapshot).expect("compile managed LUT");
+        assert!(matches!(
+            &plan.nodes[6].operation,
+            AdjustmentRenderOperation::Lut3D {
+                document: compiled,
+                intensity,
+            } if compiled == document && (*intensity - 0.37).abs() < f64::EPSILON
+        ));
+
+        std::fs::remove_dir_all(root).expect("remove LUT fixture root");
+    }
+
+    #[test]
+    fn fine_edit_ffi_validation_rejects_wrong_band_shapes_and_invalid_values() {
+        let mut wrong_shape = ffi_parameters(0.0, 1.0, [0.0; 2], 1.0);
+        wrong_shape.fine.mixer_hue.pop();
+        assert!(
+            decode_grade_stack_draft_recipe_v1(&wrong_shape)
+                .expect_err("seven hue bands must fail closed")
+                .to_string()
+                .contains("exactly 8")
+        );
+
+        let mut invalid_tone = ffi_parameters(0.0, 1.0, [0.0; 2], 1.0);
+        invalid_tone.fine.highlights = 1.01;
+        assert!(
+            decode_grade_stack_draft_recipe_v1(&invalid_tone)
+                .expect_err("out-of-range highlights must fail closed")
+                .to_string()
+                .contains("highlights")
+        );
+
+        let mut invalid_range = ffi_parameters(0.0, 1.0, [0.0; 2], 1.0);
+        invalid_range.fine.color_range_enabled = false;
+        invalid_range.fine.color_range_width = f64::NAN;
+        assert!(
+            decode_grade_stack_draft_recipe_v1(&invalid_range)
+                .expect_err("disabled ranges still require canonical finite storage")
+                .to_string()
+                .contains("color range width")
+        );
+
+        let mut invalid_sharpen = ffi_parameters(0.0, 1.0, [0.0; 2], 1.0);
+        invalid_sharpen.fine.sharpen_radius = 0.0;
+        assert!(
+            decode_grade_stack_draft_recipe_v1(&invalid_sharpen)
+                .expect_err("zero sharpen radius must fail closed")
+                .to_string()
+                .contains("sharpen radius")
+        );
+    }
+
+    #[test]
+    fn incomplete_recipe_shapes_are_rejected_instead_of_upgraded() {
+        let without_curve = recipe_without_sharpen(
+            &grade_stack_recipe_v1_snapshot(&GradeStackDraft::default(), None)
+                .expect("new neutral Recipe"),
+        );
+        let error = decode_grade_stack_draft_from_recipe_v1_snapshot(&without_curve)
+            .expect_err("a Recipe missing the required Detail node must fail closed");
+        assert!(!format!("{error:#}").is_empty());
+
+        let curved_draft = GradeStackDraft {
+            optics: RecipeOpticsSettings::default(),
+            grade_nodes: vec![GradeNodeDraft {
+                tone_curve: Some(ToneCurveDraft::SmoothRgb(Box::new(SmoothRgbToneCurve {
+                    master: vec![
+                        ToneCurvePoint { x: 0.0, y: 0.0 },
+                        ToneCurvePoint { x: 0.5, y: 0.65 },
+                        ToneCurvePoint { x: 1.0, y: 1.0 },
+                    ],
+                    ..SmoothRgbToneCurve::default()
+                }))),
+                ..GradeNodeDraft::neutral(BASIC_LAYER_LABEL)
+            }],
+        };
+        let with_curve = recipe_without_sharpen(
+            &grade_stack_recipe_v1_snapshot(&curved_draft, None).expect("new curved Recipe"),
+        );
+        let error = decode_grade_stack_draft_from_recipe_v1_snapshot(&with_curve)
+            .expect_err("an ambiguous incomplete Recipe must fail closed");
+        assert!(!format!("{error:#}").is_empty());
+    }
+
+    #[test]
     fn ffi_tone_curve_round_trip_preserves_every_control_point() {
         let incoming = ffi_settings_with_tone(
             0.4,
             1.2,
-            [1.05, 1.0, 0.95],
+            [0.05, 0.0],
             0.9,
             &[[0.0, -0.1], [0.2, 0.08], [0.7, 0.82], [1.0, 1.2]],
         );
-        let settings = edit_settings(&incoming).expect("validate FFI edit settings");
-        let snapshot = edit_recipe_snapshot(&settings, None).expect("build five-node Recipe");
-        let decoded = edit_settings_from_snapshot(&snapshot).expect("decode full edit settings");
-        let outgoing = ffi_edit_settings(decoded.clone());
+        let settings =
+            decode_grade_stack_draft_recipe_v1(&incoming).expect("validate FFI Grade Stack");
+        let snapshot =
+            grade_stack_recipe_v1_snapshot(&settings, None).expect("build Recipe v1 snapshot");
+        let decoded = decode_grade_stack_draft_from_recipe_v1_snapshot(&snapshot)
+            .expect("decode full Grade Stack");
+        let outgoing = encode_grade_stack_draft_recipe_v1(decoded.clone());
 
         assert_eq!(decoded, settings);
-        assert!(outgoing.has_tone_curve);
+        assert_eq!(outgoing.tone_curve_kind, ffi::FfiToneCurveKind::SmoothRgb);
         assert_eq!(ffi_curve_pairs(&outgoing), ffi_curve_pairs(&incoming));
+    }
+
+    #[test]
+    fn smooth_rgb_tone_curve_v2_round_trips_ffi_recipe_and_render_contract() {
+        let master = [[0.0, 0.02], [0.45, 0.61], [1.0, 1.0]];
+        let red = [[0.0, 0.0], [0.6, 0.7], [1.0, 1.0]];
+        let green = [[0.0, 0.0], [1.0, 1.0]];
+        let blue = [[0.0, 0.0], [0.3, 0.22], [0.8, 0.9], [1.0, 1.0]];
+        let incoming = ffi_settings_with_smooth_tone(&master, &red, &green, &blue);
+        let settings =
+            decode_grade_stack_draft_recipe_v1(&incoming).expect("decode smooth RGB v2 FFI");
+        let snapshot =
+            grade_stack_recipe_v1_snapshot(&settings, None).expect("persist smooth RGB v2 Recipe");
+        let nodes = single_grade_node_recipe_v1_render_ops(&snapshot)
+            .expect("read smooth RGB v2 Recipe nodes");
+        let curve_node = nodes.tone_curve.expect("smooth Tone Curve node");
+        assert_eq!(
+            curve_node.id(),
+            settings.recipe_v1_identity.tone_curve_render_op_id
+        );
+        assert_eq!(
+            curve_node.operation().operation_id().as_str(),
+            TONE_CURVE_OPERATION_ID
+        );
+        assert_eq!(
+            curve_node.operation().parameter_schema_version(),
+            TONE_CURVE_V2_PARAMETER_SCHEMA_VERSION
+        );
+        assert_eq!(
+            curve_node.operation().implementation_version(),
+            TONE_CURVE_V2_IMPLEMENTATION_VERSION
+        );
+
+        let plan = compile_recipe_render_plan(&snapshot).expect("compile smooth RGB v2 Recipe");
+        let rendered = plan
+            .nodes
+            .iter()
+            .find_map(|node| match &node.operation {
+                AdjustmentRenderOperation::SmoothRgbToneCurve { curves } => Some((node, curves)),
+                _ => None,
+            })
+            .expect("compiled smooth RGB v2 operation");
+        assert_eq!(
+            rendered.0.parameter_schema_version,
+            SMOOTH_RGB_TONE_CURVE_PARAMETER_SCHEMA_VERSION
+        );
+        assert_eq!(
+            rendered.0.implementation_version,
+            SMOOTH_RGB_TONE_CURVE_IMPLEMENTATION_VERSION
+        );
+        assert_eq!(
+            rendered.1.master,
+            master
+                .into_iter()
+                .map(|[x, y]| ToneCurvePoint { x, y })
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            rendered.1.blue,
+            blue.into_iter()
+                .map(|[x, y]| ToneCurvePoint { x, y })
+                .collect::<Vec<_>>()
+        );
+
+        let outgoing = encode_grade_stack_draft_recipe_v1(
+            decode_grade_stack_draft_from_recipe_v1_snapshot(&snapshot)
+                .expect("decode persisted smooth RGB v2 Recipe"),
+        );
+        assert_eq!(outgoing.tone_curve_kind, ffi::FfiToneCurveKind::SmoothRgb);
+        assert_eq!(
+            ffi_curve_pairs_from(&outgoing.tone_curve_master_points),
+            master
+        );
+        assert_eq!(ffi_curve_pairs_from(&outgoing.tone_curve_red_points), red);
+        assert_eq!(
+            ffi_curve_pairs_from(&outgoing.tone_curve_green_points),
+            green
+        );
+        assert_eq!(ffi_curve_pairs_from(&outgoing.tone_curve_blue_points), blue);
+    }
+
+    #[test]
+    fn current_curve_contract_is_canonical_and_keeps_its_stable_id() {
+        let points = [[0.0, 0.03], [0.5, 0.68], [1.0, 1.0]];
+        let settings = decode_grade_stack_draft_recipe_v1(&ffi_settings_with_tone(
+            0.0, 1.0, [0.0; 2], 1.0, &points,
+        ))
+        .expect("decode current Tone Curve");
+        let snapshot =
+            grade_stack_recipe_v1_snapshot(&settings, None).expect("persist current Tone Curve");
+        let node = single_grade_node_recipe_v1_render_ops(&snapshot)
+            .expect("read current Tone Curve")
+            .tone_curve
+            .expect("current Tone Curve node");
+        assert_eq!(
+            node.operation().parameter_schema_version(),
+            TONE_CURVE_V2_PARAMETER_SCHEMA_VERSION
+        );
+        assert_eq!(
+            node.operation().implementation_version(),
+            TONE_CURVE_V2_IMPLEMENTATION_VERSION
+        );
+        assert!(matches!(
+            compile_recipe_render_plan(&snapshot).unwrap().nodes[3].operation,
+            AdjustmentRenderOperation::SmoothRgbToneCurve { .. }
+        ));
+
+        let rebuilt = grade_stack_recipe_v1_snapshot(
+            &decode_grade_stack_draft_from_recipe_v1_snapshot(&snapshot)
+                .expect("decode current Tone Curve"),
+            Some(&snapshot),
+        )
+        .expect("save unchanged current Tone Curve");
+        let rebuilt_node = single_grade_node_recipe_v1_render_ops(&rebuilt)
+            .unwrap()
+            .tone_curve
+            .unwrap();
+        assert_eq!(rebuilt_node.id(), node.id());
+        assert_eq!(rebuilt_node.parameters(), node.parameters());
     }
 
     #[test]
@@ -5547,20 +8154,22 @@ mod tests {
         let mut non_neutral = ffi_settings_with_tone(
             2.0,
             1.7,
-            [1.4, 0.8, 1.2],
+            [0.2, -0.1],
             0.6,
             &[[0.0, 0.1], [0.5, 0.8], [1.0, 1.1]],
         );
         non_neutral.enabled = false;
 
-        let before = preview_edit_settings(&non_neutral, false).expect("select neutral Before");
-        assert_eq!(before.layers.len(), 1);
+        let before = preview_grade_stack_draft_recipe_v1(&non_neutral, false)
+            .expect("select neutral Before");
+        assert_eq!(before.grade_nodes.len(), 1);
         assert_eq!(before.basic, BasicEditParameters::default());
         assert!(before.tone_curve.is_none());
-        assert!(before.layer_enabled);
-        let current = preview_edit_settings(&non_neutral, true).expect("select current parameters");
+        assert!(before.enabled);
+        let current = preview_grade_stack_draft_recipe_v1(&non_neutral, true)
+            .expect("select current parameters");
         assert_ne!(current.basic, BasicEditParameters::default());
-        assert!(!current.layer_enabled);
+        assert!(!current.enabled);
     }
 
     #[test]
@@ -5581,193 +8190,252 @@ mod tests {
             .collect::<Vec<_>>();
         assert_invalid_curve(&too_many, "2 through 256");
 
-        let mut inconsistent = ffi_parameters(0.0, 1.0, [1.0; 3], 1.0);
-        inconsistent.tone_curve_points = vec![
+        let mut inconsistent = ffi_parameters(0.0, 1.0, [0.0; 2], 1.0);
+        inconsistent.tone_curve_master_points = vec![
             ffi::FfiToneCurvePoint { x: 0.0, y: 0.0 },
             ffi::FfiToneCurvePoint { x: 1.0, y: 1.0 },
         ];
-        let error = edit_settings(&inconsistent).expect_err("presence flag mismatch must fail");
-        assert!(error.to_string().contains("has_tone_curve is false"));
+        let error = decode_grade_stack_draft_recipe_v1(&inconsistent)
+            .expect_err("presence flag mismatch must fail");
+        assert!(error.to_string().contains("kind is None"));
+
+        let mut smooth_missing_blue = ffi_settings_with_smooth_tone(
+            &[[0.0, 0.0], [1.0, 1.0]],
+            &[[0.0, 0.0], [1.0, 1.0]],
+            &[[0.0, 0.0], [1.0, 1.0]],
+            &[[0.0, 0.0], [1.0, 1.0]],
+        );
+        smooth_missing_blue.tone_curve_blue_points.clear();
+        let error = decode_grade_stack_draft_recipe_v1(&smooth_missing_blue)
+            .expect_err("the current curve requires explicit points for every channel");
+        assert!(format!("{error:#}").contains("blue channel"));
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)] // Exhaustive operation-order assertion.
     fn recipe_compiler_follows_dependencies_and_emits_tone_curve() {
         let points = [[0.0, 0.0], [0.35, 0.2], [0.7, 0.85], [1.0, 1.0]];
         let parameters = BasicEditParameters {
             exposure_stops: 1.25,
             contrast_factor: 1.4,
-            channel_gains: [1.2, 0.95, 0.8],
+            white_balance_temperature: 0.2,
+            white_balance_tint: -0.05,
             saturation_factor: 0.75,
         };
         let snapshot = basic_recipe_with_tone(parameters, &points, true);
-        let recipe_nodes = basic_recipe_nodes(&snapshot).expect("read typed Recipe nodes");
+        let recipe_nodes = single_grade_node_recipe_v1_render_ops(&snapshot)
+            .expect("read typed Recipe v1 render ops");
         let plan = compile_recipe_render_plan(&snapshot).expect("compile typed Recipe");
         let render_id = |node_id: NodeId| format!("{}/{}", recipe_nodes.layer.id(), node_id);
 
+        plan.validate().expect("current complete plan");
+        assert_eq!(plan.nodes.len(), 9);
+        assert_eq!(plan.nodes[0].node_id, render_id(recipe_nodes.exposure.id()));
+        assert_eq!(plan.nodes[1].node_id, render_id(recipe_nodes.contrast.id()));
         assert_eq!(
-            plan,
-            AdjustmentRenderPlan {
-                nodes: vec![
-                    AdjustmentRenderNode {
-                        node_id: render_id(recipe_nodes.exposure.id()),
-                        parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
-                        implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
-                        enabled: true,
-                        operation: AdjustmentRenderOperation::Exposure {
-                            stops: parameters.exposure_stops,
-                        },
-                    },
-                    AdjustmentRenderNode {
-                        node_id: render_id(recipe_nodes.contrast.id()),
-                        parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
-                        implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
-                        enabled: true,
-                        operation: AdjustmentRenderOperation::Contrast {
-                            factor: parameters.contrast_factor,
-                            pivot: CONTRAST_PIVOT,
-                        },
-                    },
-                    AdjustmentRenderNode {
-                        node_id: render_id(recipe_nodes.tone_curve.expect("Tone Curve node").id(),),
-                        parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
-                        implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
-                        enabled: true,
-                        operation: AdjustmentRenderOperation::ToneCurve {
-                            points: points
-                                .into_iter()
-                                .map(|[x, y]| ToneCurvePoint { x, y })
-                                .collect(),
-                        },
-                    },
-                    AdjustmentRenderNode {
-                        node_id: render_id(recipe_nodes.channel_gain.id()),
-                        parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
-                        implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
-                        enabled: true,
-                        operation: AdjustmentRenderOperation::ChannelGain {
-                            channel_gains: parameters.channel_gains,
-                        },
-                    },
-                    AdjustmentRenderNode {
-                        node_id: render_id(recipe_nodes.saturation.id()),
-                        parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
-                        implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
-                        enabled: true,
-                        operation: AdjustmentRenderOperation::Saturation {
-                            factor: parameters.saturation_factor,
-                        },
-                    },
-                ],
+            plan.nodes[2].node_id,
+            render_id(recipe_nodes.selective_tone.id())
+        );
+        assert_eq!(
+            plan.nodes[3].node_id,
+            render_id(recipe_nodes.tone_curve.expect("Tone Curve node").id())
+        );
+        assert_eq!(
+            plan.nodes[4].node_id,
+            render_id(recipe_nodes.white_balance.id())
+        );
+        assert_eq!(
+            plan.nodes[5].node_id,
+            render_id(recipe_nodes.saturation.id())
+        );
+        assert_eq!(
+            plan.nodes[6].node_id,
+            render_id(recipe_nodes.perceptual_color.id())
+        );
+        assert_eq!(plan.nodes[7].node_id, render_id(recipe_nodes.lut.id()));
+        assert_eq!(plan.nodes[8].node_id, render_id(recipe_nodes.sharpen.id()));
+        assert_eq!(
+            plan.nodes[0].operation,
+            AdjustmentRenderOperation::Exposure {
+                stops: parameters.exposure_stops,
+            }
+        );
+        assert_eq!(
+            plan.nodes[1].operation,
+            AdjustmentRenderOperation::Contrast {
+                factor: parameters.contrast_factor,
+                pivot: CONTRAST_PIVOT,
+            }
+        );
+        assert_eq!(
+            plan.nodes[2].operation,
+            AdjustmentRenderOperation::SelectiveTone {
+                parameters: SelectiveToneParameters::default(),
+            }
+        );
+        assert_eq!(
+            plan.nodes[3].operation,
+            AdjustmentRenderOperation::SmoothRgbToneCurve {
+                curves: Box::new(SmoothRgbToneCurve {
+                    master: points
+                        .into_iter()
+                        .map(|[x, y]| ToneCurvePoint { x, y })
+                        .collect(),
+                    ..SmoothRgbToneCurve::default()
+                }),
+            }
+        );
+        assert_eq!(
+            plan.nodes[4].operation,
+            AdjustmentRenderOperation::RgbWhiteBalance {
+                temperature: parameters.white_balance_temperature,
+                tint: parameters.white_balance_tint,
+            }
+        );
+        assert_eq!(
+            plan.nodes[5].operation,
+            AdjustmentRenderOperation::Saturation {
+                factor: parameters.saturation_factor,
+            }
+        );
+        assert_eq!(
+            plan.nodes[6].operation,
+            AdjustmentRenderOperation::PerceptualColor {
+                parameters: Box::new(PerceptualColorParameters::default()),
+            }
+        );
+        assert_eq!(
+            plan.nodes[7].operation,
+            AdjustmentRenderOperation::Lut3D {
+                document: Vec::new(),
+                intensity: 0.0,
+            }
+        );
+        assert_eq!(
+            plan.nodes[8].operation,
+            AdjustmentRenderOperation::Sharpen {
+                parameters: Box::new(SharpenParameters::default()),
             }
         );
     }
 
     #[test]
-    fn edit_settings_preview_plan_contains_the_exact_tone_curve() {
+    fn grade_stack_preview_plan_contains_the_exact_tone_curve() {
         let incoming = ffi_settings_with_tone(
             0.25,
             1.1,
-            [1.0; 3],
+            [0.0; 2],
             1.0,
             &[[0.0, 0.0], [0.4, 0.25], [0.8, 0.9], [1.0, 1.0]],
         );
-        let settings = edit_settings(&incoming).expect("validate preview settings");
-        let snapshot = edit_recipe_snapshot(&settings, None).expect("build preview Recipe");
+        let settings =
+            decode_grade_stack_draft_recipe_v1(&incoming).expect("validate preview Grade Stack");
+        let snapshot =
+            grade_stack_recipe_v1_snapshot(&settings, None).expect("build preview Recipe");
         let plan = compile_recipe_render_plan(&snapshot).expect("compile preview plan");
 
-        assert_eq!(plan.nodes.len(), 5);
+        assert_eq!(plan.nodes.len(), 9);
         assert!(matches!(
-            &plan.nodes[2].operation,
-            AdjustmentRenderOperation::ToneCurve { points }
-                if points == settings.tone_curve.as_ref().expect("Tone Curve")
+            &plan.nodes[3].operation,
+            AdjustmentRenderOperation::SmoothRgbToneCurve { curves }
+                if matches!(
+                    settings.tone_curve.as_ref().expect("Tone Curve"),
+                    ToneCurveDraft::SmoothRgb(authored) if curves.as_ref() == authored.as_ref()
+                )
         ));
     }
 
     #[test]
-    fn layer_bypass_preserves_the_complete_recipe_and_disables_every_render_node() {
+    fn grade_node_bypass_preserves_the_complete_recipe_and_disables_every_render_op() {
         let points = [[0.0, -0.08], [0.4, 0.22], [0.8, 0.94], [1.0, 1.1]];
-        let mut incoming = ffi_settings_with_tone(1.25, 1.35, [1.2, 0.9, 1.05], 0.72, &points);
+        let mut incoming = ffi_settings_with_tone(1.25, 1.35, [0.15, -0.1], 0.72, &points);
         incoming.enabled = false;
-        let disabled_settings = edit_settings(&incoming).expect("validate disabled settings");
-        let disabled =
-            edit_recipe_snapshot(&disabled_settings, None).expect("build disabled Recipe");
-        let disabled_identity = basic_recipe_identity(&disabled)
+        let disabled_settings =
+            decode_grade_stack_draft_recipe_v1(&incoming).expect("validate disabled Grade Stack");
+        let disabled = grade_stack_recipe_v1_snapshot(&disabled_settings, None)
+            .expect("build disabled Recipe");
+        let disabled_identity = single_grade_node_recipe_v1_identity(&disabled)
             .expect("read disabled identity")
             .expect("disabled Recipe is non-empty");
         let plan = compile_recipe_render_plan(&disabled).expect("compile disabled Recipe");
 
         assert!(!disabled.layers()[0].enabled());
-        assert_eq!(plan.nodes.len(), 5);
+        assert_eq!(plan.nodes.len(), 9);
         assert!(plan.nodes.iter().all(|node| !node.enabled));
         assert_eq!(
-            edit_settings_from_snapshot(&disabled).unwrap(),
+            decode_grade_stack_draft_from_recipe_v1_snapshot(&disabled).unwrap(),
             disabled_settings
         );
-        let outgoing = ffi_edit_settings(disabled_settings.clone());
+        let outgoing = encode_grade_stack_draft_recipe_v1(disabled_settings.clone());
         assert!(!outgoing.enabled);
         assert_eq!(ffi_curve_pairs(&outgoing), points);
 
         let mut enabled_settings = disabled_settings.clone();
-        enabled_settings.layer_enabled = true;
-        let enabled = edit_recipe_snapshot(&enabled_settings, Some(&disabled))
+        enabled_settings.enabled = true;
+        let enabled = grade_stack_recipe_v1_snapshot(&enabled_settings, Some(&disabled))
             .expect("re-enable existing Recipe");
-        let enabled_identity = basic_recipe_identity(&enabled)
+        let enabled_identity = single_grade_node_recipe_v1_identity(&enabled)
             .expect("read enabled identity")
             .expect("enabled Recipe is non-empty");
         let enabled_plan = compile_recipe_render_plan(&enabled).expect("compile enabled Recipe");
-        let enabled_round_trip =
-            edit_settings_from_snapshot(&enabled).expect("decode enabled Recipe");
+        let enabled_round_trip = decode_grade_stack_draft_from_recipe_v1_snapshot(&enabled)
+            .expect("decode enabled Recipe");
         let diff = diff_recipe_snapshots(&disabled, &enabled);
 
         assert_eq!(enabled_identity, disabled_identity);
         assert_eq!(enabled_round_trip.basic, disabled_settings.basic);
         assert_eq!(enabled_round_trip.tone_curve, disabled_settings.tone_curve);
-        assert!(enabled_round_trip.layer_enabled);
+        assert!(enabled_round_trip.enabled);
         assert!(enabled_plan.nodes.iter().all(|node| node.enabled));
         assert_eq!(
-            changed_edit_parameters(&disabled_settings, &enabled_round_trip),
-            ["layer_enabled"]
+            changed_grade_parameters_recipe_v1(&disabled_settings, &enabled_round_trip),
+            ["grade_node_enabled"]
         );
         assert!(!has_other_recipe_changes(&diff, &disabled, &enabled));
     }
 
     #[test]
     fn editing_and_resetting_tone_curve_preserves_canonical_node_identity() {
-        let original_settings = edit_settings(&ffi_settings_with_tone(
+        let original_settings = decode_grade_stack_draft_recipe_v1(&ffi_settings_with_tone(
             0.0,
             1.0,
-            [1.0; 3],
+            [0.0; 2],
             1.0,
             &[[0.0, 0.0], [0.5, 0.7], [1.0, 1.0]],
         ))
         .expect("original settings");
-        let original = edit_recipe_snapshot(&original_settings, None).expect("original Recipe");
-        let original_nodes = basic_recipe_nodes(&original).expect("original nodes");
+        let original =
+            grade_stack_recipe_v1_snapshot(&original_settings, None).expect("original Recipe");
+        let original_nodes =
+            single_grade_node_recipe_v1_render_ops(&original).expect("original render ops");
         let tone_id = original_nodes.tone_curve.expect("Tone Curve").id();
 
-        let edited_settings = edit_settings(&ffi_settings_with_tone(
+        let edited_settings = decode_grade_stack_draft_recipe_v1(&ffi_settings_with_tone(
             0.0,
             1.0,
-            [1.0; 3],
+            [0.0; 2],
             1.0,
             &[[0.0, 0.03], [0.5, 0.62], [1.0, 1.0]],
         ))
         .expect("edited settings");
-        let edited = edit_recipe_snapshot(&edited_settings, Some(&original)).expect("edit curve");
-        let edited_nodes = basic_recipe_nodes(&edited).expect("edited nodes");
+        let edited =
+            grade_stack_recipe_v1_snapshot(&edited_settings, Some(&original)).expect("edit curve");
+        let edited_nodes =
+            single_grade_node_recipe_v1_render_ops(&edited).expect("edited render ops");
         assert_eq!(edited_nodes.tone_curve.expect("Tone Curve").id(), tone_id);
 
         let mut reset_settings = edited_settings.clone();
         reset_settings.tone_curve = None;
-        let reset = edit_recipe_snapshot(&reset_settings, Some(&edited)).expect("reset curve");
-        let reset_nodes = basic_recipe_nodes(&reset).expect("reset nodes");
+        let reset =
+            grade_stack_recipe_v1_snapshot(&reset_settings, Some(&edited)).expect("reset curve");
+        let reset_nodes = single_grade_node_recipe_v1_render_ops(&reset).expect("reset render ops");
         assert!(reset_nodes.tone_curve.is_none());
-        assert_eq!(compile_recipe_render_plan(&reset).unwrap().nodes.len(), 4);
+        assert_eq!(compile_recipe_render_plan(&reset).unwrap().nodes.len(), 8);
         assert_eq!(reset_nodes.exposure.id(), original_nodes.exposure.id());
         assert_eq!(reset_nodes.contrast.id(), original_nodes.contrast.id());
         assert_eq!(
-            reset_nodes.channel_gain.id(),
-            original_nodes.channel_gain.id()
+            reset_nodes.white_balance.id(),
+            original_nodes.white_balance.id()
         );
         assert_eq!(reset_nodes.saturation.id(), original_nodes.saturation.id());
     }
@@ -5776,19 +8444,20 @@ mod tests {
     fn slider_edits_preserve_an_existing_tone_curve_node() {
         let points = [[0.0, 0.05], [0.5, 0.65], [1.0, 1.0]];
         let original = basic_recipe_with_tone(BasicEditParameters::default(), &points, false);
-        let original_identity = basic_recipe_identity(&original)
+        let original_identity = single_grade_node_recipe_v1_identity(&original)
             .expect("read original identity")
             .expect("non-empty identity");
         let changed = BasicEditParameters {
             exposure_stops: 0.75,
             contrast_factor: 1.2,
-            channel_gains: [1.05, 1.0, 0.95],
+            white_balance_temperature: 0.05,
+            white_balance_tint: 0.0,
             saturation_factor: 1.1,
         };
 
         let updated = basic_recipe_snapshot(changed, Some(&original))
             .expect("apply slider values without flattening Tone Curve");
-        let updated_identity = basic_recipe_identity(&updated)
+        let updated_identity = single_grade_node_recipe_v1_identity(&updated)
             .expect("read updated identity")
             .expect("non-empty identity");
         let plan = compile_recipe_render_plan(&updated).expect("compile updated Recipe");
@@ -5796,9 +8465,9 @@ mod tests {
         assert_eq!(basic_parameters_from_snapshot(&updated).unwrap(), changed);
         assert_eq!(updated_identity, original_identity);
         assert!(matches!(
-            &plan.nodes[2].operation,
-            AdjustmentRenderOperation::ToneCurve { points: compiled }
-                if compiled == &points
+            &plan.nodes[3].operation,
+            AdjustmentRenderOperation::SmoothRgbToneCurve { curves }
+                if curves.master == points
                     .into_iter()
                     .map(|[x, y]| ToneCurvePoint { x, y })
                     .collect::<Vec<_>>()
@@ -5815,7 +8484,7 @@ mod tests {
             &[[0.0, 0.02], [0.5, 0.68], [1.0, 1.0]],
             true,
         );
-        let root_identity = basic_recipe_identity(&root_snapshot)
+        let root_identity = single_grade_node_recipe_v1_identity(&root_snapshot)
             .expect("read root identity")
             .expect("non-empty root");
         session
@@ -5845,9 +8514,8 @@ mod tests {
             .settings;
         child_settings.basic.exposure_stops = 0.6;
         child_settings.basic.contrast_factor = 1.15;
-        child_settings.basic.red_channel_gain = 1.04;
-        child_settings.basic.green_channel_gain = 1.0;
-        child_settings.basic.blue_channel_gain = 0.96;
+        child_settings.basic.white_balance_temperature = 0.04;
+        child_settings.basic.white_balance_tint = -0.01;
         child_settings.basic.saturation_factor = 1.1;
         let saved = session
             .save_basic_edit_version_at(
@@ -5867,7 +8535,7 @@ mod tests {
             .iter()
             .find(|record| record.commit.id().to_string() == saved.working_commit_id)
             .expect("saved child commit");
-        let child_identity = basic_recipe_identity(child.commit.snapshot())
+        let child_identity = single_grade_node_recipe_v1_identity(child.commit.snapshot())
             .expect("read child identity")
             .expect("non-empty child");
         let plan = compile_recipe_render_plan(child.commit.snapshot()).expect("compile child");
@@ -5875,9 +8543,9 @@ mod tests {
         assert_eq!(child.commit.parents(), [root_commit_id]);
         assert_eq!(child_identity, root_identity);
         assert!(matches!(
-            &plan.nodes[2].operation,
-            AdjustmentRenderOperation::ToneCurve { points }
-                if points == &[
+            &plan.nodes[3].operation,
+            AdjustmentRenderOperation::SmoothRgbToneCurve { curves }
+                if curves.master == [
                     ToneCurvePoint { x: 0.0, y: 0.02 },
                     ToneCurvePoint { x: 0.5, y: 0.68 },
                     ToneCurvePoint { x: 1.0, y: 1.0 },
@@ -5889,7 +8557,7 @@ mod tests {
     }
 
     #[test]
-    fn recipe_compiler_rejects_unknown_operation_without_fallback() {
+    fn recipe_compiler_rejects_noncanonical_graph_without_fallback() {
         let rgb = PortType::Image(ImageDomain::WorkingRgb);
         let node_id = NodeId::new_v7();
         let unknown = AdjustmentNode::new(
@@ -5935,8 +8603,8 @@ mod tests {
         .expect("future Recipe");
 
         let error = compile_recipe_render_plan(&snapshot)
-            .expect_err("a disabled unknown operation must never become an implicit no-op");
-        assert!(error.to_string().contains("Basic subset"));
+            .expect_err("a noncanonical operation graph must never become an implicit no-op");
+        assert!(!format!("{error:#}").is_empty());
     }
 
     #[test]
@@ -5988,6 +8656,95 @@ mod tests {
     }
 
     #[test]
+    fn persisted_tone_curve_rejects_mixed_schema_and_implementation_versions() {
+        let valid = grade_stack_recipe_v1_snapshot(
+            &decode_grade_stack_draft_recipe_v1(&ffi_settings_with_smooth_tone(
+                &[[0.0, 0.0], [1.0, 1.0]],
+                &[[0.0, 0.0], [1.0, 1.0]],
+                &[[0.0, 0.0], [1.0, 1.0]],
+                &[[0.0, 0.0], [1.0, 1.0]],
+            ))
+            .expect("valid smooth RGB v2 settings"),
+            None,
+        )
+        .expect("valid smooth RGB v2 Recipe");
+        let [valid_layer] = valid.layers() else {
+            panic!("fixture contains one Grade Node")
+        };
+        let LayerContent::Inline { graph: valid_graph } = valid_layer.content() else {
+            panic!("fixture contains an inline graph")
+        };
+        let rgb = PortType::Image(ImageDomain::WorkingRgb);
+
+        for (schema, implementation) in [
+            (
+                TONE_CURVE_V2_PARAMETER_SCHEMA_VERSION,
+                CPU_REFERENCE_IMPLEMENTATION_VERSION,
+            ),
+            (
+                CPU_REFERENCE_PARAMETER_SCHEMA_VERSION,
+                TONE_CURVE_V2_IMPLEMENTATION_VERSION,
+            ),
+        ] {
+            let nodes = valid_graph
+                .nodes()
+                .iter()
+                .map(|node| {
+                    if node.operation().operation_id().as_str() != TONE_CURVE_OPERATION_ID {
+                        return node.clone();
+                    }
+                    AdjustmentNode::new(
+                        node.id(),
+                        OperationDescriptor::new(
+                            OperationId::new(TONE_CURVE_OPERATION_ID).unwrap(),
+                            schema,
+                            implementation,
+                            ProcessingStage::ToneAndLocalContrast,
+                            vec![rgb],
+                            rgb,
+                            None,
+                        )
+                        .unwrap(),
+                        node.inputs().to_vec(),
+                        node.parameters().clone(),
+                        None,
+                    )
+                    .unwrap()
+                })
+                .collect::<Vec<_>>();
+            let graph = EditGraph::new(
+                valid_graph.schema_version(),
+                valid_graph.input_types().to_vec(),
+                nodes,
+                valid_graph.output_node(),
+            )
+            .unwrap();
+            let malformed = RecipeSnapshot::new(
+                CURRENT_RECIPE_SCHEMA_VERSION,
+                vec![
+                    LayerInstance::new(
+                        valid_layer.id(),
+                        valid_layer.label(),
+                        AdjustmentScope::Photo,
+                        LayerContent::Inline { graph },
+                        valid_layer.enabled(),
+                        UnitInterval::ONE,
+                        BlendMode::Normal,
+                        None,
+                    )
+                    .unwrap(),
+                ],
+            )
+            .unwrap();
+
+            let error = decode_grade_stack_draft_from_recipe_v1_snapshot(&malformed)
+                .expect_err("mixed Tone Curve contract must fail closed");
+            assert!(error.to_string().contains("unsupported contract"));
+            assert!(compile_recipe_render_plan(&malformed).is_err());
+        }
+    }
+
+    #[test]
     fn recipe_compiler_rejects_a_valid_branching_graph() {
         let snapshot = branching_merge_recipe();
         snapshot
@@ -6014,9 +8771,9 @@ mod tests {
         assert_eq!(diff.summary().nodes_modified, 1);
         assert_eq!(diff.summary().node_parameters_changed, 1);
         assert_eq!(
-            changed_edit_parameters(
-                &edit_settings_from_snapshot(&before).unwrap(),
-                &edit_settings_from_snapshot(&after).unwrap(),
+            changed_grade_parameters_recipe_v1(
+                &decode_grade_stack_draft_from_recipe_v1_snapshot(&before).unwrap(),
+                &decode_grade_stack_draft_from_recipe_v1_snapshot(&after).unwrap(),
             ),
             ["tone_curve"]
         );
@@ -6025,22 +8782,29 @@ mod tests {
 
     #[test]
     fn tone_curve_add_and_reset_share_the_stable_version_change_key() {
-        let neutral = edit_recipe_snapshot(&EditSettings::default(), None).expect("neutral Recipe");
-        let mut curved_settings = edit_settings_from_snapshot(&neutral).expect("neutral settings");
-        curved_settings.tone_curve = Some(vec![
-            ToneCurvePoint { x: 0.0, y: 0.0 },
-            ToneCurvePoint { x: 0.5, y: 0.7 },
-            ToneCurvePoint { x: 1.0, y: 1.0 },
-        ]);
-        let curved = edit_recipe_snapshot(&curved_settings, Some(&neutral)).expect("add curve");
+        let neutral = grade_stack_recipe_v1_snapshot(&GradeStackDraft::default(), None)
+            .expect("neutral Recipe");
+        let mut curved_settings = decode_grade_stack_draft_from_recipe_v1_snapshot(&neutral)
+            .expect("neutral Grade Stack");
+        curved_settings.tone_curve =
+            Some(ToneCurveDraft::SmoothRgb(Box::new(SmoothRgbToneCurve {
+                master: vec![
+                    ToneCurvePoint { x: 0.0, y: 0.0 },
+                    ToneCurvePoint { x: 0.5, y: 0.7 },
+                    ToneCurvePoint { x: 1.0, y: 1.0 },
+                ],
+                ..SmoothRgbToneCurve::default()
+            })));
+        let curved =
+            grade_stack_recipe_v1_snapshot(&curved_settings, Some(&neutral)).expect("add curve");
         let mut reset_settings = curved_settings;
         reset_settings.tone_curve = None;
-        let reset = edit_recipe_snapshot(&reset_settings, Some(&curved)).expect("reset");
+        let reset = grade_stack_recipe_v1_snapshot(&reset_settings, Some(&curved)).expect("reset");
 
         for (before, after) in [(&neutral, &curved), (&curved, &reset)] {
-            let changed = changed_edit_parameters(
-                &edit_settings_from_snapshot(before).unwrap(),
-                &edit_settings_from_snapshot(after).unwrap(),
+            let changed = changed_grade_parameters_recipe_v1(
+                &decode_grade_stack_draft_from_recipe_v1_snapshot(before).unwrap(),
+                &decode_grade_stack_draft_from_recipe_v1_snapshot(after).unwrap(),
             );
             let diff = diff_recipe_snapshots(before, after);
             assert_eq!(changed, ["tone_curve"]);
@@ -6049,26 +8813,74 @@ mod tests {
     }
 
     #[test]
+    fn fine_controls_report_stable_version_change_keys() {
+        let before = GradeStackDraft::default();
+        let mut after = before.clone();
+        after.fine.selective_tone.highlights = -0.2;
+        after.fine.selective_tone.blacks = 0.3;
+        after.fine.perceptual_color.vibrance = 0.4;
+        after.fine.perceptual_color.hue_shifts[2] = 0.25;
+        after.fine.perceptual_color.saturation[5] = -0.15;
+        after.fine.perceptual_color.lightness[7] = 0.1;
+        after.fine.perceptual_color.color_range.enabled = true;
+        after.fine.perceptual_color.color_range.center_hue_degrees = 220.0;
+        after.fine.sharpen.amount = 1.1;
+        after.fine.sharpen.radius = 1.8;
+
+        assert_eq!(
+            changed_grade_parameters_recipe_v1(&before, &after),
+            [
+                "highlights",
+                "blacks",
+                "vibrance",
+                "color_mixer_hue",
+                "color_mixer_saturation",
+                "color_mixer_lightness",
+                "color_range",
+                "sharpening",
+            ]
+        );
+
+        let before_snapshot = grade_stack_recipe_v1_snapshot(&before, None).unwrap();
+        let after_snapshot =
+            grade_stack_recipe_v1_snapshot(&after, Some(&before_snapshot)).unwrap();
+        let diff = diff_recipe_snapshots(&before_snapshot, &after_snapshot);
+        assert_eq!(diff.summary().node_parameters_changed, 3);
+        assert!(!has_other_recipe_changes(
+            &diff,
+            &before_snapshot,
+            &after_snapshot
+        ));
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
     fn saving_versions_keeps_old_commits_and_moves_working_atomically() {
         let (root, session, photo_id, source_path) = test_edit_session();
         let neutral = session
             .photo_edit_state(&photo_id, &source_path)
             .expect("load neutral state");
         assert!(!neutral.has_working_version);
+        assert!(!neutral.is_version_draft);
         assert!(neutral.working_commit_id.is_empty());
         assert!(neutral.recipe_id.is_empty());
         assert_close(neutral.settings.basic.exposure_stops, 0.0);
         assert_close(neutral.settings.basic.contrast_factor, 1.0);
-        assert_close(neutral.settings.basic.red_channel_gain, 1.0);
-        assert_close(neutral.settings.basic.green_channel_gain, 1.0);
-        assert_close(neutral.settings.basic.blue_channel_gain, 1.0);
+        assert_close(neutral.settings.basic.white_balance_temperature, 0.0);
+        assert_close(neutral.settings.basic.white_balance_tint, 0.0);
         assert_close(neutral.settings.basic.saturation_factor, 1.0);
         assert!(neutral.settings.enabled);
-        assert!(!neutral.settings.has_tone_curve);
-        assert!(neutral.settings.tone_curve_points.is_empty());
+        assert_eq!(
+            neutral.settings.tone_curve_kind,
+            ffi::FfiToneCurveKind::None
+        );
+        assert!(neutral.settings.tone_curve_master_points.is_empty());
+        assert!(neutral.settings.tone_curve_red_points.is_empty());
+        assert!(neutral.settings.tone_curve_green_points.is_empty());
+        assert!(neutral.settings.tone_curve_blue_points.is_empty());
         assert!(neutral.versions.is_empty());
 
-        let first_parameters = ffi_parameters(0.5, 1.1, [1.0, 0.9, 1.2], 0.8);
+        let first_parameters = ffi_parameters(0.5, 1.1, [-0.2, -0.1], 0.8);
         let first = session
             .save_basic_edit_version_at(
                 &photo_id,
@@ -6079,11 +8891,12 @@ mod tests {
                 1_000,
             )
             .expect("save first version");
+        assert!(!first.is_version_draft);
         let first_id = first.working_commit_id.clone();
         let root_version = first.versions.first().expect("root version");
         assert_root_diff(root_version);
 
-        let second_parameters = ffi_parameters(-0.25, 1.3, [1.1, 1.0, 0.8], 1.2);
+        let second_parameters = ffi_parameters(-0.25, 1.3, [0.15, 0.05], 1.2);
         let second = session
             .save_basic_edit_version_at(
                 &photo_id,
@@ -6095,6 +8908,7 @@ mod tests {
             )
             .expect("save second version");
 
+        assert!(!second.is_version_draft);
         assert_ne!(second.working_commit_id, first_id);
         assert_eq!(second.versions.len(), 2);
         assert!(
@@ -6127,14 +8941,14 @@ mod tests {
             .iter()
             .find(|record| record.commit.id().to_string() == second.working_commit_id)
             .expect("second commit is durable");
-        let first_identity = basic_recipe_identity(first_record.commit.snapshot())
+        let first_identity = single_grade_node_recipe_v1_identity(first_record.commit.snapshot())
             .expect("read first graph identity")
             .expect("first graph is non-empty");
-        let second_identity = basic_recipe_identity(second_record.commit.snapshot())
+        let second_identity = single_grade_node_recipe_v1_identity(second_record.commit.snapshot())
             .expect("read second graph identity")
             .expect("second graph is non-empty");
-        assert_eq!(first_identity.layer_id, second_identity.layer_id);
-        assert_eq!(first_identity.node_ids, second_identity.node_ids);
+        assert_eq!(first_identity.grade_node_id, second_identity.grade_node_id);
+        assert_eq!(first_identity.render_op_ids, second_identity.render_op_ids);
         assert!(
             session
                 .catalog
@@ -6145,20 +8959,77 @@ mod tests {
                 .expect("read named version ref")
                 .is_some()
         );
+        let library_head = session
+            .catalog
+            .edit_repository_ref(LIBRARY_EDIT_MAIN_REF)
+            .expect("read Library edit head")
+            .expect("Library edit head exists");
+        let library_commit = session
+            .catalog
+            .edit_repository_commit(library_head.commit_id)
+            .expect("read Library commit")
+            .expect("Library commit exists")
+            .commit;
+        assert_eq!(library_commit.payload().parents.len(), 1);
+        assert_eq!(
+            library_commit.payload().message.as_deref(),
+            Some("Second look")
+        );
+        let library_root = session
+            .catalog
+            .edit_object(library_commit.payload().root)
+            .expect("read Library root")
+            .expect("Library root exists");
+        let library_root =
+            LibraryRootV1::from_object(&library_root.object).expect("decode Library root");
+        let photo_map_id = library_root.photo_recipes.expect("photo map root");
+        let photo_map = session
+            .catalog
+            .edit_object(photo_map_id)
+            .expect("read Library photo map")
+            .expect("Library photo map exists");
+        let photo_map =
+            EditEntityMapV1::from_object(&photo_map.object).expect("decode Library photo map");
+        let recipe_object_id = photo_map
+            .get(&format!("{LIBRARY_PHOTO_EDIT_KEY_PREFIX}{parsed_photo_id}"))
+            .expect("current photo is in the Library tree");
+        let recipe_object = session
+            .catalog
+            .edit_object(recipe_object_id)
+            .expect("read Library Recipe leaf")
+            .expect("Library Recipe leaf exists");
+        assert_eq!(recipe_object.object.kind(), EditObjectKind::LegacyRecipe);
+        assert_eq!(
+            recipe_object
+                .object
+                .decode::<RecipeCommit>()
+                .expect("decode Library Recipe leaf"),
+            second_record.commit
+        );
+        assert!(
+            session
+                .catalog
+                .edit_repository_ref(&format!(
+                    "{LIBRARY_EDIT_VERSION_REF_PREFIX}{}",
+                    library_commit.id()
+                ))
+                .expect("read named Library version")
+                .is_some()
+        );
 
         drop(session);
         std::fs::remove_dir_all(root).expect("remove edit fixture");
     }
 
     #[test]
-    fn stale_save_base_cannot_overwrite_a_newer_working_version() {
+    fn stale_expected_working_head_cannot_overwrite_a_newer_working_version() {
         let (root, session, photo_id, source_path) = test_edit_session();
         let first = session
             .save_basic_edit_version_at(
                 &photo_id,
                 &source_path,
                 "",
-                &ffi_parameters(0.25, 1.1, [1.0; 3], 0.9),
+                &ffi_parameters(0.25, 1.1, [0.0; 2], 0.9),
                 "First",
                 1_000,
             )
@@ -6169,23 +9040,30 @@ mod tests {
                 &photo_id,
                 &source_path,
                 &first_id,
-                &ffi_parameters(0.5, 1.2, [1.0; 3], 0.8),
+                &ffi_parameters(0.5, 1.2, [0.0; 2], 0.8),
                 "Second",
                 2_000,
             )
             .expect("save second version");
         let second_id = second.working_commit_id;
+        let library_head_id = session
+            .catalog
+            .edit_repository_ref(LIBRARY_EDIT_MAIN_REF)
+            .expect("read Library head before stale save")
+            .expect("Library head exists")
+            .commit_id;
 
         let error = session
-            .save_basic_edit_version_at(
+            .save_basic_edit_version_at_with_expected(
                 &photo_id,
                 &source_path,
                 &first_id,
-                &ffi_parameters(-0.5, 0.8, [1.0; 3], 1.2),
+                &first_id,
+                &ffi_parameters(-0.5, 0.8, [0.0; 2], 1.2),
                 "Stale writer",
                 3_000,
             )
-            .expect_err("stale base must lose the compare-and-swap");
+            .expect_err("stale expected working head must lose the compare-and-swap");
         let state = session
             .photo_edit_state(&photo_id, &source_path)
             .expect("reload state after rejected save");
@@ -6193,6 +9071,15 @@ mod tests {
         assert!(error.to_string().contains("did not match expectation"));
         assert_eq!(state.working_commit_id, second_id);
         assert_eq!(state.versions.len(), 2);
+        assert_eq!(
+            session
+                .catalog
+                .edit_repository_ref(LIBRARY_EDIT_MAIN_REF)
+                .expect("read Library head after stale save")
+                .expect("Library head remains")
+                .commit_id,
+            library_head_id
+        );
 
         drop(session);
         std::fs::remove_dir_all(root).expect("remove edit fixture");
@@ -6234,7 +9121,7 @@ mod tests {
                 &photo_id.to_string(),
                 &source_path,
                 &base_commit_id.to_string(),
-                &ffi_parameters(0.5, 1.1, [1.0; 3], 0.9),
+                &ffi_parameters(0.5, 1.1, [0.0; 2], 0.9),
                 "Must not commit",
                 2_000,
             )
@@ -6242,7 +9129,7 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("validate base Adjustment Stack Recipe")
+                .contains("validate base Grade Stack Recipe v1")
         );
         let working = session
             .catalog
@@ -6313,7 +9200,7 @@ mod tests {
                 &photo_id.to_string(),
                 &source_path,
                 "",
-                &ffi_parameters(0.25, 1.1, [1.0; 3], 0.9),
+                &ffi_parameters(0.25, 1.1, [0.0; 2], 0.9),
                 "Supported working root",
                 1_000,
             )
@@ -6335,7 +9222,7 @@ mod tests {
     #[test]
     fn consecutive_version_reports_the_exact_changed_basic_parameter() {
         let (root, session, photo_id, source_path) = test_edit_session();
-        let first_parameters = ffi_parameters(0.25, 1.1, [1.05, 1.0, 0.95], 0.9);
+        let first_parameters = ffi_parameters(0.25, 1.1, [0.05, 0.0], 0.9);
         let first = session
             .save_basic_edit_version_at(
                 &photo_id,
@@ -6353,7 +9240,7 @@ mod tests {
                 &photo_id,
                 &source_path,
                 &first_id,
-                &ffi_parameters(0.75, 1.1, [1.05, 1.0, 0.95], 0.9),
+                &ffi_parameters(0.75, 1.1, [0.05, 0.0], 0.9),
                 "Exposure only",
                 2_000,
             )
@@ -6367,14 +9254,14 @@ mod tests {
         assert!(!version.is_root);
         assert_eq!(version.parent_commit_ids, [first_id]);
         assert!(!version.recipe_schema_changed);
-        assert_eq!(version.layers_added, 0);
-        assert_eq!(version.layers_removed, 0);
-        assert_eq!(version.layers_moved, 0);
-        assert_eq!(version.layers_modified, 1);
-        assert_eq!(version.nodes_added, 0);
-        assert_eq!(version.nodes_removed, 0);
-        assert_eq!(version.nodes_modified, 1);
-        assert_eq!(version.node_parameter_blocks_changed, 1);
+        assert_eq!(version.grade_nodes_added, 0);
+        assert_eq!(version.grade_nodes_removed, 0);
+        assert_eq!(version.grade_nodes_moved, 0);
+        assert_eq!(version.grade_nodes_modified, 1);
+        assert_eq!(version.render_ops_added, 0);
+        assert_eq!(version.render_ops_removed, 0);
+        assert_eq!(version.render_ops_modified, 1);
+        assert_eq!(version.render_op_parameter_blocks_changed, 1);
         assert_eq!(version.changed_basic_parameter_count, 1);
         assert_eq!(version.changed_basic_parameters, ["exposure_stops"]);
         assert!(!version.has_other_changes);
@@ -6386,7 +9273,7 @@ mod tests {
     #[test]
     fn version_saved_from_an_old_checkout_diffs_against_the_branch_point() {
         let (root, session, photo_id, source_path) = test_edit_session();
-        let base_parameters = ffi_parameters(0.25, 1.1, [1.05, 1.0, 0.95], 0.9);
+        let base_parameters = ffi_parameters(0.25, 1.1, [0.05, 0.0], 0.9);
         let base = session
             .save_basic_edit_version_at(
                 &photo_id,
@@ -6403,22 +9290,52 @@ mod tests {
                 &photo_id,
                 &source_path,
                 &base_id,
-                &ffi_parameters(0.75, 1.1, [1.05, 1.0, 0.95], 0.9),
+                &ffi_parameters(0.75, 1.1, [0.05, 0.0], 0.9),
                 "Exposure branch",
                 2_000,
             )
             .expect("save first branch");
         let continuation_id = continuation.working_commit_id;
-        session
-            .checkout_basic_edit_version_at(&photo_id, &source_path, &base_id, 3_000)
+        let durable_before_checkout = session
+            .catalog
+            .recipe_ref(photo_id.parse().expect("photo id"), WORKING_RECIPE_REF)
+            .expect("read durable working ref before checkout")
+            .expect("durable working ref exists");
+        assert_eq!(
+            durable_before_checkout.commit_id.to_string(),
+            continuation_id
+        );
+        let draft = session
+            .checkout_basic_edit_version(&photo_id, &source_path, &base_id)
             .expect("check out branch point");
+        assert!(draft.is_version_draft);
+        assert_eq!(draft.working_commit_id, base_id);
+        assert_close(
+            draft.settings.basic.exposure_stops,
+            base_parameters.basic.exposure_stops,
+        );
+        assert_close(
+            draft.settings.basic.saturation_factor,
+            base_parameters.basic.saturation_factor,
+        );
+        assert_eq!(
+            session
+                .catalog
+                .recipe_ref(photo_id.parse().expect("photo id"), WORKING_RECIPE_REF)
+                .expect("read durable working ref after checkout")
+                .expect("durable working ref remains")
+                .commit_id
+                .to_string(),
+            continuation_id
+        );
 
         let branch = session
-            .save_basic_edit_version_at(
+            .save_basic_edit_version_at_with_expected(
                 &photo_id,
                 &source_path,
                 &base_id,
-                &ffi_parameters(0.25, 1.1, [1.05, 1.0, 0.95], 1.2),
+                &continuation_id,
+                &ffi_parameters(0.25, 1.1, [0.05, 0.0], 1.2),
                 "Saturation branch",
                 4_000,
             )
@@ -6430,18 +9347,29 @@ mod tests {
             .expect("working branch version");
 
         assert_eq!(branch.versions.len(), 3);
+        assert!(!branch.is_version_draft);
         assert_eq!(working.parent_commit_ids, [base_id]);
         assert_eq!(working.changed_basic_parameter_count, 1);
         assert_eq!(working.changed_basic_parameters, ["saturation_factor"]);
-        assert_eq!(working.layers_modified, 1);
-        assert_eq!(working.nodes_modified, 1);
-        assert_eq!(working.node_parameter_blocks_changed, 1);
+        assert_eq!(working.grade_nodes_modified, 1);
+        assert_eq!(working.render_ops_modified, 1);
+        assert_eq!(working.render_op_parameter_blocks_changed, 1);
         assert!(!working.has_other_changes);
         assert!(branch.versions.iter().any(|version| {
             version.commit_id == continuation_id
                 && version.parent_commit_ids == working.parent_commit_ids
                 && version.changed_basic_parameters == ["exposure_stops"]
         }));
+        assert_eq!(
+            session
+                .catalog
+                .recipe_ref(photo_id.parse().expect("photo id"), WORKING_RECIPE_REF)
+                .expect("read durable branch ref")
+                .expect("durable branch ref exists")
+                .commit_id
+                .to_string(),
+            branch.working_commit_id
+        );
 
         drop(session);
         std::fs::remove_dir_all(root).expect("remove edit fixture");
@@ -6485,9 +9413,11 @@ mod tests {
     }
 
     #[test]
-    fn checkout_restores_parameters_without_deleting_newer_versions() {
+    #[allow(clippy::too_many_lines)]
+    fn checkout_loads_a_nonpersistent_draft_without_moving_durable_heads() {
         let (root, session, photo_id, source_path) = test_edit_session();
-        let first_parameters = ffi_parameters(1.0, 0.9, [1.2, 1.0, 0.7], 0.6);
+        let parsed_photo_id: PhotoId = photo_id.parse().expect("photo id");
+        let first_parameters = ffi_parameters(1.0, 0.9, [0.25, 0.0], 0.6);
         let first = session
             .save_basic_edit_version_at(
                 &photo_id,
@@ -6499,28 +9429,46 @@ mod tests {
             )
             .expect("save first version");
         let first_id = first.working_commit_id;
-        session
+        let second = session
             .save_basic_edit_version_at(
                 &photo_id,
                 &source_path,
                 &first_id,
-                &ffi_parameters(-1.0, 1.5, [0.8, 1.0, 1.3], 1.4),
+                &ffi_parameters(-1.0, 1.5, [-0.25, 0.0], 1.4),
                 "Cool continuation",
                 2_000,
             )
             .expect("save second version");
+        let second_id = second.working_commit_id;
+        let durable_recipe_ref = session
+            .catalog
+            .recipe_ref(parsed_photo_id, WORKING_RECIPE_REF)
+            .expect("read durable working ref")
+            .expect("durable working ref exists");
+        assert_eq!(durable_recipe_ref.commit_id.to_string(), second_id);
+        let durable_library_ref = session
+            .catalog
+            .edit_repository_ref(LIBRARY_EDIT_MAIN_REF)
+            .expect("read durable Library head")
+            .expect("durable Library head exists");
+        let commit_count = session
+            .catalog
+            .recipe_commits(parsed_photo_id)
+            .expect("list commits before checkout")
+            .len();
 
         let checked_out = session
-            .checkout_basic_edit_version_at(&photo_id, &source_path, &first_id, 3_000)
+            .checkout_basic_edit_version(&photo_id, &source_path, &first_id)
             .expect("check out first version");
 
+        assert!(checked_out.is_version_draft);
+        assert!(checked_out.has_working_version);
         assert_eq!(checked_out.working_commit_id, first_id);
         assert_eq!(checked_out.versions.len(), 2);
         assert_close(checked_out.settings.basic.exposure_stops, 1.0);
         assert_close(checked_out.settings.basic.contrast_factor, 0.9);
-        assert_close(checked_out.settings.basic.red_channel_gain, 1.2);
-        assert_close(checked_out.settings.basic.green_channel_gain, 1.0);
-        assert_close(checked_out.settings.basic.blue_channel_gain, 0.7);
+        assert_close(checked_out.settings.basic.white_balance_temperature, 0.25);
+        assert_close(checked_out.settings.basic.white_balance_tint, 0.0);
         assert_close(checked_out.settings.basic.saturation_factor, 0.6);
         assert_eq!(
             checked_out
@@ -6530,20 +9478,61 @@ mod tests {
                 .count(),
             1
         );
+        assert!(
+            checked_out
+                .versions
+                .iter()
+                .any(|version| { version.commit_id == first_id && version.is_working })
+        );
+        assert_eq!(
+            session
+                .catalog
+                .recipe_ref(parsed_photo_id, WORKING_RECIPE_REF)
+                .expect("read working ref after checkout")
+                .expect("working ref remains")
+                .commit_id,
+            durable_recipe_ref.commit_id
+        );
+        assert_eq!(
+            session
+                .catalog
+                .edit_repository_ref(LIBRARY_EDIT_MAIN_REF)
+                .expect("read Library head after checkout")
+                .expect("Library head remains")
+                .commit_id,
+            durable_library_ref.commit_id
+        );
+        assert_eq!(
+            session
+                .catalog
+                .recipe_commits(parsed_photo_id)
+                .expect("list commits after checkout")
+                .len(),
+            commit_count
+        );
+
+        let durable_state = session
+            .photo_edit_state(&photo_id, &source_path)
+            .expect("reload durable state after checkout");
+        assert!(!durable_state.is_version_draft);
+        assert_eq!(durable_state.working_commit_id, second_id);
+        assert_close(durable_state.settings.basic.exposure_stops, -1.0);
+        assert_close(durable_state.settings.basic.contrast_factor, 1.5);
 
         drop(session);
         std::fs::remove_dir_all(root).expect("remove edit fixture");
     }
 
     #[test]
-    fn two_layer_stack_saves_reopens_diffs_and_checks_out_exact_identity() {
+    fn two_grade_node_stack_saves_reopens_diffs_and_checks_out_exact_identity() {
         let (root, session, photo_id, source_path) = test_edit_session();
-        let mut first_settings = ffi_parameters(0.25, 1.1, [1.0; 3], 0.95);
-        let mut second_layer = new_basic_edit_layer("Creative finish").expect("second layer");
-        second_layer.basic.exposure_stops = -0.4;
-        second_layer.basic.contrast_factor = 1.3;
-        second_layer.basic.saturation_factor = 1.2;
-        first_settings.layers.push(second_layer);
+        let mut first_settings = ffi_parameters(0.25, 1.1, [0.0; 2], 0.95);
+        let mut second_grade_node =
+            new_basic_grade_node("Creative finish").expect("second Grade Node");
+        second_grade_node.basic.exposure_stops = -0.4;
+        second_grade_node.basic.contrast_factor = 1.3;
+        second_grade_node.basic.saturation_factor = 1.2;
+        first_settings.grade_nodes.push(second_grade_node);
 
         let first = session
             .save_basic_edit_version_at(
@@ -6551,28 +9540,28 @@ mod tests {
                 &source_path,
                 "",
                 &first_settings,
-                "Two-layer base",
+                "Two-node base",
                 1_000,
             )
             .expect("save two-layer root");
         let first_id = first.working_commit_id.clone();
         let first_layer_ids = first
             .settings
-            .layers
+            .grade_nodes
             .iter()
-            .map(|layer| layer.layer_id.clone())
+            .map(|grade_node| grade_node.grade_node_id.clone())
             .collect::<Vec<_>>();
         assert_eq!(first_layer_ids.len(), 2);
 
         let mut second_settings = first.settings.clone();
-        second_settings.layers[1].basic.exposure_stops = -0.9;
+        second_settings.grade_nodes[1].basic.exposure_stops = -0.9;
         let second = session
             .save_basic_edit_version_at(
                 &photo_id,
                 &source_path,
                 &first_id,
                 &second_settings,
-                "Second-layer exposure",
+                "Second-node exposure",
                 2_000,
             )
             .expect("save two-layer child");
@@ -6583,8 +9572,8 @@ mod tests {
             .find(|version| version.is_working)
             .expect("working multi-layer version");
         assert_eq!(working.changed_basic_parameters, ["exposure_stops"]);
-        assert_eq!(working.layers_modified, 1);
-        assert_eq!(working.nodes_modified, 1);
+        assert_eq!(working.grade_nodes_modified, 1);
+        assert_eq!(working.render_ops_modified, 1);
         assert!(!working.has_other_changes);
 
         drop(session);
@@ -6597,32 +9586,39 @@ mod tests {
             .photo_edit_state(&photo_id, &source_path)
             .expect("read reopened multi-layer stack");
         assert_eq!(reopened_state.working_commit_id, second_id);
-        assert_eq!(reopened_state.settings.layers.len(), 2);
+        assert_eq!(reopened_state.settings.grade_nodes.len(), 2);
         assert_eq!(
             reopened_state
                 .settings
-                .layers
+                .grade_nodes
                 .iter()
-                .map(|layer| layer.layer_id.clone())
+                .map(|grade_node| grade_node.grade_node_id.clone())
                 .collect::<Vec<_>>(),
             first_layer_ids
         );
-        assert_close(reopened_state.settings.layers[1].basic.exposure_stops, -0.9);
+        assert_close(
+            reopened_state.settings.grade_nodes[1].basic.exposure_stops,
+            -0.9,
+        );
 
         let checked_out = reopened
-            .checkout_basic_edit_version_at(&photo_id, &source_path, &first_id, 3_000)
+            .checkout_basic_edit_version(&photo_id, &source_path, &first_id)
             .expect("checkout two-layer root");
-        assert_eq!(checked_out.settings.layers.len(), 2);
+        assert!(checked_out.is_version_draft);
+        assert_eq!(checked_out.settings.grade_nodes.len(), 2);
         assert_eq!(
             checked_out
                 .settings
-                .layers
+                .grade_nodes
                 .iter()
-                .map(|layer| layer.layer_id.clone())
+                .map(|grade_node| grade_node.grade_node_id.clone())
                 .collect::<Vec<_>>(),
             first_layer_ids
         );
-        assert_close(checked_out.settings.layers[1].basic.exposure_stops, -0.4);
+        assert_close(
+            checked_out.settings.grade_nodes[1].basic.exposure_stops,
+            -0.4,
+        );
 
         drop(reopened);
         std::fs::remove_dir_all(root).expect("remove multi-layer fixture");
@@ -6638,7 +9634,7 @@ mod tests {
                 &photo_id,
                 &source_path,
                 "",
-                &ffi_settings_with_tone(0.2, 1.1, [1.0; 3], 0.95, &first_points),
+                &ffi_settings_with_tone(0.2, 1.1, [0.0; 2], 0.95, &first_points),
                 "First curve",
                 1_000,
             )
@@ -6649,7 +9645,7 @@ mod tests {
                 &photo_id,
                 &source_path,
                 &first_id,
-                &ffi_settings_with_tone(0.2, 1.1, [1.0; 3], 0.95, &second_points),
+                &ffi_settings_with_tone(0.2, 1.1, [0.0; 2], 0.95, &second_points),
                 "Second curve",
                 2_000,
             )
@@ -6673,8 +9669,9 @@ mod tests {
             .expect("read reopened curve");
         assert_eq!(ffi_curve_pairs(&reopened_state.settings), second_points);
         let checked_out = reopened
-            .checkout_basic_edit_version_at(&photo_id, &source_path, &first_id, 3_000)
+            .checkout_basic_edit_version(&photo_id, &source_path, &first_id)
             .expect("check out first curve");
+        assert!(checked_out.is_version_draft);
         assert_eq!(ffi_curve_pairs(&checked_out.settings), first_points);
         assert_eq!(checked_out.versions.len(), 2);
 
@@ -6683,10 +9680,10 @@ mod tests {
     }
 
     #[test]
-    fn save_reopen_and_checkout_restore_layer_bypass_without_losing_recipe_data() {
+    fn save_reopen_and_checkout_restore_grade_node_bypass_without_losing_recipe_data() {
         let (root, session, photo_id, source_path) = test_edit_session();
         let points = [[0.0, -0.02], [0.3, 0.18], [0.75, 0.88], [1.0, 1.06]];
-        let enabled = ffi_settings_with_tone(0.7, 1.25, [1.08, 0.96, 1.02], 0.82, &points);
+        let enabled = ffi_settings_with_tone(0.7, 1.25, [0.08, -0.04], 0.82, &points);
         let first = session
             .save_basic_edit_version_at(
                 &photo_id,
@@ -6717,7 +9714,10 @@ mod tests {
             .find(|version| version.is_working)
             .expect("working bypass version");
 
-        assert_eq!(current_version.changed_basic_parameters, ["layer_enabled"]);
+        assert_eq!(
+            current_version.changed_basic_parameters,
+            ["grade_node_enabled"]
+        );
         assert!(!current_version.has_other_changes);
         assert!(!second.settings.enabled);
         assert_eq!(ffi_curve_pairs(&second.settings), points);
@@ -6735,17 +9735,19 @@ mod tests {
             .iter()
             .find(|record| record.commit.id().to_string() == second_id)
             .expect("bypassed commit is durable");
-        let first_settings = edit_settings_from_snapshot(first_record.commit.snapshot())
-            .expect("decode enabled commit");
-        let second_settings = edit_settings_from_snapshot(second_record.commit.snapshot())
-            .expect("decode bypassed commit");
-        assert!(first_settings.layer_enabled);
-        assert!(!second_settings.layer_enabled);
+        let first_settings =
+            decode_grade_stack_draft_from_recipe_v1_snapshot(first_record.commit.snapshot())
+                .expect("decode enabled commit");
+        let second_settings =
+            decode_grade_stack_draft_from_recipe_v1_snapshot(second_record.commit.snapshot())
+                .expect("decode bypassed commit");
+        assert!(first_settings.enabled);
+        assert!(!second_settings.enabled);
         assert_eq!(first_settings.basic, second_settings.basic);
         assert_eq!(first_settings.tone_curve, second_settings.tone_curve);
         assert_eq!(
-            basic_recipe_identity(first_record.commit.snapshot()).unwrap(),
-            basic_recipe_identity(second_record.commit.snapshot()).unwrap()
+            single_grade_node_recipe_v1_identity(first_record.commit.snapshot()).unwrap(),
+            single_grade_node_recipe_v1_identity(second_record.commit.snapshot()).unwrap()
         );
 
         drop(session);
@@ -6762,15 +9764,15 @@ mod tests {
         assert_eq!(ffi_curve_pairs(&reopened_state.settings), points);
 
         let checked_out = reopened
-            .checkout_basic_edit_version_at(&photo_id, &source_path, &first_id, 3_000)
+            .checkout_basic_edit_version(&photo_id, &source_path, &first_id)
             .expect("check out enabled version");
+        assert!(checked_out.is_version_draft);
         assert!(checked_out.settings.enabled);
         assert_eq!(ffi_curve_pairs(&checked_out.settings), points);
         assert_close(checked_out.settings.basic.exposure_stops, 0.7);
         assert_close(checked_out.settings.basic.contrast_factor, 1.25);
-        assert_close(checked_out.settings.basic.red_channel_gain, 1.08);
-        assert_close(checked_out.settings.basic.green_channel_gain, 0.96);
-        assert_close(checked_out.settings.basic.blue_channel_gain, 1.02);
+        assert_close(checked_out.settings.basic.white_balance_temperature, 0.08);
+        assert_close(checked_out.settings.basic.white_balance_tint, -0.04);
         assert_close(checked_out.settings.basic.saturation_factor, 0.82);
 
         drop(reopened);
@@ -6797,7 +9799,7 @@ mod tests {
             .expect("write changed detail source");
         let request = ffi::FfiEditDetailViewportRequest {
             base_commit_id: String::new(),
-            settings: ffi_parameters(0.0, 1.0, [1.0; 3], 1.0),
+            settings: ffi_parameters(0.0, 1.0, [0.0; 2], 1.0),
             render_token: session.begin_basic_edit_detail(),
             center_x: 0.5,
             center_y: 0.5,
@@ -6823,66 +9825,100 @@ mod tests {
     fn ffi_parameters(
         exposure_stops: f64,
         contrast_factor: f64,
-        channel_gains: [f64; 3],
+        white_balance: [f64; 2],
         saturation_factor: f64,
     ) -> ffi::FfiEditSettings {
-        let mut layer = new_basic_edit_layer(BASIC_LAYER_LABEL).expect("new Basic test layer");
+        let mut grade_node =
+            new_basic_grade_node(BASIC_LAYER_LABEL).expect("new Basic test Grade Node");
         // Stable fixture identity keeps tests focused on parameter semantics;
         // identity allocation itself has dedicated UUID coverage.
-        let layer_id = LayerInstanceId::from_uuid(Uuid::from_u128(1));
-        layer.layer_id = layer_id.to_string();
-        layer.exposure_node_id = Uuid::from_u128(2).to_string();
-        layer.contrast_node_id = Uuid::from_u128(3).to_string();
-        layer.tone_curve_node_id = basic_tone_curve_slot_id(layer_id).to_string();
-        layer.channel_gain_node_id = Uuid::from_u128(5).to_string();
-        layer.saturation_node_id = Uuid::from_u128(6).to_string();
-        layer.basic = ffi::FfiBasicEditParameters {
+        let grade_node_id = LayerInstanceId::from_uuid(Uuid::from_u128(1));
+        grade_node.grade_node_id = grade_node_id.to_string();
+        grade_node.exposure_render_op_id = Uuid::from_u128(2).to_string();
+        grade_node.contrast_render_op_id = Uuid::from_u128(3).to_string();
+        grade_node.selective_tone_render_op_id = Uuid::from_u128(4).to_string();
+        grade_node.tone_curve_render_op_id =
+            recipe_v1_tone_curve_render_op_id(grade_node_id).to_string();
+        grade_node.white_balance_render_op_id = Uuid::from_u128(5).to_string();
+        grade_node.saturation_render_op_id = Uuid::from_u128(6).to_string();
+        grade_node.perceptual_color_render_op_id = Uuid::from_u128(7).to_string();
+        grade_node.lut_render_op_id = Uuid::from_u128(8).to_string();
+        grade_node.sharpen_render_op_id = Uuid::from_u128(9).to_string();
+        grade_node.basic = ffi::FfiBasicEditParameters {
             exposure_stops,
             contrast_factor,
-            red_channel_gain: channel_gains[0],
-            green_channel_gain: channel_gains[1],
-            blue_channel_gain: channel_gains[2],
+            white_balance_temperature: white_balance[0],
+            white_balance_tint: white_balance[1],
             saturation_factor,
         };
         ffi::FfiEditSettings {
-            layers: vec![layer],
+            optics: ffi_optics_settings(&RecipeOpticsSettings::default()),
+            grade_nodes: vec![grade_node],
         }
     }
 
     fn ffi_settings_with_tone(
         exposure_stops: f64,
         contrast_factor: f64,
-        channel_gains: [f64; 3],
+        white_balance: [f64; 2],
         saturation_factor: f64,
         points: &[[f64; 2]],
     ) -> ffi::FfiEditSettings {
         let mut settings = ffi_parameters(
             exposure_stops,
             contrast_factor,
-            channel_gains,
+            white_balance,
             saturation_factor,
         );
-        settings.has_tone_curve = true;
-        settings.tone_curve_points = points
+        settings.tone_curve_kind = ffi::FfiToneCurveKind::SmoothRgb;
+        settings.tone_curve_master_points = points
             .iter()
             .map(|[x, y]| ffi::FfiToneCurvePoint { x: *x, y: *y })
             .collect();
+        settings.tone_curve_red_points = vec![
+            ffi::FfiToneCurvePoint { x: 0.0, y: 0.0 },
+            ffi::FfiToneCurvePoint { x: 1.0, y: 1.0 },
+        ];
+        settings.tone_curve_green_points = settings.tone_curve_red_points.clone();
+        settings.tone_curve_blue_points = settings.tone_curve_red_points.clone();
         settings
+    }
+
+    fn ffi_settings_with_smooth_tone(
+        master: &[[f64; 2]],
+        red: &[[f64; 2]],
+        green: &[[f64; 2]],
+        blue: &[[f64; 2]],
+    ) -> ffi::FfiEditSettings {
+        let mut settings = ffi_parameters(0.0, 1.0, [0.0; 2], 1.0);
+        settings.tone_curve_kind = ffi::FfiToneCurveKind::SmoothRgb;
+        let points = |source: &[[f64; 2]]| {
+            source
+                .iter()
+                .map(|[x, y]| ffi::FfiToneCurvePoint { x: *x, y: *y })
+                .collect::<Vec<_>>()
+        };
+        settings.tone_curve_master_points = points(master);
+        settings.tone_curve_red_points = points(red);
+        settings.tone_curve_green_points = points(green);
+        settings.tone_curve_blue_points = points(blue);
+        settings
+    }
+
+    fn ffi_curve_pairs_from(points: &[ffi::FfiToneCurvePoint]) -> Vec<[f64; 2]> {
+        points.iter().map(|point| [point.x, point.y]).collect()
     }
 
     fn ffi_curve_pairs(settings: &ffi::FfiEditSettings) -> Vec<[f64; 2]> {
-        settings
-            .tone_curve_points
-            .iter()
-            .map(|point| [point.x, point.y])
-            .collect()
+        ffi_curve_pairs_from(&settings.tone_curve_master_points)
     }
 
     fn assert_invalid_curve(points: &[[f64; 2]], expected_message: &str) {
-        let settings = ffi_settings_with_tone(0.0, 1.0, [1.0; 3], 1.0, points);
-        let error = edit_settings(&settings).expect_err("invalid Tone Curve must fail closed");
+        let settings = ffi_settings_with_tone(0.0, 1.0, [0.0; 2], 1.0, points);
+        let error = decode_grade_stack_draft_recipe_v1(&settings)
+            .expect_err("invalid Tone Curve must fail closed");
         assert!(
-            error.to_string().contains(expected_message),
+            format!("{error:#}").contains(expected_message),
             "unexpected error: {error}"
         );
     }
@@ -6970,7 +10006,7 @@ mod tests {
             )])
             .expect("Exposure parameters")
         };
-        let left = basic_node(
+        let left = recipe_v1_render_op(
             left_id,
             EXPOSURE_OPERATION_ID,
             ProcessingStage::SceneLinearFoundation,
@@ -6978,7 +10014,7 @@ mod tests {
             exposure_parameters(),
         )
         .expect("left branch");
-        let right = basic_node(
+        let right = recipe_v1_render_op(
             right_id,
             EXPOSURE_OPERATION_ID,
             ProcessingStage::SceneLinearFoundation,
@@ -7036,6 +10072,50 @@ mod tests {
         .expect("single-layer Recipe")
     }
 
+    fn recipe_without_sharpen(snapshot: &RecipeSnapshot) -> RecipeSnapshot {
+        let [layer] = snapshot.layers() else {
+            panic!("Sharpen compatibility fixture requires exactly one layer");
+        };
+        let LayerContent::Inline { graph } = layer.content() else {
+            panic!("Sharpen compatibility fixture requires an inline graph");
+        };
+        let nodes = graph
+            .nodes()
+            .iter()
+            .filter(|node| node.operation().operation_id().as_str() != SHARPEN_OPERATION_ID)
+            .cloned()
+            .collect::<Vec<_>>();
+        let output = nodes
+            .iter()
+            .find(|node| node.operation().operation_id().as_str() == LUT_3D_OPERATION_ID)
+            .expect("extended Recipe contains LUT")
+            .id();
+        let graph = EditGraph::new(
+            BASIC_GRAPH_SCHEMA_VERSION,
+            vec![PortType::Image(ImageDomain::WorkingRgb)],
+            nodes,
+            output,
+        )
+        .expect("build pre-Sharpen compatibility graph");
+        RecipeSnapshot::new(
+            CURRENT_RECIPE_SCHEMA_VERSION,
+            vec![
+                LayerInstance::new(
+                    layer.id(),
+                    layer.label(),
+                    AdjustmentScope::Photo,
+                    LayerContent::Inline { graph },
+                    layer.enabled(),
+                    UnitInterval::ONE,
+                    BlendMode::Normal,
+                    None,
+                )
+                .expect("build pre-Sharpen compatibility layer"),
+            ],
+        )
+        .expect("build pre-Sharpen compatibility Recipe")
+    }
+
     fn basic_recipe_with_tone(
         parameters: BasicEditParameters,
         points: &[[f64; 2]],
@@ -7050,76 +10130,50 @@ mod tests {
         points: &[[f64; 2]],
         reverse_storage_order: bool,
     ) -> RecipeSnapshot {
-        let base_nodes = basic_recipe_nodes(base).expect("read base Basic nodes");
-        let tone_curve_id = base_nodes
-            .tone_curve
-            .map_or_else(NodeId::new_v7, AdjustmentNode::id);
-        let mut nodes = vec![
-            base_nodes.exposure.clone(),
-            base_nodes.contrast.clone(),
-            basic_node(
-                tone_curve_id,
-                TONE_CURVE_OPERATION_ID,
-                ProcessingStage::ToneAndLocalContrast,
-                NodeInput::Node {
-                    node_id: base_nodes.contrast.id(),
-                },
-                parameter_block([(
-                    TONE_CURVE_POINTS_PARAMETER_KEY,
-                    ParameterValue::FloatVector(
-                        points
-                            .iter()
-                            .flatten()
-                            .copied()
-                            .map(FiniteF64::new)
-                            .collect::<Result<Vec<_>, _>>()
-                            .expect("finite test Tone Curve"),
-                    ),
-                )])
-                .expect("Tone Curve parameters"),
-            )
-            .expect("Tone Curve node"),
-            basic_node(
-                base_nodes.channel_gain.id(),
-                CHANNEL_GAIN_OPERATION_ID,
-                ProcessingStage::CreativeColor,
-                NodeInput::Node {
-                    node_id: tone_curve_id,
-                },
-                base_nodes.channel_gain.parameters().clone(),
-            )
-            .expect("rewired channel gain"),
-            base_nodes.saturation.clone(),
-        ];
-        if reverse_storage_order {
-            nodes.reverse();
+        let mut draft =
+            decode_grade_stack_draft_from_recipe_v1_snapshot(base).expect("decode base Recipe");
+        draft.tone_curve = Some(ToneCurveDraft::SmoothRgb(Box::new(SmoothRgbToneCurve {
+            master: points
+                .iter()
+                .map(|[x, y]| ToneCurvePoint { x: *x, y: *y })
+                .collect(),
+            ..SmoothRgbToneCurve::default()
+        })));
+        let snapshot = grade_stack_recipe_v1_snapshot(&draft, Some(base))
+            .expect("build current Tone Curve Recipe");
+        if !reverse_storage_order {
+            return snapshot;
         }
-        let output = base_nodes.saturation.id();
-        let layer_id = base_nodes.layer.id();
+        let layer = &snapshot.layers()[0];
+        let LayerContent::Inline { graph } = layer.content() else {
+            panic!("test Recipe must remain inline")
+        };
+        let mut nodes = graph.nodes().to_vec();
+        nodes.reverse();
         let graph = EditGraph::new(
-            BASIC_GRAPH_SCHEMA_VERSION,
-            vec![PortType::Image(ImageDomain::WorkingRgb)],
+            graph.schema_version(),
+            graph.input_types().to_vec(),
             nodes,
-            output,
+            graph.output_node(),
         )
-        .expect("build Tone Curve graph");
+        .expect("reverse current Tone Curve storage order");
         RecipeSnapshot::new(
             CURRENT_RECIPE_SCHEMA_VERSION,
             vec![
                 LayerInstance::new(
-                    layer_id,
-                    BASIC_LAYER_LABEL,
+                    layer.id(),
+                    layer.label(),
                     AdjustmentScope::Photo,
                     LayerContent::Inline { graph },
-                    true,
+                    layer.enabled(),
                     UnitInterval::ONE,
                     BlendMode::Normal,
                     None,
                 )
-                .expect("build Tone Curve layer"),
+                .expect("reversed current Tone Curve layer"),
             ],
         )
-        .expect("build Tone Curve Recipe")
+        .expect("reversed current Tone Curve Recipe")
     }
 
     fn assert_close(actual: f64, expected: f64) {
@@ -7132,33 +10186,32 @@ mod tests {
     fn assert_root_diff(version: &ffi::FfiEditVersion) {
         assert!(version.is_root);
         assert!(version.parent_commit_ids.is_empty());
-        assert_eq!(version.layers_added, 0);
-        assert_eq!(version.layers_removed, 0);
-        assert_eq!(version.layers_moved, 0);
-        assert_eq!(version.layers_modified, 0);
-        assert_eq!(version.nodes_added, 0);
-        assert_eq!(version.nodes_removed, 0);
-        assert_eq!(version.nodes_modified, 0);
-        assert_eq!(version.node_parameter_blocks_changed, 0);
+        assert_eq!(version.grade_nodes_added, 0);
+        assert_eq!(version.grade_nodes_removed, 0);
+        assert_eq!(version.grade_nodes_moved, 0);
+        assert_eq!(version.grade_nodes_modified, 0);
+        assert_eq!(version.render_ops_added, 0);
+        assert_eq!(version.render_ops_removed, 0);
+        assert_eq!(version.render_ops_modified, 0);
+        assert_eq!(version.render_op_parameter_blocks_changed, 0);
         assert_eq!(version.changed_basic_parameter_count, 0);
         assert!(version.changed_basic_parameters.is_empty());
         assert!(!version.has_other_changes);
     }
 
     fn assert_all_basic_parameters_changed(version: &ffi::FfiEditVersion) {
-        assert_eq!(version.changed_basic_parameter_count, 6);
+        assert_eq!(version.changed_basic_parameter_count, 5);
         assert_eq!(
             version.changed_basic_parameters,
             [
                 "exposure_stops",
                 "contrast_factor",
-                "red_channel_gain",
-                "green_channel_gain",
-                "blue_channel_gain",
+                "white_balance_temperature",
+                "white_balance_tint",
                 "saturation_factor",
             ]
         );
-        assert_eq!(version.node_parameter_blocks_changed, 4);
+        assert_eq!(version.render_op_parameter_blocks_changed, 4);
         assert!(!version.has_other_changes);
     }
 
@@ -7411,7 +10464,7 @@ mod tests {
             RepresentationId::new_v7()
         ));
         std::fs::create_dir_all(&root).expect("create desktop bridge fixture");
-        let (decision_photo_id, decision_sequence, stack_layer_ids) = {
+        let (decision_photo_id, decision_sequence, stack_grade_node_ids) = {
             let session = open_desktop_session(
                 root.join("catalog.sqlite").to_str().expect("catalog path"),
                 root.join("cache").to_str().expect("cache path"),
@@ -7468,7 +10521,7 @@ mod tests {
             );
             assert_eq!(refreshed.items[0].decision_rating, 3);
 
-            let edits = ffi_parameters(0.0, 1.0, [1.0; 3], 1.0);
+            let edits = ffi_parameters(0.0, 1.0, [0.0; 2], 1.0);
             let first_edit = session
                 .render_basic_edit_preview(
                     &page.items[0].photo_id,
@@ -7480,7 +10533,7 @@ mod tests {
                 .render_basic_edit_preview(
                     &page.items[0].photo_id,
                     &page.items[0].source_path,
-                    &preview_request("", ffi_parameters(0.5, 1.1, [1.05, 1.0, 0.95], 1.15), true),
+                    &preview_request("", ffi_parameters(0.5, 1.1, [0.05, 0.0], 1.15), true),
                 )
                 .expect("reuse prepared edit preview session");
             assert!(first_edit.bytes.starts_with(&[0xff, 0xd8]));
@@ -7492,10 +10545,10 @@ mod tests {
             assert_persisted_tone_recipe_and_neutral_before(
                 session.as_ref(),
                 &page.items[0],
-                &ffi_parameters(0.8, 1.25, [1.08, 1.0, 0.92], 1.2),
+                &ffi_parameters(0.8, 1.25, [0.08, 0.0], 1.2),
             );
-            let stack_layer_ids =
-                assert_real_dng_adjustment_stack_round_trip(session.as_ref(), &page.items[0]);
+            let stack_grade_node_ids =
+                assert_real_dng_grade_stack_round_trip(session.as_ref(), &page.items[0]);
             assert_eq!(
                 session
                     .edit_preview_sessions
@@ -7507,7 +10560,7 @@ mod tests {
             (
                 page.items[0].photo_id.clone(),
                 decision.sequence,
-                stack_layer_ids,
+                stack_grade_node_ids,
             )
         };
         {
@@ -7525,18 +10578,18 @@ mod tests {
             assert_eq!(page.items[0].decision_rating, 3);
             let edit_state = reopened
                 .photo_edit_state(&page.items[0].photo_id, &page.items[0].source_path)
-                .expect("reopen persisted real-DNG Adjustment Stack");
+                .expect("reopen persisted real-DNG Grade Stack");
             assert_eq!(
                 edit_state
                     .settings
-                    .layers
+                    .grade_nodes
                     .iter()
-                    .map(|layer| layer.layer_id.clone())
+                    .map(|grade_node| grade_node.grade_node_id.clone())
                     .collect::<Vec<_>>(),
-                stack_layer_ids
+                stack_grade_node_ids
             );
-            assert_eq!(edit_state.settings.layers.len(), 2);
-            assert!(!edit_state.settings.layers[0].enabled);
+            assert_eq!(edit_state.settings.grade_nodes.len(), 2);
+            assert!(!edit_state.settings.grade_nodes[0].enabled);
         }
         std::fs::remove_dir_all(root).expect("remove desktop bridge fixture");
     }
@@ -7553,7 +10606,7 @@ mod tests {
             .photo_edit_state(&item.photo_id, &item.source_path)
             .expect("read first Tone Curve settings")
             .settings;
-        first_settings.basic = edits.basic;
+        first_settings.basic = edits.basic.clone();
         let tone_current = session
             .render_basic_edit_preview(
                 &item.photo_id,
@@ -7576,14 +10629,14 @@ mod tests {
                 &item.source_path,
                 &preview_request(&first_tone_id.to_string(), bypassed_settings, true),
             )
-            .expect("render the real DNG with every adjustment node bypassed");
+            .expect("render the real DNG with its Grade Node bypassed");
         let second_tone_id =
             persist_test_tone_recipe(session, photo_id, recipe_id, Some(first_tone_id), 0.28);
         let mut second_settings = session
             .photo_edit_state(&item.photo_id, &item.source_path)
             .expect("read second Tone Curve settings")
             .settings;
-        second_settings.basic = edits.basic;
+        second_settings.basic = edits.basic.clone();
         let old_base_after_ref_move = session
             .render_basic_edit_preview(
                 &item.photo_id,
@@ -7602,7 +10655,7 @@ mod tests {
             .render_basic_edit_preview(
                 &item.photo_id,
                 &item.source_path,
-                &preview_request("", ffi_parameters(0.0, 1.0, [1.0; 3], 1.0), false),
+                &preview_request("", ffi_parameters(0.0, 1.0, [0.0; 2], 1.0), false),
             )
             .expect("render stable neutral Before after ref move");
 
@@ -7626,21 +10679,21 @@ mod tests {
     }
 
     #[allow(clippy::too_many_lines)]
-    fn assert_real_dng_adjustment_stack_round_trip(
+    fn assert_real_dng_grade_stack_round_trip(
         session: &DesktopSession,
         item: &ffi::FfiReviewItem,
     ) -> Vec<String> {
         let base = session
             .photo_edit_state(&item.photo_id, &item.source_path)
             .expect("read real-DNG stack base");
-        assert_eq!(base.settings.layers.len(), 1);
+        assert_eq!(base.settings.grade_nodes.len(), 1);
 
         let mut stacked = base.settings.clone();
-        let mut finish = new_basic_edit_layer("Real DNG finish").expect("create second layer");
+        let mut finish = new_basic_grade_node("Real DNG finish").expect("create second Grade Node");
         finish.basic.exposure_stops = 0.85;
         finish.basic.contrast_factor = 1.18;
         finish.basic.saturation_factor = 1.12;
-        stacked.layers.push(finish);
+        stacked.grade_nodes.push(finish);
 
         let ordered = session
             .render_basic_edit_preview(
@@ -7648,19 +10701,19 @@ mod tests {
                 &item.source_path,
                 &preview_request(&base.working_commit_id, stacked.clone(), true),
             )
-            .expect("render ordered two-layer real-DNG stack");
+            .expect("render ordered two-node real-DNG stack");
         let mut reversed = stacked.clone();
-        reversed.layers.swap(0, 1);
+        reversed.grade_nodes.swap(0, 1);
         let reverse_order = session
             .render_basic_edit_preview(
                 &item.photo_id,
                 &item.source_path,
                 &preview_request(&base.working_commit_id, reversed, true),
             )
-            .expect("render reversed two-layer real-DNG stack");
+            .expect("render reversed two-node real-DNG stack");
         assert_ne!(
             ordered.bytes, reverse_order.bytes,
-            "layer vector order must materially control real pixels"
+            "Grade Node order must materially control real pixels"
         );
 
         let single = session
@@ -7669,15 +10722,15 @@ mod tests {
                 &item.source_path,
                 &preview_request(&base.working_commit_id, base.settings.clone(), true),
             )
-            .expect("render single-layer real-DNG baseline");
-        stacked.layers[1].enabled = false;
+            .expect("render single-node real-DNG baseline");
+        stacked.grade_nodes[1].enabled = false;
         let bypassed = session
             .render_basic_edit_preview(
                 &item.photo_id,
                 &item.source_path,
                 &preview_request(&base.working_commit_id, stacked.clone(), true),
             )
-            .expect("render real-DNG stack with second layer bypassed");
+            .expect("render real-DNG stack with second Grade Node bypassed");
         assert_eq!(single.bytes, bypassed.bytes);
 
         let saved = session
@@ -7686,44 +10739,41 @@ mod tests {
                 &item.source_path,
                 &base.working_commit_id,
                 &stacked,
-                "Real DNG two-layer stack",
+                "Real DNG two-node stack",
                 3_000,
             )
-            .expect("save real-DNG two-layer stack");
+            .expect("save real-DNG two-node stack");
         let saved_id = saved.working_commit_id.clone();
-        let saved_layer_ids = saved
+        let saved_grade_node_ids = saved
             .settings
-            .layers
+            .grade_nodes
             .iter()
-            .map(|layer| layer.layer_id.clone())
+            .map(|grade_node| grade_node.grade_node_id.clone())
             .collect::<Vec<_>>();
-        assert_eq!(saved_layer_ids.len(), 2);
-        assert!(!saved.settings.layers[1].enabled);
+        assert_eq!(saved_grade_node_ids.len(), 2);
+        assert!(!saved.settings.grade_nodes[1].enabled);
 
         let restored_base = session
-            .checkout_basic_edit_version_at(
-                &item.photo_id,
-                &item.source_path,
-                &base.working_commit_id,
-                4_000,
-            )
-            .expect("check out single-layer real-DNG branch point");
-        assert_eq!(restored_base.settings.layers.len(), 1);
+            .checkout_basic_edit_version(&item.photo_id, &item.source_path, &base.working_commit_id)
+            .expect("check out single-node real-DNG branch point");
+        assert!(restored_base.is_version_draft);
+        assert_eq!(restored_base.settings.grade_nodes.len(), 1);
         let restored_stack = session
-            .checkout_basic_edit_version_at(&item.photo_id, &item.source_path, &saved_id, 5_000)
+            .checkout_basic_edit_version(&item.photo_id, &item.source_path, &saved_id)
             .expect("check out saved real-DNG stack");
+        assert!(restored_stack.is_version_draft);
         assert_eq!(
             restored_stack
                 .settings
-                .layers
+                .grade_nodes
                 .iter()
-                .map(|layer| layer.layer_id.clone())
+                .map(|grade_node| grade_node.grade_node_id.clone())
                 .collect::<Vec<_>>(),
-            saved_layer_ids
+            saved_grade_node_ids
         );
 
         let mut reordered = restored_stack.settings;
-        reordered.layers.swap(0, 1);
+        reordered.grade_nodes.swap(0, 1);
         let reordered_state = session
             .save_basic_edit_version_at(
                 &item.photo_id,
@@ -7736,15 +10786,18 @@ mod tests {
             .expect("save reordered real-DNG stack");
         let expected_ids = reordered_state
             .settings
-            .layers
+            .grade_nodes
             .iter()
-            .map(|layer| layer.layer_id.clone())
+            .map(|grade_node| grade_node.grade_node_id.clone())
             .collect::<Vec<_>>();
         assert_eq!(
             expected_ids,
-            [saved_layer_ids[1].clone(), saved_layer_ids[0].clone()]
+            [
+                saved_grade_node_ids[1].clone(),
+                saved_grade_node_ids[0].clone()
+            ]
         );
-        assert!(!reordered_state.settings.layers[0].enabled);
+        assert!(!reordered_state.settings.grade_nodes[0].enabled);
         expected_ids
     }
 

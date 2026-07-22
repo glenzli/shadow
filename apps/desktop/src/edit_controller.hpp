@@ -5,6 +5,7 @@
 #include "edit_preview_contract.hpp"
 #include "edit_preview_provider.hpp"
 #include "edit_version_model.hpp"
+#include "localized_ui_message.hpp"
 #include "tone_curve_point_model.hpp"
 
 #include <QAbstractItemModel>
@@ -21,7 +22,7 @@
 enum class EditStateTaskKind : std::uint8_t {
     Open,
     Save,
-    Checkout,
+    LoadDraft,
 };
 
 struct EditStateTaskResult final {
@@ -58,8 +59,15 @@ class EditController final : public QObject {
     Q_PROPERTY(quint64 detailRetainedBytes READ detailRetainedBytes NOTIFY detailGeometryChanged)
     Q_PROPERTY(QVariantList detailTiles READ detailTiles NOTIFY detailTilesChanged)
     Q_PROPERTY(bool dirty READ dirty NOTIFY dirtyChanged)
+    Q_PROPERTY(bool versionDraft READ versionDraft NOTIFY versionDraftChanged)
     Q_PROPERTY(bool canUndo READ canUndo NOTIFY historyChanged)
     Q_PROPERTY(bool canRedo READ canRedo NOTIFY historyChanged)
+    Q_PROPERTY(QString photoId READ photoId NOTIFY sourceIdentityChanged)
+    Q_PROPERTY(
+        QString representationId
+        READ representationId
+        NOTIFY sourceIdentityChanged
+    )
     Q_PROPERTY(QString title READ title NOTIFY titleChanged)
     Q_PROPERTY(QString sourcePath READ sourcePath NOTIFY sourcePathChanged)
     Q_PROPERTY(QString previewSource READ previewSource NOTIFY previewSourceChanged)
@@ -76,23 +84,52 @@ class EditController final : public QObject {
     )
     Q_PROPERTY(QString beforeErrorText READ beforeErrorText NOTIFY beforeErrorTextChanged)
     Q_PROPERTY(QString statusText READ statusText NOTIFY statusTextChanged)
-    Q_PROPERTY(QVariantList layers READ layers NOTIFY layersChanged)
+    Q_PROPERTY(bool opticsEnabled READ opticsEnabled WRITE setOpticsEnabled NOTIFY opticsChanged)
+    Q_PROPERTY(bool opticsDistortionEnabled READ opticsDistortionEnabled WRITE setOpticsDistortionEnabled NOTIFY opticsChanged)
+    Q_PROPERTY(bool opticsTcaEnabled READ opticsTcaEnabled WRITE setOpticsTcaEnabled NOTIFY opticsChanged)
+    Q_PROPERTY(bool opticsVignettingEnabled READ opticsVignettingEnabled WRITE setOpticsVignettingEnabled NOTIFY opticsChanged)
+    Q_PROPERTY(bool opticsAutomaticScale READ opticsAutomaticScale WRITE setOpticsAutomaticScale NOTIFY opticsChanged)
+    Q_PROPERTY(QVariantMap opticsReceipt READ opticsReceipt NOTIFY opticsReceiptChanged)
+    Q_PROPERTY(bool opticsManualProfile READ opticsManualProfile NOTIFY opticsChanged)
+    Q_PROPERTY(QString opticsCameraProfile READ opticsCameraProfile NOTIFY opticsChanged)
+    Q_PROPERTY(QString opticsLensProfile READ opticsLensProfile NOTIFY opticsChanged)
+    Q_PROPERTY(QVariantList gradeNodes READ gradeNodes NOTIFY gradeNodesChanged)
     Q_PROPERTY(
-        int selectedLayerIndex
-        READ selectedLayerIndex
-        NOTIFY selectedLayerChanged
+        int selectedGradeNodeIndex
+        READ selectedGradeNodeIndex
+        NOTIFY selectedGradeNodeChanged
     )
-    Q_PROPERTY(QString selectedLayerId READ selectedLayerId NOTIFY selectedLayerChanged)
-    Q_PROPERTY(bool hasSelectedLayer READ hasSelectedLayer NOTIFY selectedLayerChanged)
-    Q_PROPERTY(bool canAddLayer READ canAddLayer NOTIFY layerActionsChanged)
-    Q_PROPERTY(bool canDeleteLayer READ canDeleteLayer NOTIFY layerActionsChanged)
-    Q_PROPERTY(bool canMoveLayerUp READ canMoveLayerUp NOTIFY layerActionsChanged)
-    Q_PROPERTY(bool canMoveLayerDown READ canMoveLayerDown NOTIFY layerActionsChanged)
     Q_PROPERTY(
-        bool layerEnabled
-        READ layerEnabled
-        WRITE setLayerEnabled
-        NOTIFY layerEnabledChanged
+        QString selectedGradeNodeId
+        READ selectedGradeNodeId
+        NOTIFY selectedGradeNodeChanged
+    )
+    Q_PROPERTY(
+        bool hasSelectedGradeNode
+        READ hasSelectedGradeNode
+        NOTIFY selectedGradeNodeChanged
+    )
+    Q_PROPERTY(bool canAddGradeNode READ canAddGradeNode NOTIFY gradeNodeActionsChanged)
+    Q_PROPERTY(
+        bool canDeleteGradeNode
+        READ canDeleteGradeNode
+        NOTIFY gradeNodeActionsChanged
+    )
+    Q_PROPERTY(
+        bool canMoveGradeNodeUp
+        READ canMoveGradeNodeUp
+        NOTIFY gradeNodeActionsChanged
+    )
+    Q_PROPERTY(
+        bool canMoveGradeNodeDown
+        READ canMoveGradeNodeDown
+        NOTIFY gradeNodeActionsChanged
+    )
+    Q_PROPERTY(
+        bool gradeNodeEnabled
+        READ gradeNodeEnabled
+        WRITE setGradeNodeEnabled
+        NOTIFY gradeNodeEnabledChanged
     )
     Q_PROPERTY(
         double exposureStops
@@ -106,18 +143,51 @@ class EditController final : public QObject {
         WRITE setContrastFactor
         NOTIFY parametersChanged
     )
-    Q_PROPERTY(double redGain READ redGain WRITE setRedGain NOTIFY parametersChanged)
-    Q_PROPERTY(double greenGain READ greenGain WRITE setGreenGain NOTIFY parametersChanged)
-    Q_PROPERTY(double blueGain READ blueGain WRITE setBlueGain NOTIFY parametersChanged)
+    Q_PROPERTY(
+        double whiteBalanceTemperature
+        READ whiteBalanceTemperature
+        WRITE setWhiteBalanceTemperature
+        NOTIFY parametersChanged
+    )
+    Q_PROPERTY(
+        double whiteBalanceTint
+        READ whiteBalanceTint
+        WRITE setWhiteBalanceTint
+        NOTIFY parametersChanged
+    )
     Q_PROPERTY(
         double saturationFactor
         READ saturationFactor
         WRITE setSaturationFactor
         NOTIFY parametersChanged
     )
+    Q_PROPERTY(
+        quint64 parameterRevision
+        READ parameterRevision
+        NOTIFY parametersChanged
+    )
     Q_PROPERTY(QAbstractItemModel* toneCurvePoints READ toneCurvePoints CONSTANT)
+    Q_PROPERTY(QVariantList pointColors READ pointColors NOTIFY parametersChanged)
+    Q_PROPERTY(int selectedPointColorIndex READ selectedPointColorIndex NOTIFY parametersChanged)
+    Q_PROPERTY(bool pointColorPickerActive READ pointColorPickerActive NOTIFY pointColorPickerActiveChanged)
+    Q_PROPERTY(
+        bool whiteBalancePickerActive
+        READ whiteBalancePickerActive
+        NOTIFY whiteBalancePickerActiveChanged
+    )
     Q_PROPERTY(bool hasToneCurve READ hasToneCurve NOTIFY toneCurveChanged)
+    Q_PROPERTY(bool hasAnyToneCurve READ hasAnyToneCurve NOTIFY toneCurveChanged)
+    Q_PROPERTY(bool toneCurveSmooth READ toneCurveSmooth NOTIFY toneCurveChanged)
+    Q_PROPERTY(
+        int toneCurveChannel
+        READ toneCurveChannel
+        NOTIFY toneCurveChannelChanged
+    )
     Q_PROPERTY(bool toneCurveEditable READ toneCurveEditable NOTIFY toneCurveChanged)
+    Q_PROPERTY(QString lutResourceId READ lutResourceId NOTIFY parametersChanged)
+    Q_PROPERTY(QString lutTitle READ lutTitle NOTIFY parametersChanged)
+    Q_PROPERTY(bool hasLut READ hasLut NOTIFY parametersChanged)
+    Q_PROPERTY(double lutIntensity READ lutIntensity WRITE setLutIntensity NOTIFY parametersChanged)
     Q_PROPERTY(QAbstractItemModel* versions READ versions CONSTANT)
 
 public:
@@ -141,8 +211,11 @@ public:
     [[nodiscard]] quint64 detailRetainedBytes() const noexcept;
     [[nodiscard]] QVariantList detailTiles() const;
     [[nodiscard]] bool dirty() const noexcept;
+    [[nodiscard]] bool versionDraft() const noexcept;
     [[nodiscard]] bool canUndo() const noexcept;
     [[nodiscard]] bool canRedo() const noexcept;
+    [[nodiscard]] QString photoId() const;
+    [[nodiscard]] QString representationId() const;
     [[nodiscard]] QString title() const;
     [[nodiscard]] QString sourcePath() const;
     [[nodiscard]] QString previewSource() const;
@@ -151,57 +224,134 @@ public:
     [[nodiscard]] QVariantMap beforeHistogram() const;
     [[nodiscard]] QString beforeErrorText() const;
     [[nodiscard]] QString statusText() const;
-    [[nodiscard]] QVariantList layers() const;
-    [[nodiscard]] int selectedLayerIndex() const noexcept;
-    [[nodiscard]] QString selectedLayerId() const;
-    [[nodiscard]] bool hasSelectedLayer() const noexcept;
-    [[nodiscard]] bool canAddLayer() const noexcept;
-    [[nodiscard]] bool canDeleteLayer() const noexcept;
-    [[nodiscard]] bool canMoveLayerUp() const noexcept;
-    [[nodiscard]] bool canMoveLayerDown() const noexcept;
-    [[nodiscard]] bool layerEnabled() const noexcept;
+    [[nodiscard]] bool opticsEnabled() const noexcept;
+    [[nodiscard]] bool opticsDistortionEnabled() const noexcept;
+    [[nodiscard]] bool opticsTcaEnabled() const noexcept;
+    [[nodiscard]] bool opticsVignettingEnabled() const noexcept;
+    [[nodiscard]] bool opticsAutomaticScale() const noexcept;
+    [[nodiscard]] QVariantMap opticsReceipt() const;
+    [[nodiscard]] bool opticsManualProfile() const noexcept;
+    [[nodiscard]] QString opticsCameraProfile() const;
+    [[nodiscard]] QString opticsLensProfile() const;
+    [[nodiscard]] QVariantList gradeNodes() const;
+    [[nodiscard]] int selectedGradeNodeIndex() const noexcept;
+    [[nodiscard]] QString selectedGradeNodeId() const;
+    [[nodiscard]] bool hasSelectedGradeNode() const noexcept;
+    [[nodiscard]] bool canAddGradeNode() const noexcept;
+    [[nodiscard]] bool canDeleteGradeNode() const noexcept;
+    [[nodiscard]] bool canMoveGradeNodeUp() const noexcept;
+    [[nodiscard]] bool canMoveGradeNodeDown() const noexcept;
+    [[nodiscard]] bool gradeNodeEnabled() const noexcept;
     [[nodiscard]] double exposureStops() const noexcept;
     [[nodiscard]] double contrastFactor() const noexcept;
-    [[nodiscard]] double redGain() const noexcept;
-    [[nodiscard]] double greenGain() const noexcept;
-    [[nodiscard]] double blueGain() const noexcept;
+    [[nodiscard]] double whiteBalanceTemperature() const noexcept;
+    [[nodiscard]] double whiteBalanceTint() const noexcept;
     [[nodiscard]] double saturationFactor() const noexcept;
+    [[nodiscard]] quint64 parameterRevision() const noexcept;
     [[nodiscard]] QAbstractItemModel* toneCurvePoints() noexcept;
+    [[nodiscard]] QVariantList pointColors() const;
+    [[nodiscard]] int selectedPointColorIndex() const noexcept;
+    [[nodiscard]] bool pointColorPickerActive() const noexcept;
+    [[nodiscard]] bool whiteBalancePickerActive() const noexcept;
     [[nodiscard]] bool hasToneCurve() const noexcept;
+    [[nodiscard]] bool hasAnyToneCurve() const noexcept;
+    [[nodiscard]] bool toneCurveSmooth() const noexcept;
+    [[nodiscard]] int toneCurveChannel() const noexcept;
     [[nodiscard]] bool toneCurveEditable() const noexcept;
+    [[nodiscard]] QString lutResourceId() const;
+    [[nodiscard]] QString lutTitle() const;
+    [[nodiscard]] bool hasLut() const noexcept;
+    [[nodiscard]] double lutIntensity() const noexcept;
     [[nodiscard]] QAbstractItemModel* versions() noexcept;
 
-    void setLayerEnabled(bool enabled);
+    void setGradeNodeEnabled(bool enabled);
     void setExposureStops(double value);
     void setContrastFactor(double value);
-    void setRedGain(double value);
-    void setGreenGain(double value);
-    void setBlueGain(double value);
+    void setWhiteBalanceTemperature(double value);
+    void setWhiteBalanceTint(double value);
     void setSaturationFactor(double value);
+    void setLutIntensity(double value);
+    void setOpticsEnabled(bool enabled);
+    void setOpticsDistortionEnabled(bool enabled);
+    void setOpticsTcaEnabled(bool enabled);
+    void setOpticsVignettingEnabled(bool enabled);
+    void setOpticsAutomaticScale(bool enabled);
 
-    Q_INVOKABLE void openPhoto(
+    Q_INVOKABLE bool openPhoto(
         const QString& photo_id,
         const QString& representation_id,
         const QString& source_path,
         const QString& title
     );
     Q_INVOKABLE void closePhoto();
-    Q_INVOKABLE void selectLayer(int index);
-    Q_INVOKABLE void addLayer();
-    Q_INVOKABLE void duplicateSelectedLayer();
-    Q_INVOKABLE void deleteSelectedLayer();
-    Q_INVOKABLE void moveSelectedLayer(int destination_index);
+    Q_INVOKABLE void selectGradeNode(int index);
+    Q_INVOKABLE void addGradeNode();
+    Q_INVOKABLE void duplicateSelectedGradeNode();
+    Q_INVOKABLE void deleteSelectedGradeNode();
+    Q_INVOKABLE void moveSelectedGradeNode(int destination_index);
     Q_INVOKABLE void beginParameterEdit(const QString& parameter_key);
     Q_INVOKABLE void endParameterEdit(const QString& parameter_key);
+    Q_INVOKABLE double parameterValue(const QString& parameter_key) const;
+    Q_INVOKABLE void setParameterValue(
+        const QString& parameter_key,
+        double value
+    );
+    Q_INVOKABLE void setColorGradingWheel(
+        const QString& tonal_range,
+        double hue,
+        double saturation
+    );
+    Q_INVOKABLE void setDefringeHueRange(
+        const QString& family,
+        double lower_hue,
+        double upper_hue
+    );
+    Q_INVOKABLE double colorMixerValue(int band_index, const QString& component) const;
+    Q_INVOKABLE void setColorMixerValue(
+        int band_index,
+        const QString& component,
+        double value
+    );
+    Q_INVOKABLE void setLutResource(
+        const QString& resource_id,
+        const QString& title,
+        const QString& managed_path
+    );
+    Q_INVOKABLE void clearLut();
+    Q_INVOKABLE QVariantList opticsProfileCandidates();
+    Q_INVOKABLE void setManualOpticsProfile(
+        const QString& camera_maker,
+        const QString& camera_model,
+        const QString& lens_maker,
+        const QString& lens_model
+    );
+    Q_INVOKABLE void clearManualOpticsProfile();
+    Q_INVOKABLE void selectPointColor(int index);
+    Q_INVOKABLE void removeSelectedPointColor();
+    Q_INVOKABLE void setPointColorPickerActive(bool active);
+    Q_INVOKABLE void setWhiteBalancePickerActive(bool active);
+    Q_INVOKABLE void setWhiteBalanceFromPreview(
+        double normalized_x,
+        double normalized_y,
+        const QString& preview_generation
+    );
+    Q_INVOKABLE void addPointColorFromPreview(
+        double normalized_x,
+        double normalized_y,
+        const QString& preview_generation
+    );
+    Q_INVOKABLE void selectToneCurveChannel(int channel);
+    Q_INVOKABLE bool toneCurveChannelActive(int channel) const noexcept;
     Q_INVOKABLE void beginToneCurveGesture(int index);
     Q_INVOKABLE void moveToneCurvePoint(int index, double x, double y);
     Q_INVOKABLE void endToneCurveGesture(int index);
     Q_INVOKABLE void addToneCurvePoint(double x, double y);
     Q_INVOKABLE void removeToneCurvePoint(int index);
     Q_INVOKABLE void resetToneCurve();
+    Q_INVOKABLE void resetAllToneCurves();
     Q_INVOKABLE void undo();
     Q_INVOKABLE void redo();
-    Q_INVOKABLE void resetEdits();
+    Q_INVOKABLE void resetSelectedGradeNode();
     Q_INVOKABLE void revertEdits();
     Q_INVOKABLE void requestBeforePreview();
     Q_INVOKABLE void requestDetailViewport(
@@ -212,7 +362,8 @@ public:
     );
     Q_INVOKABLE void leaveDetailMode();
     Q_INVOKABLE void saveVersion(const QString& version_name);
-    Q_INVOKABLE void checkoutVersion(const QString& commit_id);
+    Q_INVOKABLE void loadVersionDraft(const QString& commit_id);
+  Q_INVOKABLE void retranslateUi();
 
 signals:
     void activeChanged();
@@ -226,7 +377,9 @@ signals:
     void detailGeometryChanged();
     void detailTilesChanged();
     void dirtyChanged();
+    void versionDraftChanged();
     void historyChanged();
+    void sourceIdentityChanged();
     void titleChanged();
     void sourcePathChanged();
     void previewSourceChanged();
@@ -235,12 +388,17 @@ signals:
     void beforeHistogramChanged();
     void beforeErrorTextChanged();
     void statusTextChanged();
-    void layersChanged();
-    void selectedLayerChanged();
-    void layerActionsChanged();
-    void layerEnabledChanged();
+    void opticsChanged();
+    void opticsReceiptChanged();
+    void gradeNodesChanged();
+    void selectedGradeNodeChanged();
+    void gradeNodeActionsChanged();
+    void gradeNodeEnabledChanged();
     void parametersChanged();
     void toneCurveChanged();
+    void toneCurveChannelChanged();
+    void pointColorPickerActiveChanged();
+    void whiteBalancePickerActiveChanged();
 
 private slots:
     void finishStateTask();
@@ -251,26 +409,28 @@ private slots:
 
 private:
     void applyState(BackendPhotoEditState state);
-    void setSettings(
-        BackendEditSettings settings,
-        const QString& preferred_layer_id = {}
+    void setGradeStack(
+        BackendGradeStack grade_stack,
+        const QString& preferred_grade_node_id = {}
     );
-    [[nodiscard]] const BackendBasicEditLayer* selectedLayer() const noexcept;
-    [[nodiscard]] QString layerHistoryKey(const QString& key) const;
-    [[nodiscard]] QString uniqueLayerLabel(const QString& base) const;
+    [[nodiscard]] const BackendGradeNode* selectedGradeNode() const noexcept;
+    [[nodiscard]] QString gradeNodeHistoryKey(const QString& key) const;
+    [[nodiscard]] QString uniqueGradeNodeLabel(const QString& base) const;
     void finishActiveGesture();
     void clearSessionHistory();
     void recordWorkingTransition(
         const QString& key,
-        const BackendEditSettings& before
+        const BackendGradeStack& before
     );
     void schedulePreview(int delay_ms);
     void maybeStartBeforePreview();
     void maybeStartDetailRender();
     void invalidateDetailPresentation();
     void resetDetailState();
-    void setStatusText(QString status);
+  bool eventFilter(QObject *watched, QEvent *event) override;
+  void setStatusMessage(LocalizedUiMessage status);
     void setDirty(bool dirty);
+    void setVersionDraft(bool draft);
     void setStateRunning(bool running);
     void setPreviewRunning(EditPreviewKind kind, bool running);
     void markHistogramUpdating(EditPreviewKind kind);
@@ -285,19 +445,20 @@ private:
     void emitBusyChange(bool previous_busy);
     void parameterEdited(
         const QString& key,
-        const BackendEditSettings& before
+        const BackendGradeStack& before
     );
+    void opticsEdited(const QString& key, const BackendGradeStack& before);
+    void notifyParametersChanged();
     void toneCurveEdited(
         const QString& key,
-        const BackendEditSettings& before,
+        const BackendGradeStack& before,
         int preview_delay_ms
     );
     [[nodiscard]] bool acceptParameter(
         double value,
         double minimum,
         double maximum,
-        const QString& label
-    );
+        const char *label_source);
 
     std::shared_ptr<DesktopBackend> backend_;
     std::shared_ptr<EditPreviewStore> preview_store_;
@@ -308,10 +469,11 @@ private:
     QFutureWatcher<EditDetailTaskResult> detail_watcher_;
     QTimer preview_debounce_;
     QTimer detail_debounce_;
-    SessionEditHistory<BackendEditSettings> history_;
-    BackendEditSettings settings_;
-    BackendEditSettings committed_settings_;
-    QString working_commit_id_;
+    SessionEditHistory<BackendGradeStack> history_;
+    BackendGradeStack grade_stack_;
+    BackendGradeStack committed_grade_stack_;
+    QString base_commit_id_;
+    QString durable_working_commit_id_;
     QString photo_id_;
     QString representation_id_;
     QString source_path_;
@@ -320,9 +482,14 @@ private:
     QString before_preview_source_;
     QVariantMap histogram_;
     QVariantMap before_histogram_;
-    QString before_error_text_;
-    QString detail_error_text_;
-    QString status_text_ = QStringLiteral("Open a photo from Review to begin editing");
+    QVariantMap optics_receipt_;
+  LocalizedUiMessage before_error_message_;
+  LocalizedUiMessage detail_error_message_;
+  LocalizedUiMessage status_message_{
+      "EditController",
+      QT_TRANSLATE_NOOP("EditController",
+                        "Open a photo from Review to begin editing"),
+  };
     quint64 photo_generation_ = 0;
     quint64 render_revision_ = 0;
     quint64 settled_render_revision_ = 0;
@@ -338,6 +505,7 @@ private:
     std::uint32_t detail_viewport_height_ = 1;
     bool active_ = false;
     bool dirty_ = false;
+    bool version_draft_ = false;
     bool state_running_ = false;
     bool current_rendering_ = false;
     bool before_rendering_ = false;
@@ -346,5 +514,10 @@ private:
     bool preview_queued_ = false;
     bool before_requested_ = false;
     bool detail_queued_ = false;
-    int selected_layer_index_ = -1;
+    int selected_grade_node_index_ = -1;
+    int tone_curve_channel_ = 0;
+    int selected_point_color_index_ = -1;
+    bool point_color_picker_active_ = false;
+    bool white_balance_picker_active_ = false;
+    quint64 parameter_revision_ = 0;
 };
