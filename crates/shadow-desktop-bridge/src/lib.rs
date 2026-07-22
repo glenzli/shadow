@@ -20,10 +20,10 @@ use shadow_ai::{
 };
 use shadow_bridge::{
     ADJUSTMENT_IMPLEMENTATION_VERSION, ADJUSTMENT_PARAMETER_SCHEMA_VERSION, AdjustmentRenderNode,
-    AdjustmentRenderOperation, AdjustmentRenderPlan, BasicEditParameters, COLOR_MIXER_BAND_COUNT,
-    ColorRangeParameters,
-    DETAIL_EFFECTS_V2_IMPLEMENTATION_VERSION as DETAIL_EFFECTS_V2_IMPLEMENTATION_REVISION,
-    DETAIL_EFFECTS_V2_PARAMETER_SCHEMA_VERSION, DetailTileRect, DetailTileRequest,
+    AdjustmentRenderOperation, AdjustmentRenderPlan, BasicEditParameters,
+    COLOR_GRADING_V3_IMPLEMENTATION_VERSION as COLOR_GRADING_V3_IMPLEMENTATION_REVISION,
+    COLOR_MIXER_BAND_COUNT, ColorRangeParameters, DetailTileRect, DetailTileRequest,
+    FINISHING_EFFECTS_V3_IMPLEMENTATION_VERSION as FINISHING_EFFECTS_V3_IMPLEMENTATION_REVISION,
     LibRawEditDetailSession, LibRawEditPreviewSession, MAX_ADJUSTMENT_RENDER_NODES,
     MAX_EDIT_DETAIL_TILE_SIDE, MAX_LUT_DOCUMENT_BYTES, MAX_POINT_COLOR_RANGES,
     MAX_TONE_CURVE_POINTS, OpticsSettings,
@@ -32,8 +32,9 @@ use shadow_bridge::{
     SELECTIVE_TONE_V2_IMPLEMENTATION_VERSION as SELECTIVE_TONE_V2_IMPLEMENTATION_REVISION,
     SELECTIVE_TONE_V2_PARAMETER_SCHEMA_VERSION as SELECTIVE_TONE_V2_PARAMETER_SCHEMA_REVISION,
     SMOOTH_RGB_TONE_CURVE_IMPLEMENTATION_VERSION, SMOOTH_RGB_TONE_CURVE_PARAMETER_SCHEMA_VERSION,
-    SelectiveToneParameters, SharpenParameters, SmoothRgbToneCurve, ToneCurvePoint,
-    extract_best_libraw_preview, inspect_libraw, libraw_provider_version,
+    SelectiveToneParameters, SharpenParameters, SmoothRgbToneCurve,
+    TECHNICAL_DETAIL_V3_IMPLEMENTATION_VERSION as TECHNICAL_DETAIL_V3_IMPLEMENTATION_REVISION,
+    ToneCurvePoint, extract_best_libraw_preview, inspect_libraw, libraw_provider_version,
     query_libraw_optics_profiles, render_libraw_reference_proxy,
 };
 use shadow_catalog::{
@@ -49,6 +50,7 @@ use shadow_core::{
 };
 use shadow_domain::operation::{
     BASIC_GRAPH_SCHEMA_VERSION, BASIC_LAYER_LABEL, BLACKS_PARAMETER_KEY,
+    COLOR_GRADING_OPERATION_ID, COLOR_GRADING_V3_IMPLEMENTATION_VERSION,
     COLOR_MIXER_HUE_PARAMETER_KEY, COLOR_MIXER_LIGHTNESS_PARAMETER_KEY,
     COLOR_MIXER_SATURATION_PARAMETER_KEY, COLOR_RANGE_CENTER_PARAMETER_KEY,
     COLOR_RANGE_ENABLED_PARAMETER_KEY, COLOR_RANGE_HUE_PARAMETER_KEY,
@@ -56,16 +58,18 @@ use shadow_domain::operation::{
     COLOR_RANGE_SOFTNESS_PARAMETER_KEY, COLOR_RANGE_WIDTH_PARAMETER_KEY,
     CONTRAST_FACTOR_PARAMETER_KEY, CONTRAST_OPERATION_ID, CONTRAST_PIVOT_PARAMETER_KEY,
     CPU_REFERENCE_IMPLEMENTATION_REVISION, CPU_REFERENCE_IMPLEMENTATION_VERSION,
-    CPU_REFERENCE_PARAMETER_SCHEMA_VERSION, DETAIL_EFFECTS_PARAMETERS_KEY,
-    DETAIL_EFFECTS_V2_IMPLEMENTATION_VERSION, EXPOSURE_OPERATION_ID, EXPOSURE_STOPS_PARAMETER_KEY,
-    HIGHLIGHTS_PARAMETER_KEY, LUT_3D_OPERATION_ID, LUT_INTENSITY_PARAMETER_KEY,
-    LUT_MANAGED_PATH_PARAMETER_KEY, LUT_RESOURCE_ID_PARAMETER_KEY, LUT_TITLE_PARAMETER_KEY,
-    PERCEPTUAL_COLOR_OPERATION_ID, PERCEPTUAL_COLOR_V2_IMPLEMENTATION_VERSION,
-    POINT_COLOR_RANGES_PARAMETER_KEY, RGB_WHITE_BALANCE_OPERATION_ID,
-    SATURATION_FACTOR_PARAMETER_KEY, SATURATION_OPERATION_ID, SELECTIVE_TONE_OPERATION_ID,
-    SELECTIVE_TONE_V2_IMPLEMENTATION_VERSION, SELECTIVE_TONE_V2_PARAMETER_SCHEMA_VERSION,
-    SHADOWS_PARAMETER_KEY, SHARPEN_AMOUNT_PARAMETER_KEY, SHARPEN_MASKING_PARAMETER_KEY,
-    SHARPEN_OPERATION_ID, SHARPEN_RADIUS_PARAMETER_KEY, SHARPEN_THRESHOLD_PARAMETER_KEY,
+    CPU_REFERENCE_PARAMETER_SCHEMA_VERSION, DETAIL_EFFECTS_PARAMETERS_KEY, EXPOSURE_OPERATION_ID,
+    EXPOSURE_STOPS_PARAMETER_KEY, FINISHING_EFFECTS_OPERATION_ID,
+    FINISHING_EFFECTS_V3_IMPLEMENTATION_VERSION, HIGHLIGHTS_PARAMETER_KEY, LUT_3D_OPERATION_ID,
+    LUT_INTENSITY_PARAMETER_KEY, LUT_MANAGED_PATH_PARAMETER_KEY, LUT_RESOURCE_ID_PARAMETER_KEY,
+    LUT_TITLE_PARAMETER_KEY, PERCEPTUAL_COLOR_OPERATION_ID,
+    PERCEPTUAL_COLOR_V2_IMPLEMENTATION_VERSION, POINT_COLOR_RANGES_PARAMETER_KEY,
+    RGB_WHITE_BALANCE_OPERATION_ID, SATURATION_FACTOR_PARAMETER_KEY, SATURATION_OPERATION_ID,
+    SELECTIVE_TONE_OPERATION_ID, SELECTIVE_TONE_V2_IMPLEMENTATION_VERSION,
+    SELECTIVE_TONE_V2_PARAMETER_SCHEMA_VERSION, SHADOWS_PARAMETER_KEY,
+    SHARPEN_AMOUNT_PARAMETER_KEY, SHARPEN_MASKING_PARAMETER_KEY, SHARPEN_RADIUS_PARAMETER_KEY,
+    SHARPEN_THRESHOLD_PARAMETER_KEY, TECHNICAL_DETAIL_OPERATION_ID,
+    TECHNICAL_DETAIL_V3_IMPLEMENTATION_VERSION, TECHNICAL_DETAIL_V3_PARAMETER_SCHEMA_VERSION,
     TONE_CURVE_BLUE_POINTS_PARAMETER_KEY, TONE_CURVE_GREEN_POINTS_PARAMETER_KEY,
     TONE_CURVE_MASTER_POINTS_PARAMETER_KEY, TONE_CURVE_OPERATION_ID,
     TONE_CURVE_RED_POINTS_PARAMETER_KEY, TONE_CURVE_V2_IMPLEMENTATION_VERSION,
@@ -86,6 +90,11 @@ use shadow_domain::{
     RecipeSnapshot, RepresentationId, UnitInterval, VersionName, diff_recipe_snapshots,
 };
 use uuid::Uuid;
+
+#[cfg(test)]
+use shadow_bridge::{
+    COLOR_GRADING_V3_PARAMETER_SCHEMA_VERSION, FINISHING_EFFECTS_V3_PARAMETER_SCHEMA_VERSION,
+};
 
 #[cxx::bridge(namespace = "shadow::desktop")]
 mod ffi {
@@ -2496,7 +2505,16 @@ const RECIPE_V1_SELECTIVE_TONE_RENDER_OP_ID_DOMAIN: &[u8] =
 const RECIPE_V1_PERCEPTUAL_COLOR_RENDER_OP_ID_DOMAIN: &[u8] =
     b"shadow.desktop.perceptual-color-slot-id.v1\0";
 const RECIPE_V1_LUT_RENDER_OP_ID_DOMAIN: &[u8] = b"shadow.desktop.lut-slot-id.v1\0";
-const RECIPE_V1_SHARPEN_RENDER_OP_ID_DOMAIN: &[u8] = b"shadow.desktop.sharpen-slot-id.v1\0";
+// The external Qt DTO keeps its historical `sharpen_render_op_id` slot, but
+// schema 3 gives it the technical-detail role. The two new internal slots are
+// deterministic from the Grade Node identity and intentionally never leak as
+// extra UI controls.
+const RECIPE_V3_TECHNICAL_DETAIL_RENDER_OP_ID_DOMAIN: &[u8] =
+    b"shadow.desktop.technical-detail-slot-id.v3\0";
+const RECIPE_V3_COLOR_GRADING_RENDER_OP_ID_DOMAIN: &[u8] =
+    b"shadow.desktop.color-grading-slot-id.v3\0";
+const RECIPE_V3_FINISHING_EFFECTS_RENDER_OP_ID_DOMAIN: &[u8] =
+    b"shadow.desktop.finishing-effects-slot-id.v3\0";
 
 /// Derives the reserved identity of a render-operation slot from its owning
 /// Grade Node. UUID version 8 marks this as a Shadow-defined value while the
@@ -2528,7 +2546,21 @@ fn recipe_v1_perceptual_color_render_op_id(grade_node_id: LayerInstanceId) -> No
 }
 
 fn recipe_v1_sharpen_render_op_id(grade_node_id: LayerInstanceId) -> NodeId {
-    recipe_v1_derived_render_op_id(RECIPE_V1_SHARPEN_RENDER_OP_ID_DOMAIN, grade_node_id)
+    recipe_v1_derived_render_op_id(
+        RECIPE_V3_TECHNICAL_DETAIL_RENDER_OP_ID_DOMAIN,
+        grade_node_id,
+    )
+}
+
+fn recipe_v3_color_grading_render_op_id(grade_node_id: LayerInstanceId) -> NodeId {
+    recipe_v1_derived_render_op_id(RECIPE_V3_COLOR_GRADING_RENDER_OP_ID_DOMAIN, grade_node_id)
+}
+
+fn recipe_v3_finishing_effects_render_op_id(grade_node_id: LayerInstanceId) -> NodeId {
+    recipe_v1_derived_render_op_id(
+        RECIPE_V3_FINISHING_EFFECTS_RENDER_OP_ID_DOMAIN,
+        grade_node_id,
+    )
 }
 
 fn recipe_v1_lut_render_op_id(grade_node_id: LayerInstanceId) -> NodeId {
@@ -2547,7 +2579,9 @@ struct GradeNodeRecipeV1Identity {
     saturation_render_op_id: NodeId,
     perceptual_color_render_op_id: NodeId,
     lut_render_op_id: NodeId,
+    color_grading_render_op_id: NodeId,
     sharpen_render_op_id: NodeId,
+    finishing_effects_render_op_id: NodeId,
 }
 
 impl GradeNodeRecipeV1Identity {
@@ -2564,13 +2598,15 @@ impl GradeNodeRecipeV1Identity {
             perceptual_color_render_op_id: recipe_v1_perceptual_color_render_op_id(grade_node_id),
             lut_render_op_id: recipe_v1_lut_render_op_id(grade_node_id),
             sharpen_render_op_id: recipe_v1_sharpen_render_op_id(grade_node_id),
+            color_grading_render_op_id: recipe_v3_color_grading_render_op_id(grade_node_id),
+            finishing_effects_render_op_id: recipe_v3_finishing_effects_render_op_id(grade_node_id),
         }
     }
 
     /// Recipe v1 stores the controls inside one Grade Node as eight atomic
     /// `AdjustmentNode`s. These are compiler/adapter identities, not Grade
     /// Nodes exposed to the product surface.
-    fn recipe_v1_render_op_ids(&self) -> [(&'static str, NodeId); 9] {
+    fn recipe_v1_render_op_ids(&self) -> [(&'static str, NodeId); 11] {
         [
             ("exposure", self.exposure_render_op_id),
             ("contrast", self.contrast_render_op_id),
@@ -2579,13 +2615,15 @@ impl GradeNodeRecipeV1Identity {
             ("rgb_white_balance", self.white_balance_render_op_id),
             ("saturation", self.saturation_render_op_id),
             ("perceptual_color", self.perceptual_color_render_op_id),
+            ("color_grading", self.color_grading_render_op_id),
             ("lut", self.lut_render_op_id),
-            ("sharpen", self.sharpen_render_op_id),
+            ("technical_detail", self.sharpen_render_op_id),
+            ("finishing_effects", self.finishing_effects_render_op_id),
         ]
     }
 
     #[cfg(test)]
-    fn recipe_v1_render_op_id_values(&self) -> [NodeId; 9] {
+    fn recipe_v1_render_op_id_values(&self) -> [NodeId; 11] {
         self.recipe_v1_render_op_ids()
             .map(|(_, render_op_id)| render_op_id)
     }
@@ -2849,6 +2887,8 @@ fn decode_grade_node_draft_recipe_v1(
             )?,
             lut_render_op_id: parse_render_op_id("LUT", &grade_node.lut_render_op_id)?,
             sharpen_render_op_id: parse_render_op_id("sharpen", &grade_node.sharpen_render_op_id)?,
+            color_grading_render_op_id: recipe_v3_color_grading_render_op_id(grade_node_id),
+            finishing_effects_render_op_id: recipe_v3_finishing_effects_render_op_id(grade_node_id),
         },
         label: grade_node.label.clone(),
         basic: basic_parameters(&grade_node.basic)?,
@@ -2967,7 +3007,7 @@ fn validate_grade_stack_draft_recipe_v1(grade_stack: &GradeStackDraft) -> AnyRes
         bail!("Grade Stack must contain 1 through 16 Grade Nodes");
     }
     let mut grade_node_ids = HashSet::with_capacity(grade_stack.grade_nodes.len());
-    let mut render_op_ids = HashSet::with_capacity(grade_stack.grade_nodes.len() * 8);
+    let mut render_op_ids = HashSet::with_capacity(grade_stack.grade_nodes.len() * 11);
     for (index, grade_node) in grade_stack.grade_nodes.iter().enumerate() {
         let identity = &grade_node.recipe_v1_identity;
         if !grade_node_ids.insert(identity.grade_node_id) {
@@ -3496,14 +3536,24 @@ fn compile_recipe_node(
         == PERCEPTUAL_COLOR_OPERATION_ID
         && descriptor.parameter_schema_version() == PERCEPTUAL_COLOR_V2_PARAMETER_SCHEMA_VERSION
         && descriptor.implementation_version() == PERCEPTUAL_COLOR_V2_IMPLEMENTATION_VERSION;
-    let is_current_detail_effects = descriptor.operation_id().as_str() == SHARPEN_OPERATION_ID
-        && descriptor.parameter_schema_version() == DETAIL_EFFECTS_V2_PARAMETER_SCHEMA_VERSION
-        && descriptor.implementation_version() == DETAIL_EFFECTS_V2_IMPLEMENTATION_VERSION;
+    let is_current_technical_detail = descriptor.operation_id().as_str()
+        == TECHNICAL_DETAIL_OPERATION_ID
+        && descriptor.parameter_schema_version() == TECHNICAL_DETAIL_V3_PARAMETER_SCHEMA_VERSION
+        && descriptor.implementation_version() == TECHNICAL_DETAIL_V3_IMPLEMENTATION_VERSION;
+    let is_current_color_grading = descriptor.operation_id().as_str() == COLOR_GRADING_OPERATION_ID
+        && descriptor.parameter_schema_version() == TECHNICAL_DETAIL_V3_PARAMETER_SCHEMA_VERSION
+        && descriptor.implementation_version() == COLOR_GRADING_V3_IMPLEMENTATION_VERSION;
+    let is_current_finishing_effects = descriptor.operation_id().as_str()
+        == FINISHING_EFFECTS_OPERATION_ID
+        && descriptor.parameter_schema_version() == TECHNICAL_DETAIL_V3_PARAMETER_SCHEMA_VERSION
+        && descriptor.implementation_version() == FINISHING_EFFECTS_V3_IMPLEMENTATION_VERSION;
     if (!is_base_contract
         && !is_current_tone_curve
         && !is_current_selective_tone
         && !is_current_perceptual_color
-        && !is_current_detail_effects)
+        && !is_current_technical_detail
+        && !is_current_color_grading
+        && !is_current_finishing_effects)
         || descriptor.input_types() != [rgb]
         || descriptor.output_type() != rgb
         || descriptor.seed().is_some()
@@ -3725,11 +3775,19 @@ fn compile_recipe_node(
                 }
             }
         }
-        SHARPEN_OPERATION_ID => {
-            require_stage(node, ProcessingStage::DetailAndEffects)?;
-            if !is_current_detail_effects {
+        TECHNICAL_DETAIL_OPERATION_ID
+        | COLOR_GRADING_OPERATION_ID
+        | FINISHING_EFFECTS_OPERATION_ID => {
+            let expected_stage = if is_current_technical_detail {
+                ProcessingStage::TechnicalDetail
+            } else if is_current_color_grading {
+                ProcessingStage::CreativeColor
+            } else if is_current_finishing_effects {
+                ProcessingStage::FinishingEffects
+            } else {
                 bail!("Recipe Detail & Effects uses a discarded contract");
-            }
+            };
+            require_stage(node, expected_stage)?;
             let expected_len = 5;
             let mut parameters = SharpenParameters {
                 amount: required_float(
@@ -3780,8 +3838,12 @@ fn compile_recipe_node(
             SELECTIVE_TONE_V2_IMPLEMENTATION_REVISION
         } else if is_current_perceptual_color {
             PERCEPTUAL_COLOR_V2_IMPLEMENTATION_REVISION
-        } else if is_current_detail_effects {
-            DETAIL_EFFECTS_V2_IMPLEMENTATION_REVISION
+        } else if is_current_technical_detail {
+            TECHNICAL_DETAIL_V3_IMPLEMENTATION_REVISION
+        } else if is_current_color_grading {
+            COLOR_GRADING_V3_IMPLEMENTATION_REVISION
+        } else if is_current_finishing_effects {
+            FINISHING_EFFECTS_V3_IMPLEMENTATION_REVISION
         } else {
             CPU_REFERENCE_IMPLEMENTATION_REVISION
         },
@@ -3850,7 +3912,9 @@ fn encode_grade_node_as_recipe_v1_layer(grade_node: &GradeNodeDraft) -> AnyResul
     let saturation_id = identity.saturation_render_op_id;
     let perceptual_color_id = identity.perceptual_color_render_op_id;
     let lut_id = identity.lut_render_op_id;
-    let sharpen_id = identity.sharpen_render_op_id;
+    let technical_detail_id = identity.sharpen_render_op_id;
+    let color_grading_id = identity.color_grading_render_op_id;
+    let finishing_effects_id = identity.finishing_effects_render_op_id;
     let mut nodes = vec![
         // This is a scene-linear, post-demosaic chromatic adaptation rather than sensor-domain
         // white balance. It must still precede exposure and tone mapping: otherwise a white-
@@ -3922,13 +3986,26 @@ fn encode_grade_node_as_recipe_v1_layer(grade_node: &GradeNodeDraft) -> AnyResul
     } else {
         selective_tone_id
     };
+    // The former monolithic Detail & Effects node is deliberately expanded
+    // here, not in the UI: technical recovery gets a pre-creative position,
+    // color wheels stay in CreativeColor, and physical finishing is last.
+    nodes.push(recipe_detail_effects_render_op(
+        technical_detail_id,
+        TECHNICAL_DETAIL_OPERATION_ID,
+        TECHNICAL_DETAIL_V3_IMPLEMENTATION_VERSION,
+        ProcessingStage::TechnicalDetail,
+        NodeInput::Node {
+            node_id: channel_input,
+        },
+        &fine.sharpen,
+    )?);
     nodes.extend([
         recipe_v1_render_op(
             saturation_id,
             SATURATION_OPERATION_ID,
             ProcessingStage::CreativeColor,
             NodeInput::Node {
-                node_id: channel_input,
+                node_id: technical_detail_id,
             },
             parameter_block([(
                 SATURATION_FACTOR_PARAMETER_KEY,
@@ -3942,20 +4019,38 @@ fn encode_grade_node_as_recipe_v1_layer(grade_node: &GradeNodeDraft) -> AnyResul
             },
             &fine.perceptual_color,
         )?,
+        recipe_detail_effects_render_op(
+            color_grading_id,
+            COLOR_GRADING_OPERATION_ID,
+            COLOR_GRADING_V3_IMPLEMENTATION_VERSION,
+            ProcessingStage::CreativeColor,
+            NodeInput::Node {
+                node_id: perceptual_color_id,
+            },
+            &fine.sharpen,
+        )?,
         recipe_lut_render_op(
             lut_id,
             NodeInput::Node {
-                node_id: perceptual_color_id,
+                node_id: color_grading_id,
             },
             &fine.lut,
         )?,
         recipe_detail_effects_render_op(
-            sharpen_id,
+            finishing_effects_id,
+            FINISHING_EFFECTS_OPERATION_ID,
+            FINISHING_EFFECTS_V3_IMPLEMENTATION_VERSION,
+            ProcessingStage::FinishingEffects,
             NodeInput::Node { node_id: lut_id },
             &fine.sharpen,
         )?,
     ]);
-    let graph = EditGraph::new(BASIC_GRAPH_SCHEMA_VERSION, vec![rgb], nodes, sharpen_id)?;
+    let graph = EditGraph::new(
+        BASIC_GRAPH_SCHEMA_VERSION,
+        vec![rgb],
+        nodes,
+        finishing_effects_id,
+    )?;
     LayerInstance::new(
         identity.grade_node_id,
         grade_node.label.clone(),
@@ -3973,7 +4068,7 @@ fn encode_grade_node_as_recipe_v1_layer(grade_node: &GradeNodeDraft) -> AnyResul
 #[derive(Debug, Clone, PartialEq)]
 struct GradeNodeRecipeV1TestIdentity {
     grade_node_id: LayerInstanceId,
-    render_op_ids: [NodeId; 8],
+    render_op_ids: [NodeId; 10],
     tone_curve: Option<RecipeV1ToneCurveTestIdentity>,
 }
 
@@ -4004,8 +4099,10 @@ fn single_grade_node_recipe_v1_identity(
             nodes.white_balance.id(),
             nodes.saturation.id(),
             nodes.perceptual_color.id(),
+            nodes.technical_detail.id(),
+            nodes.color_grading.id(),
             nodes.lut.id(),
-            nodes.sharpen.id(),
+            nodes.finishing_effects.id(),
         ],
         tone_curve: nodes.tone_curve.map(|node| RecipeV1ToneCurveTestIdentity {
             render_op_id: node.id(),
@@ -4414,15 +4511,18 @@ fn apply_detail_effect_values(parameters: &mut SharpenParameters, values: &[f64]
 
 fn recipe_detail_effects_render_op(
     id: NodeId,
+    operation_id: &str,
+    implementation_version: &str,
+    stage: ProcessingStage,
     input: NodeInput,
     parameters: &SharpenParameters,
 ) -> AnyResult<AdjustmentNode> {
     let rgb = PortType::Image(ImageDomain::WorkingRgb);
     let operation = OperationDescriptor::new(
-        OperationId::new(SHARPEN_OPERATION_ID)?,
-        DETAIL_EFFECTS_V2_PARAMETER_SCHEMA_VERSION,
-        DETAIL_EFFECTS_V2_IMPLEMENTATION_VERSION,
-        ProcessingStage::DetailAndEffects,
+        OperationId::new(operation_id)?,
+        TECHNICAL_DETAIL_V3_PARAMETER_SCHEMA_VERSION,
+        implementation_version,
+        stage,
         vec![rgb],
         rgb,
         None,
@@ -4513,8 +4613,10 @@ struct GradeNodeRecipeV1RenderOps<'a> {
     white_balance: &'a AdjustmentNode,
     saturation: &'a AdjustmentNode,
     perceptual_color: &'a AdjustmentNode,
+    technical_detail: &'a AdjustmentNode,
+    color_grading: &'a AdjustmentNode,
     lut: &'a AdjustmentNode,
-    sharpen: &'a AdjustmentNode,
+    finishing_effects: &'a AdjustmentNode,
 }
 
 impl GradeNodeRecipeV1RenderOps<'_> {
@@ -4529,10 +4631,12 @@ impl GradeNodeRecipeV1RenderOps<'_> {
             nodes.push(tone_curve);
         }
         nodes.extend([
+            self.technical_detail,
             self.saturation,
             self.perceptual_color,
+            self.color_grading,
             self.lut,
-            self.sharpen,
+            self.finishing_effects,
         ]);
         nodes
     }
@@ -4559,16 +4663,18 @@ fn grade_node_recipe_v1_render_ops(
         contrast,
         selective_tone,
         tone_curve,
+        technical_detail,
         saturation,
         perceptual_color,
+        color_grading,
         lut,
-        sharpen,
+        finishing_effects,
     ) = match ordered.len() {
-        8 => (
+        10 => (
             ordered[0], ordered[1], ordered[2], ordered[3], None, ordered[4], ordered[5],
-            ordered[6], ordered[7],
+            ordered[6], ordered[7], ordered[8], ordered[9],
         ),
-        9 => (
+        11 => (
             ordered[0],
             ordered[1],
             ordered[2],
@@ -4578,6 +4684,8 @@ fn grade_node_recipe_v1_render_ops(
             ordered[6],
             ordered[7],
             ordered[8],
+            ordered[9],
+            ordered[10],
         ),
         _ => bail!("working Recipe is not the current complete Grade Node shape"),
     };
@@ -4619,12 +4727,21 @@ fn grade_node_recipe_v1_render_ops(
         )?;
         color_input = tone_curve.id();
     }
+    validate_recipe_detail_effects_render_op(
+        technical_detail,
+        TECHNICAL_DETAIL_OPERATION_ID,
+        TECHNICAL_DETAIL_V3_IMPLEMENTATION_VERSION,
+        ProcessingStage::TechnicalDetail,
+        NodeInput::Node {
+            node_id: color_input,
+        },
+    )?;
     validate_recipe_v1_render_op(
         saturation,
         SATURATION_OPERATION_ID,
         ProcessingStage::CreativeColor,
         NodeInput::Node {
-            node_id: color_input,
+            node_id: technical_detail.id(),
         },
     )?;
     validate_recipe_perceptual_color_render_op(
@@ -4633,15 +4750,30 @@ fn grade_node_recipe_v1_render_ops(
             node_id: saturation.id(),
         },
     )?;
-    validate_recipe_v1_render_op(
-        lut,
-        LUT_3D_OPERATION_ID,
+    validate_recipe_detail_effects_render_op(
+        color_grading,
+        COLOR_GRADING_OPERATION_ID,
+        COLOR_GRADING_V3_IMPLEMENTATION_VERSION,
         ProcessingStage::CreativeColor,
         NodeInput::Node {
             node_id: perceptual_color.id(),
         },
     )?;
-    validate_recipe_detail_effects_render_op(sharpen, NodeInput::Node { node_id: lut.id() })?;
+    validate_recipe_v1_render_op(
+        lut,
+        LUT_3D_OPERATION_ID,
+        ProcessingStage::CreativeColor,
+        NodeInput::Node {
+            node_id: color_grading.id(),
+        },
+    )?;
+    validate_recipe_detail_effects_render_op(
+        finishing_effects,
+        FINISHING_EFFECTS_OPERATION_ID,
+        FINISHING_EFFECTS_V3_IMPLEMENTATION_VERSION,
+        ProcessingStage::FinishingEffects,
+        NodeInput::Node { node_id: lut.id() },
+    )?;
     Ok(GradeNodeRecipeV1RenderOps {
         #[cfg(test)]
         layer,
@@ -4652,8 +4784,10 @@ fn grade_node_recipe_v1_render_ops(
         white_balance,
         saturation,
         perceptual_color,
+        technical_detail,
+        color_grading,
         lut,
-        sharpen,
+        finishing_effects,
     })
 }
 
@@ -4811,7 +4945,15 @@ fn fine_parameters_from_nodes(
         }
     };
     let sharpen = {
-        let node = nodes.sharpen;
+        let node = nodes.technical_detail;
+        // The three schema-3 passes intentionally carry the same visible
+        // parameter packet. Reject any hand-edited divergence rather than
+        // guessing which copy of a slider should win when a Recipe is read.
+        if nodes.color_grading.parameters() != node.parameters()
+            || nodes.finishing_effects.parameters() != node.parameters()
+        {
+            bail!("working Recipe Detail & Effects pass parameters diverge");
+        }
         let expected_len = 5;
         let mut parameters = SharpenParameters {
             amount: required_float(
@@ -4888,6 +5030,11 @@ fn decode_grade_node_draft_from_recipe_v1_layer(
     layer: &LayerInstance,
 ) -> AnyResult<GradeNodeDraft> {
     let nodes = grade_node_recipe_v1_render_ops(layer)?;
+    if nodes.color_grading.id() != recipe_v3_color_grading_render_op_id(layer.id())
+        || nodes.finishing_effects.id() != recipe_v3_finishing_effects_render_op_id(layer.id())
+    {
+        bail!("working Recipe uses non-canonical internal Detail & Effects pass identities");
+    }
     let basic = basic_parameters_from_nodes(&nodes)?;
     let fine = fine_parameters_from_nodes(&nodes)?;
     let tone_curve = nodes
@@ -4910,7 +5057,9 @@ fn decode_grade_node_draft_from_recipe_v1_layer(
             saturation_render_op_id: nodes.saturation.id(),
             perceptual_color_render_op_id: nodes.perceptual_color.id(),
             lut_render_op_id: nodes.lut.id(),
-            sharpen_render_op_id: nodes.sharpen.id(),
+            color_grading_render_op_id: nodes.color_grading.id(),
+            sharpen_render_op_id: nodes.technical_detail.id(),
+            finishing_effects_render_op_id: nodes.finishing_effects.id(),
         },
         label: layer.label().to_owned(),
         basic,
@@ -5060,23 +5209,26 @@ fn validate_recipe_perceptual_color_render_op(
 
 fn validate_recipe_detail_effects_render_op(
     node: &AdjustmentNode,
+    operation_id: &str,
+    implementation_version: &str,
+    stage: ProcessingStage,
     input: NodeInput,
 ) -> AnyResult<()> {
     let operation = node.operation();
     let rgb = PortType::Image(ImageDomain::WorkingRgb);
     let contract_is_supported = operation.parameter_schema_version()
-        == DETAIL_EFFECTS_V2_PARAMETER_SCHEMA_VERSION
-        && operation.implementation_version() == DETAIL_EFFECTS_V2_IMPLEMENTATION_VERSION;
-    if operation.operation_id().as_str() != SHARPEN_OPERATION_ID
+        == TECHNICAL_DETAIL_V3_PARAMETER_SCHEMA_VERSION
+        && operation.implementation_version() == implementation_version;
+    if operation.operation_id().as_str() != operation_id
         || !contract_is_supported
-        || operation.stage() != ProcessingStage::DetailAndEffects
+        || operation.stage() != stage
         || operation.input_types() != [rgb]
         || operation.output_type() != rgb
         || operation.seed().is_some()
         || node.inputs() != [input]
         || node.mask_reference().is_some()
     {
-        bail!("working Recipe Detail & Effects has an unsupported contract");
+        bail!("working Recipe Detail & Effects pass has an unsupported contract");
     }
     Ok(())
 }
@@ -5578,7 +5730,10 @@ fn canonical_grade_stack_recipe_v1_identity_is_preserved(
                 && before_nodes.saturation.id() == after_nodes.saturation.id()
                 && before_nodes.selective_tone.id() == after_nodes.selective_tone.id()
                 && before_nodes.perceptual_color.id() == after_nodes.perceptual_color.id()
-                && before_nodes.sharpen.id() == after_nodes.sharpen.id()
+                && before_nodes.technical_detail.id() == after_nodes.technical_detail.id()
+                && before_nodes.color_grading.id() == after_nodes.color_grading.id()
+                && before_nodes.lut.id() == after_nodes.lut.id()
+                && before_nodes.finishing_effects.id() == after_nodes.finishing_effects.id()
                 && match (before_nodes.tone_curve, after_nodes.tone_curve) {
                     (Some(before), Some(after)) => before.id() == after.id(),
                     _ => true,
@@ -5602,7 +5757,9 @@ fn node_parameter_change_has_basic_label(snapshot: &RecipeSnapshot, node_id: Nod
                         | SATURATION_OPERATION_ID
                         | SELECTIVE_TONE_OPERATION_ID
                         | PERCEPTUAL_COLOR_OPERATION_ID
-                        | SHARPEN_OPERATION_ID
+                        | TECHNICAL_DETAIL_OPERATION_ID
+                        | COLOR_GRADING_OPERATION_ID
+                        | FINISHING_EFFECTS_OPERATION_ID
                 )
         })
     })
@@ -7719,13 +7876,13 @@ mod tests {
         let snapshot =
             grade_stack_recipe_v1_snapshot(&grade_stack, None).expect("two-node snapshot");
         let plan = compile_recipe_render_plan(&snapshot).expect("compile two Grade Nodes");
-        assert_eq!(plan.nodes.len(), 16);
+        assert_eq!(plan.nodes.len(), 20);
         assert!(
-            plan.nodes[..8]
+            plan.nodes[..10]
                 .iter()
                 .all(|node| node.node_id.starts_with(&format!("{first_grade_node_id}/")))
         );
-        assert!(plan.nodes[8..].iter().all(|node| {
+        assert!(plan.nodes[10..].iter().all(|node| {
             node.node_id
                 .starts_with(&format!("{second_grade_node_id}/"))
         }));
@@ -7734,7 +7891,7 @@ mod tests {
             AdjustmentRenderOperation::Exposure { stops: 0.5 }
         ));
         assert!(matches!(
-            plan.nodes[9].operation,
+            plan.nodes[11].operation,
             AdjustmentRenderOperation::Exposure { stops: -1.25 }
         ));
 
@@ -7945,7 +8102,7 @@ mod tests {
             grade_stack_recipe_v1_snapshot(&sixteen, None).expect("sixteen-node snapshot");
         assert_eq!(
             compile_recipe_render_plan(&snapshot).unwrap().nodes.len(),
-            128
+            160
         );
 
         let mut seventeen = sixteen.clone();
@@ -8053,19 +8210,29 @@ mod tests {
         assert_eq!(persisted.fine, expected);
 
         let plan = compile_recipe_render_plan(&snapshot).expect("compile fine controls");
-        assert_eq!(plan.nodes.len(), 8);
+        assert_eq!(plan.nodes.len(), 10);
         assert!(matches!(
             plan.nodes[3].operation,
             AdjustmentRenderOperation::SelectiveTone { parameters }
                 if parameters == expected.selective_tone
         ));
         assert!(matches!(
-            &plan.nodes[5].operation,
+            &plan.nodes[6].operation,
             AdjustmentRenderOperation::PerceptualColor { parameters }
                 if parameters.as_ref() == &expected.perceptual_color
         ));
         assert!(matches!(
+            &plan.nodes[4].operation,
+            AdjustmentRenderOperation::Sharpen { parameters }
+                if parameters.as_ref() == &expected.sharpen
+        ));
+        assert!(matches!(
             &plan.nodes[7].operation,
+            AdjustmentRenderOperation::Sharpen { parameters }
+                if parameters.as_ref() == &expected.sharpen
+        ));
+        assert!(matches!(
+            &plan.nodes[9].operation,
             AdjustmentRenderOperation::Sharpen { parameters }
                 if parameters.as_ref() == &expected.sharpen
         ));
@@ -8103,7 +8270,7 @@ mod tests {
 
         let plan = compile_recipe_render_plan(&snapshot).expect("compile managed LUT");
         assert!(matches!(
-            &plan.nodes[6].operation,
+            &plan.nodes[8].operation,
             AdjustmentRenderOperation::Lut3D {
                 document: compiled,
                 intensity,
@@ -8406,7 +8573,7 @@ mod tests {
         let render_id = |node_id: NodeId| format!("{}/{}", recipe_nodes.layer.id(), node_id);
 
         plan.validate().expect("current complete plan");
-        assert_eq!(plan.nodes.len(), 9);
+        assert_eq!(plan.nodes.len(), 11);
         assert_eq!(
             plan.nodes[0].node_id,
             render_id(recipe_nodes.white_balance.id())
@@ -8423,14 +8590,25 @@ mod tests {
         );
         assert_eq!(
             plan.nodes[5].node_id,
-            render_id(recipe_nodes.saturation.id())
+            render_id(recipe_nodes.technical_detail.id())
         );
         assert_eq!(
             plan.nodes[6].node_id,
+            render_id(recipe_nodes.saturation.id())
+        );
+        assert_eq!(
+            plan.nodes[7].node_id,
             render_id(recipe_nodes.perceptual_color.id())
         );
-        assert_eq!(plan.nodes[7].node_id, render_id(recipe_nodes.lut.id()));
-        assert_eq!(plan.nodes[8].node_id, render_id(recipe_nodes.sharpen.id()));
+        assert_eq!(
+            plan.nodes[8].node_id,
+            render_id(recipe_nodes.color_grading.id())
+        );
+        assert_eq!(plan.nodes[9].node_id, render_id(recipe_nodes.lut.id()));
+        assert_eq!(
+            plan.nodes[10].node_id,
+            render_id(recipe_nodes.finishing_effects.id())
+        );
         assert_eq!(
             plan.nodes[0].operation,
             AdjustmentRenderOperation::RgbWhiteBalance {
@@ -8471,21 +8649,20 @@ mod tests {
         );
         assert_eq!(
             plan.nodes[5].operation,
+            AdjustmentRenderOperation::Sharpen {
+                parameters: Box::new(SharpenParameters::default()),
+            }
+        );
+        assert_eq!(
+            plan.nodes[6].operation,
             AdjustmentRenderOperation::Saturation {
                 factor: parameters.saturation_factor,
             }
         );
         assert_eq!(
-            plan.nodes[6].operation,
+            plan.nodes[7].operation,
             AdjustmentRenderOperation::PerceptualColor {
                 parameters: Box::new(PerceptualColorParameters::default()),
-            }
-        );
-        assert_eq!(
-            plan.nodes[7].operation,
-            AdjustmentRenderOperation::Lut3D {
-                document: Vec::new(),
-                intensity: 0.0,
             }
         );
         assert_eq!(
@@ -8493,6 +8670,37 @@ mod tests {
             AdjustmentRenderOperation::Sharpen {
                 parameters: Box::new(SharpenParameters::default()),
             }
+        );
+        assert_eq!(
+            plan.nodes[9].operation,
+            AdjustmentRenderOperation::Lut3D {
+                document: Vec::new(),
+                intensity: 0.0,
+            }
+        );
+        assert_eq!(
+            plan.nodes[10].operation,
+            AdjustmentRenderOperation::Sharpen {
+                parameters: Box::new(SharpenParameters::default()),
+            }
+        );
+        assert_eq!(
+            (
+                plan.nodes[5].parameter_schema_version,
+                plan.nodes[5].implementation_version,
+                plan.nodes[8].parameter_schema_version,
+                plan.nodes[8].implementation_version,
+                plan.nodes[10].parameter_schema_version,
+                plan.nodes[10].implementation_version,
+            ),
+            (
+                TECHNICAL_DETAIL_V3_PARAMETER_SCHEMA_VERSION,
+                TECHNICAL_DETAIL_V3_IMPLEMENTATION_REVISION,
+                COLOR_GRADING_V3_PARAMETER_SCHEMA_VERSION,
+                COLOR_GRADING_V3_IMPLEMENTATION_REVISION,
+                FINISHING_EFFECTS_V3_PARAMETER_SCHEMA_VERSION,
+                FINISHING_EFFECTS_V3_IMPLEMENTATION_REVISION,
+            )
         );
     }
 
@@ -8511,7 +8719,7 @@ mod tests {
             grade_stack_recipe_v1_snapshot(&settings, None).expect("build preview Recipe");
         let plan = compile_recipe_render_plan(&snapshot).expect("compile preview plan");
 
-        assert_eq!(plan.nodes.len(), 9);
+        assert_eq!(plan.nodes.len(), 11);
         assert!(matches!(
             &plan.nodes[4].operation,
             AdjustmentRenderOperation::SmoothRgbToneCurve { curves }
@@ -8537,7 +8745,7 @@ mod tests {
         let plan = compile_recipe_render_plan(&disabled).expect("compile disabled Recipe");
 
         assert!(!disabled.layers()[0].enabled());
-        assert_eq!(plan.nodes.len(), 9);
+        assert_eq!(plan.nodes.len(), 11);
         assert!(plan.nodes.iter().all(|node| !node.enabled));
         assert_eq!(
             decode_grade_stack_draft_from_recipe_v1_snapshot(&disabled).unwrap(),
@@ -8607,7 +8815,7 @@ mod tests {
             grade_stack_recipe_v1_snapshot(&reset_settings, Some(&edited)).expect("reset curve");
         let reset_nodes = single_grade_node_recipe_v1_render_ops(&reset).expect("reset render ops");
         assert!(reset_nodes.tone_curve.is_none());
-        assert_eq!(compile_recipe_render_plan(&reset).unwrap().nodes.len(), 8);
+        assert_eq!(compile_recipe_render_plan(&reset).unwrap().nodes.len(), 10);
         assert_eq!(reset_nodes.exposure.id(), original_nodes.exposure.id());
         assert_eq!(reset_nodes.contrast.id(), original_nodes.contrast.id());
         assert_eq!(
@@ -8785,7 +8993,7 @@ mod tests {
     }
 
     #[test]
-    fn recipe_compiler_rejects_future_persisted_contract_versions() {
+    fn recipe_compiler_rejects_unsupported_persisted_contract_versions() {
         let cases = [
             (
                 "operation parameter schema",
@@ -8806,9 +9014,18 @@ mod tests {
                 ),
             ),
             (
-                "Recipe schema",
+                "future Recipe schema",
                 single_exposure_recipe(
                     CURRENT_RECIPE_SCHEMA_VERSION + 1,
+                    BASIC_GRAPH_SCHEMA_VERSION,
+                    CPU_REFERENCE_PARAMETER_SCHEMA_VERSION,
+                    CPU_REFERENCE_IMPLEMENTATION_VERSION,
+                ),
+            ),
+            (
+                "pre-split Recipe schema",
+                single_exposure_recipe(
+                    CURRENT_RECIPE_SCHEMA_VERSION - 1,
                     BASIC_GRAPH_SCHEMA_VERSION,
                     CPU_REFERENCE_PARAMETER_SCHEMA_VERSION,
                     CPU_REFERENCE_IMPLEMENTATION_VERSION,
@@ -9022,7 +9239,7 @@ mod tests {
         let after_snapshot =
             grade_stack_recipe_v1_snapshot(&after, Some(&before_snapshot)).unwrap();
         let diff = diff_recipe_snapshots(&before_snapshot, &after_snapshot);
-        assert_eq!(diff.summary().node_parameters_changed, 3);
+        assert_eq!(diff.summary().node_parameters_changed, 5);
         assert!(!has_other_recipe_changes(
             &diff,
             &before_snapshot,
@@ -10339,7 +10556,9 @@ mod tests {
         let nodes = graph
             .nodes()
             .iter()
-            .filter(|node| node.operation().operation_id().as_str() != SHARPEN_OPERATION_ID)
+            .filter(|node| {
+                node.operation().operation_id().as_str() != FINISHING_EFFECTS_OPERATION_ID
+            })
             .cloned()
             .collect::<Vec<_>>();
         let output = nodes

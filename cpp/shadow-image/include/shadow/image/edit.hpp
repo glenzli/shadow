@@ -175,10 +175,21 @@ struct CubeLutAdjustment final {
     double intensity = 0.0;
 };
 
-// Luminance-only unsharp masking in scene-linear RGB. radius is the level-0 Gaussian sigma;
+// The visible Detail & Effects control bundle is deliberately kept intact at
+// the UI/CXX boundary. Recipe schema 3 assigns one of these internal passes
+// to each copy of the bundle, preventing a creative LUT from accidentally
+// moving technical recovery or grain/vignette work across the pipeline.
+enum class DetailEffectsExecutionPass : std::uint8_t {
+    technical_detail,
+    color_grading,
+    finishing_effects,
+};
+
+// Luminance-only capture sharpening in scene-linear RGB. radius is the level-0 Gaussian sigma;
 // threshold maps linearly to at most 0.25 EV of soft-thresholding. A common gain is applied to
 // R, G, and B so sharpening cannot introduce chromatic fringes by treating channels separately.
 struct SharpenAdjustment final {
+    DetailEffectsExecutionPass execution_pass = DetailEffectsExecutionPass::technical_detail;
     double amount = 0.0;
     double radius = 1.0;
     double threshold = 0.0;
@@ -216,6 +227,12 @@ struct SharpenAdjustment final {
 
 inline constexpr std::uint32_t detail_effects_v2_parameter_schema_version = 2;
 inline constexpr std::uint32_t detail_effects_v2_implementation_version = 2;
+// Recipe schema 3 keeps the existing 33-scalar Detail & Effects wire shape
+// but gives each execution pass a non-interchangeable contract revision.
+inline constexpr std::uint32_t detail_effects_v3_parameter_schema_version = 3;
+inline constexpr std::uint32_t technical_detail_v3_implementation_version = 3;
+inline constexpr std::uint32_t color_grading_v3_implementation_version = 4;
+inline constexpr std::uint32_t finishing_effects_v3_implementation_version = 5;
 
 inline constexpr std::uint32_t tone_curve_parameter_schema_version = 1;
 inline constexpr std::uint32_t tone_curve_implementation_version = 1;
@@ -351,6 +368,9 @@ private:
 
 [[nodiscard]] AdjustmentOperation operation(const AdjustmentParameters& parameters) noexcept;
 [[nodiscard]] std::string_view operation_id(AdjustmentOperation operation) noexcept;
+// Pass-aware locality for scheduling. The legacy operation-only overload is
+// intentionally conservative for callers that do not retain parameters.
+[[nodiscard]] AdjustmentLocality locality(const AdjustmentParameters& parameters) noexcept;
 [[nodiscard]] AdjustmentLocality locality(AdjustmentOperation operation) noexcept;
 // The supplied scales are level-0-to-raster sampling densities. Invalid/non-finite scales or
 // malformed parameters fail closed; callers normally validate the full node plan first.

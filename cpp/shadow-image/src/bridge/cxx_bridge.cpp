@@ -414,15 +414,30 @@ void require_parameter_count(
     }
     case FfiAdjustmentOperation::Sharpen: {
         if (source.parameter_schema_version
-                != image::detail_effects_v2_parameter_schema_version
-            || source.implementation_version
-                != image::detail_effects_v2_implementation_version) {
+            != image::detail_effects_v3_parameter_schema_version) {
             throw_invalid_adjustment_plan(
-                "detail and effects requires the current complete contract"
+                "detail and effects requires the current split-pass contract"
+            );
+        }
+        image::DetailEffectsExecutionPass execution_pass;
+        switch (source.implementation_version) {
+        case image::technical_detail_v3_implementation_version:
+            execution_pass = image::DetailEffectsExecutionPass::technical_detail;
+            break;
+        case image::color_grading_v3_implementation_version:
+            execution_pass = image::DetailEffectsExecutionPass::color_grading;
+            break;
+        case image::finishing_effects_v3_implementation_version:
+            execution_pass = image::DetailEffectsExecutionPass::finishing_effects;
+            break;
+        default:
+            throw_invalid_adjustment_plan(
+                "detail and effects execution pass is unsupported"
             );
         }
         require_parameter_count(source, 33U, "detail and effects");
         image::SharpenAdjustment parameters{
+            .execution_pass = execution_pass,
             .amount = source.parameters[0],
             .radius = source.parameters[1],
             .threshold = source.parameters[2],

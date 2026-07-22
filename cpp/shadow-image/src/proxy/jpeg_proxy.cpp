@@ -566,7 +566,7 @@ void validate_detail_tile_rect(
     // supports is the conservative reverse accumulation; taking only the maximum would create
     // seams as soon as two spatial nodes are enabled.
     for (const AdjustmentNode& node : nodes) {
-        if (!node.enabled || locality(operation(node.parameters)) != AdjustmentLocality::neighborhood) {
+        if (!node.enabled || locality(node.parameters) != AdjustmentLocality::neighborhood) {
             continue;
         }
         const AdjustmentFootprint node_footprint = footprint(node.parameters, 1.0, 1.0);

@@ -983,8 +983,8 @@ void rotated_raw_preview_preserves_native_effect_radius() {
     const std::array nodes{
         image::AdjustmentNode{
             .node_id = "orientation-aware-native-denoise",
-            .parameter_schema_version = image::detail_effects_v2_parameter_schema_version,
-            .implementation_version = image::detail_effects_v2_implementation_version,
+            .parameter_schema_version = image::detail_effects_v3_parameter_schema_version,
+            .implementation_version = image::technical_detail_v3_implementation_version,
             .parameters = image::SharpenAdjustment{
                 .denoise_luminance = 0.7,
                 .denoise_color = 0.3,

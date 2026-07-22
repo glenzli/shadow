@@ -16,7 +16,12 @@ use crate::{
 // Version 2 moves the post-demosaic creative white-balance transform ahead of exposure and tone
 // controls. Shadow is still in its pre-release recipe phase, so incompatible v1 recipe graphs
 // are rejected rather than silently reinterpreted under the new scene-linear ordering.
-pub const CURRENT_RECIPE_SCHEMA_VERSION: u32 = 2;
+// Schema 3 splits the former monolithic Detail & Effects operation into
+// ordered technical-detail, creative color-grading, and finishing-effect
+// contracts. Shadow is still pre-release, so old Recipes are deliberately
+// rejected by the desktop compiler rather than silently changing their
+// pixels.
+pub const CURRENT_RECIPE_SCHEMA_VERSION: u32 = 3;
 const MAX_STABLE_NAME_BYTES: usize = 128;
 const MAX_LABEL_BYTES: usize = 512;
 const MAX_COMMIT_MESSAGE_BYTES: usize = 4_096;
@@ -294,11 +299,19 @@ pub enum ProcessingStage {
     CameraInputTransform,
     SceneLinearFoundation,
     ToneAndLocalContrast,
+    /// Scene-linear recovery/detail work such as denoise, dehaze,
+    /// defringe, and capture sharpening. This is intentionally before every
+    /// creative color transform.
+    TechnicalDetail,
     CreativeColor,
     Geometry,
     LocalAdjustment,
     Retouch,
     DetailAndEffects,
+    /// Output-facing finishing such as grain and post-look vignette. This is
+    /// intentionally after creative color, geometry, local/retouch work, and
+    /// the legacy detail slot, but before the final output transform.
+    FinishingEffects,
     Output,
 }
 

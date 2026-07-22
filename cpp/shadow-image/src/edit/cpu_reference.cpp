@@ -1432,17 +1432,28 @@ void apply_prepared_smooth_rgb_tone_curve(
         ? smooth_rgb_tone_curve_parameter_schema_version
         : selective_tone ? selective_tone_v2_parameter_schema_version
         : perceptual_color ? perceptual_color_v2_parameter_schema_version
-        : detail_effects ? detail_effects_v2_parameter_schema_version
+        : detail_effects ? detail_effects_v3_parameter_schema_version
                          : adjustment_parameter_schema_version;
     const std::uint32_t expected_implementation = smooth_rgb_tone_curve
         ? smooth_rgb_tone_curve_implementation_version
         : selective_tone ? selective_tone_v2_implementation_version
         : perceptual_color ? perceptual_color_v2_implementation_version
-        : detail_effects ? detail_effects_v2_implementation_version
                          : adjustment_implementation_version;
+    const bool supported_detail_pass = detail_effects
+        && ((std::get<SharpenAdjustment>(node.parameters).execution_pass
+                == DetailEffectsExecutionPass::technical_detail
+                && node.implementation_version == technical_detail_v3_implementation_version)
+            || (std::get<SharpenAdjustment>(node.parameters).execution_pass
+                    == DetailEffectsExecutionPass::color_grading
+                    && node.implementation_version == color_grading_v3_implementation_version)
+            || (std::get<SharpenAdjustment>(node.parameters).execution_pass
+                    == DetailEffectsExecutionPass::finishing_effects
+                    && node.implementation_version
+                        == finishing_effects_v3_implementation_version));
     if (
         node.parameter_schema_version != expected_parameter_schema
-        || node.implementation_version != expected_implementation
+        || (!detail_effects && node.implementation_version != expected_implementation)
+        || (detail_effects && !supported_detail_pass)
     ) {
         throw_node_error(
             EditErrorCode::unsupported_version,
@@ -1455,7 +1466,7 @@ void apply_prepared_smooth_rgb_tone_curve(
                 : perceptual_color
                     ? "perceptual color requires the current complete contract"
                 : detail_effects
-                    ? "Detail & Effects requires the current complete contract"
+                    ? "Detail & Effects requires the current split-pass contract"
                     : "only parameter schema 1 and implementation 1 are supported"
         );
     }
@@ -1989,22 +2000,15 @@ void apply_edge_aware_denoise(
     }
 }
 
-void apply_dehaze_defringe_and_grading(
+void apply_dehaze_and_defringe(
     FloatRgbImage& image,
     const AdjustmentNode& node,
     const std::size_t node_index,
     const SharpenAdjustment& parameters
 ) {
-    const bool grading = parameters.shadows_saturation != 0.0
-        || parameters.shadows_luminance != 0.0
-        || parameters.midtones_saturation != 0.0
-        || parameters.midtones_luminance != 0.0
-        || parameters.highlights_saturation != 0.0
-        || parameters.highlights_luminance != 0.0;
     if (parameters.dehaze == 0.0
         && parameters.defringe_purple_amount == 0.0
-        && parameters.defringe_green_amount == 0.0
-        && !grading) {
+        && parameters.defringe_green_amount == 0.0) {
         return;
     }
     const auto luma_weights = image.working_space.luminance_coefficients;
@@ -2015,7 +2019,7 @@ void apply_dehaze_defringe_and_grading(
         image,
         node_index,
         node,
-        [&parameters, luma_weights, &color_transform, grading](Vector3 input) {
+        [&parameters, luma_weights, &color_transform](Vector3 input) {
             const double luma = input[0] * luma_weights[0]
                 + input[1] * luma_weights[1] + input[2] * luma_weights[2];
             if (parameters.dehaze > 0.0) {
@@ -2060,39 +2064,69 @@ void apply_dehaze_defringe_and_grading(
                 lab[2] *= 1.0 - 0.9 * reduction;
             }
 
-            if (grading) {
-                const double normalized = std::max(0.0, luma) / (std::max(0.0, luma) + 0.18);
-                const double center = std::clamp(
-                    0.5 + 0.22 * parameters.grading_balance, 0.18, 0.82
-                );
-                const double width = 0.08 + 0.30 * parameters.grading_blending;
-                double shadow_weight = 1.0 - smoothstep(center - width, center + width, normalized);
-                double highlight_weight = smoothstep(center - width, center + width, normalized);
-                double midtone_weight = 1.0 - std::abs(normalized - center)
-                    / std::max(0.12, 0.5 + width);
-                midtone_weight = std::clamp(midtone_weight, 0.0, 1.0);
-                const double total = shadow_weight + midtone_weight + highlight_weight;
-                shadow_weight /= total;
-                midtone_weight /= total;
-                highlight_weight /= total;
-                const auto wheel = [&lab](
-                    const double hue,
-                    const double saturation,
-                    const double luminance,
-                    const double weight
-                ) {
-                    const double angle = hue * pi / 180.0;
-                    lab[0] += 0.12 * luminance * weight;
-                    lab[1] += 0.09 * saturation * weight * std::cos(angle);
-                    lab[2] += 0.09 * saturation * weight * std::sin(angle);
-                };
-                wheel(parameters.shadows_hue, parameters.shadows_saturation,
-                      parameters.shadows_luminance, shadow_weight);
-                wheel(parameters.midtones_hue, parameters.midtones_saturation,
-                      parameters.midtones_luminance, midtone_weight);
-                wheel(parameters.highlights_hue, parameters.highlights_saturation,
-                      parameters.highlights_luminance, highlight_weight);
-            }
+            return multiply(color_transform.xyz_to_rgb, oklab_to_xyz(lab));
+        }
+    );
+}
+
+void apply_color_grading(
+    FloatRgbImage& image,
+    const AdjustmentNode& node,
+    const std::size_t node_index,
+    const SharpenAdjustment& parameters
+) {
+    const bool grading = parameters.shadows_saturation != 0.0
+        || parameters.shadows_luminance != 0.0
+        || parameters.midtones_saturation != 0.0
+        || parameters.midtones_luminance != 0.0
+        || parameters.highlights_saturation != 0.0
+        || parameters.highlights_luminance != 0.0;
+    if (!grading) {
+        return;
+    }
+    const auto luma_weights = image.working_space.luminance_coefficients;
+    const WorkingSpaceTransform color_transform = prepare_working_space_transform(
+        image.working_space, node, node_index
+    );
+    transform_rgb_pixels(
+        image,
+        node_index,
+        node,
+        [&parameters, luma_weights, &color_transform](const Vector3& input) {
+            const double luma = input[0] * luma_weights[0]
+                + input[1] * luma_weights[1] + input[2] * luma_weights[2];
+            Vector3 lab = xyz_to_oklab(multiply(color_transform.rgb_to_xyz, input));
+            const double normalized = std::max(0.0, luma) / (std::max(0.0, luma) + 0.18);
+            const double center = std::clamp(
+                0.5 + 0.22 * parameters.grading_balance, 0.18, 0.82
+            );
+            const double width = 0.08 + 0.30 * parameters.grading_blending;
+            double shadow_weight = 1.0 - smoothstep(center - width, center + width, normalized);
+            double highlight_weight = smoothstep(center - width, center + width, normalized);
+            double midtone_weight = 1.0 - std::abs(normalized - center)
+                / std::max(0.12, 0.5 + width);
+            midtone_weight = std::clamp(midtone_weight, 0.0, 1.0);
+            const double total = shadow_weight + midtone_weight + highlight_weight;
+            shadow_weight /= total;
+            midtone_weight /= total;
+            highlight_weight /= total;
+            const auto wheel = [&lab](
+                const double hue,
+                const double saturation,
+                const double luminance,
+                const double weight
+            ) {
+                const double angle = hue * pi / 180.0;
+                lab[0] += 0.12 * luminance * weight;
+                lab[1] += 0.09 * saturation * weight * std::cos(angle);
+                lab[2] += 0.09 * saturation * weight * std::sin(angle);
+            };
+            wheel(parameters.shadows_hue, parameters.shadows_saturation,
+                  parameters.shadows_luminance, shadow_weight);
+            wheel(parameters.midtones_hue, parameters.midtones_saturation,
+                  parameters.midtones_luminance, midtone_weight);
+            wheel(parameters.highlights_hue, parameters.highlights_saturation,
+                  parameters.highlights_luminance, highlight_weight);
             return multiply(color_transform.xyz_to_rgb, oklab_to_xyz(lab));
         }
     );
@@ -2380,10 +2414,25 @@ void apply_node(
                     }
                 );
             } else if constexpr (std::is_same_v<Parameters, SharpenAdjustment>) {
-                apply_edge_aware_denoise(image, node, index, parameters);
-                apply_dehaze_defringe_and_grading(image, node, index, parameters);
-                apply_sharpen(image, node, index, parameters);
-                apply_grain_and_vignette(image, node, index, parameters, context);
+                switch (parameters.execution_pass) {
+                case DetailEffectsExecutionPass::technical_detail:
+                    // Technical recovery is deliberately scene-linear and
+                    // pre-creative: it must not denoise or sharpen a LUT.
+                    apply_edge_aware_denoise(image, node, index, parameters);
+                    apply_dehaze_and_defringe(image, node, index, parameters);
+                    apply_sharpen(image, node, index, parameters);
+                    break;
+                case DetailEffectsExecutionPass::color_grading:
+                    // Color wheels are a creative transform, independent of
+                    // technical recovery and still before a selected LUT.
+                    apply_color_grading(image, node, index, parameters);
+                    break;
+                case DetailEffectsExecutionPass::finishing_effects:
+                    // Grain and vignette are intentionally the last internal
+                    // pass so LUT/grading do not alter their look.
+                    apply_grain_and_vignette(image, node, index, parameters, context);
+                    break;
+                }
             }
         },
         node.parameters
@@ -2481,6 +2530,24 @@ AdjustmentLocality locality(const AdjustmentOperation operation) noexcept {
     return AdjustmentLocality::pixel_local;
 }
 
+AdjustmentLocality locality(const AdjustmentParameters& parameters) noexcept {
+    return std::visit(
+        [](const auto& value) {
+            using Parameters = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<Parameters, SelectiveToneAdjustment>) {
+                return AdjustmentLocality::neighborhood;
+            } else if constexpr (std::is_same_v<Parameters, SharpenAdjustment>) {
+                return value.execution_pass == DetailEffectsExecutionPass::technical_detail
+                    ? AdjustmentLocality::neighborhood
+                    : AdjustmentLocality::pixel_local;
+            } else {
+                return AdjustmentLocality::pixel_local;
+            }
+        },
+        parameters
+    );
+}
+
 AdjustmentFootprint footprint(
     const AdjustmentParameters& parameters,
     const double level_zero_to_raster_scale_x,
@@ -2524,6 +2591,17 @@ AdjustmentFootprint footprint(
                     ),
                 };
             } else if constexpr (std::is_same_v<Parameters, SharpenAdjustment>) {
+                if (value.execution_pass != DetailEffectsExecutionPass::technical_detail) {
+                    if (value.execution_pass == DetailEffectsExecutionPass::color_grading
+                        || value.execution_pass == DetailEffectsExecutionPass::finishing_effects) {
+                        return AdjustmentFootprint{};
+                    }
+                    throw EditError(
+                        EditErrorCode::invalid_parameter,
+                        std::nullopt,
+                        "cannot calculate a footprint for an unknown Detail & Effects pass"
+                    );
+                }
                 if (
                     !std::isfinite(value.amount) || value.amount < 0.0 || value.amount > 2.0
                     || !std::isfinite(value.radius) || value.radius < 0.1

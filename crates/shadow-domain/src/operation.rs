@@ -76,6 +76,8 @@ pub const LUT_TITLE_PARAMETER_KEY: &str = "title";
 pub const LUT_MANAGED_PATH_PARAMETER_KEY: &str = "managed_path";
 pub const LUT_INTENSITY_PARAMETER_KEY: &str = "intensity";
 
+/// Legacy monolithic Detail & Effects operation. Schema 3 intentionally does
+/// not emit it: a Recipe must use the three ordered contracts below.
 pub const SHARPEN_OPERATION_ID: &str = "shadow.sharpen";
 pub const SHARPEN_AMOUNT_PARAMETER_KEY: &str = "amount";
 pub const SHARPEN_RADIUS_PARAMETER_KEY: &str = "radius";
@@ -83,6 +85,26 @@ pub const SHARPEN_THRESHOLD_PARAMETER_KEY: &str = "threshold";
 pub const SHARPEN_MASKING_PARAMETER_KEY: &str = "masking";
 pub const DETAIL_EFFECTS_PARAMETERS_KEY: &str = "detail_effects";
 pub const DETAIL_EFFECTS_V2_IMPLEMENTATION_VERSION: &str = "shadow-cpu-detail-effects-v2";
+
+/// Schema-3 technical pass. It consumes the existing complete Detail &
+/// Effects parameter payload but evaluates only denoise, dehaze, defringe,
+/// and capture sharpening.
+pub const TECHNICAL_DETAIL_OPERATION_ID: &str = "shadow.technical_detail";
+pub const TECHNICAL_DETAIL_V3_PARAMETER_SCHEMA_VERSION: u32 = 3;
+pub const TECHNICAL_DETAIL_V3_IMPLEMENTATION_VERSION: &str = "shadow-cpu-technical-detail-v3";
+
+/// Schema-3 creative color-wheel pass. It keeps the existing color-grading
+/// controls out of the technical recovery stage while preserving their UI/FFI
+/// parameter shape.
+pub const COLOR_GRADING_OPERATION_ID: &str = "shadow.color_grading";
+pub const COLOR_GRADING_V3_PARAMETER_SCHEMA_VERSION: u32 = 3;
+pub const COLOR_GRADING_V3_IMPLEMENTATION_VERSION: &str = "shadow-cpu-color-grading-v3";
+
+/// Schema-3 post-look pass. It evaluates grain and vignette only after the
+/// LUT and color grading chain.
+pub const FINISHING_EFFECTS_OPERATION_ID: &str = "shadow.finishing_effects";
+pub const FINISHING_EFFECTS_V3_PARAMETER_SCHEMA_VERSION: u32 = 3;
+pub const FINISHING_EFFECTS_V3_IMPLEMENTATION_VERSION: &str = "shadow-cpu-finishing-effects-v3";
 
 /// Graph schema used by the current Basic adjustments layer.
 pub const BASIC_GRAPH_SCHEMA_VERSION: u32 = 1;
@@ -107,6 +129,9 @@ mod tests {
             PERCEPTUAL_COLOR_OPERATION_ID,
             LUT_3D_OPERATION_ID,
             SHARPEN_OPERATION_ID,
+            TECHNICAL_DETAIL_OPERATION_ID,
+            COLOR_GRADING_OPERATION_ID,
+            FINISHING_EFFECTS_OPERATION_ID,
         ] {
             OperationId::new(operation_id).expect("operation contract id must remain valid");
         }

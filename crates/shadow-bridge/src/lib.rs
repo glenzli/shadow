@@ -603,6 +603,17 @@ pub const COLOR_MIXER_BAND_COUNT: usize = 8;
 pub const MAX_POINT_COLOR_RANGES: usize = 16;
 pub const PERCEPTUAL_COLOR_V2_PARAMETER_SCHEMA_VERSION: u32 = 2;
 pub const PERCEPTUAL_COLOR_V2_IMPLEMENTATION_VERSION: u32 = 2;
+/// The visible Detail & Effects payload is still one 33-value FFI record,
+/// but Recipe schema 3 compiles it into three internal passes. Their distinct
+/// numeric revisions make a C++ executor reject an accidental reordering.
+pub const TECHNICAL_DETAIL_V3_PARAMETER_SCHEMA_VERSION: u32 = 3;
+pub const TECHNICAL_DETAIL_V3_IMPLEMENTATION_VERSION: u32 = 3;
+pub const COLOR_GRADING_V3_PARAMETER_SCHEMA_VERSION: u32 = 3;
+pub const COLOR_GRADING_V3_IMPLEMENTATION_VERSION: u32 = 4;
+pub const FINISHING_EFFECTS_V3_PARAMETER_SCHEMA_VERSION: u32 = 3;
+pub const FINISHING_EFFECTS_V3_IMPLEMENTATION_VERSION: u32 = 5;
+/// Retained only to decode/reject old fixtures explicitly; the current
+/// compiler never emits this monolithic contract.
 pub const DETAIL_EFFECTS_V2_PARAMETER_SCHEMA_VERSION: u32 = 2;
 pub const DETAIL_EFFECTS_V2_IMPLEMENTATION_VERSION: u32 = 2;
 
@@ -881,29 +892,42 @@ impl AdjustmentRenderPlan {
                     "adjustment render plan contains duplicate node ids",
                 ));
             }
-            let expected_contract = match &node.operation {
-                AdjustmentRenderOperation::SmoothRgbToneCurve { .. } => (
-                    SMOOTH_RGB_TONE_CURVE_PARAMETER_SCHEMA_VERSION,
-                    SMOOTH_RGB_TONE_CURVE_IMPLEMENTATION_VERSION,
-                ),
-                AdjustmentRenderOperation::SelectiveTone { .. } => (
-                    SELECTIVE_TONE_V2_PARAMETER_SCHEMA_VERSION,
-                    SELECTIVE_TONE_V2_IMPLEMENTATION_VERSION,
-                ),
-                AdjustmentRenderOperation::PerceptualColor { .. } => (
-                    PERCEPTUAL_COLOR_V2_PARAMETER_SCHEMA_VERSION,
-                    PERCEPTUAL_COLOR_V2_IMPLEMENTATION_VERSION,
-                ),
-                AdjustmentRenderOperation::Sharpen { .. } => (
-                    DETAIL_EFFECTS_V2_PARAMETER_SCHEMA_VERSION,
-                    DETAIL_EFFECTS_V2_IMPLEMENTATION_VERSION,
-                ),
-                _ => (
-                    ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
-                    ADJUSTMENT_IMPLEMENTATION_VERSION,
-                ),
+            let contract_matches = match &node.operation {
+                AdjustmentRenderOperation::SmoothRgbToneCurve { .. } => {
+                    (
+                        SMOOTH_RGB_TONE_CURVE_PARAMETER_SCHEMA_VERSION,
+                        SMOOTH_RGB_TONE_CURVE_IMPLEMENTATION_VERSION,
+                    ) == (node.parameter_schema_version, node.implementation_version)
+                }
+                AdjustmentRenderOperation::SelectiveTone { .. } => {
+                    (
+                        SELECTIVE_TONE_V2_PARAMETER_SCHEMA_VERSION,
+                        SELECTIVE_TONE_V2_IMPLEMENTATION_VERSION,
+                    ) == (node.parameter_schema_version, node.implementation_version)
+                }
+                AdjustmentRenderOperation::PerceptualColor { .. } => {
+                    (
+                        PERCEPTUAL_COLOR_V2_PARAMETER_SCHEMA_VERSION,
+                        PERCEPTUAL_COLOR_V2_IMPLEMENTATION_VERSION,
+                    ) == (node.parameter_schema_version, node.implementation_version)
+                }
+                AdjustmentRenderOperation::Sharpen { .. } => {
+                    node.parameter_schema_version == TECHNICAL_DETAIL_V3_PARAMETER_SCHEMA_VERSION
+                        && matches!(
+                            node.implementation_version,
+                            TECHNICAL_DETAIL_V3_IMPLEMENTATION_VERSION
+                                | COLOR_GRADING_V3_IMPLEMENTATION_VERSION
+                                | FINISHING_EFFECTS_V3_IMPLEMENTATION_VERSION
+                        )
+                }
+                _ => {
+                    (
+                        ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+                        ADJUSTMENT_IMPLEMENTATION_VERSION,
+                    ) == (node.parameter_schema_version, node.implementation_version)
+                }
             };
-            if (node.parameter_schema_version, node.implementation_version) != expected_contract {
+            if !contract_matches {
                 return Err(BridgeError::InvalidEditRequest(
                     "adjustment node uses an unsupported schema or implementation version",
                 ));
@@ -2687,9 +2711,9 @@ mod tests {
                     },
                 },
                 AdjustmentRenderNode {
-                    node_id: "sharpen".to_owned(),
-                    parameter_schema_version: DETAIL_EFFECTS_V2_PARAMETER_SCHEMA_VERSION,
-                    implementation_version: DETAIL_EFFECTS_V2_IMPLEMENTATION_VERSION,
+                    node_id: "technical-detail".to_owned(),
+                    parameter_schema_version: TECHNICAL_DETAIL_V3_PARAMETER_SCHEMA_VERSION,
+                    implementation_version: TECHNICAL_DETAIL_V3_IMPLEMENTATION_VERSION,
                     enabled: true,
                     operation: AdjustmentRenderOperation::Sharpen {
                         parameters: Box::new(SharpenParameters {

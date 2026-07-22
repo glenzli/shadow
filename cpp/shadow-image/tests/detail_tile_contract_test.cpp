@@ -478,8 +478,8 @@ void neighborhood_tiles_accumulate_two_sharpen_footprints_without_seams() {
     const std::array plan{
         image::AdjustmentNode{
             .node_id = "wide-sharpen-first",
-            .parameter_schema_version = image::detail_effects_v2_parameter_schema_version,
-            .implementation_version = image::detail_effects_v2_implementation_version,
+            .parameter_schema_version = image::detail_effects_v3_parameter_schema_version,
+            .implementation_version = image::technical_detail_v3_implementation_version,
             .parameters = image::SharpenAdjustment{
                 .amount = 0.7,
                 .radius = 5.0,
@@ -489,8 +489,8 @@ void neighborhood_tiles_accumulate_two_sharpen_footprints_without_seams() {
         },
         image::AdjustmentNode{
             .node_id = "wide-sharpen-second",
-            .parameter_schema_version = image::detail_effects_v2_parameter_schema_version,
-            .implementation_version = image::detail_effects_v2_implementation_version,
+            .parameter_schema_version = image::detail_effects_v3_parameter_schema_version,
+            .implementation_version = image::technical_detail_v3_implementation_version,
             .parameters = image::SharpenAdjustment{
                 .amount = 0.4,
                 .radius = 5.0,
@@ -623,8 +623,8 @@ void neighborhood_resource_limits_fail_closed_before_allocation() {
     for (std::size_t index = 0U; index < 35U; ++index) {
         plan.push_back(image::AdjustmentNode{
             .node_id = "apron-limit-sharpen-" + std::to_string(index),
-            .parameter_schema_version = image::detail_effects_v2_parameter_schema_version,
-            .implementation_version = image::detail_effects_v2_implementation_version,
+            .parameter_schema_version = image::detail_effects_v3_parameter_schema_version,
+            .implementation_version = image::technical_detail_v3_implementation_version,
             .parameters = image::SharpenAdjustment{.amount = 1.0, .radius = 5.0},
         });
     }

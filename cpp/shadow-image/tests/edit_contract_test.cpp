@@ -262,6 +262,24 @@ void stable_operation_ids_are_explicit() {
         ) == image::AdjustmentFootprint{.horizontal_radius = 2, .vertical_radius = 3},
         "sharpen footprint converts level-0 sigma independently to each raster axis"
     );
+    const image::SharpenAdjustment grading_pass{
+        .execution_pass = image::DetailEffectsExecutionPass::color_grading,
+    };
+    const image::SharpenAdjustment finishing_pass{
+        .execution_pass = image::DetailEffectsExecutionPass::finishing_effects,
+    };
+    expect(
+        image::locality(image::AdjustmentParameters{grading_pass})
+            == image::AdjustmentLocality::pixel_local
+            && image::footprint(grading_pass) == image::AdjustmentFootprint{},
+        "creative color-grading pass is pixel-local and has no tile apron"
+    );
+    expect(
+        image::locality(image::AdjustmentParameters{finishing_pass})
+            == image::AdjustmentLocality::pixel_local
+            && image::footprint(finishing_pass) == image::AdjustmentFootprint{},
+        "finishing pass is pixel-local and has no tile apron"
+    );
 }
 
 void cube_lut_is_exactly_bypassable_and_blends_deterministically() {
@@ -328,8 +346,8 @@ void sharpen_is_neutral_on_identity_and_flat_fields() {
     const std::array neutral_node{
         image::AdjustmentNode{
             .node_id = "neutral-sharpen",
-            .parameter_schema_version = image::detail_effects_v2_parameter_schema_version,
-            .implementation_version = image::detail_effects_v2_implementation_version,
+            .parameter_schema_version = image::detail_effects_v3_parameter_schema_version,
+            .implementation_version = image::technical_detail_v3_implementation_version,
             .parameters = image::SharpenAdjustment{},
         },
     };
@@ -350,8 +368,8 @@ void sharpen_is_neutral_on_identity_and_flat_fields() {
     const std::array active_node{
         image::AdjustmentNode{
             .node_id = "flat-sharpen",
-            .parameter_schema_version = image::detail_effects_v2_parameter_schema_version,
-            .implementation_version = image::detail_effects_v2_implementation_version,
+            .parameter_schema_version = image::detail_effects_v3_parameter_schema_version,
+            .implementation_version = image::technical_detail_v3_implementation_version,
             .parameters = image::SharpenAdjustment{
                 .amount = 2.0,
                 .radius = 5.0,
@@ -381,8 +399,8 @@ void sharpen_emphasizes_log_luminance_without_chromatic_fringes() {
     const std::array nodes{
         image::AdjustmentNode{
             .node_id = "log-luma-unsharp",
-            .parameter_schema_version = image::detail_effects_v2_parameter_schema_version,
-            .implementation_version = image::detail_effects_v2_implementation_version,
+            .parameter_schema_version = image::detail_effects_v3_parameter_schema_version,
+            .implementation_version = image::technical_detail_v3_implementation_version,
             .parameters = image::SharpenAdjustment{
                 .amount = 1.0,
                 .radius = 1.0,
@@ -494,12 +512,28 @@ void detail_effects_current_contract_is_observable_and_obsolete_contract_is_reje
     parameters.highlights_saturation = 0.2;
     parameters.grain_amount = 0.25;
     parameters.vignette_amount = -0.35;
+    auto color_grading_parameters = parameters;
+    color_grading_parameters.execution_pass = image::DetailEffectsExecutionPass::color_grading;
+    auto finishing_parameters = parameters;
+    finishing_parameters.execution_pass = image::DetailEffectsExecutionPass::finishing_effects;
     const std::array current_nodes{
         image::AdjustmentNode{
-            .node_id = "detail-effects-current",
-            .parameter_schema_version = image::detail_effects_v2_parameter_schema_version,
-            .implementation_version = image::detail_effects_v2_implementation_version,
+            .node_id = "technical-detail-current",
+            .parameter_schema_version = image::detail_effects_v3_parameter_schema_version,
+            .implementation_version = image::technical_detail_v3_implementation_version,
             .parameters = parameters,
+        },
+        image::AdjustmentNode{
+            .node_id = "color-grading-current",
+            .parameter_schema_version = image::detail_effects_v3_parameter_schema_version,
+            .implementation_version = image::color_grading_v3_implementation_version,
+            .parameters = color_grading_parameters,
+        },
+        image::AdjustmentNode{
+            .node_id = "finishing-effects-current",
+            .parameter_schema_version = image::detail_effects_v3_parameter_schema_version,
+            .implementation_version = image::finishing_effects_v3_implementation_version,
+            .parameters = finishing_parameters,
         },
     };
     const auto output = image::execute_adjustment_nodes(input, current_nodes);
@@ -515,13 +549,13 @@ void detail_effects_current_contract_is_observable_and_obsolete_contract_is_reje
     );
 
     auto obsolete_node = current_nodes;
-    obsolete_node[0].parameter_schema_version = image::adjustment_parameter_schema_version;
-    obsolete_node[0].implementation_version = image::adjustment_implementation_version;
+    obsolete_node[0].parameter_schema_version = image::detail_effects_v2_parameter_schema_version;
+    obsolete_node[0].implementation_version = image::detail_effects_v2_implementation_version;
     expect_edit_error(
         [&] { image::validate_adjustment_nodes(obsolete_node); },
         image::EditErrorCode::unsupported_version,
         0U,
-        "an obsolete Detail & Effects contract is rejected instead of upgraded"
+        "an obsolete monolithic Detail & Effects contract is rejected instead of upgraded"
     );
 }
 
@@ -538,8 +572,8 @@ void purple_and_green_defringe_ranges_are_independent() {
     const std::array purple_nodes{
         image::AdjustmentNode{
             .node_id = "purple-defringe",
-            .parameter_schema_version = image::detail_effects_v2_parameter_schema_version,
-            .implementation_version = image::detail_effects_v2_implementation_version,
+            .parameter_schema_version = image::detail_effects_v3_parameter_schema_version,
+            .implementation_version = image::technical_detail_v3_implementation_version,
             .parameters = purple_parameters,
         },
     };
@@ -563,8 +597,8 @@ void purple_and_green_defringe_ranges_are_independent() {
     const std::array green_nodes{
         image::AdjustmentNode{
             .node_id = "green-defringe",
-            .parameter_schema_version = image::detail_effects_v2_parameter_schema_version,
-            .implementation_version = image::detail_effects_v2_implementation_version,
+            .parameter_schema_version = image::detail_effects_v3_parameter_schema_version,
+            .implementation_version = image::technical_detail_v3_implementation_version,
             .parameters = green_parameters,
         },
     };
@@ -589,8 +623,8 @@ void purple_and_green_defringe_ranges_are_independent() {
     const std::array invalid_nodes{
         image::AdjustmentNode{
             .node_id = "invalid-defringe-range",
-            .parameter_schema_version = image::detail_effects_v2_parameter_schema_version,
-            .implementation_version = image::detail_effects_v2_implementation_version,
+            .parameter_schema_version = image::detail_effects_v3_parameter_schema_version,
+            .implementation_version = image::technical_detail_v3_implementation_version,
             .parameters = invalid_parameters,
         },
     };
@@ -617,11 +651,12 @@ void global_effect_coordinates_are_tile_invariant() {
     parameters.vignette_amount = -0.6;
     parameters.vignette_midpoint = 0.35;
     parameters.vignette_roundness = 0.25;
+    parameters.execution_pass = image::DetailEffectsExecutionPass::finishing_effects;
     const std::array nodes{
         image::AdjustmentNode{
             .node_id = "global-effects",
-            .parameter_schema_version = image::detail_effects_v2_parameter_schema_version,
-            .implementation_version = image::detail_effects_v2_implementation_version,
+            .parameter_schema_version = image::detail_effects_v3_parameter_schema_version,
+            .implementation_version = image::finishing_effects_v3_implementation_version,
             .parameters = parameters,
         },
     };
@@ -1695,8 +1730,8 @@ void new_adjustment_bounds_are_validated_without_pixels() {
         },
         image::AdjustmentNode{
             .node_id = "sharpen-edges",
-            .parameter_schema_version = image::detail_effects_v2_parameter_schema_version,
-            .implementation_version = image::detail_effects_v2_implementation_version,
+            .parameter_schema_version = image::detail_effects_v3_parameter_schema_version,
+            .implementation_version = image::technical_detail_v3_implementation_version,
             .parameters = image::SharpenAdjustment{
                 .amount = 2.0,
                 .radius = 5.0,
@@ -1764,8 +1799,8 @@ void new_adjustment_bounds_are_validated_without_pixels() {
     const std::array invalid_sharpen{
         image::AdjustmentNode{
             .node_id = "invalid-disabled-sharpen",
-            .parameter_schema_version = image::detail_effects_v2_parameter_schema_version,
-            .implementation_version = image::detail_effects_v2_implementation_version,
+            .parameter_schema_version = image::detail_effects_v3_parameter_schema_version,
+            .implementation_version = image::technical_detail_v3_implementation_version,
             .enabled = false,
             .parameters = image::SharpenAdjustment{.amount = 2.0001},
         },
