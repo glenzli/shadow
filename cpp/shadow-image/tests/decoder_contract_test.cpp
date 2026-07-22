@@ -3,6 +3,7 @@
 #include <shadow/image/edit.hpp>
 #include <shadow/image/optics.hpp>
 #include <shadow/image/private_decoder_plugin.hpp>
+#include <shadow/image/raw_development.hpp>
 
 #include <algorithm>
 #include <array>
@@ -92,9 +93,199 @@ void raw_development_receipt_is_explicitly_absent_until_a_provider_records_it() 
         "generic processed RGB never pretends to carry RAW provenance"
     );
     expect(
-        image::raw_development_receipt_schema_version == 1U,
+        image::raw_development_receipt_schema_version == 2U,
         "RAW development receipt schema is explicitly versioned"
     );
+}
+
+void raw_frame_is_owned_unprocessed_and_bayer_guarded() {
+    image::RawFrame frame;
+    frame.descriptor.schema_version = image::raw_frame_schema_version;
+    frame.descriptor.storage_dimensions = {4U, 2U};
+    frame.descriptor.active_dimensions = {4U, 2U};
+    frame.descriptor.sample_encoding = image::RawFrameSampleEncoding::uint16_native;
+    frame.descriptor.cfa_layout = image::RawFrameCfaLayout::bayer_2x2;
+    frame.descriptor.bayer_2x2 = {
+        image::RawCfaColor::red,
+        image::RawCfaColor::green,
+        image::RawCfaColor::green,
+        image::RawCfaColor::blue,
+    };
+    frame.descriptor.cfa_pattern = "RGGB";
+    frame.descriptor.bits_per_sample = 14U;
+    frame.descriptor.black_levels = {512U, 510U, 511U, 508U};
+    frame.descriptor.white_levels = {16'383U, 16'383U, 16'383U, 16'383U};
+    frame.samples = {512U, 600U, 700U, 800U, 900U, 1'000U, 1'100U, 1'200U};
+    expect(frame.valid(), "a complete owned RAW frame validates before any sensor processing");
+    expect(frame.is_bayer_2x2(), "Bayer stages require an explicit two-by-two CFA layout");
+
+    auto unknown_layout = frame;
+    unknown_layout.descriptor.cfa_layout = image::RawFrameCfaLayout::unknown;
+    expect(
+        unknown_layout.valid() && !unknown_layout.is_bayer_2x2(),
+        "an unknown CFA remains inspectable but cannot enter a Bayer-only algorithm"
+    );
+
+    auto truncated = frame;
+    truncated.samples.pop_back();
+    expect(!truncated.valid(), "RAW frame validation rejects a non-owned/truncated sample plane");
+}
+
+void bayer_bilinear_demosaic_keeps_the_sensor_domain_explicit() {
+    image::RawFrame frame;
+    frame.descriptor.schema_version = image::raw_frame_schema_version;
+    frame.descriptor.storage_dimensions = {4U, 4U};
+    frame.descriptor.active_dimensions = {4U, 4U};
+    frame.descriptor.sample_encoding = image::RawFrameSampleEncoding::uint16_native;
+    frame.descriptor.cfa_layout = image::RawFrameCfaLayout::bayer_2x2;
+    frame.descriptor.bayer_2x2 = {
+        image::RawCfaColor::red,
+        image::RawCfaColor::green,
+        image::RawCfaColor::green,
+        image::RawCfaColor::blue,
+    };
+    frame.descriptor.cfa_pattern = "RGGB";
+    frame.descriptor.bits_per_sample = 12U;
+    frame.descriptor.black_levels = {100U, 100U, 100U, 100U};
+    frame.descriptor.white_levels = {1'100U, 1'100U, 1'100U, 1'100U};
+    frame.samples.resize(16U);
+    for (std::uint32_t y = 0U; y < 4U; ++y) {
+        for (std::uint32_t x = 0U; x < 4U; ++x) {
+            const auto color = frame.descriptor.bayer_2x2[(y & 1U) * 2U + (x & 1U)];
+            frame.samples[static_cast<std::size_t>(y) * 4U + x] = color == image::RawCfaColor::red
+                ? 300U
+                : color == image::RawCfaColor::green ? 500U : 900U;
+        }
+    }
+    expect(frame.valid(), "constant Bayer fixture is a valid unprocessed RAW frame");
+
+    const auto output = image::demosaic_bayer_bilinear(frame);
+    expect(output.valid(), "bilinear Bayer demosaic produces a valid camera-linear RGB frame");
+    expect(
+        output.receipt.algorithm == image::RawDemosaicAlgorithm::bayer_bilinear_v1
+            && output.receipt.black_subtraction_applied
+            && output.receipt.white_level_normalization_applied
+            && !output.receipt.white_balance_applied
+            && !output.receipt.dng_opcodes_applied,
+        "Bayer demosaic receipt never overclaims white balance or DNG opcode application"
+    );
+    for (std::size_t pixel = 0U; pixel < 16U; ++pixel) {
+        const auto index = pixel * 3U;
+        expect(
+            std::abs(output.samples[index] - 0.2F) < 1.0e-6F
+                && std::abs(output.samples[index + 1U] - 0.4F) < 1.0e-6F
+                && std::abs(output.samples[index + 2U] - 0.8F) < 1.0e-6F,
+            "bilinear Bayer reconstruction preserves per-CFA black/white normalized camera RGB"
+        );
+    }
+
+    auto non_bayer = frame;
+    non_bayer.descriptor.cfa_layout = image::RawFrameCfaLayout::unknown;
+    try {
+        static_cast<void>(image::demosaic_bayer_bilinear(non_bayer));
+        expect(false, "Bayer demosaic must reject an unknown CFA layout");
+    } catch (const image::DecodeError& error) {
+        expect(
+            error.code() == image::DecodeErrorCode::unsupported_layout,
+            "unknown CFA layout is rejected before Bayer processing"
+        );
+    }
+}
+
+void raw_development_plan_is_canonical_and_capability_negotiated() {
+    const auto detail = image::default_raw_development_plan();
+    const auto preview = image::preview_raw_development_plan();
+    expect(
+        detail.intent == image::RawDevelopmentIntent::detail
+            && detail.quality == image::RawDevelopmentQuality::balanced
+            && detail.dng_opcode_policy == image::DngOpcodePolicy::provider_default,
+        "default RAW development plan is a neutral full-detail provider request"
+    );
+    expect(
+        preview.intent == image::RawDevelopmentIntent::preview
+            && preview.quality == detail.quality
+            && preview.dng_opcode_policy == detail.dng_opcode_policy,
+        "preview RAW development plan changes intent without changing source policy"
+    );
+    expect(
+        image::raw_development_plan_identity(detail)
+            == "shadow-raw-plan-v1;intent=detail;quality=balanced;opcodes=provider-default;nr=provider-default;highlights=provider-default",
+        "RAW development plan identity is canonical and cache-visible"
+    );
+
+    image::RawDevelopmentCapabilities capabilities;
+    capabilities.schema_version = image::raw_development_capabilities_schema_version;
+    capabilities.available = true;
+    capabilities.supported_intents = image::raw_development_intent_mask(
+        image::RawDevelopmentIntent::preview
+    ) | image::raw_development_intent_mask(image::RawDevelopmentIntent::detail);
+    capabilities.supported_qualities = image::raw_development_quality_mask(
+        image::RawDevelopmentQuality::balanced
+    );
+    capabilities.supported_dng_opcode_policies = image::dng_opcode_policy_mask(
+        image::DngOpcodePolicy::provider_default
+    );
+    capabilities.supported_noise_reduction_intents = image::raw_noise_reduction_intent_mask(
+        image::RawNoiseReductionIntent::provider_default
+    );
+    capabilities.supported_highlight_recovery_intents =
+        image::raw_highlight_recovery_intent_mask(
+            image::RawHighlightRecoveryIntent::provider_default
+        );
+    const auto accepted = image::negotiate_raw_development_plan(detail, capabilities);
+    expect(
+        accepted.accepted() && accepted.exact() && accepted.requested == detail
+            && accepted.effective == detail,
+        "capability negotiation accepts an exactly supported RAW plan"
+    );
+
+    auto unsupported_quality = detail;
+    unsupported_quality.quality = image::RawDevelopmentQuality::high;
+    const auto quality_rejected = image::negotiate_raw_development_plan(
+        unsupported_quality,
+        capabilities
+    );
+    expect(
+        !quality_rejected.accepted()
+            && image::raw_development_plan_aspect_contains(
+                quality_rejected.unresolved,
+                image::RawDevelopmentPlanAspect::quality
+            ),
+        "a provider cannot silently substitute an unsupported RAW quality tier"
+    );
+
+    auto unsupported_opcode_policy = detail;
+    unsupported_opcode_policy.dng_opcode_policy = image::DngOpcodePolicy::require_applied;
+    const auto opcode_rejected = image::negotiate_raw_development_plan(
+        unsupported_opcode_policy,
+        capabilities
+    );
+    expect(
+        !opcode_rejected.accepted()
+            && image::raw_development_plan_aspect_contains(
+                opcode_rejected.unresolved,
+                image::RawDevelopmentPlanAspect::dng_opcode_policy
+            ),
+        "a provider cannot silently claim required DNG opcode application"
+    );
+
+    auto future_schema = detail;
+    future_schema.schema_version += 1U;
+    const auto schema_rejected = image::negotiate_raw_development_plan(future_schema, capabilities);
+    expect(
+        !schema_rejected.accepted()
+            && image::raw_development_plan_aspect_contains(
+                schema_rejected.unresolved,
+                image::RawDevelopmentPlanAspect::schema
+            ),
+        "unknown RAW development plan schemas fail closed"
+    );
+    try {
+        static_cast<void>(image::raw_development_plan_identity(future_schema));
+        expect(false, "unknown RAW development plan schemas cannot produce a cache identity");
+    } catch (const std::invalid_argument&) {
+        expect(true, "invalid RAW plan identity reports an invalid argument");
+    }
 }
 
 void icc_color_management_is_content_addressed_and_transfer_aware() {
@@ -166,6 +357,8 @@ void icc_color_management_is_content_addressed_and_transfer_aware() {
 void private_decoder_plugin_abi_is_explicit_and_fail_closed() {
     const image::PrivateDecoderPluginDescriptor valid{
         .abi_version = image::private_decoder_plugin_abi_version,
+        .raw_development_plan_schema_version = image::raw_development_plan_schema_version,
+        .raw_frame_schema_version = image::raw_frame_schema_version,
         .plugin_id = "nikon-local",
         .plugin_version = "0.1.0",
     };
@@ -200,6 +393,30 @@ void private_decoder_plugin_abi_is_explicit_and_fail_closed() {
         );
     }
 
+    auto legacy_plan_schema = valid;
+    legacy_plan_schema.raw_development_plan_schema_version -= 1U;
+    try {
+        image::validate_private_decoder_plugin_descriptor(legacy_plan_schema);
+        expect(false, "private decoder plan schema must be rejected before provider construction");
+    } catch (const image::DecodeError& error) {
+        expect(
+            error.code() == image::DecodeErrorCode::unsupported,
+            "private decoder plan schema mismatch reports unsupported"
+        );
+    }
+
+    auto legacy_raw_frame_schema = valid;
+    legacy_raw_frame_schema.raw_frame_schema_version -= 1U;
+    try {
+        image::validate_private_decoder_plugin_descriptor(legacy_raw_frame_schema);
+        expect(false, "private decoder RAW frame schema must be rejected before construction");
+    } catch (const image::DecodeError& error) {
+        expect(
+            error.code() == image::DecodeErrorCode::unsupported,
+            "private decoder RAW frame schema mismatch fails closed as unsupported"
+        );
+    }
+
     auto invalid_id = valid;
     invalid_id.plugin_id = "vendor sdk";
     try {
@@ -220,13 +437,36 @@ void private_decoder_plugin_loads_an_explicit_local_module() {
         "private plugin identity remains namespaced by its explicit local module"
     );
     expect(
-        provider->info().version == "1.0.0;shadow-private-abi-v2;1.0.0",
-        "private plugin version and host ABI participate in provider identity"
+        provider->info().version.starts_with("1.0.0;abi=4;plan=1;frame=1;wrapped=")
+            && provider->info().version.size() <= 128U,
+        "private plugin version, ABI and wrapped-provider cache identity stay bounded"
     );
     const auto session = provider->open("does-not-need-to-exist.raw");
     expect(
         session->metadata().model == "Private decoder test fixture",
         "private provider session stays callable through the host adapter"
+    );
+    expect(
+        session->raw_development_capabilities().available
+            && session->raw_development_capabilities().raw_frame
+            && session->raw_development_capabilities().supports(
+                image::default_raw_development_plan()
+            ),
+        "private provider exposes plan capability negotiation through the host adapter"
+    );
+    const auto raw_frame = session->decode_raw_frame();
+    expect(
+        raw_frame.valid()
+            && raw_frame.is_bayer_2x2()
+            && raw_frame.samples == std::vector<std::uint16_t>({1'024U, 1'100U, 1'100U, 900U})
+            && raw_frame.descriptor.has_camera_to_xyz_d50
+            && raw_frame.descriptor.camera_to_xyz_d50
+                == std::array<double, 9U>{
+                    0.70, 0.20, 0.10,
+                    0.10, 0.80, 0.10,
+                    0.05, 0.15, 0.80,
+                },
+        "private plugin RawFrame crosses the local ABI with CFA calibration intact"
     );
     const auto pixels = session->render_reference_rgb();
     expect(
@@ -241,6 +481,15 @@ void private_decoder_plugin_loads_an_explicit_local_module() {
             && pixels.raw_development_receipt.library_version == "private-fixture-sdk",
         "private plugin receipts are bound to the host provider identity without hiding SDK detail"
     );
+    const auto explicit_detail_plan = image::default_raw_development_plan();
+    const auto explicit_detail = session->render_reference_rgb(explicit_detail_plan);
+    expect(
+        explicit_detail.raw_development_receipt.requested_plan == explicit_detail_plan
+            && explicit_detail.raw_development_receipt.effective_plan == explicit_detail_plan
+            && explicit_detail.raw_development_receipt.requested_plan_identity
+                == image::raw_development_plan_identity(explicit_detail_plan),
+        "private provider plan render binds an auditable requested and effective plan receipt"
+    );
     const auto preview_pixels = session->render_reference_rgb_for_preview(1U);
     expect(
         preview_pixels.dimensions == image::Dimensions{1U, 1U}
@@ -249,8 +498,61 @@ void private_decoder_plugin_loads_an_explicit_local_module() {
                 == "private.test-private-provider.fixture",
         "private plugin fast preview is forwarded instead of falling back to full RGB"
     );
+    const auto explicit_preview_plan = image::preview_raw_development_plan();
+    const auto explicit_preview = session->render_reference_rgb_for_preview(
+        1U,
+        explicit_preview_plan
+    );
+    expect(
+        explicit_preview.raw_development_receipt.requested_plan == explicit_preview_plan
+            && explicit_preview.raw_development_receipt.half_size,
+        "private provider plan-aware preview retains preview intent in its receipt"
+    );
+    auto unsupported_quality = explicit_detail_plan;
+    unsupported_quality.quality = image::RawDevelopmentQuality::high;
+    try {
+        static_cast<void>(session->render_reference_rgb(unsupported_quality));
+        expect(false, "private provider must reject a RAW plan it did not negotiate");
+    } catch (const image::DecodeError& error) {
+        expect(
+            error.code() == image::DecodeErrorCode::unsupported,
+            "private provider rejects unsupported RAW plan quality before rendering"
+        );
+    }
 #else
     expect(false, "private decoder plugin test target path must be configured");
+#endif
+}
+
+void private_decoder_router_prefers_an_explicit_local_module() {
+#if defined(SHADOW_TEST_PRIVATE_DECODER_PLUGIN_PATH) \
+    && defined(SHADOW_TEST_LIBRAW_DUMMY_PRIVATE_DECODER_PLUGIN_PATH)
+    const auto router = image::make_photo_decoder_provider(
+        SHADOW_TEST_PRIVATE_DECODER_PLUGIN_PATH
+    );
+    expect(
+        router->info().version.find(";private=") != std::string::npos,
+        "photo router includes an explicit private provider in its cache identity"
+    );
+    expect(
+        router->info().version.find(";private_module=") != std::string::npos,
+        "photo router includes the local private module fingerprint in its cache identity"
+    );
+    const auto fixture_session = router->open("fixture-private-provider.raw");
+    expect(
+        fixture_session->metadata().model == "Private decoder test fixture",
+        "photo router tries the explicit private provider before LibRaw for RAW sources"
+    );
+
+    const auto dummy = image::load_private_decoder_plugin(
+        SHADOW_TEST_LIBRAW_DUMMY_PRIVATE_DECODER_PLUGIN_PATH
+    );
+    expect(
+        dummy->info().id == "private.libraw-dummy.libraw",
+        "LibRaw dummy provider loads through the same private module contract"
+    );
+#else
+    expect(false, "private decoder router fixture paths must be configured");
 #endif
 }
 
@@ -513,8 +815,8 @@ public:
         throw image::DecodeError(image::DecodeErrorCode::no_preview, 0, "no preview");
     }
 
-    [[nodiscard]] image::MosaicBuffer decode_mosaic() override {
-        throw image::DecodeError(image::DecodeErrorCode::unsupported, 0, "no mosaic");
+    [[nodiscard]] image::RawFrame decode_raw_frame() override {
+        throw image::DecodeError(image::DecodeErrorCode::unsupported, 0, "no RAW frame");
     }
 
     [[nodiscard]] image::PixelBuffer render_reference_rgb() const override {
@@ -640,8 +942,8 @@ public:
         throw image::DecodeError(image::DecodeErrorCode::no_preview, 0, "no preview");
     }
 
-    [[nodiscard]] image::MosaicBuffer decode_mosaic() override {
-        throw image::DecodeError(image::DecodeErrorCode::unsupported, 0, "no mosaic");
+    [[nodiscard]] image::RawFrame decode_raw_frame() override {
+        throw image::DecodeError(image::DecodeErrorCode::unsupported, 0, "no RAW frame");
     }
 
     [[nodiscard]] image::PixelBuffer render_reference_rgb() const override {
@@ -707,8 +1009,8 @@ public:
         throw image::DecodeError(image::DecodeErrorCode::no_preview, 0, "no preview");
     }
 
-    [[nodiscard]] image::MosaicBuffer decode_mosaic() override {
-        throw image::DecodeError(image::DecodeErrorCode::unsupported, 0, "no mosaic");
+    [[nodiscard]] image::RawFrame decode_raw_frame() override {
+        throw image::DecodeError(image::DecodeErrorCode::unsupported, 0, "no RAW frame");
     }
 
     [[nodiscard]] image::PixelBuffer render_reference_rgb() const override {
@@ -723,12 +1025,18 @@ private:
 
 void raw_development_receipt_survives_prepared_edit_sessions() {
     auto source = optics_reference_buffer(8U, 4U);
+    const auto source_plan = image::default_raw_development_plan();
     source.raw_development_receipt = image::RawDevelopmentReceipt{
         .schema_version = image::raw_development_receipt_schema_version,
         .provider_id = "fixture-provider",
         .provider_version = "fixture-provider-v1",
         .library_version = "fixture-library-v1",
         .development_settings_signature = "fixture-request-v1",
+        .requested_plan_identity = image::raw_development_plan_identity(source_plan),
+        .effective_plan_identity = image::raw_development_plan_identity(source_plan),
+        .requested_plan = source_plan,
+        .effective_plan = source_plan,
+        .plan_negotiation_status = image::RawDevelopmentPlanNegotiationStatus::accepted,
         .processed_linear_reference_contract_version = 7U,
         .declared_image_dimensions = {8U, 4U},
         .rendered_dimensions = {8U, 4U},
@@ -759,7 +1067,8 @@ void raw_development_receipt_survives_prepared_edit_sessions() {
             && detail.raw_development_receipt().provider_version == "fixture-provider-v1"
             && detail.raw_development_receipt().orientation == 5
             && detail.raw_development_receipt().rendered_dimensions
-                == image::Dimensions{8U, 4U},
+                == image::Dimensions{8U, 4U}
+            && detail.raw_development_receipt().effective_plan == source_plan,
         "full-detail preparation retains RAW development provenance with its source raster"
     );
 
@@ -1226,8 +1535,16 @@ void provider_identity_versions_shadow_pixel_contracts() {
         "provider identity versions the processed-linear reference RGB contract"
     );
     expect(
-        version.find("receipt=1") != std::string_view::npos,
+        version.find("receipt=2") != std::string_view::npos,
         "provider identity versions RAW-development provenance semantics"
+    );
+    expect(
+        version.find("plan=1") != std::string_view::npos,
+        "provider identity versions the RAW development plan contract"
+    );
+    expect(
+        version.find("frame=1") != std::string_view::npos,
+        "provider identity versions the owned RAW frame contract"
     );
     expect(
         version.find("display=5") != std::string_view::npos,
@@ -1248,8 +1565,8 @@ void jpeg_raster_provider_uses_the_common_non_destructive_graph() {
     );
     expect(
         session->capabilities().metadata && session->capabilities().reference_rgb
-            && !session->capabilities().mosaic,
-        "JPEG exposes metadata and editable RGB but never pretends to have a sensor mosaic"
+            && !session->capabilities().raw_frame,
+        "JPEG exposes metadata and editable RGB but never pretends to have a sensor RAW frame"
     );
     expect(
         session->previews().empty(),
@@ -1332,6 +1649,26 @@ void real_libraw_boundary_and_neutral_preview_when_configured() {
 
     const auto provider = image::make_libraw_decoder_provider();
     const auto decoder = provider->open(fixture);
+    expect(
+        decoder->capabilities().raw_frame
+            && decoder->raw_development_capabilities().raw_frame,
+        "real LibRaw RAW source advertises the owned RawFrame contract"
+    );
+    if (decoder->capabilities().raw_frame) {
+        const auto frame = decoder->decode_raw_frame();
+        expect(frame.valid(), "real LibRaw RAW frame preserves a complete owned sample plane");
+        expect(
+            frame.descriptor.storage_dimensions == decoder->metadata().raw_dimensions
+                && frame.descriptor.active_dimensions == decoder->metadata().image_dimensions
+                && frame.descriptor.active_margins == decoder->metadata().margins,
+            "real LibRaw RAW frame retains exact sensor storage and active-area geometry"
+        );
+        expect(
+            frame.descriptor.declared_pending_corrections
+                == decoder->capabilities().pending_corrections,
+            "real LibRaw RAW frame records DNG corrections without claiming they were applied"
+        );
+    }
     image::PixelBuffer decoded = decoder->render_reference_rgb();
     expect(decoded.bits_per_channel == 16U, "real LibRaw boundary returns 16-bit samples");
     expect(
@@ -1364,6 +1701,21 @@ void real_libraw_boundary_and_neutral_preview_when_configured() {
             ),
         "receipt carries the exact development settings signature"
     );
+    const auto default_plan = image::default_raw_development_plan();
+    expect(
+        decoder->raw_development_capabilities().available
+            && decoder->raw_development_capabilities().supports(default_plan)
+            && decoder->negotiate_raw_development_plan(default_plan).exact(),
+        "LibRaw advertises the exact provider-neutral RAW plan it can satisfy"
+    );
+    expect(
+        receipt.requested_plan == default_plan && receipt.effective_plan == default_plan
+            && receipt.requested_plan_identity == image::raw_development_plan_identity(default_plan)
+            && receipt.effective_plan_identity == image::raw_development_plan_identity(default_plan)
+            && receipt.plan_negotiation_status
+                == image::RawDevelopmentPlanNegotiationStatus::accepted,
+        "LibRaw receipt records the exact effective RAW development plan"
+    );
     expect(
         receipt.processed_linear_reference_contract_version
             == image::processed_linear_reference_rgb_contract_version,
@@ -1390,6 +1742,15 @@ void real_libraw_boundary_and_neutral_preview_when_configured() {
         receipt.declared_dng_opcode_lists == decoder->capabilities().pending_corrections,
         "receipt preserves declared DNG opcode lists alongside LibRaw processing warnings"
     );
+    for (std::size_t index = 0U; index < receipt.dng_opcode_execution.size(); ++index) {
+        const auto expected = receipt.declared_dng_opcode_lists.dng_opcode_list_bytes[index] == 0U
+            ? image::DngOpcodeExecutionStatus::not_declared
+            : image::DngOpcodeExecutionStatus::provider_default;
+        expect(
+            receipt.dng_opcode_execution[index] == expected,
+            "LibRaw receipt never overclaims DNG opcode application"
+        );
+    }
 
     RetainedRgbSession retained(std::move(decoded), decoder->metadata());
     const std::uint32_t source_edge = std::max(
@@ -1424,9 +1785,13 @@ void real_libraw_boundary_and_neutral_preview_when_configured() {
 int main() {
     pending_corrections_are_explicit();
     raw_development_receipt_is_explicitly_absent_until_a_provider_records_it();
+    raw_frame_is_owned_unprocessed_and_bayer_guarded();
+    bayer_bilinear_demosaic_keeps_the_sensor_domain_explicit();
+    raw_development_plan_is_canonical_and_capability_negotiated();
     icc_color_management_is_content_addressed_and_transfer_aware();
     private_decoder_plugin_abi_is_explicit_and_fail_closed();
     private_decoder_plugin_loads_an_explicit_local_module();
+    private_decoder_router_prefers_an_explicit_local_module();
     optics_settings_are_explicit_and_provider_safe();
     lensfun_adapter_applies_a_real_profile_when_a_test_database_is_available();
     optics_runs_before_preview_and_full_detail_preparation();

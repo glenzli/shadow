@@ -222,19 +222,6 @@ Item {
                         Layout.preferredHeight: 5
                         radius: 3
                         color: root.updating ? root.accentColor : Theme.textPlaceholder
-
-                        SequentialAnimation on opacity {
-                            running: root.updating
-                            loops: Animation.Infinite
-                            NumberAnimation {
-                                to: 0.25
-                                duration: 480
-                            }
-                            NumberAnimation {
-                                to: 1.0
-                                duration: 480
-                            }
-                        }
                     }
 
                     Label {
@@ -271,7 +258,12 @@ Item {
 
                     anchors.fill: parent
                     anchors.margins: 4
-                    opacity: root.presentationStale ? 0.48 : root.updating ? 0.68 : 1.0
+                    // Keep the last complete analysis visually stable while a
+                    // replacement proxy is rendering. A full-panel opacity
+                    // transition made every slider update look like the
+                    // inspector itself was flashing; the compact status badge
+                    // above already communicates that the values are pending.
+                    opacity: 1.0
                     visible: root.hasData
 
                     onWidthChanged: requestPaint()
@@ -350,7 +342,11 @@ Item {
                 Layout.leftMargin: 7
                 Layout.rightMargin: 7
                 spacing: 5
-                opacity: root.presentationStale ? 0.48 : root.updating ? 0.68 : 1.0
+                // These badges describe the same last complete analysis as
+                // the plot. Do not pulse or dim them for a transient next
+                // generation; that produces a distracting brightness jump
+                // across the top of the adjustment sidebar.
+                opacity: 1.0
 
                 Rectangle {
                     id: shadowClipBadge

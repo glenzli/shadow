@@ -451,6 +451,10 @@ public:
         const QString& photo_id,
         const QString& source_path
     ) const;
+    [[nodiscard]] BackendPhotoEditState resetIncompatiblePhotoEditHistory(
+        const QString& photo_id,
+        const QString& source_path
+    ) const;
     [[nodiscard]] QVariantList opticsProfileCandidates(
         const QString& photo_id,
         const QString& source_path

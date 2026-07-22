@@ -1402,9 +1402,10 @@ mod tests {
             capabilities: DecodeCapabilitySnapshot {
                 metadata: DecodeSupport::Available,
                 embedded_previews: DecodeSupport::Unavailable,
-                mosaic: DecodeSupport::Available,
+                raw_frame: DecodeSupport::Available,
                 reference_rgb: DecodeSupport::Unavailable,
                 pending_corrections: PendingCorrectionsSnapshot::default(),
+                raw_development: Default::default(),
             },
             previews: Vec::new(),
         }

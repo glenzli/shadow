@@ -337,7 +337,7 @@ fn upsert_snapshot(
         "INSERT INTO representation_decode_snapshots(
              representation_id, provider_id, provider_version, snapshot_schema, snapshot_json,
              source_byte_len, source_modified_at_ms, inspected_at_ms, has_metadata,
-             has_embedded_previews, can_decode_mosaic, can_render_reference_rgb,
+             has_embedded_previews, can_decode_raw_frame, can_render_reference_rgb,
              has_pending_corrections
          ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
          ON CONFLICT(representation_id, provider_id) DO UPDATE SET
@@ -349,7 +349,7 @@ fn upsert_snapshot(
              inspected_at_ms = excluded.inspected_at_ms,
              has_metadata = excluded.has_metadata,
              has_embedded_previews = excluded.has_embedded_previews,
-             can_decode_mosaic = excluded.can_decode_mosaic,
+             can_decode_raw_frame = excluded.can_decode_raw_frame,
              can_render_reference_rgb = excluded.can_render_reference_rgb,
              has_pending_corrections = excluded.has_pending_corrections",
         params![
@@ -363,7 +363,7 @@ fn upsert_snapshot(
             request.inspected_at_ms,
             sqlite_bool(capabilities.metadata.is_available()),
             sqlite_bool(capabilities.embedded_previews.is_available()),
-            sqlite_bool(capabilities.mosaic.is_available()),
+            sqlite_bool(capabilities.raw_frame.is_available()),
             sqlite_bool(capabilities.reference_rgb.is_available()),
             sqlite_bool(capabilities.pending_corrections.has_pending()),
         ],
@@ -508,9 +508,10 @@ mod tests {
             capabilities: DecodeCapabilitySnapshot {
                 metadata: DecodeSupport::Available,
                 embedded_previews: DecodeSupport::Available,
-                mosaic: DecodeSupport::Available,
+                raw_frame: DecodeSupport::Available,
                 reference_rgb: DecodeSupport::Available,
                 pending_corrections: PendingCorrectionsSnapshot::default(),
+                raw_development: Default::default(),
             },
             previews: preview_ids
                 .iter()

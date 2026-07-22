@@ -10,7 +10,7 @@ DecoderProvider
    ├─ AssetMetadata
    ├─ DecodeCapabilities + PendingCorrections
    ├─ PreviewDescriptor[] → PreviewPayload
-   ├─ MosaicBuffer
+   ├─ RawFrame (owned sensor samples)
    ├─ PixelBuffer (reference RGB only)
    └─ EncodedProxy (bounded display JPEG fallback)
 ```
@@ -21,9 +21,9 @@ Rust consumes owned metadata/capability/preview snapshots, the selected embedded
 
 Current contract rules:
 
-- A file without an embedded preview is valid and can still expose mosaic/RGB capabilities.
+- A file without an embedded preview is valid and can still expose RawFrame/RGB capabilities.
 - A recognized file whose LibRaw decoder is flagged `UNSUPPORTED_FORMAT` keeps factual metadata
-  and embedded-preview capabilities but does not advertise mosaic/reference-RGB support. This is
+  and embedded-preview capabilities but does not advertise RawFrame/reference-RGB support. This is
   the expected preview-only path for Nikon Z9 HE/HE* NEF until an external provider is available.
 - Preview IDs are provider IDs, not vector positions. `select_best_preview` chooses the largest decodable candidate.
 - DNG opcode lists are surfaced as `PendingCorrections` until Shadow can prove they were applied.
@@ -35,7 +35,39 @@ Current contract rules:
 - `render_reference_proxy_jpeg` bounds the longest edge (2048, quality 95, and 4:4:4 chroma in the current recipe) and rejects unbounded requests. Its version belongs in the cache key.
 - `decode_jpeg_display_luma` is a separate analysis path over compressed display proxies. It requires 8-bit libjpeg-turbo with in-memory sources, rejects encoded inputs above 128 MiB and source headers above 65,535 per axis or 100 million pixels, applies a stricter 50-million-pixel limit to multi-scan inputs, caps libjpeg memory at 256 MiB, and bounds scaled intermediates before emitting a tightly packed normalized `float` luma plane with a caller-selected edge in 1 through 512. Corrupt-data warnings, including synthesized end-of-image recovery for truncation, fail closed.
 - A `DecodeSession` is thread-confined. Providers may be shared; parallel work should open independent sessions.
-- The current owned `MosaicBuffer` intentionally copies LibRaw memory. A later opaque/tiled buffer can remove that copy without changing metadata semantics.
+- `RawFrame` intentionally copies LibRaw memory and preserves raw-coordinate samples, active
+  margins, CFA layout, per-CFA black/white calibration, as-shot neutral, an optional explicit
+  Camera RGB -> XYZ D50 matrix, and pending DNG opcode declarations. It is explicitly
+  pre-demosaic; unsupported CFA layouts remain inspectable but cannot enter Bayer-only
+  processing. A later opaque/tiled buffer can remove this copy without changing the frame
+  semantics.
+
+### Local private-provider development path
+
+`make_photo_decoder_provider()` is the normal application route. It uses raster decoding for
+JPEG/HEIF, otherwise public LibRaw by default. A developer may set
+`SHADOW_PRIVATE_DECODER_PLUGIN_PATH` to the absolute path of one local dynamic provider module.
+That provider is tried first for non-raster inputs and has to return an explicit
+`unsupported` error before LibRaw is considered. Decode, SDK licence, data, and resource errors
+are surfaced rather than silently hidden by fallback.
+
+When `BUILD_TESTING` is enabled, CMake builds
+`shadow-image-libraw-dummy-private-provider`: a deliberately non-proprietary module that merely
+wraps Shadow's bundled LibRaw provider through exactly the same descriptor/create/destroy ABI as a
+future private camera adapter. It is intended to exercise the route end to end before any vendor
+SDK is involved:
+
+```sh
+export SHADOW_PRIVATE_DECODER_PLUGIN_PATH="$PWD/build/desktop-dev/cpp/shadow-image/libshadow-image-libraw-dummy-private-provider.so"
+./build/desktop-dev/cpp/shadow-image/shadow-raw-probe /path/to/photo.raw ./bench-results/provider-smoke
+```
+
+The probe and desktop both use `make_photo_decoder_provider()`, so the reported provider identity
+confirms whether this route was selected. The route's cache identity includes the provider's own
+version as well as a compact canonical-path/size/mtime module fingerprint, so rebuilding a local
+module invalidates old decode artifacts even if its author accidentally forgets to advance a
+version string. The module is a development fixture, not a public Nikon decoder and does not
+contain vendor code or calibration data.
 
 ## CPU edit reference
 

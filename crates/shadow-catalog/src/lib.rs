@@ -21,8 +21,8 @@ use std::{path::Path, time::Duration};
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params, types::Type};
 use shadow_domain::{
-    AssetLocation, EntityId, LocationId, LocationStatus, PhotoFlag, PhotoId, RepresentationId,
-    RepresentationKind,
+    AssetLocation, EntityId, LocationId, LocationStatus, PhotoFlag, PhotoId, RecipeCommit,
+    RepresentationId, RepresentationKind,
 };
 use thiserror::Error;
 use uuid::Uuid;
@@ -61,7 +61,7 @@ pub use technical_observation::{
 };
 pub use writer::{CatalogActor, CatalogHandle};
 
-const SCHEMA_VERSION: i64 = 12;
+const SCHEMA_VERSION: i64 = 14;
 
 const MIGRATION_V1: &str = r"
 CREATE TABLE photos (
@@ -670,6 +670,23 @@ CREATE INDEX locations_representation_status_current_idx
     ON locations(representation_id, status, created_at_ms DESC, id DESC);
 ";
 
+// Version 13 renames the persisted capability from the implementation-specific word
+// "mosaic" to the actual owned `RawFrame` contract. Existing values retain their meaning: v12
+// could only set the old bit after LibRaw had established an unpackable sensor frame.
+const MIGRATION_V13: &str = r"
+DROP INDEX representation_decode_capability_idx;
+ALTER TABLE representation_decode_snapshots
+    RENAME COLUMN can_decode_mosaic TO can_decode_raw_frame;
+CREATE INDEX representation_decode_capability_idx
+    ON representation_decode_snapshots(can_decode_raw_frame, has_embedded_previews);
+";
+
+// Version 14 repairs the derived snapshot digest for Recipe commits written before the Recipe
+// serializer reached its current canonical form. The commit JSON itself remains immutable: this
+// migration accepts only a row which parses, validates, agrees with its indexed identities, and
+// is already byte-for-byte canonical under the current serializer. It then rebuilds only the
+// redundant digest from that canonical semantic snapshot.
+
 #[derive(Debug, Error)]
 pub enum CatalogError {
     #[error("SQLite catalog error: {0}")]
@@ -1107,6 +1124,8 @@ fn migrate(connection: &mut Connection) -> rusqlite::Result<()> {
     apply_migration_if_needed(connection, 10, MIGRATION_V10)?;
     apply_migration_if_needed(connection, 11, MIGRATION_V11)?;
     apply_migration_if_needed(connection, 12, MIGRATION_V12)?;
+    apply_migration_if_needed(connection, 13, MIGRATION_V13)?;
+    rebuild_recipe_snapshot_digests_if_needed(connection)?;
 
     let final_version = current_schema_version(connection)?;
     if final_version != SCHEMA_VERSION {
@@ -1129,6 +1148,62 @@ fn apply_migration_if_needed(
     transaction.execute(
         "INSERT INTO schema_migrations(version, applied_at_ms) VALUES (?1, unixepoch('subsec') * 1000)",
         [version],
+    )?;
+    transaction.commit()
+}
+
+fn rebuild_recipe_snapshot_digests_if_needed(connection: &mut Connection) -> rusqlite::Result<()> {
+    const VERSION: i64 = 14;
+    if current_schema_version(connection)? >= VERSION {
+        return Ok(());
+    }
+
+    let transaction = connection.transaction()?;
+    let rows = {
+        let mut statement = transaction
+            .prepare("SELECT id, recipe_id, commit_json FROM recipe_commits ORDER BY id")?;
+        let rows = statement.query_map([], |row| {
+            Ok((
+                row.get::<_, Vec<u8>>(0)?,
+                row.get::<_, Vec<u8>>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()?
+    };
+
+    for (stored_id, stored_recipe_id, commit_json) in rows {
+        let Ok(commit) = serde_json::from_str::<RecipeCommit>(&commit_json) else {
+            continue;
+        };
+        if commit.validate().is_err() {
+            continue;
+        }
+        if commit.id().as_bytes().as_slice() != stored_id.as_slice()
+            || commit.recipe_id().as_bytes().as_slice() != stored_recipe_id.as_slice()
+        {
+            continue;
+        }
+        let Ok(canonical_commit_json) = serde_json::to_string(&commit) else {
+            continue;
+        };
+        if canonical_commit_json != commit_json {
+            continue;
+        }
+        let Ok(snapshot_json) = serde_json::to_vec(commit.snapshot()) else {
+            continue;
+        };
+        let digest = blake3::hash(&snapshot_json);
+        transaction.execute(
+            "UPDATE recipe_commits SET snapshot_digest = ?1 WHERE id = ?2",
+            params![digest.as_bytes().as_slice(), stored_id],
+        )?;
+    }
+
+    transaction.execute(
+        "INSERT INTO schema_migrations(version, applied_at_ms)
+         VALUES (?1, unixepoch('subsec') * 1000)",
+        [VERSION],
     )?;
     transaction.commit()
 }
@@ -1248,7 +1323,7 @@ fn non_negative_count(count: i64) -> rusqlite::Result<u64> {
 mod tests {
     use super::*;
     use shadow_ai::LearningScope;
-    use shadow_domain::Platform;
+    use shadow_domain::{Platform, RecipeCommitId, RecipeId, RecipeSnapshot};
 
     fn request(byte_len: u64, modified_at_ms: Option<i64>) -> RegisterAsset {
         RegisterAsset {
@@ -1328,7 +1403,60 @@ mod tests {
     fn migration_creates_current_schema() {
         let catalog = Catalog::open_in_memory().expect("open catalog");
 
-        assert_eq!(catalog.schema_version().expect("schema version"), 12);
+        assert_eq!(catalog.schema_version().expect("schema version"), 14);
+    }
+
+    #[test]
+    fn version_fourteen_rebuilds_a_canonical_recipe_snapshot_digest() {
+        let mut catalog = Catalog::open_in_memory().expect("open catalog");
+        let photo_id = catalog
+            .register_asset(&request(4_096, Some(1_700_000_000_000)))
+            .expect("register recipe owner photo")
+            .photo_id;
+        let commit = RecipeCommit::new(
+            RecipeCommitId::new_v7(),
+            RecipeId::new_v7(),
+            Vec::new(),
+            RecipeSnapshot::empty(),
+            None,
+            1_700_000_000_000,
+        )
+        .expect("create canonical recipe commit");
+        let record = catalog
+            .commit_recipe(&CommitRecipe {
+                photo_id,
+                commit,
+                update_refs: Vec::new(),
+            })
+            .expect("store recipe commit");
+
+        catalog
+            .connection
+            .execute(
+                "UPDATE recipe_commits SET snapshot_digest = ?1 WHERE id = ?2",
+                params![
+                    [0xA5_u8; 32].as_slice(),
+                    record.commit.id().as_bytes().as_slice()
+                ],
+            )
+            .expect("corrupt only the redundant digest");
+        catalog
+            .connection
+            .execute("DELETE FROM schema_migrations WHERE version = 14", [])
+            .expect("return fixture to the v13 migration point");
+
+        migrate(&mut catalog.connection).expect("repair canonical digest at v14");
+        let repaired = catalog
+            .recipe_commit(photo_id, record.commit.id())
+            .expect("read repaired recipe commit")
+            .expect("stored recipe commit");
+        assert_eq!(repaired.snapshot_digest, record.snapshot_digest);
+        assert_eq!(
+            catalog
+                .schema_version()
+                .expect("schema version after repair"),
+            14
+        );
     }
 
     #[test]
@@ -1344,7 +1472,7 @@ mod tests {
         migrate(&mut connection).expect("migrate v11 catalog");
         assert_eq!(
             current_schema_version(&connection).expect("current schema version"),
-            12
+            14
         );
         let indexes: i64 = connection
             .query_row(
@@ -1395,7 +1523,7 @@ mod tests {
         }
 
         let catalog = Catalog::open(&path).expect("migrate v2 catalog");
-        assert_eq!(catalog.schema_version().expect("schema version"), 12);
+        assert_eq!(catalog.schema_version().expect("schema version"), 14);
         let snapshot_tables: i64 = catalog
             .connection
             .query_row(
@@ -1436,7 +1564,7 @@ mod tests {
         migrate(&mut connection).expect("continue from v8 to current schema");
         assert_eq!(
             current_schema_version(&connection).expect("current schema version"),
-            12
+            14
         );
     }
 
@@ -1487,7 +1615,7 @@ mod tests {
         let catalog = Catalog::open(&path).expect("migrate v7 feedback catalog");
         assert_eq!(
             catalog.schema_version().expect("current schema version"),
-            12
+            14
         );
         let (stored_json, stored_digest): (String, Vec<u8>) = catalog
             .connection
@@ -1524,7 +1652,7 @@ mod tests {
 
         assert_eq!(
             current_schema_version(&connection).expect("schema version"),
-            12
+            14
         );
         let tables: i64 = connection
             .query_row(

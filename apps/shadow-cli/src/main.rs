@@ -299,10 +299,10 @@ fn print_decoder_snapshot(snapshot: &DecoderSnapshot) {
         metadata.white_level
     );
     println!(
-        "capabilities: metadata={} previews={} mosaic={} reference_rgb={} pending_opcodes={:?}",
+        "capabilities: metadata={} previews={} raw_frame={} reference_rgb={} pending_opcodes={:?}",
         capabilities.metadata.is_available(),
         capabilities.embedded_previews.is_available(),
-        capabilities.mosaic.is_available(),
+        capabilities.raw_frame.is_available(),
         capabilities.reference_rgb.is_available(),
         capabilities.pending_corrections.dng_opcode_list_bytes
     );

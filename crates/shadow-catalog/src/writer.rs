@@ -180,6 +180,7 @@ enum Message {
         SyncSender<Result<Option<RecipeRefRecord>, CatalogError>>,
     ),
     SetRecipeRef(Box<SetRecipeRef>, SyncSender<Result<(), CatalogError>>),
+    DiscardRecipeHistory(PhotoId, SyncSender<Result<usize, CatalogError>>),
     StoreEditObjectPack(
         Box<EditObjectPackWrite>,
         SyncSender<Result<StoreEditObjectPackResult, CatalogError>>,
@@ -832,6 +833,15 @@ impl CatalogHandle {
         self.request(|response| Message::SetRecipeRef(Box::new(request.clone()), response))
     }
 
+    /// Discards all editable Recipe history for a single photo.
+    ///
+    /// This is intentionally not part of normal editing. The desktop uses it
+    /// only after a user confirms that an obsolete development Recipe may be
+    /// reset to the current fixed contract.
+    pub fn discard_recipe_history(&self, photo_id: PhotoId) -> Result<usize, CatalogError> {
+        self.request(|response| Message::DiscardRecipeHistory(photo_id, response))
+    }
+
     /// Stores a topologically unordered pack of immutable edit objects through
     /// the Catalog's single writer transaction.
     ///
@@ -1295,6 +1305,9 @@ fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
             }
             Message::SetRecipeRef(request, response) => {
                 let _ = response.send(catalog.set_recipe_ref(request.as_ref()));
+            }
+            Message::DiscardRecipeHistory(photo_id, response) => {
+                let _ = response.send(catalog.discard_recipe_history(photo_id));
             }
             Message::StoreEditObjectPack(request, response) => {
                 let _ = response.send(catalog.store_edit_object_pack(request.as_ref()));

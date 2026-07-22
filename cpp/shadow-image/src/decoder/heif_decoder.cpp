@@ -536,11 +536,11 @@ public:
         throw DecodeError(DecodeErrorCode::no_preview, 0, "HEIF has no selected embedded preview");
     }
 
-    [[nodiscard]] MosaicBuffer decode_mosaic() override {
+    [[nodiscard]] RawFrame decode_raw_frame() override {
         throw DecodeError(
             DecodeErrorCode::unsupported_layout,
             0,
-            "HEIF is a rendered raster and has no sensor mosaic"
+            "HEIF is a rendered raster and has no sensor RAW frame"
         );
     }
 

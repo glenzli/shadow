@@ -531,6 +531,7 @@ dependencies = [
  "blake3",
  "cxx",
  "cxx-build",
+ "rusqlite",
  "serde",
  "serde_json",
  "shadow-ai",

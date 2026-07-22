@@ -105,11 +105,11 @@ public:
         );
     }
 
-    [[nodiscard]] image::MosaicBuffer decode_mosaic() override {
+    [[nodiscard]] image::RawFrame decode_raw_frame() override {
         throw image::DecodeError(
             image::DecodeErrorCode::unsupported,
             0,
-            "synthetic detail fixture has no mosaic"
+            "synthetic detail fixture has no RAW frame"
         );
     }
 
@@ -355,7 +355,7 @@ void processed_linear_contract_is_required_before_editing() {
 }
 
 void display_gamut_mapping_preserves_oklab_hue_with_bounded_work() {
-    static_assert(image::display_srgb8_output_transform_version == 4U);
+    static_assert(image::display_srgb8_output_transform_version == 5U);
     static_assert(image::display_srgb8_gamut_search_iterations <= 16U);
     static_assert(image::display_srgb8_maximum_oklab_chroma == 0.5);
 

@@ -13,6 +13,7 @@ Item {
     required property var captureMetadata
     signal openLutLibraryRequested()
     signal openOpticsProfileLibraryRequested()
+    signal returnToReviewRequested()
     property real zoomFactor: 1.0
     property bool fitView: true
     property bool comparisonActive: false
@@ -380,15 +381,12 @@ Item {
                 || suppressViewportTracking
                 || (!editor.detailMode && !detailImageReady))
             return
-        editor.leaveDetailMode()
         directViewportSettle.restart()
     }
 
     function setPixelZoom(value) {
         const centerX = normalizedCenterX()
         const centerY = normalizedCenterY()
-        if (editor.detailMode)
-            editor.leaveDetailMode()
         fitView = false
         comparisonActive = false
         zoomFactor = value
@@ -876,7 +874,6 @@ Item {
                     interactive: contentWidth > width || contentHeight > height
                     onMovementStarted: {
                         directViewportSettle.stop()
-                        precision.editor.leaveDetailMode()
                     }
                     onMovementEnded: precision.requestVisibleDetail()
                     onContentXChanged: precision.directViewportPositionChanged()
@@ -1299,7 +1296,6 @@ Item {
                         onPressedChanged: {
                             if (pressed) {
                                 directViewportSettle.stop()
-                                precision.editor.leaveDetailMode()
                             } else {
                                 Qt.callLater(precision.requestVisibleDetail)
                             }
@@ -1310,7 +1306,6 @@ Item {
                         onPressedChanged: {
                             if (pressed) {
                                 directViewportSettle.stop()
-                                precision.editor.leaveDetailMode()
                             } else {
                                 Qt.callLater(precision.requestVisibleDetail)
                             }
@@ -1373,7 +1368,7 @@ Item {
                 radius: 4
                 visible: !precision.comparisonActive && !precision.fitView
                     && precision.zoomFactor >= 1.0
-                    && (precision.editor.detailRendering
+                    && ((precision.editor.detailRendering && !precision.detailImageReady)
                         || precision.editor.detailErrorText.length > 0
                         || precision.detailImageLoadFailed)
                 color: Theme.previewHudStrongOverlay
@@ -1390,6 +1385,7 @@ Item {
                         width: 14
                         height: 14
                         visible: precision.editor.detailRendering
+                            && !precision.detailImageReady
                         running: visible
                     }
                     Label {
@@ -1686,10 +1682,73 @@ Item {
                                         Layout.fillWidth: true
                                         Layout.leftMargin: 14
                                         Layout.rightMargin: 14
-                                        text: qsTr("One complete, non-destructive grade. Its Light, Tone, and Color adjustments travel together when this node is copied, shared, or versioned.")
+                                        text: qsTr("One complete, non-destructive adjustment. Light, tone, and color settings travel together when this node is copied, shared, or versioned.")
                                         color: precision.textMuted
                                         font.pixelSize: 10
                                         wrapMode: Text.WordWrap
+                                    }
+
+                                    ShadowAdjustmentSection {
+                                        Layout.fillWidth: true
+                                        title: qsTr("WHITE BALANCE")
+
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 14
+                                            Layout.rightMargin: 14
+                                            spacing: 6
+                                            Item { Layout.fillWidth: true }
+                                            ShadowIconButton {
+                                                source: "qrc:/icons/eyedropper.svg"
+                                                selected: precision.editor.whiteBalancePickerActive
+                                                toolTipText: qsTr("Pick a neutral area for White Balance")
+                                                accessibleName: toolTipText
+                                                onClicked: precision.editor.setWhiteBalancePickerActive(
+                                                    !precision.editor.whiteBalancePickerActive)
+                                            }
+                                        }
+
+                                        ShadowSlider {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 14
+                                            Layout.rightMargin: 14
+                                            label: qsTr("Temperature")
+                                            from: -1.0
+                                            to: 1.0
+                                            neutralValue: 0.0
+                                            stepSize: 0.005
+                                            decimals: 0
+                                            displayMultiplier: 100
+                                            value: precision.editor.whiteBalanceTemperature
+                                            semanticTrack: true
+                                            trackStartColor: "#3979dc"
+                                            trackMiddleColor: Theme.track
+                                            trackEndColor: "#e49a3a"
+                                            onGestureStarted: precision.editor.beginParameterEdit("white_balance_temperature")
+                                            onEdited: value => precision.editor.whiteBalanceTemperature = value
+                                            onGestureFinished: precision.editor.endParameterEdit("white_balance_temperature")
+                                        }
+
+                                        ShadowSlider {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 14
+                                            Layout.rightMargin: 14
+                                            label: qsTr("Tint")
+                                            from: -1.0
+                                            to: 1.0
+                                            neutralValue: 0.0
+                                            stepSize: 0.005
+                                            decimals: 0
+                                            displayMultiplier: 100
+                                            value: precision.editor.whiteBalanceTint
+                                            semanticTrack: true
+                                            trackStartColor: "#48a56a"
+                                            trackMiddleColor: Theme.track
+                                            trackEndColor: "#c65ab4"
+                                            onGestureStarted: precision.editor.beginParameterEdit("white_balance_tint")
+                                            onEdited: value => precision.editor.whiteBalanceTint = value
+                                            onGestureFinished: precision.editor.endParameterEdit("white_balance_tint")
+                                        }
                                     }
 
                                     ShadowAdjustmentSection {
@@ -1759,25 +1818,6 @@ Item {
 
                                     ShadowAdjustmentSection {
                                         Layout.fillWidth: true
-                                        title: qsTr("TONE CURVE")
-
-                                        ToneCurveEditor {
-                                            Layout.fillWidth: true
-                                            Layout.leftMargin: 14
-                                            Layout.rightMargin: 14
-                                            Layout.preferredHeight: implicitHeight
-                                            controller: precision.editor
-                                            panelColor: precision.panelRaised
-                                            plotColor: Theme.chrome
-                                            borderColor: precision.border
-                                            textColor: precision.textPrimary
-                                            mutedTextColor: precision.textMuted
-                                            accentColor: precision.accent
-                                        }
-                                    }
-
-                                    ShadowAdjustmentSection {
-                                        Layout.fillWidth: true
                                         title: qsTr("COLOR")
                                         expanded: true
 
@@ -1818,64 +1858,20 @@ Item {
 
                                     ShadowAdjustmentSection {
                                         Layout.fillWidth: true
-                                        title: qsTr("WHITE BALANCE")
+                                        title: qsTr("TONE CURVE")
 
-                                        RowLayout {
+                                        ToneCurveEditor {
                                             Layout.fillWidth: true
                                             Layout.leftMargin: 14
                                             Layout.rightMargin: 14
-                                            spacing: 6
-                                            Item { Layout.fillWidth: true }
-                                            ShadowIconButton {
-                                                source: "qrc:/icons/eyedropper.svg"
-                                                selected: precision.editor.whiteBalancePickerActive
-                                                toolTipText: qsTr("Pick a neutral area for White Balance")
-                                                accessibleName: toolTipText
-                                                onClicked: precision.editor.setWhiteBalancePickerActive(
-                                                    !precision.editor.whiteBalancePickerActive)
-                                            }
-                                        }
-
-                                        ShadowSlider {
-                                            Layout.fillWidth: true
-                                            Layout.leftMargin: 14
-                                            Layout.rightMargin: 14
-                                            label: qsTr("Temperature")
-                                            from: -1.0
-                                            to: 1.0
-                                            neutralValue: 0.0
-                                            stepSize: 0.005
-                                            decimals: 0
-                                            displayMultiplier: 100
-                                            value: precision.editor.whiteBalanceTemperature
-                                            semanticTrack: true
-                                            trackStartColor: "#3979dc"
-                                            trackMiddleColor: Theme.track
-                                            trackEndColor: "#e49a3a"
-                                            onGestureStarted: precision.editor.beginParameterEdit("white_balance_temperature")
-                                            onEdited: value => precision.editor.whiteBalanceTemperature = value
-                                            onGestureFinished: precision.editor.endParameterEdit("white_balance_temperature")
-                                        }
-
-                                        ShadowSlider {
-                                            Layout.fillWidth: true
-                                            Layout.leftMargin: 14
-                                            Layout.rightMargin: 14
-                                            label: qsTr("Tint")
-                                            from: -1.0
-                                            to: 1.0
-                                            neutralValue: 0.0
-                                            stepSize: 0.005
-                                            decimals: 0
-                                            displayMultiplier: 100
-                                            value: precision.editor.whiteBalanceTint
-                                            semanticTrack: true
-                                            trackStartColor: "#48a56a"
-                                            trackMiddleColor: Theme.track
-                                            trackEndColor: "#c65ab4"
-                                            onGestureStarted: precision.editor.beginParameterEdit("white_balance_tint")
-                                            onEdited: value => precision.editor.whiteBalanceTint = value
-                                            onGestureFinished: precision.editor.endParameterEdit("white_balance_tint")
+                                            Layout.preferredHeight: implicitHeight
+                                            controller: precision.editor
+                                            panelColor: precision.panelRaised
+                                            plotColor: Theme.chrome
+                                            borderColor: precision.border
+                                            textColor: precision.textPrimary
+                                            mutedTextColor: precision.textMuted
+                                            accentColor: precision.accent
                                         }
                                     }
 
@@ -3021,10 +3017,11 @@ Item {
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: draftSummary.implicitHeight + 20
                                 radius: Theme.controlRadius
-                                color: precision.editor.dirty
-                                    ? Theme.accentSurfaceQuiet : Theme.panelRaised
-                                border.color: precision.editor.dirty
-                                    ? Theme.accentBorder : precision.border
+                                color: precision.editor.autosaveFailed ? Theme.dangerSurface
+                                    : precision.editor.dirty ? Theme.accentSurfaceQuiet
+                                    : Theme.panelRaised
+                                border.color: precision.editor.autosaveFailed ? Theme.errorBorder
+                                    : precision.editor.dirty ? Theme.accentBorder : precision.border
 
                                 ColumnLayout {
                                     id: draftSummary
@@ -3035,22 +3032,41 @@ Item {
                                     anchors.rightMargin: 10
                                     spacing: 3
 
-                                    Label {
+                                    RowLayout {
                                         Layout.fillWidth: true
-                                        text: precision.editor.dirty
-                                            ? (precision.editor.autosavePending
-                                                ? qsTr("AUTOSAVE PENDING") : qsTr("VERSION DRAFT"))
-                                            : qsTr("CURRENT AUTOSAVE")
-                                        color: precision.editor.dirty
-                                            ? precision.accent : precision.textSecondary
-                                        font.pixelSize: 9
-                                        font.weight: Font.DemiBold
-                                        font.letterSpacing: 0.8
+                                        spacing: 6
+
+                                        Label {
+                                            Layout.fillWidth: true
+                                            text: !precision.editor.dirty ? qsTr("CURRENT AUTOSAVE")
+                                                : precision.editor.autosaveFailed ? qsTr("AUTOSAVE FAILED")
+                                                : precision.editor.autosavePending
+                                                    ? qsTr("AUTOSAVE PENDING") : qsTr("VERSION DRAFT")
+                                            color: !precision.editor.dirty ? precision.textSecondary
+                                                : precision.editor.autosaveFailed ? Theme.errorText
+                                                : precision.accent
+                                            font.pixelSize: 9
+                                            font.weight: Font.DemiBold
+                                            font.letterSpacing: 0.8
+                                        }
+
+                                        ShadowIconButton {
+                                            visible: precision.editor.autosaveFailed
+                                            source: "qrc:/icons/redo.svg"
+                                            iconSize: 15
+                                            buttonSize: Theme.compactControlHeight
+                                            toolTipText: qsTr("Retry autosave")
+                                            accessibleName: toolTipText
+                                            onClicked: precision.editor.retryAutosave()
+                                        }
                                     }
                                     Label {
                                         Layout.fillWidth: true
-                                        text: qsTr("Adjustments save automatically to this photo’s current working state. Creating a version adds a named, immutable Library checkpoint; only those checkpoints appear below.")
-                                        color: precision.textMuted
+                                        text: precision.editor.autosaveFailed
+                                            ? precision.editor.autosaveErrorText
+                                            : qsTr("Adjustments save automatically to this photo’s current working state. Creating a version adds a named, immutable Library checkpoint; only those checkpoints appear below.")
+                                        color: precision.editor.autosaveFailed
+                                            ? Theme.errorText : precision.textMuted
                                         font.pixelSize: 9
                                         wrapMode: Text.WordWrap
                                     }
@@ -3214,6 +3230,83 @@ Item {
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+
+    Popup {
+        id: recipeRecoveryPopup
+        parent: Overlay.overlay
+        x: Math.round((parent.width - width) / 2)
+        y: Math.round((parent.height - height) / 2)
+        width: Math.min(456, parent.width - 48)
+        padding: 0
+        modal: true
+        dim: true
+        closePolicy: Popup.NoAutoClose
+        visible: precision.editor.recipeRecoveryRequired
+
+        background: Rectangle {
+            radius: Theme.controlRadius + 2
+            color: Theme.panelRaised
+            border.color: Theme.errorBorder
+            border.width: 1
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 0
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.margins: 22
+                spacing: 10
+
+                Label {
+                    Layout.fillWidth: true
+                    text: qsTr("EDIT RECIPE NEEDS RESET")
+                    color: Theme.errorText
+                    font.pixelSize: 11
+                    font.weight: Font.DemiBold
+                    font.letterSpacing: 1.1
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    text: precision.editor.recipeRecoveryErrorText
+                    color: precision.textPrimary
+                    font.pixelSize: 13
+                    wrapMode: Text.WordWrap
+                    lineHeight: 1.35
+                }
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 1
+                color: precision.border
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.margins: 14
+                spacing: 8
+
+                ShadowButton {
+                    Layout.fillWidth: true
+                    text: qsTr("RETURN TO REVIEW")
+                    variant: ShadowButton.Secondary
+                    enabled: !precision.editor.stateBusy
+                    onClicked: precision.returnToReviewRequested()
+                }
+
+                ShadowButton {
+                    Layout.fillWidth: true
+                    text: precision.editor.stateBusy
+                        ? qsTr("RESETTING…") : qsTr("RESET EDITS")
+                    variant: ShadowButton.Danger
+                    enabled: !precision.editor.stateBusy
+                    onClicked: precision.editor.resetIncompatibleRecipe()
                 }
             }
         }

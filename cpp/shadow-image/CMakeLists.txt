@@ -31,6 +31,7 @@ add_library(
     src/color/lcms_color_management.cpp
     src/edit/cube_lut.cpp
     src/edit/cpu_reference.cpp
+    src/raw/bayer_demosaic.cpp
     src/decoder/private_decoder_plugin.cpp
     src/optics/lensfun_optics.cpp
     src/proxy/jpeg_display_luma.cpp
@@ -38,6 +39,7 @@ add_library(
 )
 add_library(Shadow::Image ALIAS shadow-image)
 target_compile_features(shadow-image PUBLIC cxx_std_20)
+set_target_properties(shadow-image PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(
     shadow-image
     PUBLIC
@@ -92,13 +94,29 @@ if(BUILD_TESTING)
     )
     shadow_image_enable_warnings(shadow-image-private-decoder-test-plugin)
 
+    # A public, LibRaw-backed dynamic provider used only to validate the local-provider route.
+    # It deliberately resembles the shape of a private vendor plugin without containing one.
+    add_library(
+        shadow-image-libraw-dummy-private-provider
+        MODULE
+        tests/libraw_dummy_private_decoder_provider.cpp
+    )
+    target_compile_features(shadow-image-libraw-dummy-private-provider PRIVATE cxx_std_20)
+    target_link_libraries(shadow-image-libraw-dummy-private-provider PRIVATE Shadow::Image)
+    shadow_image_enable_warnings(shadow-image-libraw-dummy-private-provider)
+
     add_executable(shadow-image-contract-tests tests/decoder_contract_test.cpp)
     target_link_libraries(shadow-image-contract-tests PRIVATE Shadow::Image)
-    add_dependencies(shadow-image-contract-tests shadow-image-private-decoder-test-plugin)
+    add_dependencies(
+        shadow-image-contract-tests
+        shadow-image-private-decoder-test-plugin
+        shadow-image-libraw-dummy-private-provider
+    )
     target_compile_definitions(
         shadow-image-contract-tests
         PRIVATE
             "SHADOW_TEST_PRIVATE_DECODER_PLUGIN_PATH=\"$<TARGET_FILE:shadow-image-private-decoder-test-plugin>\""
+            "SHADOW_TEST_LIBRAW_DUMMY_PRIVATE_DECODER_PLUGIN_PATH=\"$<TARGET_FILE:shadow-image-libraw-dummy-private-provider>\""
             "SHADOW_TEST_JPEG_PATH=\"${CMAKE_SOURCE_DIR}/apps/desktop/assets/lut-preview-reference.jpg\""
     )
     shadow_image_enable_warnings(shadow-image-contract-tests)

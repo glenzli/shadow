@@ -33,10 +33,19 @@ constexpr int EDIT_AUTOSAVE_DEBOUNCE_MS = 700;
 constexpr std::uint32_t EDIT_DETAIL_TILE_SIDE = 512;
 constexpr std::uint32_t EDIT_LARGE_DETAIL_TILE_SIDE = 1'024;
 constexpr int EDIT_DETAIL_DEBOUNCE_MS = 70;
+constexpr int EDIT_DETAIL_WARMUP_IDLE_MS = 650;
 constexpr std::uint64_t EDIT_DETAIL_MAX_PRESENTATION_BYTES = 96U * 1'024U * 1'024U;
 constexpr qsizetype EDIT_HISTOGRAM_BIN_COUNT = 256;
 constexpr int TONE_CURVE_CHANNEL_COUNT = 4;
 constexpr int MAX_POINT_COLOR_COUNT = 16;
+
+[[nodiscard]] bool raw_development_unavailable(const QString& error) noexcept {
+    return error.startsWith(QStringLiteral("RAW development is unavailable:"));
+}
+
+[[nodiscard]] bool incompatible_development_recipe(const QString& error) noexcept {
+    return error.startsWith(QStringLiteral("incompatible development Recipe:"));
+}
 
 [[nodiscard]] int point_color_count(const BackendFineEditParameters& fine) noexcept {
     return (fine.color_range_enabled || !fine.additional_point_colors.isEmpty() ? 1 : 0)
@@ -364,15 +373,13 @@ edit_message(const char *const source,
                    QT_TRANSLATE_NOOP("EditController", "%1 Copy")
         ).arg(display_grade_node_label(base));
     }
-    if (stored_label.compare(
-            QStringLiteral("Basic Adjustments"), Qt::CaseInsensitive
-        ) == 0) {
+    if (stored_label.compare(QStringLiteral("Adjustments"), Qt::CaseInsensitive) == 0) {
         return QCoreApplication::translate(
             context,
-            QT_TRANSLATE_NOOP("EditController", "Basic Adjustments")
+            QT_TRANSLATE_NOOP("EditController", "Adjustments")
         );
     }
-    const QString numbered_prefix = QStringLiteral("Basic Adjustments ");
+    const QString numbered_prefix = QStringLiteral("Adjustments ");
     if (stored_label.startsWith(numbered_prefix, Qt::CaseInsensitive)) {
         const QString suffix = stored_label.mid(numbered_prefix.size());
         bool valid_number = false;
@@ -380,7 +387,7 @@ edit_message(const char *const source,
         if (valid_number && number >= 2 && QString::number(number) == suffix) {
             return QCoreApplication::translate(
                        context,
-                       QT_TRANSLATE_NOOP("EditController", "Basic Adjustments %1")
+                       QT_TRANSLATE_NOOP("EditController", "Adjustments %1")
             ).arg(number);
         }
     }
@@ -429,6 +436,23 @@ edit_message(const char *const source,
     result.kind = EditStateTaskKind::Open;
     try {
         result.state = backend->photoEditState(photo_id, source_path);
+    } catch (const std::exception& error) {
+        result.error = QString::fromUtf8(error.what());
+    }
+    return result;
+}
+
+[[nodiscard]] EditStateTaskResult reset_incompatible_recipe_state(
+    const std::shared_ptr<DesktopBackend>& backend,
+    const QString& photo_id,
+    const QString& source_path,
+    const quint64 generation
+) {
+    EditStateTaskResult result;
+    result.photo_generation = generation;
+    result.kind = EditStateTaskKind::ResetIncompatibleRecipe;
+    try {
+        result.state = backend->resetIncompatiblePhotoEditHistory(photo_id, source_path);
     } catch (const std::exception& error) {
         result.error = QString::fromUtf8(error.what());
     }
@@ -659,6 +683,43 @@ edit_message(const char *const source,
     return result;
 }
 
+[[nodiscard]] EditDetailWarmupTaskResult warm_detail_source(
+    const std::shared_ptr<DesktopBackend>& backend,
+    const QString& photo_id,
+    const QString& source_path,
+    const QString& base_commit_id,
+    const BackendGradeStack grade_stack,
+    const std::uint64_t render_token,
+    const quint64 photo_generation,
+    const quint64 render_revision
+) {
+    EditDetailWarmupTaskResult result;
+    result.photo_generation = photo_generation;
+    result.render_revision = render_revision;
+    try {
+        // One native 512px tile is enough to force the provider-neutral
+        // full-resolution source preparation and prime the center of the
+        // bounded Recipe-tile cache. Do not compose or publish it: this is an
+        // idle optimisation only, never a hidden viewport change.
+        static_cast<void>(backend->renderEditDetailViewport(
+            photo_id,
+            source_path,
+            base_commit_id,
+            grade_stack,
+            render_token,
+            0.5,
+            0.5,
+            EDIT_DETAIL_TILE_SIDE,
+            EDIT_DETAIL_TILE_SIDE,
+            EDIT_DETAIL_TILE_SIDE,
+            true
+        ));
+    } catch (const std::exception& error) {
+        result.error = QString::fromUtf8(error.what());
+    }
+    return result;
+}
+
 } // namespace
 
 EditController::EditController(
@@ -675,6 +736,7 @@ EditController::EditController(
     before_histogram_ = empty_histogram();
     preview_debounce_.setSingleShot(true);
     detail_debounce_.setSingleShot(true);
+    detail_warmup_debounce_.setSingleShot(true);
     autosave_debounce_.setSingleShot(true);
     connect(
         &preview_debounce_,
@@ -712,6 +774,18 @@ EditController::EditController(
         this,
         &EditController::finishDetailTask
     );
+    connect(
+        &detail_warmup_debounce_,
+        &QTimer::timeout,
+        this,
+        &EditController::startDetailWarmup
+    );
+    connect(
+        &detail_warmup_watcher_,
+        &QFutureWatcher<EditDetailWarmupTaskResult>::finished,
+        this,
+        &EditController::finishDetailWarmupTask
+    );
   if (auto *const application = QCoreApplication::instance()) {
     application->installEventFilter(this);
   }
@@ -720,11 +794,14 @@ EditController::EditController(
 EditController::~EditController() {
     preview_debounce_.stop();
     detail_debounce_.stop();
+    detail_warmup_debounce_.stop();
     autosave_debounce_.stop();
     detail_render_token_ = backend_->beginEditDetailRequest();
+    detail_warmup_token_ = detail_render_token_;
     state_watcher_.waitForFinished();
     preview_watcher_.waitForFinished();
     detail_watcher_.waitForFinished();
+    detail_warmup_watcher_.waitForFinished();
 }
 
 bool EditController::active() const noexcept {
@@ -736,7 +813,16 @@ bool EditController::busy() const noexcept {
 }
 
 bool EditController::stateBusy() const noexcept {
-    return state_running_;
+    return interactionLocked();
+}
+
+bool EditController::interactionLocked() const noexcept {
+    // Working snapshots are intentionally non-blocking: the editor keeps a
+    // revisioned in-memory draft and rebases it on the committed autosave
+    // head when the transaction returns. Opening a photo, creating a named
+    // Version, and loading a Version still replace controller state, so they
+    // remain interaction-locking operations.
+    return state_running_ && state_task_kind_ != EditStateTaskKind::Autosave;
 }
 
 bool EditController::rendering() const noexcept {
@@ -780,8 +866,17 @@ bool EditController::dirty() const noexcept {
 }
 
 bool EditController::autosavePending() const noexcept {
-    return autosave_requested_ || autosave_debounce_.isActive()
-        || (state_running_ && state_watcher_.isRunning());
+    return !autosaveFailed() && (autosave_requested_ || autosave_debounce_.isActive()
+        || (state_running_ && state_task_kind_ == EditStateTaskKind::Autosave
+            && state_watcher_.isRunning()));
+}
+
+bool EditController::autosaveFailed() const noexcept {
+    return !autosave_error_message_.isEmpty();
+}
+
+QString EditController::autosaveErrorText() const {
+    return autosave_error_message_.translated();
 }
 
 bool EditController::versionDraft() const noexcept {
@@ -834,6 +929,14 @@ QVariantMap EditController::beforeHistogram() const {
 
 QString EditController::beforeErrorText() const {
     return before_error_message_.translated();
+}
+
+bool EditController::recipeRecoveryRequired() const noexcept {
+    return !recipe_recovery_message_.isEmpty();
+}
+
+QString EditController::recipeRecoveryErrorText() const {
+    return recipe_recovery_message_.translated();
 }
 
 QString EditController::statusText() const {
@@ -898,22 +1001,22 @@ bool EditController::hasSelectedGradeNode() const noexcept {
 }
 
 bool EditController::canAddGradeNode() const noexcept {
-    return active_ && !state_running_
+    return active_ && !interactionLocked()
         && grade_stack_.grade_nodes.size() < GradeNodeStack::maximum_grade_node_count;
 }
 
 bool EditController::canDeleteGradeNode() const noexcept {
-    return active_ && !state_running_ && hasSelectedGradeNode()
+    return active_ && !interactionLocked() && hasSelectedGradeNode()
         && grade_stack_.grade_nodes.size() > GradeNodeStack::minimum_grade_node_count;
 }
 
 bool EditController::canMoveGradeNodeUp() const noexcept {
-    return active_ && !state_running_ && selected_grade_node_index_ > 0;
+    return active_ && !interactionLocked() && selected_grade_node_index_ > 0;
 }
 
 bool EditController::canMoveGradeNodeDown() const noexcept {
     const int count = static_cast<int>(grade_stack_.grade_nodes.size());
-    return active_ && !state_running_ && selected_grade_node_index_ >= 0
+    return active_ && !interactionLocked() && selected_grade_node_index_ >= 0
         && selected_grade_node_index_ + 1 < count;
 }
 
@@ -1164,7 +1267,7 @@ QAbstractItemModel* EditController::versions() noexcept {
 
 void EditController::setGradeNodeEnabled(const bool enabled) {
     const auto* const grade_node = selectedGradeNode();
-    if (!active_ || state_running_ || grade_node == nullptr
+    if (!active_ || interactionLocked() || grade_node == nullptr
         || grade_node->enabled == enabled) {
         return;
     }
@@ -1252,35 +1355,35 @@ void EditController::setLutIntensity(const double value) {
 }
 
 void EditController::setOpticsEnabled(const bool enabled) {
-    if (!active_ || state_running_ || grade_stack_.optics.enabled == enabled) return;
+    if (!active_ || interactionLocked() || grade_stack_.optics.enabled == enabled) return;
     const BackendGradeStack before = grade_stack_;
     grade_stack_.optics.enabled = enabled;
     opticsEdited(QStringLiteral("enabled"), before);
 }
 
 void EditController::setOpticsDistortionEnabled(const bool enabled) {
-    if (!active_ || state_running_ || grade_stack_.optics.correct_distortion == enabled) return;
+    if (!active_ || interactionLocked() || grade_stack_.optics.correct_distortion == enabled) return;
     const BackendGradeStack before = grade_stack_;
     grade_stack_.optics.correct_distortion = enabled;
     opticsEdited(QStringLiteral("distortion"), before);
 }
 
 void EditController::setOpticsTcaEnabled(const bool enabled) {
-    if (!active_ || state_running_ || grade_stack_.optics.correct_tca == enabled) return;
+    if (!active_ || interactionLocked() || grade_stack_.optics.correct_tca == enabled) return;
     const BackendGradeStack before = grade_stack_;
     grade_stack_.optics.correct_tca = enabled;
     opticsEdited(QStringLiteral("tca"), before);
 }
 
 void EditController::setOpticsVignettingEnabled(const bool enabled) {
-    if (!active_ || state_running_ || grade_stack_.optics.correct_vignetting == enabled) return;
+    if (!active_ || interactionLocked() || grade_stack_.optics.correct_vignetting == enabled) return;
     const BackendGradeStack before = grade_stack_;
     grade_stack_.optics.correct_vignetting = enabled;
     opticsEdited(QStringLiteral("vignetting"), before);
 }
 
 void EditController::setOpticsAutomaticScale(const bool enabled) {
-    if (!active_ || state_running_ || grade_stack_.optics.automatic_scale == enabled) return;
+    if (!active_ || interactionLocked() || grade_stack_.optics.automatic_scale == enabled) return;
     const BackendGradeStack before = grade_stack_;
     grade_stack_.optics.automatic_scale = enabled;
     opticsEdited(QStringLiteral("automatic_scale"), before);
@@ -1305,7 +1408,7 @@ void EditController::setManualOpticsProfile(
     const QString& lens_maker,
     const QString& lens_model
 ) {
-    if (!active_ || state_running_ || camera_model.trimmed().isEmpty()
+    if (!active_ || interactionLocked() || camera_model.trimmed().isEmpty()
         || lens_model.trimmed().isEmpty()) return;
     const BackendGradeStack before = grade_stack_;
     grade_stack_.optics.camera_profile_maker = camera_maker.trimmed();
@@ -1316,7 +1419,7 @@ void EditController::setManualOpticsProfile(
 }
 
 void EditController::clearManualOpticsProfile() {
-    if (!active_ || state_running_ || !opticsManualProfile()) return;
+    if (!active_ || interactionLocked() || !opticsManualProfile()) return;
     const BackendGradeStack before = grade_stack_;
     grade_stack_.optics.camera_profile_maker.clear();
     grade_stack_.optics.camera_profile_model.clear();
@@ -1330,6 +1433,9 @@ void EditController::setLutResource(
     const QString& title,
     const QString& managed_path
 ) {
+    if (!active_ || interactionLocked()) {
+        return;
+    }
     auto* const grade_node = selected_grade_node_index_ < 0
         ? nullptr : &grade_stack_.grade_nodes[selected_grade_node_index_];
     const QFileInfo path(managed_path);
@@ -1358,6 +1464,9 @@ void EditController::setLutResource(
 }
 
 void EditController::clearLut() {
+    if (!active_ || interactionLocked()) {
+        return;
+    }
     auto* const grade_node = selected_grade_node_index_ < 0
         ? nullptr : &grade_stack_.grade_nodes[selected_grade_node_index_];
     if (grade_node == nullptr || grade_node->fine.lut_resource_id.isEmpty()) {
@@ -1721,6 +1830,9 @@ void EditController::selectPointColor(const int index) {
 }
 
 void EditController::removeSelectedPointColor() {
+    if (!active_ || interactionLocked()) {
+        return;
+    }
     auto* const grade_node = selected_grade_node_index_ < 0
         ? nullptr : &grade_stack_.grade_nodes[selected_grade_node_index_];
     if (grade_node == nullptr || selected_point_color_index_ < 0
@@ -1781,7 +1893,7 @@ void EditController::setWhiteBalanceFromPreview(
     const double normalized_y,
     const QString& preview_generation
 ) {
-    if (!active_ || state_running_ || !hasSelectedGradeNode()
+    if (!active_ || interactionLocked() || !hasSelectedGradeNode()
         || !std::isfinite(normalized_x) || !std::isfinite(normalized_y)
         || normalized_x < 0.0 || normalized_x > 1.0
         || normalized_y < 0.0 || normalized_y > 1.0) {
@@ -1861,7 +1973,7 @@ void EditController::addPointColorFromPreview(
     const double normalized_y,
     const QString& preview_generation
 ) {
-    if (!active_ || state_running_ || !std::isfinite(normalized_x)
+    if (!active_ || interactionLocked() || !std::isfinite(normalized_x)
         || !std::isfinite(normalized_y) || normalized_x < 0.0 || normalized_x > 1.0
         || normalized_y < 0.0 || normalized_y > 1.0) {
         return;
@@ -1968,10 +2080,19 @@ bool EditController::openPhoto(
     const QString& title,
     const QString& provisional_preview_source
 ) {
+    if (photo_id.isEmpty() || representation_id.isEmpty() || source_path.isEmpty()) {
+        setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+            "EditController",
+            "The selected Review item has no editable original source")));
+        return false;
+    }
     if (state_running_) {
-        if (pending_photo_open_.has_value() || autosave_requested_) {
-            // A second click during the same autosave simply retargets the pending switch.
-            // There is no user-owned unsaved state to resolve, so the newest selection wins.
+        if (active_) {
+            // Do not make a fast Library selection race a background state
+            // operation. The newest target wins and is opened as soon as the
+            // current operation reaches a safe controller boundary. Autosave
+            // may need to chain once more if the user changed controls while
+            // its snapshot was in flight.
             pending_photo_open_ = PendingPhotoOpen{
                 .photo_id = photo_id,
                 .representation_id = representation_id,
@@ -1980,12 +2101,12 @@ bool EditController::openPhoto(
                 .provisional_preview_source = provisional_preview_source,
             };
             setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
-                "EditController", "Saving current adjustments before opening the selected photo…"
+                "EditController", "Preparing the selected photo…"
             )));
             return true;
         }
-    setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
-        "EditController", "Finish the current version operation first")));
+        setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+            "EditController", "Finish the current version operation first")));
         return false;
     }
     if (active_ && photo_id == photo_id_
@@ -1994,12 +2115,6 @@ bool EditController::openPhoto(
     setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
         "EditController", "This photo is already open in Precision")));
         return true;
-    }
-    if (photo_id.isEmpty() || representation_id.isEmpty() || source_path.isEmpty()) {
-    setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
-        "EditController",
-        "The selected Review item has no editable RAW source")));
-        return false;
     }
     if (dirty_ && active_) {
         // Shadow's working ref is an autosave, not a manually committed version. Queue the
@@ -2026,6 +2141,8 @@ bool EditController::openPhoto(
 
     ++photo_generation_;
     ++render_revision_;
+    working_revision_ = 0;
+    autosave_snapshot_revision_ = 0;
     settled_render_revision_ = 0;
     preview_debounce_.stop();
     autosave_debounce_.stop();
@@ -2068,6 +2185,10 @@ bool EditController::openPhoto(
     before_error_message_.clear();
         emit beforeErrorTextChanged();
     }
+    if (!recipe_recovery_message_.isEmpty()) {
+        recipe_recovery_message_.clear();
+        emit recipeRecoveryChanged();
+    }
     preview_store_->clearAll(render_revision_, photo_generation_);
     if (!active_) {
         active_ = true;
@@ -2077,9 +2198,10 @@ bool EditController::openPhoto(
     emit titleChanged();
     emit sourcePathChanged();
     emit sourceIdentityChanged();
+    state_task_kind_ = EditStateTaskKind::Open;
     setStateRunning(true);
-  setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
-      "EditController", "Loading non-destructive edit history…")));
+    setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+        "EditController", "Loading non-destructive edit history…")));
     state_watcher_.setFuture(QtConcurrent::run(
         load_state,
         backend_,
@@ -2092,6 +2214,10 @@ bool EditController::openPhoto(
 
 void EditController::closePhoto() {
     if (state_running_) {
+        // A return to Library is allowed while an initial open or an autosave
+        // is in flight. A later photo selection can install a fresh pending
+        // target; otherwise the completed task will close this session.
+        pending_photo_open_.reset();
         close_photo_after_autosave_ = true;
         return;
     }
@@ -2126,15 +2252,62 @@ void EditController::closePhoto() {
         provisional_preview_source_.clear();
         emit provisionalPreviewSourceChanged();
     }
+    // Precision is a session, not a hidden second Library. Drop its published
+    // sources on exit so reopening from a different grid item can never show
+    // the previous image while the next state request is loading.
+    if (!preview_source_.isEmpty()) {
+        preview_source_.clear();
+        emit previewSourceChanged();
+    }
+    if (!before_preview_source_.isEmpty()) {
+        before_preview_source_.clear();
+        emit beforePreviewSourceChanged();
+    }
+    if (!before_error_message_.isEmpty()) {
+        before_error_message_.clear();
+        emit beforeErrorTextChanged();
+    }
+    if (!photo_id_.isEmpty() || !representation_id_.isEmpty()) {
+        photo_id_.clear();
+        representation_id_.clear();
+        emit sourceIdentityChanged();
+    }
+    if (!source_path_.isEmpty()) {
+        source_path_.clear();
+        emit sourcePathChanged();
+    }
+    if (!title_.isEmpty()) {
+        title_.clear();
+        emit titleChanged();
+    }
     active_ = false;
     emit activeChanged();
     emit gradeNodeActionsChanged();
     emit historyChanged();
 }
 
+void EditController::resetIncompatibleRecipe() {
+    if (!recipeRecoveryRequired() || state_running_ || photo_id_.isEmpty()
+        || source_path_.isEmpty()) {
+        return;
+    }
+    state_task_kind_ = EditStateTaskKind::ResetIncompatibleRecipe;
+    setStateRunning(true);
+    setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+        "EditController", "Resetting this photo’s development edits…"
+    )));
+    state_watcher_.setFuture(QtConcurrent::run(
+        reset_incompatible_recipe_state,
+        backend_,
+        photo_id_,
+        source_path_,
+        photo_generation_
+    ));
+}
+
 void EditController::selectGradeNode(const int index) {
     const int count = static_cast<int>(grade_stack_.grade_nodes.size());
-    if (!active_ || state_running_ || index < 0 || index >= count
+    if (!active_ || interactionLocked() || index < 0 || index >= count
         || index == selected_grade_node_index_) {
         return;
     }
@@ -2154,7 +2327,7 @@ void EditController::addGradeNode() {
     BackendGradeNode grade_node;
     try {
         grade_node = backend_->newBasicGradeNode(
-            uniqueGradeNodeLabel(QStringLiteral("Basic Adjustments"))
+            uniqueGradeNodeLabel(QStringLiteral("Adjustments"))
         );
     } catch (const std::exception& error) {
     setStatusMessage(edit_message(
@@ -2257,7 +2430,7 @@ void EditController::deleteSelectedGradeNode() {
 
 void EditController::moveSelectedGradeNode(const int destination_index) {
     const auto* const selected = selectedGradeNode();
-    if (!active_ || state_running_ || selected == nullptr) {
+    if (!active_ || interactionLocked() || selected == nullptr) {
         return;
     }
     finishActiveGesture();
@@ -2280,7 +2453,7 @@ void EditController::moveSelectedGradeNode(const int destination_index) {
 
 void EditController::beginParameterEdit(const QString& parameter_key) {
     const auto* const grade_node = selectedGradeNode();
-    if (!active_ || state_running_ || grade_node == nullptr || !grade_node->enabled
+    if (!active_ || interactionLocked() || grade_node == nullptr || !grade_node->enabled
         || parameter_key.isEmpty()) {
         return;
     }
@@ -2306,7 +2479,7 @@ void EditController::endParameterEdit(const QString& parameter_key) {
 
 void EditController::beginToneCurveGesture(const int index) {
     const auto* const grade_node = selectedGradeNode();
-    if (!active_ || state_running_ || grade_node == nullptr || !grade_node->enabled
+    if (!active_ || interactionLocked() || grade_node == nullptr || !grade_node->enabled
         || !tone_curve_points_.isEditable()
         || !tone_curve_points_.selectPoint(index)) {
         return;
@@ -2320,7 +2493,7 @@ void EditController::moveToneCurvePoint(
     const double y
 ) {
     const auto* const grade_node = selectedGradeNode();
-    if (!active_ || state_running_ || grade_node == nullptr || !grade_node->enabled) {
+    if (!active_ || interactionLocked() || grade_node == nullptr || !grade_node->enabled) {
         return;
     }
     const BackendGradeStack before = grade_stack_;
@@ -2344,7 +2517,7 @@ void EditController::endToneCurveGesture(const int index) {
 
 void EditController::addToneCurvePoint(const double x, const double y) {
     const auto* const grade_node = selectedGradeNode();
-    if (!active_ || state_running_ || grade_node == nullptr || !grade_node->enabled) {
+    if (!active_ || interactionLocked() || grade_node == nullptr || !grade_node->enabled) {
         return;
     }
     const BackendGradeStack before = grade_stack_;
@@ -2368,7 +2541,7 @@ void EditController::addToneCurvePoint(const double x, const double y) {
 
 void EditController::removeToneCurvePoint(const int index) {
     const auto* const grade_node = selectedGradeNode();
-    if (!active_ || state_running_ || grade_node == nullptr || !grade_node->enabled) {
+    if (!active_ || interactionLocked() || grade_node == nullptr || !grade_node->enabled) {
         return;
     }
     const BackendGradeStack before = grade_stack_;
@@ -2391,7 +2564,7 @@ void EditController::removeToneCurvePoint(const int index) {
 
 void EditController::resetToneCurve() {
     const auto* const grade_node = selectedGradeNode();
-    if (!active_ || state_running_ || grade_node == nullptr || !grade_node->enabled
+    if (!active_ || interactionLocked() || grade_node == nullptr || !grade_node->enabled
         || !toneCurveChannelActive(tone_curve_channel_)) {
         return;
     }
@@ -2412,7 +2585,7 @@ void EditController::resetToneCurve() {
 
 void EditController::resetAllToneCurves() {
     const auto* const grade_node = selectedGradeNode();
-    if (!active_ || state_running_ || grade_node == nullptr || !grade_node->enabled
+    if (!active_ || interactionLocked() || grade_node == nullptr || !grade_node->enabled
         || grade_node->tone_curve_kind == ToneCurveKind::None) {
         return;
     }
@@ -2429,7 +2602,7 @@ void EditController::resetAllToneCurves() {
 }
 
 void EditController::undo() {
-    if (!active_ || state_running_) {
+    if (!active_ || interactionLocked()) {
         return;
     }
     std::string history_key;
@@ -2452,6 +2625,8 @@ void EditController::undo() {
         preferred_id = restored->grade_nodes.at(previous_index).grade_node_id;
     }
     autosave_requested_ = true;
+    clearAutosaveFailure();
+    ++working_revision_;
     setGradeStack(*restored, preferred_id);
     schedulePreview(0);
   setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
@@ -2459,7 +2634,7 @@ void EditController::undo() {
 }
 
 void EditController::redo() {
-    if (!active_ || state_running_) {
+    if (!active_ || interactionLocked()) {
         return;
     }
     std::string history_key;
@@ -2469,6 +2644,8 @@ void EditController::redo() {
         return;
     }
     autosave_requested_ = true;
+    clearAutosaveFailure();
+    ++working_revision_;
     setGradeStack(*restored, history_grade_node_id(history_key));
     schedulePreview(0);
   setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
@@ -2477,7 +2654,7 @@ void EditController::redo() {
 
 void EditController::resetSelectedGradeNode() {
     const auto* const grade_node = selectedGradeNode();
-    if (!active_ || state_running_ || grade_node == nullptr) {
+    if (!active_ || interactionLocked() || grade_node == nullptr) {
         return;
     }
     finishActiveGesture();
@@ -2519,6 +2696,7 @@ void EditController::revertEdits() {
         schedulePreview(0);
     }
     autosave_debounce_.stop();
+    clearAutosaveFailure();
     if (autosave_requested_) {
         autosave_requested_ = false;
         emit autosavePendingChanged();
@@ -2565,7 +2743,7 @@ void EditController::requestDetailViewport(
     detail_error_message_.clear();
         emit detailErrorTextChanged();
     }
-    invalidateDetailPresentation();
+    invalidateDetailPresentation(false);
     detail_queued_ = true;
     detail_debounce_.start(EDIT_DETAIL_DEBOUNCE_MS);
 }
@@ -2600,6 +2778,7 @@ void EditController::saveVersion(const QString& version_name) {
     }
     history_.finishGesture(grade_stack_);
     emit historyChanged();
+    state_task_kind_ = EditStateTaskKind::Save;
     setStateRunning(true);
   setStatusMessage(edit_message(
       QT_TRANSLATE_NOOP("EditController", "Creating Library version “%1”…"),
@@ -2629,6 +2808,7 @@ void EditController::loadVersionDraft(const QString& commit_id) {
         startAutosave();
         return;
     }
+    state_task_kind_ = EditStateTaskKind::LoadDraft;
     setStateRunning(true);
   setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
       "EditController", "Loading saved version into working changes…")));
@@ -2642,26 +2822,44 @@ void EditController::loadVersionDraft(const QString& commit_id) {
     ));
 }
 
+void EditController::retryAutosave() {
+    if (!active_ || !dirty_ || !autosave_requested_ || state_running_) {
+        return;
+    }
+    startAutosave();
+}
+
 bool EditController::prepareToClose() {
     autosave_debounce_.stop();
+    preview_debounce_.stop();
+    detail_debounce_.stop();
+    preview_queued_ = false;
+    before_requested_ = false;
+    detail_queued_ = false;
+    // A close must not race a queued photo selection. The existing session
+    // still gets its durable working snapshot, but no new Precision session is
+    // started on the way out.
+    pending_photo_open_.reset();
+    close_after_autosave_ = true;
     if (state_running_) {
-        close_after_autosave_ = true;
         return false;
     }
-    if (!active_ || !dirty_ || !autosave_requested_) {
-        return true;
-    }
-    close_after_autosave_ = true;
-    if (!state_running_) {
+    if (active_ && dirty_ && autosave_requested_) {
         startAutosave();
+        return false;
     }
-    return false;
+    if (current_rendering_ || before_rendering_ || detail_rendering_) {
+        return false;
+    }
+    close_after_autosave_ = false;
+    return true;
 }
 
 void EditController::finishStateTask() {
     EditStateTaskResult result = state_watcher_.result();
     setStateRunning(false);
     if (result.photo_generation != photo_generation_) {
+        maybeFinishDeferredApplicationClose();
         return;
     }
     if (!result.error.isEmpty()) {
@@ -2670,20 +2868,71 @@ void EditController::finishStateTask() {
             emit activeChanged();
             emit gradeNodeActionsChanged();
         }
-    setStatusMessage(edit_message(
-        QT_TRANSLATE_NOOP("EditController", "Version operation failed · %1"),
-        {result.error}));
+        const bool newer_draft_exists = result.kind == EditStateTaskKind::Autosave
+            && active_ && dirty_ && autosave_requested_
+            && working_revision_ != autosave_snapshot_revision_;
+        if (newer_draft_exists) {
+            // This task was saving an older slider snapshot. It may legitimately lose a
+            // compare-and-swap race while the user has already made a newer edit, so give that
+            // newer snapshot one clean attempt before reporting a durable save failure.
+            setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+                "EditController", "Saving newer adjustments locally…"
+            )));
+            if (pending_photo_open_.has_value() || close_photo_after_autosave_
+                || close_after_autosave_) {
+                startAutosave();
+            } else {
+                scheduleAutosave();
+            }
+            return;
+        }
+        if (result.kind == EditStateTaskKind::Autosave) {
+            const LocalizedUiMessage failure = edit_message(
+                QT_TRANSLATE_NOOP("EditController", "Autosave failed · %1"),
+                {result.error}
+            );
+            setAutosaveFailure(failure);
+            setStatusMessage(failure);
+        } else if (result.kind == EditStateTaskKind::Open
+                   && incompatible_development_recipe(result.error)) {
+            recipe_recovery_message_ = edit_message(QT_TRANSLATE_NOOP(
+                "EditController",
+                "This photo uses an earlier development edit recipe that this build cannot read. Resetting removes only this photo’s edit history; the original file, Library metadata, ratings, flags, and albums are unchanged."
+            ));
+            emit recipeRecoveryChanged();
+            setStatusMessage(recipe_recovery_message_);
+        } else if (result.kind == EditStateTaskKind::ResetIncompatibleRecipe) {
+            recipe_recovery_message_ = edit_message(QT_TRANSLATE_NOOP(
+                "EditController",
+                "Could not reset this photo’s old development edits · %1"
+            ), {result.error});
+            emit recipeRecoveryChanged();
+            setStatusMessage(recipe_recovery_message_);
+        } else if (result.kind == EditStateTaskKind::Open) {
+            setStatusMessage(edit_message(
+                QT_TRANSLATE_NOOP("EditController", "Could not open this photo · %1"),
+                {result.error}
+            ));
+        } else {
+            setStatusMessage(edit_message(
+                QT_TRANSLATE_NOOP("EditController", "Version operation failed · %1"),
+                {result.error}
+            ));
+        }
         if (close_after_autosave_) {
             close_after_autosave_ = false;
             emit closeSaveFailed();
         }
         close_photo_after_autosave_ = false;
         if (result.kind == EditStateTaskKind::Autosave) {
-            pending_photo_open_.reset();
-        }
-        if (result.kind == EditStateTaskKind::Autosave && active_ && dirty_) {
-            autosave_debounce_.start(1'500);
+            // A persistent Catalog or decoder error must not look like an endless save.
+            // Keep the draft intact and retry only after the user explicitly asks, or edits
+            // again and therefore supplies a newer working snapshot.
+            autosave_debounce_.stop();
             emit autosavePendingChanged();
+        }
+        if (result.kind == EditStateTaskKind::Open && openPendingPhoto()) {
+            return;
         }
         if (preview_queued_) {
             preview_debounce_.start(0);
@@ -2692,30 +2941,53 @@ void EditController::finishStateTask() {
         maybeStartDetailRender();
         return;
     }
+    bool autosave_needs_follow_up = false;
     if (result.kind == EditStateTaskKind::Autosave) {
-        applyAutosavedState(std::move(result.state));
-        if (pending_photo_open_.has_value()) {
-            const PendingPhotoOpen pending = std::move(*pending_photo_open_);
-            pending_photo_open_.reset();
-            close_photo_after_autosave_ = false;
-            openPhoto(
-                pending.photo_id,
-                pending.representation_id,
-                pending.source_path,
-                pending.title,
-                pending.provisional_preview_source
-            );
+        autosave_needs_follow_up = applyAutosavedState(std::move(result.state));
+        if (autosave_needs_follow_up) {
+            setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+                "EditController", "Saving newer adjustments locally…")));
+            if (pending_photo_open_.has_value() || close_photo_after_autosave_
+                || close_after_autosave_) {
+                startAutosave();
+            } else {
+                scheduleAutosave();
+            }
             return;
         }
     } else {
         applyState(std::move(result.state));
     }
+    if (result.kind == EditStateTaskKind::ResetIncompatibleRecipe) {
+        if (!recipe_recovery_message_.isEmpty()) {
+            recipe_recovery_message_.clear();
+            emit recipeRecoveryChanged();
+        }
+        if (!active_) {
+            active_ = true;
+            emit activeChanged();
+            emit gradeNodeActionsChanged();
+        }
+    }
+    if (openPendingPhoto()) {
+        return;
+    }
     switch (result.kind) {
     case EditStateTaskKind::Open:
-    setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
-        "EditController",
-        "Edit history ready · rendering preview")));
-        schedulePreview(0);
+        setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+            "EditController",
+            "Edit history ready · rendering preview")));
+        if (!close_after_autosave_) {
+            schedulePreview(0);
+        }
+        break;
+    case EditStateTaskKind::ResetIncompatibleRecipe:
+        setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+            "EditController",
+            "Old development edits reset · rendering the current recipe")));
+        if (!close_after_autosave_) {
+            schedulePreview(0);
+        }
         break;
     case EditStateTaskKind::Save:
     setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
@@ -2727,30 +2999,63 @@ void EditController::finishStateTask() {
         "EditController", "Current adjustments saved locally")));
         break;
     case EditStateTaskKind::LoadDraft:
-    setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
-        "EditController",
-        "Named version loaded as a draft · adjust it to create a new working state")));
-        schedulePreview(0);
+        setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+            "EditController",
+            "Named version loaded as a draft · adjust it to create a new working state")));
+        if (!close_after_autosave_) {
+            schedulePreview(0);
+        }
         break;
     }
-    if (preview_queued_ && !preview_debounce_.isActive()) {
+    if (!close_after_autosave_ && preview_queued_ && !preview_debounce_.isActive()) {
         preview_debounce_.start(0);
     }
-    maybeStartBeforePreview();
-    maybeStartDetailRender();
+    if (!close_after_autosave_) {
+        maybeStartBeforePreview();
+        maybeStartDetailRender();
+    }
     if (close_photo_after_autosave_) {
         close_photo_after_autosave_ = false;
         closePhoto();
     }
-    if (close_after_autosave_) {
-        close_after_autosave_ = false;
-        emit closeReady();
+    maybeFinishDeferredApplicationClose();
+}
+
+bool EditController::openPendingPhoto() {
+    if (close_after_autosave_ || !pending_photo_open_.has_value()) {
+        return false;
     }
+    const PendingPhotoOpen pending = std::move(*pending_photo_open_);
+    pending_photo_open_.reset();
+    close_photo_after_autosave_ = false;
+    return openPhoto(
+        pending.photo_id,
+        pending.representation_id,
+        pending.source_path,
+        pending.title,
+        pending.provisional_preview_source
+    );
+}
+
+void EditController::maybeFinishDeferredApplicationClose() {
+    if (!close_after_autosave_ || state_running_ || current_rendering_
+        || before_rendering_ || detail_rendering_) {
+        return;
+    }
+    close_after_autosave_ = false;
+    emit closeReady();
 }
 
 void EditController::finishPreviewTask() {
     EditPreviewTaskResult result = preview_watcher_.result();
     setPreviewRunning(result.generation.kind, false);
+    if (close_after_autosave_) {
+        preview_queued_ = false;
+        before_requested_ = false;
+        detail_queued_ = false;
+        maybeFinishDeferredApplicationClose();
+        return;
+    }
     const bool accepted = active_ && accepts_edit_preview(
         result.generation,
         photo_generation_,
@@ -2769,13 +3074,20 @@ void EditController::finishPreviewTask() {
         if (!result.error.isEmpty()) {
             if (accepted) {
                 markHistogramFailed(EditPreviewKind::Current);
-                setStatusMessage(edit_message(
-                    QT_TRANSLATE_NOOP(
+                if (raw_development_unavailable(result.error)) {
+                    setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
                         "EditController",
-                        "Preview render failed · %1"
-                    ),
-                    {result.error}
-                ));
+                        "This RAW can be browsed from its embedded preview, but the active local decoder cannot develop it for Precision. Use a compatible local RAW provider or convert it to DNG."
+                    )));
+                } else {
+                    setStatusMessage(edit_message(
+                        QT_TRANSLATE_NOOP(
+                            "EditController",
+                            "Preview render failed · %1"
+                        ),
+                        {result.error}
+                    ));
+                }
             }
         } else {
             const QSize dimensions(
@@ -2808,16 +3120,18 @@ void EditController::finishPreviewTask() {
                     result.preview.analysis,
                     result.generation.current_revision
                 );
-                setStatusMessage(edit_message(
-                    dirty_ ? QT_TRANSLATE_NOOP(
-                                 "EditController",
-                                 "Saving adjustments · preview is current"
-                             )
-                           : QT_TRANSLATE_NOOP(
-                                 "EditController",
-                                 "Working state and preview are current"
-                             )
-                ));
+                if (!autosaveFailed()) {
+                    setStatusMessage(edit_message(
+                        dirty_ ? QT_TRANSLATE_NOOP(
+                                     "EditController",
+                                     "Saving adjustments · preview is current"
+                                 )
+                               : QT_TRANSLATE_NOOP(
+                                     "EditController",
+                                     "Working state and preview are current"
+                                 )
+                    ));
+                }
             }
         }
     } else if (result.generation.kind == EditPreviewKind::NeutralBefore && accepted) {
@@ -2859,12 +3173,23 @@ void EditController::finishPreviewTask() {
     } else {
         maybeStartBeforePreview();
         maybeStartDetailRender();
+        if (accepted && result.generation.kind == EditPreviewKind::Current
+            && result.error.isEmpty()) {
+            scheduleDetailWarmup();
+        }
     }
+    maybeFinishDeferredApplicationClose();
 }
 
 void EditController::finishDetailTask() {
     EditDetailTaskResult result = detail_watcher_.result();
     setDetailRunning(false);
+    if (close_after_autosave_) {
+        detail_queued_ = false;
+        before_requested_ = false;
+        maybeFinishDeferredApplicationClose();
+        return;
+    }
     const bool accepted = detail_mode_ && active_ && accepts_edit_detail(
         result.generation,
         photo_generation_,
@@ -2966,6 +3291,7 @@ void EditController::finishDetailTask() {
     } else {
         maybeStartBeforePreview();
     }
+    maybeFinishDeferredApplicationClose();
 }
 
 void EditController::startPreviewRender() {
@@ -3030,6 +3356,51 @@ void EditController::startDetailRender() {
     ));
 }
 
+void EditController::scheduleDetailWarmup() {
+    if (!active_ || detail_mode_ || state_running_ || current_rendering_
+        || detail_rendering_ || settled_render_revision_ != render_revision_
+        || detail_warmup_watcher_.isRunning()) {
+        return;
+    }
+    detail_warmup_debounce_.start(EDIT_DETAIL_WARMUP_IDLE_MS);
+}
+
+void EditController::startDetailWarmup() {
+    if (!active_ || detail_mode_ || state_running_ || current_rendering_
+        || before_rendering_ || detail_rendering_
+        || settled_render_revision_ != render_revision_
+        || detail_warmup_watcher_.isRunning()) {
+        return;
+    }
+    // This uses the same global cancellation source as foreground detail.
+    // Any later pan, zoom, Recipe edit, or photo switch increments it and
+    // causes this idle request to be discarded between tiles.
+    detail_warmup_token_ = backend_->beginEditDetailRequest();
+    detail_warmup_watcher_.setFuture(QtConcurrent::run(
+        warm_detail_source,
+        backend_,
+        photo_id_,
+        source_path_,
+        base_commit_id_,
+        grade_stack_,
+        detail_warmup_token_,
+        photo_generation_,
+        render_revision_
+    ));
+}
+
+void EditController::finishDetailWarmupTask() {
+    const EditDetailWarmupTaskResult result = detail_warmup_watcher_.result();
+    if (result.photo_generation != photo_generation_
+        || result.render_revision != render_revision_
+        || result.error.startsWith(QStringLiteral("full detail render was superseded"))) {
+        return;
+    }
+    // Deliberately no status transition. A successful warmup is an invisible
+    // cache hit for the next 100% request; a provider failure remains visible
+    // only if the user explicitly asks to enter full-detail mode.
+}
+
 void EditController::maybeStartBeforePreview() {
     if (detail_rendering_) {
         return;
@@ -3074,21 +3445,24 @@ void EditController::maybeStartDetailRender() {
     detail_debounce_.start(0);
 }
 
-void EditController::invalidateDetailPresentation() {
+void EditController::invalidateDetailPresentation(const bool discard_tiles) {
     detail_render_token_ = backend_->beginEditDetailRequest();
-    preview_store_->clearDetails(EditDetailGeneration{
-        .photo = photo_generation_,
-        .recipe_revision = render_revision_,
-        .viewport_revision = detail_viewport_revision_,
-    });
-    if (!detail_tiles_.isEmpty()) {
-        detail_tiles_.clear();
-        emit detailTilesChanged();
+    if (discard_tiles) {
+        preview_store_->clearDetails(EditDetailGeneration{
+            .photo = photo_generation_,
+            .recipe_revision = render_revision_,
+            .viewport_revision = detail_viewport_revision_,
+        });
+        if (!detail_tiles_.isEmpty()) {
+            detail_tiles_.clear();
+            emit detailTilesChanged();
+        }
     }
 }
 
 void EditController::resetDetailState() {
     detail_debounce_.stop();
+    detail_warmup_debounce_.stop();
     detail_queued_ = false;
     ++detail_viewport_revision_;
     invalidateDetailPresentation();
@@ -3119,6 +3493,7 @@ void EditController::applyState(BackendPhotoEditState state) {
     }
     setVersionDraft(state.is_version_draft);
     autosave_debounce_.stop();
+    clearAutosaveFailure();
     if (autosave_requested_) {
         autosave_requested_ = false;
         emit autosavePendingChanged();
@@ -3129,6 +3504,8 @@ void EditController::applyState(BackendPhotoEditState state) {
     }
     base_commit_id_ = std::move(state.base_commit_id);
     setGradeStack(std::move(state.grade_stack));
+    working_revision_ = 0;
+    autosave_snapshot_revision_ = 0;
     clearSessionHistory();
     versions_.replace(std::move(state.versions));
 }
@@ -3249,7 +3626,7 @@ QString EditController::gradeNodeHistoryKey(const QString& key) const {
 
 QString EditController::uniqueGradeNodeLabel(const QString& base) const {
     const QString clean_base = base.trimmed().isEmpty()
-        ? QStringLiteral("Basic Adjustments")
+        ? QStringLiteral("Adjustments")
         : base.trimmed();
     const auto exists = [this](const QString& candidate) {
         return std::any_of(
@@ -3299,7 +3676,9 @@ void EditController::recordWorkingTransition(
     if (could_undo != canUndo() || could_redo != canRedo()) {
         emit historyChanged();
     }
+    ++working_revision_;
     autosave_requested_ = true;
+    clearAutosaveFailure();
     if (dirty_ && !state_running_) {
         scheduleAutosave();
     }
@@ -3308,6 +3687,14 @@ void EditController::recordWorkingTransition(
 void EditController::schedulePreview(const int delay_ms) {
     if (!active_) {
         return;
+    }
+    // A newly edited Recipe makes an idle full-detail warmup useless. Advance
+    // the shared request token before the preview work competes for CPU; the
+    // prepared source itself remains reusable, but the old tile render exits
+    // at its next cancellation boundary.
+    if (detail_warmup_debounce_.isActive() || detail_warmup_watcher_.isRunning()) {
+        detail_warmup_debounce_.stop();
+        detail_warmup_token_ = backend_->beginEditDetailRequest();
     }
     ++render_revision_;
     markHistogramUpdating(EditPreviewKind::Current);
@@ -3336,6 +3723,9 @@ bool EditController::eventFilter(QObject *const watched, QEvent *const event) {
 
 void EditController::retranslateUi() {
   emit statusTextChanged();
+  if (!autosave_error_message_.isEmpty()) {
+    emit autosaveErrorTextChanged();
+  }
   emit gradeNodesChanged();
   if (!before_error_message_.isEmpty()) {
     emit beforeErrorTextChanged();
@@ -3369,6 +3759,26 @@ void EditController::setDirty(const bool dirty) {
     }
 }
 
+void EditController::setAutosaveFailure(LocalizedUiMessage error) {
+    if (autosave_error_message_ == error) {
+        return;
+    }
+    autosave_error_message_ = std::move(error);
+    emit autosaveFailedChanged();
+    emit autosaveErrorTextChanged();
+    emit autosavePendingChanged();
+}
+
+void EditController::clearAutosaveFailure() {
+    if (autosave_error_message_.isEmpty()) {
+        return;
+    }
+    autosave_error_message_.clear();
+    emit autosaveFailedChanged();
+    emit autosaveErrorTextChanged();
+    emit autosavePendingChanged();
+}
+
 void EditController::scheduleAutosave() {
     if (!active_ || !dirty_ || !autosave_requested_ || state_running_) {
         return;
@@ -3382,8 +3792,11 @@ void EditController::startAutosave() {
     if (!active_ || !dirty_ || !autosave_requested_ || state_running_) {
         return;
     }
+    clearAutosaveFailure();
     history_.finishGesture(grade_stack_);
     emit historyChanged();
+    autosave_snapshot_revision_ = working_revision_;
+    state_task_kind_ = EditStateTaskKind::Autosave;
     setStateRunning(true);
     emit autosavePendingChanged();
     setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
@@ -3400,26 +3813,30 @@ void EditController::startAutosave() {
     ));
 }
 
-void EditController::applyAutosavedState(BackendPhotoEditState state) {
+bool EditController::applyAutosavedState(BackendPhotoEditState state) {
     if (state.photo_id != photo_id_ || state.source_path != source_path_) {
         setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
             "EditController", "Catalog returned autosave state for a different photo")));
-        return;
+        return false;
     }
-    if (grade_stack_ != state.grade_stack) {
-        // Changes are disabled while the transaction is in flight. Treat a
-        // mismatch as authoritative recovery rather than risking a false
-        // saved badge for a state that did not reach the Catalog.
-        setGradeStack(std::move(state.grade_stack));
+    const bool changed_after_snapshot = working_revision_ != autosave_snapshot_revision_;
+    const BackendGradeStack saved_stack = std::move(state.grade_stack);
+    if (!changed_after_snapshot && grade_stack_ != saved_stack) {
+        // The visible stack is the one that was persisted. A mismatch means
+        // the Catalog had to canonicalize or recover it, so accept that
+        // authoritative representation only when no newer local edit exists.
+        setGradeStack(saved_stack);
     }
     setVersionDraft(false);
+    clearAutosaveFailure();
     base_commit_id_ = state.base_commit_id;
     durable_working_commit_id_ = state.base_commit_id;
-    committed_grade_stack_ = grade_stack_;
+    committed_grade_stack_ = saved_stack;
     versions_.replace(std::move(state.versions));
-    autosave_requested_ = false;
-    setDirty(false);
+    autosave_requested_ = changed_after_snapshot;
+    setDirty(changed_after_snapshot);
     emit autosavePendingChanged();
+    return changed_after_snapshot;
 }
 
 void EditController::setVersionDraft(const bool draft) {
@@ -3435,8 +3852,14 @@ void EditController::setStateRunning(const bool running) {
         return;
     }
     const bool previous_busy = busy();
+    const bool previously_locked = interactionLocked();
     state_running_ = running;
-    emit stateBusyChanged();
+    if (!running) {
+        state_task_kind_ = EditStateTaskKind::Open;
+    }
+    if (previously_locked != interactionLocked()) {
+        emit stateBusyChanged();
+    }
     emit autosavePendingChanged();
     emit gradeNodeActionsChanged();
     emitBusyChange(previous_busy);
@@ -3540,7 +3963,7 @@ void EditController::parameterEdited(
     const QString& key,
     const BackendGradeStack& before
 ) {
-    if (!active_ || state_running_) {
+    if (!active_ || interactionLocked()) {
         return;
     }
     recordWorkingTransition(gradeNodeHistoryKey(key), before);
@@ -3580,7 +4003,7 @@ bool EditController::acceptParameter(
     const double minimum,
     const double maximum,
     const char *const label_source) {
-    if (!active_ || state_running_) {
+    if (!active_ || interactionLocked()) {
         return false;
     }
     const auto* const grade_node = selectedGradeNode();

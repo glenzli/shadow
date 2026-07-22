@@ -518,6 +518,13 @@ private:
         const OpticsProvider* optics_provider,
         const OpticsSettings& optics_settings
     );
+    friend WarmEditPreviewSession prepare_warm_edit_preview(
+        const DecodeSession& session,
+        std::uint32_t max_edge,
+        const RawDevelopmentPlan& raw_development_plan,
+        const OpticsProvider* optics_provider,
+        const OpticsSettings& optics_settings
+    );
 };
 
 struct DetailTileRect final {
@@ -584,6 +591,12 @@ private:
         const OpticsProvider* optics_provider,
         const OpticsSettings& optics_settings
     );
+    friend FullEditDetailSession prepare_full_edit_detail(
+        const DecodeSession& session,
+        const RawDevelopmentPlan& raw_development_plan,
+        const OpticsProvider* optics_provider,
+        const OpticsSettings& optics_settings
+    );
 };
 
 // Decodes processed linear-light sRGB-primary u16 once and stores only a max-edge-bounded linear
@@ -596,10 +609,33 @@ private:
     const OpticsSettings& optics_settings = default_optics_settings()
 );
 
+// Same bounded preview contract, but with an explicit source-development request. The plan is
+// not a user-visible adjustment node: it controls how a RAW provider produces the immutable
+// source raster before the common RGB edit graph. JPEG/HEIF providers intentionally keep their
+// legacy path because their pixels have already been developed.
+[[nodiscard]] WarmEditPreviewSession prepare_warm_edit_preview(
+    const DecodeSession& session,
+    std::uint32_t max_edge,
+    const RawDevelopmentPlan& raw_development_plan,
+    const OpticsProvider* optics_provider = nullptr,
+    const OpticsSettings& optics_settings = default_optics_settings()
+);
+
 // Checks the provider metadata against the worst-case RGB u16 retention bound before asking it
 // to render pixels, then independently checks the actual retained vector allocation.
 [[nodiscard]] FullEditDetailSession prepare_full_edit_detail(
     const DecodeSession& session,
+    const OpticsProvider* optics_provider = nullptr,
+    const OpticsSettings& optics_settings = default_optics_settings()
+);
+
+// Requests the immutable source at native/detail intent. A RAW provider may negotiate quality
+// or policy details, but it must retain the requested/effective plan pair in the returned
+// RawDevelopmentReceipt. Detail sessions reject preview/export intent so a low-cost warm
+// raster can never accidentally populate a 1:1 cache entry.
+[[nodiscard]] FullEditDetailSession prepare_full_edit_detail(
+    const DecodeSession& session,
+    const RawDevelopmentPlan& raw_development_plan,
     const OpticsProvider* optics_provider = nullptr,
     const OpticsSettings& optics_settings = default_optics_settings()
 );
@@ -611,6 +647,23 @@ private:
     const DecodeSession& session,
     std::span<const AdjustmentNode> nodes,
     ProxyRequest request = {},
+    const OpticsProvider* optics_provider = nullptr,
+    const OpticsSettings& optics_settings = default_optics_settings()
+);
+
+// Explicit plan-bearing forms used by cache-aware callers. Existing overloads above select the
+// canonical preview plan, preserving their source-compatible behavior.
+[[nodiscard]] EncodedProxy render_reference_proxy_jpeg(
+    const DecodeSession& session,
+    ProxyRequest request,
+    const RawDevelopmentPlan& raw_development_plan
+);
+
+[[nodiscard]] EncodedProxy render_edited_reference_proxy_jpeg(
+    const DecodeSession& session,
+    std::span<const AdjustmentNode> nodes,
+    ProxyRequest request,
+    const RawDevelopmentPlan& raw_development_plan,
     const OpticsProvider* optics_provider = nullptr,
     const OpticsSettings& optics_settings = default_optics_settings()
 );

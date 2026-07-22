@@ -107,11 +107,18 @@ pub const FINISHING_EFFECTS_OPERATION_ID: &str = "shadow.finishing_effects";
 pub const FINISHING_EFFECTS_V3_PARAMETER_SCHEMA_VERSION: u32 = 3;
 pub const FINISHING_EFFECTS_V3_IMPLEMENTATION_VERSION: &str = "shadow-cpu-finishing-effects-v3";
 
-/// Graph schema used by the current Basic adjustments layer.
-pub const BASIC_GRAPH_SCHEMA_VERSION: u32 = 1;
+/// Graph schema used by the current default adjustment layer.
+///
+/// Version 2 evaluates the foundational color controls before the tone curve.
+/// It deliberately supersedes the short-lived v1 graph rather than preserving
+/// a second execution contract during early development.
+pub const BASIC_GRAPH_SCHEMA_VERSION: u32 = 2;
 
-/// Persisted label that identifies the current Basic adjustments layer.
-pub const BASIC_LAYER_LABEL: &str = "Basic adjustments";
+/// Persisted label assigned to a newly created default adjustment layer.
+///
+/// It deliberately describes the node's role rather than limiting the controls it may grow to
+/// contain. This leaves the name clear when AI-assisted tools become a separate surface.
+pub const BASIC_LAYER_LABEL: &str = "Adjustments";
 
 #[cfg(test)]
 mod tests {

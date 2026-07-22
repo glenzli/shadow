@@ -43,8 +43,8 @@ public:
         throw image::DecodeError(image::DecodeErrorCode::no_preview, 0, "no preview");
     }
 
-    [[nodiscard]] image::MosaicBuffer decode_mosaic() override {
-        throw image::DecodeError(image::DecodeErrorCode::unsupported, 0, "no mosaic");
+    [[nodiscard]] image::RawFrame decode_raw_frame() override {
+        throw image::DecodeError(image::DecodeErrorCode::unsupported, 0, "no RAW frame");
     }
 
     [[nodiscard]] image::PixelBuffer render_reference_rgb() const override {

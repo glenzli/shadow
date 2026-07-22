@@ -564,11 +564,11 @@ public:
         throw DecodeError(DecodeErrorCode::no_preview, 0, "JPEG has no separate embedded preview");
     }
 
-    [[nodiscard]] MosaicBuffer decode_mosaic() override {
+    [[nodiscard]] RawFrame decode_raw_frame() override {
         throw DecodeError(
             DecodeErrorCode::unsupported_layout,
             0,
-            "JPEG is a rendered raster and has no sensor mosaic"
+            "JPEG is a rendered raster and has no sensor RAW frame"
         );
     }
 

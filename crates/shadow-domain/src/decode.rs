@@ -44,9 +44,59 @@ impl PendingCorrectionsSnapshot {
 pub struct DecodeCapabilitySnapshot {
     pub metadata: DecodeSupport,
     pub embedded_previews: DecodeSupport,
-    pub mosaic: DecodeSupport,
+    /// An owned, unprocessed sensor-domain `RawFrame` is available. This is not a claim that
+    /// the source uses Bayer, only that RAW-domain stages can inspect its explicit frame layout.
+    pub raw_frame: DecodeSupport,
     pub reference_rgb: DecodeSupport,
     pub pending_corrections: PendingCorrectionsSnapshot,
+    /// Provider-neutral source-development capabilities. This is deliberately
+    /// distinct from `raw_frame`: a provider can expose sensor samples while still
+    /// declining a particular development intent or opcode policy.
+    #[serde(default)]
+    pub raw_development: RawDevelopmentCapabilitySnapshot,
+}
+
+/// Stable, decoder-neutral capabilities for negotiating a `RawDevelopmentPlan`.
+///
+/// The bit masks retain forward compatibility with new plan enum values without
+/// making catalog snapshots depend on one concrete decoder library. A zero mask
+/// means no support is claimed; it never means "use provider defaults".
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+pub struct RawDevelopmentCapabilitySnapshot {
+    #[serde(default)]
+    pub plan_schema_version: u32,
+    #[serde(default)]
+    pub available: DecodeSupport,
+    #[serde(default)]
+    pub raw_frame: DecodeSupport,
+    #[serde(default)]
+    pub dng_opcode_execution_receipt: DecodeSupport,
+    #[serde(default)]
+    pub supported_intents: u32,
+    #[serde(default)]
+    pub supported_qualities: u32,
+    #[serde(default)]
+    pub supported_dng_opcode_policies: u32,
+    #[serde(default)]
+    pub supported_noise_reduction_intents: u32,
+    #[serde(default)]
+    pub supported_highlight_recovery_intents: u32,
+}
+
+impl Default for RawDevelopmentCapabilitySnapshot {
+    fn default() -> Self {
+        Self {
+            plan_schema_version: 0,
+            available: DecodeSupport::Unavailable,
+            raw_frame: DecodeSupport::Unavailable,
+            dng_opcode_execution_receipt: DecodeSupport::Unavailable,
+            supported_intents: 0,
+            supported_qualities: 0,
+            supported_dng_opcode_policies: 0,
+            supported_noise_reduction_intents: 0,
+            supported_highlight_recovery_intents: 0,
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
@@ -54,6 +104,12 @@ pub struct DecodeCapabilitySnapshot {
 pub enum DecodeSupport {
     Unavailable,
     Available,
+}
+
+impl Default for DecodeSupport {
+    fn default() -> Self {
+        Self::Unavailable
+    }
 }
 
 impl DecodeSupport {
@@ -239,9 +295,10 @@ mod tests {
             capabilities: DecodeCapabilitySnapshot {
                 metadata: DecodeSupport::Available,
                 embedded_previews: DecodeSupport::Available,
-                mosaic: DecodeSupport::Available,
+                raw_frame: DecodeSupport::Available,
                 reference_rgb: DecodeSupport::Available,
                 pending_corrections: PendingCorrectionsSnapshot::default(),
+                raw_development: RawDevelopmentCapabilitySnapshot::default(),
             },
             previews: vec![PreviewDescriptorSnapshot {
                 provider_id: 1,

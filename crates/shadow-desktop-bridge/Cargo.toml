@@ -24,6 +24,7 @@ thiserror.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+rusqlite.workspace = true
 shadow-cache.workspace = true
 
 [build-dependencies]

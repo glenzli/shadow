@@ -24,7 +24,11 @@ use crate::{
 // response to the complete self-guided filter, including its second local
 // coefficient-average pass. Its unchanged slider shape must not conceal
 // a different pixel contract, so schema-3 Recipes are likewise rejected.
-pub const CURRENT_RECIPE_SCHEMA_VERSION: u32 = 4;
+// Shadow is still in its pre-release development phase. Keep the persisted
+// photo-edit contract at v1 until a real compatibility policy exists; a
+// breaking local-development change is handled as an explicit per-photo reset
+// rather than consuming a new public schema number.
+pub const CURRENT_RECIPE_SCHEMA_VERSION: u32 = 1;
 const MAX_STABLE_NAME_BYTES: usize = 128;
 const MAX_LABEL_BYTES: usize = 512;
 const MAX_COMMIT_MESSAGE_BYTES: usize = 4_096;

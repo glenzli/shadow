@@ -18,10 +18,61 @@ namespace shadow::image {
 namespace {
 
 using ProcessedImage = std::unique_ptr<libraw_processed_image_t, void (*)(libraw_processed_image_t*)>;
-inline constexpr std::uint32_t libraw_capability_contract_version = 3U;
+inline constexpr std::uint32_t libraw_capability_contract_version = 5U;
 inline constexpr int libraw_reference_output_color = 1;
 inline constexpr double libraw_reference_gamma_inverse_power = 1.0;
 inline constexpr double libraw_reference_gamma_linear_toe_slope = 1.0;
+
+[[nodiscard]] RawDevelopmentCapabilities libraw_raw_development_capabilities() noexcept {
+    RawDevelopmentCapabilities capabilities;
+    capabilities.schema_version = raw_development_capabilities_schema_version;
+    capabilities.available = true;
+    // The caller sets this from the session's exact unpack capability. Keeping it here false
+    // avoids claiming a frame merely because this build of LibRaw understands the plan contract.
+    capabilities.raw_frame = false;
+    // LibRaw cannot tell Shadow which individual DNG opcode it applied. The receipt still
+    // preserves declared lists and marks them `provider_default`, but this capability stays
+    // false until a provider can distinguish actual apply/defer/skip outcomes.
+    capabilities.dng_opcode_execution_receipt = false;
+    capabilities.supported_intents = raw_development_intent_mask(RawDevelopmentIntent::preview)
+        | raw_development_intent_mask(RawDevelopmentIntent::detail)
+        | raw_development_intent_mask(RawDevelopmentIntent::export_image);
+    // Existing preview speed comes from the separately recorded half-size render path, not a
+    // hidden claim that LibRaw's quality selector maps to Shadow's Bayer implementation tiers.
+    capabilities.supported_qualities = raw_development_quality_mask(
+        RawDevelopmentQuality::balanced
+    );
+    capabilities.supported_dng_opcode_policies = dng_opcode_policy_mask(
+        DngOpcodePolicy::provider_default
+    );
+    capabilities.supported_noise_reduction_intents = raw_noise_reduction_intent_mask(
+        RawNoiseReductionIntent::provider_default
+    );
+    capabilities.supported_highlight_recovery_intents = raw_highlight_recovery_intent_mask(
+        RawHighlightRecoveryIntent::provider_default
+    );
+    return capabilities;
+}
+
+[[nodiscard]] std::array<DngOpcodeExecutionStatus, 3U> dng_opcode_execution(
+    const PendingCorrections& declared,
+    const DngOpcodePolicy policy
+) noexcept {
+    std::array<DngOpcodeExecutionStatus, 3U> result{};
+    for (std::size_t index = 0U; index < result.size(); ++index) {
+        if (declared.dng_opcode_list_bytes[index] == 0U) {
+            result[index] = DngOpcodeExecutionStatus::not_declared;
+            continue;
+        }
+        // The capability negotiation has already rejected policies that LibRaw cannot make
+        // auditable. This branch is deliberately explicit rather than quietly upgrading a
+        // provider-default list to `applied` based on its presence.
+        result[index] = policy == DngOpcodePolicy::provider_default
+            ? DngOpcodeExecutionStatus::provider_default
+            : DngOpcodeExecutionStatus::unsupported;
+    }
+    return result;
+}
 
 // This is intentionally distinct from the verbose receipt signature below. Provider versions
 // become part of catalog ContentIdentity, whose text fields are capped at 128 bytes. Preserve
@@ -143,6 +194,60 @@ void require_libraw_success(const int result, const std::string_view operation) 
         }
     }
     return result;
+}
+
+[[nodiscard]] RawCfaColor raw_cfa_color(LibRaw& decoder, const int row, const int column) noexcept {
+    const int color_index = decoder.COLOR(row, column);
+    if (color_index < 0 || color_index >= 4) {
+        return RawCfaColor::unknown;
+    }
+    switch (decoder.imgdata.idata.cdesc[color_index]) {
+    case 'R':
+    case 'r':
+        return RawCfaColor::red;
+    case 'G':
+    case 'g':
+        return RawCfaColor::green;
+    case 'B':
+    case 'b':
+        return RawCfaColor::blue;
+    default:
+        return RawCfaColor::unknown;
+    }
+}
+
+[[nodiscard]] std::array<RawCfaColor, 4U> raw_frame_bayer_2x2(LibRaw& decoder) noexcept {
+    return {
+        raw_cfa_color(decoder, 0, 0),
+        raw_cfa_color(decoder, 0, 1),
+        raw_cfa_color(decoder, 1, 0),
+        raw_cfa_color(decoder, 1, 1),
+    };
+}
+
+[[nodiscard]] RawFrameCfaLayout raw_frame_cfa_layout(
+    LibRaw& decoder,
+    const std::array<RawCfaColor, 4U>& bayer_2x2
+) noexcept {
+    if (decoder.imgdata.idata.filters == 0U) {
+        return RawFrameCfaLayout::monochrome;
+    }
+    // LibRaw uses this marker for X-Trans. Its first 2x2 cells must not be mistaken for a
+    // Bayer repeat, even if their colours happen to contain one R, two G and one B.
+    if (decoder.imgdata.idata.filters == 9U) {
+        return RawFrameCfaLayout::unknown;
+    }
+    std::size_t red = 0U;
+    std::size_t green = 0U;
+    std::size_t blue = 0U;
+    for (const auto color : bayer_2x2) {
+        red += color == RawCfaColor::red ? 1U : 0U;
+        green += color == RawCfaColor::green ? 1U : 0U;
+        blue += color == RawCfaColor::blue ? 1U : 0U;
+    }
+    return red == 1U && green == 2U && blue == 1U
+        ? RawFrameCfaLayout::bayer_2x2
+        : RawFrameCfaLayout::unknown;
 }
 
 void validate_development_settings(const LibRawDevelopmentSettings& settings) {
@@ -299,11 +404,15 @@ public:
                 & (LIBRAW_DECODER_UNSUPPORTED_FORMAT | LIBRAW_DECODER_NOTSET)) == 0U;
         capabilities_.metadata = true;
         capabilities_.embedded_previews = !previews_.empty();
-        capabilities_.mosaic = decoder_can_unpack
+        capabilities_.raw_frame = decoder_can_unpack
             && (decoder_.imgdata.idata.filters != 0U
                 || decoder_.imgdata.idata.colors == 1);
         capabilities_.reference_rgb = decoder_can_unpack;
         capabilities_.pending_corrections = pending_corrections(decoder_.imgdata);
+        capabilities_.raw_development = decoder_can_unpack
+            ? libraw_raw_development_capabilities()
+            : RawDevelopmentCapabilities{};
+        capabilities_.raw_development.raw_frame = capabilities_.raw_frame;
     }
 
     [[nodiscard]] const AssetMetadata& metadata() const noexcept override {
@@ -316,6 +425,20 @@ public:
 
     [[nodiscard]] std::span<const PreviewDescriptor> previews() const noexcept override {
         return previews_;
+    }
+
+    [[nodiscard]] const RawDevelopmentCapabilities& raw_development_capabilities() const noexcept
+        override {
+        return capabilities_.raw_development;
+    }
+
+    [[nodiscard]] RawDevelopmentPlanNegotiation negotiate_raw_development_plan(
+        const RawDevelopmentPlan& plan
+    ) const noexcept override {
+        return shadow::image::negotiate_raw_development_plan(
+            plan,
+            capabilities_.raw_development
+        );
     }
 
     [[nodiscard]] PreviewPayload decode_preview(const std::size_t id) override {
@@ -364,7 +487,7 @@ public:
         return payload;
     }
 
-    [[nodiscard]] MosaicBuffer decode_mosaic() override {
+    [[nodiscard]] RawFrame decode_raw_frame() override {
         ensure_unpacked();
         const auto& sizes = decoder_.imgdata.sizes;
         const auto* raw_image = decoder_.imgdata.rawdata.raw_image;
@@ -372,7 +495,7 @@ public:
             throw DecodeError(
                 DecodeErrorCode::unsupported_layout,
                 LIBRAW_NOT_IMPLEMENTED,
-                "decoder did not return a single-plane integer mosaic"
+                "decoder did not return a single-plane integer RAW frame"
             );
         }
 
@@ -382,7 +505,7 @@ public:
             throw DecodeError(
                 DecodeErrorCode::resource_limit,
                 LIBRAW_TOO_BIG,
-                "mosaic dimensions overflow the address space"
+                "RAW frame dimensions overflow the address space"
             );
         }
 
@@ -392,36 +515,70 @@ public:
             throw DecodeError(
                 DecodeErrorCode::unsupported_layout,
                 LIBRAW_DATA_ERROR,
-                "mosaic row stride is invalid"
+                "RAW frame row stride is invalid"
             );
         }
 
-        MosaicBuffer buffer;
-        buffer.descriptor.raw_dimensions = metadata_.raw_dimensions;
-        buffer.descriptor.image_dimensions = metadata_.image_dimensions;
-        buffer.descriptor.margins = metadata_.margins;
-        buffer.descriptor.cfa_pattern = metadata_.cfa_pattern;
-        buffer.descriptor.bits_per_sample = metadata_.sensor_bits;
-        buffer.descriptor.black_level = metadata_.black_level;
-        buffer.descriptor.white_level = metadata_.white_level;
-        buffer.descriptor.row_stride_bytes = width * sizeof(std::uint16_t);
-        buffer.descriptor.pending_corrections = capabilities_.pending_corrections;
-        buffer.samples.resize(width * height);
+        RawFrame frame;
+        auto& descriptor = frame.descriptor;
+        descriptor.schema_version = raw_frame_schema_version;
+        descriptor.storage_dimensions = metadata_.raw_dimensions;
+        descriptor.active_dimensions = metadata_.image_dimensions;
+        descriptor.active_margins = metadata_.margins;
+        descriptor.orientation = metadata_.orientation;
+        descriptor.sample_encoding = RawFrameSampleEncoding::uint16_native;
+        descriptor.bayer_2x2 = raw_frame_bayer_2x2(decoder_);
+        descriptor.cfa_layout = raw_frame_cfa_layout(decoder_, descriptor.bayer_2x2);
+        descriptor.cfa_pattern = metadata_.cfa_pattern;
+        descriptor.bits_per_sample = metadata_.sensor_bits;
+        const auto& color = decoder_.imgdata.color;
+        for (std::size_t index = 0U; index < descriptor.black_levels.size(); ++index) {
+            // `cblack` names the calibration site; retain its exact zero value when LibRaw has
+            // one. Older/raw files that provide only a global black level retain that fallback.
+            descriptor.black_levels[index] = color.cblack[index] != 0U || color.black == 0U
+                ? color.cblack[index]
+                : color.black;
+            descriptor.white_levels[index] = color.maximum;
+            descriptor.as_shot_neutral[index] = metadata_.as_shot_neutral[index];
+        }
+        descriptor.declared_pending_corrections = capabilities_.pending_corrections;
+        frame.samples.resize(width * height);
 
         for (std::size_t row = 0; row < height; ++row) {
             const auto* source = raw_image + (row * source_stride);
-            auto* destination = buffer.samples.data() + (row * width);
+            auto* destination = frame.samples.data() + (row * width);
             std::copy_n(source, width, destination);
         }
-        return buffer;
+        if (!frame.valid()) {
+            throw DecodeError(
+                DecodeErrorCode::unsupported_layout,
+                LIBRAW_NOT_IMPLEMENTED,
+                "decoder returned an invalid provider-neutral RAW frame"
+            );
+        }
+        return frame;
     }
 
     [[nodiscard]] PixelBuffer render_reference_rgb() const override {
-        return render_reference_rgb_impl(false);
+        return render_reference_rgb(default_raw_development_plan());
+    }
+
+    [[nodiscard]] PixelBuffer render_reference_rgb(
+        const RawDevelopmentPlan& plan
+    ) const override {
+        const auto negotiation = require_accepted_plan(plan, false);
+        return render_reference_rgb_impl(false, plan, negotiation);
     }
 
     [[nodiscard]] PixelBuffer render_reference_rgb_for_preview(
         const std::uint32_t max_edge
+    ) const override {
+        return render_reference_rgb_for_preview(max_edge, preview_raw_development_plan());
+    }
+
+    [[nodiscard]] PixelBuffer render_reference_rgb_for_preview(
+        const std::uint32_t max_edge,
+        const RawDevelopmentPlan& plan
     ) const override {
         if (max_edge == 0U) {
             throw DecodeError(
@@ -439,11 +596,49 @@ public:
         // next step is a 1200–2048 px interactive proxy. Keep full quality for smaller files and
         // for any request where a half-size raster would not materially reduce work.
         const bool use_half_size = native_edge > static_cast<std::uint64_t>(max_edge) * 2U;
-        return render_reference_rgb_impl(use_half_size);
+        const auto negotiation = require_accepted_plan(plan, true);
+        return render_reference_rgb_impl(use_half_size, plan, negotiation);
     }
 
 private:
-    [[nodiscard]] PixelBuffer render_reference_rgb_impl(const bool half_size) const {
+    [[nodiscard]] RawDevelopmentPlanNegotiation require_accepted_plan(
+        const RawDevelopmentPlan& plan,
+        const bool preview_render
+    ) const {
+        const auto negotiation = negotiate_raw_development_plan(plan);
+        if (!negotiation.accepted()) {
+            const auto error_code = raw_development_plan_aspect_contains(
+                negotiation.unresolved,
+                RawDevelopmentPlanAspect::schema
+            )
+                ? DecodeErrorCode::invalid_request
+                : DecodeErrorCode::unsupported;
+            throw DecodeError(
+                error_code,
+                LIBRAW_NOT_IMPLEMENTED,
+                "LibRaw cannot satisfy the requested RAW development plan"
+            );
+        }
+        if (
+            preview_render
+                != (negotiation.effective.intent == RawDevelopmentIntent::preview)
+        ) {
+            throw DecodeError(
+                DecodeErrorCode::invalid_request,
+                LIBRAW_BAD_CROP,
+                preview_render
+                    ? "preview rendering requires a preview RAW development plan"
+                    : "full RAW rendering requires a detail or export development plan"
+            );
+        }
+        return negotiation;
+    }
+
+    [[nodiscard]] PixelBuffer render_reference_rgb_impl(
+        const bool half_size,
+        const RawDevelopmentPlan& requested_plan,
+        const RawDevelopmentPlanNegotiation& negotiation
+    ) const {
         // LibRaw embeds sizeable fixed storage in the decoder object. QtConcurrent worker
         // threads use a substantially smaller stack than the process main thread on macOS,
         // so keeping a temporary LibRaw here can overflow the worker before open_file runs.
@@ -547,6 +742,11 @@ private:
             .provider_version = provider_info_.version,
             .library_version = std::string(LibRaw::version()),
             .development_settings_signature = libraw_development_settings_signature(settings_),
+            .requested_plan_identity = raw_development_plan_identity(requested_plan),
+            .effective_plan_identity = raw_development_plan_identity(negotiation.effective),
+            .requested_plan = requested_plan,
+            .effective_plan = negotiation.effective,
+            .plan_negotiation_status = negotiation.status,
             .processed_linear_reference_contract_version =
                 processed_linear_reference_rgb_contract_version,
             .declared_image_dimensions = declared_image_dimensions,
@@ -565,6 +765,10 @@ private:
             .gamma_inverse_power = parameters.gamm[0],
             .gamma_linear_toe_slope = parameters.gamm[1],
             .declared_dng_opcode_lists = declared_dng_opcode_lists,
+            .dng_opcode_execution = dng_opcode_execution(
+                declared_dng_opcode_lists,
+                negotiation.effective.dng_opcode_policy
+            ),
             .process_warnings = renderer->imgdata.process_warnings,
         };
         return buffer;
@@ -601,6 +805,8 @@ public:
             + ";cap=" + std::to_string(libraw_capability_contract_version)
             + ";linear=" + std::to_string(processed_linear_reference_rgb_contract_version)
             + ";receipt=" + std::to_string(raw_development_receipt_schema_version)
+            + ";plan=" + std::to_string(raw_development_plan_schema_version)
+            + ";frame=" + std::to_string(raw_frame_schema_version)
             + ";display=" + std::to_string(display_srgb8_output_transform_version)
             + ";settings=" + compact_libraw_development_settings_identity(settings_);
         if (info_.version.size() > 128U) {

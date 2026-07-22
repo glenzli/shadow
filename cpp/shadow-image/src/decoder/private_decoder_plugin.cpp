@@ -1,7 +1,10 @@
 #include <shadow/image/private_decoder_plugin.hpp>
 
 #include <cctype>
+#include <cstdint>
+#include <iomanip>
 #include <memory>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -28,6 +31,21 @@ namespace {
         }
     }
     return true;
+}
+
+[[nodiscard]] std::uint64_t fnv1a64(const std::string_view text) noexcept {
+    std::uint64_t hash = 14'695'981'039'346'656'037ULL;
+    for (const char character : text) {
+        hash ^= static_cast<unsigned char>(character);
+        hash *= 1'099'511'628'211ULL;
+    }
+    return hash;
+}
+
+[[nodiscard]] std::string compact_identity(const std::string_view text) {
+    std::ostringstream stream;
+    stream << std::hex << fnv1a64(text);
+    return stream.str();
 }
 
 [[noreturn]] void throw_plugin_error(const std::string& message) {
@@ -128,16 +146,41 @@ public:
         return session_->previews();
     }
 
+    [[nodiscard]] const RawDevelopmentCapabilities& raw_development_capabilities() const noexcept
+        override {
+        return session_->raw_development_capabilities();
+    }
+
+    [[nodiscard]] RawDevelopmentPlanNegotiation negotiate_raw_development_plan(
+        const RawDevelopmentPlan& plan
+    ) const noexcept override {
+        return session_->negotiate_raw_development_plan(plan);
+    }
+
     [[nodiscard]] PreviewPayload decode_preview(const std::size_t id) override {
         return session_->decode_preview(id);
     }
 
-    [[nodiscard]] MosaicBuffer decode_mosaic() override {
-        return session_->decode_mosaic();
+    [[nodiscard]] RawFrame decode_raw_frame() override {
+        auto frame = session_->decode_raw_frame();
+        if (raw_development_capabilities().raw_frame && !frame.valid()) {
+            throw_plugin_error("private decoder plugin returned an invalid RAW frame");
+        }
+        return frame;
     }
 
     [[nodiscard]] PixelBuffer render_reference_rgb() const override {
         return bind_provider_receipt(session_->render_reference_rgb());
+    }
+
+    [[nodiscard]] PixelBuffer render_reference_rgb(
+        const RawDevelopmentPlan& plan
+    ) const override {
+        const auto negotiation = require_accepted_plan(plan, false);
+        return bind_provider_receipt(
+            session_->render_reference_rgb(plan),
+            &negotiation
+        );
     }
 
     [[nodiscard]] PixelBuffer render_reference_rgb_for_preview(
@@ -149,14 +192,84 @@ public:
         return bind_provider_receipt(session_->render_reference_rgb_for_preview(max_edge));
     }
 
+    [[nodiscard]] PixelBuffer render_reference_rgb_for_preview(
+        const std::uint32_t max_edge,
+        const RawDevelopmentPlan& plan
+    ) const override {
+        const auto negotiation = require_accepted_plan(plan, true);
+        return bind_provider_receipt(
+            session_->render_reference_rgb_for_preview(max_edge, plan),
+            &negotiation
+        );
+    }
+
 private:
-    [[nodiscard]] PixelBuffer bind_provider_receipt(PixelBuffer pixels) const {
+    [[nodiscard]] RawDevelopmentPlanNegotiation require_accepted_plan(
+        const RawDevelopmentPlan& plan,
+        const bool preview_render
+    ) const {
+        const auto negotiation = session_->negotiate_raw_development_plan(plan);
+        if (!negotiation.accepted()) {
+            throw_plugin_error("private decoder plugin cannot satisfy the requested RAW development plan");
+        }
+        if (
+            preview_render
+                != (negotiation.effective.intent == RawDevelopmentIntent::preview)
+        ) {
+            throw DecodeError(
+                DecodeErrorCode::invalid_request,
+                0,
+                preview_render
+                    ? "private decoder preview requires a preview RAW development plan"
+                    : "private decoder full render requires a detail or export RAW development plan"
+            );
+        }
+        return negotiation;
+    }
+
+    [[nodiscard]] PixelBuffer bind_provider_receipt(
+        PixelBuffer pixels,
+        const RawDevelopmentPlanNegotiation* expected_plan = nullptr
+    ) const {
         auto& receipt = pixels.raw_development_receipt;
         if (!receipt.recorded()) {
+            if (
+                expected_plan != nullptr
+                && raw_development_capabilities().available
+            ) {
+                throw_plugin_error(
+                    "plan-aware private decoder plugin returned RAW pixels without a receipt"
+                );
+            }
             return pixels;
         }
         if (!receipt.uses_current_schema()) {
             throw_plugin_error("private decoder plugin returned an unsupported RAW receipt schema");
+        }
+        try {
+            if (
+                receipt.requested_plan_identity
+                    != raw_development_plan_identity(receipt.requested_plan)
+                || receipt.effective_plan_identity
+                    != raw_development_plan_identity(receipt.effective_plan)
+            ) {
+                throw_plugin_error(
+                    "private decoder plugin returned a non-canonical RAW development plan receipt"
+                );
+            }
+        } catch (const std::invalid_argument&) {
+            throw_plugin_error("private decoder plugin returned an invalid RAW development plan");
+        }
+        if (expected_plan != nullptr) {
+            if (
+                receipt.requested_plan != expected_plan->requested
+                || receipt.effective_plan != expected_plan->effective
+                || receipt.plan_negotiation_status != expected_plan->status
+            ) {
+                throw_plugin_error(
+                    "private decoder plugin receipt does not match the negotiated RAW development plan"
+                );
+            }
         }
         // The host namespaces the provider identity that reaches catalog/cache code. A plugin may
         // still name its vendor library in `library_version`, but cannot claim to be LibRaw or a
@@ -186,9 +299,21 @@ public:
         info_ = provider_->info();
         const auto* descriptor = module_->descriptor();
         info_.id = "private." + std::string(descriptor->plugin_id) + "." + info_.id;
+        // ProviderInfo::version is persisted in cache identities and deliberately capped. An
+        // adapter such as the LibRaw dummy may wrap an already verbose provider signature, so
+        // preserve its complete identity through a stable compact hash instead of rejecting a
+        // valid local module merely for being descriptive.
+        const std::string wrapped_identity = info_.id + ";" + info_.version;
         info_.version = std::string(descriptor->plugin_version)
-            + ";shadow-private-abi-v" + std::to_string(private_decoder_plugin_abi_version)
-            + ";" + info_.version;
+            + ";abi=" + std::to_string(private_decoder_plugin_abi_version)
+            + ";plan="
+            + std::to_string(descriptor->raw_development_plan_schema_version)
+            + ";frame="
+            + std::to_string(descriptor->raw_frame_schema_version)
+            + ";wrapped=" + compact_identity(wrapped_identity);
+        if (info_.version.size() > 128U) {
+            throw_plugin_error("private decoder provider cache identity exceeds 128 bytes");
+        }
     }
 
     PluginDecoderProvider(const PluginDecoderProvider&) = delete;
@@ -228,6 +353,12 @@ void validate_private_decoder_plugin_descriptor(
 ) {
     if (descriptor.abi_version != private_decoder_plugin_abi_version) {
         throw_plugin_error("private decoder plugin ABI version is unsupported");
+    }
+    if (descriptor.raw_development_plan_schema_version != raw_development_plan_schema_version) {
+        throw_plugin_error("private decoder plugin RAW development plan schema is unsupported");
+    }
+    if (descriptor.raw_frame_schema_version != raw_frame_schema_version) {
+        throw_plugin_error("private decoder plugin RAW frame schema is unsupported");
     }
     if (!usable_identifier(descriptor.plugin_id)) {
         throw_plugin_error("private decoder plugin id is invalid");

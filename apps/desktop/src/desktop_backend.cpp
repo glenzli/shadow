@@ -811,6 +811,16 @@ BackendPhotoEditState DesktopBackend::photoEditState(
     ));
 }
 
+BackendPhotoEditState DesktopBackend::resetIncompatiblePhotoEditHistory(
+    const QString& photo_id,
+    const QString& source_path
+) const {
+    return edit_state(impl_->session->reset_incompatible_photo_edit_history(
+        photo_id.toStdString(),
+        source_path.toStdString()
+    ));
+}
+
 QVariantList DesktopBackend::opticsProfileCandidates(
     const QString& photo_id,
     const QString& source_path

@@ -28,20 +28,22 @@ use shadow_bridge::{
     MAX_POINT_COLOR_RANGES, MAX_TONE_CURVE_POINTS, OpticsSettings,
     PERCEPTUAL_COLOR_V2_IMPLEMENTATION_VERSION as PERCEPTUAL_COLOR_V2_IMPLEMENTATION_REVISION,
     PERCEPTUAL_COLOR_V2_PARAMETER_SCHEMA_VERSION, PerceptualColorParameters,
-    PhotoEditDetailSession, PhotoEditPreviewSession,
+    PhotoEditDetailSession, PhotoEditPreviewSession, RawDevelopmentPlan,
     SELECTIVE_TONE_V3_IMPLEMENTATION_VERSION as SELECTIVE_TONE_V3_IMPLEMENTATION_REVISION,
     SELECTIVE_TONE_V3_PARAMETER_SCHEMA_VERSION as SELECTIVE_TONE_V3_PARAMETER_SCHEMA_REVISION,
     SMOOTH_RGB_TONE_CURVE_IMPLEMENTATION_VERSION, SMOOTH_RGB_TONE_CURVE_PARAMETER_SCHEMA_VERSION,
     SelectiveToneParameters, SharpenParameters, SmoothRgbToneCurve,
     TECHNICAL_DETAIL_V3_IMPLEMENTATION_VERSION as TECHNICAL_DETAIL_V3_IMPLEMENTATION_REVISION,
     ToneCurvePoint, extract_best_photo_preview, inspect_photo, photo_provider_version,
-    photo_supported_raster_extensions, query_photo_optics_profiles, render_photo_reference_proxy,
+    photo_supported_raster_extensions, query_photo_optics_profiles, raw_development_plan_identity,
+    render_photo_reference_proxy,
 };
 use shadow_catalog::{
-    CachedArtifactRecord, CachedArtifactRole, CatalogActor, CatalogHandle, CommitEditRepository,
-    CommitRecipe, CommitRecipeAndEditRepository, EditObjectPackWrite, EditRepositoryRefUpdate,
-    RecipeCommitRecord, RecipeRefExpectation, RecipeRefKind, RecipeRefTarget,
-    RepresentationFingerprint, ReviewCursor, ReviewItemRecord, TechnicalObservationRevision,
+    CachedArtifactRecord, CachedArtifactRole, CatalogActor, CatalogError, CatalogHandle,
+    CommitEditRepository, CommitRecipe, CommitRecipeAndEditRepository, EditObjectPackWrite,
+    EditRepositoryRefUpdate, RecipeCommitRecord, RecipeRefExpectation, RecipeRefKind,
+    RecipeRefTarget, RepresentationFingerprint, ReviewCursor, ReviewItemRecord,
+    TechnicalObservationRevision,
 };
 use shadow_core::{
     CachedArtifactLoader, DecodeInspectionActor, DecodeInspectionSummary, DecodeInspector,
@@ -631,6 +633,13 @@ mod ffi {
             photo_id: &str,
             source_path: &str,
         ) -> Result<FfiPhotoEditState>;
+        /// Discards this photo's obsolete development Recipe history after an
+        /// explicit UI confirmation, then returns a neutral current-v1 state.
+        fn reset_incompatible_photo_edit_history(
+            self: &DesktopSession,
+            photo_id: &str,
+            source_path: &str,
+        ) -> Result<FfiPhotoEditState>;
         fn optics_profile_candidates(
             self: &DesktopSession,
             photo_id: &str,
@@ -828,6 +837,10 @@ struct CachedEditPreviewSession {
     representation_id: RepresentationId,
     source: RepresentationFingerprint,
     max_edge: u32,
+    /// The plan the caller asked for, used to find a reusable session before a decode. The
+    /// provider's effective plan remains on the prepared session's immutable receipt: do not
+    /// use it as this cache key, because it belongs to a potentially different request.
+    requested_raw_development_plan_identity: String,
     optics: OpticsSettings,
     session: Arc<PhotoEditPreviewSession>,
 }
@@ -836,8 +849,149 @@ struct CachedEditPreviewSession {
 struct CachedEditDetailSession {
     representation_id: RepresentationId,
     source: RepresentationFingerprint,
+    requested_raw_development_plan_identity: String,
     optics: OpticsSettings,
-    session: Arc<PhotoEditDetailSession>,
+    session: Arc<CachedDetailSource>,
+}
+
+// Keep the decoded full-resolution source and the processed display tiles as
+// two distinct caches. The source is expensive RAW development state; the
+// tiles are bounded, Recipe-specific RGB8 results that make panning over an
+// already inspected region immediate without pinning an entire developed
+// image for every photo.
+#[derive(Debug)]
+struct CachedDetailSource {
+    session: PhotoEditDetailSession,
+    tiles: Mutex<DetailTileCache>,
+}
+
+#[derive(Debug, Clone, Copy, Eq, Hash, PartialEq)]
+struct DetailTileCacheKey {
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+}
+
+impl From<DetailTileRect> for DetailTileCacheKey {
+    fn from(rect: DetailTileRect) -> Self {
+        Self {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct CachedDetailTile {
+    row_stride_bytes: u32,
+    bytes: Vec<u8>,
+}
+
+#[derive(Debug, Default)]
+struct DetailTileCache {
+    recipe_identity: Option<[u8; 32]>,
+    bytes: usize,
+    entries: HashMap<DetailTileCacheKey, CachedDetailTile>,
+    least_recently_used: VecDeque<DetailTileCacheKey>,
+}
+
+const MAX_CACHED_DETAIL_TILE_BYTES: usize = 96 * 1_024 * 1_024;
+
+fn cached_detail_tile(
+    source: &CachedDetailSource,
+    plan: &AdjustmentRenderPlan,
+    recipe_identity: [u8; 32],
+    rect: DetailTileRect,
+) -> AnyResult<ffi::FfiEditedDetailTile> {
+    let key = DetailTileCacheKey::from(rect);
+    {
+        let mut cache = source
+            .tiles
+            .lock()
+            .map_err(|_| anyhow!("full-detail tile cache lock is poisoned"))?;
+        if cache.recipe_identity != Some(recipe_identity) {
+            *cache = DetailTileCache {
+                recipe_identity: Some(recipe_identity),
+                ..DetailTileCache::default()
+            };
+        }
+        if let Some(tile) = cache.entries.get(&key).cloned() {
+            cache
+                .least_recently_used
+                .retain(|candidate| candidate != &key);
+            cache.least_recently_used.push_back(key);
+            return Ok(ffi::FfiEditedDetailTile {
+                x: key.x,
+                y: key.y,
+                width: key.width,
+                height: key.height,
+                row_stride_bytes: tile.row_stride_bytes,
+                bytes: tile.bytes,
+            });
+        }
+    }
+
+    let rendered = source
+        .session
+        .render_plan_tile(plan, DetailTileRequest { rect })?;
+    let tile = CachedDetailTile {
+        row_stride_bytes: rendered.row_stride_bytes,
+        bytes: rendered.bytes,
+    };
+    let tile_bytes = tile.bytes.len();
+    let mut cache = source
+        .tiles
+        .lock()
+        .map_err(|_| anyhow!("full-detail tile cache lock is poisoned"))?;
+    if cache.recipe_identity != Some(recipe_identity) {
+        // A newer Recipe may have reached the same prepared source while this
+        // tile was being calculated. Do not leak its pixels across Recipe
+        // identities; return this request's result without admitting it.
+        return Ok(ffi::FfiEditedDetailTile {
+            x: key.x,
+            y: key.y,
+            width: key.width,
+            height: key.height,
+            row_stride_bytes: tile.row_stride_bytes,
+            bytes: tile.bytes,
+        });
+    }
+    while cache.bytes.saturating_add(tile_bytes) > MAX_CACHED_DETAIL_TILE_BYTES {
+        let Some(evicted_key) = cache.least_recently_used.pop_front() else {
+            break;
+        };
+        if let Some(evicted) = cache.entries.remove(&evicted_key) {
+            cache.bytes = cache.bytes.saturating_sub(evicted.bytes.len());
+        }
+    }
+    cache.bytes = cache.bytes.saturating_add(tile_bytes);
+    cache.entries.insert(key, tile.clone());
+    cache
+        .least_recently_used
+        .retain(|candidate| candidate != &key);
+    cache.least_recently_used.push_back(key);
+    Ok(ffi::FfiEditedDetailTile {
+        x: key.x,
+        y: key.y,
+        width: key.width,
+        height: key.height,
+        row_stride_bytes: tile.row_stride_bytes,
+        bytes: tile.bytes,
+    })
+}
+
+// A prepared session owns an immutable receipt for one particular user request. Even if a
+// provider adjusted that request to the same effective source plan as a later request, this
+// session cannot stand in for the later request without rewriting its provenance. Reusing only
+// an identical request keeps plan negotiation and audit history exact.
+fn requested_raw_development_plan_cache_matches(
+    cached_requested_identity: &str,
+    requested_identity: &str,
+) -> bool {
+    cached_requested_identity == requested_identity
 }
 
 fn validate_decode_inspection_summary(
@@ -874,9 +1028,16 @@ impl DesktopSession {
         let cancellation = self.folder_scan_cancellation(scan_id)?;
         let folder_path = Path::new(folder_path);
         let mut catalog = self.catalog.clone();
+        let photo_inspector = match PhotoInspector::new() {
+            Ok(inspector) => inspector,
+            Err(error) => {
+                self.finish_folder_scan_failed(scan_id)?;
+                return Err(error);
+            }
+        };
         let inspector = match DecodeInspectionActor::spawn_with_cache(
             catalog.clone(),
-            PhotoInspector::new(),
+            photo_inspector,
             &self.cache_root,
         ) {
             Ok(inspector) => inspector,
@@ -1556,6 +1717,16 @@ impl DesktopSession {
         self.photo_edit_state_for(photo_id, &source.location.display_path)
     }
 
+    fn reset_incompatible_photo_edit_history(
+        &self,
+        photo_id: &str,
+        source_path: &str,
+    ) -> AnyResult<ffi::FfiPhotoEditState> {
+        let (photo_id, source) = self.validated_photo_source(photo_id, source_path)?;
+        self.catalog.discard_recipe_history(photo_id)?;
+        self.photo_edit_state_for_selected(photo_id, &source.location.display_path, None, false)
+    }
+
     fn optics_profile_candidates(
         &self,
         photo_id: &str,
@@ -1636,7 +1807,7 @@ impl DesktopSession {
         validate_detail_viewport_request(request)?;
         self.ensure_current_edit_detail_render(request.render_token)?;
         let (photo_id, source) = self.validated_photo_source(photo_id, source_path)?;
-        let plan = self.basic_edit_render_plan(
+        let (plan, recipe_identity) = self.basic_edit_render_plan_with_identity(
             photo_id,
             &request.base_commit_id,
             &request.settings,
@@ -1649,7 +1820,7 @@ impl DesktopSession {
             bridge_optics_settings(&request.settings.optics),
         )?;
         self.ensure_current_edit_detail_render(request.render_token)?;
-        let full_dimensions = session.dimensions();
+        let full_dimensions = session.session.dimensions();
         let rects = detail_viewport_rects(
             full_dimensions,
             request.center_x,
@@ -1661,21 +1832,14 @@ impl DesktopSession {
         let mut tiles = Vec::with_capacity(rects.len());
         for rect in rects {
             self.ensure_current_edit_detail_render(request.render_token)?;
-            let rendered = session.render_plan_tile(&plan, DetailTileRequest { rect })?;
+            let rendered = cached_detail_tile(&session, &plan, recipe_identity, rect)?;
             self.ensure_current_edit_detail_render(request.render_token)?;
-            tiles.push(ffi::FfiEditedDetailTile {
-                x: rendered.rect.x,
-                y: rendered.rect.y,
-                width: rendered.rect.width,
-                height: rendered.rect.height,
-                row_stride_bytes: rendered.row_stride_bytes,
-                bytes: rendered.bytes,
-            });
+            tiles.push(rendered);
         }
         Ok(ffi::FfiEditedDetailViewport {
             full_width: full_dimensions.width,
             full_height: full_dimensions.height,
-            retained_bytes: session.retained_bytes(),
+            retained_bytes: session.session.retained_bytes(),
             tiles,
         })
     }
@@ -1702,6 +1866,23 @@ impl DesktopSession {
         settings: &ffi::FfiEditSettings,
         use_working_recipe: bool,
     ) -> AnyResult<AdjustmentRenderPlan> {
+        Ok(self
+            .basic_edit_render_plan_with_identity(
+                photo_id,
+                base_commit_id,
+                settings,
+                use_working_recipe,
+            )?
+            .0)
+    }
+
+    fn basic_edit_render_plan_with_identity(
+        &self,
+        photo_id: PhotoId,
+        base_commit_id: &str,
+        settings: &ffi::FfiEditSettings,
+        use_working_recipe: bool,
+    ) -> AnyResult<(AdjustmentRenderPlan, [u8; 32])> {
         let grade_stack = preview_grade_stack_draft_recipe_v1(settings, use_working_recipe)?;
         // Sliders and their immutable base commit travel as one render
         // generation. Never resolve the movable working ref here: it may have
@@ -1725,7 +1906,10 @@ impl DesktopSession {
             .as_ref()
             .map(|record| record.commit.snapshot());
         let snapshot = grade_stack_recipe_v1_snapshot(&grade_stack, template)?;
-        compile_recipe_render_plan(&snapshot)
+        let serialized = serde_json::to_vec(&snapshot)
+            .context("serialize exact detail Recipe cache identity")?;
+        let identity = *blake3::hash(&serialized).as_bytes();
+        Ok((compile_recipe_render_plan(&snapshot)?, identity))
     }
 
     fn edit_preview_session(
@@ -1734,6 +1918,14 @@ impl DesktopSession {
         max_edge: u32,
         optics: OpticsSettings,
     ) -> AnyResult<Arc<PhotoEditPreviewSession>> {
+        // The plan is source-development provenance, not a color node. Include its canonical
+        // identity in the in-memory key before deciding an immutable warm proxy is reusable.
+        // This prevents a later fast/high-quality or DNG-policy choice from silently sharing a
+        // raster produced under today's canonical preview plan.
+        let raw_development_plan = RawDevelopmentPlan::preview();
+        let requested_raw_development_plan_identity =
+            raw_development_plan_identity(raw_development_plan)
+                .context("build requested preview RAW-development cache identity")?;
         {
             let mut sessions = self
                 .edit_preview_sessions
@@ -1743,6 +1935,15 @@ impl DesktopSession {
                 entry.representation_id == source.representation_id
                     && entry.source == source.source
                     && entry.max_edge == max_edge
+                    // A provider may later adjust request A to effective plan B. The prepared
+                    // pixels could be reusable for a separate request B, but its receipt would
+                    // still describe A; returning it here would lie about the user's request.
+                    // Keep session reuse keyed by the requested plan until source pixels and
+                    // per-request provenance are independently cacheable objects.
+                    && requested_raw_development_plan_cache_matches(
+                        &entry.requested_raw_development_plan_identity,
+                        &requested_raw_development_plan_identity,
+                    )
                     && entry.optics == optics
             }) {
                 let entry = sessions
@@ -1754,11 +1955,14 @@ impl DesktopSession {
             }
         }
 
-        let prepared = Arc::new(PhotoEditPreviewSession::open_with_optics(
-            &catalog_native_path(source)?,
-            max_edge,
-            &optics,
-        )?);
+        let prepared = Arc::new(
+            PhotoEditPreviewSession::open_with_raw_development_plan_and_optics(
+                &catalog_native_path(source)?,
+                max_edge,
+                raw_development_plan,
+                &optics,
+            )?,
+        );
         let mut sessions = self
             .edit_preview_sessions
             .lock()
@@ -1767,6 +1971,10 @@ impl DesktopSession {
             entry.representation_id == source.representation_id
                 && entry.source == source.source
                 && entry.max_edge == max_edge
+                && requested_raw_development_plan_cache_matches(
+                    &entry.requested_raw_development_plan_identity,
+                    &requested_raw_development_plan_identity,
+                )
                 && entry.optics == optics
         }) {
             return Ok(Arc::clone(&entry.session));
@@ -1775,6 +1983,7 @@ impl DesktopSession {
             representation_id: source.representation_id,
             source: source.source,
             max_edge,
+            requested_raw_development_plan_identity,
             optics,
             session: Arc::clone(&prepared),
         });
@@ -1787,10 +1996,14 @@ impl DesktopSession {
         source: &ReviewItemRecord,
         render_token: u64,
         optics: OpticsSettings,
-    ) -> AnyResult<Arc<PhotoEditDetailSession>> {
+    ) -> AnyResult<Arc<CachedDetailSource>> {
         const SOURCE_CHANGED: &str = "full detail source changed since Catalog registration";
         const SOURCE_METADATA_CONTEXT: &str = "read full detail source metadata";
         let native_path = catalog_native_path(source)?;
+        let raw_development_plan = RawDevelopmentPlan::detail();
+        let requested_raw_development_plan_identity =
+            raw_development_plan_identity(raw_development_plan)
+                .context("build requested detail RAW-development cache identity")?;
         let current_source = fingerprint_source(&native_path).context(SOURCE_METADATA_CONTEXT)?;
         if current_source != source.source {
             bail!(SOURCE_CHANGED);
@@ -1809,6 +2022,10 @@ impl DesktopSession {
         if let Some(entry) = cached.as_ref().filter(|entry| {
             entry.representation_id == source.representation_id
                 && entry.source == source.source
+                && requested_raw_development_plan_cache_matches(
+                    &entry.requested_raw_development_plan_identity,
+                    &requested_raw_development_plan_identity,
+                )
                 && entry.optics == optics
         }) {
             return Ok(Arc::clone(&entry.session));
@@ -1820,10 +2037,14 @@ impl DesktopSession {
             bail!("full detail source is busy rendering another photo");
         }
         *cached = None;
-        let prepared = Arc::new(PhotoEditDetailSession::open_with_optics(
-            &native_path,
-            &optics,
-        )?);
+        let prepared = Arc::new(CachedDetailSource {
+            session: PhotoEditDetailSession::open_with_raw_development_plan_and_optics(
+                &native_path,
+                raw_development_plan,
+                &optics,
+            )?,
+            tiles: Mutex::new(DetailTileCache::default()),
+        });
         let decoded_source = fingerprint_source(&native_path).context(SOURCE_METADATA_CONTEXT)?;
         if decoded_source != source.source {
             bail!(SOURCE_CHANGED);
@@ -1831,6 +2052,7 @@ impl DesktopSession {
         *cached = Some(CachedEditDetailSession {
             representation_id: source.representation_id,
             source: source.source,
+            requested_raw_development_plan_identity,
             optics,
             session: Arc::clone(&prepared),
         });
@@ -2145,35 +2367,68 @@ impl DesktopSession {
                     })
             })
             .transpose()?;
-        let snapshot = grade_stack_recipe_v1_snapshot(
-            &grade_stack,
-            base_record.as_ref().map(|record| record.commit.snapshot()),
-        )?;
-        let (recipe_id, parents) = if let Some(record) = base_record.as_ref() {
-            (record.commit.recipe_id(), vec![record.commit.id()])
-        } else {
-            (RecipeId::new_v7(), Vec::new())
+        let autosave_request = |parent: Option<&RecipeCommitRecord>,
+                                expected_working: Option<RecipeCommitId>|
+         -> AnyResult<CommitRecipe> {
+            let snapshot = grade_stack_recipe_v1_snapshot(
+                &grade_stack,
+                parent.map(|record| record.commit.snapshot()),
+            )?;
+            let (recipe_id, parents) = if let Some(record) = parent {
+                (record.commit.recipe_id(), vec![record.commit.id()])
+            } else {
+                (RecipeId::new_v7(), Vec::new())
+            };
+            let commit = RecipeCommit::new(
+                RecipeCommitId::new_v7(),
+                recipe_id,
+                parents,
+                snapshot,
+                None,
+                created_at_ms,
+            )?;
+            Ok(CommitRecipe {
+                photo_id,
+                commit,
+                update_refs: vec![RecipeRefTarget {
+                    name: WORKING_RECIPE_REF.to_owned(),
+                    kind: RecipeRefKind::Working,
+                    expectation: Some(
+                        expected_working
+                            .map_or(RecipeRefExpectation::Missing, RecipeRefExpectation::At),
+                    ),
+                }],
+            })
         };
-        let commit = RecipeCommit::new(
-            RecipeCommitId::new_v7(),
-            recipe_id,
-            parents,
-            snapshot,
-            None,
-            created_at_ms,
-        )?;
-        self.catalog.commit_recipe(&CommitRecipe {
-            photo_id,
-            commit,
-            update_refs: vec![RecipeRefTarget {
-                name: WORKING_RECIPE_REF.to_owned(),
-                kind: RecipeRefKind::Working,
-                expectation: Some(
-                    expected_working_commit_id
-                        .map_or(RecipeRefExpectation::Missing, RecipeRefExpectation::At),
-                ),
-            }],
-        })?;
+
+        let initial_request = autosave_request(base_record.as_ref(), expected_working_commit_id)?;
+        match self.catalog.commit_recipe(&initial_request) {
+            Ok(_) => {}
+            // The only recoverable conflict is an out-of-date belief that `working` did not
+            // exist. It can happen when an initial autosave and a freshly created working head
+            // cross at a controller boundary. Preserve the discovered head as this new full
+            // snapshot's parent, then CAS exactly that head. A second concurrent move still
+            // fails normally instead of silently overwriting another writer.
+            Err(CatalogError::RecipeRefExpectationMismatch {
+                name,
+                expected: RecipeRefExpectation::Missing,
+                actual: Some(actual_working_commit_id),
+                ..
+            }) if name == WORKING_RECIPE_REF => {
+                let actual_record = self
+                    .catalog
+                    .recipe_commit(photo_id, actual_working_commit_id)?
+                    .ok_or_else(|| {
+                        anyhow!(
+                            "autosave conflict refers to unavailable working Recipe commit {actual_working_commit_id}"
+                        )
+                    })?;
+                let rebased_request =
+                    autosave_request(Some(&actual_record), Some(actual_working_commit_id))?;
+                self.catalog.commit_recipe(&rebased_request)?;
+            }
+            Err(error) => return Err(error.into()),
+        }
         self.photo_edit_state_for(photo_id, &source.location.display_path)
     }
 
@@ -2224,13 +2479,51 @@ impl DesktopSession {
         photo_id: PhotoId,
         source_path: &str,
     ) -> AnyResult<ffi::FfiPhotoEditState> {
-        let working = self.catalog.recipe_ref(photo_id, WORKING_RECIPE_REF)?;
+        // Recipe v1 is deliberately fixed throughout pre-release work. A
+        // previous experimental shape is not silently mutated or opened as a
+        // half-valid edit: surface one recoverable, user-confirmed reset
+        // instead. The photo and every non-edit Library fact remain intact.
+        let working = self
+            .catalog
+            .recipe_ref(photo_id, WORKING_RECIPE_REF)
+            .map_err(|error| {
+                anyhow!(
+                    "incompatible development Recipe: could not read the working edit reference: {error}"
+                )
+            })?;
+        if let Some(reference) = working.as_ref() {
+            let record = self
+                .catalog
+                .recipe_commit(photo_id, reference.commit_id)
+                .map_err(|error| {
+                    anyhow!(
+                        "incompatible development Recipe: could not read working commit {}: {error}",
+                        reference.commit_id
+                    )
+                })?
+                .ok_or_else(|| {
+                    anyhow!(
+                        "incompatible development Recipe: working commit {} is unavailable",
+                        reference.commit_id
+                    )
+                })?;
+            if let Err(error) =
+                decode_grade_stack_draft_from_recipe_v1_snapshot(record.commit.snapshot())
+            {
+                bail!("incompatible development Recipe: {error}");
+            }
+        }
         self.photo_edit_state_for_selected(
             photo_id,
             source_path,
             working.map(|reference| reference.commit_id),
             false,
         )
+        .map_err(|error| {
+            anyhow!(
+                "incompatible development Recipe: could not load this photo's edit history: {error}"
+            )
+        })
     }
 
     fn photo_edit_state_for_selected(
@@ -3619,7 +3912,7 @@ fn compile_recipe_node(
             }
         }
         SATURATION_OPERATION_ID => {
-            require_stage(node, ProcessingStage::CreativeColor)?;
+            require_stage(node, ProcessingStage::ToneAndLocalContrast)?;
             AdjustmentRenderOperation::Saturation {
                 factor: required_float(node.parameters(), SATURATION_FACTOR_PARAMETER_KEY, 1)?,
             }
@@ -3639,7 +3932,7 @@ fn compile_recipe_node(
             }
         }
         PERCEPTUAL_COLOR_OPERATION_ID => {
-            require_stage(node, ProcessingStage::CreativeColor)?;
+            require_stage(node, ProcessingStage::ToneAndLocalContrast)?;
             if !is_current_perceptual_color {
                 bail!("Recipe Color Mixer uses a discarded contract");
             }
@@ -3970,40 +4263,15 @@ fn encode_grade_node_as_recipe_v1_layer(grade_node: &GradeNodeDraft) -> AnyResul
             },
             fine.selective_tone,
         )?,
-    ];
-    let channel_input = if let Some(tone_curve) = grade_node.tone_curve.as_ref() {
-        let tone_curve_id = identity.tone_curve_render_op_id;
-        nodes.push(recipe_tone_curve_render_op(
-            tone_curve_id,
-            NodeInput::Node {
-                node_id: selective_tone_id,
-            },
-            tone_curve,
-        )?);
-        tone_curve_id
-    } else {
-        selective_tone_id
-    };
-    // The former monolithic Detail & Effects node is deliberately expanded
-    // here, not in the UI: technical recovery gets a pre-creative position,
-    // color wheels stay in CreativeColor, and physical finishing is last.
-    nodes.push(recipe_detail_effects_render_op(
-        technical_detail_id,
-        TECHNICAL_DETAIL_OPERATION_ID,
-        TECHNICAL_DETAIL_V3_IMPLEMENTATION_VERSION,
-        ProcessingStage::TechnicalDetail,
-        NodeInput::Node {
-            node_id: channel_input,
-        },
-        &fine.sharpen,
-    )?);
-    nodes.extend([
+        // Foundational color controls deliberately precede the user curve, so
+        // their behavior does not depend on a later tonal remapping. Creative
+        // wheels and LUTs remain in the later CreativeColor stage.
         recipe_v1_render_op(
             saturation_id,
             SATURATION_OPERATION_ID,
-            ProcessingStage::CreativeColor,
+            ProcessingStage::ToneAndLocalContrast,
             NodeInput::Node {
-                node_id: technical_detail_id,
+                node_id: selective_tone_id,
             },
             parameter_block([(
                 SATURATION_FACTOR_PARAMETER_KEY,
@@ -4017,13 +4285,42 @@ fn encode_grade_node_as_recipe_v1_layer(grade_node: &GradeNodeDraft) -> AnyResul
             },
             &fine.perceptual_color,
         )?,
+    ];
+    let channel_input = if let Some(tone_curve) = grade_node.tone_curve.as_ref() {
+        let tone_curve_id = identity.tone_curve_render_op_id;
+        nodes.push(recipe_tone_curve_render_op(
+            tone_curve_id,
+            NodeInput::Node {
+                node_id: perceptual_color_id,
+            },
+            tone_curve,
+        )?);
+        tone_curve_id
+    } else {
+        perceptual_color_id
+    };
+    // The former monolithic Detail & Effects node is deliberately expanded
+    // here, not in the UI: foundational color and the user curve run before
+    // technical recovery; color wheels stay in CreativeColor, and physical
+    // finishing is last.
+    nodes.push(recipe_detail_effects_render_op(
+        technical_detail_id,
+        TECHNICAL_DETAIL_OPERATION_ID,
+        TECHNICAL_DETAIL_V3_IMPLEMENTATION_VERSION,
+        ProcessingStage::TechnicalDetail,
+        NodeInput::Node {
+            node_id: channel_input,
+        },
+        &fine.sharpen,
+    )?);
+    nodes.extend([
         recipe_detail_effects_render_op(
             color_grading_id,
             COLOR_GRADING_OPERATION_ID,
             COLOR_GRADING_V3_IMPLEMENTATION_VERSION,
             ProcessingStage::CreativeColor,
             NodeInput::Node {
-                node_id: perceptual_color_id,
+                node_id: technical_detail_id,
             },
             &fine.sharpen,
         )?,
@@ -4349,7 +4646,7 @@ fn recipe_perceptual_color_render_op(
         OperationId::new(PERCEPTUAL_COLOR_OPERATION_ID)?,
         PERCEPTUAL_COLOR_V2_PARAMETER_SCHEMA_VERSION,
         PERCEPTUAL_COLOR_V2_IMPLEMENTATION_VERSION,
-        ProcessingStage::CreativeColor,
+        ProcessingStage::ToneAndLocalContrast,
         vec![rgb],
         rgb,
         None,
@@ -4624,14 +4921,14 @@ impl GradeNodeRecipeV1RenderOps<'_> {
             self.exposure,
             self.contrast,
             self.selective_tone,
+            self.saturation,
+            self.perceptual_color,
         ];
         if let Some(tone_curve) = self.tone_curve {
             nodes.push(tone_curve);
         }
         nodes.extend([
             self.technical_detail,
-            self.saturation,
-            self.perceptual_color,
             self.color_grading,
             self.lut,
             self.finishing_effects,
@@ -4660,16 +4957,16 @@ fn grade_node_recipe_v1_render_ops(
         exposure,
         contrast,
         selective_tone,
-        tone_curve,
-        technical_detail,
         saturation,
         perceptual_color,
+        tone_curve,
+        technical_detail,
         color_grading,
         lut,
         finishing_effects,
     ) = match ordered.len() {
         10 => (
-            ordered[0], ordered[1], ordered[2], ordered[3], None, ordered[4], ordered[5],
+            ordered[0], ordered[1], ordered[2], ordered[3], ordered[4], ordered[5], None,
             ordered[6], ordered[7], ordered[8], ordered[9],
         ),
         11 => (
@@ -4677,9 +4974,9 @@ fn grade_node_recipe_v1_render_ops(
             ordered[1],
             ordered[2],
             ordered[3],
-            Some(ordered[4]),
+            ordered[4],
             ordered[5],
-            ordered[6],
+            Some(ordered[6]),
             ordered[7],
             ordered[8],
             ordered[9],
@@ -4715,31 +5012,12 @@ fn grade_node_recipe_v1_render_ops(
             node_id: contrast.id(),
         },
     )?;
-    let mut color_input = selective_tone.id();
-    if let Some(tone_curve) = tone_curve {
-        validate_recipe_tone_curve_render_op(
-            tone_curve,
-            NodeInput::Node {
-                node_id: color_input,
-            },
-        )?;
-        color_input = tone_curve.id();
-    }
-    validate_recipe_detail_effects_render_op(
-        technical_detail,
-        TECHNICAL_DETAIL_OPERATION_ID,
-        TECHNICAL_DETAIL_V3_IMPLEMENTATION_VERSION,
-        ProcessingStage::TechnicalDetail,
-        NodeInput::Node {
-            node_id: color_input,
-        },
-    )?;
     validate_recipe_v1_render_op(
         saturation,
         SATURATION_OPERATION_ID,
-        ProcessingStage::CreativeColor,
+        ProcessingStage::ToneAndLocalContrast,
         NodeInput::Node {
-            node_id: technical_detail.id(),
+            node_id: selective_tone.id(),
         },
     )?;
     validate_recipe_perceptual_color_render_op(
@@ -4748,13 +5026,32 @@ fn grade_node_recipe_v1_render_ops(
             node_id: saturation.id(),
         },
     )?;
+    let mut technical_input = perceptual_color.id();
+    if let Some(tone_curve) = tone_curve {
+        validate_recipe_tone_curve_render_op(
+            tone_curve,
+            NodeInput::Node {
+                node_id: technical_input,
+            },
+        )?;
+        technical_input = tone_curve.id();
+    }
+    validate_recipe_detail_effects_render_op(
+        technical_detail,
+        TECHNICAL_DETAIL_OPERATION_ID,
+        TECHNICAL_DETAIL_V3_IMPLEMENTATION_VERSION,
+        ProcessingStage::TechnicalDetail,
+        NodeInput::Node {
+            node_id: technical_input,
+        },
+    )?;
     validate_recipe_detail_effects_render_op(
         color_grading,
         COLOR_GRADING_OPERATION_ID,
         COLOR_GRADING_V3_IMPLEMENTATION_VERSION,
         ProcessingStage::CreativeColor,
         NodeInput::Node {
-            node_id: perceptual_color.id(),
+            node_id: technical_detail.id(),
         },
     )?;
     validate_recipe_v1_render_op(
@@ -5193,7 +5490,7 @@ fn validate_recipe_perceptual_color_render_op(
         && operation.implementation_version() == PERCEPTUAL_COLOR_V2_IMPLEMENTATION_VERSION;
     if operation.operation_id().as_str() != PERCEPTUAL_COLOR_OPERATION_ID
         || !contract_is_supported
-        || operation.stage() != ProcessingStage::CreativeColor
+        || operation.stage() != ProcessingStage::ToneAndLocalContrast
         || operation.input_types() != [rgb]
         || operation.output_type() != rgb
         || operation.seed().is_some()
@@ -5794,6 +6091,7 @@ fn catalog_native_path(_source: &ReviewItemRecord) -> AnyResult<PathBuf> {
 struct PhotoInspector {
     version: String,
     original_raster_extensions: Vec<String>,
+    proxy_variant_key: String,
 }
 
 // The generated-library proxy is deliberately a lower-bandwidth artifact than the warm editing
@@ -5801,14 +6099,22 @@ struct PhotoInspector {
 // or misleading key would otherwise make the catalog serve the wrong cache entry indefinitely.
 const PHOTO_GRID_PROXY_MAX_EDGE: u32 = 2_048;
 const PHOTO_GRID_PROXY_JPEG_QUALITY: u8 = 88;
-const PHOTO_GRID_PROXY_VARIANT_KEY: &str = "shadow-photo-router:grid-jpeg-2048-q88-444-v1";
 
 impl PhotoInspector {
-    fn new() -> Self {
-        Self {
+    fn new() -> AnyResult<Self> {
+        let raw_development_plan_identity =
+            raw_development_plan_identity(RawDevelopmentPlan::preview())
+                .context("build grid-proxy RAW-development cache identity")?;
+        Ok(Self {
             version: photo_provider_version(),
             original_raster_extensions: photo_supported_raster_extensions(),
-        }
+            // The source provider version identifies implementation releases; this exact plan
+            // identity distinguishes two renders through the same provider with different
+            // source-development intent or policy.
+            proxy_variant_key: format!(
+                "shadow-photo-router:grid-jpeg-2048-q88-444-v2;{raw_development_plan_identity}"
+            ),
+        })
     }
 }
 
@@ -5843,8 +6149,8 @@ impl DecodeInspector for PhotoInspector {
         .map_err(|error| error.to_string())
     }
 
-    fn proxy_variant_key(&self) -> &'static str {
-        PHOTO_GRID_PROXY_VARIANT_KEY
+    fn proxy_variant_key(&self) -> &str {
+        &self.proxy_variant_key
     }
 }
 
@@ -6431,6 +6737,7 @@ fn file_name(display_path: &str) -> String {
 mod tests {
     use std::{collections::BTreeSet, sync::Arc, thread};
 
+    use rusqlite::{Connection, params};
     use shadow_ai::{
         FeedbackIgnored, IncrementalTrainingPolicy, build_incremental_preference_batch,
     };
@@ -6463,7 +6770,7 @@ mod tests {
 
     #[test]
     fn generated_photo_proxy_cache_identity_matches_its_encoder_request() {
-        let inspector = PhotoInspector::new();
+        let inspector = PhotoInspector::new().expect("construct photo inspector");
 
         assert_eq!(inspector.provider_id(), "shadow-photo-router");
         assert_eq!(inspector.provider_version(), photo_provider_version());
@@ -6471,11 +6778,33 @@ mod tests {
         assert_eq!(PHOTO_GRID_PROXY_JPEG_QUALITY, 88);
         assert_eq!(
             inspector.proxy_variant_key(),
-            "shadow-photo-router:grid-jpeg-2048-q88-444-v1"
+            format!(
+                "shadow-photo-router:grid-jpeg-2048-q88-444-v2;{}",
+                raw_development_plan_identity(RawDevelopmentPlan::preview())
+                    .expect("canonical preview plan identity")
+            )
         );
         let extensions = inspector.supported_original_raster_extensions();
         assert!(extensions.contains(&"jpg".to_owned()));
         assert!(extensions.contains(&"jpeg".to_owned()));
+    }
+
+    #[test]
+    fn edit_session_cache_keeps_adjusted_raw_plan_requests_distinct() {
+        let requested_before_adjustment = "shadow-raw-plan-v1;intent=detail;quality=high";
+        let effective_after_adjustment = "shadow-raw-plan-v1;intent=detail;quality=balanced";
+
+        assert!(requested_raw_development_plan_cache_matches(
+            requested_before_adjustment,
+            requested_before_adjustment,
+        ));
+        // A future provider can negotiate the high-quality request down to balanced. A later
+        // balanced request must still negotiate and receive its own receipt, rather than being
+        // served the session whose receipt records the earlier high-quality request.
+        assert!(!requested_raw_development_plan_cache_matches(
+            requested_before_adjustment,
+            effective_after_adjustment,
+        ));
     }
 
     #[test]
@@ -8249,12 +8578,12 @@ mod tests {
                 if parameters == expected.selective_tone
         ));
         assert!(matches!(
-            &plan.nodes[6].operation,
+            &plan.nodes[5].operation,
             AdjustmentRenderOperation::PerceptualColor { parameters }
                 if parameters.as_ref() == &expected.perceptual_color
         ));
         assert!(matches!(
-            &plan.nodes[4].operation,
+            &plan.nodes[6].operation,
             AdjustmentRenderOperation::Sharpen { parameters }
                 if parameters.as_ref() == &expected.sharpen
         ));
@@ -8507,7 +8836,7 @@ mod tests {
             TONE_CURVE_V2_IMPLEMENTATION_VERSION
         );
         assert!(matches!(
-            compile_recipe_render_plan(&snapshot).unwrap().nodes[4].operation,
+            compile_recipe_render_plan(&snapshot).unwrap().nodes[6].operation,
             AdjustmentRenderOperation::SmoothRgbToneCurve { .. }
         ));
 
@@ -8618,19 +8947,19 @@ mod tests {
         );
         assert_eq!(
             plan.nodes[4].node_id,
-            render_id(recipe_nodes.tone_curve.expect("Tone Curve node").id())
-        );
-        assert_eq!(
-            plan.nodes[5].node_id,
-            render_id(recipe_nodes.technical_detail.id())
-        );
-        assert_eq!(
-            plan.nodes[6].node_id,
             render_id(recipe_nodes.saturation.id())
         );
         assert_eq!(
-            plan.nodes[7].node_id,
+            plan.nodes[5].node_id,
             render_id(recipe_nodes.perceptual_color.id())
+        );
+        assert_eq!(
+            plan.nodes[6].node_id,
+            render_id(recipe_nodes.tone_curve.expect("Tone Curve node").id())
+        );
+        assert_eq!(
+            plan.nodes[7].node_id,
+            render_id(recipe_nodes.technical_detail.id())
         );
         assert_eq!(
             plan.nodes[8].node_id,
@@ -8669,6 +8998,18 @@ mod tests {
         );
         assert_eq!(
             plan.nodes[4].operation,
+            AdjustmentRenderOperation::Saturation {
+                factor: parameters.saturation_factor,
+            }
+        );
+        assert_eq!(
+            plan.nodes[5].operation,
+            AdjustmentRenderOperation::PerceptualColor {
+                parameters: Box::new(PerceptualColorParameters::default()),
+            }
+        );
+        assert_eq!(
+            plan.nodes[6].operation,
             AdjustmentRenderOperation::SmoothRgbToneCurve {
                 curves: Box::new(SmoothRgbToneCurve {
                     master: points
@@ -8680,21 +9021,9 @@ mod tests {
             }
         );
         assert_eq!(
-            plan.nodes[5].operation,
+            plan.nodes[7].operation,
             AdjustmentRenderOperation::Sharpen {
                 parameters: Box::new(SharpenParameters::default()),
-            }
-        );
-        assert_eq!(
-            plan.nodes[6].operation,
-            AdjustmentRenderOperation::Saturation {
-                factor: parameters.saturation_factor,
-            }
-        );
-        assert_eq!(
-            plan.nodes[7].operation,
-            AdjustmentRenderOperation::PerceptualColor {
-                parameters: Box::new(PerceptualColorParameters::default()),
             }
         );
         assert_eq!(
@@ -8718,8 +9047,8 @@ mod tests {
         );
         assert_eq!(
             (
-                plan.nodes[5].parameter_schema_version,
-                plan.nodes[5].implementation_version,
+                plan.nodes[7].parameter_schema_version,
+                plan.nodes[7].implementation_version,
                 plan.nodes[8].parameter_schema_version,
                 plan.nodes[8].implementation_version,
                 plan.nodes[10].parameter_schema_version,
@@ -8753,7 +9082,7 @@ mod tests {
 
         assert_eq!(plan.nodes.len(), 11);
         assert!(matches!(
-            &plan.nodes[4].operation,
+            &plan.nodes[6].operation,
             AdjustmentRenderOperation::SmoothRgbToneCurve { curves }
                 if matches!(
                     settings.tone_curve.as_ref().expect("Tone Curve"),
@@ -8882,7 +9211,7 @@ mod tests {
         assert_eq!(basic_parameters_from_snapshot(&updated).unwrap(), changed);
         assert_eq!(updated_identity, original_identity);
         assert!(matches!(
-            &plan.nodes[4].operation,
+            &plan.nodes[6].operation,
             AdjustmentRenderOperation::SmoothRgbToneCurve { curves }
                 if curves.master == points
                     .into_iter()
@@ -8960,7 +9289,7 @@ mod tests {
         assert_eq!(child.commit.parents(), [root_commit_id]);
         assert_eq!(child_identity, root_identity);
         assert!(matches!(
-            &plan.nodes[4].operation,
+            &plan.nodes[6].operation,
             AdjustmentRenderOperation::SmoothRgbToneCurve { curves }
                 if curves.master == [
                     ToneCurvePoint { x: 0.0, y: 0.02 },
@@ -9049,15 +9378,6 @@ mod tests {
                 "future Recipe schema",
                 single_exposure_recipe(
                     CURRENT_RECIPE_SCHEMA_VERSION + 1,
-                    BASIC_GRAPH_SCHEMA_VERSION,
-                    CPU_REFERENCE_PARAMETER_SCHEMA_VERSION,
-                    CPU_REFERENCE_IMPLEMENTATION_VERSION,
-                ),
-            ),
-            (
-                "previous Recipe schema",
-                single_exposure_recipe(
-                    CURRENT_RECIPE_SCHEMA_VERSION - 1,
                     BASIC_GRAPH_SCHEMA_VERSION,
                     CPU_REFERENCE_PARAMETER_SCHEMA_VERSION,
                     CPU_REFERENCE_IMPLEMENTATION_VERSION,
@@ -9660,6 +9980,56 @@ mod tests {
     }
 
     #[test]
+    fn autosave_recovers_a_stale_missing_working_head_without_losing_the_draft() {
+        let (root, session, photo_id, source_path) = test_edit_session();
+        let first = session
+            .autosave_basic_edit_working_at(
+                &photo_id,
+                &source_path,
+                "",
+                "",
+                &ffi_parameters(0.15, 1.0, [0.0; 2], 1.0),
+                1_000,
+            )
+            .expect("create first working autosave");
+        let first_id = first.working_commit_id;
+
+        // Simulate a controller which queued its initial autosave before a different local
+        // state task published the first `working` ref. The second call still carries a full
+        // current draft, so it must become a child of the discovered working head rather than
+        // surfacing a permanent Missing-vs-Some CAS error to the editor.
+        let recovered = session
+            .autosave_basic_edit_working_at(
+                &photo_id,
+                &source_path,
+                "",
+                "",
+                &ffi_parameters(0.85, 1.15, [0.02, -0.01], 0.94),
+                1_500,
+            )
+            .expect("rebase stale missing autosave");
+        assert_ne!(recovered.working_commit_id, first_id);
+        assert_close(recovered.settings.grade_nodes[0].basic.exposure_stops, 0.85);
+        assert!(recovered.versions.is_empty());
+
+        let parsed_photo_id: PhotoId = photo_id.parse().expect("parse photo id");
+        let recovered_id: RecipeCommitId = recovered
+            .working_commit_id
+            .parse()
+            .expect("parse recovered working id");
+        let recovered_record = session
+            .catalog
+            .recipe_commit(parsed_photo_id, recovered_id)
+            .expect("read recovered working commit")
+            .expect("recovered working commit exists");
+        let first_id: RecipeCommitId = first_id.parse().expect("parse first working id");
+        assert_eq!(recovered_record.commit.parents(), &[first_id]);
+
+        drop(session);
+        std::fs::remove_dir_all(root).expect("remove autosave conflict fixture");
+    }
+
+    #[test]
     fn unsupported_save_base_fails_before_the_working_head_moves() {
         let (root, session, photo_id, source_path) = test_edit_session();
         let photo_id: PhotoId = photo_id.parse().expect("photo id");
@@ -9788,6 +10158,131 @@ mod tests {
         assert_eq!(generic_child.changed_basic_parameter_count, 0);
         assert!(generic_child.has_other_changes);
         assert!(saved.has_working_version);
+
+        drop(session);
+        std::fs::remove_dir_all(root).expect("remove edit fixture");
+    }
+
+    #[test]
+    fn incompatible_working_recipe_requires_confirmation_then_resets_to_neutral_v1() {
+        let (root, session, photo_id_text, source_path) = test_edit_session();
+        let photo_id: PhotoId = photo_id_text.parse().expect("photo id");
+        let current = grade_stack_recipe_v1_snapshot(&GradeStackDraft::default(), None)
+            .expect("create current Recipe v1 snapshot");
+        let incompatible =
+            RecipeSnapshot::new(CURRENT_RECIPE_SCHEMA_VERSION + 1, current.layers().to_vec())
+                .expect("create future development Recipe snapshot");
+
+        session
+            .catalog
+            .commit_recipe(&CommitRecipe {
+                photo_id,
+                commit: RecipeCommit::new(
+                    RecipeCommitId::new_v7(),
+                    RecipeId::new_v7(),
+                    Vec::new(),
+                    incompatible,
+                    Some("Old development working edit".to_owned()),
+                    100,
+                )
+                .expect("create old working edit"),
+                update_refs: vec![RecipeRefTarget {
+                    name: WORKING_RECIPE_REF.to_owned(),
+                    kind: RecipeRefKind::Working,
+                    expectation: Some(RecipeRefExpectation::Missing),
+                }],
+            })
+            .expect("persist incompatible working edit");
+
+        let error = session
+            .photo_edit_state(&photo_id_text, &source_path)
+            .expect_err("old working Recipe requires an explicit reset");
+        assert!(
+            error
+                .to_string()
+                .starts_with("incompatible development Recipe:")
+        );
+        assert_eq!(
+            session
+                .catalog
+                .recipe_commits(photo_id)
+                .expect("read unchanged old edits")
+                .len(),
+            1
+        );
+
+        let reset = session
+            .reset_incompatible_photo_edit_history(&photo_id_text, &source_path)
+            .expect("reset after user confirmation");
+        assert!(!reset.has_working_version);
+        assert!(reset.working_commit_id.is_empty());
+        assert_eq!(reset.settings.grade_nodes.len(), 1);
+        assert!(
+            session
+                .catalog
+                .recipe_commits(photo_id)
+                .expect("old edits deleted only after reset")
+                .is_empty()
+        );
+
+        drop(session);
+        std::fs::remove_dir_all(root).expect("remove edit fixture");
+    }
+
+    #[test]
+    fn corrupt_working_recipe_digest_requires_confirmation_then_resets() {
+        let (root, session, photo_id_text, source_path) = test_edit_session();
+        let photo_id: PhotoId = photo_id_text.parse().expect("photo id");
+        session
+            .save_basic_edit_version_at(
+                &photo_id_text,
+                &source_path,
+                "",
+                &ffi_parameters(0.25, 1.1, [0.0; 2], 0.9),
+                "Temporary working edit",
+                100,
+            )
+            .expect("create working edit");
+        drop(session);
+
+        let connection =
+            Connection::open(root.join("catalog.sqlite")).expect("open fixture Catalog directly");
+        assert_eq!(
+            connection
+                .execute(
+                    "UPDATE recipe_commits SET snapshot_digest = zeroblob(32) WHERE photo_id = ?1",
+                    params![photo_id.as_bytes().as_slice()],
+                )
+                .expect("corrupt only the fixture Recipe digest"),
+            1
+        );
+        drop(connection);
+
+        let session = open_desktop_session(
+            root.join("catalog.sqlite").to_str().expect("catalog path"),
+            root.join("cache").to_str().expect("cache path"),
+        )
+        .expect("reopen edited fixture");
+        let error = session
+            .photo_edit_state(&photo_id_text, &source_path)
+            .expect_err("corrupt stored digest requires an explicit reset");
+        assert!(
+            error
+                .to_string()
+                .starts_with("incompatible development Recipe: could not read working commit")
+        );
+
+        let reset = session
+            .reset_incompatible_photo_edit_history(&photo_id_text, &source_path)
+            .expect("reset corrupt edit history after user confirmation");
+        assert!(!reset.has_working_version);
+        assert!(
+            session
+                .catalog
+                .recipe_commits(photo_id)
+                .expect("read discarded corrupt Recipe history")
+                .is_empty()
+        );
 
         drop(session);
         std::fs::remove_dir_all(root).expect("remove edit fixture");

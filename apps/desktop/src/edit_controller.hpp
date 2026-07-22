@@ -22,6 +22,7 @@
 
 enum class EditStateTaskKind : std::uint8_t {
     Open,
+    ResetIncompatibleRecipe,
     Save,
     Autosave,
     LoadDraft,
@@ -57,6 +58,15 @@ struct EditDetailTaskResult final {
     EditDetailGeneration generation;
 };
 
+// A deliberately invisible idle task. It warms the same full-resolution
+// source and center tile used by the interactive detail path, but never
+// publishes pixels or changes the visible viewport.
+struct EditDetailWarmupTaskResult final {
+    QString error;
+    quint64 photo_generation = 0;
+    quint64 render_revision = 0;
+};
+
 class EditController final : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool active READ active NOTIFY activeChanged)
@@ -73,6 +83,8 @@ class EditController final : public QObject {
     Q_PROPERTY(QVariantList detailTiles READ detailTiles NOTIFY detailTilesChanged)
     Q_PROPERTY(bool dirty READ dirty NOTIFY dirtyChanged)
     Q_PROPERTY(bool autosavePending READ autosavePending NOTIFY autosavePendingChanged)
+    Q_PROPERTY(bool autosaveFailed READ autosaveFailed NOTIFY autosaveFailedChanged)
+    Q_PROPERTY(QString autosaveErrorText READ autosaveErrorText NOTIFY autosaveErrorTextChanged)
     Q_PROPERTY(bool versionDraft READ versionDraft NOTIFY versionDraftChanged)
     Q_PROPERTY(bool canUndo READ canUndo NOTIFY historyChanged)
     Q_PROPERTY(bool canRedo READ canRedo NOTIFY historyChanged)
@@ -102,6 +114,16 @@ class EditController final : public QObject {
         NOTIFY beforeHistogramChanged
     )
     Q_PROPERTY(QString beforeErrorText READ beforeErrorText NOTIFY beforeErrorTextChanged)
+    Q_PROPERTY(
+        bool recipeRecoveryRequired
+        READ recipeRecoveryRequired
+        NOTIFY recipeRecoveryChanged
+    )
+    Q_PROPERTY(
+        QString recipeRecoveryErrorText
+        READ recipeRecoveryErrorText
+        NOTIFY recipeRecoveryChanged
+    )
     Q_PROPERTY(QString statusText READ statusText NOTIFY statusTextChanged)
     Q_PROPERTY(bool opticsEnabled READ opticsEnabled WRITE setOpticsEnabled NOTIFY opticsChanged)
     Q_PROPERTY(bool opticsDistortionEnabled READ opticsDistortionEnabled WRITE setOpticsDistortionEnabled NOTIFY opticsChanged)
@@ -231,6 +253,8 @@ public:
     [[nodiscard]] QVariantList detailTiles() const;
     [[nodiscard]] bool dirty() const noexcept;
     [[nodiscard]] bool autosavePending() const noexcept;
+    [[nodiscard]] bool autosaveFailed() const noexcept;
+    [[nodiscard]] QString autosaveErrorText() const;
     [[nodiscard]] bool versionDraft() const noexcept;
     [[nodiscard]] bool canUndo() const noexcept;
     [[nodiscard]] bool canRedo() const noexcept;
@@ -244,6 +268,8 @@ public:
     [[nodiscard]] QVariantMap histogram() const;
     [[nodiscard]] QVariantMap beforeHistogram() const;
     [[nodiscard]] QString beforeErrorText() const;
+    [[nodiscard]] bool recipeRecoveryRequired() const noexcept;
+    [[nodiscard]] QString recipeRecoveryErrorText() const;
     [[nodiscard]] QString statusText() const;
     [[nodiscard]] bool opticsEnabled() const noexcept;
     [[nodiscard]] bool opticsDistortionEnabled() const noexcept;
@@ -306,6 +332,7 @@ public:
         const QString& provisional_preview_source = {}
     );
     Q_INVOKABLE void closePhoto();
+    Q_INVOKABLE void resetIncompatibleRecipe();
     Q_INVOKABLE void selectGradeNode(int index);
     Q_INVOKABLE void addGradeNode();
     Q_INVOKABLE void duplicateSelectedGradeNode();
@@ -385,6 +412,7 @@ public:
     Q_INVOKABLE void leaveDetailMode();
     Q_INVOKABLE void saveVersion(const QString& version_name);
     Q_INVOKABLE void loadVersionDraft(const QString& commit_id);
+    Q_INVOKABLE void retryAutosave();
     // Returns true when the window may close immediately. When an autosave is
     // required it queues the durable working snapshot and emits closeReady.
     Q_INVOKABLE bool prepareToClose();
@@ -403,6 +431,8 @@ signals:
     void detailTilesChanged();
     void dirtyChanged();
     void autosavePendingChanged();
+    void autosaveFailedChanged();
+    void autosaveErrorTextChanged();
     void versionDraftChanged();
     void historyChanged();
     void closeReady();
@@ -416,6 +446,7 @@ signals:
     void histogramChanged();
     void beforeHistogramChanged();
     void beforeErrorTextChanged();
+    void recipeRecoveryChanged();
     void statusTextChanged();
     void opticsChanged();
     void opticsReceiptChanged();
@@ -433,8 +464,10 @@ private slots:
     void finishStateTask();
     void finishPreviewTask();
     void finishDetailTask();
+    void finishDetailWarmupTask();
     void startPreviewRender();
     void startDetailRender();
+    void startDetailWarmup();
 
 private:
     void applyState(BackendPhotoEditState state);
@@ -454,16 +487,28 @@ private:
     void schedulePreview(int delay_ms);
     void maybeStartBeforePreview();
     void maybeStartDetailRender();
-    void invalidateDetailPresentation();
+    void scheduleDetailWarmup();
+    // A pan changes the requested viewport but not the developed pixels
+    // already visible on screen. Keep that presentation until its replacement
+    // arrives; Recipe/source changes still discard it immediately.
+    void invalidateDetailPresentation(bool discard_tiles = true);
     void resetDetailState();
   bool eventFilter(QObject *watched, QEvent *event) override;
   void setStatusMessage(LocalizedUiMessage status);
     void setDirty(bool dirty);
+    void setAutosaveFailure(LocalizedUiMessage error);
+    void clearAutosaveFailure();
     void scheduleAutosave();
     void startAutosave();
-    void applyAutosavedState(BackendPhotoEditState state);
+    // Returns true when an edit was made after the snapshot handed to the
+    // Catalog. In that case the returned working head becomes the base for a
+    // follow-up autosave, but must never replace the newer in-memory stack.
+    [[nodiscard]] bool applyAutosavedState(BackendPhotoEditState state);
     void setVersionDraft(bool draft);
     void setStateRunning(bool running);
+    [[nodiscard]] bool interactionLocked() const noexcept;
+    [[nodiscard]] bool openPendingPhoto();
+    void maybeFinishDeferredApplicationClose();
     void setPreviewRunning(EditPreviewKind kind, bool running);
     void markHistogramUpdating(EditPreviewKind kind);
     void publishHistogram(
@@ -499,8 +544,10 @@ private:
     QFutureWatcher<EditStateTaskResult> state_watcher_;
     QFutureWatcher<EditPreviewTaskResult> preview_watcher_;
     QFutureWatcher<EditDetailTaskResult> detail_watcher_;
+    QFutureWatcher<EditDetailWarmupTaskResult> detail_warmup_watcher_;
     QTimer preview_debounce_;
     QTimer detail_debounce_;
+    QTimer detail_warmup_debounce_;
     QTimer autosave_debounce_;
     SessionEditHistory<BackendGradeStack> history_;
     BackendGradeStack grade_stack_;
@@ -520,6 +567,8 @@ private:
     QVariantMap optics_receipt_;
   LocalizedUiMessage before_error_message_;
   LocalizedUiMessage detail_error_message_;
+  LocalizedUiMessage autosave_error_message_;
+  LocalizedUiMessage recipe_recovery_message_;
   LocalizedUiMessage status_message_{
       "EditController",
       QT_TRANSLATE_NOOP("EditController",
@@ -527,9 +576,15 @@ private:
   };
     quint64 photo_generation_ = 0;
     quint64 render_revision_ = 0;
+    // This advances only for user-visible recipe mutations. It lets an
+    // autosave acknowledge the exact snapshot it wrote without overwriting
+    // adjustments made while its Catalog transaction was in flight.
+    quint64 working_revision_ = 0;
+    quint64 autosave_snapshot_revision_ = 0;
     quint64 settled_render_revision_ = 0;
     quint64 detail_viewport_revision_ = 0;
     quint64 detail_render_token_ = 0;
+    quint64 detail_warmup_token_ = 0;
     quint32 detail_full_width_ = 0;
     quint32 detail_full_height_ = 0;
     quint64 detail_retained_bytes_ = 0;
@@ -545,6 +600,7 @@ private:
     bool close_photo_after_autosave_ = false;
     bool version_draft_ = false;
     bool state_running_ = false;
+    EditStateTaskKind state_task_kind_ = EditStateTaskKind::Open;
     bool current_rendering_ = false;
     bool before_rendering_ = false;
     bool detail_mode_ = false;

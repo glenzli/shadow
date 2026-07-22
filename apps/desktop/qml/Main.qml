@@ -117,8 +117,19 @@ ApplicationWindow {
         onAccepted: window.controller.scanFolder(selectedFolder)
     }
 
+    function leavePrecision(workspace) {
+        // Precision owns an asynchronous edit session. Merely hiding its
+        // StackLayout page left the old source active, so a subsequent grid
+        // open could appear to reopen the previous photo. Close the session
+        // first; its autosave path is non-blocking and safely chains a later
+        // selection if the user immediately opens another item.
+        if (workspaceIndex === 1)
+            editor.closePhoto()
+        workspaceIndex = workspace
+    }
+
     function showReview() {
-        workspaceIndex = 0
+        leavePrecision(0)
     }
 
     function showPrecision() {
@@ -140,7 +151,7 @@ ApplicationWindow {
     }
 
     function showLibrary() {
-        workspaceIndex = 2
+        leavePrecision(2)
     }
 
     function colorLabelName(label) {
@@ -327,16 +338,17 @@ ApplicationWindow {
                         height: 7
                         anchors.verticalCenter: parent.verticalCenter
                         radius: width / 2
-                        color: window.editor.dirty ? Theme.warningText : Theme.savedText
+                        color: !window.editor.dirty ? Theme.savedText
+                            : window.editor.autosaveFailed ? Theme.errorText : Theme.warningText
                     }
 
                     Label {
                         anchors.verticalCenter: parent.verticalCenter
-                        text: window.editor.dirty
-                            ? (window.editor.autosavePending
-                                ? qsTr("SAVING") : qsTr("DRAFT"))
-                            : qsTr("SAVED")
-                        color: window.editor.dirty ? Theme.warningText : Theme.savedText
+                        text: !window.editor.dirty ? qsTr("SAVED")
+                            : window.editor.autosaveFailed ? qsTr("SAVE FAILED")
+                            : window.editor.autosavePending ? qsTr("SAVING") : qsTr("DRAFT")
+                        color: !window.editor.dirty ? Theme.savedText
+                            : window.editor.autosaveFailed ? Theme.errorText : Theme.warningText
                         font.pixelSize: 9
                         font.weight: Font.DemiBold
                         font.letterSpacing: 0.65
@@ -452,6 +464,7 @@ ApplicationWindow {
             })
             onOpenLutLibraryRequested: window.openLutManager()
             onOpenOpticsProfileLibraryRequested: window.openOpticsProfileManager()
+            onReturnToReviewRequested: window.showReview()
         }
 
         LibraryWorkspace {

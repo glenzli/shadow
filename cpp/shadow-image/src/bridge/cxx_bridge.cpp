@@ -175,6 +175,272 @@ template <std::size_t Size>
     return result;
 }
 
+[[noreturn]] void throw_invalid_raw_development_plan(const std::string_view message) {
+    throw image::DecodeError(
+        image::DecodeErrorCode::invalid_request,
+        0,
+        std::string(message)
+    );
+}
+
+// Private providers share a local ABI with the host, so a newer or malformed provider can still
+// manufacture an enum discriminant that this host does not understand. Do not coerce that value
+// into a benign-looking plan/receipt: doing so would corrupt source provenance and cache keys.
+[[noreturn]] void throw_invalid_raw_development_provider_output(const std::string_view message) {
+    throw image::DecodeError(
+        image::DecodeErrorCode::unsupported,
+        0,
+        std::string(message)
+    );
+}
+
+[[nodiscard]] FfiRawDevelopmentIntent raw_development_intent(
+    const image::RawDevelopmentIntent value
+) {
+    switch (value) {
+    case image::RawDevelopmentIntent::preview:
+        return FfiRawDevelopmentIntent::Preview;
+    case image::RawDevelopmentIntent::detail:
+        return FfiRawDevelopmentIntent::Detail;
+    case image::RawDevelopmentIntent::export_image:
+        return FfiRawDevelopmentIntent::ExportImage;
+    }
+    throw_invalid_raw_development_provider_output(
+        "RAW provider returned an unsupported development intent"
+    );
+}
+
+[[nodiscard]] image::RawDevelopmentIntent raw_development_intent(
+    const FfiRawDevelopmentIntent value
+) {
+    switch (value) {
+    case FfiRawDevelopmentIntent::Preview:
+        return image::RawDevelopmentIntent::preview;
+    case FfiRawDevelopmentIntent::Detail:
+        return image::RawDevelopmentIntent::detail;
+    case FfiRawDevelopmentIntent::ExportImage:
+        return image::RawDevelopmentIntent::export_image;
+    }
+    throw_invalid_raw_development_plan("RAW development intent is unsupported");
+}
+
+[[nodiscard]] FfiRawDevelopmentQuality raw_development_quality(
+    const image::RawDevelopmentQuality value
+) {
+    switch (value) {
+    case image::RawDevelopmentQuality::fast:
+        return FfiRawDevelopmentQuality::Fast;
+    case image::RawDevelopmentQuality::balanced:
+        return FfiRawDevelopmentQuality::Balanced;
+    case image::RawDevelopmentQuality::high:
+        return FfiRawDevelopmentQuality::High;
+    }
+    throw_invalid_raw_development_provider_output(
+        "RAW provider returned an unsupported development quality"
+    );
+}
+
+[[nodiscard]] image::RawDevelopmentQuality raw_development_quality(
+    const FfiRawDevelopmentQuality value
+) {
+    switch (value) {
+    case FfiRawDevelopmentQuality::Fast:
+        return image::RawDevelopmentQuality::fast;
+    case FfiRawDevelopmentQuality::Balanced:
+        return image::RawDevelopmentQuality::balanced;
+    case FfiRawDevelopmentQuality::High:
+        return image::RawDevelopmentQuality::high;
+    }
+    throw_invalid_raw_development_plan("RAW development quality is unsupported");
+}
+
+[[nodiscard]] FfiDngOpcodePolicy dng_opcode_policy(
+    const image::DngOpcodePolicy value
+) {
+    switch (value) {
+    case image::DngOpcodePolicy::provider_default:
+        return FfiDngOpcodePolicy::ProviderDefault;
+    case image::DngOpcodePolicy::require_applied:
+        return FfiDngOpcodePolicy::RequireApplied;
+    case image::DngOpcodePolicy::defer_to_shadow:
+        return FfiDngOpcodePolicy::DeferToShadow;
+    }
+    throw_invalid_raw_development_provider_output(
+        "RAW provider returned an unsupported DNG opcode policy"
+    );
+}
+
+[[nodiscard]] image::DngOpcodePolicy dng_opcode_policy(const FfiDngOpcodePolicy value) {
+    switch (value) {
+    case FfiDngOpcodePolicy::ProviderDefault:
+        return image::DngOpcodePolicy::provider_default;
+    case FfiDngOpcodePolicy::RequireApplied:
+        return image::DngOpcodePolicy::require_applied;
+    case FfiDngOpcodePolicy::DeferToShadow:
+        return image::DngOpcodePolicy::defer_to_shadow;
+    }
+    throw_invalid_raw_development_plan("DNG opcode policy is unsupported");
+}
+
+[[nodiscard]] FfiRawNoiseReductionIntent raw_noise_reduction_intent(
+    const image::RawNoiseReductionIntent value
+) {
+    switch (value) {
+    case image::RawNoiseReductionIntent::provider_default:
+        return FfiRawNoiseReductionIntent::ProviderDefault;
+    case image::RawNoiseReductionIntent::disabled:
+        return FfiRawNoiseReductionIntent::Disabled;
+    case image::RawNoiseReductionIntent::conservative:
+        return FfiRawNoiseReductionIntent::Conservative;
+    case image::RawNoiseReductionIntent::noise_robust:
+        return FfiRawNoiseReductionIntent::NoiseRobust;
+    }
+    throw_invalid_raw_development_provider_output(
+        "RAW provider returned an unsupported noise-reduction intent"
+    );
+}
+
+[[nodiscard]] image::RawNoiseReductionIntent raw_noise_reduction_intent(
+    const FfiRawNoiseReductionIntent value
+) {
+    switch (value) {
+    case FfiRawNoiseReductionIntent::ProviderDefault:
+        return image::RawNoiseReductionIntent::provider_default;
+    case FfiRawNoiseReductionIntent::Disabled:
+        return image::RawNoiseReductionIntent::disabled;
+    case FfiRawNoiseReductionIntent::Conservative:
+        return image::RawNoiseReductionIntent::conservative;
+    case FfiRawNoiseReductionIntent::NoiseRobust:
+        return image::RawNoiseReductionIntent::noise_robust;
+    }
+    throw_invalid_raw_development_plan("RAW noise-reduction intent is unsupported");
+}
+
+[[nodiscard]] FfiRawHighlightRecoveryIntent raw_highlight_recovery_intent(
+    const image::RawHighlightRecoveryIntent value
+) {
+    switch (value) {
+    case image::RawHighlightRecoveryIntent::provider_default:
+        return FfiRawHighlightRecoveryIntent::ProviderDefault;
+    case image::RawHighlightRecoveryIntent::disabled:
+        return FfiRawHighlightRecoveryIntent::Disabled;
+    case image::RawHighlightRecoveryIntent::conservative:
+        return FfiRawHighlightRecoveryIntent::Conservative;
+    case image::RawHighlightRecoveryIntent::aggressive:
+        return FfiRawHighlightRecoveryIntent::Aggressive;
+    }
+    throw_invalid_raw_development_provider_output(
+        "RAW provider returned an unsupported highlight-recovery intent"
+    );
+}
+
+[[nodiscard]] image::RawHighlightRecoveryIntent raw_highlight_recovery_intent(
+    const FfiRawHighlightRecoveryIntent value
+) {
+    switch (value) {
+    case FfiRawHighlightRecoveryIntent::ProviderDefault:
+        return image::RawHighlightRecoveryIntent::provider_default;
+    case FfiRawHighlightRecoveryIntent::Disabled:
+        return image::RawHighlightRecoveryIntent::disabled;
+    case FfiRawHighlightRecoveryIntent::Conservative:
+        return image::RawHighlightRecoveryIntent::conservative;
+    case FfiRawHighlightRecoveryIntent::Aggressive:
+        return image::RawHighlightRecoveryIntent::aggressive;
+    }
+    throw_invalid_raw_development_plan("RAW highlight-recovery intent is unsupported");
+}
+
+[[nodiscard]] FfiRawDevelopmentPlan raw_development_plan(
+    const image::RawDevelopmentPlan& plan
+) {
+    return FfiRawDevelopmentPlan{
+        plan.schema_version,
+        raw_development_intent(plan.intent),
+        raw_development_quality(plan.quality),
+        dng_opcode_policy(plan.dng_opcode_policy),
+        raw_noise_reduction_intent(plan.noise_reduction),
+        raw_highlight_recovery_intent(plan.highlight_recovery),
+    };
+}
+
+[[nodiscard]] image::RawDevelopmentPlan raw_development_plan(
+    const FfiRawDevelopmentPlan& plan
+) {
+    return image::RawDevelopmentPlan{
+        .schema_version = plan.schema_version,
+        .intent = raw_development_intent(plan.intent),
+        .quality = raw_development_quality(plan.quality),
+        .dng_opcode_policy = dng_opcode_policy(plan.dng_opcode_policy),
+        .noise_reduction = raw_noise_reduction_intent(plan.noise_reduction),
+        .highlight_recovery = raw_highlight_recovery_intent(plan.highlight_recovery),
+    };
+}
+
+[[nodiscard]] FfiRawDevelopmentCapabilities raw_development_capabilities(
+    const image::RawDevelopmentCapabilities& capabilities
+) noexcept {
+    return FfiRawDevelopmentCapabilities{
+        capabilities.schema_version,
+        capabilities.available,
+        capabilities.raw_frame,
+        capabilities.dng_opcode_execution_receipt,
+        capabilities.supported_intents,
+        capabilities.supported_qualities,
+        capabilities.supported_dng_opcode_policies,
+        capabilities.supported_noise_reduction_intents,
+        capabilities.supported_highlight_recovery_intents,
+    };
+}
+
+[[nodiscard]] FfiRawDevelopmentPlanNegotiationStatus raw_development_plan_status(
+    const image::RawDevelopmentPlanNegotiationStatus status
+) {
+    switch (status) {
+    case image::RawDevelopmentPlanNegotiationStatus::accepted:
+        return FfiRawDevelopmentPlanNegotiationStatus::Accepted;
+    case image::RawDevelopmentPlanNegotiationStatus::adjusted:
+        return FfiRawDevelopmentPlanNegotiationStatus::Adjusted;
+    case image::RawDevelopmentPlanNegotiationStatus::rejected:
+        return FfiRawDevelopmentPlanNegotiationStatus::Rejected;
+    }
+    throw_invalid_raw_development_provider_output(
+        "RAW provider returned an unsupported development-plan negotiation status"
+    );
+}
+
+[[nodiscard]] FfiRawDevelopmentPlanNegotiation raw_development_plan_negotiation(
+    const image::RawDevelopmentPlanNegotiation& negotiation
+) {
+    return FfiRawDevelopmentPlanNegotiation{
+        raw_development_plan(negotiation.requested),
+        raw_development_plan(negotiation.effective),
+        raw_development_plan_status(negotiation.status),
+        static_cast<std::uint32_t>(negotiation.unresolved),
+    };
+}
+
+[[nodiscard]] FfiDngOpcodeExecutionStatus dng_opcode_execution_status(
+    const image::DngOpcodeExecutionStatus status
+) {
+    switch (status) {
+    case image::DngOpcodeExecutionStatus::not_declared:
+        return FfiDngOpcodeExecutionStatus::NotDeclared;
+    case image::DngOpcodeExecutionStatus::provider_default:
+        return FfiDngOpcodeExecutionStatus::ProviderDefault;
+    case image::DngOpcodeExecutionStatus::applied:
+        return FfiDngOpcodeExecutionStatus::Applied;
+    case image::DngOpcodeExecutionStatus::deferred_to_shadow:
+        return FfiDngOpcodeExecutionStatus::DeferredToShadow;
+    case image::DngOpcodeExecutionStatus::skipped_for_preview:
+        return FfiDngOpcodeExecutionStatus::SkippedForPreview;
+    case image::DngOpcodeExecutionStatus::unsupported:
+        return FfiDngOpcodeExecutionStatus::Unsupported;
+    }
+    throw_invalid_raw_development_provider_output(
+        "RAW provider returned an unsupported DNG opcode execution status"
+    );
+}
+
 [[nodiscard]] FfiRawDevelopmentReceipt raw_development_receipt(
     const image::RawDevelopmentReceipt& receipt
 ) {
@@ -184,6 +450,13 @@ template <std::size_t Size>
     result.provider_version = rust::String(receipt.provider_version);
     result.library_version = rust::String(receipt.library_version);
     result.development_settings_signature = rust::String(receipt.development_settings_signature);
+    result.requested_plan_identity = rust::String(receipt.requested_plan_identity);
+    result.effective_plan_identity = rust::String(receipt.effective_plan_identity);
+    result.requested_plan = raw_development_plan(receipt.requested_plan);
+    result.effective_plan = raw_development_plan(receipt.effective_plan);
+    result.plan_negotiation_status = raw_development_plan_status(
+        receipt.plan_negotiation_status
+    );
     result.processed_linear_reference_contract_version =
         receipt.processed_linear_reference_contract_version;
     result.declared_image_dimensions = dimensions(receipt.declared_image_dimensions);
@@ -204,6 +477,15 @@ template <std::size_t Size>
     result.dng_opcode_list_1_bytes = receipt.declared_dng_opcode_lists.dng_opcode_list_bytes[0];
     result.dng_opcode_list_2_bytes = receipt.declared_dng_opcode_lists.dng_opcode_list_bytes[1];
     result.dng_opcode_list_3_bytes = receipt.declared_dng_opcode_lists.dng_opcode_list_bytes[2];
+    result.dng_opcode_list_1_execution = dng_opcode_execution_status(
+        receipt.dng_opcode_execution[0]
+    );
+    result.dng_opcode_list_2_execution = dng_opcode_execution_status(
+        receipt.dng_opcode_execution[1]
+    );
+    result.dng_opcode_list_3_execution = dng_opcode_execution_status(
+        receipt.dng_opcode_execution[2]
+    );
     result.process_warnings = receipt.process_warnings;
     return result;
 }
@@ -570,7 +852,7 @@ void require_parameter_count(
     // JPEG/HEIF input may already have vendor lens corrections baked in. The first raster
     // implementation therefore keeps automatic optics discovery RAW-only; a later explicit
     // raster profile mode can opt in without silently applying a correction twice.
-    if (!session.capabilities().mosaic) {
+    if (!session.capabilities().raw_frame) {
         return {};
     }
     const auto provider = image::make_lensfun_optics_provider();
@@ -672,15 +954,32 @@ FfiMetadataSnapshot DecodeHandle::metadata() const {
 FfiCapabilitySnapshot DecodeHandle::capabilities() const {
     const auto& capabilities = session_->capabilities();
     const auto& opcode_bytes = capabilities.pending_corrections.dng_opcode_list_bytes;
-    return FfiCapabilitySnapshot{
-        capabilities.metadata,
-        capabilities.embedded_previews,
-        capabilities.mosaic,
-        capabilities.reference_rgb,
-        opcode_bytes[0],
-        opcode_bytes[1],
-        opcode_bytes[2],
-    };
+    FfiCapabilitySnapshot snapshot;
+    snapshot.metadata = capabilities.metadata;
+    snapshot.embedded_previews = capabilities.embedded_previews;
+    snapshot.raw_frame = capabilities.raw_frame;
+    snapshot.reference_rgb = capabilities.reference_rgb;
+    snapshot.dng_opcode_list_1_bytes = opcode_bytes[0];
+    snapshot.dng_opcode_list_2_bytes = opcode_bytes[1];
+    snapshot.dng_opcode_list_3_bytes = opcode_bytes[2];
+    snapshot.raw_development = shadow::bridge::raw_development_capabilities(
+        capabilities.raw_development
+    );
+    return snapshot;
+}
+
+FfiRawDevelopmentCapabilities DecodeHandle::raw_development_capabilities() const {
+    return shadow::bridge::raw_development_capabilities(
+        session_->raw_development_capabilities()
+    );
+}
+
+FfiRawDevelopmentPlanNegotiation DecodeHandle::negotiate_raw_development_plan(
+    const FfiRawDevelopmentPlan& plan
+) const {
+    return raw_development_plan_negotiation(
+        session_->negotiate_raw_development_plan(raw_development_plan(plan))
+    );
 }
 
 FfiRawDevelopmentReceipt DecodeHandle::raw_development_receipt() const {
@@ -753,6 +1052,21 @@ std::unique_ptr<EditPreviewHandle> DecodeHandle::prepare_edit_preview(
     return std::make_unique<EditPreviewHandle>(std::move(prepared));
 }
 
+std::unique_ptr<EditPreviewHandle> DecodeHandle::prepare_edit_preview_with_raw_development_plan(
+    const std::uint32_t max_edge,
+    const FfiRawDevelopmentPlan& plan
+) const {
+    auto prepared = image::prepare_warm_edit_preview(
+        *session_,
+        max_edge,
+        raw_development_plan(plan),
+        optics_provider_.get(),
+        optics_settings_
+    );
+    raw_development_receipt_ = prepared.raw_development_receipt();
+    return std::make_unique<EditPreviewHandle>(std::move(prepared));
+}
+
 EditPreviewHandle::EditPreviewHandle(image::WarmEditPreviewSession session)
     : session_(std::move(session)) {}
 
@@ -807,6 +1121,19 @@ FfiAnalyzedEditPreview EditPreviewHandle::render_adjustment_plan_with_analysis(
 std::unique_ptr<FullEditDetailHandle> DecodeHandle::prepare_edit_detail() const {
     auto prepared = image::prepare_full_edit_detail(
         *session_,
+        optics_provider_.get(),
+        optics_settings_
+    );
+    raw_development_receipt_ = prepared.raw_development_receipt();
+    return std::make_unique<FullEditDetailHandle>(std::move(prepared));
+}
+
+std::unique_ptr<FullEditDetailHandle> DecodeHandle::prepare_edit_detail_with_raw_development_plan(
+    const FfiRawDevelopmentPlan& plan
+) const {
+    auto prepared = image::prepare_full_edit_detail(
+        *session_,
+        raw_development_plan(plan),
         optics_provider_.get(),
         optics_settings_
     );
@@ -884,6 +1211,13 @@ rust::Vec<rust::String> photo_supported_raster_extensions() {
         result.emplace_back(extension);
     }
     return result;
+}
+
+rust::String raw_development_plan_identity(const FfiRawDevelopmentPlan& plan) {
+    const std::string identity = image::raw_development_plan_identity(
+        raw_development_plan(plan)
+    );
+    return rust::String(identity);
 }
 
 FfiEncodedProxy render_photo_reference_proxy(

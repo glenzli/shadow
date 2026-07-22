@@ -243,6 +243,26 @@ impl Catalog {
         transaction.commit()?;
         Ok(())
     }
+
+    /// Removes every persisted Recipe commit and ref owned by one photo.
+    ///
+    /// This deliberately narrow escape hatch is for development-only Recipe
+    /// contract breaks. It never touches the photo, its original bytes, review
+    /// decisions, cached visuals, or Library organization. Production schema
+    /// migrations must use an explicit migration instead.
+    pub fn discard_recipe_history(&mut self, photo_id: PhotoId) -> Result<usize, CatalogError> {
+        let transaction = self.connection.transaction()?;
+        transaction.execute(
+            "DELETE FROM recipe_refs WHERE photo_id = ?1",
+            [photo_id.as_bytes().as_slice()],
+        )?;
+        let removed = transaction.execute(
+            "DELETE FROM recipe_commits WHERE photo_id = ?1",
+            [photo_id.as_bytes().as_slice()],
+        )?;
+        transaction.commit()?;
+        Ok(removed)
+    }
 }
 
 pub(crate) fn commit_recipe_in_transaction(
@@ -553,6 +573,43 @@ mod tests {
         assert_eq!(commits[1].commit.id(), root.id());
         assert_eq!(commits[1].commit.message(), Some("Natural base"));
         assert_eq!(commits[0].snapshot_digest, commits[1].snapshot_digest);
+    }
+
+    #[test]
+    fn development_reset_discards_only_one_photos_recipe_history() {
+        let (mut catalog, photo_id) = catalog_with_photo("/photos/reset-me.dng");
+        let recipe_id = RecipeId::new_v7();
+        let root = commit(recipe_id, Vec::new(), "Old development edit", 100);
+        catalog
+            .commit_recipe(&CommitRecipe {
+                photo_id,
+                commit: root.clone(),
+                update_refs: vec![RecipeRefTarget {
+                    name: "working".into(),
+                    kind: RecipeRefKind::Working,
+                    expectation: Some(RecipeRefExpectation::Missing),
+                }],
+            })
+            .expect("persist old working edit");
+
+        assert_eq!(
+            catalog
+                .discard_recipe_history(photo_id)
+                .expect("discard development history"),
+            1
+        );
+        assert!(
+            catalog
+                .recipe_commits(photo_id)
+                .expect("list discarded history")
+                .is_empty()
+        );
+        assert!(
+            catalog
+                .recipe_ref(photo_id, "working")
+                .expect("read discarded working ref")
+                .is_none()
+        );
     }
 
     #[test]

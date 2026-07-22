@@ -163,7 +163,7 @@ void print_session(const image::ProviderInfo& provider, const image::DecodeSessi
               << "decoder.capability.metadata=" << (capabilities.metadata ? "yes" : "no") << '\n'
               << "decoder.capability.embedded_previews="
               << (capabilities.embedded_previews ? "yes" : "no") << '\n'
-              << "decoder.capability.mosaic=" << (capabilities.mosaic ? "yes" : "no") << '\n'
+              << "decoder.capability.raw_frame=" << (capabilities.raw_frame ? "yes" : "no") << '\n'
               << "decoder.capability.reference_rgb="
               << (capabilities.reference_rgb ? "yes" : "no") << '\n'
               << "decoder.pending_corrections="
@@ -207,31 +207,37 @@ void extract_best_preview(image::DecodeSession& session, const fs::path& output_
               << "timing.thumbnail_ms=" << timer.elapsed_ms() << '\n';
 }
 
-void inspect_mosaic(image::DecodeSession& session, const fs::path& output_directory) {
+void inspect_raw_frame(image::DecodeSession& session, const fs::path& output_directory) {
     const Stopwatch timer;
-    const image::MosaicBuffer mosaic = session.decode_mosaic();
-    const auto [minimum, maximum] = std::minmax_element(mosaic.samples.begin(), mosaic.samples.end());
+    const image::RawFrame frame = session.decode_raw_frame();
+    if (!frame.valid()) {
+        throw std::runtime_error("provider returned an invalid RAW frame");
+    }
+    const auto [minimum, maximum] = std::minmax_element(frame.samples.begin(), frame.samples.end());
     long double total = 0.0L;
     std::uint64_t checksum = 1'469'598'103'934'665'603ULL;
-    for (const std::uint16_t value : mosaic.samples) {
+    for (const std::uint16_t value : frame.samples) {
         total += value;
         checksum ^= value;
         checksum *= 1'099'511'628'211ULL;
     }
 
-    const fs::path output_path = output_directory / "raw-mosaic.pgm";
-    write_u16_pnm(output_path, mosaic.descriptor.raw_dimensions, 1U, mosaic.samples);
-    const auto sample_count = static_cast<long double>(mosaic.samples.size());
+    const fs::path output_path = output_directory / "raw-frame.pgm";
+    write_u16_pnm(output_path, frame.descriptor.storage_dimensions, 1U, frame.samples);
+    const auto sample_count = static_cast<long double>(frame.samples.size());
 
-    std::cout << "mosaic.status=ok\n"
-              << "mosaic.samples=" << mosaic.samples.size() << '\n'
-              << "mosaic.minimum=" << *minimum << '\n'
-              << "mosaic.maximum=" << *maximum << '\n'
-              << "mosaic.mean=" << static_cast<double>(total / sample_count) << '\n'
-              << "mosaic.fnv1a64=" << std::hex << std::setw(16) << std::setfill('0') << checksum
+    std::cout << "raw_frame.status=ok\n"
+              << "raw_frame.samples=" << frame.samples.size() << '\n'
+              << "raw_frame.bits=" << frame.descriptor.bits_per_sample << '\n'
+              << "raw_frame.cfa=" << frame.descriptor.cfa_pattern << '\n'
+              << "raw_frame.bayer_2x2=" << (frame.is_bayer_2x2() ? "yes" : "no") << '\n'
+              << "raw_frame.minimum=" << *minimum << '\n'
+              << "raw_frame.maximum=" << *maximum << '\n'
+              << "raw_frame.mean=" << static_cast<double>(total / sample_count) << '\n'
+              << "raw_frame.fnv1a64=" << std::hex << std::setw(16) << std::setfill('0') << checksum
               << std::dec << std::setfill(' ') << '\n'
-              << "mosaic.output=" << output_path.string() << '\n'
-              << "timing.mosaic_ms=" << timer.elapsed_ms() << '\n';
+              << "raw_frame.output=" << output_path.string() << '\n'
+              << "timing.raw_frame_ms=" << timer.elapsed_ms() << '\n';
 }
 
 void render_reference_rgb(image::DecodeSession& session, const fs::path& output_directory) {
@@ -271,7 +277,11 @@ int run(
     const bool preview_only
 ) {
     fs::create_directories(output_directory);
-    const auto provider = image::make_libraw_decoder_provider();
+    // Deliberately use the same routed provider as the desktop app. With no
+    // SHADOW_PRIVATE_DECODER_PLUGIN_PATH it resolves to the public LibRaw
+    // implementation; with one configured it exercises a private adapter's
+    // complete open/metadata/preview/RAW-frame path before falling back.
+    const auto provider = image::make_photo_decoder_provider();
 
     const Stopwatch open_timer;
     const auto session = provider->open(input_path);
@@ -281,11 +291,32 @@ int run(
               << "timing.open_ms=" << open_timer.elapsed_ms() << '\n';
     print_session(provider->info(), *session);
     extract_best_preview(*session, output_directory);
+
+    // Some recognized cameras can offer an embedded preview while their sensor
+    // data is intentionally unavailable to the active provider (for example a
+    // compressed RAW format awaiting a private adapter). That is a truthful,
+    // useful preview-only result, not a probe failure and never a reason to
+    // invoke LibRaw's processing path.
+    if (!session->capabilities().reference_rgb) {
+        std::cout << "preview_reference.status=unavailable\n"
+                  << "preview_reference.reason=provider-does-not-expose-reference-rgb\n";
+        if (!session->capabilities().raw_frame) {
+            std::cout << "raw_frame.status=unavailable\n"
+                      << "raw_frame.reason=provider-does-not-expose-raw-frame\n";
+        }
+        return 0;
+    }
     render_warm_preview_reference_rgb(*session);
     if (preview_only) {
         return 0;
     }
-    inspect_mosaic(*session, output_directory);
+    if (!session->capabilities().raw_frame) {
+        std::cout << "raw_frame.status=unavailable\n"
+                  << "raw_frame.reason=provider-does-not-expose-raw-frame\n";
+        render_reference_rgb(*session, output_directory);
+        return 0;
+    }
+    inspect_raw_frame(*session, output_directory);
     render_reference_rgb(*session, output_directory);
     return 0;
 }

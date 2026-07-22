@@ -33,6 +33,10 @@ public:
     [[nodiscard]] FfiProviderSnapshot provider() const;
     [[nodiscard]] FfiMetadataSnapshot metadata() const;
     [[nodiscard]] FfiCapabilitySnapshot capabilities() const;
+    [[nodiscard]] FfiRawDevelopmentCapabilities raw_development_capabilities() const;
+    [[nodiscard]] FfiRawDevelopmentPlanNegotiation negotiate_raw_development_plan(
+        const FfiRawDevelopmentPlan& plan
+    ) const;
     // The last prepared RAW source render. It is explicitly empty until a render-backed edit
     // session is prepared, rather than causing a hidden second RAW decode merely for metadata.
     [[nodiscard]] FfiRawDevelopmentReceipt raw_development_receipt() const;
@@ -49,7 +53,16 @@ public:
     [[nodiscard]] std::unique_ptr<EditPreviewHandle> prepare_edit_preview(
         std::uint32_t max_edge
     ) const;
+    [[nodiscard]] std::unique_ptr<EditPreviewHandle>
+    prepare_edit_preview_with_raw_development_plan(
+        std::uint32_t max_edge,
+        const FfiRawDevelopmentPlan& plan
+    ) const;
     [[nodiscard]] std::unique_ptr<FullEditDetailHandle> prepare_edit_detail() const;
+    [[nodiscard]] std::unique_ptr<FullEditDetailHandle>
+    prepare_edit_detail_with_raw_development_plan(
+        const FfiRawDevelopmentPlan& plan
+    ) const;
 
 private:
     std::unique_ptr<image::DecoderProvider> provider_;
@@ -118,6 +131,7 @@ private:
 [[nodiscard]] rust::String libraw_provider_version();
 [[nodiscard]] rust::String photo_provider_version();
 [[nodiscard]] rust::Vec<rust::String> photo_supported_raster_extensions();
+[[nodiscard]] rust::String raw_development_plan_identity(const FfiRawDevelopmentPlan& plan);
 [[nodiscard]] FfiEncodedProxy render_photo_reference_proxy(
     rust::Str path,
     std::uint32_t max_edge,

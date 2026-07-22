@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use shadow_domain::{
     DecodeCapabilitySnapshot, DecodeProviderSnapshot, DecodeSupport, DecoderSnapshot,
     ImageDimensions, ImageMargins, PendingCorrectionsSnapshot, PreviewCodec,
-    PreviewDescriptorSnapshot, RawMetadataSnapshot,
+    PreviewDescriptorSnapshot, RawDevelopmentCapabilitySnapshot, RawMetadataSnapshot,
 };
 use thiserror::Error;
 
@@ -77,6 +77,92 @@ mod ffi {
         applied_scaling: bool,
     }
 
+    #[derive(Debug)]
+    enum FfiRawDevelopmentIntent {
+        Preview,
+        Detail,
+        ExportImage,
+    }
+
+    #[derive(Debug)]
+    enum FfiRawDevelopmentQuality {
+        Fast,
+        Balanced,
+        High,
+    }
+
+    #[derive(Debug)]
+    enum FfiDngOpcodePolicy {
+        ProviderDefault,
+        RequireApplied,
+        DeferToShadow,
+    }
+
+    #[derive(Debug)]
+    enum FfiRawNoiseReductionIntent {
+        ProviderDefault,
+        Disabled,
+        Conservative,
+        NoiseRobust,
+    }
+
+    #[derive(Debug)]
+    enum FfiRawHighlightRecoveryIntent {
+        ProviderDefault,
+        Disabled,
+        Conservative,
+        Aggressive,
+    }
+
+    #[derive(Debug)]
+    enum FfiRawDevelopmentPlanNegotiationStatus {
+        Accepted,
+        Adjusted,
+        Rejected,
+    }
+
+    #[derive(Debug)]
+    enum FfiDngOpcodeExecutionStatus {
+        NotDeclared,
+        ProviderDefault,
+        Applied,
+        DeferredToShadow,
+        SkippedForPreview,
+        Unsupported,
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    struct FfiRawDevelopmentPlan {
+        schema_version: u32,
+        intent: FfiRawDevelopmentIntent,
+        quality: FfiRawDevelopmentQuality,
+        dng_opcode_policy: FfiDngOpcodePolicy,
+        noise_reduction: FfiRawNoiseReductionIntent,
+        highlight_recovery: FfiRawHighlightRecoveryIntent,
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    #[allow(clippy::struct_excessive_bools)]
+    struct FfiRawDevelopmentCapabilities {
+        schema_version: u32,
+        available: bool,
+        raw_frame: bool,
+        dng_opcode_execution_receipt: bool,
+        supported_intents: u32,
+        supported_qualities: u32,
+        supported_dng_opcode_policies: u32,
+        supported_noise_reduction_intents: u32,
+        supported_highlight_recovery_intents: u32,
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    struct FfiRawDevelopmentPlanNegotiation {
+        requested: FfiRawDevelopmentPlan,
+        effective: FfiRawDevelopmentPlan,
+        status: FfiRawDevelopmentPlanNegotiationStatus,
+        unresolved: u32,
+    }
+
     // Deliberately a fixed field set: this is source-render provenance rather than an
     // extensible recipe payload. New renderer semantics require a new receipt schema instead
     // of silently overloading a map or an untyped byte document.
@@ -88,6 +174,11 @@ mod ffi {
         provider_version: String,
         library_version: String,
         development_settings_signature: String,
+        requested_plan_identity: String,
+        effective_plan_identity: String,
+        requested_plan: FfiRawDevelopmentPlan,
+        effective_plan: FfiRawDevelopmentPlan,
+        plan_negotiation_status: FfiRawDevelopmentPlanNegotiationStatus,
         processed_linear_reference_contract_version: u32,
         declared_image_dimensions: FfiDimensions,
         rendered_dimensions: FfiDimensions,
@@ -107,6 +198,9 @@ mod ffi {
         dng_opcode_list_1_bytes: u32,
         dng_opcode_list_2_bytes: u32,
         dng_opcode_list_3_bytes: u32,
+        dng_opcode_list_1_execution: FfiDngOpcodeExecutionStatus,
+        dng_opcode_list_2_execution: FfiDngOpcodeExecutionStatus,
+        dng_opcode_list_3_execution: FfiDngOpcodeExecutionStatus,
         process_warnings: u32,
     }
 
@@ -164,11 +258,12 @@ mod ffi {
     struct FfiCapabilitySnapshot {
         metadata: bool,
         embedded_previews: bool,
-        mosaic: bool,
+        raw_frame: bool,
         reference_rgb: bool,
         dng_opcode_list_1_bytes: u32,
         dng_opcode_list_2_bytes: u32,
         dng_opcode_list_3_bytes: u32,
+        raw_development: FfiRawDevelopmentCapabilities,
     }
 
     #[derive(Debug)]
@@ -303,6 +398,7 @@ mod ffi {
         fn libraw_provider_version() -> String;
         fn photo_provider_version() -> String;
         fn photo_supported_raster_extensions() -> Vec<String>;
+        fn raw_development_plan_identity(plan: &FfiRawDevelopmentPlan) -> Result<String>;
         fn render_photo_reference_proxy(
             path: &str,
             max_edge: u32,
@@ -312,11 +408,16 @@ mod ffi {
         fn provider(self: &DecodeHandle) -> FfiProviderSnapshot;
         fn metadata(self: &DecodeHandle) -> FfiMetadataSnapshot;
         fn capabilities(self: &DecodeHandle) -> FfiCapabilitySnapshot;
+        fn raw_development_capabilities(self: &DecodeHandle) -> FfiRawDevelopmentCapabilities;
+        fn negotiate_raw_development_plan(
+            self: &DecodeHandle,
+            plan: &FfiRawDevelopmentPlan,
+        ) -> Result<FfiRawDevelopmentPlanNegotiation>;
         // The current public Rust API opens a prepared session directly. Keep this lower-level
         // read-only accessor for C++/future bridge callers, where it reports an explicit default
         // before a source render is prepared.
         #[allow(dead_code)]
-        fn raw_development_receipt(self: &DecodeHandle) -> FfiRawDevelopmentReceipt;
+        fn raw_development_receipt(self: &DecodeHandle) -> Result<FfiRawDevelopmentReceipt>;
         fn previews(self: &DecodeHandle) -> Vec<FfiPreviewSnapshot>;
         fn decode_best_preview(self: Pin<&mut DecodeHandle>) -> Result<FfiPreviewPayload>;
         fn configure_optics(
@@ -332,15 +433,26 @@ mod ffi {
             self: &DecodeHandle,
             request: &FfiAdjustmentRenderRequest,
         ) -> Result<FfiEncodedProxy>;
+        #[allow(dead_code)]
         fn prepare_edit_preview(
             self: &DecodeHandle,
             max_edge: u32,
         ) -> Result<UniquePtr<EditPreviewHandle>>;
+        fn prepare_edit_preview_with_raw_development_plan(
+            self: &DecodeHandle,
+            max_edge: u32,
+            plan: &FfiRawDevelopmentPlan,
+        ) -> Result<UniquePtr<EditPreviewHandle>>;
+        #[allow(dead_code)]
         fn prepare_edit_detail(self: &DecodeHandle) -> Result<UniquePtr<FullEditDetailHandle>>;
+        fn prepare_edit_detail_with_raw_development_plan(
+            self: &DecodeHandle,
+            plan: &FfiRawDevelopmentPlan,
+        ) -> Result<UniquePtr<FullEditDetailHandle>>;
         fn dimensions(self: &EditPreviewHandle) -> FfiDimensions;
         fn max_edge(self: &EditPreviewHandle) -> u32;
         fn optics_receipt(self: &EditPreviewHandle) -> FfiOpticsReceipt;
-        fn raw_development_receipt(self: &EditPreviewHandle) -> FfiRawDevelopmentReceipt;
+        fn raw_development_receipt(self: &EditPreviewHandle) -> Result<FfiRawDevelopmentReceipt>;
         fn render_adjustment_plan(
             self: &EditPreviewHandle,
             request: &FfiAdjustmentRenderRequest,
@@ -352,7 +464,8 @@ mod ffi {
         fn dimensions(self: &FullEditDetailHandle) -> FfiDimensions;
         fn retained_bytes(self: &FullEditDetailHandle) -> u64;
         fn optics_receipt(self: &FullEditDetailHandle) -> FfiOpticsReceipt;
-        fn raw_development_receipt(self: &FullEditDetailHandle) -> FfiRawDevelopmentReceipt;
+        fn raw_development_receipt(self: &FullEditDetailHandle)
+        -> Result<FfiRawDevelopmentReceipt>;
         fn render_adjustment_plan_tile(
             self: &FullEditDetailHandle,
             request: &FfiAdjustmentDetailTileRequest,
@@ -429,6 +542,187 @@ pub struct OpticsReceipt {
     pub applied_scaling: bool,
 }
 
+/// The source-raster purpose requested from a RAW provider. This is intentionally separate from
+/// photographer-controlled adjustment nodes: it determines decode quality and cache identity
+/// before the common RGB graph exists.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RawDevelopmentIntent {
+    Preview,
+    Detail,
+    ExportImage,
+}
+
+/// Provider-neutral decode-quality preference. A provider can negotiate an exact or adjusted
+/// plan, but it must write the requested/effective pair into its development receipt.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RawDevelopmentQuality {
+    Fast,
+    Balanced,
+    High,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DngOpcodePolicy {
+    ProviderDefault,
+    RequireApplied,
+    DeferToShadow,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RawNoiseReductionIntent {
+    ProviderDefault,
+    Disabled,
+    Conservative,
+    NoiseRobust,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RawHighlightRecoveryIntent {
+    ProviderDefault,
+    Disabled,
+    Conservative,
+    Aggressive,
+}
+
+/// The immutable, cache-visible RAW source-development request. It is deliberately not stored
+/// inside a color node or versioned grade stack: previews, 1:1 detail, and future exports may
+/// legitimately need different source rasters while sharing every downstream adjustment.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Serialize, Deserialize)]
+pub struct RawDevelopmentPlan {
+    pub schema_version: u32,
+    pub intent: RawDevelopmentIntent,
+    pub quality: RawDevelopmentQuality,
+    pub dng_opcode_policy: DngOpcodePolicy,
+    pub noise_reduction: RawNoiseReductionIntent,
+    pub highlight_recovery: RawHighlightRecoveryIntent,
+}
+
+impl Default for RawDevelopmentPlan {
+    fn default() -> Self {
+        Self::detail()
+    }
+}
+
+impl RawDevelopmentPlan {
+    pub const CURRENT_SCHEMA_VERSION: u32 = 1;
+
+    #[must_use]
+    pub const fn preview() -> Self {
+        Self {
+            schema_version: Self::CURRENT_SCHEMA_VERSION,
+            intent: RawDevelopmentIntent::Preview,
+            quality: RawDevelopmentQuality::Balanced,
+            dng_opcode_policy: DngOpcodePolicy::ProviderDefault,
+            noise_reduction: RawNoiseReductionIntent::ProviderDefault,
+            highlight_recovery: RawHighlightRecoveryIntent::ProviderDefault,
+        }
+    }
+
+    #[must_use]
+    pub const fn detail() -> Self {
+        Self {
+            schema_version: Self::CURRENT_SCHEMA_VERSION,
+            intent: RawDevelopmentIntent::Detail,
+            quality: RawDevelopmentQuality::Balanced,
+            dng_opcode_policy: DngOpcodePolicy::ProviderDefault,
+            noise_reduction: RawNoiseReductionIntent::ProviderDefault,
+            highlight_recovery: RawHighlightRecoveryIntent::ProviderDefault,
+        }
+    }
+
+    #[must_use]
+    pub const fn export_image() -> Self {
+        Self {
+            schema_version: Self::CURRENT_SCHEMA_VERSION,
+            intent: RawDevelopmentIntent::ExportImage,
+            quality: RawDevelopmentQuality::High,
+            dng_opcode_policy: DngOpcodePolicy::ProviderDefault,
+            noise_reduction: RawNoiseReductionIntent::ProviderDefault,
+            highlight_recovery: RawHighlightRecoveryIntent::ProviderDefault,
+        }
+    }
+
+    fn validate(self) -> Result<(), BridgeError> {
+        if self.schema_version != Self::CURRENT_SCHEMA_VERSION {
+            return Err(BridgeError::InvalidRawDevelopmentPlan(
+                "RAW development plan uses an unsupported schema",
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RawDevelopmentPlanNegotiationStatus {
+    Accepted,
+    Adjusted,
+    Rejected,
+}
+
+impl Default for RawDevelopmentPlanNegotiationStatus {
+    fn default() -> Self {
+        Self::Rejected
+    }
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DngOpcodeExecutionStatus {
+    NotDeclared,
+    ProviderDefault,
+    Applied,
+    DeferredToShadow,
+    SkippedForPreview,
+    Unsupported,
+}
+
+impl Default for DngOpcodeExecutionStatus {
+    fn default() -> Self {
+        Self::NotDeclared
+    }
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[allow(clippy::struct_excessive_bools)]
+pub struct RawDevelopmentCapabilities {
+    pub schema_version: u32,
+    pub available: bool,
+    pub raw_frame: bool,
+    pub dng_opcode_execution_receipt: bool,
+    pub supported_intents: u32,
+    pub supported_qualities: u32,
+    pub supported_dng_opcode_policies: u32,
+    pub supported_noise_reduction_intents: u32,
+    pub supported_highlight_recovery_intents: u32,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Serialize, Deserialize)]
+pub struct RawDevelopmentPlanNegotiation {
+    pub requested: RawDevelopmentPlan,
+    pub effective: RawDevelopmentPlan,
+    pub status: RawDevelopmentPlanNegotiationStatus,
+    /// Bitset of `RawDevelopmentPlan` aspects the provider could not honor.
+    pub unresolved: u32,
+}
+
+impl RawDevelopmentPlanNegotiation {
+    #[must_use]
+    pub const fn accepted(self) -> bool {
+        !matches!(self.status, RawDevelopmentPlanNegotiationStatus::Rejected)
+    }
+
+    #[must_use]
+    pub const fn exact(self) -> bool {
+        matches!(self.status, RawDevelopmentPlanNegotiationStatus::Accepted)
+    }
+}
+
 /// The exact provider-side RAW-development request that produced an editable source raster.
 ///
 /// This is immutable source provenance, not a photographer-editable recipe. A zero
@@ -446,6 +740,16 @@ pub struct RawDevelopmentReceipt {
     pub provider_version: String,
     pub library_version: String,
     pub development_settings_signature: String,
+    #[serde(default)]
+    pub requested_plan_identity: String,
+    #[serde(default)]
+    pub effective_plan_identity: String,
+    #[serde(default)]
+    pub requested_plan: RawDevelopmentPlan,
+    #[serde(default)]
+    pub effective_plan: RawDevelopmentPlan,
+    #[serde(default)]
+    pub plan_negotiation_status: RawDevelopmentPlanNegotiationStatus,
     pub processed_linear_reference_contract_version: u32,
     pub declared_image_dimensions: ImageDimensions,
     pub rendered_dimensions: ImageDimensions,
@@ -463,12 +767,14 @@ pub struct RawDevelopmentReceipt {
     pub gamma_inverse_power: f64,
     pub gamma_linear_toe_slope: f64,
     pub declared_dng_opcode_list_bytes: [u32; 3],
+    #[serde(default)]
+    pub dng_opcode_execution: [DngOpcodeExecutionStatus; 3],
     pub process_warnings: u32,
 }
 
 impl RawDevelopmentReceipt {
     /// Matches the currently supported C++ `RawDevelopmentReceipt` schema.
-    pub const CURRENT_SCHEMA_VERSION: u32 = 1;
+    pub const CURRENT_SCHEMA_VERSION: u32 = 2;
 
     #[must_use]
     pub const fn recorded(&self) -> bool {
@@ -571,13 +877,272 @@ fn optics_receipt(receipt: ffi::FfiOpticsReceipt) -> OpticsReceipt {
     }
 }
 
-fn raw_development_receipt(receipt: ffi::FfiRawDevelopmentReceipt) -> RawDevelopmentReceipt {
-    RawDevelopmentReceipt {
+fn ffi_raw_development_intent(value: RawDevelopmentIntent) -> ffi::FfiRawDevelopmentIntent {
+    match value {
+        RawDevelopmentIntent::Preview => ffi::FfiRawDevelopmentIntent::Preview,
+        RawDevelopmentIntent::Detail => ffi::FfiRawDevelopmentIntent::Detail,
+        RawDevelopmentIntent::ExportImage => ffi::FfiRawDevelopmentIntent::ExportImage,
+    }
+}
+
+fn raw_development_intent(
+    value: ffi::FfiRawDevelopmentIntent,
+) -> Result<RawDevelopmentIntent, BridgeError> {
+    match value {
+        ffi::FfiRawDevelopmentIntent::Preview => Ok(RawDevelopmentIntent::Preview),
+        ffi::FfiRawDevelopmentIntent::Detail => Ok(RawDevelopmentIntent::Detail),
+        ffi::FfiRawDevelopmentIntent::ExportImage => Ok(RawDevelopmentIntent::ExportImage),
+        _ => Err(BridgeError::InvalidRawDevelopmentPlan(
+            "decoder returned an unsupported RAW development intent",
+        )),
+    }
+}
+
+fn ffi_raw_development_quality(value: RawDevelopmentQuality) -> ffi::FfiRawDevelopmentQuality {
+    match value {
+        RawDevelopmentQuality::Fast => ffi::FfiRawDevelopmentQuality::Fast,
+        RawDevelopmentQuality::Balanced => ffi::FfiRawDevelopmentQuality::Balanced,
+        RawDevelopmentQuality::High => ffi::FfiRawDevelopmentQuality::High,
+    }
+}
+
+fn raw_development_quality(
+    value: ffi::FfiRawDevelopmentQuality,
+) -> Result<RawDevelopmentQuality, BridgeError> {
+    match value {
+        ffi::FfiRawDevelopmentQuality::Fast => Ok(RawDevelopmentQuality::Fast),
+        ffi::FfiRawDevelopmentQuality::Balanced => Ok(RawDevelopmentQuality::Balanced),
+        ffi::FfiRawDevelopmentQuality::High => Ok(RawDevelopmentQuality::High),
+        _ => Err(BridgeError::InvalidRawDevelopmentPlan(
+            "decoder returned an unsupported RAW development quality",
+        )),
+    }
+}
+
+fn ffi_dng_opcode_policy(value: DngOpcodePolicy) -> ffi::FfiDngOpcodePolicy {
+    match value {
+        DngOpcodePolicy::ProviderDefault => ffi::FfiDngOpcodePolicy::ProviderDefault,
+        DngOpcodePolicy::RequireApplied => ffi::FfiDngOpcodePolicy::RequireApplied,
+        DngOpcodePolicy::DeferToShadow => ffi::FfiDngOpcodePolicy::DeferToShadow,
+    }
+}
+
+fn dng_opcode_policy(value: ffi::FfiDngOpcodePolicy) -> Result<DngOpcodePolicy, BridgeError> {
+    match value {
+        ffi::FfiDngOpcodePolicy::ProviderDefault => Ok(DngOpcodePolicy::ProviderDefault),
+        ffi::FfiDngOpcodePolicy::RequireApplied => Ok(DngOpcodePolicy::RequireApplied),
+        ffi::FfiDngOpcodePolicy::DeferToShadow => Ok(DngOpcodePolicy::DeferToShadow),
+        _ => Err(BridgeError::InvalidRawDevelopmentPlan(
+            "decoder returned an unsupported DNG opcode policy",
+        )),
+    }
+}
+
+fn ffi_raw_noise_reduction_intent(
+    value: RawNoiseReductionIntent,
+) -> ffi::FfiRawNoiseReductionIntent {
+    match value {
+        RawNoiseReductionIntent::ProviderDefault => {
+            ffi::FfiRawNoiseReductionIntent::ProviderDefault
+        }
+        RawNoiseReductionIntent::Disabled => ffi::FfiRawNoiseReductionIntent::Disabled,
+        RawNoiseReductionIntent::Conservative => ffi::FfiRawNoiseReductionIntent::Conservative,
+        RawNoiseReductionIntent::NoiseRobust => ffi::FfiRawNoiseReductionIntent::NoiseRobust,
+    }
+}
+
+fn raw_noise_reduction_intent(
+    value: ffi::FfiRawNoiseReductionIntent,
+) -> Result<RawNoiseReductionIntent, BridgeError> {
+    match value {
+        ffi::FfiRawNoiseReductionIntent::ProviderDefault => {
+            Ok(RawNoiseReductionIntent::ProviderDefault)
+        }
+        ffi::FfiRawNoiseReductionIntent::Disabled => Ok(RawNoiseReductionIntent::Disabled),
+        ffi::FfiRawNoiseReductionIntent::Conservative => Ok(RawNoiseReductionIntent::Conservative),
+        ffi::FfiRawNoiseReductionIntent::NoiseRobust => Ok(RawNoiseReductionIntent::NoiseRobust),
+        _ => Err(BridgeError::InvalidRawDevelopmentPlan(
+            "decoder returned an unsupported RAW noise-reduction intent",
+        )),
+    }
+}
+
+fn ffi_raw_highlight_recovery_intent(
+    value: RawHighlightRecoveryIntent,
+) -> ffi::FfiRawHighlightRecoveryIntent {
+    match value {
+        RawHighlightRecoveryIntent::ProviderDefault => {
+            ffi::FfiRawHighlightRecoveryIntent::ProviderDefault
+        }
+        RawHighlightRecoveryIntent::Disabled => ffi::FfiRawHighlightRecoveryIntent::Disabled,
+        RawHighlightRecoveryIntent::Conservative => {
+            ffi::FfiRawHighlightRecoveryIntent::Conservative
+        }
+        RawHighlightRecoveryIntent::Aggressive => ffi::FfiRawHighlightRecoveryIntent::Aggressive,
+    }
+}
+
+fn raw_highlight_recovery_intent(
+    value: ffi::FfiRawHighlightRecoveryIntent,
+) -> Result<RawHighlightRecoveryIntent, BridgeError> {
+    match value {
+        ffi::FfiRawHighlightRecoveryIntent::ProviderDefault => {
+            Ok(RawHighlightRecoveryIntent::ProviderDefault)
+        }
+        ffi::FfiRawHighlightRecoveryIntent::Disabled => Ok(RawHighlightRecoveryIntent::Disabled),
+        ffi::FfiRawHighlightRecoveryIntent::Conservative => {
+            Ok(RawHighlightRecoveryIntent::Conservative)
+        }
+        ffi::FfiRawHighlightRecoveryIntent::Aggressive => {
+            Ok(RawHighlightRecoveryIntent::Aggressive)
+        }
+        _ => Err(BridgeError::InvalidRawDevelopmentPlan(
+            "decoder returned an unsupported RAW highlight-recovery intent",
+        )),
+    }
+}
+
+fn ffi_raw_development_plan(plan: RawDevelopmentPlan) -> ffi::FfiRawDevelopmentPlan {
+    ffi::FfiRawDevelopmentPlan {
+        schema_version: plan.schema_version,
+        intent: ffi_raw_development_intent(plan.intent),
+        quality: ffi_raw_development_quality(plan.quality),
+        dng_opcode_policy: ffi_dng_opcode_policy(plan.dng_opcode_policy),
+        noise_reduction: ffi_raw_noise_reduction_intent(plan.noise_reduction),
+        highlight_recovery: ffi_raw_highlight_recovery_intent(plan.highlight_recovery),
+    }
+}
+
+fn raw_development_plan(
+    plan: ffi::FfiRawDevelopmentPlan,
+) -> Result<RawDevelopmentPlan, BridgeError> {
+    Ok(RawDevelopmentPlan {
+        schema_version: plan.schema_version,
+        intent: raw_development_intent(plan.intent)?,
+        quality: raw_development_quality(plan.quality)?,
+        dng_opcode_policy: dng_opcode_policy(plan.dng_opcode_policy)?,
+        noise_reduction: raw_noise_reduction_intent(plan.noise_reduction)?,
+        highlight_recovery: raw_highlight_recovery_intent(plan.highlight_recovery)?,
+    })
+}
+
+fn raw_development_capabilities(
+    capabilities: ffi::FfiRawDevelopmentCapabilities,
+) -> RawDevelopmentCapabilities {
+    RawDevelopmentCapabilities {
+        schema_version: capabilities.schema_version,
+        available: capabilities.available,
+        raw_frame: capabilities.raw_frame,
+        dng_opcode_execution_receipt: capabilities.dng_opcode_execution_receipt,
+        supported_intents: capabilities.supported_intents,
+        supported_qualities: capabilities.supported_qualities,
+        supported_dng_opcode_policies: capabilities.supported_dng_opcode_policies,
+        supported_noise_reduction_intents: capabilities.supported_noise_reduction_intents,
+        supported_highlight_recovery_intents: capabilities.supported_highlight_recovery_intents,
+    }
+}
+
+fn raw_development_plan_negotiation_status(
+    status: ffi::FfiRawDevelopmentPlanNegotiationStatus,
+) -> Result<RawDevelopmentPlanNegotiationStatus, BridgeError> {
+    match status {
+        ffi::FfiRawDevelopmentPlanNegotiationStatus::Accepted => {
+            Ok(RawDevelopmentPlanNegotiationStatus::Accepted)
+        }
+        ffi::FfiRawDevelopmentPlanNegotiationStatus::Adjusted => {
+            Ok(RawDevelopmentPlanNegotiationStatus::Adjusted)
+        }
+        ffi::FfiRawDevelopmentPlanNegotiationStatus::Rejected => {
+            Ok(RawDevelopmentPlanNegotiationStatus::Rejected)
+        }
+        _ => Err(BridgeError::InvalidRawDevelopmentPlan(
+            "decoder returned an unsupported RAW development-plan negotiation status",
+        )),
+    }
+}
+
+fn raw_development_plan_negotiation(
+    negotiation: ffi::FfiRawDevelopmentPlanNegotiation,
+) -> Result<RawDevelopmentPlanNegotiation, BridgeError> {
+    Ok(RawDevelopmentPlanNegotiation {
+        requested: raw_development_plan(negotiation.requested)?,
+        effective: raw_development_plan(negotiation.effective)?,
+        status: raw_development_plan_negotiation_status(negotiation.status)?,
+        unresolved: negotiation.unresolved,
+    })
+}
+
+fn preflight_photo_edit_development(
+    handle: &ffi::DecodeHandle,
+    plan: RawDevelopmentPlan,
+) -> Result<(), BridgeError> {
+    let capabilities = handle.capabilities();
+    // Do not enter a render-preparation task when the active RAW provider has already declared
+    // that it cannot produce editable reference RGB. A large embedded preview may still be
+    // perfectly usable in the Library, but it must not leave Precision appearing to develop a
+    // source that this provider cannot ever finish.
+    if !capabilities.reference_rgb {
+        return Err(BridgeError::RawDevelopmentUnavailable(
+            if capabilities.embedded_previews {
+                "the active local decoder can show this RAW's embedded preview, but cannot develop it for editing"
+            } else {
+                "the active local decoder cannot develop this RAW for editing"
+            },
+        ));
+    }
+
+    let raw_capabilities = raw_development_capabilities(handle.raw_development_capabilities());
+    if raw_capabilities.available {
+        let negotiation = raw_development_plan_negotiation(
+            handle.negotiate_raw_development_plan(&ffi_raw_development_plan(plan))?,
+        )?;
+        if !negotiation.accepted() {
+            return Err(BridgeError::RawDevelopmentUnavailable(
+                "the active local decoder rejected Shadow's RAW development request",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn dng_opcode_execution_status(
+    status: ffi::FfiDngOpcodeExecutionStatus,
+) -> Result<DngOpcodeExecutionStatus, BridgeError> {
+    match status {
+        ffi::FfiDngOpcodeExecutionStatus::NotDeclared => Ok(DngOpcodeExecutionStatus::NotDeclared),
+        ffi::FfiDngOpcodeExecutionStatus::ProviderDefault => {
+            Ok(DngOpcodeExecutionStatus::ProviderDefault)
+        }
+        ffi::FfiDngOpcodeExecutionStatus::Applied => Ok(DngOpcodeExecutionStatus::Applied),
+        ffi::FfiDngOpcodeExecutionStatus::DeferredToShadow => {
+            Ok(DngOpcodeExecutionStatus::DeferredToShadow)
+        }
+        ffi::FfiDngOpcodeExecutionStatus::SkippedForPreview => {
+            Ok(DngOpcodeExecutionStatus::SkippedForPreview)
+        }
+        ffi::FfiDngOpcodeExecutionStatus::Unsupported => Ok(DngOpcodeExecutionStatus::Unsupported),
+        _ => Err(BridgeError::InvalidRawDevelopmentPlan(
+            "decoder returned an unsupported DNG opcode execution status",
+        )),
+    }
+}
+
+fn raw_development_receipt(
+    receipt: ffi::FfiRawDevelopmentReceipt,
+) -> Result<RawDevelopmentReceipt, BridgeError> {
+    Ok(RawDevelopmentReceipt {
         schema_version: receipt.schema_version,
         provider_id: receipt.provider_id,
         provider_version: receipt.provider_version,
         library_version: receipt.library_version,
         development_settings_signature: receipt.development_settings_signature,
+        requested_plan_identity: receipt.requested_plan_identity,
+        effective_plan_identity: receipt.effective_plan_identity,
+        requested_plan: raw_development_plan(receipt.requested_plan)?,
+        effective_plan: raw_development_plan(receipt.effective_plan)?,
+        plan_negotiation_status: raw_development_plan_negotiation_status(
+            receipt.plan_negotiation_status,
+        )?,
         processed_linear_reference_contract_version: receipt
             .processed_linear_reference_contract_version,
         declared_image_dimensions: dimensions(&receipt.declared_image_dimensions),
@@ -600,8 +1165,13 @@ fn raw_development_receipt(receipt: ffi::FfiRawDevelopmentReceipt) -> RawDevelop
             receipt.dng_opcode_list_2_bytes,
             receipt.dng_opcode_list_3_bytes,
         ],
+        dng_opcode_execution: [
+            dng_opcode_execution_status(receipt.dng_opcode_list_1_execution)?,
+            dng_opcode_execution_status(receipt.dng_opcode_list_2_execution)?,
+            dng_opcode_execution_status(receipt.dng_opcode_list_3_execution)?,
+        ],
         process_warnings: receipt.process_warnings,
-    }
+    })
 }
 
 /// Hard memory bound for the reusable float working proxy.
@@ -1491,6 +2061,13 @@ pub fn basic_adjustment_render_plan(
     let plan = AdjustmentRenderPlan {
         nodes: vec![
             node(
+                "basic-rgb-white-balance",
+                AdjustmentRenderOperation::RgbWhiteBalance {
+                    temperature: edits.white_balance_temperature,
+                    tint: edits.white_balance_tint,
+                },
+            ),
+            node(
                 "basic-exposure",
                 AdjustmentRenderOperation::Exposure {
                     stops: edits.exposure_stops,
@@ -1501,13 +2078,6 @@ pub fn basic_adjustment_render_plan(
                 AdjustmentRenderOperation::Contrast {
                     factor: edits.contrast_factor,
                     pivot: 0.18,
-                },
-            ),
-            node(
-                "basic-rgb-white-balance",
-                AdjustmentRenderOperation::RgbWhiteBalance {
-                    temperature: edits.white_balance_temperature,
-                    tint: edits.white_balance_tint,
                 },
             ),
             node(
@@ -1603,6 +2173,57 @@ pub fn photo_provider_version() -> String {
 #[must_use]
 pub fn photo_supported_raster_extensions() -> Vec<String> {
     ffi::photo_supported_raster_extensions()
+}
+
+/// Returns the native, canonical cache identity for a source-development request. Keeping this
+/// calculation in the C++ image contract prevents Rust, desktop, and a future private provider
+/// from accidentally serializing equivalent plans differently.
+///
+/// # Errors
+///
+/// Returns [`BridgeError::InvalidRawDevelopmentPlan`] when the plan schema is unsupported, or
+/// a decoder bridge error if the native contract rejects an invalid enum representation.
+pub fn raw_development_plan_identity(plan: RawDevelopmentPlan) -> Result<String, BridgeError> {
+    plan.validate()?;
+    Ok(ffi::raw_development_plan_identity(
+        &ffi_raw_development_plan(plan),
+    )?)
+}
+
+/// Opens the source-neutral provider just long enough to negotiate a RAW plan. It does not
+/// decode pixels or prepare an edit session. Raster sources correctly report a rejected
+/// negotiation because a RAW plan has no effect on their already-rendered source pixels.
+///
+/// # Errors
+///
+/// Returns an invalid-plan, path, or decoder bridge error.
+pub fn negotiate_photo_raw_development_plan(
+    path: &Path,
+    plan: RawDevelopmentPlan,
+) -> Result<RawDevelopmentPlanNegotiation, BridgeError> {
+    plan.validate()?;
+    let handle = open_photo(path)?;
+    let handle = handle.as_ref().ok_or(BridgeError::NullHandle)?;
+    raw_development_plan_negotiation(
+        handle.negotiate_raw_development_plan(&ffi_raw_development_plan(plan))?,
+    )
+}
+
+/// Reads the provider-neutral RAW-development capability declaration without rendering pixels.
+/// This is the preflight counterpart to [`negotiate_photo_raw_development_plan`]: callers can
+/// present only meaningful plan choices before they request a preview or a 1:1 detail source.
+///
+/// # Errors
+///
+/// Returns a path or decoder bridge error.
+pub fn photo_raw_development_capabilities(
+    path: &Path,
+) -> Result<RawDevelopmentCapabilities, BridgeError> {
+    let handle = open_photo(path)?;
+    let handle = handle.as_ref().ok_or(BridgeError::NullHandle)?;
+    Ok(raw_development_capabilities(
+        handle.raw_development_capabilities(),
+    ))
 }
 
 /// A reusable, bounded processed linear-light RGB working proxy for interactive edits.
@@ -1773,20 +2394,66 @@ impl LibRawEditPreviewSession {
         max_edge: u32,
         optics: &OpticsSettings,
     ) -> Result<Self, BridgeError> {
+        Self::open_with_raw_development_plan_and_optics(
+            path,
+            max_edge,
+            RawDevelopmentPlan::preview(),
+            optics,
+        )
+    }
+
+    /// Opens a preview with an explicit RAW source-development request. The plan is validated
+    /// before the source path is opened; `Preview` intent is required because the prepared
+    /// session is a bounded interactive raster rather than a native-detail source.
+    pub fn open_with_raw_development_plan(
+        path: &Path,
+        max_edge: u32,
+        raw_development_plan: RawDevelopmentPlan,
+    ) -> Result<Self, BridgeError> {
+        Self::open_with_raw_development_plan_and_optics(
+            path,
+            max_edge,
+            raw_development_plan,
+            &OpticsSettings::default(),
+        )
+    }
+
+    /// Opens a preview with explicit RAW source-development and optical-correction contracts.
+    /// JPEG/HEIF sources retain their ordinary decoded-raster behavior; they never fabricate a
+    /// RAW receipt merely because a caller supplied the canonical preview plan.
+    pub fn open_with_raw_development_plan_and_optics(
+        path: &Path,
+        max_edge: u32,
+        raw_development_plan: RawDevelopmentPlan,
+        optics: &OpticsSettings,
+    ) -> Result<Self, BridgeError> {
         validate_warm_edit_max_edge(max_edge)?;
+        raw_development_plan.validate()?;
+        if raw_development_plan.intent != RawDevelopmentIntent::Preview {
+            return Err(BridgeError::InvalidRawDevelopmentPlan(
+                "warm edit previews require preview RAW-development intent",
+            ));
+        }
         let mut decode_handle = open_photo(path)?;
         if decode_handle.is_null() {
             return Err(BridgeError::NullHandle);
+        }
+        {
+            let handle = decode_handle.as_ref().ok_or(BridgeError::NullHandle)?;
+            preflight_photo_edit_development(handle, raw_development_plan)?;
         }
         decode_handle
             .pin_mut()
             .configure_optics(&ffi_optics_settings(optics))?;
         let decode_handle = decode_handle.as_ref().ok_or(BridgeError::NullHandle)?;
-        let handle = decode_handle.prepare_edit_preview(max_edge)?;
+        let handle = decode_handle.prepare_edit_preview_with_raw_development_plan(
+            max_edge,
+            &ffi_raw_development_plan(raw_development_plan),
+        )?;
         let prepared = handle.as_ref().ok_or(BridgeError::NullHandle)?;
         let prepared_dimensions = dimensions(&prepared.dimensions());
         let prepared_max_edge = prepared.max_edge();
-        let raw_development_receipt = raw_development_receipt(prepared.raw_development_receipt());
+        let raw_development_receipt = raw_development_receipt(prepared.raw_development_receipt()?)?;
         let optics_receipt = optics_receipt(prepared.optics_receipt());
 
         Ok(Self {
@@ -1913,19 +2580,53 @@ impl LibRawEditDetailSession {
     /// Returns a path, decoder, resource-limit, invalid-request, or bridge-output error when
     /// validation or preparation fails.
     pub fn open_with_optics(path: &Path, optics: &OpticsSettings) -> Result<Self, BridgeError> {
+        Self::open_with_raw_development_plan_and_optics(path, RawDevelopmentPlan::detail(), optics)
+    }
+
+    /// Opens an immutable native-detail session with an explicit RAW source-development plan.
+    /// `Detail` intent is required, so a warm half-size preview can never enter the 1:1 cache.
+    pub fn open_with_raw_development_plan(
+        path: &Path,
+        raw_development_plan: RawDevelopmentPlan,
+    ) -> Result<Self, BridgeError> {
+        Self::open_with_raw_development_plan_and_optics(
+            path,
+            raw_development_plan,
+            &OpticsSettings::default(),
+        )
+    }
+
+    /// Opens a native-detail session with explicit RAW source-development and optical settings.
+    pub fn open_with_raw_development_plan_and_optics(
+        path: &Path,
+        raw_development_plan: RawDevelopmentPlan,
+        optics: &OpticsSettings,
+    ) -> Result<Self, BridgeError> {
+        raw_development_plan.validate()?;
+        if raw_development_plan.intent != RawDevelopmentIntent::Detail {
+            return Err(BridgeError::InvalidRawDevelopmentPlan(
+                "full edit detail requires detail RAW-development intent",
+            ));
+        }
         let mut decode_handle = open_photo(path)?;
         if decode_handle.is_null() {
             return Err(BridgeError::NullHandle);
+        }
+        {
+            let handle = decode_handle.as_ref().ok_or(BridgeError::NullHandle)?;
+            preflight_photo_edit_development(handle, raw_development_plan)?;
         }
         decode_handle
             .pin_mut()
             .configure_optics(&ffi_optics_settings(optics))?;
         let decode_handle = decode_handle.as_ref().ok_or(BridgeError::NullHandle)?;
-        let handle = decode_handle.prepare_edit_detail()?;
+        let handle = decode_handle.prepare_edit_detail_with_raw_development_plan(
+            &ffi_raw_development_plan(raw_development_plan),
+        )?;
         let prepared = handle.as_ref().ok_or(BridgeError::NullHandle)?;
         let prepared_dimensions = dimensions(&prepared.dimensions());
         let retained_bytes = prepared.retained_bytes();
-        let raw_development_receipt = raw_development_receipt(prepared.raw_development_receipt());
+        let raw_development_receipt = raw_development_receipt(prepared.raw_development_receipt()?)?;
         let optics_receipt = optics_receipt(prepared.optics_receipt());
         if prepared_dimensions.width == 0 || prepared_dimensions.height == 0 {
             return Err(BridgeError::InvalidEditDetailOutput(
@@ -2525,12 +3226,16 @@ fn validate_edit_preview_analysis(
 
 #[derive(Debug, Error)]
 pub enum BridgeError {
+    #[error("invalid RAW development plan: {0}")]
+    InvalidRawDevelopmentPlan(&'static str),
     #[error("invalid edited proxy request: {0}")]
     InvalidEditRequest(&'static str),
     #[error("invalid edit-preview analysis bridge output: {0}")]
     InvalidEditPreviewOutput(&'static str),
     #[error("invalid full edit detail bridge output: {0}")]
     InvalidEditDetailOutput(&'static str),
+    #[error("RAW development is unavailable: {0}")]
+    RawDevelopmentUnavailable(&'static str),
     #[error("invalid JPEG display-luma request: {0}")]
     InvalidDisplayLumaRequest(&'static str),
     #[error("invalid JPEG display-luma decoder output: {0}")]
@@ -2693,7 +3398,7 @@ fn snapshot(handle: &ffi::DecodeHandle) -> DecoderSnapshot {
         capabilities: DecodeCapabilitySnapshot {
             metadata: support(capabilities.metadata),
             embedded_previews: support(capabilities.embedded_previews),
-            mosaic: support(capabilities.mosaic),
+            raw_frame: support(capabilities.raw_frame),
             reference_rgb: support(capabilities.reference_rgb),
             pending_corrections: PendingCorrectionsSnapshot {
                 dng_opcode_list_bytes: [
@@ -2701,6 +3406,25 @@ fn snapshot(handle: &ffi::DecodeHandle) -> DecoderSnapshot {
                     capabilities.dng_opcode_list_2_bytes,
                     capabilities.dng_opcode_list_3_bytes,
                 ],
+            },
+            raw_development: RawDevelopmentCapabilitySnapshot {
+                plan_schema_version: capabilities.raw_development.schema_version,
+                available: support(capabilities.raw_development.available),
+                raw_frame: support(capabilities.raw_development.raw_frame),
+                dng_opcode_execution_receipt: support(
+                    capabilities.raw_development.dng_opcode_execution_receipt,
+                ),
+                supported_intents: capabilities.raw_development.supported_intents,
+                supported_qualities: capabilities.raw_development.supported_qualities,
+                supported_dng_opcode_policies: capabilities
+                    .raw_development
+                    .supported_dng_opcode_policies,
+                supported_noise_reduction_intents: capabilities
+                    .raw_development
+                    .supported_noise_reduction_intents,
+                supported_highlight_recovery_intents: capabilities
+                    .raw_development
+                    .supported_highlight_recovery_intents,
             },
         },
         previews: previews.iter().map(preview_descriptor).collect(),
@@ -2757,6 +3481,17 @@ const fn support(value: bool) -> DecodeSupport {
 mod tests {
     use super::*;
 
+    fn ffi_detail_raw_development_plan() -> ffi::FfiRawDevelopmentPlan {
+        ffi::FfiRawDevelopmentPlan {
+            schema_version: RawDevelopmentPlan::CURRENT_SCHEMA_VERSION,
+            intent: ffi::FfiRawDevelopmentIntent::Detail,
+            quality: ffi::FfiRawDevelopmentQuality::Balanced,
+            dng_opcode_policy: ffi::FfiDngOpcodePolicy::ProviderDefault,
+            noise_reduction: ffi::FfiRawNoiseReductionIntent::ProviderDefault,
+            highlight_recovery: ffi::FfiRawHighlightRecoveryIntent::ProviderDefault,
+        }
+    }
+
     fn recorded_ffi_raw_development_receipt() -> ffi::FfiRawDevelopmentReceipt {
         ffi::FfiRawDevelopmentReceipt {
             schema_version: RawDevelopmentReceipt::CURRENT_SCHEMA_VERSION,
@@ -2764,6 +3499,18 @@ mod tests {
             provider_version: "fixture-provider-v1".to_owned(),
             library_version: "fixture-library-v1".to_owned(),
             development_settings_signature: "fixture-request-v1".to_owned(),
+            requested_plan_identity: "shadow-raw-plan-v1;fixture=requested".to_owned(),
+            effective_plan_identity: "shadow-raw-plan-v1;fixture=effective".to_owned(),
+            requested_plan: ffi::FfiRawDevelopmentPlan {
+                schema_version: RawDevelopmentPlan::CURRENT_SCHEMA_VERSION,
+                intent: ffi::FfiRawDevelopmentIntent::Preview,
+                quality: ffi::FfiRawDevelopmentQuality::Balanced,
+                dng_opcode_policy: ffi::FfiDngOpcodePolicy::ProviderDefault,
+                noise_reduction: ffi::FfiRawNoiseReductionIntent::ProviderDefault,
+                highlight_recovery: ffi::FfiRawHighlightRecoveryIntent::ProviderDefault,
+            },
+            effective_plan: ffi_detail_raw_development_plan(),
+            plan_negotiation_status: ffi::FfiRawDevelopmentPlanNegotiationStatus::Adjusted,
             processed_linear_reference_contract_version: 7,
             declared_image_dimensions: ffi::FfiDimensions {
                 width: 8,
@@ -2789,6 +3536,9 @@ mod tests {
             dng_opcode_list_1_bytes: 11,
             dng_opcode_list_2_bytes: 22,
             dng_opcode_list_3_bytes: 33,
+            dng_opcode_list_1_execution: ffi::FfiDngOpcodeExecutionStatus::Applied,
+            dng_opcode_list_2_execution: ffi::FfiDngOpcodeExecutionStatus::DeferredToShadow,
+            dng_opcode_list_3_execution: ffi::FfiDngOpcodeExecutionStatus::SkippedForPreview,
             process_warnings: 0x1024,
         }
     }
@@ -2802,6 +3552,11 @@ mod tests {
             provider_version: String::new(),
             library_version: String::new(),
             development_settings_signature: String::new(),
+            requested_plan_identity: String::new(),
+            effective_plan_identity: String::new(),
+            requested_plan: ffi_detail_raw_development_plan(),
+            effective_plan: ffi_detail_raw_development_plan(),
+            plan_negotiation_status: ffi::FfiRawDevelopmentPlanNegotiationStatus::Rejected,
             processed_linear_reference_contract_version: 0,
             declared_image_dimensions: ffi::FfiDimensions {
                 width: 0,
@@ -2827,21 +3582,38 @@ mod tests {
             dng_opcode_list_1_bytes: 0,
             dng_opcode_list_2_bytes: 0,
             dng_opcode_list_3_bytes: 0,
+            dng_opcode_list_1_execution: ffi::FfiDngOpcodeExecutionStatus::NotDeclared,
+            dng_opcode_list_2_execution: ffi::FfiDngOpcodeExecutionStatus::NotDeclared,
+            dng_opcode_list_3_execution: ffi::FfiDngOpcodeExecutionStatus::NotDeclared,
             process_warnings: 0,
-        });
+        })
+        .expect("default RAW receipt bridge output is valid");
         assert_eq!(default, RawDevelopmentReceipt::default());
         assert!(!default.recorded());
         assert!(!default.uses_current_schema());
 
-        let recorded = raw_development_receipt(recorded_ffi_raw_development_receipt());
+        let recorded = raw_development_receipt(recorded_ffi_raw_development_receipt())
+            .expect("recorded RAW receipt bridge output is valid");
         assert_eq!(
             recorded,
             RawDevelopmentReceipt {
-                schema_version: 1,
+                schema_version: RawDevelopmentReceipt::CURRENT_SCHEMA_VERSION,
                 provider_id: "fixture-provider".to_owned(),
                 provider_version: "fixture-provider-v1".to_owned(),
                 library_version: "fixture-library-v1".to_owned(),
                 development_settings_signature: "fixture-request-v1".to_owned(),
+                requested_plan_identity: "shadow-raw-plan-v1;fixture=requested".to_owned(),
+                effective_plan_identity: "shadow-raw-plan-v1;fixture=effective".to_owned(),
+                requested_plan: RawDevelopmentPlan {
+                    schema_version: RawDevelopmentPlan::CURRENT_SCHEMA_VERSION,
+                    intent: RawDevelopmentIntent::Preview,
+                    quality: RawDevelopmentQuality::Balanced,
+                    dng_opcode_policy: DngOpcodePolicy::ProviderDefault,
+                    noise_reduction: RawNoiseReductionIntent::ProviderDefault,
+                    highlight_recovery: RawHighlightRecoveryIntent::ProviderDefault,
+                },
+                effective_plan: RawDevelopmentPlan::detail(),
+                plan_negotiation_status: RawDevelopmentPlanNegotiationStatus::Adjusted,
                 processed_linear_reference_contract_version: 7,
                 declared_image_dimensions: ImageDimensions {
                     width: 8,
@@ -2865,6 +3637,11 @@ mod tests {
                 gamma_inverse_power: 1.0,
                 gamma_linear_toe_slope: 1.0,
                 declared_dng_opcode_list_bytes: [11, 22, 33],
+                dng_opcode_execution: [
+                    DngOpcodeExecutionStatus::Applied,
+                    DngOpcodeExecutionStatus::DeferredToShadow,
+                    DngOpcodeExecutionStatus::SkippedForPreview,
+                ],
                 process_warnings: 0x1024,
             }
         );
@@ -2878,6 +3655,63 @@ mod tests {
             recorded,
             "the bridge's fixed receipt remains serializable without losing provenance"
         );
+
+        let mut legacy_value: serde_json::Value =
+            serde_json::from_slice(&serialized).expect("decode receipt JSON value");
+        let legacy = legacy_value
+            .as_object_mut()
+            .expect("receipt serializes as an object");
+        legacy.insert("schema_version".to_owned(), serde_json::Value::from(1_u32));
+        for field in [
+            "requested_plan_identity",
+            "effective_plan_identity",
+            "requested_plan",
+            "effective_plan",
+            "plan_negotiation_status",
+            "dng_opcode_execution",
+        ] {
+            legacy.remove(field);
+        }
+        let legacy: RawDevelopmentReceipt = serde_json::from_value(legacy_value)
+            .expect("v1 receipt still preserves unknown-plan absence");
+        assert_eq!(legacy.schema_version, 1);
+        assert!(legacy.requested_plan_identity.is_empty());
+        assert_eq!(legacy.requested_plan, RawDevelopmentPlan::detail());
+        assert_eq!(
+            legacy.plan_negotiation_status,
+            RawDevelopmentPlanNegotiationStatus::Rejected
+        );
+        assert_eq!(
+            legacy.dng_opcode_execution,
+            [DngOpcodeExecutionStatus::NotDeclared; 3]
+        );
+    }
+
+    #[test]
+    fn raw_development_plan_identities_are_native_canonical_and_intent_specific() {
+        let preview = raw_development_plan_identity(RawDevelopmentPlan::preview())
+            .expect("native preview plan identity");
+        let detail = raw_development_plan_identity(RawDevelopmentPlan::detail())
+            .expect("native detail plan identity");
+        let export = raw_development_plan_identity(RawDevelopmentPlan::export_image())
+            .expect("native export plan identity");
+        assert_eq!(
+            preview,
+            raw_development_plan_identity(RawDevelopmentPlan::preview())
+                .expect("repeat native preview plan identity")
+        );
+        assert_ne!(preview, detail);
+        assert_ne!(detail, export);
+        assert!(preview.starts_with("shadow-raw-plan-v1;"));
+
+        let invalid = RawDevelopmentPlan {
+            schema_version: RawDevelopmentPlan::CURRENT_SCHEMA_VERSION + 1,
+            ..RawDevelopmentPlan::preview()
+        };
+        assert!(matches!(
+            raw_development_plan_identity(invalid),
+            Err(BridgeError::InvalidRawDevelopmentPlan(_))
+        ));
     }
 
     const TINY_GRAYSCALE_JPEG: &[u8] = &[
@@ -2978,20 +3812,20 @@ mod tests {
         assert_eq!(plan.nodes.len(), 4);
         assert!(matches!(
             plan.nodes[0].operation,
-            AdjustmentRenderOperation::Exposure { stops: 0.0 }
-        ));
-        assert!(matches!(
-            plan.nodes[1].operation,
-            AdjustmentRenderOperation::Contrast {
-                factor: 1.0,
-                pivot: 0.18
-            }
-        ));
-        assert!(matches!(
-            plan.nodes[2].operation,
             AdjustmentRenderOperation::RgbWhiteBalance {
                 temperature: 0.0,
                 tint: 0.0
+            }
+        ));
+        assert!(matches!(
+            plan.nodes[1].operation,
+            AdjustmentRenderOperation::Exposure { stops: 0.0 }
+        ));
+        assert!(matches!(
+            plan.nodes[2].operation,
+            AdjustmentRenderOperation::Contrast {
+                factor: 1.0,
+                pivot: 0.18
             }
         ));
         assert!(matches!(
@@ -3753,8 +4587,9 @@ mod tests {
         let mut preview_only = 0_usize;
         for path in paths {
             let result = (|| -> Result<(String, bool), String> {
-                const FULL_DECODE_UNAVAILABLE: &str = "mosaic/reference RGB unavailable";
-                const CAPABILITY_MISMATCH: &str = "mosaic and reference RGB capabilities disagree";
+                const FULL_DECODE_UNAVAILABLE: &str = "RAW frame/reference RGB unavailable";
+                const CAPABILITY_MISMATCH: &str =
+                    "RAW frame and reference RGB capabilities disagree";
                 let snapshot =
                     inspect_libraw(&path).map_err(|error| format!("inspect: {error}"))?;
                 if snapshot.provider.id != "libraw" {
@@ -3779,9 +4614,9 @@ mod tests {
                     })
                     .transpose()?;
 
-                let mosaic_available = snapshot.capabilities.mosaic.is_available();
+                let raw_frame_available = snapshot.capabilities.raw_frame.is_available();
                 let reference_rgb_available = snapshot.capabilities.reference_rgb.is_available();
-                if mosaic_available != reference_rgb_available {
+                if raw_frame_available != reference_rgb_available {
                     return Err(CAPABILITY_MISMATCH.to_owned());
                 }
 
@@ -3795,7 +4630,7 @@ mod tests {
                     snapshot.metadata.raw_dimensions.width,
                     snapshot.metadata.raw_dimensions.height,
                 );
-                if !mosaic_available {
+                if !raw_frame_available {
                     if preview.is_none() {
                         return Err(format!("{FULL_DECODE_UNAVAILABLE}; no embedded preview"));
                     }
@@ -3846,13 +4681,57 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires SHADOW_TEST_UNSUPPORTED_RAW to point at a RAW with no editable reference RGB"]
+    fn unsupported_raw_edit_sessions_fail_without_entering_preparation() {
+        let path =
+            std::env::var_os("SHADOW_TEST_UNSUPPORTED_RAW").expect("SHADOW_TEST_UNSUPPORTED_RAW");
+        let path = Path::new(&path);
+        let snapshot = inspect_photo(path).expect("inspect unsupported RAW through photo router");
+        assert!(
+            !snapshot.capabilities.reference_rgb.is_available(),
+            "fixture must not advertise editable reference RGB"
+        );
+        assert!(
+            snapshot.capabilities.embedded_previews.is_available(),
+            "fixture must retain a browseable embedded preview"
+        );
+
+        let preview_error = match PhotoEditPreviewSession::open(path, 1_024) {
+            Ok(_) => panic!("preview session must reject an unsupported RAW before preparation"),
+            Err(error) => error,
+        };
+        let detail_error = match PhotoEditDetailSession::open(path) {
+            Ok(_) => panic!("detail session must reject an unsupported RAW before preparation"),
+            Err(error) => error,
+        };
+        for error in [preview_error, detail_error] {
+            assert!(
+                matches!(error, BridgeError::RawDevelopmentUnavailable(message)
+                    if message.contains("embedded preview")),
+                "unexpected unsupported-RAW error: {error}"
+            );
+        }
+    }
+
+    #[test]
     #[ignore = "requires SHADOW_TEST_DNG to point at a local RAW fixture"]
     fn real_dng_snapshot_crosses_the_bridge() {
         let path = std::env::var_os("SHADOW_TEST_DNG").expect("SHADOW_TEST_DNG");
         let snapshot = inspect_libraw(Path::new(&path)).expect("inspect local DNG");
         assert_eq!(snapshot.provider.id, "libraw");
         assert!(snapshot.capabilities.metadata.is_available());
-        assert!(snapshot.capabilities.mosaic.is_available());
+        assert!(snapshot.capabilities.raw_frame.is_available());
+        assert!(
+            snapshot
+                .capabilities
+                .raw_development
+                .available
+                .is_available()
+        );
+        assert_eq!(
+            snapshot.capabilities.raw_development.plan_schema_version,
+            RawDevelopmentPlan::CURRENT_SCHEMA_VERSION
+        );
         assert!(snapshot.metadata.raw_dimensions.pixel_count() > 0);
     }
 
@@ -3866,6 +4745,28 @@ mod tests {
         assert_eq!(snapshot.provider.version, photo_provider_version());
         assert!(snapshot.capabilities.metadata.is_available());
         assert!(snapshot.metadata.raw_dimensions.pixel_count() > 0);
+
+        let capabilities = photo_raw_development_capabilities(&path)
+            .expect("query local DNG RAW-development capabilities through router");
+        assert!(capabilities.available);
+        assert_eq!(
+            capabilities.schema_version,
+            RawDevelopmentPlan::CURRENT_SCHEMA_VERSION
+        );
+        let preview_negotiation =
+            negotiate_photo_raw_development_plan(&path, RawDevelopmentPlan::preview())
+                .expect("negotiate preview RAW-development plan");
+        assert!(preview_negotiation.accepted());
+        assert_eq!(preview_negotiation.effective, RawDevelopmentPlan::preview());
+        let unsupported_high_quality = negotiate_photo_raw_development_plan(
+            &path,
+            RawDevelopmentPlan {
+                quality: RawDevelopmentQuality::High,
+                ..RawDevelopmentPlan::preview()
+            },
+        )
+        .expect("negotiate unsupported high-quality RAW-development plan");
+        assert!(!unsupported_high_quality.accepted());
 
         let _profiles = query_photo_optics_profiles(&path)
             .expect("query local DNG optical profiles through router");
@@ -3882,9 +4783,22 @@ mod tests {
         let preview = PhotoEditPreviewSession::open(&path, 1_024)
             .expect("prepare generic local DNG preview session");
         assert!(preview.raw_development_receipt().recorded());
+        assert_eq!(
+            preview.raw_development_receipt().requested_plan,
+            RawDevelopmentPlan::preview()
+        );
+        assert_eq!(
+            preview.raw_development_receipt().effective_plan_identity,
+            raw_development_plan_identity(RawDevelopmentPlan::preview())
+                .expect("canonical preview plan identity")
+        );
         let detail =
             PhotoEditDetailSession::open(&path).expect("prepare generic local DNG detail session");
         assert!(detail.raw_development_receipt().recorded());
+        assert_eq!(
+            detail.raw_development_receipt().requested_plan,
+            RawDevelopmentPlan::detail()
+        );
     }
 
     #[test]
@@ -3896,7 +4810,7 @@ mod tests {
         assert_eq!(snapshot.provider.id, "shadow-photo-router");
         assert_eq!(snapshot.provider.version, photo_provider_version());
         assert!(snapshot.capabilities.metadata.is_available());
-        assert!(!snapshot.capabilities.mosaic.is_available());
+        assert!(!snapshot.capabilities.raw_frame.is_available());
         assert!(snapshot.capabilities.reference_rgb.is_available());
         assert!(snapshot.metadata.image_dimensions.pixel_count() > 0);
 
@@ -3943,7 +4857,7 @@ mod tests {
         assert_eq!(snapshot.provider.id, "shadow-photo-router");
         assert_eq!(snapshot.provider.version, photo_provider_version());
         assert!(snapshot.capabilities.metadata.is_available());
-        assert!(!snapshot.capabilities.mosaic.is_available());
+        assert!(!snapshot.capabilities.raw_frame.is_available());
         assert!(snapshot.capabilities.reference_rgb.is_available());
         assert!(snapshot.metadata.image_dimensions.pixel_count() > 0);
         assert_eq!(snapshot.metadata.orientation, 1);
@@ -3985,19 +4899,34 @@ mod tests {
         let handle = open_libraw(&path).expect("open local DNG");
         let decoder = handle.as_ref().expect("non-null decoder handle");
 
-        let before_preparation = raw_development_receipt(decoder.raw_development_receipt());
+        let before_preparation = raw_development_receipt(
+            decoder
+                .raw_development_receipt()
+                .expect("read empty RAW development receipt"),
+        )
+        .expect("bridge empty RAW development receipt");
         assert_eq!(before_preparation, RawDevelopmentReceipt::default());
 
         let preview_handle = decoder
             .prepare_edit_preview(1_024)
             .expect("prepare local DNG warm preview");
         let preview = preview_handle.as_ref().expect("non-null preview handle");
-        let preview_receipt = raw_development_receipt(preview.raw_development_receipt());
+        let preview_receipt = raw_development_receipt(
+            preview
+                .raw_development_receipt()
+                .expect("read preview RAW development receipt"),
+        )
+        .expect("bridge preview RAW development receipt");
         assert!(preview_receipt.recorded());
         assert!(preview_receipt.uses_current_schema());
         assert_eq!(preview_receipt.provider_id, "libraw");
         assert_eq!(
-            raw_development_receipt(decoder.raw_development_receipt()),
+            raw_development_receipt(
+                decoder
+                    .raw_development_receipt()
+                    .expect("read decoder preview RAW development receipt"),
+            )
+            .expect("bridge decoder preview RAW development receipt"),
             preview_receipt,
             "DecodeHandle reports the last source render it prepared"
         );
@@ -4006,13 +4935,23 @@ mod tests {
             .prepare_edit_detail()
             .expect("prepare local DNG full detail");
         let detail = detail_handle.as_ref().expect("non-null detail handle");
-        let detail_receipt = raw_development_receipt(detail.raw_development_receipt());
+        let detail_receipt = raw_development_receipt(
+            detail
+                .raw_development_receipt()
+                .expect("read detail RAW development receipt"),
+        )
+        .expect("bridge detail RAW development receipt");
         assert!(detail_receipt.recorded());
         assert!(detail_receipt.uses_current_schema());
         assert_eq!(detail_receipt.provider_id, "libraw");
         assert!(!detail_receipt.half_size);
         assert_eq!(
-            raw_development_receipt(decoder.raw_development_receipt()),
+            raw_development_receipt(
+                decoder
+                    .raw_development_receipt()
+                    .expect("read decoder detail RAW development receipt"),
+            )
+            .expect("bridge decoder detail RAW development receipt"),
             detail_receipt,
             "DecodeHandle updates its read-only receipt when a new source render is prepared"
         );
@@ -4121,7 +5060,7 @@ mod tests {
                 let mut curved_plan = basic_adjustment_render_plan(BasicEditParameters::default())
                     .expect("build neutral typed plan");
                 curved_plan.nodes.insert(
-                    2,
+                    4,
                     AdjustmentRenderNode {
                         node_id: "test-tone-curve".to_owned(),
                         parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,

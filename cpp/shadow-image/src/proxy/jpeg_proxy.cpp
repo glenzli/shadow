@@ -81,6 +81,56 @@ void validate_warm_edit_max_edge(const std::uint32_t max_edge) {
     }
 }
 
+void validate_raw_development_plan_intent(
+    const DecodeSession& session,
+    const RawDevelopmentPlan& plan,
+    const RawDevelopmentIntent required_intent,
+    const std::string_view operation
+) {
+    if (plan.schema_version != raw_development_plan_schema_version) {
+        throw DecodeError(
+            DecodeErrorCode::invalid_request,
+            0,
+            std::string(operation)
+                + " requires the current RawDevelopmentPlan schema"
+        );
+    }
+    if (plan.intent != required_intent) {
+        throw DecodeError(
+            DecodeErrorCode::invalid_request,
+            0,
+            std::string(operation)
+                + " received a RawDevelopmentPlan with an incompatible intent"
+        );
+    }
+
+    // A decoded raster deliberately has no RAW-development capability. It shares the common
+    // edit graph, but its source pixels are already final and must not be rejected simply
+    // because a cache-aware caller supplied the canonical preview/detail plan.
+    if (!session.raw_development_capabilities().available) {
+        return;
+    }
+
+    const RawDevelopmentPlanNegotiation negotiation =
+        session.negotiate_raw_development_plan(plan);
+    if (!negotiation.accepted()) {
+        throw DecodeError(
+            DecodeErrorCode::unsupported,
+            0,
+            std::string(operation)
+                + " is not supported by this RAW provider's development capabilities"
+        );
+    }
+    if (negotiation.effective.intent != required_intent) {
+        throw DecodeError(
+            DecodeErrorCode::unsupported,
+            0,
+            std::string(operation)
+                + " negotiated a RAW-development plan with an incompatible intent"
+        );
+    }
+}
+
 [[nodiscard]] std::size_t validated_source_row_stride(const PixelBuffer& source) {
     if (
         source.bits_per_channel != 16U || (source.channels != 1U && source.channels != 3U)
@@ -1050,10 +1100,11 @@ struct PreparedWarmEditProxy final {
 
 [[nodiscard]] PreparedReferenceRgb prepare_reference_rgb(
     const DecodeSession& session,
+    const RawDevelopmentPlan& raw_development_plan,
     const OpticsProvider* optics_provider,
     const OpticsSettings& optics_settings
 ) {
-    PixelBuffer pixels = session.render_reference_rgb();
+    PixelBuffer pixels = session.render_reference_rgb(raw_development_plan);
     // Decoder provenance belongs to the source render, not to a later optical remap. Preserve it
     // independently before passing the buffer to arbitrary provider implementations, which may
     // correctly allocate a new PixelBuffer without knowing Shadow's future sidecar fields.
@@ -1093,10 +1144,14 @@ struct PreparedWarmEditProxy final {
 [[nodiscard]] PreparedWarmEditProxy prepare_warm_edit_proxy_from_preview_reference(
     const DecodeSession& session,
     const std::uint32_t max_edge,
+    const RawDevelopmentPlan& raw_development_plan,
     const OpticsProvider* optics_provider,
     const OpticsSettings& optics_settings
 ) {
-    PixelBuffer preview_reference = session.render_reference_rgb_for_preview(max_edge);
+    PixelBuffer preview_reference = session.render_reference_rgb_for_preview(
+        max_edge,
+        raw_development_plan
+    );
     // The float working proxy intentionally contains only pixels and scale metadata. Retain the
     // decoder's receipt separately before the RGB conversion so a prepared session can report
     // the exact RAW-development request that created its source raster.
@@ -1218,10 +1273,33 @@ WarmEditPreviewSession prepare_warm_edit_preview(
     const OpticsProvider* optics_provider,
     const OpticsSettings& optics_settings
 ) {
+    return prepare_warm_edit_preview(
+        session,
+        max_edge,
+        preview_raw_development_plan(),
+        optics_provider,
+        optics_settings
+    );
+}
+
+WarmEditPreviewSession prepare_warm_edit_preview(
+    const DecodeSession& session,
+    const std::uint32_t max_edge,
+    const RawDevelopmentPlan& raw_development_plan,
+    const OpticsProvider* optics_provider,
+    const OpticsSettings& optics_settings
+) {
     validate_warm_edit_max_edge(max_edge);
+    validate_raw_development_plan_intent(
+        session,
+        raw_development_plan,
+        RawDevelopmentIntent::preview,
+        "warm edit preview"
+    );
     auto prepared = prepare_warm_edit_proxy_from_preview_reference(
         session,
         max_edge,
+        raw_development_plan,
         optics_provider,
         optics_settings
     );
@@ -1305,8 +1383,33 @@ FullEditDetailSession prepare_full_edit_detail(
     const OpticsProvider* optics_provider,
     const OpticsSettings& optics_settings
 ) {
+    return prepare_full_edit_detail(
+        session,
+        default_raw_development_plan(),
+        optics_provider,
+        optics_settings
+    );
+}
+
+FullEditDetailSession prepare_full_edit_detail(
+    const DecodeSession& session,
+    const RawDevelopmentPlan& raw_development_plan,
+    const OpticsProvider* optics_provider,
+    const OpticsSettings& optics_settings
+) {
     preflight_detail_metadata(session.metadata());
-    auto reference = prepare_reference_rgb(session, optics_provider, optics_settings);
+    validate_raw_development_plan_intent(
+        session,
+        raw_development_plan,
+        RawDevelopmentIntent::detail,
+        "full edit detail"
+    );
+    auto reference = prepare_reference_rgb(
+        session,
+        raw_development_plan,
+        optics_provider,
+        optics_settings
+    );
     static_cast<void>(validated_source_row_stride(reference.pixels));
     const std::uint64_t retained_bytes = checked_detail_retained_bytes(reference.pixels);
     return FullEditDetailSession(
@@ -1334,8 +1437,29 @@ Dimensions proxy_dimensions(const Dimensions source, const std::uint32_t max_edg
 }
 
 EncodedProxy render_reference_proxy_jpeg(const DecodeSession& session, const ProxyRequest request) {
+    return render_reference_proxy_jpeg(
+        session,
+        request,
+        preview_raw_development_plan()
+    );
+}
+
+EncodedProxy render_reference_proxy_jpeg(
+    const DecodeSession& session,
+    const ProxyRequest request,
+    const RawDevelopmentPlan& raw_development_plan
+) {
     validate_proxy_request(request);
-    const PixelBuffer source = session.render_reference_rgb_for_preview(request.max_edge);
+    validate_raw_development_plan_intent(
+        session,
+        raw_development_plan,
+        RawDevelopmentIntent::preview,
+        "reference proxy"
+    );
+    const PixelBuffer source = session.render_reference_rgb_for_preview(
+        request.max_edge,
+        raw_development_plan
+    );
     const Dimensions target = proxy_dimensions(source.dimensions, request.max_edge);
     FloatRgbImage working = resize_processed_linear_to_working(source, target);
     apply_source_baseline_exposure(
@@ -1357,11 +1481,30 @@ EncodedProxy render_edited_reference_proxy_jpeg(
     const OpticsProvider* optics_provider,
     const OpticsSettings& optics_settings
 ) {
+    return render_edited_reference_proxy_jpeg(
+        session,
+        nodes,
+        request,
+        preview_raw_development_plan(),
+        optics_provider,
+        optics_settings
+    );
+}
+
+EncodedProxy render_edited_reference_proxy_jpeg(
+    const DecodeSession& session,
+    const std::span<const AdjustmentNode> nodes,
+    const ProxyRequest request,
+    const RawDevelopmentPlan& raw_development_plan,
+    const OpticsProvider* optics_provider,
+    const OpticsSettings& optics_settings
+) {
     validate_proxy_request(request);
     validate_adjustment_nodes(nodes);
     const WarmEditPreviewSession preview = prepare_warm_edit_preview(
         session,
         request.max_edge,
+        raw_development_plan,
         optics_provider,
         optics_settings
     );
