@@ -1,7 +1,10 @@
 use rusqlite::{OptionalExtension, Transaction, params, types::Type};
 use shadow_domain::{DecoderSnapshot, EntityId, RepresentationId};
 
-use crate::{Catalog, CatalogError, TechnicalObservationRevision, read_id};
+use crate::{
+    Catalog, CatalogError, TechnicalObservationRevision,
+    library_metadata::project_decoder_metadata_into_library_facts, read_id,
+};
 
 const SNAPSHOT_SCHEMA: i64 = 1;
 
@@ -77,6 +80,15 @@ impl Catalog {
 
         upsert_snapshot(&transaction, request, &snapshot_json)?;
         replace_previews(&transaction, request)?;
+        if request.snapshot.capabilities.metadata.is_available() {
+            project_decoder_metadata_into_library_facts(
+                &transaction,
+                request.representation_id,
+                request.expected_source,
+                &request.snapshot.metadata,
+                request.inspected_at_ms,
+            )?;
+        }
         transaction.commit()?;
         Ok(RecordDecodeSnapshotStatus::Recorded)
     }
@@ -541,6 +553,29 @@ mod tests {
                 snapshot,
             }]
         );
+
+        let photo_id = catalog
+            .connection
+            .query_row(
+                "SELECT photo_id FROM representations WHERE id = ?1",
+                [representation_id.as_bytes().as_slice()],
+                |row| read_id(row, 0),
+            )
+            .expect("read owner photo");
+        let facts = catalog
+            .photo_library_facts(photo_id)
+            .expect("read projected Library facts")
+            .expect("metadata projection");
+        assert_eq!(facts.capture_day, "2023-11-14");
+        assert_eq!(facts.camera_make, "Pentax");
+        assert_eq!(facts.camera_model, "K10D");
+        assert_eq!(facts.lens_model, "smc PENTAX-DA 35mm");
+        assert_eq!(facts.aperture_milli, Some(5_600));
+        assert_eq!(facts.focal_length_tenth_mm, Some(350));
+        assert_eq!(facts.iso_speed, Some(100.0));
+        assert_eq!(facts.indexed_representation_id, Some(representation_id));
+        assert_eq!(facts.indexed_source, Some(source));
+        assert_eq!(facts.indexed_at_ms, 456);
     }
 
     #[test]

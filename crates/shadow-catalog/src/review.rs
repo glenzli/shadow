@@ -139,7 +139,7 @@ impl Catalog {
              JOIN locations l ON l.id = (
                  SELECT l2.id FROM locations l2
                  WHERE l2.representation_id = r.id AND l2.status = 'online'
-                 ORDER BY l2.created_at_ms, l2.id
+                 ORDER BY l2.created_at_ms DESC, l2.id DESC
                  LIMIT 1
              )
              LEFT JOIN representation_cached_artifacts a ON a.rowid = (
@@ -270,7 +270,7 @@ impl Catalog {
              JOIN locations l ON l.id = (
                  SELECT l2.id FROM locations l2
                  WHERE l2.representation_id = r.id AND l2.status = 'online'
-                 ORDER BY l2.created_at_ms, l2.id
+                 ORDER BY l2.created_at_ms DESC, l2.id DESC
                  LIMIT 1
              )
              LEFT JOIN representation_cached_artifacts a ON a.rowid = (

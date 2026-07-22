@@ -1,6 +1,8 @@
 use rusqlite::{OptionalExtension, params, types::Type};
-use shadow_domain::{AssetLocation, EntityId, ImportSessionId, Platform};
+use shadow_domain::{AssetLocation, EntityId, ImportSessionId, LibrarySourceId, Platform};
+use uuid::Uuid;
 
+use crate::library::{attach_location_to_library_source, upsert_library_source_in_transaction};
 use crate::{
     Catalog, CatalogError, RegisterAsset, RegisteredAsset, RegistrationStatus, non_negative_count,
     read_id, register_asset_in_transaction,
@@ -32,6 +34,9 @@ impl ImportSessionState {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ImportSession {
     pub id: ImportSessionId,
+    /// The durable discovery source backing this session. It is intentionally
+    /// optional for catalogs migrated from before the Library source model.
+    pub source_id: Option<LibrarySourceId>,
     pub root: AssetLocation,
     pub state: ImportSessionState,
     pub started_at_ms: i64,
@@ -63,13 +68,16 @@ impl Catalog {
         now_ms: i64,
     ) -> Result<ImportSessionId, CatalogError> {
         let id = ImportSessionId::new_v7();
-        self.connection.execute(
+        let transaction = self.connection.transaction()?;
+        let source_id = upsert_library_source_in_transaction(&transaction, root, now_ms)?;
+        transaction.execute(
             "INSERT INTO import_sessions(
-                 id, root_platform, root_native_path, root_display_path,
+                 id, source_id, root_platform, root_native_path, root_display_path,
                  state, started_at_ms, updated_at_ms
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
             params![
                 id.as_bytes().as_slice(),
+                source_id.as_bytes().as_slice(),
                 root.platform.as_str(),
                 root.native_path.as_slice(),
                 root.display_path,
@@ -77,6 +85,7 @@ impl Catalog {
                 now_ms
             ],
         )?;
+        transaction.commit()?;
         Ok(id)
     }
 
@@ -92,7 +101,7 @@ impl Catalog {
     ) -> Result<Option<ImportSession>, CatalogError> {
         self.connection
             .query_row(
-                "SELECT id, root_platform, root_native_path, root_display_path,
+                "SELECT id, source_id, root_platform, root_native_path, root_display_path,
                         state, started_at_ms, updated_at_ms, finished_at_ms, last_error
                  FROM import_sessions WHERE id = ?1",
                 [id.as_bytes().as_slice()],
@@ -109,7 +118,7 @@ impl Catalog {
     /// Returns [`CatalogError`] if sessions cannot be queried or decoded.
     pub fn unfinished_import_sessions(&self) -> Result<Vec<ImportSession>, CatalogError> {
         let mut statement = self.connection.prepare(
-            "SELECT id, root_platform, root_native_path, root_display_path,
+            "SELECT id, source_id, root_platform, root_native_path, root_display_path,
                     state, started_at_ms, updated_at_ms, finished_at_ms, last_error
              FROM import_sessions
              WHERE state IN ('running', 'failed')
@@ -209,6 +218,22 @@ impl Catalog {
     ) -> Result<RegisteredAsset, CatalogError> {
         let transaction = self.connection.transaction()?;
         let result = register_asset_in_transaction(&transaction, request)?;
+        let source_id: Option<LibrarySourceId> = transaction
+            .query_row(
+                "SELECT source_id FROM import_sessions WHERE id = ?1",
+                [session_id.as_bytes().as_slice()],
+                |row| optional_id(row, 0),
+            )
+            .optional()?
+            .flatten();
+        if let Some(source_id) = source_id {
+            attach_location_to_library_source(
+                &transaction,
+                result.location_id,
+                source_id,
+                request.now_ms,
+            )?;
+        }
         let updated = transaction.execute(
             "UPDATE import_entries
              SET state = ?3, photo_id = ?4, representation_id = ?5,
@@ -376,21 +401,34 @@ fn touch_session(
 }
 
 fn read_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<ImportSession> {
-    let platform_text: String = row.get(1)?;
-    let state_text: String = row.get(4)?;
+    let platform_text: String = row.get(2)?;
+    let state_text: String = row.get(5)?;
     Ok(ImportSession {
         id: read_id(row, 0)?,
+        source_id: optional_id(row, 1)?,
         root: AssetLocation::new(
-            parse_platform(&platform_text, 1)?,
-            row.get(2)?,
-            row.get::<_, String>(3)?,
+            parse_platform(&platform_text, 2)?,
+            row.get(3)?,
+            row.get::<_, String>(4)?,
         ),
-        state: parse_state(&state_text, 4)?,
-        started_at_ms: row.get(5)?,
-        updated_at_ms: row.get(6)?,
-        finished_at_ms: row.get(7)?,
-        last_error: row.get(8)?,
+        state: parse_state(&state_text, 5)?,
+        started_at_ms: row.get(6)?,
+        updated_at_ms: row.get(7)?,
+        finished_at_ms: row.get(8)?,
+        last_error: row.get(9)?,
     })
+}
+
+fn optional_id<I: EntityId>(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<Option<I>> {
+    let bytes: Option<Vec<u8>> = row.get(index)?;
+    bytes
+        .map(|bytes| {
+            let uuid = Uuid::from_slice(&bytes).map_err(|error| {
+                rusqlite::Error::FromSqlConversionFailure(index, Type::Blob, Box::new(error))
+            })?;
+            Ok(I::from_uuid(uuid))
+        })
+        .transpose()
 }
 
 fn parse_platform(value: &str, index: usize) -> rusqlite::Result<Platform> {
@@ -455,6 +493,12 @@ mod tests {
         let session_id = catalog
             .begin_import_session(&root(), 10)
             .expect("begin session");
+        let source_id = catalog
+            .import_session(session_id)
+            .expect("read session")
+            .expect("session exists")
+            .source_id
+            .expect("v11 source is attached to the session");
         let request = request();
         catalog
             .record_import_discovered(session_id, &request)
@@ -470,8 +514,13 @@ mod tests {
             .import_session_summary(session_id)
             .expect("session summary");
         assert_eq!(summary.session.state, ImportSessionState::Completed);
+        assert_eq!(summary.session.source_id, Some(source_id));
         assert_eq!(summary.discovered, 1);
         assert_eq!(summary.inserted, 1);
+        let sources = catalog.library_sources().expect("list scan sources");
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].id, source_id);
+        assert_eq!(sources[0].root, root());
         assert!(
             catalog
                 .unfinished_import_sessions()

@@ -9,6 +9,8 @@ mod decode_snapshot;
 mod edit_repository;
 mod feedback;
 mod import_journal;
+mod library;
+mod library_metadata;
 mod recipe;
 mod review;
 mod store;
@@ -41,6 +43,12 @@ pub use edit_repository::{
 };
 pub use feedback::{FeedbackPage, MAX_FEEDBACK_PAGE_SIZE};
 pub use import_journal::{ImportSession, ImportSessionState, ImportSessionSummary};
+pub use library::{
+    AlbumKind, AlbumRecord, ContentIdentity, ContentIdentityScope, LibraryApertureRange,
+    LibraryDateRange, LibraryPhotoCursor, LibraryPhotoFacts, LibraryPhotoFilter, LibraryPhotoPage,
+    LibraryPhotoRecord, LibrarySourceRecord, MAX_LIBRARY_PAGE_SIZE, PhotoLibraryState, RelinkMatch,
+    SetPhotoLibraryState, library_equipment_key,
+};
 pub use recipe::{
     CommitRecipe, RecipeCommitRecord, RecipeRefExpectation, RecipeRefKind, RecipeRefRecord,
     RecipeRefTarget, SetRecipeRef,
@@ -53,7 +61,7 @@ pub use technical_observation::{
 };
 pub use writer::{CatalogActor, CatalogHandle};
 
-const SCHEMA_VERSION: i64 = 10;
+const SCHEMA_VERSION: i64 = 12;
 
 const MIGRATION_V1: &str = r"
 CREATE TABLE photos (
@@ -521,6 +529,147 @@ CREATE TABLE edit_repository_refs (
 CREATE INDEX edit_repository_refs_commit_idx ON edit_repository_refs(commit_id);
 ";
 
+// Version 11 establishes the photo-first Library read model. Directories are
+// explicitly discovery sources and locations, never ownership boundaries for
+// photos. The rows here are intentionally small, indexed projections; source
+// decoder JSON and rebuildable preview bytes remain outside this hot path.
+const MIGRATION_V11: &str = r"
+CREATE TABLE library_sources (
+    id              BLOB PRIMARY KEY NOT NULL CHECK (length(id) = 16),
+    platform        TEXT NOT NULL,
+    native_path     BLOB NOT NULL,
+    display_path    TEXT NOT NULL,
+    enabled         INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+    created_at_ms   INTEGER NOT NULL,
+    last_scanned_at_ms INTEGER,
+    UNIQUE (platform, native_path)
+) STRICT;
+
+CREATE INDEX library_sources_enabled_scan_idx
+    ON library_sources(enabled, last_scanned_at_ms DESC, id);
+
+ALTER TABLE import_sessions
+    ADD COLUMN source_id BLOB CHECK (source_id IS NULL OR length(source_id) = 16);
+
+CREATE INDEX import_sessions_source_idx ON import_sessions(source_id, updated_at_ms DESC);
+
+CREATE TABLE location_sources (
+    location_id      BLOB NOT NULL CHECK (length(location_id) = 16),
+    source_id        BLOB NOT NULL CHECK (length(source_id) = 16),
+    first_seen_at_ms INTEGER NOT NULL,
+    last_seen_at_ms  INTEGER NOT NULL,
+    PRIMARY KEY (location_id, source_id),
+    FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE CASCADE,
+    FOREIGN KEY (source_id) REFERENCES library_sources(id) ON DELETE CASCADE
+) STRICT;
+
+CREATE INDEX location_sources_source_seen_idx
+    ON location_sources(source_id, last_seen_at_ms DESC, location_id);
+
+CREATE TABLE representation_content_identities (
+    representation_id BLOB NOT NULL CHECK (length(representation_id) = 16),
+    scope             TEXT NOT NULL
+        CHECK (scope IN ('whole_file', 'format_payload', 'decoded_mosaic')),
+    algorithm         TEXT NOT NULL CHECK (length(algorithm) BETWEEN 1 AND 128),
+    provider_id       TEXT NOT NULL DEFAULT '',
+    provider_version  TEXT NOT NULL DEFAULT '',
+    digest            BLOB NOT NULL CHECK (length(digest) = 32),
+    observed_at_ms    INTEGER NOT NULL,
+    PRIMARY KEY (representation_id, scope, algorithm, provider_id, provider_version),
+    UNIQUE (scope, algorithm, provider_id, provider_version, digest),
+    FOREIGN KEY (representation_id) REFERENCES representations(id) ON DELETE CASCADE
+) STRICT;
+
+CREATE INDEX representation_content_identity_representation_idx
+    ON representation_content_identities(representation_id, observed_at_ms DESC);
+
+CREATE TABLE photo_library_facts (
+    photo_id                    BLOB PRIMARY KEY NOT NULL CHECK (length(photo_id) = 16),
+    captured_at_unix_seconds    INTEGER,
+    capture_day                 TEXT NOT NULL DEFAULT '',
+    camera_make                 TEXT NOT NULL DEFAULT '',
+    camera_model                TEXT NOT NULL DEFAULT '',
+    camera_key                  TEXT NOT NULL DEFAULT '',
+    lens_make                   TEXT NOT NULL DEFAULT '',
+    lens_model                  TEXT NOT NULL DEFAULT '',
+    lens_key                    TEXT NOT NULL DEFAULT '',
+    aperture_milli              INTEGER,
+    focal_length_tenth_mm       INTEGER,
+    iso_speed                   REAL,
+    latitude_e7                 INTEGER,
+    longitude_e7                INTEGER,
+    place_name                  TEXT NOT NULL DEFAULT '',
+    indexed_representation_id   BLOB CHECK (indexed_representation_id IS NULL OR length(indexed_representation_id) = 16),
+    indexed_source_byte_len     INTEGER,
+    indexed_source_modified_at_ms INTEGER,
+    indexed_at_ms               INTEGER NOT NULL,
+    FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE,
+    FOREIGN KEY (indexed_representation_id) REFERENCES representations(id) ON DELETE SET NULL
+) STRICT;
+
+CREATE INDEX photo_library_facts_capture_idx
+    ON photo_library_facts(captured_at_unix_seconds DESC, photo_id);
+CREATE INDEX photo_library_facts_day_idx
+    ON photo_library_facts(capture_day, captured_at_unix_seconds DESC, photo_id);
+CREATE INDEX photo_library_facts_camera_idx
+    ON photo_library_facts(camera_key, captured_at_unix_seconds DESC, photo_id);
+CREATE INDEX photo_library_facts_lens_idx
+    ON photo_library_facts(lens_key, captured_at_unix_seconds DESC, photo_id);
+CREATE INDEX photo_library_facts_aperture_idx
+    ON photo_library_facts(aperture_milli, captured_at_unix_seconds DESC, photo_id);
+
+CREATE TABLE photo_library_state (
+    photo_id       BLOB PRIMARY KEY NOT NULL CHECK (length(photo_id) = 16),
+    liked          INTEGER NOT NULL DEFAULT 0 CHECK (liked IN (0, 1)),
+    color_label    TEXT NOT NULL DEFAULT 'none',
+    updated_at_ms  INTEGER NOT NULL,
+    FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE
+) STRICT;
+
+CREATE INDEX photo_library_state_liked_idx ON photo_library_state(liked, photo_id);
+CREATE INDEX photo_library_state_color_idx ON photo_library_state(color_label, photo_id);
+
+CREATE TABLE library_albums (
+    id              BLOB PRIMARY KEY NOT NULL CHECK (length(id) = 16),
+    kind            TEXT NOT NULL CHECK (kind IN ('manual', 'smart')),
+    name            TEXT NOT NULL CHECK (length(trim(name)) BETWEEN 1 AND 256),
+    query_json      TEXT,
+    created_at_ms   INTEGER NOT NULL,
+    updated_at_ms   INTEGER NOT NULL,
+    UNIQUE (name COLLATE NOCASE),
+    CHECK ((kind = 'manual' AND query_json IS NULL) OR (kind = 'smart' AND json_valid(query_json)))
+) STRICT;
+
+CREATE INDEX library_albums_kind_name_idx ON library_albums(kind, name COLLATE NOCASE);
+
+CREATE TABLE library_album_memberships (
+    album_id        BLOB NOT NULL CHECK (length(album_id) = 16),
+    photo_id        BLOB NOT NULL CHECK (length(photo_id) = 16),
+    added_at_ms     INTEGER NOT NULL,
+    sort_key        INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (album_id, photo_id),
+    FOREIGN KEY (album_id) REFERENCES library_albums(id) ON DELETE CASCADE,
+    FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE
+) STRICT;
+
+CREATE INDEX library_album_memberships_photo_idx
+    ON library_album_memberships(photo_id, album_id);
+CREATE INDEX library_album_memberships_page_idx
+    ON library_album_memberships(album_id, sort_key, added_at_ms DESC, photo_id);
+";
+
+// Version 12 adds the two covering traversal indexes needed by the
+// photo-first Library query. The query resolves one current original RAW
+// representation and one current online location per photo, so these indexes
+// avoid repeatedly sorting a photo's representation/location history at
+// million-photo scale.
+const MIGRATION_V12: &str = r"
+CREATE INDEX representations_photo_kind_current_idx
+    ON representations(photo_id, kind, created_at_ms DESC, id DESC);
+CREATE INDEX locations_representation_status_current_idx
+    ON locations(representation_id, status, created_at_ms DESC, id DESC);
+";
+
 #[derive(Debug, Error)]
 pub enum CatalogError {
     #[error("SQLite catalog error: {0}")]
@@ -547,6 +696,18 @@ pub enum CatalogError {
     RepresentationNotFound(RepresentationId),
     #[error("photo {0} does not exist")]
     PhotoNotFound(PhotoId),
+    #[error("album {0} does not exist")]
+    AlbumNotFound(shadow_domain::CollectionId),
+    #[error("invalid content identity: {0}")]
+    InvalidContentIdentity(String),
+    #[error("invalid Library metadata facts: {0}")]
+    InvalidLibraryFacts(String),
+    #[error("invalid Library photo state: {0}")]
+    InvalidLibraryState(String),
+    #[error("invalid Library album: {0}")]
+    InvalidAlbum(String),
+    #[error("invalid Library query: {0}")]
+    InvalidLibraryQuery(String),
     #[error("invalid decode snapshot: {0}")]
     InvalidDecodeSnapshot(&'static str),
     #[error("decode snapshot field {field} is outside SQLite's integer range")]
@@ -944,6 +1105,8 @@ fn migrate(connection: &mut Connection) -> rusqlite::Result<()> {
     apply_migration_if_needed(connection, 8, MIGRATION_V8)?;
     apply_migration_if_needed(connection, 9, MIGRATION_V9)?;
     apply_migration_if_needed(connection, 10, MIGRATION_V10)?;
+    apply_migration_if_needed(connection, 11, MIGRATION_V11)?;
+    apply_migration_if_needed(connection, 12, MIGRATION_V12)?;
 
     let final_version = current_schema_version(connection)?;
     if final_version != SCHEMA_VERSION {
@@ -1145,11 +1308,56 @@ mod tests {
         transaction.commit().expect("commit v8 migration");
     }
 
+    fn apply_schema_through_v11(connection: &mut Connection) {
+        apply_schema_through_v7(connection);
+        apply_v8_marker(connection);
+        for (version, sql) in [(9, MIGRATION_V9), (10, MIGRATION_V10), (11, MIGRATION_V11)] {
+            let transaction = connection.transaction().expect("start migration");
+            transaction.execute_batch(sql).expect("apply migration");
+            transaction
+                .execute(
+                    "INSERT INTO schema_migrations(version, applied_at_ms) VALUES (?1, ?1)",
+                    [version],
+                )
+                .expect("record migration");
+            transaction.commit().expect("commit migration");
+        }
+    }
+
     #[test]
     fn migration_creates_current_schema() {
         let catalog = Catalog::open_in_memory().expect("open catalog");
 
-        assert_eq!(catalog.schema_version().expect("schema version"), 10);
+        assert_eq!(catalog.schema_version().expect("schema version"), 12);
+    }
+
+    #[test]
+    fn version_eleven_library_catalog_receives_current_source_indexes() {
+        let mut connection = Connection::open_in_memory().expect("open v11 fixture");
+        configure_connection(&connection, false).expect("configure v11 fixture");
+        apply_schema_through_v11(&mut connection);
+        assert_eq!(
+            current_schema_version(&connection).expect("v11 schema version"),
+            11
+        );
+
+        migrate(&mut connection).expect("migrate v11 catalog");
+        assert_eq!(
+            current_schema_version(&connection).expect("current schema version"),
+            12
+        );
+        let indexes: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_schema
+                 WHERE type = 'index' AND name IN (
+                     'representations_photo_kind_current_idx',
+                     'locations_representation_status_current_idx'
+                 )",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read v12 indexes");
+        assert_eq!(indexes, 2);
     }
 
     #[test]
@@ -1187,7 +1395,7 @@ mod tests {
         }
 
         let catalog = Catalog::open(&path).expect("migrate v2 catalog");
-        assert_eq!(catalog.schema_version().expect("schema version"), 10);
+        assert_eq!(catalog.schema_version().expect("schema version"), 12);
         let snapshot_tables: i64 = catalog
             .connection
             .query_row(
@@ -1228,7 +1436,7 @@ mod tests {
         migrate(&mut connection).expect("continue from v8 to current schema");
         assert_eq!(
             current_schema_version(&connection).expect("current schema version"),
-            10
+            12
         );
     }
 
@@ -1279,7 +1487,7 @@ mod tests {
         let catalog = Catalog::open(&path).expect("migrate v7 feedback catalog");
         assert_eq!(
             catalog.schema_version().expect("current schema version"),
-            10
+            12
         );
         let (stored_json, stored_digest): (String, Vec<u8>) = catalog
             .connection
@@ -1316,7 +1524,7 @@ mod tests {
 
         assert_eq!(
             current_schema_version(&connection).expect("schema version"),
-            10
+            12
         );
         let tables: i64 = connection
             .query_row(

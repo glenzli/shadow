@@ -59,6 +59,9 @@ macro_rules! entity_id {
 entity_id!(PhotoId);
 entity_id!(RepresentationId);
 entity_id!(LocationId);
+// Identifies a configured discovery source. A source is only an entry point
+// for scanning; it never owns the photos found beneath it.
+entity_id!(LibrarySourceId);
 entity_id!(ImportSessionId);
 entity_id!(RecipeId);
 entity_id!(RecipeCommitId);

@@ -879,9 +879,11 @@ void selective_tone_weights_are_smooth_and_preserve_rgb_ratios() {
         },
     };
     const auto transition = image::execute_adjustment_nodes(boundary, transition_node);
+    const float input_delta = above - below;
+    const float output_delta = transition.samples[3] - transition.samples[0];
     expect(
-        std::abs(transition.samples[3] - transition.samples[0]) < 1.0e-5F,
-        "selective tone remains continuous across the black/shadow blend boundary"
+        output_delta > 0.0F && output_delta < 1.2F * input_delta,
+        "selective tone has a finite, smooth slope through the black/shadow overlap"
     );
 
     const auto colored = rgb_image(1, {0.02F, 0.04F, 0.08F});
@@ -902,6 +904,93 @@ void selective_tone_weights_are_smooth_and_preserve_rgb_ratios() {
         4.0F,
         "selective tone scales blue by the same exposure gain as red"
     );
+}
+
+void selective_tone_endpoints_reach_ordinary_detail_without_clipping() {
+    const float dark_detail = static_cast<float>(0.18 * std::exp2(-1.0));
+    const float bright_detail = static_cast<float>(0.18 * std::exp2(2.2));
+    const auto input = rgb_image(
+        2,
+        {
+            dark_detail, dark_detail, dark_detail,
+            bright_detail, bright_detail, bright_detail,
+        }
+    );
+    const std::array node{
+        image::AdjustmentNode{
+            .node_id = "wide-endpoint-fields",
+            .parameters = image::SelectiveToneAdjustment{
+                .whites = -1.0,
+                .blacks = 1.0,
+            },
+        },
+    };
+    const auto output = image::execute_adjustment_nodes(input, node);
+
+    expect(
+        output.samples[0] > input.samples[0] * 1.08F,
+        "Blacks visibly lifts ordinary -1 EV shadow detail rather than only near-zero values"
+    );
+    expect(
+        output.samples[3] < input.samples[3] * 0.80F && output.samples[3] > 0.0F,
+        "Whites visibly compresses ordinary +2.2 EV highlight detail without clipping"
+    );
+}
+
+void selective_tone_combined_extremes_are_monotonic_and_smooth() {
+    constexpr double first_ev = -8.0;
+    constexpr double step_ev = 0.0625;
+    constexpr std::size_t sample_count = 257U;
+    std::vector<float> samples;
+    samples.reserve(sample_count * 3U);
+    for (std::size_t index = 0U; index < sample_count; ++index) {
+        const double ev = first_ev + step_ev * static_cast<double>(index);
+        const float value = static_cast<float>(0.18 * std::exp2(ev));
+        samples.insert(samples.end(), {value, value, value});
+    }
+    const auto input = rgb_image(static_cast<std::uint32_t>(sample_count), std::move(samples));
+    const std::array node{
+        image::AdjustmentNode{
+            .node_id = "combined-selective-tone-extremes",
+            .parameters = image::SelectiveToneAdjustment{
+                .highlights = -1.0,
+                .shadows = 1.0,
+                .whites = -1.0,
+                .blacks = 1.0,
+            },
+        },
+    };
+    const auto output = image::execute_adjustment_nodes(input, node);
+
+    double previous_ev = 0.0;
+    double previous_slope = 0.0;
+    bool have_previous = false;
+    bool have_slope = false;
+    for (std::size_t index = 0U; index < sample_count; ++index) {
+        const float sample = output.samples[index * 3U];
+        expect(
+            std::isfinite(sample) && sample > 0.0F,
+            "combined selective tone retains finite positive scene values"
+        );
+        const double current_ev = std::log2(static_cast<double>(sample) / 0.18);
+        if (have_previous) {
+            const double slope = (current_ev - previous_ev) / step_ev;
+            expect(
+                slope > 0.01,
+                "combined endpoint and recovery controls keep the scene tone order monotonic"
+            );
+            if (have_slope) {
+                expect(
+                    std::abs(slope - previous_slope) < 0.08,
+                    "combined selective tone changes slope gradually without contour-forming steps"
+                );
+            }
+            previous_slope = slope;
+            have_slope = true;
+        }
+        previous_ev = current_ev;
+        have_previous = true;
+    }
 }
 
 void perceptual_color_is_exactly_neutral_for_identity_and_low_chroma() {
@@ -2092,6 +2181,8 @@ int main() {
     scene_contrast_is_restrained_and_preserves_the_middle_gray_anchor();
     selective_tone_adapts_partly_to_the_image_scene_key();
     selective_tone_weights_are_smooth_and_preserve_rgb_ratios();
+    selective_tone_endpoints_reach_ordinary_detail_without_clipping();
+    selective_tone_combined_extremes_are_monotonic_and_smooth();
     perceptual_color_is_exactly_neutral_for_identity_and_low_chroma();
     perceptual_color_range_wraps_across_the_hue_seam();
     perceptual_hue_bands_route_named_linear_srgb_colors();

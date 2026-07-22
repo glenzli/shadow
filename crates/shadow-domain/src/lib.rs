@@ -27,8 +27,8 @@ pub use edit_repository::{
 };
 pub use ids::{
     BranchId, CollectionId, EntityId, GradeNodeId, GroupId, ImportSessionId, LayerId,
-    LayerInstanceId, LayerRevisionId, LocationId, MaskId, NodeId, OutputTargetId, PhotoId,
-    RecipeCommitId, RecipeId, RepresentationId, SelectionId, ShootId, StyleId, VersionId,
+    LayerInstanceId, LayerRevisionId, LibrarySourceId, LocationId, MaskId, NodeId, OutputTargetId,
+    PhotoId, RecipeCommitId, RecipeId, RepresentationId, SelectionId, ShootId, StyleId, VersionId,
 };
 pub use recipe::{
     AdjustmentNode, AdjustmentScope, BlendMode, BranchName, CURRENT_RECIPE_SCHEMA_VERSION,

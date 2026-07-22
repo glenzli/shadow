@@ -403,6 +403,38 @@ using PreparedCurveAdjustment = std::variant<
     return normalized * normalized * (3.0 - 2.0 * normalized);
 }
 
+// A stable base-2 softplus.  It is useful for scene-EV tone fields because, unlike a hard
+// threshold or a hand-spliced spline, it remains C-infinity through the point where a tonal
+// range hands off to the midtones.  The branch form avoids overflowing exp2() for perfectly
+// valid super-white float samples.
+[[nodiscard]] double log2_one_plus_exp2(const double value) noexcept {
+    constexpr double reciprocal_ln2 = 1.4426950408889634074;
+    if (value >= 0.0) {
+        return value + reciprocal_ln2 * std::log1p(std::exp2(-value));
+    }
+    return reciprocal_ln2 * std::log1p(std::exp2(value));
+}
+
+// A smooth non-negative EV field which is approximately (boundary - value) below the
+// boundary and decays continuously above it.  Its derivative is always in [-1, 0], so a
+// bounded multiple can lift/deepen a tonal range without ever folding the scene-linear tone
+// mapping back on itself.  The mirrored form below has the opposite derivative.
+[[nodiscard]] double lower_ev_hinge(
+    const double value,
+    const double boundary,
+    const double softness
+) noexcept {
+    return softness * log2_one_plus_exp2((boundary - value) / softness);
+}
+
+[[nodiscard]] double upper_ev_hinge(
+    const double value,
+    const double boundary,
+    const double softness
+) noexcept {
+    return softness * log2_one_plus_exp2((value - boundary) / softness);
+}
+
 // Map scene-linear luminance through a bounded contrast curve while keeping its RGB chromatic
 // ratios intact.  The pivot is first mapped into a finite "display-like" domain, so even a
 // strong contrast setting never drives a positive input below zero or turns a bright RAW value
@@ -463,40 +495,60 @@ using PreparedCurveAdjustment = std::variant<
         return input;
     }
 
-    // Work in scene EV relative to 18% middle gray.  Unlike the original four adjacent bands,
-    // these deliberately overlap: photographers expect each control to keep affecting a useful
-    // region instead of becoming a near no-op when the decoder's normalization moves a scene by
-    // a fraction of a stop.
-    // Do not move the zones all the way to the image median: that would make a uniformly dark
-    // scene's Blacks control operate only on near-zero code values. A half-strength adaptation
-    // is enough to compensate camera/exposure normalization while preserving a stable
-    // photographer-facing relationship to 18% gray.
+    // Work in scene EV relative to 18% middle gray.  Do not move the zones all the way to the
+    // image median: that would make a uniformly dark scene's Blacks control operate only on
+    // near-zero code values. A half-strength adaptation is enough to compensate camera/exposure
+    // normalization while preserving a stable photographer-facing relationship to 18% gray.
     const double ev = std::log2(luminance / 0.18) - 0.5 * scene_key_ev;
-    const double blacks = 1.0 - smoothstep(-5.5, -0.6, ev);
-    const double shadows = smoothstep(-5.0, -2.5, ev)
-        * (1.0 - smoothstep(-0.25, 1.5, ev));
-    const double highlights = smoothstep(-0.25, 1.5, ev)
-        * (1.0 - smoothstep(2.5, 5.0, ev));
-    const double whites = smoothstep(1.5, 5.0, ev);
+    // Each control is a soft logarithmic hinge rather than a finite-width bell.  The old bell
+    // masks had a very short useful tail: Blacks was almost inert around -1 EV and Whites was
+    // almost inert around +2 EV, even though both are routine photograph detail.  A hinge
+    // reaches those tones while remaining smooth at every brightness.
+    //
+    // Apply each field as its own monotonic EV transform instead of summing their gains.  A
+    // field's strength stays below one, which means its derivative remains positive even at a
+    // maximum slider setting.  Composing positive-slope transforms lets Blacks and Shadows both
+    // be useful on the same pixel without the combined field folding back on itself.  The same
+    // is true of Highlights and Whites.  That is the important safeguard against tonal reversals
+    // / false contouring when a user pushes several controls together.
+    constexpr double recovery_strength = 0.82;
+    constexpr double endpoint_strength = 0.82;
+    constexpr double recovery_boundary_ev = 1.5;
+    constexpr double recovery_softness_ev = 0.80;
+    constexpr double endpoint_boundary_ev = 1.5;
+    constexpr double endpoint_softness_ev = 0.55;
 
-    // Shadows/highlights are broad exposure recovery fields.  Blacks/whites are restrained
-    // endpoint controls, so their maximum gain is lower and a positive Blacks value also lifts
-    // the toe by a small, smooth amount.  This gives the slider an observable black-point
-    // character even on files whose useful dark detail is not near numeric zero.
-    double stops = 1.7 * parameters.blacks * blacks
-        + 2.0 * parameters.shadows * shadows
-        + 2.0 * parameters.highlights * highlights
-        + 1.7 * parameters.whites * whites;
-    stops = std::clamp(stops, -4.0, 4.0);
-    double adjusted_luminance = luminance * std::exp2(stops);
-    if (parameters.blacks > 0.0) {
-        const double toe_lift_weight = blacks * (1.0 - smoothstep(-1.25, -0.1, ev));
-        adjusted_luminance += parameters.blacks * toe_lift_weight * 0.014;
-    }
-    if (!(adjusted_luminance > 0.0) || !std::isfinite(adjusted_luminance)) {
+    // Evaluate the lower and upper branches independently from the same source EV, then add
+    // their deltas.  Besides keeping opposite endpoint controls symmetric around middle gray,
+    // this prevents a large Black lift from changing which pixels the Whites control considers
+    // to be highlights (and vice versa).
+    double lower_ev = ev;
+    lower_ev += endpoint_strength * parameters.blacks * lower_ev_hinge(
+        lower_ev, -endpoint_boundary_ev, endpoint_softness_ev
+    );
+    lower_ev += recovery_strength * parameters.shadows * lower_ev_hinge(
+        lower_ev, -recovery_boundary_ev, recovery_softness_ev
+    );
+
+    double upper_ev = ev;
+    upper_ev += recovery_strength * parameters.highlights * upper_ev_hinge(
+        upper_ev, recovery_boundary_ev, recovery_softness_ev
+    );
+    upper_ev += endpoint_strength * parameters.whites * upper_ev_hinge(
+        upper_ev, endpoint_boundary_ev, endpoint_softness_ev
+    );
+
+    const double adjusted_ev = lower_ev + upper_ev - ev;
+
+    // Positive Shadows/Highlights expand the corresponding tonal range; a negative value
+    // compresses/recover it.  Because the resulting adjustment is an EV delta, RGB channels
+    // receive one common gain and retain their scene-linear chromatic ratios.  There is no
+    // clipping, additive toe floor, or quantization in this stage.
+    const double stops = adjusted_ev - ev;
+    const double gain = std::exp2(stops);
+    if (!(gain > 0.0) || !std::isfinite(gain)) {
         return input;
     }
-    const double gain = adjusted_luminance / luminance;
     return {input[0] * gain, input[1] * gain, input[2] * gain};
 }
 

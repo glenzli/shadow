@@ -102,8 +102,10 @@ struct SaturationAdjustment final {
 
 // Scene-referred regional tone controls expressed as bounded, implementation-independent
 // amounts. Their implementation deliberately distinguishes the endpoints (Blacks/Whites)
-// from the broad recovery ranges (Shadows/Highlights): endpoint controls shape a gentle
-// toe/shoulder response while recovery controls apply a wider EV-domain exposure field.
+// from the broad recovery ranges (Shadows/Highlights): endpoint controls shape a tighter
+// toe/shoulder response while recovery controls apply a wider EV-domain exposure field. Both
+// use continuous scene-EV fields rather than hard thresholds, so useful dark/bright detail can
+// be affected without quantizing, clipping, or folding the tonal order.
 //
 // This is intentionally not a clone of any particular RAW developer. It is Shadow's compact,
 // ratio-preserving baseline that later local-masking implementations can refine without

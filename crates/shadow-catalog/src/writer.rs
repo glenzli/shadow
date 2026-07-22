@@ -9,21 +9,24 @@ use shadow_ai::{
     FeedbackEvent, FeedbackForgetFact, LearningScope, NewFeedbackEvent, NewFeedbackForgetFact,
 };
 use shadow_domain::{
-    AssetLocation, EditCommitId, EditObjectId, ImportSessionId, NewPhotoDecisionEvent,
-    PhotoDecisionEvent, PhotoDecisionState, PhotoId, RecipeCommitId, RepresentationId,
+    AssetLocation, CollectionId, EditCommitId, EditObjectId, ImportSessionId,
+    NewPhotoDecisionEvent, PhotoDecisionEvent, PhotoDecisionState, PhotoId, RecipeCommitId,
+    RepresentationId,
 };
 
 use crate::{
-    CachedArtifactRecord, Catalog, CatalogError, CatalogStats, CatalogStore, CommitEditRepository,
-    CommitRecipe, CommitRecipeAndEditRepository, CommitRecipeAndEditRepositoryResult,
-    DecodeSnapshotRecord, EditObjectPackWrite, EditObjectRecord, EditRepositoryCommitRecord,
-    EditRepositoryRefRecord, FeedbackPage, ImportSession, ImportSessionState, ImportSessionSummary,
-    InvalidateCachedArtifactStatus, PhotoDecisionPage, RecipeCommitRecord, RecipeRefRecord,
-    RecordCachedArtifact, RecordCachedArtifactStatus, RecordDecodeSnapshot,
-    RecordDecodeSnapshotStatus, RecordTechnicalObservation, RecordTechnicalObservationStatus,
-    RegisterAsset, RegisteredAsset, RepresentationFingerprint, ReviewCursor, ReviewItemRecord,
-    ReviewPageRecord, SetRecipeRef, StoreEditObjectPackResult, TechnicalObservationRecord,
-    TechnicalObservationRevision,
+    AlbumKind, AlbumRecord, CachedArtifactRecord, Catalog, CatalogError, CatalogStats,
+    CatalogStore, CommitEditRepository, CommitRecipe, CommitRecipeAndEditRepository,
+    CommitRecipeAndEditRepositoryResult, ContentIdentity, DecodeSnapshotRecord,
+    EditObjectPackWrite, EditObjectRecord, EditRepositoryCommitRecord, EditRepositoryRefRecord,
+    FeedbackPage, ImportSession, ImportSessionState, ImportSessionSummary,
+    InvalidateCachedArtifactStatus, LibraryPhotoCursor, LibraryPhotoFacts, LibraryPhotoFilter,
+    LibraryPhotoPage, LibrarySourceRecord, PhotoDecisionPage, PhotoLibraryState,
+    RecipeCommitRecord, RecipeRefRecord, RecordCachedArtifact, RecordCachedArtifactStatus,
+    RecordDecodeSnapshot, RecordDecodeSnapshotStatus, RecordTechnicalObservation,
+    RecordTechnicalObservationStatus, RegisterAsset, RegisteredAsset, RepresentationFingerprint,
+    ReviewCursor, ReviewItemRecord, ReviewPageRecord, SetPhotoLibraryState, SetRecipeRef,
+    StoreEditObjectPackResult, TechnicalObservationRecord, TechnicalObservationRevision,
 };
 
 #[derive(Debug)]
@@ -44,6 +47,56 @@ enum Message {
         RegisterAsset,
         SyncSender<Result<RegisteredAsset, CatalogError>>,
     ),
+    RegisterAssetWithContentIdentity(
+        RegisterAsset,
+        ContentIdentity,
+        SyncSender<Result<RegisteredAsset, CatalogError>>,
+    ),
+    RecordRepresentationContentIdentity(
+        RepresentationId,
+        ContentIdentity,
+        i64,
+        SyncSender<Result<(), CatalogError>>,
+    ),
+    UpsertPhotoLibraryFacts(Box<LibraryPhotoFacts>, SyncSender<Result<(), CatalogError>>),
+    PhotoLibraryFacts(
+        PhotoId,
+        SyncSender<Result<Option<LibraryPhotoFacts>, CatalogError>>,
+    ),
+    SetPhotoLibraryState(
+        Box<SetPhotoLibraryState>,
+        SyncSender<Result<(), CatalogError>>,
+    ),
+    PhotoLibraryState(PhotoId, SyncSender<Result<PhotoLibraryState, CatalogError>>),
+    CreateLibraryAlbum(
+        AlbumKind,
+        String,
+        Option<String>,
+        i64,
+        SyncSender<Result<AlbumRecord, CatalogError>>,
+    ),
+    LibraryAlbums(SyncSender<Result<Vec<AlbumRecord>, CatalogError>>),
+    AddPhotoToAlbum(
+        CollectionId,
+        PhotoId,
+        i64,
+        i64,
+        SyncSender<Result<(), CatalogError>>,
+    ),
+    RemovePhotoFromAlbum(
+        CollectionId,
+        PhotoId,
+        SyncSender<Result<bool, CatalogError>>,
+    ),
+    AlbumsForPhoto(PhotoId, SyncSender<Result<Vec<AlbumRecord>, CatalogError>>),
+    LibrarySources(SyncSender<Result<Vec<LibrarySourceRecord>, CatalogError>>),
+    LibraryPhotoPage(
+        LibraryPhotoFilter,
+        Option<LibraryPhotoCursor>,
+        usize,
+        SyncSender<Result<LibraryPhotoPage, CatalogError>>,
+    ),
+    LibraryPhotoCount(LibraryPhotoFilter, SyncSender<Result<u64, CatalogError>>),
     RepresentationFingerprint(
         RepresentationId,
         SyncSender<Result<RepresentationFingerprint, CatalogError>>,
@@ -345,6 +398,137 @@ impl CatalogHandle {
     /// fails.
     pub fn register_asset(&self, request: &RegisterAsset) -> Result<RegisteredAsset, CatalogError> {
         self.request(|response| Message::RegisterAsset(request.clone(), response))
+    }
+
+    /// Registers a location while preserving photo identity when a separately
+    /// verified path-independent identity has already been recorded.
+    pub fn register_asset_with_content_identity(
+        &self,
+        request: &RegisterAsset,
+        identity: &ContentIdentity,
+    ) -> Result<RegisteredAsset, CatalogError> {
+        self.request(|response| {
+            Message::RegisterAssetWithContentIdentity(request.clone(), identity.clone(), response)
+        })
+    }
+
+    /// Stores a full-file, format-payload, or decoder-mosaic identity through
+    /// the single writer. Expensive identity generation stays outside the
+    /// actor; the actor only validates and persists its result.
+    pub fn record_representation_content_identity(
+        &self,
+        representation_id: RepresentationId,
+        identity: &ContentIdentity,
+        observed_at_ms: i64,
+    ) -> Result<(), CatalogError> {
+        self.request(|response| {
+            Message::RecordRepresentationContentIdentity(
+                representation_id,
+                identity.clone(),
+                observed_at_ms,
+                response,
+            )
+        })
+    }
+
+    /// Updates the compact, indexed photo facts projection after metadata
+    /// extraction. It does not persist full EXIF again.
+    pub fn upsert_photo_library_facts(
+        &self,
+        facts: &LibraryPhotoFacts,
+    ) -> Result<(), CatalogError> {
+        self.request(|response| Message::UpsertPhotoLibraryFacts(Box::new(facts.clone()), response))
+    }
+
+    pub fn photo_library_facts(
+        &self,
+        photo_id: PhotoId,
+    ) -> Result<Option<LibraryPhotoFacts>, CatalogError> {
+        self.request(|response| Message::PhotoLibraryFacts(photo_id, response))
+    }
+
+    /// Sets an independent Library like/color state for a photo.
+    pub fn set_photo_library_state(
+        &self,
+        state: &SetPhotoLibraryState,
+    ) -> Result<(), CatalogError> {
+        self.request(|response| Message::SetPhotoLibraryState(Box::new(state.clone()), response))
+    }
+
+    pub fn photo_library_state(
+        &self,
+        photo_id: PhotoId,
+    ) -> Result<PhotoLibraryState, CatalogError> {
+        self.request(|response| Message::PhotoLibraryState(photo_id, response))
+    }
+
+    pub fn create_library_album(
+        &self,
+        kind: AlbumKind,
+        name: &str,
+        query_json: Option<&str>,
+        now_ms: i64,
+    ) -> Result<AlbumRecord, CatalogError> {
+        self.request(|response| {
+            Message::CreateLibraryAlbum(
+                kind,
+                name.to_owned(),
+                query_json.map(str::to_owned),
+                now_ms,
+                response,
+            )
+        })
+    }
+
+    pub fn library_albums(&self) -> Result<Vec<AlbumRecord>, CatalogError> {
+        self.request(Message::LibraryAlbums)
+    }
+
+    pub fn add_photo_to_album(
+        &self,
+        album_id: CollectionId,
+        photo_id: PhotoId,
+        sort_key: i64,
+        now_ms: i64,
+    ) -> Result<(), CatalogError> {
+        self.request(|response| {
+            Message::AddPhotoToAlbum(album_id, photo_id, sort_key, now_ms, response)
+        })
+    }
+
+    pub fn remove_photo_from_album(
+        &self,
+        album_id: CollectionId,
+        photo_id: PhotoId,
+    ) -> Result<bool, CatalogError> {
+        self.request(|response| Message::RemovePhotoFromAlbum(album_id, photo_id, response))
+    }
+
+    pub fn albums_for_photo(&self, photo_id: PhotoId) -> Result<Vec<AlbumRecord>, CatalogError> {
+        self.request(|response| Message::AlbumsForPhoto(photo_id, response))
+    }
+
+    pub fn library_sources(&self) -> Result<Vec<LibrarySourceRecord>, CatalogError> {
+        self.request(Message::LibrarySources)
+    }
+
+    /// Reads a bounded photo-first Library page through the single catalog
+    /// actor. The cursor is stable across folders being renamed or reorganized.
+    pub fn library_photo_page(
+        &self,
+        filter: &LibraryPhotoFilter,
+        after: Option<&LibraryPhotoCursor>,
+        requested_limit: usize,
+    ) -> Result<LibraryPhotoPage, CatalogError> {
+        self.request(|response| {
+            Message::LibraryPhotoPage(filter.clone(), after.cloned(), requested_limit, response)
+        })
+    }
+
+    /// Counts a settled Library filter through the actor. Grid scrolling uses
+    /// `library_photo_page`; this explicit aggregate can be debounced.
+    pub fn library_photo_count(&self, filter: &LibraryPhotoFilter) -> Result<u64, CatalogError> {
+        self.request(|response| Message::LibraryPhotoCount(filter.clone(), response))
     }
 
     /// Returns the current source fingerprint for a representation.
@@ -940,6 +1124,68 @@ fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
             Message::RegisterAsset(request, response) => {
                 let _ = response.send(catalog.register_asset(&request));
             }
+            Message::RegisterAssetWithContentIdentity(request, identity, response) => {
+                let _ = response
+                    .send(catalog.register_asset_with_content_identity(&request, &identity));
+            }
+            Message::RecordRepresentationContentIdentity(
+                representation_id,
+                identity,
+                observed_at_ms,
+                response,
+            ) => {
+                let _ = response.send(catalog.record_representation_content_identity(
+                    representation_id,
+                    &identity,
+                    observed_at_ms,
+                ));
+            }
+            Message::UpsertPhotoLibraryFacts(facts, response) => {
+                let _ = response.send(catalog.upsert_photo_library_facts(facts.as_ref()));
+            }
+            Message::PhotoLibraryFacts(photo_id, response) => {
+                let _ = response.send(catalog.photo_library_facts(photo_id));
+            }
+            Message::SetPhotoLibraryState(state, response) => {
+                let _ = response.send(catalog.set_photo_library_state(state.as_ref()));
+            }
+            Message::PhotoLibraryState(photo_id, response) => {
+                let _ = response.send(catalog.photo_library_state(photo_id));
+            }
+            Message::CreateLibraryAlbum(kind, name, query_json, now_ms, response) => {
+                let _ = response.send(catalog.create_library_album(
+                    kind,
+                    &name,
+                    query_json.as_deref(),
+                    now_ms,
+                ));
+            }
+            Message::LibraryAlbums(response) => {
+                let _ = response.send(catalog.library_albums());
+            }
+            Message::AddPhotoToAlbum(album_id, photo_id, sort_key, now_ms, response) => {
+                let _ =
+                    response.send(catalog.add_photo_to_album(album_id, photo_id, sort_key, now_ms));
+            }
+            Message::RemovePhotoFromAlbum(album_id, photo_id, response) => {
+                let _ = response.send(catalog.remove_photo_from_album(album_id, photo_id));
+            }
+            Message::AlbumsForPhoto(photo_id, response) => {
+                let _ = response.send(catalog.albums_for_photo(photo_id));
+            }
+            Message::LibrarySources(response) => {
+                let _ = response.send(catalog.library_sources());
+            }
+            Message::LibraryPhotoPage(filter, after, requested_limit, response) => {
+                let _ = response.send(catalog.library_photo_page(
+                    &filter,
+                    after.as_ref(),
+                    requested_limit,
+                ));
+            }
+            Message::LibraryPhotoCount(filter, response) => {
+                let _ = response.send(catalog.library_photo_count(&filter));
+            }
             Message::RepresentationFingerprint(representation_id, response) => {
                 let _ = response.send(catalog.representation_fingerprint(representation_id));
             }
@@ -1166,6 +1412,40 @@ mod tests {
             handle.join().expect("join client thread");
         }
         assert_eq!(actor.handle().stats().expect("stats").photos, 4);
+        actor.shutdown().expect("shutdown actor");
+    }
+
+    #[test]
+    fn actor_pages_photo_first_library_rows() {
+        let actor = CatalogActor::spawn_in_memory().expect("spawn catalog actor");
+        let handle = actor.handle();
+        let registered = handle
+            .register_asset(&RegisterAsset {
+                kind: RepresentationKind::OriginalRaw,
+                location: AssetLocation::new(
+                    Platform::MacOs,
+                    b"/photos/library-page.dng".to_vec(),
+                    "/photos/library-page.dng",
+                ),
+                byte_len: 42,
+                modified_at_ms: Some(100),
+                now_ms: 1_700_000_000_000,
+            })
+            .expect("register library photo");
+        let page = handle
+            .library_photo_page(&LibraryPhotoFilter::default(), None, 16)
+            .expect("page Library through actor");
+        assert_eq!(
+            handle
+                .library_photo_count(&LibraryPhotoFilter::default())
+                .expect("count Library through actor"),
+            1
+        );
+        assert_eq!(page.items[0].photo_id, registered.photo_id);
+        assert_eq!(
+            page.items[0].location.display_path,
+            "/photos/library-page.dng"
+        );
         actor.shutdown().expect("shutdown actor");
     }
 
