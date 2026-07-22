@@ -2989,7 +2989,7 @@ Item {
                                     ShadowIconButton {
                                         id: revertButton
                                         source: "qrc:/icons/clear.svg"
-                                        toolTipText: qsTr("Revert all working changes to the Library version")
+                                        toolTipText: qsTr("Restore the last autosaved adjustments")
                                         accessibleName: toolTipText
                                         enabled: precision.editor.active
                                             && precision.editor.dirty
@@ -3010,7 +3010,7 @@ Item {
                             spacing: 10
 
                             Label {
-                                text: qsTr("CREATE LIBRARY VERSION")
+                                text: qsTr("CREATE VERSION CHECKPOINT")
                                 color: precision.textMuted
                                 font.pixelSize: 10
                                 font.weight: Font.DemiBold
@@ -3038,8 +3038,9 @@ Item {
                                     Label {
                                         Layout.fillWidth: true
                                         text: precision.editor.dirty
-                                            ? qsTr("WORKING CHANGES")
-                                            : qsTr("CURRENT VERSION")
+                                            ? (precision.editor.autosavePending
+                                                ? qsTr("AUTOSAVE PENDING") : qsTr("VERSION DRAFT"))
+                                            : qsTr("CURRENT AUTOSAVE")
                                         color: precision.editor.dirty
                                             ? precision.accent : precision.textSecondary
                                         font.pixelSize: 9
@@ -3048,7 +3049,7 @@ Item {
                                     }
                                     Label {
                                         Layout.fillWidth: true
-                                        text: qsTr("Undo and redo stay in this editing session. Creating a version records one atomic Library state, including this photo and every shared Grade Node change.")
+                                        text: qsTr("Adjustments save automatically to this photo’s current working state. Creating a version adds a named, immutable Library checkpoint; only those checkpoints appear below.")
                                         color: precision.textMuted
                                         font.pixelSize: 9
                                         wrapMode: Text.WordWrap
@@ -3104,7 +3105,7 @@ Item {
                                 Layout.fillWidth: true
                                 Label {
                                     Layout.fillWidth: true
-                                    text: qsTr("THIS PHOTO")
+                                    text: qsTr("NAMED VERSIONS")
                                     color: precision.textMuted
                                     font.pixelSize: 10
                                     font.weight: Font.DemiBold
@@ -3203,7 +3204,7 @@ Item {
                                     anchors.centerIn: parent
                                     width: parent.width - 20
                                     visible: versionList.count === 0
-                                    text: qsTr("Saved looks will appear here. Loading one creates working changes without deleting newer versions; create a version to keep the result.")
+                                    text: qsTr("Named checkpoints appear here. The current working adjustments are saved automatically; loading a checkpoint never deletes newer work.")
                                     color: precision.textMuted
                                     font.pixelSize: 10
                                     horizontalAlignment: Text.AlignHCenter

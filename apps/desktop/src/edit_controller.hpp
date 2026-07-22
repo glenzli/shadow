@@ -18,10 +18,12 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 
 enum class EditStateTaskKind : std::uint8_t {
     Open,
     Save,
+    Autosave,
     LoadDraft,
 };
 
@@ -30,6 +32,17 @@ struct EditStateTaskResult final {
     QString error;
     quint64 photo_generation = 0;
     EditStateTaskKind kind = EditStateTaskKind::Open;
+};
+
+// A photo switch may arrive while the current working ref is being autosaved. Keep only the
+// latest requested target: the old photo remains visible until its durable working ref is
+// confirmed, then the controller opens this target without ever asking the user to "save".
+struct PendingPhotoOpen final {
+    QString photo_id;
+    QString representation_id;
+    QString source_path;
+    QString title;
+    QString provisional_preview_source;
 };
 
 struct EditPreviewTaskResult final {
@@ -59,6 +72,7 @@ class EditController final : public QObject {
     Q_PROPERTY(quint64 detailRetainedBytes READ detailRetainedBytes NOTIFY detailGeometryChanged)
     Q_PROPERTY(QVariantList detailTiles READ detailTiles NOTIFY detailTilesChanged)
     Q_PROPERTY(bool dirty READ dirty NOTIFY dirtyChanged)
+    Q_PROPERTY(bool autosavePending READ autosavePending NOTIFY autosavePendingChanged)
     Q_PROPERTY(bool versionDraft READ versionDraft NOTIFY versionDraftChanged)
     Q_PROPERTY(bool canUndo READ canUndo NOTIFY historyChanged)
     Q_PROPERTY(bool canRedo READ canRedo NOTIFY historyChanged)
@@ -216,6 +230,7 @@ public:
     [[nodiscard]] quint64 detailRetainedBytes() const noexcept;
     [[nodiscard]] QVariantList detailTiles() const;
     [[nodiscard]] bool dirty() const noexcept;
+    [[nodiscard]] bool autosavePending() const noexcept;
     [[nodiscard]] bool versionDraft() const noexcept;
     [[nodiscard]] bool canUndo() const noexcept;
     [[nodiscard]] bool canRedo() const noexcept;
@@ -370,6 +385,9 @@ public:
     Q_INVOKABLE void leaveDetailMode();
     Q_INVOKABLE void saveVersion(const QString& version_name);
     Q_INVOKABLE void loadVersionDraft(const QString& commit_id);
+    // Returns true when the window may close immediately. When an autosave is
+    // required it queues the durable working snapshot and emits closeReady.
+    Q_INVOKABLE bool prepareToClose();
   Q_INVOKABLE void retranslateUi();
 
 signals:
@@ -384,8 +402,11 @@ signals:
     void detailGeometryChanged();
     void detailTilesChanged();
     void dirtyChanged();
+    void autosavePendingChanged();
     void versionDraftChanged();
     void historyChanged();
+    void closeReady();
+    void closeSaveFailed();
     void sourceIdentityChanged();
     void titleChanged();
     void sourcePathChanged();
@@ -438,6 +459,9 @@ private:
   bool eventFilter(QObject *watched, QEvent *event) override;
   void setStatusMessage(LocalizedUiMessage status);
     void setDirty(bool dirty);
+    void scheduleAutosave();
+    void startAutosave();
+    void applyAutosavedState(BackendPhotoEditState state);
     void setVersionDraft(bool draft);
     void setStateRunning(bool running);
     void setPreviewRunning(EditPreviewKind kind, bool running);
@@ -477,6 +501,7 @@ private:
     QFutureWatcher<EditDetailTaskResult> detail_watcher_;
     QTimer preview_debounce_;
     QTimer detail_debounce_;
+    QTimer autosave_debounce_;
     SessionEditHistory<BackendGradeStack> history_;
     BackendGradeStack grade_stack_;
     BackendGradeStack committed_grade_stack_;
@@ -489,6 +514,7 @@ private:
     QString preview_source_;
     QString provisional_preview_source_;
     QString before_preview_source_;
+    std::optional<PendingPhotoOpen> pending_photo_open_;
     QVariantMap histogram_;
     QVariantMap before_histogram_;
     QVariantMap optics_receipt_;
@@ -514,6 +540,9 @@ private:
     std::uint32_t detail_viewport_height_ = 1;
     bool active_ = false;
     bool dirty_ = false;
+    bool autosave_requested_ = false;
+    bool close_after_autosave_ = false;
+    bool close_photo_after_autosave_ = false;
     bool version_draft_ = false;
     bool state_running_ = false;
     bool current_rendering_ = false;

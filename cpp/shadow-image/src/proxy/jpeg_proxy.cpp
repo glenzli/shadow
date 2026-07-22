@@ -180,6 +180,43 @@ struct OklabColor final {
     });
 }
 
+[[nodiscard]] double scene_luminance_to_display_luminance(const double luminance) noexcept {
+    if (!(luminance > 0.0)) {
+        return 0.0;
+    }
+
+    // A compact rational scene-to-display curve with a gentle toe and shoulder.  It is evaluated
+    // on luminance and normalized at its finite asymptote, which gives scene values above 1.0 a
+    // visible shoulder instead of sending every normalized RAW highlight to the same display
+    // white.  This is an independently implemented baseline for Shadow, not a camera look or a
+    // port of another RAW developer's curve.
+    constexpr double maximum_safe_luminance = 1.0e6;
+    constexpr double a = 2.51;
+    constexpr double b = 0.03;
+    constexpr double c = 2.43;
+    constexpr double d = 0.59;
+    constexpr double e = 0.14;
+    const auto curve = [=](const double value) noexcept {
+        return value * (a * value + b) / (value * (c * value + d) + e);
+    };
+    const double scene = std::min(luminance, maximum_safe_luminance);
+    const double normalized = curve(scene) / (a / c);
+    return std::clamp(normalized, 0.0, 1.0);
+}
+
+[[nodiscard]] LinearRgb apply_neutral_scene_display_curve(const LinearRgb& input) noexcept {
+    // Rec.709/sRGB luminance weights are used here because this boundary accepts only that
+    // working space.  Applying one gain to all channels preserves chromatic ratios before the
+    // later perceptual gamut map handles any out-of-gamut result.
+    const double luminance = input[0] * 0.2126 + input[1] * 0.7152 + input[2] * 0.0722;
+    if (!(luminance > 0.0)) {
+        return input;
+    }
+    const double mapped_luminance = scene_luminance_to_display_luminance(luminance);
+    const double gain = mapped_luminance / luminance;
+    return {input[0] * gain, input[1] * gain, input[2] * gain};
+}
+
 [[nodiscard]] LinearRgb map_linear_srgb_to_display_gamut(const LinearRgb& input) {
     if (!std::ranges::all_of(input, [](const double value) { return std::isfinite(value); })) {
         throw DecodeError(
@@ -188,15 +225,15 @@ struct OklabColor final {
             "edited proxy contains a non-finite scene-linear sample"
         );
     }
-    if (is_inside_display_srgb(input)) {
-        return input;
+    const LinearRgb scene_mapped = apply_neutral_scene_display_curve(input);
+    if (is_inside_display_srgb(scene_mapped)) {
+        return scene_mapped;
     }
 
-    // Output-transform v1 is deliberately small and deterministic: clamp only Oklab L to the
-    // display interval, then binary-search chroma along the source hue ray. This prevents the
-    // hue skews caused by independent RGB clipping. Values beyond display white/black still
-    // collapse at the boundary; that is not, and must not be presented as, HDR tone mapping.
-    OklabColor lab = linear_srgb_to_oklab(input);
+    // The scene curve limits luminance, then this final bounded gamut mapper reduces chroma along
+    // the source hue ray.  Avoid independent RGB clipping, which visibly skews saturated RAW
+    // highlights and can make a tonal edit look like a color edit.
+    OklabColor lab = linear_srgb_to_oklab(scene_mapped);
     lab.lightness = std::clamp(lab.lightness, 0.0, 1.0);
     const double chroma = std::hypot(lab.a, lab.b);
     OklabColor neutral{.lightness = lab.lightness};
@@ -240,14 +277,35 @@ struct OklabColor final {
     return best;
 }
 
-[[nodiscard]] std::uint8_t linear_display_sample_to_srgb8(const double linear_sample) noexcept {
+// A small, deterministic luminance-only dither turns 8-bit quantization contouring into a
+// visually benign texture. It is keyed by image-space coordinates (not tile-local coordinates),
+// so independently requested detail tiles meet exactly at their shared boundary.
+[[nodiscard]] double display_quantization_dither(
+    const std::uint32_t x,
+    const std::uint32_t y
+) noexcept {
+    std::uint32_t state = x * 0x9e3779b9U ^ y * 0x85ebca6bU;
+    state ^= state >> 16U;
+    state *= 0x7feb352dU;
+    state ^= state >> 15U;
+    state *= 0x846ca68bU;
+    state ^= state >> 16U;
+    const double unit = static_cast<double>(state)
+        / static_cast<double>(std::numeric_limits<std::uint32_t>::max());
+    return (unit - 0.5) * 0.90;
+}
+
+[[nodiscard]] std::uint8_t linear_display_sample_to_srgb8(
+    const double linear_sample,
+    const double dither
+) noexcept {
     const double linear = std::clamp(linear_sample, 0.0, 1.0);
     constexpr double srgb_linear_threshold = 0.0031308;
     const double encoded = linear <= srgb_linear_threshold
         ? 12.92 * linear
         : 1.055 * std::pow(linear, 1.0 / 2.4) - 0.055;
     return static_cast<std::uint8_t>(
-        std::clamp(std::lround(encoded * 255.0), 0L, 255L)
+        std::clamp(std::floor(encoded * 255.0 + dither + 0.5), 0.0, 255.0)
     );
 }
 
@@ -343,6 +401,141 @@ struct OklabColor final {
 
 [[nodiscard]] FloatRgbImage copy_processed_linear_to_working(const PixelBuffer& source) {
     return resize_processed_linear_to_working(source, source.dimensions);
+}
+
+// DNG BaselineExposure describes a source-rendering calibration, not an edit selected by the
+// photographer. LibRaw uses a large negative sentinel when the tag is absent, and non-DNG RAW
+// files must not inherit a guessed exposure compensation. Keep the acceptance range deliberately
+// generous for valid camera profiles while rejecting sentinels and malformed metadata.
+[[nodiscard]] double usable_dng_baseline_exposure_stops(const AssetMetadata& metadata) noexcept {
+    constexpr double maximum_reasonable_dng_baseline_exposure_stops = 8.0;
+    if (
+        metadata.dng_version.empty()
+        || !std::isfinite(metadata.baseline_exposure)
+        || std::abs(metadata.baseline_exposure) > maximum_reasonable_dng_baseline_exposure_stops
+    ) {
+        return 0.0;
+    }
+    return metadata.baseline_exposure;
+}
+
+void apply_source_baseline_exposure(
+    FloatRgbImage& image,
+    const double dng_baseline_exposure_stops
+) {
+    if (dng_baseline_exposure_stops == 0.0) {
+        return;
+    }
+    const double gain = std::exp2(dng_baseline_exposure_stops);
+    for (float& sample : image.samples) {
+        sample = static_cast<float>(static_cast<double>(sample) * gain);
+    }
+}
+
+// Estimate an image key from a bounded regular sampling grid instead of inspecting every pixel.
+// It is intentionally robust and inexpensive: the key only steers broad regional tone zones, it
+// is not an auto-exposure decision. The result is expressed in EV relative to 18% gray.
+[[nodiscard]] double estimate_scene_key_ev(const FloatRgbImage& image) {
+    constexpr std::uint32_t maximum_key_samples_per_axis = 160U;
+    constexpr double minimum_luminance = 1.0e-5;
+    constexpr double maximum_scene_key_ev = 8.0;
+    const std::uint32_t samples_x = std::min(
+        maximum_key_samples_per_axis,
+        image.dimensions.width
+    );
+    const std::uint32_t samples_y = std::min(
+        maximum_key_samples_per_axis,
+        image.dimensions.height
+    );
+    const std::size_t stride = image.row_stride_bytes / sizeof(float);
+    const auto weights = image.working_space.luminance_coefficients;
+    std::vector<double> values;
+    values.reserve(static_cast<std::size_t>(samples_x) * samples_y);
+    for (std::uint32_t sample_y = 0U; sample_y < samples_y; ++sample_y) {
+        const std::uint32_t y = std::min(
+            image.dimensions.height - 1U,
+            static_cast<std::uint32_t>(
+                (static_cast<std::uint64_t>(sample_y) * image.dimensions.height)
+                / samples_y
+            )
+        );
+        const std::size_t row = static_cast<std::size_t>(y) * stride;
+        for (std::uint32_t sample_x = 0U; sample_x < samples_x; ++sample_x) {
+            const std::uint32_t x = std::min(
+                image.dimensions.width - 1U,
+                static_cast<std::uint32_t>(
+                    (static_cast<std::uint64_t>(sample_x) * image.dimensions.width)
+                    / samples_x
+                )
+            );
+            const std::size_t offset = row + static_cast<std::size_t>(x) * 3U;
+            const double luminance = static_cast<double>(image.samples[offset]) * weights[0]
+                + static_cast<double>(image.samples[offset + 1U]) * weights[1]
+                + static_cast<double>(image.samples[offset + 2U]) * weights[2];
+            if (std::isfinite(luminance) && luminance > minimum_luminance) {
+                values.push_back(std::log2(luminance / 0.18));
+            }
+        }
+    }
+    if (values.empty()) {
+        return 0.0;
+    }
+    const auto middle = values.begin() + static_cast<std::ptrdiff_t>(values.size() / 2U);
+    std::nth_element(values.begin(), middle, values.end());
+    return std::clamp(*middle, -maximum_scene_key_ev, maximum_scene_key_ev);
+}
+
+[[nodiscard]] double estimate_scene_key_ev(
+    const PixelBuffer& image,
+    const double dng_baseline_exposure_stops
+) {
+    constexpr std::uint32_t maximum_key_samples_per_axis = 160U;
+    constexpr double minimum_luminance = 1.0e-5;
+    constexpr double maximum_scene_key_ev = 8.0;
+    const std::uint32_t samples_x = std::min(
+        maximum_key_samples_per_axis,
+        image.dimensions.width
+    );
+    const std::uint32_t samples_y = std::min(
+        maximum_key_samples_per_axis,
+        image.dimensions.height
+    );
+    const std::size_t stride = validated_source_row_stride(image);
+    const auto weights = linear_srgb_working_space().luminance_coefficients;
+    std::vector<double> values;
+    values.reserve(static_cast<std::size_t>(samples_x) * samples_y);
+    for (std::uint32_t sample_y = 0U; sample_y < samples_y; ++sample_y) {
+        const std::uint32_t y = std::min(
+            image.dimensions.height - 1U,
+            static_cast<std::uint32_t>(
+                (static_cast<std::uint64_t>(sample_y) * image.dimensions.height)
+                / samples_y
+            )
+        );
+        for (std::uint32_t sample_x = 0U; sample_x < samples_x; ++sample_x) {
+            const std::uint32_t x = std::min(
+                image.dimensions.width - 1U,
+                static_cast<std::uint32_t>(
+                    (static_cast<std::uint64_t>(sample_x) * image.dimensions.width)
+                    / samples_x
+                )
+            );
+            const double luminance = (
+                static_cast<double>(source_sample(image, stride, x, y, 0U)) * weights[0]
+                + static_cast<double>(source_sample(image, stride, x, y, 1U)) * weights[1]
+                + static_cast<double>(source_sample(image, stride, x, y, 2U)) * weights[2]
+            ) / 65'535.0;
+            if (std::isfinite(luminance) && luminance > minimum_luminance) {
+                values.push_back(std::log2(luminance / 0.18) + dng_baseline_exposure_stops);
+            }
+        }
+    }
+    if (values.empty()) {
+        return 0.0;
+    }
+    const auto middle = values.begin() + static_cast<std::ptrdiff_t>(values.size() / 2U);
+    std::nth_element(values.begin(), middle, values.end());
+    return std::clamp(*middle, -maximum_scene_key_ev, maximum_scene_key_ev);
 }
 
 // Lensfun operates on a processed u16 RGB raster. For an interactive preview, reduce the RAW
@@ -674,7 +867,9 @@ void validate_display_output_source(const FloatRgbImage& source) {
 
 [[nodiscard]] std::vector<std::uint8_t> resize_working_to_display_srgb8(
     const FloatRgbImage& source,
-    const Dimensions target
+    const Dimensions target,
+    const std::uint32_t output_origin_x = 0U,
+    const std::uint32_t output_origin_y = 0U
 ) {
     validate_display_output_source(source);
     std::vector<std::uint8_t> output(checked_rgb_size(target));
@@ -691,9 +886,13 @@ void validate_display_output_source(const FloatRgbImage& source) {
                     source.samples[source_index + 1U],
                     source.samples[source_index + 2U],
                 });
+                const double dither = display_quantization_dither(
+                    output_origin_x + x,
+                    output_origin_y + y
+                );
                 for (std::size_t channel = 0U; channel < mapped.size(); ++channel) {
                     output[output_index + channel] =
-                        linear_display_sample_to_srgb8(mapped[channel]);
+                        linear_display_sample_to_srgb8(mapped[channel], dither);
                 }
             }
         }
@@ -733,9 +932,13 @@ void validate_display_output_source(const FloatRgbImage& source) {
                 linear[channel] = top * (1.0 - fraction_y) + bottom * fraction_y;
             }
             const LinearRgb mapped = map_linear_srgb_to_display_gamut(linear);
+            const double dither = display_quantization_dither(
+                output_origin_x + output_x,
+                output_origin_y + output_y
+            );
             for (std::size_t channel = 0U; channel < mapped.size(); ++channel) {
                 output[output_index + channel] =
-                    linear_display_sample_to_srgb8(mapped[channel]);
+                    linear_display_sample_to_srgb8(mapped[channel], dither);
             }
         }
     }
@@ -749,9 +952,17 @@ struct PreparedEditPreviewPixels final {
 
 [[nodiscard]] PreparedEditPreviewPixels prepare_edit_preview_pixels(
     const FloatRgbImage& working_proxy,
-    const std::span<const AdjustmentNode> nodes
+    const std::span<const AdjustmentNode> nodes,
+    const double selective_tone_scene_key_ev
 ) {
-    FloatRgbImage edited = execute_adjustment_nodes(working_proxy, nodes);
+    FloatRgbImage edited = execute_adjustment_nodes(
+        working_proxy,
+        nodes,
+        AdjustmentExecutionContext{
+            .full_dimensions = working_proxy.dimensions,
+            .selective_tone_scene_key_ev = selective_tone_scene_key_ev,
+        }
+    );
     auto rgb = resize_working_to_display_srgb8(edited, edited.dimensions);
     return PreparedEditPreviewPixels{
         .edited = std::move(edited),
@@ -891,11 +1102,13 @@ struct PreparedEditPreviewPixels final {
 struct PreparedReferenceRgb final {
     PixelBuffer pixels;
     OpticsProfileReceipt optics_receipt;
+    double dng_baseline_exposure_stops = 0.0;
 };
 
 struct PreparedWarmEditProxy final {
     FloatRgbImage working_proxy;
     OpticsProfileReceipt optics_receipt;
+    double selective_tone_scene_key_ev = 0.0;
 };
 
 [[nodiscard]] PreparedReferenceRgb prepare_reference_rgb(
@@ -904,12 +1117,19 @@ struct PreparedWarmEditProxy final {
     const OpticsSettings& optics_settings
 ) {
     PixelBuffer pixels = session.render_reference_rgb();
+    const double dng_baseline_exposure_stops = usable_dng_baseline_exposure_stops(
+        session.metadata()
+    );
     OpticsProfileReceipt receipt;
     if (optics_provider == nullptr) {
         receipt.status = OpticsProfileStatus::disabled;
         receipt.provider_id = "none";
         receipt.provider_version = "none";
-        return {.pixels = std::move(pixels), .optics_receipt = std::move(receipt)};
+        return {
+            .pixels = std::move(pixels),
+            .optics_receipt = std::move(receipt),
+            .dng_baseline_exposure_stops = dng_baseline_exposure_stops,
+        };
     }
     auto corrected = optics_provider->correct_reference_rgb(
         pixels,
@@ -920,7 +1140,11 @@ struct PreparedWarmEditProxy final {
     if (corrected.corrected_reference_rgb.has_value()) {
         pixels = std::move(*corrected.corrected_reference_rgb);
     }
-    return {.pixels = std::move(pixels), .optics_receipt = std::move(receipt)};
+    return {
+        .pixels = std::move(pixels),
+        .optics_receipt = std::move(receipt),
+        .dng_baseline_exposure_stops = dng_baseline_exposure_stops,
+    };
 }
 
 [[nodiscard]] PreparedWarmEditProxy prepare_warm_edit_proxy_from_preview_reference(
@@ -963,9 +1187,15 @@ struct PreparedWarmEditProxy final {
             working_proxy.level_zero_to_raster_scale_y = level_zero_scale_y;
         }
     }
+    apply_source_baseline_exposure(
+        working_proxy,
+        usable_dng_baseline_exposure_stops(session.metadata())
+    );
+    const double selective_tone_scene_key_ev = estimate_scene_key_ev(working_proxy);
     return {
         .working_proxy = std::move(working_proxy),
         .optics_receipt = std::move(receipt),
+        .selective_tone_scene_key_ev = selective_tone_scene_key_ev,
     };
 }
 
@@ -974,10 +1204,12 @@ struct PreparedWarmEditProxy final {
 WarmEditPreviewSession::WarmEditPreviewSession(
     FloatRgbImage working_proxy,
     const std::uint32_t max_edge,
-    OpticsProfileReceipt optics_receipt
+    OpticsProfileReceipt optics_receipt,
+    const double selective_tone_scene_key_ev
 )
     : working_proxy_(std::move(working_proxy)), max_edge_(max_edge),
-      optics_receipt_(std::move(optics_receipt)) {}
+      optics_receipt_(std::move(optics_receipt)),
+      selective_tone_scene_key_ev_(selective_tone_scene_key_ev) {}
 
 Dimensions WarmEditPreviewSession::dimensions() const noexcept {
     return working_proxy_.dimensions;
@@ -996,7 +1228,11 @@ EncodedProxy WarmEditPreviewSession::render_jpeg(
     const std::uint8_t jpeg_quality
 ) const {
     validate_jpeg_quality(jpeg_quality);
-    auto prepared = prepare_edit_preview_pixels(working_proxy_, nodes);
+    auto prepared = prepare_edit_preview_pixels(
+        working_proxy_,
+        nodes,
+        selective_tone_scene_key_ev_
+    );
     EncodedProxy proxy;
     proxy.dimensions = prepared.edited.dimensions;
     proxy.bytes = encode_jpeg(prepared.rgb, prepared.edited.dimensions, jpeg_quality);
@@ -1008,7 +1244,11 @@ AnalyzedEditPreview WarmEditPreviewSession::render_jpeg_with_analysis(
     const std::uint8_t jpeg_quality
 ) const {
     validate_jpeg_quality(jpeg_quality);
-    auto prepared = prepare_edit_preview_pixels(working_proxy_, nodes);
+    auto prepared = prepare_edit_preview_pixels(
+        working_proxy_,
+        nodes,
+        selective_tone_scene_key_ev_
+    );
     auto analysis = analyze_edit_preview(prepared.edited, prepared.rgb);
 
     EncodedProxy proxy;
@@ -1040,17 +1280,22 @@ WarmEditPreviewSession prepare_warm_edit_preview(
     return WarmEditPreviewSession(
         std::move(prepared.working_proxy),
         max_edge,
-        std::move(prepared.optics_receipt)
+        std::move(prepared.optics_receipt),
+        prepared.selective_tone_scene_key_ev
     );
 }
 
 FullEditDetailSession::FullEditDetailSession(
     PixelBuffer reference_rgb,
     const std::uint64_t retained_bytes,
-    OpticsProfileReceipt optics_receipt
+    OpticsProfileReceipt optics_receipt,
+    const double dng_baseline_exposure_stops,
+    const double selective_tone_scene_key_ev
 )
     : reference_rgb_(std::move(reference_rgb)), retained_bytes_(retained_bytes),
-      optics_receipt_(std::move(optics_receipt)) {}
+      optics_receipt_(std::move(optics_receipt)),
+      dng_baseline_exposure_stops_(dng_baseline_exposure_stops),
+      selective_tone_scene_key_ev_(selective_tone_scene_key_ev) {}
 
 Dimensions FullEditDetailSession::dimensions() const noexcept {
     return reference_rgb_.dimensions;
@@ -1076,7 +1321,8 @@ RenderedDetailTile FullEditDetailSession::render_rgb8(
         reference_rgb_.dimensions,
         apron
     );
-    const FloatRgbImage tile = crop_processed_linear_to_working(reference_rgb_, working_rect);
+    FloatRgbImage tile = crop_processed_linear_to_working(reference_rgb_, working_rect);
+    apply_source_baseline_exposure(tile, dng_baseline_exposure_stops_);
     const FloatRgbImage edited_working = execute_adjustment_nodes(
         tile,
         nodes,
@@ -1084,6 +1330,7 @@ RenderedDetailTile FullEditDetailSession::render_rgb8(
             .origin_x = working_rect.x,
             .origin_y = working_rect.y,
             .full_dimensions = reference_rgb_.dimensions,
+            .selective_tone_scene_key_ev = selective_tone_scene_key_ev_,
         }
     );
     const Dimensions dimensions{rect.width, rect.height};
@@ -1093,7 +1340,7 @@ RenderedDetailTile FullEditDetailSession::render_rgb8(
         rect.y - working_rect.y,
         dimensions
     );
-    auto bytes = resize_working_to_display_srgb8(edited, dimensions);
+    auto bytes = resize_working_to_display_srgb8(edited, dimensions, rect.x, rect.y);
     return RenderedDetailTile{
         .rect = rect,
         .full_dimensions = reference_rgb_.dimensions,
@@ -1110,11 +1357,17 @@ FullEditDetailSession prepare_full_edit_detail(
     preflight_detail_metadata(session.metadata());
     auto reference = prepare_reference_rgb(session, optics_provider, optics_settings);
     static_cast<void>(validated_source_row_stride(reference.pixels));
+    const double selective_tone_scene_key_ev = estimate_scene_key_ev(
+        reference.pixels,
+        reference.dng_baseline_exposure_stops
+    );
     const std::uint64_t retained_bytes = checked_detail_retained_bytes(reference.pixels);
     return FullEditDetailSession(
         std::move(reference.pixels),
         retained_bytes,
-        std::move(reference.optics_receipt)
+        std::move(reference.optics_receipt),
+        reference.dng_baseline_exposure_stops,
+        selective_tone_scene_key_ev
     );
 }
 
@@ -1137,7 +1390,11 @@ EncodedProxy render_reference_proxy_jpeg(const DecodeSession& session, const Pro
     validate_proxy_request(request);
     const PixelBuffer source = session.render_reference_rgb_for_preview(request.max_edge);
     const Dimensions target = proxy_dimensions(source.dimensions, request.max_edge);
-    const FloatRgbImage working = resize_processed_linear_to_working(source, target);
+    FloatRgbImage working = resize_processed_linear_to_working(source, target);
+    apply_source_baseline_exposure(
+        working,
+        usable_dng_baseline_exposure_stops(session.metadata())
+    );
     const auto rgb = resize_working_to_display_srgb8(working, target);
 
     EncodedProxy proxy;

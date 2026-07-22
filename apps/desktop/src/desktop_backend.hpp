@@ -487,6 +487,17 @@ public:
         const BackendGradeStack& grade_stack,
         const QString& version_name
     ) const;
+    // Persists the current non-destructive working state without creating a
+    // user-visible Library Version. The immutable Recipe commit advances only
+    // the per-photo `working` ref, so autosave remains recoverable without
+    // filling the Version panel with slider-level checkpoints.
+    [[nodiscard]] BackendPhotoEditState autosaveWorkingEdit(
+        const QString& photo_id,
+        const QString& source_path,
+        const QString& base_commit_id,
+        const QString& expected_working_commit_id,
+        const BackendGradeStack& grade_stack
+    ) const;
     [[nodiscard]] BackendPhotoEditState loadEditVersionDraft(
         const QString& photo_id,
         const QString& source_path,

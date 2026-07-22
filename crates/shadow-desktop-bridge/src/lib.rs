@@ -649,6 +649,17 @@ mod ffi {
             settings: &FfiEditSettings,
             version_name: &str,
         ) -> Result<FfiPhotoEditState>;
+        /// Persists an immutable current-working Recipe snapshot and advances
+        /// only the `working` ref. Unlike a named Library Version, autosaves
+        /// intentionally do not create a `versions/*` ref or Library commit.
+        fn autosave_basic_edit_working(
+            self: &DesktopSession,
+            photo_id: &str,
+            source_path: &str,
+            base_commit_id: &str,
+            expected_working_commit_id: &str,
+            settings: &FfiEditSettings,
+        ) -> Result<FfiPhotoEditState>;
         fn checkout_basic_edit_version(
             self: &DesktopSession,
             photo_id: &str,
@@ -1836,6 +1847,24 @@ impl DesktopSession {
         )
     }
 
+    fn autosave_basic_edit_working(
+        &self,
+        photo_id: &str,
+        source_path: &str,
+        base_commit_id: &str,
+        expected_working_commit_id: &str,
+        settings: &ffi::FfiEditSettings,
+    ) -> AnyResult<ffi::FfiPhotoEditState> {
+        self.autosave_basic_edit_working_at(
+            photo_id,
+            source_path,
+            base_commit_id,
+            expected_working_commit_id,
+            settings,
+            current_time_ms()?,
+        )
+    }
+
     fn prepare_library_edit_version(
         &self,
         photo_id: PhotoId,
@@ -2062,6 +2091,84 @@ impl DesktopSession {
         self.photo_edit_state_for(photo_id, &source.location.display_path)
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn autosave_basic_edit_working_at(
+        &self,
+        photo_id: &str,
+        source_path: &str,
+        base_commit_id: &str,
+        expected_working_commit_id: &str,
+        settings: &ffi::FfiEditSettings,
+        created_at_ms: i64,
+    ) -> AnyResult<ffi::FfiPhotoEditState> {
+        let (photo_id, source) = self.validated_photo_source(photo_id, source_path)?;
+        let grade_stack = decode_grade_stack_draft_recipe_v1(settings)?;
+        let base_commit_id = if base_commit_id.is_empty() {
+            None
+        } else {
+            Some(
+                base_commit_id
+                    .parse::<RecipeCommitId>()
+                    .with_context(|| format!("parse autosave base Recipe commit id {base_commit_id}"))?,
+            )
+        };
+        let expected_working_commit_id = if expected_working_commit_id.is_empty() {
+            None
+        } else {
+            Some(
+                expected_working_commit_id
+                    .parse::<RecipeCommitId>()
+                    .with_context(|| {
+                        format!(
+                            "parse expected autosave working Recipe commit id {expected_working_commit_id}"
+                        )
+                    })?,
+            )
+        };
+        // A historical named Version may be loaded as a transient draft. Its
+        // content is the parent of a new autosave while the current durable
+        // working head remains independently CAS-protected.
+        let base_record = base_commit_id
+            .map(|commit_id| {
+                self.catalog
+                    .recipe_commit(photo_id, commit_id)?
+                    .ok_or_else(|| anyhow!("autosave base Recipe commit {commit_id} is unavailable"))
+            })
+            .transpose()?;
+        let snapshot = grade_stack_recipe_v1_snapshot(
+            &grade_stack,
+            base_record.as_ref().map(|record| record.commit.snapshot()),
+        )?;
+        let (recipe_id, parents) = if let Some(record) = base_record.as_ref() {
+            (record.commit.recipe_id(), vec![record.commit.id()])
+        } else {
+            (RecipeId::new_v7(), Vec::new())
+        };
+        let commit = RecipeCommit::new(
+            RecipeCommitId::new_v7(),
+            recipe_id,
+            parents,
+            snapshot,
+            None,
+            created_at_ms,
+        )?;
+        self.catalog.commit_recipe(&CommitRecipe {
+            photo_id,
+            commit,
+            update_refs: vec![RecipeRefTarget {
+                name: WORKING_RECIPE_REF.to_owned(),
+                kind: RecipeRefKind::Working,
+                expectation: Some(
+                    expected_working_commit_id.map_or(
+                        RecipeRefExpectation::Missing,
+                        RecipeRefExpectation::At,
+                    ),
+                ),
+            }],
+        })?;
+        self.photo_edit_state_for(photo_id, &source.location.display_path)
+    }
+
     fn checkout_basic_edit_version(
         &self,
         photo_id: &str,
@@ -2135,8 +2242,12 @@ impl DesktopSession {
         )?;
         let selected_id = selected_record.map(|record| record.commit.id());
         let recipe_id = selected_record.map(|record| record.commit.recipe_id());
+        // The Version panel is intentionally a list of human-created named
+        // checkpoints. Autosave commits are immutable and recoverable through
+        // `working`, but must not turn every slider release into history UI.
         let versions = commits
             .iter()
+            .filter(|record| record.commit.message().is_some())
             .map(|record| ffi_edit_version(record, &commits, selected_id))
             .collect::<AnyResult<Vec<_>>>()?;
         Ok(ffi::FfiPhotoEditState {
@@ -9085,6 +9196,89 @@ mod tests {
 
         drop(session);
         std::fs::remove_dir_all(root).expect("remove edit fixture");
+    }
+
+    #[test]
+    fn autosave_advances_working_without_creating_a_named_version() {
+        let (root, session, photo_id, source_path) = test_edit_session();
+        let named = session
+            .save_basic_edit_version_at(
+                &photo_id,
+                &source_path,
+                "",
+                &ffi_parameters(0.1, 1.05, [0.0; 2], 1.0),
+                "Baseline",
+                1_000,
+            )
+            .expect("save named baseline");
+        let named_id = named.working_commit_id;
+        let library_head_before = session
+            .catalog
+            .edit_repository_ref(LIBRARY_EDIT_MAIN_REF)
+            .expect("read Library head")
+            .expect("named save creates Library head")
+            .commit_id;
+
+        let autosaved = session
+            .autosave_basic_edit_working_at(
+                &photo_id,
+                &source_path,
+                &named_id,
+                &named_id,
+                &ffi_parameters(0.8, 1.2, [0.03, -0.02], 0.92),
+                1_500,
+            )
+            .expect("autosave working recipe");
+        assert_ne!(autosaved.working_commit_id, named_id);
+        assert_eq!(autosaved.versions.len(), 1);
+        assert_eq!(autosaved.versions[0].commit_id, named_id);
+        assert!(!autosaved.versions[0].is_working);
+        assert_close(autosaved.settings.grade_nodes[0].basic.exposure_stops, 0.8);
+
+        let parsed_photo_id: PhotoId = photo_id.parse().expect("parse photo id");
+        let commits = session
+            .catalog
+            .recipe_commits(parsed_photo_id)
+            .expect("list immutable commits");
+        assert_eq!(commits.len(), 2);
+        assert!(
+            session
+                .catalog
+                .recipe_ref(
+                    parsed_photo_id,
+                    &format!(
+                        "{NAMED_VERSION_REF_PREFIX}{}",
+                        autosaved.working_commit_id
+                    )
+                )
+                .expect("read autosave version ref")
+                .is_none()
+        );
+        assert_eq!(
+            session
+                .catalog
+                .edit_repository_ref(LIBRARY_EDIT_MAIN_REF)
+                .expect("read Library head after autosave")
+                .expect("Library head remains")
+                .commit_id,
+            library_head_before
+        );
+
+        drop(session);
+        let reopened = open_desktop_session(
+            root.join("catalog.sqlite").to_str().expect("catalog path"),
+            root.join("cache").to_str().expect("cache path"),
+        )
+        .expect("reopen desktop session");
+        let restored = reopened
+            .photo_edit_state(&photo_id, &source_path)
+            .expect("restore working autosave");
+        assert_eq!(restored.working_commit_id, autosaved.working_commit_id);
+        assert_eq!(restored.versions.len(), 1);
+        assert_close(restored.settings.grade_nodes[0].basic.exposure_stops, 0.8);
+
+        drop(reopened);
+        std::fs::remove_dir_all(root).expect("remove autosave fixture");
     }
 
     #[test]

@@ -13,7 +13,7 @@ ApplicationWindow {
     required property var preferences
     required property var lutLibrary
     property int workspaceIndex: 0
-    property bool closeAfterDiscard: false
+    property bool closeAfterAutosave: false
 
     width: 1480
     height: 920
@@ -184,71 +184,25 @@ ApplicationWindow {
         }
     }
 
-    function discardWorkingChangesAndClose() {
-        if (editor.stateBusy) {
-            Qt.callLater(() => discardQuitDialog.open())
-            return
-        }
-        editor.revertEdits()
-        if (editor.dirty) {
-            Qt.callLater(() => discardQuitDialog.open())
-            return
-        }
-        closeAfterDiscard = true
-        discardQuitDialog.close()
-        Qt.callLater(window.close)
-    }
-
     onClosing: close => {
-        if (editor.dirty && !closeAfterDiscard) {
-            workspaceIndex = 1
+        if (!closeAfterAutosave && !editor.prepareToClose()) {
             close.accepted = false
-            discardQuitDialog.open()
         }
     }
 
-    Dialog {
-        id: discardQuitDialog
-        objectName: "discardQuitDialog"
-        anchors.centerIn: parent
-        width: Math.min(440, window.width - 48)
-        modal: true
-        focus: true
-        title: qsTr("Discard working changes?")
-        closePolicy: Popup.CloseOnEscape
+    Connections {
+        target: window.editor
 
-        contentItem: Label {
-            text: window.editor.stateBusy
-                ? qsTr("Shadow is finishing a version operation. Wait for it to finish before discarding changes and quitting.")
-                : qsTr("These working changes have not been recorded as a Library version. Discard them and quit Shadow?")
-            wrapMode: Text.WordWrap
+        function onCloseReady() {
+            window.closeAfterAutosave = true
+            Qt.callLater(window.close)
         }
 
-        footer: DialogButtonBox {
-            ShadowButton {
-                text: qsTr("Cancel")
-                variant: ShadowButton.Ghost
-                DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
-            }
-
-            ShadowButton {
-                id: discardQuitButton
-                text: qsTr("Discard and Quit")
-                variant: ShadowButton.Danger
-                enabled: !window.editor.stateBusy
-                DialogButtonBox.buttonRole: DialogButtonBox.DestructiveRole
-            }
-
-            onRejected: discardQuitDialog.reject()
-            onDiscarded: window.discardWorkingChangesAndClose()
-        }
-
-        Connections {
-            target: window.editor
-
-            function onStateBusyChanged() {
-                discardQuitButton.enabled = !window.editor.stateBusy
-            }
+        function onCloseSaveFailed() {
+            // Keep the window open and surface the precise persistence error
+            // through the normal Precision status line. Normal exits never
+            // show a discard prompt because edits are autosaved.
+            window.closeAfterAutosave = false
         }
     }
 
@@ -378,7 +332,10 @@ ApplicationWindow {
 
                     Label {
                         anchors.verticalCenter: parent.verticalCenter
-                        text: window.editor.dirty ? qsTr("UNSAVED") : qsTr("SAVED")
+                        text: window.editor.dirty
+                            ? (window.editor.autosavePending
+                                ? qsTr("SAVING") : qsTr("DRAFT"))
+                            : qsTr("SAVED")
                         color: window.editor.dirty ? Theme.warningText : Theme.savedText
                         font.pixelSize: 9
                         font.weight: Font.DemiBold

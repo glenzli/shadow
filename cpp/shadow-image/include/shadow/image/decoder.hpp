@@ -201,12 +201,14 @@ struct PixelBuffer final {
 // those decode semantics must increment this cache-visible contract version.
 inline constexpr std::uint32_t processed_linear_reference_rgb_contract_version = 1U;
 inline constexpr float processed_linear_reference_maximum_adjustment_threshold = 0.0F;
-// Version 1 accepts only processed linear sRGB/Rec.709-D65 input, maps out-of-gamut RGB at the
-// final display boundary by reducing Oklab chroma at fixed (display-clamped) lightness, then
-// applies the sRGB OETF and 8-bit quantization. It is gamut mapping, not HDR tone mapping.
-inline constexpr std::uint32_t display_srgb8_output_transform_version = 1U;
-// The v1 mapper is bounded work per out-of-gamut pixel. 0.5 is a conservative ceiling above
-// the display-sRGB Oklab gamut; sixteen bisections resolve chroma well below one 8-bit code step.
+// Version 3 accepts only processed linear sRGB/Rec.709-D65 input and first applies Shadow's
+// neutral scene-to-display curve on luminance.  This creates a stable toe and shoulder for
+// decoded RAW data before Oklab chroma is reduced at fixed mapped lightness and the sRGB OETF is
+// applied.  It is a deterministic SDR display rendering, not a camera-JPEG emulation.
+inline constexpr std::uint32_t display_srgb8_output_transform_version = 3U;
+// The v3 gamut mapper is bounded work per out-of-gamut pixel. 0.5 is a conservative ceiling
+// above the display-sRGB Oklab gamut; sixteen bisections resolve chroma well below one 8-bit code
+// step.
 inline constexpr double display_srgb8_maximum_oklab_chroma = 0.5;
 inline constexpr std::uint32_t display_srgb8_gamut_search_iterations = 16U;
 

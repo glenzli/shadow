@@ -436,7 +436,12 @@ using PreparedCurveAdjustment = std::variant<
     // Factor is multiplicative in the public contract, but maps to a restrained signed amount
     // internally. The clamp protects scripted factor values (the bridge allows up to 8x) from
     // producing an unstable shoulder.
-    const double amount = std::clamp(std::log2(parameters.factor) * 0.35, -0.70, 0.70);
+    // A previous coefficient made the upper half of the UI range behave like a dramatic
+    // S-curve: factor 2.5 could more than double a one-stop highlight. Map the multiplicative
+    // public control to a deliberately gentler log-domain amount instead. This keeps contrast
+    // visibly directional around middle gray while preserving recoverable highlight headroom and
+    // avoiding crushed shadows before the dedicated regional controls get a chance to act.
+    const double amount = std::clamp(std::log2(parameters.factor) * 0.20, -0.45, 0.45);
     const double shaped = normalized
         + amount * 2.0 * normalized * (1.0 - normalized) * (2.0 * normalized - 1.0);
     const double bounded = std::clamp(shaped, 1.0e-7, 1.0 - 1.0e-7);
@@ -448,7 +453,8 @@ using PreparedCurveAdjustment = std::variant<
 [[nodiscard]] Vector3 apply_selective_tone(
     const Vector3& input,
     const std::array<double, 3>& luminance_weights,
-    const SelectiveToneAdjustment& parameters
+    const SelectiveToneAdjustment& parameters,
+    const double scene_key_ev
 ) noexcept {
     const double luminance = input[0] * luminance_weights[0]
         + input[1] * luminance_weights[1]
@@ -457,30 +463,40 @@ using PreparedCurveAdjustment = std::variant<
         return input;
     }
 
-    const double ev = std::log2(luminance / 0.18);
-    // These four weights form a smooth partition of the ordinary scene-linear range. The old
-    // white region did not start until about 2.0 linear, even though most decoded RAW previews
-    // are normalized near 1.0, making Whites appear broken. The new shoulder begins around
-    // 0.4 and reaches its full effect just above 1.4, while the black region now reaches the
-    // deep but visible detail photographers actually expect the Blacks slider to affect.
-    const double blacks = 1.0 - smoothstep(-4.0, -2.2, ev);
-    const double shadows = smoothstep(-4.0, -2.2, ev)
-        * (1.0 - smoothstep(-0.5, 1.5, ev));
-    const double highlights = smoothstep(-0.5, 1.5, ev)
-        * (1.0 - smoothstep(1.2, 3.0, ev));
-    const double whites = smoothstep(1.2, 3.0, ev);
-    // Keep the endpoint intentionally gentler than the old two-stop multiplier. This is a
-    // regional recovery tool, not a second exposure control; exposure remains the predictable
-    // way to translate the entire scene.
-    const double stops = 1.25
-        * (parameters.blacks * blacks
-           + parameters.shadows * shadows
-           + parameters.highlights * highlights
-           + parameters.whites * whites);
-    if (stops == 0.0) {
+    // Work in scene EV relative to 18% middle gray.  Unlike the original four adjacent bands,
+    // these deliberately overlap: photographers expect each control to keep affecting a useful
+    // region instead of becoming a near no-op when the decoder's normalization moves a scene by
+    // a fraction of a stop.
+    // Do not move the zones all the way to the image median: that would make a uniformly dark
+    // scene's Blacks control operate only on near-zero code values. A half-strength adaptation
+    // is enough to compensate camera/exposure normalization while preserving a stable
+    // photographer-facing relationship to 18% gray.
+    const double ev = std::log2(luminance / 0.18) - 0.5 * scene_key_ev;
+    const double blacks = 1.0 - smoothstep(-5.5, -0.6, ev);
+    const double shadows = smoothstep(-5.0, -2.5, ev)
+        * (1.0 - smoothstep(-0.25, 1.5, ev));
+    const double highlights = smoothstep(-0.25, 1.5, ev)
+        * (1.0 - smoothstep(2.5, 5.0, ev));
+    const double whites = smoothstep(1.5, 5.0, ev);
+
+    // Shadows/highlights are broad exposure recovery fields.  Blacks/whites are restrained
+    // endpoint controls, so their maximum gain is lower and a positive Blacks value also lifts
+    // the toe by a small, smooth amount.  This gives the slider an observable black-point
+    // character even on files whose useful dark detail is not near numeric zero.
+    double stops = 1.7 * parameters.blacks * blacks
+        + 2.0 * parameters.shadows * shadows
+        + 2.0 * parameters.highlights * highlights
+        + 1.7 * parameters.whites * whites;
+    stops = std::clamp(stops, -4.0, 4.0);
+    double adjusted_luminance = luminance * std::exp2(stops);
+    if (parameters.blacks > 0.0) {
+        const double toe_lift_weight = blacks * (1.0 - smoothstep(-1.25, -0.1, ev));
+        adjusted_luminance += parameters.blacks * toe_lift_weight * 0.014;
+    }
+    if (!(adjusted_luminance > 0.0) || !std::isfinite(adjusted_luminance)) {
         return input;
     }
-    const double gain = std::exp2(stops);
+    const double gain = adjusted_luminance / luminance;
     return {input[0] * gain, input[1] * gain, input[2] * gain};
 }
 
@@ -1938,8 +1954,13 @@ void apply_node(
                     image,
                     index,
                     node,
-                    [&parameters, luminance_weights](const Vector3& input) {
-                        return apply_selective_tone(input, luminance_weights, parameters);
+                    [&parameters, luminance_weights, &context](const Vector3& input) {
+                        return apply_selective_tone(
+                            input,
+                            luminance_weights,
+                            parameters,
+                            context.selective_tone_scene_key_ev
+                        );
                     }
                 );
             } else if constexpr (std::is_same_v<Parameters, PerceptualColorAdjustment>) {
@@ -2234,6 +2255,13 @@ FloatRgbImage execute_adjustment_nodes(
             EditErrorCode::invalid_image_layout,
             std::nullopt,
             "adjustment execution context lies outside its full raster"
+        );
+    }
+    if (!std::isfinite(context.selective_tone_scene_key_ev)) {
+        throw EditError(
+            EditErrorCode::non_finite_value,
+            std::nullopt,
+            "selective tone scene key must be finite"
         );
     }
 

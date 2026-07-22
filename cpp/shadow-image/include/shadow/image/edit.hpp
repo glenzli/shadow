@@ -100,10 +100,14 @@ struct SaturationAdjustment final {
     double factor = 1.0;
 };
 
-// Lightroom-style regional tone controls expressed as bounded, implementation-independent
-// amounts. The CPU reference maps each amount to a bounded scene-linear gain and partitions
-// the reachable RAW preview range into smooth black, shadow, highlight, and white regions.
-// Zeroes are exactly neutral.
+// Scene-referred regional tone controls expressed as bounded, implementation-independent
+// amounts. Their implementation deliberately distinguishes the endpoints (Blacks/Whites)
+// from the broad recovery ranges (Shadows/Highlights): endpoint controls shape a gentle
+// toe/shoulder response while recovery controls apply a wider EV-domain exposure field.
+//
+// This is intentionally not a clone of any particular RAW developer. It is Shadow's compact,
+// ratio-preserving baseline that later local-masking implementations can refine without
+// changing the public control vocabulary. Zeroes are exactly neutral.
 struct SelectiveToneAdjustment final {
     double highlights = 0.0;
     double shadows = 0.0;
@@ -350,6 +354,11 @@ struct AdjustmentExecutionContext final {
     std::uint32_t origin_x = 0;
     std::uint32_t origin_y = 0;
     Dimensions full_dimensions{};
+    // Robust image-level log-luminance key relative to 18% gray. The renderer supplies this for
+    // RAW-backed preview and detail sessions so regional tone controls do not become ineffective
+    // merely because a camera or exposure places its entire scene above/below a fixed numeric
+    // zone. Zero preserves the standalone executor's canonical 18%-gray behavior.
+    double selective_tone_scene_key_ev = 0.0;
 };
 
 // Executes an intentionally compact subset of the future typed edit graph. The recommended
@@ -451,12 +460,14 @@ private:
     WarmEditPreviewSession(
         FloatRgbImage working_proxy,
         std::uint32_t max_edge,
-        OpticsProfileReceipt optics_receipt
+        OpticsProfileReceipt optics_receipt,
+        double selective_tone_scene_key_ev
     );
 
     FloatRgbImage working_proxy_;
     std::uint32_t max_edge_ = 0;
     OpticsProfileReceipt optics_receipt_;
+    double selective_tone_scene_key_ev_ = 0.0;
 
     friend WarmEditPreviewSession prepare_warm_edit_preview(
         const DecodeSession& session,
@@ -508,12 +519,19 @@ private:
     FullEditDetailSession(
         PixelBuffer reference_rgb,
         std::uint64_t retained_bytes,
-        OpticsProfileReceipt optics_receipt
+        OpticsProfileReceipt optics_receipt,
+        double dng_baseline_exposure_stops,
+        double selective_tone_scene_key_ev
     );
 
     PixelBuffer reference_rgb_;
     std::uint64_t retained_bytes_ = 0;
     OpticsProfileReceipt optics_receipt_;
+    // A valid DNG BaselineExposure is part of the source rendering, rather than an editable
+    // user node. Retain only the scalar so full-resolution data stays immutable and tiles apply
+    // the same source appearance as the warm proxy immediately before the edit graph.
+    double dng_baseline_exposure_stops_ = 0.0;
+    double selective_tone_scene_key_ev_ = 0.0;
 
     friend FullEditDetailSession prepare_full_edit_detail(
         const DecodeSession& session,

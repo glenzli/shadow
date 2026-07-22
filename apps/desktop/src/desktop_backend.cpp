@@ -966,6 +966,23 @@ BackendPhotoEditState DesktopBackend::saveEditVersion(
     ));
 }
 
+BackendPhotoEditState DesktopBackend::autosaveWorkingEdit(
+    const QString& photo_id,
+    const QString& source_path,
+    const QString& base_commit_id,
+    const QString& expected_working_commit_id,
+    const BackendGradeStack& grade_stack
+) const {
+    const auto ffi = ffi_grade_stack(grade_stack);
+    return edit_state(impl_->session->autosave_basic_edit_working(
+        photo_id.toStdString(),
+        source_path.toStdString(),
+        base_commit_id.toStdString(),
+        expected_working_commit_id.toStdString(),
+        ffi
+    ));
+}
+
 BackendPhotoEditState DesktopBackend::loadEditVersionDraft(
     const QString& photo_id,
     const QString& source_path,

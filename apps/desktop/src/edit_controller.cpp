@@ -27,6 +27,7 @@ namespace {
 constexpr std::uint32_t EDIT_PREVIEW_EDGE = 1'200;
 constexpr std::uint8_t EDIT_PREVIEW_QUALITY = 88;
 constexpr int EDIT_PREVIEW_THROTTLE_MS = 16;
+constexpr int EDIT_AUTOSAVE_DEBOUNCE_MS = 700;
 constexpr std::uint32_t EDIT_DETAIL_TILE_SIDE = 512;
 constexpr std::uint32_t EDIT_LARGE_DETAIL_TILE_SIDE = 1'024;
 constexpr int EDIT_DETAIL_DEBOUNCE_MS = 70;
@@ -460,6 +461,32 @@ edit_message(const char *const source,
     return result;
 }
 
+[[nodiscard]] EditStateTaskResult autosave_state(
+    const std::shared_ptr<DesktopBackend>& backend,
+    const QString& photo_id,
+    const QString& source_path,
+    const QString& base_commit_id,
+    const QString& expected_working_commit_id,
+    const BackendGradeStack grade_stack,
+    const quint64 generation
+) {
+    EditStateTaskResult result;
+    result.photo_generation = generation;
+    result.kind = EditStateTaskKind::Autosave;
+    try {
+        result.state = backend->autosaveWorkingEdit(
+            photo_id,
+            source_path,
+            base_commit_id,
+            expected_working_commit_id,
+            grade_stack
+        );
+    } catch (const std::exception& error) {
+        result.error = QString::fromUtf8(error.what());
+    }
+    return result;
+}
+
 [[nodiscard]] EditStateTaskResult load_version_draft_state(
     const std::shared_ptr<DesktopBackend>& backend,
     const QString& photo_id,
@@ -646,6 +673,7 @@ EditController::EditController(
     before_histogram_ = empty_histogram();
     preview_debounce_.setSingleShot(true);
     detail_debounce_.setSingleShot(true);
+    autosave_debounce_.setSingleShot(true);
     connect(
         &preview_debounce_,
         &QTimer::timeout,
@@ -671,6 +699,12 @@ EditController::EditController(
         &EditController::startDetailRender
     );
     connect(
+        &autosave_debounce_,
+        &QTimer::timeout,
+        this,
+        &EditController::startAutosave
+    );
+    connect(
         &detail_watcher_,
         &QFutureWatcher<EditDetailTaskResult>::finished,
         this,
@@ -684,6 +718,7 @@ EditController::EditController(
 EditController::~EditController() {
     preview_debounce_.stop();
     detail_debounce_.stop();
+    autosave_debounce_.stop();
     detail_render_token_ = backend_->beginEditDetailRequest();
     state_watcher_.waitForFinished();
     preview_watcher_.waitForFinished();
@@ -740,6 +775,11 @@ QVariantList EditController::detailTiles() const {
 
 bool EditController::dirty() const noexcept {
     return dirty_;
+}
+
+bool EditController::autosavePending() const noexcept {
+    return autosave_requested_ || autosave_debounce_.isActive()
+        || (state_running_ && state_watcher_.isRunning());
 }
 
 bool EditController::versionDraft() const noexcept {
@@ -1927,14 +1967,23 @@ bool EditController::openPhoto(
     const QString& provisional_preview_source
 ) {
     if (state_running_) {
+        if (pending_photo_open_.has_value() || autosave_requested_) {
+            // A second click during the same autosave simply retargets the pending switch.
+            // There is no user-owned unsaved state to resolve, so the newest selection wins.
+            pending_photo_open_ = PendingPhotoOpen{
+                .photo_id = photo_id,
+                .representation_id = representation_id,
+                .source_path = source_path,
+                .title = title,
+                .provisional_preview_source = provisional_preview_source,
+            };
+            setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+                "EditController", "Saving current adjustments before opening the selected photo…"
+            )));
+            return true;
+        }
     setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
         "EditController", "Finish the current version operation first")));
-        return false;
-    }
-    if (dirty_ && active_) {
-    setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
-        "EditController",
-        "Create a version or revert the current changes before reopening a photo")));
         return false;
     }
     if (active_ && photo_id == photo_id_
@@ -1950,11 +1999,38 @@ bool EditController::openPhoto(
         "The selected Review item has no editable RAW source")));
         return false;
     }
+    if (dirty_ && active_) {
+        // Shadow's working ref is an autosave, not a manually committed version. Queue the
+        // selected photo, force the pending working snapshot now, and resume this exact open
+        // request once persistence succeeds. This is intentionally non-blocking for browsing.
+        pending_photo_open_ = PendingPhotoOpen{
+            .photo_id = photo_id,
+            .representation_id = representation_id,
+            .source_path = source_path,
+            .title = title,
+            .provisional_preview_source = provisional_preview_source,
+        };
+        autosave_debounce_.stop();
+        if (!autosave_requested_) {
+            autosave_requested_ = true;
+            emit autosavePendingChanged();
+        }
+        setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+            "EditController", "Saving current adjustments before opening the selected photo…"
+        )));
+        startAutosave();
+        return true;
+    }
 
     ++photo_generation_;
     ++render_revision_;
     settled_render_revision_ = 0;
     preview_debounce_.stop();
+    autosave_debounce_.stop();
+    if (autosave_requested_) {
+        autosave_requested_ = false;
+        emit autosavePendingChanged();
+    }
     resetDetailState();
     preview_queued_ = false;
     before_requested_ = false;
@@ -2013,15 +2089,28 @@ bool EditController::openPhoto(
 }
 
 void EditController::closePhoto() {
-    if (dirty_) {
-    setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
-        "EditController",
-        "Create a version or revert the current changes before closing Precision")));
+    if (state_running_) {
+        close_photo_after_autosave_ = true;
         return;
+    }
+    if (dirty_) {
+        if (!autosave_requested_) {
+            // Merely previewing an older named Version is a transient draft,
+            // not an edit. Closing it must not silently replace `working`.
+            revertEdits();
+        } else {
+            close_photo_after_autosave_ = true;
+            autosave_debounce_.stop();
+            startAutosave();
+            setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+                "EditController", "Saving current adjustments before closing Precision…")));
+            return;
+        }
     }
     if (!active_) {
         return;
     }
+    pending_photo_open_.reset();
     setPointColorPickerActive(false);
     setWhiteBalancePickerActive(false);
     clearSessionHistory();
@@ -2360,6 +2449,7 @@ void EditController::undo() {
         );
         preferred_id = restored->grade_nodes.at(previous_index).grade_node_id;
     }
+    autosave_requested_ = true;
     setGradeStack(*restored, preferred_id);
     schedulePreview(0);
   setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
@@ -2376,6 +2466,7 @@ void EditController::redo() {
     if (!restored) {
         return;
     }
+    autosave_requested_ = true;
     setGradeStack(*restored, history_grade_node_id(history_key));
     schedulePreview(0);
   setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
@@ -2424,6 +2515,11 @@ void EditController::revertEdits() {
         setGradeStack(committed_grade_stack_);
         recordWorkingTransition(QStringLiteral("revert"), before);
         schedulePreview(0);
+    }
+    autosave_debounce_.stop();
+    if (autosave_requested_) {
+        autosave_requested_ = false;
+        emit autosavePendingChanged();
     }
   setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
       "EditController", "Restored the current saved version")));
@@ -2526,7 +2622,9 @@ void EditController::loadVersionDraft(const QString& commit_id) {
     if (dirty_) {
     setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
         "EditController",
-        "Create a version or revert current changes before loading another version")));
+        "Saving current adjustments before loading another version")));
+        autosave_debounce_.stop();
+        startAutosave();
         return;
     }
     setStateRunning(true);
@@ -2540,6 +2638,22 @@ void EditController::loadVersionDraft(const QString& commit_id) {
         commit_id,
         photo_generation_
     ));
+}
+
+bool EditController::prepareToClose() {
+    autosave_debounce_.stop();
+    if (state_running_) {
+        close_after_autosave_ = true;
+        return false;
+    }
+    if (!active_ || !dirty_ || !autosave_requested_) {
+        return true;
+    }
+    close_after_autosave_ = true;
+    if (!state_running_) {
+        startAutosave();
+    }
+    return false;
 }
 
 void EditController::finishStateTask() {
@@ -2557,6 +2671,18 @@ void EditController::finishStateTask() {
     setStatusMessage(edit_message(
         QT_TRANSLATE_NOOP("EditController", "Version operation failed · %1"),
         {result.error}));
+        if (close_after_autosave_) {
+            close_after_autosave_ = false;
+            emit closeSaveFailed();
+        }
+        close_photo_after_autosave_ = false;
+        if (result.kind == EditStateTaskKind::Autosave) {
+            pending_photo_open_.reset();
+        }
+        if (result.kind == EditStateTaskKind::Autosave && active_ && dirty_) {
+            autosave_debounce_.start(1'500);
+            emit autosavePendingChanged();
+        }
         if (preview_queued_) {
             preview_debounce_.start(0);
         }
@@ -2564,7 +2690,24 @@ void EditController::finishStateTask() {
         maybeStartDetailRender();
         return;
     }
-    applyState(std::move(result.state));
+    if (result.kind == EditStateTaskKind::Autosave) {
+        applyAutosavedState(std::move(result.state));
+        if (pending_photo_open_.has_value()) {
+            const PendingPhotoOpen pending = std::move(*pending_photo_open_);
+            pending_photo_open_.reset();
+            close_photo_after_autosave_ = false;
+            openPhoto(
+                pending.photo_id,
+                pending.representation_id,
+                pending.source_path,
+                pending.title,
+                pending.provisional_preview_source
+            );
+            return;
+        }
+    } else {
+        applyState(std::move(result.state));
+    }
     switch (result.kind) {
     case EditStateTaskKind::Open:
     setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
@@ -2577,10 +2720,14 @@ void EditController::finishStateTask() {
         "EditController",
         "Library version created · the previous state remains available")));
         break;
+    case EditStateTaskKind::Autosave:
+    setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+        "EditController", "Current adjustments saved locally")));
+        break;
     case EditStateTaskKind::LoadDraft:
     setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
         "EditController",
-        "Version loaded into working changes · create a version to keep it")));
+        "Named version loaded as a draft · adjust it to create a new working state")));
         schedulePreview(0);
         break;
     }
@@ -2589,6 +2736,14 @@ void EditController::finishStateTask() {
     }
     maybeStartBeforePreview();
     maybeStartDetailRender();
+    if (close_photo_after_autosave_) {
+        close_photo_after_autosave_ = false;
+        closePhoto();
+    }
+    if (close_after_autosave_) {
+        close_after_autosave_ = false;
+        emit closeReady();
+    }
 }
 
 void EditController::finishPreviewTask() {
@@ -2654,11 +2809,11 @@ void EditController::finishPreviewTask() {
                 setStatusMessage(edit_message(
                     dirty_ ? QT_TRANSLATE_NOOP(
                                  "EditController",
-                                 "Unsaved changes · preview is current"
+                                 "Saving adjustments · preview is current"
                              )
                            : QT_TRANSLATE_NOOP(
                                  "EditController",
-                                 "Version and preview are current"
+                                 "Working state and preview are current"
                              )
                 ));
             }
@@ -2961,6 +3116,11 @@ void EditController::applyState(BackendPhotoEditState state) {
         return;
     }
     setVersionDraft(state.is_version_draft);
+    autosave_debounce_.stop();
+    if (autosave_requested_) {
+        autosave_requested_ = false;
+        emit autosavePendingChanged();
+    }
     if (!version_draft_) {
         committed_grade_stack_ = state.grade_stack;
         durable_working_commit_id_ = state.base_commit_id;
@@ -3137,6 +3297,10 @@ void EditController::recordWorkingTransition(
     if (could_undo != canUndo() || could_redo != canRedo()) {
         emit historyChanged();
     }
+    autosave_requested_ = true;
+    if (dirty_ && !state_running_) {
+        scheduleAutosave();
+    }
 }
 
 void EditController::schedulePreview(const int delay_ms) {
@@ -3189,10 +3353,71 @@ void EditController::setStatusMessage(LocalizedUiMessage status) {
 
 void EditController::setDirty(const bool dirty) {
     if (dirty_ == dirty) {
+        if (dirty && autosave_requested_ && !state_running_) {
+            scheduleAutosave();
+        }
         return;
     }
     dirty_ = dirty;
     emit dirtyChanged();
+    if (dirty_ && autosave_requested_ && !state_running_) {
+        scheduleAutosave();
+    } else if (!dirty_) {
+        autosave_debounce_.stop();
+    }
+}
+
+void EditController::scheduleAutosave() {
+    if (!active_ || !dirty_ || !autosave_requested_ || state_running_) {
+        return;
+    }
+    autosave_debounce_.start(EDIT_AUTOSAVE_DEBOUNCE_MS);
+    emit autosavePendingChanged();
+}
+
+void EditController::startAutosave() {
+    autosave_debounce_.stop();
+    if (!active_ || !dirty_ || !autosave_requested_ || state_running_) {
+        return;
+    }
+    history_.finishGesture(grade_stack_);
+    emit historyChanged();
+    setStateRunning(true);
+    emit autosavePendingChanged();
+    setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+        "EditController", "Saving current adjustments locally…")));
+    state_watcher_.setFuture(QtConcurrent::run(
+        autosave_state,
+        backend_,
+        photo_id_,
+        source_path_,
+        base_commit_id_,
+        durable_working_commit_id_,
+        grade_stack_,
+        photo_generation_
+    ));
+}
+
+void EditController::applyAutosavedState(BackendPhotoEditState state) {
+    if (state.photo_id != photo_id_ || state.source_path != source_path_) {
+        setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+            "EditController", "Catalog returned autosave state for a different photo")));
+        return;
+    }
+    if (grade_stack_ != state.grade_stack) {
+        // Changes are disabled while the transaction is in flight. Treat a
+        // mismatch as authoritative recovery rather than risking a false
+        // saved badge for a state that did not reach the Catalog.
+        setGradeStack(std::move(state.grade_stack));
+    }
+    setVersionDraft(false);
+    base_commit_id_ = state.base_commit_id;
+    durable_working_commit_id_ = state.base_commit_id;
+    committed_grade_stack_ = grade_stack_;
+    versions_.replace(std::move(state.versions));
+    autosave_requested_ = false;
+    setDirty(false);
+    emit autosavePendingChanged();
 }
 
 void EditController::setVersionDraft(const bool draft) {
@@ -3210,6 +3435,7 @@ void EditController::setStateRunning(const bool running) {
     const bool previous_busy = busy();
     state_running_ = running;
     emit stateBusyChanged();
+    emit autosavePendingChanged();
     emit gradeNodeActionsChanged();
     emitBusyChange(previous_busy);
 }

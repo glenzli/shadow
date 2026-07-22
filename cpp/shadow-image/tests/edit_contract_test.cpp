@@ -769,10 +769,9 @@ void selective_tone_is_exactly_neutral_and_preserves_scene_range() {
         },
     };
     const auto adjusted = image::execute_adjustment_nodes(zones, regional_node);
-    expect_close(
-        adjusted.samples[0],
-        black * static_cast<float>(std::exp2(1.25)),
-        "black control reaches the visible deep-shadow toe"
+    expect(
+        adjusted.samples[0] > black * 2.0F && adjusted.samples[0] < 0.1F,
+        "black control lifts the visible deep-shadow toe without turning it into middle gray"
     );
     expect_close(
         adjusted.samples[3],
@@ -792,9 +791,80 @@ void selective_tone_is_exactly_neutral_and_preserves_scene_range() {
     );
 }
 
+void scene_contrast_is_restrained_and_preserves_the_middle_gray_anchor() {
+    const auto input = rgb_image(
+        3,
+        {
+            0.01F, 0.01F, 0.01F,
+            0.18F, 0.18F, 0.18F,
+            1.0F, 1.0F, 1.0F,
+        }
+    );
+    const std::array contrast_node{
+        image::AdjustmentNode{
+            .node_id = "restrained-scene-contrast",
+            .parameters = image::ContrastAdjustment{.factor = 2.5, .pivot = 0.18},
+        },
+    };
+    const auto adjusted = image::execute_adjustment_nodes(input, contrast_node);
+    expect(
+        adjusted.samples[0] > 0.003F && adjusted.samples[0] < input.samples[0],
+        "maximum UI contrast deepens shadows without crushing them to black"
+    );
+    expect_close(
+        adjusted.samples[3],
+        0.18F,
+        "scene contrast keeps its explicit middle-gray pivot stable"
+    );
+    expect(
+        adjusted.samples[6] > input.samples[6] && adjusted.samples[6] < 2.0F,
+        "maximum UI contrast expands highlights without an implausible hard shoulder"
+    );
+
+    const std::array reduced_contrast_node{
+        image::AdjustmentNode{
+            .node_id = "reduced-scene-contrast",
+            .parameters = image::ContrastAdjustment{.factor = 0.25, .pivot = 0.18},
+        },
+    };
+    const auto reduced = image::execute_adjustment_nodes(input, reduced_contrast_node);
+    expect(
+        reduced.samples[0] > input.samples[0] && reduced.samples[6] < input.samples[6],
+        "negative contrast converges toward the same middle-gray pivot"
+    );
+}
+
+void selective_tone_adapts_partly_to_the_image_scene_key() {
+    const auto input = rgb_image(1, {0.06F, 0.06F, 0.06F});
+    const std::array black_node{
+        image::AdjustmentNode{
+            .node_id = "scene-key-black-control",
+            .parameters = image::SelectiveToneAdjustment{.blacks = 0.6},
+        },
+    };
+    const auto canonical = image::execute_adjustment_nodes(input, black_node);
+    const auto high_key = image::execute_adjustment_nodes(
+        input,
+        black_node,
+        image::AdjustmentExecutionContext{
+            .full_dimensions = input.dimensions,
+            .selective_tone_scene_key_ev = 2.0,
+        }
+    );
+    expect(
+        high_key.samples[0] > canonical.samples[0] * 1.2F,
+        "scene-key adaptation keeps the Blacks control effective on a bright-normalized RAW"
+    );
+    expect_close(
+        high_key.samples[1] / high_key.samples[0],
+        1.0F,
+        "scene-key tone adaptation remains luminance-driven and preserves neutral RGB ratios"
+    );
+}
+
 void selective_tone_weights_are_smooth_and_preserve_rgb_ratios() {
-    const float below = static_cast<float>(0.18 * std::exp2(-2.2001));
-    const float above = static_cast<float>(0.18 * std::exp2(-2.1999));
+    const float below = static_cast<float>(0.18 * std::exp2(-0.6001));
+    const float above = static_cast<float>(0.18 * std::exp2(-0.5999));
     const auto boundary = rgb_image(
         2,
         {below, below, below, above, above, above}
@@ -1165,8 +1235,8 @@ void node_order_is_observable_and_disabled_nodes_are_skipped() {
         "contrast consumes the preceding exposure result"
     );
     expect(
-        std::abs(first.samples[0] - second.samples[0]) > 0.1F,
-        "non-commuting nodes cannot be silently reordered"
+        std::abs(first.samples[0] - second.samples[0]) > 0.01F,
+        "restrained contrast still observes the declared node order"
     );
 
     image::AdjustmentNode disabled = exposure;
@@ -2019,6 +2089,8 @@ int main() {
     exposure_preserves_unclipped_scene_range_and_padding();
     rgb_white_balance_and_saturation_have_numeric_contracts();
     selective_tone_is_exactly_neutral_and_preserves_scene_range();
+    scene_contrast_is_restrained_and_preserves_the_middle_gray_anchor();
+    selective_tone_adapts_partly_to_the_image_scene_key();
     selective_tone_weights_are_smooth_and_preserve_rgb_ratios();
     perceptual_color_is_exactly_neutral_for_identity_and_low_chroma();
     perceptual_color_range_wraps_across_the_hue_seam();

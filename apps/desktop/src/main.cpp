@@ -720,7 +720,7 @@ int main(int argc, char* argv[]) {
                     engine.rootObjects().front()
                 );
                 if (window == nullptr || window->close()) {
-                    qCritical() << "Dirty close smoke bypassed the discard confirmation";
+                    qCritical() << "Dirty close smoke did not defer for autosave";
                     application.exit(EXIT_FAILURE);
                     return;
                 }
@@ -732,14 +732,8 @@ int main(int argc, char* argv[]) {
                         QObject* const dialog = root_object->findChild<QObject*>(
                             QStringLiteral("discardQuitDialog")
                         );
-                        if (dialog == nullptr
-                            || !dialog->property("visible").toBool()
-                            || !QMetaObject::invokeMethod(
-                                root_object,
-                                "discardWorkingChangesAndClose",
-                                Qt::DirectConnection
-                            )) {
-                            qCritical() << "Dirty close smoke could not discard and quit";
+                        if (dialog != nullptr) {
+                            qCritical() << "Dirty close smoke found an obsolete discard dialog";
                             application.exit(EXIT_FAILURE);
                         }
                     }

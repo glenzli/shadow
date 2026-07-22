@@ -208,13 +208,11 @@ void preparation_retains_one_immutable_source_and_tiles_exactly() {
     expect(first.row_stride_bytes == 6U, "RGB8 tile rows are tightly packed");
     expect(first.bytes == second.bytes, "identical detail renders are deterministic");
     expect(
-        first.bytes == std::vector<std::uint8_t>{
-            255, 255, 0,
-            0, 255, 255,
-            255, 0, 255,
-            0, 0, 0,
-        },
-        "detail crop preserves exact full-resolution pixel coordinates"
+        first.bytes[0] > first.bytes[2] && first.bytes[1] > first.bytes[2]
+            && first.bytes[4] > first.bytes[3] && first.bytes[5] > first.bytes[3]
+            && first.bytes[6] > first.bytes[7] && first.bytes[8] > first.bytes[7]
+            && first.bytes[9] == 0U && first.bytes[10] == 0U && first.bytes[11] == 0U,
+        "detail crop preserves full-resolution pixel coordinates and primary-color dominance"
     );
 }
 
@@ -232,8 +230,9 @@ void adjustments_apply_only_to_the_requested_crop() {
     };
     const auto adjusted = session.render_rgb8(plan, {0, 0, 1, 1});
     expect(
-        adjusted.bytes == std::vector<std::uint8_t>{137, 137, 137},
-        "detail tile executes existing scene-linear nodes before sRGB8 output"
+        adjusted.bytes[0] > 0U && adjusted.bytes[0] == adjusted.bytes[1]
+            && adjusted.bytes[1] == adjusted.bytes[2],
+        "detail tile executes scene-linear nodes before the neutral display transform"
     );
     const auto neutral = session.render_rgb8(neutral_plan(), {0, 0, 1, 1});
     expect(
@@ -250,28 +249,80 @@ void processed_linear_grayscale_is_encoded_once_and_padding_is_ignored() {
         neutral_plan(),
         {0, 0, dimensions.width, dimensions.height}
     );
+    const auto gray = [&full](const std::size_t pixel) { return full.bytes[pixel * 3U]; };
     expect(
-        full.bytes == std::vector<std::uint8_t>{
-            0, 0, 0,
-            13, 13, 13,
-            188, 188, 188,
-            255, 255, 255,
-            255, 255, 255,
-            188, 188, 188,
-            13, 13, 13,
-            0, 0, 0,
-        },
-        "neutral detail applies the sRGB output transfer once to processed-linear grayscale"
+        gray(0U) == 0U && gray(0U) == full.bytes[1U] && gray(0U) == full.bytes[2U]
+            && gray(0U) < gray(1U) && gray(1U) < gray(2U) && gray(2U) < gray(3U)
+            && gray(4U) > gray(5U) && gray(5U) > gray(6U) && gray(6U) > gray(7U),
+        "neutral detail applies a monotonic scene-to-display curve once to processed-linear grayscale"
     );
     const auto crop = session.render_rgb8(neutral_plan(), {1, 0, 2, 2});
     expect(
         crop.bytes == std::vector<std::uint8_t>{
-            13, 13, 13,
-            188, 188, 188,
-            188, 188, 188,
-            13, 13, 13,
+            gray(1U), gray(1U), gray(1U),
+            gray(2U), gray(2U), gray(2U),
+            gray(5U), gray(5U), gray(5U),
+            gray(6U), gray(6U), gray(6U),
         },
         "detail crop honors padded source rows without reading padding samples"
+    );
+}
+
+void neutral_scene_display_curve_retains_highlight_separation() {
+    constexpr image::Dimensions dimensions{1, 1};
+    auto source = reference_rgb(dimensions);
+    source.samples = {32'768U, 32'768U, 32'768U};
+    SyntheticDecodeSession decoder(metadata(dimensions), std::move(source));
+    const auto session = image::prepare_full_edit_detail(decoder);
+    const auto one_stop = session.render_rgb8(
+        std::array{image::AdjustmentNode{
+            .node_id = "one-stop",
+            .parameters = image::ExposureAdjustment{.stops = 1.0},
+        }},
+        {0, 0, 1, 1}
+    );
+    const auto two_stops = session.render_rgb8(
+        std::array{image::AdjustmentNode{
+            .node_id = "two-stops",
+            .parameters = image::ExposureAdjustment{.stops = 2.0},
+        }},
+        {0, 0, 1, 1}
+    );
+    expect(
+        one_stop.bytes[0] < two_stops.bytes[0] && two_stops.bytes[0] < 255U
+            && one_stop.bytes[0] == one_stop.bytes[1]
+            && one_stop.bytes[1] == one_stop.bytes[2]
+            && two_stops.bytes[0] == two_stops.bytes[1]
+            && two_stops.bytes[1] == two_stops.bytes[2],
+        "neutral display rendering rolls scene highlights into distinct SDR values"
+    );
+}
+
+void display_quantization_dither_breaks_flat_8bit_contours_without_chroma_noise() {
+    constexpr image::Dimensions dimensions{16, 16};
+    auto source = reference_rgb(dimensions);
+    std::fill(source.samples.begin(), source.samples.end(), 16'384U);
+    SyntheticDecodeSession decoder(metadata(dimensions), std::move(source));
+    const auto session = image::prepare_full_edit_detail(decoder);
+    const std::array<image::AdjustmentNode, 0U> no_nodes{};
+    const auto rendered = session.render_rgb8(
+        no_nodes,
+        image::DetailTileRect{.x = 0U, .y = 0U, .width = 16U, .height = 16U}
+    );
+    std::array<bool, 256U> observed{};
+    for (std::size_t pixel = 0U; pixel < dimensions.pixel_count(); ++pixel) {
+        const std::size_t offset = pixel * 3U;
+        expect(
+            rendered.bytes[offset] == rendered.bytes[offset + 1U]
+                && rendered.bytes[offset + 1U] == rendered.bytes[offset + 2U],
+            "display dither is shared across RGB channels and cannot introduce chroma speckle"
+        );
+        observed[rendered.bytes[offset]] = true;
+    }
+    const auto distinct = std::count(observed.begin(), observed.end(), true);
+    expect(
+        distinct >= 2,
+        "display output distributes a flat intermediate tone across adjacent 8-bit codes"
     );
 }
 
@@ -288,7 +339,7 @@ void processed_linear_contract_is_required_before_editing() {
 }
 
 void display_gamut_mapping_preserves_oklab_hue_with_bounded_work() {
-    static_assert(image::display_srgb8_output_transform_version == 1U);
+    static_assert(image::display_srgb8_output_transform_version == 3U);
     static_assert(image::display_srgb8_gamut_search_iterations <= 16U);
     static_assert(image::display_srgb8_maximum_oklab_chroma == 0.5);
 
@@ -543,6 +594,8 @@ int main() {
     preparation_retains_one_immutable_source_and_tiles_exactly();
     adjustments_apply_only_to_the_requested_crop();
     processed_linear_grayscale_is_encoded_once_and_padding_is_ignored();
+    neutral_scene_display_curve_retains_highlight_separation();
+    display_quantization_dither_breaks_flat_8bit_contours_without_chroma_noise();
     processed_linear_contract_is_required_before_editing();
     display_gamut_mapping_preserves_oklab_hue_with_bounded_work();
     irregular_tiles_match_one_full_pixel_local_execution_without_seams();
