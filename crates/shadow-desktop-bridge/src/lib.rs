@@ -1,5 +1,6 @@
 //! Coarse-grained, long-lived Rust services consumed by the Qt desktop shell.
 
+mod edit_version_diff;
 mod isolated_proxy;
 mod photo_provider;
 mod review_service;
@@ -42,12 +43,9 @@ use shadow_catalog::{
     CachedArtifact, CachedArtifactRole, CatalogActor, CatalogError, CatalogHandle,
     CommitEditRepository, CommitRecipe, CommitRecipeAndEditRepository, EditObjectPackWrite,
     EditRepositoryRefUpdate, RecipeCommitRecord, RecipeRefExpectation, RecipeRefKind,
-    RecipeRefTarget, RecordCachedArtifact, RepresentationFingerprint, ReviewCursor,
-    ReviewItemRecord, TechnicalObservationRevision,
+    RecipeRefTarget, RecordCachedArtifact, RepresentationFingerprint, ReviewItemRecord,
 };
-use shadow_core::{
-    CachedArtifactLoader, fingerprint_source, technical_analysis_preprocessing_version,
-};
+use shadow_core::{CachedArtifactLoader, fingerprint_source};
 #[cfg(test)]
 use shadow_core::{DecodeInspectionSummary, ScanCancellation, ScanCompletion};
 use shadow_domain::operation::{
@@ -82,20 +80,26 @@ use shadow_domain::{
     AdjustmentNode, AdjustmentScope, BlendMode, CURRENT_RECIPE_SCHEMA_VERSION, EditEntityMapV1,
     EditGraph, EditObject, EditObjectKind, EditObjectPack, EditRepositoryCommit,
     EditRepositoryCommitPayloadV1, EditRepositoryRefExpectation, EditRepositoryRefKind, EntityId,
-    FiniteF64, ImageDimensions, ImageDomain, LayerContent, LayerContentDiff, LayerInstance,
-    LayerInstanceId, LibraryRootV1, NodeId, NodeInput, OperationDescriptor, OperationId,
-    ParameterBlock, ParameterKey, ParameterValue, PhotoId, PortType, PreviewByteOrder,
-    PreviewCodec, ProcessingStage, ProxyPayload, RecipeCommit, RecipeCommitId, RecipeDiff,
-    RecipeId, RecipeInputSettings, RecipeOpticsSettings, RecipeSnapshot, RepresentationId,
-    UnitInterval, VersionName, diff_recipe_snapshots,
+    FiniteF64, ImageDimensions, ImageDomain, LayerContent, LayerInstance, LayerInstanceId,
+    LibraryRootV1, NodeId, NodeInput, OperationDescriptor, OperationId, ParameterBlock,
+    ParameterKey, ParameterValue, PhotoId, PortType, PreviewByteOrder, PreviewCodec,
+    ProcessingStage, ProxyPayload, RecipeCommit, RecipeCommitId, RecipeId, RecipeInputSettings,
+    RecipeOpticsSettings, RecipeSnapshot, RepresentationId, UnitInterval, VersionName,
+    diff_recipe_snapshots,
 };
 use uuid::Uuid;
 
 #[cfg(test)]
 use crate::photo_provider::PhotoInspector;
 use crate::photo_provider::isolated_edit_raster;
-use crate::review_service::{ReviewService, ReviewVisualSelection, ffi_decision_flag};
+use crate::review_service::ReviewService;
 use crate::scan_service::ScanService;
+#[cfg(test)]
+use edit_version_diff::{
+    EditVersionDiffError, changed_grade_parameters_recipe_v1, edit_version_diff,
+    has_other_recipe_changes,
+};
+use edit_version_diff::{commit_record, ffi_edit_version};
 
 #[cxx::bridge(namespace = "shadow::desktop")]
 mod ffi {
@@ -954,35 +958,8 @@ impl DesktopSession {
         cursor_representation_id: &str,
         limit: u32,
     ) -> AnyResult<ffi::FfiReviewPage> {
-        let cursor = parse_cursor(cursor_path, cursor_representation_id)?;
-        let revision =
-            TechnicalObservationRevision::current(technical_analysis_preprocessing_version());
-        let page = self.catalog.review_page_with_technical(
-            cursor.as_ref(),
-            usize::try_from(limit).unwrap_or(usize::MAX),
-            &revision,
-        )?;
-        let (has_more, next_cursor_path, next_cursor_representation_id) =
-            if let Some(cursor) = page.next_cursor {
-                (
-                    true,
-                    cursor.display_path,
-                    cursor.representation_id.to_string(),
-                )
-            } else {
-                (false, String::new(), String::new())
-            };
-        Ok(ffi::FfiReviewPage {
-            total_items: page.total_items,
-            items: page
-                .items
-                .into_iter()
-                .map(|record| self.review_item(record))
-                .collect::<AnyResult<Vec<_>>>()?,
-            has_more,
-            next_cursor_path,
-            next_cursor_representation_id,
-        })
+        self.review
+            .review_page(cursor_path, cursor_representation_id, limit)
     }
 
     fn load_review_visual(&self, ticket: &str) -> AnyResult<ffi::FfiVisualPayload> {
@@ -4961,491 +4938,6 @@ fn required_text(parameters: &ParameterBlock, key: &str, expected_len: usize) ->
     }
 }
 
-fn commit_record(
-    commits: &[RecipeCommitRecord],
-    commit_id: RecipeCommitId,
-) -> AnyResult<&RecipeCommitRecord> {
-    commits
-        .iter()
-        .find(|record| record.commit.id() == commit_id)
-        .ok_or_else(|| anyhow!("Recipe commit {commit_id} does not belong to this photo"))
-}
-
-fn ffi_edit_version(
-    record: &RecipeCommitRecord,
-    commits: &[RecipeCommitRecord],
-    working_id: Option<RecipeCommitId>,
-) -> AnyResult<ffi::FfiEditVersion> {
-    let diff = edit_version_diff(record, commits)?;
-    Ok(ffi::FfiEditVersion {
-        commit_id: record.commit.id().to_string(),
-        name: record
-            .commit
-            .message()
-            .unwrap_or("Untitled version")
-            .to_owned(),
-        created_at_ms: record.commit.created_at_ms(),
-        parent_commit_ids: record
-            .commit
-            .parents()
-            .iter()
-            .map(ToString::to_string)
-            .collect(),
-        is_working: working_id == Some(record.commit.id()),
-        is_root: diff.is_root,
-        recipe_schema_changed: diff.recipe_schema_changed,
-        grade_nodes_added: diff.grade_nodes_added,
-        grade_nodes_removed: diff.grade_nodes_removed,
-        grade_nodes_moved: diff.grade_nodes_moved,
-        grade_nodes_modified: diff.grade_nodes_modified,
-        render_ops_added: diff.render_ops_added,
-        render_ops_removed: diff.render_ops_removed,
-        render_ops_modified: diff.render_ops_modified,
-        render_op_parameter_blocks_changed: diff.render_op_parameter_blocks_changed,
-        changed_basic_parameter_count: checked_count(
-            record.commit.id(),
-            "changed_basic_parameters",
-            diff.changed_basic_parameters.len(),
-        )?,
-        changed_basic_parameters: diff.changed_basic_parameters,
-        has_other_changes: diff.has_other_changes,
-    })
-}
-
-#[derive(Debug, thiserror::Error)]
-enum EditVersionDiffError {
-    #[error(
-        "edit_version_diff.parent_missing: commit {commit_id} references unavailable first parent {parent_id}"
-    )]
-    ParentMissing {
-        commit_id: RecipeCommitId,
-        parent_id: RecipeCommitId,
-    },
-    #[error(
-        "edit_version_diff.recipe_mismatch: commit {commit_id} and first parent {parent_id} have different Recipe identities"
-    )]
-    RecipeMismatch {
-        commit_id: RecipeCommitId,
-        parent_id: RecipeCommitId,
-    },
-    #[error(
-        "edit_version_diff.count_overflow: {field} for commit {commit_id} exceeds the desktop ABI limit"
-    )]
-    CountOverflow {
-        commit_id: RecipeCommitId,
-        field: &'static str,
-    },
-}
-
-#[derive(Debug, Default)]
-struct EditVersionDiff {
-    is_root: bool,
-    recipe_schema_changed: bool,
-    grade_nodes_added: u32,
-    grade_nodes_removed: u32,
-    grade_nodes_moved: u32,
-    grade_nodes_modified: u32,
-    render_ops_added: u32,
-    render_ops_removed: u32,
-    render_ops_modified: u32,
-    render_op_parameter_blocks_changed: u32,
-    changed_basic_parameters: Vec<String>,
-    has_other_changes: bool,
-}
-
-fn edit_version_diff(
-    record: &RecipeCommitRecord,
-    commits: &[RecipeCommitRecord],
-) -> Result<EditVersionDiff, EditVersionDiffError> {
-    let Some(parent_id) = record.commit.parents().first().copied() else {
-        return Ok(EditVersionDiff {
-            is_root: true,
-            ..EditVersionDiff::default()
-        });
-    };
-    let parent = commits
-        .iter()
-        .find(|candidate| candidate.commit.id() == parent_id)
-        .ok_or(EditVersionDiffError::ParentMissing {
-            commit_id: record.commit.id(),
-            parent_id,
-        })?;
-    if parent.commit.recipe_id() != record.commit.recipe_id() {
-        return Err(EditVersionDiffError::RecipeMismatch {
-            commit_id: record.commit.id(),
-            parent_id,
-        });
-    }
-
-    let structural = diff_recipe_snapshots(parent.commit.snapshot(), record.commit.snapshot());
-    let summary = structural.summary();
-    let (changed_basic_parameters, basic_subset_supported) = match (
-        decode_grade_stack_draft_from_recipe_v1_snapshot(parent.commit.snapshot()),
-        decode_grade_stack_draft_from_recipe_v1_snapshot(record.commit.snapshot()),
-    ) {
-        (Ok(before), Ok(after)) => (changed_grade_parameters_recipe_v1(&before, &after), true),
-        _ => (Vec::new(), false),
-    };
-
-    Ok(EditVersionDiff {
-        is_root: false,
-        recipe_schema_changed: summary.recipe_schema_changed,
-        grade_nodes_added: checked_summary_count(
-            record.commit.id(),
-            "grade_nodes_added",
-            summary.layers_added,
-        )?,
-        grade_nodes_removed: checked_summary_count(
-            record.commit.id(),
-            "grade_nodes_removed",
-            summary.layers_removed,
-        )?,
-        grade_nodes_moved: checked_summary_count(
-            record.commit.id(),
-            "grade_nodes_moved",
-            summary.layers_moved,
-        )?,
-        grade_nodes_modified: checked_summary_count(
-            record.commit.id(),
-            "grade_nodes_modified",
-            summary.layers_modified,
-        )?,
-        render_ops_added: checked_summary_count(
-            record.commit.id(),
-            "render_ops_added",
-            summary.nodes_added,
-        )?,
-        render_ops_removed: checked_summary_count(
-            record.commit.id(),
-            "render_ops_removed",
-            summary.nodes_removed,
-        )?,
-        render_ops_modified: checked_summary_count(
-            record.commit.id(),
-            "render_ops_modified",
-            summary.nodes_modified,
-        )?,
-        render_op_parameter_blocks_changed: checked_summary_count(
-            record.commit.id(),
-            "render_op_parameter_blocks_changed",
-            summary.node_parameters_changed,
-        )?,
-        has_other_changes: !basic_subset_supported
-            || has_other_recipe_changes(
-                &structural,
-                parent.commit.snapshot(),
-                record.commit.snapshot(),
-            ),
-        changed_basic_parameters,
-    })
-}
-
-fn checked_summary_count(
-    commit_id: RecipeCommitId,
-    field: &'static str,
-    count: usize,
-) -> Result<u32, EditVersionDiffError> {
-    checked_count(commit_id, field, count)
-}
-
-fn checked_count(
-    commit_id: RecipeCommitId,
-    field: &'static str,
-    count: usize,
-) -> Result<u32, EditVersionDiffError> {
-    u32::try_from(count).map_err(|_| EditVersionDiffError::CountOverflow { commit_id, field })
-}
-
-fn changed_basic_parameters(
-    before: BasicEditParameters,
-    after: BasicEditParameters,
-) -> Vec<String> {
-    let mut changed = Vec::new();
-    if persisted_float_changed(before.exposure_stops, after.exposure_stops) {
-        changed.push("exposure_stops".to_owned());
-    }
-    if persisted_float_changed(before.contrast_factor, after.contrast_factor) {
-        changed.push("contrast_factor".to_owned());
-    }
-    for (key, before, after) in [
-        (
-            "white_balance_temperature",
-            before.white_balance_temperature,
-            after.white_balance_temperature,
-        ),
-        (
-            "white_balance_tint",
-            before.white_balance_tint,
-            after.white_balance_tint,
-        ),
-    ] {
-        if persisted_float_changed(before, after) {
-            changed.push(key.to_owned());
-        }
-    }
-    if persisted_float_changed(before.saturation_factor, after.saturation_factor) {
-        changed.push("saturation_factor".to_owned());
-    }
-    changed
-}
-
-fn changed_fine_parameters(before: &FineEditParameters, after: &FineEditParameters) -> Vec<String> {
-    let mut changed = Vec::new();
-    for (key, before, after) in [
-        (
-            "highlights",
-            before.selective_tone.highlights,
-            after.selective_tone.highlights,
-        ),
-        (
-            "shadows",
-            before.selective_tone.shadows,
-            after.selective_tone.shadows,
-        ),
-        (
-            "whites",
-            before.selective_tone.whites,
-            after.selective_tone.whites,
-        ),
-        (
-            "blacks",
-            before.selective_tone.blacks,
-            after.selective_tone.blacks,
-        ),
-        (
-            "vibrance",
-            before.perceptual_color.vibrance,
-            after.perceptual_color.vibrance,
-        ),
-    ] {
-        if persisted_float_changed(before, after) {
-            changed.push(key.to_owned());
-        }
-    }
-    if persisted_array_changed(
-        before.perceptual_color.hue_shifts,
-        after.perceptual_color.hue_shifts,
-    ) {
-        changed.push("color_mixer_hue".to_owned());
-    }
-    if persisted_array_changed(
-        before.perceptual_color.saturation,
-        after.perceptual_color.saturation,
-    ) {
-        changed.push("color_mixer_saturation".to_owned());
-    }
-    if persisted_array_changed(
-        before.perceptual_color.lightness,
-        after.perceptual_color.lightness,
-    ) {
-        changed.push("color_mixer_lightness".to_owned());
-    }
-    if before.perceptual_color.color_range != after.perceptual_color.color_range {
-        changed.push("color_range".to_owned());
-    }
-    if before.perceptual_color.selective_color_relative
-        != after.perceptual_color.selective_color_relative
-        || before.perceptual_color.selective_color_lightness_protection
-            != after.perceptual_color.selective_color_lightness_protection
-        || persisted_array_changed(
-            before.perceptual_color.selective_color_cmyk,
-            after.perceptual_color.selective_color_cmyk,
-        )
-    {
-        changed.push("selective_color".to_owned());
-    }
-    if before.oklab_lightness_curve != after.oklab_lightness_curve {
-        changed.push("oklab_lightness_curve".to_owned());
-    }
-    if before.lut != after.lut {
-        changed.push("lut".to_owned());
-    }
-    if before.sharpen != after.sharpen {
-        changed.push("sharpening".to_owned());
-    }
-    changed
-}
-
-fn persisted_array_changed<const N: usize>(before: [f64; N], after: [f64; N]) -> bool {
-    before
-        .into_iter()
-        .zip(after)
-        .any(|(before, after)| persisted_float_changed(before, after))
-}
-
-fn changed_grade_parameters_recipe_v1(
-    before: &GradeStackDraft,
-    after: &GradeStackDraft,
-) -> Vec<String> {
-    let before_by_id = before
-        .grade_nodes
-        .iter()
-        .map(|grade_node| (grade_node.recipe_v1_identity.grade_node_id, grade_node))
-        .collect::<HashMap<_, _>>();
-    let mut changed = HashSet::new();
-    if before.optics != after.optics {
-        changed.insert("optics".to_owned());
-    }
-    for after_grade_node in &after.grade_nodes {
-        let Some(before_grade_node) =
-            before_by_id.get(&after_grade_node.recipe_v1_identity.grade_node_id)
-        else {
-            continue;
-        };
-        changed.extend(changed_basic_parameters(
-            before_grade_node.basic,
-            after_grade_node.basic,
-        ));
-        changed.extend(changed_fine_parameters(
-            &before_grade_node.fine,
-            &after_grade_node.fine,
-        ));
-        if before_grade_node.enabled != after_grade_node.enabled {
-            changed.insert("grade_node_enabled".to_owned());
-        }
-    }
-    [
-        "exposure_stops",
-        "contrast_factor",
-        "white_balance_temperature",
-        "white_balance_tint",
-        "saturation_factor",
-        "grade_node_enabled",
-        "oklab_lightness_curve",
-        "highlights",
-        "shadows",
-        "whites",
-        "blacks",
-        "vibrance",
-        "color_mixer_hue",
-        "color_mixer_saturation",
-        "color_mixer_lightness",
-        "color_range",
-        "selective_color",
-        "lut",
-        "sharpening",
-        "optics",
-    ]
-    .into_iter()
-    .filter(|key| changed.contains(*key))
-    .map(str::to_owned)
-    .collect()
-}
-
-const fn persisted_float_changed(before: f64, after: f64) -> bool {
-    before.to_bits() != after.to_bits()
-}
-
-/// A basic-parameter-only edit still appears as one modified layer and one or
-/// more modified nodes in the generic summary. Inspect the exact diff so the
-/// UI can distinguish those container changes from topology/mask/contract
-/// changes that its localized basic-control labels do not describe.
-fn has_other_recipe_changes(
-    diff: &RecipeDiff,
-    before: &RecipeSnapshot,
-    after: &RecipeSnapshot,
-) -> bool {
-    if diff.schema_version().is_some()
-        || !diff.added_layers().is_empty()
-        || !diff.removed_layers().is_empty()
-        || !diff.moved_layers().is_empty()
-    {
-        return true;
-    }
-
-    if canonical_grade_stack_recipe_v1_identity_is_preserved(before, after) {
-        return false;
-    }
-
-    diff.modified_layers().iter().any(|layer| {
-        if !layer.instance().is_empty() {
-            return true;
-        }
-        match layer.content() {
-            Some(LayerContentDiff::InlineGraph { graph }) => {
-                graph.schema_version().is_some()
-                    || graph.input_types().is_some()
-                    || graph.output_node().is_some()
-                    || !graph.added_nodes().is_empty()
-                    || !graph.removed_nodes().is_empty()
-                    || graph.modified_nodes().iter().any(|node| {
-                        node.operation_contract().is_some()
-                            || node.inputs().is_some()
-                            || node.mask().is_some()
-                            || node.parameters().is_none()
-                            || !node_parameter_change_has_basic_label(after, node.node_id())
-                    })
-            }
-            Some(LayerContentDiff::Shared { .. } | LayerContentDiff::Replaced { .. }) => true,
-            None => false,
-        }
-    })
-}
-
-fn canonical_grade_stack_recipe_v1_identity_is_preserved(
-    before: &RecipeSnapshot,
-    after: &RecipeSnapshot,
-) -> bool {
-    if before.layers().len() != after.layers().len() {
-        return false;
-    }
-    before
-        .layers()
-        .iter()
-        .zip(after.layers())
-        .all(|(before_layer, after_layer)| {
-            let (Ok(before_nodes), Ok(after_nodes)) = (
-                grade_node_recipe_v1_render_ops(before_layer),
-                grade_node_recipe_v1_render_ops(after_layer),
-            ) else {
-                return false;
-            };
-            before_layer.id() == after_layer.id()
-                && before_layer.label() == after_layer.label()
-                && before_nodes.exposure.id() == after_nodes.exposure.id()
-                && before_nodes.contrast.id() == after_nodes.contrast.id()
-                && before_nodes.white_balance.id() == after_nodes.white_balance.id()
-                && before_nodes.saturation.id() == after_nodes.saturation.id()
-                && before_nodes.selective_tone.id() == after_nodes.selective_tone.id()
-                && before_nodes.perceptual_color.id() == after_nodes.perceptual_color.id()
-                && before_nodes.technical_detail.id() == after_nodes.technical_detail.id()
-                && before_nodes.color_grading.id() == after_nodes.color_grading.id()
-                && before_nodes.lut.id() == after_nodes.lut.id()
-                && before_nodes.finishing_effects.id() == after_nodes.finishing_effects.id()
-                && match (
-                    before_nodes.oklab_lightness_curve,
-                    after_nodes.oklab_lightness_curve,
-                ) {
-                    (Some(before), Some(after)) => before.id() == after.id(),
-                    _ => true,
-                }
-        })
-}
-
-fn node_parameter_change_has_basic_label(snapshot: &RecipeSnapshot, node_id: NodeId) -> bool {
-    snapshot.layers().iter().any(|layer| {
-        let LayerContent::Inline { graph } = layer.content() else {
-            return false;
-        };
-        graph.nodes().iter().any(|node| {
-            node.id() == node_id
-                && matches!(
-                    node.operation().operation_id().as_str(),
-                    EXPOSURE_OPERATION_ID
-                        | CONTRAST_OPERATION_ID
-                        | OKLAB_LIGHTNESS_TONE_CURVE_OPERATION_ID
-                        | RGB_WHITE_BALANCE_OPERATION_ID
-                        | SATURATION_OPERATION_ID
-                        | SELECTIVE_TONE_OPERATION_ID
-                        | PERCEPTUAL_COLOR_OPERATION_ID
-                        | TECHNICAL_DETAIL_OPERATION_ID
-                        | COLOR_GRADING_OPERATION_ID
-                        | FINISHING_EFFECTS_OPERATION_ID
-                )
-        })
-    })
-}
-
 pub(crate) fn current_time_ms() -> AnyResult<i64> {
     let milliseconds = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -5499,199 +4991,6 @@ fn open_desktop_session(catalog_path: &str, cache_root: &str) -> AnyResult<Box<D
     }))
 }
 
-fn parse_cursor(path: &str, representation_id: &str) -> AnyResult<Option<ReviewCursor>> {
-    match (path.is_empty(), representation_id.is_empty()) {
-        (true, true) => Ok(None),
-        (false, false) => Ok(Some(ReviewCursor {
-            display_path: path.to_owned(),
-            representation_id: representation_id
-                .parse()
-                .with_context(|| format!("parse Review cursor id {representation_id}"))?,
-        })),
-        _ => bail!("Review cursor path and representation id must both be present"),
-    }
-}
-
-impl DesktopSession {
-    // Keeping the complete Review DTO mapping together prevents silent EXIF field omissions.
-    #[allow(clippy::too_many_lines)]
-    fn review_item(&self, record: ReviewItemRecord) -> AnyResult<ffi::FfiReviewItem> {
-        let visual_handle = record
-            .visual
-            .as_ref()
-            .map(|visual| {
-                self.review
-                    .encode_grid_visual_handle(&ReviewVisualSelection {
-                        photo_id: record.photo_id,
-                        record: visual.clone(),
-                    })
-            })
-            .transpose()?
-            .unwrap_or_default();
-        let (visual_role, visual_width, visual_height, has_visual) = record.visual.map_or_else(
-            || (String::new(), 0, 0, false),
-            |visual| {
-                (
-                    role_name(visual.artifact.role).to_owned(),
-                    visual.artifact.dimensions.width,
-                    visual.artifact.dimensions.height,
-                    true,
-                )
-            },
-        );
-        let technical = record.technical;
-        let metadata = record.metadata;
-        let has_metadata = metadata.is_some();
-        let (
-            camera_make,
-            camera_model,
-            lens_make,
-            lens_model,
-            captured_at_unix_seconds,
-            iso_speed,
-            exposure_time_seconds,
-            aperture_f_number,
-            focal_length_mm,
-            focal_length_35mm,
-            raw_width,
-            raw_height,
-            sensor_bits,
-            cfa_pattern,
-            dng_version,
-        ) = metadata.map_or_else(
-            || {
-                (
-                    String::new(),
-                    String::new(),
-                    String::new(),
-                    String::new(),
-                    0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0,
-                    0,
-                    0,
-                    String::new(),
-                    String::new(),
-                )
-            },
-            |metadata| {
-                (
-                    metadata.make,
-                    metadata.model,
-                    metadata.lens_make,
-                    metadata.lens_model,
-                    metadata.captured_at_unix_seconds,
-                    metadata.iso_speed,
-                    metadata.exposure_time_seconds,
-                    metadata.aperture_f_number,
-                    metadata.focal_length_mm,
-                    metadata.focal_length_35mm,
-                    metadata.raw_dimensions.width,
-                    metadata.raw_dimensions.height,
-                    metadata.sensor_bits,
-                    metadata.cfa_pattern,
-                    metadata.dng_version.unwrap_or_default(),
-                )
-            },
-        );
-        let has_technical_observation = technical.is_some();
-        let (
-            technical_input_width,
-            technical_input_height,
-            technical_preprocessing_version,
-            technical_implementation_version,
-            mean_luma,
-            p01_luma,
-            p50_luma,
-            p99_luma,
-            near_black_fraction,
-            near_white_fraction,
-            laplacian_variance,
-            edge_energy,
-        ) = technical.map_or_else(
-            || {
-                (
-                    0,
-                    0,
-                    String::new(),
-                    String::new(),
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                )
-            },
-            |technical| {
-                (
-                    technical.input_width,
-                    technical.input_height,
-                    technical.preprocessing_version,
-                    technical.implementation_version,
-                    technical.mean_luma,
-                    technical.p01_luma,
-                    technical.p50_luma,
-                    technical.p99_luma,
-                    technical.near_black_fraction,
-                    technical.near_white_fraction,
-                    technical.laplacian_variance,
-                    technical.edge_energy,
-                )
-            },
-        );
-        Ok(ffi::FfiReviewItem {
-            photo_id: record.photo_id.to_string(),
-            representation_id: record.representation_id.to_string(),
-            visual_handle,
-            decision_head_sequence: record.decision.head_sequence,
-            decision_flag: ffi_decision_flag(record.decision.flag),
-            decision_rating: record.decision.rating,
-            title: file_name(&record.location.display_path),
-            source_path: record.location.display_path,
-            visual_role,
-            visual_width,
-            visual_height,
-            has_visual,
-            has_metadata,
-            camera_make,
-            camera_model,
-            lens_make,
-            lens_model,
-            captured_at_unix_seconds,
-            iso_speed,
-            exposure_time_seconds,
-            aperture_f_number,
-            focal_length_mm,
-            focal_length_35mm,
-            raw_width,
-            raw_height,
-            sensor_bits,
-            cfa_pattern,
-            dng_version,
-            has_technical_observation,
-            technical_input_width,
-            technical_input_height,
-            technical_preprocessing_version,
-            technical_implementation_version,
-            mean_luma,
-            p01_luma,
-            p50_luma,
-            p99_luma,
-            near_black_fraction,
-            near_white_fraction,
-            laplacian_variance,
-            edge_energy,
-        })
-    }
-}
-
 fn encode_hex(bytes: &[u8]) -> String {
     const DIGITS: &[u8; 16] = b"0123456789abcdef";
     let mut encoded = String::with_capacity(bytes.len().saturating_mul(2));
@@ -5700,14 +4999,6 @@ fn encode_hex(bytes: &[u8]) -> String {
         encoded.push(char::from(DIGITS[usize::from(byte & 0x0f)]));
     }
     encoded
-}
-
-const fn role_name(role: CachedArtifactRole) -> &'static str {
-    match role {
-        CachedArtifactRole::RecipePreview => "recipe",
-        CachedArtifactRole::EmbeddedPreview => "embedded",
-        CachedArtifactRole::GeneratedProxy => "proxy",
-    }
 }
 
 fn ensure_parent(path: &Path) -> AnyResult<()> {
@@ -5719,14 +5010,6 @@ fn ensure_parent(path: &Path) -> AnyResult<()> {
             .with_context(|| format!("create catalog directory {}", parent.display()))?;
     }
     Ok(())
-}
-
-fn file_name(display_path: &str) -> String {
-    PathBuf::from(display_path)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or(display_path)
-        .to_owned()
 }
 
 #[cfg(test)]
@@ -5754,7 +5037,7 @@ mod tests {
     use crate::review_service::{
         REVIEW_COMPARE_DECODER_ID, REVIEW_COMPARE_PIXEL_FORMAT,
         REVIEW_COMPARE_PIXEL_HASH_ALGORITHM, REVIEW_COMPARE_SURFACE_ID,
-        REVIEW_COMPARE_SURFACE_REVISION,
+        REVIEW_COMPARE_SURFACE_REVISION, ReviewVisualSelection, file_name, parse_cursor,
     };
 
     use super::*;
