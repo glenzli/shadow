@@ -98,6 +98,8 @@ qt_add_executable(
     src/main.cpp
     src/lut_library.cpp
     src/lut_library.hpp
+    src/optics_profile_library.cpp
+    src/optics_profile_library.hpp
     src/lut_preview_provider.cpp
     src/lut_preview_provider.hpp
     src/review_controller.cpp
@@ -136,6 +138,7 @@ qt_add_resources(
         icons/eyedropper.svg
         icons/fit-view.svg
         icons/filter.svg
+        icons/history.svg
         icons/library-manage.svg
         icons/metadata.svg
         icons/move-down.svg
@@ -203,6 +206,7 @@ qt_add_qml_module(
         qml/ShadowIconButton.qml
         qml/ShadowInlineSlider.qml
         qml/ShadowSlider.qml
+        qml/ShadowSubsectionLabel.qml
         qml/ShadowTabButton.qml
         qml/Theme.qml
         qml/ToneCurveEditor.qml

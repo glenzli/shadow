@@ -10,7 +10,7 @@ Button {
     property bool selected: false
     property string toolTipText: ""
     property string accessibleName: toolTipText
-    property int buttonSize: 24
+    property int buttonSize: 22
 
     implicitWidth: buttonSize
     implicitHeight: buttonSize
@@ -29,7 +29,7 @@ Button {
 
         Rectangle {
             anchors.centerIn: parent
-            width: control.selected ? 18 : control.hovered ? 16 : 14
+            width: control.selected ? 16 : control.hovered ? 14 : 12
             height: width
             radius: width / 2
             color: control.enabled ? control.labelColor : Theme.textDisabledQuiet

@@ -23,6 +23,7 @@ Item {
     property color trackEndColor: Theme.track
     property color textPrimary: Theme.textPrimary
     property color textMuted: Theme.textMuted
+    property string toolTipText: ""
     property int labelWidth: Math.max(48, Math.min(58, Math.round(width * 0.19)))
     property int valueWidth: 54
     property bool gestureActive: false
@@ -83,9 +84,10 @@ Item {
             verticalAlignment: Text.AlignVCenter
 
             HoverHandler { id: labelHover }
-            ToolTip.visible: labelHover.hovered && fieldLabel.truncated
+            ToolTip.visible: labelHover.hovered
+                && (fieldLabel.truncated || field.toolTipText.length > 0)
             ToolTip.delay: 500
-            ToolTip.text: field.label
+            ToolTip.text: field.toolTipText.length > 0 ? field.toolTipText : field.label
         }
 
         ShadowInlineSlider {

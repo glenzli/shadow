@@ -172,6 +172,13 @@ Item {
         return receipt.appliedScaling ? qsTr("Applied") : qsTr("Not needed")
     }
 
+    function manualOpticsActive() {
+        return Number(editor.manualOpticsDistortion) !== 0
+            || Number(editor.manualOpticsTcaRedCyan) !== 0
+            || Number(editor.manualOpticsTcaBlueYellow) !== 0
+            || Number(editor.manualOpticsVignettingAmount) !== 0
+    }
+
     function fineValue(key) {
         // Reading the revision makes generic key lookups reactive without
         // exposing dozens of one-off Q_PROPERTY accessors.
@@ -1816,47 +1823,75 @@ Item {
                     }
                 }
 
-                TabBar {
-                    id: rightTabs
+                Rectangle {
+                    id: inspectorTabStrip
                     Layout.fillWidth: true
-                    Layout.topMargin: 2
-                    Layout.preferredHeight: 36
-                    spacing: 0
-                    background: Rectangle {
-                        color: Theme.transparent
+                    Layout.preferredHeight: 38
+                    color: precision.panel
 
-                        Rectangle {
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.bottom: parent.bottom
-                            height: 1
-                            color: precision.border
+                    property int currentIndex: 0
+
+                    function selectTab(index) {
+                        if (currentIndex === index)
+                            return
+                        currentIndex = index
+                        Qt.callLater(function() {
+                            if (inspectorScroll.contentItem)
+                                inspectorScroll.contentItem.contentY = 0
+                        })
+                    }
+
+                    Rectangle {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        height: 1
+                        color: precision.border
+                    }
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 8
+                        anchors.rightMargin: 8
+                        spacing: 0
+
+                        ShadowTabButton {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            active: inspectorTabStrip.currentIndex === 0
+                            minimumTabWidth: 92
+                            underlineInset: 28
+                            text: qsTr("ADJUST")
+                            toolTipText: qsTr("Core tone, color, detail, and optics controls")
+                            onClicked: inspectorTabStrip.selectTab(0)
                         }
-                    }
 
-                    ShadowTabButton {
-                        id: adjustTab
-                        text: qsTr("ADJUST")
-                        minimumTabWidth: 0
-                        underlineInset: 32
-                        underlineMaximumWidth: 52
-                    }
-                    ShadowTabButton {
-                        id: versionsTab
-                        text: qsTr("VERSIONS")
-                        minimumTabWidth: 0
-                        underlineInset: 32
-                        underlineMaximumWidth: 52
+                        ShadowTabButton {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            active: inspectorTabStrip.currentIndex === 1
+                            minimumTabWidth: 92
+                            underlineInset: 28
+                            text: qsTr("LOOKS")
+                            toolTipText: qsTr("Color grading, LUTs, and finishing effects")
+                            onClicked: inspectorTabStrip.selectTab(1)
+                        }
                     }
                 }
 
                 StackLayout {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    currentIndex: rightTabs.currentIndex
+                    // Photo working state is always autosaved.  The old
+                    // per-photo checkpoint page is deliberately kept out of
+                    // Precision while versioning moves to the catalog-level
+                    // History workspace; it must not masquerade as a global
+                    // Git-like commit view here.
+                    currentIndex: 0
 
                     Item {
                         ScrollView {
+                            id: inspectorScroll
                             anchors.fill: parent
                             clip: true
                             contentWidth: availableWidth
@@ -1894,19 +1929,11 @@ Item {
                                         font.weight: Font.Medium
                                         elide: Text.ElideRight
                                     }
-                                    Label {
-                                        Layout.fillWidth: true
-                                        Layout.leftMargin: 14
-                                        Layout.rightMargin: 14
-                                        text: qsTr("One complete, non-destructive adjustment. Light, tone, and color settings travel together when this node is copied, shared, or versioned.")
-                                        color: precision.textMuted
-                                        font.pixelSize: 10
-                                        wrapMode: Text.WordWrap
-                                    }
-
                                     ShadowAdjustmentSection {
                                         Layout.fillWidth: true
+                                        visible: inspectorTabStrip.currentIndex === 0
                                         title: qsTr("WHITE BALANCE")
+                                        toolTipText: qsTr("Neutralize the scene before making tonal or creative color adjustments.")
 
                                         RowLayout {
                                             Layout.fillWidth: true
@@ -1969,6 +1996,7 @@ Item {
 
                                     ShadowAdjustmentSection {
                                         Layout.fillWidth: true
+                                        visible: inspectorTabStrip.currentIndex === 0
                                         title: qsTr("LIGHT")
                                         expanded: true
 
@@ -2034,6 +2062,7 @@ Item {
 
                                     ShadowAdjustmentSection {
                                         Layout.fillWidth: true
+                                        visible: inspectorTabStrip.currentIndex === 0
                                         title: qsTr("COLOR")
                                         expanded: true
 
@@ -2074,6 +2103,7 @@ Item {
 
                                     ShadowAdjustmentSection {
                                         Layout.fillWidth: true
+                                        visible: inspectorTabStrip.currentIndex === 0
                                         title: qsTr("TONE CURVE")
 
                                         ToneCurveEditor {
@@ -2093,8 +2123,10 @@ Item {
 
                                     ShadowAdjustmentSection {
                                         Layout.fillWidth: true
+                                        visible: inspectorTabStrip.currentIndex === 0
                                         title: qsTr("COLOR MIXER")
                                         summary: qsTr("OKLCH")
+                                        toolTipText: qsTr("Adjust the hue, chroma, or Oklab lightness of each color family.")
 
                                         TabBar {
                                             id: mixerViewTabs
@@ -2255,27 +2287,18 @@ Item {
 
                                     ShadowAdjustmentSection {
                                         Layout.fillWidth: true
+                                        visible: inspectorTabStrip.currentIndex === 0
                                         title: qsTr("SELECTIVE COLOR")
                                         summary: qsTr("OKLAB · CMYK")
-
-                                        Label {
-                                            Layout.fillWidth: true
-                                            Layout.leftMargin: 14
-                                            Layout.rightMargin: 14
-                                            Layout.topMargin: 2
-                                            text: qsTr("Perceptual target · CMYK correction")
-                                            color: precision.textMuted
-                                            font.pixelSize: 9
-                                            elide: Text.ElideRight
-                                        }
+                                        toolTipText: qsTr("Choose an Oklab color family, then apply a Photoshop-style CMYK correction.")
 
                                         RowLayout {
                                             Layout.fillWidth: true
                                             Layout.leftMargin: 14
                                             Layout.rightMargin: 14
-                                            Layout.topMargin: 4
-                                            Layout.bottomMargin: 2
-                                            spacing: 3
+                                            Layout.topMargin: 3
+                                            Layout.bottomMargin: 3
+                                            spacing: 4
 
                                             Item { Layout.fillWidth: true }
 
@@ -2285,7 +2308,7 @@ Item {
                                                 delegate: ShadowColorLabelButton {
                                                     required property int index
                                                     required property var modelData
-                                                    buttonSize: 25
+                                                    buttonSize: 22
                                                     labelColor: modelData.color
                                                     selected: precision.selectedSelectiveColorTarget === index
                                                     toolTipText: modelData.name
@@ -2335,7 +2358,8 @@ Item {
                                             Layout.leftMargin: 14
                                             Layout.rightMargin: 14
                                             Layout.topMargin: 2
-                                            label: qsTr("Lightness lock")
+                                            label: qsTr("Lightness protection")
+                                            toolTipText: qsTr("Preserve the source Oklab lightness after CMYK correction. 0% follows Selective Color; 100% changes hue and chroma only.")
                                             from: 0.0
                                             to: 1.0
                                             neutralValue: 0.0
@@ -2351,19 +2375,6 @@ Item {
                                                 "selective_color_lightness_protection", value)
                                             onGestureFinished: precision.editor.endParameterEdit(
                                                 "selective_color/lightness_protection")
-                                        }
-
-                                        Label {
-                                            Layout.fillWidth: true
-                                            Layout.leftMargin: 14
-                                            Layout.rightMargin: 14
-                                            Layout.topMargin: 3
-                                            text: precision.selectiveColorTargets[
-                                                precision.selectedSelectiveColorTarget].name
-                                            color: precision.textSecondary
-                                            font.pixelSize: 10
-                                            font.weight: Font.DemiBold
-                                            horizontalAlignment: Text.AlignRight
                                         }
 
                                         Repeater {
@@ -2411,7 +2422,9 @@ Item {
 
                                     ShadowAdjustmentSection {
                                         Layout.fillWidth: true
+                                        visible: inspectorTabStrip.currentIndex === 0
                                         title: qsTr("POINT COLOR")
+                                        toolTipText: qsTr("Use the eyedropper to build one or more precise Oklch color ranges from the image.")
 
                                         RowLayout {
                                             Layout.fillWidth: true
@@ -2420,12 +2433,6 @@ Item {
                                             Layout.topMargin: 5
                                             Layout.bottomMargin: 6
                                             spacing: 8
-
-                                            Label {
-                                                text: qsTr("Samples")
-                                                color: precision.textMuted
-                                                font.pixelSize: 10
-                                            }
 
                                             RowLayout {
                                                 Layout.fillWidth: true
@@ -2562,7 +2569,9 @@ Item {
 
                                     ShadowAdjustmentSection {
                                         Layout.fillWidth: true
+                                        visible: inspectorTabStrip.currentIndex === 1
                                         title: qsTr("COLOR GRADING")
+                                        toolTipText: qsTr("Tint shadows, midtones, and highlights independently with perceptual color wheels.")
 
                                         RowLayout {
                                             Layout.fillWidth: true
@@ -2627,9 +2636,11 @@ Item {
                                     ShadowAdjustmentSection {
                                         id: lutSection
                                         Layout.fillWidth: true
+                                        visible: inspectorTabStrip.currentIndex === 1
                                         title: qsTr("LUT")
                                         summary: precision.editor.hasLut
                                             ? precision.editor.lutTitle : qsTr("None")
+                                        toolTipText: qsTr("Apply a managed .cube LUT to this adjustment node. The library button opens LUT management.")
 
                                         RowLayout {
                                             Layout.fillWidth: true
@@ -2941,34 +2952,30 @@ Item {
 
                                             Label {
                                                 Layout.fillWidth: true
-                                                text: qsTr("Add .cube folders in the LUT Library first")
+                                                text: qsTr("No LUTs in Library")
                                                 color: precision.textMuted
                                                 font.pixelSize: 9
                                             }
-                                            Label {
-                                                text: qsTr("MANAGE")
-                                                color: precision.accent
-                                                font.pixelSize: 9
-                                                font.weight: Font.DemiBold
-
-                                                TapHandler {
-                                                    onTapped: precision.openLutLibraryRequested()
-                                                }
+                                            ShadowIconButton {
+                                                buttonSize: 24
+                                                iconSize: 16
+                                                source: "qrc:/icons/library-manage.svg"
+                                                toolTipText: qsTr("Manage LUT Library")
+                                                accessibleName: toolTipText
+                                                onClicked: precision.openLutLibraryRequested()
                                             }
                                         }
                                     }
 
                                     ShadowAdjustmentSection {
                                         Layout.fillWidth: true
+                                        visible: inspectorTabStrip.currentIndex === 0
                                         title: qsTr("DETAIL")
+                                        toolTipText: qsTr("Control perceptual frequency detail, capture sharpening, and conventional noise reduction.")
 
-                                        Label {
-                                            Layout.leftMargin: 14
-                                            text: qsTr("FREQUENCY DETAIL · OKLAB L")
-                                            color: Theme.textMuted
-                                            font.pixelSize: 9
-                                            font.weight: Font.DemiBold
-                                            font.letterSpacing: 0.7
+                                        ShadowSubsectionLabel {
+                                            text: qsTr("FREQUENCY DETAIL")
+                                            toolTipText: qsTr("Clarity changes protected mid-frequency structure; Texture changes the smaller residual. Both operate only on Oklab L.")
                                         }
 
                                         Repeater {
@@ -2999,14 +3006,10 @@ Item {
                                             }
                                         }
 
-                                        Label {
-                                            Layout.leftMargin: 14
-                                            Layout.topMargin: 5
-                                            text: qsTr("CAPTURE SHARPENING")
-                                            color: Theme.textMuted
-                                            font.pixelSize: 9
-                                            font.weight: Font.DemiBold
-                                            font.letterSpacing: 0.7
+                                        ShadowSubsectionLabel {
+                                            Layout.topMargin: 6
+                                            text: qsTr("SHARPENING")
+                                            toolTipText: qsTr("Conventional capture sharpening. Use after frequency detail, and mask it to avoid sharpening smooth noise.")
                                         }
 
                                         Repeater {
@@ -3036,14 +3039,10 @@ Item {
                                             }
                                         }
 
-                                        Label {
-                                            Layout.leftMargin: 14
-                                            Layout.topMargin: 4
-                                            text: qsTr("NOISE REDUCTION")
-                                            color: Theme.textMuted
-                                            font.pixelSize: 9
-                                            font.weight: Font.DemiBold
-                                            font.letterSpacing: 0.7
+                                        ShadowSubsectionLabel {
+                                            Layout.topMargin: 6
+                                            text: qsTr("DENOISE")
+                                            toolTipText: qsTr("Conventional RGB preview denoise. RAW-domain denoise is planned separately in the RAW development pipeline.")
                                         }
 
                                         Repeater {
@@ -3071,6 +3070,7 @@ Item {
 
                                     ShadowAdjustmentSection {
                                         Layout.fillWidth: true
+                                        visible: inspectorTabStrip.currentIndex === 0
                                         title: qsTr("OPTICS")
 
                                         ColumnLayout {
@@ -3078,6 +3078,11 @@ Item {
                                             Layout.leftMargin: 14
                                             Layout.rightMargin: 14
                                             spacing: 5
+
+                                            ShadowSubsectionLabel {
+                                                text: qsTr("PROFILE CORRECTION")
+                                                toolTipText: qsTr("Lensfun supplies a calibrated baseline when a compatible camera and lens profile is available.")
+                                            }
 
                                             RowLayout {
                                                 Layout.fillWidth: true
@@ -3107,6 +3112,14 @@ Item {
                                                     font.pixelSize: 10
                                                     elide: Text.ElideRight
                                                 }
+                                                Label {
+                                                    visible: precision.manualOpticsActive()
+                                                    text: qsTr("Manual residual active")
+                                                    color: precision.accent
+                                                    font.pixelSize: 9
+                                                    font.weight: Font.DemiBold
+                                                    elide: Text.ElideRight
+                                                }
                                                 ShadowIconButton {
                                                     source: "qrc:/icons/library-manage.svg"
                                                     buttonSize: 26
@@ -3118,7 +3131,7 @@ Item {
 
                                             Repeater {
                                                 model: [
-                                                    { "key": "master", "name": qsTr("Automatic lens correction") },
+                                                    { "key": "master", "name": qsTr("Profile correction") },
                                                     { "key": "distortion", "name": qsTr("Distortion") },
                                                     { "key": "tca", "name": qsTr("Chromatic aberration") },
                                                     { "key": "vignetting", "name": qsTr("Lens vignetting") },
@@ -3209,13 +3222,97 @@ Item {
                                             color: Theme.border
                                         }
 
+                                        ShadowSubsectionLabel {
+                                            Layout.topMargin: 4
+                                            text: qsTr("MANUAL OPTICS")
+                                            toolTipText: qsTr("Profile-independent residual correction. These controls stay available for manual lenses or images without a matching profile.")
+                                        }
+
                                         Label {
+                                            Layout.fillWidth: true
                                             Layout.leftMargin: 14
-                                            text: qsTr("DEFRINGE")
-                                            color: Theme.textMuted
+                                            Layout.rightMargin: 14
+                                            text: qsTr("Applied after the selected Profile correction; works without a profile.")
+                                            color: precision.textMuted
                                             font.pixelSize: 9
-                                            font.weight: Font.DemiBold
-                                            font.letterSpacing: 0.7
+                                            wrapMode: Text.WordWrap
+                                        }
+
+                                        ShadowSlider {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 14
+                                            Layout.rightMargin: 14
+                                            label: qsTr("Distortion")
+                                            toolTipText: qsTr("Residual radial geometry correction. Use after the Profile when straight lines still bow.")
+                                            from: -100; to: 100; neutralValue: 0
+                                            stepSize: 1; decimals: 0; suffix: "%"
+                                            value: precision.editor.manualOpticsDistortion
+                                            onEdited: value => precision.editor.manualOpticsDistortion = Math.round(value)
+                                        }
+
+                                        ShadowSubsectionLabel {
+                                            Layout.topMargin: 5
+                                            text: qsTr("LATERAL CHROMATIC ABERRATION")
+                                            toolTipText: qsTr("Geometrically realign color channels. This is distinct from purple/green Defringe below.")
+                                        }
+
+                                        ShadowSlider {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 14
+                                            Layout.rightMargin: 14
+                                            label: qsTr("Red / Cyan")
+                                            toolTipText: qsTr("Move the red channel radially against green to correct red/cyan color fringes.")
+                                            from: -100; to: 100; neutralValue: 0
+                                            stepSize: 1; decimals: 0; suffix: "%"
+                                            value: precision.editor.manualOpticsTcaRedCyan
+                                            onEdited: value => precision.editor.manualOpticsTcaRedCyan = Math.round(value)
+                                        }
+
+                                        ShadowSlider {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 14
+                                            Layout.rightMargin: 14
+                                            label: qsTr("Blue / Yellow")
+                                            toolTipText: qsTr("Move the blue channel radially against green to correct blue/yellow color fringes.")
+                                            from: -100; to: 100; neutralValue: 0
+                                            stepSize: 1; decimals: 0; suffix: "%"
+                                            value: precision.editor.manualOpticsTcaBlueYellow
+                                            onEdited: value => precision.editor.manualOpticsTcaBlueYellow = Math.round(value)
+                                        }
+
+                                        ShadowSubsectionLabel {
+                                            Layout.topMargin: 5
+                                            text: qsTr("OPTICAL VIGNETTING")
+                                            toolTipText: qsTr("Lens shading correction in original optical coordinates. The creative post-crop vignette is in Looks.")
+                                        }
+
+                                        ShadowSlider {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 14
+                                            Layout.rightMargin: 14
+                                            label: qsTr("Amount")
+                                            toolTipText: qsTr("Brighten or darken the outer lens shading before crop and creative grading.")
+                                            from: -100; to: 100; neutralValue: 0
+                                            stepSize: 1; decimals: 0; suffix: "%"
+                                            value: precision.editor.manualOpticsVignettingAmount
+                                            onEdited: value => precision.editor.manualOpticsVignettingAmount = Math.round(value)
+                                        }
+
+                                        ShadowSlider {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 14
+                                            Layout.rightMargin: 14
+                                            label: qsTr("Midpoint")
+                                            from: 0; to: 100; neutralValue: 50
+                                            stepSize: 1; decimals: 0; suffix: "%"
+                                            value: precision.editor.manualOpticsVignettingMidpoint
+                                            onEdited: value => precision.editor.manualOpticsVignettingMidpoint = Math.round(value)
+                                        }
+
+                                        ShadowSubsectionLabel {
+                                            Layout.topMargin: 4
+                                            text: qsTr("DEFRINGE")
+                                            toolTipText: qsTr("Suppress purple and green chromatic fringes within the selected hue ranges.")
                                         }
 
                                         ShadowSlider {
@@ -3293,6 +3390,7 @@ Item {
 
                                     ShadowAdjustmentSection {
                                         Layout.fillWidth: true
+                                        visible: inspectorTabStrip.currentIndex === 1
                                         title: qsTr("EFFECTS")
 
                                         ShadowSlider {
@@ -3310,14 +3408,10 @@ Item {
                                             onGestureFinished: precision.editor.endParameterEdit("dehaze")
                                         }
 
-                                        Label {
-                                            Layout.leftMargin: 14
-                                            Layout.topMargin: 4
+                                        ShadowSubsectionLabel {
+                                            Layout.topMargin: 6
                                             text: qsTr("GRAIN")
-                                            color: Theme.textMuted
-                                            font.pixelSize: 9
-                                            font.weight: Font.DemiBold
-                                            font.letterSpacing: 0.7
+                                            toolTipText: qsTr("Add a controlled photographic grain after the main color and tone adjustments.")
                                         }
 
                                         Repeater {
@@ -3339,14 +3433,10 @@ Item {
                                             }
                                         }
 
-                                        Label {
-                                            Layout.leftMargin: 14
-                                            Layout.topMargin: 4
+                                        ShadowSubsectionLabel {
+                                            Layout.topMargin: 6
                                             text: qsTr("POST-CROP VIGNETTE")
-                                            color: Theme.textMuted
-                                            font.pixelSize: 9
-                                            font.weight: Font.DemiBold
-                                            font.letterSpacing: 0.7
+                                            toolTipText: qsTr("Apply a creative vignette after cropping; this is separate from optical lens-vignetting correction.")
                                         }
 
                                         Repeater {
@@ -3411,6 +3501,10 @@ Item {
                     }
 
                     Item {
+                        // Transitional implementation retained for the future
+                        // History/checkpoint migration. It has no entry point
+                        // in Precision.
+                        visible: false
                         ColumnLayout {
                             anchors.fill: parent
                             anchors.margins: 18

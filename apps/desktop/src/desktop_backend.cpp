@@ -477,6 +477,11 @@ template <std::size_t Size>
     settings.optics.correct_tca = source.optics.correct_tca;
     settings.optics.correct_vignetting = source.optics.correct_vignetting;
     settings.optics.automatic_scale = source.optics.automatic_scale;
+    settings.optics.manual_distortion = source.optics.manual_distortion;
+    settings.optics.manual_tca_red_cyan = source.optics.manual_tca_red_cyan;
+    settings.optics.manual_tca_blue_yellow = source.optics.manual_tca_blue_yellow;
+    settings.optics.manual_vignetting_amount = source.optics.manual_vignetting_amount;
+    settings.optics.manual_vignetting_midpoint = source.optics.manual_vignetting_midpoint;
     settings.optics.camera_profile_maker = source.optics.camera_profile_maker.toStdString();
     settings.optics.camera_profile_model = source.optics.camera_profile_model.toStdString();
     settings.optics.lens_profile_maker = source.optics.lens_profile_maker.toStdString();
@@ -498,6 +503,11 @@ template <std::size_t Size>
         .correct_tca = source.optics.correct_tca,
         .correct_vignetting = source.optics.correct_vignetting,
         .automatic_scale = source.optics.automatic_scale,
+        .manual_distortion = source.optics.manual_distortion,
+        .manual_tca_red_cyan = source.optics.manual_tca_red_cyan,
+        .manual_tca_blue_yellow = source.optics.manual_tca_blue_yellow,
+        .manual_vignetting_amount = source.optics.manual_vignetting_amount,
+        .manual_vignetting_midpoint = source.optics.manual_vignetting_midpoint,
         .camera_profile_maker = qstring(source.optics.camera_profile_maker),
         .camera_profile_model = qstring(source.optics.camera_profile_model),
         .lens_profile_maker = qstring(source.optics.lens_profile_maker),

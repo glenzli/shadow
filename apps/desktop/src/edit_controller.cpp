@@ -24,12 +24,12 @@
 
 namespace {
 
-// This is deliberately an interactive proxy rather than an export raster. At
 // This is Shadow's resident editing proxy, not the full-resolution detail
-// source. 768px keeps the prepared RAW/RGB session below 57% of the pixel work
-// of the previous 1024px preview, while the separate 100% detail path retains
-// native resolution for judging sharpness and noise.
-constexpr std::uint32_t EDIT_PREVIEW_EDGE = 768;
+// source. 768px is too aggressive for modern high-resolution RAWs: Bayer
+// phase-preserving downsampling can turn a Z9 frame into a ~690px proxy.
+// 1536px is still practical for interactive grading while preserving enough
+// texture, edges and colour detail for a useful editing view.
+constexpr std::uint32_t EDIT_PREVIEW_EDGE = 1'536;
 // Interactive grading needs more headroom than gallery thumbnails. The image core also uses
 // 4:4:4 JPEG sampling for these proxies so color-slider feedback does not add chroma blocks.
 constexpr std::uint8_t EDIT_PREVIEW_QUALITY = 90;
@@ -150,6 +150,22 @@ void clear_neutral_oklab_lightness_curve(BackendFineEditParameters& fine) {
 edit_message(const char *const source,
              const std::initializer_list<LocalizedUiArgument> arguments = {}) {
   return {"EditController", source, arguments};
+}
+
+[[nodiscard]] bool bounded_profile_int(
+    const QVariantMap& profile,
+    const QString& key,
+    const int minimum,
+    const int maximum,
+    int* const output
+) {
+    bool converted = false;
+    const int value = profile.value(key).toInt(&converted);
+    if (!converted || value < minimum || value > maximum) {
+        return false;
+    }
+    *output = value;
+    return true;
 }
 
 [[nodiscard]] QVariantList histogram_counts(
@@ -894,6 +910,21 @@ bool EditController::opticsVignettingEnabled() const noexcept {
 bool EditController::opticsAutomaticScale() const noexcept {
     return grade_stack_.optics.automatic_scale;
 }
+int EditController::manualOpticsDistortion() const noexcept {
+    return grade_stack_.optics.manual_distortion;
+}
+int EditController::manualOpticsTcaRedCyan() const noexcept {
+    return grade_stack_.optics.manual_tca_red_cyan;
+}
+int EditController::manualOpticsTcaBlueYellow() const noexcept {
+    return grade_stack_.optics.manual_tca_blue_yellow;
+}
+int EditController::manualOpticsVignettingAmount() const noexcept {
+    return grade_stack_.optics.manual_vignetting_amount;
+}
+int EditController::manualOpticsVignettingMidpoint() const noexcept {
+    return grade_stack_.optics.manual_vignetting_midpoint;
+}
 QVariantMap EditController::opticsReceipt() const { return optics_receipt_; }
 bool EditController::opticsManualProfile() const noexcept {
     return !grade_stack_.optics.camera_profile_model.isEmpty()
@@ -1313,6 +1344,46 @@ void EditController::setOpticsAutomaticScale(const bool enabled) {
     opticsEdited(QStringLiteral("automatic_scale"), before);
 }
 
+void EditController::setManualOpticsDistortion(const int value) {
+    if (!active_ || interactionLocked() || value < -100 || value > 100
+        || grade_stack_.optics.manual_distortion == value) return;
+    const BackendGradeStack before = grade_stack_;
+    grade_stack_.optics.manual_distortion = static_cast<std::int16_t>(value);
+    opticsEdited(QStringLiteral("manual_distortion"), before);
+}
+
+void EditController::setManualOpticsTcaRedCyan(const int value) {
+    if (!active_ || interactionLocked() || value < -100 || value > 100
+        || grade_stack_.optics.manual_tca_red_cyan == value) return;
+    const BackendGradeStack before = grade_stack_;
+    grade_stack_.optics.manual_tca_red_cyan = static_cast<std::int16_t>(value);
+    opticsEdited(QStringLiteral("manual_tca_red_cyan"), before);
+}
+
+void EditController::setManualOpticsTcaBlueYellow(const int value) {
+    if (!active_ || interactionLocked() || value < -100 || value > 100
+        || grade_stack_.optics.manual_tca_blue_yellow == value) return;
+    const BackendGradeStack before = grade_stack_;
+    grade_stack_.optics.manual_tca_blue_yellow = static_cast<std::int16_t>(value);
+    opticsEdited(QStringLiteral("manual_tca_blue_yellow"), before);
+}
+
+void EditController::setManualOpticsVignettingAmount(const int value) {
+    if (!active_ || interactionLocked() || value < -100 || value > 100
+        || grade_stack_.optics.manual_vignetting_amount == value) return;
+    const BackendGradeStack before = grade_stack_;
+    grade_stack_.optics.manual_vignetting_amount = static_cast<std::int16_t>(value);
+    opticsEdited(QStringLiteral("manual_vignetting_amount"), before);
+}
+
+void EditController::setManualOpticsVignettingMidpoint(const int value) {
+    if (!active_ || interactionLocked() || value < 0 || value > 100
+        || grade_stack_.optics.manual_vignetting_midpoint == value) return;
+    const BackendGradeStack before = grade_stack_;
+    grade_stack_.optics.manual_vignetting_midpoint = static_cast<std::uint8_t>(value);
+    opticsEdited(QStringLiteral("manual_vignetting_midpoint"), before);
+}
+
 QVariantList EditController::opticsProfileCandidates() {
     if (!active_ || photo_id_.isEmpty() || source_path_.isEmpty()) return {};
     try {
@@ -1324,6 +1395,81 @@ QVariantList EditController::opticsProfileCandidates() {
         ));
         return {};
     }
+}
+
+void EditController::applyManualOpticsProfile(const QVariantMap& profile) {
+    if (!active_ || interactionLocked()) {
+        return;
+    }
+    int distortion = 0;
+    int tca_red_cyan = 0;
+    int tca_blue_yellow = 0;
+    int vignetting_amount = 0;
+    int vignetting_midpoint = 50;
+    const bool valid = bounded_profile_int(
+                           profile,
+                           QStringLiteral("manualDistortion"),
+                           -100,
+                           100,
+                           &distortion
+                       )
+        && bounded_profile_int(
+            profile,
+            QStringLiteral("manualTcaRedCyan"),
+            -100,
+            100,
+            &tca_red_cyan
+        )
+        && bounded_profile_int(
+            profile,
+            QStringLiteral("manualTcaBlueYellow"),
+            -100,
+            100,
+            &tca_blue_yellow
+        )
+        && bounded_profile_int(
+            profile,
+            QStringLiteral("manualVignettingAmount"),
+            -100,
+            100,
+            &vignetting_amount
+        )
+        && bounded_profile_int(
+            profile,
+            QStringLiteral("manualVignettingMidpoint"),
+            0,
+            100,
+            &vignetting_midpoint
+        );
+    if (!valid) {
+        setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+            "EditController", "This local optical profile is invalid")));
+        return;
+    }
+    if (grade_stack_.optics.manual_distortion == distortion
+        && grade_stack_.optics.manual_tca_red_cyan == tca_red_cyan
+        && grade_stack_.optics.manual_tca_blue_yellow == tca_blue_yellow
+        && grade_stack_.optics.manual_vignetting_amount == vignetting_amount
+        && grade_stack_.optics.manual_vignetting_midpoint == vignetting_midpoint) {
+        return;
+    }
+    const BackendGradeStack before = grade_stack_;
+    grade_stack_.optics.manual_distortion = static_cast<std::int16_t>(distortion);
+    grade_stack_.optics.manual_tca_red_cyan = static_cast<std::int16_t>(tca_red_cyan);
+    grade_stack_.optics.manual_tca_blue_yellow = static_cast<std::int16_t>(tca_blue_yellow);
+    grade_stack_.optics.manual_vignetting_amount = static_cast<std::int16_t>(vignetting_amount);
+    grade_stack_.optics.manual_vignetting_midpoint = static_cast<std::uint8_t>(vignetting_midpoint);
+    const QString profile_id = profile.value(QStringLiteral("id")).toString();
+    opticsEdited(
+        QStringLiteral("manual_profile/%1").arg(profile_id.isEmpty()
+            ? QStringLiteral("custom") : profile_id),
+        before
+    );
+    const QString title = profile.value(QStringLiteral("title")).toString().trimmed();
+    setStatusMessage(edit_message(
+        QT_TRANSLATE_NOOP("EditController", "Applied manual optical profile · %1"),
+        {title.isEmpty() ? tr("Custom profile") : title}
+    ));
 }
 
 void EditController::setManualOpticsProfile(
@@ -3991,7 +4137,10 @@ void EditController::opticsEdited(
     recordWorkingTransition(QStringLiteral("optics/%1").arg(key), before);
     emit opticsChanged();
     setDirty(version_draft_ || grade_stack_ != committed_grade_stack_);
-    schedulePreview(0);
+    // Geometry remapping is materially more expensive than a scalar Grade
+    // adjustment. Coalesce slider samples to one interactive frame instead
+    // of scheduling a separate complete render for every mouse move.
+    schedulePreview(EDIT_PREVIEW_THROTTLE_MS);
 }
 
 void EditController::notifyParametersChanged() {

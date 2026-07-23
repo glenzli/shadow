@@ -282,6 +282,11 @@ struct BackendGradeStack final {
         bool correct_tca = true;
         bool correct_vignetting = true;
         bool automatic_scale = true;
+        std::int16_t manual_distortion = 0;
+        std::int16_t manual_tca_red_cyan = 0;
+        std::int16_t manual_tca_blue_yellow = 0;
+        std::int16_t manual_vignetting_amount = 0;
+        std::uint8_t manual_vignetting_midpoint = 50;
         QString camera_profile_maker;
         QString camera_profile_model;
         QString lens_profile_maker;

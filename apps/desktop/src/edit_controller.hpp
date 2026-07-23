@@ -131,6 +131,11 @@ class EditController final : public QObject {
     Q_PROPERTY(bool opticsTcaEnabled READ opticsTcaEnabled WRITE setOpticsTcaEnabled NOTIFY opticsChanged)
     Q_PROPERTY(bool opticsVignettingEnabled READ opticsVignettingEnabled WRITE setOpticsVignettingEnabled NOTIFY opticsChanged)
     Q_PROPERTY(bool opticsAutomaticScale READ opticsAutomaticScale WRITE setOpticsAutomaticScale NOTIFY opticsChanged)
+    Q_PROPERTY(int manualOpticsDistortion READ manualOpticsDistortion WRITE setManualOpticsDistortion NOTIFY opticsChanged)
+    Q_PROPERTY(int manualOpticsTcaRedCyan READ manualOpticsTcaRedCyan WRITE setManualOpticsTcaRedCyan NOTIFY opticsChanged)
+    Q_PROPERTY(int manualOpticsTcaBlueYellow READ manualOpticsTcaBlueYellow WRITE setManualOpticsTcaBlueYellow NOTIFY opticsChanged)
+    Q_PROPERTY(int manualOpticsVignettingAmount READ manualOpticsVignettingAmount WRITE setManualOpticsVignettingAmount NOTIFY opticsChanged)
+    Q_PROPERTY(int manualOpticsVignettingMidpoint READ manualOpticsVignettingMidpoint WRITE setManualOpticsVignettingMidpoint NOTIFY opticsChanged)
     Q_PROPERTY(QVariantMap opticsReceipt READ opticsReceipt NOTIFY opticsReceiptChanged)
     Q_PROPERTY(bool opticsManualProfile READ opticsManualProfile NOTIFY opticsChanged)
     Q_PROPERTY(QString opticsCameraProfile READ opticsCameraProfile NOTIFY opticsChanged)
@@ -270,6 +275,11 @@ public:
     [[nodiscard]] bool opticsTcaEnabled() const noexcept;
     [[nodiscard]] bool opticsVignettingEnabled() const noexcept;
     [[nodiscard]] bool opticsAutomaticScale() const noexcept;
+    [[nodiscard]] int manualOpticsDistortion() const noexcept;
+    [[nodiscard]] int manualOpticsTcaRedCyan() const noexcept;
+    [[nodiscard]] int manualOpticsTcaBlueYellow() const noexcept;
+    [[nodiscard]] int manualOpticsVignettingAmount() const noexcept;
+    [[nodiscard]] int manualOpticsVignettingMidpoint() const noexcept;
     [[nodiscard]] QVariantMap opticsReceipt() const;
     [[nodiscard]] bool opticsManualProfile() const noexcept;
     [[nodiscard]] QString opticsCameraProfile() const;
@@ -314,6 +324,11 @@ public:
     void setOpticsTcaEnabled(bool enabled);
     void setOpticsVignettingEnabled(bool enabled);
     void setOpticsAutomaticScale(bool enabled);
+    void setManualOpticsDistortion(int value);
+    void setManualOpticsTcaRedCyan(int value);
+    void setManualOpticsTcaBlueYellow(int value);
+    void setManualOpticsVignettingAmount(int value);
+    void setManualOpticsVignettingMidpoint(int value);
 
     Q_INVOKABLE bool openPhoto(
         const QString& photo_id,
@@ -367,6 +382,7 @@ public:
     );
     Q_INVOKABLE void clearLut();
     Q_INVOKABLE QVariantList opticsProfileCandidates();
+    Q_INVOKABLE void applyManualOpticsProfile(const QVariantMap& profile);
     Q_INVOKABLE void setManualOpticsProfile(
         const QString& camera_maker,
         const QString& camera_model,

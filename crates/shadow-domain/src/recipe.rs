@@ -1004,6 +1004,10 @@ impl LayerRevision {
 /// These switches belong to the Recipe rather than an individual layer:
 /// changing geometry after a local edit would invalidate every downstream
 /// coordinate and cache identity.
+const fn default_manual_vignetting_midpoint() -> u8 {
+    50
+}
+
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 #[allow(clippy::struct_excessive_bools)] // Each persisted switch controls an independent correction.
 pub struct RecipeOpticsSettings {
@@ -1012,6 +1016,19 @@ pub struct RecipeOpticsSettings {
     correct_tca: bool,
     correct_vignetting: bool,
     automatic_scale: bool,
+    /// Profile-independent residual corrections in integer percent units.
+    /// They are input transforms, so they must remain exactly comparable for
+    /// Recipe identity and must not become floating point Grade-node values.
+    #[serde(default)]
+    manual_distortion: i16,
+    #[serde(default)]
+    manual_tca_red_cyan: i16,
+    #[serde(default)]
+    manual_tca_blue_yellow: i16,
+    #[serde(default)]
+    manual_vignetting_amount: i16,
+    #[serde(default = "default_manual_vignetting_midpoint")]
+    manual_vignetting_midpoint: u8,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     camera_profile_maker: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -1030,6 +1047,11 @@ impl Default for RecipeOpticsSettings {
             correct_tca: true,
             correct_vignetting: true,
             automatic_scale: true,
+            manual_distortion: 0,
+            manual_tca_red_cyan: 0,
+            manual_tca_blue_yellow: 0,
+            manual_vignetting_amount: 0,
+            manual_vignetting_midpoint: default_manual_vignetting_midpoint(),
             camera_profile_maker: String::new(),
             camera_profile_model: String::new(),
             lens_profile_maker: String::new(),
@@ -1072,6 +1094,23 @@ impl RecipeOpticsSettings {
         self
     }
 
+    #[must_use]
+    pub const fn with_manual_corrections(
+        mut self,
+        distortion: i16,
+        tca_red_cyan: i16,
+        tca_blue_yellow: i16,
+        vignetting_amount: i16,
+        vignetting_midpoint: u8,
+    ) -> Self {
+        self.manual_distortion = distortion;
+        self.manual_tca_red_cyan = tca_red_cyan;
+        self.manual_tca_blue_yellow = tca_blue_yellow;
+        self.manual_vignetting_amount = vignetting_amount;
+        self.manual_vignetting_midpoint = vignetting_midpoint;
+        self
+    }
+
     pub const fn enabled(&self) -> bool {
         self.enabled
     }
@@ -1092,6 +1131,26 @@ impl RecipeOpticsSettings {
         self.automatic_scale
     }
 
+    pub const fn manual_distortion(&self) -> i16 {
+        self.manual_distortion
+    }
+
+    pub const fn manual_tca_red_cyan(&self) -> i16 {
+        self.manual_tca_red_cyan
+    }
+
+    pub const fn manual_tca_blue_yellow(&self) -> i16 {
+        self.manual_tca_blue_yellow
+    }
+
+    pub const fn manual_vignetting_amount(&self) -> i16 {
+        self.manual_vignetting_amount
+    }
+
+    pub const fn manual_vignetting_midpoint(&self) -> u8 {
+        self.manual_vignetting_midpoint
+    }
+
     pub fn camera_profile_maker(&self) -> &str {
         &self.camera_profile_maker
     }
@@ -1109,6 +1168,27 @@ impl RecipeOpticsSettings {
     }
 
     fn validate(&self) -> Result<(), RecipeValidationError> {
+        for (kind, value) in [
+            ("manual distortion", self.manual_distortion),
+            (
+                "manual red/cyan chromatic aberration",
+                self.manual_tca_red_cyan,
+            ),
+            (
+                "manual blue/yellow chromatic aberration",
+                self.manual_tca_blue_yellow,
+            ),
+            ("manual optical vignetting", self.manual_vignetting_amount),
+        ] {
+            if !(-100..=100).contains(&value) {
+                return Err(RecipeValidationError::InvalidOpticsManualValue { kind, value });
+            }
+        }
+        if self.manual_vignetting_midpoint > 100 {
+            return Err(RecipeValidationError::InvalidOpticsVignettingMidpoint(
+                self.manual_vignetting_midpoint,
+            ));
+        }
         for (kind, value) in [
             ("camera profile maker", self.camera_profile_maker.as_str()),
             ("camera profile model", self.camera_profile_model.as_str()),
@@ -1723,6 +1803,10 @@ pub enum RecipeValidationError {
     ZeroRecipeSchemaVersion,
     #[error("manual optics profile must identify both a camera and a lens")]
     IncompleteOpticsProfile,
+    #[error("{kind} is {value}; expected an integer in [-100, 100]")]
+    InvalidOpticsManualValue { kind: &'static str, value: i16 },
+    #[error("manual optical-vignetting midpoint is {0}; expected an integer in [0, 100]")]
+    InvalidOpticsVignettingMidpoint(u8),
     #[error("layer instance {0} appears more than once")]
     DuplicateLayerInstance(LayerInstanceId),
     #[error("layer {0} follows a mutable shared head and must be pinned before commit")]

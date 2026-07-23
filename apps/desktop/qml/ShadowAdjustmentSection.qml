@@ -9,13 +9,18 @@ Item {
 
     property string title
     property string summary
+    property string toolTipText: ""
     property bool expanded: true
     property bool sectionEnabled: true
     default property alias contentData: body.data
 
+    // The inspector is a ColumnLayout of sections.  Give it a complete,
+    // explicit height contract so the next header never paints over a trailing
+    // label or slider from the preceding group.
+    readonly property int expandedBodyHeight: expanded ? Math.ceil(body.implicitHeight) : 0
     implicitWidth: 280
     implicitHeight: header.height
-        + (expanded ? body.implicitHeight + 4 : 0) + divider.height
+        + (expanded ? expandedBodyHeight + 8 : 0) + divider.height
 
     Rectangle {
         id: header
@@ -69,6 +74,30 @@ Item {
             Accessible.checked: root.expanded
             onClicked: root.expanded = !root.expanded
         }
+
+        ToolTip {
+            parent: header
+            visible: headerMouse.containsMouse && root.toolTipText.length > 0
+            delay: 500
+            timeout: 5000
+            text: root.toolTipText
+            x: Math.max(8, Math.round((header.width - width) / 2))
+            y: header.height + 6
+
+            contentItem: Label {
+                text: parent.text
+                color: Theme.textPrimary
+                font.pixelSize: Theme.fontMeta
+                wrapMode: Text.WordWrap
+            }
+
+            background: Rectangle {
+                radius: Theme.compactControlRadius
+                color: Theme.panelRaised
+                border.width: 1
+                border.color: Theme.borderStrong
+            }
+        }
     }
 
     ColumnLayout {
@@ -76,7 +105,7 @@ Item {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: header.bottom
-        anchors.topMargin: root.expanded ? 2 : 0
+        anchors.topMargin: root.expanded ? 6 : 0
         visible: root.expanded
         spacing: 0
     }

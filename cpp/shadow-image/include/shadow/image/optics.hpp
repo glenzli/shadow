@@ -18,7 +18,7 @@ namespace shadow::image {
 // sampling its own already-cropped pixels when distortion/TCA require coordinates elsewhere in
 // the complete image.
 inline constexpr std::uint32_t optics_settings_schema_version = 1U;
-inline constexpr std::uint32_t optics_implementation_version = 2U;
+inline constexpr std::uint32_t optics_implementation_version = 3U;
 
 struct OpticsSettings final {
     std::uint32_t schema_version = optics_settings_schema_version;
@@ -30,6 +30,15 @@ struct OpticsSettings final {
     // explicit part of cache identity: a photographer may intentionally turn it off to retain
     // the largest field of view while accepting transparent/black corners at export.
     bool automatic_scale = true;
+    // Profile correction is a baseline. These signed integer controls are an
+    // always-available residual pass: they work above a Lensfun match and on
+    // images for which no profile can be resolved. Integer percent units keep
+    // input-stage Recipe settings exactly comparable and hashable.
+    std::int16_t manual_distortion = 0;
+    std::int16_t manual_tca_red_cyan = 0;
+    std::int16_t manual_tca_blue_yellow = 0;
+    std::int16_t manual_vignetting_amount = 0;
+    std::uint8_t manual_vignetting_midpoint = 50;
     // Empty models select metadata-driven automatic matching. A manual
     // selection stores stable Lensfun maker/model identities, never a list index.
     std::string camera_profile_maker;

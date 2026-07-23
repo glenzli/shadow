@@ -3,6 +3,7 @@
 #include "edit_preview_provider.hpp"
 #include "lut_library.hpp"
 #include "lut_preview_provider.hpp"
+#include "optics_profile_library.hpp"
 #include "review_controller.hpp"
 #include "thumbnail_provider.hpp"
 #include "ui_preferences.hpp"
@@ -539,6 +540,9 @@ int main(int argc, char* argv[]) {
         isolated_settings_file,
         QDir(application_data).filePath(QStringLiteral("lut-store"))
     );
+    OpticsProfileLibrary optics_profile_library(
+        QDir(application_data).filePath(QStringLiteral("profiles/optics"))
+    );
 
     std::shared_ptr<DesktopBackend> backend;
     while (!backend) {
@@ -592,6 +596,7 @@ int main(int argc, char* argv[]) {
         {QStringLiteral("editor"), QVariant::fromValue(&editor)},
         {QStringLiteral("preferences"), QVariant::fromValue(&preferences)},
         {QStringLiteral("lutLibrary"), QVariant::fromValue(&lut_library)},
+        {QStringLiteral("opticsProfileLibrary"), QVariant::fromValue(&optics_profile_library)},
     });
     engine.loadFromModule("Shadow.App", "Main");
     if (engine.rootObjects().isEmpty()) {
