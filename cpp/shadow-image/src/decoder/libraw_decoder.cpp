@@ -20,6 +20,10 @@ namespace {
 
 using ProcessedImage = std::unique_ptr<libraw_processed_image_t, void (*)(libraw_processed_image_t*)>;
 inline constexpr std::uint32_t libraw_capability_contract_version = 5U;
+// This version covers the display-orientation semantics of cached embedded-preview descriptors.
+// It is deliberately separate from the raw-frame and rendered-RGB contracts: the JPEG bytes do
+// not change, but their catalog geometry must match the auto-oriented image that Qt presents.
+inline constexpr std::uint32_t libraw_embedded_preview_geometry_contract_version = 2U;
 inline constexpr int libraw_reference_output_color = 1;
 inline constexpr double libraw_reference_gamma_inverse_power = 1.0;
 inline constexpr double libraw_reference_gamma_linear_toe_slope = 1.0;
@@ -447,6 +451,21 @@ void validate_development_settings(const LibRawDevelopmentSettings& settings) {
     return metadata;
 }
 
+// LibRaw's `sizes.flip` describes the output orientation rather than standard EXIF orientation
+// values. Its current 5 and 6 cases transpose the displayed axes. Keep cached preview geometry
+// in that display coordinate system because the Qt thumbnail reader applies the same orientation
+// while loading the encoded preview bytes. Without this, an upright portrait preview receives a
+// landscape justified tile and exposes empty side bars around the image.
+[[nodiscard]] Dimensions display_oriented_preview_dimensions(
+    Dimensions dimensions,
+    const std::int32_t orientation
+) noexcept {
+    if (orientation == 5 || orientation == 6) {
+        std::swap(dimensions.width, dimensions.height);
+    }
+    return dimensions;
+}
+
 [[nodiscard]] std::vector<PreviewDescriptor> read_previews(const libraw_data_t& data) {
     std::vector<PreviewDescriptor> previews;
     const int count = std::max(0, data.thumbs_list.thumbcount);
@@ -463,7 +482,10 @@ void validate_development_settings(const LibRawDevelopmentSettings& settings) {
         PreviewDescriptor descriptor;
         descriptor.id = static_cast<std::size_t>(index);
         descriptor.format = preview_format(candidate.tformat);
-        descriptor.dimensions = Dimensions{candidate.twidth, candidate.theight};
+        descriptor.dimensions = display_oriented_preview_dimensions(
+            Dimensions{candidate.twidth, candidate.theight},
+            data.sizes.flip
+        );
         descriptor.bits_per_channel = static_cast<std::uint16_t>(candidate.tmisc & 31U);
         descriptor.channels = static_cast<std::uint16_t>(candidate.tmisc >> 5U);
         descriptor.encoded_bytes = candidate.tlength;
@@ -558,7 +580,10 @@ public:
         payload.descriptor = *descriptor;
         payload.descriptor.format = preview_format(image->type);
         if (image->width != 0U && image->height != 0U) {
-            payload.descriptor.dimensions = Dimensions{image->width, image->height};
+            payload.descriptor.dimensions = display_oriented_preview_dimensions(
+                Dimensions{image->width, image->height},
+                metadata_.orientation
+            );
         }
         if (image->bits != 0U) {
             payload.descriptor.bits_per_channel = image->bits;
@@ -899,6 +924,7 @@ public:
             + ";receipt=" + std::to_string(raw_development_receipt_schema_version)
             + ";plan=" + std::to_string(raw_development_plan_schema_version)
             + ";frame=" + std::to_string(raw_frame_schema_version)
+            + ";preview=" + std::to_string(libraw_embedded_preview_geometry_contract_version)
             + ";display=" + std::to_string(display_srgb8_output_transform_version)
             + ";settings=" + compact_libraw_development_settings_identity(settings_);
         if (info_.version.size() > 128U) {

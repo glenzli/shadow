@@ -320,6 +320,17 @@ mod ffi {
         analysis: FfiEditPreviewAnalysis,
     }
 
+    /// A compact RAW-source diagnostic in the exact display dimensions of the prepared preview.
+    /// It is absent for display-referred sources and for providers that cannot supply RawFrame.
+    #[derive(Debug)]
+    struct FfiSensorClippingMask {
+        available: bool,
+        dimensions: FfiDimensions,
+        samples: Vec<u8>,
+        highlight_pixel_count: u64,
+        shadow_pixel_count: u64,
+    }
+
     #[derive(Debug)]
     struct FfiDisplayLuma {
         width: u32,
@@ -437,6 +448,11 @@ mod ffi {
             self: &DecodeHandle,
             request: &FfiAdjustmentRenderRequest,
         ) -> Result<FfiEncodedProxy>;
+        fn sensor_clipping_mask(
+            self: &DecodeHandle,
+            target_width: u32,
+            target_height: u32,
+        ) -> Result<FfiSensorClippingMask>;
         #[allow(dead_code)]
         fn prepare_edit_preview(
             self: &DecodeHandle,
@@ -2273,8 +2289,41 @@ pub struct LibRawEditPreviewSession {
     handle: cxx::UniquePtr<ffi::EditPreviewHandle>,
     dimensions: ImageDimensions,
     max_edge: u32,
+    sensor_clipping_mask: SensorClippingMask,
     raw_development_receipt: RawDevelopmentReceipt,
     optics_receipt: OpticsReceipt,
+}
+
+/// Per-preview-pixel source headroom information projected from unprocessed RAW samples.
+///
+/// Bit 0 denotes a CFA sample at its calibrated white level; bit 1 denotes a display cell whose
+/// complete source region is at or below calibrated black. Both are source facts, not output
+/// histogram thresholds, and no mask is fabricated for JPEG/HEIF or an unavailable provider.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct SensorClippingMask {
+    pub available: bool,
+    pub dimensions: ImageDimensions,
+    pub samples: Vec<u8>,
+    pub highlight_pixel_count: u64,
+    pub shadow_pixel_count: u64,
+}
+
+impl SensorClippingMask {
+    const HIGHLIGHT_BIT: u8 = 1 << 0;
+    const SHADOW_BIT: u8 = 1 << 1;
+
+    const fn unavailable() -> Self {
+        Self {
+            available: false,
+            dimensions: ImageDimensions {
+                width: 0,
+                height: 0,
+            },
+            samples: Vec::new(),
+            highlight_pixel_count: 0,
+            shadow_pixel_count: 0,
+        }
+    }
 }
 
 /// Transient analysis of one complete warm-proxy edit render.
@@ -2398,6 +2447,10 @@ impl std::fmt::Debug for LibRawEditPreviewSession {
             .debug_struct("LibRawEditPreviewSession")
             .field("dimensions", &self.dimensions)
             .field("max_edge", &self.max_edge)
+            .field(
+                "sensor_clipping_available",
+                &self.sensor_clipping_mask.available,
+            )
             .field("raw_development_receipt", &self.raw_development_receipt)
             .field("optics_receipt", &self.optics_receipt)
             .finish_non_exhaustive()
@@ -2489,6 +2542,24 @@ impl LibRawEditPreviewSession {
         let prepared = handle.as_ref().ok_or(BridgeError::NullHandle)?;
         let prepared_dimensions = dimensions(&prepared.dimensions());
         let prepared_max_edge = prepared.max_edge();
+        // This is optional inspection data. It must never make a photo uneditable: a source may
+        // be a JPEG/HEIF, a RAW provider may deliberately omit RawFrame, or an experimental
+        // provider may decline this diagnostic while still developing a valid display proxy.
+        let sensor_clipping_mask = match decode_handle
+            .sensor_clipping_mask(prepared_dimensions.width, prepared_dimensions.height)
+        {
+            Ok(mask) => match validate_sensor_clipping_mask(mask, prepared_dimensions) {
+                Ok(mask) => mask,
+                Err(error) => {
+                    eprintln!("Shadow: ignoring invalid RAW clipping diagnostic: {error}");
+                    SensorClippingMask::unavailable()
+                }
+            },
+            Err(error) => {
+                eprintln!("Shadow: RAW clipping diagnostic unavailable: {error}");
+                SensorClippingMask::unavailable()
+            }
+        };
         let raw_development_receipt = raw_development_receipt(prepared.raw_development_receipt()?)?;
         let optics_receipt = optics_receipt(prepared.optics_receipt());
 
@@ -2496,6 +2567,7 @@ impl LibRawEditPreviewSession {
             handle,
             dimensions: prepared_dimensions,
             max_edge: prepared_max_edge,
+            sensor_clipping_mask,
             raw_development_receipt,
             optics_receipt,
         })
@@ -2511,6 +2583,13 @@ impl LibRawEditPreviewSession {
     #[must_use]
     pub const fn max_edge(&self) -> u32 {
         self.max_edge
+    }
+
+    /// Returns source-domain clipping information computed once while this immutable preview was
+    /// prepared. Slider renders reuse this data and do not reopen or unpack the RAW file.
+    #[must_use]
+    pub const fn sensor_clipping_mask(&self) -> &SensorClippingMask {
+        &self.sensor_clipping_mask
     }
 
     /// Returns immutable provenance for the exact RAW development, if any, retained by this
@@ -3132,6 +3211,64 @@ fn validate_analyzed_edit_preview(
     validate_edit_preview_proxy(&proxy, expected_dimensions)?;
     let analysis = validate_edit_preview_analysis(analysis, expected_dimensions)?;
     Ok(AnalyzedEditPreview { proxy, analysis })
+}
+
+fn validate_sensor_clipping_mask(
+    mask: ffi::FfiSensorClippingMask,
+    expected_dimensions: ImageDimensions,
+) -> Result<SensorClippingMask, BridgeError> {
+    if !mask.available {
+        if mask.dimensions.width != 0
+            || mask.dimensions.height != 0
+            || !mask.samples.is_empty()
+            || mask.highlight_pixel_count != 0
+            || mask.shadow_pixel_count != 0
+        {
+            return Err(BridgeError::InvalidEditPreviewOutput(
+                "unavailable sensor clipping mask must not contain data",
+            ));
+        }
+        return Ok(SensorClippingMask::unavailable());
+    }
+
+    let dimensions = dimensions(&mask.dimensions);
+    if dimensions != expected_dimensions {
+        return Err(BridgeError::InvalidEditPreviewOutput(
+            "sensor clipping dimensions must match the prepared preview",
+        ));
+    }
+    let expected_len = usize::try_from(dimensions.pixel_count()).map_err(|_| {
+        BridgeError::InvalidEditPreviewOutput("sensor clipping mask is too large for this host")
+    })?;
+    if mask.samples.len() != expected_len {
+        return Err(BridgeError::InvalidEditPreviewOutput(
+            "sensor clipping mask byte count must equal preview pixel count",
+        ));
+    }
+
+    let mut highlights = 0_u64;
+    let mut shadows = 0_u64;
+    for sample in &mask.samples {
+        if *sample & !(SensorClippingMask::HIGHLIGHT_BIT | SensorClippingMask::SHADOW_BIT) != 0 {
+            return Err(BridgeError::InvalidEditPreviewOutput(
+                "sensor clipping mask contains unsupported bits",
+            ));
+        }
+        highlights += u64::from(*sample & SensorClippingMask::HIGHLIGHT_BIT != 0);
+        shadows += u64::from(*sample & SensorClippingMask::SHADOW_BIT != 0);
+    }
+    if highlights != mask.highlight_pixel_count || shadows != mask.shadow_pixel_count {
+        return Err(BridgeError::InvalidEditPreviewOutput(
+            "sensor clipping counts do not match its mask samples",
+        ));
+    }
+    Ok(SensorClippingMask {
+        available: true,
+        dimensions,
+        samples: mask.samples,
+        highlight_pixel_count: highlights,
+        shadow_pixel_count: shadows,
+    })
 }
 
 fn validated_histogram(
@@ -4993,6 +5130,29 @@ mod tests {
             .spawn(move || {
                 let session = LibRawEditPreviewSession::open(&path, 1_024)
                     .expect("prepare warm local DNG edit session on a small worker stack");
+                let sensor_clipping = session.sensor_clipping_mask();
+                assert!(sensor_clipping.available);
+                assert_eq!(sensor_clipping.dimensions, session.dimensions());
+                assert_eq!(
+                    sensor_clipping.samples.len() as u64,
+                    sensor_clipping.dimensions.pixel_count()
+                );
+                assert_eq!(
+                    sensor_clipping
+                        .samples
+                        .iter()
+                        .filter(|sample| **sample & SensorClippingMask::HIGHLIGHT_BIT != 0)
+                        .count() as u64,
+                    sensor_clipping.highlight_pixel_count
+                );
+                assert_eq!(
+                    sensor_clipping
+                        .samples
+                        .iter()
+                        .filter(|sample| **sample & SensorClippingMask::SHADOW_BIT != 0)
+                        .count() as u64,
+                    sensor_clipping.shadow_pixel_count
+                );
                 let neutral = session
                     .render(BasicEditParameters::default(), 86)
                     .expect("render neutral warm preview");

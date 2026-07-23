@@ -26,7 +26,6 @@ public:
         QSize dimensions;
         qsizetype row_stride_bytes = 0;
         QImage display_zebra;
-        QImage luma_waveform;
     };
 
     struct DetailPublication final {
@@ -41,7 +40,6 @@ public:
         QByteArray bytes,
         QSize dimensions,
         QImage display_zebra,
-        QImage luma_waveform,
         quint64 generation
     );
     void clear(EditPreviewSlot slot, quint64 generation);
@@ -64,7 +62,6 @@ private:
         quint64 generation = 0;
         qsizetype row_stride_bytes = 0;
         QImage display_zebra;
-        QImage luma_waveform;
     };
 
     [[nodiscard]] StoredPreview& slot(EditPreviewSlot slot) noexcept;

@@ -35,7 +35,6 @@ void EditPreviewStore::publish(
     QByteArray bytes,
     const QSize dimensions,
     QImage display_zebra,
-    QImage luma_waveform,
     const quint64 generation
 ) {
     QWriteLocker lock(&lock_);
@@ -43,7 +42,6 @@ void EditPreviewStore::publish(
     stored.bytes = std::move(bytes);
     stored.dimensions = dimensions;
     stored.display_zebra = std::move(display_zebra);
-    stored.luma_waveform = std::move(luma_waveform);
     stored.generation = generation;
 }
 
@@ -82,7 +80,6 @@ EditPreviewStore::Snapshot EditPreviewStore::snapshot(
         .dimensions = stored.dimensions,
         .row_stride_bytes = stored.row_stride_bytes,
         .display_zebra = stored.display_zebra,
-        .luma_waveform = stored.luma_waveform,
     };
 }
 
@@ -132,7 +129,6 @@ EditPreviewStore::Snapshot EditPreviewStore::detailSnapshot(
         .dimensions = found->dimensions,
         .row_stride_bytes = found->row_stride_bytes,
         .display_zebra = found->display_zebra,
-        .luma_waveform = found->luma_waveform,
     };
 }
 
@@ -153,9 +149,7 @@ QImage EditPreviewProvider::requestImage(
     const QUrlQuery query(query_start >= 0 ? id.mid(query_start + 1) : QString{});
     if (slot_name.startsWith(QStringLiteral("scope/"))) {
         const QStringList scope_parts = slot_name.split(QLatin1Char('/'));
-        if (scope_parts.size() != 3
-            || (scope_parts.at(1) != QStringLiteral("zebra")
-                && scope_parts.at(1) != QStringLiteral("waveform"))) {
+        if (scope_parts.size() != 3 || scope_parts.at(1) != QStringLiteral("zebra")) {
             if (size != nullptr) {
                 *size = {};
             }
@@ -183,8 +177,7 @@ QImage EditPreviewProvider::requestImage(
             return {};
         }
         const auto snapshot = store_->snapshot(scope_slot, generation);
-        const QImage scope_image = scope_parts.at(1) == QStringLiteral("zebra")
-            ? snapshot.display_zebra : snapshot.luma_waveform;
+        const QImage scope_image = snapshot.display_zebra;
         if (scope_image.isNull()) {
             if (size != nullptr) {
                 *size = {};

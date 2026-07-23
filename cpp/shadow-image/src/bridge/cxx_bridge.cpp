@@ -2,6 +2,7 @@
 
 #include <shadow/image/edit.hpp>
 #include <shadow/image/display_luma.hpp>
+#include <shadow/image/sensor_clipping.hpp>
 
 #include <filesystem>
 #include <limits>
@@ -69,6 +70,21 @@ namespace {
     result.bytes.reserve(proxy.bytes.size());
     for (const auto byte : proxy.bytes) {
         result.bytes.push_back(byte);
+    }
+    return result;
+}
+
+[[nodiscard]] FfiSensorClippingMask ffi_sensor_clipping_mask(
+    const image::SensorClippingMask& mask
+) {
+    FfiSensorClippingMask result;
+    result.available = true;
+    result.dimensions = dimensions(mask.dimensions);
+    result.highlight_pixel_count = mask.highlight_pixel_count;
+    result.shadow_pixel_count = mask.shadow_pixel_count;
+    result.samples.reserve(mask.samples.size());
+    for (const auto sample : mask.samples) {
+        result.samples.push_back(sample);
     }
     return result;
 }
@@ -1018,6 +1034,26 @@ FfiEncodedProxy DecodeHandle::render_adjustment_plan(
         optics_settings_
     );
     return encoded_proxy(proxy);
+}
+
+FfiSensorClippingMask DecodeHandle::sensor_clipping_mask(
+    const std::uint32_t target_width,
+    const std::uint32_t target_height
+) const {
+    if (target_width == 0U || target_height == 0U) {
+        throw image::DecodeError(
+            image::DecodeErrorCode::invalid_request,
+            0,
+            "sensor clipping mask dimensions must be non-zero"
+        );
+    }
+    if (!session_->capabilities().raw_frame) {
+        return {};
+    }
+    return ffi_sensor_clipping_mask(image::project_sensor_clipping_mask(
+        session_->decode_raw_frame(),
+        image::Dimensions{target_width, target_height}
+    ));
 }
 
 std::unique_ptr<EditPreviewHandle> DecodeHandle::prepare_edit_preview(

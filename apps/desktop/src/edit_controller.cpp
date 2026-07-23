@@ -2954,7 +2954,6 @@ void EditController::finishPreviewTask() {
                 std::move(result.preview.bytes),
                 dimensions,
                 std::move(result.preview.display_zebra),
-                std::move(result.preview.luma_waveform),
                 result.generation.current_revision
             );
             preview_source_ = QStringLiteral("image://shadow-edit/current?generation=%1")
@@ -3009,7 +3008,6 @@ void EditController::finishPreviewTask() {
                 std::move(result.preview.bytes),
                 dimensions,
                 std::move(result.preview.display_zebra),
-                std::move(result.preview.luma_waveform),
                 result.generation.photo
             );
             publishHistogram(

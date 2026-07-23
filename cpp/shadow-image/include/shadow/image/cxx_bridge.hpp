@@ -50,6 +50,13 @@ public:
     [[nodiscard]] FfiEncodedProxy render_adjustment_plan(
         const FfiAdjustmentRenderRequest& request
     ) const;
+    // A compact, source-invariant RAW diagnostic. It is intentionally produced from the
+    // provider-owned RawFrame before the immutable RGB preview is retained, so slider renders
+    // never need to unpack the sensor again.
+    [[nodiscard]] FfiSensorClippingMask sensor_clipping_mask(
+        std::uint32_t target_width,
+        std::uint32_t target_height
+    ) const;
     [[nodiscard]] std::unique_ptr<EditPreviewHandle> prepare_edit_preview(
         std::uint32_t max_edge
     ) const;

@@ -1,4 +1,5 @@
 #include "desktop_backend.hpp"
+#include "preview_diagnostics.hpp"
 
 #include "shadow-desktop-bridge/src/lib.rs.h"
 
@@ -31,130 +32,6 @@ namespace {
         reinterpret_cast<const char*>(value.data()),
         static_cast<qsizetype>(length)
     );
-}
-
-// Scopes are deliberately derived from the rendered JPEG, rather than the
-// working RGB buffer. They are a fast, presentation-only display-output aid:
-// the stripes flag encoded output near 0/255 and the waveform shows its luma
-// distribution. RawFrame will later provide a separate sensor-domain clipping
-// mask, which must not be conflated with this overlay.
-struct DisplayScopeImages final {
-    QImage zebra;
-    QImage luma_waveform;
-};
-
-[[nodiscard]] DisplayScopeImages make_display_scope_images(
-    const QByteArray& jpeg_bytes
-) noexcept {
-    try {
-        QImage source = QImage::fromData(jpeg_bytes, "JPEG");
-        if (source.isNull()) {
-            return {};
-        }
-        source = source.convertToFormat(QImage::Format_RGBA8888);
-        if (source.isNull() || source.width() <= 0 || source.height() <= 0) {
-            return {};
-        }
-
-        QImage zebra(source.size(), QImage::Format_RGBA8888);
-        if (zebra.isNull()) {
-            return {};
-        }
-        zebra.fill(Qt::transparent);
-
-        constexpr int waveform_width = 384;
-        constexpr int waveform_height = 180;
-        QImage waveform(
-            waveform_width,
-            waveform_height,
-            QImage::Format_RGBA8888
-        );
-        if (waveform.isNull()) {
-            return {};
-        }
-        waveform.fill(Qt::transparent);
-        std::vector<std::uint32_t> waveform_density(
-            static_cast<std::size_t>(waveform_width * waveform_height),
-            0U
-        );
-
-        std::uint32_t peak_density = 0;
-        for (int y = 0; y < source.height(); ++y) {
-            const auto* const source_line = source.constScanLine(y);
-            auto* const zebra_line = zebra.scanLine(y);
-            for (int x = 0; x < source.width(); ++x) {
-                const auto* const pixel = source_line + (x * 4);
-                const int red = pixel[0];
-                const int green = pixel[1];
-                const int blue = pixel[2];
-
-                // Use conservative near-endpoint thresholds. This is a
-                // display warning rather than a claim that RAW information is
-                // unrecoverable, hence no reference to sensor clipping here.
-                const bool highlight = std::max({red, green, blue}) >= 252;
-                const bool shadow = std::max({red, green, blue}) <= 3;
-                const bool hatch = (((x / 6) + (y / 6)) & 1) == 0;
-                if (hatch && (highlight || shadow)) {
-                    auto* const overlay = zebra_line + (x * 4);
-                    if (highlight) {
-                        overlay[0] = 255;
-                        overlay[1] = 79;
-                        overlay[2] = 98;
-                    } else {
-                        overlay[0] = 63;
-                        overlay[1] = 155;
-                        overlay[2] = 255;
-                    }
-                    overlay[3] = 178;
-                }
-
-                const int luma = (54 * red + 183 * green + 19 * blue + 128) >> 8;
-                const int waveform_x = (x * waveform_width) / source.width();
-                const int waveform_y = waveform_height - 1
-                    - ((luma * (waveform_height - 1) + 127) / 255);
-                const auto density_index = static_cast<std::size_t>(waveform_y)
-                    * static_cast<std::size_t>(waveform_width)
-                    + static_cast<std::size_t>(waveform_x);
-                const std::uint32_t density = ++waveform_density[density_index];
-                peak_density = std::max(peak_density, density);
-            }
-        }
-
-        if (peak_density == 0U) {
-            return {};
-        }
-        for (int y = 0; y < waveform_height; ++y) {
-            auto* const waveform_line = waveform.scanLine(y);
-            for (int x = 0; x < waveform_width; ++x) {
-                const std::uint32_t density = waveform_density[
-                    static_cast<std::size_t>(y)
-                    * static_cast<std::size_t>(waveform_width)
-                    + static_cast<std::size_t>(x)
-                ];
-                if (density == 0U) {
-                    continue;
-                }
-                const double normalized = std::sqrt(
-                    static_cast<double>(density) / static_cast<double>(peak_density)
-                );
-                auto* const pixel = waveform_line + (x * 4);
-                pixel[0] = 86;
-                pixel[1] = 201;
-                pixel[2] = 255;
-                pixel[3] = static_cast<uchar>(
-                    std::clamp(48.0 + (207.0 * normalized), 0.0, 255.0)
-                );
-            }
-        }
-
-        return {
-            .zebra = std::move(zebra),
-            .luma_waveform = std::move(waveform),
-        };
-    } catch (...) {
-        // A missing optional scope must never make the main edit preview fail.
-        return {};
-    }
 }
 
 [[nodiscard]] qsizetype checked_qt_vector_size(
@@ -976,7 +853,20 @@ BackendEditedPreview DesktopBackend::renderEditPreview(
         request
     );
     const QByteArray preview_bytes = qbytes(payload.bytes);
-    const auto scopes = make_display_scope_images(preview_bytes);
+    const QSize preview_dimensions(
+        static_cast<int>(payload.width),
+        static_cast<int>(payload.height)
+    );
+    const PreviewSensorClippingMask sensor_clipping{
+        .available = payload.sensor_clipping_available,
+        .dimensions = QSize(
+            static_cast<int>(payload.sensor_clipping_width),
+            static_cast<int>(payload.sensor_clipping_height)
+        ),
+        .samples = qbytes(payload.sensor_clipping_mask),
+        .highlight_pixel_count = payload.sensor_highlight_clipped_pixels,
+        .shadow_pixel_count = payload.sensor_shadow_clipped_pixels,
+    };
     return {
         .bytes = preview_bytes,
         .analysis = {
@@ -999,8 +889,11 @@ BackendEditedPreview DesktopBackend::renderEditPreview(
             .shadow_clipped_pixels = payload.shadow_clipped_pixels,
             .highlight_clipped_pixels = payload.highlight_clipped_pixels,
         },
-        .display_zebra = scopes.zebra,
-        .luma_waveform = scopes.luma_waveform,
+        .display_zebra = make_clipping_zebra_overlay(
+            preview_dimensions,
+            preview_bytes,
+            sensor_clipping
+        ),
         .optics = {
             .status = qstring(payload.optics_status),
             .provider_id = qstring(payload.optics_provider_id),

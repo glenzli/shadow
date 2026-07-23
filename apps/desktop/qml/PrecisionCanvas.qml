@@ -32,9 +32,8 @@ Rectangle {
     property int comparisonMode: comparisonWipeVertical
     property real comparisonPosition: 0.5
 
-    // Public display-only analysis state. These never mutate the edit stack.
+    // Public display-only diagnostic state. This never mutates the edit stack.
     property bool zebraEnabled: false
-    property bool lumaWaveformEnabled: false
 
     // Public comparison constants, kept here so callers do not depend on the
     // implementation's popup or surface ids.
@@ -120,7 +119,6 @@ Rectangle {
     onComparisonModeChanged: comparisonStateChanged()
     onComparisonPositionChanged: comparisonStateChanged()
     onZebraEnabledChanged: analysisOverlayStateChanged()
-    onLumaWaveformEnabledChanged: analysisOverlayStateChanged()
     onPreviewFrameReadyStateChanged: previewFrameStateChanged()
     onBeforeFrameReadyStateChanged: previewFrameStateChanged()
     onReadyPreviewGenerationStateChanged: previewFrameStateChanged()
@@ -385,24 +383,11 @@ Rectangle {
                                 source: "qrc:/icons/zebra.svg"
                                 variant: ShadowIconButton.Secondary
                                 selected: canvas.zebraEnabled
-                                toolTipText: qsTr("Toggle display zebra warning")
+                                toolTipText: qsTr("Toggle clipping warning · RAW uses sensor limits")
                                 accessibleName: toolTipText
                                 Accessible.checked: selected
                                 enabled: canvas.editor.active
                                 onClicked: canvas.zebraEnabled = !canvas.zebraEnabled
-                            }
-
-                            ShadowIconButton {
-                                id: lumaWaveformButton
-                                source: "qrc:/icons/scopes.svg"
-                                variant: ShadowIconButton.Secondary
-                                selected: canvas.lumaWaveformEnabled
-                                toolTipText: qsTr("Toggle luma waveform")
-                                accessibleName: toolTipText
-                                Accessible.checked: selected
-                                enabled: canvas.editor.active
-                                onClicked: canvas.lumaWaveformEnabled
-                                    = !canvas.lumaWaveformEnabled
                             }
 
                             ShadowIconButton {
@@ -1010,126 +995,6 @@ Rectangle {
                                 Qt.callLater(canvas.requestVisibleDetail)
                             }
                         }
-                    }
-                }
-            }
-
-            Rectangle {
-                id: lumaWaveformOverlay
-                x: 18
-                y: 58
-                width: 356
-                height: 207
-                radius: Theme.controlRadius
-                color: Theme.previewHudStrongOverlay
-                border.width: 1
-                border.color: Theme.previewHudBorder
-                clip: true
-                opacity: 0.82
-                z: 180
-                visible: canvas.lumaWaveformEnabled
-                    && canvas.scopePreviewAvailable
-
-                Rectangle {
-                    id: waveformHeader
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    height: 32
-                    color: Theme.transparent
-
-                    RowLayout {
-                        anchors.fill: parent
-                        anchors.leftMargin: 10
-                        anchors.rightMargin: 5
-                        spacing: 7
-
-                        ShadowIcon {
-                            source: "qrc:/icons/scopes.svg"
-                            color: canvas.accent
-                            size: 14
-                        }
-                        Label {
-                            Layout.fillWidth: true
-                            text: qsTr("LUMA WAVEFORM")
-                            color: canvas.textPrimary
-                            font.pixelSize: 9
-                            font.weight: Font.DemiBold
-                            font.letterSpacing: 0.7
-                        }
-                        ShadowIconButton {
-                            source: "qrc:/icons/clear.svg"
-                            buttonSize: 22
-                            iconSize: 12
-                            toolTipText: qsTr("Hide luma waveform")
-                            accessibleName: toolTipText
-                            onClicked: canvas.lumaWaveformEnabled = false
-                        }
-                    }
-
-                    MouseArea {
-                        id: waveformDragArea
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.top: parent.top
-                        anchors.bottom: parent.bottom
-                        anchors.rightMargin: 30
-                        hoverEnabled: true
-                        cursorShape: Qt.SizeAllCursor
-                        drag.target: lumaWaveformOverlay
-                        drag.axis: Drag.XAndYAxis
-                        drag.minimumX: 12
-                        drag.maximumX: Math.max(
-                            12, canvas.width - lumaWaveformOverlay.width - 12)
-                        drag.minimumY: 48
-                        drag.maximumY: Math.max(
-                            48, canvas.height - lumaWaveformOverlay.height - 12)
-                    }
-                }
-
-                Item {
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: waveformHeader.bottom
-                    anchors.bottom: parent.bottom
-                    anchors.margins: 10
-                    clip: true
-
-                    Repeater {
-                        model: 5
-                        delegate: Rectangle {
-                            required property int index
-                            x: Math.round(index * (parent.width - 1) / 4)
-                            y: 0
-                            width: 1
-                            height: parent.height
-                            color: Theme.previewHudBorder
-                            opacity: 0.55
-                        }
-                    }
-                    Repeater {
-                        model: 4
-                        delegate: Rectangle {
-                            required property int index
-                            x: 0
-                            y: Math.round(index * (parent.height - 1) / 3)
-                            width: parent.width
-                            height: 1
-                            color: Theme.previewHudBorder
-                            opacity: 0.55
-                        }
-                    }
-                    Image {
-                        id: lumaWaveformImage
-                        anchors.fill: parent
-                        source: canvas.scopePreviewAvailable
-                            ? "image://shadow-edit/scope/waveform/current?generation="
-                                + canvas.readyPreviewGeneration : ""
-                        fillMode: Image.Stretch
-                        asynchronous: true
-                        cache: false
-                        retainWhileLoading: true
-                        smooth: true
                     }
                 }
             }

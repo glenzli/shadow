@@ -50,6 +50,7 @@ fn main() {
         .file(image_root.join("src/color/lcms_color_management.cpp"))
         .file(image_root.join("src/edit/cube_lut.cpp"))
         .file(image_root.join("src/edit/cpu_reference.cpp"))
+        .file(image_root.join("src/raw/sensor_clipping.cpp"))
         .file(image_root.join("src/optics/lensfun_optics.cpp"))
         .file(image_root.join("src/proxy/jpeg_display_luma.cpp"))
         .file(image_root.join("src/proxy/jpeg_proxy.cpp"))
@@ -207,6 +208,7 @@ fn main() {
         "include/shadow/image/decoder.hpp",
         "include/shadow/image/private_decoder_plugin.hpp",
         "include/shadow/image/display_luma.hpp",
+        "include/shadow/image/sensor_clipping.hpp",
         "include/shadow/image/edit.hpp",
         "include/shadow/image/lut.hpp",
         "include/shadow/image/optics.hpp",
@@ -224,6 +226,7 @@ fn main() {
         "src/color/lcms_color_management.cpp",
         "src/edit/cube_lut.cpp",
         "src/edit/cpu_reference.cpp",
+        "src/raw/sensor_clipping.cpp",
         "src/optics/lensfun_optics.cpp",
         "src/proxy/display_rgb_math.hpp",
         "src/proxy/jpeg_display_luma.cpp",

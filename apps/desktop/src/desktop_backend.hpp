@@ -369,11 +369,9 @@ struct BackendEditPreviewAnalysis final {
 struct BackendEditedPreview final {
     QByteArray bytes;
     BackendEditPreviewAnalysis analysis;
-    // Display-referred scopes derived from the same JPEG sent to the editor.
-    // They intentionally do not claim RAW/sensor clipping semantics; the
-    // RawFrame-backed masks added later will carry that stronger meaning.
+    // RAW sources receive a sensor-domain clipping overlay. Rendered sources retain a clearly
+    // weaker display-endpoint fallback because they cannot honestly report lost RAW headroom.
     QImage display_zebra;
-    QImage luma_waveform;
     BackendOpticsReceipt optics;
     std::uint32_t width = 0;
     std::uint32_t height = 0;

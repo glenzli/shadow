@@ -32,6 +32,7 @@ add_library(
     src/edit/cube_lut.cpp
     src/edit/cpu_reference.cpp
     src/raw/bayer_demosaic.cpp
+    src/raw/sensor_clipping.cpp
     src/decoder/private_decoder_plugin.cpp
     src/optics/lensfun_optics.cpp
     src/proxy/jpeg_display_luma.cpp

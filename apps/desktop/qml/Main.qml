@@ -632,21 +632,6 @@ ApplicationWindow {
                 }
 
                 ShadowIconButton {
-                    id: libraryButton
-                    anchors.verticalCenter: parent.verticalCenter
-                    source: "qrc:/icons/library-manage.svg"
-                    text: qsTr("Library Management")
-                    toolTipText: text
-                    accessibleName: text
-                    selected: window.workspaceIndex === 2
-                    Accessible.checked: selected
-                    variant: window.controller.scanning
-                        || window.controller.refreshing
-                        ? ShadowIconButton.Tinted : ShadowIconButton.Ghost
-                    onClicked: window.showLibrary()
-                }
-
-                ShadowIconButton {
                     id: closeEditButton
                     visible: window.workspaceIndex === 1
                     anchors.verticalCenter: parent.verticalCenter

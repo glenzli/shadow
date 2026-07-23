@@ -104,6 +104,8 @@ qt_add_executable(
     src/lut_library.hpp
     src/optics_profile_library.cpp
     src/optics_profile_library.hpp
+    src/preview_diagnostics.cpp
+    src/preview_diagnostics.hpp
     src/lut_preview_provider.cpp
     src/lut_preview_provider.hpp
     src/review_controller.cpp
@@ -157,7 +159,6 @@ qt_add_resources(
         icons/slot-right.svg
         icons/star.svg
         icons/star-filled.svg
-        icons/scopes.svg
         icons/trash.svg
         icons/unflag.svg
         icons/undo.svg

@@ -1,5 +1,7 @@
 //! Coarse-grained, long-lived Rust services consumed by the Qt desktop shell.
 
+mod detail_tile_cache;
+mod detail_viewport;
 mod edit_version_diff;
 mod isolated_proxy;
 mod photo_provider;
@@ -94,6 +96,10 @@ use crate::photo_provider::PhotoInspector;
 use crate::photo_provider::isolated_edit_raster;
 use crate::review_service::ReviewService;
 use crate::scan_service::ScanService;
+use detail_tile_cache::{CachedDetailSource, cached_detail_tile};
+use detail_viewport::{
+    MAX_DETAIL_VIEWPORT_SIDE, detail_viewport_rects, validate_detail_viewport_request,
+};
 #[cfg(test)]
 use edit_version_diff::{
     EditVersionDiffError, changed_grade_parameters_recipe_v1, edit_version_diff,
@@ -501,6 +507,12 @@ mod ffi {
         width: u32,
         height: u32,
         bytes: Vec<u8>,
+        sensor_clipping_available: bool,
+        sensor_clipping_width: u32,
+        sensor_clipping_height: u32,
+        sensor_clipping_mask: Vec<u8>,
+        sensor_highlight_clipped_pixels: u64,
+        sensor_shadow_clipped_pixels: u64,
         analysis_version: String,
         analysis_width: u32,
         analysis_height: u32,
@@ -738,135 +750,6 @@ struct CachedEditDetailSession {
     requested_raw_development_plan_identity: String,
     optics: OpticsSettings,
     session: Arc<CachedDetailSource>,
-}
-
-// Keep the decoded full-resolution source and the processed display tiles as
-// two distinct caches. The source is expensive RAW development state; the
-// tiles are bounded, Recipe-specific RGB8 results that make panning over an
-// already inspected region immediate without pinning an entire developed
-// image for every photo.
-#[derive(Debug)]
-struct CachedDetailSource {
-    session: PhotoEditDetailSession,
-    tiles: Mutex<DetailTileCache>,
-}
-
-#[derive(Debug, Clone, Copy, Eq, Hash, PartialEq)]
-struct DetailTileCacheKey {
-    x: u32,
-    y: u32,
-    width: u32,
-    height: u32,
-}
-
-impl From<DetailTileRect> for DetailTileCacheKey {
-    fn from(rect: DetailTileRect) -> Self {
-        Self {
-            x: rect.x,
-            y: rect.y,
-            width: rect.width,
-            height: rect.height,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-struct CachedDetailTile {
-    row_stride_bytes: u32,
-    bytes: Vec<u8>,
-}
-
-#[derive(Debug, Default)]
-struct DetailTileCache {
-    recipe_identity: Option<[u8; 32]>,
-    bytes: usize,
-    entries: HashMap<DetailTileCacheKey, CachedDetailTile>,
-    least_recently_used: VecDeque<DetailTileCacheKey>,
-}
-
-const MAX_CACHED_DETAIL_TILE_BYTES: usize = 96 * 1_024 * 1_024;
-
-fn cached_detail_tile(
-    source: &CachedDetailSource,
-    plan: &AdjustmentRenderPlan,
-    recipe_identity: [u8; 32],
-    rect: DetailTileRect,
-) -> AnyResult<ffi::FfiEditedDetailTile> {
-    let key = DetailTileCacheKey::from(rect);
-    {
-        let mut cache = source
-            .tiles
-            .lock()
-            .map_err(|_| anyhow!("full-detail tile cache lock is poisoned"))?;
-        if cache.recipe_identity != Some(recipe_identity) {
-            *cache = DetailTileCache {
-                recipe_identity: Some(recipe_identity),
-                ..DetailTileCache::default()
-            };
-        }
-        if let Some(tile) = cache.entries.get(&key).cloned() {
-            cache
-                .least_recently_used
-                .retain(|candidate| candidate != &key);
-            cache.least_recently_used.push_back(key);
-            return Ok(ffi::FfiEditedDetailTile {
-                x: key.x,
-                y: key.y,
-                width: key.width,
-                height: key.height,
-                row_stride_bytes: tile.row_stride_bytes,
-                bytes: tile.bytes,
-            });
-        }
-    }
-
-    let rendered = source
-        .session
-        .render_plan_tile(plan, DetailTileRequest { rect })?;
-    let tile = CachedDetailTile {
-        row_stride_bytes: rendered.row_stride_bytes,
-        bytes: rendered.bytes,
-    };
-    let tile_bytes = tile.bytes.len();
-    let mut cache = source
-        .tiles
-        .lock()
-        .map_err(|_| anyhow!("full-detail tile cache lock is poisoned"))?;
-    if cache.recipe_identity != Some(recipe_identity) {
-        // A newer Recipe may have reached the same prepared source while this
-        // tile was being calculated. Do not leak its pixels across Recipe
-        // identities; return this request's result without admitting it.
-        return Ok(ffi::FfiEditedDetailTile {
-            x: key.x,
-            y: key.y,
-            width: key.width,
-            height: key.height,
-            row_stride_bytes: tile.row_stride_bytes,
-            bytes: tile.bytes,
-        });
-    }
-    while cache.bytes.saturating_add(tile_bytes) > MAX_CACHED_DETAIL_TILE_BYTES {
-        let Some(evicted_key) = cache.least_recently_used.pop_front() else {
-            break;
-        };
-        if let Some(evicted) = cache.entries.remove(&evicted_key) {
-            cache.bytes = cache.bytes.saturating_sub(evicted.bytes.len());
-        }
-    }
-    cache.bytes = cache.bytes.saturating_add(tile_bytes);
-    cache.entries.insert(key, tile.clone());
-    cache
-        .least_recently_used
-        .retain(|candidate| candidate != &key);
-    cache.least_recently_used.push_back(key);
-    Ok(ffi::FfiEditedDetailTile {
-        x: key.x,
-        y: key.y,
-        width: key.width,
-        height: key.height,
-        row_stride_bytes: tile.row_stride_bytes,
-        bytes: tile.bytes,
-    })
 }
 
 // A prepared session owns an immutable receipt for one particular user request. Even if a
@@ -1124,10 +1007,17 @@ impl DesktopSession {
         }
         let analysis = rendered.analysis;
         let optics = session.optics_receipt();
+        let sensor_clipping = session.sensor_clipping_mask();
         Ok(ffi::FfiEditedPreview {
             width: proxy.dimensions.width,
             height: proxy.dimensions.height,
             bytes: proxy.bytes,
+            sensor_clipping_available: sensor_clipping.available,
+            sensor_clipping_width: sensor_clipping.dimensions.width,
+            sensor_clipping_height: sensor_clipping.dimensions.height,
+            sensor_clipping_mask: sensor_clipping.samples.clone(),
+            sensor_highlight_clipped_pixels: sensor_clipping.highlight_pixel_count,
+            sensor_shadow_clipped_pixels: sensor_clipping.shadow_pixel_count,
             analysis_version: analysis.version,
             analysis_width: analysis.sample_dimensions.width,
             analysis_height: analysis.sample_dimensions.height,
@@ -1482,10 +1372,7 @@ impl DesktopSession {
                 })?
                 }
             };
-        let prepared = Arc::new(CachedDetailSource {
-            session: prepared_session,
-            tiles: Mutex::new(DetailTileCache::default()),
-        });
+        let prepared = Arc::new(CachedDetailSource::new(prepared_session));
         let decoded_source = fingerprint_source(&native_path).context(SOURCE_METADATA_CONTEXT)?;
         if decoded_source != source.source {
             bail!(SOURCE_CHANGED);
@@ -2038,120 +1925,6 @@ const LIBRARY_EDIT_MAIN_REF: &str = "heads/main";
 const LIBRARY_EDIT_VERSION_REF_PREFIX: &str = "versions/";
 const LIBRARY_PHOTO_EDIT_KEY_PREFIX: &str = "photo/";
 const CONTRAST_PIVOT: f64 = 0.18;
-const MAX_DETAIL_VIEWPORT_SIDE: u32 = 8_192;
-const MAX_DETAIL_VIEWPORT_TILES: usize = 100;
-
-fn validate_detail_viewport_request(request: &ffi::FfiEditDetailViewportRequest) -> AnyResult<()> {
-    if request.render_token == 0 {
-        bail!("detail render token must be non-zero");
-    }
-    if !request.center_x.is_finite()
-        || !request.center_y.is_finite()
-        || !(0.0..=1.0).contains(&request.center_x)
-        || !(0.0..=1.0).contains(&request.center_y)
-    {
-        bail!("detail viewport center must be finite and normalized to 0..=1");
-    }
-    if request.viewport_width == 0
-        || request.viewport_height == 0
-        || request.viewport_width > MAX_DETAIL_VIEWPORT_SIDE
-        || request.viewport_height > MAX_DETAIL_VIEWPORT_SIDE
-    {
-        bail!("detail viewport dimensions must be in 1..=8192");
-    }
-    if request.tile_side == 0 || request.tile_side > MAX_EDIT_DETAIL_TILE_SIDE {
-        bail!("detail tile side must be in 1..=1024");
-    }
-    let worst_case_axis_tiles = |viewport: u32| {
-        // For an integer-aligned interval of length L against a fixed T grid,
-        // max intersected cells = ceil((L - 1) / T) + 1.
-        (u64::from(viewport) + u64::from(request.tile_side) - 2) / u64::from(request.tile_side) + 1
-    };
-    let worst_case_tiles = worst_case_axis_tiles(request.viewport_width)
-        .checked_mul(worst_case_axis_tiles(request.viewport_height))
-        .ok_or_else(|| anyhow!("detail viewport tile admission count overflowed"))?;
-    if worst_case_tiles > u64::try_from(MAX_DETAIL_VIEWPORT_TILES).unwrap_or(u64::MAX) {
-        bail!("detail viewport exceeds the 100-tile pre-decode admission bound");
-    }
-    Ok(())
-}
-
-fn detail_axis_span(full: u32, center: f64, viewport: u32) -> AnyResult<(u32, u32)> {
-    if full == 0 {
-        bail!("detail source dimension must be non-zero");
-    }
-    let span = viewport.min(full);
-    let max_start = full - span;
-    let centered = center * f64::from(full) - f64::from(span) / 2.0;
-    let rounded_start = centered.round().clamp(0.0, f64::from(max_start));
-    // The finite normalized-center precondition and clamp prove this value is
-    // an integral number in the complete u32 range before conversion.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let start = rounded_start as u32;
-    Ok((start, start + span))
-}
-
-fn detail_viewport_rects(
-    full: ImageDimensions,
-    center_x: f64,
-    center_y: f64,
-    viewport_width: u32,
-    viewport_height: u32,
-    tile_side: u32,
-) -> AnyResult<Vec<DetailTileRect>> {
-    if !center_x.is_finite()
-        || !center_y.is_finite()
-        || !(0.0..=1.0).contains(&center_x)
-        || !(0.0..=1.0).contains(&center_y)
-        || tile_side == 0
-        || tile_side > MAX_EDIT_DETAIL_TILE_SIDE
-    {
-        bail!("invalid detail viewport geometry");
-    }
-    let (left, right) = detail_axis_span(full.width, center_x, viewport_width)?;
-    let (top, bottom) = detail_axis_span(full.height, center_y, viewport_height)?;
-    let first_x = left / tile_side * tile_side;
-    let first_y = top / tile_side * tile_side;
-    let mut rects = Vec::new();
-    let mut y = first_y;
-    while y < bottom {
-        let mut x = first_x;
-        while x < right {
-            rects.push(DetailTileRect {
-                x,
-                y,
-                width: tile_side.min(full.width - x),
-                height: tile_side.min(full.height - y),
-            });
-            if rects.len() > MAX_DETAIL_VIEWPORT_TILES {
-                bail!("detail viewport exceeds the 100-tile admission bound");
-            }
-            x = x
-                .checked_add(tile_side)
-                .ok_or_else(|| anyhow!("detail tile x coordinate overflowed"))?;
-        }
-        y = y
-            .checked_add(tile_side)
-            .ok_or_else(|| anyhow!("detail tile y coordinate overflowed"))?;
-    }
-
-    // Rendering the center first improves cancellation latency once the
-    // coordinator grows cancellable streaming. The v1 presentation remains
-    // atomic: Qt receives the vector only after every visible tile is ready.
-    let viewport_center = (
-        center_x * f64::from(full.width),
-        center_y * f64::from(full.height),
-    );
-    rects.sort_by(|left, right| {
-        let distance = |rect: &DetailTileRect| {
-            let dx = f64::from(rect.x) + f64::from(rect.width) / 2.0 - viewport_center.0;
-            let dy = f64::from(rect.y) + f64::from(rect.height) / 2.0 - viewport_center.1;
-            dx.mul_add(dx, dy * dy)
-        };
-        distance(left).total_cmp(&distance(right))
-    });
-    Ok(rects)
-}
 // A persisted v1 Recipe must map to the exact v1 executor contract. A future
 // bridge revision therefore requires an explicit compiler mapping instead of
 // silently upgrading old pixels to new semantics.
