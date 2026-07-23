@@ -34,6 +34,31 @@ pub(crate) fn render_isolated_photo_reference_proxy(
     max_edge: u32,
     jpeg_quality: u8,
 ) -> Result<ProxyPayload> {
+    let (proxy, output_path) = render_isolated_photo_reference_proxy_to_file(
+        helper_path,
+        runtime_cache_root,
+        source_path,
+        max_edge,
+        jpeg_quality,
+    )?;
+    // The child alone owns this path and it has a UUID name. Cleanup is still
+    // best-effort so an interrupted helper cannot grow the cache indefinitely.
+    let _ = fs::remove_file(output_path);
+    Ok(proxy)
+}
+
+/// Renders a bounded proxy and leaves its JPEG available to the caller briefly.
+///
+/// This is used only to bridge a private RAW provider into the ordinary, public
+/// raster edit pipeline. The caller must remove `PathBuf` after opening it: the
+/// C++ edit sessions copy their prepared pixels and retain no source file handle.
+pub(crate) fn render_isolated_photo_reference_proxy_to_file(
+    helper_path: &Path,
+    runtime_cache_root: &Path,
+    source_path: &Path,
+    max_edge: u32,
+    jpeg_quality: u8,
+) -> Result<(ProxyPayload, PathBuf)> {
     if max_edge == 0 {
         bail!("generated proxy edge must be non-zero");
     }
@@ -57,10 +82,13 @@ pub(crate) fn render_isolated_photo_reference_proxy(
         Ok(output) => decode_helper_output(&output, &output_path, max_edge),
         Err(error) => Err(error),
     };
-    // The child alone owns this path and it has a UUID name. Cleanup is still
-    // best-effort so an interrupted helper cannot grow the cache indefinitely.
-    let _ = fs::remove_file(&output_path);
-    result
+    match result {
+        Ok(proxy) => Ok((proxy, output_path)),
+        Err(error) => {
+            let _ = fs::remove_file(&output_path);
+            Err(error)
+        }
+    }
 }
 
 /// Returns the helper explicitly selected by the desktop shell, if present.

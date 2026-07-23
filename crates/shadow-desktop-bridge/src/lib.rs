@@ -97,7 +97,10 @@ use shadow_domain::{
 };
 use uuid::Uuid;
 
-use crate::isolated_proxy::{configured_helper_path, render_isolated_photo_reference_proxy};
+use crate::isolated_proxy::{
+    configured_helper_path, render_isolated_photo_reference_proxy,
+    render_isolated_photo_reference_proxy_to_file,
+};
 
 #[cxx::bridge(namespace = "shadow::desktop")]
 mod ffi {
@@ -1957,14 +1960,38 @@ impl DesktopSession {
             }
         }
 
-        let prepared = Arc::new(
-            PhotoEditPreviewSession::open_with_raw_development_plan_and_optics(
-                &catalog_native_path(source)?,
-                max_edge,
-                raw_development_plan,
-                &optics,
-            )?,
-        );
+        let native_path = catalog_native_path(source)?;
+        let prepared = match PhotoEditPreviewSession::open_with_raw_development_plan_and_optics(
+            &native_path,
+            max_edge,
+            raw_development_plan,
+            &optics,
+        ) {
+            Ok(prepared) => prepared,
+            Err(public_decoder_error) => {
+                // The desktop host deliberately runs only public decoders in-process. If one
+                // cannot prepare this source, give the isolated helper a chance to use an
+                // installed private provider, then feed the resulting RGB JPEG back through
+                // the normal public raster edit pipeline. The helper owns the risky native
+                // boundary; the parent still owns every adjustment and never loads that SDK.
+                let temporary_raster = self.isolated_edit_raster(source, max_edge)?;
+                let isolated_result =
+                    PhotoEditPreviewSession::open_with_raw_development_plan_and_optics(
+                        &temporary_raster,
+                        max_edge,
+                        raw_development_plan,
+                        &optics,
+                    );
+                let _ = std::fs::remove_file(&temporary_raster);
+                isolated_result.with_context(|| {
+                    format!(
+                        "public decoder could not prepare {}; isolated decoder fallback also failed: {public_decoder_error}",
+                        native_path.display()
+                    )
+                })?
+            }
+        };
+        let prepared = Arc::new(prepared);
         let mut sessions = self
             .edit_preview_sessions
             .lock()
@@ -2041,6 +2068,32 @@ impl DesktopSession {
         Ok(())
     }
 
+    /// Develops a source through the crash-isolated helper and returns the short-lived JPEG
+    /// path that the public raster edit path can open. The caller must remove the path after
+    /// preparation: edit sessions retain decoded pixels, not an open file descriptor.
+    fn isolated_edit_raster(&self, source: &ReviewItemRecord, max_edge: u32) -> AnyResult<PathBuf> {
+        let helper_path = configured_helper_path().ok_or_else(|| {
+            anyhow!(
+                "isolated RAW decoder is unavailable; Shadow will not load a private decoder in the desktop process"
+            )
+        })?;
+        let native_path = catalog_native_path(source)?;
+        let (_, temporary_raster) = render_isolated_photo_reference_proxy_to_file(
+            &helper_path,
+            &self.cache_root,
+            &native_path,
+            max_edge,
+            96,
+        )
+        .with_context(|| {
+            format!(
+                "develop {} through the isolated RAW decoder",
+                native_path.display()
+            )
+        })?;
+        Ok(temporary_raster)
+    }
+
     fn edit_detail_session(
         &self,
         source: &ReviewItemRecord,
@@ -2087,12 +2140,36 @@ impl DesktopSession {
             bail!("full detail source is busy rendering another photo");
         }
         *cached = None;
-        let prepared = Arc::new(CachedDetailSource {
-            session: PhotoEditDetailSession::open_with_raw_development_plan_and_optics(
+        let prepared_session =
+            match PhotoEditDetailSession::open_with_raw_development_plan_and_optics(
                 &native_path,
                 raw_development_plan,
                 &optics,
-            )?,
+            ) {
+                Ok(prepared) => prepared,
+                Err(public_decoder_error) => {
+                    // Preserve the same safety contract as warm previews. This is an RGB fallback,
+                    // so it may not provide native sensor-resolution detail, but it remains fully
+                    // editable and never requires a private SDK in the desktop process.
+                    let temporary_raster =
+                        self.isolated_edit_raster(source, MAX_DETAIL_VIEWPORT_SIDE)?;
+                    let isolated_result =
+                        PhotoEditDetailSession::open_with_raw_development_plan_and_optics(
+                            &temporary_raster,
+                            raw_development_plan,
+                            &optics,
+                        );
+                    let _ = std::fs::remove_file(&temporary_raster);
+                    isolated_result.with_context(|| {
+                    format!(
+                        "public decoder could not prepare detail for {}; isolated decoder fallback also failed: {public_decoder_error}",
+                        native_path.display()
+                    )
+                })?
+                }
+            };
+        let prepared = Arc::new(CachedDetailSource {
+            session: prepared_session,
             tiles: Mutex::new(DetailTileCache::default()),
         });
         let decoded_source = fingerprint_source(&native_path).context(SOURCE_METADATA_CONTEXT)?;
@@ -2457,43 +2534,50 @@ impl DesktopSession {
             })
         };
 
-        let initial_request = autosave_request(base_record.as_ref(), expected_working_commit_id)?;
-        match self.catalog.commit_recipe(&initial_request) {
-            Ok(_) => {}
-            // Autosave always submits a complete, current draft. The `working`
-            // ref can move between queueing that draft and its catalog transaction
-            // (for example, two adjacent controller tasks crossing a debounce
-            // boundary). Rebase once onto the discovered immutable head and CAS
-            // that exact head instead of treating this as a permanent save error.
-            //
-            // A checked-out named Version intentionally keeps its selected base
-            // as the content parent; ordinary editing extends the discovered
-            // `working` head so history remains a linear autosave chain. A second
-            // concurrent move still fails normally rather than overwriting a
-            // writer we have not observed.
-            Err(CatalogError::RecipeRefExpectationMismatch {
-                name,
-                actual: Some(actual_working_commit_id),
-                ..
-            }) if name == WORKING_RECIPE_REF => {
-                let actual_record = self
-                    .catalog
-                    .recipe_commit(photo_id, actual_working_commit_id)?
-                    .ok_or_else(|| {
-                        anyhow!(
-                            "autosave conflict refers to unavailable working Recipe commit {actual_working_commit_id}"
-                        )
-                    })?;
-                let rebased_parent = if base_is_expected_working_head || base_record.is_none() {
-                    Some(&actual_record)
-                } else {
-                    base_record.as_ref()
-                };
-                let rebased_request =
-                    autosave_request(rebased_parent, Some(actual_working_commit_id))?;
-                self.catalog.commit_recipe(&rebased_request)?;
+        // Every autosave is a complete immutable draft. A conflicting `working` ref means a
+        // newer autosave (or another open Shadow session) published between this controller's
+        // snapshot and the catalog transaction. Rebase the full draft repeatedly on the exact
+        // observed head instead of surfacing a normal CAS race as a user-visible save failure.
+        // The bounded loop preserves fail-closed behavior for a genuinely hot external writer.
+        let mut expected_working = expected_working_commit_id;
+        let mut rebased_working_record: Option<RecipeCommitRecord> = None;
+        let mut published = false;
+        for _ in 0..AUTOSAVE_WORKING_REF_REBASE_ATTEMPTS {
+            let parent = if base_is_expected_working_head || base_record.is_none() {
+                rebased_working_record.as_ref().or(base_record.as_ref())
+            } else {
+                // A checked-out named Version remains the content parent. Its durable working
+                // ref only provides the CAS guard, so a concurrent autosave does not rewrite
+                // the branch point selected by the photographer.
+                base_record.as_ref()
+            };
+            let request = autosave_request(parent, expected_working)?;
+            match self.catalog.commit_recipe(&request) {
+                Ok(_) => {
+                    published = true;
+                    break;
+                }
+                Err(CatalogError::RecipeRefExpectationMismatch { name, actual, .. })
+                    if name == WORKING_RECIPE_REF =>
+                {
+                    rebased_working_record = actual
+                        .map(|commit_id| {
+                            self.catalog.recipe_commit(photo_id, commit_id)?.ok_or_else(|| {
+                                anyhow!(
+                                    "autosave conflict refers to unavailable working Recipe commit {commit_id}"
+                                )
+                            })
+                        })
+                        .transpose()?;
+                    expected_working = actual;
+                }
+                Err(error) => return Err(error.into()),
             }
-            Err(error) => return Err(error.into()),
+        }
+        if !published {
+            bail!(
+                "autosave could not publish after {AUTOSAVE_WORKING_REF_REBASE_ATTEMPTS} concurrent working-state updates"
+            );
         }
         self.photo_edit_state_for(photo_id, &source.location.display_path)
     }
@@ -2631,6 +2715,10 @@ impl DesktopSession {
 }
 
 const WORKING_RECIPE_REF: &str = "working";
+// Autosave submissions are complete snapshots, so a short sequence of CAS conflicts can safely
+// be rebased without losing local work. This is not a spin lock: an actively contended external
+// writer still becomes an explicit error after the bounded retry budget.
+const AUTOSAVE_WORKING_REF_REBASE_ATTEMPTS: usize = 8;
 const NAMED_VERSION_REF_PREFIX: &str = "versions/";
 const LIBRARY_EDIT_MAIN_REF: &str = "heads/main";
 const LIBRARY_EDIT_VERSION_REF_PREFIX: &str = "versions/";

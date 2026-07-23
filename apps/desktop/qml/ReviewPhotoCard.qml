@@ -129,6 +129,11 @@ Item {
             fillMode: Image.PreserveAspectFit
             asynchronous: true
             cache: true
+            // Fine foliage and fabric otherwise alias when a warm 1024px
+            // gallery texture is displayed as a much smaller card. Keep
+            // texture filtering stable while the SCALE control changes layout.
+            smooth: true
+            mipmap: true
             // Gallery SCALE only changes layout geometry. It must not create a
             // new image-provider request for every card while the thumb is
             // dragged: that defeats both Qt's image cache and Shadow's local
