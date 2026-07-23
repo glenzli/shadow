@@ -4,6 +4,7 @@
 #include "edit_history.hpp"
 #include "edit_preview_contract.hpp"
 #include "edit_preview_provider.hpp"
+#include "edit_task_runner.hpp"
 #include "edit_version_model.hpp"
 #include "localized_ui_message.hpp"
 #include "tone_curve_point_model.hpp"
@@ -21,21 +22,6 @@
 #include <memory>
 #include <optional>
 
-enum class EditStateTaskKind : std::uint8_t {
-    Open,
-    ResetIncompatibleRecipe,
-    Save,
-    Autosave,
-    LoadDraft,
-};
-
-struct EditStateTaskResult final {
-    BackendPhotoEditState state;
-    QString error;
-    quint64 photo_generation = 0;
-    EditStateTaskKind kind = EditStateTaskKind::Open;
-};
-
 // A photo switch may arrive while the current working ref is being autosaved. Keep only the
 // latest requested target: the old photo remains visible until its durable working ref is
 // confirmed, then the controller opens this target without ever asking the user to "save".
@@ -45,27 +31,6 @@ struct PendingPhotoOpen final {
     QString source_path;
     QString title;
     QString provisional_preview_source;
-};
-
-struct EditPreviewTaskResult final {
-    BackendEditedPreview preview;
-    QString error;
-    EditPreviewGeneration generation;
-};
-
-struct EditDetailTaskResult final {
-    BackendEditedDetailViewport viewport;
-    QString error;
-    EditDetailGeneration generation;
-};
-
-// A deliberately invisible idle task. It warms the same full-resolution
-// source and center tile used by the interactive detail path, but never
-// publishes pixels or changes the visible viewport.
-struct EditDetailWarmupTaskResult final {
-    QString error;
-    quint64 photo_generation = 0;
-    quint64 render_revision = 0;
 };
 
 class EditController final : public QObject {

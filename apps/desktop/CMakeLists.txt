@@ -86,6 +86,8 @@ qt_add_executable(
     src/desktop_backend.hpp
     src/edit_controller.cpp
     src/edit_controller.hpp
+    src/edit_task_runner.cpp
+    src/edit_task_runner.hpp
     src/edit_history.hpp
     src/edit_preview_contract.hpp
     src/edit_preview_provider.cpp
@@ -197,6 +199,9 @@ qt_add_qml_module(
         qml/MetadataWindow.qml
         qml/OpticsProfileManagerWindow.qml
         qml/PreferencesMenu.qml
+        qml/PrecisionCanvas.qml
+        qml/PrecisionInspector.qml
+        qml/RecipeRecoveryPopup.qml
         qml/PrecisionWorkspace.qml
         qml/ReviewWorkspace.qml
         qml/ReviewPhotoCard.qml
