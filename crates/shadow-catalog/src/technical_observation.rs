@@ -670,6 +670,7 @@ mod tests {
             variant_key: "libraw:grid-jpeg-2048-q88-444-v3".into(),
             generator_id: "libraw".into(),
             generator_version: "1".into(),
+            recipe_snapshot_digest: None,
             provider_preview_id: None,
             blob_algorithm: "blake3-256".into(),
             blob_digest: [7; 32],

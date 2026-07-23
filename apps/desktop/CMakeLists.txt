@@ -95,6 +95,8 @@ qt_add_executable(
     src/edit_version_model.hpp
     src/edit_version_presentation.cpp
     src/edit_version_presentation.hpp
+    src/justified_review_layout_model.cpp
+    src/justified_review_layout_model.hpp
     src/main.cpp
     src/lut_library.cpp
     src/lut_library.hpp
@@ -197,6 +199,7 @@ qt_add_qml_module(
         qml/PreferencesMenu.qml
         qml/PrecisionWorkspace.qml
         qml/ReviewWorkspace.qml
+        qml/ReviewPhotoCard.qml
         qml/ShadowButton.qml
         qml/ShadowColorLabelButton.qml
         qml/ShadowColorWheel.qml
@@ -257,6 +260,16 @@ target_link_libraries(
         Qt6::QuickControls2
         Qt6::Svg
         Qt6::Widgets
+)
+add_dependencies(shadow-desktop shadow-image-decode-helper)
+add_custom_command(
+    TARGET shadow-desktop
+    POST_BUILD
+    COMMAND
+        ${CMAKE_COMMAND} -E copy_if_different
+        $<TARGET_FILE:shadow-image-decode-helper>
+        $<TARGET_FILE_DIR:shadow-desktop>/$<TARGET_FILE_NAME:shadow-image-decode-helper>
+    COMMENT "Installing the isolated RAW decode helper beside Shadow"
 )
 if(Lensfun_FOUND)
     target_link_libraries(shadow-desktop PRIVATE PkgConfig::Lensfun)
@@ -511,6 +524,42 @@ if(BUILD_TESTING)
     add_test(
         NAME shadow-desktop-review-filter-model
         COMMAND shadow-review-filter-model-test
+    )
+
+    add_executable(
+        shadow-justified-review-layout-model-test
+        tests/justified_review_layout_model_test.cpp
+        src/justified_review_layout_model.cpp
+        src/justified_review_layout_model.hpp
+        src/review_model.cpp
+        src/review_model.hpp
+    )
+    target_compile_features(
+        shadow-justified-review-layout-model-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-justified-review-layout-model-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-justified-review-layout-model-test
+        PRIVATE Qt6::Core
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-justified-review-layout-model-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-justified-review-layout-model-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-justified-review-layout-model
+        COMMAND shadow-justified-review-layout-model-test
     )
 
     add_executable(

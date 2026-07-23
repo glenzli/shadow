@@ -1,5 +1,7 @@
 //! Coarse-grained, long-lived Rust services consumed by the Qt desktop shell.
 
+mod isolated_proxy;
+
 use std::{
     collections::{BTreeMap, HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
@@ -42,11 +44,11 @@ use shadow_bridge::{
     render_photo_reference_proxy,
 };
 use shadow_catalog::{
-    CachedArtifactRecord, CachedArtifactRole, CatalogActor, CatalogError, CatalogHandle,
-    CommitEditRepository, CommitRecipe, CommitRecipeAndEditRepository, EditObjectPackWrite,
-    EditRepositoryRefUpdate, RecipeCommitRecord, RecipeRefExpectation, RecipeRefKind,
-    RecipeRefTarget, RepresentationFingerprint, ReviewCursor, ReviewItemRecord,
-    TechnicalObservationRevision,
+    CachedArtifact, CachedArtifactRecord, CachedArtifactRole, CatalogActor, CatalogError,
+    CatalogHandle, CommitEditRepository, CommitRecipe, CommitRecipeAndEditRepository,
+    EditObjectPackWrite, EditRepositoryRefUpdate, RecipeCommitRecord, RecipeRefExpectation,
+    RecipeRefKind, RecipeRefTarget, RecordCachedArtifact, RepresentationFingerprint, ReviewCursor,
+    ReviewItemRecord, TechnicalObservationRevision,
 };
 use shadow_core::{
     CachedArtifactLoader, DecodeInspectionActor, DecodeInspectionSummary, DecodeInspector,
@@ -94,6 +96,8 @@ use shadow_domain::{
     RecipeSnapshot, RepresentationId, UnitInterval, VersionName, diff_recipe_snapshots,
 };
 use uuid::Uuid;
+
+use crate::isolated_proxy::{configured_helper_path, render_isolated_photo_reference_proxy};
 
 #[cxx::bridge(namespace = "shadow::desktop")]
 mod ffi {
@@ -1017,13 +1021,14 @@ impl DesktopSession {
         let cancellation = self.folder_scan_cancellation(scan_id)?;
         let folder_path = Path::new(folder_path);
         let mut catalog = self.catalog.clone();
-        let photo_inspector = match PhotoInspector::new() {
-            Ok(inspector) => inspector,
-            Err(error) => {
-                self.finish_folder_scan_failed(scan_id)?;
-                return Err(error);
-            }
-        };
+        let photo_inspector =
+            match PhotoInspector::new_with_isolated_proxy_cache(Some(self.cache_root.clone())) {
+                Ok(inspector) => inspector,
+                Err(error) => {
+                    self.finish_folder_scan_failed(scan_id)?;
+                    return Err(error);
+                }
+            };
         let inspector = match DecodeInspectionActor::spawn_with_cache(
             catalog.clone(),
             photo_inspector,
@@ -1752,7 +1757,7 @@ impl DesktopSession {
         request: &ffi::FfiEditPreviewRequest,
     ) -> AnyResult<ffi::FfiEditedPreview> {
         let (photo_id, source) = self.validated_photo_source(photo_id, source_path)?;
-        let plan = self.basic_edit_render_plan(
+        let (plan, recipe_identity) = self.basic_edit_render_plan_with_identity(
             photo_id,
             &request.base_commit_id,
             &request.settings,
@@ -1765,6 +1770,19 @@ impl DesktopSession {
         )?;
         let rendered = session.render_plan_with_analysis(&plan, request.jpeg_quality)?;
         let proxy = rendered.proxy;
+        // The on-screen result remains responsive if disk caching is temporarily
+        // unavailable. A cache write is only an acceleration; it becomes
+        // Library-visible when the exact Recipe digest is the durable working
+        // head, never merely because this render completed last.
+        if let Err(error) = self.cache_rendered_recipe_preview(
+            &source,
+            &proxy,
+            recipe_identity,
+            request.max_edge,
+            request.jpeg_quality,
+        ) {
+            eprintln!("Shadow: could not cache edited preview: {error:#}");
+        }
         let analysis = rendered.analysis;
         let optics = session.optics_receipt();
         Ok(ffi::FfiEditedPreview {
@@ -1858,23 +1876,6 @@ impl DesktopSession {
             bail!("full detail render was superseded by a newer viewport or Recipe");
         }
         Ok(())
-    }
-
-    fn basic_edit_render_plan(
-        &self,
-        photo_id: PhotoId,
-        base_commit_id: &str,
-        settings: &ffi::FfiEditSettings,
-        use_working_recipe: bool,
-    ) -> AnyResult<AdjustmentRenderPlan> {
-        Ok(self
-            .basic_edit_render_plan_with_identity(
-                photo_id,
-                base_commit_id,
-                settings,
-                use_working_recipe,
-            )?
-            .0)
     }
 
     fn basic_edit_render_plan_with_identity(
@@ -1990,6 +1991,54 @@ impl DesktopSession {
         });
         sessions.truncate(2);
         Ok(prepared)
+    }
+
+    /// Persists a rendered edit preview with both source and Recipe
+    /// provenance. A gallery query will use it only when the current working
+    /// ref names this exact snapshot; a stale slider task can therefore leave
+    /// an unused blob but can never paint an old grade over a newer edit.
+    fn cache_rendered_recipe_preview(
+        &self,
+        source: &ReviewItemRecord,
+        proxy: &ProxyPayload,
+        recipe_snapshot_digest: [u8; 32],
+        max_edge: u32,
+        jpeg_quality: u8,
+    ) -> AnyResult<()> {
+        let raw_plan_identity = raw_development_plan_identity(RawDevelopmentPlan::preview())
+            .context("build Recipe-preview RAW-development cache identity")?;
+        let variant_key = format!(
+            "shadow-recipe-preview:jpeg-{max_edge}-q{jpeg_quality}-444-v1;{raw_plan_identity};recipe={}",
+            encode_hex(&recipe_snapshot_digest)
+        );
+        let blob = self
+            .loader
+            .store_bytes(&proxy.bytes)
+            .context("store rendered Recipe preview blob")?;
+        self.catalog
+            .record_cached_artifact(&RecordCachedArtifact {
+                representation_id: source.representation_id,
+                expected_source: source.source,
+                artifact: CachedArtifact {
+                    role: CachedArtifactRole::RecipePreview,
+                    variant_key,
+                    generator_id: "shadow-edit-preview".to_owned(),
+                    generator_version: photo_provider_version(),
+                    recipe_snapshot_digest: Some(recipe_snapshot_digest),
+                    provider_preview_id: None,
+                    blob_algorithm: blob.digest.algorithm().to_owned(),
+                    blob_digest: *blob.digest.as_bytes(),
+                    blob_byte_len: blob.byte_len,
+                    codec: PreviewCodec::Jpeg,
+                    byte_order: PreviewByteOrder::NotApplicable,
+                    dimensions: proxy.dimensions,
+                    bits_per_channel: proxy.bits_per_channel,
+                    channels: proxy.channels,
+                    created_at_ms: current_time_ms()?,
+                },
+            })
+            .context("record rendered Recipe preview provenance")?;
+        Ok(())
     }
 
     fn edit_detail_session(
@@ -2588,7 +2637,7 @@ const LIBRARY_EDIT_VERSION_REF_PREFIX: &str = "versions/";
 const LIBRARY_PHOTO_EDIT_KEY_PREFIX: &str = "photo/";
 const CONTRAST_PIVOT: f64 = 0.18;
 const GRID_VISUAL_HANDLE_PREFIX: &str = "shadow-grid-visual-v1.";
-const GRID_VISUAL_HANDLE_SCHEMA_VERSION: u8 = 1;
+const GRID_VISUAL_HANDLE_SCHEMA_VERSION: u8 = 2;
 const MAX_GRID_VISUAL_PAYLOAD_BYTES: usize = 16 * 1_024;
 const MAX_PENDING_REVIEW_COMPARISONS: usize = 64;
 const MAX_DETAIL_VIEWPORT_SIDE: u32 = 8_192;
@@ -2727,6 +2776,7 @@ struct SignedGridVisualPayload {
     variant_key: String,
     generator_id: String,
     generator_version: String,
+    recipe_snapshot_digest_hex: Option<String>,
     provider_preview_id: Option<u64>,
     blob_algorithm: String,
     blob_digest_hex: String,
@@ -6097,6 +6147,7 @@ struct PhotoInspector {
     version: String,
     original_raster_extensions: Vec<String>,
     proxy_variant_key: String,
+    isolated_proxy_runtime_cache: Option<PathBuf>,
 }
 
 // The generated-library proxy is deliberately a lower-bandwidth artifact than the warm editing
@@ -6106,7 +6157,12 @@ const PHOTO_GRID_PROXY_MAX_EDGE: u32 = 2_048;
 const PHOTO_GRID_PROXY_JPEG_QUALITY: u8 = 88;
 
 impl PhotoInspector {
+    #[cfg(test)]
     fn new() -> AnyResult<Self> {
+        Self::new_with_isolated_proxy_cache(None)
+    }
+
+    fn new_with_isolated_proxy_cache(runtime_cache_root: Option<PathBuf>) -> AnyResult<Self> {
         let raw_development_plan_identity =
             raw_development_plan_identity(RawDevelopmentPlan::preview())
                 .context("build grid-proxy RAW-development cache identity")?;
@@ -6119,6 +6175,7 @@ impl PhotoInspector {
             proxy_variant_key: format!(
                 "shadow-photo-router:grid-jpeg-2048-q88-444-v2;{raw_development_plan_identity}"
             ),
+            isolated_proxy_runtime_cache: runtime_cache_root,
         })
     }
 }
@@ -6145,6 +6202,20 @@ impl DecodeInspector for PhotoInspector {
     }
 
     fn render_proxy(&mut self, path: &Path) -> Result<Option<ProxyPayload>, String> {
+        if let Some(runtime_cache_root) = &self.isolated_proxy_runtime_cache {
+            let helper_path = configured_helper_path().ok_or_else(|| {
+                "isolated RAW decode helper is unavailable; Shadow will not run a native decoder inside the desktop process".to_owned()
+            })?;
+            return render_isolated_photo_reference_proxy(
+                &helper_path,
+                runtime_cache_root,
+                path,
+                PHOTO_GRID_PROXY_MAX_EDGE,
+                PHOTO_GRID_PROXY_JPEG_QUALITY,
+            )
+            .map(Some)
+            .map_err(|error| error.to_string());
+        }
         render_photo_reference_proxy(
             path,
             PHOTO_GRID_PROXY_MAX_EDGE,
@@ -6435,6 +6506,11 @@ impl SignedGridVisualPayload {
             variant_key: record.artifact.variant_key.clone(),
             generator_id: record.artifact.generator_id.clone(),
             generator_version: record.artifact.generator_version.clone(),
+            recipe_snapshot_digest_hex: record
+                .artifact
+                .recipe_snapshot_digest
+                .as_ref()
+                .map(|digest| encode_hex(digest)),
             provider_preview_id: record
                 .artifact
                 .provider_preview_id
@@ -6470,6 +6546,7 @@ impl SignedGridVisualPayload {
             .parse()
             .context("parse representation id in Review grid visual handle")?;
         let role = match self.role.as_str() {
+            "recipe_preview" => CachedArtifactRole::RecipePreview,
             "embedded_preview" => CachedArtifactRole::EmbeddedPreview,
             "generated_proxy" => CachedArtifactRole::GeneratedProxy,
             other => bail!("unsupported Review visual artifact role {other:?}"),
@@ -6489,6 +6566,12 @@ impl SignedGridVisualPayload {
             "big_endian" => PreviewByteOrder::BigEndian,
             other => bail!("unsupported Review visual byte order {other:?}"),
         };
+        let recipe_snapshot_digest = self
+            .recipe_snapshot_digest_hex
+            .as_deref()
+            .map(decode_hex_32)
+            .transpose()
+            .context("decode Recipe snapshot digest in Review visual handle")?;
         Ok(ReviewVisualSelection {
             photo_id,
             record: CachedArtifactRecord {
@@ -6502,6 +6585,7 @@ impl SignedGridVisualPayload {
                     variant_key: self.variant_key,
                     generator_id: self.generator_id,
                     generator_version: self.generator_version,
+                    recipe_snapshot_digest,
                     provider_preview_id: self
                         .provider_preview_id
                         .map(usize::try_from)
@@ -6591,6 +6675,7 @@ fn presented_visual(slot: &PendingReviewVisual) -> AnyResult<PresentedVisualProv
         .ok_or_else(|| anyhow!("Review visual has no decoded-frame receipt"))?;
     let record = &slot.selection.record;
     let role = match record.artifact.role {
+        CachedArtifactRole::RecipePreview => PresentedVisualRole::RecipePreview,
         CachedArtifactRole::EmbeddedPreview => PresentedVisualRole::EmbeddedPreview,
         CachedArtifactRole::GeneratedProxy => PresentedVisualRole::GeneratedProxy,
     };
@@ -6719,6 +6804,7 @@ fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
 
 const fn role_name(role: CachedArtifactRole) -> &'static str {
     match role {
+        CachedArtifactRole::RecipePreview => "recipe",
         CachedArtifactRole::EmbeddedPreview => "embedded",
         CachedArtifactRole::GeneratedProxy => "proxy",
     }
@@ -11734,6 +11820,7 @@ mod tests {
                 variant_key: "feedback-proxy-v1".into(),
                 generator_id: "test".into(),
                 generator_version: "1".into(),
+                recipe_snapshot_digest: None,
                 provider_preview_id: None,
                 blob_algorithm: blob.digest.algorithm().into(),
                 blob_digest: *blob.digest.as_bytes(),

@@ -1040,269 +1040,269 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>Main</name>
     <message>
-        <location filename="../qml/Main.qml" line="48"/>
+        <location filename="../qml/Main.qml" line="49"/>
         <source>Shadow · Review</source>
         <translation>Shadow · 选片</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="50"/>
+        <location filename="../qml/Main.qml" line="51"/>
         <source>Shadow · Precision</source>
         <translation>Shadow · 精修</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="50"/>
+        <location filename="../qml/Main.qml" line="51"/>
         <source>Shadow · Library</source>
         <translation>Shadow · 图库</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="118"/>
+        <location filename="../qml/Main.qml" line="119"/>
         <source>Choose a photo folder</source>
         <translation>选择照片文件夹</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="161"/>
+        <location filename="../qml/Main.qml" line="162"/>
         <source>Red</source>
         <translation>红色</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="162"/>
+        <location filename="../qml/Main.qml" line="163"/>
         <source>Yellow</source>
         <translation>黄色</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="163"/>
+        <location filename="../qml/Main.qml" line="164"/>
         <source>Green</source>
         <translation>绿色</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="164"/>
+        <location filename="../qml/Main.qml" line="165"/>
         <source>Blue</source>
         <translation>蓝色</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="165"/>
+        <location filename="../qml/Main.qml" line="166"/>
         <source>Purple</source>
         <translation>紫色</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="172"/>
+        <location filename="../qml/Main.qml" line="173"/>
         <source>Filter unflagged photos</source>
         <translation>筛选未标记照片</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="173"/>
+        <location filename="../qml/Main.qml" line="174"/>
         <source>Filter flagged photos</source>
         <translation>筛选已标记照片</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="174"/>
+        <location filename="../qml/Main.qml" line="175"/>
         <source>Filter rejected photos</source>
         <translation>筛选已拒绝照片</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="540"/>
+        <location filename="../qml/Main.qml" line="541"/>
         <source>REVIEW</source>
         <translation>选片</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="554"/>
-        <location filename="../qml/Main.qml" line="1039"/>
+        <location filename="../qml/Main.qml" line="555"/>
+        <location filename="../qml/Main.qml" line="1042"/>
         <source>PRECISION</source>
         <translation>精修</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="637"/>
+        <location filename="../qml/Main.qml" line="638"/>
         <source>Library Management</source>
         <translation>图库管理</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="584"/>
+        <location filename="../qml/Main.qml" line="585"/>
         <source>SAVED</source>
         <translation>已保存</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="603"/>
+        <location filename="../qml/Main.qml" line="604"/>
         <source>Undo</source>
         <translation>撤销</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="613"/>
+        <location filename="../qml/Main.qml" line="614"/>
         <source>Redo</source>
         <translation>重做</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="653"/>
+        <location filename="../qml/Main.qml" line="654"/>
         <source>Return to Review</source>
         <translation>返回选片</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="175"/>
-        <location filename="../qml/Main.qml" line="789"/>
+        <location filename="../qml/Main.qml" line="176"/>
+        <location filename="../qml/Main.qml" line="792"/>
         <source>Clear all Library filters</source>
         <translation>清除图库筛选</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="392"/>
+        <location filename="../qml/Main.qml" line="393"/>
         <source>HISTORY</source>
         <translation>历史</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="401"/>
+        <location filename="../qml/Main.qml" line="402"/>
         <source>CURRENT WORKING COPY</source>
         <translation>当前工作副本</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="410"/>
+        <location filename="../qml/Main.qml" line="411"/>
         <source>Edits are autosaved to each photo’s current working copy. They remain editable and are not catalog commits.</source>
         <translation>编辑会自动保存到每张照片的当前工作副本中，仍可继续编辑，且不属于图库提交。</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="431"/>
+        <location filename="../qml/Main.qml" line="432"/>
         <source>CATALOG HISTORY</source>
         <translation>图库历史</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="440"/>
+        <location filename="../qml/Main.qml" line="441"/>
         <source>Named commits, branches, and shared adjustment snapshots will live here at catalog scope, not inside a single photo’s inspector.</source>
         <translation>命名提交、分支和共享调整快照会在这里以图库级别管理，而不再放进单张照片的检查器。</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="449"/>
+        <location filename="../qml/Main.qml" line="450"/>
         <source>No catalog commits yet</source>
         <translation>尚无图库提交</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="585"/>
+        <location filename="../qml/Main.qml" line="586"/>
         <source>SAVE FAILED</source>
         <translation>保存失败</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="586"/>
+        <location filename="../qml/Main.qml" line="587"/>
         <source>SAVING</source>
         <translation>正在保存</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="586"/>
+        <location filename="../qml/Main.qml" line="587"/>
         <source>DRAFT</source>
         <translation>草稿</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="625"/>
+        <location filename="../qml/Main.qml" line="626"/>
         <source>History</source>
         <translation>历史</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="776"/>
+        <location filename="../qml/Main.qml" line="779"/>
         <source>FILTER</source>
         <translation>筛选</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="834"/>
+        <location filename="../qml/Main.qml" line="837"/>
         <source>Filter %L1 stars and above</source>
         <translation>筛选 %L1 星及以上</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="856"/>
+        <location filename="../qml/Main.qml" line="859"/>
         <source>Filter %1 color label</source>
         <translation>筛选 %1 颜色标签</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="870"/>
+        <location filename="../qml/Main.qml" line="873"/>
         <source>%L1 / %L2 photos</source>
         <translation>%L1 / %L2 张照片</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="902"/>
+        <location filename="../qml/Main.qml" line="905"/>
         <source>SELECTED</source>
         <translation>已选照片</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="902"/>
+        <location filename="../qml/Main.qml" line="905"/>
         <source>NO SELECTION</source>
         <translation>未选择照片</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="917"/>
+        <location filename="../qml/Main.qml" line="920"/>
         <source>Undo the last decision</source>
         <translation>撤销上一次决策</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="944"/>
+        <location filename="../qml/Main.qml" line="947"/>
         <source>Mark as picked (P)</source>
         <translation>标记为入选（P）</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="946"/>
+        <location filename="../qml/Main.qml" line="949"/>
         <source>Mark as rejected (X)</source>
         <translation>标记为淘汰（X）</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="947"/>
+        <location filename="../qml/Main.qml" line="950"/>
         <source>Clear decision flag (U)</source>
         <translation>清除标记（U）</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="976"/>
+        <location filename="../qml/Main.qml" line="979"/>
         <source>Clear rating (0)</source>
         <translation>清除评级（0）</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="992"/>
+        <location filename="../qml/Main.qml" line="995"/>
         <source>Set rating to %L1 stars (%L1)</source>
         <translation>设为 %L1 星（%L1）</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1011"/>
+        <location filename="../qml/Main.qml" line="1014"/>
         <source>Clear local color label</source>
         <translation>清除本地颜色标签</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1024"/>
+        <location filename="../qml/Main.qml" line="1027"/>
         <source>Set %1 color label</source>
         <translation>设为 %1 颜色标签</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1040"/>
+        <location filename="../qml/Main.qml" line="1043"/>
         <source>LIBRARY</source>
         <translation>图库</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="665"/>
+        <location filename="../qml/Main.qml" line="666"/>
         <source>Settings</source>
         <translation>设置</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="264"/>
+        <location filename="../qml/Main.qml" line="265"/>
         <source>AUTOSAVE FAILED</source>
         <translation>自动保存失败</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="275"/>
+        <location filename="../qml/Main.qml" line="276"/>
         <source>Shadow could not save the latest working adjustments locally. You can retry, keep editing, or quit without the unsaved changes.</source>
         <translation>Shadow 无法将最新工作调整保存到本地。你可以重试、继续编辑，或不保存这些调整直接退出。</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="274"/>
+        <location filename="../qml/Main.qml" line="275"/>
         <source>Shadow could not save this photo’s latest working adjustments. The selected photo will remain unopened until you retry, keep editing, or open it without these unsaved changes.</source>
         <translation>Shadow 无法保存这张照片最新的工作调整。所选照片会保持未打开状态，直到你重试、继续编辑，或不保存这些调整直接打开它。</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="306"/>
+        <location filename="../qml/Main.qml" line="307"/>
         <source>KEEP EDITING</source>
         <translation>继续编辑</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="317"/>
+        <location filename="../qml/Main.qml" line="318"/>
         <source>RETRY SAVE</source>
         <translation>重试保存</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="338"/>
+        <location filename="../qml/Main.qml" line="339"/>
         <source>QUIT WITHOUT SAVING</source>
         <translation>不保存并退出</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="337"/>
+        <location filename="../qml/Main.qml" line="338"/>
         <source>OPEN WITHOUT SAVING</source>
         <translation>不保存并打开</translation>
     </message>
@@ -2769,17 +2769,17 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>QObject</name>
     <message>
-        <location filename="../src/main.cpp" line="53"/>
+        <location filename="../src/main.cpp" line="54"/>
         <source>Could not remove %1.</source>
         <translation>无法移除 %1。</translation>
     </message>
     <message>
-        <location filename="../src/main.cpp" line="60"/>
+        <location filename="../src/main.cpp" line="61"/>
         <source>Could not remove the local preview cache.</source>
         <translation>无法移除本地预览缓存。</translation>
     </message>
     <message>
-        <location filename="../src/main.cpp" line="78"/>
+        <location filename="../src/main.cpp" line="79"/>
         <source>This local catalog belongs to an incompatible development build. Shadow does not migrate development schemas.
 
 Resetting removes the local photo index, edit history, and preview cache. Your original photo files, LUT library, and UI preferences are not changed.</source>
@@ -2788,7 +2788,7 @@ Resetting removes the local photo index, edit history, and preview cache. Your o
 重置将移除本地照片索引、编辑历史与预览缓存；不会修改原始照片、LUT 资料库或界面偏好。</translation>
     </message>
     <message>
-        <location filename="../src/main.cpp" line="84"/>
+        <location filename="../src/main.cpp" line="85"/>
         <source>Shadow could not open its local development catalog. You can reset it and start again with a fresh catalog v1.
 
 Resetting removes the local photo index, edit history, and preview cache. Your original photo files, LUT library, and UI preferences are not changed.
@@ -2801,12 +2801,12 @@ Technical detail: %1</source>
 技术详情：%1</translation>
     </message>
     <message>
-        <location filename="../src/main.cpp" line="93"/>
+        <location filename="../src/main.cpp" line="94"/>
         <source>Reset local development catalog?</source>
         <translation>重置本地开发 catalog？</translation>
     </message>
     <message>
-        <location filename="../src/main.cpp" line="562"/>
+        <location filename="../src/main.cpp" line="563"/>
         <source>Catalog reset failed</source>
         <translation>catalog 重置失败</translation>
     </message>
@@ -3120,566 +3120,632 @@ Technical detail: %1</source>
     </message>
 </context>
 <context>
-    <name>ReviewWorkspace</name>
+    <name>ReviewPhotoCard</name>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="91"/>
-        <source>A photo cannot occupy both comparison slots.</source>
-        <translation>一张照片不能同时占用两个比较位置。</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="94"/>
-        <source>Left evidence slot updated.</source>
-        <translation>左侧证据位置已更新。</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="95"/>
-        <source>Right evidence slot updated.</source>
-        <translation>右侧证据位置已更新。</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="126"/>
-        <source>%1%</source>
-        <translation>%1%</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="627"/>
-        <source>LIBRARY</source>
-        <translation>图库</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="656"/>
-        <source>All Photos</source>
-        <translation>所有照片</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="659"/>
-        <source>%L1</source>
-        <translation>%L1</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="691"/>
-        <source>LIBRARY REFRESH</source>
-        <translation>图库刷新</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="693"/>
-        <source>STOPPING IMPORT</source>
-        <translation>正在停止导入</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="693"/>
-        <source>IMPORTING</source>
-        <translation>正在导入</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="702"/>
-        <source>%L1 catalogued</source>
-        <translation>已收录 %L1 个</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="713"/>
-        <source>%L1 supported · %L2 preview checks queued · %L3 filesystem issues</source>
-        <translation>支持 %L1 个 · %L2 项预览检查已排队 · %L3 个文件系统问题</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="717"/>
-        <source>%L1 supported · %L2/%L3 preview checks completed · %L4 filesystem issues</source>
-        <translation>支持 %L1 个 · 已完成 %L2/%L3 项预览检查 · %L4 个文件系统问题</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="730"/>
-        <source>%L1 decode failures · %L2 preview failures · %L3 cancelled</source>
-        <translation>%L1 次解码失败 · %L2 次预览失败 · 已取消 %L3 个</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="766"/>
-        <location filename="../qml/ReviewWorkspace.qml" line="1218"/>
-        <source>COMPARE EVIDENCE</source>
-        <translation>比较证据</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="774"/>
-        <source>%L1 active this session</source>
-        <translation>本次会话中有 %L1 条有效记录</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="815"/>
-        <source>LOCAL · MACOS</source>
-        <translation>本地 · MACOS</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1057"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="190"/>
         <source>PREVIEW PENDING</source>
         <translation>预览等待中</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1057"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="190"/>
         <source>NO VISUAL</source>
         <translation>无图像</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="179"/>
-        <location filename="../qml/ReviewWorkspace.qml" line="182"/>
-        <location filename="../qml/ReviewWorkspace.qml" line="1099"/>
-        <location filename="../qml/ReviewWorkspace.qml" line="1363"/>
-        <location filename="../qml/ReviewWorkspace.qml" line="1713"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="231"/>
         <source>%L1 × %L2</source>
         <translation>%L1 × %L2</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="160"/>
-        <location filename="../qml/ReviewWorkspace.qml" line="163"/>
+        <location filename="../qml/ReviewPhotoCard.qml" line="232"/>
+        <source>awaiting cache</source>
+        <translation>等待缓存</translation>
+    </message>
+</context>
+<context>
+    <name>ReviewWorkspace</name>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="92"/>
+        <source>A photo cannot occupy both comparison slots.</source>
+        <translation>一张照片不能同时占用两个比较位置。</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="95"/>
+        <source>Left evidence slot updated.</source>
+        <translation>左侧证据位置已更新。</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="96"/>
+        <source>Right evidence slot updated.</source>
+        <translation>右侧证据位置已更新。</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="128"/>
+        <source>%1%</source>
+        <translation>%1%</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="629"/>
+        <source>LIBRARY</source>
+        <translation>图库</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="658"/>
+        <source>All Photos</source>
+        <translation>所有照片</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="661"/>
+        <source>%L1</source>
+        <translation>%L1</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="693"/>
+        <source>LIBRARY REFRESH</source>
+        <translation>图库刷新</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="695"/>
+        <source>STOPPING IMPORT</source>
+        <translation>正在停止导入</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="695"/>
+        <source>IMPORTING</source>
+        <translation>正在导入</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="704"/>
+        <source>%L1 catalogued</source>
+        <translation>已收录 %L1 个</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="715"/>
+        <source>%L1 supported · %L2 preview checks queued · %L3 filesystem issues</source>
+        <translation>支持 %L1 个 · %L2 项预览检查已排队 · %L3 个文件系统问题</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="719"/>
+        <source>%L1 supported · %L2/%L3 preview checks completed · %L4 filesystem issues</source>
+        <translation>支持 %L1 个 · 已完成 %L2/%L3 项预览检查 · %L4 个文件系统问题</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="732"/>
+        <source>%L1 decode failures · %L2 preview failures · %L3 cancelled</source>
+        <translation>%L1 次解码失败 · %L2 次预览失败 · 已取消 %L3 个</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="768"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1423"/>
+        <source>COMPARE EVIDENCE</source>
+        <translation>比较证据</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="776"/>
+        <source>%L1 active this session</source>
+        <translation>本次会话中有 %L1 条有效记录</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="817"/>
+        <source>LOCAL · MACOS</source>
+        <translation>本地 · MACOS</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="1169"/>
+        <source>PREVIEW PENDING</source>
+        <translation>预览等待中</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="1169"/>
+        <source>NO VISUAL</source>
+        <translation>无图像</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="181"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="184"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1211"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1568"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1918"/>
+        <source>%L1 × %L2</source>
+        <translation>%L1 × %L2</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="162"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="165"/>
         <source>%1 s</source>
         <translation>%1 秒</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="162"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="164"/>
         <source>1/%1 s</source>
         <translation>1/%1 秒</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="175"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="177"/>
         <source>f/%1</source>
         <translation>f/%1</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="176"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="178"/>
         <source>ISO %1</source>
         <translation>ISO %1</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="178"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="180"/>
         <source>%1 mm</source>
         <translation>%1 毫米</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="181"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="183"/>
         <source>%1 mm equiv.</source>
         <translation>等效 %1 毫米</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="183"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="185"/>
         <source>%1-bit</source>
         <translation>%1 位</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="192"/>
         <location filename="../qml/ReviewWorkspace.qml" line="194"/>
         <location filename="../qml/ReviewWorkspace.qml" line="196"/>
         <location filename="../qml/ReviewWorkspace.qml" line="198"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="200"/>
         <source>Capture</source>
         <translation>拍摄参数</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="199"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="201"/>
         <source>ISO sensitivity</source>
         <translation>ISO 感光度</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="200"/>
         <location filename="../qml/ReviewWorkspace.qml" line="202"/>
         <location filename="../qml/ReviewWorkspace.qml" line="204"/>
         <location filename="../qml/ReviewWorkspace.qml" line="206"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="208"/>
         <source>Camera and lens</source>
         <translation>相机与镜头</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="208"/>
         <location filename="../qml/ReviewWorkspace.qml" line="210"/>
         <location filename="../qml/ReviewWorkspace.qml" line="212"/>
         <location filename="../qml/ReviewWorkspace.qml" line="214"/>
         <location filename="../qml/ReviewWorkspace.qml" line="216"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="218"/>
         <source>Image</source>
         <translation>图像</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1101"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="855"/>
+        <source>ALL PHOTOS</source>
+        <translation>全部照片</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="863"/>
+        <source>%L1 visible</source>
+        <translation>显示 %L1 张</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="871"/>
+        <source>Manage photo sources</source>
+        <translation>管理照片来源</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="885"/>
+        <source>SCALE</source>
+        <translation>缩略图大小</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="899"/>
+        <source>Thumbnail scale</source>
+        <translation>缩略图大小</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="907"/>
+        <source>Restore default thumbnail scale</source>
+        <translation>恢复默认缩略图大小</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="920"/>
+        <source>Open photo metadata</source>
+        <translation>打开照片元数据</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="929"/>
+        <source>Open selected photo in Precision</source>
+        <translation>在精修中打开所选照片</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="1213"/>
         <source>awaiting cache</source>
         <translation>等待缓存</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1178"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1290"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1382"/>
         <source>Searching the folder for supported photos…
 New RAW files will appear here as they are catalogued.</source>
         <translation>正在文件夹中搜索支持的照片…
 新的 RAW 文件会在收录后显示于此。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1180"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1292"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1384"/>
         <source>Import stopped, and no RAW files are currently visible.
 Already catalogued files remain safely stored.</source>
         <translation>导入已停止，目前没有可见的 RAW 文件。
 已收录的文件仍安全存储。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1181"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1293"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1385"/>
         <source>Add a folder to the local Library.
 Shadow will use embedded previews first and generate a local proxy only when needed.</source>
         <translation>请向本地图库添加文件夹。
 Shadow 会优先使用嵌入式预览，仅在需要时生成本地代理。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1227"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1432"/>
         <source>A local preference event, not a rank or an AI score.</source>
         <translation>一个本地偏好事件，不是排名或 AI 评分。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1274"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1479"/>
         <source>LEFT · A</source>
         <translation>左侧 · A</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1274"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1479"/>
         <source>RIGHT · B</source>
         <translation>右侧 · B</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1336"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1541"/>
         <source>VISUAL LOAD FAILED</source>
         <translation>图像加载失败</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1337"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1542"/>
         <source>LOADING VERIFIED VISUAL…</source>
         <translation>正在加载已验证图像…</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1352"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1557"/>
         <source>DISPLAY PROXY</source>
         <translation>显示代理</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1381"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1586"/>
         <source>TECHNICAL · DISPLAY PROXY</source>
         <translation>技术信息 · 显示代理</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1392"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1597"/>
         <source>No observation recorded — visual comparison is still available.</source>
         <translation>尚未记录观测结果 — 仍可进行图像比较。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1406"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1611"/>
         <source>MEAN</source>
         <translation>均值</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1413"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1618"/>
         <source>P50</source>
         <translation>P50</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1420"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1625"/>
         <source>P01</source>
         <translation>P01</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1427"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1632"/>
         <source>P99</source>
         <translation>P99</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1434"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1639"/>
         <source>BLACK</source>
         <translation>黑色</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1442"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1647"/>
         <source>WHITE</source>
         <translation>白色</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1450"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1655"/>
         <source>LAPL.</source>
         <translation>LAPL.</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1458"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1663"/>
         <source>EDGE</source>
         <translation>边缘</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1473"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1678"/>
         <source>INPUT  %L1 × %L2</source>
         <translation>输入  %L1 × %L2</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1486"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1691"/>
         <source>PIPELINE  %1</source>
         <translation>管线  %1</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1500"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1705"/>
         <source>ANALYZER  %1</source>
         <translation>分析器  %1</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1515"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1720"/>
         <source>EXACT ARTIFACTS + DECODED %1 FRAMES VERIFIED</source>
         <translation>精确产物 + 解码后的 %1 帧已验证</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1517"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1722"/>
         <source>WAITING FOR BOTH EXACT COMPARE FRAME RECEIPTS</source>
         <translation>等待两个精确比较帧的回执</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1528"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1733"/>
         <source>Feature models and ranking are not enabled. Technical facts come from each display proxy; different proxy upstreams may not be directly comparable.</source>
         <translation>特征模型和排序尚未启用。技术数据来自各自的显示代理；采用不同上游代理的结果可能无法直接比较。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1561"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1766"/>
         <source>1 · LEFT PREFERRED</source>
         <translation>1 · 左侧优先</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1563"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1768"/>
         <source>2 · RIGHT PREFERRED</source>
         <translation>2 · 右侧优先</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1565"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1770"/>
         <source>3 · KEEP BOTH</source>
         <translation>3 · 两者都保留</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1567"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1772"/>
         <source>4 · KEEP NEITHER</source>
         <translation>4 · 两者都不保留</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1569"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1774"/>
         <source>0 · CANNOT COMPARE</source>
         <translation>0 · 无法比较</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1618"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1823"/>
         <source>Finding the first photos</source>
         <translation>正在查找首批照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1619"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1824"/>
         <source>Loading local Library</source>
         <translation>正在加载本地图库</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1657"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1862"/>
         <source>PHOTO</source>
         <translation>照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1667"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1872"/>
         <source>Nothing selected</source>
         <translation>未选择任何内容</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1743"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1948"/>
         <source>EXIF</source>
         <translation>EXIF</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="193"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="195"/>
         <source>Capture time</source>
         <translation>拍摄时间</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="201"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="203"/>
         <source>Camera</source>
         <translation>相机</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="203"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="205"/>
         <source>Lens</source>
         <translation>镜头</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="195"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="197"/>
         <source>Shutter speed</source>
         <translation>快门速度</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="197"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="199"/>
         <source>Aperture</source>
         <translation>光圈</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="205"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="207"/>
         <source>Focal length</source>
         <translation>焦距</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="209"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="211"/>
         <source>Preview dimensions</source>
         <translation>预览尺寸</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="207"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="209"/>
         <source>35 mm equivalent</source>
         <translation>35 毫米等效焦距</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="211"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="213"/>
         <source>RAW dimensions</source>
         <translation>RAW 尺寸</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="213"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="215"/>
         <source>Sensor bit depth</source>
         <translation>传感器位深</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="215"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="217"/>
         <source>Color filter array</source>
         <translation>彩色滤光阵列</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="217"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="219"/>
         <source>DNG version</source>
         <translation>DNG 版本</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1766"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1971"/>
         <source>Metadata is being prepared</source>
         <translation>正在准备元数据</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1774"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1979"/>
         <source>CAPTURED</source>
         <translation>拍摄时间</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1775"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1980"/>
         <source>CAMERA</source>
         <translation>相机</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1776"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1981"/>
         <source>LENS</source>
         <translation>镜头</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1777"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1982"/>
         <source>SHUTTER</source>
         <translation>快门</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1778"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1983"/>
         <source>APERTURE</source>
         <translation>光圈</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1779"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1984"/>
         <source>SENSITIVITY</source>
         <translation>感光度</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1780"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1985"/>
         <source>FOCAL LENGTH</source>
         <translation>焦距</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1781"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1986"/>
         <source>PREVIEW</source>
         <translation>预览</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1782"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1987"/>
         <source>35 MM EQUIV.</source>
         <translation>35 毫米等效</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1783"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1988"/>
         <source>RAW SIZE</source>
         <translation>RAW 尺寸</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1784"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1989"/>
         <source>BIT DEPTH</source>
         <translation>位深</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1785"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1990"/>
         <source>CFA</source>
         <translation>CFA</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1786"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1991"/>
         <source>DNG</source>
         <translation>DNG</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1845"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="2050"/>
         <source>Compare slots A and B</source>
         <translation>比较位置 A 和 B</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1861"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="2066"/>
         <source>Clear comparison slots</source>
         <translation>清空比较位</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1697"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1902"/>
         <source>PENDING</source>
         <translation>等待中</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="784"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="786"/>
         <source>Forget last comparison</source>
         <translation>撤回上次比较记录</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1235"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1440"/>
         <source>Exit comparison (Esc)</source>
         <translation>退出比较（Esc）</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1755"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1960"/>
         <source>View all photo metadata</source>
         <translation>查看全部照片元数据</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1767"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1972"/>
         <source>No metadata is available for this photo</source>
         <translation>这张照片没有可用的元数据</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1834"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="2039"/>
         <source>COMPARE SLOTS</source>
         <translation>比较位置</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1890"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="2095"/>
         <source>A  %1</source>
         <translation>A  %1</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1892"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="2097"/>
         <source>A  Not set</source>
         <translation>A  未设置</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1904"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="2109"/>
         <source>Set selected photo as comparison slot A</source>
         <translation>将所选照片设为比较位 A</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1940"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="2145"/>
         <source>B  %1</source>
         <translation>B  %1</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1942"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="2147"/>
         <source>B  Not set</source>
         <translation>B  未设置</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1954"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="2159"/>
         <source>Set selected photo as comparison slot B</source>
         <translation>将所选照片设为比较位 B</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="1979"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="2184"/>
         <source>A display visual is required for comparison.</source>
         <translation>比较需要可显示的图像。</translation>
     </message>

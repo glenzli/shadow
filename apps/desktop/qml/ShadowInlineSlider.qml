@@ -13,6 +13,7 @@ Slider {
     property color trackStartColor: Theme.track
     property color trackMiddleColor: Theme.track
     property color trackEndColor: Theme.track
+    property string toolTipText: ""
 
     implicitWidth: 112
     implicitHeight: 22
@@ -87,6 +88,31 @@ Slider {
 
         Behavior on color {
             ColorAnimation { duration: 80 }
+        }
+    }
+
+    ToolTip {
+        parent: control
+        visible: control.enabled && control.hovered
+            && !control.pressed && control.toolTipText.length > 0
+        delay: 450
+        timeout: 4000
+        text: control.toolTipText
+        x: Math.round((control.width - width) / 2)
+        y: control.height + 6
+
+        contentItem: Label {
+            text: toolTip.text
+            color: Theme.textPrimary
+            font.pixelSize: Theme.fontMeta
+            font.weight: Font.Medium
+        }
+
+        background: Rectangle {
+            radius: Theme.compactControlRadius
+            color: Theme.panelRaised
+            border.width: 1
+            border.color: Theme.borderStrong
         }
     }
 }

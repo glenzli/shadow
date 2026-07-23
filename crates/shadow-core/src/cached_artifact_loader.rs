@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use shadow_cache::{BlobDigest, CacheError, ContentAddressedStore, QuarantineStatus};
+use shadow_cache::{BlobDigest, CacheError, ContentAddressedStore, QuarantineStatus, StoredBlob};
 use shadow_catalog::{
     CachedArtifactRecord, CatalogError, CatalogHandle, InvalidateCachedArtifactStatus,
 };
@@ -109,6 +109,14 @@ impl CachedArtifactLoader {
         Ok(bytes)
     }
 
+    /// Atomically places a newly rendered, rebuildable artifact in the shared
+    /// content-addressed store. The caller must publish its provenance in the
+    /// Catalog only after this succeeds; an unreferenced blob is harmless,
+    /// while a Catalog reference to a missing blob is not.
+    pub fn store_bytes(&self, bytes: &[u8]) -> Result<StoredBlob, CachedArtifactLoadError> {
+        Ok(self.store.put(bytes)?)
+    }
+
     fn invalidate<T>(
         &self,
         record: &CachedArtifactRecord,
@@ -213,6 +221,7 @@ mod tests {
             variant_key: "test:grid-jpeg-2048-q88-v1".into(),
             generator_id: "test".into(),
             generator_version: "1".into(),
+            recipe_snapshot_digest: None,
             provider_preview_id: None,
             blob_algorithm: digest.algorithm().into(),
             blob_digest: *digest.as_bytes(),

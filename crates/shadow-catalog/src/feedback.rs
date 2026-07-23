@@ -907,6 +907,7 @@ mod tests {
                         variant_key: "embedded-0".into(),
                         generator_id: "test-preview-extractor".into(),
                         generator_version: "1".into(),
+                        recipe_snapshot_digest: None,
                         provider_preview_id: Some(0),
                         blob_algorithm: "blake3".into(),
                         blob_digest: [7; 32],

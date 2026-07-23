@@ -28,6 +28,7 @@ int main(int argc, char* argv[]) {
         UiPreferences preferences(application, settings_path);
         preferences.setAppearanceMode(QStringLiteral("dark"));
         preferences.setLanguageMode(QStringLiteral("en"));
+        preferences.setLibraryThumbnailScale(284);
         preferences.setExifFieldVisible(QStringLiteral("cfa"), true);
         preferences.setExifFieldVisible(QStringLiteral("lens"), false);
         if (!expect(preferences.appearanceMode() == QStringLiteral("dark"))
@@ -36,7 +37,8 @@ int main(int argc, char* argv[]) {
             || !expect(preferences.languageMode() == QStringLiteral("en"))
             || !expect(preferences.effectiveLanguage() == QStringLiteral("en"))
             || !expect(preferences.exifFieldVisible(QStringLiteral("cfa")))
-            || !expect(!preferences.exifFieldVisible(QStringLiteral("lens")))) {
+            || !expect(!preferences.exifFieldVisible(QStringLiteral("lens")))
+            || !expect(preferences.libraryThumbnailScale() == 284)) {
             return EXIT_FAILURE;
         }
     }
@@ -46,7 +48,8 @@ int main(int argc, char* argv[]) {
         if (!expect(reopened.appearanceMode() == QStringLiteral("dark"))
             || !expect(reopened.languageMode() == QStringLiteral("en"))
             || !expect(reopened.exifFieldVisible(QStringLiteral("cfa")))
-            || !expect(!reopened.exifFieldVisible(QStringLiteral("lens")))) {
+            || !expect(!reopened.exifFieldVisible(QStringLiteral("lens")))
+            || !expect(reopened.libraryThumbnailScale() == 284)) {
             return EXIT_FAILURE;
         }
         reopened.setAppearanceMode(QStringLiteral("unsupported"));
@@ -57,6 +60,10 @@ int main(int argc, char* argv[]) {
         }
         reopened.setAppearanceMode(QStringLiteral("dark"));
         reopened.setLanguageMode(QStringLiteral("en"));
+        reopened.setLibraryThumbnailScale(1000);
+        if (!expect(reopened.libraryThumbnailScale() == 360)) {
+            return EXIT_FAILURE;
+        }
     }
 
     qputenv("SHADOW_DESKTOP_APPEARANCE_MODE", QByteArrayLiteral("light"));
@@ -78,6 +85,7 @@ int main(int argc, char* argv[]) {
     UiPreferences final_reopen(application, settings_path);
     return expect(final_reopen.appearanceMode() == QStringLiteral("dark"))
             && expect(final_reopen.languageMode() == QStringLiteral("en"))
+            && expect(final_reopen.libraryThumbnailScale() == 360)
         ? EXIT_SUCCESS
         : EXIT_FAILURE;
 }

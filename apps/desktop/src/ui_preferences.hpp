@@ -43,6 +43,12 @@ class UiPreferences final : public QObject {
         NOTIFY effectiveLanguageChanged
     )
     Q_PROPERTY(QStringList exifFields READ exifFields NOTIFY exifFieldsChanged)
+    Q_PROPERTY(
+        int libraryThumbnailScale
+        READ libraryThumbnailScale
+        WRITE setLibraryThumbnailScale
+        NOTIFY libraryThumbnailScaleChanged
+    )
 
 public:
     explicit UiPreferences(
@@ -63,12 +69,14 @@ public:
     [[nodiscard]] QString languageMode() const;
     [[nodiscard]] QString effectiveLanguage() const;
     [[nodiscard]] QStringList exifFields() const;
+    [[nodiscard]] int libraryThumbnailScale() const noexcept;
     Q_INVOKABLE bool exifFieldVisible(const QString& field) const;
     Q_INVOKABLE void setExifFieldVisible(const QString& field, bool visible);
     Q_INVOKABLE void resetExifFields();
 
     void setAppearanceMode(const QString& mode);
     void setLanguageMode(const QString& mode);
+    void setLibraryThumbnailScale(int scale);
 
     /// Attaches the live QML engine after translators have been installed.
     /// Later language changes retranslate the already-created object tree.
@@ -80,12 +88,14 @@ signals:
     void languageModeChanged();
     void effectiveLanguageChanged();
     void exifFieldsChanged();
+    void libraryThumbnailScaleChanged();
 
 private:
     [[nodiscard]] static QString normalizeAppearanceMode(const QString& mode);
     [[nodiscard]] static QString normalizeLanguageMode(const QString& mode);
     [[nodiscard]] QString resolveEffectiveLanguage() const;
     [[nodiscard]] static QStringList normalizeExifFields(const QStringList& fields);
+    [[nodiscard]] static int normalizeLibraryThumbnailScale(int scale) noexcept;
     [[nodiscard]] static QStringList defaultExifFields();
 
     void applyAppearance();
@@ -102,6 +112,7 @@ private:
     QString language_mode_;
     QString effective_language_;
     QStringList exif_fields_;
+    int library_thumbnail_scale_ = 188;
     bool appearance_environment_override_ = false;
     bool language_environment_override_ = false;
     bool translator_installed_ = false;

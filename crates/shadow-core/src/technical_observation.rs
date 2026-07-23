@@ -621,6 +621,7 @@ mod tests {
             variant_key: "test:grid-jpeg-v1".into(),
             generator_id: "test".into(),
             generator_version: "1".into(),
+            recipe_snapshot_digest: None,
             provider_preview_id: None,
             blob_algorithm: blob.digest.algorithm().into(),
             blob_digest: *blob.digest.as_bytes(),

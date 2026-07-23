@@ -10,6 +10,7 @@ Item {
     id: review
 
     required property var controller
+    required property var justifiedReviewLayout
     required property var preferences
     property string selectedPhotoId: ""
     property string selectedRepresentationId: ""
@@ -99,6 +100,7 @@ Item {
     signal openPrecisionRequested(string photoId, string representationId,
                                   string sourcePath, string photoTitle,
                                   string previewSource)
+    signal openLibraryManagementRequested()
 
     MetadataWindow {
         id: metadataWindow
@@ -117,6 +119,10 @@ Item {
     readonly property color textPrimary: Theme.textPrimary
     readonly property color textMuted: Theme.textMuted
     readonly property color accent: Theme.accent
+
+    Component.onCompleted: {
+        justifiedReviewLayout.targetRowHeight = preferences.libraryThumbnailScale
+    }
 
     function formatLuma(value) {
         return Number(value).toLocaleString(Qt.locale(), "f", 3)
@@ -489,7 +495,7 @@ Item {
         function onComparisonRecorded() {
             review.clearComparisonSlots(false)
             review.clearLocalComparisonStatus()
-            grid.forceActiveFocus()
+            justifiedGrid.forceActiveFocus()
         }
         function onComparisonForgotten() {
             review.clearLocalComparisonStatus()
@@ -825,6 +831,122 @@ Item {
             Layout.fillHeight: true
             color: Theme.window
 
+            Rectangle {
+                id: reviewToolBar
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                height: 42
+                z: 3
+                visible: !review.compareMode
+                color: Theme.chrome
+
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    height: 1
+                    color: review.border
+                }
+
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: 14
+                    anchors.rightMargin: 12
+                    spacing: 8
+
+                    Label {
+                        text: qsTr("ALL PHOTOS")
+                        color: review.textMuted
+                        font.pixelSize: 9
+                        font.weight: Font.DemiBold
+                        font.letterSpacing: 0.8
+                    }
+
+                    Label {
+                        text: qsTr("%L1 visible").arg(
+                            review.controller.filteredItemCount)
+                        color: review.textPrimary
+                        font.pixelSize: 11
+                    }
+
+                    ShadowIconButton {
+                        source: "qrc:/icons/library-manage.svg"
+                        toolTipText: qsTr("Manage photo sources")
+                        accessibleName: toolTipText
+                        onClicked: review.openLibraryManagementRequested()
+                    }
+
+                    Item { Layout.fillWidth: true }
+
+                    ShadowIcon {
+                        source: "qrc:/icons/review-grid.svg"
+                        color: review.accent
+                        size: 17
+                    }
+
+                    Label {
+                        text: qsTr("SCALE")
+                        color: review.textMuted
+                        font.pixelSize: 9
+                        font.weight: Font.DemiBold
+                        font.letterSpacing: 0.7
+                    }
+
+                    ShadowInlineSlider {
+                        id: galleryScaleSlider
+                        Layout.preferredWidth: 138
+                        from: 96
+                        to: 360
+                        stepSize: 4
+                        value: review.justifiedReviewLayout.targetRowHeight
+                        toolTipText: qsTr("Thumbnail scale")
+                        Accessible.name: toolTipText
+                        onMoved: {
+                            const next = Math.round(value)
+                            review.justifiedReviewLayout.targetRowHeight = next
+                            review.preferences.libraryThumbnailScale = next
+                        }
+                    }
+
+                    ShadowIconButton {
+                        source: "qrc:/icons/fit-view.svg"
+                        toolTipText: qsTr("Restore default thumbnail scale")
+                        accessibleName: toolTipText
+                        onClicked: {
+                            review.justifiedReviewLayout.targetRowHeight = 188
+                            review.preferences.libraryThumbnailScale = 188
+                        }
+                    }
+
+                    Rectangle {
+                        Layout.preferredWidth: 1
+                        Layout.preferredHeight: 18
+                        color: review.border
+                    }
+
+                    ShadowIconButton {
+                        source: "qrc:/icons/metadata.svg"
+                        toolTipText: qsTr("Open photo metadata")
+                        accessibleName: toolTipText
+                        enabled: review.selectedPhotoId.length > 0
+                        onClicked: metadataWindow.present()
+                    }
+
+                    ShadowIconButton {
+                        source: "qrc:/icons/edit.svg"
+                        variant: ShadowIconButton.Tinted
+                        toolTipText: qsTr("Open selected photo in Precision")
+                        accessibleName: toolTipText
+                        enabled: review.canOpenSelectedPhoto
+                        onClicked: review.openSelectedPhoto()
+                    }
+                }
+            }
+
+            // Kept temporarily as a non-instantiated source-level reference
+            // while the justified ListView below owns the visible gallery. It
+            // prevents any legacy crop delegate from requesting images.
             GridView {
                 id: grid
                 objectName: "reviewGrid"
@@ -843,10 +965,10 @@ Item {
                 anchors.fill: parent
                 anchors.margins: 18
                 clip: true
-                visible: !review.compareMode
-                enabled: visible
-                focus: visible
-                model: review.controller.model
+                visible: false
+                enabled: false
+                focus: false
+                model: null
                 cellWidth: Math.max(220, Math.floor(width / Math.max(1, Math.floor(width / 270))))
                 cellHeight: cellWidth * 0.78
                 currentIndex: -1
@@ -1194,6 +1316,99 @@ Item {
                     width: 34
                     height: 34
                 }
+            }
+
+            ListView {
+                id: justifiedGrid
+                objectName: "reviewJustifiedGrid"
+                anchors.top: reviewToolBar.bottom
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.leftMargin: 18
+                anchors.rightMargin: 18
+                anchors.topMargin: 14
+                anchors.bottomMargin: 18
+                clip: true
+                visible: !review.compareMode
+                enabled: visible
+                focus: visible
+                spacing: review.justifiedReviewLayout.spacing
+                cacheBuffer: 900
+                model: review.justifiedReviewLayout
+
+                function maybeLoadMore() {
+                    if (review.controller.hasMore
+                            && !review.controller.scanning
+                            && !review.controller.refreshing
+                            && !review.controller.busy
+                            && !review.controller.loadingMore
+                            && contentY + height >= contentHeight
+                                - Math.max(400,
+                                    review.justifiedReviewLayout.targetRowHeight * 2)) {
+                        review.controller.loadMore()
+                    }
+                }
+
+                onWidthChanged: review.justifiedReviewLayout.availableWidth
+                    = Math.max(0, Math.floor(width))
+                Component.onCompleted: review.justifiedReviewLayout.availableWidth
+                    = Math.max(0, Math.floor(width))
+                onContentYChanged: maybeLoadMore()
+                onHeightChanged: Qt.callLater(maybeLoadMore)
+                onCountChanged: Qt.callLater(maybeLoadMore)
+
+                delegate: Item {
+                    id: justifiedRow
+                    required property var items
+                    required property int rowHeight
+
+                    width: justifiedGrid.width
+                    // `rowHeight` is the image height. Captions are outside the
+                    // image geometry so every visible image retains its ratio.
+                    height: rowHeight + 48
+
+                    Repeater {
+                        model: justifiedRow.items
+
+                        delegate: ReviewPhotoCard {
+                            required property var modelData
+                            x: Number(modelData.layoutX)
+                            y: 0
+                            width: Number(modelData.layoutWidth)
+                            height: justifiedRow.height
+                            workspace: review
+                            entry: modelData
+                        }
+                    }
+                }
+            }
+
+            Label {
+                anchors.centerIn: justifiedGrid
+                width: Math.min(420, justifiedGrid.width - 60)
+                visible: justifiedGrid.count === 0 && !review.controller.busy
+                text: review.controller.scanning
+                    ? qsTr("Searching the folder for supported photos…\nNew RAW files will appear here as they are catalogued.")
+                    : review.controller.scanProgress.phase === "failed"
+                    ? qsTr("Import stopped, and no RAW files are currently visible.\nAlready catalogued files remain safely stored.")
+                    : qsTr("Add a folder to the local Library.\nShadow will use embedded previews first and generate a local proxy only when needed.")
+                color: review.textMuted
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.WordWrap
+                lineHeight: 1.4
+                z: 2
+            }
+
+            BusyIndicator {
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: 18
+                visible: justifiedGrid.visible && review.controller.loadingMore
+                running: visible
+                width: 34
+                height: 34
+                z: 2
             }
 
             Item {

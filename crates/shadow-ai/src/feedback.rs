@@ -46,6 +46,7 @@ pub struct PresentedCandidate {
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PresentedVisualRole {
+    RecipePreview,
     EmbeddedPreview,
     GeneratedProxy,
 }

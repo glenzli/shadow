@@ -64,6 +64,7 @@ struct StoredArtifact {
     variant_key: String,
     generator_id: String,
     generator_version: String,
+    recipe_snapshot_digest: Option<[u8; 32]>,
     provider_preview_id: Option<usize>,
     blob_algorithm: String,
     blob_digest: [u8; 32],
@@ -183,9 +184,9 @@ impl Catalog {
             "SELECT r.photo_id, r.id, l.platform, l.native_path, l.display_path,
                     r.byte_len, r.modified_at_ms,
                     a.role, a.variant_key, a.generator_id, a.generator_version,
-                    a.provider_preview_id, a.blob_algorithm, a.blob_digest,
-                    a.blob_byte_len, a.codec, a.byte_order, a.width, a.height,
-                    a.bits_per_channel, a.channels, a.created_at_ms,
+                    a.recipe_snapshot_digest, a.provider_preview_id, a.blob_algorithm,
+                    a.blob_digest, a.blob_byte_len, a.codec, a.byte_order, a.width,
+                    a.height, a.bits_per_channel, a.channels, a.created_at_ms,
                     t.observation_json, t.observation_digest,
                     s.snapshot_json,
                     dc.head_sequence, de.after_flag, de.after_rating
@@ -201,7 +202,22 @@ impl Catalog {
                  WHERE a2.representation_id = r.id
                    AND a2.source_byte_len = r.byte_len
                    AND a2.source_modified_at_ms IS r.modified_at_ms
-                 ORDER BY CASE a2.role WHEN 'embedded_preview' THEN 0 ELSE 1 END,
+                   AND (
+                       a2.role != 'recipe_preview'
+                       OR EXISTS (
+                           SELECT 1 FROM recipe_refs rr
+                           JOIN recipe_commits rc
+                             ON rc.id = rr.commit_id AND rc.photo_id = rr.photo_id
+                           WHERE rr.photo_id = r.photo_id
+                             AND rr.name = 'working'
+                             AND rc.snapshot_digest = a2.recipe_snapshot_digest
+                       )
+                   )
+                 ORDER BY CASE a2.role
+                              WHEN 'recipe_preview' THEN 0
+                              WHEN 'embedded_preview' THEN 1
+                              ELSE 2
+                          END,
                           (a2.width * a2.height) DESC,
                           a2.variant_key
                  LIMIT 1
@@ -319,9 +335,9 @@ impl Catalog {
             "SELECT r.photo_id, r.id, l.platform, l.native_path, l.display_path,
                     r.byte_len, r.modified_at_ms,
                     a.role, a.variant_key, a.generator_id, a.generator_version,
-                    a.provider_preview_id, a.blob_algorithm, a.blob_digest,
-                    a.blob_byte_len, a.codec, a.byte_order, a.width, a.height,
-                    a.bits_per_channel, a.channels, a.created_at_ms,
+                    a.recipe_snapshot_digest, a.provider_preview_id, a.blob_algorithm,
+                    a.blob_digest, a.blob_byte_len, a.codec, a.byte_order, a.width,
+                    a.height, a.bits_per_channel, a.channels, a.created_at_ms,
                     t.observation_json, t.observation_digest,
                     s.snapshot_json,
                     dc.head_sequence, de.after_flag, de.after_rating
@@ -337,7 +353,22 @@ impl Catalog {
                  WHERE a2.representation_id = r.id
                    AND a2.source_byte_len = r.byte_len
                    AND a2.source_modified_at_ms IS r.modified_at_ms
-                 ORDER BY CASE a2.role WHEN 'embedded_preview' THEN 0 ELSE 1 END,
+                   AND (
+                       a2.role != 'recipe_preview'
+                       OR EXISTS (
+                           SELECT 1 FROM recipe_refs rr
+                           JOIN recipe_commits rc
+                             ON rc.id = rr.commit_id AND rc.photo_id = rr.photo_id
+                           WHERE rr.photo_id = r.photo_id
+                             AND rr.name = 'working'
+                             AND rc.snapshot_digest = a2.recipe_snapshot_digest
+                       )
+                   )
+                 ORDER BY CASE a2.role
+                              WHEN 'recipe_preview' THEN 0
+                              WHEN 'embedded_preview' THEN 1
+                              ELSE 2
+                          END,
                           (a2.width * a2.height) DESC,
                           a2.variant_key
                  LIMIT 1
@@ -489,25 +520,29 @@ fn read_review_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredReviewIte
             variant_key: row.get(8)?,
             generator_id: row.get(9)?,
             generator_version: row.get(10)?,
-            provider_preview_id: optional_usize(row.get(11)?, 11)?,
-            blob_algorithm: row.get(12)?,
-            blob_digest: digest(row.get(13)?, 13)?,
-            blob_byte_len: non_negative_u64(row.get(14)?, 14)?,
-            codec: row.get(15)?,
-            byte_order: row.get(16)?,
-            width: non_negative_u32(row.get(17)?, 17)?,
-            height: non_negative_u32(row.get(18)?, 18)?,
-            bits_per_channel: non_negative_u16(row.get(19)?, 19)?,
-            channels: non_negative_u16(row.get(20)?, 20)?,
-            created_at_ms: row.get(21)?,
+            recipe_snapshot_digest: row
+                .get::<_, Option<Vec<u8>>>(11)?
+                .map(|value| digest(value, 11))
+                .transpose()?,
+            provider_preview_id: optional_usize(row.get(12)?, 12)?,
+            blob_algorithm: row.get(13)?,
+            blob_digest: digest(row.get(14)?, 14)?,
+            blob_byte_len: non_negative_u64(row.get(15)?, 15)?,
+            codec: row.get(16)?,
+            byte_order: row.get(17)?,
+            width: non_negative_u32(row.get(18)?, 18)?,
+            height: non_negative_u32(row.get(19)?, 19)?,
+            bits_per_channel: non_negative_u16(row.get(20)?, 20)?,
+            channels: non_negative_u16(row.get(21)?, 21)?,
+            created_at_ms: row.get(22)?,
         })
     } else {
         None
     };
-    let technical = if let Some(json) = row.get::<_, Option<String>>(22)? {
+    let technical = if let Some(json) = row.get::<_, Option<String>>(23)? {
         Some(StoredTechnicalObservation {
             json,
-            digest: digest(row.get(23)?, 23)?,
+            digest: digest(row.get(24)?, 24)?,
         })
     } else {
         None
@@ -523,11 +558,11 @@ fn read_review_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredReviewIte
             modified_at_ms: row.get(6)?,
         },
         artifact,
-        metadata_json: row.get(24)?,
+        metadata_json: row.get(25)?,
         technical,
-        decision_head_sequence: row.get(25)?,
-        decision_flag: row.get(26)?,
-        decision_rating: row.get(27)?,
+        decision_head_sequence: row.get(26)?,
+        decision_flag: row.get(27)?,
+        decision_rating: row.get(28)?,
     })
 }
 
@@ -572,6 +607,7 @@ fn cached_artifact(
             variant_key: artifact.variant_key,
             generator_id: artifact.generator_id,
             generator_version: artifact.generator_version,
+            recipe_snapshot_digest: artifact.recipe_snapshot_digest,
             provider_preview_id: artifact.provider_preview_id,
             blob_algorithm: artifact.blob_algorithm,
             blob_digest: artifact.blob_digest,
@@ -888,6 +924,7 @@ mod tests {
                         variant_key: key.into(),
                         generator_id: "libraw".into(),
                         generator_version: "1".into(),
+                        recipe_snapshot_digest: None,
                         provider_preview_id: None,
                         blob_algorithm: "blake3-256".into(),
                         blob_digest: digest,
@@ -1008,6 +1045,7 @@ mod tests {
                 variant_key: "proxy-v1".into(),
                 generator_id: "libraw".into(),
                 generator_version: "1".into(),
+                recipe_snapshot_digest: None,
                 provider_preview_id: None,
                 blob_algorithm: "blake3-256".into(),
                 blob_digest: [u8::try_from(index + 1).expect("small index"); 32],

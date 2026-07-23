@@ -207,10 +207,12 @@ const SCHEMA_V1_CACHE: &str = r"
 CREATE TABLE representation_cached_artifacts (
     representation_id    BLOB NOT NULL CHECK (length(representation_id) = 16),
     role                 TEXT NOT NULL
-        CHECK (role IN ('embedded_preview', 'generated_proxy')),
+        CHECK (role IN ('recipe_preview', 'embedded_preview', 'generated_proxy')),
     variant_key          TEXT NOT NULL CHECK (length(variant_key) > 0),
     generator_id         TEXT NOT NULL CHECK (length(generator_id) > 0),
     generator_version    TEXT NOT NULL,
+    recipe_snapshot_digest BLOB
+        CHECK (recipe_snapshot_digest IS NULL OR length(recipe_snapshot_digest) = 32),
     provider_preview_id  INTEGER CHECK (provider_preview_id IS NULL OR provider_preview_id >= 0),
     source_byte_len      INTEGER NOT NULL CHECK (source_byte_len >= 0),
     source_modified_at_ms INTEGER,
@@ -668,7 +670,7 @@ CREATE INDEX locations_representation_status_current_idx
 const SCHEMA_V1_STATE: &str = r"
 CREATE TABLE catalog_schema (
     version       INTEGER PRIMARY KEY NOT NULL CHECK (version = 1),
-    identity      TEXT NOT NULL CHECK (identity = 'shadow-catalog-v1'),
+    identity      TEXT NOT NULL CHECK (identity = 'shadow-catalog-v1-r24-preview-provenance'),
     created_at_ms INTEGER NOT NULL
 ) STRICT;
 ";
@@ -1052,7 +1054,7 @@ fn initialize_schema_v1(connection: &mut Connection) -> Result<(), CatalogError>
                 |row| row.get(0),
             )
             .optional()?;
-        if identity.as_deref() == Some("shadow-catalog-v1")
+        if identity.as_deref() == Some("shadow-catalog-v1-r24-preview-provenance")
             && current_schema_version(connection)? == SCHEMA_VERSION
         {
             return Ok(());
@@ -1079,7 +1081,7 @@ fn initialize_schema_v1(connection: &mut Connection) -> Result<(), CatalogError>
     }
     transaction.execute(
         "INSERT INTO catalog_schema(version, identity, created_at_ms)
-         VALUES (?1, 'shadow-catalog-v1', unixepoch('subsec') * 1000)",
+         VALUES (?1, 'shadow-catalog-v1-r24-preview-provenance', unixepoch('subsec') * 1000)",
         [SCHEMA_VERSION],
     )?;
     transaction.commit()?;
@@ -1113,7 +1115,8 @@ fn catalog_tables_exist(connection: &Connection) -> rusqlite::Result<bool> {
 
 fn current_schema_version(connection: &Connection) -> rusqlite::Result<i64> {
     connection.query_row(
-        "SELECT version FROM catalog_schema WHERE identity = 'shadow-catalog-v1'",
+        "SELECT version FROM catalog_schema
+         WHERE identity = 'shadow-catalog-v1-r24-preview-provenance'",
         [],
         |row| row.get(0),
     )

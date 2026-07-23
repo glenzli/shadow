@@ -1,6 +1,7 @@
 #include "desktop_backend.hpp"
 #include "edit_controller.hpp"
 #include "edit_preview_provider.hpp"
+#include "justified_review_layout_model.hpp"
 #include "lut_library.hpp"
 #include "lut_preview_provider.hpp"
 #include "optics_profile_library.hpp"
@@ -16,8 +17,8 @@
 #include <QApplication>
 #include <QColorSpace>
 #include <QDir>
-#include <QFile>
 #include <QFileInfo>
+#include <QFile>
 #include <QImage>
 #include <QMessageBox>
 #include <QQmlApplicationEngine>
@@ -523,6 +524,24 @@ int main(int argc, char* argv[]) {
     QCoreApplication::setOrganizationDomain(QStringLiteral("shadow.dev"));
     QCoreApplication::setApplicationName(QStringLiteral("Shadow"));
 
+    // Native RAW providers (including a locally installed vendor SDK) execute
+    // behind a separate helper process.  Keep the helper beside the desktop
+    // executable so both the development bundle and a packaged app resolve
+    // the same artifact without a system-wide install.
+    const QString decode_helper_path = QDir(QCoreApplication::applicationDirPath()).filePath(
+        QStringLiteral("shadow-image-decode-helper")
+    );
+    // This guard is intentionally unconditional: a broken or incomplete app
+    // bundle must degrade to a reported "unsupported" decode, never fall back
+    // to loading a third-party decoder inside the desktop process.
+    qputenv("SHADOW_DISABLE_PRIVATE_DECODER", QByteArrayLiteral("1"));
+    if (QFileInfo(decode_helper_path).isExecutable()) {
+        qputenv("SHADOW_DECODE_HELPER_PATH", decode_helper_path.toUtf8());
+    } else {
+        qWarning().noquote()
+            << "Isolated RAW decode helper is unavailable:" << decode_helper_path;
+    }
+
     QString application_data = qEnvironmentVariable("SHADOW_DESKTOP_DATA_ROOT");
     if (application_data.isEmpty()) {
         application_data =
@@ -567,6 +586,8 @@ int main(int argc, char* argv[]) {
         }
     }
     ReviewController controller(backend, isolated_settings_file);
+    JustifiedReviewLayoutModel justified_review_layout;
+    justified_review_layout.setSourceModel(controller.model());
     auto edit_preview_store = std::make_shared<EditPreviewStore>();
     EditController editor(backend, edit_preview_store);
     QQmlApplicationEngine engine;
@@ -593,6 +614,10 @@ int main(int argc, char* argv[]) {
     );
     engine.setInitialProperties({
         {QStringLiteral("controller"), QVariant::fromValue(&controller)},
+        {
+            QStringLiteral("justifiedReviewLayout"),
+            QVariant::fromValue(&justified_review_layout),
+        },
         {QStringLiteral("editor"), QVariant::fromValue(&editor)},
         {QStringLiteral("preferences"), QVariant::fromValue(&preferences)},
         {QStringLiteral("lutLibrary"), QVariant::fromValue(&lut_library)},

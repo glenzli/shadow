@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use rusqlite::{params, types::Type};
+use rusqlite::{OptionalExtension, params, types::Type};
 use shadow_domain::{EntityId, ImageDimensions, PreviewByteOrder, PreviewCodec, RepresentationId};
 
 use crate::{
@@ -10,6 +10,8 @@ use crate::{
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum CachedArtifactRole {
+    /// A rendered JPEG bound to one exact durable working Recipe snapshot.
+    RecipePreview,
     EmbeddedPreview,
     GeneratedProxy,
 }
@@ -17,6 +19,7 @@ pub enum CachedArtifactRole {
 impl CachedArtifactRole {
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::RecipePreview => "recipe_preview",
             Self::EmbeddedPreview => "embedded_preview",
             Self::GeneratedProxy => "generated_proxy",
         }
@@ -29,6 +32,10 @@ pub struct CachedArtifact {
     pub variant_key: String,
     pub generator_id: String,
     pub generator_version: String,
+    /// Present only for an edited render. It is the exact Recipe snapshot
+    /// identity that must still be named by the photo's `working` ref before
+    /// this artifact is eligible for the Library grid.
+    pub recipe_snapshot_digest: Option<[u8; 32]>,
     pub provider_preview_id: Option<usize>,
     pub blob_algorithm: String,
     pub blob_digest: [u8; 32],
@@ -94,14 +101,15 @@ impl Catalog {
         transaction.execute(
             "INSERT INTO representation_cached_artifacts(
                  representation_id, role, variant_key, generator_id, generator_version,
-                 provider_preview_id, source_byte_len, source_modified_at_ms, blob_algorithm,
-                 blob_digest, blob_byte_len, codec, byte_order, width, height,
-                 bits_per_channel, channels, created_at_ms
+                 recipe_snapshot_digest, provider_preview_id, source_byte_len,
+                 source_modified_at_ms, blob_algorithm, blob_digest, blob_byte_len, codec,
+                 byte_order, width, height, bits_per_channel, channels, created_at_ms
              ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
-                       ?14, ?15, ?16, ?17, ?18)
+                       ?14, ?15, ?16, ?17, ?18, ?19)
              ON CONFLICT(representation_id, role, variant_key) DO UPDATE SET
                  generator_id = excluded.generator_id,
                  generator_version = excluded.generator_version,
+                 recipe_snapshot_digest = excluded.recipe_snapshot_digest,
                  provider_preview_id = excluded.provider_preview_id,
                  source_byte_len = excluded.source_byte_len,
                  source_modified_at_ms = excluded.source_modified_at_ms,
@@ -121,6 +129,10 @@ impl Catalog {
                 artifact.variant_key,
                 artifact.generator_id,
                 artifact.generator_version,
+                artifact
+                    .recipe_snapshot_digest
+                    .as_ref()
+                    .map(|digest| digest.as_slice()),
                 artifact
                     .provider_preview_id
                     .map(|value| sqlite_usize(value, "provider_preview_id"))
@@ -156,9 +168,9 @@ impl Catalog {
         self.representation_fingerprint(representation_id)?;
         let mut statement = self.connection.prepare(
             "SELECT representation_id, role, variant_key, generator_id, generator_version,
-                    provider_preview_id, source_byte_len, source_modified_at_ms, blob_algorithm,
-                    blob_digest, blob_byte_len, codec, byte_order, width, height,
-                    bits_per_channel, channels, created_at_ms
+                    recipe_snapshot_digest, provider_preview_id, source_byte_len,
+                    source_modified_at_ms, blob_algorithm, blob_digest, blob_byte_len, codec,
+                    byte_order, width, height, bits_per_channel, channels, created_at_ms
              FROM representation_cached_artifacts
              WHERE representation_id = ?1
              ORDER BY role, variant_key",
@@ -170,19 +182,22 @@ impl Catalog {
                 row.get::<_, String>(2)?,
                 row.get::<_, String>(3)?,
                 row.get::<_, String>(4)?,
-                optional_usize(row.get::<_, Option<i64>>(5)?, 5)?,
-                non_negative_u64(row.get(6)?, 6)?,
-                row.get::<_, Option<i64>>(7)?,
-                row.get::<_, String>(8)?,
-                digest(row.get(9)?, 9)?,
-                non_negative_u64(row.get(10)?, 10)?,
-                row.get::<_, String>(11)?,
+                row.get::<_, Option<Vec<u8>>>(5)?
+                    .map(|value| digest(value, 5))
+                    .transpose()?,
+                optional_usize(row.get::<_, Option<i64>>(6)?, 6)?,
+                non_negative_u64(row.get(7)?, 7)?,
+                row.get::<_, Option<i64>>(8)?,
+                row.get::<_, String>(9)?,
+                digest(row.get(10)?, 10)?,
+                non_negative_u64(row.get(11)?, 11)?,
                 row.get::<_, String>(12)?,
-                non_negative_u32(row.get(13)?, 13)?,
+                row.get::<_, String>(13)?,
                 non_negative_u32(row.get(14)?, 14)?,
-                non_negative_u16(row.get(15)?, 15)?,
+                non_negative_u32(row.get(15)?, 15)?,
                 non_negative_u16(row.get(16)?, 16)?,
-                row.get::<_, i64>(17)?,
+                non_negative_u16(row.get(17)?, 17)?,
+                row.get::<_, i64>(18)?,
             ))
         })?;
 
@@ -194,6 +209,7 @@ impl Catalog {
                 variant_key,
                 generator_id,
                 generator_version,
+                recipe_snapshot_digest,
                 provider_preview_id,
                 byte_len,
                 modified_at_ms,
@@ -219,6 +235,7 @@ impl Catalog {
                     variant_key,
                     generator_id,
                     generator_version,
+                    recipe_snapshot_digest,
                     provider_preview_id,
                     blob_algorithm,
                     blob_digest,
@@ -237,10 +254,10 @@ impl Catalog {
 
     /// Returns the exact current visual selected by the shared Review ordering.
     ///
-    /// Embedded previews precede generated proxies; within a role the largest
-    /// image wins, followed by the stable variant key. Keeping this selection
-    /// in Catalog prevents background analysis and Review from targeting
-    /// different provider/variant artifacts.
+    /// A current Recipe preview precedes source previews; within a role the
+    /// largest image wins, followed by the stable variant key. Keeping this
+    /// selection in Catalog prevents background analysis and Review from
+    /// targeting different provider/variant artifacts.
     ///
     /// # Errors
     ///
@@ -251,8 +268,24 @@ impl Catalog {
         representation_id: RepresentationId,
     ) -> Result<Option<CachedArtifactRecord>, CatalogError> {
         let source = self.representation_fingerprint(representation_id)?;
+        let working_recipe_snapshot = self
+            .connection
+            .query_row(
+                "SELECT c.snapshot_digest
+                 FROM representations r
+                 JOIN recipe_refs rr ON rr.photo_id = r.photo_id AND rr.name = 'working'
+                 JOIN recipe_commits c ON c.id = rr.commit_id AND c.photo_id = rr.photo_id
+                 WHERE r.id = ?1",
+                [representation_id.as_bytes().as_slice()],
+                |row| digest(row.get(0)?, 0),
+            )
+            .optional()?;
         let mut artifacts = self.cached_artifacts(representation_id)?;
-        artifacts.retain(|record| record.source == source);
+        artifacts.retain(|record| {
+            record.source == source
+                && (record.artifact.role != CachedArtifactRole::RecipePreview
+                    || record.artifact.recipe_snapshot_digest == working_recipe_snapshot)
+        });
         artifacts.sort_by(preferred_artifact_ordering);
         Ok(artifacts.into_iter().next())
     }
@@ -276,15 +309,20 @@ impl Catalog {
             "DELETE FROM representation_cached_artifacts
              WHERE representation_id = ?1 AND role = ?2 AND variant_key = ?3
                AND generator_id = ?4 AND generator_version = ?5
-               AND source_byte_len = ?6 AND source_modified_at_ms IS ?7
-               AND blob_algorithm = ?8 AND blob_digest = ?9 AND blob_byte_len = ?10
-               AND created_at_ms = ?11",
+               AND recipe_snapshot_digest IS ?6
+               AND source_byte_len = ?7 AND source_modified_at_ms IS ?8
+               AND blob_algorithm = ?9 AND blob_digest = ?10 AND blob_byte_len = ?11
+               AND created_at_ms = ?12",
             params![
                 record.representation_id.as_bytes().as_slice(),
                 artifact.role.as_str(),
                 artifact.variant_key,
                 artifact.generator_id,
                 artifact.generator_version,
+                artifact
+                    .recipe_snapshot_digest
+                    .as_ref()
+                    .map(|digest| digest.as_slice()),
                 sqlite_u64(record.source.byte_len, "source_byte_len")?,
                 record.source.modified_at_ms,
                 artifact.blob_algorithm,
@@ -313,8 +351,9 @@ fn preferred_artifact_ordering(
 
 const fn artifact_role_rank(role: CachedArtifactRole) -> u8 {
     match role {
-        CachedArtifactRole::EmbeddedPreview => 0,
-        CachedArtifactRole::GeneratedProxy => 1,
+        CachedArtifactRole::RecipePreview => 0,
+        CachedArtifactRole::EmbeddedPreview => 1,
+        CachedArtifactRole::GeneratedProxy => 2,
     }
 }
 
@@ -338,11 +377,26 @@ fn validate_artifact(artifact: &CachedArtifact) -> Result<(), CatalogError> {
             "blob identity and length must be present",
         ));
     }
+    match (artifact.role, artifact.recipe_snapshot_digest.is_some()) {
+        (CachedArtifactRole::RecipePreview, true)
+        | (CachedArtifactRole::EmbeddedPreview | CachedArtifactRole::GeneratedProxy, false) => {}
+        (CachedArtifactRole::RecipePreview, false) => {
+            return Err(CatalogError::InvalidCachedArtifact(
+                "recipe preview must name an exact Recipe snapshot",
+            ));
+        }
+        (CachedArtifactRole::EmbeddedPreview | CachedArtifactRole::GeneratedProxy, true) => {
+            return Err(CatalogError::InvalidCachedArtifact(
+                "source preview must not carry a Recipe snapshot",
+            ));
+        }
+    }
     Ok(())
 }
 
 pub(crate) fn parse_role(value: String) -> Result<CachedArtifactRole, CatalogError> {
     match value.as_str() {
+        "recipe_preview" => Ok(CachedArtifactRole::RecipePreview),
         "embedded_preview" => Ok(CachedArtifactRole::EmbeddedPreview),
         "generated_proxy" => Ok(CachedArtifactRole::GeneratedProxy),
         _ => Err(unknown("role", value)),
@@ -474,6 +528,57 @@ mod tests {
     }
 
     #[test]
+    fn recipe_preview_is_ignored_until_a_working_recipe_names_its_digest() {
+        let (mut catalog, representation_id, source) = registered_catalog();
+        let source_preview = artifact("1", 1);
+        catalog
+            .record_cached_artifact(&RecordCachedArtifact {
+                representation_id,
+                expected_source: source,
+                artifact: source_preview,
+            })
+            .expect("record source preview");
+
+        let recipe_preview = CachedArtifact {
+            role: CachedArtifactRole::RecipePreview,
+            variant_key: "shadow-recipe-preview:test;recipe=aa".into(),
+            generator_id: "shadow-edit-preview".into(),
+            generator_version: "test".into(),
+            recipe_snapshot_digest: Some([0xaa; 32]),
+            provider_preview_id: None,
+            blob_algorithm: "blake3-256".into(),
+            blob_digest: [2; 32],
+            blob_byte_len: 2_048,
+            codec: PreviewCodec::Jpeg,
+            byte_order: PreviewByteOrder::NotApplicable,
+            dimensions: ImageDimensions {
+                width: 2_048,
+                height: 1_365,
+            },
+            bits_per_channel: 8,
+            channels: 3,
+            created_at_ms: 200,
+        };
+        catalog
+            .record_cached_artifact(&RecordCachedArtifact {
+                representation_id,
+                expected_source: source,
+                artifact: recipe_preview,
+            })
+            .expect("record unattached Recipe preview");
+
+        assert_eq!(
+            catalog
+                .preferred_cached_artifact(representation_id)
+                .expect("select preferred preview")
+                .expect("source preview remains available")
+                .artifact
+                .role,
+            CachedArtifactRole::EmbeddedPreview
+        );
+    }
+
+    #[test]
     fn invalidation_cannot_delete_a_concurrently_replaced_artifact() {
         let (mut catalog, representation_id, source) = registered_catalog();
         catalog
@@ -551,6 +656,7 @@ mod tests {
             variant_key: "libraw".into(),
             generator_id: "libraw".into(),
             generator_version: version.into(),
+            recipe_snapshot_digest: None,
             provider_preview_id: Some(7),
             blob_algorithm: "blake3-256".into(),
             blob_digest: [digest_byte; 32],

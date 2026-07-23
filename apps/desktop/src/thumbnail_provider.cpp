@@ -8,10 +8,12 @@
 #include <QCryptographicHash>
 #include <QDebug>
 #include <QImageReader>
+#include <QMutexLocker>
 #include <QUrlQuery>
 
 #include <algorithm>
 #include <cstdint>
+#include <limits>
 
 namespace {
 
@@ -42,7 +44,28 @@ ThumbnailProvider::ThumbnailProvider(
           QQmlImageProviderBase::ForceAsynchronousImageLoading
       ),
       backend_(std::move(backend)),
-      model_(model) {}
+      model_(model) {
+    // A 1024px RGBA preview is roughly 4–8 MiB. 192 MiB keeps dozens of
+    // recently visible thumbnails warm without competing with edit previews.
+    decoded_image_cache_.setMaxCost(192 * 1024);
+}
+
+QString ThumbnailProvider::cacheKey(
+    const QString& ticket,
+    const quint64 generation,
+    const QSize& requested_size
+) {
+    return ticket + QLatin1Char(':') + QString::number(generation)
+        + QLatin1Char(':') + QString::number(requested_size.width())
+        + QLatin1Char('x') + QString::number(requested_size.height());
+}
+
+int ThumbnailProvider::imageCacheCost(const QImage& image) noexcept {
+    const qsizetype bytes = image.sizeInBytes();
+    const qsizetype kibibytes = std::max<qsizetype>(1, bytes / 1024);
+    return kibibytes > std::numeric_limits<int>::max()
+        ? std::numeric_limits<int>::max() : static_cast<int>(kibibytes);
+}
 
 QImage ThumbnailProvider::requestImage(
     const QString& id,
@@ -76,6 +99,17 @@ QImage ThumbnailProvider::requestImage(
         return {};
     }
     const QString& ticket = ticket_values.constFirst();
+    const QString cache_key = cacheKey(ticket, generation, requested_size);
+    {
+        const QMutexLocker lock(&decoded_image_cache_mutex_);
+        if (const QImage* const cached = decoded_image_cache_.object(cache_key);
+            cached != nullptr) {
+            if (size != nullptr) {
+                *size = cached->size();
+            }
+            return *cached;
+        }
+    }
 
     BackendReviewVisual payload;
     try {
@@ -131,6 +165,14 @@ QImage ThumbnailProvider::requestImage(
 
     if (size != nullptr) {
         *size = image.size();
+    }
+    {
+        const QMutexLocker lock(&decoded_image_cache_mutex_);
+        decoded_image_cache_.insert(
+            cache_key,
+            new QImage(image),
+            imageCacheCost(image)
+        );
     }
     return image;
 }

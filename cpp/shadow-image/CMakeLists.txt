@@ -77,6 +77,13 @@ if(SHADOW_BUILD_RAW_PROBE)
     shadow_image_enable_warnings(shadow-raw-probe)
 endif()
 
+# The desktop starts this tiny executable for untrusted or proprietary RAW
+# decoder work.  A native crash in LibRaw or a locally installed vendor module
+# then becomes one failed preview instead of a crashed photo application.
+add_executable(shadow-image-decode-helper tools/decode_helper.cpp)
+target_link_libraries(shadow-image-decode-helper PRIVATE Shadow::Image)
+shadow_image_enable_warnings(shadow-image-decode-helper)
+
 if(BUILD_TESTING)
     # This deliberately contains no vendor SDK. It exercises the same load/create/destroy
     # contract a user's private SDK adapter will use, without allowing public tests to depend

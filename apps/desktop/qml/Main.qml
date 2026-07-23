@@ -9,6 +9,7 @@ ApplicationWindow {
     id: window
 
     required property var controller
+    required property var justifiedReviewLayout
     required property var editor
     required property var preferences
     required property var lutLibrary
@@ -684,12 +685,14 @@ ApplicationWindow {
             Layout.fillWidth: true
             Layout.fillHeight: true
             controller: window.controller
+            justifiedReviewLayout: window.justifiedReviewLayout
             preferences: window.preferences
             onOpenPrecisionRequested: (photoId, representationId, sourcePath, photoTitle,
                                         previewSource) => {
                 window.openPrecision(photoId, representationId, sourcePath, photoTitle,
                                      previewSource)
             }
+            onOpenLibraryManagementRequested: window.showLibrary()
         }
 
         PrecisionWorkspace {

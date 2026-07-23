@@ -9,6 +9,7 @@
 #include <QStyleHints>
 #include <QTranslator>
 
+#include <algorithm>
 #include <utility>
 
 namespace {
@@ -16,6 +17,7 @@ namespace {
 constexpr auto appearance_settings_key = "ui/appearance";
 constexpr auto language_settings_key = "ui/language";
 constexpr auto exif_fields_settings_key = "ui/exif_fields";
+constexpr auto library_thumbnail_scale_settings_key = "library/thumbnail_scale";
 constexpr auto appearance_environment_key = "SHADOW_DESKTOP_APPEARANCE_MODE";
 constexpr auto language_environment_key = "SHADOW_DESKTOP_LANGUAGE_MODE";
 
@@ -68,6 +70,12 @@ UiPreferences::UiPreferences(
             defaultExifFields()
         ).toStringList()
     );
+    library_thumbnail_scale_ = normalizeLibraryThumbnailScale(
+        settings_->value(
+            QString::fromLatin1(library_thumbnail_scale_settings_key),
+            library_thumbnail_scale_
+        ).toInt()
+    );
 
     QObject::connect(
         application_.styleHints(),
@@ -107,6 +115,10 @@ QString UiPreferences::effectiveLanguage() const {
 
 QStringList UiPreferences::exifFields() const {
     return exif_fields_;
+}
+
+int UiPreferences::libraryThumbnailScale() const noexcept {
+    return library_thumbnail_scale_;
 }
 
 bool UiPreferences::exifFieldVisible(const QString& field) const {
@@ -167,6 +179,20 @@ void UiPreferences::setLanguageMode(const QString& mode) {
     applyLanguage();
 }
 
+void UiPreferences::setLibraryThumbnailScale(const int scale) {
+    const int normalized = normalizeLibraryThumbnailScale(scale);
+    if (library_thumbnail_scale_ == normalized) {
+        return;
+    }
+    library_thumbnail_scale_ = normalized;
+    settings_->setValue(
+        QString::fromLatin1(library_thumbnail_scale_settings_key),
+        library_thumbnail_scale_
+    );
+    settings_->sync();
+    emit libraryThumbnailScaleChanged();
+}
+
 void UiPreferences::attachEngine(QQmlEngine& engine) noexcept {
     engine_ = &engine;
 }
@@ -224,6 +250,10 @@ QStringList UiPreferences::normalizeExifFields(const QStringList& fields) {
         }
     }
     return normalized;
+}
+
+int UiPreferences::normalizeLibraryThumbnailScale(const int scale) noexcept {
+    return std::clamp(scale, 96, 360);
 }
 
 QString UiPreferences::resolveEffectiveLanguage() const {
