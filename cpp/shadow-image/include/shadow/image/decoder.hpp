@@ -602,9 +602,9 @@ struct PreviewPayload final {
 // applied. A provider may expose a non-Bayer RawFrame, but Bayer-only stages must require the
 // explicit `bayer_2x2` layout rather than attempting to infer one from a display string.
 //
-// The schema belongs to the private decoder ABI as well as the public in-process provider
-// contract. Any field whose interpretation changes must advance it; processing code may then
-// reject instead of silently consuming a future vendor frame.
+// Shadow is still in its fast, pre-release iteration phase: this number names the one current
+// RawFrame layout, not a backwards-compatibility promise. When the layout changes, all local
+// providers are rebuilt together and obsolete artifacts are discarded.
 inline constexpr std::uint32_t raw_frame_schema_version = 1U;
 
 enum class RawFrameSampleEncoding : std::uint8_t {
@@ -626,6 +626,65 @@ enum class RawCfaColor : std::uint8_t {
     blue,
 };
 
+// A provider resolves this for the individual source file from validated metadata or a locally
+// installed calibration database. Shadow stores only a numeric model in a known unit, never an
+// opaque vendor profile format. For `poisson_gaussian_per_cfa`, variance in raw-DN squared is
+// `shot_noise_variance_per_dn * max(sample - black_level, 0) + read_noise_stddev_dn^2`.
+inline constexpr std::uint32_t raw_sensor_noise_calibration_schema_version = 1U;
+
+enum class RawSensorNoiseModel : std::uint8_t {
+    unavailable,
+    poisson_gaussian_per_cfa,
+};
+
+enum class RawSensorNoiseCalibrationSource : std::uint8_t {
+    unavailable,
+    embedded_metadata,
+    // A configured provider matched a locally installed calibration profile for this exact
+    // camera/ISO. The underlying profile stays private and is never put in a Shadow catalog,
+    // recipe or public plugin.
+    provider_calibration_profile,
+};
+
+struct RawSensorNoiseCalibration final {
+    std::uint32_t schema_version = raw_sensor_noise_calibration_schema_version;
+    RawSensorNoiseModel model = RawSensorNoiseModel::unavailable;
+    RawSensorNoiseCalibrationSource source = RawSensorNoiseCalibrationSource::unavailable;
+    // The ISO at which the model was resolved. It is zero only when no model is available.
+    double iso_sensitivity = 0.0;
+    // Order is R, G1, G2, B, matching `bayer_2x2` and black/white-level arrays.
+    std::array<double, 4U> read_noise_stddev_dn{};
+    std::array<double, 4U> shot_noise_variance_per_dn{};
+
+    [[nodiscard]] bool valid() const noexcept {
+        if (schema_version != raw_sensor_noise_calibration_schema_version) {
+            return false;
+        }
+        if (model == RawSensorNoiseModel::unavailable) {
+            return source == RawSensorNoiseCalibrationSource::unavailable
+                && iso_sensitivity == 0.0;
+        }
+        if (
+            model != RawSensorNoiseModel::poisson_gaussian_per_cfa
+            || source == RawSensorNoiseCalibrationSource::unavailable
+            || !std::isfinite(iso_sensitivity) || iso_sensitivity <= 0.0
+        ) {
+            return false;
+        }
+        for (std::size_t index = 0U; index < read_noise_stddev_dn.size(); ++index) {
+            if (
+                !std::isfinite(read_noise_stddev_dn[index])
+                || !std::isfinite(shot_noise_variance_per_dn[index])
+                || read_noise_stddev_dn[index] < 0.0
+                || shot_noise_variance_per_dn[index] <= 0.0
+            ) {
+                return false;
+            }
+        }
+        return true;
+    }
+};
+
 struct RawFrameDescriptor final {
     std::uint32_t schema_version = raw_frame_schema_version;
     // `storage_dimensions` covers the full sensor plane. `active_margins` and
@@ -644,6 +703,9 @@ struct RawFrameDescriptor final {
     std::array<std::uint32_t, 4U> black_levels{};
     std::array<std::uint32_t, 4U> white_levels{};
     std::array<double, 4U> as_shot_neutral{};
+    // Optional resolved source calibration for later RAW-domain denoise. A provider must leave
+    // this unavailable rather than guessing by scanning an arbitrary profile binary.
+    RawSensorNoiseCalibration sensor_noise;
     // Optional, row-major Camera RGB -> CIE XYZ matrix under a D50 white point.  The input
     // order is the camera-linear RGB frame produced after the two green sites have been
     // reconstructed into its single green channel: `XYZ[j] = sum_i camera_rgb[i] * M[i][j]`.
@@ -665,7 +727,7 @@ struct RawFrame final {
             descriptor.schema_version != raw_frame_schema_version || width == 0U || height == 0U
             || descriptor.active_dimensions.width == 0U || descriptor.active_dimensions.height == 0U
             || descriptor.sample_encoding != RawFrameSampleEncoding::uint16_native
-            || descriptor.cfa_pattern.empty()
+            || descriptor.cfa_pattern.empty() || !descriptor.sensor_noise.valid()
         ) {
             return false;
         }
@@ -970,11 +1032,14 @@ public:
 // delivered as JPEG/HEIF in order to reach the common non-destructive edit graph. If
 // `SHADOW_PRIVATE_DECODER_PLUGIN_PATH` names an explicit local module, the router tries that
 // module first for non-raster files and falls back to LibRaw only when the module declares the
-// source unsupported.
+// source unsupported. Without this temporary override, the router discovers v1 link files in
+// the per-user plugin root (`~/Library/Application Support/Shadow/plugins/decoders` on macOS;
+// platform equivalents elsewhere). A link names a locally compiled private module; neither its
+// SDK nor its implementation enters the Shadow repository or catalog.
 [[nodiscard]] std::unique_ptr<DecoderProvider> make_photo_decoder_provider();
 
 // Explicit-test and embedding form of the normal router. An empty path is exactly equivalent to
-// the environment-configured form above. The path is never scanned, copied, persisted, or
+// the environment/discovered form above. The path is never scanned, copied, persisted, or
 // distributed by Shadow; it is only passed to the local private-plugin loader for this provider
 // instance.
 [[nodiscard]] std::unique_ptr<DecoderProvider> make_photo_decoder_provider(

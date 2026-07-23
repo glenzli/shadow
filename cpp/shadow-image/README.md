@@ -45,11 +45,31 @@ Current contract rules:
 ### Local private-provider development path
 
 `make_photo_decoder_provider()` is the normal application route. It uses raster decoding for
-JPEG/HEIF, otherwise public LibRaw by default. A developer may set
-`SHADOW_PRIVATE_DECODER_PLUGIN_PATH` to the absolute path of one local dynamic provider module.
-That provider is tried first for non-raster inputs and has to return an explicit
-`unsupported` error before LibRaw is considered. Decode, SDK licence, data, and resource errors
-are surfaced rather than silently hidden by fallback.
+JPEG/HEIF, otherwise public LibRaw by default. It also discovers local native decoder modules
+from a per-user plugin root:
+
+```text
+macOS:   ~/Library/Application Support/Shadow/plugins/decoders/
+Windows: %LOCALAPPDATA%/Shadow/plugins/decoders/
+Linux:   $XDG_DATA_HOME/shadow/plugins/decoders/
+```
+
+Each `*.shadow-decoder-link` file is a small UTF-8 local pointer, not a bundled module:
+
+```text
+shadow-private-decoder-link-v1
+module=/absolute/path/to/private-decoder-module.dylib
+```
+
+Files are considered in filename order, duplicate module targets are ignored, and each private
+provider must return explicit `unsupported` before the router tries the next local provider or
+public LibRaw. Decode, SDK licence, data and resource errors are surfaced rather than silently
+hidden by fallback. A module rebuild at the same path invalidates its decode identity through its
+canonical path, size and modification time.
+
+`SHADOW_PRIVATE_DECODER_PLUGIN_PATH` remains a strict one-module override for CI and direct local
+debugging; when it is set, automatic discovery is deliberately skipped. `SHADOW_PLUGIN_DIRECTORY`
+can override the plugin-root location itself for isolated development or tests.
 
 When `BUILD_TESTING` is enabled, CMake builds
 `shadow-image-libraw-dummy-private-provider`: a deliberately non-proprietary module that merely

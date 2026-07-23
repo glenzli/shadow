@@ -179,15 +179,15 @@ constexpr PrivateDecoderPluginDescriptor descriptor{
 } // namespace
 
 extern "C" const PrivateDecoderPluginDescriptor*
-shadow_private_decoder_plugin_descriptor_v4() {
+shadow_private_decoder_plugin_descriptor_v1() {
     return &descriptor;
 }
 
-extern "C" DecoderProvider* shadow_create_private_decoder_provider_v4() {
+extern "C" DecoderProvider* shadow_create_private_decoder_provider_v1() {
     return new TestProvider();
 }
 
-extern "C" void shadow_destroy_private_decoder_provider_v4(DecoderProvider* provider) {
+extern "C" void shadow_destroy_private_decoder_provider_v1(DecoderProvider* provider) {
     delete provider;
 }
 

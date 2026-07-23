@@ -1,6 +1,7 @@
 #include <shadow/image/decoder.hpp>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -242,7 +243,8 @@ void inspect_raw_frame(image::DecodeSession& session, const fs::path& output_dir
 
 void render_reference_rgb(image::DecodeSession& session, const fs::path& output_directory) {
     const Stopwatch timer;
-    const image::PixelBuffer rendered = session.render_reference_rgb();
+    const auto plan = image::default_raw_development_plan();
+    const image::PixelBuffer rendered = session.render_reference_rgb(plan);
     const fs::path output_path = output_directory / "reference-linear-srgb-16bit.ppm";
     write_u16_pnm(output_path, rendered.dimensions, rendered.channels, rendered.samples);
 
@@ -255,19 +257,49 @@ void render_reference_rgb(image::DecodeSession& session, const fs::path& output_
               << "reference_rgb.primaries=srgb-rec709-d65\n"
               << "reference_rgb.reference=processed-raw\n"
               << "reference_rgb.samples=" << rendered.samples.size() << '\n'
+              << "reference_rgb.plan.requested="
+              << rendered.raw_development_receipt.requested_plan_identity << '\n'
+              << "reference_rgb.plan.effective="
+              << rendered.raw_development_receipt.effective_plan_identity << '\n'
               << "reference_rgb.output=" << output_path.string() << '\n'
               << "timing.reference_rgb_ms=" << timer.elapsed_ms() << '\n';
 }
 
-void render_warm_preview_reference_rgb(image::DecodeSession& session) {
+void render_warm_preview_reference_rgb(
+    image::DecodeSession& session,
+    const fs::path& output_directory
+) {
     constexpr std::uint32_t warm_preview_edge = 1'200U;
     const Stopwatch timer;
-    const image::PixelBuffer rendered = session.render_reference_rgb_for_preview(warm_preview_edge);
+    const auto plan = image::preview_raw_development_plan();
+    const image::PixelBuffer rendered = session.render_reference_rgb_for_preview(
+        warm_preview_edge,
+        plan
+    );
+    const fs::path output_path = output_directory / "preview-reference-linear-srgb-16bit.ppm";
+    write_u16_pnm(output_path, rendered.dimensions, rendered.channels, rendered.samples);
+    std::array<long double, 3U> channel_sum{};
+    const std::size_t pixel_count = static_cast<std::size_t>(rendered.dimensions.width)
+        * rendered.dimensions.height;
+    for (std::size_t pixel = 0U; pixel < pixel_count; ++pixel) {
+        for (std::size_t channel = 0U; channel < channel_sum.size(); ++channel) {
+            channel_sum[channel] += rendered.samples[pixel * rendered.channels + channel];
+        }
+    }
     std::cout << "preview_reference.status=ok\n"
               << "preview_reference.requested_max_edge=" << warm_preview_edge << '\n'
               << "preview_reference.dimensions=" << rendered.dimensions.width << 'x'
               << rendered.dimensions.height << '\n'
               << "preview_reference.samples=" << rendered.samples.size() << '\n'
+              << "preview_reference.plan.requested="
+              << rendered.raw_development_receipt.requested_plan_identity << '\n'
+              << "preview_reference.plan.effective="
+              << rendered.raw_development_receipt.effective_plan_identity << '\n'
+              << "preview_reference.linear_mean_rgb="
+              << static_cast<double>(channel_sum[0] / static_cast<long double>(pixel_count)) << ','
+              << static_cast<double>(channel_sum[1] / static_cast<long double>(pixel_count)) << ','
+              << static_cast<double>(channel_sum[2] / static_cast<long double>(pixel_count)) << '\n'
+              << "preview_reference.output=" << output_path.string() << '\n'
               << "timing.preview_reference_ms=" << timer.elapsed_ms() << '\n';
 }
 
@@ -306,7 +338,7 @@ int run(
         }
         return 0;
     }
-    render_warm_preview_reference_rgb(*session);
+    render_warm_preview_reference_rgb(*session, output_directory);
     if (preview_only) {
         return 0;
     }

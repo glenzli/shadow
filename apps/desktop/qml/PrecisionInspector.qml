@@ -1,4 +1,5 @@
 pragma ComponentBehavior: Bound
+pragma Translator: "PrecisionWorkspace"
 
 import QtQuick
 import QtQuick.Controls

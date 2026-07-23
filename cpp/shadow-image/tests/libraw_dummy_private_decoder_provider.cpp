@@ -20,15 +20,15 @@ constexpr PrivateDecoderPluginDescriptor descriptor{
 // lifecycle, router precedence, RawFrame contract and cache identity before a user adds a truly
 // private provider to the same boundary.
 extern "C" const PrivateDecoderPluginDescriptor*
-shadow_private_decoder_plugin_descriptor_v4() {
+shadow_private_decoder_plugin_descriptor_v1() {
     return &descriptor;
 }
 
-extern "C" DecoderProvider* shadow_create_private_decoder_provider_v4() {
+extern "C" DecoderProvider* shadow_create_private_decoder_provider_v1() {
     return make_libraw_decoder_provider().release();
 }
 
-extern "C" void shadow_destroy_private_decoder_provider_v4(DecoderProvider* provider) {
+extern "C" void shadow_destroy_private_decoder_provider_v1(DecoderProvider* provider) {
     delete provider;
 }
 

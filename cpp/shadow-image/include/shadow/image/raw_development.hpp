@@ -12,8 +12,10 @@ namespace shadow::image {
 // Its samples have received only per-CFA black subtraction and white-level normalization from a
 // RawFrame. White balance, DNG opcode application, camera calibration, colour management,
 // highlight recovery and display rendering remain separate, auditable stages. A provider may
-// carry a Camera RGB -> XYZ D50 matrix on RawFrameDescriptor, but this stage deliberately does
-// not apply it yet.
+// carry a Camera RGB -> XYZ D50 matrix and an optional per-CFA sensor-noise model on
+// RawFrameDescriptor, but this stage deliberately does not apply either white balance, colour
+// calibration or noise reduction yet. A later RAW NR stage may consume only a validated numeric
+// calibration; it must never inspect a provider's opaque profile database itself.
 inline constexpr std::uint32_t raw_demosaic_receipt_schema_version = 1U;
 
 enum class RawDemosaicAlgorithm : std::uint8_t {

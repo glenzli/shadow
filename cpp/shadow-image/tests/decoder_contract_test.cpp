@@ -131,6 +131,34 @@ void raw_frame_is_owned_unprocessed_and_bayer_guarded() {
     expect(!truncated.valid(), "RAW frame validation rejects a non-owned/truncated sample plane");
 }
 
+void raw_frame_sensor_noise_calibration_is_explicit_and_fail_closed() {
+    image::RawSensorNoiseCalibration unavailable;
+    expect(
+        unavailable.valid(),
+        "an unavailable sensor-noise model is an explicit, valid absence rather than guessed data"
+    );
+
+    image::RawSensorNoiseCalibration calibrated{
+        .schema_version = image::raw_sensor_noise_calibration_schema_version,
+        .model = image::RawSensorNoiseModel::poisson_gaussian_per_cfa,
+        .source = image::RawSensorNoiseCalibrationSource::provider_calibration_profile,
+        .iso_sensitivity = 800.0,
+        .read_noise_stddev_dn = {2.1, 1.9, 1.9, 2.2},
+        .shot_noise_variance_per_dn = {0.72, 0.71, 0.71, 0.74},
+    };
+    expect(
+        calibrated.valid(),
+        "a per-CFA Poisson-Gaussian model records a provider-resolved calibration in DN units"
+    );
+
+    auto invalid = calibrated;
+    invalid.shot_noise_variance_per_dn[3U] = 0.0;
+    expect(
+        !invalid.valid(),
+        "sensor-noise calibration rejects a non-positive shot-noise variance coefficient"
+    );
+}
+
 void bayer_bilinear_demosaic_keeps_the_sensor_domain_explicit() {
     image::RawFrame frame;
     frame.descriptor.schema_version = image::raw_frame_schema_version;
@@ -437,7 +465,7 @@ void private_decoder_plugin_loads_an_explicit_local_module() {
         "private plugin identity remains namespaced by its explicit local module"
     );
     expect(
-        provider->info().version.starts_with("1.0.0;abi=4;plan=1;frame=1;wrapped=")
+        provider->info().version.starts_with("1.0.0;abi=1;plan=1;frame=1;wrapped=")
             && provider->info().version.size() <= 128U,
         "private plugin version, ABI and wrapped-provider cache identity stay bounded"
     );
@@ -1786,6 +1814,7 @@ int main() {
     pending_corrections_are_explicit();
     raw_development_receipt_is_explicitly_absent_until_a_provider_records_it();
     raw_frame_is_owned_unprocessed_and_bayer_guarded();
+    raw_frame_sensor_noise_calibration_is_explicit_and_fail_closed();
     bayer_bilinear_demosaic_keeps_the_sensor_domain_explicit();
     raw_development_plan_is_canonical_and_capability_negotiated();
     icc_color_management_is_content_addressed_and_transfer_aware();

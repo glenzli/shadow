@@ -10,6 +10,7 @@
 #include <cstring>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <utility>
 
@@ -115,6 +116,94 @@ void configure_reference_render_parameters(
     parameters.output_color = libraw_reference_output_color;
     parameters.user_qual = static_cast<int>(settings.demosaic_quality);
     parameters.half_size = half_size ? 1 : 0;
+}
+
+// LibRaw offers a real half-size demosaic but no arbitrary preview edge. Its
+// half-size result can still be several thousand pixels wide on modern RAWs.
+// Enforce Shadow's provider preview contract here, before the result crosses
+// into the editor or catalog cache, so callers never retain an oversized RGB
+// buffer merely because a camera exceeds the half-size threshold.
+[[nodiscard]] PixelBuffer downsample_linear_reference_for_preview(
+    PixelBuffer source,
+    const std::uint32_t max_edge
+) {
+    const Dimensions target = proxy_dimensions(source.dimensions, max_edge);
+    if (source.dimensions == target) {
+        return source;
+    }
+    if (
+        source.bits_per_channel != 16U || source.channels == 0U
+        || source.row_stride_bytes
+            != static_cast<std::size_t>(source.dimensions.width) * source.channels
+                * sizeof(std::uint16_t)
+    ) {
+        throw DecodeError(
+            DecodeErrorCode::unsupported_layout,
+            LIBRAW_NOT_IMPLEMENTED,
+            "LibRaw preview downsample requires contiguous 16-bit reference samples"
+        );
+    }
+
+    // `source` already owns the large LibRaw render. Do not copy its vector before
+    // shrinking it: catalog indexing and the editor can otherwise briefly retain two
+    // full-resolution RGB buffers per request. Carry only its small descriptive
+    // fields into the bounded preview allocation.
+    PixelBuffer result;
+    result.dimensions = target;
+    result.bits_per_channel = source.bits_per_channel;
+    result.channels = source.channels;
+    result.primaries = source.primaries;
+    result.transfer_function = source.transfer_function;
+    result.reference = source.reference;
+    result.raw_development_receipt = source.raw_development_receipt;
+    result.row_stride_bytes = static_cast<std::size_t>(target.width) * source.channels
+        * sizeof(std::uint16_t);
+    result.samples.resize(static_cast<std::size_t>(target.width) * target.height * source.channels);
+    const double scale_x = static_cast<double>(source.dimensions.width)
+        / static_cast<double>(target.width);
+    const double scale_y = static_cast<double>(source.dimensions.height)
+        / static_cast<double>(target.height);
+    for (std::uint32_t output_y = 0U; output_y < target.height; ++output_y) {
+        const double source_y = std::max(
+            0.0,
+            (static_cast<double>(output_y) + 0.5) * scale_y - 0.5
+        );
+        const auto y0 = static_cast<std::size_t>(source_y);
+        const auto y1 = std::min(
+            y0 + 1U,
+            static_cast<std::size_t>(source.dimensions.height - 1U)
+        );
+        const double fy = source_y - static_cast<double>(y0);
+        for (std::uint32_t output_x = 0U; output_x < target.width; ++output_x) {
+            const double source_x = std::max(
+                0.0,
+                (static_cast<double>(output_x) + 0.5) * scale_x - 0.5
+            );
+            const auto x0 = static_cast<std::size_t>(source_x);
+            const auto x1 = std::min(
+                x0 + 1U,
+                static_cast<std::size_t>(source.dimensions.width - 1U)
+            );
+            const double fx = source_x - static_cast<double>(x0);
+            for (std::size_t channel = 0U; channel < source.channels; ++channel) {
+                const auto sample = [&source, channel](const std::size_t x, const std::size_t y) {
+                    return static_cast<double>(source.samples[
+                        (y * source.dimensions.width + x) * source.channels + channel
+                    ]);
+                };
+                const double top = sample(x0, y0) * (1.0 - fx) + sample(x1, y0) * fx;
+                const double bottom = sample(x0, y1) * (1.0 - fx) + sample(x1, y1) * fx;
+                result.samples[
+                    (static_cast<std::size_t>(output_y) * target.width + output_x)
+                        * source.channels + channel
+                ] = static_cast<std::uint16_t>(std::lround(
+                    std::clamp(top * (1.0 - fy) + bottom * fy, 0.0, 65'535.0)
+                ));
+            }
+        }
+    }
+    result.raw_development_receipt.rendered_dimensions = target;
+    return result;
 }
 
 [[nodiscard]] DecodeErrorCode map_libraw_error(const int result) noexcept {
@@ -597,7 +686,7 @@ public:
         // for any request where a half-size raster would not materially reduce work.
         const bool use_half_size = native_edge > static_cast<std::uint64_t>(max_edge) * 2U;
         const auto negotiation = require_accepted_plan(plan, true);
-        return render_reference_rgb_impl(use_half_size, plan, negotiation);
+        return render_reference_rgb_impl(use_half_size, plan, negotiation, max_edge);
     }
 
 private:
@@ -637,7 +726,8 @@ private:
     [[nodiscard]] PixelBuffer render_reference_rgb_impl(
         const bool half_size,
         const RawDevelopmentPlan& requested_plan,
-        const RawDevelopmentPlanNegotiation& negotiation
+        const RawDevelopmentPlanNegotiation& negotiation,
+        const std::optional<std::uint32_t> preview_max_edge = std::nullopt
     ) const {
         // LibRaw embeds sizeable fixed storage in the decoder object. QtConcurrent worker
         // threads use a substantially smaller stack than the process main thread on macOS,
@@ -771,7 +861,9 @@ private:
             ),
             .process_warnings = renderer->imgdata.process_warnings,
         };
-        return buffer;
+        return preview_max_edge.has_value()
+            ? downsample_linear_reference_for_preview(std::move(buffer), *preview_max_edge)
+            : buffer;
     }
 
     void ensure_unpacked() {

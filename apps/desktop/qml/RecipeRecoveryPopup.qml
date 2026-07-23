@@ -1,3 +1,5 @@
+pragma Translator: "PrecisionWorkspace"
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts

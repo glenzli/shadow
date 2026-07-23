@@ -1,6 +1,9 @@
 //! Coarse-grained, long-lived Rust services consumed by the Qt desktop shell.
 
 mod isolated_proxy;
+mod photo_provider;
+mod review_service;
+mod scan_service;
 
 use std::{
     collections::{BTreeMap, HashMap, HashSet, VecDeque},
@@ -13,13 +16,6 @@ use std::{
 };
 
 use anyhow::{Context, Result as AnyResult, anyhow, bail};
-use serde::{Deserialize, Serialize};
-use shadow_ai::{
-    FeedbackAction, LearningScope, NewFeedbackEvent, NewFeedbackForgetFact, PairwiseOutcome,
-    PresentationContext, PresentedCandidate, PresentedFitMode, PresentedVisualArtifact,
-    PresentedVisualFrame, PresentedVisualProvenance, PresentedVisualRole,
-    UnitInterval as AiUnitInterval,
-};
 use shadow_bridge::{
     ADJUSTMENT_IMPLEMENTATION_VERSION, ADJUSTMENT_PARAMETER_SCHEMA_VERSION, AdjustmentRenderNode,
     AdjustmentRenderOperation, AdjustmentRenderPlan, BasicEditParameters,
@@ -39,22 +35,21 @@ use shadow_bridge::{
     SELECTIVE_TONE_V3_PARAMETER_SCHEMA_VERSION as SELECTIVE_TONE_V3_PARAMETER_SCHEMA_REVISION,
     SelectiveToneParameters, SharpenParameters,
     TECHNICAL_DETAIL_V3_IMPLEMENTATION_VERSION as TECHNICAL_DETAIL_V3_IMPLEMENTATION_REVISION,
-    ToneCurvePoint, extract_best_photo_preview, inspect_photo, photo_provider_version,
-    photo_supported_raster_extensions, query_photo_optics_profiles, raw_development_plan_identity,
-    render_photo_reference_proxy,
+    ToneCurvePoint, photo_provider_version, query_photo_optics_profiles,
+    raw_development_plan_identity,
 };
 use shadow_catalog::{
-    CachedArtifact, CachedArtifactRecord, CachedArtifactRole, CatalogActor, CatalogError,
-    CatalogHandle, CommitEditRepository, CommitRecipe, CommitRecipeAndEditRepository,
-    EditObjectPackWrite, EditRepositoryRefUpdate, RecipeCommitRecord, RecipeRefExpectation,
-    RecipeRefKind, RecipeRefTarget, RecordCachedArtifact, RepresentationFingerprint, ReviewCursor,
+    CachedArtifact, CachedArtifactRole, CatalogActor, CatalogError, CatalogHandle,
+    CommitEditRepository, CommitRecipe, CommitRecipeAndEditRepository, EditObjectPackWrite,
+    EditRepositoryRefUpdate, RecipeCommitRecord, RecipeRefExpectation, RecipeRefKind,
+    RecipeRefTarget, RecordCachedArtifact, RepresentationFingerprint, ReviewCursor,
     ReviewItemRecord, TechnicalObservationRevision,
 };
 use shadow_core::{
-    CachedArtifactLoader, DecodeInspectionActor, DecodeInspectionSummary, DecodeInspector,
-    ScanCancellation, ScanCompletion, ScanPhase, ScanProgress, fingerprint_source,
-    scan_folder_with_inspection_controlled, technical_analysis_preprocessing_version,
+    CachedArtifactLoader, fingerprint_source, technical_analysis_preprocessing_version,
 };
+#[cfg(test)]
+use shadow_core::{DecodeInspectionSummary, ScanCancellation, ScanCompletion};
 use shadow_domain::operation::{
     BASIC_GRAPH_SCHEMA_VERSION, BASIC_LAYER_LABEL, BLACKS_PARAMETER_KEY,
     COLOR_GRADING_OPERATION_ID, COLOR_GRADING_V3_IMPLEMENTATION_VERSION,
@@ -84,23 +79,23 @@ use shadow_domain::operation::{
     WHITE_BALANCE_TINT_PARAMETER_KEY, WHITES_PARAMETER_KEY,
 };
 use shadow_domain::{
-    AdjustmentNode, AdjustmentScope, BlendMode, CURRENT_RECIPE_SCHEMA_VERSION, DecoderSnapshot,
-    EditEntityMapV1, EditGraph, EditObject, EditObjectKind, EditObjectPack, EditRepositoryCommit,
+    AdjustmentNode, AdjustmentScope, BlendMode, CURRENT_RECIPE_SCHEMA_VERSION, EditEntityMapV1,
+    EditGraph, EditObject, EditObjectKind, EditObjectPack, EditRepositoryCommit,
     EditRepositoryCommitPayloadV1, EditRepositoryRefExpectation, EditRepositoryRefKind, EntityId,
     FiniteF64, ImageDimensions, ImageDomain, LayerContent, LayerContentDiff, LayerInstance,
-    LayerInstanceId, LibraryRootV1, MAX_PHOTO_RATING, NewPhotoDecisionEvent, NodeId, NodeInput,
-    OperationDescriptor, OperationId, ParameterBlock, ParameterKey, ParameterValue,
-    PhotoDecisionEvent, PhotoDecisionOrigin, PhotoDecisionState, PhotoFlag, PhotoId, PortType,
-    PreviewByteOrder, PreviewCodec, PreviewPayload, ProcessingStage, ProxyPayload, RecipeCommit,
-    RecipeCommitId, RecipeDiff, RecipeId, RecipeInputSettings, RecipeOpticsSettings,
-    RecipeSnapshot, RepresentationId, UnitInterval, VersionName, diff_recipe_snapshots,
+    LayerInstanceId, LibraryRootV1, NodeId, NodeInput, OperationDescriptor, OperationId,
+    ParameterBlock, ParameterKey, ParameterValue, PhotoId, PortType, PreviewByteOrder,
+    PreviewCodec, ProcessingStage, ProxyPayload, RecipeCommit, RecipeCommitId, RecipeDiff,
+    RecipeId, RecipeInputSettings, RecipeOpticsSettings, RecipeSnapshot, RepresentationId,
+    UnitInterval, VersionName, diff_recipe_snapshots,
 };
 use uuid::Uuid;
 
-use crate::isolated_proxy::{
-    configured_helper_path, render_isolated_photo_reference_proxy,
-    render_isolated_photo_reference_proxy_to_file,
-};
+#[cfg(test)]
+use crate::photo_provider::PhotoInspector;
+use crate::photo_provider::isolated_edit_raster;
+use crate::review_service::{ReviewService, ReviewVisualSelection, ffi_decision_flag};
+use crate::scan_service::ScanService;
 
 #[cxx::bridge(namespace = "shadow::desktop")]
 mod ffi {
@@ -712,120 +707,11 @@ struct DesktopSession {
     catalog: CatalogHandle,
     loader: CachedArtifactLoader,
     cache_root: PathBuf,
-    folder_scan: Mutex<FolderScanRegistry>,
+    scanner: ScanService,
     edit_preview_sessions: Mutex<VecDeque<CachedEditPreviewSession>>,
     edit_detail_session: Mutex<Option<CachedEditDetailSession>>,
     edit_detail_render_token: AtomicU64,
-    review_feedback_session_id: String,
-    review_visual_signing_key: [u8; 32],
-    review_comparisons: Mutex<ReviewComparisonRegistry>,
-    active_review_feedback_event_ids: Mutex<HashSet<String>>,
-}
-
-#[derive(Debug, Default)]
-struct FolderScanRegistry {
-    current: Option<FolderScanState>,
-}
-
-#[derive(Debug)]
-struct FolderScanState {
-    scan_id: u64,
-    update_sequence: u64,
-    started: bool,
-    phase: ffi::FfiScanPhase,
-    files_seen: u64,
-    supported_files: u64,
-    inserted: u64,
-    unchanged: u64,
-    needs_revalidation: u64,
-    decode_inspections_queued: u64,
-    decode_inspections_completed: u64,
-    decode_hard_failures: u64,
-    preview_failures: u64,
-    decode_inspections_cancelled: u64,
-    skipped: u64,
-    issue_count: u64,
-    cancellation: ScanCancellation,
-}
-
-impl FolderScanState {
-    fn new(scan_id: u64, cancellation: ScanCancellation) -> Self {
-        Self {
-            scan_id,
-            update_sequence: 1,
-            started: false,
-            phase: ffi::FfiScanPhase::Discovering,
-            files_seen: 0,
-            supported_files: 0,
-            inserted: 0,
-            unchanged: 0,
-            needs_revalidation: 0,
-            decode_inspections_queued: 0,
-            decode_inspections_completed: 0,
-            decode_hard_failures: 0,
-            preview_failures: 0,
-            decode_inspections_cancelled: 0,
-            skipped: 0,
-            issue_count: 0,
-            cancellation,
-        }
-    }
-
-    fn is_active(&self) -> bool {
-        matches!(
-            self.phase,
-            ffi::FfiScanPhase::Discovering
-                | ffi::FfiScanPhase::PreparingPreviews
-                | ffi::FfiScanPhase::Cancelling
-        )
-    }
-
-    fn snapshot(&self) -> ffi::FfiScanProgress {
-        ffi::FfiScanProgress {
-            valid: true,
-            scan_id: self.scan_id,
-            update_sequence: self.update_sequence,
-            phase: self.phase,
-            files_seen: self.files_seen,
-            supported_files: self.supported_files,
-            inserted: self.inserted,
-            unchanged: self.unchanged,
-            needs_revalidation: self.needs_revalidation,
-            decode_inspections_queued: self.decode_inspections_queued,
-            decode_inspections_completed: self.decode_inspections_completed,
-            decode_hard_failures: self.decode_hard_failures,
-            preview_failures: self.preview_failures,
-            decode_inspections_cancelled: self.decode_inspections_cancelled,
-            skipped: self.skipped,
-            issue_count: self.issue_count,
-        }
-    }
-}
-
-#[derive(Debug, Default)]
-struct ReviewComparisonRegistry {
-    presentations: HashMap<String, PendingReviewComparison>,
-}
-
-#[derive(Debug)]
-struct PendingReviewComparison {
-    left: PendingReviewVisual,
-    right: PendingReviewVisual,
-    ready: bool,
-}
-
-#[derive(Debug)]
-struct PendingReviewVisual {
-    request_ticket: String,
-    selection: ReviewVisualSelection,
-    bytes_verified: bool,
-    frame: Option<PresentedVisualFrame>,
-}
-
-#[derive(Debug, Clone)]
-struct ReviewVisualSelection {
-    photo_id: PhotoId,
-    record: CachedArtifactRecord,
+    review: ReviewService,
 }
 
 #[derive(Debug)]
@@ -990,6 +876,7 @@ fn requested_raw_development_plan_cache_matches(
     cached_requested_identity == requested_identity
 }
 
+#[cfg(test)]
 fn validate_decode_inspection_summary(
     queued: u64,
     summary: &DecodeInspectionSummary,
@@ -1021,320 +908,44 @@ fn validate_decode_inspection_summary(
 
 impl DesktopSession {
     fn scan_folder(&self, folder_path: &str, scan_id: u64) -> AnyResult<ffi::FfiScanReport> {
-        let cancellation = self.folder_scan_cancellation(scan_id)?;
-        let folder_path = Path::new(folder_path);
-        let mut catalog = self.catalog.clone();
-        let photo_inspector =
-            match PhotoInspector::new_with_isolated_proxy_cache(Some(self.cache_root.clone())) {
-                Ok(inspector) => inspector,
-                Err(error) => {
-                    self.finish_folder_scan_failed(scan_id)?;
-                    return Err(error);
-                }
-            };
-        let inspector = match DecodeInspectionActor::spawn_with_cache(
-            catalog.clone(),
-            photo_inspector,
-            &self.cache_root,
-        ) {
-            Ok(inspector) => inspector,
-            Err(error) => {
-                self.finish_folder_scan_failed(scan_id)?;
-                return Err(error.into());
-            }
-        };
-        let report_result = scan_folder_with_inspection_controlled(
-            &mut catalog,
-            &inspector.handle(),
-            folder_path,
-            &cancellation,
-            |progress| {
-                let _ = self.update_folder_scan_progress(scan_id, progress);
-            },
-        )
-        .with_context(|| format!("scan {}", folder_path.display()));
-
-        let report = match report_result {
-            Ok(report) => {
-                let phase = match report.completion {
-                    ScanCompletion::Completed => ffi::FfiScanPhase::PreparingPreviews,
-                    ScanCompletion::Cancelled => ffi::FfiScanPhase::Cancelling,
-                };
-                self.update_folder_scan_report(scan_id, &report, phase)?;
-                report
-            }
-            Err(error) => {
-                cancellation.cancel();
-                let shutdown_result = inspector.shutdown_with_summary();
-                self.finish_folder_scan_failed(scan_id)?;
-                if let Err(shutdown_error) = shutdown_result {
-                    return Err(error.context(format!(
-                        "decode inspection shutdown also failed: {shutdown_error}"
-                    )));
-                }
-                return Err(error);
-            }
-        };
-
-        let summary = match inspector.shutdown_with_summary() {
-            Ok(summary) => summary,
-            Err(error) => {
-                self.finish_folder_scan_failed(scan_id)?;
-                return Err(error.into());
-            }
-        };
-        if let Err(error) =
-            validate_decode_inspection_summary(report.decode_inspections_queued, &summary)
-        {
-            self.finish_folder_scan_failed(scan_id)?;
-            return Err(error);
-        }
-        let cancelled = self.finish_folder_scan(scan_id, &report, &summary)?;
-        Ok(ffi::FfiScanReport {
-            folder_path: folder_path.display().to_string(),
-            files_seen: report.files_seen,
-            supported_files: report.supported_files,
-            inserted: report.inserted,
-            unchanged: report.unchanged,
-            needs_revalidation: report.needs_revalidation,
-            decode_inspections_queued: report.decode_inspections_queued,
-            decode_inspections_completed: summary.completed,
-            decode_hard_failures: summary.hard_failures,
-            preview_failures: summary.preview_failures,
-            decode_inspections_cancelled: summary.cancelled,
-            issue_count: u64::try_from(report.issues.len()).unwrap_or(u64::MAX),
-            cancelled,
-        })
+        self.scanner.scan_folder(folder_path, scan_id)
     }
 
     fn scan_progress(&self, scan_id: u64) -> AnyResult<ffi::FfiScanProgress> {
-        if scan_id == 0 {
-            bail!("scan id must be non-zero");
-        }
-        let registry = self
-            .folder_scan
-            .lock()
-            .map_err(|_| anyhow!("folder scan registry lock is poisoned"))?;
-        Ok(registry.current.as_ref().map_or(
-            ffi::FfiScanProgress {
-                valid: false,
-                scan_id,
-                update_sequence: 0,
-                phase: ffi::FfiScanPhase::Idle,
-                files_seen: 0,
-                supported_files: 0,
-                inserted: 0,
-                unchanged: 0,
-                needs_revalidation: 0,
-                decode_inspections_queued: 0,
-                decode_inspections_completed: 0,
-                decode_hard_failures: 0,
-                preview_failures: 0,
-                decode_inspections_cancelled: 0,
-                skipped: 0,
-                issue_count: 0,
-            },
-            |state| {
-                if state.scan_id == scan_id {
-                    state.snapshot()
-                } else {
-                    ffi::FfiScanProgress {
-                        valid: false,
-                        scan_id,
-                        update_sequence: 0,
-                        phase: ffi::FfiScanPhase::Idle,
-                        files_seen: 0,
-                        supported_files: 0,
-                        inserted: 0,
-                        unchanged: 0,
-                        needs_revalidation: 0,
-                        decode_inspections_queued: 0,
-                        decode_inspections_completed: 0,
-                        decode_hard_failures: 0,
-                        preview_failures: 0,
-                        decode_inspections_cancelled: 0,
-                        skipped: 0,
-                        issue_count: 0,
-                    }
-                }
-            },
-        ))
+        self.scanner.progress(scan_id)
     }
 
     fn cancel_folder_scan(&self, scan_id: u64) -> AnyResult<bool> {
-        if scan_id == 0 {
-            bail!("scan id must be non-zero");
-        }
-        let mut registry = self
-            .folder_scan
-            .lock()
-            .map_err(|_| anyhow!("folder scan registry lock is poisoned"))?;
-        let state = registry
-            .current
-            .as_mut()
-            .filter(|state| state.scan_id == scan_id)
-            .ok_or_else(|| anyhow!("scan id {scan_id} is not current"))?;
-        if !state.is_active() {
-            return Ok(false);
-        }
-        let newly_cancelled = !state.cancellation.is_cancelled();
-        state.cancellation.cancel();
-        if state.phase != ffi::FfiScanPhase::Cancelling {
-            state.phase = ffi::FfiScanPhase::Cancelling;
-            state.update_sequence = state.update_sequence.saturating_add(1);
-        }
-        Ok(newly_cancelled)
+        self.scanner.cancel(scan_id)
     }
 
     fn begin_folder_scan(&self, scan_id: u64) -> AnyResult<()> {
-        if scan_id == 0 {
-            bail!("scan id must be non-zero");
-        }
-        let mut registry = self
-            .folder_scan
-            .lock()
-            .map_err(|_| anyhow!("folder scan registry lock is poisoned"))?;
-        if registry
-            .current
-            .as_ref()
-            .is_some_and(FolderScanState::is_active)
-        {
-            bail!("another folder scan is already active");
-        }
-        let cancellation = ScanCancellation::new();
-        registry.current = Some(FolderScanState::new(scan_id, cancellation));
-        Ok(())
+        self.scanner.begin(scan_id)
     }
 
+    #[cfg(test)]
     fn folder_scan_cancellation(&self, scan_id: u64) -> AnyResult<ScanCancellation> {
-        let mut registry = self
-            .folder_scan
-            .lock()
-            .map_err(|_| anyhow!("folder scan registry lock is poisoned"))?;
-        let state = registry
-            .current
-            .as_mut()
-            .filter(|state| state.scan_id == scan_id && state.is_active())
-            .ok_or_else(|| anyhow!("scan id {scan_id} was not prepared"))?;
-        if state.started {
-            bail!("scan id {scan_id} has already started");
-        }
-        state.started = true;
-        Ok(state.cancellation.clone())
+        self.scanner.cancellation_for_start(scan_id)
     }
 
-    fn update_folder_scan_progress(&self, scan_id: u64, progress: &ScanProgress) -> AnyResult<()> {
-        let mut registry = self
-            .folder_scan
-            .lock()
-            .map_err(|_| anyhow!("folder scan registry lock is poisoned"))?;
-        let state = registry
-            .current
-            .as_mut()
-            .filter(|state| state.scan_id == scan_id)
-            .ok_or_else(|| anyhow!("scan id {scan_id} is not current"))?;
-        state.files_seen = progress.files_seen;
-        state.supported_files = progress.supported_files;
-        state.inserted = progress.inserted;
-        state.unchanged = progress.unchanged;
-        state.needs_revalidation = progress.needs_revalidation;
-        state.decode_inspections_queued = progress.decode_inspections_queued;
-        state.skipped = progress.skipped;
-        state.issue_count = progress.issue_count;
-        state.phase = if state.cancellation.is_cancelled() || progress.phase == ScanPhase::Cancelled
-        {
-            ffi::FfiScanPhase::Cancelling
-        } else {
-            ffi::FfiScanPhase::Discovering
-        };
-        state.update_sequence = state.update_sequence.saturating_add(1);
-        Ok(())
-    }
-
+    #[cfg(test)]
     fn update_folder_scan_report(
         &self,
         scan_id: u64,
         report: &shadow_core::ScanReport,
         phase: ffi::FfiScanPhase,
     ) -> AnyResult<()> {
-        let mut registry = self
-            .folder_scan
-            .lock()
-            .map_err(|_| anyhow!("folder scan registry lock is poisoned"))?;
-        let state = registry
-            .current
-            .as_mut()
-            .filter(|state| state.scan_id == scan_id)
-            .ok_or_else(|| anyhow!("scan id {scan_id} is not current"))?;
-        state.files_seen = report.files_seen;
-        state.supported_files = report.supported_files;
-        state.inserted = report.inserted;
-        state.unchanged = report.unchanged;
-        state.needs_revalidation = report.needs_revalidation;
-        state.decode_inspections_queued = report.decode_inspections_queued;
-        state.skipped = report.skipped;
-        state.issue_count = u64::try_from(report.issues.len()).unwrap_or(u64::MAX);
-        state.phase =
-            if state.cancellation.is_cancelled() && phase == ffi::FfiScanPhase::PreparingPreviews {
-                ffi::FfiScanPhase::Cancelling
-            } else {
-                phase
-            };
-        state.update_sequence = state.update_sequence.saturating_add(1);
-        Ok(())
+        self.scanner.update_report(scan_id, report, phase)
     }
 
+    #[cfg(test)]
     fn finish_folder_scan(
         &self,
         scan_id: u64,
         report: &shadow_core::ScanReport,
         summary: &DecodeInspectionSummary,
     ) -> AnyResult<bool> {
-        let mut registry = self
-            .folder_scan
-            .lock()
-            .map_err(|_| anyhow!("folder scan registry lock is poisoned"))?;
-        let state = registry
-            .current
-            .as_mut()
-            .filter(|state| state.scan_id == scan_id)
-            .ok_or_else(|| anyhow!("scan id {scan_id} is not current"))?;
-        state.files_seen = report.files_seen;
-        state.supported_files = report.supported_files;
-        state.inserted = report.inserted;
-        state.unchanged = report.unchanged;
-        state.needs_revalidation = report.needs_revalidation;
-        state.decode_inspections_queued = report.decode_inspections_queued;
-        state.decode_inspections_completed = summary.completed;
-        state.decode_hard_failures = summary.hard_failures;
-        state.preview_failures = summary.preview_failures;
-        state.decode_inspections_cancelled = summary.cancelled;
-        state.skipped = report.skipped;
-        state.issue_count = u64::try_from(report.issues.len()).unwrap_or(u64::MAX);
-        let cancelled =
-            report.completion == ScanCompletion::Cancelled || state.cancellation.is_cancelled();
-        state.phase = if cancelled {
-            ffi::FfiScanPhase::Cancelled
-        } else {
-            ffi::FfiScanPhase::Completed
-        };
-        state.update_sequence = state.update_sequence.saturating_add(1);
-        Ok(cancelled)
-    }
-
-    fn finish_folder_scan_failed(&self, scan_id: u64) -> AnyResult<()> {
-        let mut registry = self
-            .folder_scan
-            .lock()
-            .map_err(|_| anyhow!("folder scan registry lock is poisoned"))?;
-        let state = registry
-            .current
-            .as_mut()
-            .filter(|state| state.scan_id == scan_id)
-            .ok_or_else(|| anyhow!("scan id {scan_id} is not current"))?;
-        state.phase = ffi::FfiScanPhase::Failed;
-        state.update_sequence = state.update_sequence.saturating_add(1);
-        Ok(())
+        self.scanner.finish(scan_id, report, summary)
     }
 
     fn review_page(
@@ -1375,45 +986,7 @@ impl DesktopSession {
     }
 
     fn load_review_visual(&self, ticket: &str) -> AnyResult<ffi::FfiVisualPayload> {
-        if ticket.starts_with(GRID_VISUAL_HANDLE_PREFIX) {
-            let selection = self.decode_grid_visual_handle(ticket)?;
-            return Ok(ffi::FfiVisualPayload {
-                bytes: self.loader.load_bytes(&selection.record)?,
-                requires_frame_receipt: false,
-            });
-        }
-
-        // Clone the exact record before performing filesystem I/O. If the
-        // presentation is canceled concurrently, the second lookup refuses to
-        // acknowledge those bytes and no receipt can later be attached.
-        let selection = {
-            let registry = self
-                .review_comparisons
-                .lock()
-                .map_err(|_| anyhow!("Review comparison registry lock is poisoned"))?;
-            pending_visual(&registry, ticket)
-                .map(|slot| slot.selection.clone())
-                .ok_or_else(|| anyhow!("unknown or expired Review visual request ticket"))?
-        };
-        let bytes = self.loader.load_bytes(&selection.record)?;
-        {
-            let mut registry = self
-                .review_comparisons
-                .lock()
-                .map_err(|_| anyhow!("Review comparison registry lock is poisoned"))?;
-            let slot = pending_visual_mut(&mut registry, ticket)
-                .ok_or_else(|| anyhow!("Review visual request was canceled while loading"))?;
-            if slot.selection.photo_id != selection.photo_id
-                || slot.selection.record != selection.record
-            {
-                bail!("Review visual request identity changed while loading");
-            }
-            slot.bytes_verified = true;
-        }
-        Ok(ffi::FfiVisualPayload {
-            bytes,
-            requires_frame_receipt: true,
-        })
+        self.review.load_visual(ticket)
     }
 
     fn prepare_review_comparison(
@@ -1421,47 +994,8 @@ impl DesktopSession {
         left_grid_handle: &str,
         right_grid_handle: &str,
     ) -> AnyResult<ffi::FfiReviewComparisonPresentation> {
-        let left = self.decode_grid_visual_handle(left_grid_handle)?;
-        let right = self.decode_grid_visual_handle(right_grid_handle)?;
-        if left.photo_id == right.photo_id {
-            bail!("Review comparison requires two different photos");
-        }
-
-        let mut registry = self
-            .review_comparisons
-            .lock()
-            .map_err(|_| anyhow!("Review comparison registry lock is poisoned"))?;
-        if registry.presentations.len() >= MAX_PENDING_REVIEW_COMPARISONS {
-            bail!(
-                "Review comparison registry is full; cancel an abandoned comparison before retrying"
-            );
-        }
-        let presentation_id = unique_presentation_id(&registry);
-        let left_request_ticket = unique_request_ticket(&registry);
-        let right_request_ticket = unique_request_ticket_excluding(&registry, &left_request_ticket);
-        registry.presentations.insert(
-            presentation_id.clone(),
-            PendingReviewComparison {
-                left: PendingReviewVisual {
-                    request_ticket: left_request_ticket.clone(),
-                    selection: left,
-                    bytes_verified: false,
-                    frame: None,
-                },
-                right: PendingReviewVisual {
-                    request_ticket: right_request_ticket.clone(),
-                    selection: right,
-                    bytes_verified: false,
-                    frame: None,
-                },
-                ready: false,
-            },
-        );
-        Ok(ffi::FfiReviewComparisonPresentation {
-            presentation_id,
-            left_request_ticket,
-            right_request_ticket,
-        })
+        self.review
+            .prepare_comparison(left_grid_handle, right_grid_handle)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1475,44 +1009,15 @@ impl DesktopSession {
         decoded_height: u32,
         pixel_hash_hex: &str,
     ) -> AnyResult<()> {
-        validate_frame_receipt(
+        self.review.record_visual_frame(
+            request_ticket,
             decoder_version,
             requested_width,
             requested_height,
             decoded_width,
             decoded_height,
             pixel_hash_hex,
-        )?;
-        let frame = PresentedVisualFrame {
-            surface_id: REVIEW_COMPARE_SURFACE_ID.to_owned(),
-            surface_revision: REVIEW_COMPARE_SURFACE_REVISION,
-            fit_mode: PresentedFitMode::PreserveAspectFit,
-            decoder_id: REVIEW_COMPARE_DECODER_ID.to_owned(),
-            decoder_version: decoder_version.to_owned(),
-            auto_transform: true,
-            requested_width,
-            requested_height,
-            decoded_width,
-            decoded_height,
-            pixel_format: REVIEW_COMPARE_PIXEL_FORMAT.to_owned(),
-            pixel_hash_algorithm: REVIEW_COMPARE_PIXEL_HASH_ALGORITHM.to_owned(),
-            pixel_hash_hex: pixel_hash_hex.to_owned(),
-        };
-        let mut registry = self
-            .review_comparisons
-            .lock()
-            .map_err(|_| anyhow!("Review comparison registry lock is poisoned"))?;
-        let slot = pending_visual_mut(&mut registry, request_ticket)
-            .ok_or_else(|| anyhow!("unknown or expired Review visual request ticket"))?;
-        if !slot.bytes_verified {
-            bail!("Review visual bytes must load successfully before recording a frame receipt");
-        }
-        match &slot.frame {
-            None => slot.frame = Some(frame),
-            Some(existing) if existing == &frame => {}
-            Some(_) => bail!("Review visual request already has a different frame receipt"),
-        }
-        Ok(())
+        )
     }
 
     fn confirm_review_comparison_ready(
@@ -1521,38 +1026,15 @@ impl DesktopSession {
         left_request_ticket: &str,
         right_request_ticket: &str,
     ) -> AnyResult<()> {
-        let mut registry = self
-            .review_comparisons
-            .lock()
-            .map_err(|_| anyhow!("Review comparison registry lock is poisoned"))?;
-        let presentation = registry
-            .presentations
-            .get_mut(presentation_id)
-            .ok_or_else(|| anyhow!("unknown or expired Review comparison presentation"))?;
-        if presentation.left.request_ticket != left_request_ticket
-            || presentation.right.request_ticket != right_request_ticket
-        {
-            bail!("Review comparison tickets do not belong to this presentation");
-        }
-        for (side, slot) in [("left", &presentation.left), ("right", &presentation.right)] {
-            if !slot.bytes_verified || slot.frame.is_none() {
-                bail!("{side} Review comparison visual is not fully presented");
-            }
-        }
-        presentation.ready = true;
-        Ok(())
+        self.review.confirm_comparison_ready(
+            presentation_id,
+            left_request_ticket,
+            right_request_ticket,
+        )
     }
 
     fn cancel_review_comparison(&self, presentation_id: &str) -> AnyResult<()> {
-        let mut registry = self
-            .review_comparisons
-            .lock()
-            .map_err(|_| anyhow!("Review comparison registry lock is poisoned"))?;
-        registry
-            .presentations
-            .remove(presentation_id)
-            .ok_or_else(|| anyhow!("unknown or expired Review comparison presentation"))?;
-        Ok(())
+        self.review.cancel_comparison(presentation_id)
     }
 
     fn record_review_comparison(
@@ -1560,113 +1042,15 @@ impl DesktopSession {
         presentation_id: &str,
         outcome: ffi::FfiPairwiseOutcome,
     ) -> AnyResult<ffi::FfiFeedbackReceipt> {
-        let outcome = pairwise_outcome(outcome)?;
-        // Acquire the undo set first so a poisoned lock cannot leave durable
-        // evidence that the current UI session is unable to forget.
-        let mut active_event_ids = self
-            .active_review_feedback_event_ids
-            .lock()
-            .map_err(|_| anyhow!("Review feedback mutation lock is poisoned"))?;
-        let mut registry = self
-            .review_comparisons
-            .lock()
-            .map_err(|_| anyhow!("Review comparison registry lock is poisoned"))?;
-        let presentation = registry
-            .presentations
-            .get(presentation_id)
-            .ok_or_else(|| anyhow!("unknown or expired Review comparison presentation"))?;
-        if !presentation.ready {
-            bail!("Review comparison must be confirmed ready before recording feedback");
-        }
-        let left = presentation.left.selection.photo_id;
-        let right = presentation.right.selection.photo_id;
-        let left_visual = presented_visual(&presentation.left)?;
-        let right_visual = presented_visual(&presentation.right)?;
-        let occurred_at_unix_ms = current_time_ms()?;
-        let event = self.catalog.append_feedback_event(&NewFeedbackEvent {
-            event_id: Uuid::now_v7().to_string(),
-            occurred_at_unix_ms,
-            scope: LearningScope::Global,
-            presentation: PresentationContext {
-                session_id: self.review_feedback_session_id.clone(),
-                group_id: None,
-                candidates: vec![
-                    PresentedCandidate {
-                        photo_id: left,
-                        position: 0,
-                        visible_fraction: AiUnitInterval::ONE,
-                        inspected_at_one_to_one: false,
-                        feature: None,
-                        visual: Some(left_visual),
-                    },
-                    PresentedCandidate {
-                        photo_id: right,
-                        position: 1,
-                        visible_fraction: AiUnitInterval::ONE,
-                        inspected_at_one_to_one: false,
-                        feature: None,
-                        visual: Some(right_visual),
-                    },
-                ],
-                active_model: None,
-            },
-            action: FeedbackAction::PairwiseComparison {
-                left,
-                right,
-                outcome,
-            },
-        })?;
-        // Catalog success is the consumption boundary. Any error above leaves
-        // the ready presentation intact for a safe retry.
-        registry.presentations.remove(presentation_id);
-        active_event_ids.insert(event.event_id.clone());
-        Ok(ffi::FfiFeedbackReceipt {
-            event_id: event.event_id,
-            sequence: event.sequence,
-            occurred_at_unix_ms: event.occurred_at_unix_ms,
-        })
+        self.review.record_comparison(presentation_id, outcome)
     }
 
     fn forget_review_feedback(&self, event_id: &str) -> AnyResult<ffi::FfiForgetReceipt> {
-        let target_event_id = Uuid::parse_str(event_id)
-            .with_context(|| format!("parse Review feedback event id {event_id}"))?
-            .to_string();
-        let mut active_event_ids = self
-            .active_review_feedback_event_ids
-            .lock()
-            .map_err(|_| anyhow!("Review feedback mutation lock is poisoned"))?;
-        if !active_event_ids.contains(&target_event_id) {
-            bail!(
-                "Review feedback event {target_event_id} is not an active comparison issued by this Review session"
-            );
-        }
-
-        let occurred_at_unix_ms = current_time_ms()?;
-        let fact = self
-            .catalog
-            .append_feedback_forget_fact(&NewFeedbackForgetFact {
-                fact_id: Uuid::now_v7().to_string(),
-                target_event_id: target_event_id.clone(),
-                occurred_at_unix_ms,
-                reason: Some(REVIEW_FEEDBACK_FORGET_REASON.to_owned()),
-            })?;
-        active_event_ids.remove(&target_event_id);
-        Ok(ffi::FfiForgetReceipt {
-            fact_id: fact.fact_id,
-            target_event_id: fact.target_event_id,
-            sequence: fact.sequence,
-            occurred_at_unix_ms: fact.occurred_at_unix_ms,
-        })
+        self.review.forget_feedback(event_id)
     }
 
     fn review_photo_decision_state(&self, photo_id: &str) -> AnyResult<ffi::FfiPhotoDecisionState> {
-        let photo_id: PhotoId = photo_id
-            .parse()
-            .with_context(|| format!("parse Review decision photo id {photo_id}"))?;
-        Ok(ffi_photo_decision_state(
-            photo_id,
-            self.catalog.photo_decision_state(photo_id)?,
-        ))
+        self.review.photo_decision_state(photo_id)
     }
 
     fn set_review_photo_decision(
@@ -1676,33 +1060,8 @@ impl DesktopSession {
         flag: ffi::FfiDecisionFlag,
         rating: u8,
     ) -> AnyResult<ffi::FfiReviewDecisionMutationReceipt> {
-        let photo_id: PhotoId = photo_id
-            .parse()
-            .with_context(|| format!("parse Review decision photo id {photo_id}"))?;
-        if rating > MAX_PHOTO_RATING {
-            bail!("Review decision rating must be in 0 through {MAX_PHOTO_RATING}");
-        }
-        let before = self.catalog.photo_decision_state(photo_id)?;
-        if before.head_sequence != expected_head_sequence {
-            bail!(
-                "stale Review decision head: expected {expected_head_sequence}, current {}",
-                before.head_sequence
-            );
-        }
-        let event = self
-            .catalog
-            .append_photo_decision_event(&NewPhotoDecisionEvent {
-                event_id: Uuid::now_v7().to_string(),
-                photo_id,
-                occurred_at_unix_ms: current_time_ms()?,
-                origin: PhotoDecisionOrigin::Human,
-                expected_head_sequence,
-                before_flag: before.flag,
-                before_rating: before.rating,
-                after_flag: photo_flag(flag)?,
-                after_rating: rating,
-            })?;
-        Ok(ffi_photo_decision_receipt(event))
+        self.review
+            .set_photo_decision(photo_id, expected_head_sequence, flag, rating)
     }
 
     fn photo_edit_state(
@@ -1974,7 +1333,8 @@ impl DesktopSession {
                 // installed private provider, then feed the resulting RGB JPEG back through
                 // the normal public raster edit pipeline. The helper owns the risky native
                 // boundary; the parent still owns every adjustment and never loads that SDK.
-                let temporary_raster = self.isolated_edit_raster(source, max_edge)?;
+                let temporary_raster =
+                    isolated_edit_raster(&self.cache_root, &native_path, max_edge)?;
                 let isolated_result =
                     PhotoEditPreviewSession::open_with_raw_development_plan_and_optics(
                         &temporary_raster,
@@ -2068,32 +1428,6 @@ impl DesktopSession {
         Ok(())
     }
 
-    /// Develops a source through the crash-isolated helper and returns the short-lived JPEG
-    /// path that the public raster edit path can open. The caller must remove the path after
-    /// preparation: edit sessions retain decoded pixels, not an open file descriptor.
-    fn isolated_edit_raster(&self, source: &ReviewItemRecord, max_edge: u32) -> AnyResult<PathBuf> {
-        let helper_path = configured_helper_path().ok_or_else(|| {
-            anyhow!(
-                "isolated RAW decoder is unavailable; Shadow will not load a private decoder in the desktop process"
-            )
-        })?;
-        let native_path = catalog_native_path(source)?;
-        let (_, temporary_raster) = render_isolated_photo_reference_proxy_to_file(
-            &helper_path,
-            &self.cache_root,
-            &native_path,
-            max_edge,
-            96,
-        )
-        .with_context(|| {
-            format!(
-                "develop {} through the isolated RAW decoder",
-                native_path.display()
-            )
-        })?;
-        Ok(temporary_raster)
-    }
-
     fn edit_detail_session(
         &self,
         source: &ReviewItemRecord,
@@ -2151,8 +1485,11 @@ impl DesktopSession {
                     // Preserve the same safety contract as warm previews. This is an RGB fallback,
                     // so it may not provide native sensor-resolution detail, but it remains fully
                     // editable and never requires a private SDK in the desktop process.
-                    let temporary_raster =
-                        self.isolated_edit_raster(source, MAX_DETAIL_VIEWPORT_SIDE)?;
+                    let temporary_raster = isolated_edit_raster(
+                        &self.cache_root,
+                        &native_path,
+                        MAX_DETAIL_VIEWPORT_SIDE,
+                    )?;
                     let isolated_result =
                         PhotoEditDetailSession::open_with_raw_development_plan_and_optics(
                             &temporary_raster,
@@ -2724,10 +2061,6 @@ const LIBRARY_EDIT_MAIN_REF: &str = "heads/main";
 const LIBRARY_EDIT_VERSION_REF_PREFIX: &str = "versions/";
 const LIBRARY_PHOTO_EDIT_KEY_PREFIX: &str = "photo/";
 const CONTRAST_PIVOT: f64 = 0.18;
-const GRID_VISUAL_HANDLE_PREFIX: &str = "shadow-grid-visual-v1.";
-const GRID_VISUAL_HANDLE_SCHEMA_VERSION: u8 = 2;
-const MAX_GRID_VISUAL_PAYLOAD_BYTES: usize = 16 * 1_024;
-const MAX_PENDING_REVIEW_COMPARISONS: usize = 64;
 const MAX_DETAIL_VIEWPORT_SIDE: u32 = 8_192;
 const MAX_DETAIL_VIEWPORT_TILES: usize = 100;
 
@@ -2842,96 +2175,6 @@ fn detail_viewport_rects(
     });
     Ok(rects)
 }
-const REVIEW_COMPARE_SURFACE_ID: &str = "shadow.desktop.review-compare";
-const REVIEW_COMPARE_SURFACE_REVISION: u64 = 1;
-const REVIEW_COMPARE_DECODER_ID: &str = "qt.qimagereader";
-const REVIEW_COMPARE_PIXEL_FORMAT: &str = "rgba8888_unpremultiplied_row_major";
-const REVIEW_COMPARE_PIXEL_HASH_ALGORITHM: &str = "sha256";
-const REVIEW_FEEDBACK_FORGET_REASON: &str =
-    "user removed this Review comparison from local preference learning";
-
-/// Serializable mirror of the Catalog record carried by a grid handle. The
-/// keyed signature is session-local; this payload is never trusted unsigned.
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct SignedGridVisualPayload {
-    schema_version: u8,
-    photo_id: String,
-    representation_id: String,
-    source_byte_len: u64,
-    source_modified_at_ms: Option<i64>,
-    role: String,
-    variant_key: String,
-    generator_id: String,
-    generator_version: String,
-    recipe_snapshot_digest_hex: Option<String>,
-    provider_preview_id: Option<u64>,
-    blob_algorithm: String,
-    blob_digest_hex: String,
-    blob_byte_len: u64,
-    codec: String,
-    byte_order: String,
-    width: u32,
-    height: u32,
-    bits_per_channel: u16,
-    channels: u16,
-    created_at_ms: i64,
-}
-
-fn pairwise_outcome(outcome: ffi::FfiPairwiseOutcome) -> AnyResult<PairwiseOutcome> {
-    match outcome {
-        ffi::FfiPairwiseOutcome::LeftPreferred => Ok(PairwiseOutcome::LeftPreferred),
-        ffi::FfiPairwiseOutcome::RightPreferred => Ok(PairwiseOutcome::RightPreferred),
-        ffi::FfiPairwiseOutcome::KeepBoth => Ok(PairwiseOutcome::KeepBoth),
-        ffi::FfiPairwiseOutcome::KeepNeither => Ok(PairwiseOutcome::KeepNeither),
-        ffi::FfiPairwiseOutcome::CannotCompare => Ok(PairwiseOutcome::CannotCompare),
-        _ => bail!("unsupported Review comparison outcome"),
-    }
-}
-
-fn photo_flag(flag: ffi::FfiDecisionFlag) -> AnyResult<PhotoFlag> {
-    match flag {
-        ffi::FfiDecisionFlag::Unflagged => Ok(PhotoFlag::Unflagged),
-        ffi::FfiDecisionFlag::Picked => Ok(PhotoFlag::Picked),
-        ffi::FfiDecisionFlag::Rejected => Ok(PhotoFlag::Rejected),
-        _ => bail!("unsupported Review decision flag"),
-    }
-}
-
-const fn ffi_decision_flag(flag: PhotoFlag) -> ffi::FfiDecisionFlag {
-    match flag {
-        PhotoFlag::Unflagged => ffi::FfiDecisionFlag::Unflagged,
-        PhotoFlag::Picked => ffi::FfiDecisionFlag::Picked,
-        PhotoFlag::Rejected => ffi::FfiDecisionFlag::Rejected,
-    }
-}
-
-fn ffi_photo_decision_state(
-    photo_id: PhotoId,
-    state: PhotoDecisionState,
-) -> ffi::FfiPhotoDecisionState {
-    ffi::FfiPhotoDecisionState {
-        photo_id: photo_id.to_string(),
-        head_sequence: state.head_sequence,
-        flag: ffi_decision_flag(state.flag),
-        rating: state.rating,
-    }
-}
-
-fn ffi_photo_decision_receipt(event: PhotoDecisionEvent) -> ffi::FfiReviewDecisionMutationReceipt {
-    ffi::FfiReviewDecisionMutationReceipt {
-        event_id: event.event_id,
-        sequence: event.sequence,
-        photo_id: event.photo_id.to_string(),
-        occurred_at_unix_ms: event.occurred_at_unix_ms,
-        before_head_sequence: event.before_head_sequence,
-        before_flag: ffi_decision_flag(event.before_flag),
-        before_rating: event.before_rating,
-        after_flag: ffi_decision_flag(event.after_flag),
-        after_rating: event.after_rating,
-    }
-}
-
 // A persisted v1 Recipe must map to the exact v1 executor contract. A future
 // bridge revision therefore requires an explicit compiler mapping instead of
 // silently upgrading old pixels to new semantics.
@@ -6203,7 +5446,7 @@ fn node_parameter_change_has_basic_label(snapshot: &RecipeSnapshot, node_id: Nod
     })
 }
 
-fn current_time_ms() -> AnyResult<i64> {
+pub(crate) fn current_time_ms() -> AnyResult<i64> {
     let milliseconds = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .context("system time is before the Unix epoch")?
@@ -6230,94 +5473,6 @@ fn catalog_native_path(_source: &ReviewItemRecord) -> AnyResult<PathBuf> {
     bail!("the first desktop edit service currently decodes native paths only on macOS")
 }
 
-#[derive(Debug, Clone)]
-struct PhotoInspector {
-    version: String,
-    original_raster_extensions: Vec<String>,
-    proxy_variant_key: String,
-    isolated_proxy_runtime_cache: Option<PathBuf>,
-}
-
-// The generated-library proxy is deliberately a lower-bandwidth artifact than the warm editing
-// preview. Keep its encoder request and persistent variant identity next to each other: a stale
-// or misleading key would otherwise make the catalog serve the wrong cache entry indefinitely.
-const PHOTO_GRID_PROXY_MAX_EDGE: u32 = 2_048;
-const PHOTO_GRID_PROXY_JPEG_QUALITY: u8 = 88;
-
-impl PhotoInspector {
-    #[cfg(test)]
-    fn new() -> AnyResult<Self> {
-        Self::new_with_isolated_proxy_cache(None)
-    }
-
-    fn new_with_isolated_proxy_cache(runtime_cache_root: Option<PathBuf>) -> AnyResult<Self> {
-        let raw_development_plan_identity =
-            raw_development_plan_identity(RawDevelopmentPlan::preview())
-                .context("build grid-proxy RAW-development cache identity")?;
-        Ok(Self {
-            version: photo_provider_version(),
-            original_raster_extensions: photo_supported_raster_extensions(),
-            // The source provider version identifies implementation releases; this exact plan
-            // identity distinguishes two renders through the same provider with different
-            // source-development intent or policy.
-            proxy_variant_key: format!(
-                "shadow-photo-router:grid-jpeg-2048-q88-444-v2;{raw_development_plan_identity}"
-            ),
-            isolated_proxy_runtime_cache: runtime_cache_root,
-        })
-    }
-}
-
-impl DecodeInspector for PhotoInspector {
-    fn provider_id(&self) -> &'static str {
-        "shadow-photo-router"
-    }
-
-    fn provider_version(&self) -> &str {
-        &self.version
-    }
-
-    fn supported_original_raster_extensions(&self) -> Vec<String> {
-        self.original_raster_extensions.clone()
-    }
-
-    fn inspect(&mut self, path: &Path) -> Result<DecoderSnapshot, String> {
-        inspect_photo(path).map_err(|error| error.to_string())
-    }
-
-    fn extract_best_preview(&mut self, path: &Path) -> Result<Option<PreviewPayload>, String> {
-        extract_best_photo_preview(path).map_err(|error| error.to_string())
-    }
-
-    fn render_proxy(&mut self, path: &Path) -> Result<Option<ProxyPayload>, String> {
-        if let Some(runtime_cache_root) = &self.isolated_proxy_runtime_cache {
-            let helper_path = configured_helper_path().ok_or_else(|| {
-                "isolated RAW decode helper is unavailable; Shadow will not run a native decoder inside the desktop process".to_owned()
-            })?;
-            return render_isolated_photo_reference_proxy(
-                &helper_path,
-                runtime_cache_root,
-                path,
-                PHOTO_GRID_PROXY_MAX_EDGE,
-                PHOTO_GRID_PROXY_JPEG_QUALITY,
-            )
-            .map(Some)
-            .map_err(|error| error.to_string());
-        }
-        render_photo_reference_proxy(
-            path,
-            PHOTO_GRID_PROXY_MAX_EDGE,
-            PHOTO_GRID_PROXY_JPEG_QUALITY,
-        )
-        .map(Some)
-        .map_err(|error| error.to_string())
-    }
-
-    fn proxy_variant_key(&self) -> &str {
-        &self.proxy_variant_key
-    }
-}
-
 fn open_desktop_session(catalog_path: &str, cache_root: &str) -> AnyResult<Box<DesktopSession>> {
     let catalog_path = Path::new(catalog_path);
     let cache_root = PathBuf::from(cache_root);
@@ -6333,17 +5488,14 @@ fn open_desktop_session(catalog_path: &str, cache_root: &str) -> AnyResult<Box<D
     let loader = CachedArtifactLoader::open(catalog.clone(), &cache_root)?;
     Ok(Box::new(DesktopSession {
         _actor: actor,
+        review: ReviewService::new(catalog.clone(), loader.clone()),
+        scanner: ScanService::new(catalog.clone(), cache_root.clone()),
         catalog,
         loader,
         cache_root,
-        folder_scan: Mutex::new(FolderScanRegistry::default()),
         edit_preview_sessions: Mutex::new(VecDeque::new()),
         edit_detail_session: Mutex::new(None),
         edit_detail_render_token: AtomicU64::new(0),
-        review_feedback_session_id: Uuid::now_v7().to_string(),
-        review_visual_signing_key: new_review_visual_signing_key(),
-        review_comparisons: Mutex::new(ReviewComparisonRegistry::default()),
-        active_review_feedback_event_ids: Mutex::new(HashSet::new()),
     }))
 }
 
@@ -6368,10 +5520,11 @@ impl DesktopSession {
             .visual
             .as_ref()
             .map(|visual| {
-                self.encode_grid_visual_handle(&ReviewVisualSelection {
-                    photo_id: record.photo_id,
-                    record: visual.clone(),
-                })
+                self.review
+                    .encode_grid_visual_handle(&ReviewVisualSelection {
+                        photo_id: record.photo_id,
+                        record: visual.clone(),
+                    })
             })
             .transpose()?
             .unwrap_or_default();
@@ -6537,300 +5690,6 @@ impl DesktopSession {
             edge_energy,
         })
     }
-
-    fn encode_grid_visual_handle(&self, selection: &ReviewVisualSelection) -> AnyResult<String> {
-        let payload = SignedGridVisualPayload::from_selection(selection)?;
-        let payload = serde_json::to_vec(&payload).context("encode Review grid visual handle")?;
-        if payload.len() > MAX_GRID_VISUAL_PAYLOAD_BYTES {
-            bail!("Review grid visual handle payload exceeds its size limit");
-        }
-        let signature = blake3::keyed_hash(&self.review_visual_signing_key, &payload);
-        Ok(format!(
-            "{GRID_VISUAL_HANDLE_PREFIX}{}.{}",
-            encode_hex(&payload),
-            signature.to_hex()
-        ))
-    }
-
-    fn decode_grid_visual_handle(&self, handle: &str) -> AnyResult<ReviewVisualSelection> {
-        let encoded = handle
-            .strip_prefix(GRID_VISUAL_HANDLE_PREFIX)
-            .ok_or_else(|| anyhow!("invalid Review grid visual handle prefix"))?;
-        let (payload_hex, signature_hex) = encoded
-            .split_once('.')
-            .ok_or_else(|| anyhow!("malformed Review grid visual handle"))?;
-        if payload_hex.len() > MAX_GRID_VISUAL_PAYLOAD_BYTES.saturating_mul(2) {
-            bail!("Review grid visual handle payload exceeds its size limit");
-        }
-        if signature_hex.len() != 64 || !is_lower_hex(signature_hex) {
-            bail!("malformed Review grid visual handle signature");
-        }
-        let payload = decode_hex(payload_hex).context("decode Review grid visual handle")?;
-        if payload.len() > MAX_GRID_VISUAL_PAYLOAD_BYTES {
-            bail!("Review grid visual handle payload exceeds its size limit");
-        }
-        let supplied_signature =
-            decode_hex_32(signature_hex).context("decode Review grid visual handle signature")?;
-        let expected_signature = blake3::keyed_hash(&self.review_visual_signing_key, &payload);
-        if !constant_time_eq(expected_signature.as_bytes(), &supplied_signature) {
-            bail!("Review grid visual handle signature is invalid for this session");
-        }
-        let payload: SignedGridVisualPayload =
-            serde_json::from_slice(&payload).context("parse Review grid visual handle")?;
-        payload.into_selection()
-    }
-}
-
-impl SignedGridVisualPayload {
-    fn from_selection(selection: &ReviewVisualSelection) -> AnyResult<Self> {
-        let record = &selection.record;
-        Ok(Self {
-            schema_version: GRID_VISUAL_HANDLE_SCHEMA_VERSION,
-            photo_id: selection.photo_id.to_string(),
-            representation_id: record.representation_id.to_string(),
-            source_byte_len: record.source.byte_len,
-            source_modified_at_ms: record.source.modified_at_ms,
-            role: record.artifact.role.as_str().to_owned(),
-            variant_key: record.artifact.variant_key.clone(),
-            generator_id: record.artifact.generator_id.clone(),
-            generator_version: record.artifact.generator_version.clone(),
-            recipe_snapshot_digest_hex: record
-                .artifact
-                .recipe_snapshot_digest
-                .as_ref()
-                .map(|digest| encode_hex(digest)),
-            provider_preview_id: record
-                .artifact
-                .provider_preview_id
-                .map(u64::try_from)
-                .transpose()
-                .context("provider preview id does not fit Review provenance")?,
-            blob_algorithm: record.artifact.blob_algorithm.clone(),
-            blob_digest_hex: encode_hex(&record.artifact.blob_digest),
-            blob_byte_len: record.artifact.blob_byte_len,
-            codec: record.artifact.codec.as_str().to_owned(),
-            byte_order: record.artifact.byte_order.as_str().to_owned(),
-            width: record.artifact.dimensions.width,
-            height: record.artifact.dimensions.height,
-            bits_per_channel: record.artifact.bits_per_channel,
-            channels: record.artifact.channels,
-            created_at_ms: record.artifact.created_at_ms,
-        })
-    }
-
-    fn into_selection(self) -> AnyResult<ReviewVisualSelection> {
-        if self.schema_version != GRID_VISUAL_HANDLE_SCHEMA_VERSION {
-            bail!(
-                "unsupported Review grid visual handle schema {}",
-                self.schema_version
-            );
-        }
-        let photo_id = self
-            .photo_id
-            .parse()
-            .context("parse photo id in Review grid visual handle")?;
-        let representation_id = self
-            .representation_id
-            .parse()
-            .context("parse representation id in Review grid visual handle")?;
-        let role = match self.role.as_str() {
-            "recipe_preview" => CachedArtifactRole::RecipePreview,
-            "embedded_preview" => CachedArtifactRole::EmbeddedPreview,
-            "generated_proxy" => CachedArtifactRole::GeneratedProxy,
-            other => bail!("unsupported Review visual artifact role {other:?}"),
-        };
-        let codec = match self.codec.as_str() {
-            "unknown" => PreviewCodec::Unknown,
-            "jpeg" => PreviewCodec::Jpeg,
-            "bitmap" => PreviewCodec::Bitmap,
-            "jpeg_xl" => PreviewCodec::JpegXl,
-            "h265" => PreviewCodec::H265,
-            other => bail!("unsupported Review visual codec {other:?}"),
-        };
-        let byte_order = match self.byte_order.as_str() {
-            "not_applicable" => PreviewByteOrder::NotApplicable,
-            "native" => PreviewByteOrder::Native,
-            "little_endian" => PreviewByteOrder::LittleEndian,
-            "big_endian" => PreviewByteOrder::BigEndian,
-            other => bail!("unsupported Review visual byte order {other:?}"),
-        };
-        let recipe_snapshot_digest = self
-            .recipe_snapshot_digest_hex
-            .as_deref()
-            .map(decode_hex_32)
-            .transpose()
-            .context("decode Recipe snapshot digest in Review visual handle")?;
-        Ok(ReviewVisualSelection {
-            photo_id,
-            record: CachedArtifactRecord {
-                representation_id,
-                source: RepresentationFingerprint {
-                    byte_len: self.source_byte_len,
-                    modified_at_ms: self.source_modified_at_ms,
-                },
-                artifact: shadow_catalog::CachedArtifact {
-                    role,
-                    variant_key: self.variant_key,
-                    generator_id: self.generator_id,
-                    generator_version: self.generator_version,
-                    recipe_snapshot_digest,
-                    provider_preview_id: self
-                        .provider_preview_id
-                        .map(usize::try_from)
-                        .transpose()
-                        .context("provider preview id does not fit this platform")?,
-                    blob_algorithm: self.blob_algorithm,
-                    blob_digest: decode_hex_32(&self.blob_digest_hex)
-                        .context("decode Review visual blob digest")?,
-                    blob_byte_len: self.blob_byte_len,
-                    codec,
-                    byte_order,
-                    dimensions: ImageDimensions {
-                        width: self.width,
-                        height: self.height,
-                    },
-                    bits_per_channel: self.bits_per_channel,
-                    channels: self.channels,
-                    created_at_ms: self.created_at_ms,
-                },
-            },
-        })
-    }
-}
-
-fn pending_visual<'a>(
-    registry: &'a ReviewComparisonRegistry,
-    request_ticket: &str,
-) -> Option<&'a PendingReviewVisual> {
-    registry.presentations.values().find_map(|presentation| {
-        if presentation.left.request_ticket == request_ticket {
-            Some(&presentation.left)
-        } else if presentation.right.request_ticket == request_ticket {
-            Some(&presentation.right)
-        } else {
-            None
-        }
-    })
-}
-
-fn pending_visual_mut<'a>(
-    registry: &'a mut ReviewComparisonRegistry,
-    request_ticket: &str,
-) -> Option<&'a mut PendingReviewVisual> {
-    registry
-        .presentations
-        .values_mut()
-        .find_map(|presentation| {
-            if presentation.left.request_ticket == request_ticket {
-                Some(&mut presentation.left)
-            } else if presentation.right.request_ticket == request_ticket {
-                Some(&mut presentation.right)
-            } else {
-                None
-            }
-        })
-}
-
-fn unique_presentation_id(registry: &ReviewComparisonRegistry) -> String {
-    loop {
-        let candidate = Uuid::now_v7().to_string();
-        if !registry.presentations.contains_key(&candidate) {
-            return candidate;
-        }
-    }
-}
-
-fn unique_request_ticket(registry: &ReviewComparisonRegistry) -> String {
-    unique_request_ticket_excluding(registry, "")
-}
-
-fn unique_request_ticket_excluding(registry: &ReviewComparisonRegistry, excluded: &str) -> String {
-    loop {
-        let candidate = Uuid::now_v7().to_string();
-        if candidate != excluded && pending_visual(registry, &candidate).is_none() {
-            return candidate;
-        }
-    }
-}
-
-fn presented_visual(slot: &PendingReviewVisual) -> AnyResult<PresentedVisualProvenance> {
-    if !slot.bytes_verified {
-        bail!("Review visual bytes were not verified");
-    }
-    let frame = slot
-        .frame
-        .clone()
-        .ok_or_else(|| anyhow!("Review visual has no decoded-frame receipt"))?;
-    let record = &slot.selection.record;
-    let role = match record.artifact.role {
-        CachedArtifactRole::RecipePreview => PresentedVisualRole::RecipePreview,
-        CachedArtifactRole::EmbeddedPreview => PresentedVisualRole::EmbeddedPreview,
-        CachedArtifactRole::GeneratedProxy => PresentedVisualRole::GeneratedProxy,
-    };
-    Ok(PresentedVisualProvenance {
-        artifact: PresentedVisualArtifact {
-            representation_id: record.representation_id,
-            source_byte_len: record.source.byte_len,
-            source_modified_at_ms: record.source.modified_at_ms,
-            role,
-            variant_key: record.artifact.variant_key.clone(),
-            generator_id: record.artifact.generator_id.clone(),
-            generator_version: record.artifact.generator_version.clone(),
-            provider_preview_id: record
-                .artifact
-                .provider_preview_id
-                .map(u64::try_from)
-                .transpose()
-                .context("provider preview id does not fit Review provenance")?,
-            blob_algorithm: record.artifact.blob_algorithm.clone(),
-            blob_digest_hex: encode_hex(&record.artifact.blob_digest),
-            blob_byte_len: record.artifact.blob_byte_len,
-            codec: record.artifact.codec.as_str().to_owned(),
-            byte_order: record.artifact.byte_order.as_str().to_owned(),
-            width: record.artifact.dimensions.width,
-            height: record.artifact.dimensions.height,
-            bits_per_channel: record.artifact.bits_per_channel,
-            channels: record.artifact.channels,
-            created_at_ms: record.artifact.created_at_ms,
-        },
-        frame,
-    })
-}
-
-fn validate_frame_receipt(
-    decoder_version: &str,
-    requested_width: u32,
-    requested_height: u32,
-    decoded_width: u32,
-    decoded_height: u32,
-    pixel_hash_hex: &str,
-) -> AnyResult<()> {
-    if decoder_version.trim().is_empty() || decoder_version.len() > 256 {
-        bail!("Review visual decoder version must contain 1 through 256 bytes");
-    }
-    if [
-        requested_width,
-        requested_height,
-        decoded_width,
-        decoded_height,
-    ]
-    .contains(&0)
-    {
-        bail!("Review visual requested and decoded dimensions must be non-zero");
-    }
-    if pixel_hash_hex.len() != 64 || !is_lower_hex(pixel_hash_hex) {
-        bail!("Review visual pixel hash must be 64 lowercase hexadecimal characters");
-    }
-    Ok(())
-}
-
-fn new_review_visual_signing_key() -> [u8; 32] {
-    let first = Uuid::now_v7();
-    let second = Uuid::now_v7();
-    let mut key = [0_u8; 32];
-    key[..16].copy_from_slice(first.as_bytes());
-    key[16..].copy_from_slice(second.as_bytes());
-    key
 }
 
 fn encode_hex(bytes: &[u8]) -> String {
@@ -6841,53 +5700,6 @@ fn encode_hex(bytes: &[u8]) -> String {
         encoded.push(char::from(DIGITS[usize::from(byte & 0x0f)]));
     }
     encoded
-}
-
-fn decode_hex(encoded: &str) -> AnyResult<Vec<u8>> {
-    if !encoded.len().is_multiple_of(2) || !is_lower_hex(encoded) {
-        bail!("hex value must contain an even number of lowercase hexadecimal characters");
-    }
-    encoded
-        .as_bytes()
-        .chunks_exact(2)
-        .map(|pair| Ok((hex_nibble(pair[0])? << 4) | hex_nibble(pair[1])?))
-        .collect()
-}
-
-fn decode_hex_32(encoded: &str) -> AnyResult<[u8; 32]> {
-    if encoded.len() != 64 {
-        bail!("digest must contain exactly 64 hexadecimal characters");
-    }
-    let bytes = decode_hex(encoded)?;
-    bytes
-        .try_into()
-        .map_err(|_| anyhow!("digest must contain exactly 32 bytes"))
-}
-
-fn hex_nibble(byte: u8) -> AnyResult<u8> {
-    match byte {
-        b'0'..=b'9' => Ok(byte - b'0'),
-        b'a'..=b'f' => Ok(byte - b'a' + 10),
-        _ => Err(anyhow::Error::msg("invalid lowercase hexadecimal digit")),
-    }
-}
-
-fn is_lower_hex(value: &str) -> bool {
-    value
-        .bytes()
-        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-}
-
-fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
-    if left.len() != right.len() {
-        return false;
-    }
-    left.iter()
-        .zip(right)
-        .fold(0_u8, |difference, (left, right)| {
-            difference | (left ^ right)
-        })
-        == 0
 }
 
 const fn role_name(role: CachedArtifactRole) -> &'static str {
@@ -6923,13 +5735,26 @@ mod tests {
 
     use rusqlite::{Connection, params};
     use shadow_ai::{
-        FeedbackIgnored, IncrementalTrainingPolicy, build_incremental_preference_batch,
+        FeedbackAction, FeedbackIgnored, IncrementalTrainingPolicy, LearningScope,
+        NewFeedbackEvent, PairwiseOutcome, PresentationContext, PresentedFitMode,
+        UnitInterval as AiUnitInterval, build_incremental_preference_batch,
     };
     use shadow_cache::ContentAddressedStore;
-    use shadow_catalog::{CachedArtifact, RecordCachedArtifact, RegisterAsset};
+    use shadow_catalog::{
+        CachedArtifact, CachedArtifactRecord, RecordCachedArtifact, RegisterAsset,
+    };
+    use shadow_core::DecodeInspector;
     use shadow_domain::{
-        AssetLocation, EntityId, ImageDimensions, ImportSessionId, Platform, PreviewByteOrder,
-        PreviewCodec, RepresentationId, RepresentationKind,
+        AssetLocation, EntityId, ImageDimensions, ImportSessionId, MAX_PHOTO_RATING,
+        PhotoDecisionOrigin, Platform, PreviewByteOrder, PreviewCodec, RepresentationId,
+        RepresentationKind,
+    };
+
+    use crate::photo_provider::{PHOTO_GRID_PROXY_JPEG_QUALITY, PHOTO_GRID_PROXY_MAX_EDGE};
+    use crate::review_service::{
+        REVIEW_COMPARE_DECODER_ID, REVIEW_COMPARE_PIXEL_FORMAT,
+        REVIEW_COMPARE_PIXEL_HASH_ALGORITHM, REVIEW_COMPARE_SURFACE_ID,
+        REVIEW_COMPARE_SURFACE_REVISION,
     };
 
     use super::*;
@@ -7559,7 +6384,7 @@ mod tests {
             assert_eq!(event.scope, LearningScope::Global);
             assert_eq!(
                 event.presentation.session_id,
-                session.review_feedback_session_id
+                session.review.feedback_session_id()
             );
             assert!(event.presentation.group_id.is_none());
             assert!(event.presentation.active_model.is_none());
@@ -7854,6 +6679,7 @@ mod tests {
         // stable failure injection: the session signs a visual record owned by
         // another photo and Catalog remains the authoritative ownership gate.
         let mismatched_left_handle = session
+            .review
             .encode_grid_visual_handle(&ReviewVisualSelection {
                 photo_id: left.photo_id.parse().expect("left photo id"),
                 record: right.record.clone(),
@@ -11933,6 +10759,7 @@ mod tests {
             })
             .expect("record feedback visual");
         let visual_handle = session
+            .review
             .encode_grid_visual_handle(&ReviewVisualSelection {
                 photo_id: registered.photo_id,
                 record: record.clone(),
