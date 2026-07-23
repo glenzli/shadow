@@ -23,19 +23,14 @@ pub const CONTRAST_OPERATION_ID: &str = "shadow.contrast";
 pub const CONTRAST_FACTOR_PARAMETER_KEY: &str = "factor";
 pub const CONTRAST_PIVOT_PARAMETER_KEY: &str = "pivot";
 
-pub const TONE_CURVE_OPERATION_ID: &str = "shadow.tone_curve";
-pub const TONE_CURVE_POINTS_PARAMETER_KEY: &str = "points";
-/// Parameter schema for the smooth master-plus-RGB Tone Curve contract.
-///
-/// Schema 1 remains the historical piecewise-linear `points` contract and
-/// must never be reinterpreted by this implementation.
-pub const TONE_CURVE_V2_PARAMETER_SCHEMA_VERSION: u32 = 2;
-/// Persisted executor implementation for the smooth RGB Tone Curve contract.
-pub const TONE_CURVE_V2_IMPLEMENTATION_VERSION: &str = "cpu-reference-v2";
-pub const TONE_CURVE_MASTER_POINTS_PARAMETER_KEY: &str = "master_points";
-pub const TONE_CURVE_RED_POINTS_PARAMETER_KEY: &str = "red_points";
-pub const TONE_CURVE_GREEN_POINTS_PARAMETER_KEY: &str = "green_points";
-pub const TONE_CURVE_BLUE_POINTS_PARAMETER_KEY: &str = "blue_points";
+/// The sole authored point curve: perceptual Oklab lightness. It keeps hue and
+/// chroma stable while changing brightness, rather than exposing RGB channels
+/// whose output depends on the working-space primaries.
+pub const OKLAB_LIGHTNESS_TONE_CURVE_OPERATION_ID: &str = "shadow.oklab_lightness_tone_curve";
+pub const OKLAB_LIGHTNESS_TONE_CURVE_POINTS_PARAMETER_KEY: &str = "lightness_points";
+pub const OKLAB_LIGHTNESS_TONE_CURVE_PARAMETER_SCHEMA_VERSION: u32 = 1;
+pub const OKLAB_LIGHTNESS_TONE_CURVE_IMPLEMENTATION_VERSION: &str =
+    "shadow-cpu-oklab-lightness-tone-curve-v1";
 
 pub const RGB_WHITE_BALANCE_OPERATION_ID: &str = "shadow.rgb_white_balance";
 pub const WHITE_BALANCE_TEMPERATURE_PARAMETER_KEY: &str = "temperature";
@@ -69,7 +64,13 @@ pub const COLOR_RANGE_HUE_PARAMETER_KEY: &str = "range_hue";
 pub const COLOR_RANGE_SATURATION_PARAMETER_KEY: &str = "range_saturation";
 pub const COLOR_RANGE_LIGHTNESS_PARAMETER_KEY: &str = "range_lightness";
 pub const POINT_COLOR_RANGES_PARAMETER_KEY: &str = "point_color_ranges";
-pub const PERCEPTUAL_COLOR_V2_IMPLEMENTATION_VERSION: &str = "shadow-cpu-perceptual-color-v2";
+/// Photoshop-style Selective Color is intentionally part of the same complete
+/// color-correction operation as the Color Mixer and Point Color controls.
+/// The flattened value is nine target families × CMYK in the public order
+/// red, yellow, green, cyan, blue, magenta, white, neutral, black.
+pub const SELECTIVE_COLOR_RELATIVE_PARAMETER_KEY: &str = "selective_color_relative";
+pub const SELECTIVE_COLOR_CMYK_PARAMETER_KEY: &str = "selective_color_cmyk";
+pub const PERCEPTUAL_COLOR_V3_IMPLEMENTATION_VERSION: &str = "shadow-cpu-perceptual-color-v3";
 
 pub const LUT_3D_OPERATION_ID: &str = "shadow.lut_3d";
 pub const LUT_RESOURCE_ID_PARAMETER_KEY: &str = "resource_id";
@@ -130,7 +131,7 @@ mod tests {
         for operation_id in [
             EXPOSURE_OPERATION_ID,
             CONTRAST_OPERATION_ID,
-            TONE_CURVE_OPERATION_ID,
+            OKLAB_LIGHTNESS_TONE_CURVE_OPERATION_ID,
             RGB_WHITE_BALANCE_OPERATION_ID,
             SATURATION_OPERATION_ID,
             SELECTIVE_TONE_OPERATION_ID,
@@ -148,11 +149,6 @@ mod tests {
             EXPOSURE_STOPS_PARAMETER_KEY,
             CONTRAST_FACTOR_PARAMETER_KEY,
             CONTRAST_PIVOT_PARAMETER_KEY,
-            TONE_CURVE_POINTS_PARAMETER_KEY,
-            TONE_CURVE_MASTER_POINTS_PARAMETER_KEY,
-            TONE_CURVE_RED_POINTS_PARAMETER_KEY,
-            TONE_CURVE_GREEN_POINTS_PARAMETER_KEY,
-            TONE_CURVE_BLUE_POINTS_PARAMETER_KEY,
             WHITE_BALANCE_TEMPERATURE_PARAMETER_KEY,
             WHITE_BALANCE_TINT_PARAMETER_KEY,
             SATURATION_FACTOR_PARAMETER_KEY,
@@ -172,6 +168,8 @@ mod tests {
             COLOR_RANGE_SATURATION_PARAMETER_KEY,
             COLOR_RANGE_LIGHTNESS_PARAMETER_KEY,
             POINT_COLOR_RANGES_PARAMETER_KEY,
+            SELECTIVE_COLOR_RELATIVE_PARAMETER_KEY,
+            SELECTIVE_COLOR_CMYK_PARAMETER_KEY,
             LUT_RESOURCE_ID_PARAMETER_KEY,
             LUT_TITLE_PARAMETER_KEY,
             LUT_MANAGED_PATH_PARAMETER_KEY,

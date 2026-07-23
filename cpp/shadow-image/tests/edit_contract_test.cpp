@@ -108,6 +108,31 @@ void expect_close_double(
     };
 }
 
+[[nodiscard]] std::array<double, 3> oklab_from_linear_srgb(
+    const std::array<float, 3>& rgb
+) {
+    const double l = std::cbrt(
+        0.4122214708 * static_cast<double>(rgb[0])
+        + 0.5363325363 * static_cast<double>(rgb[1])
+        + 0.0514459929 * static_cast<double>(rgb[2])
+    );
+    const double m = std::cbrt(
+        0.2119034982 * static_cast<double>(rgb[0])
+        + 0.6806995451 * static_cast<double>(rgb[1])
+        + 0.1073969566 * static_cast<double>(rgb[2])
+    );
+    const double s = std::cbrt(
+        0.0883024619 * static_cast<double>(rgb[0])
+        + 0.2817188376 * static_cast<double>(rgb[1])
+        + 0.6299787005 * static_cast<double>(rgb[2])
+    );
+    return {
+        0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+        1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+        0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s,
+    };
+}
+
 [[nodiscard]] image::FloatRgbImage rgb_image(
     const std::uint32_t width,
     std::vector<float> samples,
@@ -161,8 +186,7 @@ void stable_operation_ids_are_explicit() {
     const std::array nodes{
         image::AdjustmentParameters{image::ExposureAdjustment{}},
         image::AdjustmentParameters{image::ContrastAdjustment{}},
-        image::AdjustmentParameters{image::ToneCurve{}},
-        image::AdjustmentParameters{image::SmoothRgbToneCurve{}},
+        image::AdjustmentParameters{image::OklabLightnessToneCurve{}},
         image::AdjustmentParameters{image::RgbWhiteBalanceAdjustment{}},
         image::AdjustmentParameters{image::SaturationAdjustment{}},
         image::AdjustmentParameters{image::SelectiveToneAdjustment{}},
@@ -179,39 +203,35 @@ void stable_operation_ids_are_explicit() {
         "contrast has a stable operation id"
     );
     expect(
-        image::operation_id(image::operation(nodes[2])) == "shadow.tone_curve",
-        "legacy tone curve has a stable operation id"
+        image::operation_id(image::operation(nodes[2])) == "shadow.oklab_lightness_tone_curve",
+        "Oklab lightness curve has the stable authored curve operation id"
     );
     expect(
-        image::operation_id(image::operation(nodes[3])) == "shadow.tone_curve",
-        "smooth RGB tone curve shares the stable versioned operation id"
-    );
-    expect(
-        image::operation_id(image::operation(nodes[4])) == "shadow.rgb_white_balance",
+        image::operation_id(image::operation(nodes[3])) == "shadow.rgb_white_balance",
         "RGB white balance has a stable operation id"
     );
     expect(
-        image::operation_id(image::operation(nodes[5])) == "shadow.saturation",
+        image::operation_id(image::operation(nodes[4])) == "shadow.saturation",
         "saturation has a stable operation id"
     );
     expect(
-        image::operation_id(image::operation(nodes[6])) == "shadow.selective_tone",
+        image::operation_id(image::operation(nodes[5])) == "shadow.selective_tone",
         "selective tone has a stable operation id"
     );
     expect(
-        image::operation_id(image::operation(nodes[7])) == "shadow.perceptual_color",
+        image::operation_id(image::operation(nodes[6])) == "shadow.perceptual_color",
         "perceptual color has a stable operation id"
     );
     expect(
-        image::operation_id(image::operation(nodes[8])) == "shadow.lut_3d",
+        image::operation_id(image::operation(nodes[7])) == "shadow.lut_3d",
         "3D LUT has a stable operation id"
     );
     expect(
-        image::operation_id(image::operation(nodes[9])) == "shadow.sharpen",
+        image::operation_id(image::operation(nodes[8])) == "shadow.sharpen",
         "sharpen has a stable operation id"
     );
     for (std::size_t index = 0U; index < 9U; ++index) {
-        if (index == 6U) {
+        if (index == 5U || index == 8U) {
             continue;
         }
         expect(
@@ -225,7 +245,7 @@ void stable_operation_ids_are_explicit() {
         );
     }
     expect(
-        image::locality(image::operation(nodes[6]))
+        image::locality(image::operation(nodes[5]))
             == image::AdjustmentLocality::neighborhood,
         "guided selective tone explicitly declares neighborhood execution"
     );
@@ -248,7 +268,7 @@ void stable_operation_ids_are_explicit() {
         "complete guided selective tone reports both box-pass radii to the tile scheduler"
     );
     expect(
-        image::locality(image::operation(nodes[9]))
+        image::locality(image::operation(nodes[8]))
             == image::AdjustmentLocality::neighborhood,
         "sharpen explicitly declares neighborhood execution"
     );
@@ -465,8 +485,8 @@ void point_color_current_contract_applies_ranges_in_order() {
     const std::array current_nodes{
         image::AdjustmentNode{
             .node_id = "multi-point-color",
-            .parameter_schema_version = image::perceptual_color_v2_parameter_schema_version,
-            .implementation_version = image::perceptual_color_v2_implementation_version,
+            .parameter_schema_version = image::perceptual_color_v3_parameter_schema_version,
+            .implementation_version = image::perceptual_color_v3_implementation_version,
             .parameters = parameters,
         },
     };
@@ -490,6 +510,59 @@ void point_color_current_contract_applies_ranges_in_order() {
         image::EditErrorCode::unsupported_version,
         0U,
         "an obsolete Point Color contract is rejected instead of upgraded"
+    );
+}
+
+void selective_color_has_distinct_relative_absolute_and_neutral_semantics() {
+    auto input = rgb_image(2, {0.70F, 0.20F, 0.20F, 1.0F, 1.0F, 1.0F});
+    input.working_space = linear_srgb();
+
+    image::PerceptualColorAdjustment relative;
+    relative.selective_color_relative = true;
+    // Add magenta to Reds and black to Whites. Relative adjustment must leave
+    // specular white untouched because its CMYK components are all zero.
+    relative.selective_color_cmyk[0][1] = 0.25;
+    relative.selective_color_cmyk[6][3] = 0.25;
+    const std::array relative_node{
+        image::AdjustmentNode{
+            .node_id = "selective-color-relative",
+            .parameter_schema_version = image::perceptual_color_v3_parameter_schema_version,
+            .implementation_version = image::perceptual_color_v3_implementation_version,
+            .parameters = relative,
+        },
+    };
+    const auto relative_output = image::execute_adjustment_nodes(input, relative_node);
+    expect(
+        relative_output.samples[1] < input.samples[1],
+        "Relative Selective Color adds magenta by reducing green in a red target"
+    );
+    expect(
+        relative_output.samples[3] == input.samples[3]
+            && relative_output.samples[4] == input.samples[4]
+            && relative_output.samples[5] == input.samples[5],
+        "Relative Selective Color cannot tint pure specular white"
+    );
+
+    image::PerceptualColorAdjustment absolute = relative;
+    absolute.selective_color_relative = false;
+    const std::array absolute_node{
+        image::AdjustmentNode{
+            .node_id = "selective-color-absolute",
+            .parameter_schema_version = image::perceptual_color_v3_parameter_schema_version,
+            .implementation_version = image::perceptual_color_v3_implementation_version,
+            .parameters = absolute,
+        },
+    };
+    const auto absolute_output = image::execute_adjustment_nodes(input, absolute_node);
+    expect(
+        absolute_output.samples[1] < relative_output.samples[1],
+        "Absolute Selective Color applies a stronger fixed magenta change than Relative"
+    );
+    expect(
+        absolute_output.samples[3] < input.samples[3]
+            && absolute_output.samples[4] < input.samples[4]
+            && absolute_output.samples[5] < input.samples[5],
+        "Absolute Selective Color can add black to pure white"
     );
 }
 
@@ -986,7 +1059,7 @@ void selective_tone_uses_fixed_photographer_facing_zones() {
     );
 }
 
-void selective_tone_weights_are_smooth_and_preserve_rgb_ratios() {
+void selective_tone_weights_are_smooth_and_preserve_oklab_chroma() {
     const float below = static_cast<float>(0.18 * std::exp2(-0.6001));
     const float above = static_cast<float>(0.18 * std::exp2(-0.5999));
     const auto boundary = rgb_image(
@@ -1012,7 +1085,8 @@ void selective_tone_weights_are_smooth_and_preserve_rgb_ratios() {
         "selective tone has a finite, smooth slope through the black/shadow overlap"
     );
 
-    const auto colored = rgb_image(1, {0.02F, 0.04F, 0.08F});
+    auto colored = rgb_image(1, {0.02F, 0.04F, 0.08F});
+    colored.working_space = linear_srgb();
     const std::array shadow_node{
         image::AdjustmentNode{
             .node_id = "ratio-preserving-shadows",
@@ -1022,15 +1096,19 @@ void selective_tone_weights_are_smooth_and_preserve_rgb_ratios() {
         },
     };
     const auto scaled = image::execute_adjustment_nodes(colored, shadow_node);
-    expect_close(
-        scaled.samples[1] / scaled.samples[0],
-        2.0F,
-        "selective tone scales green by the same exposure gain as red"
+    const auto input_lab = oklab_from_linear_srgb({
+        colored.samples[0], colored.samples[1], colored.samples[2],
+    });
+    const auto output_lab = oklab_from_linear_srgb({
+        scaled.samples[0], scaled.samples[1], scaled.samples[2],
+    });
+    expect_close_double(
+        output_lab[1], input_lab[1], 2.0e-5,
+        "selective tone preserves Oklab a while adjusting local lightness"
     );
-    expect_close(
-        scaled.samples[2] / scaled.samples[0],
-        4.0F,
-        "selective tone scales blue by the same exposure gain as red"
+    expect_close_double(
+        output_lab[2], input_lab[2], 2.0e-5,
+        "selective tone preserves Oklab b while adjusting local lightness"
     );
 }
 
@@ -1183,8 +1261,8 @@ void perceptual_color_is_exactly_neutral_for_identity_and_low_chroma() {
     const std::array neutral_node{
         image::AdjustmentNode{
             .node_id = "neutral-perceptual-color",
-            .parameter_schema_version = image::perceptual_color_v2_parameter_schema_version,
-            .implementation_version = image::perceptual_color_v2_implementation_version,
+            .parameter_schema_version = image::perceptual_color_v3_parameter_schema_version,
+            .implementation_version = image::perceptual_color_v3_implementation_version,
             .parameters = neutral_parameters,
         },
     };
@@ -1211,8 +1289,8 @@ void perceptual_color_is_exactly_neutral_for_identity_and_low_chroma() {
     const std::array aggressive_node{
         image::AdjustmentNode{
             .node_id = "undefined-hue-guard",
-            .parameter_schema_version = image::perceptual_color_v2_parameter_schema_version,
-            .implementation_version = image::perceptual_color_v2_implementation_version,
+            .parameter_schema_version = image::perceptual_color_v3_parameter_schema_version,
+            .implementation_version = image::perceptual_color_v3_implementation_version,
             .parameters = aggressive,
         },
     };
@@ -1242,16 +1320,16 @@ void perceptual_color_range_wraps_across_the_hue_seam() {
     const std::array zero_node{
         image::AdjustmentNode{
             .node_id = "range-at-zero",
-            .parameter_schema_version = image::perceptual_color_v2_parameter_schema_version,
-            .implementation_version = image::perceptual_color_v2_implementation_version,
+            .parameter_schema_version = image::perceptual_color_v3_parameter_schema_version,
+            .implementation_version = image::perceptual_color_v3_implementation_version,
             .parameters = centered_at_zero,
         },
     };
     const std::array full_turn_node{
         image::AdjustmentNode{
             .node_id = "range-at-360",
-            .parameter_schema_version = image::perceptual_color_v2_parameter_schema_version,
-            .implementation_version = image::perceptual_color_v2_implementation_version,
+            .parameter_schema_version = image::perceptual_color_v3_parameter_schema_version,
+            .implementation_version = image::perceptual_color_v3_implementation_version,
             .parameters = centered_at_360,
         },
     };
@@ -1295,8 +1373,8 @@ void perceptual_hue_bands_route_named_linear_srgb_colors() {
             const std::array nodes{
                 image::AdjustmentNode{
             .node_id = "named-color-routing",
-            .parameter_schema_version = image::perceptual_color_v2_parameter_schema_version,
-            .implementation_version = image::perceptual_color_v2_implementation_version,
+            .parameter_schema_version = image::perceptual_color_v3_parameter_schema_version,
+            .implementation_version = image::perceptual_color_v3_implementation_version,
                     .parameters = parameters,
                 },
             };
@@ -1349,8 +1427,8 @@ void perceptual_hue_bands_are_smooth_and_cover_the_color_wheel() {
     const std::array nodes{
         image::AdjustmentNode{
             .node_id = "all-hue-desaturation",
-            .parameter_schema_version = image::perceptual_color_v2_parameter_schema_version,
-            .implementation_version = image::perceptual_color_v2_implementation_version,
+            .parameter_schema_version = image::perceptual_color_v3_parameter_schema_version,
+            .implementation_version = image::perceptual_color_v3_implementation_version,
             .parameters = desaturate,
         },
     };
@@ -1389,8 +1467,8 @@ void perceptual_hue_bands_are_smooth_and_cover_the_color_wheel() {
     const std::array seam_nodes{
         image::AdjustmentNode{
             .node_id = "magenta-red-seam",
-            .parameter_schema_version = image::perceptual_color_v2_parameter_schema_version,
-            .implementation_version = image::perceptual_color_v2_implementation_version,
+            .parameter_schema_version = image::perceptual_color_v3_parameter_schema_version,
+            .implementation_version = image::perceptual_color_v3_implementation_version,
             .parameters = seam_parameters,
         },
     };
@@ -1410,8 +1488,8 @@ void perceptual_hue_bands_are_smooth_and_cover_the_color_wheel() {
     const std::array vibrance_node{
         image::AdjustmentNode{
             .node_id = "adaptive-vibrance",
-            .parameter_schema_version = image::perceptual_color_v2_parameter_schema_version,
-            .implementation_version = image::perceptual_color_v2_implementation_version,
+            .parameter_schema_version = image::perceptual_color_v3_parameter_schema_version,
+            .implementation_version = image::perceptual_color_v3_implementation_version,
             .parameters = vibrance,
         },
     };
@@ -1431,8 +1509,8 @@ void perceptual_color_supports_d65_rgb_primaries_without_gamut_clipping() {
     const std::array nodes{
         image::AdjustmentNode{
             .node_id = "rec2020-perceptual-color",
-            .parameter_schema_version = image::perceptual_color_v2_parameter_schema_version,
-            .implementation_version = image::perceptual_color_v2_implementation_version,
+            .parameter_schema_version = image::perceptual_color_v3_parameter_schema_version,
+            .implementation_version = image::perceptual_color_v3_implementation_version,
             .parameters = parameters,
         },
     };
@@ -1468,8 +1546,8 @@ void new_adjustments_respect_node_order() {
     };
     const image::AdjustmentNode color{
             .node_id = "perceptual-lightness",
-            .parameter_schema_version = image::perceptual_color_v2_parameter_schema_version,
-            .implementation_version = image::perceptual_color_v2_implementation_version,
+            .parameter_schema_version = image::perceptual_color_v3_parameter_schema_version,
+            .implementation_version = image::perceptual_color_v3_implementation_version,
         .parameters = color_parameters,
     };
     const std::array tone_then_color{tone, color};
@@ -1512,6 +1590,7 @@ void node_order_is_observable_and_disabled_nodes_are_skipped() {
     expect_close(unchanged.samples[0], input.samples[0], "disabled nodes do not affect pixels");
 }
 
+#if 0 // Removed RGB tone-curve contract tests. Oklab coverage follows below.
 void tone_curve_node_is_neutral_and_respects_declared_order() {
     const auto neutral_input = rgb_image(1, {-0.5F, 0.25F, 1.5F});
     const std::array neutral_node{
@@ -1627,6 +1706,8 @@ void invalid_tone_curve_nodes_report_their_index() {
         "tone curve evaluation errors retain node provenance"
     );
 }
+
+#endif
 
 void invalid_values_and_versions_fail_closed() {
     auto nan_input = rgb_image(1, {0.1F, 0.2F, std::numeric_limits<float>::quiet_NaN()});
@@ -1751,8 +1832,8 @@ void new_adjustment_bounds_are_validated_without_pixels() {
         },
         image::AdjustmentNode{
             .node_id = "perceptual-color-edges",
-            .parameter_schema_version = image::perceptual_color_v2_parameter_schema_version,
-            .implementation_version = image::perceptual_color_v2_implementation_version,
+            .parameter_schema_version = image::perceptual_color_v3_parameter_schema_version,
+            .implementation_version = image::perceptual_color_v3_implementation_version,
             .parameters = edge_color,
         },
         image::AdjustmentNode{
@@ -1794,8 +1875,8 @@ void new_adjustment_bounds_are_validated_without_pixels() {
     const std::array invalid_band_node{
         image::AdjustmentNode{
             .node_id = "invalid-hue-band",
-            .parameter_schema_version = image::perceptual_color_v2_parameter_schema_version,
-            .implementation_version = image::perceptual_color_v2_implementation_version,
+            .parameter_schema_version = image::perceptual_color_v3_parameter_schema_version,
+            .implementation_version = image::perceptual_color_v3_implementation_version,
             .parameters = invalid_band,
         },
     };
@@ -1806,13 +1887,30 @@ void new_adjustment_bounds_are_validated_without_pixels() {
         "non-finite hue band parameters fail closed"
     );
 
+    image::PerceptualColorAdjustment invalid_selective_color;
+    invalid_selective_color.selective_color_cmyk[8][3] = 1.0001;
+    const std::array invalid_selective_color_node{
+        image::AdjustmentNode{
+            .node_id = "invalid-selective-color-cmyk",
+            .parameter_schema_version = image::perceptual_color_v3_parameter_schema_version,
+            .implementation_version = image::perceptual_color_v3_implementation_version,
+            .parameters = invalid_selective_color,
+        },
+    };
+    expect_edit_error(
+        [&] { image::validate_adjustment_nodes(invalid_selective_color_node); },
+        image::EditErrorCode::invalid_parameter,
+        0U,
+        "Selective Color CMYK values outside [-1, 1] fail closed"
+    );
+
     image::PerceptualColorAdjustment invalid_range;
     invalid_range.color_range.width_degrees = 0.0;
     const std::array invalid_range_node{
         image::AdjustmentNode{
             .node_id = "invalid-color-range",
-            .parameter_schema_version = image::perceptual_color_v2_parameter_schema_version,
-            .implementation_version = image::perceptual_color_v2_implementation_version,
+            .parameter_schema_version = image::perceptual_color_v3_parameter_schema_version,
+            .implementation_version = image::perceptual_color_v3_implementation_version,
             .parameters = invalid_range,
         },
     };
@@ -1884,8 +1982,8 @@ void color_and_layout_assumptions_are_enforced() {
     const std::array color_node{
         image::AdjustmentNode{
             .node_id = "d65-only-oklab",
-            .parameter_schema_version = image::perceptual_color_v2_parameter_schema_version,
-            .implementation_version = image::perceptual_color_v2_implementation_version,
+            .parameter_schema_version = image::perceptual_color_v3_parameter_schema_version,
+            .implementation_version = image::perceptual_color_v3_implementation_version,
             .parameters = color,
         },
     };
@@ -1897,6 +1995,79 @@ void color_and_layout_assumptions_are_enforced() {
     );
 }
 
+void oklab_lightness_curve_changes_only_perceptual_lightness() {
+    const auto source = linear_srgb_from_oklch(0.45, 0.10, 33.0);
+    auto input = rgb_image(1, {source[0], source[1], source[2], 42.0F}, 1U);
+    input.working_space = linear_srgb();
+
+    const image::OklabLightnessToneCurve curve{
+        .lightness = image::ToneCurveSet{
+            .points = {{0.0, 0.0}, {0.45, 0.65}, {1.0, 1.0}},
+        },
+    };
+    const auto direct = image::apply_oklab_lightness_tone_curve(input, curve);
+    const auto input_lab = oklab_from_linear_srgb(source);
+    const auto output_lab = oklab_from_linear_srgb({
+        direct.samples[0],
+        direct.samples[1],
+        direct.samples[2],
+    });
+    expect_close_double(
+        output_lab[0],
+        0.65,
+        2.0e-5,
+        "Oklab lightness curve maps its authored L control point"
+    );
+    expect_close_double(
+        output_lab[1],
+        input_lab[1],
+        2.0e-5,
+        "Oklab lightness curve preserves the a opponent axis"
+    );
+    expect_close_double(
+        output_lab[2],
+        input_lab[2],
+        2.0e-5,
+        "Oklab lightness curve preserves the b opponent axis"
+    );
+    expect_close(
+        direct.samples[3],
+        42.0F,
+        "Oklab lightness curve leaves row padding untouched"
+    );
+
+    const std::array node{
+        image::AdjustmentNode{
+            .node_id = "oklab-lightness",
+            .parameter_schema_version = image::oklab_lightness_tone_curve_parameter_schema_version,
+            .implementation_version = image::oklab_lightness_tone_curve_implementation_version,
+            .parameters = curve,
+        },
+    };
+    const auto through_graph = image::execute_adjustment_nodes(input, node);
+    expect(
+        through_graph.samples == direct.samples,
+        "Oklab lightness typed node matches its direct CPU operation"
+    );
+
+    const std::array invalid_version{
+        image::AdjustmentNode{
+            .node_id = "oklab-lightness-wrong-version",
+            .parameter_schema_version = image::oklab_lightness_tone_curve_parameter_schema_version,
+            .implementation_version = image::oklab_lightness_tone_curve_implementation_version
+                + 1U,
+            .parameters = curve,
+        },
+    };
+    expect_edit_error(
+        [&] { static_cast<void>(image::execute_adjustment_nodes(input, invalid_version)); },
+        image::EditErrorCode::unsupported_version,
+        0U,
+        "Oklab lightness curve rejects an unknown implementation contract"
+    );
+}
+
+#if 0 // Removed RGB master/channel curve contract tests.
 void smooth_rgb_tone_curve_is_an_exact_identity_operation() {
     const auto input = rgb_image(
         2,
@@ -2367,6 +2538,8 @@ void tone_curve_is_deterministic() {
     expect(first.samples == second.samples, "identical tone curve inputs are bit-stable");
 }
 
+#endif
+
 } // namespace
 
 int main() {
@@ -2375,6 +2548,7 @@ int main() {
     sharpen_is_neutral_on_identity_and_flat_fields();
     sharpen_emphasizes_log_luminance_without_chromatic_fringes();
     point_color_current_contract_applies_ranges_in_order();
+    selective_color_has_distinct_relative_absolute_and_neutral_semantics();
     detail_effects_current_contract_is_observable_and_obsolete_contract_is_rejected();
     purple_and_green_defringe_ranges_are_independent();
     global_effect_coordinates_are_tile_invariant();
@@ -2383,7 +2557,7 @@ int main() {
     selective_tone_is_exactly_neutral_and_preserves_scene_range();
     scene_contrast_is_restrained_and_preserves_the_middle_gray_anchor();
     selective_tone_uses_fixed_photographer_facing_zones();
-    selective_tone_weights_are_smooth_and_preserve_rgb_ratios();
+    selective_tone_weights_are_smooth_and_preserve_oklab_chroma();
     selective_tone_endpoints_reach_ordinary_detail_without_clipping();
     selective_tone_combined_extremes_are_monotonic_and_smooth();
     selective_tone_uses_a_flat_region_gain_without_cross_edge_leakage();
@@ -2394,22 +2568,9 @@ int main() {
     perceptual_color_supports_d65_rgb_primaries_without_gamut_clipping();
     new_adjustments_respect_node_order();
     node_order_is_observable_and_disabled_nodes_are_skipped();
-    tone_curve_node_is_neutral_and_respects_declared_order();
-    tone_curve_node_disable_and_unclipped_range_are_preserved();
-    invalid_tone_curve_nodes_report_their_index();
     invalid_values_and_versions_fail_closed();
     new_adjustment_bounds_are_validated_without_pixels();
     color_and_layout_assumptions_are_enforced();
-    smooth_rgb_tone_curve_is_an_exact_identity_operation();
-    smooth_tone_curve_uses_shape_preserving_cubic_hermite_interpolation();
-    smooth_tone_curve_allows_authored_reversals_without_spurious_overshoot();
-    smooth_rgb_tone_curve_applies_master_before_individual_channels();
-    smooth_tone_curve_uses_linear_endpoint_tangent_extrapolation();
-    invalid_smooth_rgb_tone_curves_fail_closed_with_versions_and_provenance();
-    default_tone_curve_is_an_exact_neutral_operation();
-    tone_curve_interpolates_control_points_per_channel();
-    tone_curve_extrapolates_without_clipping();
-    invalid_tone_curves_fail_closed();
-    tone_curve_is_deterministic();
+    oklab_lightness_curve_changes_only_perceptual_lightness();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

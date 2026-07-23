@@ -1,7 +1,7 @@
 use rusqlite::OptionalExtension;
 use shadow_domain::{
-    AssetLocation, DecoderSnapshot, EntityId, PhotoDecisionState, PhotoId, Platform,
-    RawMetadataSnapshot, RepresentationId,
+    AssetLocation, EntityId, PhotoDecisionState, PhotoId, Platform, RawMetadataSnapshot,
+    RepresentationId,
 };
 
 use crate::{
@@ -97,6 +97,22 @@ struct StoredReviewItem {
 struct StoredTechnicalObservation {
     json: String,
     digest: [u8; 32],
+}
+
+#[derive(serde::Deserialize)]
+struct MetadataEnvelope {
+    metadata: RawMetadataSnapshot,
+}
+
+fn decode_review_metadata(json: &str) -> Option<RawMetadataSnapshot> {
+    // The Review index consumes only metadata. Decoder snapshots also contain
+    // provider capabilities, preview descriptors, and RAW-development
+    // contracts which evolve independently. Deserializing the complete
+    // `DecoderSnapshot` here made an unrelated capability rename hide valid
+    // EXIF from the Library until every source had been re-inspected.
+    serde_json::from_str::<MetadataEnvelope>(json)
+        .ok()
+        .map(|envelope| envelope.metadata)
 }
 
 impl Catalog {
@@ -430,9 +446,7 @@ fn review_item_from_stored(
         .transpose()?;
     // Decode snapshots are replaceable caches. A corrupt optional metadata payload must not
     // make the Review grid unusable; the inspection queue can rebuild it independently.
-    let metadata = metadata_json
-        .and_then(|json| serde_json::from_str::<DecoderSnapshot>(&json).ok())
-        .map(|snapshot| snapshot.metadata);
+    let metadata = metadata_json.and_then(|json| decode_review_metadata(&json));
     let technical = match (technical, visual.as_ref(), revision) {
         (Some(technical), Some(visual), Some(revision)) => {
             let observation = decode_observation(
@@ -597,6 +611,38 @@ mod tests {
         CachedArtifactRole, RecordCachedArtifact, RecordTechnicalObservation, RegisterAsset,
         technical_observation::artifact_content_hash,
     };
+
+    #[test]
+    fn review_metadata_survives_unrelated_decoder_snapshot_schema_changes() {
+        let json = r#"{
+            "provider":{"id":"legacy-provider"},
+            "metadata":{
+                "make":"Canon","model":"EOS R",
+                "normalized_make":"Canon","normalized_model":"EOS R",
+                "dng_version":null,"raw_count":1,
+                "raw_dimensions":{"width":6888,"height":4546},
+                "image_dimensions":{"width":6742,"height":4498},
+                "margins":{"left":146,"top":48,"right":0,"bottom":0},
+                "orientation":0,"cfa_pattern":"RGGB","sensor_colors":3,
+                "sensor_bits":14,"black_level":0,"white_level":16383,
+                "as_shot_neutral":[0.0,0.0,0.0,0.0],
+                "baseline_exposure":-999.0,"iso_speed":100.0,
+                "exposure_time_seconds":1.6,"aperture_f_number":9.0,
+                "focal_length_mm":50.0,"captured_at_unix_seconds":1551392920,
+                "lens_make":"","lens_model":"RF50mm F1.2 L USM",
+                "focal_length_35mm":0.0
+            },
+            "capabilities":{"removed_legacy_shape":"must not affect EXIF"},
+            "previews":"also deliberately incompatible"
+        }"#;
+
+        let metadata = decode_review_metadata(json).expect("decode metadata-only envelope");
+        assert_eq!(metadata.make, "Canon");
+        assert_eq!(metadata.model, "EOS R");
+        assert_eq!(metadata.sensor_bits, 14);
+        assert_eq!(metadata.raw_dimensions.width, 6_888);
+        assert_eq!(metadata.lens_model, "RF50mm F1.2 L USM");
+    }
 
     #[test]
     fn review_source_and_page_join_the_pointer_only_decision_projection() {

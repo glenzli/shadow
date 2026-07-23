@@ -532,8 +532,7 @@ void require_parameter_count(
     };
 
     if (
-        source.operation != FfiAdjustmentOperation::SmoothRgbToneCurve
-        && source.operation != FfiAdjustmentOperation::PerceptualColor
+        source.operation != FfiAdjustmentOperation::PerceptualColor
         && !source.parameter_group_lengths.empty()
     ) {
         throw_invalid_adjustment_plan(
@@ -558,78 +557,37 @@ void require_parameter_count(
             source.parameters[1],
         };
         break;
-    case FfiAdjustmentOperation::ToneCurve: {
+    case FfiAdjustmentOperation::OklabLightnessToneCurve: {
         if (source.parameters.size() % 2U != 0U) {
             throw_invalid_adjustment_plan(
-                "tone curve parameters must contain flattened x/y pairs"
+                "Oklab lightness curve parameters must contain flattened x/y pairs"
             );
         }
         const std::size_t point_count = source.parameters.size() / 2U;
         if (point_count < 2U || point_count > image::maximum_tone_curve_points) {
             throw_invalid_adjustment_plan(
-                "tone curve must contain between 2 and 256 control points"
+                "Oklab lightness curve must contain between 2 and 256 control points"
             );
         }
-
-        image::ToneCurve curve{
+        image::OklabLightnessToneCurve curve{
             .parameter_schema_version = source.parameter_schema_version,
             .implementation_version = source.implementation_version,
-            .points = {},
+            .lightness = {},
         };
-        curve.points.reserve(point_count);
+        // ToneCurveSet intentionally defaults to an identity pair for the native
+        // authoring API. The FFI wire contract, however, carries the complete
+        // point sequence. Clear that default before appending the transmitted
+        // points; otherwise every non-identity curve becomes
+        // (0,0) -> (1,1) -> authored points, which fails the strictly-increasing
+        // x-coordinate validation and leaves the UI showing its stale preview.
+        curve.lightness.points.clear();
+        curve.lightness.points.reserve(point_count);
         for (std::size_t index = 0U; index < source.parameters.size(); index += 2U) {
-            curve.points.push_back(image::ToneCurvePoint{
+            curve.lightness.points.push_back(image::ToneCurvePoint{
                 source.parameters[index],
                 source.parameters[index + 1U],
             });
         }
-        result.parameters = std::move(curve);
-        break;
-    }
-    case FfiAdjustmentOperation::SmoothRgbToneCurve: {
-        if (source.parameter_group_lengths.size() != 4U) {
-            throw_invalid_adjustment_plan(
-                "smooth RGB tone curve requires four channel point counts"
-            );
-        }
-        std::size_t total_point_count = 0U;
-        for (const std::uint32_t count : source.parameter_group_lengths) {
-            if (count < 2U || count > image::maximum_tone_curve_points) {
-                throw_invalid_adjustment_plan(
-                    "each smooth RGB tone curve channel requires 2 through 256 points"
-                );
-            }
-            total_point_count += static_cast<std::size_t>(count);
-        }
-        if (source.parameters.size() != total_point_count * 2U) {
-            throw_invalid_adjustment_plan(
-                "smooth RGB tone curve grouped lengths do not match its flattened points"
-            );
-        }
-
-        image::SmoothRgbToneCurve curve;
-        curve.parameter_schema_version = source.parameter_schema_version;
-        curve.implementation_version = source.implementation_version;
-        std::size_t point_offset = 0U;
-        const auto append_channel = [&](
-            image::ToneCurveSet& channel,
-            const std::uint32_t point_count
-        ) {
-            channel.points.clear();
-            channel.points.reserve(static_cast<std::size_t>(point_count));
-            for (std::uint32_t point = 0U; point < point_count; ++point) {
-                const std::size_t parameter = (point_offset + point) * 2U;
-                channel.points.push_back(image::ToneCurvePoint{
-                    source.parameters[parameter],
-                    source.parameters[parameter + 1U],
-                });
-            }
-            point_offset += static_cast<std::size_t>(point_count);
-        };
-        append_channel(curve.master, source.parameter_group_lengths[0]);
-        append_channel(curve.red, source.parameter_group_lengths[1]);
-        append_channel(curve.green, source.parameter_group_lengths[2]);
-        append_channel(curve.blue, source.parameter_group_lengths[3]);
         result.parameters = std::move(curve);
         break;
     }
@@ -663,17 +621,17 @@ void require_parameter_count(
         break;
     case FfiAdjustmentOperation::PerceptualColor: {
         if (source.parameter_schema_version
-                != image::perceptual_color_v2_parameter_schema_version
+                != image::perceptual_color_v3_parameter_schema_version
             || source.implementation_version
-                != image::perceptual_color_v2_implementation_version
+                != image::perceptual_color_v3_implementation_version
             || source.parameter_group_lengths.size() != 1U) {
             throw_invalid_adjustment_plan(
-                "perceptual color requires the current ordered-range contract"
+                "perceptual color requires the current Color Mixer and Selective Color contract"
             );
         }
         const std::size_t additional_count = source.parameter_group_lengths[0];
         if (additional_count + 1U > image::maximum_point_color_ranges
-            || source.parameters.size() != 32U + additional_count * 7U) {
+            || source.parameters.size() != 69U + additional_count * 7U) {
             throw_invalid_adjustment_plan(
                 "perceptual color has an invalid ordered range payload"
             );
@@ -699,9 +657,24 @@ void require_parameter_count(
             .saturation = source.parameters[30],
             .lightness = source.parameters[31],
         };
+        if (source.parameters[32] != 0.0 && source.parameters[32] != 1.0) {
+            throw_invalid_adjustment_plan(
+                "Selective Color relative flag must be zero or one"
+            );
+        }
+        parameters.selective_color_relative = source.parameters[32] == 1.0;
+        for (std::size_t target = 0U; target < image::selective_color_target_count; ++target) {
+            for (std::size_t component = 0U;
+                 component < image::selective_color_component_count;
+                 ++component) {
+                parameters.selective_color_cmyk[target][component] =
+                    source.parameters[33U + target * image::selective_color_component_count
+                                      + component];
+            }
+        }
         parameters.additional_color_ranges.reserve(additional_count);
         for (std::size_t range_index = 0U; range_index < additional_count; ++range_index) {
-            const std::size_t offset = 32U + range_index * 7U;
+            const std::size_t offset = 69U + range_index * 7U;
             if (source.parameters[offset] != 0.0 && source.parameters[offset] != 1.0) {
                 throw_invalid_adjustment_plan(
                     "perceptual color range enabled flag must be zero or one"

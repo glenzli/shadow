@@ -19,15 +19,9 @@ Item {
     property color identityColor: Theme.curveIdentity
 
     readonly property bool hasCurve: Boolean(controller && controller.hasToneCurve)
-    readonly property bool hasAnyCurve: Boolean(controller && controller.hasAnyToneCurve)
-    readonly property bool smoothCurve: Boolean(controller && controller.toneCurveSmooth)
-    readonly property int currentChannel: controller ? controller.toneCurveChannel : 0
     readonly property bool curveEditable: Boolean(controller && controller.toneCurveEditable)
     readonly property var curveModel: controller ? controller.toneCurvePoints : null
-    readonly property color currentCurveColor: currentChannel === 1
-        ? Theme.curveRed : currentChannel === 2
-            ? Theme.curveGreen : currentChannel === 3
-                ? Theme.curveBlue : accentColor
+    readonly property color currentCurveColor: accentColor
 
     property int selectedPoint: -1
     property bool selectedPointDeletable: false
@@ -169,14 +163,6 @@ Item {
         controller.resetToneCurve()
     }
 
-    function changeChannel(channel) {
-        if (channel === currentChannel)
-            return
-        finishPointGesture()
-        clearSelection()
-        controller.selectToneCurveChannel(channel)
-    }
-
     Connections {
         target: root.controller
 
@@ -216,7 +202,6 @@ Item {
     onGridColorChanged: curveCanvas.requestPaint()
     onAccentColorChanged: curveCanvas.requestPaint()
     onIdentityColorChanged: curveCanvas.requestPaint()
-    onSmoothCurveChanged: curveCanvas.requestPaint()
     onCurrentCurveColorChanged: curveCanvas.requestPaint()
 
     Keys.onPressed: event => {
@@ -240,16 +225,14 @@ Item {
                 spacing: 2
 
                 Label {
-                    text: qsTr("Point Curve")
+                    text: qsTr("Perceptual Lightness Curve")
                     color: root.textColor
                     font.pixelSize: 11
                     font.weight: Font.DemiBold
                 }
 
                 Label {
-                    text: root.smoothCurve
-                        ? qsTr("Smooth RGB curve")
-                        : qsTr("Linear preview")
+                    text: qsTr("Oklab L only · hue and chroma stay unchanged")
                     color: root.mutedTextColor
                     font.pixelSize: 9
                     elide: Text.ElideRight
@@ -266,69 +249,12 @@ Item {
                 Label {
                     id: curveStateLabel
                     anchors.centerIn: parent
-                    text: !root.smoothCurve
-                        ? qsTr("LEGACY")
-                        : root.hasCurve ? qsTr("ACTIVE") : qsTr("NEUTRAL")
+                    text: root.hasCurve ? qsTr("ACTIVE") : qsTr("NEUTRAL")
                     color: root.hasCurve ? root.accentColor : root.mutedTextColor
                     font.pixelSize: 8
                     font.weight: Font.Bold
                     font.letterSpacing: 0.8
                 }
-            }
-        }
-
-        TabBar {
-            id: channelTabs
-
-            Layout.fillWidth: true
-            Layout.preferredHeight: 30
-            spacing: 0
-            currentIndex: root.currentChannel
-            background: Rectangle {
-                radius: Theme.compactControlRadius
-                color: Theme.surfaceSubtle
-                border.color: root.borderColor
-            }
-
-            ShadowTabButton {
-                width: channelTabs.width / 4
-                compact: true
-                activeColor: root.accentColor
-                minimumTabWidth: 0
-                underlineInset: 20
-                text: qsTr("RGB")
-                toolTipText: qsTr("Master RGB curve")
-                onClicked: root.changeChannel(0)
-            }
-            ShadowTabButton {
-                width: channelTabs.width / 4
-                compact: true
-                activeColor: Theme.curveRed
-                minimumTabWidth: 0
-                underlineInset: 20
-                text: qsTr("R")
-                toolTipText: qsTr("Red channel curve")
-                onClicked: root.changeChannel(1)
-            }
-            ShadowTabButton {
-                width: channelTabs.width / 4
-                compact: true
-                activeColor: Theme.curveGreen
-                minimumTabWidth: 0
-                underlineInset: 20
-                text: qsTr("G")
-                toolTipText: qsTr("Green channel curve")
-                onClicked: root.changeChannel(2)
-            }
-            ShadowTabButton {
-                width: channelTabs.width / 4
-                compact: true
-                activeColor: Theme.curveBlue
-                minimumTabWidth: 0
-                underlineInset: 20
-                text: qsTr("B")
-                toolTipText: qsTr("Blue channel curve")
-                onClicked: root.changeChannel(3)
             }
         }
 
@@ -392,7 +318,7 @@ Item {
                         const sampleCount = Math.max(65, Math.min(
                             513, Math.ceil(right - left) + 1))
                         const samples = root.curveModel.sampledPoints(
-                            sampleCount, root.smoothCurve)
+                            sampleCount, true)
                         if (!samples || samples.length < 2)
                             return
                         let started = false
@@ -600,16 +526,6 @@ Item {
                 onClicked: root.resetCurve()
             }
 
-            ShadowButton {
-                id: resetAllCurvesButton
-
-                text: qsTr("RESET ALL")
-                compact: true
-                variant: ShadowButton.Ghost
-                enabled: root.hasAnyCurve
-                Accessible.name: qsTr("Reset all Tone Curve channels")
-                onClicked: root.controller.resetAllToneCurves()
-            }
         }
 
         Label {

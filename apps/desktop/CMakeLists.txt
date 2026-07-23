@@ -1,6 +1,6 @@
 find_package(
     Qt6 6.11.1 REQUIRED
-    COMPONENTS Core Concurrent LinguistTools Quick QuickControls2 Svg
+    COMPONENTS Core Concurrent LinguistTools Quick QuickControls2 Svg Widgets
 )
 find_package(PkgConfig REQUIRED)
 find_package(JPEG REQUIRED)
@@ -150,9 +150,11 @@ qt_add_resources(
         icons/slot-right.svg
         icons/star.svg
         icons/star-filled.svg
+        icons/scopes.svg
         icons/trash.svg
         icons/unflag.svg
         icons/undo.svg
+        icons/zebra.svg
 )
 
 qt_add_resources(
@@ -250,6 +252,7 @@ target_link_libraries(
         Qt6::Quick
         Qt6::QuickControls2
         Qt6::Svg
+        Qt6::Widgets
 )
 if(Lensfun_FOUND)
     target_link_libraries(shadow-desktop PRIVATE PkgConfig::Lensfun)
@@ -329,7 +332,7 @@ if(BUILD_TESTING)
         shadow-edit-stack-test
         PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
     )
-    target_link_libraries(shadow-edit-stack-test PRIVATE Qt6::Core)
+    target_link_libraries(shadow-edit-stack-test PRIVATE Qt6::Gui)
     if(MSVC)
         target_compile_options(shadow-edit-stack-test PRIVATE /W4 /permissive-)
     else()
@@ -409,7 +412,7 @@ if(BUILD_TESTING)
         shadow-edit-version-presentation-test
         PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
     )
-    target_link_libraries(shadow-edit-version-presentation-test PRIVATE Qt6::Core)
+    target_link_libraries(shadow-edit-version-presentation-test PRIVATE Qt6::Gui)
     if(MSVC)
         target_compile_options(
             shadow-edit-version-presentation-test
@@ -543,7 +546,7 @@ if(BUILD_TESTING)
         shadow-review-decision-session-test
         PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
     )
-    target_link_libraries(shadow-review-decision-session-test PRIVATE Qt6::Core)
+    target_link_libraries(shadow-review-decision-session-test PRIVATE Qt6::Gui)
     if(MSVC)
         target_compile_options(
             shadow-review-decision-session-test

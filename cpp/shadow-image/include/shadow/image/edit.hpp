@@ -142,8 +142,12 @@ inline constexpr std::uint32_t selective_tone_guided_filter_box_passes = 2U;
 
 inline constexpr std::size_t perceptual_hue_band_count = 8U;
 inline constexpr std::size_t maximum_point_color_ranges = 16U;
-inline constexpr std::uint32_t perceptual_color_v2_parameter_schema_version = 2;
-inline constexpr std::uint32_t perceptual_color_v2_implementation_version = 2;
+inline constexpr std::size_t selective_color_target_count = 9U;
+inline constexpr std::size_t selective_color_component_count = 4U;
+inline constexpr std::size_t selective_color_value_count =
+    selective_color_target_count * selective_color_component_count;
+inline constexpr std::uint32_t perceptual_color_v3_parameter_schema_version = 3;
+inline constexpr std::uint32_t perceptual_color_v3_implementation_version = 3;
 
 // Optional circular hue selection evaluated against the source Oklch hue. width_degrees is the
 // half-width of the selected range; softness is the fraction of that half-width used as a smooth
@@ -172,6 +176,13 @@ struct PerceptualColorAdjustment final {
     std::array<double, perceptual_hue_band_count> lightness{};
     PerceptualColorRange color_range;
     std::vector<PerceptualColorRange> additional_color_ranges;
+    // Photoshop-style Selective Color. Target order is red, yellow, green,
+    // cyan, blue, magenta, white, neutral, black; component order is CMYK.
+    // Relative is the default (changes existing ink proportionally), while
+    // Absolute adds the requested ink directly.
+    bool selective_color_relative = true;
+    std::array<std::array<double, selective_color_component_count>,
+               selective_color_target_count> selective_color_cmyk{};
 };
 
 // Immutable 3D `.cube` resource applied in processed working RGB. Intensity
@@ -241,11 +252,9 @@ inline constexpr std::uint32_t technical_detail_v3_implementation_version = 3;
 inline constexpr std::uint32_t color_grading_v3_implementation_version = 4;
 inline constexpr std::uint32_t finishing_effects_v3_implementation_version = 5;
 
-inline constexpr std::uint32_t tone_curve_parameter_schema_version = 1;
-inline constexpr std::uint32_t tone_curve_implementation_version = 1;
-inline constexpr std::uint32_t smooth_rgb_tone_curve_parameter_schema_version = 2;
-inline constexpr std::uint32_t smooth_rgb_tone_curve_implementation_version = 2;
-// Per individual curve, for both the legacy curve and each v2 master/channel set.
+inline constexpr std::uint32_t oklab_lightness_tone_curve_parameter_schema_version = 1;
+inline constexpr std::uint32_t oklab_lightness_tone_curve_implementation_version = 1;
+// The perceptual L curve has at most this many authored knots.
 inline constexpr std::size_t maximum_tone_curve_points = 256U;
 inline constexpr std::size_t maximum_tone_curve_preview_samples = 4'097U;
 
@@ -256,40 +265,27 @@ struct ToneCurvePoint final {
     auto operator<=>(const ToneCurvePoint&) const = default;
 };
 
-// Version 1 is an intentionally simple, deterministic reference curve. Control-point x
-// coordinates span the normalized [0, 1] domain; y remains unbounded so lifted blacks and
-// super-white results are representable. The default two-point curve is exactly neutral.
-struct ToneCurve final {
-    std::uint32_t parameter_schema_version = tone_curve_parameter_schema_version;
-    std::uint32_t implementation_version = tone_curve_implementation_version;
-    std::vector<ToneCurvePoint> points{{0.0, 0.0}, {1.0, 1.0}};
-};
-
-// One set of interpolation knots for the version-2 RGB point-curve contract. The
-// implementation fits a local, shape-preserving Fritsch-Butland PCHIP through these
-// points. Strictly increasing x coordinates span [0, 1]; y remains unbounded.
+// One set of Oklab-L interpolation knots. The implementation fits a local,
+// shape-preserving Fritsch-Butland PCHIP through these points. Strictly increasing
+// x coordinates span [0, 1]; y remains unbounded.
 struct ToneCurveSet final {
     std::vector<ToneCurvePoint> points{{0.0, 0.0}, {1.0, 1.0}};
 };
 
-// Version 2 groups the overall/master and three channel curves into one atomic
-// adjustment. Each channel is evaluated as channel(master(input)); all four identity
-// curves are an exact no-op. Negative and super-white inputs use linear endpoint-tangent
-// extrapolation rather than clipping or extending a cubic polynomial beyond [0, 1].
-struct SmoothRgbToneCurve final {
-    std::uint32_t parameter_schema_version = smooth_rgb_tone_curve_parameter_schema_version;
-    std::uint32_t implementation_version = smooth_rgb_tone_curve_implementation_version;
-    ToneCurveSet master;
-    ToneCurveSet red;
-    ToneCurveSet green;
-    ToneCurveSet blue;
+// The sole user-authored tone curve is evaluated only on Oklab L. It deliberately
+// keeps the opponent a/b axes unchanged, so tonal shaping preserves hue and chroma
+// much more faithfully than an RGB curve. The normalized control domain and linear
+// endpoint extrapolation retain scene-linear HDR headroom.
+struct OklabLightnessToneCurve final {
+    std::uint32_t parameter_schema_version = oklab_lightness_tone_curve_parameter_schema_version;
+    std::uint32_t implementation_version = oklab_lightness_tone_curve_implementation_version;
+    ToneCurveSet lightness;
 };
 
 using AdjustmentParameters = std::variant<
     ExposureAdjustment,
     ContrastAdjustment,
-    ToneCurve,
-    SmoothRgbToneCurve,
+    OklabLightnessToneCurve,
     RgbWhiteBalanceAdjustment,
     SaturationAdjustment,
     SelectiveToneAdjustment,
@@ -300,8 +296,7 @@ using AdjustmentParameters = std::variant<
 enum class AdjustmentOperation : std::uint8_t {
     exposure,
     contrast,
-    tone_curve,
-    smooth_rgb_tone_curve,
+    oklab_lightness_tone_curve,
     rgb_white_balance,
     saturation,
     selective_tone,
@@ -388,9 +383,9 @@ private:
 );
 
 // Validates the complete adjustment plan without requiring image pixels. All nodes, including
-// disabled ones, are checked for supported versions, finite parameters, and valid Tone Curve
-// geometry/slopes. This lets callers reject malformed work before an expensive decode. Pixel-
-// dependent overflow remains the responsibility of execute_adjustment_nodes().
+// disabled ones, are checked for supported versions, finite parameters, and valid perceptual
+// tone-curve geometry/slopes. This lets callers reject malformed work before an expensive
+// decode. Pixel-dependent overflow remains the responsibility of execute_adjustment_nodes().
 void validate_adjustment_nodes(std::span<const AdjustmentNode> nodes);
 
 // Global raster coordinates keep deterministic grain and radial effects identical between a
@@ -403,8 +398,8 @@ struct AdjustmentExecutionContext final {
 
 // Executes an intentionally compact subset of the future typed edit graph. The recommended
 // default pipeline order is RgbWhiteBalance -> Exposure -> Contrast -> SelectiveTone ->
-// ToneCurve (legacy or SmoothRgbToneCurve) -> Saturation -> PerceptualColor, but that is a
-// recipe convention: this executor always applies nodes in the supplied span order.
+// Saturation -> PerceptualColor -> OklabLightnessToneCurve, but that is a recipe
+// convention: this executor always applies nodes in the supplied span order.
 // Disabled nodes are skipped and the input is never mutated. The executor does not clamp
 // negative or >1 values and rejects NaN/Inf rather than silently contaminating caches.
 [[nodiscard]] FloatRgbImage execute_adjustment_nodes(
@@ -413,24 +408,15 @@ struct AdjustmentExecutionContext final {
     AdjustmentExecutionContext context = {}
 );
 
-// Applies the same piecewise-linear curve independently to every channel in scene-linear
-// working RGB. Samples in [0, 1] are interpolated between control points; negative and
-// greater-than-one samples are linearly extrapolated with the first and last segment slopes.
-// No clipping or implicit perceptual/luma conversion occurs. This is the version-1 CPU
-// correctness baseline, not Shadow's final perceptual tone-curve design.
-[[nodiscard]] FloatRgbImage apply_tone_curve(
+// Applies a smooth curve to Oklab L only.  This standalone equivalent of an
+// OklabLightnessToneCurve node is useful both for contract tests and future
+// GPU parity tests; no output gamut clipping occurs here.
+[[nodiscard]] FloatRgbImage apply_oklab_lightness_tone_curve(
     const FloatRgbImage& input,
-    const ToneCurve& curve
+    const OklabLightnessToneCurve& curve
 );
 
-// Applies the version-2 master/R/G/B curve set in processed linear-light working RGB.
-// This is the standalone equivalent of a SmoothRgbToneCurve adjustment node.
-[[nodiscard]] FloatRgbImage apply_smooth_rgb_tone_curve(
-    const FloatRgbImage& input,
-    const SmoothRgbToneCurve& curve
-);
-
-// Samples the exact version-2 core evaluator at uniformly spaced x coordinates in [0, 1].
+// Samples the exact perceptual-curve evaluator at uniformly spaced x coordinates in [0, 1].
 // UI code should draw these samples instead of fitting an unrelated display-only Bezier.
 // sample_count must be between 2 and maximum_tone_curve_preview_samples, inclusive.
 [[nodiscard]] std::vector<ToneCurvePoint> sample_smooth_tone_curve(

@@ -11,6 +11,7 @@
 #include <QAbstractItemModel>
 #include <QFutureWatcher>
 #include <QObject>
+#include <QSet>
 #include <QString>
 #include <QTimer>
 #include <QVariantList>
@@ -217,13 +218,6 @@ class EditController final : public QObject {
         NOTIFY whiteBalancePickerActiveChanged
     )
     Q_PROPERTY(bool hasToneCurve READ hasToneCurve NOTIFY toneCurveChanged)
-    Q_PROPERTY(bool hasAnyToneCurve READ hasAnyToneCurve NOTIFY toneCurveChanged)
-    Q_PROPERTY(bool toneCurveSmooth READ toneCurveSmooth NOTIFY toneCurveChanged)
-    Q_PROPERTY(
-        int toneCurveChannel
-        READ toneCurveChannel
-        NOTIFY toneCurveChannelChanged
-    )
     Q_PROPERTY(bool toneCurveEditable READ toneCurveEditable NOTIFY toneCurveChanged)
     Q_PROPERTY(QString lutResourceId READ lutResourceId NOTIFY parametersChanged)
     Q_PROPERTY(QString lutTitle READ lutTitle NOTIFY parametersChanged)
@@ -301,9 +295,6 @@ public:
     [[nodiscard]] bool pointColorPickerActive() const noexcept;
     [[nodiscard]] bool whiteBalancePickerActive() const noexcept;
     [[nodiscard]] bool hasToneCurve() const noexcept;
-    [[nodiscard]] bool hasAnyToneCurve() const noexcept;
-    [[nodiscard]] bool toneCurveSmooth() const noexcept;
-    [[nodiscard]] int toneCurveChannel() const noexcept;
     [[nodiscard]] bool toneCurveEditable() const noexcept;
     [[nodiscard]] QString lutResourceId() const;
     [[nodiscard]] QString lutTitle() const;
@@ -361,6 +352,14 @@ public:
         const QString& component,
         double value
     );
+    Q_INVOKABLE double selectiveColorValue(int target_index, int component_index) const;
+    Q_INVOKABLE void setSelectiveColorValue(
+        int target_index,
+        int component_index,
+        double value
+    );
+    Q_INVOKABLE bool selectiveColorRelative() const noexcept;
+    Q_INVOKABLE void setSelectiveColorRelative(bool relative);
     Q_INVOKABLE void setLutResource(
         const QString& resource_id,
         const QString& title,
@@ -389,15 +388,12 @@ public:
         double normalized_y,
         const QString& preview_generation
     );
-    Q_INVOKABLE void selectToneCurveChannel(int channel);
-    Q_INVOKABLE bool toneCurveChannelActive(int channel) const noexcept;
     Q_INVOKABLE void beginToneCurveGesture(int index);
     Q_INVOKABLE void moveToneCurvePoint(int index, double x, double y);
     Q_INVOKABLE void endToneCurveGesture(int index);
     Q_INVOKABLE void addToneCurvePoint(double x, double y);
     Q_INVOKABLE void removeToneCurvePoint(int index);
     Q_INVOKABLE void resetToneCurve();
-    Q_INVOKABLE void resetAllToneCurves();
     Q_INVOKABLE void undo();
     Q_INVOKABLE void redo();
     Q_INVOKABLE void resetSelectedGradeNode();
@@ -413,6 +409,12 @@ public:
     Q_INVOKABLE void saveVersion(const QString& version_name);
     Q_INVOKABLE void loadVersionDraft(const QString& commit_id);
     Q_INVOKABLE void retryAutosave();
+    // An autosave error must not trap the user in the current photo. These
+    // methods are only used after an explicit recovery choice in the shell:
+    // retry keeps the pending target, while discard intentionally drops only
+    // the in-memory working changes before opening that target.
+    Q_INVOKABLE void cancelPendingPhotoOpen();
+    Q_INVOKABLE bool discardFailedAutosaveAndOpenPendingPhoto();
     // Returns true when the window may close immediately. When an autosave is
     // required it queues the durable working snapshot and emits closeReady.
     Q_INVOKABLE bool prepareToClose();
@@ -437,6 +439,7 @@ signals:
     void historyChanged();
     void closeReady();
     void closeSaveFailed();
+    void photoSwitchSaveFailed();
     void sourceIdentityChanged();
     void titleChanged();
     void sourcePathChanged();
@@ -456,7 +459,6 @@ signals:
     void gradeNodeEnabledChanged();
     void parametersChanged();
     void toneCurveChanged();
-    void toneCurveChannelChanged();
     void pointColorPickerActiveChanged();
     void whiteBalancePickerActiveChanged();
 
@@ -550,6 +552,10 @@ private:
     QTimer detail_warmup_debounce_;
     QTimer autosave_debounce_;
     SessionEditHistory<BackendGradeStack> history_;
+    // Slider/curve gestures render a deliberately smaller proxy so the first
+    // useful frame wins over pixel-perfect fidelity. Once every gesture ends,
+    // the controller queues the normal edit preview for the settled recipe.
+    QSet<QString> active_parameter_gestures_;
     BackendGradeStack grade_stack_;
     BackendGradeStack committed_grade_stack_;
     QString base_commit_id_;
@@ -609,7 +615,6 @@ private:
     bool before_requested_ = false;
     bool detail_queued_ = false;
     int selected_grade_node_index_ = -1;
-    int tone_curve_channel_ = 0;
     int selected_point_color_index_ = -1;
     bool point_color_picker_active_ = false;
     bool white_balance_picker_active_ = false;

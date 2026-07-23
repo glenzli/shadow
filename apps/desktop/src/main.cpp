@@ -12,10 +12,13 @@
 #endif
 
 #include <QDebug>
+#include <QApplication>
 #include <QColorSpace>
 #include <QDir>
-#include <QGuiApplication>
+#include <QFile>
+#include <QFileInfo>
 #include <QImage>
+#include <QMessageBox>
 #include <QQmlApplicationEngine>
 #include <QQuickStyle>
 #include <QSize>
@@ -33,6 +36,37 @@
 #include <memory>
 
 namespace {
+
+[[nodiscard]] bool reset_local_development_catalog(
+    const QString& catalog_path,
+    const QString& cache_root,
+    QString* const error_message
+) {
+    const QStringList catalog_files{
+        catalog_path,
+        catalog_path + QStringLiteral("-wal"),
+        catalog_path + QStringLiteral("-shm"),
+    };
+    for (const QString& path : catalog_files) {
+        if (QFileInfo::exists(path) && !QFile::remove(path)) {
+            *error_message = QObject::tr("Could not remove %1.").arg(path);
+            return false;
+        }
+    }
+
+    QDir cache_directory(cache_root);
+    if (cache_directory.exists() && !cache_directory.removeRecursively()) {
+        *error_message = QObject::tr("Could not remove the local preview cache.");
+        return false;
+    }
+    return true;
+}
+
+[[nodiscard]] bool is_development_catalog_reset_error(const std::exception& error) {
+    return QString::fromUtf8(error.what()).contains(
+        QStringLiteral("development catalog reset required")
+    );
+}
 
 [[nodiscard]] QString image_provider_request_id(const QString& source) {
     const QUrl url(source);
@@ -455,7 +489,7 @@ private:
 
 int main(int argc, char* argv[]) {
     QQuickStyle::setStyle(QStringLiteral("Basic"));
-    QGuiApplication application(argc, argv);
+    QApplication application(argc, argv);
     QCoreApplication::setOrganizationName(QStringLiteral("Shadow"));
     QCoreApplication::setOrganizationDomain(QStringLiteral("shadow.dev"));
     QCoreApplication::setApplicationName(QStringLiteral("Shadow"));
@@ -479,11 +513,47 @@ int main(int argc, char* argv[]) {
     );
 
     std::shared_ptr<DesktopBackend> backend;
-    try {
-        backend = std::make_shared<DesktopBackend>(catalog_path, cache_root);
-    } catch (const std::exception& error) {
-        qCritical() << "Cannot start Shadow's local backend:" << error.what();
-        return EXIT_FAILURE;
+    while (!backend) {
+        try {
+            backend = std::make_shared<DesktopBackend>(catalog_path, cache_root);
+        } catch (const std::exception& error) {
+            qCritical() << "Cannot start Shadow's local backend:" << error.what();
+            if (!is_development_catalog_reset_error(error)) {
+                QMessageBox::critical(
+                    nullptr,
+                    QObject::tr("Shadow could not start"),
+                    QObject::tr("The local catalog could not be opened.\n\n%1")
+                        .arg(QString::fromUtf8(error.what()))
+                );
+                return EXIT_FAILURE;
+            }
+
+            const auto choice = QMessageBox::warning(
+                nullptr,
+                QObject::tr("Reset local development catalog?"),
+                QObject::tr(
+                    "This local catalog belongs to an incompatible development build. "
+                    "Shadow does not migrate development schemas.\n\n"
+                    "Resetting removes the local photo index, edit history, and preview cache. "
+                    "Your original photo files, LUT library, and UI preferences are not changed."
+                ),
+                QMessageBox::Reset | QMessageBox::Cancel,
+                QMessageBox::Reset
+            );
+            if (choice != QMessageBox::Reset) {
+                return EXIT_FAILURE;
+            }
+
+            QString reset_error;
+            if (!reset_local_development_catalog(catalog_path, cache_root, &reset_error)) {
+                QMessageBox::critical(
+                    nullptr,
+                    QObject::tr("Catalog reset failed"),
+                    reset_error
+                );
+                return EXIT_FAILURE;
+            }
+        }
     }
     ReviewController controller(backend, isolated_settings_file);
     auto edit_preview_store = std::make_shared<EditPreviewStore>();

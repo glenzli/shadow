@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QByteArray>
+#include <QImage>
 #include <QString>
 #include <QVariantList>
 #include <QVariantMap>
@@ -174,6 +175,10 @@ struct BackendBasicEditParameters final {
 };
 
 inline constexpr std::size_t BACKEND_COLOR_MIXER_BAND_COUNT = 8U;
+inline constexpr std::size_t BACKEND_SELECTIVE_COLOR_TARGET_COUNT = 9U;
+inline constexpr std::size_t BACKEND_SELECTIVE_COLOR_COMPONENT_COUNT = 4U;
+inline constexpr std::size_t BACKEND_SELECTIVE_COLOR_VALUE_COUNT =
+    BACKEND_SELECTIVE_COLOR_TARGET_COUNT * BACKEND_SELECTIVE_COLOR_COMPONENT_COUNT;
 
 struct BackendPointColorRange final {
     bool enabled = true;
@@ -204,6 +209,10 @@ struct BackendFineEditParameters final {
     double color_range_saturation = 0.0;
     double color_range_lightness = 0.0;
     QVector<BackendPointColorRange> additional_point_colors;
+    bool selective_color_relative = true;
+    std::array<double, BACKEND_SELECTIVE_COLOR_VALUE_COUNT> selective_color_cmyk{};
+    /// Flattened authored Oklab-L x/y pairs. Empty means no perceptual curve.
+    QVector<double> oklab_lightness_curve_points;
     QString lut_resource_id;
     QString lut_title;
     QString lut_managed_path;
@@ -245,25 +254,12 @@ struct BackendFineEditParameters final {
     auto operator<=>(const BackendFineEditParameters&) const = default;
 };
 
-struct BackendToneCurvePoint final {
-    double x = 0.0;
-    double y = 0.0;
-
-    auto operator<=>(const BackendToneCurvePoint&) const = default;
-};
-
-enum class ToneCurveKind : std::uint8_t {
-    None,
-    SmoothRgb,
-};
-
 struct BackendGradeNode final {
     QString grade_node_id;
     QString label;
     QString exposure_render_op_id;
     QString contrast_render_op_id;
     QString selective_tone_render_op_id;
-    QString tone_curve_render_op_id;
     QString white_balance_render_op_id;
     QString saturation_render_op_id;
     QString perceptual_color_render_op_id;
@@ -272,11 +268,6 @@ struct BackendGradeNode final {
     BackendBasicEditParameters basic;
     BackendFineEditParameters fine;
     bool enabled = true;
-    ToneCurveKind tone_curve_kind = ToneCurveKind::None;
-    QVector<BackendToneCurvePoint> tone_curve_master_points;
-    QVector<BackendToneCurvePoint> tone_curve_red_points;
-    QVector<BackendToneCurvePoint> tone_curve_green_points;
-    QVector<BackendToneCurvePoint> tone_curve_blue_points;
 
     bool operator==(const BackendGradeNode&) const = default;
 };
@@ -370,6 +361,11 @@ struct BackendEditPreviewAnalysis final {
 struct BackendEditedPreview final {
     QByteArray bytes;
     BackendEditPreviewAnalysis analysis;
+    // Display-referred scopes derived from the same JPEG sent to the editor.
+    // They intentionally do not claim RAW/sensor clipping semantics; the
+    // RawFrame-backed masks added later will carry that stronger meaning.
+    QImage display_zebra;
+    QImage luma_waveform;
     BackendOpticsReceipt optics;
     std::uint32_t width = 0;
     std::uint32_t height = 0;

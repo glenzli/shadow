@@ -1,12 +1,17 @@
 #include <shadow/image/edit.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
+#include <exception>
 #include <limits>
+#include <mutex>
 #include <new>
 #include <sstream>
+#include <thread>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 namespace shadow::image {
 
@@ -38,6 +43,19 @@ constexpr std::array<double, perceptual_hue_band_count> perceptual_hue_anchors{
     328.36341829329797, // #ff00ff
 };
 
+// Photoshop Selective Color has six chromatic target families. Orange and
+// purple intentionally blend between the adjacent primary target families,
+// exactly as skin and twilight colors do in Photoshop's Red/Yellow and
+// Blue/Magenta selections.
+constexpr std::array<double, 6U> selective_color_hue_anchors{
+    29.23388536933038,  // red
+    109.76923279602303, // yellow
+    142.49533925535556, // green
+    194.76894786887132, // cyan
+    264.05202307198110, // blue
+    328.36341829329797, // magenta
+};
+
 using Vector3 = std::array<double, 3>;
 using Matrix3 = std::array<Vector3, 3>;
 
@@ -46,29 +64,13 @@ struct WorkingSpaceTransform final {
     Matrix3 xyz_to_rgb{};
 };
 
-struct PreparedToneCurve final {
-    const ToneCurve* curve = nullptr;
-    std::vector<double> segment_slopes;
-};
-
 struct PreparedSmoothToneCurve final {
     const ToneCurveSet* curve = nullptr;
     std::vector<double> knot_derivatives;
     bool identity = false;
 };
 
-struct PreparedSmoothRgbToneCurve final {
-    PreparedSmoothToneCurve master;
-    PreparedSmoothToneCurve red;
-    PreparedSmoothToneCurve green;
-    PreparedSmoothToneCurve blue;
-    bool identity = false;
-};
-
-using PreparedCurveAdjustment = std::variant<
-    std::monostate,
-    PreparedToneCurve,
-    PreparedSmoothRgbToneCurve>;
+using PreparedCurveAdjustment = std::variant<std::monostate, PreparedSmoothToneCurve>;
 
 [[nodiscard]] std::string node_prefix(
     const std::size_t index,
@@ -436,36 +438,32 @@ using PreparedCurveAdjustment = std::variant<
     return softness * log2_one_plus_exp2((value - boundary) / softness);
 }
 
-// Map scene-linear luminance through a bounded contrast curve while keeping its RGB chromatic
-// ratios intact.  The pivot is first mapped into a finite "display-like" domain, so even a
-// strong contrast setting never drives a positive input below zero or turns a bright RAW value
-// into a hard clip.  This is deliberately a global, per-pixel operation: it must give the same
-// result for a full image and for an independently rendered detail tile.
-[[nodiscard]] Vector3 apply_scene_contrast(
+// Map Oklab lightness through a bounded contrast curve while preserving the a/b chroma axes.
+// This keeps contrast perceptually consistent across hues and working RGB primaries.  It remains
+// a global per-pixel operation, so a detail tile and a full preview produce the same result.
+[[nodiscard]] Vector3 apply_perceptual_contrast(
     const Vector3& input,
-    const std::array<double, 3>& luminance_weights,
+    const WorkingSpaceTransform& color_transform,
     const ContrastAdjustment& parameters
 ) noexcept {
     if (parameters.factor == 1.0) {
         return input;
     }
 
-    const double luminance = input[0] * luminance_weights[0]
-        + input[1] * luminance_weights[1]
-        + input[2] * luminance_weights[2];
-    if (!(luminance > 0.0)) {
+    Vector3 lab = xyz_to_oklab(multiply(color_transform.rgb_to_xyz, input));
+    if (!(lab[0] > 0.0) || !std::isfinite(lab[0])) {
         return input;
     }
 
-    // The public UI uses 0.18. Keep a finite denominator for programmatic requests that use a
-    // zero pivot, rather than risking a divide-by-zero in the curved representation.
-    const double pivot = std::max(parameters.pivot, 1.0e-6);
+    // The public pivot is scene-linear middle grey. Oklab lightness scales approximately with
+    // its cube root, so this is its perceptual anchor; retain a finite fallback for API callers.
+    const double pivot = std::cbrt(std::max(parameters.pivot, 1.0e-9));
     if (parameters.factor == 0.0) {
-        const double gain = pivot / luminance;
-        return {input[0] * gain, input[1] * gain, input[2] * gain};
+        lab[0] = pivot;
+        return multiply(color_transform.xyz_to_rgb, oklab_to_xyz(lab));
     }
 
-    const double normalized = luminance / (luminance + pivot);
+    const double normalized = lab[0] / (lab[0] + pivot);
     // Factor is multiplicative in the public contract, but maps to a restrained signed amount
     // internally. The clamp protects scripted factor values (the bridge allows up to 8x) from
     // producing an unstable shoulder.
@@ -478,9 +476,8 @@ using PreparedCurveAdjustment = std::variant<
     const double shaped = normalized
         + amount * 2.0 * normalized * (1.0 - normalized) * (2.0 * normalized - 1.0);
     const double bounded = std::clamp(shaped, 1.0e-7, 1.0 - 1.0e-7);
-    const double adjusted_luminance = pivot * bounded / (1.0 - bounded);
-    const double gain = adjusted_luminance / luminance;
-    return {input[0] * gain, input[1] * gain, input[2] * gain};
+    lab[0] = pivot * bounded / (1.0 - bounded);
+    return multiply(color_transform.xyz_to_rgb, oklab_to_xyz(lab));
 }
 
 [[nodiscard]] double adjusted_selective_tone_ev(
@@ -565,27 +562,26 @@ using PreparedCurveAdjustment = std::variant<
 
 [[nodiscard]] Vector3 apply_selective_tone_at_mask(
     const Vector3& input,
-    const std::array<double, 3>& luminance_weights,
+    const WorkingSpaceTransform& color_transform,
     const SelectiveToneAdjustment& parameters,
     const double mask_ev
 ) noexcept {
-    const double luminance = input[0] * luminance_weights[0]
-        + input[1] * luminance_weights[1]
-        + input[2] * luminance_weights[2];
-    if (!(luminance > 0.0)) {
+    Vector3 lab = xyz_to_oklab(multiply(color_transform.rgb_to_xyz, input));
+    if (!(lab[0] > 0.0) || !std::isfinite(lab[0])) {
         return input;
     }
 
-    // The EV field is evaluated against the guided mask, not individual pixel luminance. The
-    // original pixel still receives a single common RGB gain, which keeps chromatic ratios
-    // intact and avoids a per-channel halo at high-contrast boundaries.
+    // The EV field is evaluated against the guided mask, not individual pixel luminance. Apply
+    // the resulting scene gain to Oklab L (its cube root) rather than scaling RGB channels: the
+    // local recovery remains edge-aware while hue and chroma stay perceptually stable.
     const double adjusted_ev = adjusted_selective_tone_ev(mask_ev, parameters);
     const double stops = adjusted_ev - mask_ev;
     const double gain = std::exp2(stops);
     if (!(gain > 0.0) || !std::isfinite(gain)) {
         return input;
     }
-    return {input[0] * gain, input[1] * gain, input[2] * gain};
+    lab[0] *= std::cbrt(gain);
+    return multiply(color_transform.xyz_to_rgb, oklab_to_xyz(lab));
 }
 
 [[nodiscard]] std::uint32_t selective_tone_mask_radius(
@@ -849,6 +845,8 @@ void apply_guided_selective_tone(
     const SelectiveToneAdjustment& parameters
 ) {
     const auto luminance_weights = image.working_space.luminance_coefficients;
+    const WorkingSpaceTransform color_transform =
+        prepare_working_space_transform(image.working_space, node, node_index);
     const auto coefficients = selective_tone_guided_coefficients(image, luminance_weights);
     const std::size_t width = image.dimensions.width;
     const std::size_t height = image.dimensions.height;
@@ -968,7 +966,7 @@ void apply_guided_selective_tone(
             }
             const Vector3 output = apply_selective_tone_at_mask(
                 input,
-                luminance_weights,
+                color_transform,
                 parameters,
                 mask_ev
             );
@@ -1042,6 +1040,38 @@ void apply_guided_selective_tone(
     if (left == right) {
         weights[left] = 1.0;
     }
+    return weights;
+}
+
+[[nodiscard]] std::array<double, 6U> selective_color_hue_weights(
+    const double hue
+) noexcept {
+    std::array<double, 6U> weights{};
+    const double wrapped_hue = wrap_degrees(hue);
+    const auto upper = std::upper_bound(
+        selective_color_hue_anchors.begin(),
+        selective_color_hue_anchors.end(),
+        wrapped_hue
+    );
+    const std::size_t right = upper == selective_color_hue_anchors.end()
+        ? 0U
+        : static_cast<std::size_t>(upper - selective_color_hue_anchors.begin());
+    const std::size_t left = right == 0U ? weights.size() - 1U : right - 1U;
+    const double left_hue = selective_color_hue_anchors[left];
+    const double right_hue = right == 0U
+        ? selective_color_hue_anchors.front() + 360.0
+        : selective_color_hue_anchors[right];
+    const double unwrapped_hue = right == 0U && wrapped_hue < left_hue
+        ? wrapped_hue + 360.0
+        : wrapped_hue;
+    const double position = std::clamp(
+        (unwrapped_hue - left_hue) / (right_hue - left_hue),
+        0.0,
+        1.0
+    );
+    const double right_weight = 0.5 * (1.0 - std::cos(pi * position));
+    weights[left] = 1.0 - right_weight;
+    weights[right] = right_weight;
     return weights;
 }
 
@@ -1128,7 +1158,94 @@ template <std::size_t Size>
     };
     const bool ranges_are_neutral = range_is_neutral(parameters.color_range)
         && std::ranges::all_of(parameters.additional_color_ranges, range_is_neutral);
-    return parameters.vibrance == 0.0 && bands_are_neutral && ranges_are_neutral;
+    const bool selective_color_is_neutral = std::ranges::all_of(
+        parameters.selective_color_cmyk,
+        [](const auto& target) {
+            return std::ranges::all_of(target, [](const double value) {
+                return value == 0.0;
+            });
+        }
+    );
+    return parameters.vibrance == 0.0 && bands_are_neutral && ranges_are_neutral
+        && selective_color_is_neutral;
+}
+
+[[nodiscard]] std::array<double, selective_color_target_count>
+selective_color_target_weights(const Vector3& lab) noexcept {
+    std::array<double, selective_color_target_count> weights{};
+    const double lightness = std::clamp(lab[0], 0.0, 1.0);
+    const double chroma = std::hypot(lab[1], lab[2]);
+    const double relative_chroma = chroma / std::max(1.0e-6, std::abs(lab[0]));
+    const double chromatic = smoothstep(0.002, 0.08, relative_chroma);
+    if (chromatic > 0.0) {
+        const double hue = wrap_degrees(std::atan2(lab[2], lab[1]) * 180.0 / pi);
+        const auto hue_weights = selective_color_hue_weights(hue);
+        for (std::size_t index = 0U; index < hue_weights.size(); ++index) {
+            weights[index] = chromatic * hue_weights[index];
+        }
+    }
+    // Achromatic colors distribute continuously between White, Neutrals, and
+    // Blacks. This lets a lightly tinted highlight receive both a chromatic
+    // correction and a smaller White correction rather than snapping at an
+    // arbitrary hue/chroma boundary.
+    const double neutral = 1.0 - chromatic;
+    weights[6] = neutral * smoothstep(0.62, 0.94, lightness);
+    weights[8] = neutral * (1.0 - smoothstep(0.06, 0.38, lightness));
+    weights[7] = std::max(0.0, neutral - weights[6] - weights[8]);
+    return weights;
+}
+
+[[nodiscard]] Vector3 apply_selective_color(
+    const Vector3& input,
+    const PerceptualColorAdjustment& parameters,
+    const WorkingSpaceTransform& color_transform
+) noexcept {
+    const Vector3 lab = xyz_to_oklab(multiply(color_transform.rgb_to_xyz, input));
+    const auto target_weights = selective_color_target_weights(lab);
+    std::array<double, selective_color_component_count> adjustment{};
+    for (std::size_t target = 0U; target < selective_color_target_count; ++target) {
+        for (std::size_t component = 0U;
+             component < selective_color_component_count;
+             ++component) {
+            adjustment[component] += target_weights[target]
+                * parameters.selective_color_cmyk[target][component];
+        }
+    }
+    if (std::ranges::all_of(adjustment, [](const double value) { return value == 0.0; })) {
+        return input;
+    }
+
+    // Selective Color is a display-referred CMYK-style operation, but Shadow
+    // keeps its developer in scene-linear working RGB. Normalize around the
+    // current scene peak, modify a bounded CMYK proxy, then restore that peak.
+    // This makes ordinary RGB/JPEG edits intuitive while avoiding an unwanted
+    // hard clip of RAW highlight headroom merely because a color correction ran.
+    const double peak = std::max({1.0, input[0], input[1], input[2]});
+    const double red = std::clamp(input[0] / peak, 0.0, 1.0);
+    const double green = std::clamp(input[1] / peak, 0.0, 1.0);
+    const double blue = std::clamp(input[2] / peak, 0.0, 1.0);
+    const double key = 1.0 - std::max({red, green, blue});
+    const double chromatic_denominator = 1.0 - key;
+    std::array<double, selective_color_component_count> cmyk{
+        chromatic_denominator > 1.0e-9 ? (1.0 - red - key) / chromatic_denominator : 0.0,
+        chromatic_denominator > 1.0e-9 ? (1.0 - green - key) / chromatic_denominator : 0.0,
+        chromatic_denominator > 1.0e-9 ? (1.0 - blue - key) / chromatic_denominator : 0.0,
+        key,
+    };
+    for (std::size_t component = 0U;
+         component < selective_color_component_count;
+         ++component) {
+        const double amount = parameters.selective_color_relative
+            ? cmyk[component] * adjustment[component]
+            : adjustment[component];
+        cmyk[component] = std::clamp(cmyk[component] + amount, 0.0, 1.0);
+    }
+    const double ink_scale = 1.0 - cmyk[3];
+    return {
+        peak * (1.0 - cmyk[0]) * ink_scale,
+        peak * (1.0 - cmyk[1]) * ink_scale,
+        peak * (1.0 - cmyk[2]) * ink_scale,
+    };
 }
 
 void validate_image(const FloatRgbImage& image) {
@@ -1244,94 +1361,6 @@ void validate_image(const FloatRgbImage& image) {
             "edit input contains NaN or infinity"
         );
     }
-}
-
-[[nodiscard]] PreparedToneCurve prepare_tone_curve(const ToneCurve& curve) {
-    if (
-        curve.parameter_schema_version != tone_curve_parameter_schema_version
-        || curve.implementation_version != tone_curve_implementation_version
-    ) {
-        throw EditError(
-            EditErrorCode::unsupported_version,
-            std::nullopt,
-            "tone curve supports only parameter schema 1 and implementation 1"
-        );
-    }
-    if (curve.points.size() < 2U || curve.points.size() > maximum_tone_curve_points) {
-        throw EditError(
-            EditErrorCode::invalid_parameter,
-            std::nullopt,
-            "tone curve must contain between 2 and 256 control points"
-        );
-    }
-    if (curve.points.front().x != 0.0 || curve.points.back().x != 1.0) {
-        throw EditError(
-            EditErrorCode::invalid_parameter,
-            std::nullopt,
-            "tone curve x coordinates must start at zero and end at one"
-        );
-    }
-
-    PreparedToneCurve prepared{
-        .curve = &curve,
-        .segment_slopes = {},
-    };
-    prepared.segment_slopes.reserve(curve.points.size() - 1U);
-    for (std::size_t index = 0; index < curve.points.size(); ++index) {
-        const ToneCurvePoint point = curve.points[index];
-        if (!std::isfinite(point.x) || !std::isfinite(point.y)) {
-            throw EditError(
-                EditErrorCode::invalid_parameter,
-                std::nullopt,
-                "tone curve control points must contain only finite values"
-            );
-        }
-        if (index == 0U) {
-            continue;
-        }
-
-        const ToneCurvePoint previous = curve.points[index - 1U];
-        if (point.x <= previous.x) {
-            throw EditError(
-                EditErrorCode::invalid_parameter,
-                std::nullopt,
-                "tone curve x coordinates must be strictly increasing"
-            );
-        }
-        const double slope = (point.y - previous.y) / (point.x - previous.x);
-        if (!std::isfinite(slope)) {
-            throw EditError(
-                EditErrorCode::invalid_parameter,
-                std::nullopt,
-                "tone curve segment slopes must be finite"
-            );
-        }
-        prepared.segment_slopes.push_back(slope);
-    }
-    return prepared;
-}
-
-[[nodiscard]] double evaluate_tone_curve(
-    const PreparedToneCurve& prepared,
-    const double value
-) {
-    const auto& points = prepared.curve->points;
-    const auto upper = std::upper_bound(
-        points.begin(),
-        points.end(),
-        value,
-        [](const double sample, const ToneCurvePoint& point) { return sample < point.x; }
-    );
-
-    std::size_t segment = 0U;
-    if (upper == points.end()) {
-        segment = points.size() - 2U;
-    } else if (upper != points.begin()) {
-        segment = static_cast<std::size_t>(upper - points.begin()) - 1U;
-    }
-
-    return points[segment].y
-        + (value - points[segment].x) * prepared.segment_slopes[segment];
 }
 
 [[nodiscard]] bool same_nonzero_sign(const double left, const double right) noexcept {
@@ -1512,30 +1541,6 @@ void validate_image(const FloatRgbImage& image) {
         + h01 * right.y + h11 * width * prepared.knot_derivatives[segment + 1U];
 }
 
-[[nodiscard]] PreparedSmoothRgbToneCurve prepare_smooth_rgb_tone_curve(
-    const SmoothRgbToneCurve& curve
-) {
-    if (
-        curve.parameter_schema_version != smooth_rgb_tone_curve_parameter_schema_version
-        || curve.implementation_version != smooth_rgb_tone_curve_implementation_version
-    ) {
-        throw EditError(
-            EditErrorCode::unsupported_version,
-            std::nullopt,
-            "smooth RGB tone curve supports only parameter schema 2 and implementation 2"
-        );
-    }
-    PreparedSmoothRgbToneCurve prepared{
-        .master = prepare_smooth_tone_curve(curve.master),
-        .red = prepare_smooth_tone_curve(curve.red),
-        .green = prepare_smooth_tone_curve(curve.green),
-        .blue = prepare_smooth_tone_curve(curve.blue),
-    };
-    prepared.identity = prepared.master.identity && prepared.red.identity
-        && prepared.green.identity && prepared.blue.identity;
-    return prepared;
-}
-
 [[nodiscard]] float checked_tone_curve_float(const double value) {
     constexpr double maximum = static_cast<double>(std::numeric_limits<float>::max());
     if (!std::isfinite(value) || value < -maximum || value > maximum) {
@@ -1548,80 +1553,62 @@ void validate_image(const FloatRgbImage& image) {
     return static_cast<float>(value);
 }
 
-template <typename CheckedConversion>
-void apply_prepared_tone_curve(
-    FloatRgbImage& image,
-    const PreparedToneCurve& prepared,
-    CheckedConversion&& checked_conversion
+[[nodiscard]] PreparedSmoothToneCurve prepare_oklab_lightness_tone_curve(
+    const OklabLightnessToneCurve& curve
 ) {
-    const std::size_t stride = image.row_stride_bytes / sizeof(float);
-    for (std::uint32_t y = 0; y < image.dimensions.height; ++y) {
-        const std::size_t row = static_cast<std::size_t>(y) * stride;
-        for (std::uint32_t x = 0; x < image.dimensions.width; ++x) {
-            const std::size_t sample = row + static_cast<std::size_t>(x) * rgb_channels;
-            for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
-                image.samples[sample + channel] = checked_conversion(
-                    evaluate_tone_curve(
-                        prepared,
-                        static_cast<double>(image.samples[sample + channel])
-                    )
-                );
-            }
-        }
+    if (
+        curve.parameter_schema_version != oklab_lightness_tone_curve_parameter_schema_version
+        || curve.implementation_version != oklab_lightness_tone_curve_implementation_version
+    ) {
+        throw EditError(
+            EditErrorCode::unsupported_version,
+            std::nullopt,
+            "Oklab lightness curve supports only parameter schema 1 and implementation 1"
+        );
     }
+    return prepare_smooth_tone_curve(curve.lightness);
 }
 
 template <typename CheckedConversion>
-void apply_prepared_smooth_rgb_tone_curve(
+void apply_prepared_oklab_lightness_tone_curve(
     FloatRgbImage& image,
-    const PreparedSmoothRgbToneCurve& prepared,
+    const PreparedSmoothToneCurve& prepared,
+    const WorkingSpaceTransform& color_transform,
     CheckedConversion&& checked_conversion
 ) {
     if (prepared.identity) {
         return;
     }
-    const std::array<const PreparedSmoothToneCurve*, rgb_channels> channels{
-        &prepared.red,
-        &prepared.green,
-        &prepared.blue,
-    };
     const std::size_t stride = image.row_stride_bytes / sizeof(float);
     for (std::uint32_t y = 0U; y < image.dimensions.height; ++y) {
         const std::size_t row = static_cast<std::size_t>(y) * stride;
         for (std::uint32_t x = 0U; x < image.dimensions.width; ++x) {
             const std::size_t sample = row + static_cast<std::size_t>(x) * rgb_channels;
+            const Vector3 input{
+                static_cast<double>(image.samples[sample]),
+                static_cast<double>(image.samples[sample + 1U]),
+                static_cast<double>(image.samples[sample + 2U]),
+            };
+            Vector3 lab = xyz_to_oklab(multiply(color_transform.rgb_to_xyz, input));
+            // a and b deliberately remain untouched.  This is the key semantic
+            // distinction from RGB master/channel curves: it changes perceived
+            // lightness without directly rotating hue or scaling chroma.
+            lab[0] = evaluate_smooth_tone_curve(prepared, lab[0]);
+            const Vector3 output = multiply(color_transform.xyz_to_rgb, oklab_to_xyz(lab));
             for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
-                const double master_value = evaluate_smooth_tone_curve(
-                    prepared.master,
-                    static_cast<double>(image.samples[sample + channel])
-                );
-                image.samples[sample + channel] = checked_conversion(
-                    evaluate_smooth_tone_curve(*channels[channel], master_value)
-                );
+                image.samples[sample + channel] = checked_conversion(output[channel]);
             }
         }
     }
 }
 
-[[nodiscard]] PreparedToneCurve prepare_tone_curve_node(
-    const ToneCurve& curve,
+[[nodiscard]] PreparedSmoothToneCurve prepare_oklab_lightness_tone_curve_node(
+    const OklabLightnessToneCurve& curve,
     const AdjustmentNode& node,
     const std::size_t index
 ) {
     try {
-        return prepare_tone_curve(curve);
-    } catch (const EditError& error) {
-        throw_node_error(error.code(), index, node, error.what());
-    }
-}
-
-[[nodiscard]] PreparedSmoothRgbToneCurve prepare_smooth_rgb_tone_curve_node(
-    const SmoothRgbToneCurve& curve,
-    const AdjustmentNode& node,
-    const std::size_t index
-) {
-    try {
-        return prepare_smooth_rgb_tone_curve(curve);
+        return prepare_oklab_lightness_tone_curve(curve);
     } catch (const EditError& error) {
         throw_node_error(error.code(), index, node, error.what());
     }
@@ -1631,7 +1618,9 @@ void apply_prepared_smooth_rgb_tone_curve(
     const AdjustmentNode& node,
     const std::size_t index
 ) {
-    const bool smooth_rgb_tone_curve = std::holds_alternative<SmoothRgbToneCurve>(node.parameters);
+    const bool oklab_lightness_tone_curve = std::holds_alternative<OklabLightnessToneCurve>(
+        node.parameters
+    );
     const bool selective_tone = std::holds_alternative<SelectiveToneAdjustment>(
         node.parameters
     );
@@ -1639,16 +1628,16 @@ void apply_prepared_smooth_rgb_tone_curve(
         node.parameters
     );
     const bool detail_effects = std::holds_alternative<SharpenAdjustment>(node.parameters);
-    const std::uint32_t expected_parameter_schema = smooth_rgb_tone_curve
-        ? smooth_rgb_tone_curve_parameter_schema_version
+    const std::uint32_t expected_parameter_schema = oklab_lightness_tone_curve
+        ? oklab_lightness_tone_curve_parameter_schema_version
         : selective_tone ? selective_tone_v3_parameter_schema_version
-        : perceptual_color ? perceptual_color_v2_parameter_schema_version
+        : perceptual_color ? perceptual_color_v3_parameter_schema_version
         : detail_effects ? detail_effects_v3_parameter_schema_version
                          : adjustment_parameter_schema_version;
-    const std::uint32_t expected_implementation = smooth_rgb_tone_curve
-        ? smooth_rgb_tone_curve_implementation_version
+    const std::uint32_t expected_implementation = oklab_lightness_tone_curve
+        ? oklab_lightness_tone_curve_implementation_version
         : selective_tone ? selective_tone_v3_implementation_version
-        : perceptual_color ? perceptual_color_v2_implementation_version
+        : perceptual_color ? perceptual_color_v3_implementation_version
                          : adjustment_implementation_version;
     const bool supported_detail_pass = detail_effects
         && ((std::get<SharpenAdjustment>(node.parameters).execution_pass
@@ -1670,8 +1659,8 @@ void apply_prepared_smooth_rgb_tone_curve(
             EditErrorCode::unsupported_version,
             index,
             node,
-            smooth_rgb_tone_curve
-                ? "smooth RGB tone curve requires parameter schema 2 and implementation 2"
+            oklab_lightness_tone_curve
+                ? "Oklab lightness curve requires parameter schema 1 and implementation 1"
                 : selective_tone
                     ? "selective tone requires the current guided-mask contract"
                 : perceptual_color
@@ -1687,6 +1676,9 @@ void apply_prepared_smooth_rgb_tone_curve(
         [&node, index, &prepared_curve](const auto& parameters) {
             using Parameters = std::decay_t<decltype(parameters)>;
             if constexpr (std::is_same_v<Parameters, ExposureAdjustment>) {
+                if (parameters.stops == 0.0) {
+                    return;
+                }
                 const double gain = std::exp2(parameters.stops);
                 if (!std::isfinite(parameters.stops) || !std::isfinite(gain) || gain <= 0.0) {
                     throw_node_error(
@@ -1708,10 +1700,8 @@ void apply_prepared_smooth_rgb_tone_curve(
                         "contrast factor and pivot must be finite and non-negative"
                     );
                 }
-            } else if constexpr (std::is_same_v<Parameters, ToneCurve>) {
-                prepared_curve = prepare_tone_curve_node(parameters, node, index);
-            } else if constexpr (std::is_same_v<Parameters, SmoothRgbToneCurve>) {
-                prepared_curve = prepare_smooth_rgb_tone_curve_node(parameters, node, index);
+            } else if constexpr (std::is_same_v<Parameters, OklabLightnessToneCurve>) {
+                prepared_curve = prepare_oklab_lightness_tone_curve_node(parameters, node, index);
             } else if constexpr (std::is_same_v<Parameters, RgbWhiteBalanceAdjustment>) {
                 if (!normalized_amount(parameters.temperature)
                     || !normalized_amount(parameters.tint)) {
@@ -1750,6 +1740,12 @@ void apply_prepared_smooth_rgb_tone_curve(
                     std::ranges::all_of(parameters.hue, normalized_amount)
                     && std::ranges::all_of(parameters.saturation, normalized_amount)
                     && std::ranges::all_of(parameters.lightness, normalized_amount);
+                const bool valid_selective_color = std::ranges::all_of(
+                    parameters.selective_color_cmyk,
+                    [](const auto& target) {
+                        return std::ranges::all_of(target, normalized_amount);
+                    }
+                );
                 const auto valid_range = [](const PerceptualColorRange& range) {
                     return
                     std::isfinite(range.center_degrees) && range.center_degrees >= 0.0
@@ -1768,7 +1764,8 @@ void apply_prepared_smooth_rgb_tone_curve(
                     && parameters.additional_color_ranges.size() + 1U
                         <= maximum_point_color_ranges
                     && std::ranges::all_of(parameters.additional_color_ranges, valid_range);
-                if (!normalized_amount(parameters.vibrance) || !valid_bands || !valid_ranges) {
+                if (!normalized_amount(parameters.vibrance) || !valid_bands || !valid_ranges
+                    || !valid_selective_color) {
                     throw_node_error(
                         EditErrorCode::invalid_parameter,
                         index,
@@ -1920,20 +1917,86 @@ void transform_rgb_pixels(
     Transform&& transform
 ) {
     const std::size_t stride = image.row_stride_bytes / sizeof(float);
-    for (std::uint32_t y = 0; y < image.dimensions.height; ++y) {
-        const std::size_t row = static_cast<std::size_t>(y) * stride;
-        for (std::uint32_t x = 0; x < image.dimensions.width; ++x) {
-            const std::size_t sample = row + static_cast<std::size_t>(x) * rgb_channels;
-            const std::array<double, 3> input{
-                static_cast<double>(image.samples[sample]),
-                static_cast<double>(image.samples[sample + 1U]),
-                static_cast<double>(image.samples[sample + 2U]),
-            };
-            const std::array<double, 3> output = transform(input);
-            image.samples[sample] = checked_float(output[0], node_index, node);
-            image.samples[sample + 1U] = checked_float(output[1], node_index, node);
-            image.samples[sample + 2U] = checked_float(output[2], node_index, node);
+    // The desktop renderer already runs the graph on a worker thread, but
+    // this was still a strictly one-core nested loop. Oklab/OKLCH operations
+    // are independent per pixel, so partition contiguous rows across the CPU
+    // for preview-sized frames as well as detail tiles. Each task owns a
+    // distinct row range; the transform object is copied into the task so a
+    // future stateful operation cannot introduce shared mutable state.
+    constexpr std::uint32_t minimum_rows_per_task = 32U;
+    constexpr std::uint32_t maximum_pixel_tasks = 12U;
+    const std::uint32_t hardware_threads = std::max(1U, std::thread::hardware_concurrency());
+    const std::uint32_t row_limited_tasks = std::max(
+        1U,
+        image.dimensions.height / minimum_rows_per_task
+    );
+    const std::uint32_t task_count = std::min({
+        maximum_pixel_tasks,
+        hardware_threads,
+        row_limited_tasks,
+    });
+
+    std::atomic_bool failed{false};
+    std::mutex failure_mutex;
+    std::exception_ptr failure;
+    auto transform_rows = [
+        &image,
+        stride,
+        node_index,
+        &node,
+        transform = std::forward<Transform>(transform),
+        &failed,
+        &failure_mutex,
+        &failure
+    ](const std::uint32_t first_row, const std::uint32_t past_last_row) mutable {
+        try {
+            for (std::uint32_t y = first_row; y < past_last_row; ++y) {
+                if (failed.load(std::memory_order_relaxed)) {
+                    return;
+                }
+                const std::size_t row = static_cast<std::size_t>(y) * stride;
+                for (std::uint32_t x = 0; x < image.dimensions.width; ++x) {
+                    const std::size_t sample = row + static_cast<std::size_t>(x) * rgb_channels;
+                    const std::array<double, 3> input{
+                        static_cast<double>(image.samples[sample]),
+                        static_cast<double>(image.samples[sample + 1U]),
+                        static_cast<double>(image.samples[sample + 2U]),
+                    };
+                    const std::array<double, 3> output = transform(input);
+                    image.samples[sample] = checked_float(output[0], node_index, node);
+                    image.samples[sample + 1U] = checked_float(output[1], node_index, node);
+                    image.samples[sample + 2U] = checked_float(output[2], node_index, node);
+                }
+            }
+        } catch (...) {
+            if (!failed.exchange(true, std::memory_order_relaxed)) {
+                std::lock_guard lock(failure_mutex);
+                failure = std::current_exception();
+            }
         }
+    };
+
+    if (task_count == 1U) {
+        transform_rows(0U, image.dimensions.height);
+    } else {
+        std::vector<std::thread> workers;
+        workers.reserve(task_count - 1U);
+        const std::uint32_t base_rows = image.dimensions.height / task_count;
+        const std::uint32_t remainder = image.dimensions.height % task_count;
+        std::uint32_t first_row = 0U;
+        for (std::uint32_t task = 1U; task < task_count; ++task) {
+            const std::uint32_t rows = base_rows + (task < remainder ? 1U : 0U);
+            const std::uint32_t past_last_row = first_row + rows;
+            workers.emplace_back(transform_rows, first_row, past_last_row);
+            first_row = past_last_row;
+        }
+        transform_rows(first_row, image.dimensions.height);
+        for (auto& worker : workers) {
+            worker.join();
+        }
+    }
+    if (failure) {
+        std::rethrow_exception(failure);
     }
 }
 
@@ -2447,27 +2510,30 @@ void apply_node(
                     }
                 );
             } else if constexpr (std::is_same_v<Parameters, ContrastAdjustment>) {
-                const auto luminance_weights = image.working_space.luminance_coefficients;
+                // Avoid a complete image traversal merely to call the
+                // identity branch of apply_perceptual_contrast for every
+                // pixel. This is particularly important for the default node
+                // stack, where contrast is always structurally present.
+                if (parameters.factor == 1.0) {
+                    return;
+                }
+                const WorkingSpaceTransform color_transform =
+                    prepare_working_space_transform(image.working_space, node, index);
                 transform_rgb_pixels(
                     image,
                     index,
                     node,
-                    [&parameters, luminance_weights](const Vector3& input) {
-                        return apply_scene_contrast(input, luminance_weights, parameters);
+                    [&parameters, &color_transform](const Vector3& input) {
+                        return apply_perceptual_contrast(input, color_transform, parameters);
                     }
                 );
-            } else if constexpr (std::is_same_v<Parameters, ToneCurve>) {
-                apply_prepared_tone_curve(
+            } else if constexpr (std::is_same_v<Parameters, OklabLightnessToneCurve>) {
+                const WorkingSpaceTransform color_transform =
+                    prepare_working_space_transform(image.working_space, node, index);
+                apply_prepared_oklab_lightness_tone_curve(
                     image,
-                    std::get<PreparedToneCurve>(prepared_curve),
-                    [&node, index](const double value) {
-                        return checked_float(value, index, node);
-                    }
-                );
-            } else if constexpr (std::is_same_v<Parameters, SmoothRgbToneCurve>) {
-                apply_prepared_smooth_rgb_tone_curve(
-                    image,
-                    std::get<PreparedSmoothRgbToneCurve>(prepared_curve),
+                    std::get<PreparedSmoothToneCurve>(prepared_curve),
+                    color_transform,
                     [&node, index](const double value) {
                         return checked_float(value, index, node);
                     }
@@ -2543,63 +2609,66 @@ void apply_node(
                         const double chroma = std::hypot(lab[1], lab[2]);
                         const double relative_chroma = chroma
                             / std::max(1.0e-6, std::abs(lab[0]));
-                        if (relative_chroma <= perceptual_low_chroma_ratio_epsilon) {
-                            return input;
-                        }
+                        Vector3 adjusted = input;
+                        if (relative_chroma > perceptual_low_chroma_ratio_epsilon) {
+                            const double source_hue = wrap_degrees(
+                                std::atan2(lab[2], lab[1]) * 180.0 / pi
+                            );
+                            const auto band_weights = hue_band_weights(source_hue);
+                            // Hue is numerically unstable near the neutral axis. Fade all
+                            // hue-keyed controls there while leaving vibrance free to increase a
+                            // real, muted chroma. The ratio keeps this behavior invariant under
+                            // scene exposure.
+                            const double hue_confidence = smoothstep(
+                                0.002,
+                                0.02,
+                                relative_chroma
+                            );
+                            const double band_hue = hue_confidence
+                                * weighted_sum(parameters.hue, band_weights);
+                            const double band_saturation = weighted_sum(
+                                parameters.saturation,
+                                band_weights
+                            ) * hue_confidence;
+                            const double band_lightness = hue_confidence * weighted_sum(
+                                parameters.lightness,
+                                band_weights
+                            );
+                            const double range_weight = hue_confidence
+                                * color_range_weight(parameters.color_range, source_hue);
 
-                        const double source_hue = wrap_degrees(
-                            std::atan2(lab[2], lab[1]) * 180.0 / pi
-                        );
-                        const auto band_weights = hue_band_weights(source_hue);
-                        // Hue is numerically unstable near the neutral axis. Fade all hue-keyed
-                        // controls there while leaving vibrance free to increase a real, muted
-                        // chroma. The ratio keeps this behavior invariant under scene exposure.
-                        const double hue_confidence = smoothstep(
-                            0.002,
-                            0.02,
-                            relative_chroma
-                        );
-                        const double band_hue = hue_confidence
-                            * weighted_sum(parameters.hue, band_weights);
-                        const double band_saturation = weighted_sum(
-                            parameters.saturation,
-                            band_weights
-                        ) * hue_confidence;
-                        const double band_lightness = hue_confidence * weighted_sum(
-                            parameters.lightness,
-                            band_weights
-                        );
-                        const double range_weight = hue_confidence
-                            * color_range_weight(parameters.color_range, source_hue);
-
-                        const double vibrance_weight = 1.0
-                            - smoothstep(0.05, 0.35, relative_chroma);
-                        const double chroma_factor =
-                            (1.0 + parameters.vibrance * vibrance_weight)
-                            * (1.0 + band_saturation)
-                            * (1.0 + range_weight * parameters.color_range.saturation);
-                        const double hue_delta = 30.0 * band_hue
-                            + range_weight * parameters.color_range.hue_shift_degrees;
-                        const double lightness_delta = 0.15
-                            * (band_lightness
-                               + range_weight * parameters.color_range.lightness);
-                        bool changed = chroma_factor != 1.0 || hue_delta != 0.0
-                            || lightness_delta != 0.0;
-                        if (changed) {
-                            const double adjusted_hue =
-                                (source_hue + hue_delta) * pi / 180.0;
-                            const double adjusted_chroma = chroma * chroma_factor;
-                            lab[0] += lightness_delta;
-                            lab[1] = adjusted_chroma * std::cos(adjusted_hue);
-                            lab[2] = adjusted_chroma * std::sin(adjusted_hue);
+                            const double vibrance_weight = 1.0
+                                - smoothstep(0.05, 0.35, relative_chroma);
+                            const double chroma_factor =
+                                (1.0 + parameters.vibrance * vibrance_weight)
+                                * (1.0 + band_saturation)
+                                * (1.0 + range_weight * parameters.color_range.saturation);
+                            const double hue_delta = 30.0 * band_hue
+                                + range_weight * parameters.color_range.hue_shift_degrees;
+                            const double lightness_delta = 0.15
+                                * (band_lightness
+                                   + range_weight * parameters.color_range.lightness);
+                            bool changed = chroma_factor != 1.0 || hue_delta != 0.0
+                                || lightness_delta != 0.0;
+                            if (changed) {
+                                const double adjusted_hue =
+                                    (source_hue + hue_delta) * pi / 180.0;
+                                const double adjusted_chroma = chroma * chroma_factor;
+                                lab[0] += lightness_delta;
+                                lab[1] = adjusted_chroma * std::cos(adjusted_hue);
+                                lab[2] = adjusted_chroma * std::sin(adjusted_hue);
+                            }
+                            for (const auto& range : parameters.additional_color_ranges) {
+                                changed = apply_ordered_color_range(lab, range) || changed;
+                            }
+                            if (changed) {
+                                adjusted = multiply(
+                                    color_transform.xyz_to_rgb,
+                                    oklab_to_xyz(lab)
+                                );
+                            }
                         }
-                        for (const auto& range : parameters.additional_color_ranges) {
-                            changed = apply_ordered_color_range(lab, range) || changed;
-                        }
-                        if (!changed) {
-                            return input;
-                        }
-                        return multiply(color_transform.xyz_to_rgb, oklab_to_xyz(lab));
+                        return apply_selective_color(adjusted, parameters, color_transform);
                     }
                 );
             } else if constexpr (std::is_same_v<Parameters, CubeLutAdjustment>) {
@@ -2675,10 +2744,8 @@ AdjustmentOperation operation(const AdjustmentParameters& parameters) noexcept {
                 return AdjustmentOperation::exposure;
             } else if constexpr (std::is_same_v<Parameters, ContrastAdjustment>) {
                 return AdjustmentOperation::contrast;
-            } else if constexpr (std::is_same_v<Parameters, ToneCurve>) {
-                return AdjustmentOperation::tone_curve;
-            } else if constexpr (std::is_same_v<Parameters, SmoothRgbToneCurve>) {
-                return AdjustmentOperation::smooth_rgb_tone_curve;
+            } else if constexpr (std::is_same_v<Parameters, OklabLightnessToneCurve>) {
+                return AdjustmentOperation::oklab_lightness_tone_curve;
             } else if constexpr (std::is_same_v<Parameters, RgbWhiteBalanceAdjustment>) {
                 return AdjustmentOperation::rgb_white_balance;
             } else if constexpr (std::is_same_v<Parameters, SaturationAdjustment>) {
@@ -2704,9 +2771,8 @@ std::string_view operation_id(const AdjustmentOperation operation) noexcept {
         return "shadow.exposure";
     case AdjustmentOperation::contrast:
         return "shadow.contrast";
-    case AdjustmentOperation::tone_curve:
-    case AdjustmentOperation::smooth_rgb_tone_curve:
-        return "shadow.tone_curve";
+    case AdjustmentOperation::oklab_lightness_tone_curve:
+        return "shadow.oklab_lightness_tone_curve";
     case AdjustmentOperation::rgb_white_balance:
         return "shadow.rgb_white_balance";
     case AdjustmentOperation::saturation:
@@ -2727,8 +2793,7 @@ AdjustmentLocality locality(const AdjustmentOperation operation) noexcept {
     switch (operation) {
     case AdjustmentOperation::exposure:
     case AdjustmentOperation::contrast:
-    case AdjustmentOperation::tone_curve:
-    case AdjustmentOperation::smooth_rgb_tone_curve:
+    case AdjustmentOperation::oklab_lightness_tone_curve:
     case AdjustmentOperation::rgb_white_balance:
     case AdjustmentOperation::saturation:
     case AdjustmentOperation::perceptual_color:
@@ -2905,24 +2970,32 @@ FloatRgbImage execute_adjustment_nodes(
     return output;
 }
 
-FloatRgbImage apply_tone_curve(const FloatRgbImage& input, const ToneCurve& curve) {
-    validate_image(input);
-    const PreparedToneCurve prepared = prepare_tone_curve(curve);
-
-    FloatRgbImage output = input;
-    apply_prepared_tone_curve(output, prepared, checked_tone_curve_float);
-    return output;
-}
-
-FloatRgbImage apply_smooth_rgb_tone_curve(
+FloatRgbImage apply_oklab_lightness_tone_curve(
     const FloatRgbImage& input,
-    const SmoothRgbToneCurve& curve
+    const OklabLightnessToneCurve& curve
 ) {
     validate_image(input);
-    const PreparedSmoothRgbToneCurve prepared = prepare_smooth_rgb_tone_curve(curve);
+    const PreparedSmoothToneCurve prepared = prepare_oklab_lightness_tone_curve(curve);
+    if (prepared.identity) {
+        return input;
+    }
 
+    // The standalone API deliberately uses a standard working-space transform,
+    // matching the default FloatRgbImage contract used by the existing tone
+    // curve helpers. The full graph path selects the image's configured working
+    // space immediately before applying the same evaluator.
+    const WorkingSpaceTransform color_transform = prepare_working_space_transform(
+        input.working_space,
+        AdjustmentNode{},
+        0U
+    );
     FloatRgbImage output = input;
-    apply_prepared_smooth_rgb_tone_curve(output, prepared, checked_tone_curve_float);
+    apply_prepared_oklab_lightness_tone_curve(
+        output,
+        prepared,
+        color_transform,
+        checked_tone_curve_float
+    );
     return output;
 }
 

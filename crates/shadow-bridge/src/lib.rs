@@ -328,8 +328,7 @@ mod ffi {
     enum FfiAdjustmentOperation {
         Exposure,
         Contrast,
-        ToneCurve,
-        SmoothRgbToneCurve,
+        OklabLightnessToneCurve,
         RgbWhiteBalance,
         Saturation,
         SelectiveTone,
@@ -349,9 +348,9 @@ mod ffi {
         /// Operation-specific immutable binary document. Only Lut3D accepts
         /// a validated `.cube` document; every other operation requires empty.
         payload: Vec<u8>,
-        /// Lengths for grouped variable-size parameters. Smooth RGB Tone Curve
-        /// stores master/R/G/B point counts; Perceptual Color stores the number
-        /// of additional sampled color ranges.
+        /// Lengths for grouped variable-size parameters. Oklab Lightness Tone
+        /// Curve stores its control-point count; Perceptual Color stores the
+        /// number of additional sampled color ranges.
         parameter_group_lengths: Vec<u32>,
     }
 
@@ -1305,8 +1304,7 @@ pub fn decode_jpeg_display_luma(
     })
 }
 
-/// Numeric v1 contract used by the existing adjustment operations and the
-/// historical linear Tone Curve.
+/// Numeric v1 contract used by the non-curve adjustment operations.
 pub const ADJUSTMENT_PARAMETER_SCHEMA_VERSION: u32 = 1;
 /// Numeric v1 executor revision. Per-operation v2 contracts must not upgrade
 /// unrelated persisted nodes.
@@ -1317,10 +1315,9 @@ pub const ADJUSTMENT_IMPLEMENTATION_VERSION: u32 = 1;
 pub const SELECTIVE_TONE_V3_PARAMETER_SCHEMA_VERSION: u32 = 3;
 /// Numeric executor revision for the complete guided Selective Tone filter.
 pub const SELECTIVE_TONE_V3_IMPLEMENTATION_VERSION: u32 = 3;
-/// Numeric parameter contract for the smooth master-plus-RGB Tone Curve.
-pub const SMOOTH_RGB_TONE_CURVE_PARAMETER_SCHEMA_VERSION: u32 = 2;
-/// Numeric executor revision for the smooth master-plus-RGB Tone Curve.
-pub const SMOOTH_RGB_TONE_CURVE_IMPLEMENTATION_VERSION: u32 = 2;
+/// Numeric contract for Shadow's sole Oklab-L perceptual curve.
+pub const OKLAB_LIGHTNESS_TONE_CURVE_PARAMETER_SCHEMA_VERSION: u32 = 1;
+pub const OKLAB_LIGHTNESS_TONE_CURVE_IMPLEMENTATION_VERSION: u32 = 1;
 /// Hard bound for one linearized render plan crossing the language boundary.
 pub const MAX_ADJUSTMENT_RENDER_NODES: usize = 256;
 /// Hard bound for one immutable `.cube` document crossing the render bridge.
@@ -1332,8 +1329,14 @@ pub const MAX_TONE_CURVE_POINTS: usize = 256;
 /// Fixed hue anchors used by the first perceptual Color Mixer contract.
 pub const COLOR_MIXER_BAND_COUNT: usize = 8;
 pub const MAX_POINT_COLOR_RANGES: usize = 16;
-pub const PERCEPTUAL_COLOR_V2_PARAMETER_SCHEMA_VERSION: u32 = 2;
-pub const PERCEPTUAL_COLOR_V2_IMPLEMENTATION_VERSION: u32 = 2;
+/// Photoshop-compatible Selective Color has six chromatic target families
+/// plus white, neutral, and black. Each target owns CMYK amounts.
+pub const SELECTIVE_COLOR_TARGET_COUNT: usize = 9;
+pub const SELECTIVE_COLOR_COMPONENT_COUNT: usize = 4;
+pub const SELECTIVE_COLOR_VALUE_COUNT: usize =
+    SELECTIVE_COLOR_TARGET_COUNT * SELECTIVE_COLOR_COMPONENT_COUNT;
+pub const PERCEPTUAL_COLOR_V3_PARAMETER_SCHEMA_VERSION: u32 = 3;
+pub const PERCEPTUAL_COLOR_V3_IMPLEMENTATION_VERSION: u32 = 3;
 /// The visible Detail & Effects payload is still one 33-value FFI record,
 /// but Recipe schema 3 compiles it into three internal passes. Their distinct
 /// numeric revisions make a C++ executor reject an accidental reordering.
@@ -1348,38 +1351,28 @@ pub const FINISHING_EFFECTS_V3_IMPLEMENTATION_VERSION: u32 = 5;
 pub const DETAIL_EFFECTS_V2_PARAMETER_SCHEMA_VERSION: u32 = 2;
 pub const DETAIL_EFFECTS_V2_IMPLEMENTATION_VERSION: u32 = 2;
 
-/// One authored point shared by the legacy linear and smooth RGB Tone Curve
-/// contracts. The surrounding operation version determines interpolation.
+/// One authored point in Shadow's perceptual tone-curve contract.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ToneCurvePoint {
     pub x: f64,
     pub y: f64,
 }
 
-/// Version-2 Tone Curve payload. Every channel stores an explicit curve;
-/// neutral channel curves are represented by `(0, 0), (1, 1)` rather than an
-/// absent value so persistence and FFI have one canonical shape.
+/// A smooth curve for the Oklab L axis alone.  The a/b opponent axes are
+/// retained exactly, so its normal use is tonal shaping without a hue or
+/// chroma adjustment.
 #[derive(Debug, Clone, PartialEq)]
-pub struct SmoothRgbToneCurve {
-    pub master: Vec<ToneCurvePoint>,
-    pub red: Vec<ToneCurvePoint>,
-    pub green: Vec<ToneCurvePoint>,
-    pub blue: Vec<ToneCurvePoint>,
+pub struct OklabLightnessToneCurve {
+    pub lightness: Vec<ToneCurvePoint>,
 }
 
-impl Default for SmoothRgbToneCurve {
+impl Default for OklabLightnessToneCurve {
     fn default() -> Self {
-        let identity = || {
-            vec![
+        Self {
+            lightness: vec![
                 ToneCurvePoint { x: 0.0, y: 0.0 },
                 ToneCurvePoint { x: 1.0, y: 1.0 },
-            ]
-        };
-        Self {
-            master: identity(),
-            red: identity(),
-            green: identity(),
-            blue: identity(),
+            ],
         }
     }
 }
@@ -1441,6 +1434,11 @@ pub struct PerceptualColorParameters {
     pub lightness: [f64; COLOR_MIXER_BAND_COUNT],
     pub color_range: ColorRangeParameters,
     pub additional_color_ranges: Vec<ColorRangeParameters>,
+    /// `true` mirrors Photoshop's default Relative method: corrections scale
+    /// existing CMYK ink. `false` is the Absolute method.
+    pub selective_color_relative: bool,
+    /// Nine target families × cyan, magenta, yellow, black, all in [-1, 1].
+    pub selective_color_cmyk: [f64; SELECTIVE_COLOR_VALUE_COUNT],
 }
 
 impl Default for PerceptualColorParameters {
@@ -1452,6 +1450,8 @@ impl Default for PerceptualColorParameters {
             lightness: [0.0; COLOR_MIXER_BAND_COUNT],
             color_range: ColorRangeParameters::default(),
             additional_color_ranges: Vec::new(),
+            selective_color_relative: true,
+            selective_color_cmyk: [0.0; SELECTIVE_COLOR_VALUE_COUNT],
         }
     }
 }
@@ -1546,11 +1546,8 @@ pub enum AdjustmentRenderOperation {
         factor: f64,
         pivot: f64,
     },
-    ToneCurve {
-        points: Vec<ToneCurvePoint>,
-    },
-    SmoothRgbToneCurve {
-        curves: Box<SmoothRgbToneCurve>,
+    OklabLightnessToneCurve {
+        curve: Box<OklabLightnessToneCurve>,
     },
     RgbWhiteBalance {
         temperature: f64,
@@ -1624,10 +1621,10 @@ impl AdjustmentRenderPlan {
                 ));
             }
             let contract_matches = match &node.operation {
-                AdjustmentRenderOperation::SmoothRgbToneCurve { .. } => {
+                AdjustmentRenderOperation::OklabLightnessToneCurve { .. } => {
                     (
-                        SMOOTH_RGB_TONE_CURVE_PARAMETER_SCHEMA_VERSION,
-                        SMOOTH_RGB_TONE_CURVE_IMPLEMENTATION_VERSION,
+                        OKLAB_LIGHTNESS_TONE_CURVE_PARAMETER_SCHEMA_VERSION,
+                        OKLAB_LIGHTNESS_TONE_CURVE_IMPLEMENTATION_VERSION,
                     ) == (node.parameter_schema_version, node.implementation_version)
                 }
                 AdjustmentRenderOperation::SelectiveTone { .. } => {
@@ -1638,8 +1635,8 @@ impl AdjustmentRenderPlan {
                 }
                 AdjustmentRenderOperation::PerceptualColor { .. } => {
                     (
-                        PERCEPTUAL_COLOR_V2_PARAMETER_SCHEMA_VERSION,
-                        PERCEPTUAL_COLOR_V2_IMPLEMENTATION_VERSION,
+                        PERCEPTUAL_COLOR_V3_PARAMETER_SCHEMA_VERSION,
+                        PERCEPTUAL_COLOR_V3_IMPLEMENTATION_VERSION,
                     ) == (node.parameter_schema_version, node.implementation_version)
                 }
                 AdjustmentRenderOperation::Sharpen { .. } => {
@@ -1694,12 +1691,8 @@ fn validate_render_operation(operation: &AdjustmentRenderOperation) -> Result<()
                 ))
             }
         }
-        AdjustmentRenderOperation::ToneCurve { points } => validate_tone_curve_points(points),
-        AdjustmentRenderOperation::SmoothRgbToneCurve { curves } => {
-            for points in [&curves.master, &curves.red, &curves.green, &curves.blue] {
-                validate_tone_curve_points(points)?;
-            }
-            Ok(())
+        AdjustmentRenderOperation::OklabLightnessToneCurve { curve } => {
+            validate_tone_curve_points(&curve.lightness)
         }
         AdjustmentRenderOperation::RgbWhiteBalance { temperature, tint } => {
             for value in [temperature, tint] {
@@ -2903,30 +2896,16 @@ fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustmentNode {
             vec![],
             vec![],
         ),
-        AdjustmentRenderOperation::ToneCurve { points } => (
-            ffi::FfiAdjustmentOperation::ToneCurve,
-            points.iter().flat_map(|point| [point.x, point.y]).collect(),
+        AdjustmentRenderOperation::OklabLightnessToneCurve { curve } => (
+            ffi::FfiAdjustmentOperation::OklabLightnessToneCurve,
+            curve
+                .lightness
+                .iter()
+                .flat_map(|point| [point.x, point.y])
+                .collect(),
             vec![],
             vec![],
         ),
-        AdjustmentRenderOperation::SmoothRgbToneCurve { curves } => {
-            let channel_point_counts = [&curves.master, &curves.red, &curves.green, &curves.blue]
-                .map(|points| {
-                    u32::try_from(points.len())
-                        .expect("validated Tone Curve channel count always fits u32")
-                })
-                .to_vec();
-            let flattened = [&curves.master, &curves.red, &curves.green, &curves.blue]
-                .into_iter()
-                .flat_map(|points| points.iter().flat_map(|point| [point.x, point.y]))
-                .collect();
-            (
-                ffi::FfiAdjustmentOperation::SmoothRgbToneCurve,
-                flattened,
-                channel_point_counts,
-                vec![],
-            )
-        }
         AdjustmentRenderOperation::RgbWhiteBalance { temperature, tint } => (
             ffi::FfiAdjustmentOperation::RgbWhiteBalance,
             vec![*temperature, *tint],
@@ -2952,7 +2931,7 @@ fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustmentNode {
         ),
         AdjustmentRenderOperation::PerceptualColor { parameters } => {
             let mut flattened =
-                Vec::with_capacity(32 + parameters.additional_color_ranges.len() * 7);
+                Vec::with_capacity(69 + parameters.additional_color_ranges.len() * 7);
             flattened.push(parameters.vibrance);
             flattened.extend(parameters.hue_shifts);
             flattened.extend(parameters.saturation);
@@ -2970,6 +2949,12 @@ fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustmentNode {
                 parameters.color_range.saturation,
                 parameters.color_range.lightness,
             ]);
+            flattened.push(if parameters.selective_color_relative {
+                1.0
+            } else {
+                0.0
+            });
+            flattened.extend(parameters.selective_color_cmyk);
             for range in &parameters.additional_color_ranges {
                 flattened.extend([
                     if range.enabled { 1.0 } else { 0.0 },
@@ -3869,10 +3854,15 @@ mod tests {
             ],
         ] {
             let malformed = AdjustmentRenderPlan {
-                nodes: vec![node(
-                    "curve",
-                    AdjustmentRenderOperation::ToneCurve { points },
-                )],
+                nodes: vec![AdjustmentRenderNode {
+                    node_id: "curve".to_owned(),
+                    parameter_schema_version: OKLAB_LIGHTNESS_TONE_CURVE_PARAMETER_SCHEMA_VERSION,
+                    implementation_version: OKLAB_LIGHTNESS_TONE_CURVE_IMPLEMENTATION_VERSION,
+                    enabled: true,
+                    operation: AdjustmentRenderOperation::OklabLightnessToneCurve {
+                        curve: Box::new(OklabLightnessToneCurve { lightness: points }),
+                    },
+                }],
             };
             assert!(matches!(
                 malformed.validate(),
@@ -3886,16 +3876,6 @@ mod tests {
                 factor: -0.1,
                 pivot: 0.18,
             },
-            AdjustmentRenderOperation::ToneCurve {
-                points: vec![
-                    ToneCurvePoint { x: 0.0, y: 0.0 },
-                    ToneCurvePoint {
-                        x: f64::MIN_POSITIVE,
-                        y: f64::MAX,
-                    },
-                    ToneCurvePoint { x: 1.0, y: 1.0 },
-                ],
-            },
             AdjustmentRenderOperation::RgbWhiteBalance {
                 temperature: 0.0,
                 tint: 2.0,
@@ -3903,7 +3883,13 @@ mod tests {
             AdjustmentRenderOperation::Saturation { factor: -0.1 },
         ] {
             let invalid = AdjustmentRenderPlan {
-                nodes: vec![node("invalid", operation)],
+                nodes: vec![AdjustmentRenderNode {
+                    node_id: "invalid".to_owned(),
+                    parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+                    implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
+                    enabled: true,
+                    operation,
+                }],
             };
             assert!(matches!(
                 invalid.validate(),
@@ -3930,6 +3916,8 @@ mod tests {
                 lightness: -0.6,
             },
             additional_color_ranges: Vec::new(),
+            selective_color_relative: false,
+            selective_color_cmyk: [0.25; SELECTIVE_COLOR_VALUE_COUNT],
         };
         let plan = AdjustmentRenderPlan {
             nodes: vec![
@@ -3949,8 +3937,8 @@ mod tests {
                 },
                 AdjustmentRenderNode {
                     node_id: "perceptual-color".to_owned(),
-                    parameter_schema_version: PERCEPTUAL_COLOR_V2_PARAMETER_SCHEMA_VERSION,
-                    implementation_version: PERCEPTUAL_COLOR_V2_IMPLEMENTATION_VERSION,
+                    parameter_schema_version: PERCEPTUAL_COLOR_V3_PARAMETER_SCHEMA_VERSION,
+                    implementation_version: PERCEPTUAL_COLOR_V3_IMPLEMENTATION_VERSION,
                     enabled: true,
                     operation: AdjustmentRenderOperation::PerceptualColor {
                         parameters: Box::new(perceptual),
@@ -3987,15 +3975,20 @@ mod tests {
             perceptual_ffi.operation,
             ffi::FfiAdjustmentOperation::PerceptualColor
         ));
-        assert_eq!(perceptual_ffi.parameters.len(), 32);
+        assert_eq!(perceptual_ffi.parameters.len(), 69);
         assert_eq!(perceptual_ffi.parameter_group_lengths, [0]);
         assert_eq!(perceptual_ffi.parameters[0], 0.2);
         assert_eq!(&perceptual_ffi.parameters[1..9], &[0.1; 8]);
         assert_eq!(&perceptual_ffi.parameters[9..17], &[-0.2; 8]);
         assert_eq!(&perceptual_ffi.parameters[17..25], &[0.3; 8]);
         assert_eq!(
-            &perceptual_ffi.parameters[25..],
+            &perceptual_ffi.parameters[25..32],
             &[1.0, 45.0, 60.0, 0.4, 15.0, 0.5, -0.6]
+        );
+        assert_eq!(perceptual_ffi.parameters[32], 0.0);
+        assert_eq!(
+            &perceptual_ffi.parameters[33..],
+            &[0.25; SELECTIVE_COLOR_VALUE_COUNT]
         );
 
         let sharpen_ffi = ffi_render_node(&plan.nodes[2]);
@@ -4012,88 +4005,6 @@ mod tests {
                 0.0, 0.0, 0.0, 0.0, 0.5, 0.0, 0.0, 0.5, 0.5, 0.0, 0.5, 0.0, 0.5, 0.0,
             ]
         );
-    }
-
-    #[test]
-    #[allow(clippy::float_cmp)] // FFI flattening is an exact in-memory contract.
-    fn smooth_rgb_tone_curve_uses_explicit_group_lengths_and_v2_contract() {
-        let curves = SmoothRgbToneCurve {
-            master: vec![
-                ToneCurvePoint { x: 0.0, y: 0.02 },
-                ToneCurvePoint { x: 0.5, y: 0.62 },
-                ToneCurvePoint { x: 1.0, y: 1.0 },
-            ],
-            red: SmoothRgbToneCurve::default().red,
-            green: vec![
-                ToneCurvePoint { x: 0.0, y: 0.0 },
-                ToneCurvePoint { x: 0.25, y: 0.2 },
-                ToneCurvePoint { x: 0.8, y: 0.9 },
-                ToneCurvePoint { x: 1.0, y: 1.0 },
-            ],
-            blue: SmoothRgbToneCurve::default().blue,
-        };
-        let node = AdjustmentRenderNode {
-            node_id: "smooth-rgb-curve".to_owned(),
-            parameter_schema_version: SMOOTH_RGB_TONE_CURVE_PARAMETER_SCHEMA_VERSION,
-            implementation_version: SMOOTH_RGB_TONE_CURVE_IMPLEMENTATION_VERSION,
-            enabled: true,
-            operation: AdjustmentRenderOperation::SmoothRgbToneCurve {
-                curves: Box::new(curves),
-            },
-        };
-        AdjustmentRenderPlan {
-            nodes: vec![node.clone()],
-        }
-        .validate()
-        .expect("smooth RGB Tone Curve v2 contract");
-
-        let encoded = ffi_render_node(&node);
-        assert!(matches!(
-            encoded.operation,
-            ffi::FfiAdjustmentOperation::SmoothRgbToneCurve
-        ));
-        assert_eq!(encoded.parameter_group_lengths, [3, 2, 4, 2]);
-        assert_eq!(encoded.parameters.len(), 22);
-        assert_eq!(&encoded.parameters[..6], &[0.0, 0.02, 0.5, 0.62, 1.0, 1.0]);
-
-        for (parameter_schema_version, implementation_version) in [
-            (
-                ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
-                SMOOTH_RGB_TONE_CURVE_IMPLEMENTATION_VERSION,
-            ),
-            (
-                SMOOTH_RGB_TONE_CURVE_PARAMETER_SCHEMA_VERSION,
-                ADJUSTMENT_IMPLEMENTATION_VERSION,
-            ),
-        ] {
-            let mut mixed = node.clone();
-            mixed.parameter_schema_version = parameter_schema_version;
-            mixed.implementation_version = implementation_version;
-            assert!(matches!(
-                AdjustmentRenderPlan { nodes: vec![mixed] }.validate(),
-                Err(BridgeError::InvalidEditRequest(
-                    "adjustment node uses an unsupported schema or implementation version"
-                ))
-            ));
-        }
-
-        let mut malformed = SmoothRgbToneCurve::default();
-        malformed.blue.clear();
-        let malformed = AdjustmentRenderPlan {
-            nodes: vec![AdjustmentRenderNode {
-                node_id: "malformed-smooth-rgb-curve".to_owned(),
-                parameter_schema_version: SMOOTH_RGB_TONE_CURVE_PARAMETER_SCHEMA_VERSION,
-                implementation_version: SMOOTH_RGB_TONE_CURVE_IMPLEMENTATION_VERSION,
-                enabled: true,
-                operation: AdjustmentRenderOperation::SmoothRgbToneCurve {
-                    curves: Box::new(malformed),
-                },
-            }],
-        };
-        assert!(matches!(
-            malformed.validate(),
-            Err(BridgeError::InvalidEditRequest(_))
-        ));
     }
 
     #[test]
@@ -5063,15 +4974,18 @@ mod tests {
                     4,
                     AdjustmentRenderNode {
                         node_id: "test-tone-curve".to_owned(),
-                        parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
-                        implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
                         enabled: true,
-                        operation: AdjustmentRenderOperation::ToneCurve {
-                            points: vec![
-                                ToneCurvePoint { x: 0.0, y: 0.0 },
-                                ToneCurvePoint { x: 0.5, y: 0.7 },
-                                ToneCurvePoint { x: 1.0, y: 1.0 },
-                            ],
+                        parameter_schema_version:
+                            OKLAB_LIGHTNESS_TONE_CURVE_PARAMETER_SCHEMA_VERSION,
+                        implementation_version: OKLAB_LIGHTNESS_TONE_CURVE_IMPLEMENTATION_VERSION,
+                        operation: AdjustmentRenderOperation::OklabLightnessToneCurve {
+                            curve: Box::new(OklabLightnessToneCurve {
+                                lightness: vec![
+                                    ToneCurvePoint { x: 0.0, y: 0.0 },
+                                    ToneCurvePoint { x: 0.5, y: 0.7 },
+                                    ToneCurvePoint { x: 1.0, y: 1.0 },
+                                ],
+                            }),
                         },
                     },
                 );

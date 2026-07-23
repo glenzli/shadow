@@ -30,6 +30,11 @@ Item {
     property bool beforeFrameReady: false
     property int mixerViewMode: 0
     property int selectedMixerBand: 0
+    property int selectedSelectiveColorTarget: 0
+    // These are display aids only. They do not mutate the edit stack, the
+    // working recipe, or version history.
+    property bool zebraEnabled: false
+    property bool lumaWaveformEnabled: false
 
     readonly property int comparisonWhole: 0
     readonly property int comparisonWipeVertical: 1
@@ -65,6 +70,12 @@ Item {
     readonly property bool showingFullDetail: !fitView && zoomFactor >= 1.0
         && !comparisonActive && editor.detailMode && editor.detailTiles.length > 0
         && detailImageReady
+    readonly property bool scopePreviewAvailable: editor.active
+        && previewFrameReady
+        && readyPreviewGeneration.length > 0
+        && !showingProvisionalPreview
+        && !comparisonActive
+        && !showingFullDetail
 
     readonly property color panel: Theme.panel
     readonly property color panelRaised: Theme.panelRaised
@@ -82,6 +93,17 @@ Item {
         { "name": qsTr("Blue"), "color": "#477fdb", "hueLow": "#36a4d3", "hueHigh": "#755bd3", "oklchHue": 264.0520 },
         { "name": qsTr("Purple"), "color": "#8a5bcf", "hueLow": "#526fd9", "hueHigh": "#c34eb5", "oklchHue": 293.9376 },
         { "name": qsTr("Magenta"), "color": "#d04fa4", "hueLow": "#9856c9", "hueHigh": "#e34e73", "oklchHue": 328.3634 }
+    ]
+    readonly property var selectiveColorTargets: [
+        { "name": qsTr("Reds"), "color": "#ef5b62" },
+        { "name": qsTr("Yellows"), "color": "#e5bf45" },
+        { "name": qsTr("Greens"), "color": "#4fb473" },
+        { "name": qsTr("Cyans"), "color": "#37bdc7" },
+        { "name": qsTr("Blues"), "color": "#5484d8" },
+        { "name": qsTr("Magentas"), "color": "#cf5aa9" },
+        { "name": qsTr("White"), "color": "#edf0f3" },
+        { "name": qsTr("Neutral"), "color": "#8d98a5" },
+        { "name": qsTr("Black"), "color": "#27313b" }
     ]
 
     function joinedIdentity(make, model) {
@@ -165,6 +187,36 @@ Item {
     function mixerValue(index, component) {
         const revision = editor.parameterRevision
         return revision >= 0 ? editor.colorMixerValue(index, component) : 0
+    }
+
+    function selectiveColorValue(targetIndex, componentIndex) {
+        const revision = editor.parameterRevision
+        return revision >= 0 ? editor.selectiveColorValue(targetIndex, componentIndex) : 0
+    }
+
+    function selectiveColorRelative() {
+        const revision = editor.parameterRevision
+        return revision >= 0 ? editor.selectiveColorRelative() : true
+    }
+
+    function selectiveColorTrackStart(componentIndex) {
+        if (componentIndex === 0)
+            return "#e96870"
+        if (componentIndex === 1)
+            return "#58a976"
+        if (componentIndex === 2)
+            return "#5f88d4"
+        return Theme.effectiveDark ? "#dce3ea" : "#ffffff"
+    }
+
+    function selectiveColorTrackEnd(componentIndex) {
+        if (componentIndex === 0)
+            return "#37bdc7"
+        if (componentIndex === 1)
+            return "#cf5aa9"
+        if (componentIndex === 2)
+            return "#e5bf45"
+        return Theme.effectiveDark ? "#1c242c" : "#202830"
     }
 
     function mixerTrackStart(band, component) {
@@ -671,6 +723,7 @@ Item {
         }
 
         Rectangle {
+            id: precisionCanvas
             Layout.fillWidth: true
             Layout.fillHeight: true
             color: Theme.photoCanvas
@@ -722,6 +775,31 @@ Item {
 
                         RowLayout {
                             spacing: 2
+
+                            ShadowIconButton {
+                                id: zebraButton
+                                source: "qrc:/icons/zebra.svg"
+                                variant: ShadowIconButton.Secondary
+                                selected: precision.zebraEnabled
+                                toolTipText: qsTr("Toggle display zebra warning")
+                                accessibleName: toolTipText
+                                Accessible.checked: selected
+                                enabled: precision.editor.active
+                                onClicked: precision.zebraEnabled = !precision.zebraEnabled
+                            }
+
+                            ShadowIconButton {
+                                id: lumaWaveformButton
+                                source: "qrc:/icons/scopes.svg"
+                                variant: ShadowIconButton.Secondary
+                                selected: precision.lumaWaveformEnabled
+                                toolTipText: qsTr("Toggle luma waveform")
+                                accessibleName: toolTipText
+                                Accessible.checked: selected
+                                enabled: precision.editor.active
+                                onClicked: precision.lumaWaveformEnabled
+                                    = !precision.lumaWaveformEnabled
+                            }
 
                             ShadowIconButton {
                                 id: beforeAfterButton
@@ -928,6 +1006,24 @@ Item {
                                     precision.readyPreviewGeneration = ""
                                 }
                             }
+                        }
+
+                        Image {
+                            id: displayZebraOverlay
+                            anchors.fill: parent
+                            source: precision.scopePreviewAvailable
+                                ? "image://shadow-edit/scope/zebra/current?generation="
+                                    + precision.readyPreviewGeneration : ""
+                            fillMode: Image.Stretch
+                            asynchronous: true
+                            cache: false
+                            retainWhileLoading: true
+                            smooth: false
+                            mipmap: false
+                            visible: precision.zebraEnabled
+                                && precision.scopePreviewAvailable
+                                && status === Image.Ready
+                            z: 10
                         }
 
                         Item {
@@ -1310,6 +1406,126 @@ Item {
                                 Qt.callLater(precision.requestVisibleDetail)
                             }
                         }
+                    }
+                }
+            }
+
+            Rectangle {
+                id: lumaWaveformOverlay
+                x: 18
+                y: 58
+                width: 356
+                height: 207
+                radius: Theme.controlRadius
+                color: Theme.previewHudStrongOverlay
+                border.width: 1
+                border.color: Theme.previewHudBorder
+                clip: true
+                opacity: 0.82
+                z: 180
+                visible: precision.lumaWaveformEnabled
+                    && precision.scopePreviewAvailable
+
+                Rectangle {
+                    id: waveformHeader
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    height: 32
+                    color: Theme.transparent
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 10
+                        anchors.rightMargin: 5
+                        spacing: 7
+
+                        ShadowIcon {
+                            source: "qrc:/icons/scopes.svg"
+                            color: precision.accent
+                            size: 14
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            text: qsTr("LUMA WAVEFORM")
+                            color: precision.textPrimary
+                            font.pixelSize: 9
+                            font.weight: Font.DemiBold
+                            font.letterSpacing: 0.7
+                        }
+                        ShadowIconButton {
+                            source: "qrc:/icons/clear.svg"
+                            buttonSize: 22
+                            iconSize: 12
+                            toolTipText: qsTr("Hide luma waveform")
+                            accessibleName: toolTipText
+                            onClicked: precision.lumaWaveformEnabled = false
+                        }
+                    }
+
+                    MouseArea {
+                        id: waveformDragArea
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        anchors.rightMargin: 30
+                        hoverEnabled: true
+                        cursorShape: Qt.SizeAllCursor
+                        drag.target: lumaWaveformOverlay
+                        drag.axis: Drag.XAndYAxis
+                        drag.minimumX: 12
+                        drag.maximumX: Math.max(
+                            12, precisionCanvas.width - lumaWaveformOverlay.width - 12)
+                        drag.minimumY: 48
+                        drag.maximumY: Math.max(
+                            48, precisionCanvas.height - lumaWaveformOverlay.height - 12)
+                    }
+                }
+
+                Item {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: waveformHeader.bottom
+                    anchors.bottom: parent.bottom
+                    anchors.margins: 10
+                    clip: true
+
+                    Repeater {
+                        model: 5
+                        delegate: Rectangle {
+                            required property int index
+                            x: Math.round(index * (parent.width - 1) / 4)
+                            y: 0
+                            width: 1
+                            height: parent.height
+                            color: Theme.previewHudBorder
+                            opacity: 0.55
+                        }
+                    }
+                    Repeater {
+                        model: 4
+                        delegate: Rectangle {
+                            required property int index
+                            x: 0
+                            y: Math.round(index * (parent.height - 1) / 3)
+                            width: parent.width
+                            height: 1
+                            color: Theme.previewHudBorder
+                            opacity: 0.55
+                        }
+                    }
+                    Image {
+                        id: lumaWaveformImage
+                        anchors.fill: parent
+                        source: precision.scopePreviewAvailable
+                            ? "image://shadow-edit/scope/waveform/current?generation="
+                                + precision.readyPreviewGeneration : ""
+                        fillMode: Image.Stretch
+                        asynchronous: true
+                        cache: false
+                        retainWhileLoading: true
+                        smooth: true
                     }
                 }
             }
@@ -1825,7 +2041,7 @@ Item {
                                             Layout.fillWidth: true
                                             Layout.leftMargin: 14
                                             Layout.rightMargin: 14
-                                            label: qsTr("Saturation")
+                                            label: qsTr("Chroma")
                                             from: 0.0
                                             to: 2.5
                                             neutralValue: 1.0
@@ -1891,7 +2107,7 @@ Item {
                                                 border.color: precision.border
                                             }
                                             onCurrentIndexChanged: precision.mixerViewMode = currentIndex
-                                            ShadowTabButton { text: qsTr("HSL"); compact: true }
+                                            ShadowTabButton { text: qsTr("OKLCH"); compact: true }
                                             ShadowTabButton { text: qsTr("COLOR"); compact: true }
                                         }
 
@@ -1904,8 +2120,8 @@ Item {
                                             Layout.preferredHeight: visible ? 28 : 0
                                             background: Item {}
                                             ShadowTabButton { text: qsTr("HUE"); compact: true }
-                                            ShadowTabButton { text: qsTr("SATURATION"); compact: true }
-                                            ShadowTabButton { text: qsTr("LUMINANCE"); compact: true }
+                                            ShadowTabButton { text: qsTr("CHROMA"); compact: true }
+                                            ShadowTabButton { text: qsTr("LIGHTNESS"); compact: true }
                                         }
 
                                         Repeater {
@@ -1991,8 +2207,8 @@ Item {
                                         Repeater {
                                             model: precision.mixerViewMode === 1 ? [
                                                 { "component": "hue", "name": qsTr("Hue") },
-                                                { "component": "saturation", "name": qsTr("Saturation") },
-                                                { "component": "lightness", "name": qsTr("Luminance") }
+                                                { "component": "saturation", "name": qsTr("Chroma") },
+                                                { "component": "lightness", "name": qsTr("Lightness") }
                                             ] : []
 
                                             delegate: ShadowSlider {
@@ -2032,6 +2248,127 @@ Item {
                                                 onGestureFinished: precision.editor.endParameterEdit(
                                                     "color_mixer/" + modelData.component
                                                         + "/" + bandIndex)
+                                            }
+                                        }
+                                    }
+
+                                    ShadowAdjustmentSection {
+                                        Layout.fillWidth: true
+                                        title: qsTr("SELECTIVE COLOR")
+
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 14
+                                            Layout.rightMargin: 14
+                                            Layout.topMargin: 4
+                                            Layout.bottomMargin: 2
+                                            spacing: 3
+
+                                            Item { Layout.fillWidth: true }
+
+                                            Repeater {
+                                                model: precision.selectiveColorTargets
+
+                                                delegate: ShadowColorLabelButton {
+                                                    required property int index
+                                                    required property var modelData
+                                                    buttonSize: 25
+                                                    labelColor: modelData.color
+                                                    selected: precision.selectedSelectiveColorTarget === index
+                                                    toolTipText: modelData.name
+                                                    accessibleName: toolTipText
+                                                    onClicked: precision.selectedSelectiveColorTarget = index
+                                                }
+                                            }
+
+                                            Item { Layout.fillWidth: true }
+                                        }
+
+                                        TabBar {
+                                            id: selectiveColorMethodTabs
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 14
+                                            Layout.rightMargin: 14
+                                            Layout.topMargin: 3
+                                            Layout.preferredHeight: 28
+                                            currentIndex: precision.selectiveColorRelative() ? 0 : 1
+                                            background: Rectangle {
+                                                radius: Theme.controlRadius
+                                                color: Theme.surfaceSubtle
+                                                border.color: precision.border
+                                            }
+                                            onCurrentIndexChanged: {
+                                                const relative = currentIndex === 0
+                                                if (relative === precision.selectiveColorRelative())
+                                                    return
+                                                precision.editor.beginParameterEdit("selective_color/method")
+                                                precision.editor.setSelectiveColorRelative(relative)
+                                                precision.editor.endParameterEdit("selective_color/method")
+                                            }
+                                            ShadowTabButton {
+                                                text: qsTr("RELATIVE")
+                                                compact: true
+                                                toolTipText: qsTr("Scale the existing CMYK component")
+                                            }
+                                            ShadowTabButton {
+                                                text: qsTr("ABSOLUTE")
+                                                compact: true
+                                                toolTipText: qsTr("Add or remove a fixed CMYK amount")
+                                            }
+                                        }
+
+                                        Label {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 14
+                                            Layout.rightMargin: 14
+                                            Layout.topMargin: 3
+                                            text: precision.selectiveColorTargets[
+                                                precision.selectedSelectiveColorTarget].name
+                                            color: precision.textSecondary
+                                            font.pixelSize: 10
+                                            font.weight: Font.DemiBold
+                                            horizontalAlignment: Text.AlignRight
+                                        }
+
+                                        Repeater {
+                                            model: [
+                                                { "name": qsTr("Cyan"), "component": 0 },
+                                                { "name": qsTr("Magenta"), "component": 1 },
+                                                { "name": qsTr("Yellow"), "component": 2 },
+                                                { "name": qsTr("Black"), "component": 3 }
+                                            ]
+
+                                            delegate: ShadowSlider {
+                                                required property var modelData
+                                                readonly property int targetIndex:
+                                                    precision.selectedSelectiveColorTarget
+                                                Layout.fillWidth: true
+                                                Layout.leftMargin: 14
+                                                Layout.rightMargin: 14
+                                                label: modelData.name
+                                                semanticTrack: true
+                                                trackStartColor: precision.selectiveColorTrackStart(
+                                                    modelData.component)
+                                                trackMiddleColor: Theme.track
+                                                trackEndColor: precision.selectiveColorTrackEnd(
+                                                    modelData.component)
+                                                from: -1.0
+                                                to: 1.0
+                                                neutralValue: 0.0
+                                                stepSize: 0.01
+                                                decimals: 0
+                                                displayMultiplier: 100
+                                                suffix: "%"
+                                                value: precision.selectiveColorValue(
+                                                    targetIndex, modelData.component)
+                                                onGestureStarted: precision.editor.beginParameterEdit(
+                                                    "selective_color/" + targetIndex
+                                                        + "/" + modelData.component)
+                                                onEdited: value => precision.editor.setSelectiveColorValue(
+                                                    targetIndex, modelData.component, value)
+                                                onGestureFinished: precision.editor.endParameterEdit(
+                                                    "selective_color/" + targetIndex
+                                                        + "/" + modelData.component)
                                             }
                                         }
                                     }
@@ -2161,7 +2498,7 @@ Item {
                                                 { "key": "color_range_width", "name": qsTr("Range"), "from": 1, "to": 180, "neutral": 30, "step": 1, "scale": 1, "suffix": "°" },
                                                 { "key": "color_range_softness", "name": qsTr("Softness"), "from": 0, "to": 1, "neutral": 0.5, "step": 0.01, "scale": 100, "suffix": "%" },
                                                 { "key": "color_range_hue", "name": qsTr("Hue shift"), "from": -180, "to": 180, "neutral": 0, "step": 1, "scale": 1, "suffix": "°" },
-                                                { "key": "color_range_saturation", "name": qsTr("Saturation"), "from": -1, "to": 1, "neutral": 0, "step": 0.01, "scale": 100, "suffix": "%" },
+                                                { "key": "color_range_saturation", "name": qsTr("Chroma"), "from": -1, "to": 1, "neutral": 0, "step": 0.01, "scale": 100, "suffix": "%" },
                                                 { "key": "color_range_lightness", "name": qsTr("Lightness"), "from": -1, "to": 1, "neutral": 0, "step": 0.01, "scale": 100, "suffix": "%" }
                                             ]
                                             delegate: ShadowSlider {

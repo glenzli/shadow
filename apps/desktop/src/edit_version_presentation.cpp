@@ -19,8 +19,10 @@ namespace {
     if (key == QStringLiteral("contrast_factor")) {
         return translated(QT_TRANSLATE_NOOP("EditVersionModel", "Contrast"));
     }
-    if (key == QStringLiteral("tone_curve")) {
-        return translated(QT_TRANSLATE_NOOP("EditVersionModel", "Tone Curve"));
+    if (key == QStringLiteral("oklab_lightness_curve")) {
+        return translated(
+            QT_TRANSLATE_NOOP("EditVersionModel", "Perceptual Lightness Curve")
+        );
     }
     if (key == QStringLiteral("grade_node_enabled")) {
         return translated(QT_TRANSLATE_NOOP("EditVersionModel", "Grade Node bypass"));
@@ -32,7 +34,7 @@ namespace {
         return translated(QT_TRANSLATE_NOOP("EditVersionModel", "Tint"));
     }
     if (key == QStringLiteral("saturation_factor")) {
-        return translated(QT_TRANSLATE_NOOP("EditVersionModel", "Saturation"));
+        return translated(QT_TRANSLATE_NOOP("EditVersionModel", "Chroma"));
     }
     if (key == QStringLiteral("highlights")) {
         return translated(QT_TRANSLATE_NOOP("EditVersionModel", "Highlights"));
@@ -56,6 +58,9 @@ namespace {
     }
     if (key == QStringLiteral("color_range")) {
         return translated(QT_TRANSLATE_NOOP("EditVersionModel", "Point Color"));
+    }
+    if (key == QStringLiteral("selective_color")) {
+        return translated(QT_TRANSLATE_NOOP("EditVersionModel", "Selective Color"));
     }
     if (key == QStringLiteral("lut")) {
         return translated(QT_TRANSLATE_NOOP("EditVersionModel", "LUT"));

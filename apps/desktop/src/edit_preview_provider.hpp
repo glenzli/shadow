@@ -4,6 +4,7 @@
 
 #include <QByteArray>
 #include <QHash>
+#include <QImage>
 #include <QQuickImageProvider>
 #include <QReadWriteLock>
 #include <QSize>
@@ -24,6 +25,8 @@ public:
         QByteArray bytes;
         QSize dimensions;
         qsizetype row_stride_bytes = 0;
+        QImage display_zebra;
+        QImage luma_waveform;
     };
 
     struct DetailPublication final {
@@ -37,6 +40,8 @@ public:
         EditPreviewSlot slot,
         QByteArray bytes,
         QSize dimensions,
+        QImage display_zebra,
+        QImage luma_waveform,
         quint64 generation
     );
     void clear(EditPreviewSlot slot, quint64 generation);
@@ -58,6 +63,8 @@ private:
         QSize dimensions;
         quint64 generation = 0;
         qsizetype row_stride_bytes = 0;
+        QImage display_zebra;
+        QImage luma_waveform;
     };
 
     [[nodiscard]] StoredPreview& slot(EditPreviewSlot slot) noexcept;

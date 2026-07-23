@@ -109,22 +109,11 @@ inline bool resetSelection(
     auto& grade_node = grade_stack.grade_nodes[selected_index];
     const BackendBasicEditParameters neutral;
     const BackendFineEditParameters neutral_fine;
-    if (grade_node.basic == neutral
-        && grade_node.tone_curve_kind == ToneCurveKind::None
-        && grade_node.tone_curve_master_points.isEmpty()
-        && grade_node.tone_curve_red_points.isEmpty()
-        && grade_node.tone_curve_green_points.isEmpty()
-        && grade_node.tone_curve_blue_points.isEmpty()
-        && grade_node.fine == neutral_fine) {
+    if (grade_node.basic == neutral && grade_node.fine == neutral_fine) {
         return false;
     }
     grade_node.basic = neutral;
     grade_node.fine = neutral_fine;
-    grade_node.tone_curve_kind = ToneCurveKind::None;
-    grade_node.tone_curve_master_points.clear();
-    grade_node.tone_curve_red_points.clear();
-    grade_node.tone_curve_green_points.clear();
-    grade_node.tone_curve_blue_points.clear();
     return true;
 }
 

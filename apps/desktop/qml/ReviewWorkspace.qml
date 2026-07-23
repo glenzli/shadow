@@ -927,6 +927,13 @@ Item {
                         })
                     }
 
+                    // A final Library snapshot may replace a delegate while
+                    // preserving the same selected photo id. Its metadata
+                    // properties are then initialized before `selected`
+                    // becomes true, so none of the field change handlers below
+                    // can refresh the right panel. Reconcile once selection is
+                    // established as well.
+                    onSelectedChanged: refreshSelectedMetadata()
                     onHasMetadataChanged: refreshSelectedMetadata()
                     onCameraMakeChanged: refreshSelectedMetadata()
                     onCameraModelChanged: refreshSelectedMetadata()

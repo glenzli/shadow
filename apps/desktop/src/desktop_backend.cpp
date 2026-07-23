@@ -2,11 +2,15 @@
 
 #include "shadow-desktop-bridge/src/lib.rs.h"
 
+#include <QImage>
+
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace {
 
@@ -27,6 +31,130 @@ namespace {
         reinterpret_cast<const char*>(value.data()),
         static_cast<qsizetype>(length)
     );
+}
+
+// Scopes are deliberately derived from the rendered JPEG, rather than the
+// working RGB buffer. They are a fast, presentation-only display-output aid:
+// the stripes flag encoded output near 0/255 and the waveform shows its luma
+// distribution. RawFrame will later provide a separate sensor-domain clipping
+// mask, which must not be conflated with this overlay.
+struct DisplayScopeImages final {
+    QImage zebra;
+    QImage luma_waveform;
+};
+
+[[nodiscard]] DisplayScopeImages make_display_scope_images(
+    const QByteArray& jpeg_bytes
+) noexcept {
+    try {
+        QImage source = QImage::fromData(jpeg_bytes, "JPEG");
+        if (source.isNull()) {
+            return {};
+        }
+        source = source.convertToFormat(QImage::Format_RGBA8888);
+        if (source.isNull() || source.width() <= 0 || source.height() <= 0) {
+            return {};
+        }
+
+        QImage zebra(source.size(), QImage::Format_RGBA8888);
+        if (zebra.isNull()) {
+            return {};
+        }
+        zebra.fill(Qt::transparent);
+
+        constexpr int waveform_width = 384;
+        constexpr int waveform_height = 180;
+        QImage waveform(
+            waveform_width,
+            waveform_height,
+            QImage::Format_RGBA8888
+        );
+        if (waveform.isNull()) {
+            return {};
+        }
+        waveform.fill(Qt::transparent);
+        std::vector<std::uint32_t> waveform_density(
+            static_cast<std::size_t>(waveform_width * waveform_height),
+            0U
+        );
+
+        std::uint32_t peak_density = 0;
+        for (int y = 0; y < source.height(); ++y) {
+            const auto* const source_line = source.constScanLine(y);
+            auto* const zebra_line = zebra.scanLine(y);
+            for (int x = 0; x < source.width(); ++x) {
+                const auto* const pixel = source_line + (x * 4);
+                const int red = pixel[0];
+                const int green = pixel[1];
+                const int blue = pixel[2];
+
+                // Use conservative near-endpoint thresholds. This is a
+                // display warning rather than a claim that RAW information is
+                // unrecoverable, hence no reference to sensor clipping here.
+                const bool highlight = std::max({red, green, blue}) >= 252;
+                const bool shadow = std::max({red, green, blue}) <= 3;
+                const bool hatch = (((x / 6) + (y / 6)) & 1) == 0;
+                if (hatch && (highlight || shadow)) {
+                    auto* const overlay = zebra_line + (x * 4);
+                    if (highlight) {
+                        overlay[0] = 255;
+                        overlay[1] = 79;
+                        overlay[2] = 98;
+                    } else {
+                        overlay[0] = 63;
+                        overlay[1] = 155;
+                        overlay[2] = 255;
+                    }
+                    overlay[3] = 178;
+                }
+
+                const int luma = (54 * red + 183 * green + 19 * blue + 128) >> 8;
+                const int waveform_x = (x * waveform_width) / source.width();
+                const int waveform_y = waveform_height - 1
+                    - ((luma * (waveform_height - 1) + 127) / 255);
+                const auto density_index = static_cast<std::size_t>(waveform_y)
+                    * static_cast<std::size_t>(waveform_width)
+                    + static_cast<std::size_t>(waveform_x);
+                const std::uint32_t density = ++waveform_density[density_index];
+                peak_density = std::max(peak_density, density);
+            }
+        }
+
+        if (peak_density == 0U) {
+            return {};
+        }
+        for (int y = 0; y < waveform_height; ++y) {
+            auto* const waveform_line = waveform.scanLine(y);
+            for (int x = 0; x < waveform_width; ++x) {
+                const std::uint32_t density = waveform_density[
+                    static_cast<std::size_t>(y)
+                    * static_cast<std::size_t>(waveform_width)
+                    + static_cast<std::size_t>(x)
+                ];
+                if (density == 0U) {
+                    continue;
+                }
+                const double normalized = std::sqrt(
+                    static_cast<double>(density) / static_cast<double>(peak_density)
+                );
+                auto* const pixel = waveform_line + (x * 4);
+                pixel[0] = 86;
+                pixel[1] = 201;
+                pixel[2] = 255;
+                pixel[3] = static_cast<uchar>(
+                    std::clamp(48.0 + (207.0 * normalized), 0.0, 255.0)
+                );
+            }
+        }
+
+        return {
+            .zebra = std::move(zebra),
+            .luma_waveform = std::move(waveform),
+        };
+    } catch (...) {
+        // A missing optional scope must never make the main edit preview fail.
+        return {};
+    }
 }
 
 [[nodiscard]] qsizetype checked_qt_vector_size(
@@ -137,6 +265,14 @@ template <std::size_t Size>
             result.point_color_ranges.push_back(value);
         }
     }
+    result.selective_color_relative = source.selective_color_relative;
+    result.selective_color_cmyk = ffi_values(source.selective_color_cmyk);
+    result.oklab_lightness_curve_points.reserve(
+        static_cast<std::size_t>(source.oklab_lightness_curve_points.size())
+    );
+    for (const double value : source.oklab_lightness_curve_points) {
+        result.oklab_lightness_curve_points.push_back(value);
+    }
     result.lut_resource_id = source.lut_resource_id.toStdString();
     result.lut_title = source.lut_title.toStdString();
     result.lut_managed_path = source.lut_managed_path.toStdString();
@@ -199,6 +335,17 @@ template <std::size_t Size>
             .lightness = source.point_color_ranges[index + 6U],
         });
     }
+    if (source.oklab_lightness_curve_points.size() % 2U != 0U) {
+        throw std::length_error("Oklab lightness curve point vector has invalid size");
+    }
+    QVector<double> oklab_lightness_curve_points;
+    oklab_lightness_curve_points.reserve(checked_qt_vector_size(
+        source.oklab_lightness_curve_points.size(),
+        "oklab_lightness_curve_points"
+    ));
+    for (const double value : source.oklab_lightness_curve_points) {
+        oklab_lightness_curve_points.push_back(value);
+    }
     return {
         .highlights = source.highlights,
         .shadows = source.shadows,
@@ -225,6 +372,12 @@ template <std::size_t Size>
         .color_range_saturation = source.color_range_saturation,
         .color_range_lightness = source.color_range_lightness,
         .additional_point_colors = std::move(additional_point_colors),
+        .selective_color_relative = source.selective_color_relative,
+        .selective_color_cmyk = edit_values<BACKEND_SELECTIVE_COLOR_VALUE_COUNT>(
+            source.selective_color_cmyk,
+            "selective_color_cmyk"
+        ),
+        .oklab_lightness_curve_points = std::move(oklab_lightness_curve_points),
         .lut_resource_id = qstring(source.lut_resource_id),
         .lut_title = qstring(source.lut_title),
         .lut_managed_path = qstring(source.lut_managed_path),
@@ -275,7 +428,6 @@ template <std::size_t Size>
     grade_node.contrast_render_op_id = source.contrast_render_op_id.toStdString();
     grade_node.selective_tone_render_op_id =
         source.selective_tone_render_op_id.toStdString();
-    grade_node.tone_curve_render_op_id = source.tone_curve_render_op_id.toStdString();
     grade_node.white_balance_render_op_id = source.white_balance_render_op_id.toStdString();
     grade_node.saturation_render_op_id = source.saturation_render_op_id.toStdString();
     grade_node.perceptual_color_render_op_id =
@@ -285,27 +437,6 @@ template <std::size_t Size>
     grade_node.basic = ffi_parameters(source.basic);
     grade_node.fine = ffi_fine_parameters(source.fine);
     grade_node.enabled = source.enabled;
-    switch (source.tone_curve_kind) {
-    case ToneCurveKind::None:
-        grade_node.tone_curve_kind = shadow::desktop::FfiToneCurveKind::None;
-        break;
-    case ToneCurveKind::SmoothRgb:
-        grade_node.tone_curve_kind = shadow::desktop::FfiToneCurveKind::SmoothRgb;
-        break;
-    }
-    const auto append_points = [](
-        auto& target,
-        const QVector<BackendToneCurvePoint>& points
-    ) {
-        target.reserve(static_cast<std::size_t>(points.size()));
-        for (const auto& point : points) {
-            target.push_back({.x = point.x, .y = point.y});
-        }
-    };
-    append_points(grade_node.tone_curve_master_points, source.tone_curve_master_points);
-    append_points(grade_node.tone_curve_red_points, source.tone_curve_red_points);
-    append_points(grade_node.tone_curve_green_points, source.tone_curve_green_points);
-    append_points(grade_node.tone_curve_blue_points, source.tone_curve_blue_points);
     return grade_node;
 }
 
@@ -319,7 +450,6 @@ template <std::size_t Size>
     grade_node.contrast_render_op_id = qstring(source.contrast_render_op_id);
     grade_node.selective_tone_render_op_id =
         qstring(source.selective_tone_render_op_id);
-    grade_node.tone_curve_render_op_id = qstring(source.tone_curve_render_op_id);
     grade_node.white_balance_render_op_id = qstring(source.white_balance_render_op_id);
     grade_node.saturation_render_op_id = qstring(source.saturation_render_op_id);
     grade_node.perceptual_color_render_op_id =
@@ -329,42 +459,6 @@ template <std::size_t Size>
     grade_node.basic = edit_parameters(source.basic);
     grade_node.fine = edit_fine_parameters(source.fine);
     grade_node.enabled = source.enabled;
-    switch (source.tone_curve_kind) {
-    case shadow::desktop::FfiToneCurveKind::None:
-        grade_node.tone_curve_kind = ToneCurveKind::None;
-        break;
-    case shadow::desktop::FfiToneCurveKind::SmoothRgb:
-        grade_node.tone_curve_kind = ToneCurveKind::SmoothRgb;
-        break;
-    default:
-        throw std::invalid_argument("desktop bridge received an unknown Tone Curve kind");
-    }
-    const auto append_points = [](auto& target, const auto& points, const char* field) {
-        target.reserve(checked_qt_vector_size(points.size(), field));
-        for (const auto& point : points) {
-            target.push_back({.x = point.x, .y = point.y});
-        }
-    };
-    append_points(
-        grade_node.tone_curve_master_points,
-        source.tone_curve_master_points,
-        "tone_curve_master_points"
-    );
-    append_points(
-        grade_node.tone_curve_red_points,
-        source.tone_curve_red_points,
-        "tone_curve_red_points"
-    );
-    append_points(
-        grade_node.tone_curve_green_points,
-        source.tone_curve_green_points,
-        "tone_curve_green_points"
-    );
-    append_points(
-        grade_node.tone_curve_blue_points,
-        source.tone_curve_blue_points,
-        "tone_curve_blue_points"
-    );
     return grade_node;
 }
 
@@ -865,8 +959,10 @@ BackendEditedPreview DesktopBackend::renderEditPreview(
         source_path.toStdString(),
         request
     );
+    const QByteArray preview_bytes = qbytes(payload.bytes);
+    const auto scopes = make_display_scope_images(preview_bytes);
     return {
-        .bytes = qbytes(payload.bytes),
+        .bytes = preview_bytes,
         .analysis = {
             .version = qstring(payload.analysis_version),
             .red = qcounts(payload.red_histogram, "red_histogram"),
@@ -887,6 +983,8 @@ BackendEditedPreview DesktopBackend::renderEditPreview(
             .shadow_clipped_pixels = payload.shadow_clipped_pixels,
             .highlight_clipped_pixels = payload.highlight_clipped_pixels,
         },
+        .display_zebra = scopes.zebra,
+        .luma_waveform = scopes.luma_waveform,
         .optics = {
             .status = qstring(payload.optics_status),
             .provider_id = qstring(payload.optics_provider_id),

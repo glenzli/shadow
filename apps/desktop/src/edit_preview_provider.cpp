@@ -34,12 +34,16 @@ void EditPreviewStore::publish(
     const EditPreviewSlot target,
     QByteArray bytes,
     const QSize dimensions,
+    QImage display_zebra,
+    QImage luma_waveform,
     const quint64 generation
 ) {
     QWriteLocker lock(&lock_);
     auto& stored = slot(target);
     stored.bytes = std::move(bytes);
     stored.dimensions = dimensions;
+    stored.display_zebra = std::move(display_zebra);
+    stored.luma_waveform = std::move(luma_waveform);
     stored.generation = generation;
 }
 
@@ -49,8 +53,7 @@ void EditPreviewStore::clear(
 ) {
     QWriteLocker lock(&lock_);
     auto& stored = slot(target);
-    stored.bytes.clear();
-    stored.dimensions = {};
+    stored = {};
     stored.generation = generation;
 }
 
@@ -78,6 +81,8 @@ EditPreviewStore::Snapshot EditPreviewStore::snapshot(
         .bytes = stored.bytes,
         .dimensions = stored.dimensions,
         .row_stride_bytes = stored.row_stride_bytes,
+        .display_zebra = stored.display_zebra,
+        .luma_waveform = stored.luma_waveform,
     };
 }
 
@@ -126,6 +131,8 @@ EditPreviewStore::Snapshot EditPreviewStore::detailSnapshot(
         .bytes = found->bytes,
         .dimensions = found->dimensions,
         .row_stride_bytes = found->row_stride_bytes,
+        .display_zebra = found->display_zebra,
+        .luma_waveform = found->luma_waveform,
     };
 }
 
@@ -144,6 +151,51 @@ QImage EditPreviewProvider::requestImage(
     const qsizetype query_start = id.indexOf(QLatin1Char('?'));
     const QString slot_name = query_start >= 0 ? id.left(query_start) : id;
     const QUrlQuery query(query_start >= 0 ? id.mid(query_start + 1) : QString{});
+    if (slot_name.startsWith(QStringLiteral("scope/"))) {
+        const QStringList scope_parts = slot_name.split(QLatin1Char('/'));
+        if (scope_parts.size() != 3
+            || (scope_parts.at(1) != QStringLiteral("zebra")
+                && scope_parts.at(1) != QStringLiteral("waveform"))) {
+            if (size != nullptr) {
+                *size = {};
+            }
+            return {};
+        }
+        EditPreviewSlot scope_slot;
+        if (scope_parts.at(2) == QStringLiteral("current")) {
+            scope_slot = EditPreviewSlot::Current;
+        } else if (scope_parts.at(2) == QStringLiteral("before")) {
+            scope_slot = EditPreviewSlot::Before;
+        } else {
+            if (size != nullptr) {
+                *size = {};
+            }
+            return {};
+        }
+        bool valid_generation = false;
+        const quint64 generation = query
+                                       .queryItemValue(QStringLiteral("generation"))
+                                       .toULongLong(&valid_generation);
+        if (!valid_generation) {
+            if (size != nullptr) {
+                *size = {};
+            }
+            return {};
+        }
+        const auto snapshot = store_->snapshot(scope_slot, generation);
+        const QImage scope_image = scope_parts.at(1) == QStringLiteral("zebra")
+            ? snapshot.display_zebra : snapshot.luma_waveform;
+        if (scope_image.isNull()) {
+            if (size != nullptr) {
+                *size = {};
+            }
+            return {};
+        }
+        if (size != nullptr) {
+            *size = scope_image.size();
+        }
+        return scope_image;
+    }
     if (slot_name.startsWith(QStringLiteral("detail/"))) {
         const QString ticket = slot_name.mid(7);
         bool valid_photo = false;

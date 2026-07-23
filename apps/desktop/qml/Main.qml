@@ -210,10 +210,151 @@ ApplicationWindow {
         }
 
         function onCloseSaveFailed() {
-            // Keep the window open and surface the precise persistence error
-            // through the normal Precision status line. Normal exits never
-            // show a discard prompt because edits are autosaved.
+            // A durable save error must not trap the native close gesture in
+            // an automatic retry loop. The draft is still alive in memory, so
+            // make the consequence explicit and leave the recovery choice to
+            // the photographer.
             window.closeAfterAutosave = false
+            autosaveFailurePopup.openingPendingPhoto = false
+            autosaveFailurePopup.open()
+        }
+
+        function onPhotoSwitchSaveFailed() {
+            // The current photo's latest in-memory adjustments could not be
+            // made durable. Keep the target photo queued and make the three
+            // possible outcomes explicit instead of silently trapping the
+            // photographer on the current image.
+            autosaveFailurePopup.openingPendingPhoto = true
+            autosaveFailurePopup.open()
+        }
+    }
+
+    Popup {
+        id: autosaveFailurePopup
+        property bool openingPendingPhoto: false
+        parent: Overlay.overlay
+        x: Math.round((parent.width - width) / 2)
+        y: Math.round((parent.height - height) / 2)
+        width: Math.min(470, parent.width - 48)
+        padding: 0
+        modal: true
+        dim: true
+        focus: true
+        closePolicy: Popup.NoAutoClose
+
+        background: Rectangle {
+            radius: Theme.controlRadius + 2
+            color: Theme.panelRaised
+            border.width: 1
+            border.color: Theme.errorBorder
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 0
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.margins: 22
+                spacing: 10
+
+                Label {
+                    Layout.fillWidth: true
+                    text: qsTr("AUTOSAVE FAILED")
+                    color: Theme.errorText
+                    font.pixelSize: 11
+                    font.weight: Font.DemiBold
+                    font.letterSpacing: 1.1
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    text: autosaveFailurePopup.openingPendingPhoto
+                          ? qsTr("Shadow could not save this photo’s latest working adjustments. The selected photo will remain unopened until you retry, keep editing, or open it without these unsaved changes.")
+                          : qsTr("Shadow could not save the latest working adjustments locally. You can retry, keep editing, or quit without the unsaved changes.")
+                    color: Theme.textPrimary
+                    font.pixelSize: 13
+                    wrapMode: Text.WordWrap
+                    lineHeight: 1.35
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    visible: window.editor.autosaveErrorText.length > 0
+                    text: window.editor.autosaveErrorText
+                    color: Theme.textMuted
+                    font.pixelSize: 11
+                    wrapMode: Text.WordWrap
+                    lineHeight: 1.3
+                }
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 1
+                color: Theme.border
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.margins: 14
+                spacing: 8
+
+                ShadowButton {
+                    Layout.fillWidth: true
+                    text: qsTr("KEEP EDITING")
+                    variant: ShadowButton.Secondary
+                    onClicked: {
+                        if (autosaveFailurePopup.openingPendingPhoto)
+                            window.editor.cancelPendingPhotoOpen()
+                        autosaveFailurePopup.close()
+                    }
+                }
+
+                ShadowButton {
+                    Layout.fillWidth: true
+                    text: qsTr("RETRY SAVE")
+                    variant: ShadowButton.Primary
+                    enabled: !window.editor.stateBusy
+                    onClicked: {
+                        const openingPendingPhoto = autosaveFailurePopup.openingPendingPhoto
+                        autosaveFailurePopup.close()
+                        window.editor.retryAutosave()
+                        if (!openingPendingPhoto) {
+                            // Re-enter the regular close path while the retry
+                            // is in flight. A successful durable snapshot
+                            // emits closeReady; another failure reopens this
+                            // popup.
+                            Qt.callLater(window.close)
+                        }
+                    }
+                }
+
+                ShadowButton {
+                    Layout.fillWidth: true
+                    text: autosaveFailurePopup.openingPendingPhoto
+                          ? qsTr("OPEN WITHOUT SAVING")
+                          : qsTr("QUIT WITHOUT SAVING")
+                    variant: ShadowButton.Danger
+                    enabled: !window.editor.stateBusy
+                    onClicked: {
+                        const openingPendingPhoto = autosaveFailurePopup.openingPendingPhoto
+                        autosaveFailurePopup.close()
+                        if (openingPendingPhoto) {
+                            // This bypass intentionally discards only the
+                            // in-memory draft, then continues with the photo
+                            // the user selected. The last durable working
+                            // snapshot remains in the Catalog.
+                            window.editor.discardFailedAutosaveAndOpenPendingPhoto()
+                        } else {
+                            // This bypass is intentionally reachable only
+                            // after a confirmed autosave error. Normal closes
+                            // always take the durable-snapshot path above.
+                            window.closeAfterAutosave = true
+                            Qt.callLater(window.close)
+                        }
+                    }
+                }
+            }
         }
     }
 

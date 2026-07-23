@@ -21,7 +21,6 @@ void require(const bool condition, const std::string& message) {
         .exposure_render_op_id = stem + QStringLiteral("-exposure"),
         .contrast_render_op_id = stem + QStringLiteral("-contrast"),
         .selective_tone_render_op_id = stem + QStringLiteral("-selective-tone"),
-        .tone_curve_render_op_id = stem + QStringLiteral("-curve"),
         .white_balance_render_op_id = stem + QStringLiteral("-white-balance"),
         .saturation_render_op_id = stem + QStringLiteral("-saturation"),
         .perceptual_color_render_op_id = stem + QStringLiteral("-perceptual-color"),
@@ -42,13 +41,9 @@ void insertion_and_duplicate_identity_are_lossless() {
     duplicate.fine.sharpen_radius = 1.4;
     duplicate.fine.sharpen_threshold = 0.07;
     duplicate.fine.sharpen_masking = 0.35;
-    duplicate.tone_curve_kind = ToneCurveKind::SmoothRgb;
-    duplicate.tone_curve_master_points = {
-        {0.0, 0.0}, {0.5, 0.7}, {1.0, 1.0}
+    duplicate.fine.oklab_lightness_curve_points = {
+        0.0, 0.0, 0.5, 0.7, 1.0, 1.0
     };
-    duplicate.tone_curve_red_points = {{0.0, 0.0}, {1.0, 0.9}};
-    duplicate.tone_curve_green_points = {{0.0, 0.0}, {1.0, 1.0}};
-    duplicate.tone_curve_blue_points = {{0.0, 0.0}, {1.0, 1.0}};
 
     int selected = 0;
     require(
@@ -57,11 +52,6 @@ void insertion_and_duplicate_identity_are_lossless() {
     );
     require(selected == 1 && grade_stack.grade_nodes.at(1) == duplicate,
             "insert must preserve every Grade Node and Render Op identity plus its payload");
-    require(
-        grade_stack.grade_nodes.at(0).tone_curve_render_op_id
-            != grade_stack.grade_nodes.at(1).tone_curve_render_op_id,
-        "a duplicate must reserve a fresh Tone Curve identity even before use"
-    );
     require(
         grade_stack.grade_nodes.at(0).selective_tone_render_op_id
                 != grade_stack.grade_nodes.at(1).selective_tone_render_op_id
@@ -167,8 +157,7 @@ void full_stack_undo_restores_every_persistent_identity() {
             grade_node(QStringLiteral("second")),
         },
     };
-    before.grade_nodes[1].tone_curve_kind = ToneCurveKind::SmoothRgb;
-    before.grade_nodes[1].tone_curve_master_points = {{0.0, 0.1}, {1.0, 0.9}};
+    before.grade_nodes[1].fine.oklab_lightness_curve_points = {0.0, 0.1, 1.0, 0.9};
     BackendGradeStack after = before;
     int selected = 1;
     require(GradeNodeStack::moveSelection(after, selected, 0), "test move must succeed");
@@ -213,13 +202,9 @@ void grade_node_reset_is_complete_and_one_undo_restores_everything() {
     configured.fine.sharpen_radius = 2.2;
     configured.fine.sharpen_threshold = 0.09;
     configured.fine.sharpen_masking = 0.45;
-    configured.tone_curve_kind = ToneCurveKind::SmoothRgb;
-    configured.tone_curve_master_points = {
-        {0.0, 0.0}, {0.5, 0.65}, {1.0, 1.0}
+    configured.fine.oklab_lightness_curve_points = {
+        0.0, 0.0, 0.5, 0.65, 1.0, 1.0
     };
-    configured.tone_curve_red_points = {{0.0, 0.0}, {1.0, 1.0}};
-    configured.tone_curve_green_points = {{0.0, 0.0}, {1.0, 0.85}};
-    configured.tone_curve_blue_points = {{0.0, 0.0}, {1.0, 1.0}};
 
     BackendGradeStack reset = before;
     require(
@@ -230,13 +215,8 @@ void grade_node_reset_is_complete_and_one_undo_restores_everything() {
     require(
         neutral.basic == BackendBasicEditParameters{}
             && neutral.fine == BackendFineEditParameters{}
-            && neutral.tone_curve_kind == ToneCurveKind::None
-            && neutral.tone_curve_master_points.isEmpty()
-            && neutral.tone_curve_red_points.isEmpty()
-            && neutral.tone_curve_green_points.isEmpty()
-            && neutral.tone_curve_blue_points.isEmpty() && !neutral.enabled
+            && neutral.fine.oklab_lightness_curve_points.isEmpty() && !neutral.enabled
             && neutral.grade_node_id == configured.grade_node_id
-            && neutral.tone_curve_render_op_id == configured.tone_curve_render_op_id
             && neutral.selective_tone_render_op_id
                 == configured.selective_tone_render_op_id
             && neutral.perceptual_color_render_op_id

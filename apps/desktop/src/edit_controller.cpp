@@ -24,10 +24,22 @@
 
 namespace {
 
-constexpr std::uint32_t EDIT_PREVIEW_EDGE = 1'200;
+// This is deliberately an interactive proxy rather than an export raster. At
+// This is Shadow's resident editing proxy, not the full-resolution detail
+// source. 768px keeps the prepared RAW/RGB session below 57% of the pixel work
+// of the previous 1024px preview, while the separate 100% detail path retains
+// native resolution for judging sharpness and noise.
+constexpr std::uint32_t EDIT_PREVIEW_EDGE = 768;
 // Interactive grading needs more headroom than gallery thumbnails. The image core also uses
 // 4:4:4 JPEG sampling for these proxies so color-slider feedback does not add chroma blocks.
-constexpr std::uint8_t EDIT_PREVIEW_QUALITY = 95;
+constexpr std::uint8_t EDIT_PREVIEW_QUALITY = 90;
+// Gesture and settled previews deliberately share the same prepared source.
+// Changing its edge would make the provider prepare a second RAW proxy on the
+// first slider movement, which defeats the latency improvement. We vary only
+// JPEG quality while dragging, then re-encode the already-cached linear proxy
+// at the settled quality when the gesture ends.
+constexpr std::uint32_t EDIT_INTERACTIVE_PREVIEW_EDGE = EDIT_PREVIEW_EDGE;
+constexpr std::uint8_t EDIT_INTERACTIVE_PREVIEW_QUALITY = 84;
 constexpr int EDIT_PREVIEW_THROTTLE_MS = 16;
 constexpr int EDIT_AUTOSAVE_DEBOUNCE_MS = 700;
 constexpr std::uint32_t EDIT_DETAIL_TILE_SIDE = 512;
@@ -36,7 +48,6 @@ constexpr int EDIT_DETAIL_DEBOUNCE_MS = 70;
 constexpr int EDIT_DETAIL_WARMUP_IDLE_MS = 650;
 constexpr std::uint64_t EDIT_DETAIL_MAX_PRESENTATION_BYTES = 96U * 1'024U * 1'024U;
 constexpr qsizetype EDIT_HISTOGRAM_BIN_COUNT = 256;
-constexpr int TONE_CURVE_CHANNEL_COUNT = 4;
 constexpr int MAX_POINT_COLOR_COUNT = 16;
 
 [[nodiscard]] bool raw_development_unavailable(const QString& error) noexcept {
@@ -115,96 +126,24 @@ void set_point_color_at(
     return hue;
 }
 
-[[nodiscard]] const QVector<BackendToneCurvePoint>& neutral_backend_tone_curve() {
-    static const QVector<BackendToneCurvePoint> neutral{{0.0, 0.0}, {1.0, 1.0}};
-    return neutral;
-}
-
-[[nodiscard]] bool valid_tone_curve_channel(const int channel) noexcept {
-    return channel >= 0 && channel < TONE_CURVE_CHANNEL_COUNT;
-}
-
-[[nodiscard]] QString tone_curve_channel_key(const int channel) {
-    switch (channel) {
-    case 0:
-        return QStringLiteral("master");
-    case 1:
-        return QStringLiteral("red");
-    case 2:
-        return QStringLiteral("green");
-    case 3:
-        return QStringLiteral("blue");
-    default:
-        return QStringLiteral("invalid");
-    }
-}
-
-[[nodiscard]] const QVector<BackendToneCurvePoint>& backend_tone_curve_points(
-    const BackendGradeNode& grade_node,
-    const int channel
-) {
-    switch (channel) {
-    case 0:
-        return grade_node.tone_curve_master_points;
-    case 1:
-        return grade_node.tone_curve_red_points;
-    case 2:
-        return grade_node.tone_curve_green_points;
-    case 3:
-        return grade_node.tone_curve_blue_points;
-    default:
-        throw std::out_of_range("invalid Tone Curve channel");
-    }
-}
-
-[[nodiscard]] QVector<BackendToneCurvePoint>& backend_tone_curve_points(
-    BackendGradeNode& grade_node,
-    const int channel
-) {
-    return const_cast<QVector<BackendToneCurvePoint>&>(backend_tone_curve_points(
-        std::as_const(grade_node),
-        channel
-    ));
-}
-
-[[nodiscard]] bool is_neutral_tone_curve(
-    const QVector<BackendToneCurvePoint>& points
+[[nodiscard]] bool is_neutral_oklab_lightness_curve(
+    const QVector<double>& points
 ) noexcept {
-    return points.isEmpty() || points == neutral_backend_tone_curve();
+    return points.isEmpty()
+        || (points.size() == 4 && points[0] == 0.0 && points[1] == 0.0
+            && points[2] == 1.0 && points[3] == 1.0);
 }
 
-void ensure_smooth_tone_curves(BackendGradeNode& grade_node) {
-    const auto& neutral = neutral_backend_tone_curve();
-    if (grade_node.tone_curve_kind == ToneCurveKind::None) {
-        grade_node.tone_curve_master_points = neutral;
-    } else if (grade_node.tone_curve_master_points.isEmpty()) {
-        grade_node.tone_curve_master_points = neutral;
+void ensure_oklab_lightness_curve(BackendFineEditParameters& fine) {
+    if (fine.oklab_lightness_curve_points.isEmpty()) {
+        fine.oklab_lightness_curve_points = {0.0, 0.0, 1.0, 1.0};
     }
-    if (grade_node.tone_curve_red_points.isEmpty()) {
-        grade_node.tone_curve_red_points = neutral;
-    }
-    if (grade_node.tone_curve_green_points.isEmpty()) {
-        grade_node.tone_curve_green_points = neutral;
-    }
-    if (grade_node.tone_curve_blue_points.isEmpty()) {
-        grade_node.tone_curve_blue_points = neutral;
-    }
-    grade_node.tone_curve_kind = ToneCurveKind::SmoothRgb;
 }
 
-void clear_neutral_smooth_tone_curves(BackendGradeNode& grade_node) {
-    if (grade_node.tone_curve_kind != ToneCurveKind::SmoothRgb
-        || !is_neutral_tone_curve(grade_node.tone_curve_master_points)
-        || !is_neutral_tone_curve(grade_node.tone_curve_red_points)
-        || !is_neutral_tone_curve(grade_node.tone_curve_green_points)
-        || !is_neutral_tone_curve(grade_node.tone_curve_blue_points)) {
-        return;
+void clear_neutral_oklab_lightness_curve(BackendFineEditParameters& fine) {
+    if (is_neutral_oklab_lightness_curve(fine.oklab_lightness_curve_points)) {
+        fine.oklab_lightness_curve_points.clear();
     }
-    grade_node.tone_curve_kind = ToneCurveKind::None;
-    grade_node.tone_curve_master_points.clear();
-    grade_node.tone_curve_red_points.clear();
-    grade_node.tone_curve_green_points.clear();
-    grade_node.tone_curve_blue_points.clear();
 }
 
 [[nodiscard]] LocalizedUiMessage
@@ -310,41 +249,38 @@ edit_message(const char *const source,
 }
 
 [[nodiscard]] QVector<ToneCurvePoint> tone_curve_model_points(
-    const BackendGradeNode* const grade_node,
-    const int channel
+    const BackendGradeNode* const grade_node
 ) {
-    if (grade_node == nullptr || !valid_tone_curve_channel(channel)
-        || grade_node->tone_curve_kind == ToneCurveKind::None) {
+    if (grade_node == nullptr) {
         return {{0.0, 0.0}, {1.0, 1.0}};
     }
-    const auto& source = backend_tone_curve_points(*grade_node, channel);
-    if (source.isEmpty()) {
+    const auto& source = grade_node->fine.oklab_lightness_curve_points;
+    if (source.isEmpty() || source.size() % 2 != 0) {
         return {{0.0, 0.0}, {1.0, 1.0}};
     }
     QVector<ToneCurvePoint> points;
-    points.reserve(source.size());
-    for (const auto& point : source) {
-        points.push_back({.x = point.x, .y = point.y});
+    points.reserve(source.size() / 2);
+    for (qsizetype index = 0; index < source.size(); index += 2) {
+        points.push_back({.x = source[index], .y = source[index + 1]});
     }
     return points;
 }
 
-[[nodiscard]] QVector<BackendToneCurvePoint> backend_tone_curve_points(
+[[nodiscard]] QVector<double> backend_oklab_lightness_curve_points(
     const ToneCurvePointModel& model
 ) {
     const auto source = model.points();
-    QVector<BackendToneCurvePoint> points;
-    points.reserve(source.size());
+    QVector<double> points;
+    points.reserve(source.size() * 2);
     for (const auto& point : source) {
-        points.push_back({.x = point.x, .y = point.y});
+        points.push_back(point.x);
+        points.push_back(point.y);
     }
     return points;
 }
 
-[[nodiscard]] QString tone_curve_gesture_key(const int channel, const int index) {
-    return QStringLiteral("tone_curve/%1/point/%2")
-        .arg(tone_curve_channel_key(channel))
-        .arg(index);
+[[nodiscard]] QString tone_curve_gesture_key(const int index) {
+    return QStringLiteral("perceptual_tone_curve/point/%1").arg(index);
 }
 
 [[nodiscard]] QString display_grade_node_label(const QString& stored_label) {
@@ -541,6 +477,8 @@ edit_message(const char *const source,
     const QString& source_path,
     const QString& base_commit_id,
     const BackendGradeStack grade_stack,
+    const std::uint32_t max_edge,
+    const std::uint8_t jpeg_quality,
     const EditPreviewGeneration generation
 ) {
     EditPreviewTaskResult result;
@@ -551,8 +489,8 @@ edit_message(const char *const source,
             source_path,
             base_commit_id,
             grade_stack,
-            EDIT_PREVIEW_EDGE,
-            EDIT_PREVIEW_QUALITY,
+            max_edge,
+            jpeg_quality,
             generation.kind == EditPreviewKind::Current
         );
     } catch (const std::exception& error) {
@@ -1235,26 +1173,7 @@ QAbstractItemModel* EditController::toneCurvePoints() noexcept {
 bool EditController::hasToneCurve() const noexcept {
     const auto* const grade_node = selectedGradeNode();
     return grade_node != nullptr
-        && toneCurveChannelActive(tone_curve_channel_);
-}
-
-bool EditController::hasAnyToneCurve() const noexcept {
-    const auto* const grade_node = selectedGradeNode();
-    if (grade_node == nullptr || grade_node->tone_curve_kind == ToneCurveKind::None) {
-        return false;
-    }
-    return !is_neutral_tone_curve(grade_node->tone_curve_master_points)
-        || !is_neutral_tone_curve(grade_node->tone_curve_red_points)
-        || !is_neutral_tone_curve(grade_node->tone_curve_green_points)
-        || !is_neutral_tone_curve(grade_node->tone_curve_blue_points);
-}
-
-bool EditController::toneCurveSmooth() const noexcept {
-    return true;
-}
-
-int EditController::toneCurveChannel() const noexcept {
-    return tone_curve_channel_;
+        && !is_neutral_oklab_lightness_curve(grade_node->fine.oklab_lightness_curve_points);
 }
 
 bool EditController::toneCurveEditable() const noexcept {
@@ -1342,7 +1261,7 @@ void EditController::setSaturationFactor(const double value) {
     const auto* const grade_node = selectedGradeNode();
     if (grade_node == nullptr || grade_node->basic.saturation_factor == value
         || !acceptParameter(value, 0.0, 8.0,
-                       QT_TRANSLATE_NOOP("EditController", "Saturation"))) {
+                       QT_TRANSLATE_NOOP("EditController", "Chroma"))) {
         return;
     }
     const BackendGradeStack before = grade_stack_;
@@ -1818,6 +1737,72 @@ void EditController::setColorMixerValue(
     );
 }
 
+double EditController::selectiveColorValue(
+    const int target_index,
+    const int component_index
+) const {
+    const auto* const grade_node = selectedGradeNode();
+    if (grade_node == nullptr || target_index < 0
+        || static_cast<std::size_t>(target_index) >= BACKEND_SELECTIVE_COLOR_TARGET_COUNT
+        || component_index < 0
+        || static_cast<std::size_t>(component_index)
+            >= BACKEND_SELECTIVE_COLOR_COMPONENT_COUNT) {
+        return 0.0;
+    }
+    const std::size_t index = static_cast<std::size_t>(target_index)
+        * BACKEND_SELECTIVE_COLOR_COMPONENT_COUNT
+        + static_cast<std::size_t>(component_index);
+    return grade_node->fine.selective_color_cmyk[index];
+}
+
+void EditController::setSelectiveColorValue(
+    const int target_index,
+    const int component_index,
+    const double value
+) {
+    if (target_index < 0
+        || static_cast<std::size_t>(target_index) >= BACKEND_SELECTIVE_COLOR_TARGET_COUNT
+        || component_index < 0
+        || static_cast<std::size_t>(component_index)
+            >= BACKEND_SELECTIVE_COLOR_COMPONENT_COUNT
+        || !acceptParameter(
+            value,
+            -1.0,
+            1.0,
+            QT_TRANSLATE_NOOP("EditController", "Selective Color")
+        )) {
+        return;
+    }
+    auto& fine = grade_stack_.grade_nodes[selected_grade_node_index_].fine;
+    const std::size_t index = static_cast<std::size_t>(target_index)
+        * BACKEND_SELECTIVE_COLOR_COMPONENT_COUNT
+        + static_cast<std::size_t>(component_index);
+    if (fine.selective_color_cmyk[index] == value) {
+        return;
+    }
+    const BackendGradeStack before = grade_stack_;
+    fine.selective_color_cmyk[index] = value;
+    parameterEdited(
+        QStringLiteral("selective_color/%1/%2").arg(target_index).arg(component_index),
+        before
+    );
+}
+
+bool EditController::selectiveColorRelative() const noexcept {
+    const auto* const grade_node = selectedGradeNode();
+    return grade_node == nullptr || grade_node->fine.selective_color_relative;
+}
+
+void EditController::setSelectiveColorRelative(const bool relative) {
+    auto* const grade_node = selectedGradeNode();
+    if (grade_node == nullptr || grade_node->fine.selective_color_relative == relative) {
+        return;
+    }
+    const BackendGradeStack before = grade_stack_;
+    grade_stack_.grade_nodes[selected_grade_node_index_].fine.selective_color_relative = relative;
+    parameterEdited(QStringLiteral("selective_color/method"), before);
+}
+
 void EditController::selectPointColor(const int index) {
     const auto* const grade_node = selectedGradeNode();
     if (grade_node == nullptr || index < 0 || index >= point_color_count(grade_node->fine)
@@ -2046,33 +2031,6 @@ void EditController::addPointColorFromPreview(
     setPointColorPickerActive(false);
 }
 
-void EditController::selectToneCurveChannel(const int channel) {
-    if (!valid_tone_curve_channel(channel) || channel == tone_curve_channel_) {
-        return;
-    }
-    finishActiveGesture();
-    const auto model_points = tone_curve_model_points(selectedGradeNode(), channel);
-    if (!tone_curve_points_.replace(model_points)) {
-        setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
-            "EditController",
-            "The selected Tone Curve channel cannot be represented safely"
-        )));
-        return;
-    }
-    tone_curve_channel_ = channel;
-    emit toneCurveChannelChanged();
-    emit toneCurveChanged();
-}
-
-bool EditController::toneCurveChannelActive(const int channel) const noexcept {
-    const auto* const grade_node = selectedGradeNode();
-    if (grade_node == nullptr || !valid_tone_curve_channel(channel)
-        || grade_node->tone_curve_kind == ToneCurveKind::None) {
-        return false;
-    }
-    return !is_neutral_tone_curve(backend_tone_curve_points(*grade_node, channel));
-}
-
 bool EditController::openPhoto(
     const QString& photo_id,
     const QString& representation_id,
@@ -2128,6 +2086,20 @@ bool EditController::openPhoto(
             .provisional_preview_source = provisional_preview_source,
         };
         autosave_debounce_.stop();
+        if (autosaveFailed()) {
+            // Do not silently retry a known permanent error on every library
+            // selection. The shell can now offer retry, stay here, or an
+            // explicit discard-and-open recovery action.
+            setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+                "EditController",
+                "Autosave failed · resolve it before replacing this photo's working changes"
+            )));
+            emit photoSwitchSaveFailed();
+            // The selection has been accepted and is queued behind the
+            // recovery choice surfaced by the shell. Returning success keeps
+            // Main.qml from also reporting a generic "could not open" error.
+            return true;
+        }
         if (!autosave_requested_) {
             autosave_requested_ = true;
             emit autosavePendingChanged();
@@ -2141,6 +2113,7 @@ bool EditController::openPhoto(
 
     ++photo_generation_;
     ++render_revision_;
+    active_parameter_gestures_.clear();
     working_revision_ = 0;
     autosave_snapshot_revision_ = 0;
     settled_render_revision_ = 0;
@@ -2220,6 +2193,15 @@ void EditController::closePhoto() {
         pending_photo_open_.reset();
         close_photo_after_autosave_ = true;
         return;
+    }
+    // Recovery belongs to the Precision session, not to the photo in the
+    // Library. Clear it before the inactive early-return as an open failure
+    // deliberately marks the editor inactive while leaving recovery visible.
+    // Otherwise "Return to Review" changes the workspace behind a modal popup
+    // which can no longer be dismissed.
+    if (!recipe_recovery_message_.isEmpty()) {
+        recipe_recovery_message_.clear();
+        emit recipeRecoveryChanged();
     }
     if (dirty_) {
         if (!autosave_requested_) {
@@ -2377,11 +2359,6 @@ void EditController::duplicateSelectedGradeNode() {
     duplicate.basic = source->basic;
     duplicate.fine = source->fine;
     duplicate.enabled = source->enabled;
-    duplicate.tone_curve_kind = source->tone_curve_kind;
-    duplicate.tone_curve_master_points = source->tone_curve_master_points;
-    duplicate.tone_curve_red_points = source->tone_curve_red_points;
-    duplicate.tone_curve_green_points = source->tone_curve_green_points;
-    duplicate.tone_curve_blue_points = source->tone_curve_blue_points;
 
     const BackendGradeStack before = grade_stack_;
     BackendGradeStack updated = grade_stack_;
@@ -2459,6 +2436,7 @@ void EditController::beginParameterEdit(const QString& parameter_key) {
     }
     const bool could_undo = canUndo();
     const bool could_redo = canRedo();
+    active_parameter_gestures_.insert(parameter_key);
     history_.beginGesture(gradeNodeHistoryKey(parameter_key).toStdString(), grade_stack_);
     if (could_undo != canUndo() || could_redo != canRedo()) {
         emit historyChanged();
@@ -2472,8 +2450,14 @@ void EditController::endParameterEdit(const QString& parameter_key) {
     const bool could_undo = canUndo();
     const bool could_redo = canRedo();
     history_.endGesture(gradeNodeHistoryKey(parameter_key).toStdString(), grade_stack_);
+    const bool ended_active_gesture = active_parameter_gestures_.remove(parameter_key) > 0;
     if (could_undo != canUndo() || could_redo != canRedo()) {
         emit historyChanged();
+    }
+    if (ended_active_gesture && active_parameter_gestures_.isEmpty()) {
+        // Replace the low-latency gesture proxy with a normal-resolution
+        // frame for the exact final slider value.
+        schedulePreview(0);
     }
 }
 
@@ -2484,7 +2468,7 @@ void EditController::beginToneCurveGesture(const int index) {
         || !tone_curve_points_.selectPoint(index)) {
         return;
     }
-    beginParameterEdit(tone_curve_gesture_key(tone_curve_channel_, index));
+    beginParameterEdit(tone_curve_gesture_key(index));
 }
 
 void EditController::moveToneCurvePoint(
@@ -2501,18 +2485,18 @@ void EditController::moveToneCurvePoint(
         return;
     }
     auto& edited = grade_stack_.grade_nodes[selected_grade_node_index_];
-    ensure_smooth_tone_curves(edited);
-    backend_tone_curve_points(edited, tone_curve_channel_)
-        = backend_tone_curve_points(tone_curve_points_);
+    ensure_oklab_lightness_curve(edited.fine);
+    edited.fine.oklab_lightness_curve_points =
+        backend_oklab_lightness_curve_points(tone_curve_points_);
     toneCurveEdited(
-        tone_curve_gesture_key(tone_curve_channel_, index),
+        tone_curve_gesture_key(index),
         before,
         EDIT_PREVIEW_THROTTLE_MS
     );
 }
 
 void EditController::endToneCurveGesture(const int index) {
-    endParameterEdit(tone_curve_gesture_key(tone_curve_channel_, index));
+    endParameterEdit(tone_curve_gesture_key(index));
 }
 
 void EditController::addToneCurvePoint(const double x, const double y) {
@@ -2527,13 +2511,11 @@ void EditController::addToneCurvePoint(const double x, const double y) {
         return;
     }
     auto& edited = grade_stack_.grade_nodes[selected_grade_node_index_];
-    ensure_smooth_tone_curves(edited);
-    backend_tone_curve_points(edited, tone_curve_channel_)
-        = backend_tone_curve_points(tone_curve_points_);
+    ensure_oklab_lightness_curve(edited.fine);
+    edited.fine.oklab_lightness_curve_points =
+        backend_oklab_lightness_curve_points(tone_curve_points_);
     toneCurveEdited(
-        QStringLiteral("tone_curve/%1/add").arg(
-            tone_curve_channel_key(tone_curve_channel_)
-        ),
+        QStringLiteral("perceptual_tone_curve/add"),
         before,
         0
     );
@@ -2549,14 +2531,12 @@ void EditController::removeToneCurvePoint(const int index) {
         return;
     }
     auto& edited = grade_stack_.grade_nodes[selected_grade_node_index_];
-    ensure_smooth_tone_curves(edited);
-    backend_tone_curve_points(edited, tone_curve_channel_)
-        = backend_tone_curve_points(tone_curve_points_);
-    clear_neutral_smooth_tone_curves(edited);
+    ensure_oklab_lightness_curve(edited.fine);
+    edited.fine.oklab_lightness_curve_points =
+        backend_oklab_lightness_curve_points(tone_curve_points_);
+    clear_neutral_oklab_lightness_curve(edited.fine);
     toneCurveEdited(
-        QStringLiteral("tone_curve/%1/remove").arg(
-            tone_curve_channel_key(tone_curve_channel_)
-        ),
+        QStringLiteral("perceptual_tone_curve/remove"),
         before,
         0
     );
@@ -2565,40 +2545,18 @@ void EditController::removeToneCurvePoint(const int index) {
 void EditController::resetToneCurve() {
     const auto* const grade_node = selectedGradeNode();
     if (!active_ || interactionLocked() || grade_node == nullptr || !grade_node->enabled
-        || !toneCurveChannelActive(tone_curve_channel_)) {
+        || !hasToneCurve()) {
         return;
     }
     const BackendGradeStack before = grade_stack_;
     tone_curve_points_.resetLinear();
     auto& edited = grade_stack_.grade_nodes[selected_grade_node_index_];
-    backend_tone_curve_points(edited, tone_curve_channel_)
-        = neutral_backend_tone_curve();
-    clear_neutral_smooth_tone_curves(edited);
+    edited.fine.oklab_lightness_curve_points.clear();
     toneCurveEdited(
-        QStringLiteral("tone_curve/%1/reset").arg(
-            tone_curve_channel_key(tone_curve_channel_)
-        ),
+        QStringLiteral("perceptual_tone_curve/reset"),
         before,
         0
     );
-}
-
-void EditController::resetAllToneCurves() {
-    const auto* const grade_node = selectedGradeNode();
-    if (!active_ || interactionLocked() || grade_node == nullptr || !grade_node->enabled
-        || grade_node->tone_curve_kind == ToneCurveKind::None) {
-        return;
-    }
-    finishActiveGesture();
-    const BackendGradeStack before = grade_stack_;
-    auto& edited = grade_stack_.grade_nodes[selected_grade_node_index_];
-    edited.tone_curve_kind = ToneCurveKind::None;
-    edited.tone_curve_master_points.clear();
-    edited.tone_curve_red_points.clear();
-    edited.tone_curve_green_points.clear();
-    edited.tone_curve_blue_points.clear();
-    tone_curve_points_.resetLinear();
-    toneCurveEdited(QStringLiteral("tone_curve/all/reset"), before, 0);
 }
 
 void EditController::undo() {
@@ -2829,6 +2787,27 @@ void EditController::retryAutosave() {
     startAutosave();
 }
 
+void EditController::cancelPendingPhotoOpen() {
+    pending_photo_open_.reset();
+}
+
+bool EditController::discardFailedAutosaveAndOpenPendingPhoto() {
+    if (!autosaveFailed() || state_running_ || !pending_photo_open_.has_value()) {
+        return false;
+    }
+    // This is reached only from the explicit destructive recovery action in
+    // Main.qml. The durable `working` snapshot remains untouched; only the
+    // unpersisted in-memory draft is discarded.
+    autosave_debounce_.stop();
+    clearAutosaveFailure();
+    if (autosave_requested_) {
+        autosave_requested_ = false;
+        emit autosavePendingChanged();
+    }
+    setDirty(false);
+    return openPendingPhoto();
+}
+
 bool EditController::prepareToClose() {
     autosave_debounce_.stop();
     preview_debounce_.stop();
@@ -2845,6 +2824,17 @@ bool EditController::prepareToClose() {
         return false;
     }
     if (active_ && dirty_ && autosave_requested_) {
+        // An autosave failure is sticky until the user explicitly retries it.
+        // Retrying it implicitly from every native close event used to trap the
+        // window in an endless "save failed -> try to quit -> save failed"
+        // loop. Keep the working draft intact and let the shell offer the
+        // deliberate choices: retry, keep editing, or quit without the last
+        // unsaved working snapshot.
+        if (autosaveFailed()) {
+            close_after_autosave_ = false;
+            emit closeSaveFailed();
+            return false;
+        }
         startAutosave();
         return false;
     }
@@ -2922,6 +2912,9 @@ void EditController::finishStateTask() {
         if (close_after_autosave_) {
             close_after_autosave_ = false;
             emit closeSaveFailed();
+        }
+        if (result.kind == EditStateTaskKind::Autosave && pending_photo_open_.has_value()) {
+            emit photoSwitchSaveFailed();
         }
         close_photo_after_autosave_ = false;
         if (result.kind == EditStateTaskKind::Autosave) {
@@ -3098,6 +3091,8 @@ void EditController::finishPreviewTask() {
                 EditPreviewSlot::Current,
                 std::move(result.preview.bytes),
                 dimensions,
+                std::move(result.preview.display_zebra),
+                std::move(result.preview.luma_waveform),
                 result.generation.current_revision
             );
             preview_source_ = QStringLiteral("image://shadow-edit/current?generation=%1")
@@ -3151,6 +3146,8 @@ void EditController::finishPreviewTask() {
                 EditPreviewSlot::Before,
                 std::move(result.preview.bytes),
                 dimensions,
+                std::move(result.preview.display_zebra),
+                std::move(result.preview.luma_waveform),
                 result.generation.photo
             );
             publishHistogram(
@@ -3305,6 +3302,11 @@ void EditController::startPreviewRender() {
     }
     setPreviewRunning(EditPreviewKind::Current, true);
     preview_queued_ = false;
+    const bool interactive = !active_parameter_gestures_.isEmpty();
+    const std::uint32_t max_edge = interactive
+        ? EDIT_INTERACTIVE_PREVIEW_EDGE : EDIT_PREVIEW_EDGE;
+    const std::uint8_t jpeg_quality = interactive
+        ? EDIT_INTERACTIVE_PREVIEW_QUALITY : EDIT_PREVIEW_QUALITY;
   setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
       "EditController", "Rendering preview…")));
     preview_watcher_.setFuture(QtConcurrent::run(
@@ -3314,6 +3316,8 @@ void EditController::startPreviewRender() {
         source_path_,
         base_commit_id_,
         grade_stack_,
+        max_edge,
+        jpeg_quality,
         EditPreviewGeneration{
             .kind = EditPreviewKind::Current,
             .photo = photo_generation_,
@@ -3425,6 +3429,8 @@ void EditController::maybeStartBeforePreview() {
         source_path_,
         QString{},
         BackendGradeStack{},
+        EDIT_PREVIEW_EDGE,
+        EDIT_PREVIEW_QUALITY,
         EditPreviewGeneration{
             .kind = EditPreviewKind::NeutralBefore,
             .photo = photo_generation_,
@@ -3555,21 +3561,10 @@ void EditController::setGradeStack(
     const bool curve_changed = selection_changed
         || had_old_selection != has_new_selection
         || (had_old_selection && has_new_selection
-            && (old_selected_value.tone_curve_kind
-                    != new_selected->tone_curve_kind
-                || old_selected_value.tone_curve_master_points
-                    != new_selected->tone_curve_master_points
-                || old_selected_value.tone_curve_red_points
-                    != new_selected->tone_curve_red_points
-                || old_selected_value.tone_curve_green_points
-                    != new_selected->tone_curve_green_points
-                || old_selected_value.tone_curve_blue_points
-                    != new_selected->tone_curve_blue_points));
+            && old_selected_value.fine.oklab_lightness_curve_points
+                != new_selected->fine.oklab_lightness_curve_points);
     const bool list_changed = grade_node_list_changed(grade_stack_, grade_stack);
-    const auto model_points = tone_curve_model_points(
-        new_selected,
-        tone_curve_channel_
-    );
+    const auto model_points = tone_curve_model_points(new_selected);
     if (tone_curve_points_.points() != model_points
         && !tone_curve_points_.replace(model_points)) {
     setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
@@ -3650,6 +3645,7 @@ QString EditController::uniqueGradeNodeLabel(const QString& base) const {
 }
 
 void EditController::finishActiveGesture() {
+    active_parameter_gestures_.clear();
     const bool could_undo = canUndo();
     const bool could_redo = canRedo();
     history_.finishGesture(grade_stack_);

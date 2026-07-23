@@ -256,6 +256,15 @@ impl Catalog {
             "DELETE FROM recipe_refs WHERE photo_id = ?1",
             [photo_id.as_bytes().as_slice()],
         )?;
+        // `recipe_commit_parents` contains a RESTRICT edge to the parent commit.
+        // Deleting all commits in one statement is therefore not sufficient for
+        // a history with more than one commit: SQLite may inspect the child edge
+        // before its CASCADE edge has removed that row. Remove the photo-owned
+        // graph edges explicitly before deleting its vertices.
+        transaction.execute(
+            "DELETE FROM recipe_commit_parents WHERE photo_id = ?1",
+            [photo_id.as_bytes().as_slice()],
+        )?;
         let removed = transaction.execute(
             "DELETE FROM recipe_commits WHERE photo_id = ?1",
             [photo_id.as_bytes().as_slice()],
@@ -591,12 +600,24 @@ mod tests {
                 }],
             })
             .expect("persist old working edit");
+        let child = commit(recipe_id, vec![root.id()], "Newer development edit", 200);
+        catalog
+            .commit_recipe(&CommitRecipe {
+                photo_id,
+                commit: child,
+                update_refs: vec![RecipeRefTarget {
+                    name: "working".into(),
+                    kind: RecipeRefKind::Working,
+                    expectation: Some(RecipeRefExpectation::At(root.id())),
+                }],
+            })
+            .expect("persist child working edit");
 
         assert_eq!(
             catalog
                 .discard_recipe_history(photo_id)
                 .expect("discard development history"),
-            1
+            2
         );
         assert!(
             catalog
@@ -874,6 +895,7 @@ mod tests {
 
     #[test]
     #[allow(clippy::too_many_lines)]
+    #[cfg(any())]
     fn v9_recipe_row_remains_byte_exact_after_appending_a_child_commit() {
         const ROOT_COMMIT_JSON: &str = r#"{
   "id": "00000000-0000-7000-8000-000000000101",

@@ -1,6 +1,6 @@
 //! SQLite-backed catalog persistence.
 //!
-//! This crate owns schema migration and write transactions. It deliberately
+//! This crate owns the current development schema and write transactions. It deliberately
 //! knows nothing about Qt, RAW decoding, or render jobs.
 
 mod cache_artifact;
@@ -21,8 +21,8 @@ use std::{path::Path, time::Duration};
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params, types::Type};
 use shadow_domain::{
-    AssetLocation, EntityId, LocationId, LocationStatus, PhotoFlag, PhotoId, RecipeCommit,
-    RepresentationId, RepresentationKind,
+    AssetLocation, EntityId, LocationId, LocationStatus, PhotoFlag, PhotoId, RepresentationId,
+    RepresentationKind,
 };
 use thiserror::Error;
 use uuid::Uuid;
@@ -61,9 +61,13 @@ pub use technical_observation::{
 };
 pub use writer::{CatalogActor, CatalogHandle};
 
-const SCHEMA_VERSION: i64 = 14;
+/// The catalog is intentionally unstable until the product reaches its first
+/// compatibility promise. There is only one supported on-disk shape: a fresh
+/// schema v1. Older development catalogs are rejected and must be reset rather
+/// than carried forward through a migration chain.
+const SCHEMA_VERSION: i64 = 1;
 
-const MIGRATION_V1: &str = r"
+const SCHEMA_V1_CORE: &str = r"
 CREATE TABLE photos (
     id              BLOB PRIMARY KEY NOT NULL CHECK (length(id) = 16),
     created_at_ms   INTEGER NOT NULL,
@@ -101,12 +105,13 @@ CREATE INDEX locations_representation_id_idx ON locations(representation_id);
 CREATE INDEX locations_status_idx ON locations(status);
 ";
 
-const MIGRATION_V2: &str = r"
+const SCHEMA_V1_IMPORT: &str = r"
 CREATE TABLE import_sessions (
     id                BLOB PRIMARY KEY NOT NULL CHECK (length(id) = 16),
     root_platform     TEXT NOT NULL,
     root_native_path  BLOB NOT NULL,
     root_display_path TEXT NOT NULL,
+    source_id         BLOB CHECK (source_id IS NULL OR length(source_id) = 16),
     state             TEXT NOT NULL
         CHECK (state IN ('running', 'completed', 'failed', 'cancelled')),
     started_at_ms     INTEGER NOT NULL,
@@ -116,6 +121,7 @@ CREATE TABLE import_sessions (
 ) STRICT;
 
 CREATE INDEX import_sessions_state_idx ON import_sessions(state, updated_at_ms);
+CREATE INDEX import_sessions_source_idx ON import_sessions(source_id, updated_at_ms DESC);
 
 CREATE TABLE import_entries (
     session_id        BLOB NOT NULL CHECK (length(session_id) = 16),
@@ -153,7 +159,7 @@ CREATE TABLE import_issues (
 CREATE INDEX import_issues_session_idx ON import_issues(session_id);
 ";
 
-const MIGRATION_V3: &str = r"
+const SCHEMA_V1_DECODER: &str = r"
 CREATE TABLE representation_decode_snapshots (
     representation_id       BLOB NOT NULL CHECK (length(representation_id) = 16),
     provider_id              TEXT NOT NULL CHECK (length(provider_id) > 0),
@@ -165,7 +171,7 @@ CREATE TABLE representation_decode_snapshots (
     inspected_at_ms          INTEGER NOT NULL,
     has_metadata             INTEGER NOT NULL CHECK (has_metadata IN (0, 1)),
     has_embedded_previews    INTEGER NOT NULL CHECK (has_embedded_previews IN (0, 1)),
-    can_decode_mosaic        INTEGER NOT NULL CHECK (can_decode_mosaic IN (0, 1)),
+    can_decode_raw_frame     INTEGER NOT NULL CHECK (can_decode_raw_frame IN (0, 1)),
     can_render_reference_rgb INTEGER NOT NULL CHECK (can_render_reference_rgb IN (0, 1)),
     has_pending_corrections  INTEGER NOT NULL CHECK (has_pending_corrections IN (0, 1)),
     PRIMARY KEY (representation_id, provider_id),
@@ -173,7 +179,7 @@ CREATE TABLE representation_decode_snapshots (
 ) STRICT;
 
 CREATE INDEX representation_decode_capability_idx
-    ON representation_decode_snapshots(can_decode_mosaic, has_embedded_previews);
+    ON representation_decode_snapshots(can_decode_raw_frame, has_embedded_previews);
 
 CREATE TABLE representation_previews (
     representation_id   BLOB NOT NULL CHECK (length(representation_id) = 16),
@@ -197,7 +203,7 @@ CREATE INDEX representation_previews_selection_idx
     ON representation_previews(representation_id, decodable, width, height);
 ";
 
-const MIGRATION_V4: &str = r"
+const SCHEMA_V1_CACHE: &str = r"
 CREATE TABLE representation_cached_artifacts (
     representation_id    BLOB NOT NULL CHECK (length(representation_id) = 16),
     role                 TEXT NOT NULL
@@ -230,7 +236,7 @@ CREATE INDEX representation_cached_artifact_blob_idx
     ON representation_cached_artifacts(blob_algorithm, blob_digest);
 ";
 
-const MIGRATION_V5: &str = r"
+const SCHEMA_V1_RECIPE: &str = r"
 CREATE TABLE recipe_commits (
     id             BLOB PRIMARY KEY NOT NULL CHECK (length(id) = 16),
     photo_id       BLOB NOT NULL CHECK (length(photo_id) = 16),
@@ -275,7 +281,7 @@ CREATE TABLE recipe_refs (
 CREATE INDEX recipe_refs_commit_idx ON recipe_refs(commit_id);
 ";
 
-const MIGRATION_V6: &str = r"
+const SCHEMA_V1_FEEDBACK: &str = r"
 CREATE TABLE ai_feedback_events (
     sequence       INTEGER PRIMARY KEY NOT NULL CHECK (sequence > 0),
     event_id       TEXT NOT NULL UNIQUE
@@ -337,7 +343,7 @@ BEGIN
 END;
 ";
 
-const MIGRATION_V7: &str = r"
+const SCHEMA_V1_TECHNICAL_OBSERVATION: &str = r"
 CREATE TABLE representation_technical_observations (
     representation_id             BLOB NOT NULL CHECK (length(representation_id) = 16),
     source_role                   TEXT NOT NULL
@@ -385,14 +391,9 @@ CREATE INDEX representation_technical_observation_source_idx
     );
 ";
 
-// Presented-visual provenance is embedded in canonical append-only feedback
-// JSON. Version 8 is intentionally marker-only: no rebuildable cache table is
-// made authoritative for historical evidence.
-const MIGRATION_V8: &str = r"";
-
 // The current table is deliberately only a movable pointer. Flag/rating values
 // remain authoritative in immutable, integrity-checked ledger events.
-const MIGRATION_V9: &str = r"
+const SCHEMA_V1_DECISION: &str = r"
 CREATE TABLE photo_decision_events (
     sequence             INTEGER PRIMARY KEY NOT NULL CHECK (sequence > 0),
     event_id             TEXT NOT NULL UNIQUE
@@ -444,11 +445,10 @@ BEGIN
 END;
 ";
 
-// Library-level edit history is deliberately parallel to the legacy per-photo
-// Recipe tables. Version 10 only establishes immutable content-addressed
-// objects, global commits, ordered parents, and CAS-updated refs. It does not
-// rewrite, bootstrap, or otherwise reinterpret any Recipe v1 row.
-const MIGRATION_V10: &str = r"
+// Library-level edit history is deliberately parallel to the per-photo Recipe
+// tables. These immutable content-addressed objects, global commits, ordered
+// parents, and CAS-updated refs are all part of the initial catalog shape.
+const SCHEMA_V1_EDIT_REPOSITORY: &str = r"
 CREATE TABLE edit_objects (
     digest          BLOB PRIMARY KEY NOT NULL CHECK (length(digest) = 32),
     hash_algorithm  TEXT NOT NULL CHECK (hash_algorithm = 'blake3-256'),
@@ -529,11 +529,11 @@ CREATE TABLE edit_repository_refs (
 CREATE INDEX edit_repository_refs_commit_idx ON edit_repository_refs(commit_id);
 ";
 
-// Version 11 establishes the photo-first Library read model. Directories are
+// The photo-first Library read model treats directories as
 // explicitly discovery sources and locations, never ownership boundaries for
 // photos. The rows here are intentionally small, indexed projections; source
 // decoder JSON and rebuildable preview bytes remain outside this hot path.
-const MIGRATION_V11: &str = r"
+const SCHEMA_V1_LIBRARY: &str = r"
 CREATE TABLE library_sources (
     id              BLOB PRIMARY KEY NOT NULL CHECK (length(id) = 16),
     platform        TEXT NOT NULL,
@@ -547,11 +547,6 @@ CREATE TABLE library_sources (
 
 CREATE INDEX library_sources_enabled_scan_idx
     ON library_sources(enabled, last_scanned_at_ms DESC, id);
-
-ALTER TABLE import_sessions
-    ADD COLUMN source_id BLOB CHECK (source_id IS NULL OR length(source_id) = 16);
-
-CREATE INDEX import_sessions_source_idx ON import_sessions(source_id, updated_at_ms DESC);
 
 CREATE TABLE location_sources (
     location_id      BLOB NOT NULL CHECK (length(location_id) = 16),
@@ -658,39 +653,51 @@ CREATE INDEX library_album_memberships_page_idx
     ON library_album_memberships(album_id, sort_key, added_at_ms DESC, photo_id);
 ";
 
-// Version 12 adds the two covering traversal indexes needed by the
+// The two covering traversal indexes below support the
 // photo-first Library query. The query resolves one current original RAW
 // representation and one current online location per photo, so these indexes
 // avoid repeatedly sorting a photo's representation/location history at
 // million-photo scale.
-const MIGRATION_V12: &str = r"
+const SCHEMA_V1_LIBRARY_INDEXES: &str = r"
 CREATE INDEX representations_photo_kind_current_idx
     ON representations(photo_id, kind, created_at_ms DESC, id DESC);
 CREATE INDEX locations_representation_status_current_idx
     ON locations(representation_id, status, created_at_ms DESC, id DESC);
 ";
 
-// Version 13 renames the persisted capability from the implementation-specific word
-// "mosaic" to the actual owned `RawFrame` contract. Existing values retain their meaning: v12
-// could only set the old bit after LibRaw had established an unpackable sensor frame.
-const MIGRATION_V13: &str = r"
-DROP INDEX representation_decode_capability_idx;
-ALTER TABLE representation_decode_snapshots
-    RENAME COLUMN can_decode_mosaic TO can_decode_raw_frame;
-CREATE INDEX representation_decode_capability_idx
-    ON representation_decode_snapshots(can_decode_raw_frame, has_embedded_previews);
+const SCHEMA_V1_STATE: &str = r"
+CREATE TABLE catalog_schema (
+    version       INTEGER PRIMARY KEY NOT NULL CHECK (version = 1),
+    identity      TEXT NOT NULL CHECK (identity = 'shadow-catalog-v1'),
+    created_at_ms INTEGER NOT NULL
+) STRICT;
 ";
 
-// Version 14 repairs the derived snapshot digest for Recipe commits written before the Recipe
-// serializer reached its current canonical form. The commit JSON itself remains immutable: this
-// migration accepts only a row which parses, validates, agrees with its indexed identities, and
-// is already byte-for-byte canonical under the current serializer. It then rebuilds only the
-// redundant digest from that canonical semantic snapshot.
+// These are schema-v1 DDL fragments, ordered only by SQL foreign-key and
+// `CREATE TABLE` dependencies. They are applied once to an empty catalog in a
+// single transaction; they are not a migration history.
+const SCHEMA_V1_COMPONENTS: &[&str] = &[
+    SCHEMA_V1_CORE,
+    SCHEMA_V1_IMPORT,
+    SCHEMA_V1_DECODER,
+    SCHEMA_V1_CACHE,
+    SCHEMA_V1_RECIPE,
+    SCHEMA_V1_FEEDBACK,
+    SCHEMA_V1_TECHNICAL_OBSERVATION,
+    SCHEMA_V1_DECISION,
+    SCHEMA_V1_EDIT_REPOSITORY,
+    SCHEMA_V1_LIBRARY,
+    SCHEMA_V1_LIBRARY_INDEXES,
+];
 
 #[derive(Debug, Error)]
 pub enum CatalogError {
     #[error("SQLite catalog error: {0}")]
     Sqlite(#[from] rusqlite::Error),
+    #[error(
+        "development catalog reset required: found schema {found:?}; Shadow currently supports only a fresh catalog schema v1"
+    )]
+    DevelopmentCatalogResetRequired { found: Option<i64> },
     #[error("import session {0} does not exist")]
     ImportSessionNotFound(shadow_domain::ImportSessionId),
     #[error("import session {id} cannot be used while state is {state}")]
@@ -906,16 +913,18 @@ struct ExistingAsset {
 }
 
 impl Catalog {
-    /// Opens or creates a file-backed catalog and applies all migrations.
+    /// Opens or creates a file-backed catalog using the one current development
+    /// schema. A catalog from an earlier development shape is rejected rather
+    /// than migrated.
     ///
     /// # Errors
     ///
-    /// Returns [`CatalogError`] when `SQLite` cannot open, configure, or migrate
+    /// Returns [`CatalogError`] when `SQLite` cannot open, configure, or initialize
     /// the catalog.
     pub fn open(path: &Path) -> Result<Self, CatalogError> {
         let mut connection = Connection::open(path)?;
         configure_connection(&connection, true)?;
-        migrate(&mut connection)?;
+        initialize_schema_v1(&mut connection)?;
         Ok(Self { connection })
     }
 
@@ -923,20 +932,20 @@ impl Catalog {
     ///
     /// # Errors
     ///
-    /// Returns [`CatalogError`] when `SQLite` cannot initialize or migrate the
+    /// Returns [`CatalogError`] when `SQLite` cannot initialize the
     /// in-memory database.
     pub fn open_in_memory() -> Result<Self, CatalogError> {
         let mut connection = Connection::open_in_memory()?;
         configure_connection(&connection, false)?;
-        migrate(&mut connection)?;
+        initialize_schema_v1(&mut connection)?;
         Ok(Self { connection })
     }
 
-    /// Returns the catalog schema version after migration.
+    /// Returns the active catalog schema version.
     ///
     /// # Errors
     ///
-    /// Returns [`CatalogError`] if the migration table cannot be queried.
+    /// Returns [`CatalogError`] if the schema state cannot be queried.
     pub fn schema_version(&self) -> Result<i64, CatalogError> {
         current_schema_version(&self.connection).map_err(Into::into)
     }
@@ -1034,181 +1043,83 @@ fn configure_connection(connection: &Connection, file_backed: bool) -> rusqlite:
     Ok(())
 }
 
-fn migrate(connection: &mut Connection) -> rusqlite::Result<()> {
-    connection.execute_batch(
-        "CREATE TABLE IF NOT EXISTS schema_migrations (
-             version       INTEGER PRIMARY KEY NOT NULL,
-             applied_at_ms INTEGER NOT NULL
-         ) STRICT;",
+fn initialize_schema_v1(connection: &mut Connection) -> Result<(), CatalogError> {
+    if table_exists(connection, "catalog_schema")? {
+        let identity: Option<String> = connection
+            .query_row(
+                "SELECT identity FROM catalog_schema WHERE version = ?1",
+                [SCHEMA_VERSION],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if identity.as_deref() == Some("shadow-catalog-v1")
+            && current_schema_version(connection)? == SCHEMA_VERSION
+        {
+            return Ok(());
+        }
+        return Err(CatalogError::DevelopmentCatalogResetRequired {
+            found: current_schema_version(connection).ok(),
+        });
+    }
+
+    if table_exists(connection, "schema_migrations")? {
+        return Err(CatalogError::DevelopmentCatalogResetRequired {
+            found: legacy_schema_version(connection).ok(),
+        });
+    }
+
+    if catalog_tables_exist(connection)? {
+        return Err(CatalogError::DevelopmentCatalogResetRequired { found: None });
+    }
+
+    let transaction = connection.transaction()?;
+    transaction.execute_batch(SCHEMA_V1_STATE)?;
+    for component in SCHEMA_V1_COMPONENTS {
+        transaction.execute_batch(component)?;
+    }
+    transaction.execute(
+        "INSERT INTO catalog_schema(version, identity, created_at_ms)
+         VALUES (?1, 'shadow-catalog-v1', unixepoch('subsec') * 1000)",
+        [SCHEMA_VERSION],
     )?;
-
-    let version = current_schema_version(connection)?;
-    if version < 1 {
-        let transaction = connection.transaction()?;
-        transaction.execute_batch(MIGRATION_V1)?;
-        transaction.execute(
-            "INSERT INTO schema_migrations(version, applied_at_ms) VALUES (?1, unixepoch('subsec') * 1000)",
-            [1_i64],
-        )?;
-        transaction.commit()?;
-    }
-
-    let version = current_schema_version(connection)?;
-    if version < 2 {
-        let transaction = connection.transaction()?;
-        transaction.execute_batch(MIGRATION_V2)?;
-        transaction.execute(
-            "INSERT INTO schema_migrations(version, applied_at_ms) VALUES (?1, unixepoch('subsec') * 1000)",
-            [2_i64],
-        )?;
-        transaction.commit()?;
-    }
-
-    let version = current_schema_version(connection)?;
-    if version < 3 {
-        let transaction = connection.transaction()?;
-        transaction.execute_batch(MIGRATION_V3)?;
-        transaction.execute(
-            "INSERT INTO schema_migrations(version, applied_at_ms) VALUES (?1, unixepoch('subsec') * 1000)",
-            [3_i64],
-        )?;
-        transaction.commit()?;
-    }
-
-    let version = current_schema_version(connection)?;
-    if version < 4 {
-        let transaction = connection.transaction()?;
-        transaction.execute_batch(MIGRATION_V4)?;
-        transaction.execute(
-            "INSERT INTO schema_migrations(version, applied_at_ms) VALUES (?1, unixepoch('subsec') * 1000)",
-            [4_i64],
-        )?;
-        transaction.commit()?;
-    }
-
-    let version = current_schema_version(connection)?;
-    if version < 5 {
-        let transaction = connection.transaction()?;
-        transaction.execute_batch(MIGRATION_V5)?;
-        transaction.execute(
-            "INSERT INTO schema_migrations(version, applied_at_ms) VALUES (?1, unixepoch('subsec') * 1000)",
-            [5_i64],
-        )?;
-        transaction.commit()?;
-    }
-
-    let version = current_schema_version(connection)?;
-    if version < 6 {
-        let transaction = connection.transaction()?;
-        transaction.execute_batch(MIGRATION_V6)?;
-        transaction.execute(
-            "INSERT INTO schema_migrations(version, applied_at_ms) VALUES (?1, unixepoch('subsec') * 1000)",
-            [6_i64],
-        )?;
-        transaction.commit()?;
-    }
-
-    let version = current_schema_version(connection)?;
-    if version < 7 {
-        let transaction = connection.transaction()?;
-        transaction.execute_batch(MIGRATION_V7)?;
-        transaction.execute(
-            "INSERT INTO schema_migrations(version, applied_at_ms) VALUES (?1, unixepoch('subsec') * 1000)",
-            [7_i64],
-        )?;
-        transaction.commit()?;
-    }
-
-    apply_migration_if_needed(connection, 8, MIGRATION_V8)?;
-    apply_migration_if_needed(connection, 9, MIGRATION_V9)?;
-    apply_migration_if_needed(connection, 10, MIGRATION_V10)?;
-    apply_migration_if_needed(connection, 11, MIGRATION_V11)?;
-    apply_migration_if_needed(connection, 12, MIGRATION_V12)?;
-    apply_migration_if_needed(connection, 13, MIGRATION_V13)?;
-    rebuild_recipe_snapshot_digests_if_needed(connection)?;
-
-    let final_version = current_schema_version(connection)?;
-    if final_version != SCHEMA_VERSION {
-        return Err(rusqlite::Error::InvalidQuery);
-    }
-
+    transaction.commit()?;
     Ok(())
 }
 
-fn apply_migration_if_needed(
-    connection: &mut Connection,
-    version: i64,
-    sql: &str,
-) -> rusqlite::Result<()> {
-    if current_schema_version(connection)? >= version {
-        return Ok(());
-    }
-    let transaction = connection.transaction()?;
-    transaction.execute_batch(sql)?;
-    transaction.execute(
-        "INSERT INTO schema_migrations(version, applied_at_ms) VALUES (?1, unixepoch('subsec') * 1000)",
-        [version],
-    )?;
-    transaction.commit()
+fn table_exists(connection: &Connection, table: &str) -> rusqlite::Result<bool> {
+    connection
+        .query_row(
+            "SELECT EXISTS(
+             SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?1
+         )",
+            [table],
+            |row| row.get::<_, i64>(0),
+        )
+        .map(|exists| exists != 0)
 }
 
-fn rebuild_recipe_snapshot_digests_if_needed(connection: &mut Connection) -> rusqlite::Result<()> {
-    const VERSION: i64 = 14;
-    if current_schema_version(connection)? >= VERSION {
-        return Ok(());
-    }
-
-    let transaction = connection.transaction()?;
-    let rows = {
-        let mut statement = transaction
-            .prepare("SELECT id, recipe_id, commit_json FROM recipe_commits ORDER BY id")?;
-        let rows = statement.query_map([], |row| {
-            Ok((
-                row.get::<_, Vec<u8>>(0)?,
-                row.get::<_, Vec<u8>>(1)?,
-                row.get::<_, String>(2)?,
-            ))
-        })?;
-        rows.collect::<rusqlite::Result<Vec<_>>>()?
-    };
-
-    for (stored_id, stored_recipe_id, commit_json) in rows {
-        let Ok(commit) = serde_json::from_str::<RecipeCommit>(&commit_json) else {
-            continue;
-        };
-        if commit.validate().is_err() {
-            continue;
-        }
-        if commit.id().as_bytes().as_slice() != stored_id.as_slice()
-            || commit.recipe_id().as_bytes().as_slice() != stored_recipe_id.as_slice()
-        {
-            continue;
-        }
-        let Ok(canonical_commit_json) = serde_json::to_string(&commit) else {
-            continue;
-        };
-        if canonical_commit_json != commit_json {
-            continue;
-        }
-        let Ok(snapshot_json) = serde_json::to_vec(commit.snapshot()) else {
-            continue;
-        };
-        let digest = blake3::hash(&snapshot_json);
-        transaction.execute(
-            "UPDATE recipe_commits SET snapshot_digest = ?1 WHERE id = ?2",
-            params![digest.as_bytes().as_slice(), stored_id],
-        )?;
-    }
-
-    transaction.execute(
-        "INSERT INTO schema_migrations(version, applied_at_ms)
-         VALUES (?1, unixepoch('subsec') * 1000)",
-        [VERSION],
-    )?;
-    transaction.commit()
+fn catalog_tables_exist(connection: &Connection) -> rusqlite::Result<bool> {
+    connection
+        .query_row(
+            "SELECT EXISTS(
+             SELECT 1 FROM sqlite_schema
+             WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+         )",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .map(|exists| exists != 0)
 }
 
 fn current_schema_version(connection: &Connection) -> rusqlite::Result<i64> {
+    connection.query_row(
+        "SELECT version FROM catalog_schema WHERE identity = 'shadow-catalog-v1'",
+        [],
+        |row| row.get(0),
+    )
+}
+
+fn legacy_schema_version(connection: &Connection) -> rusqlite::Result<i64> {
     connection.query_row(
         "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
         [],
@@ -1322,8 +1233,7 @@ fn non_negative_count(count: i64) -> rusqlite::Result<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shadow_ai::LearningScope;
-    use shadow_domain::{Platform, RecipeCommitId, RecipeId, RecipeSnapshot};
+    use shadow_domain::Platform;
 
     fn request(byte_len: u64, modified_at_ms: Option<i64>) -> RegisterAsset {
         RegisterAsset {
@@ -1339,6 +1249,7 @@ mod tests {
         }
     }
 
+    #[cfg(any())]
     fn apply_schema_through_v7(connection: &mut Connection) {
         connection
             .execute_batch(
@@ -1369,6 +1280,7 @@ mod tests {
         }
     }
 
+    #[cfg(any())]
     fn apply_v8_marker(connection: &mut Connection) {
         let transaction = connection.transaction().expect("start v8 migration");
         transaction
@@ -1383,6 +1295,7 @@ mod tests {
         transaction.commit().expect("commit v8 migration");
     }
 
+    #[cfg(any())]
     fn apply_schema_through_v11(connection: &mut Connection) {
         apply_schema_through_v7(connection);
         apply_v8_marker(connection);
@@ -1400,13 +1313,51 @@ mod tests {
     }
 
     #[test]
-    fn migration_creates_current_schema() {
+    fn schema_v1_creates_current_catalog_shape() {
         let catalog = Catalog::open_in_memory().expect("open catalog");
 
-        assert_eq!(catalog.schema_version().expect("schema version"), 14);
+        assert_eq!(catalog.schema_version().expect("schema version"), 1);
+        let raw_frame_column: i64 = catalog
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('representation_decode_snapshots')
+                 WHERE name = 'can_decode_raw_frame'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read v1 RawFrame capability column");
+        assert_eq!(raw_frame_column, 1);
     }
 
     #[test]
+    fn legacy_catalog_is_rejected_without_a_migration_attempt() {
+        let mut connection = Connection::open_in_memory().expect("open legacy fixture");
+        configure_connection(&connection, false).expect("configure legacy fixture");
+        connection
+            .execute_batch(
+                "CREATE TABLE schema_migrations (
+                     version INTEGER PRIMARY KEY NOT NULL,
+                     applied_at_ms INTEGER NOT NULL
+                 ) STRICT;",
+            )
+            .expect("create legacy schema marker");
+        connection
+            .execute(
+                "INSERT INTO schema_migrations(version, applied_at_ms) VALUES (14, 1)",
+                [],
+            )
+            .expect("record legacy schema version");
+
+        assert!(matches!(
+            initialize_schema_v1(&mut connection),
+            Err(CatalogError::DevelopmentCatalogResetRequired { found: Some(14) })
+        ));
+        assert!(table_exists(&connection, "schema_migrations").expect("legacy marker remains"));
+        assert!(!table_exists(&connection, "catalog_schema").expect("no partial v1 state"));
+    }
+
+    #[test]
+    #[cfg(any())]
     fn version_fourteen_rebuilds_a_canonical_recipe_snapshot_digest() {
         let mut catalog = Catalog::open_in_memory().expect("open catalog");
         let photo_id = catalog
@@ -1460,6 +1411,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any())]
     fn version_eleven_library_catalog_receives_current_source_indexes() {
         let mut connection = Connection::open_in_memory().expect("open v11 fixture");
         configure_connection(&connection, false).expect("configure v11 fixture");
@@ -1489,6 +1441,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any())]
     fn version_two_catalog_migrates_without_rebuilding_existing_tables() {
         let root = std::env::temp_dir().join(format!("shadow-catalog-v2-{}", PhotoId::new_v7()));
         std::fs::create_dir_all(&root).expect("create migration fixture");
@@ -1543,6 +1496,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any())]
     fn version_seven_catalog_receives_marker_only_feedback_provenance_migration() {
         let mut connection = Connection::open_in_memory().expect("open v7 fixture");
         configure_connection(&connection, false).expect("configure fixture");
@@ -1569,6 +1523,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any())]
     fn version_seven_legacy_feedback_remains_canonical_after_current_migration() {
         const PHOTO_TEXT: &str = "018f0000-0000-7000-8000-000000000001";
         const LEGACY_EVENT_TEMPLATE: &str = r#"{"event_id":"legacy-v7-event","sequence":1,"occurred_at_unix_ms":1700000001000,"scope":{"kind":"global"},"presentation":{"session_id":"legacy-review-session","group_id":null,"candidates":[{"photo_id":"__PHOTO_ID__","position":0,"visible_fraction":1.0,"inspected_at_one_to_one":false,"feature":null}],"active_model":null},"action":{"action":"exported","photo_id":"__PHOTO_ID__"}}"#;
@@ -1642,6 +1597,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any())]
     fn version_eight_catalog_migrates_to_pointer_only_decision_ledger() {
         let mut connection = Connection::open_in_memory().expect("open v8 fixture");
         configure_connection(&connection, false).expect("configure v8 fixture");
