@@ -210,6 +210,7 @@ struct BackendFineEditParameters final {
     double color_range_lightness = 0.0;
     QVector<BackendPointColorRange> additional_point_colors;
     bool selective_color_relative = true;
+    double selective_color_lightness_protection = 0.0;
     std::array<double, BACKEND_SELECTIVE_COLOR_VALUE_COUNT> selective_color_cmyk{};
     /// Flattened authored Oklab-L x/y pairs. Empty means no perceptual curve.
     QVector<double> oklab_lightness_curve_points;
@@ -221,6 +222,8 @@ struct BackendFineEditParameters final {
     double sharpen_radius = 1.0;
     double sharpen_threshold = 0.0;
     double sharpen_masking = 0.0;
+    double clarity = 0.0;
+    double texture = 0.0;
     double denoise_luminance = 0.0;
     double denoise_detail = 0.5;
     double denoise_color = 0.0;

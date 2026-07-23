@@ -266,6 +266,7 @@ template <std::size_t Size>
         }
     }
     result.selective_color_relative = source.selective_color_relative;
+    result.selective_color_lightness_protection = source.selective_color_lightness_protection;
     result.selective_color_cmyk = ffi_values(source.selective_color_cmyk);
     result.oklab_lightness_curve_points.reserve(
         static_cast<std::size_t>(source.oklab_lightness_curve_points.size())
@@ -281,6 +282,8 @@ template <std::size_t Size>
     result.sharpen_radius = source.sharpen_radius;
     result.sharpen_threshold = source.sharpen_threshold;
     result.sharpen_masking = source.sharpen_masking;
+    result.clarity = source.clarity;
+    result.texture = source.texture;
     result.denoise_luminance = source.denoise_luminance;
     result.denoise_detail = source.denoise_detail;
     result.denoise_color = source.denoise_color;
@@ -373,6 +376,7 @@ template <std::size_t Size>
         .color_range_lightness = source.color_range_lightness,
         .additional_point_colors = std::move(additional_point_colors),
         .selective_color_relative = source.selective_color_relative,
+        .selective_color_lightness_protection = source.selective_color_lightness_protection,
         .selective_color_cmyk = edit_values<BACKEND_SELECTIVE_COLOR_VALUE_COUNT>(
             source.selective_color_cmyk,
             "selective_color_cmyk"
@@ -386,6 +390,8 @@ template <std::size_t Size>
         .sharpen_radius = source.sharpen_radius,
         .sharpen_threshold = source.sharpen_threshold,
         .sharpen_masking = source.sharpen_masking,
+        .clarity = source.clarity,
+        .texture = source.texture,
         .denoise_luminance = source.denoise_luminance,
         .denoise_detail = source.denoise_detail,
         .denoise_color = source.denoise_color,

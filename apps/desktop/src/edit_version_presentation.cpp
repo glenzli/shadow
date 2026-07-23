@@ -75,6 +75,9 @@ namespace {
         || key == QStringLiteral("sharpen_masking")) {
         return translated(QT_TRANSLATE_NOOP("EditVersionModel", "Sharpening"));
     }
+    if (key == QStringLiteral("clarity") || key == QStringLiteral("texture")) {
+        return translated(QT_TRANSLATE_NOOP("EditVersionModel", "Perceptual Detail"));
+    }
     return {};
 }
 

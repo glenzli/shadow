@@ -1085,6 +1085,11 @@ double EditController::parameterValue(const QString& parameter_key) const {
     if (parameter_key == QStringLiteral("sharpen_masking")) {
         return fine.sharpen_masking;
     }
+    if (parameter_key == QStringLiteral("clarity")) return fine.clarity;
+    if (parameter_key == QStringLiteral("texture")) return fine.texture;
+    if (parameter_key == QStringLiteral("selective_color_lightness_protection")) {
+        return fine.selective_color_lightness_protection;
+    }
     if (parameter_key == QStringLiteral("denoise_luminance")) return fine.denoise_luminance;
     if (parameter_key == QStringLiteral("denoise_detail")) return fine.denoise_detail;
     if (parameter_key == QStringLiteral("denoise_color")) return fine.denoise_color;
@@ -1570,6 +1575,17 @@ void EditController::setParameterValue(
         minimum = 0.0;
         maximum = 1.0;
         label = QT_TRANSLATE_NOOP("EditController", "Sharpening masking");
+    } else if (parameter_key == QStringLiteral("clarity")) {
+        target = &fine.clarity;
+        label = QT_TRANSLATE_NOOP("EditController", "Perceptual clarity");
+    } else if (parameter_key == QStringLiteral("texture")) {
+        target = &fine.texture;
+        label = QT_TRANSLATE_NOOP("EditController", "Perceptual texture");
+    } else if (parameter_key == QStringLiteral("selective_color_lightness_protection")) {
+        target = &fine.selective_color_lightness_protection;
+        minimum = 0.0;
+        maximum = 1.0;
+        label = QT_TRANSLATE_NOOP("EditController", "Selective Color lightness protection");
     } else if (parameter_key == QStringLiteral("denoise_luminance")) {
         target = &fine.denoise_luminance; minimum = 0.0; maximum = 1.0;
         label = QT_TRANSLATE_NOOP("EditController", "Luminance noise reduction");

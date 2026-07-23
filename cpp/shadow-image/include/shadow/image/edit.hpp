@@ -181,6 +181,11 @@ struct PerceptualColorAdjustment final {
     // Relative is the default (changes existing ink proportionally), while
     // Absolute adds the requested ink directly.
     bool selective_color_relative = true;
+    // Blend the resulting Oklab L back toward the source lightness after the
+    // familiar CMYK correction. Zero preserves the Photoshop-like behaviour;
+    // one makes Selective Color a hue/chroma-only correction in the perceptual
+    // layer. The target masks are always evaluated in Oklab/OKLCH.
+    double selective_color_lightness_protection = 0.0;
     std::array<std::array<double, selective_color_component_count>,
                selective_color_target_count> selective_color_cmyk{};
 };
@@ -212,6 +217,12 @@ struct SharpenAdjustment final {
     double radius = 1.0;
     double threshold = 0.0;
     double masking = 0.0;
+    // Multi-scale perceptual detail in Oklab L. Clarity acts on protected
+    // mid-frequency structure; Texture acts on the smaller residual. Both
+    // are signed, leave Oklab a/b intact, and therefore cannot directly
+    // rotate hue or change chroma.
+    double clarity = 0.0;
+    double texture = 0.0;
     double denoise_luminance = 0.0;
     double denoise_detail = 0.5;
     double denoise_color = 0.0;
@@ -245,8 +256,9 @@ struct SharpenAdjustment final {
 
 inline constexpr std::uint32_t detail_effects_v2_parameter_schema_version = 2;
 inline constexpr std::uint32_t detail_effects_v2_implementation_version = 2;
-// Recipe schema 3 keeps the existing 33-scalar Detail & Effects wire shape
-// but gives each execution pass a non-interchangeable contract revision.
+// Recipe schema 3 carries the 35-scalar Detail & Effects wire shape, including
+// Oklab-L frequency detail, and gives each execution pass a non-interchangeable
+// contract revision.
 inline constexpr std::uint32_t detail_effects_v3_parameter_schema_version = 3;
 inline constexpr std::uint32_t technical_detail_v3_implementation_version = 3;
 inline constexpr std::uint32_t color_grading_v3_implementation_version = 4;

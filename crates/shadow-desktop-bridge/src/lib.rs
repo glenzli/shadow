@@ -72,11 +72,11 @@ use shadow_domain::operation::{
     OKLAB_LIGHTNESS_TONE_CURVE_POINTS_PARAMETER_KEY, PERCEPTUAL_COLOR_OPERATION_ID,
     PERCEPTUAL_COLOR_V3_IMPLEMENTATION_VERSION, POINT_COLOR_RANGES_PARAMETER_KEY,
     RGB_WHITE_BALANCE_OPERATION_ID, SATURATION_FACTOR_PARAMETER_KEY, SATURATION_OPERATION_ID,
-    SELECTIVE_COLOR_CMYK_PARAMETER_KEY, SELECTIVE_COLOR_RELATIVE_PARAMETER_KEY,
-    SELECTIVE_TONE_OPERATION_ID, SELECTIVE_TONE_V3_IMPLEMENTATION_VERSION,
-    SELECTIVE_TONE_V3_PARAMETER_SCHEMA_VERSION, SHADOWS_PARAMETER_KEY,
-    SHARPEN_AMOUNT_PARAMETER_KEY, SHARPEN_MASKING_PARAMETER_KEY, SHARPEN_RADIUS_PARAMETER_KEY,
-    SHARPEN_THRESHOLD_PARAMETER_KEY, TECHNICAL_DETAIL_OPERATION_ID,
+    SELECTIVE_COLOR_CMYK_PARAMETER_KEY, SELECTIVE_COLOR_LIGHTNESS_PROTECTION_PARAMETER_KEY,
+    SELECTIVE_COLOR_RELATIVE_PARAMETER_KEY, SELECTIVE_TONE_OPERATION_ID,
+    SELECTIVE_TONE_V3_IMPLEMENTATION_VERSION, SELECTIVE_TONE_V3_PARAMETER_SCHEMA_VERSION,
+    SHADOWS_PARAMETER_KEY, SHARPEN_AMOUNT_PARAMETER_KEY, SHARPEN_MASKING_PARAMETER_KEY,
+    SHARPEN_RADIUS_PARAMETER_KEY, SHARPEN_THRESHOLD_PARAMETER_KEY, TECHNICAL_DETAIL_OPERATION_ID,
     TECHNICAL_DETAIL_V3_IMPLEMENTATION_VERSION, TECHNICAL_DETAIL_V3_PARAMETER_SCHEMA_VERSION,
     VIBRANCE_PARAMETER_KEY, WHITE_BALANCE_TEMPERATURE_PARAMETER_KEY,
     WHITE_BALANCE_TINT_PARAMETER_KEY, WHITES_PARAMETER_KEY,
@@ -315,6 +315,8 @@ mod ffi {
         point_color_ranges: Vec<f64>,
         /// Photoshop-style Selective Color: default Relative vs Absolute.
         selective_color_relative: bool,
+        /// Perceptual Oklab-L protection applied after the CMYK correction.
+        selective_color_lightness_protection: f64,
         /// Nine color families × CMYK, flattened target-major.
         selective_color_cmyk: Vec<f64>,
         /// Optional Oklab-L perceptual curve, flattened as x/y pairs. An empty
@@ -328,6 +330,8 @@ mod ffi {
         sharpen_radius: f64,
         sharpen_threshold: f64,
         sharpen_masking: f64,
+        clarity: f64,
+        texture: f64,
         denoise_luminance: f64,
         denoise_detail: f64,
         denoise_color: f64,
@@ -3203,6 +3207,7 @@ fn fine_parameters(parameters: &ffi::FfiFineEditParameters) -> AnyResult<FineEdi
                 &parameters.point_color_ranges,
             )?,
             selective_color_relative: parameters.selective_color_relative,
+            selective_color_lightness_protection: parameters.selective_color_lightness_protection,
             selective_color_cmyk: fixed_selective_color(&parameters.selective_color_cmyk)?,
         },
         oklab_lightness_curve: if parameters.oklab_lightness_curve_points.is_empty() {
@@ -3223,6 +3228,8 @@ fn fine_parameters(parameters: &ffi::FfiFineEditParameters) -> AnyResult<FineEdi
             radius: parameters.sharpen_radius,
             threshold: parameters.sharpen_threshold,
             masking: parameters.sharpen_masking,
+            clarity: parameters.clarity,
+            texture: parameters.texture,
             denoise_luminance: parameters.denoise_luminance,
             denoise_detail: parameters.denoise_detail,
             denoise_color: parameters.denoise_color,
@@ -3591,6 +3598,7 @@ fn ffi_fine_parameters(parameters: &FineEditParameters) -> ffi::FfiFineEditParam
             })
             .collect(),
         selective_color_relative: color.selective_color_relative,
+        selective_color_lightness_protection: color.selective_color_lightness_protection,
         selective_color_cmyk: color.selective_color_cmyk.to_vec(),
         oklab_lightness_curve_points: parameters
             .oklab_lightness_curve
@@ -3611,6 +3619,8 @@ fn ffi_fine_parameters(parameters: &FineEditParameters) -> ffi::FfiFineEditParam
         sharpen_radius: parameters.sharpen.radius,
         sharpen_threshold: parameters.sharpen.threshold,
         sharpen_masking: parameters.sharpen.masking,
+        clarity: parameters.sharpen.clarity,
+        texture: parameters.sharpen.texture,
         denoise_luminance: parameters.sharpen.denoise_luminance,
         denoise_detail: parameters.sharpen.denoise_detail,
         denoise_color: parameters.sharpen.denoise_color,
@@ -3888,7 +3898,7 @@ fn compile_recipe_node(
             if !is_current_perceptual_color {
                 bail!("Recipe Color Mixer uses a discarded contract");
             }
-            let expected_len = 14;
+            let expected_len = 15;
             AdjustmentRenderOperation::PerceptualColor {
                 parameters: Box::new(PerceptualColorParameters {
                     vibrance: required_float(
@@ -3967,6 +3977,11 @@ fn compile_recipe_node(
                     selective_color_relative: required_bool(
                         node.parameters(),
                         SELECTIVE_COLOR_RELATIVE_PARAMETER_KEY,
+                        expected_len,
+                    )?,
+                    selective_color_lightness_protection: required_float(
+                        node.parameters(),
+                        SELECTIVE_COLOR_LIGHTNESS_PROTECTION_PARAMETER_KEY,
                         expected_len,
                     )?,
                     selective_color_cmyk: fixed_selective_color(&required_float_vector(
@@ -4573,6 +4588,12 @@ fn perceptual_color_parameter_block(
             ParameterValue::Bool(parameters.selective_color_relative),
         ),
         (
+            SELECTIVE_COLOR_LIGHTNESS_PROTECTION_PARAMETER_KEY,
+            ParameterValue::Float(FiniteF64::new(
+                parameters.selective_color_lightness_protection,
+            )?),
+        ),
+        (
             SELECTIVE_COLOR_CMYK_PARAMETER_KEY,
             ParameterValue::FloatVector(
                 parameters
@@ -4677,8 +4698,10 @@ fn recipe_lut_render_op(
     .map_err(Into::into)
 }
 
-fn detail_effect_values(parameters: &SharpenParameters) -> [f64; 29] {
+fn detail_effect_values(parameters: &SharpenParameters) -> [f64; 31] {
     [
+        parameters.clarity,
+        parameters.texture,
         parameters.denoise_luminance,
         parameters.denoise_detail,
         parameters.denoise_color,
@@ -4713,6 +4736,8 @@ fn detail_effect_values(parameters: &SharpenParameters) -> [f64; 29] {
 
 fn apply_detail_effect_values(parameters: &mut SharpenParameters, values: &[f64]) -> AnyResult<()> {
     let [
+        clarity,
+        texture,
         denoise_luminance,
         denoise_detail,
         denoise_color,
@@ -4744,8 +4769,10 @@ fn apply_detail_effect_values(parameters: &mut SharpenParameters, values: &[f64]
         vignette_highlights,
     ] = values
     else {
-        bail!("Detail & Effects storage must contain exactly 29 values");
+        bail!("Detail & Effects storage must contain exactly 31 values");
     };
+    parameters.clarity = *clarity;
+    parameters.texture = *texture;
     parameters.denoise_luminance = *denoise_luminance;
     parameters.denoise_detail = *denoise_detail;
     parameters.denoise_color = *denoise_color;
@@ -5088,7 +5115,7 @@ fn fine_parameters_from_nodes(
     };
     let perceptual_color = {
         let node = nodes.perceptual_color;
-        let expected_len = 14;
+        let expected_len = 15;
         PerceptualColorParameters {
             vibrance: required_float(node.parameters(), VIBRANCE_PARAMETER_KEY, expected_len)?,
             hue_shifts: fixed_color_mixer(
@@ -5160,6 +5187,11 @@ fn fine_parameters_from_nodes(
             selective_color_relative: required_bool(
                 node.parameters(),
                 SELECTIVE_COLOR_RELATIVE_PARAMETER_KEY,
+                expected_len,
+            )?,
+            selective_color_lightness_protection: required_float(
+                node.parameters(),
+                SELECTIVE_COLOR_LIGHTNESS_PROTECTION_PARAMETER_KEY,
                 expected_len,
             )?,
             selective_color_cmyk: fixed_selective_color(&required_float_vector(
@@ -5810,6 +5842,8 @@ fn changed_fine_parameters(before: &FineEditParameters, after: &FineEditParamete
     }
     if before.perceptual_color.selective_color_relative
         != after.perceptual_color.selective_color_relative
+        || before.perceptual_color.selective_color_lightness_protection
+            != after.perceptual_color.selective_color_lightness_protection
         || persisted_array_changed(
             before.perceptual_color.selective_color_cmyk,
             after.perceptual_color.selective_color_cmyk,
@@ -6107,8 +6141,13 @@ fn open_desktop_session(catalog_path: &str, cache_root: &str) -> AnyResult<Box<D
     let catalog_path = Path::new(catalog_path);
     let cache_root = PathBuf::from(cache_root);
     ensure_parent(catalog_path)?;
+    // `anyhow::Context` deliberately displays only its outermost context via
+    // `Display`.  That made the desktop FFI surface merely "open catalog …"
+    // while dropping the SQLite cause (busy, malformed database, permissions,
+    // etc.).  Keep the source error in the visible message: there is no useful
+    // recovery decision the desktop shell can make without it.
     let actor = CatalogActor::spawn(catalog_path)
-        .with_context(|| format!("open catalog {}", catalog_path.display()))?;
+        .map_err(|error| anyhow!("open catalog {}: {error}", catalog_path.display()))?;
     let catalog = actor.handle();
     let loader = CachedArtifactLoader::open(catalog.clone(), &cache_root)?;
     Ok(Box::new(DesktopSession {
@@ -8495,6 +8534,7 @@ mod tests {
                     lightness: 0.1,
                 }],
                 selective_color_relative: false,
+                selective_color_lightness_protection: 0.35,
                 selective_color_cmyk: [0.2; SELECTIVE_COLOR_VALUE_COUNT],
             },
             oklab_lightness_curve: Some(OklabLightnessToneCurve {

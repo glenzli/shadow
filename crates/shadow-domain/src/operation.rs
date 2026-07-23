@@ -69,6 +69,11 @@ pub const POINT_COLOR_RANGES_PARAMETER_KEY: &str = "point_color_ranges";
 /// The flattened value is nine target families × CMYK in the public order
 /// red, yellow, green, cyan, blue, magenta, white, neutral, black.
 pub const SELECTIVE_COLOR_RELATIVE_PARAMETER_KEY: &str = "selective_color_relative";
+/// Blend the Oklab L result back toward the source after CMYK correction.
+/// This keeps Selective Color's familiar authoring semantics while offering a
+/// perceptual lightness lock for modern scene-referred grading.
+pub const SELECTIVE_COLOR_LIGHTNESS_PROTECTION_PARAMETER_KEY: &str =
+    "selective_color_lightness_protection";
 pub const SELECTIVE_COLOR_CMYK_PARAMETER_KEY: &str = "selective_color_cmyk";
 pub const PERCEPTUAL_COLOR_V3_IMPLEMENTATION_VERSION: &str = "shadow-cpu-perceptual-color-v3";
 
@@ -169,6 +174,7 @@ mod tests {
             COLOR_RANGE_LIGHTNESS_PARAMETER_KEY,
             POINT_COLOR_RANGES_PARAMETER_KEY,
             SELECTIVE_COLOR_RELATIVE_PARAMETER_KEY,
+            SELECTIVE_COLOR_LIGHTNESS_PROTECTION_PARAMETER_KEY,
             SELECTIVE_COLOR_CMYK_PARAMETER_KEY,
             LUT_RESOURCE_ID_PARAMETER_KEY,
             LUT_TITLE_PARAMETER_KEY,

@@ -68,6 +68,34 @@ namespace {
     );
 }
 
+[[nodiscard]] QMessageBox::StandardButton offer_development_catalog_reset(
+    const std::exception& error
+) {
+    const QString detail = QString::fromUtf8(error.what());
+    const bool incompatible = is_development_catalog_reset_error(error);
+    const QString explanation = incompatible
+        ? QObject::tr(
+              "This local catalog belongs to an incompatible development build. "
+              "Shadow does not migrate development schemas.\n\n"
+              "Resetting removes the local photo index, edit history, and preview cache. "
+              "Your original photo files, LUT library, and UI preferences are not changed."
+          )
+        : QObject::tr(
+              "Shadow could not open its local development catalog. You can reset it "
+              "and start again with a fresh catalog v1.\n\n"
+              "Resetting removes the local photo index, edit history, and preview cache. "
+              "Your original photo files, LUT library, and UI preferences are not changed.\n\n"
+              "Technical detail: %1"
+          ).arg(detail);
+    return QMessageBox::warning(
+        nullptr,
+        QObject::tr("Reset local development catalog?"),
+        explanation,
+        QMessageBox::Reset | QMessageBox::Cancel,
+        QMessageBox::Reset
+    );
+}
+
 [[nodiscard]] QString image_provider_request_id(const QString& source) {
     const QUrl url(source);
     QString id = url.path();
@@ -518,28 +546,7 @@ int main(int argc, char* argv[]) {
             backend = std::make_shared<DesktopBackend>(catalog_path, cache_root);
         } catch (const std::exception& error) {
             qCritical() << "Cannot start Shadow's local backend:" << error.what();
-            if (!is_development_catalog_reset_error(error)) {
-                QMessageBox::critical(
-                    nullptr,
-                    QObject::tr("Shadow could not start"),
-                    QObject::tr("The local catalog could not be opened.\n\n%1")
-                        .arg(QString::fromUtf8(error.what()))
-                );
-                return EXIT_FAILURE;
-            }
-
-            const auto choice = QMessageBox::warning(
-                nullptr,
-                QObject::tr("Reset local development catalog?"),
-                QObject::tr(
-                    "This local catalog belongs to an incompatible development build. "
-                    "Shadow does not migrate development schemas.\n\n"
-                    "Resetting removes the local photo index, edit history, and preview cache. "
-                    "Your original photo files, LUT library, and UI preferences are not changed."
-                ),
-                QMessageBox::Reset | QMessageBox::Cancel,
-                QMessageBox::Reset
-            );
+            const auto choice = offer_development_catalog_reset(error);
             if (choice != QMessageBox::Reset) {
                 return EXIT_FAILURE;
             }

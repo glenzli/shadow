@@ -1241,11 +1241,27 @@ selective_color_target_weights(const Vector3& lab) noexcept {
         cmyk[component] = std::clamp(cmyk[component] + amount, 0.0, 1.0);
     }
     const double ink_scale = 1.0 - cmyk[3];
-    return {
+    Vector3 output{
         peak * (1.0 - cmyk[0]) * ink_scale,
         peak * (1.0 - cmyk[1]) * ink_scale,
         peak * (1.0 - cmyk[2]) * ink_scale,
     };
+    // Keep the familiar CMYK authoring model, but let the perceptual layer
+    // optionally protect Oklab L. This is especially useful when Selective
+    // Color is used to neutralize a cast in skin, snow, or a product color:
+    // the correction can reshape hue/chroma without unexpectedly changing the
+    // perceived exposure chosen earlier in the graph. It deliberately leaves
+    // scene-linear values unbounded; output gamut mapping owns clipping.
+    if (parameters.selective_color_lightness_protection > 0.0) {
+        Vector3 corrected_lab = xyz_to_oklab(multiply(color_transform.rgb_to_xyz, output));
+        corrected_lab[0] = std::lerp(
+            corrected_lab[0],
+            lab[0],
+            parameters.selective_color_lightness_protection
+        );
+        output = multiply(color_transform.xyz_to_rgb, oklab_to_xyz(corrected_lab));
+    }
+    return output;
 }
 
 void validate_image(const FloatRgbImage& image) {
@@ -1765,7 +1781,10 @@ void apply_prepared_oklab_lightness_tone_curve(
                         <= maximum_point_color_ranges
                     && std::ranges::all_of(parameters.additional_color_ranges, valid_range);
                 if (!normalized_amount(parameters.vibrance) || !valid_bands || !valid_ranges
-                    || !valid_selective_color) {
+                    || !valid_selective_color
+                    || !std::isfinite(parameters.selective_color_lightness_protection)
+                    || parameters.selective_color_lightness_protection < 0.0
+                    || parameters.selective_color_lightness_protection > 1.0) {
                     throw_node_error(
                         EditErrorCode::invalid_parameter,
                         index,
@@ -1822,6 +1841,8 @@ void apply_prepared_oklab_lightness_tone_curve(
                     || parameters.threshold > 1.0
                     || !std::isfinite(parameters.masking) || parameters.masking < 0.0
                     || parameters.masking > 1.0
+                    || !signed_unit(parameters.clarity)
+                    || !signed_unit(parameters.texture)
                     || !unit(parameters.denoise_luminance)
                     || !unit(parameters.denoise_detail)
                     || !unit(parameters.denoise_color)
@@ -2000,6 +2021,71 @@ void transform_rgb_pixels(
     }
 }
 
+// A small row executor for neighbourhood operators. Unlike pixel-local nodes,
+// a blur must materialize intermediate fields, but every row of each separable
+// pass remains independent. Sharing this bounded executor prevents the new
+// frequency controls from turning an otherwise responsive CPU preview into a
+// one-core operation on a large warm proxy.
+template <typename Work>
+void parallel_for_rows(const std::size_t height, Work&& work) {
+    constexpr std::uint32_t minimum_rows_per_task = 32U;
+    constexpr std::uint32_t maximum_pixel_tasks = 12U;
+    const std::uint32_t image_height = static_cast<std::uint32_t>(height);
+    const std::uint32_t hardware_threads = std::max(1U, std::thread::hardware_concurrency());
+    const std::uint32_t row_limited_tasks = std::max(
+        1U,
+        image_height / minimum_rows_per_task
+    );
+    const std::uint32_t task_count = std::min({
+        maximum_pixel_tasks,
+        hardware_threads,
+        row_limited_tasks,
+    });
+    if (task_count == 1U) {
+        work(0U, image_height);
+        return;
+    }
+
+    std::atomic_bool failed{false};
+    std::mutex failure_mutex;
+    std::exception_ptr failure;
+    auto run = [
+        work = std::forward<Work>(work),
+        &failed,
+        &failure_mutex,
+        &failure
+    ](const std::uint32_t first_row, const std::uint32_t past_last_row) mutable {
+        try {
+            if (!failed.load(std::memory_order_relaxed)) {
+                work(first_row, past_last_row);
+            }
+        } catch (...) {
+            if (!failed.exchange(true, std::memory_order_relaxed)) {
+                std::lock_guard lock(failure_mutex);
+                failure = std::current_exception();
+            }
+        }
+    };
+    std::vector<std::thread> workers;
+    workers.reserve(task_count - 1U);
+    const std::uint32_t base_rows = image_height / task_count;
+    const std::uint32_t remainder = image_height % task_count;
+    std::uint32_t first_row = 0U;
+    for (std::uint32_t task = 1U; task < task_count; ++task) {
+        const std::uint32_t rows = base_rows + (task < remainder ? 1U : 0U);
+        const std::uint32_t past_last_row = first_row + rows;
+        workers.emplace_back(run, first_row, past_last_row);
+        first_row = past_last_row;
+    }
+    run(first_row, image_height);
+    for (auto& worker : workers) {
+        worker.join();
+    }
+    if (failure) {
+        std::rethrow_exception(failure);
+    }
+}
+
 [[nodiscard]] std::size_t reflect101_index(
     std::int64_t index,
     const std::size_t extent
@@ -2038,6 +2124,199 @@ void transform_rgb_pixels(
         value /= sum;
     }
     return kernel;
+}
+
+// Blur one scalar image with a separable Gaussian. This intentionally keeps
+// the detail operator in a single scalar (Oklab-L) field: processing RGB
+// channels independently makes the ordinary clarity/texture controls create
+// color halos, which is precisely what the perceptual architecture avoids.
+[[nodiscard]] std::vector<double> gaussian_blur_scalar(
+    const std::vector<double>& source,
+    const std::size_t width,
+    const std::size_t height,
+    const double sigma_x,
+    const double sigma_y
+) {
+    const std::uint32_t radius_x = static_cast<std::uint32_t>(std::max(
+        1.0,
+        std::ceil(3.0 * sigma_x)
+    ));
+    const std::uint32_t radius_y = static_cast<std::uint32_t>(std::max(
+        1.0,
+        std::ceil(3.0 * sigma_y)
+    ));
+    const auto kernel_x = gaussian_kernel(std::max(0.20, sigma_x), radius_x);
+    const auto kernel_y = gaussian_kernel(std::max(0.20, sigma_y), radius_y);
+    std::vector<double> horizontal(source.size());
+    std::vector<double> result(source.size());
+    const auto signed_radius_x = static_cast<std::int64_t>(radius_x);
+    const auto signed_radius_y = static_cast<std::int64_t>(radius_y);
+    parallel_for_rows(height, [&](const std::uint32_t first_row, const std::uint32_t past_last_row) {
+        for (std::size_t y = first_row; y < past_last_row; ++y) {
+            for (std::size_t x = 0U; x < width; ++x) {
+                double sum = 0.0;
+                for (std::int64_t offset = -signed_radius_x;
+                     offset <= signed_radius_x;
+                     ++offset) {
+                    const std::size_t source_x = reflect101_index(
+                        static_cast<std::int64_t>(x) + offset,
+                        width
+                    );
+                    sum += source[y * width + source_x]
+                        * kernel_x[static_cast<std::size_t>(offset + signed_radius_x)];
+                }
+                horizontal[y * width + x] = sum;
+            }
+        }
+    });
+    parallel_for_rows(height, [&](const std::uint32_t first_row, const std::uint32_t past_last_row) {
+        for (std::size_t y = first_row; y < past_last_row; ++y) {
+            for (std::size_t x = 0U; x < width; ++x) {
+                double sum = 0.0;
+                for (std::int64_t offset = -signed_radius_y;
+                     offset <= signed_radius_y;
+                     ++offset) {
+                    const std::size_t source_y = reflect101_index(
+                        static_cast<std::int64_t>(y) + offset,
+                        height
+                    );
+                    sum += horizontal[source_y * width + x]
+                        * kernel_y[static_cast<std::size_t>(offset + signed_radius_y)];
+                }
+                result[y * width + x] = sum;
+            }
+        }
+    });
+    return result;
+}
+
+// The perceptual detail section deliberately separates two bands rather than
+// reusing capture sharpening: Texture is the compact high-frequency residual,
+// while Clarity is a protected mid-frequency residual. Both alter Oklab L only
+// so their visible effect is lightness/structure, not a channel-wise RGB
+// contrast shift. A high-frequency edge guard suppresses large-scale Gaussian
+// haloing at hard edges; the final output is still handled by the common gamut
+// mapper, after every creative node has run.
+void apply_perceptual_detail(
+    FloatRgbImage& image,
+    const AdjustmentNode& node,
+    const std::size_t node_index,
+    const SharpenAdjustment& parameters
+) {
+    if (parameters.clarity == 0.0 && parameters.texture == 0.0) {
+        return;
+    }
+    const std::size_t width = image.dimensions.width;
+    const std::size_t height = image.dimensions.height;
+    if (width > std::numeric_limits<std::size_t>::max() / height) {
+        throw_node_error(
+            EditErrorCode::numeric_overflow,
+            node_index,
+            node,
+            "perceptual detail working buffer exceeds the address space"
+        );
+    }
+    const std::size_t pixels = width * height;
+    const std::size_t stride = image.row_stride_bytes / sizeof(float);
+    const WorkingSpaceTransform color_transform = prepare_working_space_transform(
+        image.working_space, node, node_index
+    );
+    std::vector<Vector3> oklab(pixels);
+    std::vector<double> lightness(pixels);
+    parallel_for_rows(height, [&](const std::uint32_t first_row, const std::uint32_t past_last_row) {
+        for (std::size_t y = first_row; y < past_last_row; ++y) {
+            const std::size_t row = y * stride;
+            for (std::size_t x = 0U; x < width; ++x) {
+                const std::size_t pixel = y * width + x;
+                const std::size_t sample = row + x * rgb_channels;
+                oklab[pixel] = xyz_to_oklab(multiply(color_transform.rgb_to_xyz, Vector3{
+                    static_cast<double>(image.samples[sample]),
+                    static_cast<double>(image.samples[sample + 1U]),
+                    static_cast<double>(image.samples[sample + 2U]),
+                }));
+                lightness[pixel] = oklab[pixel][0];
+            }
+        }
+    });
+
+    // All radii are expressed in level-zero/native pixels, exactly like the
+    // technical detail controls. This gives a warm proxy and a full-resolution
+    // export the same physical interpretation rather than a proxy-dependent
+    // clarity look.
+    constexpr double texture_sigma_level_zero = 1.4;
+    constexpr double clarity_small_sigma_level_zero = 2.4;
+    constexpr double clarity_large_sigma_level_zero = 12.0;
+    const double texture_sigma_x = texture_sigma_level_zero
+        * image.level_zero_to_raster_scale_x;
+    const double texture_sigma_y = texture_sigma_level_zero
+        * image.level_zero_to_raster_scale_y;
+    const double clarity_small_sigma_x = clarity_small_sigma_level_zero
+        * image.level_zero_to_raster_scale_x;
+    const double clarity_small_sigma_y = clarity_small_sigma_level_zero
+        * image.level_zero_to_raster_scale_y;
+    const double clarity_large_sigma_x = clarity_large_sigma_level_zero
+        * image.level_zero_to_raster_scale_x;
+    const double clarity_large_sigma_y = clarity_large_sigma_level_zero
+        * image.level_zero_to_raster_scale_y;
+
+    std::vector<double> texture_base;
+    std::vector<double> clarity_small;
+    std::vector<double> clarity_large;
+    if (parameters.texture != 0.0) {
+        texture_base = gaussian_blur_scalar(
+            lightness, width, height, texture_sigma_x, texture_sigma_y
+        );
+    }
+    if (parameters.clarity != 0.0) {
+        clarity_small = gaussian_blur_scalar(
+            lightness, width, height, clarity_small_sigma_x, clarity_small_sigma_y
+        );
+        clarity_large = gaussian_blur_scalar(
+            lightness, width, height, clarity_large_sigma_x, clarity_large_sigma_y
+        );
+    }
+
+    const auto compress_detail = [](const double value, const double knee) noexcept {
+        return value / (1.0 + std::abs(value) / knee);
+    };
+    parallel_for_rows(height, [&](const std::uint32_t first_row, const std::uint32_t past_last_row) {
+        for (std::size_t y = first_row; y < past_last_row; ++y) {
+            const std::size_t row = y * stride;
+            for (std::size_t x = 0U; x < width; ++x) {
+                const std::size_t pixel = y * width + x;
+                Vector3 output_lab = oklab[pixel];
+            // Avoid exposing unstable residuals in the near-black toe, while
+            // allowing a negative value to soften detail as naturally as a
+            // positive value enhances it.
+            const double shadow_protection = smoothstep(0.015, 0.090, output_lab[0]);
+            if (parameters.texture != 0.0) {
+                const double residual = output_lab[0] - texture_base[pixel];
+                output_lab[0] += parameters.texture * 0.70
+                    * compress_detail(residual, 0.035) * shadow_protection;
+            }
+            if (parameters.clarity != 0.0) {
+                const double high_frequency = output_lab[0] - clarity_small[pixel];
+                const double mid_frequency = clarity_small[pixel] - clarity_large[pixel];
+                // A broad Gaussian cannot follow a hard edge. Fade that band
+                // there so the operator improves local structure rather than
+                // producing a dark/light outline around high-contrast edges.
+                const double edge_protection = 1.0 - smoothstep(
+                    0.018,
+                    0.085,
+                    std::abs(high_frequency)
+                );
+                output_lab[0] += parameters.clarity * 1.15
+                    * compress_detail(mid_frequency, 0.090)
+                    * edge_protection * shadow_protection;
+            }
+            const Vector3 output = multiply(color_transform.xyz_to_rgb, oklab_to_xyz(output_lab));
+            const std::size_t sample = row + x * rgb_channels;
+            image.samples[sample] = checked_float(output[0], node_index, node);
+            image.samples[sample + 1U] = checked_float(output[1], node_index, node);
+                image.samples[sample + 2U] = checked_float(output[2], node_index, node);
+            }
+        }
+    });
 }
 
 void apply_sharpen(
@@ -2703,8 +2982,11 @@ void apply_node(
                     apply_sharpen(image, node, index, parameters);
                     break;
                 case DetailEffectsExecutionPass::color_grading:
-                    // Color wheels are a creative transform, independent of
-                    // technical recovery and still before a selected LUT.
+                    // Perceptual clarity/texture and color wheels are creative
+                    // transforms. The former only touches Oklab L; the latter
+                    // works in hue/chroma, so they cooperate without an RGB
+                    // channel-order dependency and both remain before a LUT.
+                    apply_perceptual_detail(image, node, index, parameters);
                     apply_color_grading(image, node, index, parameters);
                     break;
                 case DetailEffectsExecutionPass::finishing_effects:
@@ -2814,6 +3096,8 @@ AdjustmentLocality locality(const AdjustmentParameters& parameters) noexcept {
                 return AdjustmentLocality::neighborhood;
             } else if constexpr (std::is_same_v<Parameters, SharpenAdjustment>) {
                 return value.execution_pass == DetailEffectsExecutionPass::technical_detail
+                        || (value.execution_pass == DetailEffectsExecutionPass::color_grading
+                            && (value.clarity != 0.0 || value.texture != 0.0))
                     ? AdjustmentLocality::neighborhood
                     : AdjustmentLocality::pixel_local;
             } else {
@@ -2868,8 +3152,38 @@ AdjustmentFootprint footprint(
                 };
             } else if constexpr (std::is_same_v<Parameters, SharpenAdjustment>) {
                 if (value.execution_pass != DetailEffectsExecutionPass::technical_detail) {
-                    if (value.execution_pass == DetailEffectsExecutionPass::color_grading
-                        || value.execution_pass == DetailEffectsExecutionPass::finishing_effects) {
+                    if (value.execution_pass == DetailEffectsExecutionPass::color_grading) {
+                        if (!normalized_amount(value.clarity)
+                            || !normalized_amount(value.texture)) {
+                            throw EditError(
+                                EditErrorCode::invalid_parameter,
+                                std::nullopt,
+                                "cannot calculate a footprint for malformed perceptual detail parameters"
+                            );
+                        }
+                        if (value.clarity == 0.0 && value.texture == 0.0) {
+                            return AdjustmentFootprint{};
+                        }
+                        constexpr double texture_support_level_zero = 3.0 * 1.4;
+                        constexpr double clarity_support_level_zero = 3.0 * 12.0;
+                        const double support_level_zero = value.clarity == 0.0
+                            ? texture_support_level_zero
+                            : std::max(
+                                clarity_support_level_zero,
+                                value.texture == 0.0 ? 0.0 : texture_support_level_zero
+                            );
+                        const double horizontal = std::ceil(
+                            support_level_zero * level_zero_to_raster_scale_x
+                        );
+                        const double vertical = std::ceil(
+                            support_level_zero * level_zero_to_raster_scale_y
+                        );
+                        return AdjustmentFootprint{
+                            .horizontal_radius = static_cast<std::uint32_t>(horizontal),
+                            .vertical_radius = static_cast<std::uint32_t>(vertical),
+                        };
+                    }
+                    if (value.execution_pass == DetailEffectsExecutionPass::finishing_effects) {
                         return AdjustmentFootprint{};
                     }
                     throw EditError(

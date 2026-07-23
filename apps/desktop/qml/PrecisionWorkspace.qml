@@ -2094,6 +2094,7 @@ Item {
                                     ShadowAdjustmentSection {
                                         Layout.fillWidth: true
                                         title: qsTr("COLOR MIXER")
+                                        summary: qsTr("OKLCH")
 
                                         TabBar {
                                             id: mixerViewTabs
@@ -2255,6 +2256,18 @@ Item {
                                     ShadowAdjustmentSection {
                                         Layout.fillWidth: true
                                         title: qsTr("SELECTIVE COLOR")
+                                        summary: qsTr("OKLAB · CMYK")
+
+                                        Label {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 14
+                                            Layout.rightMargin: 14
+                                            Layout.topMargin: 2
+                                            text: qsTr("Perceptual target · CMYK correction")
+                                            color: precision.textMuted
+                                            font.pixelSize: 9
+                                            elide: Text.ElideRight
+                                        }
 
                                         RowLayout {
                                             Layout.fillWidth: true
@@ -2315,6 +2328,29 @@ Item {
                                                 compact: true
                                                 toolTipText: qsTr("Add or remove a fixed CMYK amount")
                                             }
+                                        }
+
+                                        ShadowSlider {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 14
+                                            Layout.rightMargin: 14
+                                            Layout.topMargin: 2
+                                            label: qsTr("Lightness lock")
+                                            from: 0.0
+                                            to: 1.0
+                                            neutralValue: 0.0
+                                            stepSize: 0.01
+                                            decimals: 0
+                                            displayMultiplier: 100
+                                            suffix: "%"
+                                            value: precision.fineValue(
+                                                "selective_color_lightness_protection")
+                                            onGestureStarted: precision.editor.beginParameterEdit(
+                                                "selective_color/lightness_protection")
+                                            onEdited: value => precision.editor.setParameterValue(
+                                                "selective_color_lightness_protection", value)
+                                            onGestureFinished: precision.editor.endParameterEdit(
+                                                "selective_color/lightness_protection")
                                         }
 
                                         Label {
@@ -2928,7 +2964,45 @@ Item {
 
                                         Label {
                                             Layout.leftMargin: 14
-                                            text: qsTr("SHARPENING")
+                                            text: qsTr("FREQUENCY DETAIL · OKLAB L")
+                                            color: Theme.textMuted
+                                            font.pixelSize: 9
+                                            font.weight: Font.DemiBold
+                                            font.letterSpacing: 0.7
+                                        }
+
+                                        Repeater {
+                                            model: [
+                                                { "key": "clarity", "name": qsTr("Clarity") },
+                                                { "key": "texture", "name": qsTr("Texture") }
+                                            ]
+                                            delegate: ShadowSlider {
+                                                required property var modelData
+                                                Layout.fillWidth: true
+                                                Layout.leftMargin: 14
+                                                Layout.rightMargin: 14
+                                                label: modelData.name
+                                                from: -1.0
+                                                to: 1.0
+                                                neutralValue: 0.0
+                                                stepSize: 0.01
+                                                decimals: 0
+                                                displayMultiplier: 100
+                                                suffix: "%"
+                                                value: precision.fineValue(modelData.key)
+                                                onGestureStarted: precision.editor.beginParameterEdit(
+                                                    modelData.key)
+                                                onEdited: value => precision.editor.setParameterValue(
+                                                    modelData.key, value)
+                                                onGestureFinished: precision.editor.endParameterEdit(
+                                                    modelData.key)
+                                            }
+                                        }
+
+                                        Label {
+                                            Layout.leftMargin: 14
+                                            Layout.topMargin: 5
+                                            text: qsTr("CAPTURE SHARPENING")
                                             color: Theme.textMuted
                                             font.pixelSize: 9
                                             font.weight: Font.DemiBold

@@ -1337,7 +1337,7 @@ pub const SELECTIVE_COLOR_VALUE_COUNT: usize =
     SELECTIVE_COLOR_TARGET_COUNT * SELECTIVE_COLOR_COMPONENT_COUNT;
 pub const PERCEPTUAL_COLOR_V3_PARAMETER_SCHEMA_VERSION: u32 = 3;
 pub const PERCEPTUAL_COLOR_V3_IMPLEMENTATION_VERSION: u32 = 3;
-/// The visible Detail & Effects payload is still one 33-value FFI record,
+/// The visible Detail & Effects payload is one 35-value FFI record,
 /// but Recipe schema 3 compiles it into three internal passes. Their distinct
 /// numeric revisions make a C++ executor reject an accidental reordering.
 pub const TECHNICAL_DETAIL_V3_PARAMETER_SCHEMA_VERSION: u32 = 3;
@@ -1437,6 +1437,10 @@ pub struct PerceptualColorParameters {
     /// `true` mirrors Photoshop's default Relative method: corrections scale
     /// existing CMYK ink. `false` is the Absolute method.
     pub selective_color_relative: bool,
+    /// 0 retains Photoshop-like CMYK lightness behaviour; 1 restores the
+    /// source Oklab L after the correction so the tool becomes a hue/chroma
+    /// correction with perceptual exposure protection.
+    pub selective_color_lightness_protection: f64,
     /// Nine target families × cyan, magenta, yellow, black, all in [-1, 1].
     pub selective_color_cmyk: [f64; SELECTIVE_COLOR_VALUE_COUNT],
 }
@@ -1451,6 +1455,7 @@ impl Default for PerceptualColorParameters {
             color_range: ColorRangeParameters::default(),
             additional_color_ranges: Vec::new(),
             selective_color_relative: true,
+            selective_color_lightness_protection: 0.0,
             selective_color_cmyk: [0.0; SELECTIVE_COLOR_VALUE_COUNT],
         }
     }
@@ -1465,6 +1470,10 @@ pub struct SharpenParameters {
     pub radius: f64,
     pub threshold: f64,
     pub masking: f64,
+    /// Signed Oklab-L multi-scale detail controls. Clarity operates on the
+    /// edge-protected middle residual; Texture operates on the finer residual.
+    pub clarity: f64,
+    pub texture: f64,
     pub denoise_luminance: f64,
     pub denoise_detail: f64,
     pub denoise_color: f64,
@@ -1503,6 +1512,8 @@ impl Default for SharpenParameters {
             radius: 1.0,
             threshold: 0.0,
             masking: 0.0,
+            clarity: 0.0,
+            texture: 0.0,
             denoise_luminance: 0.0,
             denoise_detail: 0.5,
             denoise_color: 0.0,
@@ -1865,6 +1876,12 @@ fn validate_perceptual_color(parameters: &PerceptualColorParameters) -> Result<(
             ));
         }
     }
+    validate_finite_render_parameter(parameters.selective_color_lightness_protection)?;
+    if !(0.0..=1.0).contains(&parameters.selective_color_lightness_protection) {
+        return Err(BridgeError::InvalidEditRequest(
+            "Selective Color lightness protection must be in 0..=1",
+        ));
+    }
     Ok(())
 }
 
@@ -1874,6 +1891,8 @@ fn validate_sharpen(parameters: &SharpenParameters) -> Result<(), BridgeError> {
         parameters.radius,
         parameters.threshold,
         parameters.masking,
+        parameters.clarity,
+        parameters.texture,
         parameters.denoise_luminance,
         parameters.denoise_detail,
         parameters.denoise_color,
@@ -1894,6 +1913,8 @@ fn validate_sharpen(parameters: &SharpenParameters) -> Result<(), BridgeError> {
     }
     for value in [
         parameters.dehaze,
+        parameters.clarity,
+        parameters.texture,
         parameters.shadows_luminance,
         parameters.midtones_luminance,
         parameters.highlights_luminance,
@@ -1944,6 +1965,8 @@ fn validate_sharpen(parameters: &SharpenParameters) -> Result<(), BridgeError> {
         || !(0.1..=5.0).contains(&parameters.radius)
         || !(0.0..=1.0).contains(&parameters.threshold)
         || !(0.0..=1.0).contains(&parameters.masking)
+        || !(-1.0..=1.0).contains(&parameters.clarity)
+        || !(-1.0..=1.0).contains(&parameters.texture)
         || [
             parameters.denoise_luminance,
             parameters.denoise_detail,
@@ -2931,7 +2954,7 @@ fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustmentNode {
         ),
         AdjustmentRenderOperation::PerceptualColor { parameters } => {
             let mut flattened =
-                Vec::with_capacity(69 + parameters.additional_color_ranges.len() * 7);
+                Vec::with_capacity(70 + parameters.additional_color_ranges.len() * 7);
             flattened.push(parameters.vibrance);
             flattened.extend(parameters.hue_shifts);
             flattened.extend(parameters.saturation);
@@ -2954,6 +2977,7 @@ fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustmentNode {
             } else {
                 0.0
             });
+            flattened.push(parameters.selective_color_lightness_protection);
             flattened.extend(parameters.selective_color_cmyk);
             for range in &parameters.additional_color_ranges {
                 flattened.extend([
@@ -2993,6 +3017,8 @@ fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustmentNode {
                 parameters.masking,
             ];
             flattened.extend([
+                parameters.clarity,
+                parameters.texture,
                 parameters.denoise_luminance,
                 parameters.denoise_detail,
                 parameters.denoise_color,
@@ -3917,6 +3943,7 @@ mod tests {
             },
             additional_color_ranges: Vec::new(),
             selective_color_relative: false,
+            selective_color_lightness_protection: 0.35,
             selective_color_cmyk: [0.25; SELECTIVE_COLOR_VALUE_COUNT],
         };
         let plan = AdjustmentRenderPlan {
@@ -3975,7 +4002,7 @@ mod tests {
             perceptual_ffi.operation,
             ffi::FfiAdjustmentOperation::PerceptualColor
         ));
-        assert_eq!(perceptual_ffi.parameters.len(), 69);
+        assert_eq!(perceptual_ffi.parameters.len(), 70);
         assert_eq!(perceptual_ffi.parameter_group_lengths, [0]);
         assert_eq!(perceptual_ffi.parameters[0], 0.2);
         assert_eq!(&perceptual_ffi.parameters[1..9], &[0.1; 8]);
@@ -3986,8 +4013,9 @@ mod tests {
             &[1.0, 45.0, 60.0, 0.4, 15.0, 0.5, -0.6]
         );
         assert_eq!(perceptual_ffi.parameters[32], 0.0);
+        assert_eq!(perceptual_ffi.parameters[33], 0.35);
         assert_eq!(
-            &perceptual_ffi.parameters[33..],
+            &perceptual_ffi.parameters[34..],
             &[0.25; SELECTIVE_COLOR_VALUE_COUNT]
         );
 
@@ -3996,13 +4024,13 @@ mod tests {
             sharpen_ffi.operation,
             ffi::FfiAdjustmentOperation::Sharpen
         ));
-        assert_eq!(sharpen_ffi.parameters.len(), 33);
+        assert_eq!(sharpen_ffi.parameters.len(), 35);
         assert_eq!(&sharpen_ffi.parameters[..4], &[1.25, 2.5, 0.15, 0.75]);
         assert_eq!(
             &sharpen_ffi.parameters[4..],
             &[
-                0.0, 0.5, 0.0, 0.0, 0.0, 270.0, 340.0, 0.0, 100.0, 165.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-                0.0, 0.0, 0.0, 0.0, 0.5, 0.0, 0.0, 0.5, 0.5, 0.0, 0.5, 0.0, 0.5, 0.0,
+                0.0, 0.0, 0.0, 0.5, 0.0, 0.0, 0.0, 270.0, 340.0, 0.0, 100.0, 165.0, 0.0, 0.0, 0.0,
+                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5, 0.0, 0.0, 0.5, 0.5, 0.0, 0.5, 0.0, 0.5, 0.0,
             ]
         );
     }

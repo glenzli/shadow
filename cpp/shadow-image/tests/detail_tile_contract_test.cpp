@@ -239,8 +239,10 @@ void adjustments_apply_only_to_the_requested_crop() {
     const std::array plan{
         image::AdjustmentNode{
             .node_id = "black-lift",
-            .parameters = image::ToneCurve{
-                .points = {{0.0, 0.25}, {1.0, 1.0}},
+            .parameters = image::OklabLightnessToneCurve{
+                .lightness = image::ToneCurveSet{
+                    .points = {{0.0, 0.25}, {1.0, 1.0}},
+                },
             },
         },
     };
@@ -423,8 +425,10 @@ void irregular_tiles_match_one_full_pixel_local_execution_without_seams() {
         },
         image::AdjustmentNode{
             .node_id = "curve",
-            .parameters = image::ToneCurve{
-                .points = {{0.0, 0.05}, {0.45, 0.3}, {1.0, 0.95}},
+            .parameters = image::OklabLightnessToneCurve{
+                .lightness = image::ToneCurveSet{
+                    .points = {{0.0, 0.05}, {0.45, 0.3}, {1.0, 0.95}},
+                },
             },
         },
         image::AdjustmentNode{
