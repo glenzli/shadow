@@ -1,16 +1,18 @@
-//! Cache identities for prepared source-development sessions.
+//! Cache identities for prepared source, edit, and display preview stages.
 //!
 //! The native pipeline owns the canonical receipt because only it knows the
-//! selected provider, effective RAW plan, developer revision, and camera
-//! profile catalog.  The desktop persists only a bounded digest of that
-//! receipt: diagnostics and user-local paths must never become Catalog keys.
+//! selected provider, effective RAW plan, developer revision, camera profile
+//! catalog, and the effective edit/display route. The desktop persists only
+//! bounded digests of those receipts: diagnostics and user-local paths must
+//! never become Catalog keys.
 
 use std::{env, ffi::OsStr};
 
 use anyhow::{Result as AnyResult, bail};
-use shadow_bridge::RawPipelineReceipt;
+use shadow_bridge::{EditPreviewExecutionReceipt, RawPipelineReceipt};
 
 const PREPARED_PIPELINE_CACHE_SCHEMA: &str = "raw-pipeline-v1";
+const PREPARED_EDIT_EXECUTION_CACHE_SCHEMA: &str = "edit-execution-v1";
 const SOURCE_ENVIRONMENT_CACHE_SCHEMA: &str = "source-environment-v1";
 const EDIT_PREVIEW_GENERATOR_SCHEMA: &str = "shadow-edit-preview-v1";
 pub(super) const EDIT_PREVIEW_GENERATOR_ID: &str = "shadow-edit-preview";
@@ -32,14 +34,32 @@ impl PreparedRawPipelineCacheIdentity {
     }
 }
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(super) struct PreparedEditExecutionCacheIdentity {
+    component: String,
+}
+
+impl PreparedEditExecutionCacheIdentity {
+    pub(super) fn component(&self) -> &str {
+        &self.component
+    }
+}
+
 /// Identifies the Recipe-preview implementation before a source is decoded.
 ///
-/// The prepared pipeline receipt remains part of each artifact's variant key,
-/// where it distinguishes actual CPU/Metal and provider execution. Keeping the
-/// generator version source-environment-only makes the exact current read
-/// contract available to the Library before any expensive render is prepared.
-pub(super) fn edit_preview_generator_version(source_environment_identity: &str) -> String {
-    format!("{EDIT_PREVIEW_GENERATOR_SCHEMA};environment={source_environment_identity}")
+/// The prepared source and edit/display receipts remain part of each artifact's variant key,
+/// where they distinguish actual provider and CPU/Metal execution. The generator version uses
+/// only the bounded source environment and compiled implementation contract, both available to
+/// the Library before any expensive render is prepared.
+pub(super) fn edit_preview_generator_version(
+    source_environment_identity: &str,
+    implementation_identity: &str,
+) -> String {
+    format!(
+        "{EDIT_PREVIEW_GENERATOR_SCHEMA};environment={source_environment_identity};\
+         implementation={}",
+        short_digest(implementation_identity.as_bytes())
+    )
 }
 
 /// Compacts the native canonical receipt without exposing any of its diagnostic text.
@@ -52,6 +72,22 @@ pub(super) fn prepared_raw_pipeline_cache_identity(
     Ok(PreparedRawPipelineCacheIdentity {
         component: format!(
             "{PREPARED_PIPELINE_CACHE_SCHEMA}-{}",
+            short_digest(receipt.cache_identity.as_bytes())
+        ),
+    })
+}
+
+/// Compacts the post-selection edit/display route. C++ owns the canonical identity; desktop code
+/// must never reconstruct it from diagnostic fields or runtime device descriptions.
+pub(super) fn prepared_edit_execution_cache_identity(
+    receipt: &EditPreviewExecutionReceipt,
+) -> AnyResult<PreparedEditExecutionCacheIdentity> {
+    if !receipt.uses_current_schema() || receipt.cache_identity.is_empty() {
+        bail!("completed edit preview has no current execution cache identity");
+    }
+    Ok(PreparedEditExecutionCacheIdentity {
+        component: format!(
+            "{PREPARED_EDIT_EXECUTION_CACHE_SCHEMA}-{}",
             short_digest(receipt.cache_identity.as_bytes())
         ),
     })
@@ -137,9 +173,9 @@ fn short_digest(value: &[u8]) -> String {
 mod tests {
     use super::*;
     use shadow_bridge::{
-        DngOpcodePolicy, RawCameraProfileStatus, RawDevelopmentIntent, RawDevelopmentPlan,
-        RawDevelopmentQuality, RawHighlightRecoveryIntent, RawNoiseReductionIntent,
-        RawPipelinePath,
+        DngOpcodePolicy, EditPreviewBackend, RawCameraProfileStatus, RawDevelopmentIntent,
+        RawDevelopmentPlan, RawDevelopmentQuality, RawHighlightRecoveryIntent,
+        RawNoiseReductionIntent, RawPipelinePath,
     };
 
     fn receipt(canonical_identity: &str) -> RawPipelineReceipt {
@@ -218,16 +254,79 @@ mod tests {
 
     #[test]
     fn edit_preview_generator_is_known_before_preparing_a_source() {
-        let current = edit_preview_generator_version("source-environment-v1-current-environment");
+        let current = edit_preview_generator_version(
+            "source-environment-v1-current-environment",
+            "shadow-edit-preview-generator-v1;cpu=1",
+        );
         assert_eq!(
             current,
-            "shadow-edit-preview-v1;environment=source-environment-v1-current-environment"
+            format!(
+                "shadow-edit-preview-v1;environment=source-environment-v1-current-environment;\
+                 implementation={}",
+                short_digest(b"shadow-edit-preview-generator-v1;cpu=1")
+            )
         );
         assert_ne!(
             current,
-            edit_preview_generator_version("source-environment-v1-other-environment")
+            edit_preview_generator_version(
+                "source-environment-v1-other-environment",
+                "shadow-edit-preview-generator-v1;cpu=1",
+            )
+        );
+        assert_ne!(
+            current,
+            edit_preview_generator_version(
+                "source-environment-v1-current-environment",
+                "shadow-edit-preview-generator-v1;cpu=2",
+            )
         );
         assert!(!current.contains("raw-pipeline"));
+    }
+
+    #[test]
+    fn edit_execution_identity_uses_only_the_native_canonical_route() {
+        let canonical = "shadow-edit-preview-execution-v1;adjustment=cpu-v1;plan=1;\
+             display=cpu-v1;display-contract=6";
+        let receipt = EditPreviewExecutionReceipt {
+            schema_version: 1,
+            cache_identity: canonical.into(),
+            adjustment_backend: EditPreviewBackend::Cpu,
+            adjustment_backend_version: 1,
+            adjustment_execution_contract_version: 1,
+            display_backend: EditPreviewBackend::Cpu,
+            display_backend_version: 1,
+            display_output_contract_version: 6,
+            adjustment_fell_back: true,
+            display_fell_back: false,
+            diagnostic: Some("/Users/example/private Metal diagnostic".into()),
+        };
+        let identity =
+            prepared_edit_execution_cache_identity(&receipt).expect("compact edit receipt");
+        assert_eq!(
+            identity.component(),
+            format!(
+                "{PREPARED_EDIT_EXECUTION_CACHE_SCHEMA}-{}",
+                short_digest(canonical.as_bytes())
+            )
+        );
+        assert!(!identity.component().contains("/Users"));
+
+        let mut same_effective_route = receipt.clone();
+        same_effective_route.adjustment_fell_back = false;
+        same_effective_route.diagnostic = None;
+        assert_eq!(
+            identity,
+            prepared_edit_execution_cache_identity(&same_effective_route)
+                .expect("diagnostics do not alter effective route")
+        );
+
+        let mut metal = receipt;
+        metal.cache_identity = canonical.replace("adjustment=cpu-v1", "adjustment=metal-v1");
+        metal.adjustment_backend = EditPreviewBackend::Metal;
+        assert_ne!(
+            identity,
+            prepared_edit_execution_cache_identity(&metal).expect("compact Metal edit receipt")
+        );
     }
 
     #[test]

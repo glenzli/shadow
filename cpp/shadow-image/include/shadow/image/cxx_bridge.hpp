@@ -150,6 +150,7 @@ private:
 );
 [[nodiscard]] rust::String libraw_provider_version();
 [[nodiscard]] rust::String photo_provider_version();
+[[nodiscard]] rust::String edit_preview_generator_implementation_identity();
 [[nodiscard]] rust::Vec<rust::String> photo_supported_raster_extensions();
 [[nodiscard]] rust::String raw_development_plan_identity(const FfiRawDevelopmentPlan& plan);
 [[nodiscard]] FfiEncodedProxy render_photo_reference_proxy(

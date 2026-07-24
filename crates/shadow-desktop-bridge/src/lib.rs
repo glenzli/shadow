@@ -6,7 +6,7 @@ mod edit_version_diff;
 mod export_service;
 mod isolated_proxy;
 mod photo_provider;
-mod raw_pipeline_cache;
+mod preview_cache_identity;
 mod recipe_v1;
 mod review_service;
 mod scan_service;
@@ -29,6 +29,7 @@ use shadow_bridge::{
     AdjustmentRenderOperation, AdjustmentRenderPlan, BasicEditParameters,
     COLOR_GRADING_V3_IMPLEMENTATION_VERSION as COLOR_GRADING_V3_IMPLEMENTATION_REVISION,
     COLOR_MIXER_BAND_COUNT, ColorRangeParameters, DetailTileRect, DetailTileRequest,
+    EditPreviewExecutionReceipt,
     FINISHING_EFFECTS_V3_IMPLEMENTATION_VERSION as FINISHING_EFFECTS_V3_IMPLEMENTATION_REVISION,
     MAX_ADJUSTMENT_RENDER_NODES, MAX_EDIT_DETAIL_TILE_SIDE, MAX_LUT_DOCUMENT_BYTES,
     MAX_POINT_COLOR_RANGES, MAX_TONE_CURVE_POINTS,
@@ -43,8 +44,9 @@ use shadow_bridge::{
     SELECTIVE_TONE_V3_PARAMETER_SCHEMA_VERSION as SELECTIVE_TONE_V3_PARAMETER_SCHEMA_REVISION,
     SelectiveToneParameters, SharpenParameters,
     TECHNICAL_DETAIL_V3_IMPLEMENTATION_VERSION as TECHNICAL_DETAIL_V3_IMPLEMENTATION_REVISION,
-    ToneCurvePoint, photo_provider_version, query_optics_profiles_from_metadata,
-    query_photo_optics_profiles, raw_development_plan_identity,
+    ToneCurvePoint, edit_preview_generator_implementation_identity, photo_provider_version,
+    query_optics_profiles_from_metadata, query_photo_optics_profiles,
+    raw_development_plan_identity,
 };
 use shadow_catalog::{
     CachedArtifact, CachedArtifactRole, CatalogActor, CatalogError, CatalogHandle,
@@ -111,9 +113,10 @@ use edit_version_diff::{
     has_other_recipe_changes,
 };
 use edit_version_diff::{commit_record, ffi_edit_version};
-use raw_pipeline_cache::{
+use preview_cache_identity::{
     EDIT_PREVIEW_GENERATOR_ID, current_source_environment_cache_identity,
-    edit_preview_generator_version, prepared_raw_pipeline_cache_identity,
+    edit_preview_generator_version, prepared_edit_execution_cache_identity,
+    prepared_raw_pipeline_cache_identity,
 };
 use recipe_v1::*;
 
@@ -836,6 +839,7 @@ struct RecipePreviewCacheRequest<'a> {
     max_edge: u32,
     jpeg_quality: u8,
     raw_pipeline_receipt: &'a RawPipelineReceipt,
+    edit_execution_receipt: &'a EditPreviewExecutionReceipt,
     source_environment_cache_identity: &'a str,
 }
 
@@ -1175,6 +1179,7 @@ impl DesktopSession {
         )?;
         let rendered = session.render_plan_with_analysis(&plan, request.jpeg_quality)?;
         let proxy = rendered.proxy;
+        let execution = rendered.execution;
         // The on-screen result remains responsive if disk caching is temporarily
         // unavailable. A cache write is only an acceleration; it becomes
         // Library-visible when the exact Recipe digest is the durable working
@@ -1187,6 +1192,7 @@ impl DesktopSession {
                 max_edge: request.max_edge,
                 jpeg_quality: request.jpeg_quality,
                 raw_pipeline_receipt: session.raw_pipeline_receipt(),
+                edit_execution_receipt: &execution,
                 source_environment_cache_identity: &source_environment_cache_identity,
             },
         ) {
@@ -1451,13 +1457,17 @@ impl DesktopSession {
     ) -> AnyResult<()> {
         let raw_pipeline = prepared_raw_pipeline_cache_identity(request.raw_pipeline_receipt)
             .context("identify prepared Recipe-preview source pipeline")?;
+        let edit_execution = prepared_edit_execution_cache_identity(request.edit_execution_receipt)
+            .context("identify completed Recipe-preview edit/display execution")?;
         let raw_plan_identity = raw_development_plan_identity(RawDevelopmentPlan::preview())
             .context("build Recipe-preview RAW-development cache identity")?;
         let variant_key = format!(
-            "shadow-recipe-preview:jpeg-{}-q{}-444-v1;{raw_plan_identity};pipeline={};recipe={}",
+            "shadow-recipe-preview:jpeg-{}-q{}-444-v1;{raw_plan_identity};\
+             pipeline={};execution={};recipe={}",
             request.max_edge,
             request.jpeg_quality,
             raw_pipeline.component(),
+            edit_execution.component(),
             encode_hex(&request.recipe_snapshot_digest)
         );
         let blob = self
@@ -1474,6 +1484,7 @@ impl DesktopSession {
                     generator_id: EDIT_PREVIEW_GENERATOR_ID.to_owned(),
                     generator_version: edit_preview_generator_version(
                         request.source_environment_cache_identity,
+                        &edit_preview_generator_implementation_identity(),
                     ),
                     recipe_snapshot_digest: Some(request.recipe_snapshot_digest),
                     provider_preview_id: None,

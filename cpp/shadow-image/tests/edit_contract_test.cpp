@@ -304,6 +304,241 @@ void stable_operation_ids_are_explicit() {
     );
 }
 
+void edit_execution_plan_validates_before_elision_and_uses_a_stable_identity() {
+    expect(
+        image::edit_execution_plan_identity_version == 1U
+            && image::edit_execution_plan_identity == "shadow.edit-execution-plan.v1",
+        "the backend-neutral edit execution plan publishes a stable versioned identity"
+    );
+
+    const std::array neutral_nodes{
+        image::AdjustmentNode{
+            .node_id = "neutral-exposure",
+            .parameters = image::ExposureAdjustment{},
+        },
+        image::AdjustmentNode{
+            .node_id = "neutral-contrast",
+            .parameters = image::ContrastAdjustment{.pivot = 0.42},
+        },
+        image::AdjustmentNode{
+            .node_id = "neutral-lightness-curve",
+            .parameter_schema_version =
+                image::oklab_lightness_tone_curve_parameter_schema_version,
+            .implementation_version =
+                image::oklab_lightness_tone_curve_implementation_version,
+            .parameters = image::OklabLightnessToneCurve{},
+        },
+        image::AdjustmentNode{
+            .node_id = "neutral-white-balance",
+            .parameters = image::RgbWhiteBalanceAdjustment{},
+        },
+        image::AdjustmentNode{
+            .node_id = "neutral-saturation",
+            .parameters = image::SaturationAdjustment{},
+        },
+        image::AdjustmentNode{
+            .node_id = "neutral-selective-tone",
+            .parameter_schema_version = image::selective_tone_v3_parameter_schema_version,
+            .implementation_version = image::selective_tone_v3_implementation_version,
+            .parameters = image::SelectiveToneAdjustment{},
+        },
+        image::AdjustmentNode{
+            .node_id = "neutral-perceptual-color",
+            .parameter_schema_version = image::perceptual_color_v3_parameter_schema_version,
+            .implementation_version = image::perceptual_color_v3_implementation_version,
+            .parameters = image::PerceptualColorAdjustment{},
+        },
+        image::AdjustmentNode{
+            .node_id = "neutral-lut",
+            .parameters = image::CubeLutAdjustment{},
+        },
+        image::AdjustmentNode{
+            .node_id = "neutral-detail",
+            .parameter_schema_version = image::detail_effects_v3_parameter_schema_version,
+            .implementation_version = image::technical_detail_v3_implementation_version,
+            .parameters = image::SharpenAdjustment{},
+        },
+    };
+    const auto neutral_plan = image::compile_edit_execution_plan(neutral_nodes);
+    expect(
+        neutral_plan.source_node_count == neutral_nodes.size()
+            && neutral_plan.segments.empty()
+            && neutral_plan.cumulative_footprint == image::AdjustmentFootprint{},
+        "all exactly neutral operations are omitted without losing source plan cardinality"
+    );
+    const auto neutral_input = rgb_image(1, {0.25F, 0.5F, 0.75F});
+    expect(
+        image::execute_adjustment_nodes(neutral_input, neutral_nodes).samples
+            == neutral_input.samples,
+        "the execution plan and reference executor share the same exact neutral classifier"
+    );
+
+    const std::array disabled_then_enabled{
+        image::AdjustmentNode{
+            .node_id = "disabled-observable",
+            .enabled = false,
+            .parameters = image::ExposureAdjustment{.stops = 1.0},
+        },
+        image::AdjustmentNode{
+            .node_id = "enabled-observable",
+            .parameters = image::ExposureAdjustment{.stops = 0.5},
+        },
+    };
+    const auto enabled_plan = image::compile_edit_execution_plan(disabled_then_enabled);
+    expect(
+        enabled_plan.segments.size() == 1U
+            && enabled_plan.segments[0].steps
+                == std::vector{image::EditExecutionStep{
+                    .node_index = 1U,
+                    .operation = image::AdjustmentOperation::exposure,
+                }},
+        "disabled valid nodes are omitted rather than executed"
+    );
+
+    const std::array malformed_disabled{
+        image::AdjustmentNode{
+            .node_id = "disabled-but-malformed",
+            .enabled = false,
+            .parameters = image::ExposureAdjustment{
+                .stops = std::numeric_limits<double>::quiet_NaN(),
+            },
+        },
+    };
+    expect_edit_error(
+        [&] { static_cast<void>(image::compile_edit_execution_plan(malformed_disabled)); },
+        image::EditErrorCode::invalid_parameter,
+        0U,
+        "disabled nodes remain subject to complete validation before plan elision"
+    );
+}
+
+void edit_execution_plan_preserves_order_and_compiles_maximal_locality_segments() {
+    const std::array nodes{
+        image::AdjustmentNode{
+            .node_id = "pixel-a",
+            .parameters = image::ExposureAdjustment{.stops = 0.5},
+        },
+        image::AdjustmentNode{
+            .node_id = "disabled-neighborhood",
+            .parameter_schema_version = image::selective_tone_v3_parameter_schema_version,
+            .implementation_version = image::selective_tone_v3_implementation_version,
+            .enabled = false,
+            .parameters = image::SelectiveToneAdjustment{.shadows = 0.5},
+        },
+        image::AdjustmentNode{
+            .node_id = "pixel-b",
+            .parameters = image::ContrastAdjustment{.factor = 1.2},
+        },
+        image::AdjustmentNode{
+            .node_id = "neighborhood-a",
+            .parameter_schema_version = image::selective_tone_v3_parameter_schema_version,
+            .implementation_version = image::selective_tone_v3_implementation_version,
+            .parameters = image::SelectiveToneAdjustment{.shadows = 0.25},
+        },
+        image::AdjustmentNode{
+            .node_id = "neutral-pixel-gap",
+            .parameters = image::ExposureAdjustment{},
+        },
+        image::AdjustmentNode{
+            .node_id = "neighborhood-b",
+            .parameter_schema_version = image::detail_effects_v3_parameter_schema_version,
+            .implementation_version = image::technical_detail_v3_implementation_version,
+            .parameters = image::SharpenAdjustment{
+                .amount = 1.0,
+                .radius = 2.0,
+            },
+        },
+        image::AdjustmentNode{
+            .node_id = "pixel-c",
+            .parameters = image::SaturationAdjustment{.factor = 1.2},
+        },
+        image::AdjustmentNode{
+            .node_id = "neighborhood-c",
+            .parameter_schema_version = image::detail_effects_v3_parameter_schema_version,
+            .implementation_version = image::color_grading_v3_implementation_version,
+            .parameters = image::SharpenAdjustment{
+                .execution_pass = image::DetailEffectsExecutionPass::color_grading,
+                .clarity = 0.25,
+            },
+        },
+    };
+
+    const auto plan = image::compile_edit_execution_plan(nodes, 0.5, 0.25);
+    expect(plan.segments.size() == 4U, "mixed locality compiles into four maximal segments");
+    if (plan.segments.size() != 4U) {
+        return;
+    }
+
+    const auto& first = plan.segments[0];
+    expect(
+        first.locality == image::AdjustmentLocality::pixel_local
+            && first.first_node_index == 0U && first.past_last_node_index == 3U
+            && first.steps
+                == std::vector{
+                    image::EditExecutionStep{
+                        .node_index = 0U,
+                        .operation = image::AdjustmentOperation::exposure,
+                    },
+                    image::EditExecutionStep{
+                        .node_index = 2U,
+                        .operation = image::AdjustmentOperation::contrast,
+                    },
+                },
+        "disabled nodes do not split a maximal pixel-local run or reorder its operations"
+    );
+
+    const auto& second = plan.segments[1];
+    expect(
+        second.locality == image::AdjustmentLocality::neighborhood
+            && second.first_node_index == 3U && second.past_last_node_index == 6U
+            && second.steps
+                == std::vector{
+                    image::EditExecutionStep{
+                        .node_index = 3U,
+                        .operation = image::AdjustmentOperation::selective_tone,
+                    },
+                    image::EditExecutionStep{
+                        .node_index = 5U,
+                        .operation = image::AdjustmentOperation::sharpen,
+                    },
+                }
+            && second.cumulative_footprint
+                == image::AdjustmentFootprint{
+                    .horizontal_radius = 51U,
+                    .vertical_radius = 26U,
+                },
+        "neutral gaps do not split neighborhood work and sequential footprints add"
+    );
+
+    const auto& third = plan.segments[2];
+    const auto& fourth = plan.segments[3];
+    expect(
+        third.locality == image::AdjustmentLocality::pixel_local
+            && third.first_node_index == 6U && third.past_last_node_index == 7U
+            && third.steps.front().operation == image::AdjustmentOperation::saturation,
+        "the third segment retains the next pixel-local source operation"
+    );
+    expect(
+        fourth.locality == image::AdjustmentLocality::neighborhood
+            && fourth.first_node_index == 7U && fourth.past_last_node_index == 8U
+            && fourth.steps.front().node_index == 7U
+            && fourth.cumulative_footprint
+                == image::AdjustmentFootprint{
+                    .horizontal_radius = 18U,
+                    .vertical_radius = 9U,
+                },
+        "parameter-aware locality isolates perceptual detail with its scaled footprint"
+    );
+    expect(
+        plan.cumulative_footprint
+            == image::AdjustmentFootprint{
+                .horizontal_radius = 69U,
+                .vertical_radius = 35U,
+            },
+        "the complete plan accumulates sequential support across all neighborhood segments"
+    );
+}
+
 void cube_lut_is_exactly_bypassable_and_blends_deterministically() {
     constexpr std::string_view identity_cube = R"cube(
 LUT_3D_SIZE 2
@@ -2631,6 +2866,8 @@ void tone_curve_is_deterministic() {
 
 int main() {
     stable_operation_ids_are_explicit();
+    edit_execution_plan_validates_before_elision_and_uses_a_stable_identity();
+    edit_execution_plan_preserves_order_and_compiles_maximal_locality_segments();
     cube_lut_is_exactly_bypassable_and_blends_deterministically();
     sharpen_is_neutral_on_identity_and_flat_fields();
     sharpen_emphasizes_log_luminance_without_chromatic_fringes();

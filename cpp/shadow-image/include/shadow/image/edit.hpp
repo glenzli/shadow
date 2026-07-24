@@ -335,6 +335,12 @@ struct AdjustmentFootprint final {
 
 inline constexpr std::uint32_t adjustment_parameter_schema_version = 1;
 inline constexpr std::uint32_t adjustment_implementation_version = 1;
+// Backend-neutral execution-plan identity. CPU, Metal, and future backends may consume the
+// same compiled ordering contract; a semantic change to segmentation, neutral-node elision,
+// or footprint accumulation must publish a new version and canonical identity.
+inline constexpr std::uint32_t edit_execution_plan_identity_version = 1;
+inline constexpr std::string_view edit_execution_plan_identity =
+    "shadow.edit-execution-plan.v1";
 // A square proxy at this limit occupies at most 192 MiB as interleaved RGB float32.
 // Typical 3:2 photos at the UI's 1600/2048 edge use substantially less memory.
 inline constexpr std::uint32_t maximum_warm_edit_preview_edge = 4'096;
@@ -354,6 +360,37 @@ struct AdjustmentNode final {
     std::uint32_t implementation_version = adjustment_implementation_version;
     bool enabled = true;
     AdjustmentParameters parameters = ExposureAdjustment{};
+};
+
+// One executable node retained by a compiled plan. node_index always addresses the original
+// source span, so a backend can recover immutable parameters without copying heavyweight LUTs.
+struct EditExecutionStep final {
+    std::size_t node_index = 0;
+    AdjustmentOperation operation = AdjustmentOperation::exposure;
+
+    auto operator<=>(const EditExecutionStep&) const = default;
+};
+
+// A maximal run of executable nodes with the same locality. Disabled and exactly neutral nodes
+// are absent from steps and do not split a run. first_node_index/past_last_node_index bound the
+// retained source nodes (and may therefore contain omitted nodes between two retained steps).
+struct EditExecutionSegment final {
+    AdjustmentLocality locality = AdjustmentLocality::pixel_local;
+    std::size_t first_node_index = 0;
+    std::size_t past_last_node_index = 0;
+    std::vector<EditExecutionStep> steps;
+    AdjustmentFootprint cumulative_footprint;
+
+    auto operator<=>(const EditExecutionSegment&) const = default;
+};
+
+struct EditExecutionPlan final {
+    std::size_t source_node_count = 0;
+    std::vector<EditExecutionSegment> segments;
+    // Sequential neighborhood support composes additively across segment boundaries.
+    AdjustmentFootprint cumulative_footprint;
+
+    auto operator<=>(const EditExecutionPlan&) const = default;
 };
 
 enum class EditErrorCode : std::uint8_t {
@@ -401,6 +438,16 @@ private:
 // tone-curve geometry/slopes. This lets callers reject malformed work before an expensive
 // decode. Pixel-dependent overflow remains the responsibility of execute_adjustment_nodes().
 void validate_adjustment_nodes(std::span<const AdjustmentNode> nodes);
+
+// Validates every source node first, including disabled nodes, then compiles enabled,
+// non-neutral nodes into maximal locality segments without reordering operations. The supplied
+// scales have the same level-0-to-raster meaning as footprint(). A plan contains indices rather
+// than parameter copies and is therefore valid only while the source node span is unchanged.
+[[nodiscard]] EditExecutionPlan compile_edit_execution_plan(
+    std::span<const AdjustmentNode> nodes,
+    double level_zero_to_raster_scale_x = 1.0,
+    double level_zero_to_raster_scale_y = 1.0
+);
 
 // Global raster coordinates keep deterministic grain and radial effects identical between a
 // full proxy and independently rendered detail tiles. Zero full dimensions mean "use input".
@@ -451,6 +498,52 @@ inline constexpr std::size_t edit_preview_histogram_bin_count = 256U;
 inline constexpr std::string_view edit_preview_analysis_version =
     "shadow.edit-preview-analysis.v1:rgb8-before-jpeg:rec709-encoded-q16:"
     "pre-clamp-linear-strict-lt-gt-any-channel";
+// Cache provenance for one completed warm-preview render. Adjustment execution is currently the
+// CPU reference; the same-size display boundary selects CPU or Metal at runtime. This belongs to
+// the render result rather than the immutable session or generic EncodedProxy payload.
+inline constexpr std::uint32_t edit_preview_execution_receipt_schema_version = 1U;
+inline constexpr std::uint32_t edit_preview_cpu_adjustment_backend_version = 1U;
+inline constexpr std::uint32_t edit_preview_metal_adjustment_backend_version = 1U;
+inline constexpr std::uint32_t edit_preview_cpu_display_backend_version = 1U;
+inline constexpr std::uint32_t edit_preview_metal_display_backend_version = 1U;
+inline constexpr std::uint32_t edit_preview_jpeg_444_contract_version = 1U;
+
+enum class EditPreviewBackend : std::uint8_t {
+    cpu,
+    metal,
+};
+
+struct EditPreviewExecutionReceipt final {
+    std::uint32_t schema_version = edit_preview_execution_receipt_schema_version;
+    EditPreviewBackend adjustment_backend = EditPreviewBackend::cpu;
+    std::uint32_t adjustment_backend_version =
+        edit_preview_cpu_adjustment_backend_version;
+    std::uint32_t adjustment_execution_contract_version =
+        edit_execution_plan_identity_version;
+    EditPreviewBackend display_backend = EditPreviewBackend::cpu;
+    std::uint32_t display_backend_version = edit_preview_cpu_display_backend_version;
+    std::uint32_t display_output_contract_version =
+        display_srgb8_output_transform_version;
+    // These fields are diagnostic only. If automatic acceleration falls back, the complete
+    // affected stage must restart from its immutable input; the effective CPU/Metal route above
+    // then completely identifies the output math.
+    bool adjustment_fell_back = false;
+    bool display_fell_back = false;
+    std::string diagnostic;
+
+    [[nodiscard]] bool valid() const noexcept;
+};
+
+// Canonical cache-safe identity. It contains only fixed backend/contract identifiers; fallback
+// diagnostics, local device information and user-local paths are deliberately excluded.
+[[nodiscard]] std::string edit_preview_execution_receipt_identity(
+    const EditPreviewExecutionReceipt& receipt
+);
+
+// Build/runtime-independent implementation contract known before a source is decoded. The
+// desktop combines this with its bounded source-environment identity to reject stale gallery
+// previews, while the per-render receipt above distinguishes the effective CPU/Metal route.
+[[nodiscard]] std::string edit_preview_generator_implementation_identity();
 
 // Transient analysis of one complete warm-proxy render. Histogram bins describe the uncompressed
 // display-sRGB RGB8 pixels immediately before JPEG encoding. Clipping counts inspect the edited
@@ -474,6 +567,7 @@ struct EditPreviewAnalysis final {
 struct AnalyzedEditPreview final {
     EncodedProxy proxy;
     EditPreviewAnalysis analysis;
+    EditPreviewExecutionReceipt execution;
 };
 
 class WarmEditPreviewSession final {

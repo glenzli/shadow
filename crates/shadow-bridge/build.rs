@@ -4,6 +4,7 @@ const BRIDGE_INPUTS: &[&str] = &[
     "include/shadow/image/decoder.hpp",
     "include/shadow/image/private_decoder_plugin.hpp",
     "include/shadow/image/display_luma.hpp",
+    "include/shadow/image/display_output.hpp",
     "include/shadow/image/sensor_clipping.hpp",
     "include/shadow/image/edit.hpp",
     "include/shadow/image/lut.hpp",
@@ -56,9 +57,13 @@ const EMBEDDED_IMAGE_INPUTS: &[&str] = &[
     "src/raw/raw_pipeline.cpp",
     "src/raw/sensor_clipping.cpp",
     "src/optics/lensfun_optics.cpp",
+    "src/proxy/display_output.cpp",
     "src/proxy/display_rgb_math.hpp",
     "src/proxy/jpeg_display_luma.cpp",
     "src/proxy/jpeg_proxy.cpp",
+    "src/proxy/metal_display_output.hpp",
+    "src/proxy/metal_display_output.mm",
+    "src/proxy/metal_display_output_stub.cpp",
 ];
 
 fn parse_flag(name: &str, default: bool) -> bool {
@@ -198,15 +203,18 @@ fn main() {
         .file(image_root.join("src/raw/raw_pipeline.cpp"))
         .file(image_root.join("src/raw/sensor_clipping.cpp"))
         .file(image_root.join("src/optics/lensfun_optics.cpp"))
+        .file(image_root.join("src/proxy/display_output.cpp"))
         .file(image_root.join("src/proxy/jpeg_display_luma.cpp"))
         .file(image_root.join("src/proxy/jpeg_proxy.cpp"));
     if metal_enabled {
         build
             .file(image_root.join("src/raw/metal_raw_development.mm"))
+            .file(image_root.join("src/proxy/metal_display_output.mm"))
             .define("SHADOW_IMAGE_HAS_METAL", Some("1"));
     } else {
         build
             .file(image_root.join("src/raw/metal_raw_development_stub.cpp"))
+            .file(image_root.join("src/proxy/metal_display_output_stub.cpp"))
             .define("SHADOW_IMAGE_HAS_METAL", Some("0"));
     }
 

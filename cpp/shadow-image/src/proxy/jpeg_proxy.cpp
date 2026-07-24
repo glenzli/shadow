@@ -1,4 +1,5 @@
 #include <shadow/image/edit.hpp>
+#include <shadow/image/display_output.hpp>
 
 #include "display_rgb_math.hpp"
 
@@ -804,35 +805,21 @@ void validate_display_output_source(const FloatRgbImage& source) {
     const std::uint32_t output_origin_y = 0U
 ) {
     validate_display_output_source(source);
+    if (source.dimensions == target) {
+        auto rendered = render_linear_srgb_to_display_srgb8(
+            source,
+            DisplayOutputRequest{
+                .target_dimensions = target,
+                .output_origin_x = output_origin_x,
+                .output_origin_y = output_origin_y,
+            }
+        );
+        return std::move(rendered.bytes);
+    }
+    // Resizing remains the established CPU path. The isolated Metal v1 stage is deliberately
+    // source-sized; it never turns a forced Metal request into a different sampling algorithm.
     std::vector<std::uint8_t> output(checked_rgb_size(target));
     const std::size_t row_stride = source.row_stride_bytes / sizeof(float);
-    if (source.dimensions == target) {
-        for (std::uint32_t y = 0; y < target.height; ++y) {
-            const std::size_t source_row = static_cast<std::size_t>(y) * row_stride;
-            const std::size_t output_row = static_cast<std::size_t>(y) * target.width * 3U;
-            for (std::uint32_t x = 0; x < target.width; ++x) {
-                const std::size_t source_index = source_row + static_cast<std::size_t>(x) * 3U;
-                const std::size_t output_index = output_row + static_cast<std::size_t>(x) * 3U;
-                const LinearRgb mapped = map_linear_srgb_to_display_gamut(
-                    {
-                        source.samples[source_index],
-                        source.samples[source_index + 1U],
-                        source.samples[source_index + 2U],
-                    },
-                    source.reference == ImageReference::scene_referred
-                );
-                const double dither = display_quantization_dither(
-                    output_origin_x + x,
-                    output_origin_y + y
-                );
-                for (std::size_t channel = 0U; channel < mapped.size(); ++channel) {
-                    output[output_index + channel] =
-                        linear_display_sample_to_srgb8(mapped[channel], dither);
-                }
-            }
-        }
-        return output;
-    }
     const double scale_x =
         static_cast<double>(source.dimensions.width) / static_cast<double>(target.width);
     const double scale_y =
@@ -886,7 +873,47 @@ void validate_display_output_source(const FloatRgbImage& source) {
 struct PreparedEditPreviewPixels final {
     FloatRgbImage edited;
     std::vector<std::uint8_t> rgb;
+    EditPreviewExecutionReceipt execution;
 };
+
+[[nodiscard]] EditPreviewExecutionReceipt edit_preview_execution_receipt(
+    const DisplayRgb8Image& display
+) {
+    if (!display.valid()) {
+        throw DecodeError(
+            DecodeErrorCode::internal,
+            0,
+            "warm preview display stage returned an invalid RGB8 result"
+        );
+    }
+    static_assert(
+        edit_preview_cpu_display_backend_version == display_output_cpu_backend_version
+    );
+    static_assert(
+        edit_preview_metal_display_backend_version == display_output_metal_backend_version
+    );
+    EditPreviewExecutionReceipt receipt;
+    switch (display.backend) {
+    case DisplayOutputBackend::cpu:
+        receipt.display_backend = EditPreviewBackend::cpu;
+        receipt.display_backend_version = display_output_cpu_backend_version;
+        break;
+    case DisplayOutputBackend::metal:
+        receipt.display_backend = EditPreviewBackend::metal;
+        receipt.display_backend_version = display_output_metal_backend_version;
+        break;
+    }
+    receipt.display_fell_back = display.fell_back;
+    receipt.diagnostic = display.diagnostic;
+    if (!receipt.valid()) {
+        throw DecodeError(
+            DecodeErrorCode::internal,
+            0,
+            "warm preview could not describe its effective display backend"
+        );
+    }
+    return receipt;
+}
 
 [[nodiscard]] PreparedEditPreviewPixels prepare_edit_preview_pixels(
     const FloatRgbImage& working_proxy,
@@ -899,10 +926,18 @@ struct PreparedEditPreviewPixels final {
             .full_dimensions = working_proxy.dimensions,
         }
     );
-    auto rgb = resize_working_to_display_srgb8(edited, edited.dimensions);
+    // The display dispatcher receives the complete immutable adjustment result. If automatic
+    // Metal execution declines or fails, it restarts the entire display stage on CPU from this
+    // image; a partial GPU tile can never leak into the fallback output.
+    auto display = render_linear_srgb_to_display_srgb8(
+        edited,
+        DisplayOutputRequest{.target_dimensions = edited.dimensions}
+    );
+    auto execution = edit_preview_execution_receipt(display);
     return PreparedEditPreviewPixels{
         .edited = std::move(edited),
-        .rgb = std::move(rgb),
+        .rgb = std::move(display.bytes),
+        .execution = std::move(execution),
     };
 }
 
@@ -1200,6 +1235,78 @@ struct PreparedWarmEditProxy final {
 
 } // namespace
 
+bool EditPreviewExecutionReceipt::valid() const noexcept {
+    const auto valid_adjustment_backend = [](
+        const EditPreviewBackend backend,
+        const std::uint32_t version
+    ) {
+        switch (backend) {
+        case EditPreviewBackend::cpu:
+            return version == edit_preview_cpu_adjustment_backend_version;
+        case EditPreviewBackend::metal:
+            return version == edit_preview_metal_adjustment_backend_version;
+        }
+        return false;
+    };
+    const auto valid_display_backend = [](
+        const EditPreviewBackend backend,
+        const std::uint32_t version
+    ) {
+        switch (backend) {
+        case EditPreviewBackend::cpu:
+            return version == edit_preview_cpu_display_backend_version;
+        case EditPreviewBackend::metal:
+            return version == edit_preview_metal_display_backend_version;
+        }
+        return false;
+    };
+    return schema_version == edit_preview_execution_receipt_schema_version
+        && valid_adjustment_backend(adjustment_backend, adjustment_backend_version)
+        && adjustment_execution_contract_version == edit_execution_plan_identity_version
+        && valid_display_backend(display_backend, display_backend_version)
+        && display_output_contract_version == display_srgb8_output_transform_version;
+}
+
+std::string edit_preview_execution_receipt_identity(
+    const EditPreviewExecutionReceipt& receipt
+) {
+    if (!receipt.valid()) {
+        throw std::invalid_argument("edit-preview execution receipt is invalid");
+    }
+    const auto backend_identity = [](const EditPreviewBackend backend) {
+        switch (backend) {
+        case EditPreviewBackend::cpu:
+            return std::string_view{"cpu"};
+        case EditPreviewBackend::metal:
+            return std::string_view{"metal"};
+        }
+        throw std::invalid_argument("edit-preview execution backend is invalid");
+    };
+    return "shadow-edit-preview-execution-v1;adjustment="
+        + std::string(backend_identity(receipt.adjustment_backend))
+        + "-v" + std::to_string(receipt.adjustment_backend_version)
+        + ";plan=" + std::to_string(receipt.adjustment_execution_contract_version)
+        + ";display=" + std::string(backend_identity(receipt.display_backend))
+        + "-v" + std::to_string(receipt.display_backend_version)
+        + ";display-contract=" + std::to_string(receipt.display_output_contract_version);
+}
+
+std::string edit_preview_generator_implementation_identity() {
+    // This identity names the implementations the current generator can actually select, not a
+    // local device. Runtime availability and fallback diagnostics remain on each receipt.
+    return "shadow-edit-preview-generator-v1;plan="
+        + std::to_string(edit_execution_plan_identity_version)
+        + ";adjustment-cpu=" + std::to_string(edit_preview_cpu_adjustment_backend_version)
+        + ";display-cpu=" + std::string(
+            display_output_backend_identity(DisplayOutputBackend::cpu)
+        )
+        + ";display-metal=" + std::string(
+            display_output_backend_identity(DisplayOutputBackend::metal)
+        )
+        + ";display-contract=" + std::to_string(display_srgb8_output_transform_version)
+        + ";jpeg-444=" + std::to_string(edit_preview_jpeg_444_contract_version);
+}
+
 WarmEditPreviewSession::WarmEditPreviewSession(
     FloatRgbImage working_proxy,
     const std::uint32_t max_edge,
@@ -1268,6 +1375,7 @@ AnalyzedEditPreview WarmEditPreviewSession::render_jpeg_with_analysis(
     return AnalyzedEditPreview{
         .proxy = std::move(proxy),
         .analysis = std::move(analysis),
+        .execution = std::move(prepared.execution),
     };
 }
 

@@ -353,9 +353,31 @@ mod ffi {
     }
 
     #[derive(Debug)]
+    enum FfiEditPreviewBackend {
+        Cpu,
+        Metal,
+    }
+
+    #[derive(Debug)]
+    struct FfiEditPreviewExecutionReceipt {
+        schema_version: u32,
+        cache_identity: String,
+        adjustment_backend: FfiEditPreviewBackend,
+        adjustment_backend_version: u32,
+        adjustment_execution_contract_version: u32,
+        display_backend: FfiEditPreviewBackend,
+        display_backend_version: u32,
+        display_output_contract_version: u32,
+        adjustment_fell_back: bool,
+        display_fell_back: bool,
+        diagnostic: String,
+    }
+
+    #[derive(Debug)]
     struct FfiAnalyzedEditPreview {
         proxy: FfiEncodedProxy,
         analysis: FfiEditPreviewAnalysis,
+        execution: FfiEditPreviewExecutionReceipt,
     }
 
     /// A compact RAW-source diagnostic in the exact display dimensions of the prepared preview.
@@ -453,6 +475,7 @@ mod ffi {
         ) -> Vec<FfiOpticsProfileCandidate>;
         fn libraw_provider_version() -> String;
         fn photo_provider_version() -> String;
+        fn edit_preview_generator_implementation_identity() -> String;
         fn photo_supported_raster_extensions() -> Vec<String>;
         fn raw_development_plan_identity(plan: &FfiRawDevelopmentPlan) -> Result<String>;
         fn render_photo_reference_proxy(
@@ -1598,6 +1621,13 @@ pub const EDIT_PREVIEW_ANALYSIS_VERSION: &str = concat!(
     "shadow.edit-preview-analysis.v1:rgb8-before-jpeg:rec709-encoded-q16:",
     "pre-clamp-linear-strict-lt-gt-any-channel"
 );
+pub const EDIT_PREVIEW_EXECUTION_RECEIPT_SCHEMA_VERSION: u32 = 1;
+pub const EDIT_PREVIEW_EXECUTION_PLAN_CONTRACT_VERSION: u32 = 1;
+pub const EDIT_PREVIEW_CPU_ADJUSTMENT_BACKEND_VERSION: u32 = 1;
+pub const EDIT_PREVIEW_METAL_ADJUSTMENT_BACKEND_VERSION: u32 = 1;
+pub const EDIT_PREVIEW_CPU_DISPLAY_BACKEND_VERSION: u32 = 1;
+pub const EDIT_PREVIEW_METAL_DISPLAY_BACKEND_VERSION: u32 = 1;
+pub const DISPLAY_SRGB8_OUTPUT_CONTRACT_VERSION: u32 = 6;
 
 /// Hard width and height bound for one full-resolution detail tile.
 pub const MAX_EDIT_DETAIL_TILE_SIDE: u32 = 1_024;
@@ -2590,6 +2620,15 @@ pub fn photo_provider_version() -> String {
     ffi::photo_provider_version()
 }
 
+/// Returns the cache-safe implementation contract for warm edit-preview generation.
+///
+/// This identifies compiled adjustment, display and JPEG contracts, not the effective backend
+/// of one render. [`AnalyzedEditPreview::execution`] records that post-selection CPU/Metal route.
+#[must_use]
+pub fn edit_preview_generator_implementation_identity() -> String {
+    ffi::edit_preview_generator_implementation_identity()
+}
+
 /// Returns ordinary rendered-image suffixes that the linked native photo router can genuinely
 /// open. JPEG is mandatory; HEIF/HEIC is added only when this particular build linked libheif.
 #[must_use]
@@ -2718,11 +2757,45 @@ pub struct EditPreviewAnalysis {
     pub highlight_clipped_pixels: u64,
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+pub enum EditPreviewBackend {
+    Cpu,
+    Metal,
+}
+
+/// Effective adjustment and display route for one completed warm preview.
+///
+/// `cache_identity` is canonical C++ output and is the only field callers should hash into a
+/// durable key. Diagnostic fallback state remains available for inspection but is deliberately
+/// absent from that identity.
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub struct EditPreviewExecutionReceipt {
+    pub schema_version: u32,
+    pub cache_identity: String,
+    pub adjustment_backend: EditPreviewBackend,
+    pub adjustment_backend_version: u32,
+    pub adjustment_execution_contract_version: u32,
+    pub display_backend: EditPreviewBackend,
+    pub display_backend_version: u32,
+    pub display_output_contract_version: u32,
+    pub adjustment_fell_back: bool,
+    pub display_fell_back: bool,
+    pub diagnostic: Option<String>,
+}
+
+impl EditPreviewExecutionReceipt {
+    #[must_use]
+    pub const fn uses_current_schema(&self) -> bool {
+        self.schema_version == EDIT_PREVIEW_EXECUTION_RECEIPT_SCHEMA_VERSION
+    }
+}
+
 /// A JPEG preview and its generation-matched transient analysis.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct AnalyzedEditPreview {
     pub proxy: shadow_domain::ProxyPayload,
     pub analysis: EditPreviewAnalysis,
+    pub execution: EditPreviewExecutionReceipt,
 }
 
 /// One exact rectangle in the processed full-resolution image coordinate space.
@@ -3050,7 +3123,12 @@ impl LibRawEditPreviewSession {
         let request = ffi_render_request(plan, self.max_edge, jpeg_quality);
         let analyzed = handle.render_adjustment_plan_with_analysis(&request)?;
         let proxy = proxy_payload(analyzed.proxy);
-        validate_analyzed_edit_preview(proxy, analyzed.analysis, self.dimensions)
+        validate_analyzed_edit_preview(
+            proxy,
+            analyzed.analysis,
+            analyzed.execution,
+            self.dimensions,
+        )
     }
 }
 
@@ -3600,11 +3678,85 @@ fn validate_edit_preview_proxy(
 fn validate_analyzed_edit_preview(
     proxy: shadow_domain::ProxyPayload,
     analysis: ffi::FfiEditPreviewAnalysis,
+    execution: ffi::FfiEditPreviewExecutionReceipt,
     expected_dimensions: ImageDimensions,
 ) -> Result<AnalyzedEditPreview, BridgeError> {
     validate_edit_preview_proxy(&proxy, expected_dimensions)?;
     let analysis = validate_edit_preview_analysis(analysis, expected_dimensions)?;
-    Ok(AnalyzedEditPreview { proxy, analysis })
+    let execution = edit_preview_execution_receipt(execution)?;
+    Ok(AnalyzedEditPreview {
+        proxy,
+        analysis,
+        execution,
+    })
+}
+
+fn edit_preview_backend(
+    backend: ffi::FfiEditPreviewBackend,
+) -> Result<EditPreviewBackend, BridgeError> {
+    match backend {
+        ffi::FfiEditPreviewBackend::Cpu => Ok(EditPreviewBackend::Cpu),
+        ffi::FfiEditPreviewBackend::Metal => Ok(EditPreviewBackend::Metal),
+        _ => Err(BridgeError::InvalidEditPreviewOutput(
+            "edit-preview receipt contains an unsupported backend",
+        )),
+    }
+}
+
+fn edit_preview_execution_receipt(
+    receipt: ffi::FfiEditPreviewExecutionReceipt,
+) -> Result<EditPreviewExecutionReceipt, BridgeError> {
+    if receipt.schema_version != EDIT_PREVIEW_EXECUTION_RECEIPT_SCHEMA_VERSION {
+        return Err(BridgeError::InvalidEditPreviewOutput(
+            "edit-preview receipt uses an unsupported schema",
+        ));
+    }
+    if receipt.cache_identity.is_empty() || receipt.cache_identity.len() > 512 {
+        return Err(BridgeError::InvalidEditPreviewOutput(
+            "edit-preview receipt cache identity is empty or unbounded",
+        ));
+    }
+    let adjustment_backend = edit_preview_backend(receipt.adjustment_backend)?;
+    let display_backend = edit_preview_backend(receipt.display_backend)?;
+    let adjustment_backend_version_is_current = match adjustment_backend {
+        EditPreviewBackend::Cpu => {
+            receipt.adjustment_backend_version == EDIT_PREVIEW_CPU_ADJUSTMENT_BACKEND_VERSION
+        }
+        EditPreviewBackend::Metal => {
+            receipt.adjustment_backend_version == EDIT_PREVIEW_METAL_ADJUSTMENT_BACKEND_VERSION
+        }
+    };
+    let display_backend_version_is_current = match display_backend {
+        EditPreviewBackend::Cpu => {
+            receipt.display_backend_version == EDIT_PREVIEW_CPU_DISPLAY_BACKEND_VERSION
+        }
+        EditPreviewBackend::Metal => {
+            receipt.display_backend_version == EDIT_PREVIEW_METAL_DISPLAY_BACKEND_VERSION
+        }
+    };
+    if !adjustment_backend_version_is_current
+        || !display_backend_version_is_current
+        || receipt.adjustment_execution_contract_version
+            != EDIT_PREVIEW_EXECUTION_PLAN_CONTRACT_VERSION
+        || receipt.display_output_contract_version != DISPLAY_SRGB8_OUTPUT_CONTRACT_VERSION
+    {
+        return Err(BridgeError::InvalidEditPreviewOutput(
+            "edit-preview receipt contains unsupported implementation contracts",
+        ));
+    }
+    Ok(EditPreviewExecutionReceipt {
+        schema_version: receipt.schema_version,
+        cache_identity: receipt.cache_identity,
+        adjustment_backend,
+        adjustment_backend_version: receipt.adjustment_backend_version,
+        adjustment_execution_contract_version: receipt.adjustment_execution_contract_version,
+        display_backend,
+        display_backend_version: receipt.display_backend_version,
+        display_output_contract_version: receipt.display_output_contract_version,
+        adjustment_fell_back: receipt.adjustment_fell_back,
+        display_fell_back: receipt.display_fell_back,
+        diagnostic: (!receipt.diagnostic.is_empty()).then_some(receipt.diagnostic),
+    })
 }
 
 fn validate_sensor_clipping_mask(
@@ -4969,6 +5121,26 @@ mod tests {
         }
     }
 
+    fn valid_ffi_edit_preview_execution_receipt() -> ffi::FfiEditPreviewExecutionReceipt {
+        ffi::FfiEditPreviewExecutionReceipt {
+            schema_version: EDIT_PREVIEW_EXECUTION_RECEIPT_SCHEMA_VERSION,
+            cache_identity: concat!(
+                "shadow-edit-preview-execution-v1;adjustment=cpu-v1;",
+                "plan=1;display=cpu-v1;display-contract=6"
+            )
+            .to_owned(),
+            adjustment_backend: ffi::FfiEditPreviewBackend::Cpu,
+            adjustment_backend_version: 1,
+            adjustment_execution_contract_version: EDIT_PREVIEW_EXECUTION_PLAN_CONTRACT_VERSION,
+            display_backend: ffi::FfiEditPreviewBackend::Cpu,
+            display_backend_version: 1,
+            display_output_contract_version: DISPLAY_SRGB8_OUTPUT_CONTRACT_VERSION,
+            adjustment_fell_back: false,
+            display_fell_back: false,
+            diagnostic: String::new(),
+        }
+    }
+
     #[test]
     fn edit_preview_analysis_validation_fails_closed() {
         let proxy_dimensions = ImageDimensions {
@@ -5035,6 +5207,7 @@ mod tests {
         validate_analyzed_edit_preview(
             valid_edit_preview_proxy(),
             valid_ffi_edit_preview_analysis(),
+            valid_ffi_edit_preview_execution_receipt(),
             proxy_dimensions,
         )
         .expect("matching analyzed proxy contract");
@@ -5051,7 +5224,12 @@ mod tests {
             height: paired_wrong_dimensions.height,
         };
         assert!(matches!(
-            validate_analyzed_edit_preview(wrong_proxy, matching_wrong_analysis, proxy_dimensions,),
+            validate_analyzed_edit_preview(
+                wrong_proxy,
+                matching_wrong_analysis,
+                valid_ffi_edit_preview_execution_receipt(),
+                proxy_dimensions,
+            ),
             Err(BridgeError::InvalidEditPreviewOutput(_))
         ));
 
@@ -5067,11 +5245,69 @@ mod tests {
                 validate_analyzed_edit_preview(
                     proxy,
                     valid_ffi_edit_preview_analysis(),
+                    valid_ffi_edit_preview_execution_receipt(),
                     proxy_dimensions,
                 ),
                 Err(BridgeError::InvalidEditPreviewOutput(_))
             ));
         }
+    }
+
+    #[test]
+    fn edit_preview_execution_receipt_validation_is_strict_and_keeps_diagnostics_separate() {
+        let mut fallback = valid_ffi_edit_preview_execution_receipt();
+        fallback.adjustment_fell_back = true;
+        fallback.diagnostic = "/Users/example/private/device diagnostic".to_owned();
+        let validated =
+            edit_preview_execution_receipt(fallback).expect("valid fallback execution receipt");
+        assert_eq!(validated.adjustment_backend, EditPreviewBackend::Cpu);
+        assert_eq!(
+            validated.cache_identity,
+            concat!(
+                "shadow-edit-preview-execution-v1;adjustment=cpu-v1;",
+                "plan=1;display=cpu-v1;display-contract=6"
+            )
+        );
+        assert_eq!(
+            validated.diagnostic.as_deref(),
+            Some("/Users/example/private/device diagnostic")
+        );
+        assert!(!validated.cache_identity.contains("/Users"));
+
+        let mut stale = valid_ffi_edit_preview_execution_receipt();
+        stale.schema_version += 1;
+        assert!(matches!(
+            edit_preview_execution_receipt(stale),
+            Err(BridgeError::InvalidEditPreviewOutput(_))
+        ));
+
+        let mut missing_identity = valid_ffi_edit_preview_execution_receipt();
+        missing_identity.cache_identity.clear();
+        assert!(matches!(
+            edit_preview_execution_receipt(missing_identity),
+            Err(BridgeError::InvalidEditPreviewOutput(_))
+        ));
+
+        let mut stale_display = valid_ffi_edit_preview_execution_receipt();
+        stale_display.display_output_contract_version += 1;
+        assert!(matches!(
+            edit_preview_execution_receipt(stale_display),
+            Err(BridgeError::InvalidEditPreviewOutput(_))
+        ));
+
+        let mut stale_adjustment_backend = valid_ffi_edit_preview_execution_receipt();
+        stale_adjustment_backend.adjustment_backend_version += 1;
+        assert!(matches!(
+            edit_preview_execution_receipt(stale_adjustment_backend),
+            Err(BridgeError::InvalidEditPreviewOutput(_))
+        ));
+
+        let mut stale_display_backend = valid_ffi_edit_preview_execution_receipt();
+        stale_display_backend.display_backend_version += 1;
+        assert!(matches!(
+            edit_preview_execution_receipt(stale_display_backend),
+            Err(BridgeError::InvalidEditPreviewOutput(_))
+        ));
     }
 
     #[test]

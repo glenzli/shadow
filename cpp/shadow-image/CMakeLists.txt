@@ -55,13 +55,19 @@ add_library(
     src/raw/sensor_clipping.cpp
     src/decoder/private_decoder_plugin.cpp
     src/optics/lensfun_optics.cpp
+    src/proxy/display_output.cpp
     src/proxy/jpeg_display_luma.cpp
     src/proxy/jpeg_proxy.cpp
 )
 if(APPLE AND SHADOW_ENABLE_METAL)
     find_library(SHADOW_METAL_FRAMEWORK Metal REQUIRED)
     find_library(SHADOW_FOUNDATION_FRAMEWORK Foundation REQUIRED)
-    target_sources(shadow-image PRIVATE src/raw/metal_raw_development.mm)
+    target_sources(
+        shadow-image
+        PRIVATE
+            src/raw/metal_raw_development.mm
+            src/proxy/metal_display_output.mm
+    )
     target_compile_definitions(shadow-image PRIVATE SHADOW_IMAGE_HAS_METAL=1)
     target_link_libraries(
         shadow-image-platform-runtime
@@ -70,7 +76,12 @@ if(APPLE AND SHADOW_ENABLE_METAL)
             "${SHADOW_FOUNDATION_FRAMEWORK}"
     )
 else()
-    target_sources(shadow-image PRIVATE src/raw/metal_raw_development_stub.cpp)
+    target_sources(
+        shadow-image
+        PRIVATE
+            src/raw/metal_raw_development_stub.cpp
+            src/proxy/metal_display_output_stub.cpp
+    )
     target_compile_definitions(shadow-image PRIVATE SHADOW_IMAGE_HAS_METAL=0)
 endif()
 add_library(Shadow::Image ALIAS shadow-image)
@@ -217,6 +228,17 @@ if(BUILD_TESTING)
     shadow_image_enable_warnings(shadow-image-display-luma-tests)
     add_test(NAME shadow-image-display-luma-contract COMMAND shadow-image-display-luma-tests)
 
+    add_executable(
+        shadow-image-display-output-tests
+        tests/display_output_contract_test.cpp
+    )
+    target_link_libraries(shadow-image-display-output-tests PRIVATE Shadow::Image)
+    shadow_image_enable_warnings(shadow-image-display-output-tests)
+    add_test(
+        NAME shadow-image-display-output-contract
+        COMMAND shadow-image-display-output-tests
+    )
+
     add_executable(shadow-image-lut-tests tests/lut_contract_test.cpp)
     target_link_libraries(shadow-image-lut-tests PRIVATE Shadow::Image)
     shadow_image_enable_warnings(shadow-image-lut-tests)
@@ -243,6 +265,13 @@ if(BUILD_TESTING)
         COMMAND shadow-image-fused-raw-development-tests
     )
     if(SHADOW_REQUIRE_METAL_TESTS)
+        set_tests_properties(
+            shadow-image-display-output-contract
+            PROPERTIES
+                ENVIRONMENT
+                    "SHADOW_IMAGE_ACCELERATION=metal;SHADOW_TEST_REQUIRE_METAL=1;SHADOW_TEST_METAL_DISPLAY_TILE_BYTES=1"
+                LABELS "metal-required"
+        )
         set_tests_properties(
             shadow-image-fused-raw-development-contract
             PROPERTIES

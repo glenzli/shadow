@@ -19,7 +19,7 @@ use shadow_ai::{
     PresentedVisualFrame, PresentedVisualProvenance, PresentedVisualRole,
     UnitInterval as AiUnitInterval,
 };
-use shadow_bridge::photo_provider_version;
+use shadow_bridge::{edit_preview_generator_implementation_identity, photo_provider_version};
 use shadow_catalog::{
     CachedArtifact, CachedArtifactGeneratorIdentity, CachedArtifactRecord, CachedArtifactRole,
     CatalogHandle, RepresentationFingerprint, ReviewCursor, ReviewItemRecord,
@@ -34,7 +34,7 @@ use uuid::Uuid;
 
 use crate::{
     current_time_ms, ffi,
-    raw_pipeline_cache::{
+    preview_cache_identity::{
         EDIT_PREVIEW_GENERATOR_ID, current_source_environment_cache_identity,
         edit_preview_generator_version,
     },
@@ -162,7 +162,10 @@ impl ReviewService {
             current_source_environment_cache_identity(&photo_provider_version());
         let recipe_preview_generator = CachedArtifactGeneratorIdentity {
             generator_id: EDIT_PREVIEW_GENERATOR_ID.to_owned(),
-            generator_version: edit_preview_generator_version(&source_environment),
+            generator_version: edit_preview_generator_version(
+                &source_environment,
+                &edit_preview_generator_implementation_identity(),
+            ),
         };
         let page = self
             .catalog

@@ -1,5 +1,6 @@
 #include <shadow/image/color_management.hpp>
 #include <shadow/image/decoder.hpp>
+#include <shadow/image/display_output.hpp>
 #include <shadow/image/edit.hpp>
 #include <shadow/image/optics.hpp>
 #include <shadow/image/private_decoder_plugin.hpp>
@@ -13,6 +14,8 @@
 #include <iostream>
 #include <limits>
 #include <memory>
+#include <optional>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -29,6 +32,43 @@ void expect(const bool condition, const std::string_view message) {
         ++failures;
     }
 }
+
+class ScopedEnvironment final {
+public:
+    ScopedEnvironment(const std::string_view name, const std::string_view value)
+        : name_(name) {
+        if (const char* current = std::getenv(name_.c_str()); current != nullptr) {
+            previous_ = current;
+        }
+#if defined(_WIN32)
+        static_cast<void>(_putenv_s(name_.c_str(), std::string(value).c_str()));
+#else
+        static_cast<void>(setenv(name_.c_str(), std::string(value).c_str(), 1));
+#endif
+    }
+
+    ~ScopedEnvironment() {
+#if defined(_WIN32)
+        static_cast<void>(_putenv_s(
+            name_.c_str(),
+            previous_.has_value() ? previous_->c_str() : ""
+        ));
+#else
+        if (previous_.has_value()) {
+            static_cast<void>(setenv(name_.c_str(), previous_->c_str(), 1));
+        } else {
+            static_cast<void>(unsetenv(name_.c_str()));
+        }
+#endif
+    }
+
+    ScopedEnvironment(const ScopedEnvironment&) = delete;
+    ScopedEnvironment& operator=(const ScopedEnvironment&) = delete;
+
+private:
+    std::string name_;
+    std::optional<std::string> previous_;
+};
 
 [[nodiscard]] bool jpeg_uses_444_chroma_sampling(const std::span<const std::uint8_t> bytes) {
     if (bytes.size() < 4U || bytes[0] != 0xffU || bytes[1] != 0xd8U) {
@@ -1471,6 +1511,7 @@ void rotated_raw_preview_preserves_native_effect_radius() {
 }
 
 void warm_edit_preview_analysis_is_pre_jpeg_and_strictly_pre_clamp() {
+    const ScopedEnvironment forced_cpu("SHADOW_IMAGE_ACCELERATION", "cpu");
     const BoundaryRgbSession session;
     const auto warm = image::prepare_warm_edit_preview(session, 5);
     expect(session.reference_render_count() == 1U, "analysis preparation decodes exactly once");
@@ -1492,6 +1533,14 @@ void warm_edit_preview_analysis_is_pre_jpeg_and_strictly_pre_clamp() {
     expect(
         low_quality.proxy.bytes != high_quality.proxy.bytes,
         "the quality-independence check still exercises distinct JPEG encodings"
+    );
+    expect(
+        low_quality.execution.valid()
+            && low_quality.execution.adjustment_backend == image::EditPreviewBackend::cpu
+            && low_quality.execution.display_backend == image::EditPreviewBackend::cpu
+            && image::edit_preview_execution_receipt_identity(low_quality.execution)
+                == image::edit_preview_execution_receipt_identity(high_quality.execution),
+        "one completed warm render reports its effective CPU adjustment and display route"
     );
     expect(
         neutral.sample_dimensions == image::Dimensions{5, 1} && neutral.pixel_count == 5U,
@@ -1558,8 +1607,166 @@ void warm_edit_preview_analysis_is_pre_jpeg_and_strictly_pre_clamp() {
     const auto second_result = second_concurrent.get();
     expect(
         first_result.analysis == second_result.analysis
-            && first_result.proxy.bytes == second_result.proxy.bytes,
+            && first_result.proxy.bytes == second_result.proxy.bytes
+            && image::edit_preview_execution_receipt_identity(first_result.execution)
+                == image::edit_preview_execution_receipt_identity(second_result.execution),
         "concurrent const analyzed renders are deterministic and isolated"
+    );
+}
+
+void warm_edit_preview_receipt_tracks_the_effective_display_backend() {
+    const BoundaryRgbSession session;
+    const auto warm = image::prepare_warm_edit_preview(session, 5U);
+    const std::array neutral_nodes{
+        image::AdjustmentNode{
+            .node_id = "receipt-neutral-exposure",
+            .parameters = image::ExposureAdjustment{},
+        },
+    };
+
+    image::AnalyzedEditPreview cpu;
+    {
+        const ScopedEnvironment forced_cpu("SHADOW_IMAGE_ACCELERATION", "cpu");
+        cpu = warm.render_jpeg_with_analysis(neutral_nodes, 90U);
+    }
+    expect(
+        cpu.execution.valid()
+            && cpu.execution.adjustment_backend == image::EditPreviewBackend::cpu
+            && cpu.execution.adjustment_backend_version
+                == image::edit_preview_cpu_adjustment_backend_version
+            && cpu.execution.display_backend == image::EditPreviewBackend::cpu
+            && cpu.execution.display_backend_version
+                == image::edit_preview_cpu_display_backend_version
+            && !cpu.execution.adjustment_fell_back
+            && !cpu.execution.display_fell_back
+            && cpu.execution.diagnostic.empty(),
+        "forced CPU warm preview reports CPU adjustment/display without fallback"
+    );
+
+    if (image::display_output_backend_available(image::DisplayOutputBackend::metal)) {
+        image::AnalyzedEditPreview metal;
+        {
+            const ScopedEnvironment forced_metal("SHADOW_IMAGE_ACCELERATION", "metal");
+            metal = warm.render_jpeg_with_analysis(neutral_nodes, 90U);
+        }
+        expect(
+            metal.execution.valid()
+                && metal.execution.adjustment_backend == image::EditPreviewBackend::cpu
+                && metal.execution.display_backend == image::EditPreviewBackend::metal
+                && metal.execution.display_backend_version
+                    == image::edit_preview_metal_display_backend_version
+                && !metal.execution.adjustment_fell_back
+                && !metal.execution.display_fell_back
+                && metal.execution.diagnostic.empty(),
+            "forced Metal warm preview keeps adjustment on CPU and reports Metal display"
+        );
+        expect(
+            image::edit_preview_execution_receipt_identity(metal.execution)
+                != image::edit_preview_execution_receipt_identity(cpu.execution),
+            "effective Metal display output cannot reuse a CPU warm-preview identity"
+        );
+    } else {
+        image::AnalyzedEditPreview fallback;
+        {
+            const ScopedEnvironment automatic("SHADOW_IMAGE_ACCELERATION", "auto");
+            fallback = warm.render_jpeg_with_analysis(neutral_nodes, 90U);
+        }
+        expect(
+            fallback.execution.valid()
+                && fallback.execution.adjustment_backend == image::EditPreviewBackend::cpu
+                && fallback.execution.display_backend == image::EditPreviewBackend::cpu
+                && !fallback.execution.adjustment_fell_back
+                && fallback.execution.display_fell_back
+                && !fallback.execution.diagnostic.empty(),
+            "CPU-only automatic warm preview exposes its Metal display fallback diagnostic"
+        );
+        expect(
+            image::edit_preview_execution_receipt_identity(fallback.execution)
+                == image::edit_preview_execution_receipt_identity(cpu.execution)
+                && fallback.execution.diagnostic
+                    != cpu.execution.diagnostic,
+            "fallback diagnostics stay outside the effective CPU cache identity"
+        );
+    }
+
+    const std::string generator = image::edit_preview_generator_implementation_identity();
+    expect(
+        generator.find(std::string(image::display_output_backend_identity(
+            image::DisplayOutputBackend::cpu
+        ))) != std::string::npos
+            && generator.find(std::string(image::display_output_backend_identity(
+                image::DisplayOutputBackend::metal
+            ))) != std::string::npos,
+        "generator identity names both selectable display-output implementations"
+    );
+}
+
+void edit_preview_execution_identity_excludes_fallback_diagnostics() {
+    image::EditPreviewExecutionReceipt cpu;
+    const std::string cpu_identity = image::edit_preview_execution_receipt_identity(cpu);
+    expect(
+        cpu.valid()
+            && cpu_identity
+                == "shadow-edit-preview-execution-v1;adjustment=cpu-v1;plan=1;"
+                   "display=cpu-v1;display-contract=6",
+        "the current CPU adjustment/display route has one canonical cache identity"
+    );
+
+    image::EditPreviewExecutionReceipt fallback = cpu;
+    fallback.adjustment_fell_back = true;
+    fallback.display_fell_back = true;
+    fallback.diagnostic = "/Users/example/private/device diagnostic";
+    expect(
+        image::edit_preview_execution_receipt_identity(fallback) == cpu_identity
+            && cpu_identity.find("/Users") == std::string::npos,
+        "fallback diagnostics and user-local paths never participate in canonical identity"
+    );
+
+    image::EditPreviewExecutionReceipt metal_adjustment = cpu;
+    metal_adjustment.adjustment_backend = image::EditPreviewBackend::metal;
+    metal_adjustment.adjustment_backend_version =
+        image::edit_preview_metal_adjustment_backend_version;
+    expect(
+        image::edit_preview_execution_receipt_identity(metal_adjustment) != cpu_identity,
+        "an effective Metal adjustment route cannot reuse a CPU preview cache entry"
+    );
+
+    image::EditPreviewExecutionReceipt metal_display = cpu;
+    metal_display.display_backend = image::EditPreviewBackend::metal;
+    metal_display.display_backend_version = image::edit_preview_metal_display_backend_version;
+    expect(
+        image::edit_preview_execution_receipt_identity(metal_display) != cpu_identity,
+        "an effective Metal display route cannot reuse a CPU display cache entry"
+    );
+    expect(
+        image::edit_preview_generator_implementation_identity()
+                .find("shadow-edit-preview-generator-v1") != std::string::npos
+            && image::edit_preview_generator_implementation_identity().find("/Users")
+                == std::string::npos,
+        "the pre-render generator identity is implementation-only and cache safe"
+    );
+
+    image::EditPreviewExecutionReceipt stale = cpu;
+    ++stale.schema_version;
+    expect(!stale.valid(), "unknown execution receipt schemas fail closed");
+    try {
+        static_cast<void>(image::edit_preview_execution_receipt_identity(stale));
+        expect(false, "an invalid execution receipt cannot produce a cache identity");
+    } catch (const std::invalid_argument&) {
+        // Expected.
+    }
+
+    image::EditPreviewExecutionReceipt stale_adjustment_backend = cpu;
+    ++stale_adjustment_backend.adjustment_backend_version;
+    expect(
+        !stale_adjustment_backend.valid(),
+        "a stale CPU adjustment backend version fails the C++ receipt contract"
+    );
+    image::EditPreviewExecutionReceipt stale_display_backend = cpu;
+    ++stale_display_backend.display_backend_version;
+    expect(
+        !stale_display_backend.valid(),
+        "a stale CPU display backend version fails the C++ receipt contract"
     );
 }
 
@@ -1982,6 +2189,8 @@ int main() {
     warm_edit_preview_decodes_once_and_renders_repeatedly();
     rotated_raw_preview_preserves_native_effect_radius();
     warm_edit_preview_analysis_is_pre_jpeg_and_strictly_pre_clamp();
+    warm_edit_preview_receipt_tracks_the_effective_display_backend();
+    edit_preview_execution_identity_excludes_fallback_diagnostics();
     warm_edit_preview_bounds_fail_before_decode();
     edited_proxy_rejects_invalid_nodes_before_decode();
     provider_identity_versions_shadow_pixel_contracts();

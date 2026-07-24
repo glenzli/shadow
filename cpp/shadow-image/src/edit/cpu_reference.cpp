@@ -794,6 +794,59 @@ void validate_image(const FloatRgbImage& image) {
     return prepared_curves;
 }
 
+[[nodiscard]] bool adjustment_is_neutral(
+    const AdjustmentParameters& parameters,
+    const PreparedCurveAdjustment& prepared_curve
+) {
+    return std::visit(
+        [&prepared_curve](const auto& value) {
+            using Parameters = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<Parameters, ExposureAdjustment>) {
+                return value.stops == 0.0;
+            } else if constexpr (std::is_same_v<Parameters, ContrastAdjustment>) {
+                return value.factor == 1.0;
+            } else if constexpr (std::is_same_v<Parameters, OklabLightnessToneCurve>) {
+                return std::get<PreparedSmoothToneCurve>(prepared_curve).identity;
+            } else if constexpr (std::is_same_v<Parameters, RgbWhiteBalanceAdjustment>) {
+                return value.temperature == 0.0 && value.tint == 0.0;
+            } else if constexpr (std::is_same_v<Parameters, SaturationAdjustment>) {
+                return value.factor == 1.0;
+            } else if constexpr (std::is_same_v<Parameters, SelectiveToneAdjustment>) {
+                return selective_tone_is_neutral(value);
+            } else if constexpr (std::is_same_v<Parameters, PerceptualColorAdjustment>) {
+                return perceptual_color_mapping_is_neutral(value)
+                    && selective_color_is_neutral(value);
+            } else if constexpr (std::is_same_v<Parameters, CubeLutAdjustment>) {
+                return value.intensity == 0.0;
+            } else {
+                static_assert(std::is_same_v<Parameters, SharpenAdjustment>);
+                switch (value.execution_pass) {
+                case DetailEffectsExecutionPass::technical_detail:
+                    return value.amount == 0.0
+                        && value.denoise_luminance == 0.0
+                        && value.denoise_color == 0.0
+                        && value.dehaze == 0.0
+                        && value.defringe_purple_amount == 0.0
+                        && value.defringe_green_amount == 0.0;
+                case DetailEffectsExecutionPass::color_grading:
+                    return value.clarity == 0.0
+                        && value.texture == 0.0
+                        && value.shadows_saturation == 0.0
+                        && value.shadows_luminance == 0.0
+                        && value.midtones_saturation == 0.0
+                        && value.midtones_luminance == 0.0
+                        && value.highlights_saturation == 0.0
+                        && value.highlights_luminance == 0.0;
+                case DetailEffectsExecutionPass::finishing_effects:
+                    return value.grain_amount == 0.0 && value.vignette_amount == 0.0;
+                }
+                return false;
+            }
+        },
+        parameters
+    );
+}
+
 #include "cpu_reference_detail.ipp"
 
 void apply_node(
@@ -803,6 +856,12 @@ void apply_node(
     const PreparedCurveAdjustment& prepared_curve,
     const AdjustmentExecutionContext& context
 ) {
+    // The planner and executor intentionally share this exact classifier. Besides avoiding
+    // redundant traversals in the CPU path, this prevents a GPU backend from eliding a node
+    // that the reference executor would treat as observable.
+    if (adjustment_is_neutral(node.parameters, prepared_curve)) {
+        return;
+    }
     std::visit(
         [&image, &node, index, &prepared_curve, &context](const auto& parameters) {
             using Parameters = std::decay_t<decltype(parameters)>;
@@ -1296,6 +1355,83 @@ AdjustmentFootprint footprint(
 
 void validate_adjustment_nodes(const std::span<const AdjustmentNode> nodes) {
     static_cast<void>(prepare_adjustment_nodes(nodes));
+}
+
+EditExecutionPlan compile_edit_execution_plan(
+    const std::span<const AdjustmentNode> nodes,
+    const double level_zero_to_raster_scale_x,
+    const double level_zero_to_raster_scale_y
+) {
+    // Validation is deliberately complete and precedes enabled/neutral filtering or any
+    // scheduling-specific checks.
+    const auto prepared_curves = prepare_adjustment_nodes(nodes);
+    // Validate scale arguments even when the recipe is empty or all nodes are omitted.
+    static_cast<void>(footprint(
+        AdjustmentParameters{ExposureAdjustment{}},
+        level_zero_to_raster_scale_x,
+        level_zero_to_raster_scale_y
+    ));
+
+    EditExecutionPlan plan{
+        .source_node_count = nodes.size(),
+    };
+    const auto add_footprint = [&nodes](
+        AdjustmentFootprint& destination,
+        const AdjustmentFootprint addition,
+        const std::size_t node_index
+    ) {
+        if (addition.horizontal_radius
+                > std::numeric_limits<std::uint32_t>::max()
+                    - destination.horizontal_radius
+            || addition.vertical_radius
+                > std::numeric_limits<std::uint32_t>::max()
+                    - destination.vertical_radius) {
+            throw_node_error(
+                EditErrorCode::numeric_overflow,
+                node_index,
+                nodes[node_index],
+                "compiled adjustment footprint exceeds the supported integer range"
+            );
+        }
+        destination.horizontal_radius += addition.horizontal_radius;
+        destination.vertical_radius += addition.vertical_radius;
+    };
+
+    for (std::size_t index = 0; index < nodes.size(); ++index) {
+        const AdjustmentNode& node = nodes[index];
+        if (!node.enabled || adjustment_is_neutral(node.parameters, prepared_curves[index])) {
+            continue;
+        }
+
+        const AdjustmentLocality node_locality = locality(node.parameters);
+        if (plan.segments.empty() || plan.segments.back().locality != node_locality) {
+            plan.segments.push_back(EditExecutionSegment{
+                .locality = node_locality,
+                .first_node_index = index,
+                .past_last_node_index = index + 1U,
+            });
+        }
+        EditExecutionSegment& segment = plan.segments.back();
+        segment.past_last_node_index = index + 1U;
+        segment.steps.push_back(EditExecutionStep{
+            .node_index = index,
+            .operation = operation(node.parameters),
+        });
+
+        AdjustmentFootprint node_footprint;
+        try {
+            node_footprint = footprint(
+                node.parameters,
+                level_zero_to_raster_scale_x,
+                level_zero_to_raster_scale_y
+            );
+        } catch (const EditError& error) {
+            throw_node_error(error.code(), index, node, error.what());
+        }
+        add_footprint(segment.cumulative_footprint, node_footprint, index);
+        add_footprint(plan.cumulative_footprint, node_footprint, index);
+    }
+    return plan;
 }
 
 FloatRgbImage execute_adjustment_nodes(

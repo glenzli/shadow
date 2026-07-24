@@ -124,12 +124,57 @@ template <std::size_t Size>
     return result;
 }
 
+[[nodiscard]] FfiEditPreviewBackend edit_preview_backend(
+    const image::EditPreviewBackend backend
+) {
+    switch (backend) {
+    case image::EditPreviewBackend::cpu:
+        return FfiEditPreviewBackend::Cpu;
+    case image::EditPreviewBackend::metal:
+        return FfiEditPreviewBackend::Metal;
+    }
+    throw image::DecodeError(
+        image::DecodeErrorCode::internal,
+        0,
+        "edit-preview execution receipt contains an invalid backend"
+    );
+}
+
+[[nodiscard]] FfiEditPreviewExecutionReceipt edit_preview_execution_receipt(
+    const image::EditPreviewExecutionReceipt& receipt
+) {
+    if (!receipt.valid()) {
+        throw image::DecodeError(
+            image::DecodeErrorCode::internal,
+            0,
+            "edit-preview execution receipt is invalid"
+        );
+    }
+    FfiEditPreviewExecutionReceipt result;
+    result.schema_version = receipt.schema_version;
+    result.cache_identity = rust::String(
+        image::edit_preview_execution_receipt_identity(receipt)
+    );
+    result.adjustment_backend = edit_preview_backend(receipt.adjustment_backend);
+    result.adjustment_backend_version = receipt.adjustment_backend_version;
+    result.adjustment_execution_contract_version =
+        receipt.adjustment_execution_contract_version;
+    result.display_backend = edit_preview_backend(receipt.display_backend);
+    result.display_backend_version = receipt.display_backend_version;
+    result.display_output_contract_version = receipt.display_output_contract_version;
+    result.adjustment_fell_back = receipt.adjustment_fell_back;
+    result.display_fell_back = receipt.display_fell_back;
+    result.diagnostic = rust::String(receipt.diagnostic);
+    return result;
+}
+
 [[nodiscard]] FfiAnalyzedEditPreview analyzed_edit_preview(
     const image::AnalyzedEditPreview& preview
 ) {
     FfiAnalyzedEditPreview result;
     result.proxy = encoded_proxy(preview.proxy);
     result.analysis = edit_preview_analysis(preview.analysis);
+    result.execution = edit_preview_execution_receipt(preview.execution);
     return result;
 }
 
@@ -1371,6 +1416,10 @@ rust::String libraw_provider_version() {
 rust::String photo_provider_version() {
     const auto provider = image::make_photo_decoder_provider();
     return rust::String(provider->info().version);
+}
+
+rust::String edit_preview_generator_implementation_identity() {
+    return rust::String(image::edit_preview_generator_implementation_identity());
 }
 
 rust::Vec<rust::String> photo_supported_raster_extensions() {
