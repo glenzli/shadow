@@ -1,4 +1,5 @@
 #include <shadow/image/edit.hpp>
+#include <shadow/image/adjustment_execution.hpp>
 #include <shadow/image/display_output.hpp>
 
 #include "display_rgb_math.hpp"
@@ -877,8 +878,16 @@ struct PreparedEditPreviewPixels final {
 };
 
 [[nodiscard]] EditPreviewExecutionReceipt edit_preview_execution_receipt(
+    const AdjustmentExecutionResult& adjustment,
     const DisplayRgb8Image& display
 ) {
+    if (!adjustment.valid()) {
+        throw DecodeError(
+            DecodeErrorCode::internal,
+            0,
+            "warm preview adjustment stage returned an invalid result"
+        );
+    }
     if (!display.valid()) {
         throw DecodeError(
             DecodeErrorCode::internal,
@@ -887,12 +896,28 @@ struct PreparedEditPreviewPixels final {
         );
     }
     static_assert(
+        edit_preview_cpu_adjustment_backend_version == adjustment_cpu_backend_version
+    );
+    static_assert(
+        edit_preview_metal_adjustment_backend_version == adjustment_metal_backend_version
+    );
+    static_assert(
         edit_preview_cpu_display_backend_version == display_output_cpu_backend_version
     );
     static_assert(
         edit_preview_metal_display_backend_version == display_output_metal_backend_version
     );
     EditPreviewExecutionReceipt receipt;
+    switch (adjustment.backend) {
+    case AdjustmentBackend::cpu:
+        receipt.adjustment_backend = EditPreviewBackend::cpu;
+        receipt.adjustment_backend_version = adjustment_cpu_backend_version;
+        break;
+    case AdjustmentBackend::metal:
+        receipt.adjustment_backend = EditPreviewBackend::metal;
+        receipt.adjustment_backend_version = adjustment_metal_backend_version;
+        break;
+    }
     switch (display.backend) {
     case DisplayOutputBackend::cpu:
         receipt.display_backend = EditPreviewBackend::cpu;
@@ -903,8 +928,17 @@ struct PreparedEditPreviewPixels final {
         receipt.display_backend_version = display_output_metal_backend_version;
         break;
     }
+    receipt.adjustment_fell_back = adjustment.fell_back;
     receipt.display_fell_back = display.fell_back;
-    receipt.diagnostic = display.diagnostic;
+    if (!adjustment.diagnostic.empty()) {
+        receipt.diagnostic = "adjustment: " + adjustment.diagnostic;
+    }
+    if (!display.diagnostic.empty()) {
+        if (!receipt.diagnostic.empty()) {
+            receipt.diagnostic += "; ";
+        }
+        receipt.diagnostic += "display: " + display.diagnostic;
+    }
     if (!receipt.valid()) {
         throw DecodeError(
             DecodeErrorCode::internal,
@@ -919,7 +953,7 @@ struct PreparedEditPreviewPixels final {
     const FloatRgbImage& working_proxy,
     const std::span<const AdjustmentNode> nodes
 ) {
-    FloatRgbImage edited = execute_adjustment_nodes(
+    auto adjustment = execute_adjustment_nodes_accelerated(
         working_proxy,
         nodes,
         AdjustmentExecutionContext{
@@ -930,12 +964,12 @@ struct PreparedEditPreviewPixels final {
     // Metal execution declines or fails, it restarts the entire display stage on CPU from this
     // image; a partial GPU tile can never leak into the fallback output.
     auto display = render_linear_srgb_to_display_srgb8(
-        edited,
-        DisplayOutputRequest{.target_dimensions = edited.dimensions}
+        adjustment.pixels,
+        DisplayOutputRequest{.target_dimensions = adjustment.pixels.dimensions}
     );
-    auto execution = edit_preview_execution_receipt(display);
+    auto execution = edit_preview_execution_receipt(adjustment, display);
     return PreparedEditPreviewPixels{
-        .edited = std::move(edited),
+        .edited = std::move(adjustment.pixels),
         .rgb = std::move(display.bytes),
         .execution = std::move(execution),
     };
@@ -1264,7 +1298,10 @@ bool EditPreviewExecutionReceipt::valid() const noexcept {
         && valid_adjustment_backend(adjustment_backend, adjustment_backend_version)
         && adjustment_execution_contract_version == edit_execution_plan_identity_version
         && valid_display_backend(display_backend, display_backend_version)
-        && display_output_contract_version == display_srgb8_output_transform_version;
+        && display_output_contract_version == display_srgb8_output_transform_version
+        && (!adjustment_fell_back || adjustment_backend == EditPreviewBackend::cpu)
+        && (!display_fell_back || display_backend == EditPreviewBackend::cpu)
+        && ((adjustment_fell_back || display_fell_back) == !diagnostic.empty());
 }
 
 std::string edit_preview_execution_receipt_identity(
@@ -1296,7 +1333,12 @@ std::string edit_preview_generator_implementation_identity() {
     // local device. Runtime availability and fallback diagnostics remain on each receipt.
     return "shadow-edit-preview-generator-v1;plan="
         + std::to_string(edit_execution_plan_identity_version)
-        + ";adjustment-cpu=" + std::to_string(edit_preview_cpu_adjustment_backend_version)
+        + ";adjustment-cpu=" + std::string(
+            adjustment_backend_identity(AdjustmentBackend::cpu)
+        )
+        + ";adjustment-metal=" + std::string(
+            adjustment_backend_identity(AdjustmentBackend::metal)
+        )
         + ";display-cpu=" + std::string(
             display_output_backend_identity(DisplayOutputBackend::cpu)
         )

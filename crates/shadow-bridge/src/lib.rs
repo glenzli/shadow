@@ -3744,6 +3744,15 @@ fn edit_preview_execution_receipt(
             "edit-preview receipt contains unsupported implementation contracts",
         ));
     }
+    let any_fallback = receipt.adjustment_fell_back || receipt.display_fell_back;
+    if (receipt.adjustment_fell_back && adjustment_backend != EditPreviewBackend::Cpu)
+        || (receipt.display_fell_back && display_backend != EditPreviewBackend::Cpu)
+        || any_fallback != !receipt.diagnostic.is_empty()
+    {
+        return Err(BridgeError::InvalidEditPreviewOutput(
+            "edit-preview receipt contains incoherent fallback provenance",
+        ));
+    }
     Ok(EditPreviewExecutionReceipt {
         schema_version: receipt.schema_version,
         cache_identity: receipt.cache_identity,
@@ -5306,6 +5315,38 @@ mod tests {
         stale_display_backend.display_backend_version += 1;
         assert!(matches!(
             edit_preview_execution_receipt(stale_display_backend),
+            Err(BridgeError::InvalidEditPreviewOutput(_))
+        ));
+
+        let mut impossible_adjustment_fallback = valid_ffi_edit_preview_execution_receipt();
+        impossible_adjustment_fallback.adjustment_backend = ffi::FfiEditPreviewBackend::Metal;
+        impossible_adjustment_fallback.adjustment_fell_back = true;
+        impossible_adjustment_fallback.diagnostic = "impossible".to_owned();
+        assert!(matches!(
+            edit_preview_execution_receipt(impossible_adjustment_fallback),
+            Err(BridgeError::InvalidEditPreviewOutput(_))
+        ));
+
+        let mut impossible_display_fallback = valid_ffi_edit_preview_execution_receipt();
+        impossible_display_fallback.display_backend = ffi::FfiEditPreviewBackend::Metal;
+        impossible_display_fallback.display_fell_back = true;
+        impossible_display_fallback.diagnostic = "impossible".to_owned();
+        assert!(matches!(
+            edit_preview_execution_receipt(impossible_display_fallback),
+            Err(BridgeError::InvalidEditPreviewOutput(_))
+        ));
+
+        let mut missing_fallback_diagnostic = valid_ffi_edit_preview_execution_receipt();
+        missing_fallback_diagnostic.adjustment_fell_back = true;
+        assert!(matches!(
+            edit_preview_execution_receipt(missing_fallback_diagnostic),
+            Err(BridgeError::InvalidEditPreviewOutput(_))
+        ));
+
+        let mut stray_diagnostic = valid_ffi_edit_preview_execution_receipt();
+        stray_diagnostic.diagnostic = "stray".to_owned();
+        assert!(matches!(
+            edit_preview_execution_receipt(stray_diagnostic),
             Err(BridgeError::InvalidEditPreviewOutput(_))
         ));
     }

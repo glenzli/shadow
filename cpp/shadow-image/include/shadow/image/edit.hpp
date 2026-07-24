@@ -401,6 +401,7 @@ enum class EditErrorCode : std::uint8_t {
     unsupported_version,
     non_finite_value,
     numeric_overflow,
+    backend_failure,
 };
 
 class EditError final : public std::runtime_error {
@@ -498,9 +499,9 @@ inline constexpr std::size_t edit_preview_histogram_bin_count = 256U;
 inline constexpr std::string_view edit_preview_analysis_version =
     "shadow.edit-preview-analysis.v1:rgb8-before-jpeg:rec709-encoded-q16:"
     "pre-clamp-linear-strict-lt-gt-any-channel";
-// Cache provenance for one completed warm-preview render. Adjustment execution is currently the
-// CPU reference; the same-size display boundary selects CPU or Metal at runtime. This belongs to
-// the render result rather than the immutable session or generic EncodedProxy payload.
+// Cache provenance for one completed warm-preview render. Adjustment and same-size display are
+// independent provenance-bearing CPU/Metal stages. This belongs to the render result rather than
+// the immutable session or generic EncodedProxy payload.
 inline constexpr std::uint32_t edit_preview_execution_receipt_schema_version = 1U;
 inline constexpr std::uint32_t edit_preview_cpu_adjustment_backend_version = 1U;
 inline constexpr std::uint32_t edit_preview_metal_adjustment_backend_version = 1U;

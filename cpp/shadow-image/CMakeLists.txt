@@ -43,6 +43,7 @@ add_library(
     src/color/source_profile_catalog.cpp
     src/color/source_rendering.cpp
     src/concurrency/row_scheduler.cpp
+    src/edit/adjustment_execution.cpp
     src/edit/cube_lut.cpp
     src/edit/cpu_reference.cpp
     src/raw/bayer_demosaic.cpp
@@ -65,6 +66,7 @@ if(APPLE AND SHADOW_ENABLE_METAL)
     target_sources(
         shadow-image
         PRIVATE
+            src/edit/metal_adjustment.mm
             src/raw/metal_raw_development.mm
             src/proxy/metal_display_output.mm
     )
@@ -79,6 +81,7 @@ else()
     target_sources(
         shadow-image
         PRIVATE
+            src/edit/metal_adjustment_stub.cpp
             src/raw/metal_raw_development_stub.cpp
             src/proxy/metal_display_output_stub.cpp
     )
@@ -218,6 +221,20 @@ if(BUILD_TESTING)
     shadow_image_enable_warnings(shadow-image-edit-tests)
     add_test(NAME shadow-image-edit-contract COMMAND shadow-image-edit-tests)
 
+    add_executable(
+        shadow-image-adjustment-execution-tests
+        tests/adjustment_execution_contract_test.cpp
+    )
+    target_link_libraries(
+        shadow-image-adjustment-execution-tests
+        PRIVATE Shadow::Image
+    )
+    shadow_image_enable_warnings(shadow-image-adjustment-execution-tests)
+    add_test(
+        NAME shadow-image-adjustment-execution-contract
+        COMMAND shadow-image-adjustment-execution-tests
+    )
+
     add_executable(shadow-image-detail-tile-tests tests/detail_tile_contract_test.cpp)
     target_link_libraries(shadow-image-detail-tile-tests PRIVATE Shadow::Image)
     shadow_image_enable_warnings(shadow-image-detail-tile-tests)
@@ -265,6 +282,13 @@ if(BUILD_TESTING)
         COMMAND shadow-image-fused-raw-development-tests
     )
     if(SHADOW_REQUIRE_METAL_TESTS)
+        set_tests_properties(
+            shadow-image-adjustment-execution-contract
+            PROPERTIES
+                ENVIRONMENT
+                    "SHADOW_IMAGE_ACCELERATION=metal;SHADOW_TEST_REQUIRE_METAL=1"
+                LABELS "metal-required"
+        )
         set_tests_properties(
             shadow-image-display-output-contract
             PROPERTIES

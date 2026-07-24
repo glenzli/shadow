@@ -1,4 +1,5 @@
 #include <shadow/image/color_management.hpp>
+#include <shadow/image/adjustment_execution.hpp>
 #include <shadow/image/decoder.hpp>
 #include <shadow/image/display_output.hpp>
 #include <shadow/image/edit.hpp>
@@ -1665,6 +1666,25 @@ void warm_edit_preview_receipt_tracks_the_effective_display_backend() {
                 != image::edit_preview_execution_receipt_identity(cpu.execution),
             "effective Metal display output cannot reuse a CPU warm-preview identity"
         );
+        const std::array active_nodes{
+            image::AdjustmentNode{
+                .node_id = "receipt-active-exposure",
+                .parameters = image::ExposureAdjustment{.stops = 0.25},
+            },
+        };
+        const auto accelerated = warm.render_jpeg_with_analysis(active_nodes, 90U);
+        expect(
+            accelerated.execution.valid()
+                && accelerated.execution.adjustment_backend
+                    == image::EditPreviewBackend::metal
+                && accelerated.execution.adjustment_backend_version
+                    == image::edit_preview_metal_adjustment_backend_version
+                && accelerated.execution.display_backend == image::EditPreviewBackend::metal
+                && !accelerated.execution.adjustment_fell_back
+                && !accelerated.execution.display_fell_back
+                && accelerated.execution.diagnostic.empty(),
+            "an active supported warm-preview plan reports Metal adjustment and display"
+        );
     } else {
         image::AnalyzedEditPreview fallback;
         {
@@ -1698,6 +1718,15 @@ void warm_edit_preview_receipt_tracks_the_effective_display_backend() {
                 image::DisplayOutputBackend::metal
             ))) != std::string::npos,
         "generator identity names both selectable display-output implementations"
+    );
+    expect(
+        generator.find(std::string(image::adjustment_backend_identity(
+            image::AdjustmentBackend::cpu
+        ))) != std::string::npos
+            && generator.find(std::string(image::adjustment_backend_identity(
+                image::AdjustmentBackend::metal
+            ))) != std::string::npos,
+        "generator identity names both selectable adjustment implementations"
     );
 }
 
@@ -1767,6 +1796,28 @@ void edit_preview_execution_identity_excludes_fallback_diagnostics() {
     expect(
         !stale_display_backend.valid(),
         "a stale CPU display backend version fails the C++ receipt contract"
+    );
+    image::EditPreviewExecutionReceipt impossible_adjustment_fallback = cpu;
+    impossible_adjustment_fallback.adjustment_backend = image::EditPreviewBackend::metal;
+    impossible_adjustment_fallback.adjustment_backend_version =
+        image::edit_preview_metal_adjustment_backend_version;
+    impossible_adjustment_fallback.adjustment_fell_back = true;
+    impossible_adjustment_fallback.diagnostic = "impossible";
+    expect(
+        !impossible_adjustment_fallback.valid(),
+        "a Metal backend cannot claim that it fell back"
+    );
+    image::EditPreviewExecutionReceipt missing_fallback_diagnostic = cpu;
+    missing_fallback_diagnostic.adjustment_fell_back = true;
+    expect(
+        !missing_fallback_diagnostic.valid(),
+        "a fallback receipt requires a diagnostic"
+    );
+    image::EditPreviewExecutionReceipt stray_diagnostic = cpu;
+    stray_diagnostic.diagnostic = "stray";
+    expect(
+        !stray_diagnostic.valid(),
+        "a non-fallback receipt cannot carry a fallback diagnostic"
     );
 }
 

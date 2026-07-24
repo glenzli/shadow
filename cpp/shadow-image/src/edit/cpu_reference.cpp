@@ -1,5 +1,6 @@
 #include <shadow/image/edit.hpp>
 
+#include "adjustment_execution_internal.hpp"
 #include "../concurrency/row_scheduler.hpp"
 
 #include <algorithm>
@@ -507,6 +508,26 @@ void validate_image(const FloatRgbImage& image) {
             "edit input contains NaN or infinity"
         );
     }
+}
+
+[[nodiscard]] AdjustmentExecutionContext validate_execution_context(
+    const FloatRgbImage& input,
+    AdjustmentExecutionContext context
+) {
+    if (context.full_dimensions.width == 0U || context.full_dimensions.height == 0U) {
+        context.full_dimensions = input.dimensions;
+    }
+    if (context.origin_x > context.full_dimensions.width
+        || context.origin_y > context.full_dimensions.height
+        || input.dimensions.width > context.full_dimensions.width - context.origin_x
+        || input.dimensions.height > context.full_dimensions.height - context.origin_y) {
+        throw EditError(
+            EditErrorCode::invalid_image_layout,
+            std::nullopt,
+            "adjustment execution context lies outside its full raster"
+        );
+    }
+    return context;
 }
 
 #include "cpu_reference_curve.ipp"
@@ -1434,6 +1455,249 @@ EditExecutionPlan compile_edit_execution_plan(
     return plan;
 }
 
+namespace detail {
+
+MetalAdjustmentPreparationV1 prepare_metal_adjustment_v1(
+    const FloatRgbImage& input,
+    const std::span<const AdjustmentNode> nodes,
+    const EditExecutionPlan& plan,
+    const AdjustmentExecutionContext context
+) {
+    validate_image(input);
+    static_cast<void>(validate_execution_context(input, context));
+    if (plan.source_node_count != nodes.size()) {
+        return MetalAdjustmentPreparationV1{
+            .program = std::nullopt,
+            .diagnostic = "Metal adjustment plan no longer matches its source nodes",
+        };
+    }
+
+    std::size_t step_count = 0U;
+    for (const auto& segment : plan.segments) {
+        if (segment.locality != AdjustmentLocality::pixel_local) {
+            return MetalAdjustmentPreparationV1{
+                .program = std::nullopt,
+                .diagnostic = "Metal adjustment v1 cannot prepare a neighborhood segment",
+            };
+        }
+        if (segment.steps.size() > std::numeric_limits<std::size_t>::max() - step_count) {
+            return MetalAdjustmentPreparationV1{
+                .program = std::nullopt,
+                .diagnostic = "Metal adjustment operation count overflowed",
+            };
+        }
+        step_count += segment.steps.size();
+    }
+    if (step_count == 0U || step_count > std::numeric_limits<std::uint32_t>::max()) {
+        return MetalAdjustmentPreparationV1{
+            .program = std::nullopt,
+            .diagnostic = step_count == 0U
+                ? "Metal adjustment v1 received no executable operations"
+                : "Metal adjustment operation count exceeds its uint32 ABI",
+        };
+    }
+    if (input.dimensions.width > std::numeric_limits<std::uint32_t>::max() / 3U) {
+        return MetalAdjustmentPreparationV1{
+            .program = std::nullopt,
+            .diagnostic = "Metal adjustment row width exceeds its uint32 ABI",
+        };
+    }
+
+    PreparedMetalAdjustmentV1 prepared;
+    prepared.invocation.width = input.dimensions.width;
+    prepared.invocation.height = input.dimensions.height;
+    prepared.invocation.input_row_floats = input.dimensions.width * 3U;
+    prepared.invocation.output_row_floats = input.dimensions.width * 3U;
+    prepared.invocation.step_count = static_cast<std::uint32_t>(step_count);
+    prepared.operations.reserve(step_count);
+
+    const auto checked_parameter_float = [](const double value) -> std::optional<float> {
+        if (!std::isfinite(value)
+            || value > static_cast<double>(std::numeric_limits<float>::max())
+            || value < -static_cast<double>(std::numeric_limits<float>::max())) {
+            return std::nullopt;
+        }
+        const float converted = static_cast<float>(value);
+        return std::isfinite(converted) ? std::optional<float>{converted} : std::nullopt;
+    };
+    const auto fill_matrix_rows = [&checked_parameter_float](
+        const Matrix3& matrix,
+        std::array<float, 4U>& row_0,
+        std::array<float, 4U>& row_1,
+        std::array<float, 4U>& row_2
+    ) {
+        std::array<std::array<float, 4U>*, 3U> rows{&row_0, &row_1, &row_2};
+        for (std::size_t row = 0U; row < 3U; ++row) {
+            for (std::size_t column = 0U; column < 3U; ++column) {
+                const auto converted = checked_parameter_float(matrix[row][column]);
+                if (!converted.has_value()) {
+                    return false;
+                }
+                (*rows[row])[column] = *converted;
+            }
+        }
+        return true;
+    };
+
+    std::optional<WorkingSpaceTransform> working_transform;
+    for (const auto& segment : plan.segments) {
+        for (const auto& step : segment.steps) {
+            if (step.node_index >= nodes.size()
+                || step.node_index > std::numeric_limits<std::uint32_t>::max()) {
+                return MetalAdjustmentPreparationV1{
+                    .program = std::nullopt,
+                    .diagnostic =
+                        "Metal adjustment source-node index exceeds its uint32 ABI",
+                };
+            }
+            const AdjustmentNode& node = nodes[step.node_index];
+            if (operation(node.parameters) != step.operation) {
+                return MetalAdjustmentPreparationV1{
+                    .program = std::nullopt,
+                    .diagnostic =
+                        "Metal adjustment plan operation no longer matches its source node",
+                };
+            }
+
+            MetalAdjustmentOpV1 operation_record{
+                .source_node_index = static_cast<std::uint32_t>(step.node_index),
+            };
+            switch (step.operation) {
+            case AdjustmentOperation::rgb_white_balance: {
+                operation_record.opcode = static_cast<std::uint32_t>(
+                    MetalAdjustmentOpcodeV1::rgb_white_balance
+                );
+                const auto& parameters =
+                    std::get<RgbWhiteBalanceAdjustment>(node.parameters);
+                const Matrix3 adaptation = prepare_rgb_white_balance_matrix(
+                    input.working_space,
+                    parameters,
+                    node,
+                    step.node_index
+                );
+                if (!fill_matrix_rows(
+                        adaptation,
+                        operation_record.parameter_0,
+                        operation_record.parameter_1,
+                        operation_record.parameter_2
+                    )) {
+                    return MetalAdjustmentPreparationV1{
+                        .program = std::nullopt,
+                        .diagnostic =
+                            "Metal white-balance matrix exceeds finite fp32 range",
+                    };
+                }
+                break;
+            }
+            case AdjustmentOperation::exposure: {
+                operation_record.opcode = static_cast<std::uint32_t>(
+                    MetalAdjustmentOpcodeV1::exposure
+                );
+                const auto& parameters = std::get<ExposureAdjustment>(node.parameters);
+                const auto gain = checked_parameter_float(std::exp2(parameters.stops));
+                if (!gain.has_value() || *gain <= 0.0F) {
+                    return MetalAdjustmentPreparationV1{
+                        .program = std::nullopt,
+                        .diagnostic = "Metal exposure gain exceeds finite fp32 range",
+                    };
+                }
+                operation_record.parameter_0[0] = *gain;
+                break;
+            }
+            case AdjustmentOperation::contrast: {
+                operation_record.opcode = static_cast<std::uint32_t>(
+                    MetalAdjustmentOpcodeV1::contrast
+                );
+                const auto& parameters = std::get<ContrastAdjustment>(node.parameters);
+                const double pivot = std::cbrt(std::max(parameters.pivot, 1.0e-9));
+                const double amount = parameters.factor == 0.0
+                    ? 0.0
+                    : std::clamp(std::log2(parameters.factor) * 0.20, -0.45, 0.45);
+                const auto pivot_float = checked_parameter_float(pivot);
+                const auto amount_float = checked_parameter_float(amount);
+                if (!pivot_float.has_value() || !amount_float.has_value()) {
+                    return MetalAdjustmentPreparationV1{
+                        .program = std::nullopt,
+                        .diagnostic = "Metal contrast parameters exceed finite fp32 range",
+                    };
+                }
+                operation_record.parameter_0 = {
+                    *pivot_float,
+                    *amount_float,
+                    parameters.factor == 0.0 ? 1.0F : 0.0F,
+                    0.0F,
+                };
+                if (!working_transform.has_value()) {
+                    working_transform = prepare_working_space_transform(
+                        input.working_space,
+                        node,
+                        step.node_index
+                    );
+                }
+                break;
+            }
+            case AdjustmentOperation::saturation: {
+                operation_record.opcode = static_cast<std::uint32_t>(
+                    MetalAdjustmentOpcodeV1::saturation
+                );
+                const auto& parameters = std::get<SaturationAdjustment>(node.parameters);
+                const auto factor = checked_parameter_float(parameters.factor);
+                if (!factor.has_value()) {
+                    return MetalAdjustmentPreparationV1{
+                        .program = std::nullopt,
+                        .diagnostic = "Metal saturation factor exceeds finite fp32 range",
+                    };
+                }
+                operation_record.parameter_0[0] = *factor;
+                if (!working_transform.has_value()) {
+                    working_transform = prepare_working_space_transform(
+                        input.working_space,
+                        node,
+                        step.node_index
+                    );
+                }
+                break;
+            }
+            case AdjustmentOperation::oklab_lightness_tone_curve:
+            case AdjustmentOperation::selective_tone:
+            case AdjustmentOperation::perceptual_color:
+            case AdjustmentOperation::lut_3d:
+            case AdjustmentOperation::sharpen:
+                return MetalAdjustmentPreparationV1{
+                    .program = std::nullopt,
+                    .diagnostic = "Metal adjustment v1 received an unsupported operation",
+                };
+            }
+            prepared.operations.push_back(operation_record);
+        }
+    }
+
+    if (working_transform.has_value()
+        && (!fill_matrix_rows(
+                working_transform->rgb_to_xyz,
+                prepared.invocation.rgb_to_xyz_row_0,
+                prepared.invocation.rgb_to_xyz_row_1,
+                prepared.invocation.rgb_to_xyz_row_2
+            )
+            || !fill_matrix_rows(
+                working_transform->xyz_to_rgb,
+                prepared.invocation.xyz_to_rgb_row_0,
+                prepared.invocation.xyz_to_rgb_row_1,
+                prepared.invocation.xyz_to_rgb_row_2
+            ))) {
+        return MetalAdjustmentPreparationV1{
+            .program = std::nullopt,
+            .diagnostic = "Metal working-space transform exceeds finite fp32 range",
+        };
+    }
+    return MetalAdjustmentPreparationV1{
+        .program = std::move(prepared),
+        .diagnostic = {},
+    };
+}
+
+} // namespace detail
+
 FloatRgbImage execute_adjustment_nodes(
     const FloatRgbImage& input,
     const std::span<const AdjustmentNode> nodes,
@@ -1441,20 +1705,7 @@ FloatRgbImage execute_adjustment_nodes(
 ) {
     validate_image(input);
     const auto prepared_curves = prepare_adjustment_nodes(nodes);
-
-    if (context.full_dimensions.width == 0U || context.full_dimensions.height == 0U) {
-        context.full_dimensions = input.dimensions;
-    }
-    if (context.origin_x > context.full_dimensions.width
-        || context.origin_y > context.full_dimensions.height
-        || input.dimensions.width > context.full_dimensions.width - context.origin_x
-        || input.dimensions.height > context.full_dimensions.height - context.origin_y) {
-        throw EditError(
-            EditErrorCode::invalid_image_layout,
-            std::nullopt,
-            "adjustment execution context lies outside its full raster"
-        );
-    }
+    context = validate_execution_context(input, context);
     FloatRgbImage output = input;
     for (std::size_t index = 0; index < nodes.size(); ++index) {
         if (nodes[index].enabled) {

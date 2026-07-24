@@ -6,6 +6,7 @@ const BRIDGE_INPUTS: &[&str] = &[
     "include/shadow/image/display_luma.hpp",
     "include/shadow/image/display_output.hpp",
     "include/shadow/image/sensor_clipping.hpp",
+    "include/shadow/image/adjustment_execution.hpp",
     "include/shadow/image/edit.hpp",
     "include/shadow/image/lut.hpp",
     "include/shadow/image/optics.hpp",
@@ -37,11 +38,15 @@ const EMBEDDED_IMAGE_INPUTS: &[&str] = &[
     "src/color/source_profile_catalog.cpp",
     "src/color/source_rendering.cpp",
     "src/edit/cube_lut.cpp",
+    "src/edit/adjustment_execution.cpp",
+    "src/edit/adjustment_execution_internal.hpp",
     "src/edit/cpu_reference.cpp",
     "src/edit/cpu_reference_color.ipp",
     "src/edit/cpu_reference_curve.ipp",
     "src/edit/cpu_reference_detail.ipp",
     "src/edit/cpu_reference_tone.ipp",
+    "src/edit/metal_adjustment.mm",
+    "src/edit/metal_adjustment_stub.cpp",
     "src/concurrency/row_scheduler.hpp",
     "src/concurrency/row_scheduler.cpp",
     "src/raw/bayer_demosaic.cpp",
@@ -191,6 +196,7 @@ fn main() {
         .file(image_root.join("src/color/lcms_color_management.cpp"))
         .file(image_root.join("src/color/source_profile_catalog.cpp"))
         .file(image_root.join("src/color/source_rendering.cpp"))
+        .file(image_root.join("src/edit/adjustment_execution.cpp"))
         .file(image_root.join("src/edit/cube_lut.cpp"))
         .file(image_root.join("src/edit/cpu_reference.cpp"))
         .file(image_root.join("src/concurrency/row_scheduler.cpp"))
@@ -208,11 +214,13 @@ fn main() {
         .file(image_root.join("src/proxy/jpeg_proxy.cpp"));
     if metal_enabled {
         build
+            .file(image_root.join("src/edit/metal_adjustment.mm"))
             .file(image_root.join("src/raw/metal_raw_development.mm"))
             .file(image_root.join("src/proxy/metal_display_output.mm"))
             .define("SHADOW_IMAGE_HAS_METAL", Some("1"));
     } else {
         build
+            .file(image_root.join("src/edit/metal_adjustment_stub.cpp"))
             .file(image_root.join("src/raw/metal_raw_development_stub.cpp"))
             .file(image_root.join("src/proxy/metal_display_output_stub.cpp"))
             .define("SHADOW_IMAGE_HAS_METAL", Some("0"));

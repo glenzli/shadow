@@ -1,0 +1,253 @@
+#include <shadow/image/adjustment_execution.hpp>
+
+#include "adjustment_execution_internal.hpp"
+
+#include <cmath>
+#include <cstdlib>
+#include <limits>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <utility>
+
+namespace shadow::image {
+
+namespace {
+
+inline constexpr std::string_view image_acceleration_environment =
+    "SHADOW_IMAGE_ACCELERATION";
+
+[[nodiscard]] std::optional<std::string> metal_v1_ineligibility(
+    const EditExecutionPlan& plan
+) {
+    for (const auto& segment : plan.segments) {
+        if (segment.locality != AdjustmentLocality::pixel_local) {
+            return "Metal adjustment v1 requires every active node to be pixel-local";
+        }
+        for (const auto& step : segment.steps) {
+            switch (step.operation) {
+            case AdjustmentOperation::rgb_white_balance:
+            case AdjustmentOperation::exposure:
+            case AdjustmentOperation::contrast:
+            case AdjustmentOperation::saturation:
+                break;
+            case AdjustmentOperation::oklab_lightness_tone_curve:
+            case AdjustmentOperation::selective_tone:
+            case AdjustmentOperation::perceptual_color:
+            case AdjustmentOperation::lut_3d:
+            case AdjustmentOperation::sharpen:
+                return "Metal adjustment v1 does not support active operation "
+                    + std::string(operation_id(step.operation));
+            }
+        }
+    }
+    return std::nullopt;
+}
+
+[[nodiscard]] AdjustmentExecutionResult execute_on_cpu(
+    const FloatRgbImage& input,
+    const std::span<const AdjustmentNode> nodes,
+    const AdjustmentExecutionContext context,
+    const bool fell_back,
+    std::string diagnostic
+) {
+    auto pixels = execute_adjustment_nodes(input, nodes, context);
+    AdjustmentExecutionResult result{
+        .pixels = std::move(pixels),
+        .backend = AdjustmentBackend::cpu,
+        .fell_back = fell_back,
+        .diagnostic = std::move(diagnostic),
+    };
+    if (!result.valid()) {
+        throw EditError(
+            EditErrorCode::numeric_overflow,
+            std::nullopt,
+            "CPU adjustment backend produced an invalid result"
+        );
+    }
+    return result;
+}
+
+[[noreturn]] void throw_forced_metal_failure(std::string diagnostic) {
+    if (diagnostic.empty()) {
+        diagnostic = "Metal adjustment v1 declined the complete adjustment stage";
+    }
+    throw EditError(EditErrorCode::backend_failure, std::nullopt, std::move(diagnostic));
+}
+
+} // namespace
+
+std::string_view adjustment_backend_identity(const AdjustmentBackend backend) noexcept {
+    switch (backend) {
+    case AdjustmentBackend::cpu:
+        return "shadow-adjustment-cpu-v1;math=f64";
+    case AdjustmentBackend::metal:
+        return "shadow-adjustment-metal-v1;abi=1;math=f32-safe;ops=wb,exposure,contrast,saturation";
+    }
+    return "shadow-adjustment-unknown";
+}
+
+bool adjustment_backend_available(const AdjustmentBackend backend) noexcept {
+    switch (backend) {
+    case AdjustmentBackend::cpu:
+        return true;
+    case AdjustmentBackend::metal:
+        return detail::metal_adjustment_available();
+    }
+    return false;
+}
+
+AdjustmentBackendMode adjustment_backend_mode_from_environment() {
+    const auto* configured = std::getenv(image_acceleration_environment.data());
+    if (configured == nullptr || *configured == '\0'
+        || std::string_view(configured) == "auto") {
+        return AdjustmentBackendMode::automatic;
+    }
+    if (std::string_view(configured) == "cpu") {
+        return AdjustmentBackendMode::cpu;
+    }
+    if (std::string_view(configured) == "metal") {
+        return AdjustmentBackendMode::metal;
+    }
+    throw EditError(
+        EditErrorCode::invalid_parameter,
+        std::nullopt,
+        "SHADOW_IMAGE_ACCELERATION must be auto, cpu, or metal"
+    );
+}
+
+bool AdjustmentExecutionResult::valid() const noexcept {
+    const bool known_backend =
+        backend == AdjustmentBackend::cpu || backend == AdjustmentBackend::metal;
+    if (!known_backend
+        || pixels.dimensions.width == 0U || pixels.dimensions.height == 0U
+        || pixels.pixel_format != FloatPixelFormat::rgb_f32_native_interleaved
+        || pixels.row_stride_bytes < static_cast<std::size_t>(pixels.dimensions.width)
+                * 3U * sizeof(float)
+        || pixels.row_stride_bytes % sizeof(float) != 0U
+        || (fell_back && (backend != AdjustmentBackend::cpu || diagnostic.empty()))
+        || (!fell_back && !diagnostic.empty())) {
+        return false;
+    }
+    const std::size_t row_floats = pixels.row_stride_bytes / sizeof(float);
+    if (row_floats > std::numeric_limits<std::size_t>::max()
+            / static_cast<std::size_t>(pixels.dimensions.height)) {
+        return false;
+    }
+    // Finiteness is an execution contract, not a post-hoc extra raster pass: the CPU oracle
+    // validates its immutable input and checked-converts every node result, while Metal validates
+    // the same input during shared host preparation and raises an atomic failure after every GPU
+    // operation. Re-scanning here would add a full memory-bandwidth pass to every slider update.
+    return pixels.samples.size()
+        == row_floats * static_cast<std::size_t>(pixels.dimensions.height);
+}
+
+AdjustmentExecutionResult execute_adjustment_nodes_with_backend(
+    const FloatRgbImage& input,
+    const std::span<const AdjustmentNode> nodes,
+    const AdjustmentExecutionContext context,
+    const AdjustmentBackendMode backend_mode
+) {
+    if (backend_mode != AdjustmentBackendMode::automatic
+        && backend_mode != AdjustmentBackendMode::cpu
+        && backend_mode != AdjustmentBackendMode::metal) {
+        throw EditError(
+            EditErrorCode::invalid_parameter,
+            std::nullopt,
+            "adjustment dispatcher received an unknown backend mode"
+        );
+    }
+
+    // Compile and validate every source node before inspecting backend eligibility. Disabled
+    // malformed nodes therefore fail identically on CPU, Metal and automatic selection.
+    const EditExecutionPlan plan = compile_edit_execution_plan(
+        nodes,
+        input.level_zero_to_raster_scale_x,
+        input.level_zero_to_raster_scale_y
+    );
+    if (plan.segments.empty() || backend_mode == AdjustmentBackendMode::cpu) {
+        return execute_on_cpu(input, nodes, context, false, {});
+    }
+
+    if (const auto ineligible = metal_v1_ineligibility(plan); ineligible.has_value()) {
+        if (backend_mode == AdjustmentBackendMode::metal) {
+            throw_forced_metal_failure(*ineligible);
+        }
+        return execute_on_cpu(input, nodes, context, true, *ineligible);
+    }
+
+    auto preparation = detail::prepare_metal_adjustment_v1(
+        input,
+        nodes,
+        plan,
+        context
+    );
+    if (!preparation.program.has_value()) {
+        if (backend_mode == AdjustmentBackendMode::metal) {
+            throw_forced_metal_failure(std::move(preparation.diagnostic));
+        }
+        return execute_on_cpu(
+            input,
+            nodes,
+            context,
+            true,
+            preparation.diagnostic.empty()
+                ? "Metal adjustment v1 could not prepare the complete stage"
+                : std::move(preparation.diagnostic)
+        );
+    }
+
+    auto attempt = detail::try_execute_adjustments_metal_v1(
+        input,
+        *preparation.program
+    );
+    if (attempt.output.has_value()) {
+        AdjustmentExecutionResult result{
+            .pixels = std::move(*attempt.output),
+            .backend = AdjustmentBackend::metal,
+        };
+        if (!result.valid()) {
+            if (backend_mode == AdjustmentBackendMode::metal) {
+                throw_forced_metal_failure(
+                    "Metal adjustment v1 returned an invalid complete-stage result"
+                );
+            }
+            return execute_on_cpu(
+                input,
+                nodes,
+                context,
+                true,
+                "Metal adjustment v1 returned an invalid result; the complete stage was replayed"
+            );
+        }
+        return result;
+    }
+
+    if (backend_mode == AdjustmentBackendMode::metal) {
+        throw_forced_metal_failure(std::move(attempt.diagnostic));
+    }
+    return execute_on_cpu(
+        input,
+        nodes,
+        context,
+        true,
+        attempt.diagnostic.empty()
+            ? "Metal adjustment v1 declined the request; the complete stage was replayed"
+            : std::move(attempt.diagnostic)
+    );
+}
+
+AdjustmentExecutionResult execute_adjustment_nodes_accelerated(
+    const FloatRgbImage& input,
+    const std::span<const AdjustmentNode> nodes,
+    const AdjustmentExecutionContext context
+) {
+    return execute_adjustment_nodes_with_backend(
+        input,
+        nodes,
+        context,
+        adjustment_backend_mode_from_environment()
+    );
+}
+
+} // namespace shadow::image
