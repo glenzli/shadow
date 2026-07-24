@@ -296,7 +296,8 @@ EditDetailWarmupTaskResult warmDetailSource(
         // full-resolution source preparation and prime the center of the
         // bounded Recipe-tile cache. Do not compose or publish it: this is an
         // idle optimisation only, never a hidden viewport change.
-        static_cast<void>(backend->renderEditDetailViewport(
+        const BackendEditedDetailViewport viewport =
+            backend->renderEditDetailViewport(
             photo_id,
             source_path,
             base_commit_id,
@@ -308,7 +309,8 @@ EditDetailWarmupTaskResult warmDetailSource(
             EDIT_DETAIL_TILE_SIDE,
             EDIT_DETAIL_TILE_SIDE,
             true
-        ));
+        );
+        result.retained_bytes = viewport.retained_bytes;
     } catch (const std::exception& error) {
         result.error = QString::fromUtf8(error.what());
     }

@@ -3,7 +3,12 @@
 
 #include "shadow-desktop-bridge/src/lib.rs.h"
 
+#include <QColorSpace>
 #include <QImage>
+#include <QImageReader>
+#include <QImageWriter>
+#include <QPainter>
+#include <QSaveFile>
 
 #include <algorithm>
 #include <cmath>
@@ -306,6 +311,8 @@ template <std::size_t Size>
 ) {
     shadow::desktop::FfiGradeNode grade_node;
     grade_node.grade_node_id = source.grade_node_id.toStdString();
+    grade_node.shared_layer_id = source.shared_layer_id.toStdString();
+    grade_node.shared_revision_id = source.shared_revision_id.toStdString();
     grade_node.label = source.label.toStdString();
     grade_node.exposure_render_op_id = source.exposure_render_op_id.toStdString();
     grade_node.contrast_render_op_id = source.contrast_render_op_id.toStdString();
@@ -328,6 +335,8 @@ template <std::size_t Size>
 ) {
     BackendGradeNode grade_node;
     grade_node.grade_node_id = qstring(source.grade_node_id);
+    grade_node.shared_layer_id = qstring(source.shared_layer_id);
+    grade_node.shared_revision_id = qstring(source.shared_revision_id);
     grade_node.label = qstring(source.label);
     grade_node.exposure_render_op_id = qstring(source.exposure_render_op_id);
     grade_node.contrast_render_op_id = qstring(source.contrast_render_op_id);
@@ -343,6 +352,18 @@ template <std::size_t Size>
     grade_node.fine = edit_fine_parameters(source.fine);
     grade_node.enabled = source.enabled;
     return grade_node;
+}
+
+[[nodiscard]] BackendSharedGradeNode shared_grade_node(
+    const shadow::desktop::FfiSharedGradeNode& source
+) {
+    return BackendSharedGradeNode{
+        .layer_id = qstring(source.layer_id),
+        .revision_id = qstring(source.revision_id),
+        .label = qstring(source.label),
+        .revision_number = source.revision_number,
+        .grade_node = grade_node(source.grade_node),
+    };
 }
 
 [[nodiscard]] shadow::desktop::FfiEditSettings ffi_grade_stack(
@@ -614,6 +635,7 @@ BackendReviewPage DesktopBackend::reviewPage(
             .decision_head_sequence = item.decision_head_sequence,
             .decision_flag = decision_flag(item.decision_flag),
             .decision_rating = item.decision_rating,
+            .has_development_edits = item.has_development_edits,
             .title = qstring(item.title),
             .source_path = qstring(item.source_path),
             .visual_role = qstring(item.visual_role),
@@ -828,8 +850,192 @@ QVariantList DesktopBackend::opticsProfileCandidates(
     return result;
 }
 
+QVector<BackendSharedGradeNode> DesktopBackend::sharedGradeNodes() const {
+    const auto shared = impl_->session->shared_grade_nodes();
+    QVector<BackendSharedGradeNode> result;
+    result.reserve(checked_qt_vector_size(shared.size(), "shared_grade_nodes"));
+    for (const auto& node : shared) {
+        result.push_back(shared_grade_node(node));
+    }
+    return result;
+}
+
+BackendSharedGradeNode DesktopBackend::publishSharedGradeNode(
+    const QString& label,
+    const BackendGradeNode& grade_node
+) const {
+    const auto ffi_node = ffi_grade_node(grade_node);
+    return shared_grade_node(impl_->session->publish_shared_grade_node(
+        label.toStdString(), ffi_node
+    ));
+}
+
+BackendBatchGradeReceipt DesktopBackend::applySharedGradeNodeToPhotos(
+    const QString& layer_id,
+    const QVector<BackendBatchPhotoTarget>& targets
+) const {
+    rust::Vec<shadow::desktop::FfiBatchPhotoTarget> ffi_targets;
+    ffi_targets.reserve(static_cast<std::size_t>(targets.size()));
+    for (const auto& target : targets) {
+        shadow::desktop::FfiBatchPhotoTarget ffi_target;
+        ffi_target.photo_id = target.photo_id.toStdString();
+        ffi_target.source_path = target.source_path.toStdString();
+        ffi_targets.push_back(std::move(ffi_target));
+    }
+    const auto receipt = impl_->session->apply_shared_grade_node_to_photos(
+        layer_id.toStdString(), std::move(ffi_targets)
+    );
+    BackendBatchGradeReceipt result{
+        .requested = receipt.requested,
+        .updated = receipt.updated,
+        .unchanged = receipt.unchanged,
+        .failed = receipt.failed,
+    };
+    result.errors.reserve(
+        checked_qt_vector_size(receipt.errors.size(), "batch_grade_errors")
+    );
+    for (const auto& error : receipt.errors) {
+        result.errors.push_back(qstring(error));
+    }
+    return result;
+}
+
 BackendGradeNode DesktopBackend::newBasicGradeNode(const QString& label) const {
     return grade_node(shadow::desktop::new_basic_grade_node(label.toStdString()));
+}
+
+BackendExportReceipt DesktopBackend::exportPhoto(
+    const QString& photo_id,
+    const QString& source_path,
+    const QString& destination_path,
+    const BackendExportOptions& options
+) const {
+    if (destination_path.isEmpty()) {
+        throw std::invalid_argument("export destination path is empty");
+    }
+    if (options.format != QStringLiteral("jpeg")
+        && options.format != QStringLiteral("png")) {
+        throw std::invalid_argument("export format must be jpeg or png");
+    }
+    if (options.jpeg_quality < 1 || options.jpeg_quality > 100) {
+        throw std::invalid_argument("JPEG export quality must be in 1..=100");
+    }
+    const auto state = photoEditState(photo_id, source_path);
+    shadow::desktop::FfiEditExportRequest request;
+    request.base_commit_id = state.base_commit_id.toStdString();
+    request.settings = ffi_grade_stack(state.grade_stack);
+    request.use_working_recipe = true;
+    const auto raster = impl_->session->render_basic_edit_export(
+        photo_id.toStdString(), source_path.toStdString(), request
+    );
+    if (raster.width == 0 || raster.height == 0
+        || raster.row_stride_bytes != raster.width * 3U) {
+        throw std::runtime_error("export renderer returned an invalid RGB8 raster");
+    }
+    const qsizetype byte_count =
+        checked_qt_vector_size(raster.bytes.size(), "export_raster");
+    QImage image(
+        raster.bytes.data(),
+        static_cast<int>(raster.width),
+        static_cast<int>(raster.height),
+        static_cast<qsizetype>(raster.row_stride_bytes),
+        QImage::Format_RGB888
+    );
+    image = image.copy();
+    if (image.isNull() || image.sizeInBytes() > byte_count) {
+        throw std::runtime_error("could not materialize the rendered export raster");
+    }
+    image.setColorSpace(QColorSpace::SRgb);
+    if (options.max_edge > 0
+        && static_cast<std::uint32_t>(
+            std::max(image.width(), image.height())
+        ) > options.max_edge) {
+        image = image.scaled(
+            QSize(
+                static_cast<int>(options.max_edge),
+                static_cast<int>(options.max_edge)
+            ),
+            Qt::KeepAspectRatio,
+            Qt::SmoothTransformation
+        );
+    }
+    if (!options.watermark_path.isEmpty()) {
+        QImageReader watermark_reader(options.watermark_path);
+        watermark_reader.setAutoTransform(true);
+        QImage watermark = watermark_reader.read();
+        if (watermark.isNull()) {
+            throw std::runtime_error(
+                std::string("could not read PNG watermark: ")
+                + watermark_reader.errorString().toStdString()
+            );
+        }
+        const int watermark_width = std::clamp(
+            qRound(static_cast<double>(image.width())
+                   * std::clamp(options.watermark_scale, 0.01, 1.0)),
+            1,
+            image.width()
+        );
+        watermark = watermark.scaledToWidth(
+            watermark_width,
+            Qt::SmoothTransformation
+        );
+        const int inset = qRound(
+            static_cast<double>(std::min(image.width(), image.height()))
+            * std::clamp(options.watermark_inset, 0.0, 0.25)
+        );
+        const bool left = options.watermark_anchor.endsWith(QStringLiteral("left"));
+        const bool right = options.watermark_anchor.endsWith(QStringLiteral("right"));
+        const bool top = options.watermark_anchor.startsWith(QStringLiteral("top"));
+        const bool bottom =
+            options.watermark_anchor.startsWith(QStringLiteral("bottom"));
+        const int x = left ? inset
+            : right ? image.width() - watermark.width() - inset
+                    : (image.width() - watermark.width()) / 2;
+        const int y = top ? inset
+            : bottom ? image.height() - watermark.height() - inset
+                     : (image.height() - watermark.height()) / 2;
+        QPainter painter(&image);
+        painter.setOpacity(std::clamp(options.watermark_opacity, 0.0, 1.0));
+        painter.drawImage(QPoint(std::max(0, x), std::max(0, y)), watermark);
+        painter.end();
+    }
+    QSaveFile destination(destination_path);
+    if (!destination.open(QIODevice::WriteOnly)) {
+        throw std::runtime_error(
+            std::string("could not open export destination: ")
+            + destination.errorString().toStdString()
+        );
+    }
+    QImageWriter writer(
+        &destination,
+        options.format == QStringLiteral("png")
+            ? QByteArrayLiteral("png") : QByteArrayLiteral("jpg")
+    );
+    if (options.format == QStringLiteral("jpeg")) {
+        writer.setQuality(options.jpeg_quality);
+        writer.setOptimizedWrite(true);
+    }
+    if (!writer.write(image)) {
+        destination.cancelWriting();
+        throw std::runtime_error(
+            std::string("could not encode export: ")
+            + writer.errorString().toStdString()
+        );
+    }
+    const std::uint64_t byte_length =
+        static_cast<std::uint64_t>(destination.size());
+    if (!destination.commit()) {
+        throw std::runtime_error(
+            std::string("could not publish export atomically: ")
+            + destination.errorString().toStdString()
+        );
+    }
+    return {
+        .destination_path = destination_path,
+        .width = static_cast<std::uint32_t>(image.width()),
+        .height = static_cast<std::uint32_t>(image.height()),
+        .byte_length = byte_length,
+    };
 }
 
 BackendEditedPreview DesktopBackend::renderEditPreview(

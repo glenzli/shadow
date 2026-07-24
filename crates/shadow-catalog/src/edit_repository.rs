@@ -627,8 +627,10 @@ impl std::error::Error for PersistedRefKindError {}
 #[cfg(test)]
 mod tests {
     use shadow_domain::{
-        AssetLocation, EditEntityEntryV1, EditEntityMapV1, EditObjectKind,
-        EditRepositoryCommitPayloadV1, EntityId, LibraryRootV1, Platform, RecipeCommit, RecipeId,
+        AdjustmentNode, AssetLocation, EditEntityEntryV1, EditEntityMapV1, EditGraph,
+        EditObjectKind, EditRepositoryCommitPayloadV1, EntityId, ImageDomain, LayerId,
+        LayerRevision, LayerRevisionId, LibraryRootV1, NodeId, NodeInput, OperationDescriptor,
+        OperationId, ParameterBlock, Platform, PortType, ProcessingStage, RecipeCommit, RecipeId,
         RecipeSnapshot, RepresentationKind,
     };
 
@@ -638,6 +640,42 @@ mod tests {
     fn leaf(kind: EditObjectKind, label: &str) -> EditObjectPack {
         let object =
             EditObject::from_canonical_json(kind, 1, &serde_json::json!({ "label": label }))
+                .unwrap();
+        EditObjectPack::new(object, Vec::new()).unwrap()
+    }
+
+    fn shared_grade_revision(
+        id: LayerRevisionId,
+        layer_id: LayerId,
+        revision_number: u32,
+        parent: Option<LayerRevisionId>,
+        label: &str,
+    ) -> EditObjectPack {
+        let image = PortType::Image(ImageDomain::WorkingRgb);
+        let node_id = NodeId::new_v7();
+        let operation = OperationDescriptor::new(
+            OperationId::new("shadow.test.shared-grade").unwrap(),
+            1,
+            "catalog-test-v1",
+            ProcessingStage::CreativeColor,
+            vec![image],
+            image,
+            None,
+        )
+        .unwrap();
+        let node = AdjustmentNode::new(
+            node_id,
+            operation,
+            vec![NodeInput::GraphInput { index: 0 }],
+            ParameterBlock::default(),
+            None,
+        )
+        .unwrap();
+        let graph = EditGraph::new(1, vec![image], vec![node], node_id).unwrap();
+        let revision =
+            LayerRevision::new(id, layer_id, revision_number, parent, label, graph).unwrap();
+        let object =
+            EditObject::from_canonical_json(EditObjectKind::GradeNodeRevision, 1, &revision)
                 .unwrap();
         EditObjectPack::new(object, Vec::new()).unwrap()
     }
@@ -849,7 +887,10 @@ mod tests {
         let mut catalog = Catalog::open_in_memory().unwrap();
         let photo_a_v1 = leaf(EditObjectKind::PhotoEditState, "photo-a-v1");
         let photo_b_v1 = leaf(EditObjectKind::PhotoEditState, "photo-b-v1");
-        let shared_v1 = leaf(EditObjectKind::GradeNodeRevision, "shared-warm-v1");
+        let shared_layer_id = LayerId::new_v7();
+        let shared_v1_id = LayerRevisionId::new_v7();
+        let shared_v1 =
+            shared_grade_revision(shared_v1_id, shared_layer_id, 1, None, "shared-warm-v1");
         let photos_v1 = EditEntityMapV1::new(vec![
             EditEntityEntryV1 {
                 key: "photo/a".into(),
@@ -905,7 +946,13 @@ mod tests {
             .unwrap();
 
         let photo_a_v2 = leaf(EditObjectKind::PhotoEditState, "photo-a-v2");
-        let shared_v2 = leaf(EditObjectKind::GradeNodeRevision, "shared-warm-v2");
+        let shared_v2 = shared_grade_revision(
+            LayerRevisionId::new_v7(),
+            shared_layer_id,
+            2,
+            Some(shared_v1_id),
+            "shared-warm-v2",
+        );
         let photos_v2 = photos_v1
             .with_entry("photo/a", photo_a_v2.object().id())
             .unwrap();

@@ -27,6 +27,12 @@ pub struct ReviewItemRecord {
     pub metadata: Option<RawMetadataSnapshot>,
     pub technical: Option<TechnicalObservationSummary>,
     pub decision: PhotoDecisionState,
+    /// Whether this photo has a durable working development recipe.
+    ///
+    /// This is intentionally independent from the currently selected visual:
+    /// a generated proxy can represent an untouched photo, while an edited
+    /// photo may still be waiting for its recipe preview to render.
+    pub has_development_edits: bool,
 }
 
 /// Stable keyset cursor for the Review grid's path/id ordering.
@@ -92,6 +98,7 @@ struct StoredReviewItem {
     decision_head_sequence: Option<i64>,
     decision_flag: Option<String>,
     decision_rating: Option<i64>,
+    has_development_edits: bool,
 }
 
 #[derive(Debug)]
@@ -189,7 +196,12 @@ impl Catalog {
                     a.height, a.bits_per_channel, a.channels, a.created_at_ms,
                     t.observation_json, t.observation_digest,
                     s.snapshot_json,
-                    dc.head_sequence, de.after_flag, de.after_rating
+                    dc.head_sequence, de.after_flag, de.after_rating,
+                    EXISTS (
+                        SELECT 1 FROM recipe_refs edit_ref
+                        WHERE edit_ref.photo_id = r.photo_id
+                          AND edit_ref.name = 'working'
+                    )
              FROM representations r
              JOIN locations l ON l.id = (
                  SELECT l2.id FROM locations l2
@@ -215,10 +227,11 @@ impl Catalog {
                    )
                  ORDER BY CASE a2.role
                               WHEN 'recipe_preview' THEN 0
-                              WHEN 'embedded_preview' THEN 1
+                              WHEN 'generated_proxy' THEN 1
                               ELSE 2
                           END,
                           (a2.width * a2.height) DESC,
+                          a2.created_at_ms DESC,
                           a2.variant_key
                  LIMIT 1
              )
@@ -288,8 +301,10 @@ impl Catalog {
     /// (RAW or raster) per representation together with its preferred current
     /// grid visual.
     ///
-    /// Embedded previews win over generated proxies. Stale artifact rows whose
-    /// source fingerprint no longer matches the representation are excluded.
+    /// Shadow-generated proxies win over camera-embedded previews. The
+    /// embedded image remains an immediate placeholder while the generated
+    /// proxy is prepared. Stale artifact rows whose source fingerprint no
+    /// longer matches the representation are excluded.
     ///
     /// # Errors
     ///
@@ -340,7 +355,12 @@ impl Catalog {
                     a.height, a.bits_per_channel, a.channels, a.created_at_ms,
                     t.observation_json, t.observation_digest,
                     s.snapshot_json,
-                    dc.head_sequence, de.after_flag, de.after_rating
+                    dc.head_sequence, de.after_flag, de.after_rating,
+                    EXISTS (
+                        SELECT 1 FROM recipe_refs edit_ref
+                        WHERE edit_ref.photo_id = r.photo_id
+                          AND edit_ref.name = 'working'
+                    )
              FROM representations r
              JOIN locations l ON l.id = (
                  SELECT l2.id FROM locations l2
@@ -366,10 +386,11 @@ impl Catalog {
                    )
                  ORDER BY CASE a2.role
                               WHEN 'recipe_preview' THEN 0
-                              WHEN 'embedded_preview' THEN 1
+                              WHEN 'generated_proxy' THEN 1
                               ELSE 2
                           END,
                           (a2.width * a2.height) DESC,
+                          a2.created_at_ms DESC,
                           a2.variant_key
                  LIMIT 1
              )
@@ -470,6 +491,7 @@ fn review_item_from_stored(
         decision_head_sequence,
         decision_flag,
         decision_rating,
+        has_development_edits,
     } = stored;
     let location = AssetLocation::new(parse_platform(&platform)?, native_path, display_path);
     let visual = artifact
@@ -508,6 +530,7 @@ fn review_item_from_stored(
         metadata,
         technical,
         decision,
+        has_development_edits,
     })
 }
 
@@ -563,6 +586,7 @@ fn read_review_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredReviewIte
         decision_head_sequence: row.get(26)?,
         decision_flag: row.get(27)?,
         decision_rating: row.get(28)?,
+        has_development_edits: row.get(29)?,
     })
 }
 
@@ -638,14 +662,15 @@ fn parse_platform(value: &str) -> Result<Platform, CatalogError> {
 mod tests {
     use shadow_ai::{DISPLAY_LUMA_CONTRACT_VERSION, DisplayLumaPlane, observe_display_luma};
     use shadow_domain::{
-        ImageDimensions, NewPhotoDecisionEvent, PhotoDecisionOrigin, PhotoDecisionState, PhotoFlag,
-        PreviewByteOrder, PreviewCodec, RepresentationKind,
+        EntityId, ImageDimensions, NewPhotoDecisionEvent, PhotoDecisionOrigin, PhotoDecisionState,
+        PhotoFlag, PreviewByteOrder, PreviewCodec, RecipeCommit, RecipeId, RecipeSnapshot,
+        RepresentationKind,
     };
 
     use super::*;
     use crate::{
-        CachedArtifactRole, RecordCachedArtifact, RecordTechnicalObservation, RegisterAsset,
-        technical_observation::artifact_content_hash,
+        CachedArtifactRole, CommitRecipe, RecipeRefKind, RecipeRefTarget, RecordCachedArtifact,
+        RecordTechnicalObservation, RegisterAsset, technical_observation::artifact_content_hash,
     };
 
     #[test]
@@ -711,6 +736,41 @@ mod tests {
                 .items[0]
                 .decision,
             PhotoDecisionState::default()
+        );
+        assert!(
+            !catalog
+                .review_source(registered.photo_id)
+                .expect("read untouched Review source")
+                .expect("untouched Review source")
+                .has_development_edits
+        );
+
+        let recipe = RecipeCommit::new(
+            shadow_domain::RecipeCommitId::new_v7(),
+            RecipeId::new_v7(),
+            Vec::new(),
+            RecipeSnapshot::empty(),
+            Some("working edit".into()),
+            200,
+        )
+        .expect("build working Recipe");
+        catalog
+            .commit_recipe(&CommitRecipe {
+                photo_id: registered.photo_id,
+                commit: recipe,
+                update_refs: vec![RecipeRefTarget {
+                    name: "working".into(),
+                    kind: RecipeRefKind::Working,
+                    expectation: None,
+                }],
+            })
+            .expect("persist working Recipe");
+        assert!(
+            catalog
+                .review_page(None, 10)
+                .expect("read edited Review page")
+                .items[0]
+                .has_development_edits
         );
 
         let event = catalog
@@ -958,9 +1018,9 @@ mod tests {
                 .expect("preferred visual")
                 .artifact
                 .role,
-            CachedArtifactRole::EmbeddedPreview
+            CachedArtifactRole::GeneratedProxy
         );
-        assert_eq!(preferred.artifact.variant_key, "a-large");
+        assert_eq!(preferred.artifact.variant_key, "proxy-v1");
     }
 
     #[test]

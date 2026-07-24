@@ -44,6 +44,7 @@ struct EditDetailWarmupTaskResult final {
     QString error;
     quint64 photo_generation = 0;
     quint64 render_revision = 0;
+    quint64 retained_bytes = 0;
 };
 
 namespace EditTaskRunner {

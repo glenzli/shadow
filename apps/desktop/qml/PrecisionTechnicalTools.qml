@@ -12,6 +12,7 @@ ColumnLayout {
 
     required property var inspector
     required property int currentTabIndex
+    property int opticsTabIndex: 0
 
     signal openOpticsProfileLibraryRequested()
 
@@ -92,7 +93,7 @@ ColumnLayout {
         ShadowSubsectionLabel {
             Layout.topMargin: 6
             text: qsTr("DENOISE")
-            toolTipText: qsTr("Conventional RGB preview denoise. RAW-domain denoise is planned separately in the RAW development pipeline.")
+            toolTipText: qsTr("Conventional RGB preview denoise. RAW-domain denoise is planned separately in the RAW processing pipeline.")
         }
 
         Repeater {
@@ -123,59 +124,104 @@ ColumnLayout {
         visible: technical.currentTabIndex === 0
         title: qsTr("OPTICS")
 
-        ColumnLayout {
+        TabBar {
+            id: opticsTabs
+
             Layout.fillWidth: true
             Layout.leftMargin: 14
             Layout.rightMargin: 14
-            spacing: 5
-
-            ShadowSubsectionLabel {
-                text: qsTr("PROFILE CORRECTION")
-                toolTipText: qsTr("Lensfun supplies a calibrated baseline when a compatible camera and lens profile is available.")
+            Layout.preferredHeight: 28
+            currentIndex: technical.opticsTabIndex
+            background: Rectangle {
+                radius: Theme.controlRadius
+                color: Theme.surfaceSubtle
+                border.color: inspector.panelBorder
             }
+            onCurrentIndexChanged: technical.opticsTabIndex = currentIndex
+
+            ShadowTabButton {
+                text: qsTr("PROFILE")
+                compact: true
+                toolTipText: qsTr("Automatic lens-profile correction with an optional profile override")
+            }
+            ShadowTabButton {
+                text: qsTr("MANUAL")
+                compact: true
+                toolTipText: qsTr("Residual geometry, vignetting, and color-fringe correction")
+            }
+        }
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            Layout.preferredHeight: visible ? implicitHeight : 0
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            visible: technical.opticsTabIndex === 0
+            spacing: 5
 
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 6
+
                 Label {
-                    Layout.fillWidth: true
-                    text: {
-                    const receipt = inspector.editor.opticsReceipt
-                    if (!receipt.valid)
-                        return qsTr("Preparing lens profile…")
-                    if (receipt.status === "matched")
-                        return receipt.lensProfile.length > 0
-                            ? receipt.lensProfile
-                            : qsTr("Lens profile matched")
-                    if (receipt.status === "disabled")
-                        return qsTr("Automatic correction is bypassed")
-                    if (receipt.status === "provider_unavailable")
-                        return qsTr("Lensfun provider unavailable")
-                    if (receipt.status === "camera_not_found")
-                        return qsTr("Camera profile not found")
-                    if (receipt.status === "lens_not_found")
-                        return qsTr("Lens profile not found")
-                    return qsTr("Insufficient lens metadata")
-                    }
-                    color: inspector.editor.opticsReceipt.status === "matched"
-                        ? Theme.successText : Theme.textMuted
-                    font.pixelSize: 10
-                    elide: Text.ElideRight
-                }
-                Label {
-                    visible: inspector.manualOpticsActive()
-                    text: qsTr("Manual residual active")
-                    color: inspector.accent
+                    text: inspector.editor.opticsManualProfile
+                        ? qsTr("OVERRIDE") : qsTr("AUTO")
+                    color: inspector.editor.opticsManualProfile
+                        ? inspector.accent : Theme.successText
                     font.pixelSize: 9
                     font.weight: Font.DemiBold
-                    elide: Text.ElideRight
+                    font.letterSpacing: 0.5
                 }
+
+                Label {
+                    id: activeOpticsProfileLabel
+
+                    Layout.fillWidth: true
+                    text: {
+                        const receipt = inspector.editor.opticsReceipt
+                        if (!receipt.valid)
+                            return qsTr("Preparing lens profile…")
+                        if (receipt.status === "matched")
+                            return receipt.lensProfile.length > 0
+                                ? receipt.lensProfile
+                                : qsTr("Lens profile matched")
+                        if (receipt.status === "disabled")
+                            return qsTr("Profile correction disabled")
+                        if (receipt.status === "provider_unavailable")
+                            return qsTr("Lensfun unavailable")
+                        if (receipt.status === "camera_not_found")
+                            return qsTr("Camera not found")
+                        if (receipt.status === "lens_not_found")
+                            return qsTr("Lens not found")
+                        return qsTr("Lens metadata unavailable")
+                    }
+                    color: inspector.editor.opticsReceipt.status === "matched"
+                        ? Theme.textSecondary : Theme.textMuted
+                    font.pixelSize: 10
+                    elide: Text.ElideRight
+
+                    HoverHandler { id: activeOpticsProfileHover }
+                    ToolTip.visible: activeOpticsProfileHover.hovered
+                        && activeOpticsProfileLabel.truncated
+                    ToolTip.delay: 500
+                    ToolTip.text: activeOpticsProfileLabel.text
+                }
+
                 ShadowIconButton {
                     source: "qrc:/icons/library-manage.svg"
                     buttonSize: 26
-                    toolTipText: qsTr("Choose optical profile")
+                    toolTipText: qsTr("Choose lens profile")
                     accessibleName: toolTipText
                     onClicked: technical.openOpticsProfileLibraryRequested()
+                }
+
+                ShadowIconButton {
+                    visible: inspector.editor.opticsManualProfile
+                    source: "qrc:/icons/clear.svg"
+                    buttonSize: 26
+                    toolTipText: qsTr("Return to automatic matching")
+                    accessibleName: toolTipText
+                    onClicked: inspector.editor.clearManualOpticsProfile()
                 }
             }
 
@@ -264,177 +310,160 @@ ColumnLayout {
             }
         }
 
-        Rectangle {
+        ColumnLayout {
             Layout.fillWidth: true
-            Layout.leftMargin: 14
-            Layout.rightMargin: 14
-            Layout.preferredHeight: 1
-            color: Theme.border
-        }
+            Layout.preferredHeight: visible ? implicitHeight : 0
+            visible: technical.opticsTabIndex === 1
+            spacing: 0
 
-        ShadowSubsectionLabel {
-            Layout.topMargin: 4
-            text: qsTr("MANUAL OPTICS")
-            toolTipText: qsTr("Profile-independent residual correction. These controls stay available for manual lenses or images without a matching profile.")
-        }
+            ShadowSlider {
+                Layout.fillWidth: true
+                Layout.leftMargin: 14
+                Layout.rightMargin: 14
+                label: qsTr("Distortion")
+                toolTipText: qsTr("Residual radial geometry correction applied after the selected profile.")
+                from: -100; to: 100; neutralValue: 0
+                stepSize: 1; decimals: 0; suffix: "%"
+                value: inspector.editor.manualOpticsDistortion
+                onEdited: value => inspector.editor.manualOpticsDistortion = Math.round(value)
+            }
 
-        Label {
-            Layout.fillWidth: true
-            Layout.leftMargin: 14
-            Layout.rightMargin: 14
-            text: qsTr("Applied after the selected Profile correction; works without a profile.")
-            color: inspector.textMuted
-            font.pixelSize: 9
-            wrapMode: Text.WordWrap
-        }
+            ShadowSubsectionLabel {
+                Layout.topMargin: 5
+                text: qsTr("CHROMATIC ABERRATION")
+                toolTipText: qsTr("Geometrically realign color channels. This is distinct from purple/green Defringe below.")
+            }
 
-        ShadowSlider {
-            Layout.fillWidth: true
-            Layout.leftMargin: 14
-            Layout.rightMargin: 14
-            label: qsTr("Distortion")
-            toolTipText: qsTr("Residual radial geometry correction. Use after the Profile when straight lines still bow.")
-            from: -100; to: 100; neutralValue: 0
-            stepSize: 1; decimals: 0; suffix: "%"
-            value: inspector.editor.manualOpticsDistortion
-            onEdited: value => inspector.editor.manualOpticsDistortion = Math.round(value)
-        }
+            ShadowSlider {
+                Layout.fillWidth: true
+                Layout.leftMargin: 14
+                Layout.rightMargin: 14
+                label: qsTr("Red / Cyan")
+                toolTipText: qsTr("Move the red channel radially against green to correct red/cyan color fringes.")
+                from: -100; to: 100; neutralValue: 0
+                stepSize: 1; decimals: 0; suffix: "%"
+                value: inspector.editor.manualOpticsTcaRedCyan
+                onEdited: value => inspector.editor.manualOpticsTcaRedCyan = Math.round(value)
+            }
 
-        ShadowSubsectionLabel {
-            Layout.topMargin: 5
-            text: qsTr("LATERAL CHROMATIC ABERRATION")
-            toolTipText: qsTr("Geometrically realign color channels. This is distinct from purple/green Defringe below.")
-        }
+            ShadowSlider {
+                Layout.fillWidth: true
+                Layout.leftMargin: 14
+                Layout.rightMargin: 14
+                label: qsTr("Blue / Yellow")
+                toolTipText: qsTr("Move the blue channel radially against green to correct blue/yellow color fringes.")
+                from: -100; to: 100; neutralValue: 0
+                stepSize: 1; decimals: 0; suffix: "%"
+                value: inspector.editor.manualOpticsTcaBlueYellow
+                onEdited: value => inspector.editor.manualOpticsTcaBlueYellow = Math.round(value)
+            }
 
-        ShadowSlider {
-            Layout.fillWidth: true
-            Layout.leftMargin: 14
-            Layout.rightMargin: 14
-            label: qsTr("Red / Cyan")
-            toolTipText: qsTr("Move the red channel radially against green to correct red/cyan color fringes.")
-            from: -100; to: 100; neutralValue: 0
-            stepSize: 1; decimals: 0; suffix: "%"
-            value: inspector.editor.manualOpticsTcaRedCyan
-            onEdited: value => inspector.editor.manualOpticsTcaRedCyan = Math.round(value)
-        }
+            ShadowSubsectionLabel {
+                Layout.topMargin: 5
+                text: qsTr("VIGNETTING")
+                toolTipText: qsTr("Lens shading correction in original optical coordinates. The creative post-crop vignette is in Looks.")
+            }
 
-        ShadowSlider {
-            Layout.fillWidth: true
-            Layout.leftMargin: 14
-            Layout.rightMargin: 14
-            label: qsTr("Blue / Yellow")
-            toolTipText: qsTr("Move the blue channel radially against green to correct blue/yellow color fringes.")
-            from: -100; to: 100; neutralValue: 0
-            stepSize: 1; decimals: 0; suffix: "%"
-            value: inspector.editor.manualOpticsTcaBlueYellow
-            onEdited: value => inspector.editor.manualOpticsTcaBlueYellow = Math.round(value)
-        }
+            ShadowSlider {
+                Layout.fillWidth: true
+                Layout.leftMargin: 14
+                Layout.rightMargin: 14
+                label: qsTr("Amount")
+                toolTipText: qsTr("Brighten or darken the outer lens shading before crop and creative grading.")
+                from: -100; to: 100; neutralValue: 0
+                stepSize: 1; decimals: 0; suffix: "%"
+                value: inspector.editor.manualOpticsVignettingAmount
+                onEdited: value => inspector.editor.manualOpticsVignettingAmount = Math.round(value)
+            }
 
-        ShadowSubsectionLabel {
-            Layout.topMargin: 5
-            text: qsTr("OPTICAL VIGNETTING")
-            toolTipText: qsTr("Lens shading correction in original optical coordinates. The creative post-crop vignette is in Looks.")
-        }
+            ShadowSlider {
+                Layout.fillWidth: true
+                Layout.leftMargin: 14
+                Layout.rightMargin: 14
+                label: qsTr("Midpoint")
+                from: 0; to: 100; neutralValue: 50
+                stepSize: 1; decimals: 0; suffix: "%"
+                value: inspector.editor.manualOpticsVignettingMidpoint
+                onEdited: value => inspector.editor.manualOpticsVignettingMidpoint = Math.round(value)
+            }
 
-        ShadowSlider {
-            Layout.fillWidth: true
-            Layout.leftMargin: 14
-            Layout.rightMargin: 14
-            label: qsTr("Amount")
-            toolTipText: qsTr("Brighten or darken the outer lens shading before crop and creative grading.")
-            from: -100; to: 100; neutralValue: 0
-            stepSize: 1; decimals: 0; suffix: "%"
-            value: inspector.editor.manualOpticsVignettingAmount
-            onEdited: value => inspector.editor.manualOpticsVignettingAmount = Math.round(value)
-        }
+            ShadowSubsectionLabel {
+                Layout.topMargin: 4
+                text: qsTr("DEFRINGE")
+                toolTipText: qsTr("Suppress purple and green chromatic fringes within the selected hue ranges.")
+            }
 
-        ShadowSlider {
-            Layout.fillWidth: true
-            Layout.leftMargin: 14
-            Layout.rightMargin: 14
-            label: qsTr("Midpoint")
-            from: 0; to: 100; neutralValue: 50
-            stepSize: 1; decimals: 0; suffix: "%"
-            value: inspector.editor.manualOpticsVignettingMidpoint
-            onEdited: value => inspector.editor.manualOpticsVignettingMidpoint = Math.round(value)
-        }
+            ShadowSlider {
+                Layout.fillWidth: true
+                Layout.leftMargin: 14
+                Layout.rightMargin: 14
+                label: qsTr("Purple amount")
+                from: 0; to: 1; neutralValue: 0
+                stepSize: 0.01; decimals: 0
+                displayMultiplier: 100; suffix: "%"
+                value: inspector.fineValue("defringe_purple_amount")
+                onGestureStarted: inspector.editor.beginParameterEdit(
+                    "defringe_purple_amount")
+                onEdited: value => inspector.editor.setParameterValue(
+                    "defringe_purple_amount", value)
+                onGestureFinished: inspector.editor.endParameterEdit(
+                    "defringe_purple_amount")
+            }
 
-        ShadowSubsectionLabel {
-            Layout.topMargin: 4
-            text: qsTr("DEFRINGE")
-            toolTipText: qsTr("Suppress purple and green chromatic fringes within the selected hue ranges.")
-        }
+            ShadowHueRange {
+                Layout.fillWidth: true
+                Layout.leftMargin: 14
+                Layout.rightMargin: 14
+                label: qsTr("Purple hue")
+                accent: "#b66bd3"
+                lowerValue: inspector.fineValue(
+                    "defringe_purple_hue_low")
+                upperValue: inspector.fineValue(
+                    "defringe_purple_hue_high")
+                onGestureStarted: inspector.editor.beginParameterEdit(
+                    "optics/defringe/purple/hue_range")
+                onEdited: (lowerValue, upperValue) =>
+                    inspector.editor.setDefringeHueRange(
+                        "purple", lowerValue, upperValue)
+                onGestureFinished: inspector.editor.endParameterEdit(
+                    "optics/defringe/purple/hue_range")
+            }
 
-        ShadowSlider {
-            Layout.fillWidth: true
-            Layout.leftMargin: 14
-            Layout.rightMargin: 14
-            label: qsTr("Purple amount")
-            from: 0; to: 1; neutralValue: 0
-            stepSize: 0.01; decimals: 0
-            displayMultiplier: 100; suffix: "%"
-            value: inspector.fineValue("defringe_purple_amount")
-            onGestureStarted: inspector.editor.beginParameterEdit(
-                "defringe_purple_amount")
-            onEdited: value => inspector.editor.setParameterValue(
-                "defringe_purple_amount", value)
-            onGestureFinished: inspector.editor.endParameterEdit(
-                "defringe_purple_amount")
-        }
+            ShadowSlider {
+                Layout.fillWidth: true
+                Layout.leftMargin: 14
+                Layout.rightMargin: 14
+                label: qsTr("Green amount")
+                from: 0; to: 1; neutralValue: 0
+                stepSize: 0.01; decimals: 0
+                displayMultiplier: 100; suffix: "%"
+                value: inspector.fineValue("defringe_green_amount")
+                onGestureStarted: inspector.editor.beginParameterEdit(
+                    "defringe_green_amount")
+                onEdited: value => inspector.editor.setParameterValue(
+                    "defringe_green_amount", value)
+                onGestureFinished: inspector.editor.endParameterEdit(
+                    "defringe_green_amount")
+            }
 
-        ShadowHueRange {
-            Layout.fillWidth: true
-            Layout.leftMargin: 14
-            Layout.rightMargin: 14
-            label: qsTr("Purple hue")
-            accent: "#b66bd3"
-            lowerValue: inspector.fineValue(
-                "defringe_purple_hue_low")
-            upperValue: inspector.fineValue(
-                "defringe_purple_hue_high")
-            onGestureStarted: inspector.editor.beginParameterEdit(
-                "optics/defringe/purple/hue_range")
-            onEdited: (lowerValue, upperValue) =>
-                inspector.editor.setDefringeHueRange(
-                    "purple", lowerValue, upperValue)
-            onGestureFinished: inspector.editor.endParameterEdit(
-                "optics/defringe/purple/hue_range")
-        }
-
-        ShadowSlider {
-            Layout.fillWidth: true
-            Layout.leftMargin: 14
-            Layout.rightMargin: 14
-            label: qsTr("Green amount")
-            from: 0; to: 1; neutralValue: 0
-            stepSize: 0.01; decimals: 0
-            displayMultiplier: 100; suffix: "%"
-            value: inspector.fineValue("defringe_green_amount")
-            onGestureStarted: inspector.editor.beginParameterEdit(
-                "defringe_green_amount")
-            onEdited: value => inspector.editor.setParameterValue(
-                "defringe_green_amount", value)
-            onGestureFinished: inspector.editor.endParameterEdit(
-                "defringe_green_amount")
-        }
-
-        ShadowHueRange {
-            Layout.fillWidth: true
-            Layout.leftMargin: 14
-            Layout.rightMargin: 14
-            label: qsTr("Green hue")
-            accent: "#58a66b"
-            lowerValue: inspector.fineValue(
-                "defringe_green_hue_low")
-            upperValue: inspector.fineValue(
-                "defringe_green_hue_high")
-            onGestureStarted: inspector.editor.beginParameterEdit(
-                "optics/defringe/green/hue_range")
-            onEdited: (lowerValue, upperValue) =>
-                inspector.editor.setDefringeHueRange(
-                    "green", lowerValue, upperValue)
-            onGestureFinished: inspector.editor.endParameterEdit(
-                "optics/defringe/green/hue_range")
+            ShadowHueRange {
+                Layout.fillWidth: true
+                Layout.leftMargin: 14
+                Layout.rightMargin: 14
+                label: qsTr("Green hue")
+                accent: "#58a66b"
+                lowerValue: inspector.fineValue(
+                    "defringe_green_hue_low")
+                upperValue: inspector.fineValue(
+                    "defringe_green_hue_high")
+                onGestureStarted: inspector.editor.beginParameterEdit(
+                    "optics/defringe/green/hue_range")
+                onEdited: (lowerValue, upperValue) =>
+                    inspector.editor.setDefringeHueRange(
+                        "green", lowerValue, upperValue)
+                onGestureFinished: inspector.editor.endParameterEdit(
+                    "optics/defringe/green/hue_range")
+            }
         }
     }
 

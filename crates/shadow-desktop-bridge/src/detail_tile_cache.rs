@@ -20,6 +20,100 @@ impl CachedDetailSource {
             tiles: Mutex::new(DetailTileCache::default()),
         }
     }
+
+    fn resident_bytes(&self) -> u64 {
+        let source_bytes = self.session.retained_bytes();
+        let tile_bytes = self
+            .tiles
+            .lock()
+            .map_or(0, |cache| u64::try_from(cache.bytes).unwrap_or(u64::MAX));
+        source_bytes.saturating_add(tile_bytes)
+    }
+}
+
+/// Memory-budgeted LRU of recently developed full-resolution edit sources.
+///
+/// Entries are keyed by source identity, requested development plan, and
+/// optics. Recipe changes reuse the same sensor-domain source while their
+/// processed RGB tiles remain independently recipe-aware.
+#[derive(Debug)]
+pub(super) struct EditDetailSessionCache {
+    entries: VecDeque<CachedEditDetailSession>,
+    resident_budget_bytes: u64,
+    max_entries: usize,
+}
+
+const DEFAULT_DETAIL_SESSION_BUDGET_BYTES: u64 = 1_024 * 1_024 * 1_024;
+const DEFAULT_DETAIL_SESSION_MAX_ENTRIES: usize = 4;
+
+impl Default for EditDetailSessionCache {
+    fn default() -> Self {
+        Self {
+            entries: VecDeque::new(),
+            resident_budget_bytes: DEFAULT_DETAIL_SESSION_BUDGET_BYTES,
+            max_entries: DEFAULT_DETAIL_SESSION_MAX_ENTRIES,
+        }
+    }
+}
+
+impl EditDetailSessionCache {
+    pub(super) fn get(
+        &mut self,
+        representation_id: RepresentationId,
+        source: RepresentationFingerprint,
+        source_environment_cache_identity: &str,
+        requested_raw_development_plan_identity: &str,
+        optics: &OpticsSettings,
+    ) -> Option<Arc<CachedDetailSource>> {
+        let position = self.entries.iter().position(|entry| {
+            entry.representation_id == representation_id
+                && entry.source == source
+                && entry.source_environment_cache_identity == source_environment_cache_identity
+                && requested_raw_development_plan_cache_matches(
+                    &entry.requested_raw_development_plan_identity,
+                    requested_raw_development_plan_identity,
+                )
+                && &entry.optics == optics
+        })?;
+        let entry = self.entries.remove(position)?;
+        let session = Arc::clone(&entry.session);
+        self.entries.push_back(entry);
+        self.trim();
+        Some(session)
+    }
+
+    pub(super) fn insert(&mut self, entry: CachedEditDetailSession) {
+        self.entries.retain(|candidate| {
+            candidate.representation_id != entry.representation_id
+                || candidate.source != entry.source
+                || candidate.source_environment_cache_identity
+                    != entry.source_environment_cache_identity
+                || candidate.requested_raw_development_plan_identity
+                    != entry.requested_raw_development_plan_identity
+                || candidate.optics != entry.optics
+        });
+        self.entries.push_back(entry);
+        self.trim();
+    }
+
+    fn trim(&mut self) {
+        // Always retain the most recently requested source even when one very
+        // large frame exceeds the nominal budget by itself. Older Arc users
+        // may finish safely after eviction; they simply stop counting as
+        // reusable cache entries.
+        while self.entries.len() > 1
+            && (self.entries.len() > self.max_entries
+                || self.resident_bytes() > self.resident_budget_bytes)
+        {
+            self.entries.pop_front();
+        }
+    }
+
+    fn resident_bytes(&self) -> u64 {
+        self.entries.iter().fold(0_u64, |total, entry| {
+            total.saturating_add(entry.session.resident_bytes())
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy, Eq, Hash, PartialEq)]

@@ -164,6 +164,7 @@ impl From<&LayerContent> for LayerContentKind {
 pub struct SharedLayerDiff {
     layer_id: Option<ValueChange<LayerId>>,
     revision_selector: Option<ValueChange<LayerRevisionSelector>>,
+    graph: Option<GraphDiff>,
 }
 
 impl SharedLayerDiff {
@@ -175,8 +176,12 @@ impl SharedLayerDiff {
         self.revision_selector.as_ref()
     }
 
+    pub const fn graph(&self) -> Option<&GraphDiff> {
+        self.graph.as_ref()
+    }
+
     pub const fn is_empty(&self) -> bool {
-        self.layer_id.is_none() && self.revision_selector.is_none()
+        self.layer_id.is_none() && self.revision_selector.is_none() && self.graph.is_none()
     }
 }
 
@@ -645,15 +650,19 @@ fn diff_layer_content(before: &LayerContent, after: &LayerContent) -> Option<Lay
             LayerContent::Shared {
                 layer_id: before_layer_id,
                 revision: before_revision,
+                graph: before_graph,
             },
             LayerContent::Shared {
                 layer_id: after_layer_id,
                 revision: after_revision,
+                graph: after_graph,
             },
         ) => {
+            let graph = diff_graphs(before_graph, after_graph);
             let shared = SharedLayerDiff {
                 layer_id: changed(*before_layer_id, *after_layer_id),
                 revision_selector: changed(*before_revision, *after_revision),
+                graph: (!graph.is_empty()).then_some(graph),
             };
             (!shared.is_empty()).then_some(LayerContentDiff::Shared { shared })
         }
@@ -968,6 +977,7 @@ mod tests {
             LayerContent::Shared {
                 layer_id,
                 revision: LayerRevisionSelector::Pinned(revision),
+                graph: basic_graph([entity(910), entity(911), entity(912), entity(913)], 0.0),
             },
             true,
             UnitInterval::new(opacity)?,

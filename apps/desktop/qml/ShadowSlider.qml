@@ -24,7 +24,10 @@ Item {
     property color textPrimary: Theme.textPrimary
     property color textMuted: Theme.textMuted
     property string toolTipText: ""
-    property int labelWidth: Math.max(48, Math.min(58, Math.round(width * 0.19)))
+    // Keep one stable label column across languages. Common photographic
+    // terms fit directly; exceptional labels elide and expose their full text
+    // on hover instead of stealing width from the adjustment track.
+    property int labelWidth: Math.max(56, Math.min(72, Math.round(width * 0.24)))
     property int valueWidth: 54
     property bool gestureActive: false
 

@@ -13,6 +13,7 @@
 #include <QString>
 #include <QTimer>
 #include <QUrl>
+#include <QVariantList>
 #include <QVariantMap>
 
 #include <cstdint>
@@ -123,9 +124,20 @@ class ReviewController final : public QObject {
         NOTIFY filtersChanged
     )
     Q_PROPERTY(
+        QString filterEditState
+        READ filterEditState
+        WRITE setFilterEditState
+        NOTIFY filtersChanged
+    )
+    Q_PROPERTY(
         int filteredItemCount
         READ filteredItemCount
         NOTIFY filtersChanged
+    )
+    Q_PROPERTY(
+        QVariantList sharedGradeNodes
+        READ sharedGradeNodes
+        NOTIFY sharedGradeNodesChanged
     )
     Q_PROPERTY(QAbstractItemModel* model READ model CONSTANT)
 
@@ -156,13 +168,16 @@ public:
     [[nodiscard]] QString filterFlag() const;
     [[nodiscard]] int filterMinimumRating() const noexcept;
     [[nodiscard]] QString filterColorLabel() const;
+    [[nodiscard]] QString filterEditState() const;
     [[nodiscard]] int filteredItemCount() const noexcept;
+    [[nodiscard]] QVariantList sharedGradeNodes() const;
     [[nodiscard]] QAbstractItemModel* model() noexcept;
     [[nodiscard]] ReviewModel* reviewModel() noexcept;
 
     void setFilterFlag(const QString& filter);
     void setFilterMinimumRating(int rating);
     void setFilterColorLabel(const QString& color_label);
+    void setFilterEditState(const QString& edit_state);
 
     Q_INVOKABLE void scanFolder(const QUrl& folder_url);
     Q_INVOKABLE void cancelScan();
@@ -186,6 +201,12 @@ public:
         const QString& color_label
     );
     Q_INVOKABLE void clearFilters();
+    Q_INVOKABLE void refreshVisibleLibrary();
+    Q_INVOKABLE void refreshSharedGradeNodes();
+    Q_INVOKABLE QVariantMap applySharedGradeNode(
+        const QString& layer_id,
+        const QVariantList& targets
+    );
     Q_INVOKABLE void undoLastDecision();
   Q_INVOKABLE void retranslateUi();
 
@@ -213,6 +234,7 @@ signals:
     );
     void colorLabelChanged(const QString& photoId, const QString& colorLabel);
     void filtersChanged();
+    void sharedGradeNodesChanged();
     void decisionUndone();
 
 private:
@@ -296,6 +318,7 @@ private:
     std::unique_ptr<QSettings> settings_;
     ReviewEvidenceSession evidence_session_;
     ReviewDecisionSession decision_session_;
+    QVector<BackendSharedGradeNode> shared_grade_nodes_;
     QFutureWatcher<ScanTaskResult> scan_watcher_;
     QFutureWatcher<PageTaskResult> page_watcher_;
     QFutureWatcher<ReviewEvidenceTaskResult> evidence_watcher_;

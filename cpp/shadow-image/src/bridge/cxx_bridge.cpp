@@ -3,6 +3,8 @@
 #include <shadow/image/edit.hpp>
 #include <shadow/image/display_luma.hpp>
 #include <shadow/image/sensor_clipping.hpp>
+#include <shadow/image/source_rendering.hpp>
+#include <shadow/image/source_profile_catalog.hpp>
 
 #include <filesystem>
 #include <limits>
@@ -506,6 +508,71 @@ template <std::size_t Size>
     return result;
 }
 
+[[nodiscard]] FfiRawPipelinePath raw_pipeline_path(const image::RawPipelinePath path) {
+    switch (path) {
+    case image::RawPipelinePath::decoded_raster:
+        return FfiRawPipelinePath::DecodedRaster;
+    case image::RawPipelinePath::shadow_raw_frame:
+        return FfiRawPipelinePath::ShadowRawFrame;
+    case image::RawPipelinePath::provider_processed_compatibility:
+        return FfiRawPipelinePath::ProviderProcessedCompatibility;
+    }
+    throw_invalid_raw_development_provider_output(
+        "RAW pipeline produced an unsupported source path"
+    );
+}
+
+[[nodiscard]] FfiRawCameraProfileStatus raw_camera_profile_status(
+    const image::RawCameraProfileStatus status
+) {
+    switch (status) {
+    case image::RawCameraProfileStatus::not_considered:
+        return FfiRawCameraProfileStatus::NotConsidered;
+    case image::RawCameraProfileStatus::no_match:
+        return FfiRawCameraProfileStatus::NoMatch;
+    case image::RawCameraProfileStatus::applied:
+        return FfiRawCameraProfileStatus::Applied;
+    case image::RawCameraProfileStatus::matched_not_applied:
+        return FfiRawCameraProfileStatus::MatchedNotApplied;
+    }
+    throw_invalid_raw_development_provider_output(
+        "RAW pipeline produced an unsupported camera-profile status"
+    );
+}
+
+[[nodiscard]] FfiRawPipelineReceipt raw_pipeline_receipt(
+    const image::RawPipelineReceipt& receipt
+) {
+    if (receipt.schema_version != 0U && !receipt.valid()) {
+        throw_invalid_raw_development_provider_output(
+            "RAW pipeline produced an invalid route receipt"
+        );
+    }
+
+    FfiRawPipelineReceipt result;
+    result.schema_version = receipt.schema_version;
+    result.path = raw_pipeline_path(receipt.path);
+    result.cache_identity = receipt.schema_version == 0U
+        ? rust::String() : rust::String(image::raw_pipeline_receipt_identity(receipt));
+    result.pipeline_identity = rust::String(receipt.pipeline_identity);
+    result.source_provider_id = rust::String(receipt.source_provider_id);
+    result.source_provider_version = rust::String(receipt.source_provider_version);
+    result.fallback_reason = rust::String(receipt.fallback_reason);
+    result.raw_frame_schema_version = receipt.raw_frame_schema_version;
+    result.raw_developer_version = receipt.raw_developer_version;
+    result.requested_plan = raw_development_plan(receipt.requested_plan);
+    result.effective_plan = raw_development_plan(receipt.effective_plan);
+    result.camera_profile_status = raw_camera_profile_status(receipt.camera_profile_status);
+    result.camera_profile_catalog_identity = rust::String(
+        receipt.camera_profile_catalog_identity
+    );
+    result.camera_profile_identity = rust::String(receipt.camera_profile_identity);
+    result.camera_profile_name = rust::String(receipt.camera_profile_name);
+    result.camera_profile_diagnostic = rust::String(receipt.camera_profile_diagnostic);
+    result.camera_profile_developer_version = receipt.camera_profile_developer_version;
+    return result;
+}
+
 inline constexpr std::size_t maximum_adjustment_nodes = 256U;
 inline constexpr std::size_t maximum_adjustment_node_id_bytes = 256U;
 
@@ -842,13 +909,15 @@ void require_parameter_count(
     const image::DecodeSession& session
 ) {
     // JPEG/HEIF input may already have vendor lens corrections baked in. The first raster
-    // implementation therefore keeps automatic optics discovery RAW-only; a later explicit
-    // raster profile mode can opt in without silently applying a correction twice.
-    if (!session.capabilities().raw_frame) {
+    // implementation therefore keeps automatic optics discovery RAW-only; `raw_count` describes
+    // the source format without coupling profile discovery to whether this provider can unpack
+    // its sensor pixels (for example Nikon HE/HE*).
+    const auto& metadata = session.metadata();
+    if (metadata.raw_count == 0U) {
         return {};
     }
     const auto provider = image::make_lensfun_optics_provider();
-    const auto candidates = provider->profile_candidates(session.metadata());
+    const auto candidates = provider->profile_candidates(metadata);
     rust::Vec<FfiOpticsProfileCandidate> result;
     result.reserve(candidates.size());
     for (const auto& candidate : candidates) {
@@ -860,6 +929,52 @@ void require_parameter_count(
         result.push_back(std::move(ffi));
     }
     return result;
+}
+
+[[nodiscard]] image::AssetMetadata asset_metadata(const FfiMetadataSnapshot& source) {
+    image::AssetMetadata metadata;
+    metadata.make = std::string(source.make);
+    metadata.model = std::string(source.model);
+    metadata.normalized_make = std::string(source.normalized_make);
+    metadata.normalized_model = std::string(source.normalized_model);
+    metadata.dng_version = std::string(source.dng_version);
+    metadata.raw_count = source.raw_count;
+    metadata.raw_dimensions = image::Dimensions{
+        source.raw_dimensions.width,
+        source.raw_dimensions.height,
+    };
+    metadata.image_dimensions = image::Dimensions{
+        source.image_dimensions.width,
+        source.image_dimensions.height,
+    };
+    metadata.margins = image::Margins{
+        source.margins.left,
+        source.margins.top,
+        source.margins.right,
+        source.margins.bottom,
+    };
+    metadata.orientation = source.orientation;
+    metadata.cfa_pattern = std::string(source.cfa_pattern);
+    metadata.sensor_colors = source.sensor_colors;
+    metadata.sensor_bits = source.sensor_bits;
+    metadata.black_level = source.black_level;
+    metadata.white_level = source.white_level;
+    metadata.as_shot_neutral = {
+        source.as_shot_neutral_r,
+        source.as_shot_neutral_g1,
+        source.as_shot_neutral_b,
+        source.as_shot_neutral_g2,
+    };
+    metadata.baseline_exposure = source.baseline_exposure;
+    metadata.iso_speed = source.iso_speed;
+    metadata.exposure_time_seconds = source.exposure_time_seconds;
+    metadata.aperture_f_number = source.aperture_f_number;
+    metadata.focal_length_mm = source.focal_length_mm;
+    metadata.captured_at_unix_seconds = source.captured_at_unix_seconds;
+    metadata.lens_make = std::string(source.lens_make);
+    metadata.lens_model = std::string(source.lens_model);
+    metadata.focal_length_35mm = source.focal_length_35mm;
+    return metadata;
 }
 
 } // namespace
@@ -983,6 +1098,10 @@ FfiRawDevelopmentReceipt DecodeHandle::raw_development_receipt() const {
     return shadow::bridge::raw_development_receipt(raw_development_receipt_);
 }
 
+FfiRawPipelineReceipt DecodeHandle::raw_pipeline_receipt() const {
+    return shadow::bridge::raw_pipeline_receipt(raw_pipeline_receipt_);
+}
+
 rust::Vec<FfiPreviewSnapshot> DecodeHandle::previews() const {
     rust::Vec<FfiPreviewSnapshot> snapshots;
     snapshots.reserve(session_->previews().size());
@@ -1066,6 +1185,7 @@ std::unique_ptr<EditPreviewHandle> DecodeHandle::prepare_edit_preview(
         optics_settings_
     );
     raw_development_receipt_ = prepared.raw_development_receipt();
+    raw_pipeline_receipt_ = prepared.raw_pipeline_receipt();
     return std::make_unique<EditPreviewHandle>(std::move(prepared));
 }
 
@@ -1081,6 +1201,7 @@ std::unique_ptr<EditPreviewHandle> DecodeHandle::prepare_edit_preview_with_raw_d
         optics_settings_
     );
     raw_development_receipt_ = prepared.raw_development_receipt();
+    raw_pipeline_receipt_ = prepared.raw_pipeline_receipt();
     return std::make_unique<EditPreviewHandle>(std::move(prepared));
 }
 
@@ -1103,6 +1224,10 @@ FfiOpticsReceipt EditPreviewHandle::optics_receipt() const {
 
 FfiRawDevelopmentReceipt EditPreviewHandle::raw_development_receipt() const {
     return shadow::bridge::raw_development_receipt(session_.raw_development_receipt());
+}
+
+FfiRawPipelineReceipt EditPreviewHandle::raw_pipeline_receipt() const {
+    return shadow::bridge::raw_pipeline_receipt(session_.raw_pipeline_receipt());
 }
 
 FfiEncodedProxy EditPreviewHandle::render_adjustment_plan(
@@ -1142,6 +1267,7 @@ std::unique_ptr<FullEditDetailHandle> DecodeHandle::prepare_edit_detail() const 
         optics_settings_
     );
     raw_development_receipt_ = prepared.raw_development_receipt();
+    raw_pipeline_receipt_ = prepared.raw_pipeline_receipt();
     return std::make_unique<FullEditDetailHandle>(std::move(prepared));
 }
 
@@ -1155,6 +1281,7 @@ std::unique_ptr<FullEditDetailHandle> DecodeHandle::prepare_edit_detail_with_raw
         optics_settings_
     );
     raw_development_receipt_ = prepared.raw_development_receipt();
+    raw_pipeline_receipt_ = prepared.raw_pipeline_receipt();
     return std::make_unique<FullEditDetailHandle>(std::move(prepared));
 }
 
@@ -1177,6 +1304,10 @@ FfiOpticsReceipt FullEditDetailHandle::optics_receipt() const {
 
 FfiRawDevelopmentReceipt FullEditDetailHandle::raw_development_receipt() const {
     return shadow::bridge::raw_development_receipt(session_.raw_development_receipt());
+}
+
+FfiRawPipelineReceipt FullEditDetailHandle::raw_pipeline_receipt() const {
+    return shadow::bridge::raw_pipeline_receipt(session_.raw_pipeline_receipt());
 }
 
 FfiRenderedDetailTile FullEditDetailHandle::render_adjustment_plan_tile(
@@ -1210,9 +1341,31 @@ rust::Vec<FfiOpticsProfileCandidate> query_photo_optics_profiles_utf8(const rust
     return optics_profile_candidates_for(*session);
 }
 
+rust::Vec<FfiOpticsProfileCandidate> query_optics_profiles_for_metadata(
+    const FfiMetadataSnapshot& source
+) {
+    const auto provider = image::make_lensfun_optics_provider();
+    const auto candidates = provider->profile_candidates(asset_metadata(source));
+    rust::Vec<FfiOpticsProfileCandidate> result;
+    result.reserve(candidates.size());
+    for (const auto& candidate : candidates) {
+        FfiOpticsProfileCandidate ffi;
+        ffi.camera_maker = rust::String(candidate.camera_maker);
+        ffi.camera_model = rust::String(candidate.camera_model);
+        ffi.lens_maker = rust::String(candidate.lens_maker);
+        ffi.lens_model = rust::String(candidate.lens_model);
+        result.push_back(std::move(ffi));
+    }
+    return result;
+}
+
 rust::String libraw_provider_version() {
     const auto provider = image::make_libraw_decoder_provider();
-    return rust::String(provider->info().version);
+    return rust::String(
+        provider->info().version + ";source-render="
+        + std::to_string(image::source_rendering_implementation_version)
+        + ";source-profiles=" + image::load_local_source_profile_catalog().identity
+    );
 }
 
 rust::String photo_provider_version() {

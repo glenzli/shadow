@@ -687,6 +687,12 @@ struct RawSensorNoiseCalibration final {
 
 struct RawFrameDescriptor final {
     std::uint32_t schema_version = raw_frame_schema_version;
+    // Cache-visible identity of the provider that extracted these sensor samples. Generic
+    // fixtures may leave both fields empty, but a production provider must set both together.
+    // This belongs to the frame rather than a later rendered receipt because two providers can
+    // expose different unpacked samples or calibration for the same source bytes.
+    std::string provider_id;
+    std::string provider_version;
     // `storage_dimensions` covers the full sensor plane. `active_margins` and
     // `active_dimensions` identify the visible active rectangle inside it, before orientation.
     Dimensions storage_dimensions;
@@ -713,6 +719,15 @@ struct RawFrameDescriptor final {
     // or relabelling a camera-to-sRGB matrix as XYZ D50.
     std::array<double, 9U> camera_to_xyz_d50{};
     bool has_camera_to_xyz_d50 = false;
+    // Optional, row-major Camera RGB -> linear sRGB/Rec.709 under D65. The camera input order is
+    // canonical R, G, B after the two green CFA sites have been reconstructed into one channel:
+    // `linear_srgb[row] = sum(camera_rgb[column] * M[row * 3 + column])`.
+    //
+    // LibRaw exposes this transform directly as `rgb_cam`. Keeping it distinct from the D50 XYZ
+    // matrix prevents a provider from silently changing the transform's output space or white
+    // point. A provider leaves the flag false when it cannot establish a usable transform.
+    std::array<double, 9U> camera_to_linear_srgb_d65{};
+    bool has_camera_to_linear_srgb_d65 = false;
     PendingCorrections declared_pending_corrections;
 };
 
@@ -728,6 +743,7 @@ struct RawFrame final {
             || descriptor.active_dimensions.width == 0U || descriptor.active_dimensions.height == 0U
             || descriptor.sample_encoding != RawFrameSampleEncoding::uint16_native
             || descriptor.cfa_pattern.empty() || !descriptor.sensor_noise.valid()
+            || descriptor.provider_id.empty() != descriptor.provider_version.empty()
         ) {
             return false;
         }
@@ -750,16 +766,35 @@ struct RawFrame final {
             if (
                 descriptor.black_levels[index] >= descriptor.white_levels[index]
                 || !std::isfinite(descriptor.as_shot_neutral[index])
+                || descriptor.as_shot_neutral[index] <= 0.0
             ) {
                 return false;
             }
         }
-        if (descriptor.has_camera_to_xyz_d50) {
-            for (const auto value : descriptor.camera_to_xyz_d50) {
+        const auto valid_declared_matrix = [](const auto& matrix, const bool declared) noexcept {
+            if (!declared) {
+                return true;
+            }
+            bool has_non_zero_coefficient = false;
+            for (const auto value : matrix) {
                 if (!std::isfinite(value)) {
                     return false;
                 }
+                has_non_zero_coefficient = has_non_zero_coefficient || value != 0.0;
             }
+            return has_non_zero_coefficient;
+        };
+        if (
+            !valid_declared_matrix(
+                descriptor.camera_to_xyz_d50,
+                descriptor.has_camera_to_xyz_d50
+            )
+            || !valid_declared_matrix(
+                descriptor.camera_to_linear_srgb_d65,
+                descriptor.has_camera_to_linear_srgb_d65
+            )
+        ) {
+            return false;
         }
         if (descriptor.cfa_layout != RawFrameCfaLayout::bayer_2x2) {
             return true;
@@ -882,12 +917,12 @@ struct PixelBuffer final {
 // those decode semantics must increment this cache-visible contract version.
 inline constexpr std::uint32_t processed_linear_reference_rgb_contract_version = 1U;
 inline constexpr float processed_linear_reference_maximum_adjustment_threshold = 0.0F;
-// Version 5 accepts both standardized scene-referred RAW RGB and standardized display-referred
+// Version 6 accepts both standardized scene-referred RAW RGB and standardized display-referred
 // raster RGB. RAW first receives Shadow's neutral scene-to-display curve; JPEG/SDR HEIF keeps
 // its existing display rendering and receives only gamut mapping plus the sRGB OETF. JPEG proxy
 // encoding uses 4:4:4 sampling so this output contract does not discard chroma detail after
 // rendering. It is a deterministic SDR display rendering, not a camera-JPEG emulation.
-inline constexpr std::uint32_t display_srgb8_output_transform_version = 5U;
+inline constexpr std::uint32_t display_srgb8_output_transform_version = 6U;
 // The v4 gamut mapper is bounded work per out-of-gamut pixel. 0.5 is a conservative ceiling
 // above the display-sRGB Oklab gamut; sixteen bisections resolve chroma well below one 8-bit code
 // step.
@@ -945,6 +980,13 @@ public:
     [[nodiscard]] virtual std::span<const PreviewDescriptor> previews() const noexcept = 0;
     [[nodiscard]] virtual PreviewPayload decode_preview(std::size_t id) = 0;
     [[nodiscard]] virtual RawFrame decode_raw_frame() = 0;
+    // RawFrame extraction is logically a source render. Existing provider ABIs expose a
+    // non-const entry because unpacking may populate private decoder caches; the host-facing
+    // const overload preserves the immutable DecodeSession API while delegating to that cache.
+    // Providers should keep all externally observable metadata/capabilities unchanged.
+    [[nodiscard]] virtual RawFrame decode_raw_frame() const {
+        return const_cast<DecodeSession*>(this)->decode_raw_frame();
+    }
     [[nodiscard]] virtual PixelBuffer render_reference_rgb() const = 0;
 
     // RAW providers advertise their exact source-development contract here. Rendered-raster

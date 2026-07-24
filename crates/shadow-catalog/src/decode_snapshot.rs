@@ -226,10 +226,14 @@ impl Catalog {
         let output_current =
             current.is_some_and(|(has_preview, can_render, cached_preview, cached_proxy)| {
                 !require_cached_preview
-                    || if has_preview != 0 {
-                        cached_preview != 0
-                    } else if can_render != 0 {
+                    || if can_render != 0 {
+                        // Embedded previews are immediate placeholders. Once
+                        // the provider can develop reference RGB, the durable
+                        // Review contract is complete only after the current
+                        // Shadow proxy exists.
                         cached_proxy != 0
+                    } else if has_preview != 0 {
+                        cached_preview != 0
                     } else {
                         true
                     }
@@ -681,7 +685,7 @@ mod tests {
 
     #[test]
     #[allow(clippy::too_many_lines)]
-    fn cached_preview_requirement_reconciles_missing_artifacts() {
+    fn embedded_placeholder_does_not_suppress_generated_proxy_backfill() {
         const PROXY_KEY: &str = "libraw:grid-jpeg-2048-q88-444-v3";
         let (mut catalog, representation_id, source) = registered_catalog();
         catalog
@@ -733,7 +737,7 @@ mod tests {
                 .expect("query missing cached preview")
         );
 
-        let artifact = CachedArtifact {
+        let embedded_artifact = CachedArtifact {
             role: CachedArtifactRole::EmbeddedPreview,
             variant_key: "libraw".into(),
             generator_id: "libraw".into(),
@@ -757,10 +761,50 @@ mod tests {
             .record_cached_artifact(&RecordCachedArtifact {
                 representation_id,
                 expected_source: source,
-                artifact: artifact.clone(),
+                artifact: embedded_artifact,
             })
             .expect("record cached preview");
 
+        assert!(
+            !catalog
+                .is_decode_output_current(
+                    representation_id,
+                    "libraw",
+                    "1",
+                    source,
+                    true,
+                    PROXY_KEY,
+                    None,
+                )
+                .expect("embedded placeholder still requires a developed proxy")
+        );
+        let generated_artifact = CachedArtifact {
+            role: CachedArtifactRole::GeneratedProxy,
+            variant_key: PROXY_KEY.into(),
+            generator_id: "libraw".into(),
+            generator_version: "1".into(),
+            recipe_snapshot_digest: None,
+            provider_preview_id: None,
+            blob_algorithm: "blake3-256".into(),
+            blob_digest: [2; 32],
+            blob_byte_len: 456_789,
+            codec: PreviewCodec::Jpeg,
+            byte_order: shadow_domain::PreviewByteOrder::NotApplicable,
+            dimensions: ImageDimensions {
+                width: 2_048,
+                height: 1_365,
+            },
+            bits_per_channel: 8,
+            channels: 3,
+            created_at_ms: 790,
+        };
+        catalog
+            .record_cached_artifact(&RecordCachedArtifact {
+                representation_id,
+                expected_source: source,
+                artifact: generated_artifact.clone(),
+            })
+            .expect("record developed proxy");
         assert!(
             catalog
                 .is_decode_output_current(
@@ -772,7 +816,7 @@ mod tests {
                     PROXY_KEY,
                     None,
                 )
-                .expect("query complete cached state")
+                .expect("current developed proxy completes cached output")
         );
         assert!(
             !catalog
@@ -791,7 +835,7 @@ mod tests {
             &mut catalog,
             representation_id,
             source,
-            &artifact,
+            &generated_artifact,
             "jpeg-luma-v1",
         );
         assert!(

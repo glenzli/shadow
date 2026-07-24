@@ -66,44 +66,71 @@ public:
             throw_plugin_error(std::string("could not load private decoder plugin: ") + dlerror());
         }
 #endif
-        descriptor = load_symbol<PrivateDecoderPluginDescriptorFn>(
-            private_decoder_plugin_descriptor_symbol
-        );
-        create = load_symbol<CreatePrivateDecoderProviderFn>(private_decoder_plugin_create_symbol);
-        destroy = load_symbol<DestroyPrivateDecoderProviderFn>(private_decoder_plugin_destroy_symbol);
-        const auto* plugin_descriptor = descriptor();
-        if (plugin_descriptor == nullptr) {
-            throw_plugin_error("private decoder plugin returned a null descriptor");
+        try {
+            // This is the only plugin code called before the C++ boundary is trusted. It has a
+            // scalar C ABI and therefore cannot dereference a stale descriptor or construct an
+            // object whose vtable follows older Shadow headers.
+            interface_contract = load_symbol<PrivateDecoderPluginInterfaceContractFn>(
+                private_decoder_plugin_interface_contract_symbol
+            );
+            validate_private_decoder_plugin_interface_contract(interface_contract());
+
+            descriptor = load_symbol<PrivateDecoderPluginDescriptorFn>(
+                private_decoder_plugin_descriptor_symbol
+            );
+            const auto* plugin_descriptor = descriptor();
+            if (plugin_descriptor == nullptr) {
+                throw_plugin_error("private decoder plugin returned a null descriptor");
+            }
+            validate_private_decoder_plugin_descriptor(*plugin_descriptor);
+
+            create = load_symbol<CreatePrivateDecoderProviderFn>(
+                private_decoder_plugin_create_symbol
+            );
+            destroy = load_symbol<DestroyPrivateDecoderProviderFn>(
+                private_decoder_plugin_destroy_symbol
+            );
+        } catch (...) {
+            close();
+            throw;
         }
-        validate_private_decoder_plugin_descriptor(*plugin_descriptor);
     }
 
     PluginModule(const PluginModule&) = delete;
     PluginModule& operator=(const PluginModule&) = delete;
 
     ~PluginModule() {
-#if defined(_WIN32)
-        if (handle_ != nullptr) {
-            FreeLibrary(handle_);
-        }
-#else
-        if (handle_ != nullptr) {
-            dlclose(handle_);
-        }
-#endif
+        close();
     }
 
+    PrivateDecoderPluginInterfaceContractFn interface_contract = nullptr;
     PrivateDecoderPluginDescriptorFn descriptor = nullptr;
     CreatePrivateDecoderProviderFn create = nullptr;
     DestroyPrivateDecoderProviderFn destroy = nullptr;
 
 private:
+    void close() noexcept {
+#if defined(_WIN32)
+        if (handle_ != nullptr) {
+            FreeLibrary(handle_);
+            handle_ = nullptr;
+        }
+#else
+        if (handle_ != nullptr) {
+            dlclose(handle_);
+            handle_ = nullptr;
+        }
+#endif
+    }
+
     template <typename Function>
     [[nodiscard]] Function load_symbol(const char* name) {
 #if defined(_WIN32)
         const auto symbol = GetProcAddress(handle_, name);
         if (symbol == nullptr) {
-            throw_plugin_error("private decoder plugin is missing a required ABI symbol");
+            throw_plugin_error(
+                std::string("private decoder plugin is missing required ABI symbol: ") + name
+            );
         }
         return reinterpret_cast<Function>(symbol);
 #else
@@ -111,7 +138,9 @@ private:
         const auto symbol = dlsym(handle_, name);
         const auto* error = dlerror();
         if (error != nullptr || symbol == nullptr) {
-            throw_plugin_error("private decoder plugin is missing a required ABI symbol");
+            throw_plugin_error(
+                std::string("private decoder plugin is missing required ABI symbol: ") + name
+            );
         }
         return reinterpret_cast<Function>(symbol);
 #endif
@@ -306,6 +335,9 @@ public:
         const std::string wrapped_identity = info_.id + ";" + info_.version;
         info_.version = std::string(descriptor->plugin_version)
             + ";abi=" + std::to_string(private_decoder_plugin_abi_version)
+            + ";contract=" + compact_identity(std::to_string(
+                private_decoder_plugin_interface_contract_token
+            ))
             + ";plan="
             + std::to_string(descriptor->raw_development_plan_schema_version)
             + ";frame="
@@ -347,6 +379,14 @@ private:
 };
 
 } // namespace
+
+void validate_private_decoder_plugin_interface_contract(const std::uint64_t token) {
+    if (token != private_decoder_plugin_interface_contract_token) {
+        throw_plugin_error(
+            "private decoder plugin interface contract is stale; rebuild and replace the local module"
+        );
+    }
+}
 
 void validate_private_decoder_plugin_descriptor(
     const PrivateDecoderPluginDescriptor& descriptor

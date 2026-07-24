@@ -1,14 +1,13 @@
 #include <shadow/image/edit.hpp>
 
+#include "../concurrency/row_scheduler.hpp"
+
 #include <algorithm>
-#include <atomic>
 #include <cmath>
-#include <exception>
 #include <limits>
-#include <mutex>
 #include <new>
 #include <sstream>
-#include <thread>
+#include <stdexcept>
 #include <type_traits>
 #include <utility>
 #include <vector>

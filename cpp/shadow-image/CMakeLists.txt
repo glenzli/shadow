@@ -1,5 +1,12 @@
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(LibRaw REQUIRED IMPORTED_TARGET libraw)
+# Parallel source sessions are safe only with LibRaw's reentrant Unix/macOS build.
+pkg_check_modules(LibRaw REQUIRED IMPORTED_TARGET "libraw_r>=0.22.0")
+if(NOT "raw_r" IN_LIST LibRaw_LIBRARIES OR "raw" IN_LIST LibRaw_LIBRARIES)
+    message(FATAL_ERROR
+        "Shadow requires pkg-config libraw_r to resolve to the reentrant -lraw_r library; "
+        "resolved libraries: ${LibRaw_LIBRARIES}"
+    )
+endif()
 pkg_check_modules(Lensfun QUIET IMPORTED_TARGET lensfun)
 pkg_check_modules(LittleCms REQUIRED IMPORTED_TARGET lcms2)
 pkg_check_modules(LibHeif QUIET IMPORTED_TARGET libheif>=1.19.7)
@@ -27,11 +34,21 @@ add_library(
     src/decoder/raster_exif.cpp
     src/decoder/raster_decoder.cpp
     src/decoder/heif_decoder.cpp
+    src/decoder/decode_session_isolation.cpp
     src/decoder/photo_decoder_router.cpp
     src/color/lcms_color_management.cpp
+    src/color/source_profile_catalog.cpp
+    src/color/source_rendering.cpp
+    src/concurrency/row_scheduler.cpp
     src/edit/cube_lut.cpp
     src/edit/cpu_reference.cpp
     src/raw/bayer_demosaic.cpp
+    src/raw/bayer_sampling.cpp
+    src/raw/camera_profile_catalog.cpp
+    src/raw/dcp_color_development.cpp
+    src/raw/dcp_parser.cpp
+    src/raw/fused_raw_development.cpp
+    src/raw/raw_pipeline.cpp
     src/raw/sensor_clipping.cpp
     src/decoder/private_decoder_plugin.cpp
     src/optics/lensfun_optics.cpp
@@ -102,6 +119,24 @@ if(BUILD_TESTING)
     )
     shadow_image_enable_warnings(shadow-image-private-decoder-test-plugin)
 
+    # Models an old v1-only artifact that predates the exact interface seal. Its factory aborts;
+    # the loader contract test must reject it before construction.
+    add_library(
+        shadow-image-stale-private-decoder-test-plugin
+        MODULE
+        tests/stale_private_decoder_test_plugin.cpp
+    )
+    target_compile_features(
+        shadow-image-stale-private-decoder-test-plugin
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-image-stale-private-decoder-test-plugin
+        PRIVATE
+            "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+    )
+    shadow_image_enable_warnings(shadow-image-stale-private-decoder-test-plugin)
+
     # A public, LibRaw-backed dynamic provider used only to validate the local-provider route.
     # It deliberately resembles the shape of a private vendor plugin without containing one.
     add_library(
@@ -118,12 +153,14 @@ if(BUILD_TESTING)
     add_dependencies(
         shadow-image-contract-tests
         shadow-image-private-decoder-test-plugin
+        shadow-image-stale-private-decoder-test-plugin
         shadow-image-libraw-dummy-private-provider
     )
     target_compile_definitions(
         shadow-image-contract-tests
         PRIVATE
             "SHADOW_TEST_PRIVATE_DECODER_PLUGIN_PATH=\"$<TARGET_FILE:shadow-image-private-decoder-test-plugin>\""
+            "SHADOW_TEST_STALE_PRIVATE_DECODER_PLUGIN_PATH=\"$<TARGET_FILE:shadow-image-stale-private-decoder-test-plugin>\""
             "SHADOW_TEST_LIBRAW_DUMMY_PRIVATE_DECODER_PLUGIN_PATH=\"$<TARGET_FILE:shadow-image-libraw-dummy-private-provider>\""
             "SHADOW_TEST_JPEG_PATH=\"${CMAKE_SOURCE_DIR}/apps/desktop/assets/lut-preview-reference.jpg\""
     )
@@ -165,4 +202,67 @@ if(BUILD_TESTING)
     target_link_libraries(shadow-image-lut-tests PRIVATE Shadow::Image)
     shadow_image_enable_warnings(shadow-image-lut-tests)
     add_test(NAME shadow-image-lut-contract COMMAND shadow-image-lut-tests)
+
+    add_executable(shadow-image-source-rendering-tests tests/source_rendering_contract_test.cpp)
+    target_link_libraries(shadow-image-source-rendering-tests PRIVATE Shadow::Image)
+    shadow_image_enable_warnings(shadow-image-source-rendering-tests)
+    add_test(NAME shadow-image-source-rendering-contract COMMAND shadow-image-source-rendering-tests)
+
+    add_executable(shadow-image-raw-pipeline-tests tests/raw_pipeline_contract_test.cpp)
+    target_link_libraries(shadow-image-raw-pipeline-tests PRIVATE Shadow::Image)
+    shadow_image_enable_warnings(shadow-image-raw-pipeline-tests)
+    add_test(NAME shadow-image-raw-pipeline-contract COMMAND shadow-image-raw-pipeline-tests)
+
+    add_executable(
+        shadow-image-fused-raw-development-tests
+        tests/fused_raw_development_contract_test.cpp
+    )
+    target_link_libraries(shadow-image-fused-raw-development-tests PRIVATE Shadow::Image)
+    shadow_image_enable_warnings(shadow-image-fused-raw-development-tests)
+    add_test(
+        NAME shadow-image-fused-raw-development-contract
+        COMMAND shadow-image-fused-raw-development-tests
+    )
+
+    add_executable(shadow-image-dcp-parser-tests tests/dcp_parser_contract_test.cpp)
+    target_link_libraries(shadow-image-dcp-parser-tests PRIVATE Shadow::Image)
+    shadow_image_enable_warnings(shadow-image-dcp-parser-tests)
+    add_test(NAME shadow-image-dcp-parser-contract COMMAND shadow-image-dcp-parser-tests)
+
+    add_executable(
+        shadow-image-camera-profile-tests
+        tests/camera_profile_contract_test.cpp
+    )
+    target_link_libraries(shadow-image-camera-profile-tests PRIVATE Shadow::Image)
+    shadow_image_enable_warnings(shadow-image-camera-profile-tests)
+    add_test(
+        NAME shadow-image-camera-profile-contract
+        COMMAND shadow-image-camera-profile-tests
+    )
+
+    add_executable(
+        shadow-image-decode-session-isolation-tests
+        tests/decode_session_isolation_contract_test.cpp
+    )
+    target_link_libraries(shadow-image-decode-session-isolation-tests PRIVATE Shadow::Image)
+    target_include_directories(
+        shadow-image-decode-session-isolation-tests
+        PRIVATE
+            "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>"
+    )
+    add_dependencies(
+        shadow-image-decode-session-isolation-tests
+        shadow-image-private-decoder-test-plugin
+    )
+    target_compile_definitions(
+        shadow-image-decode-session-isolation-tests
+        PRIVATE
+            "SHADOW_TEST_PRIVATE_DECODER_PLUGIN_PATH=\"$<TARGET_FILE:shadow-image-private-decoder-test-plugin>\""
+            "SHADOW_TEST_JPEG_PATH=\"${CMAKE_SOURCE_DIR}/apps/desktop/assets/lut-preview-reference.jpg\""
+    )
+    shadow_image_enable_warnings(shadow-image-decode-session-isolation-tests)
+    add_test(
+        NAME shadow-image-decode-session-isolation-contract
+        COMMAND shadow-image-decode-session-isolation-tests
+    )
 endif()

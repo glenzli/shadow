@@ -73,7 +73,7 @@ ApplicationWindow {
                 Label {
                     readonly property var receipt: root.editor.opticsReceipt
                     text: (root.editor.opticsManualProfile
-                        ? qsTr("Manual · %1").arg(root.editor.opticsLensProfile)
+                        ? qsTr("Override · %1").arg(root.editor.opticsLensProfile)
                         : qsTr("Automatic profile matching"))
                         + (receipt.valid && receipt.providerVersion.length > 0
                             ? " · " + receipt.providerVersion : "")
@@ -211,7 +211,10 @@ ApplicationWindow {
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onDoubleClicked: {
+                            Accessible.role: Accessible.Button
+                            Accessible.name: qsTr("Use %1").arg(
+                                profileRow.modelData.lensModel)
+                            onClicked: {
                                 root.editor.setManualOpticsProfile(
                                     profileRow.modelData.cameraMaker,
                                     profileRow.modelData.cameraModel,
@@ -238,8 +241,8 @@ ApplicationWindow {
                 Label {
                     Layout.fillWidth: true
                     text: root.candidates.length > 0
-                        ? qsTr("%1 compatible profiles · Double-click one to use it. The selection is saved with the edit recipe and can be undone.").arg(root.candidates.length)
-                        : qsTr("Double-click a profile to use it. The selection is saved with the edit recipe and can be undone.")
+                        ? qsTr("%1 profiles for the detected camera · Select any one to override automatic matching.").arg(root.candidates.length)
+                        : qsTr("Select a profile to override automatic matching. The choice is saved with the edit recipe.")
                     color: Theme.textMuted
                     font.pixelSize: 10
                     wrapMode: Text.WordWrap

@@ -40,6 +40,10 @@ public:
     // The last prepared RAW source render. It is explicitly empty until a render-backed edit
     // session is prepared, rather than causing a hidden second RAW decode merely for metadata.
     [[nodiscard]] FfiRawDevelopmentReceipt raw_development_receipt() const;
+    // Host-side route provenance is kept separate from provider-side RAW development. This
+    // identifies whether the prepared source used Shadow's RawFrame developer, a decoded raster,
+    // or an explicit provider-processed compatibility path.
+    [[nodiscard]] FfiRawPipelineReceipt raw_pipeline_receipt() const;
     [[nodiscard]] rust::Vec<FfiPreviewSnapshot> previews() const;
     [[nodiscard]] FfiPreviewPayload decode_best_preview();
     void configure_optics(const FfiOpticsSettings& settings);
@@ -77,6 +81,7 @@ private:
     std::shared_ptr<const image::OpticsProvider> optics_provider_;
     image::OpticsSettings optics_settings_;
     mutable image::RawDevelopmentReceipt raw_development_receipt_;
+    mutable image::RawPipelineReceipt raw_pipeline_receipt_{.schema_version = 0U};
 };
 
 // Unlike DecodeHandle, this handle no longer owns or references a decoder. Its working proxy
@@ -94,6 +99,7 @@ public:
     [[nodiscard]] std::uint32_t max_edge() const noexcept;
     [[nodiscard]] FfiOpticsReceipt optics_receipt() const;
     [[nodiscard]] FfiRawDevelopmentReceipt raw_development_receipt() const;
+    [[nodiscard]] FfiRawPipelineReceipt raw_pipeline_receipt() const;
     [[nodiscard]] FfiEncodedProxy render_adjustment_plan(
         const FfiAdjustmentRenderRequest& request
     ) const;
@@ -119,6 +125,7 @@ public:
     [[nodiscard]] std::uint64_t retained_bytes() const noexcept;
     [[nodiscard]] FfiOpticsReceipt optics_receipt() const;
     [[nodiscard]] FfiRawDevelopmentReceipt raw_development_receipt() const;
+    [[nodiscard]] FfiRawPipelineReceipt raw_pipeline_receipt() const;
     [[nodiscard]] FfiRenderedDetailTile render_adjustment_plan_tile(
         const FfiAdjustmentDetailTileRequest& request
     ) const;
@@ -134,6 +141,12 @@ private:
 );
 [[nodiscard]] rust::Vec<FfiOpticsProfileCandidate> query_photo_optics_profiles_utf8(
     rust::Str path
+);
+// Enumerates RAW optical profiles from metadata already persisted by the Catalog. This path is
+// deliberately independent from pixel decode: an unsupported RAW compression may still expose
+// complete camera/lens EXIF through an earlier metadata inspection or a private provider.
+[[nodiscard]] rust::Vec<FfiOpticsProfileCandidate> query_optics_profiles_for_metadata(
+    const FfiMetadataSnapshot& metadata
 );
 [[nodiscard]] rust::String libraw_provider_version();
 [[nodiscard]] rust::String photo_provider_version();

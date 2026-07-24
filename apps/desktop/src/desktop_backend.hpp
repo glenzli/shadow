@@ -70,6 +70,7 @@ struct BackendReviewItem final {
     std::uint64_t decision_head_sequence = 0;
     BackendReviewDecisionFlag decision_flag = BackendReviewDecisionFlag::Unflagged;
     std::uint8_t decision_rating = 0;
+    bool has_development_edits = false;
     QString title;
     QString source_path;
     QString visual_role;
@@ -259,6 +260,8 @@ struct BackendFineEditParameters final {
 
 struct BackendGradeNode final {
     QString grade_node_id;
+    QString shared_layer_id;
+    QString shared_revision_id;
     QString label;
     QString exposure_render_op_id;
     QString contrast_render_op_id;
@@ -273,6 +276,29 @@ struct BackendGradeNode final {
     bool enabled = true;
 
     bool operator==(const BackendGradeNode&) const = default;
+};
+
+struct BackendSharedGradeNode final {
+    QString layer_id;
+    QString revision_id;
+    QString label;
+    std::uint32_t revision_number = 0;
+    BackendGradeNode grade_node;
+
+    bool operator==(const BackendSharedGradeNode&) const = default;
+};
+
+struct BackendBatchPhotoTarget final {
+    QString photo_id;
+    QString source_path;
+};
+
+struct BackendBatchGradeReceipt final {
+    std::uint32_t requested = 0;
+    std::uint32_t updated = 0;
+    std::uint32_t unchanged = 0;
+    std::uint32_t failed = 0;
+    QVector<QString> errors;
 };
 
 struct BackendGradeStack final {
@@ -349,6 +375,24 @@ struct BackendPhotoEditState final {
     QVector<BackendEditVersion> versions;
     bool has_base_version = false;
     bool is_version_draft = false;
+};
+
+struct BackendExportOptions final {
+    QString format = QStringLiteral("jpeg");
+    std::uint32_t max_edge = 0;
+    std::uint8_t jpeg_quality = 90;
+    QString watermark_path;
+    double watermark_opacity = 0.72;
+    double watermark_scale = 0.18;
+    double watermark_inset = 0.02;
+    QString watermark_anchor = QStringLiteral("bottom-right");
+};
+
+struct BackendExportReceipt final {
+    QString destination_path;
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
+    std::uint64_t byte_length = 0;
 };
 
 struct BackendEditPreviewAnalysis final {
@@ -461,7 +505,22 @@ public:
         const QString& photo_id,
         const QString& source_path
     ) const;
+    [[nodiscard]] QVector<BackendSharedGradeNode> sharedGradeNodes() const;
+    [[nodiscard]] BackendSharedGradeNode publishSharedGradeNode(
+        const QString& label,
+        const BackendGradeNode& grade_node
+    ) const;
+    [[nodiscard]] BackendBatchGradeReceipt applySharedGradeNodeToPhotos(
+        const QString& layer_id,
+        const QVector<BackendBatchPhotoTarget>& targets
+    ) const;
     [[nodiscard]] BackendGradeNode newBasicGradeNode(const QString& label) const;
+    [[nodiscard]] BackendExportReceipt exportPhoto(
+        const QString& photo_id,
+        const QString& source_path,
+        const QString& destination_path,
+        const BackendExportOptions& options
+    ) const;
     [[nodiscard]] BackendEditedPreview renderEditPreview(
         const QString& photo_id,
         const QString& source_path,

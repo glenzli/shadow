@@ -25,6 +25,7 @@ struct ReviewItem final {
     quint64 decision_head_sequence = 0;
     QString decision_flag = QStringLiteral("unflagged");
     int decision_rating = 0;
+    bool has_development_edits = false;
     QString title;
     QString source_path;
     QString visual_role;
@@ -110,6 +111,7 @@ public:
         DecisionFlagRole,
         DecisionRatingRole,
         ColorLabelRole,
+        HasDevelopmentEditsRole,
     };
     Q_ENUM(Role)
 

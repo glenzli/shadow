@@ -3,11 +3,15 @@
 mod detail_tile_cache;
 mod detail_viewport;
 mod edit_version_diff;
+mod export_service;
 mod isolated_proxy;
 mod photo_provider;
+mod raw_pipeline_cache;
 mod recipe_v1;
 mod review_service;
 mod scan_service;
+mod shared_grade_application;
+mod shared_grade_library;
 
 use std::{
     collections::{BTreeMap, HashMap, HashSet, VecDeque},
@@ -33,14 +37,14 @@ use shadow_bridge::{
     OklabLightnessToneCurve, OpticsSettings,
     PERCEPTUAL_COLOR_V3_IMPLEMENTATION_VERSION as PERCEPTUAL_COLOR_V3_IMPLEMENTATION_REVISION,
     PERCEPTUAL_COLOR_V3_PARAMETER_SCHEMA_VERSION, PerceptualColorParameters,
-    PhotoEditDetailSession, PhotoEditPreviewSession, RawDevelopmentPlan,
+    PhotoEditDetailSession, PhotoEditPreviewSession, RawDevelopmentPlan, RawPipelineReceipt,
     SELECTIVE_COLOR_VALUE_COUNT,
     SELECTIVE_TONE_V3_IMPLEMENTATION_VERSION as SELECTIVE_TONE_V3_IMPLEMENTATION_REVISION,
     SELECTIVE_TONE_V3_PARAMETER_SCHEMA_VERSION as SELECTIVE_TONE_V3_PARAMETER_SCHEMA_REVISION,
     SelectiveToneParameters, SharpenParameters,
     TECHNICAL_DETAIL_V3_IMPLEMENTATION_VERSION as TECHNICAL_DETAIL_V3_IMPLEMENTATION_REVISION,
-    ToneCurvePoint, photo_provider_version, query_photo_optics_profiles,
-    raw_development_plan_identity,
+    ToneCurvePoint, photo_provider_version, query_optics_profiles_from_metadata,
+    query_photo_optics_profiles, raw_development_plan_identity,
 };
 use shadow_catalog::{
     CachedArtifact, CachedArtifactRole, CatalogActor, CatalogError, CatalogHandle,
@@ -83,12 +87,12 @@ use shadow_domain::{
     AdjustmentNode, AdjustmentScope, BlendMode, CURRENT_RECIPE_SCHEMA_VERSION, EditEntityMapV1,
     EditGraph, EditObject, EditObjectKind, EditObjectPack, EditRepositoryCommit,
     EditRepositoryCommitPayloadV1, EditRepositoryRefExpectation, EditRepositoryRefKind, EntityId,
-    FiniteF64, ImageDimensions, ImageDomain, LayerContent, LayerInstance, LayerInstanceId,
-    LibraryRootV1, NodeId, NodeInput, OperationDescriptor, OperationId, ParameterBlock,
-    ParameterKey, ParameterValue, PhotoId, PortType, PreviewByteOrder, PreviewCodec,
-    ProcessingStage, ProxyPayload, RecipeCommit, RecipeCommitId, RecipeId, RecipeInputSettings,
-    RecipeOpticsSettings, RecipeSnapshot, RepresentationId, UnitInterval, VersionName,
-    diff_recipe_snapshots,
+    FiniteF64, ImageDimensions, ImageDomain, LayerContent, LayerId, LayerInstance, LayerInstanceId,
+    LayerRevision, LayerRevisionId, LayerRevisionSelector, LibraryRootV1, NodeId, NodeInput,
+    OperationDescriptor, OperationId, ParameterBlock, ParameterKey, ParameterValue, PhotoId,
+    PortType, PreviewByteOrder, PreviewCodec, ProcessingStage, ProxyPayload, RecipeCommit,
+    RecipeCommitId, RecipeId, RecipeInputSettings, RecipeOpticsSettings, RecipeSnapshot,
+    RepresentationId, UnitInterval, VersionName, diff_recipe_snapshots,
 };
 use uuid::Uuid;
 
@@ -97,7 +101,7 @@ use crate::photo_provider::PhotoInspector;
 use crate::photo_provider::isolated_edit_raster;
 use crate::review_service::ReviewService;
 use crate::scan_service::ScanService;
-use detail_tile_cache::{CachedDetailSource, cached_detail_tile};
+use detail_tile_cache::{CachedDetailSource, EditDetailSessionCache, cached_detail_tile};
 use detail_viewport::{
     MAX_DETAIL_VIEWPORT_SIDE, detail_viewport_rects, validate_detail_viewport_request,
 };
@@ -107,6 +111,9 @@ use edit_version_diff::{
     has_other_recipe_changes,
 };
 use edit_version_diff::{commit_record, ffi_edit_version};
+use raw_pipeline_cache::{
+    current_source_environment_cache_identity, prepared_raw_pipeline_cache_identity,
+};
 use recipe_v1::*;
 
 #[cxx::bridge(namespace = "shadow::desktop")]
@@ -182,6 +189,7 @@ mod ffi {
         decision_head_sequence: u64,
         decision_flag: FfiDecisionFlag,
         decision_rating: u8,
+        has_development_edits: bool,
         title: String,
         source_path: String,
         visual_role: String,
@@ -384,6 +392,10 @@ mod ffi {
     #[derive(Debug, Clone)]
     struct FfiGradeNode {
         grade_node_id: String,
+        /// Empty for a photo-local node.
+        shared_layer_id: String,
+        /// Empty for a photo-local node; shared nodes always pin one revision.
+        shared_revision_id: String,
         label: String,
         enabled: bool,
         exposure_render_op_id: String,
@@ -396,6 +408,34 @@ mod ffi {
         sharpen_render_op_id: String,
         basic: FfiBasicEditParameters,
         fine: FfiFineEditParameters,
+    }
+
+    /// One current head from the Library-wide shared Grade Node collection.
+    #[derive(Debug, Clone)]
+    struct FfiSharedGradeNode {
+        layer_id: String,
+        revision_id: String,
+        revision_number: u32,
+        label: String,
+        grade_node: FfiGradeNode,
+    }
+
+    /// One explicit Library selection for a shared-node batch operation.
+    #[derive(Debug)]
+    struct FfiBatchPhotoTarget {
+        photo_id: String,
+        source_path: String,
+    }
+
+    /// A batch is intentionally best-effort across independent photo histories.
+    /// Every successful photo is durable even when another target is invalid.
+    #[derive(Debug)]
+    struct FfiBatchGradeReceipt {
+        requested: u32,
+        updated: u32,
+        unchanged: u32,
+        failed: u32,
+        errors: Vec<String>,
     }
 
     /// Complete ordered editable Grade Stack. Grade Node zero is evaluated
@@ -448,6 +488,14 @@ mod ffi {
         viewport_width: u32,
         viewport_height: u32,
         tile_side: u32,
+        use_working_recipe: bool,
+    }
+
+    /// One exact current-Recipe full-resolution export request.
+    #[derive(Debug)]
+    struct FfiEditExportRequest {
+        base_commit_id: String,
+        settings: FfiEditSettings,
         use_working_recipe: bool,
     }
 
@@ -570,6 +618,15 @@ mod ffi {
         tiles: Vec<FfiEditedDetailTile>,
     }
 
+    /// Tightly packed display-sRGB RGB8 pixels prepared with ExportImage RAW intent.
+    #[derive(Debug)]
+    struct FfiEditedExportRaster {
+        width: u32,
+        height: u32,
+        row_stride_bytes: u32,
+        bytes: Vec<u8>,
+    }
+
     extern "Rust" {
         type DesktopSession;
 
@@ -654,6 +711,17 @@ mod ffi {
             photo_id: &str,
             source_path: &str,
         ) -> Result<Vec<FfiOpticsProfileCandidate>>;
+        fn shared_grade_nodes(self: &DesktopSession) -> Result<Vec<FfiSharedGradeNode>>;
+        fn publish_shared_grade_node(
+            self: &DesktopSession,
+            label: &str,
+            grade_node: &FfiGradeNode,
+        ) -> Result<FfiSharedGradeNode>;
+        fn apply_shared_grade_node_to_photos(
+            self: &DesktopSession,
+            layer_id: &str,
+            targets: Vec<FfiBatchPhotoTarget>,
+        ) -> Result<FfiBatchGradeReceipt>;
         fn render_basic_edit_preview(
             self: &DesktopSession,
             photo_id: &str,
@@ -667,6 +735,12 @@ mod ffi {
             source_path: &str,
             request: &FfiEditDetailViewportRequest,
         ) -> Result<FfiEditedDetailViewport>;
+        fn render_basic_edit_export(
+            self: &DesktopSession,
+            photo_id: &str,
+            source_path: &str,
+            request: &FfiEditExportRequest,
+        ) -> Result<FfiEditedExportRaster>;
         /// Saves the draft against `base_commit_id` while independently
         /// compare-and-swapping the durable Catalog working ref against
         /// `expected_working_commit_id`.
@@ -727,7 +801,7 @@ struct DesktopSession {
     cache_root: PathBuf,
     scanner: ScanService,
     edit_preview_sessions: Mutex<VecDeque<CachedEditPreviewSession>>,
-    edit_detail_session: Mutex<Option<CachedEditDetailSession>>,
+    edit_detail_sessions: Mutex<EditDetailSessionCache>,
     edit_detail_render_token: AtomicU64,
     review: ReviewService,
 }
@@ -737,6 +811,7 @@ struct CachedEditPreviewSession {
     representation_id: RepresentationId,
     source: RepresentationFingerprint,
     max_edge: u32,
+    source_environment_cache_identity: String,
     /// The plan the caller asked for, used to find a reusable session before a decode. The
     /// provider's effective plan remains on the prepared session's immutable receipt: do not
     /// use it as this cache key, because it belongs to a potentially different request.
@@ -749,9 +824,18 @@ struct CachedEditPreviewSession {
 struct CachedEditDetailSession {
     representation_id: RepresentationId,
     source: RepresentationFingerprint,
+    source_environment_cache_identity: String,
     requested_raw_development_plan_identity: String,
     optics: OpticsSettings,
     session: Arc<CachedDetailSource>,
+}
+
+struct RecipePreviewCacheRequest<'a> {
+    recipe_snapshot_digest: [u8; 32],
+    max_edge: u32,
+    jpeg_quality: u8,
+    raw_pipeline_receipt: &'a RawPipelineReceipt,
+    source_environment_cache_identity: &'a str,
 }
 
 // A prepared session owns an immutable receipt for one particular user request. Even if a
@@ -962,8 +1046,21 @@ impl DesktopSession {
         photo_id: &str,
         source_path: &str,
     ) -> AnyResult<Vec<ffi::FfiOpticsProfileCandidate>> {
-        let (_, source) = self.validated_photo_source(photo_id, source_path)?;
-        Ok(query_photo_optics_profiles(&catalog_native_path(&source)?)?
+        let (photo_id, source) = self.validated_photo_source(photo_id, source_path)?;
+        // Profile discovery is a metadata operation, not a RAW-pixel operation. Prefer the
+        // Catalog snapshot so a proprietary compression can still match camera/lens EXIF even
+        // when the active open decoder cannot unpack it. The file path is only a compatibility
+        // fallback for photos imported before metadata snapshots existed.
+        let candidates = if let Some(metadata) = self
+            .catalog
+            .review_source(photo_id)?
+            .and_then(|raw| raw.metadata)
+        {
+            query_optics_profiles_from_metadata(&metadata)
+        } else {
+            query_photo_optics_profiles(&catalog_native_path(&source)?)?
+        };
+        Ok(candidates
             .into_iter()
             .map(|candidate| ffi::FfiOpticsProfileCandidate {
                 camera_maker: candidate.camera_maker,
@@ -974,6 +1071,86 @@ impl DesktopSession {
             .collect())
     }
 
+    fn shared_grade_nodes(&self) -> AnyResult<Vec<ffi::FfiSharedGradeNode>> {
+        shared_grade_library::shared_grade_revisions(&self.catalog)?
+            .iter()
+            .map(ffi_shared_grade_node)
+            .collect()
+    }
+
+    fn publish_shared_grade_node(
+        &self,
+        label: &str,
+        grade_node: &ffi::FfiGradeNode,
+    ) -> AnyResult<ffi::FfiSharedGradeNode> {
+        let draft = decode_grade_node_draft_recipe_v1(grade_node, 0)?;
+        let layer = encode_grade_node_as_recipe_v1_layer(&draft)?;
+        let layer_id = draft.shared.map_or_else(
+            || LayerId::from_uuid(draft.recipe_v1_identity.grade_node_id.as_uuid()),
+            |shared| shared.layer_id,
+        );
+        let revision = shared_grade_library::publish_shared_grade_revision(
+            &self.catalog,
+            layer_id,
+            label,
+            layer.content().graph().clone(),
+            current_time_ms()?,
+        )?;
+        ffi_shared_grade_node(&revision)
+    }
+
+    fn apply_shared_grade_node_to_photos(
+        &self,
+        layer_id: &str,
+        targets: Vec<ffi::FfiBatchPhotoTarget>,
+    ) -> AnyResult<ffi::FfiBatchGradeReceipt> {
+        use shared_grade_application::{SharedGradeMerge, merge_shared_grade_node};
+
+        let layer_id = layer_id
+            .parse::<LayerId>()
+            .with_context(|| format!("parse shared Grade Node layer id {layer_id:?}"))?;
+        let revision = shared_grade_library::shared_grade_revision(&self.catalog, layer_id)?;
+        let shared = grade_node_draft_from_shared_revision(&revision)?;
+        let requested = u32::try_from(targets.len()).unwrap_or(u32::MAX);
+        let mut receipt = ffi::FfiBatchGradeReceipt {
+            requested,
+            updated: 0,
+            unchanged: 0,
+            failed: 0,
+            errors: Vec::new(),
+        };
+        for target in targets {
+            let result = (|| -> AnyResult<SharedGradeMerge> {
+                let state = self.photo_edit_state(&target.photo_id, &target.source_path)?;
+                let mut grade_stack = decode_grade_stack_draft_recipe_v1(&state.settings)?;
+                let merge = merge_shared_grade_node(&mut grade_stack, &shared)
+                    .map_err(anyhow::Error::msg)?;
+                if merge == SharedGradeMerge::Unchanged {
+                    return Ok(merge);
+                }
+                let settings = encode_grade_stack_draft_recipe_v1(grade_stack);
+                self.autosave_basic_edit_working_at(
+                    &target.photo_id,
+                    &target.source_path,
+                    &state.working_commit_id,
+                    &state.working_commit_id,
+                    &settings,
+                    current_time_ms()?,
+                )?;
+                Ok(merge)
+            })();
+            match result {
+                Ok(SharedGradeMerge::Updated) => receipt.updated += 1,
+                Ok(SharedGradeMerge::Unchanged) => receipt.unchanged += 1,
+                Err(error) => {
+                    receipt.failed += 1;
+                    receipt.errors.push(format!("{}: {error}", target.photo_id));
+                }
+            }
+        }
+        Ok(receipt)
+    }
+
     fn render_basic_edit_preview(
         &self,
         photo_id: &str,
@@ -981,6 +1158,8 @@ impl DesktopSession {
         request: &ffi::FfiEditPreviewRequest,
     ) -> AnyResult<ffi::FfiEditedPreview> {
         let (photo_id, source) = self.validated_photo_source(photo_id, source_path)?;
+        let source_environment_cache_identity =
+            current_source_environment_cache_identity(&photo_provider_version());
         let (plan, recipe_identity) = self.basic_edit_render_plan_with_identity(
             photo_id,
             &request.base_commit_id,
@@ -991,6 +1170,7 @@ impl DesktopSession {
             &source,
             request.max_edge,
             bridge_optics_settings(&request.settings.optics),
+            &source_environment_cache_identity,
         )?;
         let rendered = session.render_plan_with_analysis(&plan, request.jpeg_quality)?;
         let proxy = rendered.proxy;
@@ -1001,9 +1181,13 @@ impl DesktopSession {
         if let Err(error) = self.cache_rendered_recipe_preview(
             &source,
             &proxy,
-            recipe_identity,
-            request.max_edge,
-            request.jpeg_quality,
+            RecipePreviewCacheRequest {
+                recipe_snapshot_digest: recipe_identity,
+                max_edge: request.max_edge,
+                jpeg_quality: request.jpeg_quality,
+                raw_pipeline_receipt: session.raw_pipeline_receipt(),
+                source_environment_cache_identity: &source_environment_cache_identity,
+            },
         ) {
             eprintln!("Shadow: could not cache edited preview: {error:#}");
         }
@@ -1150,6 +1334,7 @@ impl DesktopSession {
         source: &ReviewItemRecord,
         max_edge: u32,
         optics: OpticsSettings,
+        source_environment_cache_identity: &str,
     ) -> AnyResult<Arc<PhotoEditPreviewSession>> {
         // The plan is source-development provenance, not a color node. Include its canonical
         // identity in the in-memory key before deciding an immutable warm proxy is reusable.
@@ -1168,6 +1353,8 @@ impl DesktopSession {
                 entry.representation_id == source.representation_id
                     && entry.source == source.source
                     && entry.max_edge == max_edge
+                    && entry.source_environment_cache_identity
+                        == source_environment_cache_identity
                     // A provider may later adjust request A to effective plan B. The prepared
                     // pixels could be reusable for a separate request B, but its receipt would
                     // still describe A; returning it here would lie about the user's request.
@@ -1229,6 +1416,7 @@ impl DesktopSession {
             entry.representation_id == source.representation_id
                 && entry.source == source.source
                 && entry.max_edge == max_edge
+                && entry.source_environment_cache_identity == source_environment_cache_identity
                 && requested_raw_development_plan_cache_matches(
                     &entry.requested_raw_development_plan_identity,
                     &requested_raw_development_plan_identity,
@@ -1241,6 +1429,7 @@ impl DesktopSession {
             representation_id: source.representation_id,
             source: source.source,
             max_edge,
+            source_environment_cache_identity: source_environment_cache_identity.to_owned(),
             requested_raw_development_plan_identity,
             optics,
             session: Arc::clone(&prepared),
@@ -1257,15 +1446,18 @@ impl DesktopSession {
         &self,
         source: &ReviewItemRecord,
         proxy: &ProxyPayload,
-        recipe_snapshot_digest: [u8; 32],
-        max_edge: u32,
-        jpeg_quality: u8,
+        request: RecipePreviewCacheRequest<'_>,
     ) -> AnyResult<()> {
+        let raw_pipeline = prepared_raw_pipeline_cache_identity(request.raw_pipeline_receipt)
+            .context("identify prepared Recipe-preview source pipeline")?;
         let raw_plan_identity = raw_development_plan_identity(RawDevelopmentPlan::preview())
             .context("build Recipe-preview RAW-development cache identity")?;
         let variant_key = format!(
-            "shadow-recipe-preview:jpeg-{max_edge}-q{jpeg_quality}-444-v1;{raw_plan_identity};recipe={}",
-            encode_hex(&recipe_snapshot_digest)
+            "shadow-recipe-preview:jpeg-{}-q{}-444-v1;{raw_plan_identity};pipeline={};recipe={}",
+            request.max_edge,
+            request.jpeg_quality,
+            raw_pipeline.component(),
+            encode_hex(&request.recipe_snapshot_digest)
         );
         let blob = self
             .loader
@@ -1279,8 +1471,9 @@ impl DesktopSession {
                     role: CachedArtifactRole::RecipePreview,
                     variant_key,
                     generator_id: "shadow-edit-preview".to_owned(),
-                    generator_version: photo_provider_version(),
-                    recipe_snapshot_digest: Some(recipe_snapshot_digest),
+                    generator_version: raw_pipeline
+                        .edit_preview_generator_version(request.source_environment_cache_identity),
+                    recipe_snapshot_digest: Some(request.recipe_snapshot_digest),
                     provider_preview_id: None,
                     blob_algorithm: blob.digest.algorithm().to_owned(),
                     blob_digest: *blob.digest.as_bytes(),
@@ -1307,6 +1500,8 @@ impl DesktopSession {
         const SOURCE_METADATA_CONTEXT: &str = "read full detail source metadata";
         let native_path = catalog_native_path(source)?;
         let raw_development_plan = RawDevelopmentPlan::detail();
+        let source_environment_cache_identity =
+            current_source_environment_cache_identity(&photo_provider_version());
         let requested_raw_development_plan_identity =
             raw_development_plan_identity(raw_development_plan)
                 .context("build requested detail RAW-development cache identity")?;
@@ -1316,33 +1511,24 @@ impl DesktopSession {
         }
         // One mutex is also the full-decode admission gate. Holding it across
         // preparation prevents concurrent cold requests from materializing
-        // multiple hundreds-of-MiB sources. A source currently pinned by a
-        // renderer cannot be evicted for another photo.
+        // multiple hundreds-of-MiB sources. Completed sources enter a bounded
+        // LRU so switching among recently edited photos does not decode again.
         let mut cached = self
-            .edit_detail_session
+            .edit_detail_sessions
             .lock()
             .map_err(|_| anyhow!("edit detail session cache lock is poisoned"))?;
         // A newer request may have arrived while this worker waited for the
         // single cold-decode gate. Refuse stale work before opening the source router.
         self.ensure_current_edit_detail_render(render_token)?;
-        if let Some(entry) = cached.as_ref().filter(|entry| {
-            entry.representation_id == source.representation_id
-                && entry.source == source.source
-                && requested_raw_development_plan_cache_matches(
-                    &entry.requested_raw_development_plan_identity,
-                    &requested_raw_development_plan_identity,
-                )
-                && entry.optics == optics
-        }) {
-            return Ok(Arc::clone(&entry.session));
+        if let Some(session) = cached.get(
+            source.representation_id,
+            source.source,
+            &source_environment_cache_identity,
+            &requested_raw_development_plan_identity,
+            &optics,
+        ) {
+            return Ok(session);
         }
-        if cached
-            .as_ref()
-            .is_some_and(|entry| Arc::strong_count(&entry.session) > 1)
-        {
-            bail!("full detail source is busy rendering another photo");
-        }
-        *cached = None;
         let prepared_session =
             match PhotoEditDetailSession::open_with_raw_development_plan_and_optics(
                 &native_path,
@@ -1379,9 +1565,10 @@ impl DesktopSession {
         if decoded_source != source.source {
             bail!(SOURCE_CHANGED);
         }
-        *cached = Some(CachedEditDetailSession {
+        cached.insert(CachedEditDetailSession {
             representation_id: source.representation_id,
             source: source.source,
+            source_environment_cache_identity,
             requested_raw_development_plan_identity,
             optics,
             session: Arc::clone(&prepared),
@@ -1976,7 +2163,7 @@ fn open_desktop_session(catalog_path: &str, cache_root: &str) -> AnyResult<Box<D
         loader,
         cache_root,
         edit_preview_sessions: Mutex::new(VecDeque::new()),
-        edit_detail_session: Mutex::new(None),
+        edit_detail_sessions: Mutex::new(EditDetailSessionCache::default()),
         edit_detail_render_token: AtomicU64::new(0),
     }))
 }
@@ -2014,13 +2201,15 @@ mod tests {
     };
     use shadow_cache::ContentAddressedStore;
     use shadow_catalog::{
-        CachedArtifact, CachedArtifactRecord, RecordCachedArtifact, RegisterAsset,
+        CachedArtifact, CachedArtifactRecord, RecordCachedArtifact, RecordDecodeSnapshot,
+        RegisterAsset, RepresentationFingerprint,
     };
     use shadow_core::DecodeInspector;
     use shadow_domain::{
-        AssetLocation, EntityId, ImageDimensions, ImportSessionId, MAX_PHOTO_RATING,
-        PhotoDecisionOrigin, Platform, PreviewByteOrder, PreviewCodec, RepresentationId,
-        RepresentationKind,
+        AssetLocation, DecodeCapabilitySnapshot, DecodeProviderSnapshot, DecodeSupport,
+        DecoderSnapshot, EntityId, ImageDimensions, ImageMargins, ImportSessionId,
+        MAX_PHOTO_RATING, PendingCorrectionsSnapshot, PhotoDecisionOrigin, Platform,
+        PreviewByteOrder, PreviewCodec, RawMetadataSnapshot, RepresentationId, RepresentationKind,
     };
 
     use crate::photo_provider::{PHOTO_GRID_PROXY_JPEG_QUALITY, PHOTO_GRID_PROXY_MAX_EDGE};
@@ -2057,11 +2246,11 @@ mod tests {
         assert_eq!(inspector.provider_id(), "shadow-photo-router");
         assert_eq!(inspector.provider_version(), photo_provider_version());
         assert_eq!(PHOTO_GRID_PROXY_MAX_EDGE, 2_048);
-        assert_eq!(PHOTO_GRID_PROXY_JPEG_QUALITY, 88);
+        assert_eq!(PHOTO_GRID_PROXY_JPEG_QUALITY, 90);
         assert_eq!(
             inspector.proxy_variant_key(),
             format!(
-                "shadow-photo-router:grid-jpeg-2048-q88-444-v2;{}",
+                "shadow-photo-router:grid-jpeg-2048-q90-444-v3;{}",
                 raw_development_plan_identity(RawDevelopmentPlan::preview())
                     .expect("canonical preview plan identity")
             )
@@ -3394,6 +3583,93 @@ mod tests {
         assert!(outgoing.optics.automatic_scale);
         assert_eq!(outgoing.optics.camera_profile_model, "K10D");
         assert_eq!(outgoing.optics.lens_profile_model, "DA 35mm");
+    }
+
+    #[test]
+    fn shared_grade_node_heads_are_named_versioned_and_renderable() {
+        let root = std::env::temp_dir().join(format!(
+            "shadow-shared-grade-node-{}-{}",
+            std::process::id(),
+            LayerId::new_v7()
+        ));
+        let session = open_desktop_session(
+            root.join("catalog.sqlite").to_str().expect("catalog path"),
+            root.join("cache").to_str().expect("cache path"),
+        )
+        .expect("open desktop session");
+        let mut local = new_basic_grade_node("Portrait").expect("local Grade Node");
+        local.basic.exposure_stops = 0.35;
+
+        let first = session
+            .publish_shared_grade_node("Portrait foundation", &local)
+            .expect("publish shared Grade Node");
+        assert_eq!(first.revision_number, 1);
+        assert_eq!(first.label, "Portrait foundation");
+        assert_eq!(first.grade_node.shared_layer_id, first.layer_id);
+        assert_eq!(first.grade_node.shared_revision_id, first.revision_id);
+        assert_close(first.grade_node.basic.exposure_stops, 0.35);
+
+        let mut update = first.grade_node.clone();
+        update.basic.exposure_stops = 0.8;
+        let second = session
+            .publish_shared_grade_node("Portrait foundation", &update)
+            .expect("publish second shared revision");
+        assert_eq!(second.layer_id, first.layer_id);
+        assert_ne!(second.revision_id, first.revision_id);
+        assert_eq!(second.revision_number, 2);
+        assert_close(second.grade_node.basic.exposure_stops, 0.8);
+
+        let listed = session.shared_grade_nodes().expect("list shared heads");
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].revision_id, second.revision_id);
+        assert_eq!(listed[0].grade_node.shared_layer_id, first.layer_id);
+
+        drop(session);
+        std::fs::remove_dir_all(root).expect("remove shared Grade Node fixture");
+    }
+
+    #[test]
+    fn batch_application_links_latest_shared_revision_and_is_idempotent() {
+        let (root, session, photo_id, source_path) = test_edit_session();
+        let mut local = new_basic_grade_node("Shared contrast").expect("local Grade Node");
+        local.basic.contrast_factor = 1.12;
+        let shared = session
+            .publish_shared_grade_node("Shared contrast", &local)
+            .expect("publish shared Grade Node");
+        let target = || ffi::FfiBatchPhotoTarget {
+            photo_id: photo_id.clone(),
+            source_path: source_path.clone(),
+        };
+
+        let first = session
+            .apply_shared_grade_node_to_photos(&shared.layer_id, vec![target()])
+            .expect("apply shared Grade Node");
+        assert_eq!(first.requested, 1);
+        assert_eq!(first.updated, 1);
+        assert_eq!(first.unchanged, 0);
+        assert_eq!(first.failed, 0);
+        let state = session
+            .photo_edit_state(&photo_id, &source_path)
+            .expect("read linked edit");
+        assert_eq!(state.settings.grade_nodes.len(), 2);
+        assert_eq!(
+            state.settings.grade_nodes[1].shared_layer_id,
+            shared.layer_id
+        );
+        assert_eq!(
+            state.settings.grade_nodes[1].shared_revision_id,
+            shared.revision_id
+        );
+
+        let second = session
+            .apply_shared_grade_node_to_photos(&shared.layer_id, vec![target()])
+            .expect("reapply shared Grade Node");
+        assert_eq!(second.updated, 0);
+        assert_eq!(second.unchanged, 1);
+        assert_eq!(second.failed, 0);
+
+        drop(session);
+        std::fs::remove_dir_all(root).expect("remove batch Grade Node fixture");
     }
 
     #[test]
@@ -6471,6 +6747,88 @@ mod tests {
 
         drop(session);
         std::fs::remove_dir_all(root).expect("remove raster edit fixture");
+    }
+
+    #[test]
+    fn optics_profile_discovery_uses_catalog_metadata_without_opening_raw_pixels() {
+        let (root, session, photo_id, source_path) = test_edit_session();
+        let photo_id_parsed = photo_id.parse().expect("parse fixture photo id");
+        let source = session
+            .catalog
+            .review_source(photo_id_parsed)
+            .expect("read fixture source")
+            .expect("fixture source");
+        session
+            .catalog
+            .record_decode_snapshot(&RecordDecodeSnapshot {
+                representation_id: source.representation_id,
+                expected_source: RepresentationFingerprint {
+                    byte_len: 4_096,
+                    modified_at_ms: Some(123),
+                },
+                snapshot: DecoderSnapshot {
+                    provider: DecodeProviderSnapshot {
+                        id: "metadata-only-test".into(),
+                        version: "1".into(),
+                        dng_sdk: false,
+                        rawspeed: false,
+                        jpeg: false,
+                    },
+                    metadata: RawMetadataSnapshot {
+                        make: "Nikon".into(),
+                        model: "Z 9".into(),
+                        normalized_make: "Nikon".into(),
+                        normalized_model: "Z 9".into(),
+                        dng_version: None,
+                        raw_count: 1,
+                        raw_dimensions: ImageDimensions {
+                            width: 8_256,
+                            height: 5_504,
+                        },
+                        image_dimensions: ImageDimensions {
+                            width: 8_256,
+                            height: 5_504,
+                        },
+                        margins: ImageMargins::default(),
+                        orientation: 0,
+                        cfa_pattern: "RGGB".into(),
+                        sensor_colors: 3,
+                        sensor_bits: 14,
+                        black_level: 0,
+                        white_level: 16_383,
+                        as_shot_neutral: [1.0; 4],
+                        baseline_exposure: 0.0,
+                        iso_speed: 64.0,
+                        exposure_time_seconds: 1.0 / 2_000.0,
+                        aperture_f_number: 6.3,
+                        focal_length_mm: 300.0,
+                        captured_at_unix_seconds: 1_660_000_000,
+                        lens_make: "Nikon".into(),
+                        lens_model: "NIKKOR Z 100-400mm f/4.5-5.6 VR S".into(),
+                        focal_length_35mm: 300.0,
+                    },
+                    capabilities: DecodeCapabilitySnapshot {
+                        metadata: DecodeSupport::Available,
+                        embedded_previews: DecodeSupport::Available,
+                        raw_frame: DecodeSupport::Unavailable,
+                        reference_rgb: DecodeSupport::Unavailable,
+                        pending_corrections: PendingCorrectionsSnapshot::default(),
+                        raw_development: Default::default(),
+                    },
+                    previews: Vec::new(),
+                },
+                inspected_at_ms: 456,
+            })
+            .expect("record metadata-only snapshot");
+
+        // The fixture deliberately has no file at source_path. Success proves profile discovery
+        // consumed persisted EXIF rather than requiring the unsupported RAW pixel stream.
+        session
+            .optics_profile_candidates(&photo_id, &source_path)
+            .expect("query optical profiles from Catalog EXIF");
+
+        drop(session);
+        std::fs::remove_dir_all(root).expect("remove optics metadata fixture");
     }
 
     #[test]

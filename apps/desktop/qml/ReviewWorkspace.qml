@@ -12,6 +12,7 @@ Item {
     required property var controller
     required property var justifiedReviewLayout
     required property var preferences
+    property var selectedPhotoTargets: ({})
     property string selectedPhotoId: ""
     property string selectedRepresentationId: ""
     property string selectedVisualHandle: ""
@@ -87,6 +88,8 @@ Item {
         && !controller.refreshing
         && !controller.busy && !controller.loadingMore
         && !controller.comparisonBusy && !controller.decisionBusy
+    readonly property int selectedPhotoCount:
+        Object.keys(selectedPhotoTargets).length
     readonly property string localComparisonStatus: {
         if (localComparisonStatusKey === "photo-in-both-slots")
             return qsTr("A photo cannot occupy both comparison slots.")
@@ -101,6 +104,7 @@ Item {
                                   string sourcePath, string photoTitle,
                                   string previewSource)
     signal openLibraryManagementRequested()
+    signal exportRequested(var targets)
 
     MetadataWindow {
         id: metadataWindow
@@ -111,6 +115,106 @@ Item {
         hasMetadata: review.selectedHasMetadata
         metadataPending: review.controller.scanning || review.controller.refreshing
         fields: review.metadataFields()
+    }
+
+    Popup {
+        id: sharedBatchPopup
+        width: 292
+        padding: 8
+        modal: false
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+        background: Rectangle {
+            color: Theme.panelRaised
+            radius: Theme.controlRadius
+            border.width: 1
+            border.color: Theme.borderStrong
+        }
+
+        contentItem: Column {
+            spacing: 4
+
+            Label {
+                width: parent.width
+                leftPadding: 8
+                rightPadding: 8
+                topPadding: 6
+                bottomPadding: 8
+                text: qsTr("APPLY SHARED NODE · %L1 PHOTOS").arg(
+                    review.selectedPhotoCount)
+                color: Theme.textMuted
+                font.pixelSize: 9
+                font.weight: Font.DemiBold
+                font.letterSpacing: 0.7
+            }
+
+            Label {
+                width: parent.width
+                leftPadding: 8
+                rightPadding: 8
+                topPadding: 4
+                bottomPadding: 8
+                visible: review.controller.sharedGradeNodes.length === 0
+                text: qsTr("No shared Grade Nodes yet")
+                color: Theme.textMuted
+                font.pixelSize: 10
+            }
+
+            Repeater {
+                model: review.controller.sharedGradeNodes
+
+                delegate: Rectangle {
+                    id: sharedBatchRow
+                    required property var modelData
+                    width: parent.width
+                    height: 38
+                    radius: Theme.compactControlRadius
+                    color: sharedBatchMouse.containsMouse
+                        ? Theme.buttonGhostHover : Theme.transparent
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 8
+                        anchors.rightMargin: 8
+                        spacing: 8
+
+                        ShadowIcon {
+                            source: "qrc:/icons/shared-link.svg"
+                            color: Theme.accent
+                            size: 15
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: String(sharedBatchRow.modelData.label)
+                            color: Theme.textPrimary
+                            font.pixelSize: 11
+                            elide: Text.ElideRight
+                        }
+
+                        Label {
+                            text: qsTr("V%1").arg(
+                                Number(sharedBatchRow.modelData.revisionNumber))
+                            color: Theme.textMuted
+                            font.pixelSize: 9
+                        }
+                    }
+
+                    MouseArea {
+                        id: sharedBatchMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            review.controller.applySharedGradeNode(
+                                String(sharedBatchRow.modelData.layerId),
+                                review.batchSelectionTargets())
+                            sharedBatchPopup.close()
+                        }
+                    }
+                }
+            }
+        }
     }
 
     readonly property color panel: Theme.panel
@@ -224,7 +328,24 @@ Item {
         ]
     }
 
-    function selectPhoto(card) {
+    function selectionKey(photoId, representationId) {
+        return String(photoId) + "\u0000" + String(representationId)
+    }
+
+    function isPhotoSelected(photoId, representationId) {
+        return selectedPhotoTargets[selectionKey(photoId, representationId)]
+            !== undefined
+    }
+
+    function batchSelectionTargets() {
+        const values = []
+        const keys = Object.keys(selectedPhotoTargets)
+        for (let index = 0; index < keys.length; ++index)
+            values.push(selectedPhotoTargets[keys[index]])
+        return values
+    }
+
+    function updatePrimaryPhoto(card) {
         if (selectedPhotoId !== card.photoId
                 || selectedRepresentationId !== card.representationId)
             precisionOpenStatus = ""
@@ -272,7 +393,38 @@ Item {
         selectedEdgeEnergy = card.edgeEnergy
     }
 
-    function clearSelection() {
+    function selectPhoto(card, modifiers) {
+        const modifierMask = Number(modifiers || 0)
+        const additive = (modifierMask & Qt.ControlModifier) !== 0
+            || (modifierMask & Qt.MetaModifier) !== 0
+        const key = selectionKey(card.photoId, card.representationId)
+        const updated = ({})
+        if (additive) {
+            const previousKeys = Object.keys(selectedPhotoTargets)
+            for (let index = 0; index < previousKeys.length; ++index) {
+                const previousKey = previousKeys[index]
+                updated[previousKey] = selectedPhotoTargets[previousKey]
+            }
+            if (updated[key] !== undefined) {
+                delete updated[key]
+                selectedPhotoTargets = updated
+                if (selectedPhotoId === card.photoId
+                        && selectedRepresentationId === card.representationId)
+                    clearPrimaryPhoto()
+                return
+            }
+        }
+        updated[key] = {
+            "photoId": String(card.photoId),
+            "representationId": String(card.representationId),
+            "sourcePath": String(card.sourcePath),
+            "title": String(card.title)
+        }
+        selectedPhotoTargets = updated
+        updatePrimaryPhoto(card)
+    }
+
+    function clearPrimaryPhoto() {
         precisionOpenStatus = ""
         selectedPhotoId = ""
         selectedRepresentationId = ""
@@ -316,6 +468,11 @@ Item {
         selectedNearWhiteFraction = 0.0
         selectedLaplacianVariance = 0.0
         selectedEdgeEnergy = 0.0
+    }
+
+    function clearSelection() {
+        selectedPhotoTargets = ({})
+        clearPrimaryPhoto()
     }
 
     function selectedComparisonSnapshot() {
@@ -933,6 +1090,44 @@ Item {
                         onClicked: metadataWindow.present()
                     }
 
+                    Label {
+                        visible: review.selectedPhotoCount > 1
+                        text: qsTr("%L1 selected").arg(
+                            review.selectedPhotoCount)
+                        color: review.textMuted
+                        font.pixelSize: 9
+                    }
+
+                    ShadowIconButton {
+                        id: applySharedGradeButton
+                        source: "qrc:/icons/shared-link.svg"
+                        toolTipText: qsTr("Apply a shared Grade Node to selection")
+                        accessibleName: toolTipText
+                        enabled: review.selectedPhotoCount > 0
+                        onClicked: {
+                            review.controller.refreshSharedGradeNodes()
+                            const position = mapToItem(
+                                review, width - sharedBatchPopup.width,
+                                height + 6)
+                            sharedBatchPopup.x = Math.max(
+                                8, Math.min(position.x,
+                                    review.width - sharedBatchPopup.width - 8))
+                            sharedBatchPopup.y = Math.max(
+                                8, Math.min(position.y,
+                                    review.height - sharedBatchPopup.height - 8))
+                            sharedBatchPopup.open()
+                        }
+                    }
+
+                    ShadowIconButton {
+                        source: "qrc:/icons/export.svg"
+                        toolTipText: qsTr("Export selected photos")
+                        accessibleName: toolTipText
+                        enabled: review.selectedPhotoCount > 0
+                        onClicked: review.exportRequested(
+                            review.batchSelectionTargets())
+                    }
+
                     ShadowIconButton {
                         source: "qrc:/icons/edit.svg"
                         variant: ShadowIconButton.Tinted
@@ -1022,6 +1217,7 @@ Item {
                     required property string decisionFlag
                     required property int decisionRating
                     required property string colorLabel
+                    required property bool hasDevelopmentEdits
                     required property bool hasTechnicalObservation
                     required property int technicalInputWidth
                     required property int technicalInputHeight
@@ -1233,15 +1429,12 @@ Item {
                                 anchors.verticalCenter: parent.verticalCenter
                                 spacing: 3
 
-                                Label {
+                                ShadowIcon {
                                     anchors.right: parent.right
-                                    text: card.visualRole.length > 0
-                                        ? card.visualRole.toUpperCase() : "RAW"
-                                    color: card.visualRole === "embedded"
-                                        ? Theme.successTextMuted : review.accent
-                                    font.pixelSize: 8
-                                    font.weight: Font.Bold
-                                    font.letterSpacing: 0.8
+                                    visible: card.hasDevelopmentEdits
+                                    source: "qrc:/icons/edit.svg"
+                                    color: review.accent
+                                    size: 12
                                 }
 
                                 Row {
@@ -1300,7 +1493,7 @@ Item {
                         ? qsTr("Searching the folder for supported photos…\nNew RAW files will appear here as they are catalogued.")
                         : review.controller.scanProgress.phase === "failed"
                         ? qsTr("Import stopped, and no RAW files are currently visible.\nAlready catalogued files remain safely stored.")
-                        : qsTr("Add a folder to the local Library.\nShadow will use embedded previews first and generate a local proxy only when needed.")
+                        : qsTr("Add a folder to the local Library.\nShadow will show embedded previews immediately, then replace them with locally generated proxies.")
                     color: review.textMuted
                     horizontalAlignment: Text.AlignHCenter
                     wrapMode: Text.WordWrap
@@ -1392,7 +1585,7 @@ Item {
                     ? qsTr("Searching the folder for supported photos…\nNew RAW files will appear here as they are catalogued.")
                     : review.controller.scanProgress.phase === "failed"
                     ? qsTr("Import stopped, and no RAW files are currently visible.\nAlready catalogued files remain safely stored.")
-                    : qsTr("Add a folder to the local Library.\nShadow will use embedded previews first and generate a local proxy only when needed.")
+                    : qsTr("Add a folder to the local Library.\nShadow will show embedded previews immediately, then replace them with locally generated proxies.")
                 color: review.textMuted
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.WordWrap

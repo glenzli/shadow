@@ -1,15 +1,19 @@
 #include <shadow/image/decoder.hpp>
 #include <shadow/image/private_decoder_plugin.hpp>
+#include <shadow/image/source_rendering.hpp>
+#include <shadow/image/source_profile_catalog.hpp>
+
+#include "decode_session_isolation.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cstdlib>
 #include <cstdint>
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <memory>
-#include <mutex>
 #include <set>
 #include <span>
 #include <sstream>
@@ -113,6 +117,15 @@ inline constexpr std::uintmax_t maximum_private_decoder_link_bytes = 8U * 1024U;
         utf8_path_text(effective_path) + ";size=" + std::to_string(effective_size)
         + ";mtime=" + std::to_string(ticks)
     );
+}
+
+[[nodiscard]] std::string private_module_concurrency_identity(
+    const std::filesystem::path& path
+) {
+    std::error_code error;
+    const std::filesystem::path canonical = std::filesystem::weakly_canonical(path, error);
+    const std::filesystem::path effective_path = error ? path : canonical;
+    return "private-decoder-module:" + utf8_path_text(effective_path);
 }
 
 [[nodiscard]] std::string lowercase_extension(const std::filesystem::path& path) {
@@ -313,113 +326,12 @@ inline constexpr std::uintmax_t maximum_private_decoder_link_bytes = 8U * 1024U;
     return modules;
 }
 
-// A DecodeSession owns immutable source metadata, but its source-facing methods
-// may enter third-party RAW libraries or a locally installed private provider.
-// The catalog inspector and the editor prepare those sources on independent
-// workers. Do not make them share buffers or duplicate full RAW frames merely
-// to avoid that race: serialize only the source-I/O/development boundary, then
-// let the immutable warm preview and detail sessions run in parallel.
-class SerializedPhotoDecodeSession final : public DecodeSession {
-public:
-    SerializedPhotoDecodeSession(
-        std::shared_ptr<std::mutex> decode_gate,
-        std::unique_ptr<DecodeSession> session
-    )
-        : decode_gate_(std::move(decode_gate)), session_(std::move(session)) {
-        if (decode_gate_ == nullptr || session_ == nullptr) {
-            throw DecodeError(
-                DecodeErrorCode::internal,
-                0,
-                "photo router could not retain its serialized decode session"
-            );
-        }
-    }
-
-    [[nodiscard]] const AssetMetadata& metadata() const noexcept override {
-        return session_->metadata();
-    }
-
-    [[nodiscard]] const DecodeCapabilities& capabilities() const noexcept override {
-        return session_->capabilities();
-    }
-
-    [[nodiscard]] std::span<const PreviewDescriptor> previews() const noexcept override {
-        return session_->previews();
-    }
-
-    [[nodiscard]] const RawDevelopmentCapabilities& raw_development_capabilities() const noexcept
-        override {
-        return session_->raw_development_capabilities();
-    }
-
-    [[nodiscard]] RawDevelopmentPlanNegotiation negotiate_raw_development_plan(
-        const RawDevelopmentPlan& plan
-    ) const noexcept override {
-        return session_->negotiate_raw_development_plan(plan);
-    }
-
-    [[nodiscard]] PreviewPayload decode_preview(const std::size_t id) override {
-        std::lock_guard lock(*decode_gate_);
-        return session_->decode_preview(id);
-    }
-
-    [[nodiscard]] RawFrame decode_raw_frame() override {
-        std::lock_guard lock(*decode_gate_);
-        return session_->decode_raw_frame();
-    }
-
-    [[nodiscard]] PixelBuffer render_reference_rgb() const override {
-        std::lock_guard lock(*decode_gate_);
-        return session_->render_reference_rgb();
-    }
-
-    [[nodiscard]] PixelBuffer render_reference_rgb(
-        const RawDevelopmentPlan& plan
-    ) const override {
-        std::lock_guard lock(*decode_gate_);
-        return session_->render_reference_rgb(plan);
-    }
-
-    [[nodiscard]] PixelBuffer render_reference_rgb_for_preview(
-        const std::uint32_t max_edge
-    ) const override {
-        std::lock_guard lock(*decode_gate_);
-        return session_->render_reference_rgb_for_preview(max_edge);
-    }
-
-    [[nodiscard]] PixelBuffer render_reference_rgb_for_preview(
-        const std::uint32_t max_edge,
-        const RawDevelopmentPlan& plan
-    ) const override {
-        std::lock_guard lock(*decode_gate_);
-        return session_->render_reference_rgb_for_preview(max_edge, plan);
-    }
-
-private:
-    std::shared_ptr<std::mutex> decode_gate_;
-    std::unique_ptr<DecodeSession> session_;
-};
-
-// CXX bridge operations deliberately create short-lived router providers, so a
-// gate owned by one router instance would not protect an editor request from
-// the catalog inspector's separate request. Keep this source-I/O gate process
-// wide: provider sessions remain independent, while access to decoder engines
-// that may own shared native state is serialized across the application.
-[[nodiscard]] std::shared_ptr<std::mutex> shared_photo_source_decode_gate() {
-    static const auto gate = std::make_shared<std::mutex>();
-    return gate;
-}
-
 class PhotoDecoderRouter final : public DecoderProvider {
 public:
     explicit PhotoDecoderRouter(std::vector<std::filesystem::path> private_decoder_plugin_paths)
-        : decode_gate_(shared_photo_source_decode_gate()), raw_(make_libraw_decoder_provider()),
-          raster_(make_raster_decoder_provider()) {
+        : raw_(make_libraw_decoder_provider()), raster_(make_raster_decoder_provider()) {
         for (const auto& private_decoder_plugin_path : private_decoder_plugin_paths) {
-            private_raw_.push_back(PrivateModule{
-                .path = private_decoder_plugin_path,
-                .provider = load_private_decoder_plugin(private_decoder_plugin_path),
-            });
+            private_raw_.emplace_back(private_decoder_plugin_path);
         }
         const auto& raw_info = raw_->info();
         const auto& raster_info = raster_->info();
@@ -427,12 +339,14 @@ public:
         info_.version = "router=" + std::to_string(photo_decoder_router_contract_version)
             + ";raw=" + compact_component_identity(raw_info.version)
             + ";raster=" + compact_component_identity(raster_info.version)
-            + ";display=" + std::to_string(display_srgb8_output_transform_version);
+            + ";display=" + std::to_string(display_srgb8_output_transform_version)
+            + ";source-render=" + std::to_string(source_rendering_implementation_version)
+            + ";source-profiles=" + load_local_source_profile_catalog().identity;
         for (const auto& module : private_raw_) {
-            const auto& private_info = module.provider->info();
+            const auto& private_info = module.info();
             info_.version += ";private=" + compact_component_identity(
                 private_info.id + ";" + private_info.version
-            ) + ";private_module=" + private_module_identity(module.path);
+            ) + ";private_module=" + private_module_identity(module.path());
             info_.dng_sdk = info_.dng_sdk || private_info.dng_sdk;
             info_.rawspeed = info_.rawspeed || private_info.rawspeed;
             info_.jpeg = info_.jpeg || private_info.jpeg;
@@ -449,16 +363,14 @@ public:
     [[nodiscard]] std::unique_ptr<DecodeSession> open(
         const std::filesystem::path& path
     ) const override {
-        std::lock_guard lock(*decode_gate_);
         const std::string extension = lowercase_extension(path);
         if (is_raster_extension(extension) || has_jpeg_signature(path)) {
-            return std::make_unique<SerializedPhotoDecodeSession>(
-                decode_gate_,
-                raster_->open(path)
-            );
+            return detail::isolate_decode_session(raster_->open(path));
         }
 
-        // Public LibRaw is Shadow's normal path.  A private module is a
+        // Public LibRaw is Shadow's normal path. Its reentrant libraw_r contexts are independent,
+        // so different sessions can unpack/develop on different workers. The isolation wrapper
+        // still rejects accidental concurrent use of one context. A private module is a
         // narrow escape hatch for formats that public LibRaw cannot develop
         // (for example a vendor-specific compressed RAW), not an eager
         // replacement for every RAW source.  Trying a vendor SDK first made
@@ -477,10 +389,7 @@ public:
         try {
             public_raw_session = raw_->open(path);
             if (public_raw_session->capabilities().reference_rgb) {
-                return std::make_unique<SerializedPhotoDecodeSession>(
-                    decode_gate_,
-                    std::move(public_raw_session)
-                );
+                return detail::isolate_decode_session(std::move(public_raw_session));
             }
         } catch (const DecodeError&) {
             // A private provider can legitimately handle a source LibRaw
@@ -490,10 +399,7 @@ public:
 
         for (const auto& module : private_raw_) {
             try {
-                return std::make_unique<SerializedPhotoDecodeSession>(
-                    decode_gate_,
-                    module.provider->open(path)
-                );
+                return module.open(path);
             } catch (const DecodeError& error) {
                 // A private provider must explicitly say it does not recognise a source before
                 // the router tries another local module or falls back. Corrupt data, a malformed
@@ -506,21 +412,74 @@ public:
         }
 
         if (public_raw_session != nullptr) {
-            return std::make_unique<SerializedPhotoDecodeSession>(
-                decode_gate_,
-                std::move(public_raw_session)
-            );
+            return detail::isolate_decode_session(std::move(public_raw_session));
         }
-        return std::make_unique<SerializedPhotoDecodeSession>(decode_gate_, raw_->open(path));
+        return detail::isolate_decode_session(raw_->open(path));
     }
 
 private:
-    struct PrivateModule final {
-        std::filesystem::path path;
-        std::unique_ptr<DecoderProvider> provider;
+    class PrivateModule final {
+    public:
+        explicit PrivateModule(std::filesystem::path path)
+            : path_(std::move(path)),
+              gate_(detail::shared_decode_provider_gate(
+                  private_module_concurrency_identity(path_)
+              )),
+              provider_(gate_.synchronize([this] {
+                  return load_private_decoder_plugin(path_);
+              })) {
+            try {
+                info_ = gate_.synchronize([this] { return provider_->info(); });
+            } catch (...) {
+                try {
+                    gate_.synchronize([this] { provider_.reset(); });
+                } catch (...) {
+                    std::terminate();
+                }
+                throw;
+            }
+        }
+
+        PrivateModule(const PrivateModule&) = delete;
+        PrivateModule& operator=(const PrivateModule&) = delete;
+        PrivateModule(PrivateModule&&) noexcept = default;
+        PrivateModule& operator=(PrivateModule&&) = delete;
+
+        ~PrivateModule() {
+            if (provider_ == nullptr) {
+                return;
+            }
+            try {
+                gate_.synchronize([this] { provider_.reset(); });
+            } catch (...) {
+                std::terminate();
+            }
+        }
+
+        [[nodiscard]] const std::filesystem::path& path() const noexcept {
+            return path_;
+        }
+
+        [[nodiscard]] const ProviderInfo& info() const noexcept {
+            return info_;
+        }
+
+        [[nodiscard]] std::unique_ptr<DecodeSession> open(
+            const std::filesystem::path& path
+        ) const {
+            auto session = gate_.synchronize([this, &path] {
+                return provider_->open(path);
+            });
+            return detail::isolate_decode_session(std::move(session), gate_);
+        }
+
+    private:
+        std::filesystem::path path_;
+        detail::SharedDecodeProviderGate gate_;
+        std::unique_ptr<DecoderProvider> provider_;
+        ProviderInfo info_;
     };
 
-    std::shared_ptr<std::mutex> decode_gate_;
     std::vector<PrivateModule> private_raw_;
     std::unique_ptr<DecoderProvider> raw_;
     std::unique_ptr<DecoderProvider> raster_;

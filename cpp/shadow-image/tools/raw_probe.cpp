@@ -1,4 +1,5 @@
 #include <shadow/image/decoder.hpp>
+#include <shadow/image/raw_pipeline.hpp>
 
 #include <algorithm>
 #include <array>
@@ -244,7 +245,13 @@ void inspect_raw_frame(image::DecodeSession& session, const fs::path& output_dir
 void render_reference_rgb(image::DecodeSession& session, const fs::path& output_directory) {
     const Stopwatch timer;
     const auto plan = image::default_raw_development_plan();
-    const image::PixelBuffer rendered = session.render_reference_rgb(plan);
+    const image::DevelopedSourceReference source = image::develop_source_reference(
+        session,
+        plan,
+        std::nullopt,
+        image::raw_pipeline_policy_from_environment()
+    );
+    const image::PixelBuffer& rendered = source.pixels;
     const fs::path output_path = output_directory / "reference-linear-srgb-16bit.ppm";
     write_u16_pnm(output_path, rendered.dimensions, rendered.channels, rendered.samples);
 
@@ -261,6 +268,10 @@ void render_reference_rgb(image::DecodeSession& session, const fs::path& output_
               << rendered.raw_development_receipt.requested_plan_identity << '\n'
               << "reference_rgb.plan.effective="
               << rendered.raw_development_receipt.effective_plan_identity << '\n'
+              << "reference_rgb.pipeline.path="
+              << static_cast<unsigned>(source.pipeline_receipt.path) << '\n'
+              << "reference_rgb.pipeline.identity="
+              << image::raw_pipeline_receipt_identity(source.pipeline_receipt) << '\n'
               << "reference_rgb.output=" << output_path.string() << '\n'
               << "timing.reference_rgb_ms=" << timer.elapsed_ms() << '\n';
 }
@@ -272,10 +283,13 @@ void render_warm_preview_reference_rgb(
     constexpr std::uint32_t warm_preview_edge = 1'200U;
     const Stopwatch timer;
     const auto plan = image::preview_raw_development_plan();
-    const image::PixelBuffer rendered = session.render_reference_rgb_for_preview(
+    const image::DevelopedSourceReference source = image::develop_source_reference(
+        session,
+        plan,
         warm_preview_edge,
-        plan
+        image::raw_pipeline_policy_from_environment()
     );
+    const image::PixelBuffer& rendered = source.pixels;
     const fs::path output_path = output_directory / "preview-reference-linear-srgb-16bit.ppm";
     write_u16_pnm(output_path, rendered.dimensions, rendered.channels, rendered.samples);
     std::array<long double, 3U> channel_sum{};
@@ -295,6 +309,10 @@ void render_warm_preview_reference_rgb(
               << rendered.raw_development_receipt.requested_plan_identity << '\n'
               << "preview_reference.plan.effective="
               << rendered.raw_development_receipt.effective_plan_identity << '\n'
+              << "preview_reference.pipeline.path="
+              << static_cast<unsigned>(source.pipeline_receipt.path) << '\n'
+              << "preview_reference.pipeline.identity="
+              << image::raw_pipeline_receipt_identity(source.pipeline_receipt) << '\n'
               << "preview_reference.linear_mean_rgb="
               << static_cast<double>(channel_sum[0] / static_cast<long double>(pixel_count)) << ','
               << static_cast<double>(channel_sum[1] / static_cast<long double>(pixel_count)) << ','

@@ -334,6 +334,7 @@ EditController::EditController(
   if (auto *const application = QCoreApplication::instance()) {
     application->installEventFilter(this);
   }
+  refreshSharedGradeNodes();
 }
 
 EditController::~EditController() {
@@ -404,6 +405,18 @@ quint64 EditController::detailRetainedBytes() const noexcept {
 
 QVariantList EditController::detailTiles() const {
     return detail_tiles_;
+}
+
+bool EditController::fullResolutionPreparing() const noexcept {
+    return full_resolution_preparing_;
+}
+
+bool EditController::fullResolutionReady() const noexcept {
+    return full_resolution_ready_;
+}
+
+quint64 EditController::fullResolutionRetainedBytes() const noexcept {
+    return full_resolution_retained_bytes_;
 }
 
 bool EditController::dirty() const noexcept {
@@ -535,6 +548,27 @@ QVariantList EditController::gradeNodes() const {
         const auto& grade_node = grade_stack_.grade_nodes.at(index);
         QVariantMap item;
         item.insert(QStringLiteral("gradeNodeId"), grade_node.grade_node_id);
+        item.insert(QStringLiteral("sharedLayerId"), grade_node.shared_layer_id);
+        item.insert(QStringLiteral("sharedRevisionId"), grade_node.shared_revision_id);
+        item.insert(
+            QStringLiteral("shared"),
+            !grade_node.shared_layer_id.isEmpty()
+                && !grade_node.shared_revision_id.isEmpty()
+        );
+        const auto shared = std::find_if(
+            shared_grade_nodes_.cbegin(),
+            shared_grade_nodes_.cend(),
+            [&grade_node](const BackendSharedGradeNode& candidate) {
+                return candidate.layer_id == grade_node.shared_layer_id
+                    && candidate.revision_id == grade_node.shared_revision_id;
+            }
+        );
+        item.insert(
+            QStringLiteral("sharedRevisionNumber"),
+            shared == shared_grade_nodes_.cend()
+                ? 0
+                : static_cast<int>(shared->revision_number)
+        );
         item.insert(
             QStringLiteral("label"),
             display_grade_node_label(grade_node.label)
@@ -543,6 +577,20 @@ QVariantList EditController::gradeNodes() const {
         item.insert(QStringLiteral("enabled"), grade_node.enabled);
         item.insert(QStringLiteral("index"), static_cast<int>(index));
         result.push_back(item);
+    }
+    return result;
+}
+
+QVariantList EditController::sharedGradeNodes() const {
+    QVariantList result;
+    result.reserve(shared_grade_nodes_.size());
+    for (const auto& shared : shared_grade_nodes_) {
+        result.push_back(QVariantMap{
+            {QStringLiteral("layerId"), shared.layer_id},
+            {QStringLiteral("revisionId"), shared.revision_id},
+            {QStringLiteral("revisionNumber"), shared.revision_number},
+            {QStringLiteral("label"), shared.label},
+        });
     }
     return result;
 }
@@ -1876,6 +1924,120 @@ void EditController::duplicateSelectedGradeNode() {
       {display_grade_node_label(duplicate.label)}));
 }
 
+void EditController::refreshSharedGradeNodes() {
+    try {
+        const auto refreshed = backend_->sharedGradeNodes();
+        if (refreshed != shared_grade_nodes_) {
+            shared_grade_nodes_ = refreshed;
+            emit sharedGradeNodesChanged();
+            emit gradeNodesChanged();
+        }
+    } catch (const std::exception& error) {
+        setStatusMessage(edit_message(
+            QT_TRANSLATE_NOOP("EditController",
+                              "Could not load shared Grade Nodes · %1"),
+            {QString::fromUtf8(error.what())}
+        ));
+    }
+}
+
+void EditController::publishSelectedGradeNode(const QString& label) {
+    const auto* const selected = selectedGradeNode();
+    const QString normalized_label = label.trimmed();
+    if (selected == nullptr || interactionLocked()) {
+        return;
+    }
+    if (normalized_label.isEmpty()) {
+        setStatusMessage(edit_message(
+            QT_TRANSLATE_NOOP("EditController",
+                              "Give the shared Grade Node a name")
+        ));
+        return;
+    }
+    finishActiveGesture();
+    const BackendGradeStack before = grade_stack_;
+    const bool enabled = selected->enabled;
+    BackendSharedGradeNode published;
+    try {
+        published = backend_->publishSharedGradeNode(normalized_label, *selected);
+    } catch (const std::exception& error) {
+        setStatusMessage(edit_message(
+            QT_TRANSLATE_NOOP("EditController",
+                              "Could not share Grade Node · %1"),
+            {QString::fromUtf8(error.what())}
+        ));
+        return;
+    }
+    published.grade_node.enabled = enabled;
+    BackendGradeStack updated = grade_stack_;
+    updated.grade_nodes[selected_grade_node_index_] = published.grade_node;
+    setGradeStack(std::move(updated), published.grade_node.grade_node_id);
+    recordWorkingTransition(
+        QStringLiteral("grade_node/%1/share/%2")
+            .arg(published.grade_node.grade_node_id, published.revision_id),
+        before
+    );
+    refreshSharedGradeNodes();
+    schedulePreview(0);
+    setStatusMessage(edit_message(
+        QT_TRANSLATE_NOOP("EditController", "Shared Grade Node · %1"),
+        {published.label}
+    ));
+}
+
+void EditController::insertSharedGradeNode(const QString& layer_id) {
+    const auto iterator = std::find_if(
+        shared_grade_nodes_.cbegin(),
+        shared_grade_nodes_.cend(),
+        [&layer_id](const BackendSharedGradeNode& shared) {
+            return shared.layer_id == layer_id;
+        }
+    );
+    if (iterator == shared_grade_nodes_.cend() || !active_ || interactionLocked()) {
+        return;
+    }
+    finishActiveGesture();
+    const BackendGradeStack before = grade_stack_;
+    BackendGradeStack updated = grade_stack_;
+    const auto existing = std::find_if(
+        updated.grade_nodes.begin(),
+        updated.grade_nodes.end(),
+        [&iterator](const BackendGradeNode& node) {
+            return node.shared_layer_id == iterator->layer_id
+                || node.grade_node_id == iterator->grade_node.grade_node_id;
+        }
+    );
+    BackendGradeNode inserted = iterator->grade_node;
+    if (existing != updated.grade_nodes.end()) {
+        inserted.enabled = existing->enabled;
+        *existing = inserted;
+    } else {
+        if (!canAddGradeNode()) {
+            setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+                "EditController", "An edit can contain at most 16 Grade Nodes")));
+            return;
+        }
+        int selection = selected_grade_node_index_;
+        if (!GradeNodeStack::insertAfterSelection(updated, inserted, selection)) {
+            setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+                "EditController",
+                "The shared Grade Node could not be inserted safely")));
+            return;
+        }
+    }
+    setGradeStack(std::move(updated), inserted.grade_node_id);
+    recordWorkingTransition(
+        QStringLiteral("grade_node/%1/shared/%2")
+            .arg(inserted.grade_node_id, iterator->revision_id),
+        before
+    );
+    schedulePreview(0);
+    setStatusMessage(edit_message(
+        QT_TRANSLATE_NOOP("EditController", "Applied shared Grade Node · %1"),
+        {iterator->label}
+    ));
+}
+
 void EditController::deleteSelectedGradeNode() {
     const auto* const selected = selectedGradeNode();
     if (!canDeleteGradeNode() || selected == nullptr) {
@@ -2372,6 +2534,7 @@ void EditController::opticsEdited(
     const BackendGradeStack& before
 ) {
     recordWorkingTransition(QStringLiteral("optics/%1").arg(key), before);
+    setFullResolutionState(false, false, 0);
     emit opticsChanged();
     setDirty(version_draft_ || grade_stack_ != committed_grade_stack_);
     // Geometry remapping is materially more expensive than a scalar Grade

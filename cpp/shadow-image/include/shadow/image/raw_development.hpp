@@ -20,6 +20,10 @@ inline constexpr std::uint32_t raw_demosaic_receipt_schema_version = 1U;
 
 enum class RawDemosaicAlgorithm : std::uint8_t {
     bayer_bilinear_v1,
+    // Preview-only CFA-aware area integration. Each bounded output pixel averages the exact
+    // active-sensor footprint independently per colour plane, avoiding full-resolution RGB
+    // allocation and the severe moire produced by point-sampling a large Bayer frame.
+    bayer_area_preview_v1,
 };
 
 struct RawDemosaicReceipt final {
@@ -51,5 +55,14 @@ struct LinearCameraRgbFrame final {
 // result must not be supplied directly to `FloatRgbImage`/the creative graph until a later
 // camera-to-working-RGB stage has recorded its calibration and white-balance provenance.
 [[nodiscard]] LinearCameraRgbFrame demosaic_bayer_bilinear(const RawFrame& frame);
+
+// Produces an un-oriented camera-linear preview whose longest active-area edge is bounded by
+// max_edge. Native-size requests reuse the full bilinear baseline. Downscaled requests integrate
+// the complete sensor footprint represented by every output pixel, so total work remains roughly
+// proportional to the RAW plane rather than allocating and then resizing a full RGB image.
+[[nodiscard]] LinearCameraRgbFrame demosaic_bayer_preview(
+    const RawFrame& frame,
+    std::uint32_t max_edge
+);
 
 } // namespace shadow::image

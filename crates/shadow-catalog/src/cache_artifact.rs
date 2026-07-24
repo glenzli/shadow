@@ -254,8 +254,9 @@ impl Catalog {
 
     /// Returns the exact current visual selected by the shared Review ordering.
     ///
-    /// A current Recipe preview precedes source previews; within a role the
-    /// largest image wins, followed by the stable variant key. Keeping this
+    /// A current Recipe preview precedes Shadow-generated proxies, which
+    /// precede camera-embedded placeholders. Within a role the largest and
+    /// newest image wins, followed by the stable variant key. Keeping this
     /// selection in Catalog prevents background analysis and Review from
     /// targeting different provider/variant artifacts.
     ///
@@ -346,14 +347,20 @@ fn preferred_artifact_ordering(
     artifact_role_rank(left.artifact.role)
         .cmp(&artifact_role_rank(right.artifact.role))
         .then_with(|| artifact_area(right).cmp(&artifact_area(left)))
+        .then_with(|| {
+            right
+                .artifact
+                .created_at_ms
+                .cmp(&left.artifact.created_at_ms)
+        })
         .then_with(|| left.artifact.variant_key.cmp(&right.artifact.variant_key))
 }
 
 const fn artifact_role_rank(role: CachedArtifactRole) -> u8 {
     match role {
         CachedArtifactRole::RecipePreview => 0,
-        CachedArtifactRole::EmbeddedPreview => 1,
-        CachedArtifactRole::GeneratedProxy => 2,
+        CachedArtifactRole::GeneratedProxy => 1,
+        CachedArtifactRole::EmbeddedPreview => 2,
     }
 }
 

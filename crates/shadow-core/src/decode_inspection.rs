@@ -2,6 +2,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
         mpsc::{self, Receiver, Sender, SyncSender},
     },
     thread::{self, JoinHandle},
@@ -21,13 +22,16 @@ use shadow_domain::{
 use thiserror::Error;
 
 use crate::import::ScanCancellation;
-use crate::performance::{DecodePerformance, TechnicalPerformance, measure_if};
+use crate::performance::{DecodePerformance, DurationStats, TechnicalPerformance, measure_if};
 use crate::technical_observation::{
     TechnicalObservationActor, TechnicalObservationError, TechnicalObservationHandle,
     technical_analysis_preprocessing_version,
 };
 
 const INSPECTION_QUEUE_CAPACITY: usize = 32;
+const MIN_RECOMMENDED_INSPECTION_WORKERS: usize = 2;
+const MAX_RECOMMENDED_INSPECTION_WORKERS: usize = 4;
+const LOGICAL_CPUS_PER_INSPECTION_WORKER: usize = 6;
 
 /// Provider-neutral operation used by the background decode worker.
 ///
@@ -220,6 +224,15 @@ pub enum DecodeInspectionError {
     TechnicalObservation(#[from] TechnicalObservationError),
     #[error("cannot start decode inspection worker: {0}")]
     WorkerStart(#[source] std::io::Error),
+    #[error("decode inspection pool requires at least one worker")]
+    InvalidWorkerCount,
+    #[error("cannot construct decode inspection worker {worker_index}: {message}")]
+    WorkerFactory {
+        worker_index: usize,
+        message: String,
+    },
+    #[error("decode inspection worker {worker_index} has a different provider contract")]
+    WorkerContractMismatch { worker_index: usize },
     #[error("decode inspection worker is unavailable")]
     WorkerUnavailable,
     #[error("decode inspection did not complete within {0:?}")]
@@ -231,14 +244,27 @@ pub enum DecodeInspectionError {
 #[derive(Debug)]
 pub struct DecodeInspectionActor {
     handle: DecodeInspectionHandle,
-    join_handle: Option<JoinHandle<()>>,
+    join_handles: Vec<JoinHandle<()>>,
     technical_observer: Option<TechnicalObservationActor>,
     profiled: bool,
 }
 
+/// Bounded set of independent decode inspectors sharing one submission handle.
+///
+/// Each worker owns its inspector. Provider implementations therefore retain
+/// their native session isolation instead of being hidden behind a process-wide
+/// mutex. The queue holds only request metadata; decoded pixels stay bounded by
+/// the worker count.
+#[derive(Debug)]
+pub struct DecodeInspectionPool {
+    actor: DecodeInspectionActor,
+    worker_count: usize,
+}
+
 #[derive(Debug, Clone)]
 pub struct DecodeInspectionHandle {
-    sender: SyncSender<Message>,
+    senders: Arc<[SyncSender<Message>]>,
+    next_worker: Arc<AtomicUsize>,
     state: Arc<Mutex<DecodeInspectionState>>,
     provider_id: Arc<str>,
     provider_version: Arc<str>,
@@ -258,7 +284,17 @@ pub struct DecodeInspectionTicket {
 #[derive(Debug, Default)]
 struct DecodeInspectionState {
     stopping: bool,
+    worker_panicked: bool,
     summary: DecodeInspectionSummary,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct DecodeInspectorContract {
+    provider_id: Arc<str>,
+    provider_version: Arc<str>,
+    proxy_variant_key: Arc<str>,
+    supports_original_raw: bool,
+    supported_original_raster_extensions: Arc<[String]>,
 }
 
 enum Message {
@@ -273,11 +309,174 @@ struct InspectionMessage {
     enqueued_at: Option<Instant>,
 }
 
+type SpawnedInspectionThreads = (Arc<[SyncSender<Message>]>, Vec<JoinHandle<()>>);
+
 pub(crate) struct DecodeInspectionSubmission {
     pub ticket: DecodeInspectionTicket,
     pub queue_full_events: u64,
 }
 
+fn decode_inspector_contract(inspector: &impl DecodeInspector) -> DecodeInspectorContract {
+    let mut supported_original_raster_extensions = inspector
+        .supported_original_raster_extensions()
+        .into_iter()
+        .map(|extension| {
+            extension
+                .trim()
+                .trim_start_matches('.')
+                .to_ascii_lowercase()
+        })
+        .filter(|extension| !extension.is_empty())
+        .collect::<Vec<_>>();
+    supported_original_raster_extensions.sort_unstable();
+    supported_original_raster_extensions.dedup();
+    DecodeInspectorContract {
+        provider_id: Arc::from(inspector.provider_id()),
+        provider_version: Arc::from(inspector.provider_version()),
+        proxy_variant_key: Arc::from(inspector.proxy_variant_key()),
+        // Only directly imported originals participate in the folder scanner.
+        // Derived representations remain producer-owned artifacts.
+        supports_original_raw: inspector.supports_original_raw(),
+        supported_original_raster_extensions: supported_original_raster_extensions.into(),
+    }
+}
+
+fn drain_and_join_started_workers(
+    senders: &[SyncSender<Message>],
+    join_handles: &mut Vec<JoinHandle<()>>,
+) {
+    let mut acknowledgements = Vec::with_capacity(senders.len());
+    for sender in senders {
+        let (response_sender, response_receiver) = mpsc::sync_channel(1);
+        if sender.send(Message::Shutdown(response_sender)).is_ok() {
+            acknowledgements.push(response_receiver);
+        }
+    }
+    for acknowledgement in acknowledgements {
+        let _ = acknowledgement.recv();
+    }
+    for join_handle in join_handles.drain(..) {
+        let _ = join_handle.join();
+    }
+}
+
+fn merge_duration_stats(target: &mut DurationStats, source: DurationStats) {
+    target.samples = target.samples.saturating_add(source.samples);
+    target.total_ns = target.total_ns.saturating_add(source.total_ns);
+    target.max_ns = target.max_ns.max(source.max_ns);
+}
+
+fn merge_decode_performance(target: &mut DecodePerformance, source: &DecodePerformance) {
+    target.profiled |= source.profiled;
+    merge_duration_stats(&mut target.queue_wait, source.queue_wait);
+    merge_duration_stats(&mut target.source_guard_stat, source.source_guard_stat);
+    merge_duration_stats(&mut target.provider_inspect, source.provider_inspect);
+    merge_duration_stats(
+        &mut target.snapshot_catalog_commit,
+        source.snapshot_catalog_commit,
+    );
+    merge_duration_stats(
+        &mut target.embedded_preview_extract,
+        source.embedded_preview_extract,
+    );
+    merge_duration_stats(&mut target.proxy_render, source.proxy_render);
+    merge_duration_stats(&mut target.cache_blob_put, source.cache_blob_put);
+    merge_duration_stats(
+        &mut target.cache_artifact_catalog_commit,
+        source.cache_artifact_catalog_commit,
+    );
+    merge_duration_stats(
+        &mut target.technical_submit_wait,
+        source.technical_submit_wait,
+    );
+}
+
+fn spawn_inspection_threads<I: DecodeInspector>(
+    catalog: &CatalogHandle,
+    inspectors: Vec<I>,
+    cache: Option<&ContentAddressedStore>,
+    technical_handle: Option<&TechnicalObservationHandle>,
+    state: &Arc<Mutex<DecodeInspectionState>>,
+    profiled: bool,
+    queue_capacity: usize,
+) -> Result<SpawnedInspectionThreads, DecodeInspectionError> {
+    let worker_count = inspectors.len();
+    let base_queue_capacity = queue_capacity / worker_count;
+    let workers_with_extra_slot = queue_capacity % worker_count;
+    let mut senders = Vec::with_capacity(worker_count);
+    let mut join_handles = Vec::with_capacity(worker_count);
+    for (worker_index, inspector) in inspectors.into_iter().enumerate() {
+        let worker_queue_capacity =
+            base_queue_capacity + usize::from(worker_index < workers_with_extra_slot);
+        let (sender, receiver) = mpsc::sync_channel(worker_queue_capacity);
+        let worker_catalog = catalog.clone();
+        let worker_cache = cache.cloned();
+        let worker_technical_handle = technical_handle.cloned();
+        let worker_state = Arc::clone(state);
+        let worker_name = if worker_count == 1 {
+            "shadow-decode-inspector".to_owned()
+        } else {
+            format!("shadow-decode-inspector-{worker_index}")
+        };
+        let spawn_result = thread::Builder::new().name(worker_name).spawn(move || {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                run_worker(
+                    &worker_catalog,
+                    inspector,
+                    worker_cache.as_ref(),
+                    worker_technical_handle.as_ref(),
+                    &receiver,
+                    &worker_state,
+                    profiled,
+                );
+            }));
+            if result.is_err() {
+                let mut state = worker_state
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                state.worker_panicked = true;
+                state.stopping = true;
+            }
+        });
+        let join_handle = match spawn_result {
+            Ok(join_handle) => join_handle,
+            Err(error) => {
+                state
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .stopping = true;
+                drain_and_join_started_workers(&senders, &mut join_handles);
+                return Err(DecodeInspectionError::WorkerStart(error));
+            }
+        };
+        senders.push(sender);
+        join_handles.push(join_handle);
+    }
+    Ok((senders.into(), join_handles))
+}
+
+/// Returns a memory-conscious default for bulk source inspection.
+///
+/// RAW decoding may temporarily retain a full sensor buffer while the shared
+/// C++ row scheduler is also active. One inspection worker is therefore
+/// budgeted per six logical CPUs and the result is capped at four. The lower
+/// bound of two keeps filesystem and provider latency overlapped on ordinary
+/// desktop systems.
+#[must_use]
+pub fn recommended_decode_inspection_worker_count() -> usize {
+    thread::available_parallelism()
+        .map_or(MIN_RECOMMENDED_INSPECTION_WORKERS, std::num::NonZero::get)
+        .div_ceil(LOGICAL_CPUS_PER_INSPECTION_WORKER)
+        .clamp(
+            MIN_RECOMMENDED_INSPECTION_WORKERS,
+            MAX_RECOMMENDED_INSPECTION_WORKERS,
+        )
+}
+
+// CatalogHandle is an inexpensive actor handle. Keep the established
+// ownership-taking constructors source-compatible even though workers clone
+// the handle internally.
+#[allow(clippy::needless_pass_by_value)]
 impl DecodeInspectionActor {
     /// Starts one bounded, serialized decode-inspection queue.
     ///
@@ -293,7 +492,7 @@ impl DecodeInspectionActor {
         catalog: CatalogHandle,
         inspector: impl DecodeInspector,
     ) -> Result<Self, DecodeInspectionError> {
-        Self::spawn_inner(catalog, inspector, None, false)
+        Self::spawn_inner(&catalog, inspector, None, false)
     }
 
     /// Starts a decode worker with monotonic phase profiling enabled.
@@ -306,7 +505,7 @@ impl DecodeInspectionActor {
         catalog: CatalogHandle,
         inspector: impl DecodeInspector,
     ) -> Result<Self, DecodeInspectionError> {
-        Self::spawn_inner(catalog, inspector, None, true)
+        Self::spawn_inner(&catalog, inspector, None, true)
     }
 
     /// Starts a decode worker that also writes selected embedded previews into
@@ -322,7 +521,7 @@ impl DecodeInspectionActor {
         cache_root: impl Into<PathBuf>,
     ) -> Result<Self, DecodeInspectionError> {
         let cache = ContentAddressedStore::open(cache_root)?;
-        Self::spawn_inner(catalog, inspector, Some(cache), false)
+        Self::spawn_inner(&catalog, inspector, Some(&cache), false)
     }
 
     /// Starts a cached decode worker with monotonic decode and technical-
@@ -338,13 +537,13 @@ impl DecodeInspectionActor {
         cache_root: impl Into<PathBuf>,
     ) -> Result<Self, DecodeInspectionError> {
         let cache = ContentAddressedStore::open(cache_root)?;
-        Self::spawn_inner(catalog, inspector, Some(cache), true)
+        Self::spawn_inner(&catalog, inspector, Some(&cache), true)
     }
 
     fn spawn_inner(
-        catalog: CatalogHandle,
+        catalog: &CatalogHandle,
         inspector: impl DecodeInspector,
-        cache: Option<ContentAddressedStore>,
+        cache: Option<&ContentAddressedStore>,
         profiled: bool,
     ) -> Result<Self, DecodeInspectionError> {
         Self::spawn_inner_with_capacity(
@@ -357,37 +556,33 @@ impl DecodeInspectionActor {
     }
 
     fn spawn_inner_with_capacity(
-        catalog: CatalogHandle,
+        catalog: &CatalogHandle,
         inspector: impl DecodeInspector,
-        cache: Option<ContentAddressedStore>,
+        cache: Option<&ContentAddressedStore>,
         profiled: bool,
         queue_capacity: usize,
     ) -> Result<Self, DecodeInspectionError> {
-        let provider_id = Arc::<str>::from(inspector.provider_id());
-        let provider_version = Arc::<str>::from(inspector.provider_version());
-        let proxy_variant_key = Arc::<str>::from(inspector.proxy_variant_key());
-        // Only directly imported originals participate in the folder scanner.
-        // Derived representations remain explicit producer-owned artifacts and
-        // must never be implicitly handed to a source decoder.
-        let supports_original_raw = inspector.supports_original_raw();
-        let mut supported_original_raster_extensions = inspector
-            .supported_original_raster_extensions()
-            .into_iter()
-            .map(|extension| {
-                extension
-                    .trim()
-                    .trim_start_matches('.')
-                    .to_ascii_lowercase()
-            })
-            .filter(|extension| !extension.is_empty())
-            .collect::<Vec<_>>();
-        supported_original_raster_extensions.sort_unstable();
-        supported_original_raster_extensions.dedup();
-        let supported_original_raster_extensions: Arc<[String]> =
-            supported_original_raster_extensions.into();
+        Self::spawn_many_inner(catalog, vec![inspector], cache, profiled, queue_capacity)
+    }
+
+    fn spawn_many_inner<I: DecodeInspector>(
+        catalog: &CatalogHandle,
+        inspectors: Vec<I>,
+        cache: Option<&ContentAddressedStore>,
+        profiled: bool,
+        queue_capacity: usize,
+    ) -> Result<Self, DecodeInspectionError> {
+        let Some(first_inspector) = inspectors.first() else {
+            return Err(DecodeInspectionError::InvalidWorkerCount);
+        };
+        let contract = decode_inspector_contract(first_inspector);
+        for (worker_index, inspector) in inspectors.iter().enumerate().skip(1) {
+            if decode_inspector_contract(inspector) != contract {
+                return Err(DecodeInspectionError::WorkerContractMismatch { worker_index });
+            }
+        }
         let caches_previews = cache.is_some();
-        let technical_observer = cache
-            .as_ref()
+        let mut technical_observer = cache
             .map(|cache| {
                 if profiled {
                     TechnicalObservationActor::spawn_with_store_profiled(
@@ -405,37 +600,39 @@ impl DecodeInspectionActor {
         let technical_preprocessing_version = technical_handle
             .as_ref()
             .map(|_| Arc::<str>::from(technical_analysis_preprocessing_version()));
-        let (sender, receiver) = mpsc::sync_channel(queue_capacity);
         let state = Arc::new(Mutex::new(DecodeInspectionState::default()));
-        let worker_state = Arc::clone(&state);
-        let join_handle = thread::Builder::new()
-            .name("shadow-decode-inspector".to_owned())
-            .spawn(move || {
-                run_worker(
-                    &catalog,
-                    inspector,
-                    cache.as_ref(),
-                    technical_handle.as_ref(),
-                    &receiver,
-                    &worker_state,
-                    profiled,
-                );
-            })
-            .map_err(DecodeInspectionError::WorkerStart)?;
+        let (senders, join_handles) = match spawn_inspection_threads(
+            catalog,
+            inspectors,
+            cache,
+            technical_handle.as_ref(),
+            &state,
+            profiled,
+            queue_capacity,
+        ) {
+            Ok(workers) => workers,
+            Err(error) => {
+                if let Some(observer) = technical_observer.take() {
+                    let _ = observer.shutdown();
+                }
+                return Err(error);
+            }
+        };
         Ok(Self {
             handle: DecodeInspectionHandle {
-                sender,
+                senders,
+                next_worker: Arc::new(AtomicUsize::new(0)),
                 state,
-                provider_id,
-                provider_version,
-                proxy_variant_key,
+                provider_id: contract.provider_id,
+                provider_version: contract.provider_version,
+                proxy_variant_key: contract.proxy_variant_key,
                 technical_preprocessing_version,
-                supports_original_raw,
-                supported_original_raster_extensions,
+                supports_original_raw: contract.supports_original_raw,
+                supported_original_raster_extensions: contract.supported_original_raster_extensions,
                 caches_previews,
                 profiled,
             },
-            join_handle: Some(join_handle),
+            join_handles,
             technical_observer,
             profiled,
         })
@@ -497,51 +694,260 @@ impl DecodeInspectionActor {
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             state.stopping = true;
         }
-        let decode_result = self.join_handle.take().map_or_else(
-            || {
-                Ok(DecodePerformance {
-                    profiled: self.profiled,
-                    ..DecodePerformance::default()
-                })
-            },
-            |join_handle| {
-                let (response_sender, response_receiver) = mpsc::sync_channel(0);
-                if self
-                    .handle
-                    .sender
-                    .send(Message::Shutdown(response_sender))
-                    .is_err()
-                {
-                    return match join_handle.join() {
-                        Ok(()) => Err(DecodeInspectionError::WorkerUnavailable),
-                        Err(_) => Err(DecodeInspectionError::WorkerPanicked),
-                    };
+        let mut unavailable = false;
+        let mut acknowledgements = Vec::with_capacity(self.handle.senders.len());
+        for sender in self.handle.senders.iter() {
+            let (response_sender, response_receiver) = mpsc::sync_channel(1);
+            if sender.send(Message::Shutdown(response_sender)).is_err() {
+                unavailable = true;
+            } else {
+                acknowledgements.push(response_receiver);
+            }
+        }
+        let mut decode = DecodePerformance {
+            profiled: self.profiled,
+            ..DecodePerformance::default()
+        };
+        for acknowledgement in acknowledgements {
+            match acknowledgement.recv() {
+                Ok(worker_performance) => {
+                    merge_decode_performance(&mut decode, &worker_performance);
                 }
-                let acknowledged = response_receiver.recv();
-                if join_handle.join().is_err() {
-                    return Err(DecodeInspectionError::WorkerPanicked);
-                }
-                acknowledged.map_err(|_| DecodeInspectionError::WorkerUnavailable)
-            },
-        );
+                Err(_) => unavailable = true,
+            }
+        }
+        for join_handle in self.join_handles.drain(..) {
+            if join_handle.join().is_err() {
+                unavailable = true;
+                self.handle
+                    .state
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .worker_panicked = true;
+            }
+        }
         let observation_result = self
             .technical_observer
             .take()
             .map(TechnicalObservationActor::shutdown_with_performance)
             .transpose()
             .map(Option::unwrap_or_default);
-        let decode = decode_result?;
         let technical = observation_result?;
         let state = self
             .handle
             .state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if state.worker_panicked {
+            return Err(DecodeInspectionError::WorkerPanicked);
+        }
+        if unavailable {
+            return Err(DecodeInspectionError::WorkerUnavailable);
+        }
         Ok(DecodeInspectionTerminal {
             summary: state.summary,
             decode,
             technical,
         })
+    }
+}
+
+#[allow(clippy::needless_pass_by_value)]
+impl DecodeInspectionPool {
+    /// Starts `worker_count` independent provider instances without a preview
+    /// cache.
+    ///
+    /// The factory is evaluated completely before any worker thread starts.
+    /// Partial provider construction therefore fails closed without leaving a
+    /// reduced-capacity pool running.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for a zero worker count, provider construction or
+    /// contract mismatch, or worker startup failure.
+    pub fn spawn<I, F, E>(
+        catalog: CatalogHandle,
+        worker_count: usize,
+        factory: F,
+    ) -> Result<Self, DecodeInspectionError>
+    where
+        I: DecodeInspector,
+        F: FnMut(usize) -> Result<I, E>,
+        E: std::fmt::Display,
+    {
+        Self::spawn_inner(
+            &catalog,
+            worker_count,
+            factory,
+            None,
+            false,
+            INSPECTION_QUEUE_CAPACITY,
+        )
+    }
+
+    /// Starts a bounded cached pool with one freshly constructed inspector per
+    /// worker.
+    ///
+    /// Prefer this factory form for native providers: cloning a wrapper that
+    /// internally shares one session could accidentally serialize decoding.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the cache cannot be opened or for the same
+    /// provider/pool startup failures as [`Self::spawn`].
+    pub fn spawn_with_cache<I, F, E>(
+        catalog: CatalogHandle,
+        worker_count: usize,
+        factory: F,
+        cache_root: impl Into<PathBuf>,
+    ) -> Result<Self, DecodeInspectionError>
+    where
+        I: DecodeInspector,
+        F: FnMut(usize) -> Result<I, E>,
+        E: std::fmt::Display,
+    {
+        let cache = ContentAddressedStore::open(cache_root)?;
+        Self::spawn_inner(
+            &catalog,
+            worker_count,
+            factory,
+            Some(&cache),
+            false,
+            INSPECTION_QUEUE_CAPACITY,
+        )
+    }
+
+    /// Starts the profiled form of [`Self::spawn_with_cache`].
+    ///
+    /// # Errors
+    ///
+    /// Returns the same cache, provider, and worker startup errors as
+    /// [`Self::spawn_with_cache`].
+    pub fn spawn_with_cache_profiled<I, F, E>(
+        catalog: CatalogHandle,
+        worker_count: usize,
+        factory: F,
+        cache_root: impl Into<PathBuf>,
+    ) -> Result<Self, DecodeInspectionError>
+    where
+        I: DecodeInspector,
+        F: FnMut(usize) -> Result<I, E>,
+        E: std::fmt::Display,
+    {
+        let cache = ContentAddressedStore::open(cache_root)?;
+        Self::spawn_inner(
+            &catalog,
+            worker_count,
+            factory,
+            Some(&cache),
+            true,
+            INSPECTION_QUEUE_CAPACITY,
+        )
+    }
+
+    /// Starts a cached pool by cloning a provider value for every worker.
+    ///
+    /// This is intended for inspectors whose `Clone` implementation creates
+    /// independent provider state. Native-session adapters should use the
+    /// factory constructor above.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same cache and worker startup errors as
+    /// [`Self::spawn_with_cache`].
+    pub fn spawn_with_cache_from_clone<I>(
+        catalog: CatalogHandle,
+        worker_count: usize,
+        inspector: I,
+        cache_root: impl Into<PathBuf>,
+    ) -> Result<Self, DecodeInspectionError>
+    where
+        I: DecodeInspector + Clone,
+    {
+        Self::spawn_with_cache(
+            catalog,
+            worker_count,
+            move |_| Ok::<I, std::convert::Infallible>(inspector.clone()),
+            cache_root,
+        )
+    }
+
+    fn spawn_inner<I, F, E>(
+        catalog: &CatalogHandle,
+        worker_count: usize,
+        mut factory: F,
+        cache: Option<&ContentAddressedStore>,
+        profiled: bool,
+        queue_capacity: usize,
+    ) -> Result<Self, DecodeInspectionError>
+    where
+        I: DecodeInspector,
+        F: FnMut(usize) -> Result<I, E>,
+        E: std::fmt::Display,
+    {
+        if worker_count == 0 {
+            return Err(DecodeInspectionError::InvalidWorkerCount);
+        }
+        let mut inspectors = Vec::with_capacity(worker_count);
+        for worker_index in 0..worker_count {
+            let inspector =
+                factory(worker_index).map_err(|error| DecodeInspectionError::WorkerFactory {
+                    worker_index,
+                    message: error.to_string(),
+                })?;
+            inspectors.push(inspector);
+        }
+        let actor = DecodeInspectionActor::spawn_many_inner(
+            catalog,
+            inspectors,
+            cache,
+            profiled,
+            queue_capacity,
+        )?;
+        Ok(Self {
+            actor,
+            worker_count,
+        })
+    }
+
+    #[must_use]
+    pub const fn worker_count(&self) -> usize {
+        self.worker_count
+    }
+
+    #[must_use]
+    pub fn handle(&self) -> DecodeInspectionHandle {
+        self.actor.handle()
+    }
+
+    /// Drains accepted work and stops every worker.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a worker or the technical observer disconnected
+    /// or panicked.
+    pub fn shutdown(self) -> Result<(), DecodeInspectionError> {
+        self.actor.shutdown()
+    }
+
+    /// Drains accepted work and returns one exact pool-wide summary.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same worker and observer failures as [`Self::shutdown`].
+    pub fn shutdown_with_summary(self) -> Result<DecodeInspectionSummary, DecodeInspectionError> {
+        self.actor.shutdown_with_summary()
+    }
+
+    /// Drains accepted work and merges all worker phase aggregates.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same worker and observer failures as [`Self::shutdown`].
+    pub fn shutdown_with_performance(
+        self,
+    ) -> Result<DecodeInspectionTerminal, DecodeInspectionError> {
+        self.actor.shutdown_with_performance()
     }
 }
 
@@ -649,13 +1055,15 @@ impl DecodeInspectionHandle {
         mut queue_full_hook: impl FnMut(),
     ) -> Result<DecodeInspectionSubmission, DecodeInspectionError> {
         let (response_sender, response_receiver) = mpsc::channel();
-        let mut message = Message::Inspect(InspectionMessage {
+        let mut message = Some(Message::Inspect(InspectionMessage {
             request,
             cancellation: cancellation.clone(),
             response: response_sender,
             enqueued_at: self.profiled.then(Instant::now),
-        });
+        }));
         let mut queue_full_events = 0_u64;
+        let worker_count = self.senders.len();
+        let mut first_worker = self.next_worker.fetch_add(1, Ordering::Relaxed) % worker_count;
         loop {
             let mut state = self
                 .state
@@ -665,7 +1073,7 @@ impl DecodeInspectionHandle {
                 return Err(DecodeInspectionError::WorkerUnavailable);
             }
             if cancellation.is_cancelled() {
-                if let Message::Inspect(InspectionMessage { response, .. }) = message {
+                if let Some(Message::Inspect(InspectionMessage { response, .. })) = message.take() {
                     let result = Ok(DecodeInspectionOutcome::Discarded(
                         DecodeInspectionDiscardReason::Cancelled,
                     ));
@@ -674,27 +1082,49 @@ impl DecodeInspectionHandle {
                 }
                 break;
             }
-            let send_result = self.sender.try_send(message);
-            drop(state);
-            match send_result {
-                Ok(()) => break,
-                Err(mpsc::TrySendError::Full(mut returned)) => {
-                    if observe_queue_full {
-                        queue_full_events = queue_full_events.saturating_add(1);
+            let mut sent = false;
+            let mut disconnected = false;
+            for offset in 0..worker_count {
+                let worker_index = (first_worker + offset) % worker_count;
+                let pending = message
+                    .take()
+                    .expect("inspection message remains owned until submitted");
+                match self.senders[worker_index].try_send(pending) {
+                    Ok(()) => {
+                        self.next_worker
+                            .store(worker_index.wrapping_add(1), Ordering::Relaxed);
+                        sent = true;
+                        break;
                     }
-                    queue_full_hook();
-                    thread::park_timeout(Duration::from_millis(1));
-                    if let Message::Inspect(inspection) = &mut returned
-                        && inspection.enqueued_at.is_some()
-                    {
-                        inspection.enqueued_at = Some(Instant::now());
+                    Err(mpsc::TrySendError::Full(returned)) => {
+                        message = Some(returned);
                     }
-                    message = returned;
-                }
-                Err(mpsc::TrySendError::Disconnected(_)) => {
-                    return Err(DecodeInspectionError::WorkerUnavailable);
+                    Err(mpsc::TrySendError::Disconnected(returned)) => {
+                        message = Some(returned);
+                        state.stopping = true;
+                        disconnected = true;
+                        break;
+                    }
                 }
             }
+            drop(state);
+            if sent {
+                break;
+            }
+            if disconnected {
+                return Err(DecodeInspectionError::WorkerUnavailable);
+            }
+            if observe_queue_full {
+                queue_full_events = queue_full_events.saturating_add(1);
+            }
+            queue_full_hook();
+            thread::park_timeout(Duration::from_millis(1));
+            if let Some(Message::Inspect(inspection)) = &mut message
+                && inspection.enqueued_at.is_some()
+            {
+                inspection.enqueued_at = Some(Instant::now());
+            }
+            first_worker = first_worker.wrapping_add(1) % worker_count;
         }
         Ok(DecodeInspectionSubmission {
             ticket: DecodeInspectionTicket {
@@ -928,11 +1358,56 @@ fn cache_preview_with_context(
     if source_changed_profiled(context.request, performance) {
         return PreviewCacheOutcome::Discarded(DecodeInspectionDiscardReason::FilesystemChanged);
     }
-    let (bytes, artifact, stored_kind) =
-        match prepare_cached_visual(inspector, context, performance) {
-            Ok(prepared) => prepared,
-            Err(outcome) => return outcome,
-        };
+    // A camera preview is the fast path to a populated Library, not the final
+    // Shadow rendering contract. Persist it first, then continue developing a
+    // generated proxy from the same source. Catalog preference switches to the
+    // generated proxy as soon as that second artifact is recorded.
+    let mut fallback = None;
+    match prepare_embedded_preview(inspector, context, performance) {
+        Ok(Some(prepared)) => {
+            let outcome = store_prepared_cached_visual(context, prepared, performance);
+            if matches!(outcome, PreviewCacheOutcome::Discarded(_)) {
+                return outcome;
+            }
+            fallback = Some(outcome);
+        }
+        Ok(None) => {}
+        Err(outcome) => {
+            if matches!(outcome, PreviewCacheOutcome::Discarded(_)) {
+                return outcome;
+            }
+            fallback = Some(outcome);
+        }
+    }
+
+    match prepare_generated_proxy(inspector, context, performance) {
+        Ok(Some(prepared)) => {
+            let outcome = store_prepared_cached_visual(context, prepared, performance);
+            match outcome {
+                PreviewCacheOutcome::StoredGeneratedProxy { .. }
+                | PreviewCacheOutcome::Discarded(_) => outcome,
+                failed => fallback.unwrap_or(failed),
+            }
+        }
+        Ok(None) => fallback.unwrap_or(PreviewCacheOutcome::NoVisualAvailable),
+        Err(outcome) => {
+            if matches!(outcome, PreviewCacheOutcome::Discarded(_)) {
+                outcome
+            } else {
+                fallback.unwrap_or(outcome)
+            }
+        }
+    }
+}
+
+type PreparedCachedVisual = (Vec<u8>, CachedArtifact, CachedVisualKind);
+
+fn store_prepared_cached_visual(
+    context: PreviewCacheContext<'_>,
+    prepared: PreparedCachedVisual,
+    performance: &mut DecodePerformance,
+) -> PreviewCacheOutcome {
+    let (bytes, artifact, stored_kind) = prepared;
     if context.cancellation.is_cancelled() {
         return cancelled_preview();
     }
@@ -977,11 +1452,11 @@ fn cache_preview_with_context(
     )
 }
 
-fn prepare_cached_visual(
+fn prepare_embedded_preview(
     inspector: &mut impl DecodeInspector,
     context: PreviewCacheContext<'_>,
     performance: &mut DecodePerformance,
-) -> Result<(Vec<u8>, CachedArtifact, CachedVisualKind), PreviewCacheOutcome> {
+) -> Result<Option<PreparedCachedVisual>, PreviewCacheOutcome> {
     if context.cancellation.is_cancelled() {
         return Err(cancelled_preview());
     }
@@ -1017,16 +1492,30 @@ fn prepare_cached_visual(
             channels: preview.descriptor.channels,
             created_at_ms: 0,
         };
-        return Ok((preview.bytes, artifact, CachedVisualKind::EmbeddedPreview));
+        return Ok(Some((
+            preview.bytes,
+            artifact,
+            CachedVisualKind::EmbeddedPreview,
+        )));
     }
+    Ok(None)
+}
+
+fn prepare_generated_proxy(
+    inspector: &mut impl DecodeInspector,
+    context: PreviewCacheContext<'_>,
+    performance: &mut DecodePerformance,
+) -> Result<Option<PreparedCachedVisual>, PreviewCacheOutcome> {
     if context.cancellation.is_cancelled() {
         return Err(cancelled_preview());
     }
     let proxy = measure_if(performance.profiled, &mut performance.proxy_render, || {
         inspector.render_proxy(&context.request.path)
     })
-    .map_err(PreviewCacheOutcome::Failed)?
-    .ok_or(PreviewCacheOutcome::NoVisualAvailable)?;
+    .map_err(PreviewCacheOutcome::Failed)?;
+    let Some(proxy) = proxy else {
+        return Ok(None);
+    };
     if context.cancellation.is_cancelled() {
         return Err(cancelled_preview());
     }
@@ -1048,11 +1537,11 @@ fn prepare_cached_visual(
         channels: proxy.channels,
         created_at_ms: 0,
     };
-    Ok((
+    Ok(Some((
         proxy.bytes,
         artifact,
         CachedVisualKind::GeneratedProxy(dimensions),
-    ))
+    )))
 }
 
 fn cancelled_outcome() -> DecodeInspectionOutcome {
@@ -1259,6 +1748,177 @@ mod tests {
     }
 
     #[test]
+    fn pool_runs_independent_inspectors_concurrently_and_merges_performance() {
+        let fixture = Fixture::new();
+        let actor = CatalogActor::spawn(&fixture.database_path).expect("spawn catalog");
+        let catalog = actor.handle();
+        let source = fingerprint_source(&fixture.raw_path).expect("fingerprint source");
+        let registered = catalog
+            .register_asset(&fixture.registration(source))
+            .expect("register source");
+        let (entered_sender, entered_receiver) = mpsc::channel();
+        let (release_zero_sender, release_zero_receiver) = mpsc::sync_channel(0);
+        let (release_one_sender, release_one_receiver) = mpsc::sync_channel(0);
+        let mut releases = [Some(release_zero_receiver), Some(release_one_receiver)];
+        let active = Arc::new(AtomicUsize::new(0));
+        let maximum_active = Arc::new(AtomicUsize::new(0));
+        let pool = DecodeInspectionPool::spawn_inner(
+            &catalog,
+            2,
+            |worker_index| {
+                let entered_sender = entered_sender.clone();
+                let release = releases[worker_index]
+                    .take()
+                    .expect("one release gate per inspector");
+                let active = Arc::clone(&active);
+                let maximum_active = Arc::clone(&maximum_active);
+                Ok::<_, String>(move |_path: &Path| {
+                    let now_active = active.fetch_add(1, Ordering::SeqCst) + 1;
+                    maximum_active.fetch_max(now_active, Ordering::SeqCst);
+                    entered_sender
+                        .send(worker_index)
+                        .expect("report pool worker entry");
+                    release.recv().expect("release pool worker");
+                    active.fetch_sub(1, Ordering::SeqCst);
+                    Ok(sample_snapshot())
+                })
+            },
+            None,
+            true,
+            2,
+        )
+        .expect("spawn two-worker pool");
+        let request = DecodeInspectionRequest {
+            representation_id: registered.representation_id,
+            path: fixture.raw_path.clone(),
+            expected_source: source,
+        };
+        let handle = pool.handle();
+        let first = handle
+            .submit(request.clone())
+            .expect("submit first pool job");
+        let second = handle.submit(request).expect("submit second pool job");
+
+        let first_worker = entered_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("first worker enters");
+        let second_worker = entered_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("second worker enters concurrently");
+        assert_ne!(first_worker, second_worker);
+        release_zero_sender.send(()).expect("release worker zero");
+        release_one_sender.send(()).expect("release worker one");
+        first.wait().expect("first pool job completes");
+        second.wait().expect("second pool job completes");
+
+        let terminal = pool
+            .shutdown_with_performance()
+            .expect("drain pool with aggregate performance");
+        assert_eq!(terminal.summary.completed, 2);
+        assert_eq!(terminal.decode.provider_inspect.samples, 2);
+        assert_eq!(maximum_active.load(Ordering::SeqCst), 2);
+        assert_eq!(
+            catalog
+                .decode_snapshots(registered.representation_id)
+                .expect("read pool-written snapshot")
+                .len(),
+            1
+        );
+        actor.shutdown().expect("shutdown catalog");
+    }
+
+    #[test]
+    fn pool_factory_failure_starts_no_reduced_capacity_worker_set() {
+        let fixture = Fixture::new();
+        let actor = CatalogActor::spawn(&fixture.database_path).expect("spawn catalog");
+        let provider_calls = Arc::new(AtomicUsize::new(0));
+        let factory_calls = Arc::new(AtomicUsize::new(0));
+        let result = DecodeInspectionPool::spawn(actor.handle(), 2, {
+            let provider_calls = Arc::clone(&provider_calls);
+            let factory_calls = Arc::clone(&factory_calls);
+            move |worker_index| {
+                factory_calls.fetch_add(1, Ordering::SeqCst);
+                if worker_index == 1 {
+                    return Err("fixture factory failure");
+                }
+                let provider_calls = Arc::clone(&provider_calls);
+                Ok(move |_path: &Path| {
+                    provider_calls.fetch_add(1, Ordering::SeqCst);
+                    Ok(sample_snapshot())
+                })
+            }
+        });
+        assert!(matches!(
+            result,
+            Err(DecodeInspectionError::WorkerFactory {
+                worker_index: 1,
+                ..
+            })
+        ));
+        assert_eq!(factory_calls.load(Ordering::SeqCst), 2);
+        assert_eq!(provider_calls.load(Ordering::SeqCst), 0);
+        actor.shutdown().expect("shutdown catalog");
+    }
+
+    #[test]
+    fn pool_provider_panic_closes_the_whole_submission_gate() {
+        let fixture = Fixture::new();
+        let actor = CatalogActor::spawn(&fixture.database_path).expect("spawn catalog");
+        let catalog = actor.handle();
+        let source = fingerprint_source(&fixture.raw_path).expect("fingerprint source");
+        let registered = catalog
+            .register_asset(&fixture.registration(source))
+            .expect("register source");
+        let pool = DecodeInspectionPool::spawn(catalog, 2, |worker_index| {
+            Ok::<_, String>(move |_path: &Path| {
+                assert_ne!(worker_index, 0, "intentional pool provider panic");
+                Ok(sample_snapshot())
+            })
+        })
+        .expect("spawn panic fixture pool");
+        let handle = pool.handle();
+        let request = DecodeInspectionRequest {
+            representation_id: registered.representation_id,
+            path: fixture.raw_path.clone(),
+            expected_source: source,
+        };
+        assert!(matches!(
+            handle
+                .submit(request.clone())
+                .expect("submit panic fixture")
+                .wait(),
+            Err(DecodeInspectionError::WorkerUnavailable)
+        ));
+        let deadline = Instant::now() + Duration::from_secs(1);
+        loop {
+            if matches!(
+                handle.submit(request.clone()),
+                Err(DecodeInspectionError::WorkerUnavailable)
+            ) {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "pool did not close after provider panic"
+            );
+            thread::yield_now();
+        }
+        assert!(matches!(
+            pool.shutdown_with_summary(),
+            Err(DecodeInspectionError::WorkerPanicked)
+        ));
+        actor.shutdown().expect("shutdown catalog");
+    }
+
+    #[test]
+    fn recommended_pool_size_is_explicitly_memory_bounded() {
+        assert!(
+            (MIN_RECOMMENDED_INSPECTION_WORKERS..=MAX_RECOMMENDED_INSPECTION_WORKERS)
+                .contains(&recommended_decode_inspection_worker_count())
+        );
+    }
+
+    #[test]
     fn shutdown_summary_accounts_for_success_failures_and_local_cancellation() {
         let fixture = Fixture::new();
         let actor = CatalogActor::spawn(&fixture.database_path).expect("spawn catalog");
@@ -1396,7 +2056,7 @@ mod tests {
         let (release_sender, release_receiver) = mpsc::sync_channel(0);
         let mut first_job = true;
         let worker = DecodeInspectionActor::spawn_inner_with_capacity(
-            catalog,
+            &catalog,
             move |_path: &Path| {
                 if first_job {
                     first_job = false;
@@ -1575,7 +2235,7 @@ mod tests {
     }
 
     #[test]
-    fn embedded_preview_is_content_addressed_and_cataloged() {
+    fn embedded_preview_is_replaced_by_a_content_addressed_generated_proxy() {
         let fixture = Fixture::new();
         let actor = CatalogActor::spawn(&fixture.database_path).expect("spawn catalog");
         let catalog = actor.handle();
@@ -1604,7 +2264,7 @@ mod tests {
         assert!(matches!(
             outcome,
             DecodeInspectionOutcome::Recorded {
-                preview: PreviewCacheOutcome::StoredEmbeddedPreview { byte_len, .. },
+                preview: PreviewCacheOutcome::StoredGeneratedProxy { byte_len, .. },
                 ..
             } if byte_len == u64::try_from(TEST_DISPLAY_JPEG.len()).expect("test JPEG length fits")
         ));
@@ -1612,14 +2272,25 @@ mod tests {
         let artifacts = catalog
             .cached_artifacts(registered.representation_id)
             .expect("read cached artifacts");
-        assert_eq!(artifacts.len(), 1);
-        assert_eq!(artifacts[0].artifact.codec, PreviewCodec::Jpeg);
-        let store = ContentAddressedStore::open(cache_root).expect("reopen cache");
-        let digest = shadow_cache::BlobDigest::from_bytes(artifacts[0].artifact.blob_digest);
+        assert_eq!(artifacts.len(), 2);
         assert_eq!(
-            fs::read(store.resolve(digest)).expect("read cached preview"),
-            TEST_DISPLAY_JPEG
+            catalog
+                .preferred_cached_artifact(registered.representation_id)
+                .expect("select preferred visual")
+                .expect("generated visual exists")
+                .artifact
+                .role,
+            CachedArtifactRole::GeneratedProxy
         );
+        let store = ContentAddressedStore::open(cache_root).expect("reopen cache");
+        for artifact in artifacts {
+            assert_eq!(artifact.artifact.codec, PreviewCodec::Jpeg);
+            let digest = shadow_cache::BlobDigest::from_bytes(artifact.artifact.blob_digest);
+            assert_eq!(
+                fs::read(store.resolve(digest)).expect("read cached preview"),
+                TEST_DISPLAY_JPEG
+            );
+        }
 
         let terminal = worker
             .shutdown_with_performance()
@@ -1627,12 +2298,12 @@ mod tests {
         assert!(terminal.decode.profiled);
         assert_eq!(terminal.decode.provider_inspect.samples, 1);
         assert_eq!(terminal.decode.embedded_preview_extract.samples, 1);
-        assert_eq!(terminal.decode.proxy_render.samples, 0);
-        assert_eq!(terminal.decode.cache_blob_put.samples, 1);
-        assert_eq!(terminal.decode.cache_artifact_catalog_commit.samples, 1);
-        assert_eq!(terminal.decode.technical_submit_wait.samples, 1);
+        assert_eq!(terminal.decode.proxy_render.samples, 1);
+        assert_eq!(terminal.decode.cache_blob_put.samples, 2);
+        assert_eq!(terminal.decode.cache_artifact_catalog_commit.samples, 2);
+        assert_eq!(terminal.decode.technical_submit_wait.samples, 2);
         assert!(terminal.technical.profiled);
-        assert_eq!(terminal.technical.technical_observation_total.samples, 1);
+        assert_eq!(terminal.technical.technical_observation_total.samples, 2);
         actor.shutdown().expect("shutdown catalog");
     }
 
@@ -1787,6 +2458,23 @@ mod tests {
             Ok(Some(PreviewPayload {
                 descriptor: preview_descriptor(),
                 byte_order: PreviewByteOrder::NotApplicable,
+                bytes: TEST_DISPLAY_JPEG.to_vec(),
+            }))
+        }
+
+        fn proxy_variant_key(&self) -> &'static str {
+            "test-decoder:grid-jpeg-2048-q90-v2"
+        }
+
+        fn render_proxy(&mut self, _path: &Path) -> Result<Option<ProxyPayload>, String> {
+            Ok(Some(ProxyPayload {
+                dimensions: ImageDimensions {
+                    width: 2_048,
+                    height: 1_365,
+                },
+                codec: PreviewCodec::Jpeg,
+                bits_per_channel: 8,
+                channels: 3,
                 bytes: TEST_DISPLAY_JPEG.to_vec(),
             }))
         }

@@ -1009,8 +1009,7 @@ Rectangle {
                 height: 25
                 radius: 4
                 visible: canvas.editor.active
-                    && (canvas.comparisonActive
-                        || canvas.visiblePreviewSource.length > 0)
+                    && (canvas.comparisonActive || canvas.showingFullDetail)
                 color: Theme.previewHudOverlay
                 border.color: canvas.comparisonActive
                     ? canvas.accent : Theme.previewHudBorder
@@ -1031,11 +1030,7 @@ Rectangle {
                                         === canvas.comparisonSideBySide
                                         ? qsTr("BEFORE / AFTER · SIDE BY SIDE")
                                         : qsTr("BEFORE / AFTER · TOP / BOTTOM")
-                        : canvas.showingFullDetail
-                            ? qsTr("AFTER · FULL-RES RGB DETAIL")
-                            : canvas.showingProvisionalPreview
-                                ? qsTr("LIBRARY PREVIEW · DEVELOPING RAW")
-                            : qsTr("AFTER · CURRENT EDIT PROXY")
+                        : qsTr("AFTER · FULL-RES RGB DETAIL")
                     color: canvas.comparisonActive
                         ? canvas.accent : canvas.textSecondary
                     font.pixelSize: 8

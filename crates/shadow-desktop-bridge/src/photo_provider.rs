@@ -32,7 +32,7 @@ pub(crate) struct PhotoInspector {
 // preview. Keep its encoder request and persistent variant identity next to each other: a stale
 // or misleading key would otherwise make the catalog serve the wrong cache entry indefinitely.
 pub(crate) const PHOTO_GRID_PROXY_MAX_EDGE: u32 = 2_048;
-pub(crate) const PHOTO_GRID_PROXY_JPEG_QUALITY: u8 = 88;
+pub(crate) const PHOTO_GRID_PROXY_JPEG_QUALITY: u8 = 90;
 const ISOLATED_EDIT_JPEG_QUALITY: u8 = 96;
 
 impl PhotoInspector {
@@ -54,7 +54,7 @@ impl PhotoInspector {
             // identity distinguishes two renders through the same provider with different
             // source-development intent or policy.
             proxy_variant_key: format!(
-                "shadow-photo-router:grid-jpeg-2048-q88-444-v2;{raw_development_plan_identity}"
+                "shadow-photo-router:grid-jpeg-2048-q90-444-v3;{raw_development_plan_identity}"
             ),
             isolated_proxy_runtime_cache: runtime_cache_root,
         })

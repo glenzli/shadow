@@ -11,6 +11,7 @@ ApplicationWindow {
     required property var controller
     required property var justifiedReviewLayout
     required property var editor
+    required property var exportController
     required property var preferences
     required property var lutLibrary
     required property var opticsProfileLibrary
@@ -106,6 +107,11 @@ ApplicationWindow {
         opticsProfileLibrary: window.opticsProfileLibrary
     }
 
+    ExportDialog {
+        id: exportDialog
+        exportController: window.exportController
+    }
+
     function openLutManager() {
         lutManager.openManager()
     }
@@ -177,6 +183,13 @@ ApplicationWindow {
         }
     }
 
+    function fullResolutionPreparationText() {
+        const path = String(editor.sourcePath).toLowerCase()
+        return /\.(jpe?g|heic|heif)$/.test(path)
+            ? qsTr("Loading full-resolution image…")
+            : qsTr("Parsing full-resolution RAW…")
+    }
+
     function chooseLibraryFolder() {
         libraryFolderDialog.open()
     }
@@ -229,6 +242,11 @@ ApplicationWindow {
             // photographer on the current image.
             autosaveFailurePopup.openingPendingPhoto = true
             autosaveFailurePopup.open()
+        }
+
+        function onActiveChanged() {
+            if (!window.editor.active)
+                window.controller.refreshVisibleLibrary()
         }
     }
 
@@ -672,6 +690,7 @@ ApplicationWindow {
             controller: window.controller
             justifiedReviewLayout: window.justifiedReviewLayout
             preferences: window.preferences
+            onExportRequested: targets => exportDialog.present(targets)
             onOpenPrecisionRequested: (photoId, representationId, sourcePath, photoTitle,
                                         previewSource) => {
                 window.openPrecision(photoId, representationId, sourcePath, photoTitle,
@@ -681,6 +700,7 @@ ApplicationWindow {
         }
 
         PrecisionWorkspace {
+            id: precisionWorkspace
             objectName: "precisionWorkspace"
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -733,6 +753,7 @@ ApplicationWindow {
                         || window.controller.comparisonBusy
                         || window.controller.decisionBusy
                     : window.editor.busy
+                        || window.editor.fullResolutionPreparing
                 running: visible
             }
 
@@ -745,6 +766,7 @@ ApplicationWindow {
                 color: window.controller.filterFlag !== "all"
                     || window.controller.filterMinimumRating > 0
                     || window.controller.filterColorLabel !== "all"
+                    || window.controller.filterEditState !== "all"
                     ? Theme.accentSurfaceQuiet : Theme.surfaceSubtle
 
                 Row {
@@ -774,6 +796,7 @@ ApplicationWindow {
                         selected: window.controller.filterFlag === "all"
                             && window.controller.filterMinimumRating === 0
                             && window.controller.filterColorLabel === "all"
+                            && window.controller.filterEditState === "all"
                         toolTipText: qsTr("Clear all Library filters")
                         accessibleName: toolTipText
                         onClicked: window.controller.clearFilters()
@@ -834,6 +857,35 @@ ApplicationWindow {
                         color: window.border
                     }
 
+                    ShadowIconButton {
+                        buttonSize: 24
+                        iconSize: 15
+                        source: "qrc:/icons/edit.svg"
+                        selected: window.controller.filterEditState === "edited"
+                        toolTipText: qsTr("Filter edited photos")
+                        accessibleName: toolTipText
+                        onClicked: window.controller.filterEditState = selected
+                            ? "all" : "edited"
+                    }
+
+                    ShadowIconButton {
+                        buttonSize: 24
+                        iconSize: 15
+                        source: "qrc:/icons/edit-off.svg"
+                        selected: window.controller.filterEditState === "unedited"
+                        toolTipText: qsTr("Filter unedited photos")
+                        accessibleName: toolTipText
+                        onClicked: window.controller.filterEditState = selected
+                            ? "all" : "unedited"
+                    }
+
+                    Rectangle {
+                        width: 1
+                        height: 16
+                        anchors.verticalCenter: parent.verticalCenter
+                        color: window.border
+                    }
+
                     Repeater {
                         model: ["red", "yellow", "green", "blue", "purple"]
 
@@ -864,10 +916,50 @@ ApplicationWindow {
                         : window.controller.comparisonBusy
                         ? window.controller.comparisonStatusText
                         : window.controller.statusText)
-                    : window.editor.statusText
+                    : window.editor.fullResolutionPreparing
+                        ? window.fullResolutionPreparationText()
+                        : window.editor.statusText
                 color: window.textMuted
                 font.pixelSize: 10
                 elide: Text.ElideRight
+            }
+
+            Rectangle {
+                visible: window.workspaceIndex === 1 && window.editor.active
+                Layout.alignment: Qt.AlignVCenter
+                Layout.preferredWidth: 1
+                Layout.preferredHeight: 16
+                color: window.border
+            }
+
+            RowLayout {
+                visible: window.workspaceIndex === 1 && window.editor.active
+                Layout.alignment: Qt.AlignVCenter
+                spacing: 5
+
+                Label {
+                    text: qsTr("PROXY")
+                    color: window.textMuted
+                    font.pixelSize: 9
+                    font.letterSpacing: 0.7
+                }
+
+                Rectangle {
+                    Layout.preferredWidth: 6
+                    Layout.preferredHeight: 6
+                    radius: 3
+                    color: precisionWorkspace.proxyActive
+                        ? Theme.accent : Theme.textMuted
+                }
+
+                Label {
+                    text: precisionWorkspace.proxyActive
+                        ? qsTr("ON") : qsTr("OFF")
+                    color: precisionWorkspace.proxyActive
+                        ? Theme.accent : window.textMuted
+                    font.pixelSize: 9
+                    font.weight: Font.DemiBold
+                }
             }
 
             Rectangle {

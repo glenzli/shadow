@@ -27,152 +27,50 @@ void transform_rgb_pixels(
     Transform&& transform
 ) {
     const std::size_t stride = image.row_stride_bytes / sizeof(float);
-    // The desktop renderer already runs the graph on a worker thread, but
-    // this was still a strictly one-core nested loop. Oklab/OKLCH operations
-    // are independent per pixel, so partition contiguous rows across the CPU
-    // for preview-sized frames as well as detail tiles. Each task owns a
-    // distinct row range; the transform object is copied into the task so a
-    // future stateful operation cannot introduce shared mutable state.
-    constexpr std::uint32_t minimum_rows_per_task = 32U;
-    constexpr std::uint32_t maximum_pixel_tasks = 12U;
-    const std::uint32_t hardware_threads = std::max(1U, std::thread::hardware_concurrency());
-    const std::uint32_t row_limited_tasks = std::max(
-        1U,
-        image.dimensions.height / minimum_rows_per_task
-    );
-    const std::uint32_t task_count = std::min({
-        maximum_pixel_tasks,
-        hardware_threads,
-        row_limited_tasks,
-    });
-
-    std::atomic_bool failed{false};
-    std::mutex failure_mutex;
-    std::exception_ptr failure;
-    auto transform_rows = [
+    // Oklab/OKLCH operations are independent per pixel. Use the process-wide bounded image
+    // executor so a graph with several active nodes does not repeatedly create and destroy
+    // thread groups or oversubscribe the machine.
+    shadow::image::detail::parallel_for_rows(
+        image.dimensions.height,
+        32U,
+        [
         &image,
         stride,
         node_index,
         &node,
-        transform = std::forward<Transform>(transform),
-        &failed,
-        &failure_mutex,
-        &failure
+        transform = std::forward<Transform>(transform)
     ](const std::uint32_t first_row, const std::uint32_t past_last_row) mutable {
-        try {
-            for (std::uint32_t y = first_row; y < past_last_row; ++y) {
-                if (failed.load(std::memory_order_relaxed)) {
-                    return;
-                }
-                const std::size_t row = static_cast<std::size_t>(y) * stride;
-                for (std::uint32_t x = 0; x < image.dimensions.width; ++x) {
-                    const std::size_t sample = row + static_cast<std::size_t>(x) * rgb_channels;
-                    const std::array<double, 3> input{
-                        static_cast<double>(image.samples[sample]),
-                        static_cast<double>(image.samples[sample + 1U]),
-                        static_cast<double>(image.samples[sample + 2U]),
-                    };
-                    const std::array<double, 3> output = transform(input);
-                    image.samples[sample] = checked_float(output[0], node_index, node);
-                    image.samples[sample + 1U] = checked_float(output[1], node_index, node);
-                    image.samples[sample + 2U] = checked_float(output[2], node_index, node);
-                }
-            }
-        } catch (...) {
-            if (!failed.exchange(true, std::memory_order_relaxed)) {
-                std::lock_guard lock(failure_mutex);
-                failure = std::current_exception();
+        for (std::uint32_t y = first_row; y < past_last_row; ++y) {
+            const std::size_t row = static_cast<std::size_t>(y) * stride;
+            for (std::uint32_t x = 0; x < image.dimensions.width; ++x) {
+                const std::size_t sample = row + static_cast<std::size_t>(x) * rgb_channels;
+                const std::array<double, 3> input{
+                    static_cast<double>(image.samples[sample]),
+                    static_cast<double>(image.samples[sample + 1U]),
+                    static_cast<double>(image.samples[sample + 2U]),
+                };
+                const std::array<double, 3> output = transform(input);
+                image.samples[sample] = checked_float(output[0], node_index, node);
+                image.samples[sample + 1U] = checked_float(output[1], node_index, node);
+                image.samples[sample + 2U] = checked_float(output[2], node_index, node);
             }
         }
-    };
-
-    if (task_count == 1U) {
-        transform_rows(0U, image.dimensions.height);
-    } else {
-        std::vector<std::thread> workers;
-        workers.reserve(task_count - 1U);
-        const std::uint32_t base_rows = image.dimensions.height / task_count;
-        const std::uint32_t remainder = image.dimensions.height % task_count;
-        std::uint32_t first_row = 0U;
-        for (std::uint32_t task = 1U; task < task_count; ++task) {
-            const std::uint32_t rows = base_rows + (task < remainder ? 1U : 0U);
-            const std::uint32_t past_last_row = first_row + rows;
-            workers.emplace_back(transform_rows, first_row, past_last_row);
-            first_row = past_last_row;
         }
-        transform_rows(first_row, image.dimensions.height);
-        for (auto& worker : workers) {
-            worker.join();
-        }
-    }
-    if (failure) {
-        std::rethrow_exception(failure);
-    }
+    );
 }
 
-// A small row executor for neighbourhood operators. Unlike pixel-local nodes,
-// a blur must materialize intermediate fields, but every row of each separable
-// pass remains independent. Sharing this bounded executor prevents the new
-// frequency controls from turning an otherwise responsive CPU preview into a
-// one-core operation on a large warm proxy.
+// Neighbourhood operators materialize intermediate fields, but every row of each separable pass
+// remains independent. Route them through the same bounded executor as pixel-local operations.
 template <typename Work>
 void parallel_for_rows(const std::size_t height, Work&& work) {
-    constexpr std::uint32_t minimum_rows_per_task = 32U;
-    constexpr std::uint32_t maximum_pixel_tasks = 12U;
-    const std::uint32_t image_height = static_cast<std::uint32_t>(height);
-    const std::uint32_t hardware_threads = std::max(1U, std::thread::hardware_concurrency());
-    const std::uint32_t row_limited_tasks = std::max(
-        1U,
-        image_height / minimum_rows_per_task
+    if (height > std::numeric_limits<std::uint32_t>::max()) {
+        throw std::overflow_error("image height exceeds the row scheduler contract");
+    }
+    shadow::image::detail::parallel_for_rows(
+        static_cast<std::uint32_t>(height),
+        32U,
+        std::forward<Work>(work)
     );
-    const std::uint32_t task_count = std::min({
-        maximum_pixel_tasks,
-        hardware_threads,
-        row_limited_tasks,
-    });
-    if (task_count == 1U) {
-        work(0U, image_height);
-        return;
-    }
-
-    std::atomic_bool failed{false};
-    std::mutex failure_mutex;
-    std::exception_ptr failure;
-    auto run = [
-        work = std::forward<Work>(work),
-        &failed,
-        &failure_mutex,
-        &failure
-    ](const std::uint32_t first_row, const std::uint32_t past_last_row) mutable {
-        try {
-            if (!failed.load(std::memory_order_relaxed)) {
-                work(first_row, past_last_row);
-            }
-        } catch (...) {
-            if (!failed.exchange(true, std::memory_order_relaxed)) {
-                std::lock_guard lock(failure_mutex);
-                failure = std::current_exception();
-            }
-        }
-    };
-    std::vector<std::thread> workers;
-    workers.reserve(task_count - 1U);
-    const std::uint32_t base_rows = image_height / task_count;
-    const std::uint32_t remainder = image_height % task_count;
-    std::uint32_t first_row = 0U;
-    for (std::uint32_t task = 1U; task < task_count; ++task) {
-        const std::uint32_t rows = base_rows + (task < remainder ? 1U : 0U);
-        const std::uint32_t past_last_row = first_row + rows;
-        workers.emplace_back(run, first_row, past_last_row);
-        first_row = past_last_row;
-    }
-    run(first_row, image_height);
-    for (auto& worker : workers) {
-        worker.join();
-    }
-    if (failure) {
-        std::rethrow_exception(failure);
-    }
 }
 
 [[nodiscard]] std::size_t reflect101_index(

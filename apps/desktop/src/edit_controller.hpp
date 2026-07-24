@@ -47,6 +47,21 @@ class EditController final : public QObject {
     Q_PROPERTY(quint32 detailFullHeight READ detailFullHeight NOTIFY detailGeometryChanged)
     Q_PROPERTY(quint64 detailRetainedBytes READ detailRetainedBytes NOTIFY detailGeometryChanged)
     Q_PROPERTY(QVariantList detailTiles READ detailTiles NOTIFY detailTilesChanged)
+    Q_PROPERTY(
+        bool fullResolutionPreparing
+        READ fullResolutionPreparing
+        NOTIFY fullResolutionStateChanged
+    )
+    Q_PROPERTY(
+        bool fullResolutionReady
+        READ fullResolutionReady
+        NOTIFY fullResolutionStateChanged
+    )
+    Q_PROPERTY(
+        quint64 fullResolutionRetainedBytes
+        READ fullResolutionRetainedBytes
+        NOTIFY fullResolutionStateChanged
+    )
     Q_PROPERTY(bool dirty READ dirty NOTIFY dirtyChanged)
     Q_PROPERTY(bool autosavePending READ autosavePending NOTIFY autosavePendingChanged)
     Q_PROPERTY(bool autosaveFailed READ autosaveFailed NOTIFY autosaveFailedChanged)
@@ -106,6 +121,11 @@ class EditController final : public QObject {
     Q_PROPERTY(QString opticsCameraProfile READ opticsCameraProfile NOTIFY opticsChanged)
     Q_PROPERTY(QString opticsLensProfile READ opticsLensProfile NOTIFY opticsChanged)
     Q_PROPERTY(QVariantList gradeNodes READ gradeNodes NOTIFY gradeNodesChanged)
+    Q_PROPERTY(
+        QVariantList sharedGradeNodes
+        READ sharedGradeNodes
+        NOTIFY sharedGradeNodesChanged
+    )
     Q_PROPERTY(
         int selectedGradeNodeIndex
         READ selectedGradeNodeIndex
@@ -215,6 +235,9 @@ public:
     [[nodiscard]] quint32 detailFullHeight() const noexcept;
     [[nodiscard]] quint64 detailRetainedBytes() const noexcept;
     [[nodiscard]] QVariantList detailTiles() const;
+    [[nodiscard]] bool fullResolutionPreparing() const noexcept;
+    [[nodiscard]] bool fullResolutionReady() const noexcept;
+    [[nodiscard]] quint64 fullResolutionRetainedBytes() const noexcept;
     [[nodiscard]] bool dirty() const noexcept;
     [[nodiscard]] bool autosavePending() const noexcept;
     [[nodiscard]] bool autosaveFailed() const noexcept;
@@ -250,6 +273,7 @@ public:
     [[nodiscard]] QString opticsCameraProfile() const;
     [[nodiscard]] QString opticsLensProfile() const;
     [[nodiscard]] QVariantList gradeNodes() const;
+    [[nodiscard]] QVariantList sharedGradeNodes() const;
     [[nodiscard]] int selectedGradeNodeIndex() const noexcept;
     [[nodiscard]] QString selectedGradeNodeId() const;
     [[nodiscard]] bool hasSelectedGradeNode() const noexcept;
@@ -307,6 +331,9 @@ public:
     Q_INVOKABLE void selectGradeNode(int index);
     Q_INVOKABLE void addGradeNode();
     Q_INVOKABLE void duplicateSelectedGradeNode();
+    Q_INVOKABLE void refreshSharedGradeNodes();
+    Q_INVOKABLE void publishSelectedGradeNode(const QString& label);
+    Q_INVOKABLE void insertSharedGradeNode(const QString& layer_id);
     Q_INVOKABLE void deleteSelectedGradeNode();
     Q_INVOKABLE void moveSelectedGradeNode(int destination_index);
     Q_INVOKABLE void beginParameterEdit(const QString& parameter_key);
@@ -412,6 +439,7 @@ signals:
     void detailErrorTextChanged();
     void detailGeometryChanged();
     void detailTilesChanged();
+    void fullResolutionStateChanged();
     void dirtyChanged();
     void autosavePendingChanged();
     void autosaveFailedChanged();
@@ -435,6 +463,7 @@ signals:
     void opticsChanged();
     void opticsReceiptChanged();
     void gradeNodesChanged();
+    void sharedGradeNodesChanged();
     void selectedGradeNodeChanged();
     void gradeNodeActionsChanged();
     void gradeNodeEnabledChanged();
@@ -502,6 +531,7 @@ private:
     void markHistogramFailed(EditPreviewKind kind);
     void clearHistograms();
     void setDetailRunning(bool running);
+    void setFullResolutionState(bool preparing, bool ready, quint64 retained_bytes);
     void emitBusyChange(bool previous_busy);
     void parameterEdited(
         const QString& key,
@@ -538,6 +568,7 @@ private:
     // the controller queues the normal edit preview for the settled recipe.
     QSet<QString> active_parameter_gestures_;
     BackendGradeStack grade_stack_;
+    QVector<BackendSharedGradeNode> shared_grade_nodes_;
     BackendGradeStack committed_grade_stack_;
     QString base_commit_id_;
     QString durable_working_commit_id_;
@@ -575,6 +606,7 @@ private:
     quint32 detail_full_width_ = 0;
     quint32 detail_full_height_ = 0;
     quint64 detail_retained_bytes_ = 0;
+    quint64 full_resolution_retained_bytes_ = 0;
     QVariantList detail_tiles_;
     double detail_center_x_ = 0.5;
     double detail_center_y_ = 0.5;
@@ -592,6 +624,8 @@ private:
     bool before_rendering_ = false;
     bool detail_mode_ = false;
     bool detail_rendering_ = false;
+    bool full_resolution_preparing_ = false;
+    bool full_resolution_ready_ = false;
     bool preview_queued_ = false;
     bool before_requested_ = false;
     bool detail_queued_ = false;

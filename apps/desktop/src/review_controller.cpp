@@ -150,6 +150,7 @@ constexpr auto color_labels_settings_key = "review/color_labels";
             .decision_head_sequence = item.decision_head_sequence,
             .decision_flag = decision_flag_name(item.decision_flag),
             .decision_rating = static_cast<int>(item.decision_rating),
+            .has_development_edits = item.has_development_edits,
             .title = std::move(item.title),
             .source_path = std::move(item.source_path),
             .visual_role = std::move(item.visual_role),
@@ -383,7 +384,8 @@ ReviewController::ReviewController(
   if (auto *const application = QCoreApplication::instance()) {
     application->installEventFilter(this);
   }
-  QTimer::singleShot(0, this, [this]() {
+    QTimer::singleShot(0, this, [this]() {
+        refreshSharedGradeNodes();
         startPage(
             scan_running_ ? PageTaskKind::StreamingPrefix
                           : PageTaskKind::InitialReset
@@ -528,8 +530,26 @@ QString ReviewController::filterColorLabel() const {
     return filtered_model_.colorFilter();
 }
 
+QString ReviewController::filterEditState() const {
+    return filtered_model_.editFilter();
+}
+
 int ReviewController::filteredItemCount() const noexcept {
     return filtered_model_.rowCount();
+}
+
+QVariantList ReviewController::sharedGradeNodes() const {
+    QVariantList result;
+    result.reserve(shared_grade_nodes_.size());
+    for (const auto& shared : shared_grade_nodes_) {
+        result.push_back(QVariantMap{
+            {QStringLiteral("layerId"), shared.layer_id},
+            {QStringLiteral("revisionId"), shared.revision_id},
+            {QStringLiteral("revisionNumber"), shared.revision_number},
+            {QStringLiteral("label"), shared.label},
+        });
+    }
+    return result;
 }
 
 QAbstractItemModel* ReviewController::model() noexcept {
@@ -893,6 +913,120 @@ void ReviewController::clearFilters() {
     filtered_model_.clearFilters();
 }
 
+void ReviewController::refreshVisibleLibrary() {
+    if (scan_running_ || decision_session_.busy()) {
+        return;
+    }
+    requestFinalPageRefresh();
+}
+
+void ReviewController::refreshSharedGradeNodes() {
+    try {
+        const auto refreshed = backend_->sharedGradeNodes();
+        if (refreshed != shared_grade_nodes_) {
+            shared_grade_nodes_ = refreshed;
+            emit sharedGradeNodesChanged();
+        }
+    } catch (const std::exception& error) {
+        setStatusMessage(review_message(
+            QT_TRANSLATE_NOOP("ReviewController",
+                              "Could not load shared Grade Nodes · %1"),
+            {QString::fromUtf8(error.what())}
+        ));
+    }
+}
+
+QVariantMap ReviewController::applySharedGradeNode(
+    const QString& layer_id,
+    const QVariantList& targets
+) {
+    QVector<BackendBatchPhotoTarget> batch;
+    batch.reserve(targets.size());
+    QSet<QString> seen_photo_ids;
+    for (const auto& value : targets) {
+        const auto target = value.toMap();
+        const QString photo_id = target.value(QStringLiteral("photoId")).toString();
+        const QString source_path =
+            target.value(QStringLiteral("sourcePath")).toString();
+        if (photo_id.isEmpty() || source_path.isEmpty()
+            || seen_photo_ids.contains(photo_id)) {
+            continue;
+        }
+        seen_photo_ids.insert(photo_id);
+        batch.push_back({
+            .photo_id = photo_id,
+            .source_path = source_path,
+        });
+    }
+    if (layer_id.isEmpty() || batch.isEmpty()) {
+        return {
+            {QStringLiteral("requested"), 0},
+            {QStringLiteral("updated"), 0},
+            {QStringLiteral("unchanged"), 0},
+            {QStringLiteral("failed"), 0},
+            {QStringLiteral("errors"), QStringList{}},
+        };
+    }
+    try {
+        const auto receipt =
+            backend_->applySharedGradeNodeToPhotos(layer_id, batch);
+        QStringList errors;
+        errors.reserve(receipt.errors.size());
+        for (const auto& error : receipt.errors) {
+            errors.push_back(error);
+        }
+        if (receipt.failed == 0) {
+            setStatusMessage(review_message(
+                QT_TRANSLATE_NOOP(
+                    "ReviewController",
+                    "Shared Grade Node linked to %1 photos · %2 already current"
+                ),
+                {
+                    static_cast<qulonglong>(receipt.updated),
+                    static_cast<qulonglong>(receipt.unchanged),
+                }
+            ));
+        } else {
+            setStatusMessage(review_message(
+                QT_TRANSLATE_NOOP(
+                    "ReviewController",
+                    "Shared Grade Node linked to %1 photos · %2 failed"
+                ),
+                {
+                    static_cast<qulonglong>(receipt.updated),
+                    static_cast<qulonglong>(receipt.failed),
+                }
+            ));
+        }
+        if (receipt.updated > 0) {
+            refreshVisibleLibrary();
+        }
+        return {
+            {QStringLiteral("requested"), receipt.requested},
+            {QStringLiteral("updated"), receipt.updated},
+            {QStringLiteral("unchanged"), receipt.unchanged},
+            {QStringLiteral("failed"), receipt.failed},
+            {QStringLiteral("errors"), errors},
+        };
+    } catch (const std::exception& error) {
+        const QString message = QString::fromUtf8(error.what());
+        setStatusMessage(review_message(
+            QT_TRANSLATE_NOOP(
+                "ReviewController",
+                "Could not apply shared Grade Node · %1"
+            ),
+            {message}
+        ));
+        return {
+            {QStringLiteral("requested"), batch.size()},
+            {QStringLiteral("updated"), 0},
+            {QStringLiteral("unchanged"), 0},
+            {QStringLiteral("failed"), batch.size()},
+            {QStringLiteral("errors"), QStringList{message}},
+        };
+    }
+}
+
 void ReviewController::setFilterFlag(const QString& filter) {
     filtered_model_.setFlagFilter(filter);
 }
@@ -903,6 +1037,10 @@ void ReviewController::setFilterMinimumRating(const int rating) {
 
 void ReviewController::setFilterColorLabel(const QString& color_label) {
     filtered_model_.setColorFilter(color_label);
+}
+
+void ReviewController::setFilterEditState(const QString& edit_state) {
+    filtered_model_.setEditFilter(edit_state);
 }
 
 void ReviewController::undoLastDecision() {

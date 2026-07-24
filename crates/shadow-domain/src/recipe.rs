@@ -780,6 +780,12 @@ pub enum LayerContent {
     Shared {
         layer_id: LayerId,
         revision: LayerRevisionSelector,
+        /// The exact immutable graph resolved for this recipe instance.
+        ///
+        /// Shared-library heads may move, but a photo recipe must remain
+        /// independently renderable and a committed recipe must reproduce the
+        /// pixels from the pinned revision without consulting mutable state.
+        graph: EditGraph,
     },
 }
 
@@ -792,6 +798,13 @@ impl LayerContent {
                 ..
             }
         )
+    }
+
+    /// Returns the executable graph materialized in this recipe.
+    pub const fn graph(&self) -> &EditGraph {
+        match self {
+            Self::Inline { graph } | Self::Shared { graph, .. } => graph,
+        }
     }
 }
 
@@ -889,8 +902,8 @@ impl LayerInstance {
         if self.mask.is_some_and(|mask| mask.revision == 0) {
             return Err(RecipeValidationError::ZeroMaskRevision);
         }
-        if let LayerContent::Inline { graph } = &self.content {
-            graph.validate()?;
+        self.content.graph().validate()?;
+        if let LayerContent::Inline { .. } = &self.content {
             if self.scope != AdjustmentScope::Photo {
                 return Err(RecipeValidationError::InlineLayerMustBePhotoScoped {
                     layer_id: self.id,
@@ -1988,7 +2001,9 @@ mod tests {
                 .expect("fixed layer instance id"),
             "Natural foundation",
             AdjustmentScope::Photo,
-            LayerContent::Inline { graph },
+            LayerContent::Inline {
+                graph: graph.clone(),
+            },
             true,
             UnitInterval::new(0.875).expect("fixed opacity"),
             BlendMode::SoftLight,
@@ -2014,6 +2029,7 @@ mod tests {
                         .parse::<LayerRevisionId>()
                         .expect("fixed shared revision id"),
                 ),
+                graph,
             },
             false,
             UnitInterval::new(0.5).expect("fixed opacity"),
@@ -2040,16 +2056,31 @@ mod tests {
 
     #[test]
     fn recipe_v1_json_wire_is_an_exact_golden() {
-        const RECIPE_V1_JSON: &str = r#"{"id":"00000000-0000-7000-8000-000000000001","recipe_id":"00000000-0000-7000-8000-000000000002","parents":[],"snapshot":{"schema_version":1,"layers":[{"id":"00000000-0000-7000-8000-000000000010","label":"Natural foundation","scope":{"kind":"photo"},"content":{"kind":"inline","graph":{"schema_version":1,"input_types":[{"kind":"image","value":"working_rgb"}],"nodes":[{"id":"00000000-0000-7000-8000-000000000020","operation":{"operation_id":"shadow.exposure","parameter_schema_version":1,"implementation_version":"cpu-reference-v1","stage":"scene_linear_foundation","input_types":[{"kind":"image","value":"working_rgb"}],"output_type":{"kind":"image","value":"working_rgb"},"seed":42},"inputs":[{"source":"graph_input","index":0}],"parameters":{"tone.enabled":{"type":"bool","value":true},"tone.exposure_ev":{"type":"float","value":0.35}},"mask_reference":{"mask_id":"00000000-0000-7000-8000-000000000030","revision":3,"coordinate_space":"original"}}],"output_node":"00000000-0000-7000-8000-000000000020"}},"enabled":true,"opacity":0.875,"blend_mode":"soft_light","mask":{"mask_id":"00000000-0000-7000-8000-000000000030","revision":3,"coordinate_space":"original"}},{"id":"00000000-0000-7000-8000-000000000040","label":"Shared portrait look","scope":{"kind":"selection","target":"00000000-0000-7000-8000-000000000070"},"content":{"kind":"shared","layer_id":"00000000-0000-7000-8000-000000000050","revision":{"mode":"pinned","revision_id":"00000000-0000-7000-8000-000000000060"}},"enabled":false,"opacity":0.5,"blend_mode":"luminosity","mask":null}]},"message":"Recipe v1 golden","created_at_ms":1721500000123}"#;
-        let encoded = serde_json::to_vec(&recipe_v1_golden_commit())
-            .expect("serialize fixed Recipe v1 commit");
+        const RECIPE_V1_JSON_WITHOUT_MATERIALIZED_SHARED_GRAPH: &str = r#"{"id":"00000000-0000-7000-8000-000000000001","recipe_id":"00000000-0000-7000-8000-000000000002","parents":[],"snapshot":{"schema_version":1,"layers":[{"id":"00000000-0000-7000-8000-000000000010","label":"Natural foundation","scope":{"kind":"photo"},"content":{"kind":"inline","graph":{"schema_version":1,"input_types":[{"kind":"image","value":"working_rgb"}],"nodes":[{"id":"00000000-0000-7000-8000-000000000020","operation":{"operation_id":"shadow.exposure","parameter_schema_version":1,"implementation_version":"cpu-reference-v1","stage":"scene_linear_foundation","input_types":[{"kind":"image","value":"working_rgb"}],"output_type":{"kind":"image","value":"working_rgb"},"seed":42},"inputs":[{"source":"graph_input","index":0}],"parameters":{"tone.enabled":{"type":"bool","value":true},"tone.exposure_ev":{"type":"float","value":0.35}},"mask_reference":{"mask_id":"00000000-0000-7000-8000-000000000030","revision":3,"coordinate_space":"original"}}],"output_node":"00000000-0000-7000-8000-000000000020"}},"enabled":true,"opacity":0.875,"blend_mode":"soft_light","mask":{"mask_id":"00000000-0000-7000-8000-000000000030","revision":3,"coordinate_space":"original"}},{"id":"00000000-0000-7000-8000-000000000040","label":"Shared portrait look","scope":{"kind":"selection","target":"00000000-0000-7000-8000-000000000070"},"content":{"kind":"shared","layer_id":"00000000-0000-7000-8000-000000000050","revision":{"mode":"pinned","revision_id":"00000000-0000-7000-8000-000000000060"}},"enabled":false,"opacity":0.5,"blend_mode":"luminosity","mask":null}]},"message":"Recipe v1 golden","created_at_ms":1721500000123}"#;
+        const SHARED_REVISION_WIRE: &str =
+            r#""revision":{"mode":"pinned","revision_id":"00000000-0000-7000-8000-000000000060"}}"#;
+        let golden = recipe_v1_golden_commit();
+        let materialized_graph =
+            serde_json::to_string(golden.snapshot().layers()[1].content().graph())
+                .expect("serialize materialized shared graph");
+        let shared_revision_wire = SHARED_REVISION_WIRE
+            .strip_suffix('}')
+            .expect("shared wire closes its content object");
+        let recipe_v1_json = RECIPE_V1_JSON_WITHOUT_MATERIALIZED_SHARED_GRAPH.replace(
+            SHARED_REVISION_WIRE,
+            &format!("{shared_revision_wire},\"graph\":{materialized_graph}}}"),
+        );
+        let encoded = serde_json::to_vec(&golden).expect("serialize fixed Recipe v1 commit");
 
-        assert_eq!(encoded.as_slice(), RECIPE_V1_JSON.as_bytes());
+        assert_eq!(
+            String::from_utf8(encoded).expect("Recipe JSON is UTF-8"),
+            recipe_v1_json
+        );
 
         let decoded: RecipeCommit =
-            serde_json::from_slice(RECIPE_V1_JSON.as_bytes()).expect("read Recipe v1 golden");
+            serde_json::from_slice(recipe_v1_json.as_bytes()).expect("read Recipe v1 golden");
         decoded.validate().expect("Recipe v1 golden remains valid");
-        assert_eq!(decoded, recipe_v1_golden_commit());
+        assert_eq!(decoded, golden);
     }
 
     #[test]
@@ -2258,6 +2289,7 @@ mod tests {
             LayerContent::Shared {
                 layer_id: LayerId::new_v7(),
                 revision: LayerRevisionSelector::FollowHead,
+                graph: exposure_graph(),
             },
             true,
             UnitInterval::ONE,

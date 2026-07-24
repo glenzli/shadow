@@ -397,20 +397,6 @@ Rectangle {
                                 NumberAnimation { duration: 100 }
                             }
 
-                            Label {
-                                Layout.fillWidth: true
-                                Layout.leftMargin: 14
-                                Layout.rightMargin: 14
-                                text: inspector.editor.hasSelectedGradeNode
-                                    ? inspector.editor.gradeNodes[
-                                        inspector.editor
-                                            .selectedGradeNodeIndex].label
-                                    : qsTr("No Grade Node selected")
-                                color: inspector.textPrimary
-                                font.pixelSize: 16
-                                font.weight: Font.Medium
-                                elide: Text.ElideRight
-                            }
                             ShadowAdjustmentSection {
                                 Layout.fillWidth: true
                                 visible: inspectorTabStrip.currentIndex === 0
@@ -586,7 +572,8 @@ Rectangle {
                             ShadowAdjustmentSection {
                                 Layout.fillWidth: true
                                 visible: inspectorTabStrip.currentIndex === 0
-                                title: qsTr("TONE CURVE")
+                                title: qsTr("CURVE")
+                                toolTipText: qsTr("Perceptual lightness curve; hue and chroma are preserved.")
 
                                 ToneCurveEditor {
                                     Layout.fillWidth: true
@@ -940,15 +927,6 @@ Rectangle {
                                                         parent.modelData.index)
                                                 }
                                             }
-                                        }
-
-                                        Label {
-                                            visible: inspector.editor.pointColors.length === 0
-                                            text: qsTr("Pick one or more colors from the image")
-                                            color: Theme.textQuiet
-                                            font.pixelSize: 9
-                                            elide: Text.ElideRight
-                                            Layout.fillWidth: true
                                         }
 
                                         Item { Layout.fillWidth: true }

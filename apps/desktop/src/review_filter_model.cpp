@@ -23,6 +23,12 @@ namespace {
         || filter == QStringLiteral("purple");
 }
 
+[[nodiscard]] bool is_edit_filter(const QString& filter) {
+    return filter == QStringLiteral("all")
+        || filter == QStringLiteral("edited")
+        || filter == QStringLiteral("unedited");
+}
+
 } // namespace
 
 ReviewFilterModel::ReviewFilterModel(QObject* const parent)
@@ -40,6 +46,10 @@ int ReviewFilterModel::minimumRating() const noexcept {
 
 QString ReviewFilterModel::colorFilter() const {
     return color_filter_;
+}
+
+QString ReviewFilterModel::editFilter() const {
+    return edit_filter_;
 }
 
 void ReviewFilterModel::setFlagFilter(const QString& filter) {
@@ -72,12 +82,24 @@ void ReviewFilterModel::setColorFilter(const QString& filter) {
     emit filtersChanged();
 }
 
+void ReviewFilterModel::setEditFilter(const QString& filter) {
+    const QString normalized = normalizeEditFilter(filter);
+    if (edit_filter_ == normalized) {
+        return;
+    }
+    edit_filter_ = normalized;
+    refreshRowsFilter();
+    emit filtersChanged();
+}
+
 void ReviewFilterModel::clearFilters() {
     const bool changed = flag_filter_ != QStringLiteral("all")
-        || minimum_rating_ != 0 || color_filter_ != QStringLiteral("all");
+        || minimum_rating_ != 0 || color_filter_ != QStringLiteral("all")
+        || edit_filter_ != QStringLiteral("all");
     flag_filter_ = QStringLiteral("all");
     minimum_rating_ = 0;
     color_filter_ = QStringLiteral("all");
+    edit_filter_ = QStringLiteral("all");
     if (!changed) {
         return;
     }
@@ -111,7 +133,16 @@ bool ReviewFilterModel::filterAcceptsRow(
         row,
         ReviewModel::ColorLabelRole
     ).toString();
-    return color_filter_ == QStringLiteral("all") || color == color_filter_;
+    if (color_filter_ != QStringLiteral("all") && color != color_filter_) {
+        return false;
+    }
+    const bool edited = sourceModel()->data(
+        row,
+        ReviewModel::HasDevelopmentEditsRole
+    ).toBool();
+    return edit_filter_ == QStringLiteral("all")
+        || (edit_filter_ == QStringLiteral("edited") && edited)
+        || (edit_filter_ == QStringLiteral("unedited") && !edited);
 }
 
 QString ReviewFilterModel::normalizeFlagFilter(const QString& filter) {
@@ -122,6 +153,11 @@ QString ReviewFilterModel::normalizeFlagFilter(const QString& filter) {
 QString ReviewFilterModel::normalizeColorFilter(const QString& filter) {
     const QString normalized = filter.trimmed().toLower();
     return is_color_filter(normalized) ? normalized : QStringLiteral("all");
+}
+
+QString ReviewFilterModel::normalizeEditFilter(const QString& filter) {
+    const QString normalized = filter.trimmed().toLower();
+    return is_edit_filter(normalized) ? normalized : QStringLiteral("all");
 }
 
 void ReviewFilterModel::refreshRowsFilter() {

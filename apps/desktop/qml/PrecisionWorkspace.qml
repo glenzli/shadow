@@ -17,6 +17,9 @@ Item {
     signal openOpticsProfileLibraryRequested()
     signal returnToReviewRequested()
 
+    readonly property bool proxyActive: editor.active
+        && precisionCanvas.visiblePreviewSource.length > 0
+        && !precisionCanvas.showingFullDetail
     readonly property color panel: Theme.panel
     readonly property color panelRaised: Theme.panelRaised
     readonly property color border: Theme.border
@@ -24,6 +27,227 @@ Item {
     readonly property color textSecondary: Theme.textSecondary
     readonly property color textMuted: Theme.textMuted
     readonly property color accent: Theme.accent
+
+    component PopupAction: Button {
+        id: popupAction
+        width: parent ? parent.width : 204
+        implicitHeight: 32
+        leftPadding: 10
+        rightPadding: 10
+        hoverEnabled: enabled
+        background: Rectangle {
+            radius: 5
+            color: !popupAction.enabled ? Theme.transparent
+                : popupAction.down ? Theme.buttonGhostPressed
+                : popupAction.hovered ? Theme.buttonGhostHover
+                : Theme.transparent
+        }
+        contentItem: Label {
+            text: popupAction.text
+            color: popupAction.enabled ? Theme.textPrimary : Theme.textDisabled
+            font.pixelSize: 11
+            font.weight: Font.Medium
+            horizontalAlignment: Text.AlignLeft
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
+        }
+    }
+
+    Popup {
+        id: addGradeNodePopup
+        parent: Overlay.overlay
+        width: 224
+        padding: 7
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        onOpened: precision.editor.refreshSharedGradeNodes()
+        background: Rectangle {
+            radius: 8
+            color: Theme.panelRaised
+            border.width: 1
+            border.color: Theme.borderStrong
+        }
+        contentItem: Column {
+            spacing: 2
+
+            PopupAction {
+                text: qsTr("New adjustment")
+                onClicked: {
+                    addGradeNodePopup.close()
+                    precision.editor.addGradeNode()
+                }
+            }
+
+            Rectangle {
+                width: parent.width
+                height: 1
+                color: Theme.border
+            }
+
+            Label {
+                width: parent.width
+                leftPadding: 10
+                topPadding: 6
+                bottomPadding: 3
+                text: qsTr("SHARED NODES")
+                color: Theme.textMuted
+                font.pixelSize: 9
+                font.weight: Font.DemiBold
+                font.letterSpacing: 0.35
+            }
+
+            Label {
+                visible: precision.editor.sharedGradeNodes.length === 0
+                width: parent.width
+                leftPadding: 10
+                rightPadding: 10
+                topPadding: 6
+                bottomPadding: 8
+                text: qsTr("No shared nodes yet")
+                color: Theme.textMuted
+                font.pixelSize: 10
+            }
+
+            Repeater {
+                model: precision.editor.sharedGradeNodes
+                delegate: PopupAction {
+                    required property var modelData
+                    text: modelData.label
+                    onClicked: {
+                        addGradeNodePopup.close()
+                        precision.editor.insertSharedGradeNode(modelData.layerId)
+                    }
+                }
+            }
+        }
+    }
+
+    Popup {
+        id: gradeNodeContextPopup
+        parent: Overlay.overlay
+        width: 224
+        padding: 7
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        property var targetData: null
+        background: Rectangle {
+            radius: 8
+            color: Theme.panelRaised
+            border.width: 1
+            border.color: Theme.borderStrong
+        }
+        contentItem: Column {
+            spacing: 2
+            PopupAction {
+                text: gradeNodeContextPopup.targetData
+                    && gradeNodeContextPopup.targetData.shared
+                    ? qsTr("Update shared node…")
+                    : qsTr("Share node…")
+                onClicked: {
+                    gradeNodeContextPopup.close()
+                    const suggested = gradeNodeContextPopup.targetData
+                        ? gradeNodeContextPopup.targetData.rawLabel : ""
+                    sharedNodeNameField.text = suggested
+                    sharedNodeNamePopup.open()
+                }
+            }
+            PopupAction {
+                text: qsTr("Duplicate as independent")
+                enabled: precision.editor.canAddGradeNode
+                onClicked: {
+                    gradeNodeContextPopup.close()
+                    precision.editor.duplicateSelectedGradeNode()
+                }
+            }
+            PopupAction {
+                text: qsTr("Delete node")
+                enabled: precision.editor.canDeleteGradeNode
+                onClicked: {
+                    gradeNodeContextPopup.close()
+                    precision.editor.deleteSelectedGradeNode()
+                }
+            }
+        }
+    }
+
+    Popup {
+        id: sharedNodeNamePopup
+        parent: Overlay.overlay
+        x: Math.round((parent.width - width) / 2)
+        y: Math.round((parent.height - height) / 2)
+        width: 340
+        padding: 16
+        modal: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        onOpened: {
+            sharedNodeNameField.forceActiveFocus()
+            sharedNodeNameField.selectAll()
+        }
+        background: Rectangle {
+            radius: 10
+            color: Theme.panelRaised
+            border.width: 1
+            border.color: Theme.borderStrong
+        }
+        contentItem: ColumnLayout {
+            spacing: 12
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("Shared Grade Node")
+                color: Theme.textPrimary
+                font.pixelSize: 15
+                font.weight: Font.DemiBold
+            }
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("A stable library node can be linked to many photos.")
+                color: Theme.textMuted
+                font.pixelSize: 10
+                wrapMode: Text.WordWrap
+            }
+            TextField {
+                id: sharedNodeNameField
+                Layout.fillWidth: true
+                placeholderText: qsTr("Node name")
+                selectByMouse: true
+                color: Theme.textPrimary
+                placeholderTextColor: Theme.textPlaceholder
+                background: Rectangle {
+                    radius: Theme.controlRadius
+                    color: Theme.panelRaised
+                    border.width: sharedNodeNameField.activeFocus ? 1 : 0
+                    border.color: Theme.accent
+                }
+                onAccepted: {
+                    if (text.trim().length > 0) {
+                        precision.editor.publishSelectedGradeNode(text)
+                        sharedNodeNamePopup.close()
+                    }
+                }
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+                Item { Layout.fillWidth: true }
+                ShadowButton {
+                    compact: true
+                    variant: ShadowButton.Ghost
+                    text: qsTr("Cancel")
+                    onClicked: sharedNodeNamePopup.close()
+                }
+                ShadowButton {
+                    compact: true
+                    variant: ShadowButton.Primary
+                    text: qsTr("Share")
+                    enabled: sharedNodeNameField.text.trim().length > 0
+                    onClicked: {
+                        precision.editor.publishSelectedGradeNode(
+                            sharedNodeNameField.text)
+                        sharedNodeNamePopup.close()
+                    }
+                }
+            }
+        }
+    }
 
     Shortcut {
         sequences: [StandardKey.Undo]
@@ -98,7 +322,16 @@ Item {
                         enabled: precision.editor.canAddGradeNode
                         toolTipText: qsTr("Add a neutral Grade Node after the selection")
                         accessibleName: qsTr("Add Grade Node")
-                        onClicked: precision.editor.addGradeNode()
+                        onClicked: {
+                            const point = addGradeNodeButton.mapToItem(
+                                addGradeNodePopup.parent,
+                                addGradeNodeButton.width
+                                    - addGradeNodePopup.width,
+                                addGradeNodeButton.height + 5)
+                            addGradeNodePopup.x = point.x
+                            addGradeNodePopup.y = point.y
+                            addGradeNodePopup.open()
+                        }
                     }
                 }
 
@@ -166,9 +399,15 @@ Item {
                                 }
                                 Label {
                                     Layout.fillWidth: true
-                                    text: gradeNodeRow.modelData.enabled
-                                        ? qsTr("LOCAL GRADE · ENABLED")
-                                        : qsTr("LOCAL GRADE · BYPASSED")
+                                    text: gradeNodeRow.modelData.shared
+                                        ? (gradeNodeRow.modelData.enabled
+                                            ? qsTr("SHARED · V%1 · ENABLED")
+                                                .arg(gradeNodeRow.modelData.sharedRevisionNumber)
+                                            : qsTr("SHARED · V%1 · BYPASSED")
+                                                .arg(gradeNodeRow.modelData.sharedRevisionNumber))
+                                        : (gradeNodeRow.modelData.enabled
+                                            ? qsTr("LOCAL · ENABLED")
+                                            : qsTr("LOCAL · BYPASSED"))
                                     color: gradeNodeRow.modelData.enabled
                                         ? (gradeNodeRow.selected
                                             ? Theme.accentTextMuted
@@ -179,6 +418,14 @@ Item {
                                     font.letterSpacing: 0.2
                                     elide: Text.ElideRight
                                 }
+                            }
+
+                            ShadowIcon {
+                                visible: gradeNodeRow.modelData.shared
+                                source: "qrc:/icons/shared-link.svg"
+                                color: gradeNodeRow.selected
+                                    ? precision.accent : precision.textMuted
+                                size: 14
                             }
 
                             Switch {
@@ -226,9 +473,24 @@ Item {
                         MouseArea {
                             anchors.fill: parent
                             anchors.rightMargin: 44
+                            acceptedButtons: Qt.LeftButton | Qt.RightButton
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: precision.editor.selectGradeNode(
-                                gradeNodeRow.index)
+                            onClicked: mouse => {
+                                precision.editor.selectGradeNode(
+                                    gradeNodeRow.index)
+                                if (mouse.button === Qt.RightButton) {
+                                    gradeNodeContextPopup.targetData =
+                                        gradeNodeRow.modelData
+                                    const point = gradeNodeRow.mapToItem(
+                                        gradeNodeContextPopup.parent,
+                                        gradeNodeRow.width
+                                            - gradeNodeContextPopup.width,
+                                        mouse.y)
+                                    gradeNodeContextPopup.x = point.x
+                                    gradeNodeContextPopup.y = point.y
+                                    gradeNodeContextPopup.open()
+                                }
+                            }
                         }
                     }
 

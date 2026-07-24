@@ -1,5 +1,6 @@
 #include "desktop_backend.hpp"
 #include "edit_controller.hpp"
+#include "export_controller.hpp"
 #include "edit_preview_provider.hpp"
 #include "justified_review_layout_model.hpp"
 #include "lut_library.hpp"
@@ -586,6 +587,7 @@ int main(int argc, char* argv[]) {
         }
     }
     ReviewController controller(backend, isolated_settings_file);
+    ExportController export_controller(backend, isolated_settings_file);
     JustifiedReviewLayoutModel justified_review_layout;
     justified_review_layout.setSourceModel(controller.model());
     auto edit_preview_store = std::make_shared<EditPreviewStore>();
@@ -619,6 +621,10 @@ int main(int argc, char* argv[]) {
             QVariant::fromValue(&justified_review_layout),
         },
         {QStringLiteral("editor"), QVariant::fromValue(&editor)},
+        {
+            QStringLiteral("exportController"),
+            QVariant::fromValue(&export_controller),
+        },
         {QStringLiteral("preferences"), QVariant::fromValue(&preferences)},
         {QStringLiteral("lutLibrary"), QVariant::fromValue(&lut_library)},
         {QStringLiteral("opticsProfileLibrary"), QVariant::fromValue(&optics_profile_library)},

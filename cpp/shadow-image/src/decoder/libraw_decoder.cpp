@@ -343,6 +343,199 @@ void require_libraw_success(const int result, const std::string_view operation) 
         : RawFrameCfaLayout::unknown;
 }
 
+[[nodiscard]] std::array<int, 4U> raw_frame_color_indices(
+    LibRaw& decoder,
+    const RawFrameCfaLayout layout
+) noexcept {
+    if (layout == RawFrameCfaLayout::monochrome) {
+        return {0, 0, 0, 0};
+    }
+    return {
+        decoder.COLOR(0, 0),
+        decoder.COLOR(0, 1),
+        decoder.COLOR(1, 0),
+        decoder.COLOR(1, 1),
+    };
+}
+
+[[nodiscard]] bool valid_color_index(const int index) noexcept {
+    return index >= 0 && index < 4;
+}
+
+[[nodiscard]] std::uint32_t raw_frame_black_level(
+    const libraw_colordata_t& color,
+    const int color_index
+) noexcept {
+    const auto index = static_cast<std::size_t>(color_index);
+    // `cblack[0..3]` is indexed by LibRaw's colour component, not by the row-major CFA site.
+    // Preserve an explicit zero when the source has no global fallback.
+    return color.cblack[index] != 0U || color.black == 0U
+        ? color.cblack[index]
+        : color.black;
+}
+
+[[nodiscard]] std::uint32_t raw_frame_white_level(
+    const libraw_colordata_t& color,
+    const int color_index
+) noexcept {
+    const auto channel_maximum = color.linear_max[static_cast<std::size_t>(color_index)];
+    const auto black_level = raw_frame_black_level(color, color_index);
+    return channel_maximum > black_level ? channel_maximum : color.maximum;
+}
+
+[[nodiscard]] bool positive_finite(const double value) noexcept {
+    return std::isfinite(value) && value > 0.0;
+}
+
+[[nodiscard]] double camera_white_balance_multiplier(
+    const libraw_data_t& data,
+    const int requested_color_index
+) noexcept {
+    const auto requested = static_cast<std::size_t>(requested_color_index);
+    if (positive_finite(data.color.cam_mul[requested])) {
+        return data.color.cam_mul[requested];
+    }
+
+    // Some three-colour RAWs describe their CFA as RGBG but carry only one green multiplier.
+    // Resolve the second green from that equivalent colour component rather than treating the
+    // absent fourth coefficient as a neutral value.
+    const char requested_color = data.idata.cdesc[requested];
+    for (std::size_t candidate = 0U; candidate < 4U; ++candidate) {
+        if (
+            data.idata.cdesc[candidate] == requested_color
+            && positive_finite(data.color.cam_mul[candidate])
+        ) {
+            return data.color.cam_mul[candidate];
+        }
+    }
+    return 0.0;
+}
+
+[[nodiscard]] std::array<double, 4U> raw_frame_as_shot_neutral(
+    const libraw_data_t& data,
+    const RawFrameCfaLayout layout,
+    const std::array<RawCfaColor, 4U>& bayer_2x2,
+    const std::array<int, 4U>& color_indices
+) {
+    if (layout == RawFrameCfaLayout::monochrome) {
+        return {1.0, 1.0, 1.0, 1.0};
+    }
+
+    std::array<double, 4U> neutral{};
+    bool embedded_is_valid = true;
+    for (std::size_t site = 0U; site < neutral.size(); ++site) {
+        const auto color_index = static_cast<std::size_t>(color_indices[site]);
+        neutral[site] = data.color.dng_levels.asshotneutral[color_index];
+        embedded_is_valid = embedded_is_valid && positive_finite(neutral[site]);
+    }
+    if (embedded_is_valid) {
+        return neutral;
+    }
+
+    // DNG AsShotNeutral is the inverse of the camera-space WB multipliers up to a common scale.
+    // Normalize that scale to the mean of the two green CFA sites, matching the conventional
+    // neutral representation consumed by Shadow's future RAW white-balance stage.
+    for (std::size_t site = 0U; site < neutral.size(); ++site) {
+        const double multiplier = camera_white_balance_multiplier(data, color_indices[site]);
+        if (!positive_finite(multiplier)) {
+            throw DecodeError(
+                DecodeErrorCode::unsupported_layout,
+                LIBRAW_NOT_IMPLEMENTED,
+                "LibRaw did not expose a usable AsShotNeutral or camera white balance"
+            );
+        }
+        neutral[site] = 1.0 / multiplier;
+    }
+
+    double green_neutral_sum = 0.0;
+    std::size_t green_site_count = 0U;
+    for (std::size_t site = 0U; site < neutral.size(); ++site) {
+        if (bayer_2x2[site] == RawCfaColor::green) {
+            green_neutral_sum += neutral[site];
+            ++green_site_count;
+        }
+    }
+    const double normalization = green_site_count == 0U
+        ? neutral.front()
+        : green_neutral_sum / static_cast<double>(green_site_count);
+    if (!positive_finite(normalization)) {
+        throw DecodeError(
+            DecodeErrorCode::unsupported_layout,
+            LIBRAW_NOT_IMPLEMENTED,
+            "LibRaw camera white balance cannot be normalized"
+        );
+    }
+    for (auto& value : neutral) {
+        value /= normalization;
+    }
+    return neutral;
+}
+
+[[nodiscard]] std::optional<std::array<double, 9U>> camera_to_linear_srgb_d65(
+    const libraw_data_t& data,
+    const RawFrameCfaLayout layout,
+    const std::array<int, 4U>& color_indices
+) noexcept {
+    if (layout != RawFrameCfaLayout::bayer_2x2) {
+        return std::nullopt;
+    }
+
+    std::array<bool, 4U> used_color_indices{};
+    for (const int color_index : color_indices) {
+        if (!valid_color_index(color_index)) {
+            return std::nullopt;
+        }
+        used_color_indices[static_cast<std::size_t>(color_index)] = true;
+    }
+
+    std::array<double, 9U> matrix{};
+    std::array<bool, 3U> has_canonical_input{};
+    for (std::size_t source = 0U; source < used_color_indices.size(); ++source) {
+        if (!used_color_indices[source]) {
+            continue;
+        }
+        std::size_t canonical_input = 0U;
+        switch (data.idata.cdesc[source]) {
+        case 'R':
+        case 'r':
+            canonical_input = 0U;
+            break;
+        case 'G':
+        case 'g':
+            canonical_input = 1U;
+            break;
+        case 'B':
+        case 'b':
+            canonical_input = 2U;
+            break;
+        default:
+            return std::nullopt;
+        }
+        has_canonical_input[canonical_input] = true;
+        for (std::size_t output = 0U; output < 3U; ++output) {
+            const double coefficient = data.color.rgb_cam[output][source];
+            if (!std::isfinite(coefficient)) {
+                return std::nullopt;
+            }
+            // If LibRaw keeps two distinct green inputs, Shadow's demosaiced camera RGB has one
+            // green channel, so both green coefficients contribute to that canonical column.
+            matrix[output * 3U + canonical_input] += coefficient;
+        }
+    }
+
+    bool has_non_zero_coefficient = false;
+    for (const double value : matrix) {
+        has_non_zero_coefficient = has_non_zero_coefficient || value != 0.0;
+    }
+    if (
+        !std::ranges::all_of(has_canonical_input, [](const bool present) { return present; })
+        || !has_non_zero_coefficient
+    ) {
+        return std::nullopt;
+    }
+    return matrix;
+}
+
 void validate_development_settings(const LibRawDevelopmentSettings& settings) {
     if (settings.schema_version != libraw_development_settings_schema_version) {
         throw std::invalid_argument("unsupported LibRaw development settings schema version");
@@ -546,10 +739,28 @@ public:
     [[nodiscard]] RawDevelopmentPlanNegotiation negotiate_raw_development_plan(
         const RawDevelopmentPlan& plan
     ) const noexcept override {
-        return shadow::image::negotiate_raw_development_plan(
+        auto negotiation = shadow::image::negotiate_raw_development_plan(
             plan,
             capabilities_.raw_development
         );
+        // Shadow's export preset asks providers for the high tier. LibRaw currently has one
+        // honest full-resolution development path, represented by `balanced`; it must not make
+        // exports unavailable merely because it cannot distinguish an additional quality tier.
+        // Record the downgrade explicitly so cache identity and provenance retain both plans.
+        if (
+            !negotiation.accepted()
+            && negotiation.unresolved == RawDevelopmentPlanAspect::quality
+            && plan.quality == RawDevelopmentQuality::high
+        ) {
+            auto effective = plan;
+            effective.quality = RawDevelopmentQuality::balanced;
+            if (capabilities_.raw_development.supports(effective)) {
+                negotiation.effective = effective;
+                negotiation.status = RawDevelopmentPlanNegotiationStatus::adjusted;
+                negotiation.unresolved = RawDevelopmentPlanAspect::none;
+            }
+        }
+        return negotiation;
     }
 
     [[nodiscard]] PreviewPayload decode_preview(const std::size_t id) override {
@@ -636,6 +847,8 @@ public:
         RawFrame frame;
         auto& descriptor = frame.descriptor;
         descriptor.schema_version = raw_frame_schema_version;
+        descriptor.provider_id = provider_info_.id;
+        descriptor.provider_version = provider_info_.version;
         descriptor.storage_dimensions = metadata_.raw_dimensions;
         descriptor.active_dimensions = metadata_.image_dimensions;
         descriptor.active_margins = metadata_.margins;
@@ -645,15 +858,37 @@ public:
         descriptor.cfa_layout = raw_frame_cfa_layout(decoder_, descriptor.bayer_2x2);
         descriptor.cfa_pattern = metadata_.cfa_pattern;
         descriptor.bits_per_sample = metadata_.sensor_bits;
+        const auto color_indices = raw_frame_color_indices(decoder_, descriptor.cfa_layout);
+        if (
+            std::ranges::any_of(
+                color_indices,
+                [](const int color_index) { return !valid_color_index(color_index); }
+            )
+        ) {
+            throw DecodeError(
+                DecodeErrorCode::unsupported_layout,
+                LIBRAW_NOT_IMPLEMENTED,
+                "LibRaw returned an invalid CFA colour index"
+            );
+        }
         const auto& color = decoder_.imgdata.color;
-        for (std::size_t index = 0U; index < descriptor.black_levels.size(); ++index) {
-            // `cblack` names the calibration site; retain its exact zero value when LibRaw has
-            // one. Older/raw files that provide only a global black level retain that fallback.
-            descriptor.black_levels[index] = color.cblack[index] != 0U || color.black == 0U
-                ? color.cblack[index]
-                : color.black;
-            descriptor.white_levels[index] = color.maximum;
-            descriptor.as_shot_neutral[index] = metadata_.as_shot_neutral[index];
+        for (std::size_t site = 0U; site < descriptor.black_levels.size(); ++site) {
+            descriptor.black_levels[site] = raw_frame_black_level(color, color_indices[site]);
+            descriptor.white_levels[site] = raw_frame_white_level(color, color_indices[site]);
+        }
+        descriptor.as_shot_neutral = raw_frame_as_shot_neutral(
+            decoder_.imgdata,
+            descriptor.cfa_layout,
+            descriptor.bayer_2x2,
+            color_indices
+        );
+        if (const auto matrix = camera_to_linear_srgb_d65(
+                decoder_.imgdata,
+                descriptor.cfa_layout,
+                color_indices
+            )) {
+            descriptor.camera_to_linear_srgb_d65 = *matrix;
+            descriptor.has_camera_to_linear_srgb_d65 = true;
         }
         descriptor.declared_pending_corrections = capabilities_.pending_corrections;
         frame.samples.resize(width * height);

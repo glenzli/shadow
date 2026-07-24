@@ -41,7 +41,7 @@ void basic_keys_are_localizable_labels() {
     version.changed_basic_parameter_count = 2;
     require(
         EditVersionPresentation::changeSummary(version)
-            == QStringLiteral("Exposure · Saturation"),
+            == QStringLiteral("Exposure · Chroma"),
         "known parameter keys must become readable labels"
     );
 }
@@ -51,7 +51,7 @@ void every_basic_key_has_a_stable_label() {
     version.changed_basic_parameters = {
         QStringLiteral("exposure_stops"),
         QStringLiteral("contrast_factor"),
-        QStringLiteral("tone_curve"),
+        QStringLiteral("oklab_lightness_curve"),
         QStringLiteral("grade_node_enabled"),
         QStringLiteral("white_balance_temperature"),
         QStringLiteral("white_balance_tint"),
@@ -60,19 +60,22 @@ void every_basic_key_has_a_stable_label() {
     version.changed_basic_parameter_count = 7;
     require(
         EditVersionPresentation::changeSummary(version)
-            == QStringLiteral("Exposure · Contrast · Tone Curve · Grade Node bypass · "
-                         "Temperature · Tint · Saturation"),
+            == QStringLiteral(
+                "Exposure · Contrast · Perceptual Lightness Curve · Grade Node bypass · "
+                "Temperature · Tint · Chroma"
+            ),
         "every renderer-backed edit parameter needs a stable display label"
     );
 }
 
-void tone_curve_has_a_stable_version_label() {
+void perceptual_lightness_curve_has_a_stable_version_label() {
     BackendEditVersion version;
-    version.changed_basic_parameters = {QStringLiteral("tone_curve")};
+    version.changed_basic_parameters = {QStringLiteral("oklab_lightness_curve")};
     version.changed_basic_parameter_count = 1;
     require(
-        EditVersionPresentation::changeSummary(version) == QStringLiteral("Tone Curve"),
-        "curve edits must not collapse into an opaque structural change"
+        EditVersionPresentation::changeSummary(version)
+            == QStringLiteral("Perceptual Lightness Curve"),
+        "perceptual lightness curve edits must not collapse into an opaque structural change"
     );
 }
 
@@ -454,7 +457,7 @@ int main(int argc, char *argv[]) {
   root_has_a_semantic_summary();
     basic_keys_are_localizable_labels();
     every_basic_key_has_a_stable_label();
-    tone_curve_has_a_stable_version_label();
+    perceptual_lightness_curve_has_a_stable_version_label();
     sharpening_changes_share_one_stable_version_label();
     grade_node_bypass_has_a_stable_version_label();
     optics_has_a_stable_version_label();

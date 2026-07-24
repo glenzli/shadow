@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <limits>
 #include <numeric>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -460,35 +461,6 @@ struct OklabColor final {
 
 [[nodiscard]] FloatRgbImage copy_processed_linear_to_working(const PixelBuffer& source) {
     return resize_processed_linear_to_working(source, source.dimensions);
-}
-
-// DNG BaselineExposure describes a source-rendering calibration, not an edit selected by the
-// photographer. LibRaw uses a large negative sentinel when the tag is absent, and non-DNG RAW
-// files must not inherit a guessed exposure compensation. Keep the acceptance range deliberately
-// generous for valid camera profiles while rejecting sentinels and malformed metadata.
-[[nodiscard]] double usable_dng_baseline_exposure_stops(const AssetMetadata& metadata) noexcept {
-    constexpr double maximum_reasonable_dng_baseline_exposure_stops = 8.0;
-    if (
-        metadata.dng_version.empty()
-        || !std::isfinite(metadata.baseline_exposure)
-        || std::abs(metadata.baseline_exposure) > maximum_reasonable_dng_baseline_exposure_stops
-    ) {
-        return 0.0;
-    }
-    return metadata.baseline_exposure;
-}
-
-void apply_source_baseline_exposure(
-    FloatRgbImage& image,
-    const double dng_baseline_exposure_stops
-) {
-    if (dng_baseline_exposure_stops == 0.0) {
-        return;
-    }
-    const double gain = std::exp2(dng_baseline_exposure_stops);
-    for (float& sample : image.samples) {
-        sample = static_cast<float>(static_cast<double>(sample) * gain);
-    }
 }
 
 // Lensfun operates on a standardized u16 RGB raster. For an interactive preview, reduce the
@@ -1075,13 +1047,15 @@ struct PreparedEditPreviewPixels final {
 struct PreparedReferenceRgb final {
     PixelBuffer pixels;
     RawDevelopmentReceipt raw_development_receipt;
+    RawPipelineReceipt raw_pipeline_receipt;
     OpticsProfileReceipt optics_receipt;
-    double dng_baseline_exposure_stops = 0.0;
+    SourceRenderingReceipt source_rendering;
 };
 
 struct PreparedWarmEditProxy final {
     FloatRgbImage working_proxy;
     RawDevelopmentReceipt raw_development_receipt;
+    RawPipelineReceipt raw_pipeline_receipt;
     OpticsProfileReceipt optics_receipt;
 };
 
@@ -1104,13 +1078,28 @@ struct PreparedWarmEditProxy final {
     const OpticsProvider* optics_provider,
     const OpticsSettings& optics_settings
 ) {
-    PixelBuffer pixels = session.render_reference_rgb(raw_development_plan);
+    DevelopedSourceReference developed = develop_source_reference(
+        session,
+        raw_development_plan,
+        std::nullopt,
+        raw_pipeline_policy_from_environment()
+    );
+    PixelBuffer pixels = std::move(developed.pixels);
+    // Fail with the decoder contract's typed error before source-profile resolution performs
+    // any content analysis. This keeps a malformed provider raster from escaping as an unrelated
+    // std::invalid_argument and preserves the editor's normal unsupported-source recovery path.
+    static_cast<void>(validated_source_row_stride(pixels));
     // Decoder provenance belongs to the source render, not to a later optical remap. Preserve it
     // independently before passing the buffer to arbitrary provider implementations, which may
     // correctly allocate a new PixelBuffer without knowing Shadow's future sidecar fields.
     RawDevelopmentReceipt raw_development_receipt = pixels.raw_development_receipt;
-    const double dng_baseline_exposure_stops = usable_dng_baseline_exposure_stops(
-        session.metadata()
+    // Resolve the source profile from the decoder's standardized raster before handing it to a
+    // pluggable optics implementation. Optical adapters are permitted to return an independent
+    // pixel allocation; they must not become accidental owners of source-profile provenance.
+    const SourceRenderingReceipt source_rendering = resolve_source_rendering(
+        pixels,
+        session.metadata(),
+        developed.pipeline_receipt
     );
     OpticsProfileReceipt receipt;
     if (optics_provider == nullptr) {
@@ -1120,8 +1109,9 @@ struct PreparedWarmEditProxy final {
         return {
             .pixels = std::move(pixels),
             .raw_development_receipt = std::move(raw_development_receipt),
+            .raw_pipeline_receipt = std::move(developed.pipeline_receipt),
             .optics_receipt = std::move(receipt),
-            .dng_baseline_exposure_stops = dng_baseline_exposure_stops,
+            .source_rendering = source_rendering,
         };
     }
     auto corrected = optics_provider->correct_reference_rgb(
@@ -1136,8 +1126,9 @@ struct PreparedWarmEditProxy final {
     return {
         .pixels = std::move(pixels),
         .raw_development_receipt = std::move(raw_development_receipt),
+        .raw_pipeline_receipt = std::move(developed.pipeline_receipt),
         .optics_receipt = std::move(receipt),
-        .dng_baseline_exposure_stops = dng_baseline_exposure_stops,
+        .source_rendering = source_rendering,
     };
 }
 
@@ -1148,14 +1139,23 @@ struct PreparedWarmEditProxy final {
     const OpticsProvider* optics_provider,
     const OpticsSettings& optics_settings
 ) {
-    PixelBuffer preview_reference = session.render_reference_rgb_for_preview(
+    DevelopedSourceReference developed = develop_source_reference(
+        session,
+        raw_development_plan,
         max_edge,
-        raw_development_plan
+        raw_pipeline_policy_from_environment()
     );
+    PixelBuffer preview_reference = std::move(developed.pixels);
+    static_cast<void>(validated_source_row_stride(preview_reference));
     // The float working proxy intentionally contains only pixels and scale metadata. Retain the
     // decoder's receipt separately before the RGB conversion so a prepared session can report
     // the exact RAW-development request that created its source raster.
     RawDevelopmentReceipt raw_development_receipt = preview_reference.raw_development_receipt;
+    const SourceRenderingReceipt source_rendering = resolve_source_rendering(
+        preview_reference,
+        session.metadata(),
+        developed.pipeline_receipt
+    );
     const Dimensions target = proxy_dimensions(preview_reference.dimensions, max_edge);
     FloatRgbImage working_proxy = resize_processed_linear_to_working(preview_reference, target);
     // LibRaw may use a half-size demosaic above. Detail-and-effects radii remain expressed in
@@ -1189,13 +1189,11 @@ struct PreparedWarmEditProxy final {
             working_proxy.level_zero_to_raster_scale_y = level_zero_scale_y;
         }
     }
-    apply_source_baseline_exposure(
-        working_proxy,
-        usable_dng_baseline_exposure_stops(session.metadata())
-    );
+    apply_source_rendering(working_proxy, source_rendering);
     return {
         .working_proxy = std::move(working_proxy),
         .raw_development_receipt = std::move(raw_development_receipt),
+        .raw_pipeline_receipt = std::move(developed.pipeline_receipt),
         .optics_receipt = std::move(receipt),
     };
 }
@@ -1206,10 +1204,12 @@ WarmEditPreviewSession::WarmEditPreviewSession(
     FloatRgbImage working_proxy,
     const std::uint32_t max_edge,
     RawDevelopmentReceipt raw_development_receipt,
+    RawPipelineReceipt raw_pipeline_receipt,
     OpticsProfileReceipt optics_receipt
 )
     : working_proxy_(std::move(working_proxy)), max_edge_(max_edge),
       raw_development_receipt_(std::move(raw_development_receipt)),
+      raw_pipeline_receipt_(std::move(raw_pipeline_receipt)),
       optics_receipt_(std::move(optics_receipt)) {}
 
 Dimensions WarmEditPreviewSession::dimensions() const noexcept {
@@ -1222,6 +1222,10 @@ std::uint32_t WarmEditPreviewSession::max_edge() const noexcept {
 
 const RawDevelopmentReceipt& WarmEditPreviewSession::raw_development_receipt() const noexcept {
     return raw_development_receipt_;
+}
+
+const RawPipelineReceipt& WarmEditPreviewSession::raw_pipeline_receipt() const noexcept {
+    return raw_pipeline_receipt_;
 }
 
 const OpticsProfileReceipt& WarmEditPreviewSession::optics_receipt() const noexcept {
@@ -1307,6 +1311,7 @@ WarmEditPreviewSession prepare_warm_edit_preview(
         std::move(prepared.working_proxy),
         max_edge,
         std::move(prepared.raw_development_receipt),
+        std::move(prepared.raw_pipeline_receipt),
         std::move(prepared.optics_receipt)
     );
 }
@@ -1315,13 +1320,15 @@ FullEditDetailSession::FullEditDetailSession(
     PixelBuffer reference_rgb,
     const std::uint64_t retained_bytes,
     RawDevelopmentReceipt raw_development_receipt,
+    RawPipelineReceipt raw_pipeline_receipt,
     OpticsProfileReceipt optics_receipt,
-    const double dng_baseline_exposure_stops
+    SourceRenderingReceipt source_rendering
 )
     : reference_rgb_(std::move(reference_rgb)), retained_bytes_(retained_bytes),
       raw_development_receipt_(std::move(raw_development_receipt)),
+      raw_pipeline_receipt_(std::move(raw_pipeline_receipt)),
       optics_receipt_(std::move(optics_receipt)),
-      dng_baseline_exposure_stops_(dng_baseline_exposure_stops) {}
+      source_rendering_(std::move(source_rendering)) {}
 
 Dimensions FullEditDetailSession::dimensions() const noexcept {
     return reference_rgb_.dimensions;
@@ -1333,6 +1340,10 @@ std::uint64_t FullEditDetailSession::retained_bytes() const noexcept {
 
 const RawDevelopmentReceipt& FullEditDetailSession::raw_development_receipt() const noexcept {
     return raw_development_receipt_;
+}
+
+const RawPipelineReceipt& FullEditDetailSession::raw_pipeline_receipt() const noexcept {
+    return raw_pipeline_receipt_;
 }
 
 const OpticsProfileReceipt& FullEditDetailSession::optics_receipt() const noexcept {
@@ -1352,7 +1363,7 @@ RenderedDetailTile FullEditDetailSession::render_rgb8(
         apron
     );
     FloatRgbImage tile = crop_processed_linear_to_working(reference_rgb_, working_rect);
-    apply_source_baseline_exposure(tile, dng_baseline_exposure_stops_);
+    apply_source_rendering(tile, source_rendering_);
     const FloatRgbImage edited_working = execute_adjustment_nodes(
         tile,
         nodes,
@@ -1398,11 +1409,22 @@ FullEditDetailSession prepare_full_edit_detail(
     const OpticsSettings& optics_settings
 ) {
     preflight_detail_metadata(session.metadata());
+    if (
+        raw_development_plan.intent != RawDevelopmentIntent::detail
+        && raw_development_plan.intent != RawDevelopmentIntent::export_image
+    ) {
+        throw DecodeError(
+            DecodeErrorCode::invalid_request,
+            0,
+            "full-resolution edit source requires detail or export-image intent"
+        );
+    }
     validate_raw_development_plan_intent(
         session,
         raw_development_plan,
-        RawDevelopmentIntent::detail,
-        "full edit detail"
+        raw_development_plan.intent,
+        raw_development_plan.intent == RawDevelopmentIntent::detail
+            ? "full edit detail" : "full image export"
     );
     auto reference = prepare_reference_rgb(
         session,
@@ -1416,8 +1438,9 @@ FullEditDetailSession prepare_full_edit_detail(
         std::move(reference.pixels),
         retained_bytes,
         std::move(reference.raw_development_receipt),
+        std::move(reference.raw_pipeline_receipt),
         std::move(reference.optics_receipt),
-        reference.dng_baseline_exposure_stops
+        std::move(reference.source_rendering)
     );
 }
 
@@ -1456,15 +1479,18 @@ EncodedProxy render_reference_proxy_jpeg(
         RawDevelopmentIntent::preview,
         "reference proxy"
     );
-    const PixelBuffer source = session.render_reference_rgb_for_preview(
+    DevelopedSourceReference developed = develop_source_reference(
+        session,
+        raw_development_plan,
         request.max_edge,
-        raw_development_plan
+        raw_pipeline_policy_from_environment()
     );
+    const PixelBuffer& source = developed.pixels;
     const Dimensions target = proxy_dimensions(source.dimensions, request.max_edge);
     FloatRgbImage working = resize_processed_linear_to_working(source, target);
-    apply_source_baseline_exposure(
+    apply_source_rendering(
         working,
-        usable_dng_baseline_exposure_stops(session.metadata())
+        resolve_source_rendering(source, session.metadata(), developed.pipeline_receipt)
     );
     const auto rgb = resize_working_to_display_srgb8(working, target);
 

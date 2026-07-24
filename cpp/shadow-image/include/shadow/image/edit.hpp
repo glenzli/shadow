@@ -5,6 +5,8 @@
 #include <shadow/image/optics.hpp>
 
 #include <shadow/image/decoder.hpp>
+#include <shadow/image/raw_pipeline.hpp>
+#include <shadow/image/source_rendering.hpp>
 
 #include <array>
 #include <cstddef>
@@ -487,6 +489,7 @@ public:
     // Provenance of the provider render retained by this preview. It remains separate from the
     // editable recipe and from the later optical-correction receipt.
     [[nodiscard]] const RawDevelopmentReceipt& raw_development_receipt() const noexcept;
+    [[nodiscard]] const RawPipelineReceipt& raw_pipeline_receipt() const noexcept;
     [[nodiscard]] const OpticsProfileReceipt& optics_receipt() const noexcept;
     [[nodiscard]] EncodedProxy render_jpeg(
         std::span<const AdjustmentNode> nodes,
@@ -502,12 +505,14 @@ private:
         FloatRgbImage working_proxy,
         std::uint32_t max_edge,
         RawDevelopmentReceipt raw_development_receipt,
+        RawPipelineReceipt raw_pipeline_receipt,
         OpticsProfileReceipt optics_receipt
     );
 
     FloatRgbImage working_proxy_;
     std::uint32_t max_edge_ = 0;
     RawDevelopmentReceipt raw_development_receipt_;
+    RawPipelineReceipt raw_pipeline_receipt_;
     OpticsProfileReceipt optics_receipt_;
 
     friend WarmEditPreviewSession prepare_warm_edit_preview(
@@ -558,6 +563,7 @@ public:
     [[nodiscard]] Dimensions dimensions() const noexcept;
     [[nodiscard]] std::uint64_t retained_bytes() const noexcept;
     [[nodiscard]] const RawDevelopmentReceipt& raw_development_receipt() const noexcept;
+    [[nodiscard]] const RawPipelineReceipt& raw_pipeline_receipt() const noexcept;
     [[nodiscard]] const OpticsProfileReceipt& optics_receipt() const noexcept;
     [[nodiscard]] RenderedDetailTile render_rgb8(
         std::span<const AdjustmentNode> nodes,
@@ -569,8 +575,9 @@ private:
         PixelBuffer reference_rgb,
         std::uint64_t retained_bytes,
         RawDevelopmentReceipt raw_development_receipt,
+        RawPipelineReceipt raw_pipeline_receipt,
         OpticsProfileReceipt optics_receipt,
-        double dng_baseline_exposure_stops
+        SourceRenderingReceipt source_rendering
     );
 
     PixelBuffer reference_rgb_;
@@ -578,11 +585,11 @@ private:
     // Kept separately from the post-optics raster: an independently implemented OpticsProvider
     // is allowed to allocate a new PixelBuffer and must not be able to erase decoder provenance.
     RawDevelopmentReceipt raw_development_receipt_;
+    RawPipelineReceipt raw_pipeline_receipt_;
     OpticsProfileReceipt optics_receipt_;
-    // A valid DNG BaselineExposure is part of the source rendering, rather than an editable
-    // user node. Retain only the scalar so full-resolution data stays immutable and tiles apply
-    // the same source appearance as the warm proxy immediately before the edit graph.
-    double dng_baseline_exposure_stops_ = 0.0;
+    // Source rendering is independent from the editable Recipe. Retain its compact receipt so
+    // full-resolution tiles apply the exact same standard/profile exposure as the warm proxy.
+    SourceRenderingReceipt source_rendering_;
 
     friend FullEditDetailSession prepare_full_edit_detail(
         const DecodeSession& session,
@@ -627,10 +634,10 @@ private:
     const OpticsSettings& optics_settings = default_optics_settings()
 );
 
-// Requests the immutable source at native/detail intent. A RAW provider may negotiate quality
-// or policy details, but it must retain the requested/effective plan pair in the returned
-// RawDevelopmentReceipt. Detail sessions reject preview/export intent so a low-cost warm
-// raster can never accidentally populate a 1:1 cache entry.
+// Requests the immutable source at full-resolution detail or export intent. A RAW provider may
+// negotiate quality or policy details, but it must retain the requested/effective plan pair in
+// the returned RawDevelopmentReceipt. Preview intent is rejected so a low-cost warm raster can
+// never accidentally populate a 1:1 or export cache entry.
 [[nodiscard]] FullEditDetailSession prepare_full_edit_detail(
     const DecodeSession& session,
     const RawDevelopmentPlan& raw_development_plan,

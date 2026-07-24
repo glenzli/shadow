@@ -10,11 +10,21 @@ fn main() {
     let repository_root = crate_root.join("../..");
     let image_root = repository_root.join("cpp/shadow-image");
     let image_include = image_root.join("include");
+    // The bridge can run independent decoder sessions concurrently, so the non-reentrant
+    // Unix/macOS `libraw` library is never an acceptable fallback.
     let libraw = pkg_config::Config::new()
         .atleast_version("0.22.0")
         .cargo_metadata(false)
-        .probe("libraw")
-        .expect("LibRaw 0.22+ must be discoverable through pkg-config");
+        .probe("libraw_r")
+        .expect("thread-safe LibRaw 0.22+ (pkg-config libraw_r) must be discoverable");
+    if !libraw.libs.iter().any(|library| library == "raw_r")
+        || libraw.libs.iter().any(|library| library == "raw")
+    {
+        panic!(
+            "pkg-config libraw_r must resolve to the reentrant raw_r library, resolved libraries: {:?}",
+            libraw.libs
+        );
+    }
     let libjpeg = pkg_config::Config::new()
         .cargo_metadata(false)
         .probe("libjpeg")
@@ -45,11 +55,22 @@ fn main() {
         .file(image_root.join("src/decoder/raster_exif.cpp"))
         .file(image_root.join("src/decoder/raster_decoder.cpp"))
         .file(image_root.join("src/decoder/heif_decoder.cpp"))
+        .file(image_root.join("src/decoder/decode_session_isolation.cpp"))
         .file(image_root.join("src/decoder/photo_decoder_router.cpp"))
         .file(image_root.join("src/decoder/private_decoder_plugin.cpp"))
         .file(image_root.join("src/color/lcms_color_management.cpp"))
+        .file(image_root.join("src/color/source_profile_catalog.cpp"))
+        .file(image_root.join("src/color/source_rendering.cpp"))
         .file(image_root.join("src/edit/cube_lut.cpp"))
         .file(image_root.join("src/edit/cpu_reference.cpp"))
+        .file(image_root.join("src/concurrency/row_scheduler.cpp"))
+        .file(image_root.join("src/raw/bayer_demosaic.cpp"))
+        .file(image_root.join("src/raw/bayer_sampling.cpp"))
+        .file(image_root.join("src/raw/camera_profile_catalog.cpp"))
+        .file(image_root.join("src/raw/dcp_color_development.cpp"))
+        .file(image_root.join("src/raw/dcp_parser.cpp"))
+        .file(image_root.join("src/raw/fused_raw_development.cpp"))
+        .file(image_root.join("src/raw/raw_pipeline.cpp"))
         .file(image_root.join("src/raw/sensor_clipping.cpp"))
         .file(image_root.join("src/optics/lensfun_optics.cpp"))
         .file(image_root.join("src/proxy/jpeg_display_luma.cpp"))
@@ -212,8 +233,16 @@ fn main() {
         "include/shadow/image/edit.hpp",
         "include/shadow/image/lut.hpp",
         "include/shadow/image/optics.hpp",
+        "include/shadow/image/raw_development.hpp",
+        "include/shadow/image/raw_pipeline.hpp",
+        "include/shadow/image/camera_profile.hpp",
+        "include/shadow/image/camera_profile_catalog.hpp",
+        "include/shadow/image/dcp_color_development.hpp",
+        "include/shadow/image/fused_raw_development.hpp",
         "include/shadow/image/cxx_bridge.hpp",
         "include/shadow/image/color_management.hpp",
+        "include/shadow/image/source_rendering.hpp",
+        "include/shadow/image/source_profile_catalog.hpp",
         "src/bridge/cxx_bridge.cpp",
         "src/decoder/libraw_decoder.cpp",
         "src/decoder/raster_exif.hpp",
@@ -221,15 +250,29 @@ fn main() {
         "src/decoder/raster_decoder.cpp",
         "src/decoder/heif_decoder.hpp",
         "src/decoder/heif_decoder.cpp",
+        "src/decoder/decode_session_isolation.hpp",
+        "src/decoder/decode_session_isolation.cpp",
         "src/decoder/photo_decoder_router.cpp",
         "src/decoder/private_decoder_plugin.cpp",
         "src/color/lcms_color_management.cpp",
+        "src/color/source_profile_catalog.cpp",
+        "src/color/source_rendering.cpp",
         "src/edit/cube_lut.cpp",
         "src/edit/cpu_reference.cpp",
         "src/edit/cpu_reference_color.ipp",
         "src/edit/cpu_reference_curve.ipp",
         "src/edit/cpu_reference_detail.ipp",
         "src/edit/cpu_reference_tone.ipp",
+        "src/concurrency/row_scheduler.hpp",
+        "src/concurrency/row_scheduler.cpp",
+        "src/raw/bayer_demosaic.cpp",
+        "src/raw/bayer_sampling.hpp",
+        "src/raw/bayer_sampling.cpp",
+        "src/raw/camera_profile_catalog.cpp",
+        "src/raw/dcp_color_development.cpp",
+        "src/raw/dcp_parser.cpp",
+        "src/raw/fused_raw_development.cpp",
+        "src/raw/raw_pipeline.cpp",
         "src/raw/sensor_clipping.cpp",
         "src/optics/lensfun_optics.cpp",
         "src/proxy/display_rgb_math.hpp",

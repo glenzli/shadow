@@ -19,6 +19,10 @@ constexpr PrivateDecoderPluginDescriptor descriptor{
 // SDK code or camera-specific decoder. Its purpose is to exercise Shadow's exact local-module
 // lifecycle, router precedence, RawFrame contract and cache identity before a user adds a truly
 // private provider to the same boundary.
+extern "C" std::uint64_t shadow_private_decoder_plugin_interface_contract_v1() {
+    return private_decoder_plugin_interface_contract_token;
+}
+
 extern "C" const PrivateDecoderPluginDescriptor*
 shadow_private_decoder_plugin_descriptor_v1() {
     return &descriptor;

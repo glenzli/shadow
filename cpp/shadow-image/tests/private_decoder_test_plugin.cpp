@@ -178,6 +178,10 @@ constexpr PrivateDecoderPluginDescriptor descriptor{
 
 } // namespace
 
+extern "C" std::uint64_t shadow_private_decoder_plugin_interface_contract_v1() {
+    return private_decoder_plugin_interface_contract_token;
+}
+
 extern "C" const PrivateDecoderPluginDescriptor*
 shadow_private_decoder_plugin_descriptor_v1() {
     return &descriptor;

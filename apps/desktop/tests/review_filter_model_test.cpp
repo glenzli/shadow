@@ -18,13 +18,15 @@ void require(const bool condition, const std::string& message) {
     const char* const photo_id,
     const char* const representation_id,
     const char* const flag,
-    const int rating
+    const int rating,
+    const bool edited = false
 ) {
     ReviewItem value;
     value.photo_id = QString::fromLatin1(photo_id);
     value.representation_id = QString::fromLatin1(representation_id);
     value.decision_flag = QString::fromLatin1(flag);
     value.decision_rating = rating;
+    value.has_development_edits = edited;
     return value;
 }
 
@@ -32,7 +34,7 @@ void combined_lightroom_filters_intersect() {
     ReviewModel source;
     source.replace(
         {
-            item("photo-a", "representation-a", "picked", 5),
+            item("photo-a", "representation-a", "picked", 5, true),
             item("photo-b", "representation-b", "rejected", 3),
             item("photo-c", "representation-c", "unflagged", 1),
         },
@@ -67,6 +69,17 @@ void combined_lightroom_filters_intersect() {
     require(
         filtered.rowCount() == 0,
         "all enabled Lightroom-style filter facets must intersect"
+    );
+    filtered.clearFilters();
+    filtered.setEditFilter(QStringLiteral("edited"));
+    require(
+        filtered.rowCount() == 1,
+        "the edited facet must select photos with a working development Recipe"
+    );
+    filtered.setEditFilter(QStringLiteral("unedited"));
+    require(
+        filtered.rowCount() == 2,
+        "the unedited facet must exclude photos with development edits"
     );
     filtered.clearFilters();
     require(filtered.rowCount() == 3, "clearing filters must restore the grid");

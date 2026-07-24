@@ -345,6 +345,14 @@ impl EditObjectPack {
                     .map_err(|error| EditRepositoryError::InvalidLegacyRecipe(error.to_string()))?;
                 Vec::new()
             }
+            (EditObjectKind::GradeNodeRevision, 1) => {
+                let revision: crate::LayerRevision =
+                    serde_json::from_slice(self.object.canonical_json())?;
+                revision.validate().map_err(|error| {
+                    EditRepositoryError::InvalidGradeNodeRevision(error.to_string())
+                })?;
+                Vec::new()
+            }
             _ => Vec::new(),
         };
         if expected != self.edges {
@@ -733,6 +741,8 @@ pub enum EditRepositoryError {
     ObjectEdgesDoNotMatchPayload,
     #[error("invalid legacy Recipe edit object: {0}")]
     InvalidLegacyRecipe(String),
+    #[error("invalid shared Grade Node revision: {0}")]
+    InvalidGradeNodeRevision(String),
     #[error("invalid edit object edge role: {0:?}")]
     InvalidEdgeRole(String),
     #[error("invalid edit entity key: {0:?}")]

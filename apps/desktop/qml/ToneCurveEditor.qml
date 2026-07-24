@@ -34,7 +34,7 @@ Item {
     readonly property real authoredPointGap: 1.0 / 4096.0
 
     implicitWidth: 320
-    implicitHeight: 398
+    implicitHeight: 296
     activeFocusOnTab: true
 
     function clamp(value, lower, upper) {
@@ -216,51 +216,9 @@ Item {
         anchors.fill: parent
         spacing: 7
 
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: 8
-
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: 2
-
-                Label {
-                    text: qsTr("Perceptual Lightness Curve")
-                    color: root.textColor
-                    font.pixelSize: 11
-                    font.weight: Font.DemiBold
-                }
-
-                Label {
-                    text: qsTr("Oklab L only · hue and chroma stay unchanged")
-                    color: root.mutedTextColor
-                    font.pixelSize: 9
-                    elide: Text.ElideRight
-                }
-            }
-
-            Rectangle {
-                Layout.preferredWidth: curveStateLabel.implicitWidth + 16
-                Layout.preferredHeight: 22
-                radius: 11
-                color: root.hasCurve ? Theme.accentSurface : Theme.surfaceSubtle
-                border.color: root.hasCurve ? Theme.accentBorder : root.borderColor
-
-                Label {
-                    id: curveStateLabel
-                    anchors.centerIn: parent
-                    text: root.hasCurve ? qsTr("ACTIVE") : qsTr("NEUTRAL")
-                    color: root.hasCurve ? root.accentColor : root.mutedTextColor
-                    font.pixelSize: 8
-                    font.weight: Font.Bold
-                    font.letterSpacing: 0.8
-                }
-            }
-        }
-
         Item {
             Layout.fillWidth: true
-            Layout.preferredHeight: Math.max(210, Math.min(320, root.width))
+            Layout.preferredHeight: Math.max(190, Math.min(260, root.width - 4))
 
             Rectangle {
                 id: curveFrame
@@ -356,34 +314,6 @@ Item {
                     onClicked: mouse => {
                         const position = mapToItem(curveFrame, mouse.x, mouse.y)
                         root.addPointAt(position.x, position.y)
-                    }
-                }
-
-                Column {
-                    anchors.centerIn: parent
-                    width: Math.max(120, parent.width - 64)
-                    spacing: 5
-                    visible: !root.hasCurve
-                    z: 2
-
-                    Label {
-                        width: parent.width
-                        text: qsTr("Neutral curve")
-                        color: root.textColor
-                        font.pixelSize: 13
-                        font.weight: Font.Medium
-                        horizontalAlignment: Text.AlignHCenter
-                    }
-
-                    Label {
-                        width: parent.width
-                        text: root.curveEditable
-                            ? qsTr("Click anywhere to add your first point")
-                            : qsTr("This curve is currently view-only")
-                        color: root.mutedTextColor
-                        font.pixelSize: 9
-                        wrapMode: Text.WordWrap
-                        horizontalAlignment: Text.AlignHCenter
                     }
                 }
 
@@ -498,43 +428,38 @@ Item {
                     ? qsTr("Selected · %L1% → %L2%")
                         .arg(Math.round(root.selectedPointX * 100))
                         .arg(Math.round(root.selectedPointY * 100))
-                    : (root.hasCurve
-                        ? qsTr("Click to add · drag to shape")
-                        : qsTr("No adjustment applied"))
+                    : (!root.curveEditable ? qsTr("Read only") : "")
                 color: root.mutedTextColor
                 font.pixelSize: 9
                 elide: Text.ElideRight
             }
 
-            ShadowButton {
+            ShadowIconButton {
                 id: removePointButton
 
-                text: qsTr("REMOVE")
-                compact: true
-                variant: ShadowButton.Ghost
+                buttonSize: 26
+                iconSize: 16
+                source: "qrc:/icons/trash.svg"
+                variant: ShadowIconButton.Ghost
+                toolTipText: qsTr("Remove point")
+                accessibleName: toolTipText
                 enabled: root.curveEditable && root.selectedPointDeletable
                 onClicked: root.removeSelectedPoint()
             }
 
-            ShadowButton {
+            ShadowIconButton {
                 id: resetCurveButton
 
-                text: qsTr("RESET")
-                compact: true
-                variant: ShadowButton.Ghost
+                buttonSize: 26
+                iconSize: 16
+                source: "qrc:/icons/redo.svg"
+                variant: ShadowIconButton.Ghost
+                toolTipText: qsTr("Reset curve")
+                accessibleName: toolTipText
                 enabled: root.hasCurve
                 onClicked: root.resetCurve()
             }
 
-        }
-
-        Label {
-            Layout.fillWidth: true
-            visible: !root.curveEditable
-            text: qsTr("This curve is preserved exactly. Reset Curve is still available.")
-            color: Theme.accentTextMuted
-            font.pixelSize: 9
-            wrapMode: Text.WordWrap
         }
     }
 }

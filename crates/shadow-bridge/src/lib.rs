@@ -210,6 +210,44 @@ mod ffi {
     }
 
     #[derive(Debug)]
+    enum FfiRawPipelinePath {
+        DecodedRaster,
+        ShadowRawFrame,
+        ProviderProcessedCompatibility,
+    }
+
+    #[derive(Debug)]
+    enum FfiRawCameraProfileStatus {
+        NotConsidered,
+        NoMatch,
+        Applied,
+        MatchedNotApplied,
+    }
+
+    // Host-side route provenance. `cache_identity` is the canonical composite identity produced
+    // by C++; `pipeline_identity` identifies only the selected algorithm/compatibility stage.
+    #[derive(Debug)]
+    struct FfiRawPipelineReceipt {
+        schema_version: u32,
+        path: FfiRawPipelinePath,
+        cache_identity: String,
+        pipeline_identity: String,
+        source_provider_id: String,
+        source_provider_version: String,
+        fallback_reason: String,
+        raw_frame_schema_version: u32,
+        raw_developer_version: u32,
+        requested_plan: FfiRawDevelopmentPlan,
+        effective_plan: FfiRawDevelopmentPlan,
+        camera_profile_status: FfiRawCameraProfileStatus,
+        camera_profile_catalog_identity: String,
+        camera_profile_identity: String,
+        camera_profile_name: String,
+        camera_profile_diagnostic: String,
+        camera_profile_developer_version: u32,
+    }
+
+    #[derive(Debug)]
     struct FfiOpticsProfileCandidate {
         camera_maker: String,
         camera_model: String,
@@ -410,6 +448,9 @@ mod ffi {
         fn open_photo_utf8(path: &str) -> Result<UniquePtr<DecodeHandle>>;
         fn query_libraw_optics_profiles_utf8(path: &str) -> Result<Vec<FfiOpticsProfileCandidate>>;
         fn query_photo_optics_profiles_utf8(path: &str) -> Result<Vec<FfiOpticsProfileCandidate>>;
+        fn query_optics_profiles_for_metadata(
+            metadata: &FfiMetadataSnapshot,
+        ) -> Vec<FfiOpticsProfileCandidate>;
         fn libraw_provider_version() -> String;
         fn photo_provider_version() -> String;
         fn photo_supported_raster_extensions() -> Vec<String>;
@@ -433,6 +474,8 @@ mod ffi {
         // before a source render is prepared.
         #[allow(dead_code)]
         fn raw_development_receipt(self: &DecodeHandle) -> Result<FfiRawDevelopmentReceipt>;
+        #[allow(dead_code)]
+        fn raw_pipeline_receipt(self: &DecodeHandle) -> Result<FfiRawPipelineReceipt>;
         fn previews(self: &DecodeHandle) -> Vec<FfiPreviewSnapshot>;
         fn decode_best_preview(self: Pin<&mut DecodeHandle>) -> Result<FfiPreviewPayload>;
         fn configure_optics(
@@ -473,6 +516,7 @@ mod ffi {
         fn max_edge(self: &EditPreviewHandle) -> u32;
         fn optics_receipt(self: &EditPreviewHandle) -> FfiOpticsReceipt;
         fn raw_development_receipt(self: &EditPreviewHandle) -> Result<FfiRawDevelopmentReceipt>;
+        fn raw_pipeline_receipt(self: &EditPreviewHandle) -> Result<FfiRawPipelineReceipt>;
         fn render_adjustment_plan(
             self: &EditPreviewHandle,
             request: &FfiAdjustmentRenderRequest,
@@ -486,6 +530,7 @@ mod ffi {
         fn optics_receipt(self: &FullEditDetailHandle) -> FfiOpticsReceipt;
         fn raw_development_receipt(self: &FullEditDetailHandle)
         -> Result<FfiRawDevelopmentReceipt>;
+        fn raw_pipeline_receipt(self: &FullEditDetailHandle) -> Result<FfiRawPipelineReceipt>;
         fn render_adjustment_plan_tile(
             self: &FullEditDetailHandle,
             request: &FfiAdjustmentDetailTileRequest,
@@ -817,6 +862,105 @@ impl RawDevelopmentReceipt {
     }
 }
 
+/// The host-selected source path that produced the common editable raster.
+///
+/// This is deliberately separate from [`RawDevelopmentReceipt`]: the latter records what a RAW
+/// provider did, while this enum records whether Shadow consumed a provider-owned `RawFrame`,
+/// accepted provider-processed RGB as a compatibility path, or decoded an ordinary raster.
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RawPipelinePath {
+    #[default]
+    DecodedRaster,
+    ShadowRawFrame,
+    ProviderProcessedCompatibility,
+}
+
+/// Outcome of the host-side DCP lookup and application stage.
+///
+/// Consumers should branch on this enum and treat `camera_profile_diagnostic` as presentation
+/// text only. In particular, `NoMatch` and `MatchedNotApplied` are distinct cache-visible states.
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RawCameraProfileStatus {
+    #[default]
+    NotConsidered,
+    NoMatch,
+    Applied,
+    MatchedNotApplied,
+}
+
+/// Immutable provenance for Shadow's host-side source-development route.
+///
+/// `cache_identity` is constructed canonically by C++ from every cache-relevant field. Consumers
+/// should use it directly and inspect [`RawPipelinePath`] for behavior; they must not parse either
+/// identity or the human-readable fallback reason. A zero `schema_version` is explicit absence
+/// before a decode handle has prepared any render-backed session.
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+pub struct RawPipelineReceipt {
+    pub schema_version: u32,
+    pub path: RawPipelinePath,
+    pub cache_identity: String,
+    pub pipeline_identity: String,
+    pub source_provider_id: String,
+    pub source_provider_version: String,
+    pub fallback_reason: Option<String>,
+    pub raw_frame_schema_version: u32,
+    pub raw_developer_version: u32,
+    pub requested_plan: RawDevelopmentPlan,
+    pub effective_plan: RawDevelopmentPlan,
+    pub camera_profile_status: RawCameraProfileStatus,
+    pub camera_profile_catalog_identity: String,
+    pub camera_profile_identity: String,
+    pub camera_profile_name: String,
+    pub camera_profile_diagnostic: Option<String>,
+    pub camera_profile_developer_version: u32,
+}
+
+impl Default for RawPipelineReceipt {
+    fn default() -> Self {
+        Self {
+            schema_version: 0,
+            path: RawPipelinePath::DecodedRaster,
+            cache_identity: String::new(),
+            pipeline_identity: String::new(),
+            source_provider_id: String::new(),
+            source_provider_version: String::new(),
+            fallback_reason: None,
+            raw_frame_schema_version: 0,
+            raw_developer_version: 0,
+            requested_plan: RawDevelopmentPlan::detail(),
+            effective_plan: RawDevelopmentPlan::detail(),
+            camera_profile_status: RawCameraProfileStatus::NotConsidered,
+            camera_profile_catalog_identity: String::new(),
+            camera_profile_identity: String::new(),
+            camera_profile_name: String::new(),
+            camera_profile_diagnostic: None,
+            camera_profile_developer_version: 0,
+        }
+    }
+}
+
+impl RawPipelineReceipt {
+    pub const CURRENT_SCHEMA_VERSION: u32 = 1;
+    pub const CURRENT_CAMERA_PROFILE_DEVELOPER_VERSION: u32 = 1;
+
+    #[must_use]
+    pub const fn recorded(&self) -> bool {
+        self.schema_version != 0
+    }
+
+    #[must_use]
+    pub const fn uses_current_schema(&self) -> bool {
+        self.schema_version == Self::CURRENT_SCHEMA_VERSION
+    }
+
+    #[must_use]
+    pub const fn used_fallback(&self) -> bool {
+        self.fallback_reason.is_some()
+    }
+}
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct OpticsProfileCandidate {
     pub camera_maker: String,
@@ -872,6 +1016,70 @@ pub fn query_photo_optics_profiles(
             lens_model: candidate.lens_model,
         })
         .collect())
+}
+
+/// Enumerates Lensfun candidates from a previously inspected RAW metadata snapshot.
+///
+/// Unlike [`query_photo_optics_profiles`], this does not open or decode the source file. It is
+/// therefore the preferred path for Library photos and remains usable when the current pixel
+/// provider cannot unpack a proprietary compression such as Nikon HE/HE*.
+#[must_use]
+pub fn query_optics_profiles_from_metadata(
+    metadata: &RawMetadataSnapshot,
+) -> Vec<OpticsProfileCandidate> {
+    ffi::query_optics_profiles_for_metadata(&ffi_metadata_snapshot(metadata))
+        .into_iter()
+        .map(|candidate| OpticsProfileCandidate {
+            camera_maker: candidate.camera_maker,
+            camera_model: candidate.camera_model,
+            lens_maker: candidate.lens_maker,
+            lens_model: candidate.lens_model,
+        })
+        .collect()
+}
+
+fn ffi_metadata_snapshot(metadata: &RawMetadataSnapshot) -> ffi::FfiMetadataSnapshot {
+    ffi::FfiMetadataSnapshot {
+        make: metadata.make.clone(),
+        model: metadata.model.clone(),
+        normalized_make: metadata.normalized_make.clone(),
+        normalized_model: metadata.normalized_model.clone(),
+        dng_version: metadata.dng_version.clone().unwrap_or_default(),
+        raw_count: metadata.raw_count,
+        raw_dimensions: ffi::FfiDimensions {
+            width: metadata.raw_dimensions.width,
+            height: metadata.raw_dimensions.height,
+        },
+        image_dimensions: ffi::FfiDimensions {
+            width: metadata.image_dimensions.width,
+            height: metadata.image_dimensions.height,
+        },
+        margins: ffi::FfiMargins {
+            left: metadata.margins.left,
+            top: metadata.margins.top,
+            right: metadata.margins.right,
+            bottom: metadata.margins.bottom,
+        },
+        orientation: metadata.orientation,
+        cfa_pattern: metadata.cfa_pattern.clone(),
+        sensor_colors: metadata.sensor_colors,
+        sensor_bits: metadata.sensor_bits,
+        black_level: metadata.black_level,
+        white_level: metadata.white_level,
+        as_shot_neutral_r: metadata.as_shot_neutral[0],
+        as_shot_neutral_g1: metadata.as_shot_neutral[1],
+        as_shot_neutral_b: metadata.as_shot_neutral[2],
+        as_shot_neutral_g2: metadata.as_shot_neutral[3],
+        baseline_exposure: metadata.baseline_exposure,
+        iso_speed: metadata.iso_speed,
+        exposure_time_seconds: metadata.exposure_time_seconds,
+        aperture_f_number: metadata.aperture_f_number,
+        focal_length_mm: metadata.focal_length_mm,
+        captured_at_unix_seconds: metadata.captured_at_unix_seconds,
+        lens_make: metadata.lens_make.clone(),
+        lens_model: metadata.lens_model.clone(),
+        focal_length_35mm: metadata.focal_length_35mm,
+    }
 }
 
 fn ffi_optics_settings(settings: &OpticsSettings) -> ffi::FfiOpticsSettings {
@@ -1206,6 +1414,168 @@ fn raw_development_receipt(
             dng_opcode_execution_status(receipt.dng_opcode_list_3_execution)?,
         ],
         process_warnings: receipt.process_warnings,
+    })
+}
+
+fn raw_pipeline_path(path: ffi::FfiRawPipelinePath) -> Result<RawPipelinePath, BridgeError> {
+    match path {
+        ffi::FfiRawPipelinePath::DecodedRaster => Ok(RawPipelinePath::DecodedRaster),
+        ffi::FfiRawPipelinePath::ShadowRawFrame => Ok(RawPipelinePath::ShadowRawFrame),
+        ffi::FfiRawPipelinePath::ProviderProcessedCompatibility => {
+            Ok(RawPipelinePath::ProviderProcessedCompatibility)
+        }
+        _ => Err(BridgeError::InvalidRawPipelineReceipt(
+            "decoder returned an unsupported RAW pipeline path",
+        )),
+    }
+}
+
+fn raw_camera_profile_status(
+    status: ffi::FfiRawCameraProfileStatus,
+) -> Result<RawCameraProfileStatus, BridgeError> {
+    match status {
+        ffi::FfiRawCameraProfileStatus::NotConsidered => Ok(RawCameraProfileStatus::NotConsidered),
+        ffi::FfiRawCameraProfileStatus::NoMatch => Ok(RawCameraProfileStatus::NoMatch),
+        ffi::FfiRawCameraProfileStatus::Applied => Ok(RawCameraProfileStatus::Applied),
+        ffi::FfiRawCameraProfileStatus::MatchedNotApplied => {
+            Ok(RawCameraProfileStatus::MatchedNotApplied)
+        }
+        _ => Err(BridgeError::InvalidRawPipelineReceipt(
+            "decoder returned an unsupported RAW camera-profile status",
+        )),
+    }
+}
+
+fn raw_pipeline_receipt(
+    receipt: ffi::FfiRawPipelineReceipt,
+) -> Result<RawPipelineReceipt, BridgeError> {
+    if receipt.schema_version == 0 {
+        return Ok(RawPipelineReceipt::default());
+    }
+
+    let path = raw_pipeline_path(receipt.path)?;
+    let requested_plan = raw_development_plan(receipt.requested_plan)?;
+    let effective_plan = raw_development_plan(receipt.effective_plan)?;
+    let fallback_reason = (!receipt.fallback_reason.is_empty()).then_some(receipt.fallback_reason);
+    let camera_profile_status = raw_camera_profile_status(receipt.camera_profile_status)?;
+    let camera_profile_diagnostic = (!receipt.camera_profile_diagnostic.is_empty())
+        .then_some(receipt.camera_profile_diagnostic);
+
+    if receipt.cache_identity.is_empty() || receipt.pipeline_identity.is_empty() {
+        return Err(BridgeError::InvalidRawPipelineReceipt(
+            "recorded RAW pipeline identities must not be empty",
+        ));
+    }
+    if requested_plan.schema_version != RawDevelopmentPlan::CURRENT_SCHEMA_VERSION
+        || effective_plan.schema_version != RawDevelopmentPlan::CURRENT_SCHEMA_VERSION
+    {
+        return Err(BridgeError::InvalidRawPipelineReceipt(
+            "recorded RAW pipeline plans use an unsupported schema",
+        ));
+    }
+    if receipt.schema_version == RawPipelineReceipt::CURRENT_SCHEMA_VERSION {
+        match path {
+            RawPipelinePath::ShadowRawFrame => {
+                if receipt.raw_frame_schema_version == 0
+                    || receipt.raw_developer_version == 0
+                    || fallback_reason.is_some()
+                {
+                    return Err(BridgeError::InvalidRawPipelineReceipt(
+                        "Shadow RawFrame route provenance is incomplete",
+                    ));
+                }
+            }
+            RawPipelinePath::DecodedRaster => {
+                if receipt.raw_frame_schema_version != 0
+                    || receipt.raw_developer_version != 0
+                    || fallback_reason.is_some()
+                {
+                    return Err(BridgeError::InvalidRawPipelineReceipt(
+                        "decoded raster route contains RAW-only provenance",
+                    ));
+                }
+            }
+            RawPipelinePath::ProviderProcessedCompatibility => {
+                if receipt.raw_frame_schema_version != 0 || receipt.raw_developer_version != 0 {
+                    return Err(BridgeError::InvalidRawPipelineReceipt(
+                        "provider compatibility route contains Shadow RawFrame provenance",
+                    ));
+                }
+            }
+        }
+
+        let camera_profile_route_is_valid = match path {
+            RawPipelinePath::ShadowRawFrame => {
+                camera_profile_status != RawCameraProfileStatus::NotConsidered
+            }
+            RawPipelinePath::DecodedRaster | RawPipelinePath::ProviderProcessedCompatibility => {
+                camera_profile_status == RawCameraProfileStatus::NotConsidered
+            }
+        };
+        if !camera_profile_route_is_valid {
+            return Err(BridgeError::InvalidRawPipelineReceipt(
+                "RAW camera-profile status does not match its source route",
+            ));
+        }
+
+        let camera_profile_fields_are_valid = match camera_profile_status {
+            RawCameraProfileStatus::NotConsidered => {
+                receipt.camera_profile_catalog_identity.is_empty()
+                    && receipt.camera_profile_identity.is_empty()
+                    && receipt.camera_profile_name.is_empty()
+                    && camera_profile_diagnostic.is_none()
+                    && receipt.camera_profile_developer_version == 0
+            }
+            RawCameraProfileStatus::NoMatch => {
+                !receipt.camera_profile_catalog_identity.is_empty()
+                    && receipt.camera_profile_identity.is_empty()
+                    && receipt.camera_profile_name.is_empty()
+                    && camera_profile_diagnostic.is_none()
+                    && receipt.camera_profile_developer_version
+                        == RawPipelineReceipt::CURRENT_CAMERA_PROFILE_DEVELOPER_VERSION
+            }
+            RawCameraProfileStatus::Applied => {
+                !receipt.camera_profile_catalog_identity.is_empty()
+                    && !receipt.camera_profile_identity.is_empty()
+                    && !receipt.camera_profile_name.is_empty()
+                    && camera_profile_diagnostic.is_none()
+                    && receipt.camera_profile_developer_version
+                        == RawPipelineReceipt::CURRENT_CAMERA_PROFILE_DEVELOPER_VERSION
+            }
+            RawCameraProfileStatus::MatchedNotApplied => {
+                !receipt.camera_profile_catalog_identity.is_empty()
+                    && !receipt.camera_profile_identity.is_empty()
+                    && !receipt.camera_profile_name.is_empty()
+                    && camera_profile_diagnostic.is_some()
+                    && receipt.camera_profile_developer_version
+                        == RawPipelineReceipt::CURRENT_CAMERA_PROFILE_DEVELOPER_VERSION
+            }
+        };
+        if !camera_profile_fields_are_valid {
+            return Err(BridgeError::InvalidRawPipelineReceipt(
+                "RAW camera-profile provenance does not match its status",
+            ));
+        }
+    }
+
+    Ok(RawPipelineReceipt {
+        schema_version: receipt.schema_version,
+        path,
+        cache_identity: receipt.cache_identity,
+        pipeline_identity: receipt.pipeline_identity,
+        source_provider_id: receipt.source_provider_id,
+        source_provider_version: receipt.source_provider_version,
+        fallback_reason,
+        raw_frame_schema_version: receipt.raw_frame_schema_version,
+        raw_developer_version: receipt.raw_developer_version,
+        requested_plan,
+        effective_plan,
+        camera_profile_status,
+        camera_profile_catalog_identity: receipt.camera_profile_catalog_identity,
+        camera_profile_identity: receipt.camera_profile_identity,
+        camera_profile_name: receipt.camera_profile_name,
+        camera_profile_diagnostic,
+        camera_profile_developer_version: receipt.camera_profile_developer_version,
     })
 }
 
@@ -2291,6 +2661,7 @@ pub struct LibRawEditPreviewSession {
     max_edge: u32,
     sensor_clipping_mask: SensorClippingMask,
     raw_development_receipt: RawDevelopmentReceipt,
+    raw_pipeline_receipt: RawPipelineReceipt,
     optics_receipt: OpticsReceipt,
 }
 
@@ -2414,6 +2785,7 @@ pub struct LibRawEditDetailSession {
     dimensions: ImageDimensions,
     retained_bytes: u64,
     raw_development_receipt: RawDevelopmentReceipt,
+    raw_pipeline_receipt: RawPipelineReceipt,
     optics_receipt: OpticsReceipt,
 }
 
@@ -2436,6 +2808,7 @@ impl std::fmt::Debug for LibRawEditDetailSession {
             .field("dimensions", &self.dimensions)
             .field("retained_bytes", &self.retained_bytes)
             .field("raw_development_receipt", &self.raw_development_receipt)
+            .field("raw_pipeline_receipt", &self.raw_pipeline_receipt)
             .field("optics_receipt", &self.optics_receipt)
             .finish_non_exhaustive()
     }
@@ -2452,6 +2825,7 @@ impl std::fmt::Debug for LibRawEditPreviewSession {
                 &self.sensor_clipping_mask.available,
             )
             .field("raw_development_receipt", &self.raw_development_receipt)
+            .field("raw_pipeline_receipt", &self.raw_pipeline_receipt)
             .field("optics_receipt", &self.optics_receipt)
             .finish_non_exhaustive()
     }
@@ -2561,6 +2935,7 @@ impl LibRawEditPreviewSession {
             }
         };
         let raw_development_receipt = raw_development_receipt(prepared.raw_development_receipt()?)?;
+        let raw_pipeline_receipt = raw_pipeline_receipt(prepared.raw_pipeline_receipt()?)?;
         let optics_receipt = optics_receipt(prepared.optics_receipt());
 
         Ok(Self {
@@ -2569,6 +2944,7 @@ impl LibRawEditPreviewSession {
             max_edge: prepared_max_edge,
             sensor_clipping_mask,
             raw_development_receipt,
+            raw_pipeline_receipt,
             optics_receipt,
         })
     }
@@ -2597,6 +2973,12 @@ impl LibRawEditPreviewSession {
     #[must_use]
     pub const fn raw_development_receipt(&self) -> &RawDevelopmentReceipt {
         &self.raw_development_receipt
+    }
+
+    /// Returns the typed host-side route and canonical cache identity that produced this preview.
+    #[must_use]
+    pub const fn raw_pipeline_receipt(&self) -> &RawPipelineReceipt {
+        &self.raw_pipeline_receipt
     }
 
     #[must_use]
@@ -2698,8 +3080,9 @@ impl LibRawEditDetailSession {
         Self::open_with_raw_development_plan_and_optics(path, RawDevelopmentPlan::detail(), optics)
     }
 
-    /// Opens an immutable native-detail session with an explicit RAW source-development plan.
-    /// `Detail` intent is required, so a warm half-size preview can never enter the 1:1 cache.
+    /// Opens an immutable full-resolution session with an explicit RAW source-development plan.
+    /// Detail and ExportImage intents are accepted; Preview is rejected so a warm half-size
+    /// source can never enter a full-resolution pipeline.
     pub fn open_with_raw_development_plan(
         path: &Path,
         raw_development_plan: RawDevelopmentPlan,
@@ -2718,9 +3101,12 @@ impl LibRawEditDetailSession {
         optics: &OpticsSettings,
     ) -> Result<Self, BridgeError> {
         raw_development_plan.validate()?;
-        if raw_development_plan.intent != RawDevelopmentIntent::Detail {
+        if !matches!(
+            raw_development_plan.intent,
+            RawDevelopmentIntent::Detail | RawDevelopmentIntent::ExportImage
+        ) {
             return Err(BridgeError::InvalidRawDevelopmentPlan(
-                "full edit detail requires detail RAW-development intent",
+                "full-resolution edit requires detail or export-image RAW-development intent",
             ));
         }
         let mut decode_handle = open_photo(path)?;
@@ -2742,6 +3128,7 @@ impl LibRawEditDetailSession {
         let prepared_dimensions = dimensions(&prepared.dimensions());
         let retained_bytes = prepared.retained_bytes();
         let raw_development_receipt = raw_development_receipt(prepared.raw_development_receipt()?)?;
+        let raw_pipeline_receipt = raw_pipeline_receipt(prepared.raw_pipeline_receipt()?)?;
         let optics_receipt = optics_receipt(prepared.optics_receipt());
         if prepared_dimensions.width == 0 || prepared_dimensions.height == 0 {
             return Err(BridgeError::InvalidEditDetailOutput(
@@ -2758,6 +3145,7 @@ impl LibRawEditDetailSession {
             dimensions: prepared_dimensions,
             retained_bytes,
             raw_development_receipt,
+            raw_pipeline_receipt,
             optics_receipt,
         })
     }
@@ -2779,6 +3167,12 @@ impl LibRawEditDetailSession {
     #[must_use]
     pub const fn raw_development_receipt(&self) -> &RawDevelopmentReceipt {
         &self.raw_development_receipt
+    }
+
+    /// Returns the typed host-side route and canonical cache identity for this retained source.
+    #[must_use]
+    pub const fn raw_pipeline_receipt(&self) -> &RawPipelineReceipt {
+        &self.raw_pipeline_receipt
     }
 
     #[must_use]
@@ -3396,6 +3790,8 @@ fn validate_edit_preview_analysis(
 pub enum BridgeError {
     #[error("invalid RAW development plan: {0}")]
     InvalidRawDevelopmentPlan(&'static str),
+    #[error("invalid RAW pipeline receipt: {0}")]
+    InvalidRawPipelineReceipt(&'static str),
     #[error("invalid edited proxy request: {0}")]
     InvalidEditRequest(&'static str),
     #[error("invalid edit-preview analysis bridge output: {0}")]
@@ -3711,6 +4107,48 @@ mod tests {
         }
     }
 
+    fn recorded_ffi_raw_pipeline_receipt(
+        path: ffi::FfiRawPipelinePath,
+    ) -> ffi::FfiRawPipelineReceipt {
+        let is_raw_frame = matches!(path, ffi::FfiRawPipelinePath::ShadowRawFrame);
+        ffi::FfiRawPipelineReceipt {
+            schema_version: RawPipelineReceipt::CURRENT_SCHEMA_VERSION,
+            path,
+            cache_identity: "raw-pipeline-receipt-v1;fixture=canonical".to_owned(),
+            pipeline_identity: if is_raw_frame {
+                "shadow-raw-frame-developer-v1"
+            } else {
+                "shadow-provider-processed-compatibility-v1"
+            }
+            .to_owned(),
+            source_provider_id: "fixture-provider".to_owned(),
+            source_provider_version: "fixture-provider-v1".to_owned(),
+            fallback_reason: String::new(),
+            raw_frame_schema_version: u32::from(is_raw_frame),
+            raw_developer_version: u32::from(is_raw_frame),
+            requested_plan: ffi_detail_raw_development_plan(),
+            effective_plan: ffi_detail_raw_development_plan(),
+            camera_profile_status: if is_raw_frame {
+                ffi::FfiRawCameraProfileStatus::NoMatch
+            } else {
+                ffi::FfiRawCameraProfileStatus::NotConsidered
+            },
+            camera_profile_catalog_identity: if is_raw_frame {
+                "dcp-catalog-v1;fixture=empty".to_owned()
+            } else {
+                String::new()
+            },
+            camera_profile_identity: String::new(),
+            camera_profile_name: String::new(),
+            camera_profile_diagnostic: String::new(),
+            camera_profile_developer_version: if is_raw_frame {
+                RawPipelineReceipt::CURRENT_CAMERA_PROFILE_DEVELOPER_VERSION
+            } else {
+                0
+            },
+        }
+    }
+
     #[test]
     #[allow(clippy::float_cmp)] // The bridge contract preserves native scalar bits verbatim.
     fn raw_development_receipt_bridge_preserves_default_and_recorded_fields() {
@@ -3853,6 +4291,143 @@ mod tests {
             legacy.dng_opcode_execution,
             [DngOpcodeExecutionStatus::NotDeclared; 3]
         );
+    }
+
+    #[test]
+    fn raw_pipeline_receipt_bridge_is_typed_cache_stable_and_validated() {
+        let absent = raw_pipeline_receipt(ffi::FfiRawPipelineReceipt {
+            schema_version: 0,
+            path: ffi::FfiRawPipelinePath::DecodedRaster,
+            cache_identity: String::new(),
+            pipeline_identity: String::new(),
+            source_provider_id: String::new(),
+            source_provider_version: String::new(),
+            fallback_reason: String::new(),
+            raw_frame_schema_version: 0,
+            raw_developer_version: 0,
+            requested_plan: ffi_detail_raw_development_plan(),
+            effective_plan: ffi_detail_raw_development_plan(),
+            camera_profile_status: ffi::FfiRawCameraProfileStatus::NotConsidered,
+            camera_profile_catalog_identity: String::new(),
+            camera_profile_identity: String::new(),
+            camera_profile_name: String::new(),
+            camera_profile_diagnostic: String::new(),
+            camera_profile_developer_version: 0,
+        })
+        .expect("absent RAW pipeline receipt");
+        assert_eq!(absent, RawPipelineReceipt::default());
+        assert!(!absent.recorded());
+
+        let raw_frame = raw_pipeline_receipt(recorded_ffi_raw_pipeline_receipt(
+            ffi::FfiRawPipelinePath::ShadowRawFrame,
+        ))
+        .expect("recorded Shadow RawFrame route");
+        assert_eq!(raw_frame.path, RawPipelinePath::ShadowRawFrame);
+        assert_eq!(
+            raw_frame.cache_identity,
+            "raw-pipeline-receipt-v1;fixture=canonical"
+        );
+        assert_eq!(raw_frame.raw_frame_schema_version, 1);
+        assert_eq!(raw_frame.raw_developer_version, 1);
+        assert!(!raw_frame.used_fallback());
+        assert_eq!(raw_frame.requested_plan, RawDevelopmentPlan::detail());
+        assert_eq!(raw_frame.effective_plan, RawDevelopmentPlan::detail());
+        assert!(raw_frame.uses_current_schema());
+
+        let serialized = serde_json::to_vec(&raw_frame).expect("serialize RAW pipeline receipt");
+        assert_eq!(
+            serde_json::from_slice::<RawPipelineReceipt>(&serialized)
+                .expect("deserialize RAW pipeline receipt"),
+            raw_frame
+        );
+
+        let mut compatibility = recorded_ffi_raw_pipeline_receipt(
+            ffi::FfiRawPipelinePath::ProviderProcessedCompatibility,
+        );
+        compatibility.fallback_reason = "fixture RawFrame layout is unsupported".to_owned();
+        let compatibility =
+            raw_pipeline_receipt(compatibility).expect("provider compatibility route");
+        assert_eq!(
+            compatibility.path,
+            RawPipelinePath::ProviderProcessedCompatibility
+        );
+        assert_eq!(
+            compatibility.fallback_reason.as_deref(),
+            Some("fixture RawFrame layout is unsupported")
+        );
+        assert!(compatibility.used_fallback());
+
+        let mut invalid = recorded_ffi_raw_pipeline_receipt(ffi::FfiRawPipelinePath::DecodedRaster);
+        invalid.raw_frame_schema_version = 1;
+        assert!(matches!(
+            raw_pipeline_receipt(invalid),
+            Err(BridgeError::InvalidRawPipelineReceipt(_))
+        ));
+    }
+
+    #[test]
+    fn raw_pipeline_camera_profile_provenance_is_typed_and_fail_closed() {
+        let mut no_match =
+            recorded_ffi_raw_pipeline_receipt(ffi::FfiRawPipelinePath::ShadowRawFrame);
+        no_match.camera_profile_status = ffi::FfiRawCameraProfileStatus::NoMatch;
+        no_match.camera_profile_catalog_identity = "dcp-catalog-v1;fixture=empty".to_owned();
+        no_match.camera_profile_developer_version =
+            RawPipelineReceipt::CURRENT_CAMERA_PROFILE_DEVELOPER_VERSION;
+        let no_match = raw_pipeline_receipt(no_match).expect("valid no-match provenance");
+        assert_eq!(
+            no_match.camera_profile_status,
+            RawCameraProfileStatus::NoMatch
+        );
+        assert_eq!(
+            no_match.camera_profile_catalog_identity,
+            "dcp-catalog-v1;fixture=empty"
+        );
+
+        let mut applied =
+            recorded_ffi_raw_pipeline_receipt(ffi::FfiRawPipelinePath::ShadowRawFrame);
+        applied.camera_profile_status = ffi::FfiRawCameraProfileStatus::Applied;
+        applied.camera_profile_catalog_identity = "dcp-catalog-v1;fixture=one".to_owned();
+        applied.camera_profile_identity = "dcp-profile-v1;fixture=camera".to_owned();
+        applied.camera_profile_name = "Fixture Camera Standard".to_owned();
+        applied.camera_profile_developer_version =
+            RawPipelineReceipt::CURRENT_CAMERA_PROFILE_DEVELOPER_VERSION;
+        let applied = raw_pipeline_receipt(applied).expect("valid applied provenance");
+        assert_eq!(
+            applied.camera_profile_status,
+            RawCameraProfileStatus::Applied
+        );
+        assert_eq!(applied.camera_profile_name, "Fixture Camera Standard");
+        assert!(applied.camera_profile_diagnostic.is_none());
+
+        let mut not_applied =
+            recorded_ffi_raw_pipeline_receipt(ffi::FfiRawPipelinePath::ShadowRawFrame);
+        not_applied.camera_profile_status = ffi::FfiRawCameraProfileStatus::MatchedNotApplied;
+        not_applied.camera_profile_catalog_identity = "dcp-catalog-v1;fixture=one".to_owned();
+        not_applied.camera_profile_identity = "dcp-profile-v1;fixture=camera".to_owned();
+        not_applied.camera_profile_name = "Fixture Camera Standard".to_owned();
+        not_applied.camera_profile_diagnostic = "profile transform was singular".to_owned();
+        not_applied.camera_profile_developer_version =
+            RawPipelineReceipt::CURRENT_CAMERA_PROFILE_DEVELOPER_VERSION;
+        let not_applied =
+            raw_pipeline_receipt(not_applied).expect("valid matched-not-applied provenance");
+        assert_eq!(
+            not_applied.camera_profile_status,
+            RawCameraProfileStatus::MatchedNotApplied
+        );
+        assert_eq!(
+            not_applied.camera_profile_diagnostic.as_deref(),
+            Some("profile transform was singular")
+        );
+
+        let mut invalid =
+            recorded_ffi_raw_pipeline_receipt(ffi::FfiRawPipelinePath::ShadowRawFrame);
+        invalid.camera_profile_status = ffi::FfiRawCameraProfileStatus::Applied;
+        invalid.camera_profile_developer_version =
+            RawPipelineReceipt::CURRENT_CAMERA_PROFILE_DEVELOPER_VERSION;
+        assert!(matches!(
+            raw_pipeline_receipt(invalid),
+            Err(BridgeError::InvalidRawPipelineReceipt(_))
+        ));
     }
 
     #[test]
@@ -4854,15 +5429,22 @@ mod tests {
                 .expect("negotiate preview RAW-development plan");
         assert!(preview_negotiation.accepted());
         assert_eq!(preview_negotiation.effective, RawDevelopmentPlan::preview());
-        let unsupported_high_quality = negotiate_photo_raw_development_plan(
+        let high_quality = negotiate_photo_raw_development_plan(
             &path,
             RawDevelopmentPlan {
                 quality: RawDevelopmentQuality::High,
                 ..RawDevelopmentPlan::preview()
             },
         )
-        .expect("negotiate unsupported high-quality RAW-development plan");
-        assert!(!unsupported_high_quality.accepted());
+        .expect("negotiate high-quality RAW-development plan");
+        let advertises_high_quality = capabilities.supported_qualities & (1 << 2) != 0;
+        assert!(high_quality.accepted());
+        if advertises_high_quality {
+            assert_eq!(high_quality.effective.quality, RawDevelopmentQuality::High);
+        } else {
+            assert!(!high_quality.exact());
+            assert_ne!(high_quality.effective.quality, RawDevelopmentQuality::High);
+        }
 
         let _profiles = query_photo_optics_profiles(&path)
             .expect("query local DNG optical profiles through router");
@@ -4879,8 +5461,14 @@ mod tests {
         let preview = PhotoEditPreviewSession::open(&path, 1_024)
             .expect("prepare generic local DNG preview session");
         assert!(preview.raw_development_receipt().recorded());
+        assert!(preview.raw_pipeline_receipt().recorded());
+        assert!(!preview.raw_pipeline_receipt().cache_identity.is_empty());
         assert_eq!(
             preview.raw_development_receipt().requested_plan,
+            RawDevelopmentPlan::preview()
+        );
+        assert_eq!(
+            preview.raw_pipeline_receipt().requested_plan,
             RawDevelopmentPlan::preview()
         );
         assert_eq!(
@@ -4891,8 +5479,14 @@ mod tests {
         let detail =
             PhotoEditDetailSession::open(&path).expect("prepare generic local DNG detail session");
         assert!(detail.raw_development_receipt().recorded());
+        assert!(detail.raw_pipeline_receipt().recorded());
+        assert!(!detail.raw_pipeline_receipt().cache_identity.is_empty());
         assert_eq!(
             detail.raw_development_receipt().requested_plan,
+            RawDevelopmentPlan::detail()
+        );
+        assert_eq!(
+            detail.raw_pipeline_receipt().requested_plan,
             RawDevelopmentPlan::detail()
         );
     }
@@ -4931,6 +5525,11 @@ mod tests {
         let preview = PhotoEditPreviewSession::open(&path, 1_024)
             .expect("prepare generic local JPEG preview session");
         assert!(!preview.raw_development_receipt().recorded());
+        assert_eq!(
+            preview.raw_pipeline_receipt().path,
+            RawPipelinePath::DecodedRaster
+        );
+        assert!(preview.raw_pipeline_receipt().recorded());
         let edited = preview
             .render(BasicEditParameters::default(), 82)
             .expect("render neutral generic JPEG preview session");
@@ -4938,6 +5537,10 @@ mod tests {
         let detail =
             PhotoEditDetailSession::open(&path).expect("prepare generic local JPEG detail session");
         assert!(!detail.raw_development_receipt().recorded());
+        assert_eq!(
+            detail.raw_pipeline_receipt().path,
+            RawPipelinePath::DecodedRaster
+        );
     }
 
     #[test]
@@ -4979,6 +5582,10 @@ mod tests {
         let preview = PhotoEditPreviewSession::open(&path, 1_024)
             .expect("prepare generic local HEIF preview session");
         assert!(!preview.raw_development_receipt().recorded());
+        assert_eq!(
+            preview.raw_pipeline_receipt().path,
+            RawPipelinePath::DecodedRaster
+        );
         let edited = preview
             .render(BasicEditParameters::default(), 82)
             .expect("render neutral generic HEIF preview session");
@@ -4986,10 +5593,15 @@ mod tests {
         let detail =
             PhotoEditDetailSession::open(&path).expect("prepare generic local HEIF detail session");
         assert!(!detail.raw_development_receipt().recorded());
+        assert_eq!(
+            detail.raw_pipeline_receipt().path,
+            RawPipelinePath::DecodedRaster
+        );
     }
 
     #[test]
     #[ignore = "requires SHADOW_TEST_DNG to point at a local RAW fixture"]
+    #[allow(clippy::too_many_lines)] // One ignored end-to-end bridge scenario spans all handles.
     fn real_dng_raw_development_receipts_cross_all_prepared_handles() {
         let path = PathBuf::from(std::env::var_os("SHADOW_TEST_DNG").expect("SHADOW_TEST_DNG"));
         let handle = open_libraw(&path).expect("open local DNG");
@@ -5002,6 +5614,13 @@ mod tests {
         )
         .expect("bridge empty RAW development receipt");
         assert_eq!(before_preparation, RawDevelopmentReceipt::default());
+        let pipeline_before_preparation = raw_pipeline_receipt(
+            decoder
+                .raw_pipeline_receipt()
+                .expect("read empty RAW pipeline receipt"),
+        )
+        .expect("bridge empty RAW pipeline receipt");
+        assert_eq!(pipeline_before_preparation, RawPipelineReceipt::default());
 
         let preview_handle = decoder
             .prepare_edit_preview(1_024)
@@ -5016,6 +5635,26 @@ mod tests {
         assert!(preview_receipt.recorded());
         assert!(preview_receipt.uses_current_schema());
         assert_eq!(preview_receipt.provider_id, "libraw");
+        let preview_pipeline_receipt = raw_pipeline_receipt(
+            preview
+                .raw_pipeline_receipt()
+                .expect("read preview RAW pipeline receipt"),
+        )
+        .expect("bridge preview RAW pipeline receipt");
+        assert!(preview_pipeline_receipt.recorded());
+        assert_eq!(
+            preview_pipeline_receipt.requested_plan,
+            RawDevelopmentPlan::preview()
+        );
+        assert_eq!(
+            raw_pipeline_receipt(
+                decoder
+                    .raw_pipeline_receipt()
+                    .expect("read decoder preview RAW pipeline receipt"),
+            )
+            .expect("bridge decoder preview RAW pipeline receipt"),
+            preview_pipeline_receipt
+        );
         assert_eq!(
             raw_development_receipt(
                 decoder
@@ -5041,6 +5680,26 @@ mod tests {
         assert!(detail_receipt.uses_current_schema());
         assert_eq!(detail_receipt.provider_id, "libraw");
         assert!(!detail_receipt.half_size);
+        let detail_pipeline_receipt = raw_pipeline_receipt(
+            detail
+                .raw_pipeline_receipt()
+                .expect("read detail RAW pipeline receipt"),
+        )
+        .expect("bridge detail RAW pipeline receipt");
+        assert!(detail_pipeline_receipt.recorded());
+        assert_eq!(
+            detail_pipeline_receipt.requested_plan,
+            RawDevelopmentPlan::detail()
+        );
+        assert_eq!(
+            raw_pipeline_receipt(
+                decoder
+                    .raw_pipeline_receipt()
+                    .expect("read decoder detail RAW pipeline receipt"),
+            )
+            .expect("bridge decoder detail RAW pipeline receipt"),
+            detail_pipeline_receipt
+        );
         assert_eq!(
             raw_development_receipt(
                 decoder
@@ -5059,6 +5718,22 @@ mod tests {
         let path = std::env::var_os("SHADOW_TEST_DNG").expect("SHADOW_TEST_DNG");
         let candidates =
             query_libraw_optics_profiles(Path::new(&path)).expect("query Lensfun candidates");
+        assert!(!candidates.is_empty());
+        assert!(candidates.iter().all(|candidate| {
+            !candidate.camera_model.is_empty() && !candidate.lens_model.is_empty()
+        }));
+    }
+
+    #[test]
+    #[ignore = "requires SHADOW_TEST_METADATA_RAW to identify a camera present in Lensfun"]
+    fn raw_metadata_snapshot_enumerates_lensfun_profiles_without_pixel_decode() {
+        let path = std::env::var_os("SHADOW_TEST_METADATA_RAW").expect("SHADOW_TEST_METADATA_RAW");
+        let snapshot = inspect_photo(Path::new(&path)).expect("inspect metadata-only RAW");
+        assert_eq!(snapshot.capabilities.metadata, DecodeSupport::Available);
+
+        // Candidate enumeration receives only the detached snapshot. The source path and decode
+        // handle cannot cross this boundary, regardless of the provider's pixel capabilities.
+        let candidates = query_optics_profiles_from_metadata(&snapshot.metadata);
         assert!(!candidates.is_empty());
         assert!(candidates.iter().all(|candidate| {
             !candidate.camera_model.is_empty() && !candidate.lens_model.is_empty()

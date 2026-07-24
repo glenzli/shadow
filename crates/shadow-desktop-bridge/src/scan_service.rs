@@ -12,8 +12,9 @@ use std::{
 use anyhow::{Context, Result as AnyResult, anyhow, bail};
 use shadow_catalog::CatalogHandle;
 use shadow_core::{
-    DecodeInspectionActor, DecodeInspectionSummary, ScanCancellation, ScanCompletion, ScanPhase,
-    ScanProgress, scan_folder_with_inspection_controlled,
+    DecodeInspectionPool, DecodeInspectionSummary, ScanCancellation, ScanCompletion, ScanPhase,
+    ScanProgress, recommended_decode_inspection_worker_count,
+    scan_folder_with_inspection_controlled,
 };
 
 use crate::{ffi, photo_provider::PhotoInspector};
@@ -122,17 +123,11 @@ impl ScanService {
         let cancellation = self.start_cancellation(scan_id)?;
         let folder_path = Path::new(folder_path);
         let mut catalog = self.catalog.clone();
-        let photo_inspector =
-            match PhotoInspector::new_with_isolated_proxy_cache(Some(self.cache_root.clone())) {
-                Ok(inspector) => inspector,
-                Err(error) => {
-                    self.finish_failed(scan_id)?;
-                    return Err(error);
-                }
-            };
-        let inspector = match DecodeInspectionActor::spawn_with_cache(
+        let worker_count = recommended_decode_inspection_worker_count();
+        let inspector = match DecodeInspectionPool::spawn_with_cache(
             catalog.clone(),
-            photo_inspector,
+            worker_count,
+            |_| PhotoInspector::new_with_isolated_proxy_cache(Some(self.cache_root.clone())),
             &self.cache_root,
         ) {
             Ok(inspector) => inspector,

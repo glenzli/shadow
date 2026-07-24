@@ -143,18 +143,19 @@ constexpr std::uint64_t fnv1a_prime = 1'099'511'628'211ULL;
         .Green = {0.3000, 0.6000, 1.0},
         .Blue = {0.1500, 0.0600, 1.0},
     };
-    // The curve stored in an RGB ICC profile maps linear light to encoded device values. A
-    // 4,096-entry table keeps the Rec.709 toe continuous enough that a subsequent LCMS inverse
-    // transform is stable well below one 16-bit Shadow working sample.
+    // An ICC RGB TRC maps encoded device values *to* linear PCS values. LittleCMS applies its
+    // inverse when this profile is the transform destination, yielding the Rec.709 encoder.
+    // Storing the forward OETF here would therefore apply the transfer backwards. A 4,096-entry
+    // EOTF table keeps the toe continuous enough for a stable inverse below one 16-bit sample.
     constexpr std::size_t entries = 4'096U;
     std::array<cmsUInt16Number, entries> table{};
     for (std::size_t index = 0U; index < entries; ++index) {
-        const double linear = static_cast<double>(index) / static_cast<double>(entries - 1U);
-        const double encoded = linear < 0.018
-            ? 4.5 * linear
-            : 1.099 * std::pow(linear, 0.45) - 0.099;
+        const double encoded = static_cast<double>(index) / static_cast<double>(entries - 1U);
+        const double linear = encoded < 0.081
+            ? encoded / 4.5
+            : std::pow((encoded + 0.099) / 1.099, 1.0 / 0.45);
         table[index] = static_cast<cmsUInt16Number>(std::clamp(
-            std::llround(std::clamp(encoded, 0.0, 1.0) * 65'535.0),
+            std::llround(std::clamp(linear, 0.0, 1.0) * 65'535.0),
             0LL,
             65'535LL
         ));

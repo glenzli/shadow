@@ -318,6 +318,7 @@ impl ReviewService {
             decision_head_sequence: record.decision.head_sequence,
             decision_flag: ffi_decision_flag(record.decision.flag),
             decision_rating: record.decision.rating,
+            has_development_edits: record.has_development_edits,
             title: file_name(&record.location.display_path),
             source_path: record.location.display_path,
             visual_role,

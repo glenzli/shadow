@@ -37,16 +37,22 @@ Item {
             spacing: 8
 
             Label {
+                id: titleLabel
+
                 Layout.fillWidth: true
+                Layout.minimumWidth: 0
                 text: root.title
                 color: root.sectionEnabled ? Theme.textPrimary : Theme.textDisabled
                 font.pixelSize: 11
                 font.weight: Font.DemiBold
                 font.letterSpacing: 0.45
+                elide: Text.ElideRight
             }
 
             Label {
                 visible: root.summary.length > 0 && !root.expanded
+                Layout.maximumWidth: Math.round(header.width * 0.38)
+                Layout.minimumWidth: 0
                 text: root.summary
                 color: Theme.textMuted
                 font.pixelSize: 9
@@ -79,10 +85,11 @@ Item {
             id: toolTip
 
             parent: header
-            visible: headerMouse.containsMouse && root.toolTipText.length > 0
+            visible: headerMouse.containsMouse
+                && (root.toolTipText.length > 0 || titleLabel.truncated)
             delay: 500
             timeout: 5000
-            text: root.toolTipText
+            text: root.toolTipText.length > 0 ? root.toolTipText : root.title
             x: Math.max(8, Math.round((header.width - width) / 2))
             y: header.height + 6
 

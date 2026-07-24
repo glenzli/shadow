@@ -5,7 +5,14 @@ find_package(
 find_package(PkgConfig REQUIRED)
 find_package(JPEG REQUIRED)
 find_package(Iconv REQUIRED)
-pkg_check_modules(LibRaw REQUIRED IMPORTED_TARGET libraw)
+# Keep the final executable on the same reentrant LibRaw selected by the C++ kernel and Rust bridge.
+pkg_check_modules(LibRaw REQUIRED IMPORTED_TARGET "libraw_r>=0.22.0")
+if(NOT "raw_r" IN_LIST LibRaw_LIBRARIES OR "raw" IN_LIST LibRaw_LIBRARIES)
+    message(FATAL_ERROR
+        "Shadow requires pkg-config libraw_r to resolve to the reentrant -lraw_r library; "
+        "resolved libraries: ${LibRaw_LIBRARIES}"
+    )
+endif()
 pkg_check_modules(Lensfun QUIET IMPORTED_TARGET lensfun)
 pkg_check_modules(LittleCms REQUIRED IMPORTED_TARGET lcms2)
 pkg_check_modules(LibHeif QUIET IMPORTED_TARGET libheif>=1.19.7)
@@ -100,6 +107,8 @@ qt_add_executable(
     src/edit_version_model.hpp
     src/edit_version_presentation.cpp
     src/edit_version_presentation.hpp
+    src/export_controller.cpp
+    src/export_controller.hpp
     src/justified_review_layout_model.cpp
     src/justified_review_layout_model.hpp
     src/main.cpp
@@ -144,7 +153,9 @@ qt_add_resources(
         icons/compare-wipe-vertical.svg
         icons/duplicate.svg
         icons/edit.svg
+        icons/edit-off.svg
         icons/eyedropper.svg
+        icons/export.svg
         icons/fit-view.svg
         icons/filter.svg
         icons/history.svg
@@ -158,6 +169,7 @@ qt_add_resources(
         icons/reject.svg
         icons/review-grid.svg
         icons/settings.svg
+        icons/shared-link.svg
         icons/slot-left.svg
         icons/slot-right.svg
         icons/star.svg
@@ -197,6 +209,7 @@ qt_add_qml_module(
     VERSION 1.0
     QML_FILES
         qml/EditHistogram.qml
+        qml/ExportDialog.qml
         qml/LibraryWorkspace.qml
         qml/LutManagerWindow.qml
         qml/Main.qml

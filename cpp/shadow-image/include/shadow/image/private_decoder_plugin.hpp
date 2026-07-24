@@ -18,9 +18,17 @@ namespace shadow::image {
 // and replacing the old artifact in place.
 inline constexpr std::uint32_t private_decoder_plugin_abi_version = 1U;
 
+// The ABI number intentionally remains v1 throughout pre-release development. This seal is the
+// exact build-interface handshake for that one moving ABI: change it whenever DecoderProvider,
+// DecodeSession, RawFrame, or another C++ type crossing the module boundary changes layout or
+// virtual-method order. It is an accidental-stale-binary guard, not a security primitive and not
+// a compatibility version. A module with any older seal is simply rebuilt and replaced.
+inline constexpr std::uint64_t private_decoder_plugin_interface_contract_token =
+    0x8e5f4b2ad30c71a9ULL;
+
 // This C-compatible descriptor is the discovery contract. The provider factory below deliberately
 // crosses a versioned *local C++* ABI, not a stable public C ABI; a private module must be built
-// with the matching Shadow headers/toolchain whenever this ABI version changes. The descriptor's
+// with the matching Shadow headers/toolchain whenever this interface changes. The descriptor's
 // returned strings remain owned by the plugin and must be static for its lifetime.
 struct PrivateDecoderPluginDescriptor final {
     std::uint32_t abi_version = 0U;
@@ -35,13 +43,19 @@ struct PrivateDecoderPluginDescriptor final {
 };
 
 extern "C" {
+using PrivateDecoderPluginInterfaceContractFn = std::uint64_t (*)();
 using PrivateDecoderPluginDescriptorFn = const PrivateDecoderPluginDescriptor* (*)();
 using CreatePrivateDecoderProviderFn = DecoderProvider* (*)();
 using DestroyPrivateDecoderProviderFn = void (*)(DecoderProvider*);
 }
 
-// A private plugin exports these three exact symbols. `create` and `destroy` are paired so the
-// private module remains responsible for any allocator/runtime used by its SDK wrapper.
+// A private plugin exports these four exact symbols. The scalar interface-contract function is
+// deliberately resolved and checked before the host calls the descriptor or provider factory, so
+// an older module cannot be mistaken for current merely because both still say ABI v1. `create`
+// and `destroy` are paired so the private module remains responsible for any allocator/runtime
+// used by its SDK wrapper.
+inline constexpr const char* private_decoder_plugin_interface_contract_symbol =
+    "shadow_private_decoder_plugin_interface_contract_v1";
 inline constexpr const char* private_decoder_plugin_descriptor_symbol =
     "shadow_private_decoder_plugin_descriptor_v1";
 inline constexpr const char* private_decoder_plugin_create_symbol =
@@ -52,6 +66,7 @@ inline constexpr const char* private_decoder_plugin_destroy_symbol =
 // Validates the stable part of the ABI before module construction. The dynamic loader calls this
 // too; exposing it makes a private repository able to test its artifact without copying host
 // validation logic.
+void validate_private_decoder_plugin_interface_contract(std::uint64_t token);
 void validate_private_decoder_plugin_descriptor(const PrivateDecoderPluginDescriptor& descriptor);
 
 // Loads one explicitly selected private module. It is intentionally not a directory scanner,

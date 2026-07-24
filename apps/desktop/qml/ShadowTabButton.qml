@@ -113,10 +113,11 @@ TabButton {
 
         parent: control
         visible: control.enabled && control.hovered
-            && control.toolTipText.length > 0
+            && (control.toolTipText.length > 0 || tabLabel.truncated)
         delay: 450
         timeout: 4000
-        text: control.toolTipText
+        text: control.toolTipText.length > 0
+            ? control.toolTipText : control.text
         x: Math.round((control.width - width) / 2)
         y: control.height + 6
 

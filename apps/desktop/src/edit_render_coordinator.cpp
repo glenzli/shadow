@@ -18,12 +18,12 @@ namespace {
 // levels. Keeping the complete render state machine in this translation unit
 // makes preview/detail scheduling independently maintainable from Qt controls
 // and catalog persistence.
-constexpr std::uint32_t EDIT_PREVIEW_EDGE = 1'536;
+constexpr std::uint32_t EDIT_PREVIEW_EDGE = 2'048;
 constexpr std::uint8_t EDIT_PREVIEW_QUALITY = 90;
-constexpr std::uint32_t EDIT_INTERACTIVE_PREVIEW_EDGE = EDIT_PREVIEW_EDGE;
+constexpr std::uint32_t EDIT_INTERACTIVE_PREVIEW_EDGE = 1'536;
 constexpr std::uint8_t EDIT_INTERACTIVE_PREVIEW_QUALITY = 84;
 constexpr int EDIT_DETAIL_DEBOUNCE_MS = 70;
-constexpr int EDIT_DETAIL_WARMUP_IDLE_MS = 650;
+constexpr int EDIT_DETAIL_WARMUP_IDLE_MS = 180;
 constexpr qsizetype EDIT_HISTOGRAM_BIN_COUNT = 256;
 
 [[nodiscard]] bool raw_development_unavailable(const QString& error) noexcept {
@@ -192,8 +192,11 @@ void EditController::leaveDetailMode() {
         emit detailModeChanged();
     }
     if (!detail_error_message_.isEmpty()) {
-    detail_error_message_.clear();
+        detail_error_message_.clear();
         emit detailErrorTextChanged();
+    }
+    if (full_resolution_preparing_) {
+        setFullResolutionState(false, false, 0);
     }
 }
 
@@ -229,7 +232,7 @@ void EditController::finishPreviewTask() {
                 if (raw_development_unavailable(result.error)) {
                     setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
                         "EditController",
-                        "This RAW can be browsed from its embedded preview, but the active local decoder cannot develop it for Precision. Use a compatible local RAW provider or convert it to DNG."
+                        "This RAW can be browsed from its embedded preview, but the active local decoder cannot parse it for Precision. Use a compatible local RAW provider or convert it to DNG."
                     )));
                 } else {
                     setStatusMessage(edit_message(
@@ -352,10 +355,14 @@ void EditController::finishDetailTask() {
     );
     if (accepted) {
         if (!result.error.isEmpty()) {
-      detail_error_message_ = edit_message(
-          QT_TRANSLATE_NOOP("EditController", "Full detail failed · %1"),
-          {result.error});
+            detail_error_message_ = edit_message(
+                QT_TRANSLATE_NOOP("EditController", "Full detail failed · %1"),
+                {result.error}
+            );
             emit detailErrorTextChanged();
+            if (full_resolution_preparing_) {
+                setFullResolutionState(false, false, 0);
+            }
         } else {
             const auto* tile = result.viewport.tiles.size() == 1
                 ? &result.viewport.tiles.front()
@@ -407,10 +414,14 @@ void EditController::finishDetailTask() {
                 presentation.push_back(item);
             }
             if (!valid) {
-        detail_error_message_ = edit_message(QT_TRANSLATE_NOOP(
-            "EditController",
-            "Full detail returned an invalid RGB8 tile layout"));
+                detail_error_message_ = edit_message(QT_TRANSLATE_NOOP(
+                    "EditController",
+                    "Full detail returned an invalid RGB8 tile layout"
+                ));
                 emit detailErrorTextChanged();
+                if (full_resolution_preparing_) {
+                    setFullResolutionState(false, false, 0);
+                }
             } else {
                 const bool geometry_changed = detail_full_width_
                         != result.viewport.full_width
@@ -427,15 +438,21 @@ void EditController::finishDetailTask() {
                 if (geometry_changed) {
                     emit detailGeometryChanged();
                 }
+                setFullResolutionState(
+                    false,
+                    true,
+                    result.viewport.retained_bytes
+                );
                 emit detailTilesChanged();
                 const double retained_mib = static_cast<double>(detail_retained_bytes_)
                     / (1'024.0 * 1'024.0);
-        setStatusMessage(edit_message(
-            QT_TRANSLATE_NOOP(
-                "EditController",
-                "Full-resolution detail ready · %1 MiB local source"),
-            {LocalizedUiArgument::formattedNumber(retained_mib, 'f', 0)})
-                );
+                setStatusMessage(edit_message(
+                    QT_TRANSLATE_NOOP(
+                        "EditController",
+                        "Full-resolution detail ready · %1 MiB local source"
+                    ),
+                    {LocalizedUiArgument::formattedNumber(retained_mib, 'f', 0)}
+                ));
             }
         }
     }
@@ -495,8 +512,13 @@ void EditController::startDetailRender() {
     }
     detail_queued_ = false;
     setDetailRunning(true);
-  setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
-      "EditController", "Preparing exact full-resolution detail…")));
+    if (!full_resolution_ready_) {
+        setFullResolutionState(true, false, 0);
+    }
+    setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+        "EditController",
+        "Preparing exact full-resolution detail…"
+    )));
     detail_watcher_.setFuture(QtConcurrent::run(
         EditTaskRunner::renderDetail,
         backend_,
@@ -537,6 +559,9 @@ void EditController::startDetailWarmup() {
     // Any later pan, zoom, Recipe edit, or photo switch increments it and
     // causes this idle request to be discarded between tiles.
     detail_warmup_token_ = backend_->beginEditDetailRequest();
+    if (!full_resolution_ready_) {
+        setFullResolutionState(true, false, 0);
+    }
     detail_warmup_watcher_.setFuture(QtConcurrent::run(
         EditTaskRunner::warmDetailSource,
         backend_,
@@ -552,14 +577,29 @@ void EditController::startDetailWarmup() {
 
 void EditController::finishDetailWarmupTask() {
     const EditDetailWarmupTaskResult result = detail_warmup_watcher_.result();
-    if (result.photo_generation != photo_generation_
-        || result.render_revision != render_revision_
-        || result.error.startsWith(QStringLiteral("full detail render was superseded"))) {
+    const bool stale = result.photo_generation != photo_generation_
+        || result.render_revision != render_revision_;
+    const bool superseded = result.error.startsWith(
+        QStringLiteral("full detail render was superseded")
+    );
+    if (stale || superseded) {
+        if (full_resolution_preparing_) {
+            setFullResolutionState(false, false, 0);
+        }
+        if (active_ && !detail_mode_
+            && settled_render_revision_ == render_revision_) {
+            scheduleDetailWarmup();
+        }
         return;
     }
-    // Deliberately no status transition. A successful warmup is an invisible
-    // cache hit for the next 100% request; a provider failure remains visible
-    // only if the user explicitly asks to enter full-detail mode.
+    if (result.error.isEmpty()) {
+        setFullResolutionState(false, true, result.retained_bytes);
+    } else if (full_resolution_preparing_) {
+        // A provider error remains visible only if the user explicitly asks
+        // for full detail. The status bar should nevertheless stop reporting
+        // active background development.
+        setFullResolutionState(false, false, 0);
+    }
 }
 
 void EditController::maybeStartBeforePreview() {
@@ -634,7 +674,7 @@ void EditController::resetDetailState() {
         emit detailModeChanged();
     }
     if (!detail_error_message_.isEmpty()) {
-    detail_error_message_.clear();
+        detail_error_message_.clear();
         emit detailErrorTextChanged();
     }
     const bool had_geometry = detail_full_width_ != 0 || detail_full_height_ != 0
@@ -645,8 +685,24 @@ void EditController::resetDetailState() {
     if (had_geometry) {
         emit detailGeometryChanged();
     }
+    setFullResolutionState(false, false, 0);
 }
 
+void EditController::setFullResolutionState(
+    const bool preparing,
+    const bool ready,
+    const quint64 retained_bytes
+) {
+    if (full_resolution_preparing_ == preparing
+        && full_resolution_ready_ == ready
+        && full_resolution_retained_bytes_ == retained_bytes) {
+        return;
+    }
+    full_resolution_preparing_ = preparing;
+    full_resolution_ready_ = ready;
+    full_resolution_retained_bytes_ = retained_bytes;
+    emit fullResolutionStateChanged();
+}
 
 void EditController::schedulePreview(const int delay_ms) {
     if (!active_) {
@@ -659,6 +715,9 @@ void EditController::schedulePreview(const int delay_ms) {
     if (detail_warmup_debounce_.isActive() || detail_warmup_watcher_.isRunning()) {
         detail_warmup_debounce_.stop();
         detail_warmup_token_ = backend_->beginEditDetailRequest();
+        if (full_resolution_preparing_) {
+            setFullResolutionState(false, false, 0);
+        }
     }
     ++render_revision_;
     markHistogramUpdating(EditPreviewKind::Current);
@@ -676,7 +735,6 @@ void EditController::schedulePreview(const int delay_ms) {
         preview_debounce_.start(delay_ms);
     }
 }
-
 
 void EditController::setPreviewRunning(
     const EditPreviewKind kind,

@@ -164,10 +164,17 @@ impl GradeNodeRecipeV1Identity {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct GradeNodeDraft {
     pub(crate) recipe_v1_identity: GradeNodeRecipeV1Identity,
+    pub(crate) shared: Option<SharedGradeNodeReference>,
     pub(crate) label: String,
     pub(crate) basic: BasicEditParameters,
     pub(crate) fine: FineEditParameters,
     pub(crate) enabled: bool,
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub(crate) struct SharedGradeNodeReference {
+    pub(crate) layer_id: LayerId,
+    pub(crate) revision_id: LayerRevisionId,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -202,6 +209,7 @@ impl GradeNodeDraft {
     pub(crate) fn neutral(label: impl Into<String>) -> Self {
         Self {
             recipe_v1_identity: GradeNodeRecipeV1Identity::new(),
+            shared: None,
             label: label.into(),
             basic: BasicEditParameters::default(),
             fine: FineEditParameters::default(),
@@ -213,6 +221,9 @@ impl GradeNodeDraft {
     pub(crate) fn duplicate(&self) -> Self {
         Self {
             recipe_v1_identity: GradeNodeRecipeV1Identity::new(),
+            // Duplicating is an explicit independent copy. The new node keeps
+            // the rendered controls but must never inherit the source link.
+            shared: None,
             label: self.label.clone(),
             basic: self.basic,
             fine: self.fine.clone(),
@@ -362,6 +373,33 @@ pub(crate) fn decode_grade_node_draft_recipe_v1(
         })
     };
     let grade_node_id = parse_grade_node_id(&grade_node.grade_node_id)?;
+    let shared = match (
+        grade_node.shared_layer_id.is_empty(),
+        grade_node.shared_revision_id.is_empty(),
+    ) {
+        (true, true) => None,
+        (false, false) => Some(SharedGradeNodeReference {
+            layer_id: grade_node
+                .shared_layer_id
+                .parse::<LayerId>()
+                .with_context(|| {
+                    format!(
+                        "parse Grade Node {index} shared layer id {:?}",
+                        grade_node.shared_layer_id
+                    )
+                })?,
+            revision_id: grade_node
+                .shared_revision_id
+                .parse::<LayerRevisionId>()
+                .with_context(|| {
+                    format!(
+                        "parse Grade Node {index} shared revision id {:?}",
+                        grade_node.shared_revision_id
+                    )
+                })?,
+        }),
+        _ => bail!("Grade Node {index} has an incomplete shared-node reference"),
+    };
     Ok(GradeNodeDraft {
         recipe_v1_identity: GradeNodeRecipeV1Identity {
             grade_node_id,
@@ -397,6 +435,7 @@ pub(crate) fn decode_grade_node_draft_recipe_v1(
             color_grading_render_op_id: recipe_v3_color_grading_render_op_id(grade_node_id),
             finishing_effects_render_op_id: recipe_v3_finishing_effects_render_op_id(grade_node_id),
         },
+        shared,
         label: grade_node.label.clone(),
         basic: basic_parameters(&grade_node.basic)?,
         fine: fine_parameters(&grade_node.fine)?,
@@ -914,8 +953,14 @@ pub(crate) fn encode_grade_stack_draft_recipe_v1(
 
 pub(crate) fn encode_grade_node_draft_recipe_v1(grade_node: GradeNodeDraft) -> ffi::FfiGradeNode {
     let identity = grade_node.recipe_v1_identity;
+    let (shared_layer_id, shared_revision_id) = grade_node.shared.map_or_else(
+        || (String::new(), String::new()),
+        |shared| (shared.layer_id.to_string(), shared.revision_id.to_string()),
+    );
     ffi::FfiGradeNode {
         grade_node_id: identity.grade_node_id.to_string(),
+        shared_layer_id,
+        shared_revision_id,
         label: grade_node.label,
         enabled: grade_node.enabled,
         exposure_render_op_id: identity.exposure_render_op_id.to_string(),
@@ -975,7 +1020,7 @@ pub(crate) fn compile_recipe_render_plan(
     Ok(plan)
 }
 
-pub(crate) fn ordered_inline_layer_nodes(layer: &LayerInstance) -> AnyResult<Vec<&AdjustmentNode>> {
+pub(crate) fn ordered_layer_nodes(layer: &LayerInstance) -> AnyResult<Vec<&AdjustmentNode>> {
     if layer.scope() != AdjustmentScope::Photo
         || layer.opacity() != UnitInterval::ONE
         || layer.blend_mode() != BlendMode::Normal
@@ -983,9 +1028,7 @@ pub(crate) fn ordered_inline_layer_nodes(layer: &LayerInstance) -> AnyResult<Vec
     {
         bail!("Recipe render compiler does not support this layer scope, blend, opacity, or mask");
     }
-    let LayerContent::Inline { graph } = layer.content() else {
-        bail!("Recipe render compiler requires a resolved inline graph");
-    };
+    let graph = layer.content().graph();
     let rgb = PortType::Image(ImageDomain::WorkingRgb);
     if graph.schema_version() != BASIC_GRAPH_SCHEMA_VERSION
         || graph.input_types() != [rgb]
@@ -1579,11 +1622,19 @@ pub(crate) fn encode_grade_node_as_recipe_v1_layer(
         nodes,
         finishing_effects_id,
     )?;
+    let content = match grade_node.shared {
+        None => LayerContent::Inline { graph },
+        Some(shared) => LayerContent::Shared {
+            layer_id: shared.layer_id,
+            revision: LayerRevisionSelector::Pinned(shared.revision_id),
+            graph,
+        },
+    };
     LayerInstance::new(
         identity.grade_node_id,
         grade_node.label.clone(),
         AdjustmentScope::Photo,
-        LayerContent::Inline { graph },
+        content,
         grade_node.enabled,
         UnitInterval::ONE,
         BlendMode::Normal,
@@ -2185,7 +2236,7 @@ pub(crate) fn single_grade_node_recipe_v1_render_ops(
 pub(crate) fn grade_node_recipe_v1_render_ops(
     layer: &LayerInstance,
 ) -> AnyResult<GradeNodeRecipeV1RenderOps<'_>> {
-    let ordered = ordered_inline_layer_nodes(layer)?;
+    let ordered = ordered_layer_nodes(layer)?;
     if !(10..=11).contains(&ordered.len()) {
         bail!("working Recipe is not the current complete Grade Node shape");
     }
@@ -2609,10 +2660,59 @@ pub(crate) fn decode_grade_node_draft_from_recipe_v1_layer(
             sharpen_render_op_id: nodes.technical_detail.id(),
             finishing_effects_render_op_id: nodes.finishing_effects.id(),
         },
+        shared: match layer.content() {
+            LayerContent::Inline { .. } => None,
+            LayerContent::Shared {
+                layer_id,
+                revision: LayerRevisionSelector::Pinned(revision_id),
+                ..
+            } => Some(SharedGradeNodeReference {
+                layer_id: *layer_id,
+                revision_id: *revision_id,
+            }),
+            LayerContent::Shared {
+                revision: LayerRevisionSelector::FollowHead,
+                ..
+            } => bail!("working shared Grade Node must resolve to a pinned revision"),
+        },
         label: layer.label().to_owned(),
         basic,
         fine,
         enabled: layer.enabled(),
+    })
+}
+
+pub(crate) fn grade_node_draft_from_shared_revision(
+    revision: &LayerRevision,
+) -> AnyResult<GradeNodeDraft> {
+    let layer = LayerInstance::new(
+        LayerInstanceId::from_uuid(revision.layer_id().as_uuid()),
+        revision.label(),
+        AdjustmentScope::Photo,
+        LayerContent::Shared {
+            layer_id: revision.layer_id(),
+            revision: LayerRevisionSelector::Pinned(revision.id()),
+            graph: revision.graph().clone(),
+        },
+        true,
+        UnitInterval::ONE,
+        BlendMode::Normal,
+        None,
+    )?;
+    decode_grade_node_draft_from_recipe_v1_layer(&layer)
+}
+
+pub(crate) fn ffi_shared_grade_node(
+    revision: &LayerRevision,
+) -> AnyResult<ffi::FfiSharedGradeNode> {
+    Ok(ffi::FfiSharedGradeNode {
+        layer_id: revision.layer_id().to_string(),
+        revision_id: revision.id().to_string(),
+        revision_number: revision.revision_number(),
+        label: revision.label().to_owned(),
+        grade_node: encode_grade_node_draft_recipe_v1(grade_node_draft_from_shared_revision(
+            revision,
+        )?),
     })
 }
 

@@ -12,9 +12,9 @@ pub use cached_artifact_loader::{
 };
 pub use decode_inspection::{
     DecodeInspectionActor, DecodeInspectionDiscardReason, DecodeInspectionError,
-    DecodeInspectionHandle, DecodeInspectionOutcome, DecodeInspectionRequest,
+    DecodeInspectionHandle, DecodeInspectionOutcome, DecodeInspectionPool, DecodeInspectionRequest,
     DecodeInspectionSummary, DecodeInspectionTerminal, DecodeInspectionTicket, DecodeInspector,
-    PreviewCacheOutcome, fingerprint_source,
+    PreviewCacheOutcome, fingerprint_source, recommended_decode_inspection_worker_count,
 };
 pub use import::{
     ProfiledScanReport, ScanCancellation, ScanCompletion, ScanIssue, ScanPhase, ScanProgress,

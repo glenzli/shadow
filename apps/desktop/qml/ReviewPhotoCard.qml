@@ -18,6 +18,7 @@ Item {
     readonly property string decisionFlag: String(entry.decisionFlag || "unflagged")
     readonly property int decisionRating: Number(entry.decisionRating || 0)
     readonly property string colorLabel: String(entry.colorLabel || "none")
+    readonly property bool hasDevelopmentEdits: Boolean(entry.hasDevelopmentEdits)
     readonly property string title: String(entry.title || "")
     readonly property string sourcePath: String(entry.sourcePath || "")
     readonly property string visualRole: String(entry.visualRole || "")
@@ -54,15 +55,17 @@ Item {
     readonly property real nearWhiteFraction: Number(entry.nearWhiteFraction || 0)
     readonly property real laplacianVariance: Number(entry.laplacianVariance || 0)
     readonly property real edgeEnergy: Number(entry.edgeEnergy || 0)
-    readonly property bool selected: workspace.selectedPhotoId === photoId
-        && workspace.selectedRepresentationId === representationId
+    readonly property bool selected:
+        workspace.isPhotoSelected(photoId, representationId)
 
     function refreshSelectedMetadata() {
-        if (!selected)
+        if (!selected || workspace.selectedPhotoId !== photoId
+                || workspace.selectedRepresentationId !== representationId)
             return
         Qt.callLater(() => {
-            if (selected)
-                workspace.selectPhoto(card)
+            if (selected && workspace.selectedPhotoId === photoId
+                    && workspace.selectedRepresentationId === representationId)
+                workspace.updatePrimaryPhoto(card)
         })
     }
 
@@ -252,15 +255,12 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 2
 
-                Label {
+                ShadowIcon {
                     anchors.right: parent.right
-                    text: card.visualRole.length > 0
-                        ? card.visualRole.toUpperCase() : "RAW"
-                    color: card.visualRole === "embedded"
-                        ? Theme.successTextMuted : Theme.accent
-                    font.pixelSize: 8
-                    font.weight: Font.Bold
-                    font.letterSpacing: 0.8
+                    visible: card.hasDevelopmentEdits
+                    source: "qrc:/icons/edit.svg"
+                    color: Theme.accent
+                    size: 12
                 }
 
                 Row {
@@ -285,9 +285,9 @@ Item {
             anchors.fill: parent
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
-            onClicked: workspace.selectPhoto(card)
+            onClicked: mouse => workspace.selectPhoto(card, mouse.modifiers)
             onDoubleClicked: {
-                workspace.selectPhoto(card)
+                workspace.selectPhoto(card, 0)
                 workspace.openSelectedPhoto()
             }
         }

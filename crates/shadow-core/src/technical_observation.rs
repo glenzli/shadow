@@ -500,8 +500,8 @@ mod tests {
             cache_root,
             source,
             representation_id,
-            generated_artifact,
             preferred_artifact,
+            embedded_artifact,
         } = observation_fixture();
         let observer = TechnicalObservationActor::spawn_profiled(catalog.clone(), &cache_root)
             .expect("start profiled technical observer");
@@ -532,7 +532,7 @@ mod tests {
         );
         assert!(
             catalog
-                .technical_observation(representation_id, source, &generated_artifact, &revision)
+                .technical_observation(representation_id, source, &embedded_artifact, &revision)
                 .expect("read lower-priority observation")
                 .is_none()
         );
@@ -582,8 +582,8 @@ mod tests {
         cache_root: PathBuf,
         source: shadow_catalog::RepresentationFingerprint,
         representation_id: RepresentationId,
-        generated_artifact: CachedArtifact,
         preferred_artifact: CachedArtifact,
+        embedded_artifact: CachedArtifact,
     }
 
     fn observation_fixture() -> ObservationFixture {
@@ -646,7 +646,7 @@ mod tests {
                 .expect("record cached JPEG"),
             RecordCachedArtifactStatus::Recorded
         );
-        let preferred_artifact = CachedArtifact {
+        let embedded_artifact = CachedArtifact {
             role: CachedArtifactRole::EmbeddedPreview,
             variant_key: "legacy-provider".into(),
             generator_id: "legacy-provider".into(),
@@ -660,7 +660,7 @@ mod tests {
                 .record_cached_artifact(&RecordCachedArtifact {
                     representation_id: registered.representation_id,
                     expected_source: source,
-                    artifact: preferred_artifact.clone(),
+                    artifact: embedded_artifact.clone(),
                 })
                 .expect("record old preferred JPEG"),
             RecordCachedArtifactStatus::Recorded
@@ -672,8 +672,8 @@ mod tests {
             cache_root,
             source,
             representation_id: registered.representation_id,
-            generated_artifact,
-            preferred_artifact,
+            preferred_artifact: generated_artifact,
+            embedded_artifact,
         }
     }
 

@@ -141,6 +141,9 @@ void append_role(QList<int>& roles, const int role) {
     if (current.decision_rating != replacement.decision_rating) {
         append_role(roles, ReviewModel::DecisionRatingRole);
     }
+    if (current.has_development_edits != replacement.has_development_edits) {
+        append_role(roles, ReviewModel::HasDevelopmentEditsRole);
+    }
     return roles;
 }
 
@@ -234,6 +237,8 @@ QVariant ReviewModel::data(const QModelIndex& index, const int role) const {
         return item.decision_rating;
     case ColorLabelRole:
         return color_labels_.value(item.photo_id, QStringLiteral("none"));
+    case HasDevelopmentEditsRole:
+        return item.has_development_edits;
     default:
         return {};
     }
@@ -284,6 +289,7 @@ QHash<int, QByteArray> ReviewModel::roleNames() const {
         {DecisionFlagRole, "decisionFlag"},
         {DecisionRatingRole, "decisionRating"},
         {ColorLabelRole, "colorLabel"},
+        {HasDevelopmentEditsRole, "hasDevelopmentEdits"},
     };
 }
 
