@@ -84,6 +84,7 @@ edit_message(const char *const source,
     const quint64 generation
 ) {
     if (analysis.width == 0 || analysis.height == 0 || analysis.pixel_count == 0
+        || !analysis.available
         || analysis.red.size() != EDIT_HISTOGRAM_BIN_COUNT
         || analysis.green.size() != EDIT_HISTOGRAM_BIN_COUNT
         || analysis.blue.size() != EDIT_HISTOGRAM_BIN_COUNT
@@ -203,7 +204,8 @@ void EditController::leaveDetailMode() {
 
 void EditController::finishPreviewTask() {
     EditPreviewTaskResult result = preview_watcher_.result();
-    setPreviewRunning(result.generation.kind, false);
+    const EditPreviewKind kind = result.generation.kind();
+    setPreviewRunning(kind, false);
     if (close_after_autosave_) {
         preview_queued_ = false;
         before_requested_ = false;
@@ -222,10 +224,7 @@ void EditController::finishPreviewTask() {
         render_revision_
     );
 
-    if (result.generation.kind == EditPreviewKind::Current && presentable_current) {
-        if (accepted) {
-            settled_render_revision_ = result.generation.current_revision;
-        }
+    if (kind == EditPreviewKind::Current && presentable_current) {
         if (!result.error.isEmpty()) {
             if (accepted) {
                 markHistogramFailed(EditPreviewKind::Current);
@@ -245,6 +244,10 @@ void EditController::finishPreviewTask() {
                 }
             }
         } else {
+            if (accepted && result.generation.policy == EditPreviewPolicy::Settled
+                && result.preview.analysis.available) {
+                settled_render_revision_ = result.generation.current_revision;
+            }
             const QSize dimensions(
                 static_cast<int>(result.preview.width),
                 static_cast<int>(result.preview.height)
@@ -271,26 +274,30 @@ void EditController::finishPreviewTask() {
                     optics_receipt_ = new_receipt;
                     emit opticsReceiptChanged();
                 }
-                publishHistogram(
-                    EditPreviewKind::Current,
-                    result.preview.analysis,
-                    result.generation.current_revision
-                );
+                if (result.preview.analysis.available) {
+                    publishHistogram(
+                        EditPreviewKind::Current,
+                        result.preview.analysis,
+                        result.generation.current_revision
+                    );
+                }
                 if (!autosaveFailed()) {
-                    setStatusMessage(edit_message(
-                        dirty_ ? QT_TRANSLATE_NOOP(
-                                     "EditController",
-                                     "Saving adjustments · preview is current"
-                                 )
-                               : QT_TRANSLATE_NOOP(
-                                     "EditController",
-                                     "Working state and preview are current"
-                                 )
-                    ));
+                    if (result.generation.policy == EditPreviewPolicy::Settled) {
+                        setStatusMessage(edit_message(
+                            dirty_ ? QT_TRANSLATE_NOOP(
+                                         "EditController",
+                                         "Saving adjustments · preview is current"
+                                     )
+                                   : QT_TRANSLATE_NOOP(
+                                         "EditController",
+                                         "Working state and preview are current"
+                                     )
+                        ));
+                    }
                 }
             }
         }
-    } else if (result.generation.kind == EditPreviewKind::NeutralBefore && accepted) {
+    } else if (kind == EditPreviewKind::NeutralBefore && accepted) {
         before_requested_ = false;
         if (!result.error.isEmpty()) {
             markHistogramFailed(EditPreviewKind::NeutralBefore);
@@ -330,8 +337,8 @@ void EditController::finishPreviewTask() {
     } else {
         maybeStartBeforePreview();
         maybeStartDetailRender();
-        if (accepted && result.generation.kind == EditPreviewKind::Current
-            && result.error.isEmpty()) {
+        if (accepted && result.generation.policy == EditPreviewPolicy::Settled
+            && result.error.isEmpty() && result.preview.analysis.available) {
             scheduleDetailWarmup();
         }
     }
@@ -477,6 +484,8 @@ void EditController::startPreviewRender() {
     setPreviewRunning(EditPreviewKind::Current, true);
     preview_queued_ = false;
     const bool interactive = !active_parameter_gestures_.isEmpty();
+    const EditPreviewPolicy policy = interactive
+        ? EditPreviewPolicy::Interactive : EditPreviewPolicy::Settled;
     const std::uint32_t max_edge = interactive
         ? EDIT_INTERACTIVE_PREVIEW_EDGE : EDIT_PREVIEW_EDGE;
     const std::uint8_t jpeg_quality = interactive
@@ -493,7 +502,7 @@ void EditController::startPreviewRender() {
         max_edge,
         jpeg_quality,
         EditPreviewGeneration{
-            .kind = EditPreviewKind::Current,
+            .policy = policy,
             .photo = photo_generation_,
             .current_revision = render_revision_,
         }
@@ -629,7 +638,7 @@ void EditController::maybeStartBeforePreview() {
         EDIT_PREVIEW_EDGE,
         EDIT_PREVIEW_QUALITY,
         EditPreviewGeneration{
-            .kind = EditPreviewKind::NeutralBefore,
+            .policy = EditPreviewPolicy::NeutralBefore,
             .photo = photo_generation_,
             .current_revision = 0,
         }

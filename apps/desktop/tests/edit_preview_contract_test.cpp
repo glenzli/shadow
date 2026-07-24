@@ -212,12 +212,12 @@ void detail_tiles_are_atomic_and_generation_guarded() {
 
 void stale_result_rules_are_kind_specific() {
     constexpr EditPreviewGeneration current{
-        .kind = EditPreviewKind::Current,
+        .policy = EditPreviewPolicy::Settled,
         .photo = 4,
         .current_revision = 9,
     };
     constexpr EditPreviewGeneration before{
-        .kind = EditPreviewKind::NeutralBefore,
+        .policy = EditPreviewPolicy::NeutralBefore,
         .photo = 4,
         .current_revision = 0,
     };
@@ -230,6 +230,22 @@ void stale_result_rules_are_kind_specific() {
     static_assert(can_present_edit_preview(current, 4, 10));
     static_assert(!can_present_edit_preview(current, 5, 10));
     static_assert(!can_present_edit_preview(before, 4, 10));
+
+    static_assert(edit_preview_kind(EditPreviewPolicy::Interactive)
+                  == EditPreviewKind::Current);
+    static_assert(edit_preview_kind(EditPreviewPolicy::Settled)
+                  == EditPreviewKind::Current);
+    static_assert(edit_preview_kind(EditPreviewPolicy::NeutralBefore)
+                  == EditPreviewKind::NeutralBefore);
+    static_assert(!edit_preview_requires_analysis(EditPreviewPolicy::Interactive));
+    static_assert(edit_preview_requires_analysis(EditPreviewPolicy::Settled));
+    static_assert(edit_preview_requires_analysis(EditPreviewPolicy::NeutralBefore));
+    static_assert(!edit_preview_admits_durable_cache(EditPreviewPolicy::Interactive));
+    static_assert(edit_preview_admits_durable_cache(EditPreviewPolicy::Settled));
+    static_assert(!edit_preview_admits_durable_cache(EditPreviewPolicy::NeutralBefore));
+    static_assert(
+        !edit_preview_requires_display_diagnostics(EditPreviewPolicy::Interactive)
+    );
 
     constexpr EditDetailGeneration detail{
         .photo = 4,

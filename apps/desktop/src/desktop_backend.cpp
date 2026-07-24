@@ -61,6 +61,20 @@ namespace {
     return result;
 }
 
+[[nodiscard]] shadow::desktop::FfiEditPreviewPolicy ffi_edit_preview_policy(
+    const EditPreviewPolicy policy
+) {
+    switch (policy) {
+    case EditPreviewPolicy::Interactive:
+        return shadow::desktop::FfiEditPreviewPolicy::Interactive;
+    case EditPreviewPolicy::Settled:
+        return shadow::desktop::FfiEditPreviewPolicy::Settled;
+    case EditPreviewPolicy::NeutralBefore:
+        return shadow::desktop::FfiEditPreviewPolicy::NeutralBefore;
+    }
+    throw std::invalid_argument("unknown edit-preview policy");
+}
+
 [[nodiscard]] shadow::desktop::FfiBasicEditParameters ffi_parameters(
     const BackendBasicEditParameters& source
 ) {
@@ -1045,14 +1059,15 @@ BackendEditedPreview DesktopBackend::renderEditPreview(
     const BackendGradeStack& grade_stack,
     const std::uint32_t max_edge,
     const std::uint8_t jpeg_quality,
-    const bool use_working_recipe
+    const EditPreviewPolicy policy
 ) const {
     shadow::desktop::FfiEditPreviewRequest request;
     request.base_commit_id = base_commit_id.toStdString();
     request.settings = ffi_grade_stack(grade_stack);
     request.max_edge = max_edge;
     request.jpeg_quality = jpeg_quality;
-    request.use_working_recipe = use_working_recipe;
+    request.policy = ffi_edit_preview_policy(policy);
+    request.use_working_recipe = edit_preview_kind(policy) == EditPreviewKind::Current;
     const auto payload = impl_->session->render_basic_edit_preview(
         photo_id.toStdString(),
         source_path.toStdString(),
@@ -1073,9 +1088,15 @@ BackendEditedPreview DesktopBackend::renderEditPreview(
         .highlight_pixel_count = payload.sensor_highlight_clipped_pixels,
         .shadow_pixel_count = payload.sensor_shadow_clipped_pixels,
     };
+    if (payload.analysis_available != edit_preview_requires_analysis(policy)) {
+        throw std::runtime_error(
+            "edit preview returned analysis inconsistent with its explicit policy"
+        );
+    }
     return {
         .bytes = preview_bytes,
         .analysis = {
+            .available = payload.analysis_available,
             .version = qstring(payload.analysis_version),
             .red = qcounts(payload.red_histogram, "red_histogram"),
             .green = qcounts(payload.green_histogram, "green_histogram"),
@@ -1095,11 +1116,15 @@ BackendEditedPreview DesktopBackend::renderEditPreview(
             .shadow_clipped_pixels = payload.shadow_clipped_pixels,
             .highlight_clipped_pixels = payload.highlight_clipped_pixels,
         },
-        .display_zebra = make_clipping_zebra_overlay(
-            preview_dimensions,
-            preview_bytes,
-            sensor_clipping
-        ),
+        // Interactive frames intentionally avoid decoding their just-encoded
+        // JPEG a second time merely to build a transient zebra raster.
+        .display_zebra = edit_preview_requires_display_diagnostics(policy)
+            ? make_clipping_zebra_overlay(
+                  preview_dimensions,
+                  preview_bytes,
+                  sensor_clipping
+              )
+            : QImage{},
         .optics = {
             .status = qstring(payload.optics_status),
             .provider_id = qstring(payload.optics_provider_id),

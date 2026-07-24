@@ -8,10 +8,48 @@ enum class EditPreviewKind : std::uint8_t {
     NeutralBefore,
 };
 
+// Rendering intent is explicit instead of inferred from proxy dimensions.
+// That keeps transient slider frames out of durable caches and lets the UI
+// treat missing analysis as an intentional low-latency contract.
+enum class EditPreviewPolicy : std::uint8_t {
+    Interactive,
+    Settled,
+    NeutralBefore,
+};
+
+[[nodiscard]] constexpr EditPreviewKind edit_preview_kind(
+    const EditPreviewPolicy policy
+) noexcept {
+    return policy == EditPreviewPolicy::NeutralBefore
+        ? EditPreviewKind::NeutralBefore : EditPreviewKind::Current;
+}
+
+[[nodiscard]] constexpr bool edit_preview_requires_analysis(
+    const EditPreviewPolicy policy
+) noexcept {
+    return policy != EditPreviewPolicy::Interactive;
+}
+
+[[nodiscard]] constexpr bool edit_preview_admits_durable_cache(
+    const EditPreviewPolicy policy
+) noexcept {
+    return policy == EditPreviewPolicy::Settled;
+}
+
+[[nodiscard]] constexpr bool edit_preview_requires_display_diagnostics(
+    const EditPreviewPolicy policy
+) noexcept {
+    return policy != EditPreviewPolicy::Interactive;
+}
+
 struct EditPreviewGeneration final {
-    EditPreviewKind kind = EditPreviewKind::Current;
+    EditPreviewPolicy policy = EditPreviewPolicy::Settled;
     std::uint64_t photo = 0;
     std::uint64_t current_revision = 0;
+
+    [[nodiscard]] constexpr EditPreviewKind kind() const noexcept {
+        return edit_preview_kind(policy);
+    }
 };
 
 // Full-resolution detail has one more source of staleness than the bounded
@@ -45,7 +83,7 @@ struct NeutralBeforeStartState final {
     if (result.photo != current_photo) {
         return false;
     }
-    return result.kind == EditPreviewKind::NeutralBefore
+    return result.kind() == EditPreviewKind::NeutralBefore
         || result.current_revision == current_revision;
 }
 
@@ -58,7 +96,7 @@ struct NeutralBeforeStartState final {
     const std::uint64_t current_photo,
     const std::uint64_t current_revision
 ) noexcept {
-    return result.kind == EditPreviewKind::Current
+    return result.kind() == EditPreviewKind::Current
         && result.photo == current_photo
         && result.current_revision <= current_revision;
 }

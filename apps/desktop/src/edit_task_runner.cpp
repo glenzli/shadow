@@ -230,7 +230,7 @@ EditPreviewTaskResult renderPreview(
             grade_stack,
             max_edge,
             jpeg_quality,
-            generation.kind == EditPreviewKind::Current
+            generation.policy
         );
     } catch (const std::exception& error) {
         result.error = QString::fromUtf8(error.what());

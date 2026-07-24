@@ -1,5 +1,7 @@
 #pragma once
 
+#include "edit_preview_contract.hpp"
+
 #include <QByteArray>
 #include <QImage>
 #include <QString>
@@ -396,6 +398,7 @@ struct BackendExportReceipt final {
 };
 
 struct BackendEditPreviewAnalysis final {
+    bool available = false;
     QString version;
     QVector<std::uint64_t> red;
     QVector<std::uint64_t> green;
@@ -528,7 +531,7 @@ public:
         const BackendGradeStack& grade_stack,
         std::uint32_t max_edge,
         std::uint8_t jpeg_quality,
-        bool use_working_recipe
+        EditPreviewPolicy policy
     ) const;
     [[nodiscard]] std::uint64_t beginEditDetailRequest() const noexcept;
     [[nodiscard]] BackendEditedDetailViewport renderEditDetailViewport(

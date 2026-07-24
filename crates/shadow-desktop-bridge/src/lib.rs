@@ -468,6 +468,16 @@ mod ffi {
         lens_profile_model: String,
     }
 
+    /// Explicit edit-preview work class. It is never inferred from dimensions
+    /// or JPEG quality, because those are tuning parameters rather than
+    /// persistence and analysis semantics.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum FfiEditPreviewPolicy {
+        Interactive,
+        Settled,
+        NeutralBefore,
+    }
+
     /// One immutable-base edit preview request crossing the desktop boundary.
     #[derive(Debug)]
     struct FfiEditPreviewRequest {
@@ -475,6 +485,7 @@ mod ffi {
         settings: FfiEditSettings,
         max_edge: u32,
         jpeg_quality: u8,
+        policy: FfiEditPreviewPolicy,
         use_working_recipe: bool,
     }
 
@@ -567,6 +578,9 @@ mod ffi {
         sensor_clipping_mask: Vec<u8>,
         sensor_highlight_clipped_pixels: u64,
         sensor_shadow_clipped_pixels: u64,
+        /// False is a successful Interactive result, not an analysis error.
+        /// Every analysis field below is then its empty/zero sentinel.
+        analysis_available: bool,
         analysis_version: String,
         analysis_width: u32,
         analysis_height: u32,
@@ -841,6 +855,40 @@ struct RecipePreviewCacheRequest<'a> {
     raw_pipeline_receipt: &'a RawPipelineReceipt,
     edit_execution_receipt: &'a EditPreviewExecutionReceipt,
     source_environment_cache_identity: &'a str,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum EditPreviewPolicy {
+    Interactive,
+    Settled,
+    NeutralBefore,
+}
+
+impl EditPreviewPolicy {
+    fn from_ffi(policy: ffi::FfiEditPreviewPolicy) -> AnyResult<Self> {
+        match policy {
+            ffi::FfiEditPreviewPolicy::Interactive => Ok(Self::Interactive),
+            ffi::FfiEditPreviewPolicy::Settled => Ok(Self::Settled),
+            ffi::FfiEditPreviewPolicy::NeutralBefore => Ok(Self::NeutralBefore),
+            _ => bail!("unknown edit-preview policy"),
+        }
+    }
+
+    const fn uses_working_recipe(self) -> bool {
+        !matches!(self, Self::NeutralBefore)
+    }
+
+    const fn requires_analysis(self) -> bool {
+        !matches!(self, Self::Interactive)
+    }
+
+    const fn admits_durable_cache(self) -> bool {
+        matches!(self, Self::Settled)
+    }
+
+    const fn returns_sensor_diagnostics(self) -> bool {
+        !matches!(self, Self::Interactive)
+    }
 }
 
 // A prepared session owns an immutable receipt for one particular user request. Even if a
@@ -1163,6 +1211,13 @@ impl DesktopSession {
         request: &ffi::FfiEditPreviewRequest,
     ) -> AnyResult<ffi::FfiEditedPreview> {
         let (photo_id, source) = self.validated_photo_source(photo_id, source_path)?;
+        let policy = EditPreviewPolicy::from_ffi(request.policy)?;
+        if request.use_working_recipe != policy.uses_working_recipe() {
+            bail!(
+                "edit-preview policy and Recipe source disagree: policy={policy:?}, use_working_recipe={}",
+                request.use_working_recipe
+            );
+        }
         let source_environment_cache_identity =
             current_source_environment_cache_identity(&photo_provider_version());
         let (plan, recipe_identity) = self.basic_edit_render_plan_with_identity(
@@ -1177,52 +1232,105 @@ impl DesktopSession {
             bridge_optics_settings(&request.settings.optics),
             &source_environment_cache_identity,
         )?;
-        let rendered = session.render_plan_with_analysis(&plan, request.jpeg_quality)?;
-        let proxy = rendered.proxy;
-        let execution = rendered.execution;
-        // The on-screen result remains responsive if disk caching is temporarily
-        // unavailable. A cache write is only an acceleration; it becomes
-        // Library-visible when the exact Recipe digest is the durable working
-        // head, never merely because this render completed last.
-        if let Err(error) = self.cache_rendered_recipe_preview(
-            &source,
-            &proxy,
-            RecipePreviewCacheRequest {
-                recipe_snapshot_digest: recipe_identity,
-                max_edge: request.max_edge,
-                jpeg_quality: request.jpeg_quality,
-                raw_pipeline_receipt: session.raw_pipeline_receipt(),
-                edit_execution_receipt: &execution,
-                source_environment_cache_identity: &source_environment_cache_identity,
-            },
-        ) {
-            eprintln!("Shadow: could not cache edited preview: {error:#}");
-        }
-        let analysis = rendered.analysis;
+        let (proxy, analysis) = match policy {
+            EditPreviewPolicy::Interactive => {
+                (session.render_plan(&plan, request.jpeg_quality)?, None)
+            }
+            EditPreviewPolicy::Settled | EditPreviewPolicy::NeutralBefore => {
+                let rendered = session.render_plan_with_analysis(&plan, request.jpeg_quality)?;
+                let proxy = rendered.proxy;
+                if policy.admits_durable_cache() {
+                    // The on-screen result remains responsive if disk caching
+                    // is temporarily unavailable. Only a settled current
+                    // Recipe is a durable Gallery acceleration candidate.
+                    if let Err(error) = self.cache_rendered_recipe_preview(
+                        &source,
+                        &proxy,
+                        RecipePreviewCacheRequest {
+                            recipe_snapshot_digest: recipe_identity,
+                            max_edge: request.max_edge,
+                            jpeg_quality: request.jpeg_quality,
+                            raw_pipeline_receipt: session.raw_pipeline_receipt(),
+                            edit_execution_receipt: &rendered.execution,
+                            source_environment_cache_identity: &source_environment_cache_identity,
+                        },
+                    ) {
+                        eprintln!("Shadow: could not cache edited preview: {error:#}");
+                    }
+                }
+                (proxy, Some(rendered.analysis))
+            }
+        };
         let optics = session.optics_receipt();
         let sensor_clipping = session.sensor_clipping_mask();
+        let return_sensor_diagnostics = policy.returns_sensor_diagnostics();
+        let analysis_available = analysis.is_some();
+        debug_assert_eq!(analysis_available, policy.requires_analysis());
         Ok(ffi::FfiEditedPreview {
             width: proxy.dimensions.width,
             height: proxy.dimensions.height,
             bytes: proxy.bytes,
-            sensor_clipping_available: sensor_clipping.available,
-            sensor_clipping_width: sensor_clipping.dimensions.width,
-            sensor_clipping_height: sensor_clipping.dimensions.height,
-            sensor_clipping_mask: sensor_clipping.samples.clone(),
-            sensor_highlight_clipped_pixels: sensor_clipping.highlight_pixel_count,
-            sensor_shadow_clipped_pixels: sensor_clipping.shadow_pixel_count,
-            analysis_version: analysis.version,
-            analysis_width: analysis.sample_dimensions.width,
-            analysis_height: analysis.sample_dimensions.height,
-            red_histogram: analysis.red.to_vec(),
-            green_histogram: analysis.green.to_vec(),
-            blue_histogram: analysis.blue.to_vec(),
-            luma_histogram: analysis.luma.to_vec(),
-            below_zero_samples: analysis.below_zero_samples.to_vec(),
-            above_one_samples: analysis.above_one_samples.to_vec(),
-            pixel_count: analysis.pixel_count,
-            shadow_clipped_pixels: analysis.shadow_clipped_pixels,
-            highlight_clipped_pixels: analysis.highlight_clipped_pixels,
+            sensor_clipping_available: return_sensor_diagnostics && sensor_clipping.available,
+            sensor_clipping_width: if return_sensor_diagnostics {
+                sensor_clipping.dimensions.width
+            } else {
+                0
+            },
+            sensor_clipping_height: if return_sensor_diagnostics {
+                sensor_clipping.dimensions.height
+            } else {
+                0
+            },
+            sensor_clipping_mask: if return_sensor_diagnostics {
+                sensor_clipping.samples.clone()
+            } else {
+                Vec::new()
+            },
+            sensor_highlight_clipped_pixels: if return_sensor_diagnostics {
+                sensor_clipping.highlight_pixel_count
+            } else {
+                0
+            },
+            sensor_shadow_clipped_pixels: if return_sensor_diagnostics {
+                sensor_clipping.shadow_pixel_count
+            } else {
+                0
+            },
+            analysis_available,
+            analysis_version: analysis
+                .as_ref()
+                .map_or_else(String::new, |value| value.version.clone()),
+            analysis_width: analysis
+                .as_ref()
+                .map_or(0, |value| value.sample_dimensions.width),
+            analysis_height: analysis
+                .as_ref()
+                .map_or(0, |value| value.sample_dimensions.height),
+            red_histogram: analysis
+                .as_ref()
+                .map_or_else(Vec::new, |value| value.red.to_vec()),
+            green_histogram: analysis
+                .as_ref()
+                .map_or_else(Vec::new, |value| value.green.to_vec()),
+            blue_histogram: analysis
+                .as_ref()
+                .map_or_else(Vec::new, |value| value.blue.to_vec()),
+            luma_histogram: analysis
+                .as_ref()
+                .map_or_else(Vec::new, |value| value.luma.to_vec()),
+            below_zero_samples: analysis
+                .as_ref()
+                .map_or_else(Vec::new, |value| value.below_zero_samples.to_vec()),
+            above_one_samples: analysis
+                .as_ref()
+                .map_or_else(Vec::new, |value| value.above_one_samples.to_vec()),
+            pixel_count: analysis.as_ref().map_or(0, |value| value.pixel_count),
+            shadow_clipped_pixels: analysis
+                .as_ref()
+                .map_or(0, |value| value.shadow_clipped_pixels),
+            highlight_clipped_pixels: analysis
+                .as_ref()
+                .map_or(0, |value| value.highlight_clipped_pixels),
             optics_status: optics.status.clone(),
             optics_provider_id: optics.provider_id.clone(),
             optics_provider_version: optics.provider_version.clone(),
@@ -2233,6 +2341,30 @@ mod tests {
     };
 
     use super::*;
+
+    #[test]
+    fn edit_preview_policy_controls_analysis_recipe_and_cache_admission() {
+        let interactive = EditPreviewPolicy::from_ffi(ffi::FfiEditPreviewPolicy::Interactive)
+            .expect("interactive policy");
+        assert!(interactive.uses_working_recipe());
+        assert!(!interactive.requires_analysis());
+        assert!(!interactive.admits_durable_cache());
+        assert!(!interactive.returns_sensor_diagnostics());
+
+        let settled = EditPreviewPolicy::from_ffi(ffi::FfiEditPreviewPolicy::Settled)
+            .expect("settled policy");
+        assert!(settled.uses_working_recipe());
+        assert!(settled.requires_analysis());
+        assert!(settled.admits_durable_cache());
+        assert!(settled.returns_sensor_diagnostics());
+
+        let neutral = EditPreviewPolicy::from_ffi(ffi::FfiEditPreviewPolicy::NeutralBefore)
+            .expect("neutral policy");
+        assert!(!neutral.uses_working_recipe());
+        assert!(neutral.requires_analysis());
+        assert!(!neutral.admits_durable_cache());
+        assert!(neutral.returns_sensor_diagnostics());
+    }
 
     #[test]
     fn display_title_uses_the_final_path_component() {
@@ -7002,12 +7134,18 @@ mod tests {
             settings,
             max_edge: 1_024,
             jpeg_quality: 86,
+            policy: if use_working_recipe {
+                ffi::FfiEditPreviewPolicy::Settled
+            } else {
+                ffi::FfiEditPreviewPolicy::NeutralBefore
+            },
             use_working_recipe,
         }
     }
 
     #[cfg(any())]
     fn assert_preview_analysis(preview: &ffi::FfiEditedPreview) {
+        assert!(preview.analysis_available);
         assert!(!preview.analysis_version.is_empty());
         assert_eq!(preview.analysis_width, preview.width);
         assert_eq!(preview.analysis_height, preview.height);
