@@ -558,7 +558,7 @@ struct WarmEditGpuSession::Impl final {
     std::size_t operation_buffer_bytes = 0U;
 
     mutable std::mutex mutex;
-    mutable std::condition_variable available_slot;
+    mutable std::condition_variable_any available_slot;
     mutable std::size_t next_slot = 0U;
     mutable std::uint64_t active_renders = 0U;
     mutable WarmEditPreviewGpuStats stats;
@@ -573,13 +573,18 @@ struct WarmEditGpuSession::Impl final {
         [source release];
     }
 
-    [[nodiscard]] std::size_t acquire_slot() {
+    [[nodiscard]] std::optional<std::size_t> acquire_slot(
+        const std::stop_token cancellation
+    ) {
         std::unique_lock lock(mutex);
-        available_slot.wait(lock, [this]() {
+        const bool available = available_slot.wait(lock, cancellation, [this]() {
             return std::ranges::any_of(slots, [](const WarmSlot& slot) {
                 return !slot.busy;
             });
         });
+        if (!available || cancellation.stop_requested()) {
+            return std::nullopt;
+        }
         for (std::size_t offset = 0U; offset < slots.size(); ++offset) {
             const std::size_t index = (next_slot + offset) % slots.size();
             if (!slots[index].busy) {
@@ -589,7 +594,7 @@ struct WarmEditGpuSession::Impl final {
                 ++stats.render_count;
                 stats.peak_concurrent_renders =
                     std::max(stats.peak_concurrent_renders, active_renders);
-                return index;
+                return std::optional<std::size_t>{index};
             }
         }
         std::abort();
@@ -616,16 +621,29 @@ WarmEditGpuSession::~WarmEditGpuSession() = default;
 WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
     const std::span<const AdjustmentNode> nodes,
     const EditExecutionPlan& plan,
-    const bool retain_linear_for_analysis
+    const bool retain_linear_for_analysis,
+    const std::stop_token cancellation
 ) const {
+    const auto cancelled = [] {
+        return RenderAttempt{
+            .status = RenderStatus::cancelled,
+            .output = std::nullopt,
+            .diagnostic = {},
+        };
+    };
+    if (cancellation.stop_requested()) {
+        return cancelled();
+    }
     if (!impl_) {
         return RenderAttempt{
+            .status = RenderStatus::unavailable_or_failed,
             .output = std::nullopt,
             .diagnostic = "session-resident Metal warm preview is not initialized",
         };
     }
     if (force_test_failure()) {
         return RenderAttempt{
+            .status = RenderStatus::unavailable_or_failed,
             .output = std::nullopt,
             .diagnostic = "test-injected session-resident Metal warm-preview failure",
         };
@@ -665,6 +683,7 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
         );
         if (!preparation.program.has_value()) {
             return RenderAttempt{
+                .status = RenderStatus::unavailable_or_failed,
                 .output = std::nullopt,
                 .diagnostic = preparation.diagnostic.empty()
                     ? "session-resident Metal warm preview could not prepare the adjustment plan"
@@ -680,13 +699,21 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
     }
     if (program.operations.size() > maximum_warm_adjustment_operations) {
         return RenderAttempt{
+            .status = RenderStatus::unavailable_or_failed,
             .output = std::nullopt,
             .diagnostic =
                 "session-resident Metal warm preview exceeds its 256-operation slot capacity",
         };
     }
 
-    const std::size_t slot_index = impl_->acquire_slot();
+    if (cancellation.stop_requested()) {
+        return cancelled();
+    }
+    const auto acquired_slot = impl_->acquire_slot(cancellation);
+    if (!acquired_slot.has_value()) {
+        return cancelled();
+    }
+    const std::size_t slot_index = *acquired_slot;
     bool completed = false;
     struct SlotRelease final {
         Impl& impl;
@@ -695,6 +722,9 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
         ~SlotRelease() { impl.release_slot(index, completed); }
     } release{*impl_, slot_index, completed};
     WarmSlot& slot = impl_->slots[slot_index];
+    if (cancellation.stop_requested()) {
+        return cancelled();
+    }
 
     @autoreleasepool {
         const std::size_t operation_bytes =
@@ -719,6 +749,7 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
         id<MTLComputeCommandEncoder> encoder = [command_buffer computeCommandEncoder];
         if (command_buffer == nil || encoder == nil) {
             return RenderAttempt{
+                .status = RenderStatus::unavailable_or_failed,
                 .output = std::nullopt,
                 .diagnostic = "Metal could not create a warm-preview compute command",
             };
@@ -756,10 +787,17 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
                 1U
             )];
         [encoder endEncoding];
+        if (cancellation.stop_requested()) {
+            return cancelled();
+        }
         [command_buffer commit];
         [command_buffer waitUntilCompleted];
+        if (cancellation.stop_requested()) {
+            return cancelled();
+        }
         if (command_buffer.status != MTLCommandBufferStatusCompleted) {
             return RenderAttempt{
+                .status = RenderStatus::unavailable_or_failed,
                 .output = std::nullopt,
                 .diagnostic = command_buffer_diagnostic(command_buffer),
             };
@@ -774,6 +812,7 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
                     );
             }
             return RenderAttempt{
+                .status = RenderStatus::unavailable_or_failed,
                 .output = std::nullopt,
                 .diagnostic = std::move(diagnostic),
             };
@@ -785,6 +824,9 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
             .analyzed_linear = std::nullopt,
             .had_active_adjustments = !plan.segments.empty(),
         };
+        if (cancellation.stop_requested()) {
+            return cancelled();
+        }
         std::memcpy(result.rgb8.data(), [slot.rgb8 contents], impl_->rgb8_bytes);
         if (retain_linear_for_analysis) {
             FloatRgbImage linear{
@@ -805,8 +847,12 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
             );
             result.analyzed_linear = std::move(linear);
         }
+        if (cancellation.stop_requested()) {
+            return cancelled();
+        }
         completed = true;
         return RenderAttempt{
+            .status = RenderStatus::completed,
             .output = std::move(result),
             .diagnostic = {},
         };

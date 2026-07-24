@@ -1,18 +1,20 @@
-//! Linearizable host-side lifecycle for bounded edit-preview requests.
+//! Linearizable lifecycle and native stop signal for edit-preview requests.
 //!
-//! This first cancellation layer deliberately does not interrupt native CPU or
-//! GPU work already executing in `shadow-image`. It establishes the terminal
-//! ownership rule at the desktop boundary: cancellation and publication race
-//! exactly once, and whichever atomically claims the request first determines
-//! whether pixels and durable cache artifacts may escape.
+//! Cancellation and publication race exactly once at this desktop boundary.
+//! When cancellation wins, the same registry entry also signals the native
+//! renderer so cooperative CPU/Metal checkpoints can stop work early. When
+//! completion wins, a later host cancellation cannot reach the native handle.
 
 use std::{
     collections::VecDeque,
+    fmt,
     sync::{
         Arc, Mutex,
         atomic::{AtomicU8, AtomicU64, Ordering},
     },
 };
+
+use shadow_bridge::EditPreviewCancellation;
 
 const ACTIVE: u8 = 0;
 const CANCELLED: u8 = 1;
@@ -30,17 +32,29 @@ pub(crate) enum PreviewTerminalClaim {
     Cancelled,
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) enum PreviewRenderRegistryError {
     UnknownToken,
     TerminalAlreadyClaimed,
     Poisoned,
+    NativeCancellation(String),
 }
 
-#[derive(Debug)]
 struct PreviewRenderEntry {
     token: u64,
     state: Arc<AtomicU8>,
+    native_cancellation: EditPreviewCancellation,
+}
+
+impl fmt::Debug for PreviewRenderEntry {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("PreviewRenderEntry")
+            .field("token", &self.token)
+            .field("state", &self.state.load(Ordering::Acquire))
+            .field("native_cancellation", &"<opaque native stop handle>")
+            .finish()
+    }
 }
 
 /// A session-local registry. Qt intentionally keeps at most one overview
@@ -55,6 +69,8 @@ pub(crate) struct PreviewRenderRegistry {
 
 impl PreviewRenderRegistry {
     pub(crate) fn begin(&self) -> Result<u64, PreviewRenderRegistryError> {
+        let native_cancellation = EditPreviewCancellation::new()
+            .map_err(|error| PreviewRenderRegistryError::NativeCancellation(error.to_string()))?;
         let token = loop {
             let candidate = self
                 .next_token
@@ -75,6 +91,7 @@ impl PreviewRenderRegistry {
         entries.push_back(PreviewRenderEntry {
             token,
             state: Arc::new(AtomicU8::new(ACTIVE)),
+            native_cancellation,
         });
         Ok(token)
     }
@@ -93,14 +110,38 @@ impl PreviewRenderRegistry {
     }
 
     /// Attempts to make cancellation the unique terminal owner. Returning
-    /// false means completion already won or the token is not registered.
+    /// false means completion already won or the token is not registered. The
+    /// native stop signal is sent only after this host CAS succeeds, so a late
+    /// cancellation can never stop a render whose completion already won.
     pub(crate) fn cancel(&self, token: u64) -> bool {
-        let Ok(state) = self.state(token) else {
+        let Ok((state, native_cancellation)) = self.entry_handles(token) else {
             return false;
         };
-        state
+        if state
             .compare_exchange(ACTIVE, CANCELLED, Ordering::AcqRel, Ordering::Acquire)
-            .is_ok()
+            .is_err()
+        {
+            return false;
+        }
+        let native_stop_won = native_cancellation.cancel();
+        debug_assert!(
+            native_stop_won,
+            "only the registry may signal a preview's native cancellation handle"
+        );
+        true
+    }
+
+    /// Returns the native stop handle paired with `token`.
+    ///
+    /// Workers clone this before entering the native renderer. The lifecycle
+    /// state remains owned by this registry; callers must not signal the handle
+    /// directly.
+    pub(crate) fn cancellation(
+        &self,
+        token: u64,
+    ) -> Result<EditPreviewCancellation, PreviewRenderRegistryError> {
+        self.entry_handles(token)
+            .map(|(_, native_cancellation)| native_cancellation)
     }
 
     /// Claims the terminal outcome after native work returns. A preceding
@@ -118,10 +159,18 @@ impl PreviewRenderRegistry {
             Ordering::Acquire,
         ) {
             Ok(ACTIVE) => Ok(PreviewTerminalClaim::Completed),
-            Err(CANCELLED) => {
-                state.store(TERMINAL_CLAIMED, Ordering::Release);
-                Ok(PreviewTerminalClaim::Cancelled)
-            }
+            Err(CANCELLED) => match state.compare_exchange(
+                CANCELLED,
+                TERMINAL_CLAIMED,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(CANCELLED) => Ok(PreviewTerminalClaim::Cancelled),
+                Err(TERMINAL_CLAIMED) => Err(PreviewRenderRegistryError::TerminalAlreadyClaimed),
+                Ok(_) | Err(_) => {
+                    unreachable!("preview registry lifecycle states advance monotonically")
+                }
+            },
             Err(TERMINAL_CLAIMED) => Err(PreviewRenderRegistryError::TerminalAlreadyClaimed),
             Ok(_) | Err(_) => {
                 unreachable!("preview registry stores only declared lifecycle states")
@@ -130,6 +179,13 @@ impl PreviewRenderRegistry {
     }
 
     fn state(&self, token: u64) -> Result<Arc<AtomicU8>, PreviewRenderRegistryError> {
+        self.entry_handles(token).map(|(state, _)| state)
+    }
+
+    fn entry_handles(
+        &self,
+        token: u64,
+    ) -> Result<(Arc<AtomicU8>, EditPreviewCancellation), PreviewRenderRegistryError> {
         if token == 0 {
             return Err(PreviewRenderRegistryError::UnknownToken);
         }
@@ -140,7 +196,7 @@ impl PreviewRenderRegistry {
         entries
             .iter()
             .find(|entry| entry.token == token)
-            .map(|entry| Arc::clone(&entry.state))
+            .map(|entry| (Arc::clone(&entry.state), entry.native_cancellation.clone()))
             .ok_or(PreviewRenderRegistryError::UnknownToken)
     }
 }
@@ -155,8 +211,13 @@ mod tests {
     fn cancellation_claimed_first_forbids_completion() {
         let registry = PreviewRenderRegistry::default();
         let token = registry.begin().expect("begin request");
+        let native = registry.cancellation(token).expect("native cancellation");
 
         assert!(registry.cancel(token));
+        assert!(
+            !native.cancel(),
+            "winning host cancellation must signal the native stop handle exactly once"
+        );
         assert_eq!(
             registry.admission(token).expect("cancelled admission"),
             PreviewAdmission::Cancelled
@@ -174,6 +235,7 @@ mod tests {
     fn completion_claimed_first_rejects_late_cancellation() {
         let registry = PreviewRenderRegistry::default();
         let token = registry.begin().expect("begin request");
+        let native = registry.cancellation(token).expect("native cancellation");
 
         assert_eq!(
             registry.admission(token).expect("active admission"),
@@ -184,6 +246,10 @@ mod tests {
             PreviewTerminalClaim::Completed
         );
         assert!(!registry.cancel(token));
+        assert!(
+            native.cancel(),
+            "late host cancellation must not have signalled native work after completion won"
+        );
         assert_eq!(
             registry.claim_terminal(token),
             Err(PreviewRenderRegistryError::TerminalAlreadyClaimed)
@@ -240,6 +306,7 @@ mod tests {
         let registry = Arc::new(PreviewRenderRegistry::default());
         for _ in 0..128 {
             let token = registry.begin().expect("begin raced request");
+            let native = registry.cancellation(token).expect("native cancellation");
             let barrier = Arc::new(Barrier::new(3));
             let cancel_registry = Arc::clone(&registry);
             let cancel_barrier = Arc::clone(&barrier);
@@ -262,9 +329,59 @@ mod tests {
                 cancellation_won,
                 terminal == PreviewTerminalClaim::Cancelled
             );
+            assert_eq!(
+                native.cancel(),
+                !cancellation_won,
+                "native stop must be signalled iff host cancellation won"
+            );
             assert!(
                 !registry.cancel(token),
                 "neither terminal outcome may be replaced by a late cancellation"
+            );
+        }
+    }
+
+    #[test]
+    fn cancelled_request_has_exactly_one_acknowledgement_owner() {
+        let registry = Arc::new(PreviewRenderRegistry::default());
+        for _ in 0..128 {
+            let token = registry.begin().expect("begin cancelled request");
+            assert!(registry.cancel(token));
+            let barrier = Arc::new(Barrier::new(3));
+            let first_registry = Arc::clone(&registry);
+            let first_barrier = Arc::clone(&barrier);
+            let first = std::thread::spawn(move || {
+                first_barrier.wait();
+                first_registry.claim_terminal(token)
+            });
+            let second_registry = Arc::clone(&registry);
+            let second_barrier = Arc::clone(&barrier);
+            let second = std::thread::spawn(move || {
+                second_barrier.wait();
+                second_registry.claim_terminal(token)
+            });
+            barrier.wait();
+            let outcomes = [
+                first.join().expect("join first acknowledgement"),
+                second.join().expect("join second acknowledgement"),
+            ];
+            assert_eq!(
+                outcomes
+                    .iter()
+                    .filter(|outcome| { **outcome == Ok(PreviewTerminalClaim::Cancelled) })
+                    .count(),
+                1,
+                "exactly one worker may acknowledge a cancelled request"
+            );
+            assert_eq!(
+                outcomes
+                    .iter()
+                    .filter(|outcome| {
+                        **outcome == Err(PreviewRenderRegistryError::TerminalAlreadyClaimed)
+                    })
+                    .count(),
+                1,
+                "the losing acknowledgement must observe the claimed terminal"
             );
         }
     }

@@ -29,8 +29,8 @@ use shadow_bridge::{
     ADJUSTMENT_IMPLEMENTATION_VERSION, ADJUSTMENT_PARAMETER_SCHEMA_VERSION, AdjustmentRenderNode,
     AdjustmentRenderOperation, AdjustmentRenderPlan, BasicEditParameters,
     COLOR_GRADING_V3_IMPLEMENTATION_VERSION as COLOR_GRADING_V3_IMPLEMENTATION_REVISION,
-    COLOR_MIXER_BAND_COUNT, ColorRangeParameters, DetailTileRect, DetailTileRequest,
-    EditPreviewExecutionReceipt,
+    COLOR_MIXER_BAND_COUNT, CancellableEditPreview, ColorRangeParameters, DetailTileRect,
+    DetailTileRequest, EditPreviewExecutionReceipt,
     FINISHING_EFFECTS_V3_IMPLEMENTATION_VERSION as FINISHING_EFFECTS_V3_IMPLEMENTATION_REVISION,
     MAX_ADJUSTMENT_RENDER_NODES, MAX_EDIT_DETAIL_TILE_SIDE, MAX_LUT_DOCUMENT_BYTES,
     MAX_POINT_COLOR_RANGES, MAX_TONE_CURVE_POINTS,
@@ -494,7 +494,8 @@ mod ffi {
         base_commit_id: String,
         settings: FfiEditSettings,
         /// Allocated before the worker is queued. Cancellation and completion
-        /// atomically compete for this token's unique terminal claim.
+        /// atomically compete for this token's unique terminal claim, and a
+        /// winning cancellation also signals native cooperative checkpoints.
         render_token: u64,
         max_edge: u32,
         jpeg_quality: u8,
@@ -760,9 +761,11 @@ mod ffi {
             source_path: &str,
             request: &FfiEditPreviewRequest,
         ) -> Result<FfiEditedPreview>;
-        /// Registers a preview before Qt queues its worker.
+        /// Registers a preview and its native stop handle before Qt queues its
+        /// worker. Zero means registration failed.
         fn begin_basic_edit_preview(self: &DesktopSession) -> u64;
-        /// Returns true only when cancellation won the unique terminal claim.
+        /// Returns true only when cancellation won the unique terminal claim
+        /// and the native cooperative stop signal was issued.
         fn cancel_basic_edit_preview(self: &DesktopSession, render_token: u64) -> bool;
         /// Lets C++ request construction report a failure only if completion,
         /// rather than cancellation, owns the token's terminal state.
@@ -1301,6 +1304,10 @@ impl DesktopSession {
                     return Ok(cancelled_edited_preview());
                 }
             }
+            let native_cancellation = self
+                .edit_preview_render_tokens
+                .cancellation(request.render_token)
+                .map_err(|error| preview_registry_error(error, request.render_token))?;
 
             let (photo_id, source) = self.validated_photo_source(photo_id, source_path)?;
             let policy = EditPreviewPolicy::from_ffi(request.policy)?;
@@ -1335,28 +1342,64 @@ impl DesktopSession {
                     .map_err(|error| preview_registry_error(error, request.render_token))?;
                 return Ok(cancelled_edited_preview());
             }
-            let (proxy, analysis, execution) = match policy {
-                EditPreviewPolicy::Interactive => (
-                    session.render_plan(&plan, request.jpeg_quality)?,
-                    None,
-                    None,
-                ),
+            let rendered = match policy {
+                EditPreviewPolicy::Interactive => {
+                    match session.render_plan_cancellable(
+                        &plan,
+                        request.jpeg_quality,
+                        &native_cancellation,
+                    )? {
+                        CancellableEditPreview::Completed(proxy) => {
+                            CancellableEditPreview::Completed((proxy, None, None))
+                        }
+                        CancellableEditPreview::Cancelled => CancellableEditPreview::Cancelled,
+                    }
+                }
                 EditPreviewPolicy::Settled | EditPreviewPolicy::NeutralBefore => {
-                    let rendered =
-                        session.render_plan_with_analysis(&plan, request.jpeg_quality)?;
-                    (
-                        rendered.proxy,
-                        Some(rendered.analysis),
-                        Some(rendered.execution),
-                    )
+                    match session.render_plan_with_analysis_cancellable(
+                        &plan,
+                        request.jpeg_quality,
+                        &native_cancellation,
+                    )? {
+                        CancellableEditPreview::Completed(rendered) => {
+                            CancellableEditPreview::Completed((
+                                rendered.proxy,
+                                Some(rendered.analysis),
+                                Some(rendered.execution),
+                            ))
+                        }
+                        CancellableEditPreview::Cancelled => CancellableEditPreview::Cancelled,
+                    }
+                }
+            };
+            let (proxy, analysis, execution) = match rendered {
+                CancellableEditPreview::Completed(rendered) => rendered,
+                CancellableEditPreview::Cancelled => {
+                    // Native cancellation is only reachable through the
+                    // registry-owned handle. Therefore the host cancellation
+                    // must already own the unique terminal claim.
+                    match self
+                        .edit_preview_render_tokens
+                        .claim_terminal(request.render_token)
+                        .map_err(|error| preview_registry_error(error, request.render_token))?
+                    {
+                        PreviewTerminalClaim::Cancelled => {
+                            return Ok(cancelled_edited_preview());
+                        }
+                        PreviewTerminalClaim::Completed => {
+                            bail!(
+                                "native edit preview reported cancellation before host cancellation owned render token {}",
+                                request.render_token
+                            );
+                        }
+                    }
                 }
             };
 
-            // This is the host-side linearization point. Cancellation that
-            // wins here suppresses host payload inspection, durable caching,
-            // and UI publication below. Native kernels and their internal
-            // validation are not interrupted in this first phase; later work
-            // carries the same token into CPU rows and Metal tiles.
+            // This remains the publication linearization point. Native
+            // checkpoints may have completed normally just before a host
+            // cancellation wins; the host outcome still suppresses payload
+            // inspection, durable caching, and UI publication below.
             let terminal = self
                 .edit_preview_render_tokens
                 .claim_terminal(request.render_token)

@@ -15,6 +15,7 @@
 #include <random>
 #include <ranges>
 #include <span>
+#include <stop_token>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -392,6 +393,38 @@ void resident_backend_matches_cpu_oracle() {
     }
 }
 
+void cancellation_is_terminal_without_diagnostic() {
+    const auto source = make_random_image(64U, 48U, false);
+    auto preparation = image::detail::prepare_warm_edit_gpu_session(source);
+    const auto nodes = core_nodes();
+    const auto plan = image::compile_edit_execution_plan(nodes);
+    std::stop_source cancellation;
+    expect(cancellation.request_stop(), "first native stop request succeeds");
+
+    if (preparation.session) {
+        const auto before = preparation.session->stats();
+        const auto attempt = preparation.session->render(
+            nodes,
+            plan,
+            true,
+            cancellation.get_token()
+        );
+        const auto after = preparation.session->stats();
+        expect(
+            attempt.status
+                == image::detail::WarmEditGpuSession::RenderStatus::cancelled,
+            "pre-cancelled resident render has explicit Cancelled status"
+        );
+        expect(!attempt.output.has_value(), "cancelled resident render returns no pixels");
+        expect(attempt.diagnostic.empty(), "cancelled resident render returns no diagnostic");
+        expect(
+            after.render_count == before.render_count
+                && after.completed_render_count == before.completed_render_count,
+            "pre-cancelled resident render does not enter or complete a GPU slot"
+        );
+    }
+}
+
 template <typename Callable>
 [[nodiscard]] double median_milliseconds(
     const std::size_t iterations,
@@ -506,6 +539,7 @@ void benchmark_resident_backend_when_requested() {
 
 int main() {
     resident_backend_matches_cpu_oracle();
+    cancellation_is_terminal_without_diagnostic();
     benchmark_resident_backend_when_requested();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

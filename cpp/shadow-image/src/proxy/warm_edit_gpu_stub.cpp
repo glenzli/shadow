@@ -14,9 +14,18 @@ WarmEditGpuSession::~WarmEditGpuSession() = default;
 WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
     std::span<const AdjustmentNode>,
     const EditExecutionPlan&,
-    bool
+    bool,
+    std::stop_token cancellation
 ) const {
+    if (cancellation.stop_requested()) {
+        return RenderAttempt{
+            .status = RenderStatus::cancelled,
+            .output = std::nullopt,
+            .diagnostic = {},
+        };
+    }
     return RenderAttempt{
+        .status = RenderStatus::unavailable_or_failed,
         .output = std::nullopt,
         .diagnostic = "session-resident Metal warm preview is unavailable on this platform",
     };

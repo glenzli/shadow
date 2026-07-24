@@ -380,6 +380,18 @@ mod ffi {
         execution: FfiEditPreviewExecutionReceipt,
     }
 
+    #[derive(Debug)]
+    struct FfiCancellableEncodedProxy {
+        cancelled: bool,
+        proxy: FfiEncodedProxy,
+    }
+
+    #[derive(Debug)]
+    struct FfiCancellableAnalyzedEditPreview {
+        cancelled: bool,
+        preview: FfiAnalyzedEditPreview,
+    }
+
     /// A compact RAW-source diagnostic in the exact display dimensions of the prepared preview.
     /// It is absent for display-referred sources and for providers that cannot supply RawFrame.
     #[derive(Debug)]
@@ -464,6 +476,7 @@ mod ffi {
 
         type DecodeHandle;
         type EditPreviewHandle;
+        type EditPreviewCancellationHandle;
         type FullEditDetailHandle;
 
         fn open_libraw_utf8(path: &str) -> Result<UniquePtr<DecodeHandle>>;
@@ -476,6 +489,8 @@ mod ffi {
         fn libraw_provider_version() -> String;
         fn photo_provider_version() -> String;
         fn edit_preview_generator_implementation_identity() -> String;
+        fn new_edit_preview_cancellation() -> Result<SharedPtr<EditPreviewCancellationHandle>>;
+        fn cancel(self: &EditPreviewCancellationHandle) -> bool;
         fn photo_supported_raster_extensions() -> Vec<String>;
         fn raw_development_plan_identity(plan: &FfiRawDevelopmentPlan) -> Result<String>;
         fn render_photo_reference_proxy(
@@ -548,6 +563,16 @@ mod ffi {
             self: &EditPreviewHandle,
             request: &FfiAdjustmentRenderRequest,
         ) -> Result<FfiAnalyzedEditPreview>;
+        fn render_adjustment_plan_cancellable(
+            self: &EditPreviewHandle,
+            request: &FfiAdjustmentRenderRequest,
+            cancellation: &EditPreviewCancellationHandle,
+        ) -> Result<FfiCancellableEncodedProxy>;
+        fn render_adjustment_plan_with_analysis_cancellable(
+            self: &EditPreviewHandle,
+            request: &FfiAdjustmentRenderRequest,
+            cancellation: &EditPreviewCancellationHandle,
+        ) -> Result<FfiCancellableAnalyzedEditPreview>;
         fn dimensions(self: &FullEditDetailHandle) -> FfiDimensions;
         fn retained_bytes(self: &FullEditDetailHandle) -> u64;
         fn optics_receipt(self: &FullEditDetailHandle) -> FfiOpticsReceipt;
@@ -568,6 +593,13 @@ mod ffi {
 unsafe impl Send for ffi::EditPreviewHandle {}
 // SAFETY: see the Send implementation above. Concurrent calls only read the working proxy.
 unsafe impl Sync for ffi::EditPreviewHandle {}
+
+// SAFETY: the native handle owns only std::stop_source. request_stop() and token copies are
+// thread-safe by the C++20 stop-token contract, and Rust receives it only through SharedPtr.
+unsafe impl Send for ffi::EditPreviewCancellationHandle {}
+// SAFETY: see Send above; all shared access is const except stop_source's synchronized
+// request_stop operation.
+unsafe impl Sync for ffi::EditPreviewCancellationHandle {}
 
 // SAFETY: the C++ handle owns a fully prepared, immutable u16 reference image. It contains no
 // decoder or borrowed state, and every tile render allocates independent float/RGB8 buffers.
@@ -2873,6 +2905,53 @@ pub struct LibRawEditDetailSession {
 /// absent for a raster source that did not perform RAW development.
 pub type PhotoEditPreviewSession = LibRawEditPreviewSession;
 
+/// One-shot cancellation shared by all clones of this handle.
+///
+/// Cancelling is idempotent: the first call returns `true`, while later calls return `false`.
+/// A cancelled handle stays cancelled and is intentionally not reusable for a later render.
+#[derive(Clone)]
+pub struct EditPreviewCancellation {
+    handle: cxx::SharedPtr<ffi::EditPreviewCancellationHandle>,
+}
+
+impl std::fmt::Debug for EditPreviewCancellation {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("EditPreviewCancellation")
+            .finish_non_exhaustive()
+    }
+}
+
+impl EditPreviewCancellation {
+    /// Creates a new independent cancellation source.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BridgeError::NullHandle`] if the native bridge cannot allocate its shared
+    /// cancellation source.
+    pub fn new() -> Result<Self, BridgeError> {
+        let handle = ffi::new_edit_preview_cancellation()?;
+        if handle.is_null() {
+            return Err(BridgeError::NullHandle);
+        }
+        Ok(Self { handle })
+    }
+
+    /// Requests cancellation. Returns `true` only for the first successful request.
+    pub fn cancel(&self) -> bool {
+        self.handle
+            .as_ref()
+            .is_some_and(ffi::EditPreviewCancellationHandle::cancel)
+    }
+}
+
+/// Terminal native preview outcome. Cancellation is control flow, never a decoder/backend error.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum CancellableEditPreview<T> {
+    Completed(T),
+    Cancelled,
+}
+
 /// Source-neutral name for an immutable full-resolution photo-detail session.
 ///
 /// See [`PhotoEditPreviewSession`] for the compatibility and RAW-provenance contract.
@@ -3103,6 +3182,34 @@ impl LibRawEditPreviewSession {
         Ok(proxy_payload(proxy))
     }
 
+    /// Executes a typed plan with cooperative native cancellation.
+    ///
+    /// A cancelled render returns [`CancellableEditPreview::Cancelled`] and never fabricates a
+    /// backend failure, fallback receipt, histogram, or JPEG. The cancellation handle is
+    /// one-shot; create a fresh handle for each independently cancellable render.
+    pub fn render_plan_cancellable(
+        &self,
+        plan: &AdjustmentRenderPlan,
+        jpeg_quality: u8,
+        cancellation: &EditPreviewCancellation,
+    ) -> Result<CancellableEditPreview<shadow_domain::ProxyPayload>, BridgeError> {
+        plan.validate()?;
+        validate_jpeg_quality(jpeg_quality)?;
+        let handle = self.handle.as_ref().ok_or(BridgeError::NullHandle)?;
+        let cancellation = cancellation
+            .handle
+            .as_ref()
+            .ok_or(BridgeError::NullHandle)?;
+        let request = ffi_render_request(plan, self.max_edge, jpeg_quality);
+        let rendered = handle.render_adjustment_plan_cancellable(&request, cancellation)?;
+        if rendered.cancelled {
+            return Ok(CancellableEditPreview::Cancelled);
+        }
+        Ok(CancellableEditPreview::Completed(proxy_payload(
+            rendered.proxy,
+        )))
+    }
+
     /// Executes a typed plan and returns its JPEG plus generation-matched
     /// display histogram and pre-clamp clipping analysis.
     ///
@@ -3133,6 +3240,39 @@ impl LibRawEditPreviewSession {
             analyzed.execution,
             self.dimensions,
         )
+    }
+
+    /// Executes a typed plan with generation-matched analysis and cooperative cancellation.
+    ///
+    /// Cancellation before completion returns no partial pixels, analysis, or execution receipt.
+    pub fn render_plan_with_analysis_cancellable(
+        &self,
+        plan: &AdjustmentRenderPlan,
+        jpeg_quality: u8,
+        cancellation: &EditPreviewCancellation,
+    ) -> Result<CancellableEditPreview<AnalyzedEditPreview>, BridgeError> {
+        plan.validate()?;
+        validate_jpeg_quality(jpeg_quality)?;
+        let handle = self.handle.as_ref().ok_or(BridgeError::NullHandle)?;
+        let cancellation = cancellation
+            .handle
+            .as_ref()
+            .ok_or(BridgeError::NullHandle)?;
+        let request = ffi_render_request(plan, self.max_edge, jpeg_quality);
+        let rendered =
+            handle.render_adjustment_plan_with_analysis_cancellable(&request, cancellation)?;
+        if rendered.cancelled {
+            return Ok(CancellableEditPreview::Cancelled);
+        }
+        let analyzed = rendered.preview;
+        let proxy = proxy_payload(analyzed.proxy);
+        let completed = validate_analyzed_edit_preview(
+            proxy,
+            analyzed.analysis,
+            analyzed.execution,
+            self.dimensions,
+        )?;
+        Ok(CancellableEditPreview::Completed(completed))
     }
 }
 
@@ -4218,6 +4358,21 @@ const fn support(value: bool) -> DecodeSupport {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preview_cancellation_is_shared_one_shot_state() {
+        let cancellation =
+            EditPreviewCancellation::new().expect("allocate native preview cancellation");
+        let clone = cancellation.clone();
+        assert!(
+            clone.cancel(),
+            "first request_stop wins across SharedPtr clones"
+        );
+        assert!(
+            !cancellation.cancel(),
+            "later cancellation requests are idempotent"
+        );
+    }
 
     fn ffi_detail_raw_development_plan() -> ffi::FfiRawDevelopmentPlan {
         ffi::FfiRawDevelopmentPlan {
@@ -6155,6 +6310,21 @@ mod tests {
                     .expect("render neutral warm preview");
                 let neutral_plan = basic_adjustment_render_plan(BasicEditParameters::default())
                     .expect("build neutral typed plan");
+                let cancelled =
+                    EditPreviewCancellation::new().expect("allocate cancellation source");
+                assert!(cancelled.cancel());
+                assert!(matches!(
+                    session
+                        .render_plan_cancellable(&neutral_plan, 86, &cancelled)
+                        .expect("pre-cancelled warm render is control flow"),
+                    CancellableEditPreview::Cancelled
+                ));
+                assert!(matches!(
+                    session
+                        .render_plan_with_analysis_cancellable(&neutral_plan, 86, &cancelled)
+                        .expect("pre-cancelled analyzed render is control flow"),
+                    CancellableEditPreview::Cancelled
+                ));
                 let neutral_from_plan = session
                     .render_plan(&neutral_plan, 86)
                     .expect("render neutral typed plan");

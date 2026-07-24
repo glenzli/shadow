@@ -14,6 +14,7 @@
 #include <memory>
 #include <optional>
 #include <span>
+#include <stop_token>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -588,6 +589,15 @@ struct WarmEditPreviewGpuStats final {
     auto operator<=>(const WarmEditPreviewGpuStats&) const = default;
 };
 
+template <typename T>
+struct CancellableEditPreviewResult final {
+    std::optional<T> completed;
+
+    [[nodiscard]] bool cancelled() const noexcept {
+        return !completed.has_value();
+    }
+};
+
 namespace detail {
 class WarmEditGpuSession;
 }
@@ -617,6 +627,17 @@ public:
     [[nodiscard]] AnalyzedEditPreview render_jpeg_with_analysis(
         std::span<const AdjustmentNode> nodes,
         std::uint8_t jpeg_quality = 95
+    ) const;
+    [[nodiscard]] CancellableEditPreviewResult<EncodedProxy> render_jpeg_cancellable(
+        std::span<const AdjustmentNode> nodes,
+        std::uint8_t jpeg_quality,
+        std::stop_token cancellation
+    ) const;
+    [[nodiscard]] CancellableEditPreviewResult<AnalyzedEditPreview>
+    render_jpeg_with_analysis_cancellable(
+        std::span<const AdjustmentNode> nodes,
+        std::uint8_t jpeg_quality,
+        std::stop_token cancellation
     ) const;
 
 private:

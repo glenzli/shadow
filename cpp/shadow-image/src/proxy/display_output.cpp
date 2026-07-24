@@ -110,6 +110,7 @@ void validate_source_and_request(
     // A GPU kernel cannot report which sample was invalid. Perform the same finite-value
     // contract check before backend selection so CPU, Metal and automatic fallback fail alike.
     for (std::uint32_t y = 0U; y < source.dimensions.height; ++y) {
+        detail::throw_if_row_cancelled();
         const std::size_t row = static_cast<std::size_t>(y) * stride_samples;
         const std::size_t active_samples =
             static_cast<std::size_t>(source.dimensions.width) * 3U;

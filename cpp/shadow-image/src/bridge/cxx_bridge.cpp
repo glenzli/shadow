@@ -1275,6 +1275,18 @@ FfiRawPipelineReceipt EditPreviewHandle::raw_pipeline_receipt() const {
     return shadow::bridge::raw_pipeline_receipt(session_.raw_pipeline_receipt());
 }
 
+bool EditPreviewCancellationHandle::cancel() const noexcept {
+    return source_.request_stop();
+}
+
+std::stop_token EditPreviewCancellationHandle::token() const noexcept {
+    return source_.get_token();
+}
+
+std::shared_ptr<EditPreviewCancellationHandle> new_edit_preview_cancellation() {
+    return std::make_shared<EditPreviewCancellationHandle>();
+}
+
 FfiEncodedProxy EditPreviewHandle::render_adjustment_plan(
     const FfiAdjustmentRenderRequest& request
 ) const {
@@ -1303,6 +1315,65 @@ FfiAnalyzedEditPreview EditPreviewHandle::render_adjustment_plan_with_analysis(
     return analyzed_edit_preview(
         session_.render_jpeg_with_analysis(nodes, request.jpeg_quality)
     );
+}
+
+FfiCancellableEncodedProxy EditPreviewHandle::render_adjustment_plan_cancellable(
+    const FfiAdjustmentRenderRequest& request,
+    const EditPreviewCancellationHandle& cancellation
+) const {
+    if (request.max_edge != session_.max_edge()) {
+        throw image::DecodeError(
+            image::DecodeErrorCode::invalid_request,
+            0,
+            "warm edit preview request does not match the prepared max edge"
+        );
+    }
+    const auto nodes = adjustment_nodes(request.nodes);
+    auto rendered = session_.render_jpeg_cancellable(
+        nodes,
+        request.jpeg_quality,
+        cancellation.token()
+    );
+    if (rendered.cancelled()) {
+        return FfiCancellableEncodedProxy{
+            .cancelled = true,
+            .proxy = {},
+        };
+    }
+    return FfiCancellableEncodedProxy{
+        .cancelled = false,
+        .proxy = encoded_proxy(*rendered.completed),
+    };
+}
+
+FfiCancellableAnalyzedEditPreview
+EditPreviewHandle::render_adjustment_plan_with_analysis_cancellable(
+    const FfiAdjustmentRenderRequest& request,
+    const EditPreviewCancellationHandle& cancellation
+) const {
+    if (request.max_edge != session_.max_edge()) {
+        throw image::DecodeError(
+            image::DecodeErrorCode::invalid_request,
+            0,
+            "warm edit preview request does not match the prepared max edge"
+        );
+    }
+    const auto nodes = adjustment_nodes(request.nodes);
+    auto rendered = session_.render_jpeg_with_analysis_cancellable(
+        nodes,
+        request.jpeg_quality,
+        cancellation.token()
+    );
+    if (rendered.cancelled()) {
+        return FfiCancellableAnalyzedEditPreview{
+            .cancelled = true,
+            .preview = {},
+        };
+    }
+    return FfiCancellableAnalyzedEditPreview{
+        .cancelled = false,
+        .preview = analyzed_edit_preview(*rendered.completed),
+    };
 }
 
 std::unique_ptr<FullEditDetailHandle> DecodeHandle::prepare_edit_detail() const {

@@ -5,6 +5,7 @@
 namespace shadow::bridge {
 class DecodeHandle;
 class EditPreviewHandle;
+class EditPreviewCancellationHandle;
 class FullEditDetailHandle;
 }
 
@@ -15,6 +16,7 @@ class FullEditDetailHandle;
 #include <shadow/image/edit.hpp>
 
 #include <memory>
+#include <stop_token>
 
 namespace shadow::bridge {
 
@@ -106,9 +108,36 @@ public:
     [[nodiscard]] FfiAnalyzedEditPreview render_adjustment_plan_with_analysis(
         const FfiAdjustmentRenderRequest& request
     ) const;
+    [[nodiscard]] FfiCancellableEncodedProxy render_adjustment_plan_cancellable(
+        const FfiAdjustmentRenderRequest& request,
+        const EditPreviewCancellationHandle& cancellation
+    ) const;
+    [[nodiscard]] FfiCancellableAnalyzedEditPreview
+    render_adjustment_plan_with_analysis_cancellable(
+        const FfiAdjustmentRenderRequest& request,
+        const EditPreviewCancellationHandle& cancellation
+    ) const;
 
 private:
     image::WarmEditPreviewSession session_;
+};
+
+// One-shot cancellation source shared by Rust clones through cxx::SharedPtr. request_stop() is
+// idempotent and thread-safe; a token is copied into each native render without borrowing this
+// handle past the call.
+class EditPreviewCancellationHandle final {
+public:
+    EditPreviewCancellationHandle() = default;
+    ~EditPreviewCancellationHandle() = default;
+
+    EditPreviewCancellationHandle(const EditPreviewCancellationHandle&) = delete;
+    EditPreviewCancellationHandle& operator=(const EditPreviewCancellationHandle&) = delete;
+
+    [[nodiscard]] bool cancel() const noexcept;
+    [[nodiscard]] std::stop_token token() const noexcept;
+
+private:
+    mutable std::stop_source source_;
 };
 
 // The complete retained source is immutable and contains no decoder. Every tile render owns its
@@ -151,6 +180,8 @@ private:
 [[nodiscard]] rust::String libraw_provider_version();
 [[nodiscard]] rust::String photo_provider_version();
 [[nodiscard]] rust::String edit_preview_generator_implementation_identity();
+[[nodiscard]] std::shared_ptr<EditPreviewCancellationHandle>
+new_edit_preview_cancellation();
 [[nodiscard]] rust::Vec<rust::String> photo_supported_raster_extensions();
 [[nodiscard]] rust::String raw_development_plan_identity(const FfiRawDevelopmentPlan& plan);
 [[nodiscard]] FfiEncodedProxy render_photo_reference_proxy(

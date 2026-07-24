@@ -16,6 +16,7 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <stop_token>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -2126,6 +2127,28 @@ void jpeg_raster_provider_uses_the_common_non_destructive_graph() {
     expect(
         edited.bytes == reference.bytes,
         "JPEG follows the exact same neutral edit graph and display boundary as its reference proxy"
+    );
+
+    const auto warm = image::prepare_warm_edit_preview(*session, 1'024U);
+    std::stop_source cancellation;
+    expect(cancellation.request_stop(), "first preview cancellation request succeeds");
+    const auto cancelled = warm.render_jpeg_cancellable(
+        neutral_nodes,
+        90U,
+        cancellation.get_token()
+    );
+    const auto cancelled_analysis = warm.render_jpeg_with_analysis_cancellable(
+        neutral_nodes,
+        90U,
+        cancellation.get_token()
+    );
+    expect(
+        cancelled.cancelled() && cancelled_analysis.cancelled(),
+        "pre-cancelled CPU/Metal warm previews return explicit Cancelled without partial output"
+    );
+    expect(
+        !warm.render_jpeg(neutral_nodes, 90U).bytes.empty(),
+        "a cancelled request does not poison the immutable warm session"
     );
 }
 

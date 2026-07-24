@@ -8,6 +8,7 @@
 #include <memory>
 #include <optional>
 #include <span>
+#include <stop_token>
 #include <string>
 #include <vector>
 
@@ -35,7 +36,14 @@ public:
         bool had_active_adjustments = false;
     };
 
+    enum class RenderStatus : std::uint8_t {
+        completed,
+        cancelled,
+        unavailable_or_failed,
+    };
+
     struct RenderAttempt final {
+        RenderStatus status = RenderStatus::unavailable_or_failed;
         std::optional<RenderResult> output;
         std::string diagnostic;
     };
@@ -43,7 +51,8 @@ public:
     [[nodiscard]] RenderAttempt render(
         std::span<const AdjustmentNode> nodes,
         const EditExecutionPlan& plan,
-        bool retain_linear_for_analysis
+        bool retain_linear_for_analysis,
+        std::stop_token cancellation = {}
     ) const;
 
     [[nodiscard]] WarmEditPreviewGpuStats stats() const noexcept;

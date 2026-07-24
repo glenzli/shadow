@@ -20,6 +20,7 @@ namespace shadow::image::detail {
 namespace {
 
 thread_local bool is_image_worker = false;
+thread_local std::stop_token active_row_stop_token;
 
 [[nodiscard]] std::size_t default_worker_count() noexcept {
     const std::size_t hardware = std::max(1U, std::thread::hardware_concurrency());
@@ -94,6 +95,7 @@ struct RowJob final {
     const RowRangeTask* task = nullptr;
     std::atomic<std::uint32_t> next_row{0U};
     std::atomic<std::size_t> participants{0U};
+    std::stop_token stop_token;
     std::mutex completion_mutex;
     std::condition_variable completion;
     std::mutex exception_mutex;
@@ -102,11 +104,19 @@ struct RowJob final {
 
 void run_row_job(const std::shared_ptr<RowJob>& job) noexcept {
     try {
+        // A worker does not inherit the submitting thread's thread-local cancellation context.
+        // Install the copied token while this participant runs so nested row stages and explicit
+        // per-row checkpoints observe the same request-local stop signal.
+        const ScopedRowCancellation scoped_cancellation(job->stop_token);
         // Every participant owns a copy of the callable. Pixel transforms are normally
         // stateless, but preserving per-participant callable state keeps the shared executor
         // no less safe than the former per-operation std::thread implementation.
         const RowRangeTask task = *job->task;
         while (true) {
+            if (job->stop_token.stop_requested()) {
+                job->next_row.store(job->row_count, std::memory_order_relaxed);
+                break;
+            }
             const std::uint32_t first = job->next_row.fetch_add(
                 job->chunk_size,
                 std::memory_order_relaxed
@@ -134,11 +144,31 @@ void run_row_job(const std::shared_ptr<RowJob>& job) noexcept {
 
 } // namespace
 
+ScopedRowCancellation::ScopedRowCancellation(const std::stop_token token) noexcept
+    : previous_(active_row_stop_token) {
+    active_row_stop_token = token;
+}
+
+ScopedRowCancellation::~ScopedRowCancellation() {
+    active_row_stop_token = previous_;
+}
+
+bool row_cancellation_requested() noexcept {
+    return active_row_stop_token.stop_requested();
+}
+
+void throw_if_row_cancelled() {
+    if (row_cancellation_requested()) {
+        throw RowExecutionCancelled{};
+    }
+}
+
 void parallel_for_rows(
     const std::uint32_t row_count,
     const std::uint32_t minimum_rows_per_chunk,
     const RowRangeTask& task
 ) {
+    throw_if_row_cancelled();
     if (row_count == 0U) {
         return;
     }
@@ -149,6 +179,7 @@ void parallel_for_rows(
     const std::size_t participant_count = std::min(pool.size() + 1U, available_chunks);
     if (participant_count <= 1U || is_image_worker) {
         task(0U, row_count);
+        throw_if_row_cancelled();
         return;
     }
 
@@ -156,6 +187,7 @@ void parallel_for_rows(
     job->row_count = row_count;
     job->chunk_size = chunk_size;
     job->task = &task;
+    job->stop_token = active_row_stop_token;
     job->participants.store(participant_count, std::memory_order_relaxed);
     for (std::size_t index = 1U; index < participant_count; ++index) {
         pool.enqueue([job] { run_row_job(job); });
@@ -171,6 +203,7 @@ void parallel_for_rows(
     if (job->exception != nullptr) {
         std::rethrow_exception(job->exception);
     }
+    throw_if_row_cancelled();
 }
 
 std::size_t image_worker_count() noexcept {

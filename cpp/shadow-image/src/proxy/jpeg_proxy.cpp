@@ -4,6 +4,7 @@
 
 #include "display_rgb_math.hpp"
 #include "warm_edit_gpu.hpp"
+#include "../concurrency/row_scheduler.hpp"
 
 #include <jpeglib.h>
 
@@ -951,13 +952,17 @@ struct PreparedEditPreviewPixels final {
     return receipt;
 }
 
-[[nodiscard]] PreparedEditPreviewPixels prepare_edit_preview_pixels(
+[[nodiscard]] std::optional<PreparedEditPreviewPixels> prepare_edit_preview_pixels(
     const FloatRgbImage& working_proxy,
     const std::shared_ptr<detail::WarmEditGpuSession>& warm_gpu_session,
     const std::string_view warm_gpu_diagnostic,
     const std::span<const AdjustmentNode> nodes,
-    const bool retain_linear_for_analysis
+    const bool retain_linear_for_analysis,
+    const std::stop_token cancellation
 ) {
+    if (cancellation.stop_requested()) {
+        return std::nullopt;
+    }
     const AdjustmentBackendMode backend_mode =
         adjustment_backend_mode_from_environment();
     if (backend_mode != AdjustmentBackendMode::cpu) {
@@ -968,14 +973,22 @@ struct PreparedEditPreviewPixels final {
             working_proxy.level_zero_to_raster_scale_x,
             working_proxy.level_zero_to_raster_scale_y
         );
+        if (cancellation.stop_requested()) {
+            return std::nullopt;
+        }
         std::string diagnostic(warm_gpu_diagnostic);
         if (warm_gpu_session) {
             auto attempt = warm_gpu_session->render(
                 nodes,
                 plan,
-                retain_linear_for_analysis
+                retain_linear_for_analysis,
+                cancellation
             );
-            if (attempt.output.has_value()) {
+            if (attempt.status == detail::WarmEditGpuSession::RenderStatus::cancelled) {
+                return std::nullopt;
+            }
+            if (attempt.status == detail::WarmEditGpuSession::RenderStatus::completed
+                && attempt.output.has_value()) {
                 auto output = std::move(*attempt.output);
                 EditPreviewExecutionReceipt receipt;
                 if (output.had_active_adjustments) {
@@ -1000,6 +1013,9 @@ struct PreparedEditPreviewPixels final {
                     .execution = std::move(receipt),
                 };
             }
+            if (cancellation.stop_requested()) {
+                return std::nullopt;
+            }
             diagnostic = std::move(attempt.diagnostic);
         }
         if (diagnostic.empty()) {
@@ -1016,19 +1032,32 @@ struct PreparedEditPreviewPixels final {
         // Automatic selection is all-or-nothing at the fused boundary. A declined/failing warm
         // attempt replays adjustment and display completely on the CPU from the immutable host
         // source; it never drops into the old split Metal stages and cannot expose partial data.
-        auto adjustment = execute_adjustment_nodes_with_backend(
-            working_proxy,
-            nodes,
-            AdjustmentExecutionContext{
-                .full_dimensions = working_proxy.dimensions,
-            },
-            AdjustmentBackendMode::cpu
-        );
-        auto display = render_linear_srgb_to_display_srgb8_with_backend(
-            adjustment.pixels,
-            DisplayOutputRequest{.target_dimensions = adjustment.pixels.dimensions},
-            DisplayOutputBackendMode::cpu
-        );
+        AdjustmentExecutionResult adjustment;
+        DisplayRgb8Image display;
+        try {
+            detail::ScopedRowCancellation scoped_cancellation(cancellation);
+            detail::throw_if_row_cancelled();
+            adjustment = execute_adjustment_nodes_with_backend(
+                working_proxy,
+                nodes,
+                AdjustmentExecutionContext{
+                    .full_dimensions = working_proxy.dimensions,
+                },
+                AdjustmentBackendMode::cpu
+            );
+            detail::throw_if_row_cancelled();
+            display = render_linear_srgb_to_display_srgb8_with_backend(
+                adjustment.pixels,
+                DisplayOutputRequest{.target_dimensions = adjustment.pixels.dimensions},
+                DisplayOutputBackendMode::cpu
+            );
+            detail::throw_if_row_cancelled();
+        } catch (const detail::RowExecutionCancelled&) {
+            return std::nullopt;
+        }
+        if (cancellation.stop_requested()) {
+            return std::nullopt;
+        }
         auto receipt = edit_preview_execution_receipt(adjustment, display);
         receipt.adjustment_fell_back = !plan.segments.empty();
         receipt.display_fell_back = true;
@@ -1050,19 +1079,32 @@ struct PreparedEditPreviewPixels final {
         };
     }
 
-    auto adjustment = execute_adjustment_nodes_with_backend(
-        working_proxy,
-        nodes,
-        AdjustmentExecutionContext{
-            .full_dimensions = working_proxy.dimensions,
-        },
-        AdjustmentBackendMode::cpu
-    );
-    auto display = render_linear_srgb_to_display_srgb8_with_backend(
-        adjustment.pixels,
-        DisplayOutputRequest{.target_dimensions = adjustment.pixels.dimensions},
-        DisplayOutputBackendMode::cpu
-    );
+    AdjustmentExecutionResult adjustment;
+    DisplayRgb8Image display;
+    try {
+        detail::ScopedRowCancellation scoped_cancellation(cancellation);
+        detail::throw_if_row_cancelled();
+        adjustment = execute_adjustment_nodes_with_backend(
+            working_proxy,
+            nodes,
+            AdjustmentExecutionContext{
+                .full_dimensions = working_proxy.dimensions,
+            },
+            AdjustmentBackendMode::cpu
+        );
+        detail::throw_if_row_cancelled();
+        display = render_linear_srgb_to_display_srgb8_with_backend(
+            adjustment.pixels,
+            DisplayOutputRequest{.target_dimensions = adjustment.pixels.dimensions},
+            DisplayOutputBackendMode::cpu
+        );
+        detail::throw_if_row_cancelled();
+    } catch (const detail::RowExecutionCancelled&) {
+        return std::nullopt;
+    }
+    if (cancellation.stop_requested()) {
+        return std::nullopt;
+    }
     auto execution = edit_preview_execution_receipt(adjustment, display);
     return PreparedEditPreviewPixels{
         .dimensions = adjustment.pixels.dimensions,
@@ -1074,10 +1116,14 @@ struct PreparedEditPreviewPixels final {
     };
 }
 
-[[nodiscard]] EditPreviewAnalysis analyze_edit_preview(
+[[nodiscard]] std::optional<EditPreviewAnalysis> analyze_edit_preview(
     const FloatRgbImage& edited,
-    const std::vector<std::uint8_t>& rgb
+    const std::vector<std::uint8_t>& rgb,
+    const std::stop_token cancellation
 ) {
+    if (cancellation.stop_requested()) {
+        return std::nullopt;
+    }
     if (edited.dimensions.width == 0U || edited.dimensions.height == 0U) {
         throw DecodeError(
             DecodeErrorCode::internal,
@@ -1122,6 +1168,9 @@ struct PreparedEditPreviewPixels final {
     analysis.sample_dimensions = edited.dimensions;
     analysis.pixel_count = edited.dimensions.pixel_count();
     for (std::uint32_t y = 0; y < edited.dimensions.height; ++y) {
+        if (cancellation.stop_requested()) {
+            return std::nullopt;
+        }
         for (std::uint32_t x = 0; x < edited.dimensions.width; ++x) {
             const std::size_t rgb_index =
                 (static_cast<std::size_t>(y) * edited.dimensions.width + x) * 3U;
@@ -1153,14 +1202,20 @@ struct PreparedEditPreviewPixels final {
             analysis.highlight_clipped_pixels += highlight_clipped ? 1U : 0U;
         }
     }
-    return analysis;
+    return cancellation.stop_requested()
+        ? std::nullopt
+        : std::optional<EditPreviewAnalysis>{std::move(analysis)};
 }
 
-[[nodiscard]] std::vector<std::uint8_t> encode_jpeg(
+[[nodiscard]] std::optional<std::vector<std::uint8_t>> encode_jpeg_cancellable(
     const std::vector<std::uint8_t>& rgb,
     const Dimensions dimensions,
-    const std::uint8_t quality
+    const std::uint8_t quality,
+    const std::stop_token cancellation
 ) {
+    if (cancellation.stop_requested()) {
+        return std::nullopt;
+    }
     jpeg_compress_struct encoder{};
     JpegErrorManager error{};
     encoder.err = jpeg_std_error(&error.base);
@@ -1197,6 +1252,13 @@ struct PreparedEditPreviewPixels final {
 
     const std::size_t row_stride = static_cast<std::size_t>(dimensions.width) * 3U;
     while (encoder.next_scanline < encoder.image_height) {
+        if (cancellation.stop_requested()) {
+            jpeg_abort_compress(&encoder);
+            std::free(error.output);
+            error.output = nullptr;
+            jpeg_destroy_compress(&encoder);
+            return std::nullopt;
+        }
         auto* row = const_cast<JSAMPLE*>(
             rgb.data() + static_cast<std::size_t>(encoder.next_scanline) * row_stride
         );
@@ -1209,7 +1271,25 @@ struct PreparedEditPreviewPixels final {
     std::free(error.output);
     error.output = nullptr;
     jpeg_destroy_compress(&encoder);
-    return result;
+    return cancellation.stop_requested()
+        ? std::nullopt
+        : std::optional<std::vector<std::uint8_t>>{std::move(result)};
+}
+
+[[nodiscard]] std::vector<std::uint8_t> encode_jpeg(
+    const std::vector<std::uint8_t>& rgb,
+    const Dimensions dimensions,
+    const std::uint8_t quality
+) {
+    auto encoded = encode_jpeg_cancellable(rgb, dimensions, quality, {});
+    if (!encoded.has_value()) {
+        throw DecodeError(
+            DecodeErrorCode::internal,
+            0,
+            "non-cancellable JPEG proxy encoding was unexpectedly cancelled"
+        );
+    }
+    return std::move(*encoded);
 }
 
 struct PreparedReferenceRgb final {
@@ -1507,23 +1587,37 @@ EncodedProxy WarmEditPreviewSession::render_jpeg(
     const std::span<const AdjustmentNode> nodes,
     const std::uint8_t jpeg_quality
 ) const {
-    validate_jpeg_quality(jpeg_quality);
-    auto prepared = prepare_edit_preview_pixels(
-        working_proxy_,
-        warm_gpu_session_,
-        warm_gpu_diagnostic_,
-        nodes,
-        false
-    );
-    EncodedProxy proxy;
-    proxy.dimensions = prepared.dimensions;
-    proxy.bytes = encode_jpeg(prepared.rgb, prepared.dimensions, jpeg_quality);
-    return proxy;
+    auto rendered = render_jpeg_cancellable(nodes, jpeg_quality, {});
+    if (rendered.cancelled()) {
+        throw DecodeError(
+            DecodeErrorCode::internal,
+            0,
+            "non-cancellable warm preview was unexpectedly cancelled"
+        );
+    }
+    return std::move(*rendered.completed);
 }
 
 AnalyzedEditPreview WarmEditPreviewSession::render_jpeg_with_analysis(
     const std::span<const AdjustmentNode> nodes,
     const std::uint8_t jpeg_quality
+) const {
+    auto rendered = render_jpeg_with_analysis_cancellable(nodes, jpeg_quality, {});
+    if (rendered.cancelled()) {
+        throw DecodeError(
+            DecodeErrorCode::internal,
+            0,
+            "non-cancellable analyzed warm preview was unexpectedly cancelled"
+        );
+    }
+    return std::move(*rendered.completed);
+}
+
+CancellableEditPreviewResult<EncodedProxy>
+WarmEditPreviewSession::render_jpeg_cancellable(
+    const std::span<const AdjustmentNode> nodes,
+    const std::uint8_t jpeg_quality,
+    const std::stop_token cancellation
 ) const {
     validate_jpeg_quality(jpeg_quality);
     auto prepared = prepare_edit_preview_pixels(
@@ -1531,28 +1625,81 @@ AnalyzedEditPreview WarmEditPreviewSession::render_jpeg_with_analysis(
         warm_gpu_session_,
         warm_gpu_diagnostic_,
         nodes,
-        true
+        false,
+        cancellation
     );
-    if (!prepared.edited.has_value()) {
+    if (!prepared.has_value()) {
+        return {};
+    }
+    auto encoded = encode_jpeg_cancellable(
+        prepared->rgb,
+        prepared->dimensions,
+        jpeg_quality,
+        cancellation
+    );
+    if (!encoded.has_value()) {
+        return {};
+    }
+    return {
+        .completed = EncodedProxy{
+            .dimensions = prepared->dimensions,
+            .bytes = std::move(*encoded),
+        },
+    };
+}
+
+CancellableEditPreviewResult<AnalyzedEditPreview>
+WarmEditPreviewSession::render_jpeg_with_analysis_cancellable(
+    const std::span<const AdjustmentNode> nodes,
+    const std::uint8_t jpeg_quality,
+    const std::stop_token cancellation
+) const {
+    validate_jpeg_quality(jpeg_quality);
+    auto prepared = prepare_edit_preview_pixels(
+        working_proxy_,
+        warm_gpu_session_,
+        warm_gpu_diagnostic_,
+        nodes,
+        true,
+        cancellation
+    );
+    if (!prepared.has_value()) {
+        return {};
+    }
+    if (!prepared->edited.has_value()) {
         throw DecodeError(
             DecodeErrorCode::internal,
             0,
             "analyzed warm preview did not retain its scene-linear result"
         );
     }
-    auto analysis = analyze_edit_preview(*prepared.edited, prepared.rgb);
+    auto analysis = analyze_edit_preview(
+        *prepared->edited,
+        prepared->rgb,
+        cancellation
+    );
+    if (!analysis.has_value()) {
+        return {};
+    }
+    auto encoded = encode_jpeg_cancellable(
+        prepared->rgb,
+        prepared->dimensions,
+        jpeg_quality,
+        cancellation
+    );
+    if (!encoded.has_value()) {
+        return {};
+    }
 
     EncodedProxy proxy;
-    proxy.dimensions = prepared.dimensions;
-    proxy.bytes = encode_jpeg(
-        prepared.rgb,
-        prepared.dimensions,
-        jpeg_quality
-    );
-    return AnalyzedEditPreview{
-        .proxy = std::move(proxy),
-        .analysis = std::move(analysis),
-        .execution = std::move(prepared.execution),
+    proxy.dimensions = prepared->dimensions;
+    proxy.bytes = std::move(*encoded);
+    return {
+        .completed = AnalyzedEditPreview{
+            .proxy = std::move(proxy),
+            .analysis = std::move(*analysis),
+            .execution = std::move(prepared->execution),
+        },
     };
 }
 
