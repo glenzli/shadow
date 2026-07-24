@@ -205,11 +205,30 @@ void EditController::leaveDetailMode() {
 void EditController::finishPreviewTask() {
     EditPreviewTaskResult result = preview_watcher_.result();
     const EditPreviewKind kind = result.generation.kind();
+    if (preview_render_token_ == result.generation.render_token) {
+        preview_render_token_ = 0;
+    }
     setPreviewRunning(kind, false);
     if (close_after_autosave_) {
         preview_queued_ = false;
         before_requested_ = false;
         detail_queued_ = false;
+        maybeFinishDeferredApplicationClose();
+        return;
+    }
+    if (result.terminal == EditPreviewTerminal::Cancelled) {
+        // Cancellation is a successful control-flow outcome. It must not
+        // publish pixels, histogram, optics receipts, settled revisions,
+        // errors, or trigger detail warmup. The latest queued snapshot starts
+        // as soon as this first-phase host cancellation reaches the worker
+        // boundary; native checkpoint cancellation is added separately.
+        if (preview_queued_) {
+            preview_queued_ = false;
+            preview_debounce_.start(0);
+        } else {
+            maybeStartBeforePreview();
+            maybeStartDetailRender();
+        }
         maybeFinishDeferredApplicationClose();
         return;
     }
@@ -244,6 +263,10 @@ void EditController::finishPreviewTask() {
                 }
             }
         } else {
+            if (result.generation.policy == EditPreviewPolicy::Interactive
+                && !active_parameter_gestures_.isEmpty()) {
+                first_interactive_frame_presented_ = true;
+            }
             if (accepted && result.generation.policy == EditPreviewPolicy::Settled
                 && result.preview.analysis.available) {
                 settled_render_revision_ = result.generation.current_revision;
@@ -490,6 +513,8 @@ void EditController::startPreviewRender() {
         ? EDIT_INTERACTIVE_PREVIEW_EDGE : EDIT_PREVIEW_EDGE;
     const std::uint8_t jpeg_quality = interactive
         ? EDIT_INTERACTIVE_PREVIEW_QUALITY : EDIT_PREVIEW_QUALITY;
+    preview_render_token_ = backend_->beginEditPreviewRequest();
+    in_flight_preview_policy_ = policy;
   setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
       "EditController", "Rendering preview…")));
     preview_watcher_.setFuture(QtConcurrent::run(
@@ -499,12 +524,14 @@ void EditController::startPreviewRender() {
         source_path_,
         base_commit_id_,
         grade_stack_,
+        preview_render_token_,
         max_edge,
         jpeg_quality,
         EditPreviewGeneration{
             .policy = policy,
             .photo = photo_generation_,
             .current_revision = render_revision_,
+            .render_token = preview_render_token_,
         }
     ));
 }
@@ -628,6 +655,8 @@ void EditController::maybeStartBeforePreview() {
         return;
     }
     setPreviewRunning(EditPreviewKind::NeutralBefore, true);
+    preview_render_token_ = backend_->beginEditPreviewRequest();
+    in_flight_preview_policy_ = EditPreviewPolicy::NeutralBefore;
     preview_watcher_.setFuture(QtConcurrent::run(
         EditTaskRunner::renderPreview,
         backend_,
@@ -635,12 +664,14 @@ void EditController::maybeStartBeforePreview() {
         source_path_,
         QString{},
         BackendGradeStack{},
+        preview_render_token_,
         EDIT_PREVIEW_EDGE,
         EDIT_PREVIEW_QUALITY,
         EditPreviewGeneration{
             .policy = EditPreviewPolicy::NeutralBefore,
             .photo = photo_generation_,
             .current_revision = 0,
+            .render_token = preview_render_token_,
         }
     ));
 }
@@ -737,12 +768,30 @@ void EditController::schedulePreview(const int delay_ms) {
     }
     if (current_rendering_ || before_rendering_) {
         preview_queued_ = true;
+        cancelActivePreview(false);
     }
     // A leading-edge throttle keeps the first response prompt during a drag.
     // Repeated slider events do not postpone that first frame indefinitely.
     if (delay_ms <= 0 || !preview_debounce_.isActive()) {
         preview_debounce_.start(delay_ms);
     }
+}
+
+void EditController::cancelActivePreview(const bool force) {
+    if (preview_render_token_ == 0) {
+        return;
+    }
+    if (!should_cancel_edit_preview(EditPreviewCancellationState{
+            .force = force,
+            .current_rendering = current_rendering_,
+            .in_flight_policy = in_flight_preview_policy_,
+            .gesture_active = !active_parameter_gestures_.isEmpty(),
+            .first_interactive_frame_presented =
+                first_interactive_frame_presented_,
+        })) {
+        return;
+    }
+    (void)backend_->cancelEditPreviewRequest(preview_render_token_);
 }
 
 void EditController::setPreviewRunning(

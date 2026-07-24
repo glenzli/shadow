@@ -422,6 +422,7 @@ struct BackendEditedPreview final {
     BackendOpticsReceipt optics;
     std::uint32_t width = 0;
     std::uint32_t height = 0;
+    EditPreviewTerminal terminal = EditPreviewTerminal::Completed;
 };
 
 struct BackendEditedDetailTile final {
@@ -529,10 +530,15 @@ public:
         const QString& source_path,
         const QString& base_commit_id,
         const BackendGradeStack& grade_stack,
+        std::uint64_t render_token,
         std::uint32_t max_edge,
         std::uint8_t jpeg_quality,
         EditPreviewPolicy policy
     ) const;
+    [[nodiscard]] std::uint64_t beginEditPreviewRequest() const noexcept;
+    [[nodiscard]] bool cancelEditPreviewRequest(
+        std::uint64_t render_token
+    ) const noexcept;
     [[nodiscard]] std::uint64_t beginEditDetailRequest() const noexcept;
     [[nodiscard]] BackendEditedDetailViewport renderEditDetailViewport(
         const QString& photo_id,

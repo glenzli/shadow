@@ -491,6 +491,7 @@ private:
     [[nodiscard]] QString gradeNodeHistoryKey(const QString& key) const;
     [[nodiscard]] QString uniqueGradeNodeLabel(const QString& base) const;
     void finishActiveGesture();
+    void cancelActivePreview(bool force);
     void clearSessionHistory();
     void recordWorkingTransition(
         const QString& key,
@@ -603,6 +604,7 @@ private:
     quint64 detail_viewport_revision_ = 0;
     quint64 detail_render_token_ = 0;
     quint64 detail_warmup_token_ = 0;
+    quint64 preview_render_token_ = 0;
     quint32 detail_full_width_ = 0;
     quint32 detail_full_height_ = 0;
     quint64 detail_retained_bytes_ = 0;
@@ -629,6 +631,11 @@ private:
     bool preview_queued_ = false;
     bool before_requested_ = false;
     bool detail_queued_ = false;
+    EditPreviewPolicy in_flight_preview_policy_ = EditPreviewPolicy::Settled;
+    // The first interactive frame in one gesture is protected from repeated
+    // slider samples so the user sees prompt feedback. Once it has presented,
+    // later interactive frames may be cancelled in favour of the latest value.
+    bool first_interactive_frame_presented_ = false;
     int selected_grade_node_index_ = -1;
     int selected_point_color_index_ = -1;
     bool point_color_picker_active_ = false;

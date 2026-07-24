@@ -17,6 +17,18 @@ enum class EditPreviewPolicy : std::uint8_t {
     NeutralBefore,
 };
 
+enum class EditPreviewTerminal : std::uint8_t {
+    Completed,
+    Cancelled,
+    Failed,
+};
+
+[[nodiscard]] constexpr bool edit_preview_terminal_admits_publication(
+    const EditPreviewTerminal terminal
+) noexcept {
+    return terminal == EditPreviewTerminal::Completed;
+}
+
 [[nodiscard]] constexpr EditPreviewKind edit_preview_kind(
     const EditPreviewPolicy policy
 ) noexcept {
@@ -46,6 +58,8 @@ struct EditPreviewGeneration final {
     EditPreviewPolicy policy = EditPreviewPolicy::Settled;
     std::uint64_t photo = 0;
     std::uint64_t current_revision = 0;
+    /// Session-issued cancellation/publication terminal claim.
+    std::uint64_t render_token = 0;
 
     [[nodiscard]] constexpr EditPreviewKind kind() const noexcept {
         return edit_preview_kind(policy);
@@ -74,6 +88,31 @@ struct NeutralBeforeStartState final {
     std::uint64_t settled_current_revision = 0;
     std::uint64_t current_revision = 0;
 };
+
+struct EditPreviewCancellationState final {
+    bool force = false;
+    bool current_rendering = false;
+    EditPreviewPolicy in_flight_policy = EditPreviewPolicy::Settled;
+    bool gesture_active = false;
+    bool first_interactive_frame_presented = false;
+};
+
+/// Repeated samples protect the first interactive frame in a gesture. Every
+/// other stale overview is cancellable, including a forced gesture end,
+/// photo/window transition, settled frame, or Neutral Before frame.
+[[nodiscard]] constexpr bool should_cancel_edit_preview(
+    const EditPreviewCancellationState state
+) noexcept {
+    if (state.force) {
+        return true;
+    }
+    const bool protected_first_interactive =
+        state.current_rendering
+        && state.in_flight_policy == EditPreviewPolicy::Interactive
+        && state.gesture_active
+        && !state.first_interactive_frame_presented;
+    return !protected_first_interactive;
+}
 
 [[nodiscard]] constexpr bool accepts_edit_preview(
     const EditPreviewGeneration result,

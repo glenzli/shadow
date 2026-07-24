@@ -7,6 +7,7 @@ mod export_service;
 mod isolated_proxy;
 mod photo_provider;
 mod preview_cache_identity;
+mod preview_render_registry;
 mod recipe_v1;
 mod review_service;
 mod scan_service;
@@ -117,6 +118,9 @@ use preview_cache_identity::{
     EDIT_PREVIEW_GENERATOR_ID, current_source_environment_cache_identity,
     edit_preview_generator_version, prepared_edit_execution_cache_identity,
     prepared_raw_pipeline_cache_identity,
+};
+use preview_render_registry::{
+    PreviewAdmission, PreviewRenderRegistry, PreviewRenderRegistryError, PreviewTerminalClaim,
 };
 use recipe_v1::*;
 
@@ -478,11 +482,20 @@ mod ffi {
         NeutralBefore,
     }
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum FfiEditPreviewTerminal {
+        Completed,
+        Cancelled,
+    }
+
     /// One immutable-base edit preview request crossing the desktop boundary.
     #[derive(Debug)]
     struct FfiEditPreviewRequest {
         base_commit_id: String,
         settings: FfiEditSettings,
+        /// Allocated before the worker is queued. Cancellation and completion
+        /// atomically compete for this token's unique terminal claim.
+        render_token: u64,
         max_edge: u32,
         jpeg_quality: u8,
         policy: FfiEditPreviewPolicy,
@@ -569,6 +582,7 @@ mod ffi {
     /// A bounded standard-JPEG preview plus its decoded dimensions.
     #[derive(Debug)]
     struct FfiEditedPreview {
+        terminal: FfiEditPreviewTerminal,
         width: u32,
         height: u32,
         bytes: Vec<u8>,
@@ -746,6 +760,16 @@ mod ffi {
             source_path: &str,
             request: &FfiEditPreviewRequest,
         ) -> Result<FfiEditedPreview>;
+        /// Registers a preview before Qt queues its worker.
+        fn begin_basic_edit_preview(self: &DesktopSession) -> u64;
+        /// Returns true only when cancellation won the unique terminal claim.
+        fn cancel_basic_edit_preview(self: &DesktopSession, render_token: u64) -> bool;
+        /// Lets C++ request construction report a failure only if completion,
+        /// rather than cancellation, owns the token's terminal state.
+        fn claim_basic_edit_preview_terminal(
+            self: &DesktopSession,
+            render_token: u64,
+        ) -> Result<FfiEditPreviewTerminal>;
         fn begin_basic_edit_detail(self: &DesktopSession) -> u64;
         fn render_basic_edit_detail_viewport(
             self: &DesktopSession,
@@ -819,6 +843,7 @@ struct DesktopSession {
     cache_root: PathBuf,
     scanner: ScanService,
     edit_preview_sessions: Mutex<VecDeque<CachedEditPreviewSession>>,
+    edit_preview_render_tokens: PreviewRenderRegistry,
     edit_detail_sessions: Mutex<EditDetailSessionCache>,
     edit_detail_render_token: AtomicU64,
     review: ReviewService,
@@ -888,6 +913,58 @@ impl EditPreviewPolicy {
 
     const fn returns_sensor_diagnostics(self) -> bool {
         !matches!(self, Self::Interactive)
+    }
+}
+
+fn preview_registry_error(error: PreviewRenderRegistryError, token: u64) -> anyhow::Error {
+    anyhow!("edit preview render token {token} is invalid: {error:?}")
+}
+
+const fn admits_recipe_preview_cache(
+    policy: EditPreviewPolicy,
+    terminal: PreviewTerminalClaim,
+) -> bool {
+    policy.admits_durable_cache() && matches!(terminal, PreviewTerminalClaim::Completed)
+}
+
+fn cancelled_edited_preview() -> ffi::FfiEditedPreview {
+    ffi::FfiEditedPreview {
+        terminal: ffi::FfiEditPreviewTerminal::Cancelled,
+        width: 0,
+        height: 0,
+        bytes: Vec::new(),
+        sensor_clipping_available: false,
+        sensor_clipping_width: 0,
+        sensor_clipping_height: 0,
+        sensor_clipping_mask: Vec::new(),
+        sensor_highlight_clipped_pixels: 0,
+        sensor_shadow_clipped_pixels: 0,
+        analysis_available: false,
+        analysis_version: String::new(),
+        analysis_width: 0,
+        analysis_height: 0,
+        red_histogram: Vec::new(),
+        green_histogram: Vec::new(),
+        blue_histogram: Vec::new(),
+        luma_histogram: Vec::new(),
+        below_zero_samples: Vec::new(),
+        above_one_samples: Vec::new(),
+        pixel_count: 0,
+        shadow_clipped_pixels: 0,
+        highlight_clipped_pixels: 0,
+        optics_status: String::new(),
+        optics_provider_id: String::new(),
+        optics_provider_version: String::new(),
+        optics_camera_profile: String::new(),
+        optics_lens_profile: String::new(),
+        optics_distortion_available: false,
+        optics_tca_available: false,
+        optics_vignetting_available: false,
+        optics_applied_distortion: false,
+        optics_applied_tca: false,
+        optics_applied_vignetting: false,
+        optics_vignetting_used_distance_fallback: false,
+        optics_applied_scaling: false,
     }
 }
 
@@ -1210,141 +1287,229 @@ impl DesktopSession {
         source_path: &str,
         request: &ffi::FfiEditPreviewRequest,
     ) -> AnyResult<ffi::FfiEditedPreview> {
-        let (photo_id, source) = self.validated_photo_source(photo_id, source_path)?;
-        let policy = EditPreviewPolicy::from_ffi(request.policy)?;
-        if request.use_working_recipe != policy.uses_working_recipe() {
-            bail!(
-                "edit-preview policy and Recipe source disagree: policy={policy:?}, use_working_recipe={}",
-                request.use_working_recipe
-            );
-        }
-        let source_environment_cache_identity =
-            current_source_environment_cache_identity(&photo_provider_version());
-        let (plan, recipe_identity) = self.basic_edit_render_plan_with_identity(
-            photo_id,
-            &request.base_commit_id,
-            &request.settings,
-            request.use_working_recipe,
-        )?;
-        let session = self.edit_preview_session(
-            &source,
-            request.max_edge,
-            bridge_optics_settings(&request.settings.optics),
-            &source_environment_cache_identity,
-        )?;
-        let (proxy, analysis) = match policy {
-            EditPreviewPolicy::Interactive => {
-                (session.render_plan(&plan, request.jpeg_quality)?, None)
-            }
-            EditPreviewPolicy::Settled | EditPreviewPolicy::NeutralBefore => {
-                let rendered = session.render_plan_with_analysis(&plan, request.jpeg_quality)?;
-                let proxy = rendered.proxy;
-                if policy.admits_durable_cache() {
-                    // The on-screen result remains responsive if disk caching
-                    // is temporarily unavailable. Only a settled current
-                    // Recipe is a durable Gallery acceleration candidate.
-                    if let Err(error) = self.cache_rendered_recipe_preview(
-                        &source,
-                        &proxy,
-                        RecipePreviewCacheRequest {
-                            recipe_snapshot_digest: recipe_identity,
-                            max_edge: request.max_edge,
-                            jpeg_quality: request.jpeg_quality,
-                            raw_pipeline_receipt: session.raw_pipeline_receipt(),
-                            edit_execution_receipt: &rendered.execution,
-                            source_environment_cache_identity: &source_environment_cache_identity,
-                        },
-                    ) {
-                        eprintln!("Shadow: could not cache edited preview: {error:#}");
-                    }
+        let render = (|| -> AnyResult<ffi::FfiEditedPreview> {
+            match self
+                .edit_preview_render_tokens
+                .admission(request.render_token)
+                .map_err(|error| preview_registry_error(error, request.render_token))?
+            {
+                PreviewAdmission::Active => {}
+                PreviewAdmission::Cancelled => {
+                    self.edit_preview_render_tokens
+                        .claim_terminal(request.render_token)
+                        .map_err(|error| preview_registry_error(error, request.render_token))?;
+                    return Ok(cancelled_edited_preview());
                 }
-                (proxy, Some(rendered.analysis))
             }
-        };
-        let optics = session.optics_receipt();
-        let sensor_clipping = session.sensor_clipping_mask();
-        let return_sensor_diagnostics = policy.returns_sensor_diagnostics();
-        let analysis_available = analysis.is_some();
-        debug_assert_eq!(analysis_available, policy.requires_analysis());
-        Ok(ffi::FfiEditedPreview {
-            width: proxy.dimensions.width,
-            height: proxy.dimensions.height,
-            bytes: proxy.bytes,
-            sensor_clipping_available: return_sensor_diagnostics && sensor_clipping.available,
-            sensor_clipping_width: if return_sensor_diagnostics {
-                sensor_clipping.dimensions.width
-            } else {
-                0
+
+            let (photo_id, source) = self.validated_photo_source(photo_id, source_path)?;
+            let policy = EditPreviewPolicy::from_ffi(request.policy)?;
+            if request.use_working_recipe != policy.uses_working_recipe() {
+                bail!(
+                    "edit-preview policy and Recipe source disagree: policy={policy:?}, use_working_recipe={}",
+                    request.use_working_recipe
+                );
+            }
+            let source_environment_cache_identity =
+                current_source_environment_cache_identity(&photo_provider_version());
+            let (plan, recipe_identity) = self.basic_edit_render_plan_with_identity(
+                photo_id,
+                &request.base_commit_id,
+                &request.settings,
+                request.use_working_recipe,
+            )?;
+            let session = self.edit_preview_session(
+                &source,
+                request.max_edge,
+                bridge_optics_settings(&request.settings.optics),
+                &source_environment_cache_identity,
+            )?;
+            if self
+                .edit_preview_render_tokens
+                .admission(request.render_token)
+                .map_err(|error| preview_registry_error(error, request.render_token))?
+                == PreviewAdmission::Cancelled
+            {
+                self.edit_preview_render_tokens
+                    .claim_terminal(request.render_token)
+                    .map_err(|error| preview_registry_error(error, request.render_token))?;
+                return Ok(cancelled_edited_preview());
+            }
+            let (proxy, analysis, execution) = match policy {
+                EditPreviewPolicy::Interactive => (
+                    session.render_plan(&plan, request.jpeg_quality)?,
+                    None,
+                    None,
+                ),
+                EditPreviewPolicy::Settled | EditPreviewPolicy::NeutralBefore => {
+                    let rendered =
+                        session.render_plan_with_analysis(&plan, request.jpeg_quality)?;
+                    (
+                        rendered.proxy,
+                        Some(rendered.analysis),
+                        Some(rendered.execution),
+                    )
+                }
+            };
+
+            // This is the host-side linearization point. Cancellation that
+            // wins here suppresses host payload inspection, durable caching,
+            // and UI publication below. Native kernels and their internal
+            // validation are not interrupted in this first phase; later work
+            // carries the same token into CPU rows and Metal tiles.
+            let terminal = self
+                .edit_preview_render_tokens
+                .claim_terminal(request.render_token)
+                .map_err(|error| preview_registry_error(error, request.render_token))?;
+            if terminal == PreviewTerminalClaim::Cancelled {
+                return Ok(cancelled_edited_preview());
+            }
+
+            if admits_recipe_preview_cache(policy, terminal) {
+                let execution = execution
+                    .as_ref()
+                    .ok_or_else(|| anyhow!("settled edit preview has no execution receipt"))?;
+                // The on-screen result remains responsive if disk caching is
+                // temporarily unavailable. Only a completed settled current
+                // Recipe may enter the durable Gallery cache.
+                if let Err(error) = self.cache_rendered_recipe_preview(
+                    &source,
+                    &proxy,
+                    RecipePreviewCacheRequest {
+                        recipe_snapshot_digest: recipe_identity,
+                        max_edge: request.max_edge,
+                        jpeg_quality: request.jpeg_quality,
+                        raw_pipeline_receipt: session.raw_pipeline_receipt(),
+                        edit_execution_receipt: execution,
+                        source_environment_cache_identity: &source_environment_cache_identity,
+                    },
+                ) {
+                    eprintln!("Shadow: could not cache edited preview: {error:#}");
+                }
+            }
+            let optics = session.optics_receipt();
+            let sensor_clipping = session.sensor_clipping_mask();
+            let return_sensor_diagnostics = policy.returns_sensor_diagnostics();
+            let analysis_available = analysis.is_some();
+            debug_assert_eq!(analysis_available, policy.requires_analysis());
+            Ok(ffi::FfiEditedPreview {
+                terminal: ffi::FfiEditPreviewTerminal::Completed,
+                width: proxy.dimensions.width,
+                height: proxy.dimensions.height,
+                bytes: proxy.bytes,
+                sensor_clipping_available: return_sensor_diagnostics && sensor_clipping.available,
+                sensor_clipping_width: if return_sensor_diagnostics {
+                    sensor_clipping.dimensions.width
+                } else {
+                    0
+                },
+                sensor_clipping_height: if return_sensor_diagnostics {
+                    sensor_clipping.dimensions.height
+                } else {
+                    0
+                },
+                sensor_clipping_mask: if return_sensor_diagnostics {
+                    sensor_clipping.samples.clone()
+                } else {
+                    Vec::new()
+                },
+                sensor_highlight_clipped_pixels: if return_sensor_diagnostics {
+                    sensor_clipping.highlight_pixel_count
+                } else {
+                    0
+                },
+                sensor_shadow_clipped_pixels: if return_sensor_diagnostics {
+                    sensor_clipping.shadow_pixel_count
+                } else {
+                    0
+                },
+                analysis_available,
+                analysis_version: analysis
+                    .as_ref()
+                    .map_or_else(String::new, |value| value.version.clone()),
+                analysis_width: analysis
+                    .as_ref()
+                    .map_or(0, |value| value.sample_dimensions.width),
+                analysis_height: analysis
+                    .as_ref()
+                    .map_or(0, |value| value.sample_dimensions.height),
+                red_histogram: analysis
+                    .as_ref()
+                    .map_or_else(Vec::new, |value| value.red.to_vec()),
+                green_histogram: analysis
+                    .as_ref()
+                    .map_or_else(Vec::new, |value| value.green.to_vec()),
+                blue_histogram: analysis
+                    .as_ref()
+                    .map_or_else(Vec::new, |value| value.blue.to_vec()),
+                luma_histogram: analysis
+                    .as_ref()
+                    .map_or_else(Vec::new, |value| value.luma.to_vec()),
+                below_zero_samples: analysis
+                    .as_ref()
+                    .map_or_else(Vec::new, |value| value.below_zero_samples.to_vec()),
+                above_one_samples: analysis
+                    .as_ref()
+                    .map_or_else(Vec::new, |value| value.above_one_samples.to_vec()),
+                pixel_count: analysis.as_ref().map_or(0, |value| value.pixel_count),
+                shadow_clipped_pixels: analysis
+                    .as_ref()
+                    .map_or(0, |value| value.shadow_clipped_pixels),
+                highlight_clipped_pixels: analysis
+                    .as_ref()
+                    .map_or(0, |value| value.highlight_clipped_pixels),
+                optics_status: optics.status.clone(),
+                optics_provider_id: optics.provider_id.clone(),
+                optics_provider_version: optics.provider_version.clone(),
+                optics_camera_profile: optics.camera_profile.clone(),
+                optics_lens_profile: optics.lens_profile.clone(),
+                optics_distortion_available: optics.distortion_available,
+                optics_tca_available: optics.tca_available,
+                optics_vignetting_available: optics.vignetting_available,
+                optics_applied_distortion: optics.applied_distortion,
+                optics_applied_tca: optics.applied_tca,
+                optics_applied_vignetting: optics.applied_vignetting,
+                optics_vignetting_used_distance_fallback: optics.vignetting_used_distance_fallback,
+                optics_applied_scaling: optics.applied_scaling,
+            })
+        })();
+
+        match render {
+            Ok(preview) => Ok(preview),
+            Err(error) => match self
+                .edit_preview_render_tokens
+                .claim_terminal(request.render_token)
+            {
+                Ok(PreviewTerminalClaim::Cancelled) => Ok(cancelled_edited_preview()),
+                Ok(PreviewTerminalClaim::Completed)
+                | Err(PreviewRenderRegistryError::TerminalAlreadyClaimed) => Err(error),
+                Err(registry_error) => {
+                    Err(error.context(preview_registry_error(registry_error, request.render_token)))
+                }
             },
-            sensor_clipping_height: if return_sensor_diagnostics {
-                sensor_clipping.dimensions.height
-            } else {
-                0
-            },
-            sensor_clipping_mask: if return_sensor_diagnostics {
-                sensor_clipping.samples.clone()
-            } else {
-                Vec::new()
-            },
-            sensor_highlight_clipped_pixels: if return_sensor_diagnostics {
-                sensor_clipping.highlight_pixel_count
-            } else {
-                0
-            },
-            sensor_shadow_clipped_pixels: if return_sensor_diagnostics {
-                sensor_clipping.shadow_pixel_count
-            } else {
-                0
-            },
-            analysis_available,
-            analysis_version: analysis
-                .as_ref()
-                .map_or_else(String::new, |value| value.version.clone()),
-            analysis_width: analysis
-                .as_ref()
-                .map_or(0, |value| value.sample_dimensions.width),
-            analysis_height: analysis
-                .as_ref()
-                .map_or(0, |value| value.sample_dimensions.height),
-            red_histogram: analysis
-                .as_ref()
-                .map_or_else(Vec::new, |value| value.red.to_vec()),
-            green_histogram: analysis
-                .as_ref()
-                .map_or_else(Vec::new, |value| value.green.to_vec()),
-            blue_histogram: analysis
-                .as_ref()
-                .map_or_else(Vec::new, |value| value.blue.to_vec()),
-            luma_histogram: analysis
-                .as_ref()
-                .map_or_else(Vec::new, |value| value.luma.to_vec()),
-            below_zero_samples: analysis
-                .as_ref()
-                .map_or_else(Vec::new, |value| value.below_zero_samples.to_vec()),
-            above_one_samples: analysis
-                .as_ref()
-                .map_or_else(Vec::new, |value| value.above_one_samples.to_vec()),
-            pixel_count: analysis.as_ref().map_or(0, |value| value.pixel_count),
-            shadow_clipped_pixels: analysis
-                .as_ref()
-                .map_or(0, |value| value.shadow_clipped_pixels),
-            highlight_clipped_pixels: analysis
-                .as_ref()
-                .map_or(0, |value| value.highlight_clipped_pixels),
-            optics_status: optics.status.clone(),
-            optics_provider_id: optics.provider_id.clone(),
-            optics_provider_version: optics.provider_version.clone(),
-            optics_camera_profile: optics.camera_profile.clone(),
-            optics_lens_profile: optics.lens_profile.clone(),
-            optics_distortion_available: optics.distortion_available,
-            optics_tca_available: optics.tca_available,
-            optics_vignetting_available: optics.vignetting_available,
-            optics_applied_distortion: optics.applied_distortion,
-            optics_applied_tca: optics.applied_tca,
-            optics_applied_vignetting: optics.applied_vignetting,
-            optics_vignetting_used_distance_fallback: optics.vignetting_used_distance_fallback,
-            optics_applied_scaling: optics.applied_scaling,
-        })
+        }
+    }
+
+    fn begin_basic_edit_preview(&self) -> u64 {
+        self.edit_preview_render_tokens.begin().unwrap_or(0)
+    }
+
+    fn cancel_basic_edit_preview(&self, render_token: u64) -> bool {
+        self.edit_preview_render_tokens.cancel(render_token)
+    }
+
+    fn claim_basic_edit_preview_terminal(
+        &self,
+        render_token: u64,
+    ) -> AnyResult<ffi::FfiEditPreviewTerminal> {
+        match self
+            .edit_preview_render_tokens
+            .claim_terminal(render_token)
+            .map_err(|error| preview_registry_error(error, render_token))?
+        {
+            PreviewTerminalClaim::Completed => Ok(ffi::FfiEditPreviewTerminal::Completed),
+            PreviewTerminalClaim::Cancelled => Ok(ffi::FfiEditPreviewTerminal::Cancelled),
+        }
     }
 
     fn render_basic_edit_detail_viewport(
@@ -2284,6 +2449,7 @@ fn open_desktop_session(catalog_path: &str, cache_root: &str) -> AnyResult<Box<D
         loader,
         cache_root,
         edit_preview_sessions: Mutex::new(VecDeque::new()),
+        edit_preview_render_tokens: PreviewRenderRegistry::default(),
         edit_detail_sessions: Mutex::new(EditDetailSessionCache::default()),
         edit_detail_render_token: AtomicU64::new(0),
     }))
@@ -2364,6 +2530,19 @@ mod tests {
         assert!(neutral.requires_analysis());
         assert!(!neutral.admits_durable_cache());
         assert!(neutral.returns_sensor_diagnostics());
+
+        assert!(admits_recipe_preview_cache(
+            settled,
+            PreviewTerminalClaim::Completed
+        ));
+        assert!(!admits_recipe_preview_cache(
+            settled,
+            PreviewTerminalClaim::Cancelled
+        ));
+        assert!(!admits_recipe_preview_cache(
+            interactive,
+            PreviewTerminalClaim::Completed
+        ));
     }
 
     #[test]

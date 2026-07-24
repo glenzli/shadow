@@ -246,6 +246,15 @@ void stale_result_rules_are_kind_specific() {
     static_assert(
         !edit_preview_requires_display_diagnostics(EditPreviewPolicy::Interactive)
     );
+    static_assert(edit_preview_terminal_admits_publication(
+        EditPreviewTerminal::Completed
+    ));
+    static_assert(!edit_preview_terminal_admits_publication(
+        EditPreviewTerminal::Cancelled
+    ));
+    static_assert(!edit_preview_terminal_admits_publication(
+        EditPreviewTerminal::Failed
+    ));
 
     constexpr EditDetailGeneration detail{
         .photo = 4,
@@ -287,6 +296,41 @@ void before_waits_for_the_latest_current_preview() {
     );
 }
 
+void first_interactive_frame_is_the_only_sample_protected_from_replacement() {
+    constexpr EditPreviewCancellationState first{
+        .current_rendering = true,
+        .in_flight_policy = EditPreviewPolicy::Interactive,
+        .gesture_active = true,
+    };
+    static_assert(!should_cancel_edit_preview(first));
+
+    auto after_first = first;
+    after_first.first_interactive_frame_presented = true;
+    require(
+        should_cancel_edit_preview(after_first),
+        "interactive frames after the first presentation must be replaceable"
+    );
+    auto gesture_end = first;
+    gesture_end.force = true;
+    require(
+        should_cancel_edit_preview(gesture_end),
+        "gesture end must replace even a protected first frame with settled output"
+    );
+    auto settled = first;
+    settled.in_flight_policy = EditPreviewPolicy::Settled;
+    require(
+        should_cancel_edit_preview(settled),
+        "a stale settled frame must be replaceable"
+    );
+    auto before = first;
+    before.current_rendering = false;
+    before.in_flight_policy = EditPreviewPolicy::NeutralBefore;
+    require(
+        should_cancel_edit_preview(before),
+        "Neutral Before must yield when a current edit is queued"
+    );
+}
+
 } // namespace
 
 int main() {
@@ -295,5 +339,6 @@ int main() {
     detail_tiles_are_atomic_and_generation_guarded();
     stale_result_rules_are_kind_specific();
     before_waits_for_the_latest_current_preview();
+    first_interactive_frame_is_the_only_sample_protected_from_replacement();
     return EXIT_SUCCESS;
 }

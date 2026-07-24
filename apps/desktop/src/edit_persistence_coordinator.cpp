@@ -37,6 +37,10 @@ bool EditController::openPhoto(
             "The selected Review item has no editable original source")));
         return false;
     }
+    if (active_ && (photo_id != photo_id_ || representation_id != representation_id_
+                    || source_path != source_path_)) {
+        cancelActivePreview(true);
+    }
     if (state_running_) {
         if (active_) {
             // Do not make a fast Library selection race a background state
@@ -179,6 +183,7 @@ bool EditController::openPhoto(
 }
 
 void EditController::closePhoto() {
+    cancelActivePreview(true);
     if (state_running_) {
         // A return to Library is allowed while an initial open or an autosave
         // is in flight. A later photo selection can install a fresh pending
@@ -372,6 +377,7 @@ bool EditController::prepareToClose() {
     preview_queued_ = false;
     before_requested_ = false;
     detail_queued_ = false;
+    cancelActivePreview(true);
     // A close must not race a queued photo selection. The existing session
     // still gets its durable working snapshot, but no new Precision session is
     // started on the way out.

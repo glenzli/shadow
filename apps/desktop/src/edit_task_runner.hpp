@@ -29,6 +29,7 @@ struct EditPreviewTaskResult final {
     BackendEditedPreview preview;
     QString error;
     EditPreviewGeneration generation;
+    EditPreviewTerminal terminal = EditPreviewTerminal::Failed;
 };
 
 struct EditDetailTaskResult final {
@@ -98,6 +99,7 @@ namespace EditTaskRunner {
     const QString& source_path,
     const QString& base_commit_id,
     BackendGradeStack grade_stack,
+    std::uint64_t render_token,
     std::uint32_t max_edge,
     std::uint8_t jpeg_quality,
     EditPreviewGeneration generation

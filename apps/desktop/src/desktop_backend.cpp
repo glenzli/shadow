@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <exception>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -1057,22 +1058,53 @@ BackendEditedPreview DesktopBackend::renderEditPreview(
     const QString& source_path,
     const QString& base_commit_id,
     const BackendGradeStack& grade_stack,
+    const std::uint64_t render_token,
     const std::uint32_t max_edge,
     const std::uint8_t jpeg_quality,
     const EditPreviewPolicy policy
 ) const {
     shadow::desktop::FfiEditPreviewRequest request;
-    request.base_commit_id = base_commit_id.toStdString();
-    request.settings = ffi_grade_stack(grade_stack);
-    request.max_edge = max_edge;
-    request.jpeg_quality = jpeg_quality;
-    request.policy = ffi_edit_preview_policy(policy);
-    request.use_working_recipe = edit_preview_kind(policy) == EditPreviewKind::Current;
+    std::string ffi_photo_id;
+    std::string ffi_source_path;
+    try {
+        request.base_commit_id = base_commit_id.toStdString();
+        request.settings = ffi_grade_stack(grade_stack);
+        request.render_token = render_token;
+        request.max_edge = max_edge;
+        request.jpeg_quality = jpeg_quality;
+        request.policy = ffi_edit_preview_policy(policy);
+        request.use_working_recipe =
+            edit_preview_kind(policy) == EditPreviewKind::Current;
+        ffi_photo_id = photo_id.toStdString();
+        ffi_source_path = source_path.toStdString();
+    } catch (...) {
+        const std::exception_ptr construction_error = std::current_exception();
+        try {
+            if (impl_->session->claim_basic_edit_preview_terminal(render_token)
+                == shadow::desktop::FfiEditPreviewTerminal::Cancelled) {
+                return {
+                    .terminal = EditPreviewTerminal::Cancelled,
+                };
+            }
+        } catch (...) {
+            // Preserve the actual request-construction failure. Registry
+            // diagnostics cannot make a malformed request more actionable.
+        }
+        std::rethrow_exception(construction_error);
+    }
     const auto payload = impl_->session->render_basic_edit_preview(
-        photo_id.toStdString(),
-        source_path.toStdString(),
+        ffi_photo_id,
+        ffi_source_path,
         request
     );
+    if (payload.terminal == shadow::desktop::FfiEditPreviewTerminal::Cancelled) {
+        return {
+            .terminal = EditPreviewTerminal::Cancelled,
+        };
+    }
+    if (payload.terminal != shadow::desktop::FfiEditPreviewTerminal::Completed) {
+        throw std::runtime_error("edit preview returned an unknown terminal state");
+    }
     const QByteArray preview_bytes = qbytes(payload.bytes);
     const QSize preview_dimensions(
         static_cast<int>(payload.width),
@@ -1142,7 +1174,18 @@ BackendEditedPreview DesktopBackend::renderEditPreview(
         },
         .width = payload.width,
         .height = payload.height,
+        .terminal = EditPreviewTerminal::Completed,
     };
+}
+
+std::uint64_t DesktopBackend::beginEditPreviewRequest() const noexcept {
+    return impl_->session->begin_basic_edit_preview();
+}
+
+bool DesktopBackend::cancelEditPreviewRequest(
+    const std::uint64_t render_token
+) const noexcept {
+    return impl_->session->cancel_basic_edit_preview(render_token);
 }
 
 std::uint64_t DesktopBackend::beginEditDetailRequest() const noexcept {

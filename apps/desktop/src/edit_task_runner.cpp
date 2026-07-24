@@ -216,6 +216,7 @@ EditPreviewTaskResult renderPreview(
     const QString& source_path,
     const QString& base_commit_id,
     const BackendGradeStack grade_stack,
+    const std::uint64_t render_token,
     const std::uint32_t max_edge,
     const std::uint8_t jpeg_quality,
     const EditPreviewGeneration generation
@@ -228,12 +229,18 @@ EditPreviewTaskResult renderPreview(
             source_path,
             base_commit_id,
             grade_stack,
+            render_token,
             max_edge,
             jpeg_quality,
             generation.policy
         );
+        result.terminal = result.preview.terminal;
     } catch (const std::exception& error) {
         result.error = QString::fromUtf8(error.what());
+        if (result.error.isEmpty()) {
+            result.error = QStringLiteral("edit preview failed without a diagnostic");
+        }
+        result.terminal = EditPreviewTerminal::Failed;
     }
     return result;
 }

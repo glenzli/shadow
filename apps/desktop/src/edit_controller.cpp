@@ -2095,6 +2095,9 @@ void EditController::beginParameterEdit(const QString& parameter_key) {
     }
     const bool could_undo = canUndo();
     const bool could_redo = canRedo();
+    if (active_parameter_gestures_.isEmpty()) {
+        first_interactive_frame_presented_ = false;
+    }
     active_parameter_gestures_.insert(parameter_key);
     history_.beginGesture(gradeNodeHistoryKey(parameter_key).toStdString(), grade_stack_);
     if (could_undo != canUndo() || could_redo != canRedo()) {
@@ -2116,6 +2119,8 @@ void EditController::endParameterEdit(const QString& parameter_key) {
     if (ended_active_gesture && active_parameter_gestures_.isEmpty()) {
         // Replace the low-latency gesture proxy with a normal-resolution
         // frame for the exact final slider value.
+        first_interactive_frame_presented_ = false;
+        cancelActivePreview(true);
         schedulePreview(0);
     }
 }
@@ -2452,6 +2457,8 @@ QString EditController::uniqueGradeNodeLabel(const QString& base) const {
 
 void EditController::finishActiveGesture() {
     active_parameter_gestures_.clear();
+    first_interactive_frame_presented_ = false;
+    cancelActivePreview(true);
     const bool could_undo = canUndo();
     const bool could_redo = canRedo();
     history_.finishGesture(grade_stack_);
