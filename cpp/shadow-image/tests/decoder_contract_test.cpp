@@ -1618,6 +1618,17 @@ void warm_edit_preview_analysis_is_pre_jpeg_and_strictly_pre_clamp() {
 void warm_edit_preview_receipt_tracks_the_effective_display_backend() {
     const BoundaryRgbSession session;
     const auto warm = image::prepare_warm_edit_preview(session, 5U);
+    const auto resident_before_render = warm.gpu_stats();
+    if (resident_before_render.resident) {
+        expect(
+            resident_before_render.source_upload_count == 1U
+                && resident_before_render.gpu_buffer_allocation_count == 9U
+                && resident_before_render.render_count == 0U
+                && resident_before_render.completed_render_count == 0U
+                && resident_before_render.resident_bytes > 0U,
+            "warm Metal preparation uploads one immutable source and allocates two fixed slots"
+        );
+    }
     const std::array neutral_nodes{
         image::AdjustmentNode{
             .node_id = "receipt-neutral-exposure",
@@ -1644,7 +1655,7 @@ void warm_edit_preview_receipt_tracks_the_effective_display_backend() {
         "forced CPU warm preview reports CPU adjustment/display without fallback"
     );
 
-    if (image::display_output_backend_available(image::DisplayOutputBackend::metal)) {
+    if (resident_before_render.resident) {
         image::AnalyzedEditPreview metal;
         {
             const ScopedEnvironment forced_metal("SHADOW_IMAGE_ACCELERATION", "metal");
@@ -1655,7 +1666,7 @@ void warm_edit_preview_receipt_tracks_the_effective_display_backend() {
                 && metal.execution.adjustment_backend == image::EditPreviewBackend::cpu
                 && metal.execution.display_backend == image::EditPreviewBackend::metal
                 && metal.execution.display_backend_version
-                    == image::edit_preview_metal_display_backend_version
+                    == image::edit_preview_warm_fused_metal_backend_version
                 && !metal.execution.adjustment_fell_back
                 && !metal.execution.display_fell_back
                 && metal.execution.diagnostic.empty(),
@@ -1678,14 +1689,103 @@ void warm_edit_preview_receipt_tracks_the_effective_display_backend() {
                 && accelerated.execution.adjustment_backend
                     == image::EditPreviewBackend::metal
                 && accelerated.execution.adjustment_backend_version
-                    == image::edit_preview_metal_adjustment_backend_version
+                    == image::edit_preview_warm_fused_metal_backend_version
                 && accelerated.execution.display_backend == image::EditPreviewBackend::metal
+                && accelerated.execution.display_backend_version
+                    == image::edit_preview_warm_fused_metal_backend_version
                 && !accelerated.execution.adjustment_fell_back
                 && !accelerated.execution.display_fell_back
                 && accelerated.execution.diagnostic.empty(),
             "an active supported warm-preview plan reports Metal adjustment and display"
         );
+
+        const auto allocation_snapshot = warm.gpu_stats();
+        const auto interactive_a = warm.render_jpeg(active_nodes, 84U);
+        const auto interactive_b = warm.render_jpeg(active_nodes, 84U);
+        const auto after_repeated_render = warm.gpu_stats();
+        expect(
+            interactive_a.bytes == interactive_b.bytes
+                && after_repeated_render.source_upload_count
+                    == allocation_snapshot.source_upload_count
+                && after_repeated_render.gpu_buffer_allocation_count
+                    == allocation_snapshot.gpu_buffer_allocation_count
+                && after_repeated_render.render_count
+                    == allocation_snapshot.render_count + 2U
+                && after_repeated_render.completed_render_count
+                    == allocation_snapshot.completed_render_count + 2U,
+            "interactive warm renders reuse one source upload and two preallocated GPU slots"
+        );
+
+        const auto before_concurrent = warm.gpu_stats();
+        auto first_concurrent = std::async(
+            std::launch::async,
+            [&warm, &active_nodes]() {
+                return warm.render_jpeg_with_analysis(active_nodes, 88U);
+            }
+        );
+        auto second_concurrent = std::async(
+            std::launch::async,
+            [&warm, &active_nodes]() {
+                return warm.render_jpeg_with_analysis(active_nodes, 88U);
+            }
+        );
+        const auto first_concurrent_result = first_concurrent.get();
+        const auto second_concurrent_result = second_concurrent.get();
+        const auto after_concurrent = warm.gpu_stats();
+        expect(
+            first_concurrent_result.analysis == second_concurrent_result.analysis
+                && first_concurrent_result.proxy.bytes
+                    == second_concurrent_result.proxy.bytes
+                && after_concurrent.source_upload_count
+                    == before_concurrent.source_upload_count
+                && after_concurrent.gpu_buffer_allocation_count
+                    == before_concurrent.gpu_buffer_allocation_count
+                && after_concurrent.render_count == before_concurrent.render_count + 2U
+                && after_concurrent.completed_render_count
+                    == before_concurrent.completed_render_count + 2U
+                && after_concurrent.peak_concurrent_renders >= 1U
+                && after_concurrent.peak_concurrent_renders <= 2U,
+            "concurrent fused renders are deterministic and bounded by two reusable slots"
+        );
+
+        image::AnalyzedEditPreview automatic_fallback;
+        {
+            const ScopedEnvironment injected_failure(
+                "SHADOW_TEST_WARM_METAL_FORCE_FAILURE",
+                "1"
+            );
+            automatic_fallback = warm.render_jpeg_with_analysis(active_nodes, 90U);
+        }
+        expect(
+            automatic_fallback.execution.valid()
+                && automatic_fallback.execution.adjustment_backend
+                    == image::EditPreviewBackend::cpu
+                && automatic_fallback.execution.display_backend
+                    == image::EditPreviewBackend::cpu
+                && automatic_fallback.execution.adjustment_fell_back
+                && automatic_fallback.execution.display_fell_back
+                && !automatic_fallback.execution.diagnostic.empty(),
+            "a failed fused attempt replays adjustment and display completely on CPU"
+        );
+        try {
+            const ScopedEnvironment forced_metal("SHADOW_IMAGE_ACCELERATION", "metal");
+            const ScopedEnvironment injected_failure(
+                "SHADOW_TEST_WARM_METAL_FORCE_FAILURE",
+                "1"
+            );
+            static_cast<void>(warm.render_jpeg(active_nodes, 90U));
+            expect(false, "forced Metal does not silently replay a failed warm render");
+        } catch (const image::EditError& error) {
+            expect(
+                error.code() == image::EditErrorCode::backend_failure,
+                "forced warm Metal failure preserves typed backend semantics"
+            );
+        }
     } else {
+        expect(
+            std::getenv("SHADOW_TEST_REQUIRE_WARM_METAL") == nullptr,
+            "session-resident warm Metal was required but is unavailable"
+        );
         image::AnalyzedEditPreview fallback;
         {
             const ScopedEnvironment automatic("SHADOW_IMAGE_ACCELERATION", "auto");
@@ -1766,6 +1866,30 @@ void edit_preview_execution_identity_excludes_fallback_diagnostics() {
     expect(
         image::edit_preview_execution_receipt_identity(metal_display) != cpu_identity,
         "an effective Metal display route cannot reuse a CPU display cache entry"
+    );
+
+    image::EditPreviewExecutionReceipt fused = cpu;
+    fused.adjustment_backend = image::EditPreviewBackend::metal;
+    fused.adjustment_backend_version =
+        image::edit_preview_warm_fused_metal_backend_version;
+    fused.display_backend = image::EditPreviewBackend::metal;
+    fused.display_backend_version =
+        image::edit_preview_warm_fused_metal_backend_version;
+    const std::string fused_identity =
+        image::edit_preview_execution_receipt_identity(fused);
+    expect(
+        fused.valid()
+            && fused_identity != cpu_identity
+            && fused_identity
+                != image::edit_preview_execution_receipt_identity(metal_adjustment),
+        "session-resident fused Metal has a distinct cache-safe execution identity"
+    );
+    image::EditPreviewExecutionReceipt impossible_fused_hybrid = fused;
+    impossible_fused_hybrid.display_backend_version =
+        image::edit_preview_metal_display_backend_version;
+    expect(
+        !impossible_fused_hybrid.valid(),
+        "a fused adjustment receipt cannot masquerade as the split display stage"
     );
     expect(
         image::edit_preview_generator_implementation_identity()

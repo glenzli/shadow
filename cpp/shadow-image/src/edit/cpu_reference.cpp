@@ -1461,9 +1461,12 @@ MetalAdjustmentPreparationV1 prepare_metal_adjustment_v1(
     const FloatRgbImage& input,
     const std::span<const AdjustmentNode> nodes,
     const EditExecutionPlan& plan,
-    const AdjustmentExecutionContext context
+    const AdjustmentExecutionContext context,
+    const bool input_already_validated
 ) {
-    validate_image(input);
+    if (!input_already_validated) {
+        validate_image(input);
+    }
     static_cast<void>(validate_execution_context(input, context));
     if (plan.source_node_count != nodes.size()) {
         return MetalAdjustmentPreparationV1{

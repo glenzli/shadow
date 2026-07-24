@@ -80,7 +80,11 @@ struct MetalAdjustmentAttempt final {
     const FloatRgbImage& input,
     std::span<const AdjustmentNode> nodes,
     const EditExecutionPlan& plan,
-    AdjustmentExecutionContext context
+    AdjustmentExecutionContext context,
+    // WarmEditPreviewSession validates and uploads its immutable source once. Its resident Metal
+    // backend may skip the repeated full-raster finiteness/layout scan while retaining all
+    // plan, context, color-space, and parameter validation below.
+    bool input_already_validated = false
 );
 
 [[nodiscard]] bool metal_adjustment_available() noexcept;

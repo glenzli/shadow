@@ -1627,6 +1627,10 @@ pub const EDIT_PREVIEW_CPU_ADJUSTMENT_BACKEND_VERSION: u32 = 1;
 pub const EDIT_PREVIEW_METAL_ADJUSTMENT_BACKEND_VERSION: u32 = 1;
 pub const EDIT_PREVIEW_CPU_DISPLAY_BACKEND_VERSION: u32 = 1;
 pub const EDIT_PREVIEW_METAL_DISPLAY_BACKEND_VERSION: u32 = 1;
+/// Session-resident Metal path: one immutable source upload, double-buffered execution, and a
+/// fused adjustment/display kernel. Kept distinct from the earlier split Metal stages so cache
+/// receipts cannot alias different fp32 execution graphs.
+pub const EDIT_PREVIEW_WARM_FUSED_METAL_BACKEND_VERSION: u32 = 2;
 pub const DISPLAY_SRGB8_OUTPUT_CONTRACT_VERSION: u32 = 6;
 
 /// Hard width and height bound for one full-resolution detail tile.
@@ -3724,6 +3728,8 @@ fn edit_preview_execution_receipt(
         }
         EditPreviewBackend::Metal => {
             receipt.adjustment_backend_version == EDIT_PREVIEW_METAL_ADJUSTMENT_BACKEND_VERSION
+                || receipt.adjustment_backend_version
+                    == EDIT_PREVIEW_WARM_FUSED_METAL_BACKEND_VERSION
         }
     };
     let display_backend_version_is_current = match display_backend {
@@ -3732,10 +3738,17 @@ fn edit_preview_execution_receipt(
         }
         EditPreviewBackend::Metal => {
             receipt.display_backend_version == EDIT_PREVIEW_METAL_DISPLAY_BACKEND_VERSION
+                || receipt.display_backend_version == EDIT_PREVIEW_WARM_FUSED_METAL_BACKEND_VERSION
         }
     };
+    let fused_adjustment = adjustment_backend == EditPreviewBackend::Metal
+        && receipt.adjustment_backend_version == EDIT_PREVIEW_WARM_FUSED_METAL_BACKEND_VERSION;
+    let fused_display = display_backend == EditPreviewBackend::Metal
+        && receipt.display_backend_version == EDIT_PREVIEW_WARM_FUSED_METAL_BACKEND_VERSION;
     if !adjustment_backend_version_is_current
         || !display_backend_version_is_current
+        || (fused_adjustment && !fused_display)
+        || (fused_display && adjustment_backend != EditPreviewBackend::Cpu && !fused_adjustment)
         || receipt.adjustment_execution_contract_version
             != EDIT_PREVIEW_EXECUTION_PLAN_CONTRACT_VERSION
         || receipt.display_output_contract_version != DISPLAY_SRGB8_OUTPUT_CONTRACT_VERSION
@@ -5282,6 +5295,38 @@ mod tests {
             Some("/Users/example/private/device diagnostic")
         );
         assert!(!validated.cache_identity.contains("/Users"));
+
+        let mut fused = valid_ffi_edit_preview_execution_receipt();
+        fused.cache_identity = concat!(
+            "shadow-edit-preview-execution-v1;adjustment=metal-v2;",
+            "plan=1;display=metal-v2;display-contract=6"
+        )
+        .to_owned();
+        fused.adjustment_backend = ffi::FfiEditPreviewBackend::Metal;
+        fused.adjustment_backend_version = EDIT_PREVIEW_WARM_FUSED_METAL_BACKEND_VERSION;
+        fused.display_backend = ffi::FfiEditPreviewBackend::Metal;
+        fused.display_backend_version = EDIT_PREVIEW_WARM_FUSED_METAL_BACKEND_VERSION;
+        let validated_fused =
+            edit_preview_execution_receipt(fused).expect("valid fused warm Metal receipt");
+        assert_eq!(
+            validated_fused.adjustment_backend_version,
+            EDIT_PREVIEW_WARM_FUSED_METAL_BACKEND_VERSION
+        );
+        assert_eq!(
+            validated_fused.display_backend_version,
+            EDIT_PREVIEW_WARM_FUSED_METAL_BACKEND_VERSION
+        );
+
+        let mut impossible_hybrid = valid_ffi_edit_preview_execution_receipt();
+        impossible_hybrid.adjustment_backend = ffi::FfiEditPreviewBackend::Metal;
+        impossible_hybrid.adjustment_backend_version =
+            EDIT_PREVIEW_WARM_FUSED_METAL_BACKEND_VERSION;
+        impossible_hybrid.display_backend = ffi::FfiEditPreviewBackend::Metal;
+        impossible_hybrid.display_backend_version = EDIT_PREVIEW_METAL_DISPLAY_BACKEND_VERSION;
+        assert!(matches!(
+            edit_preview_execution_receipt(impossible_hybrid),
+            Err(BridgeError::InvalidEditPreviewOutput(_))
+        ));
 
         let mut stale = valid_ffi_edit_preview_execution_receipt();
         stale.schema_version += 1;

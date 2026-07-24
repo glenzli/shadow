@@ -3,6 +3,7 @@
 #include <shadow/image/display_output.hpp>
 
 #include "display_rgb_math.hpp"
+#include "warm_edit_gpu.hpp"
 
 #include <jpeglib.h>
 
@@ -872,7 +873,8 @@ void validate_display_output_source(const FloatRgbImage& source) {
 }
 
 struct PreparedEditPreviewPixels final {
-    FloatRgbImage edited;
+    Dimensions dimensions;
+    std::optional<FloatRgbImage> edited;
     std::vector<std::uint8_t> rgb;
     EditPreviewExecutionReceipt execution;
 };
@@ -951,25 +953,122 @@ struct PreparedEditPreviewPixels final {
 
 [[nodiscard]] PreparedEditPreviewPixels prepare_edit_preview_pixels(
     const FloatRgbImage& working_proxy,
-    const std::span<const AdjustmentNode> nodes
+    const std::shared_ptr<detail::WarmEditGpuSession>& warm_gpu_session,
+    const std::string_view warm_gpu_diagnostic,
+    const std::span<const AdjustmentNode> nodes,
+    const bool retain_linear_for_analysis
 ) {
-    auto adjustment = execute_adjustment_nodes_accelerated(
+    const AdjustmentBackendMode backend_mode =
+        adjustment_backend_mode_from_environment();
+    if (backend_mode != AdjustmentBackendMode::cpu) {
+        // Compile before inspecting runtime availability so disabled malformed nodes and source
+        // ordering fail identically on every backend.
+        const EditExecutionPlan plan = compile_edit_execution_plan(
+            nodes,
+            working_proxy.level_zero_to_raster_scale_x,
+            working_proxy.level_zero_to_raster_scale_y
+        );
+        std::string diagnostic(warm_gpu_diagnostic);
+        if (warm_gpu_session) {
+            auto attempt = warm_gpu_session->render(
+                nodes,
+                plan,
+                retain_linear_for_analysis
+            );
+            if (attempt.output.has_value()) {
+                auto output = std::move(*attempt.output);
+                EditPreviewExecutionReceipt receipt;
+                if (output.had_active_adjustments) {
+                    receipt.adjustment_backend = EditPreviewBackend::metal;
+                    receipt.adjustment_backend_version =
+                        edit_preview_warm_fused_metal_backend_version;
+                }
+                receipt.display_backend = EditPreviewBackend::metal;
+                receipt.display_backend_version =
+                    edit_preview_warm_fused_metal_backend_version;
+                if (!receipt.valid()) {
+                    throw DecodeError(
+                        DecodeErrorCode::internal,
+                        0,
+                        "session-resident Metal warm preview produced an invalid receipt"
+                    );
+                }
+                return PreparedEditPreviewPixels{
+                    .dimensions = output.dimensions,
+                    .edited = std::move(output.analyzed_linear),
+                    .rgb = std::move(output.rgb8),
+                    .execution = std::move(receipt),
+                };
+            }
+            diagnostic = std::move(attempt.diagnostic);
+        }
+        if (diagnostic.empty()) {
+            diagnostic = "session-resident Metal warm preview is unavailable";
+        }
+        if (backend_mode == AdjustmentBackendMode::metal) {
+            throw EditError(
+                EditErrorCode::backend_failure,
+                std::nullopt,
+                std::move(diagnostic)
+            );
+        }
+
+        // Automatic selection is all-or-nothing at the fused boundary. A declined/failing warm
+        // attempt replays adjustment and display completely on the CPU from the immutable host
+        // source; it never drops into the old split Metal stages and cannot expose partial data.
+        auto adjustment = execute_adjustment_nodes_with_backend(
+            working_proxy,
+            nodes,
+            AdjustmentExecutionContext{
+                .full_dimensions = working_proxy.dimensions,
+            },
+            AdjustmentBackendMode::cpu
+        );
+        auto display = render_linear_srgb_to_display_srgb8_with_backend(
+            adjustment.pixels,
+            DisplayOutputRequest{.target_dimensions = adjustment.pixels.dimensions},
+            DisplayOutputBackendMode::cpu
+        );
+        auto receipt = edit_preview_execution_receipt(adjustment, display);
+        receipt.adjustment_fell_back = !plan.segments.empty();
+        receipt.display_fell_back = true;
+        receipt.diagnostic = "warm fused Metal: " + diagnostic;
+        if (!receipt.valid()) {
+            throw DecodeError(
+                DecodeErrorCode::internal,
+                0,
+                "warm-preview complete CPU fallback produced an invalid receipt"
+            );
+        }
+        return PreparedEditPreviewPixels{
+            .dimensions = adjustment.pixels.dimensions,
+            .edited = retain_linear_for_analysis
+                ? std::optional<FloatRgbImage>{std::move(adjustment.pixels)}
+                : std::nullopt,
+            .rgb = std::move(display.bytes),
+            .execution = std::move(receipt),
+        };
+    }
+
+    auto adjustment = execute_adjustment_nodes_with_backend(
         working_proxy,
         nodes,
         AdjustmentExecutionContext{
             .full_dimensions = working_proxy.dimensions,
-        }
+        },
+        AdjustmentBackendMode::cpu
     );
-    // The display dispatcher receives the complete immutable adjustment result. If automatic
-    // Metal execution declines or fails, it restarts the entire display stage on CPU from this
-    // image; a partial GPU tile can never leak into the fallback output.
-    auto display = render_linear_srgb_to_display_srgb8(
+    auto display = render_linear_srgb_to_display_srgb8_with_backend(
         adjustment.pixels,
-        DisplayOutputRequest{.target_dimensions = adjustment.pixels.dimensions}
+        DisplayOutputRequest{.target_dimensions = adjustment.pixels.dimensions},
+        DisplayOutputBackendMode::cpu
     );
     auto execution = edit_preview_execution_receipt(adjustment, display);
     return PreparedEditPreviewPixels{
-        .edited = std::move(adjustment.pixels),
+        .dimensions = adjustment.pixels.dimensions,
+        .edited = retain_linear_for_analysis
+            ? std::optional<FloatRgbImage>{std::move(adjustment.pixels)}
+            : std::nullopt,
         .rgb = std::move(display.bytes),
         .execution = std::move(execution),
     };
@@ -1278,7 +1377,8 @@ bool EditPreviewExecutionReceipt::valid() const noexcept {
         case EditPreviewBackend::cpu:
             return version == edit_preview_cpu_adjustment_backend_version;
         case EditPreviewBackend::metal:
-            return version == edit_preview_metal_adjustment_backend_version;
+            return version == edit_preview_metal_adjustment_backend_version
+                || version == edit_preview_warm_fused_metal_backend_version;
         }
         return false;
     };
@@ -1290,10 +1390,17 @@ bool EditPreviewExecutionReceipt::valid() const noexcept {
         case EditPreviewBackend::cpu:
             return version == edit_preview_cpu_display_backend_version;
         case EditPreviewBackend::metal:
-            return version == edit_preview_metal_display_backend_version;
+            return version == edit_preview_metal_display_backend_version
+                || version == edit_preview_warm_fused_metal_backend_version;
         }
         return false;
     };
+    const bool fused_adjustment =
+        adjustment_backend == EditPreviewBackend::metal
+        && adjustment_backend_version == edit_preview_warm_fused_metal_backend_version;
+    const bool fused_display =
+        display_backend == EditPreviewBackend::metal
+        && display_backend_version == edit_preview_warm_fused_metal_backend_version;
     return schema_version == edit_preview_execution_receipt_schema_version
         && valid_adjustment_backend(adjustment_backend, adjustment_backend_version)
         && adjustment_execution_contract_version == edit_execution_plan_identity_version
@@ -1301,6 +1408,10 @@ bool EditPreviewExecutionReceipt::valid() const noexcept {
         && display_output_contract_version == display_srgb8_output_transform_version
         && (!adjustment_fell_back || adjustment_backend == EditPreviewBackend::cpu)
         && (!display_fell_back || display_backend == EditPreviewBackend::cpu)
+        && (!fused_adjustment || fused_display)
+        && (!fused_display
+            || adjustment_backend == EditPreviewBackend::cpu
+            || fused_adjustment)
         && ((adjustment_fell_back || display_fell_back) == !diagnostic.empty());
 }
 
@@ -1345,6 +1456,9 @@ std::string edit_preview_generator_implementation_identity() {
         + ";display-metal=" + std::string(
             display_output_backend_identity(DisplayOutputBackend::metal)
         )
+        + ";warm-fused-metal-v"
+        + std::to_string(edit_preview_warm_fused_metal_backend_version)
+        + "=resident-source,double-slot,adjustment+display"
         + ";display-contract=" + std::to_string(display_srgb8_output_transform_version)
         + ";jpeg-444=" + std::to_string(edit_preview_jpeg_444_contract_version);
 }
@@ -1359,7 +1473,11 @@ WarmEditPreviewSession::WarmEditPreviewSession(
     : working_proxy_(std::move(working_proxy)), max_edge_(max_edge),
       raw_development_receipt_(std::move(raw_development_receipt)),
       raw_pipeline_receipt_(std::move(raw_pipeline_receipt)),
-      optics_receipt_(std::move(optics_receipt)) {}
+      optics_receipt_(std::move(optics_receipt)) {
+    auto gpu = detail::prepare_warm_edit_gpu_session(working_proxy_);
+    warm_gpu_session_ = std::move(gpu.session);
+    warm_gpu_diagnostic_ = std::move(gpu.diagnostic);
+}
 
 Dimensions WarmEditPreviewSession::dimensions() const noexcept {
     return working_proxy_.dimensions;
@@ -1381,6 +1499,10 @@ const OpticsProfileReceipt& WarmEditPreviewSession::optics_receipt() const noexc
     return optics_receipt_;
 }
 
+WarmEditPreviewGpuStats WarmEditPreviewSession::gpu_stats() const noexcept {
+    return warm_gpu_session_ ? warm_gpu_session_->stats() : WarmEditPreviewGpuStats{};
+}
+
 EncodedProxy WarmEditPreviewSession::render_jpeg(
     const std::span<const AdjustmentNode> nodes,
     const std::uint8_t jpeg_quality
@@ -1388,11 +1510,14 @@ EncodedProxy WarmEditPreviewSession::render_jpeg(
     validate_jpeg_quality(jpeg_quality);
     auto prepared = prepare_edit_preview_pixels(
         working_proxy_,
-        nodes
+        warm_gpu_session_,
+        warm_gpu_diagnostic_,
+        nodes,
+        false
     );
     EncodedProxy proxy;
-    proxy.dimensions = prepared.edited.dimensions;
-    proxy.bytes = encode_jpeg(prepared.rgb, prepared.edited.dimensions, jpeg_quality);
+    proxy.dimensions = prepared.dimensions;
+    proxy.bytes = encode_jpeg(prepared.rgb, prepared.dimensions, jpeg_quality);
     return proxy;
 }
 
@@ -1403,15 +1528,25 @@ AnalyzedEditPreview WarmEditPreviewSession::render_jpeg_with_analysis(
     validate_jpeg_quality(jpeg_quality);
     auto prepared = prepare_edit_preview_pixels(
         working_proxy_,
-        nodes
+        warm_gpu_session_,
+        warm_gpu_diagnostic_,
+        nodes,
+        true
     );
-    auto analysis = analyze_edit_preview(prepared.edited, prepared.rgb);
+    if (!prepared.edited.has_value()) {
+        throw DecodeError(
+            DecodeErrorCode::internal,
+            0,
+            "analyzed warm preview did not retain its scene-linear result"
+        );
+    }
+    auto analysis = analyze_edit_preview(*prepared.edited, prepared.rgb);
 
     EncodedProxy proxy;
-    proxy.dimensions = prepared.edited.dimensions;
+    proxy.dimensions = prepared.dimensions;
     proxy.bytes = encode_jpeg(
         prepared.rgb,
-        prepared.edited.dimensions,
+        prepared.dimensions,
         jpeg_quality
     );
     return AnalyzedEditPreview{

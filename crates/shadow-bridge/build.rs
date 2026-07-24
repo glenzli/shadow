@@ -69,6 +69,9 @@ const EMBEDDED_IMAGE_INPUTS: &[&str] = &[
     "src/proxy/metal_display_output.hpp",
     "src/proxy/metal_display_output.mm",
     "src/proxy/metal_display_output_stub.cpp",
+    "src/proxy/warm_edit_gpu.hpp",
+    "src/proxy/warm_edit_gpu.mm",
+    "src/proxy/warm_edit_gpu_stub.cpp",
 ];
 
 fn parse_flag(name: &str, default: bool) -> bool {
@@ -217,12 +220,14 @@ fn main() {
             .file(image_root.join("src/edit/metal_adjustment.mm"))
             .file(image_root.join("src/raw/metal_raw_development.mm"))
             .file(image_root.join("src/proxy/metal_display_output.mm"))
+            .file(image_root.join("src/proxy/warm_edit_gpu.mm"))
             .define("SHADOW_IMAGE_HAS_METAL", Some("1"));
     } else {
         build
             .file(image_root.join("src/edit/metal_adjustment_stub.cpp"))
             .file(image_root.join("src/raw/metal_raw_development_stub.cpp"))
             .file(image_root.join("src/proxy/metal_display_output_stub.cpp"))
+            .file(image_root.join("src/proxy/warm_edit_gpu_stub.cpp"))
             .define("SHADOW_IMAGE_HAS_METAL", Some("0"));
     }
 

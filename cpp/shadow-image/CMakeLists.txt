@@ -69,6 +69,7 @@ if(APPLE AND SHADOW_ENABLE_METAL)
             src/edit/metal_adjustment.mm
             src/raw/metal_raw_development.mm
             src/proxy/metal_display_output.mm
+            src/proxy/warm_edit_gpu.mm
     )
     target_compile_definitions(shadow-image PRIVATE SHADOW_IMAGE_HAS_METAL=1)
     target_link_libraries(
@@ -84,6 +85,7 @@ else()
             src/edit/metal_adjustment_stub.cpp
             src/raw/metal_raw_development_stub.cpp
             src/proxy/metal_display_output_stub.cpp
+            src/proxy/warm_edit_gpu_stub.cpp
     )
     target_compile_definitions(shadow-image PRIVATE SHADOW_IMAGE_HAS_METAL=0)
 endif()
@@ -233,6 +235,20 @@ if(BUILD_TESTING)
     add_test(
         NAME shadow-image-adjustment-execution-contract
         COMMAND shadow-image-adjustment-execution-tests
+    )
+
+    add_executable(
+        shadow-image-warm-edit-gpu-tests
+        tests/warm_edit_gpu_contract_test.cpp
+    )
+    target_link_libraries(
+        shadow-image-warm-edit-gpu-tests
+        PRIVATE Shadow::Image
+    )
+    shadow_image_enable_warnings(shadow-image-warm-edit-gpu-tests)
+    add_test(
+        NAME shadow-image-warm-edit-gpu-contract
+        COMMAND shadow-image-warm-edit-gpu-tests
     )
 
     add_executable(shadow-image-detail-tile-tests tests/detail_tile_contract_test.cpp)

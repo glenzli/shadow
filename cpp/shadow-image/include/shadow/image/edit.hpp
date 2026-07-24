@@ -11,6 +11,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <span>
 #include <stdexcept>
@@ -507,6 +508,10 @@ inline constexpr std::uint32_t edit_preview_cpu_adjustment_backend_version = 1U;
 inline constexpr std::uint32_t edit_preview_metal_adjustment_backend_version = 1U;
 inline constexpr std::uint32_t edit_preview_cpu_display_backend_version = 1U;
 inline constexpr std::uint32_t edit_preview_metal_display_backend_version = 1U;
+// The session-resident backend fuses adjustment and display in one Metal kernel. It has a
+// distinct receipt version because it keeps the immutable source on-device and uses fp32-safe
+// fused execution rather than the earlier host-separated adjustment/display stages.
+inline constexpr std::uint32_t edit_preview_warm_fused_metal_backend_version = 2U;
 inline constexpr std::uint32_t edit_preview_jpeg_444_contract_version = 1U;
 
 enum class EditPreviewBackend : std::uint8_t {
@@ -571,6 +576,22 @@ struct AnalyzedEditPreview final {
     EditPreviewExecutionReceipt execution;
 };
 
+struct WarmEditPreviewGpuStats final {
+    bool resident = false;
+    std::uint64_t source_upload_count = 0U;
+    std::uint64_t gpu_buffer_allocation_count = 0U;
+    std::uint64_t render_count = 0U;
+    std::uint64_t completed_render_count = 0U;
+    std::uint64_t peak_concurrent_renders = 0U;
+    std::uint64_t resident_bytes = 0U;
+
+    auto operator<=>(const WarmEditPreviewGpuStats&) const = default;
+};
+
+namespace detail {
+class WarmEditGpuSession;
+}
+
 class WarmEditPreviewSession final {
 public:
     WarmEditPreviewSession(const WarmEditPreviewSession&) = delete;
@@ -586,6 +607,9 @@ public:
     [[nodiscard]] const RawDevelopmentReceipt& raw_development_receipt() const noexcept;
     [[nodiscard]] const RawPipelineReceipt& raw_pipeline_receipt() const noexcept;
     [[nodiscard]] const OpticsProfileReceipt& optics_receipt() const noexcept;
+    // Runtime-only observability for tests and future diagnostics. These counters never enter
+    // Recipe, catalog, or cache identities.
+    [[nodiscard]] WarmEditPreviewGpuStats gpu_stats() const noexcept;
     [[nodiscard]] EncodedProxy render_jpeg(
         std::span<const AdjustmentNode> nodes,
         std::uint8_t jpeg_quality = 95
@@ -609,6 +633,8 @@ private:
     RawDevelopmentReceipt raw_development_receipt_;
     RawPipelineReceipt raw_pipeline_receipt_;
     OpticsProfileReceipt optics_receipt_;
+    std::shared_ptr<detail::WarmEditGpuSession> warm_gpu_session_;
+    std::string warm_gpu_diagnostic_;
 
     friend WarmEditPreviewSession prepare_warm_edit_preview(
         const DecodeSession& session,
