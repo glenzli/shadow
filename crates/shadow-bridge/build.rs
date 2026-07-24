@@ -6,6 +6,7 @@ fn main() {
     // path. Reconfigure the native bridge whenever that choice changes; its availability changes
     // both the compiled adapter and the cache-visible optical behavior.
     println!("cargo:rerun-if-env-changed=PKG_CONFIG_PATH");
+    println!("cargo:rerun-if-env-changed=SHADOW_ENABLE_METAL");
     let crate_root = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("crate root"));
     let repository_root = crate_root.join("../..");
     let image_root = repository_root.join("cpp/shadow-image");
@@ -47,6 +48,22 @@ fn main() {
         libjpeg.version
     );
     let target_family = env::var("CARGO_CFG_TARGET_FAMILY").unwrap_or_default();
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let requested_metal = env::var("SHADOW_ENABLE_METAL").ok();
+    let metal_enabled = match requested_metal.as_deref() {
+        None => target_os == "macos",
+        Some("1" | "ON" | "on" | "true" | "TRUE") => {
+            assert!(
+                target_os == "macos",
+                "SHADOW_ENABLE_METAL=1 is supported only for a macOS target"
+            );
+            true
+        }
+        Some("0" | "OFF" | "off" | "false" | "FALSE") => false,
+        Some(value) => {
+            panic!("SHADOW_ENABLE_METAL must be 0/1, OFF/ON, or false/true; received {value}")
+        }
+    };
 
     let mut build = cxx_build::bridge("src/lib.rs");
     build
@@ -77,6 +94,15 @@ fn main() {
         .file(image_root.join("src/proxy/jpeg_proxy.cpp"))
         .include(&image_include)
         .std("c++20");
+    if metal_enabled {
+        build
+            .file(image_root.join("src/raw/metal_raw_development.mm"))
+            .define("SHADOW_IMAGE_HAS_METAL", Some("1"));
+    } else {
+        build
+            .file(image_root.join("src/raw/metal_raw_development_stub.cpp"))
+            .define("SHADOW_IMAGE_HAS_METAL", Some("0"));
+    }
 
     // Put the selected Lensfun headers before generic Homebrew include roots contributed by
     // LibRaw/LCMS. This keeps the headers and dylib from the same pkg-config identity when a
@@ -149,6 +175,11 @@ fn main() {
             .flag("-Wsign-conversion");
     }
     build.compile("shadow-bridge-cxx");
+
+    if metal_enabled {
+        println!("cargo:rustc-link-lib=framework=Metal");
+        println!("cargo:rustc-link-lib=framework=Foundation");
+    }
 
     for link_path in &libraw.link_paths {
         println!("cargo:rustc-link-search=native={}", link_path.display());
@@ -272,6 +303,9 @@ fn main() {
         "src/raw/dcp_color_development.cpp",
         "src/raw/dcp_parser.cpp",
         "src/raw/fused_raw_development.cpp",
+        "src/raw/metal_raw_development.hpp",
+        "src/raw/metal_raw_development.mm",
+        "src/raw/metal_raw_development_stub.cpp",
         "src/raw/raw_pipeline.cpp",
         "src/raw/sensor_clipping.cpp",
         "src/optics/lensfun_optics.cpp",

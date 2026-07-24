@@ -1,5 +1,6 @@
 #include <shadow/image/raw_pipeline.hpp>
 #include <shadow/image/camera_profile_catalog.hpp>
+#include <shadow/image/fused_raw_development.hpp>
 
 #include <array>
 #include <cstddef>
@@ -239,6 +240,44 @@ void automatic_pipeline_prefers_owned_raw_frame() {
     }
 }
 
+void full_pipeline_records_the_effective_backend_in_every_identity() {
+    const auto configured_mode = image::raw_development_backend_mode_from_environment();
+    const auto expected_backend = configured_mode == image::RawDevelopmentBackendMode::cpu
+        ? image::RawDevelopmentBackend::cpu
+        : configured_mode == image::RawDevelopmentBackendMode::metal
+            ? image::RawDevelopmentBackend::metal
+            : image::raw_development_backend_available(image::RawDevelopmentBackend::metal)
+                ? image::RawDevelopmentBackend::metal
+                : image::RawDevelopmentBackend::cpu;
+    const auto expected_identity = image::raw_development_backend_identity(expected_backend);
+    SyntheticRawSession session(synthetic_bayer_frame());
+    const auto developed = image::develop_source_reference(
+        session,
+        image::default_raw_development_plan(),
+        std::nullopt,
+        image::RawPipelinePolicy{
+            .mode = image::RawPipelineMode::require_shadow_raw_frame,
+        }
+    );
+    expect(
+        developed.pixels.raw_development_receipt.development_settings_signature.find(
+            expected_identity
+        ) != std::string::npos,
+        "full development receipt records the effective CPU or Metal backend"
+    );
+    expect(
+        developed.pipeline_receipt.pipeline_identity.find(expected_identity)
+            != std::string::npos,
+        "pipeline receipt records the same effective backend"
+    );
+    expect(
+        image::raw_pipeline_receipt_identity(developed.pipeline_receipt).find(
+            expected_identity
+        ) != std::string::npos,
+        "canonical pipeline cache identity retains the effective backend"
+    );
+}
+
 void unsupported_host_stage_falls_back_explicitly() {
     SyntheticRawSession session(synthetic_bayer_frame(false));
     const auto developed = image::develop_source_reference(
@@ -326,6 +365,7 @@ void exact_dcp_replaces_missing_generic_matrix() {
 
 int main() {
     automatic_pipeline_prefers_owned_raw_frame();
+    full_pipeline_records_the_effective_backend_in_every_identity();
     unsupported_host_stage_falls_back_explicitly();
     exact_dcp_replaces_missing_generic_matrix();
     return failures == 0 ? 0 : 1;

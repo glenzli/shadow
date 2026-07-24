@@ -14,6 +14,7 @@ const PREPARED_PIPELINE_CACHE_SCHEMA: &str = "raw-pipeline-v1";
 const SOURCE_ENVIRONMENT_CACHE_SCHEMA: &str = "source-environment-v1";
 const EDIT_PREVIEW_GENERATOR_SCHEMA: &str = "shadow-edit-preview-v1";
 const RAW_PIPELINE_ENVIRONMENT: &str = "SHADOW_RAW_PIPELINE";
+const IMAGE_ACCELERATION_ENVIRONMENT: &str = "SHADOW_IMAGE_ACCELERATION";
 const CAMERA_PROFILE_DIRECTORY_ENVIRONMENT: &str = "SHADOW_CAMERA_PROFILE_DIRECTORY";
 const DECODE_HELPER_PATH_ENVIRONMENT: &str = "SHADOW_DECODE_HELPER_PATH";
 const PRIVATE_DECODER_PLUGIN_PATH_ENVIRONMENT: &str = "SHADOW_PRIVATE_DECODER_PLUGIN_PATH";
@@ -61,12 +62,14 @@ pub(super) fn prepared_raw_pipeline_cache_identity(
 /// identity is already present in each prepared receipt.
 pub(super) fn current_source_environment_cache_identity(provider_version: &str) -> String {
     let pipeline_policy = env::var_os(RAW_PIPELINE_ENVIRONMENT);
+    let image_acceleration = env::var_os(IMAGE_ACCELERATION_ENVIRONMENT);
     let camera_profile_directory = env::var_os(CAMERA_PROFILE_DIRECTORY_ENVIRONMENT);
     let decode_helper_path = env::var_os(DECODE_HELPER_PATH_ENVIRONMENT);
     let private_decoder_plugin_path = env::var_os(PRIVATE_DECODER_PLUGIN_PATH_ENVIRONMENT);
     source_environment_cache_identity(
         provider_version,
         pipeline_policy.as_deref(),
+        image_acceleration.as_deref(),
         camera_profile_directory.as_deref(),
         decode_helper_path.as_deref(),
         private_decoder_plugin_path.as_deref(),
@@ -76,12 +79,15 @@ pub(super) fn current_source_environment_cache_identity(provider_version: &str) 
 fn source_environment_cache_identity(
     provider_version: &str,
     pipeline_policy: Option<&OsStr>,
+    image_acceleration: Option<&OsStr>,
     camera_profile_directory: Option<&OsStr>,
     decode_helper_path: Option<&OsStr>,
     private_decoder_plugin_path: Option<&OsStr>,
 ) -> String {
     let pipeline_policy =
         pipeline_policy.map_or_else(|| "auto".into(), |value| value.to_string_lossy());
+    let image_acceleration =
+        image_acceleration.map_or_else(|| "auto".into(), |value| value.to_string_lossy());
     let camera_profile_directory = camera_profile_directory
         .map_or_else(|| "<default>".into(), |value| value.to_string_lossy());
     let decode_helper_path =
@@ -91,6 +97,7 @@ fn source_environment_cache_identity(
     let mut hasher = blake3::Hasher::new();
     update_field(&mut hasher, "provider", provider_version);
     update_field(&mut hasher, "policy", &pipeline_policy);
+    update_field(&mut hasher, "image-acceleration", &image_acceleration);
     update_field(
         &mut hasher,
         "camera-profile-directory",
@@ -203,18 +210,50 @@ mod tests {
     }
 
     #[test]
+    fn effective_backend_changes_the_bounded_durable_identity() {
+        let cpu = prepared_raw_pipeline_cache_identity(&receipt(
+            "raw-pipeline-receipt-v1;pipeline=shadow-raw-frame-v1;\
+             backend=shadow-fused-raw-cpu-v1",
+        ))
+        .expect("compact CPU receipt");
+        let metal = prepared_raw_pipeline_cache_identity(&receipt(
+            "raw-pipeline-receipt-v1;pipeline=shadow-raw-frame-v1;\
+             backend=shadow-fused-raw-metal-full-v1;math=f32-precise",
+        ))
+        .expect("compact Metal receipt");
+
+        assert_ne!(cpu, metal);
+        assert_ne!(
+            cpu.edit_preview_generator_version("source-environment-v1-auto"),
+            metal.edit_preview_generator_version("source-environment-v1-auto")
+        );
+    }
+
+    #[test]
     fn source_environment_distinguishes_router_policy_and_profile_root() {
-        let automatic = source_environment_cache_identity("router-v1", None, None, None, None);
+        let automatic =
+            source_environment_cache_identity("router-v1", None, None, None, None, None);
         let raw_frame = source_environment_cache_identity(
             "router-v1",
             Some(OsStr::new("raw-frame")),
             None,
             None,
             None,
+            None,
         );
-        let other_router = source_environment_cache_identity("router-v2", None, None, None, None);
+        let forced_cpu = source_environment_cache_identity(
+            "router-v1",
+            None,
+            Some(OsStr::new("cpu")),
+            None,
+            None,
+            None,
+        );
+        let other_router =
+            source_environment_cache_identity("router-v2", None, None, None, None, None);
         let other_profile_root = source_environment_cache_identity(
             "router-v1",
+            None,
             None,
             Some(OsStr::new("/profiles/alternate")),
             None,
@@ -224,17 +263,19 @@ mod tests {
             "router-v1",
             None,
             None,
+            None,
             Some(OsStr::new("/helpers/alternate")),
             None,
         );
 
         assert_ne!(automatic, raw_frame);
+        assert_ne!(automatic, forced_cpu);
         assert_ne!(automatic, other_router);
         assert_ne!(automatic, other_profile_root);
         assert_ne!(automatic, other_helper);
         assert_eq!(
             automatic,
-            source_environment_cache_identity("router-v1", None, None, None, None)
+            source_environment_cache_identity("router-v1", None, None, None, None, None)
         );
     }
 }

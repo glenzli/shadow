@@ -9,6 +9,27 @@ project(
 
 option(SHADOW_BUILD_RAW_PROBE "Build the LibRaw vertical-spike probe" ON)
 option(SHADOW_BUILD_DESKTOP "Build the Qt Quick desktop application" OFF)
+option(SHADOW_ENABLE_METAL "Build the macOS Metal image backend" ${APPLE})
+option(
+    SHADOW_REQUIRE_METAL_TESTS
+    "Require native tests to execute the Metal backend instead of allowing a local skip"
+    OFF
+)
+
+if(SHADOW_ENABLE_METAL AND NOT APPLE)
+    message(FATAL_ERROR "SHADOW_ENABLE_METAL is available only on macOS")
+endif()
+if(SHADOW_REQUIRE_METAL_TESTS AND (NOT APPLE OR NOT SHADOW_ENABLE_METAL))
+    message(FATAL_ERROR
+        "SHADOW_REQUIRE_METAL_TESTS requires macOS with SHADOW_ENABLE_METAL=ON"
+    )
+endif()
+
+if(APPLE)
+    # shadow-image is configured before the desktop target, so Objective-C++ must be available at
+    # the project boundary rather than enabled later by the Qt subdirectory.
+    enable_language(OBJCXX)
+endif()
 
 # Lensfun remains an optional open dependency: Shadow may build a safe no-profile adapter when it
 # is absent, but a real optical pipeline needs both its library and calibration database. A local

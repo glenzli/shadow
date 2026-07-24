@@ -17,10 +17,6 @@ pkg_check_modules(Lensfun QUIET IMPORTED_TARGET lensfun)
 pkg_check_modules(LittleCms REQUIRED IMPORTED_TARGET lcms2)
 pkg_check_modules(LibHeif QUIET IMPORTED_TARGET libheif>=1.19.7)
 
-if(APPLE)
-    enable_language(OBJCXX)
-endif()
-
 qt_standard_project_setup(
     REQUIRES 6.11
     I18N_SOURCE_LANGUAGE en
@@ -35,6 +31,15 @@ else()
     set(SHADOW_CARGO_PROFILE debug)
     set(SHADOW_CARGO_PROFILE_ARGUMENT)
 endif()
+if(APPLE AND SHADOW_ENABLE_METAL)
+    set(SHADOW_CARGO_NATIVE_VARIANT metal)
+else()
+    set(SHADOW_CARGO_NATIVE_VARIANT cpu)
+endif()
+set(
+    SHADOW_CARGO_TARGET_DIRECTORY
+    "${CMAKE_CURRENT_BINARY_DIR}/cargo-target-${SHADOW_CARGO_NATIVE_VARIANT}"
+)
 
 file(
     GLOB_RECURSE SHADOW_RUST_BRIDGE_INPUTS
@@ -49,11 +54,12 @@ file(
     "${PROJECT_SOURCE_DIR}/cpp/shadow-image/src/**/*.cpp"
     "${PROJECT_SOURCE_DIR}/cpp/shadow-image/src/**/*.hpp"
     "${PROJECT_SOURCE_DIR}/cpp/shadow-image/src/**/*.ipp"
+    "${PROJECT_SOURCE_DIR}/cpp/shadow-image/src/**/*.mm"
 )
 
 set(
     SHADOW_DESKTOP_RUST_LIBRARY
-    "${PROJECT_SOURCE_DIR}/target/${SHADOW_CARGO_PROFILE}/libshadow_desktop_bridge.a"
+    "${SHADOW_CARGO_TARGET_DIRECTORY}/${SHADOW_CARGO_PROFILE}/libshadow_desktop_bridge.a"
 )
 set(SHADOW_CARGO_ENV "${CMAKE_COMMAND}" -E env)
 if(SHADOW_LENSFUN_PKGCONFIG_PATH)
@@ -67,13 +73,18 @@ if(APPLE)
     # Rust static library so the final app does not raise mixed-minimum warnings.
     list(APPEND SHADOW_CARGO_ENV MACOSX_DEPLOYMENT_TARGET=26.0)
 endif()
+if(APPLE AND SHADOW_ENABLE_METAL)
+    list(APPEND SHADOW_CARGO_ENV SHADOW_ENABLE_METAL=1)
+else()
+    list(APPEND SHADOW_CARGO_ENV SHADOW_ENABLE_METAL=0)
+endif()
 add_custom_command(
     OUTPUT "${SHADOW_DESKTOP_RUST_LIBRARY}"
     COMMAND
         ${SHADOW_CARGO_ENV} "${SHADOW_CARGO_EXECUTABLE}" build
         --package shadow-desktop-bridge
         ${SHADOW_CARGO_PROFILE_ARGUMENT}
-        --target-dir "${PROJECT_SOURCE_DIR}/target"
+        --target-dir "${SHADOW_CARGO_TARGET_DIRECTORY}"
     DEPENDS ${SHADOW_RUST_BRIDGE_INPUTS}
     WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
     COMMENT "Building the Rust desktop snapshot bridge"
@@ -86,6 +97,10 @@ set_target_properties(
     PROPERTIES IMPORTED_LOCATION "${SHADOW_DESKTOP_RUST_LIBRARY}"
 )
 add_dependencies(shadow-desktop-rust shadow-desktop-rust-build)
+target_link_libraries(
+    shadow-desktop-rust
+    INTERFACE Shadow::ImagePlatformRuntime
+)
 
 qt_add_executable(
     shadow-desktop
@@ -269,7 +284,7 @@ endif()
 target_include_directories(
     shadow-desktop
     PRIVATE
-        "${PROJECT_SOURCE_DIR}/target/cxxbridge"
+        "${SHADOW_CARGO_TARGET_DIRECTORY}/cxxbridge"
         "${PROJECT_SOURCE_DIR}/cpp/shadow-image/include"
 )
 target_link_libraries(

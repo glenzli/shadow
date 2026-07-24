@@ -27,11 +27,13 @@ Current contract rules:
   the expected preview-only path for Nikon Z9 HE/HE* NEF until an external provider is available.
 - Preview IDs are provider IDs, not vector positions. `select_best_preview` chooses the largest decodable candidate.
 - DNG opcode lists are surfaced as `PendingCorrections` until Shadow can prove they were applied.
-- `render_reference_rgb` explicitly returns processed, linear-light 16-bit RGB in
-  sRGB/Rec.709-D65 primaries. LibRaw has already applied black subtraction, white balance,
-  demosaic, camera-to-output conversion, and fixed integer-range scaling; histogram brightness and
-  frame-adaptive maximum adjustment are disabled. This is neither encoded sRGB nor untouched
-  sensor-linear data, and it is not Shadow's final RAW color pipeline.
+- `develop_source_reference` is the application source boundary. Supported public LibRaw and
+  private-provider files both expose `RawFrame` and enter Shadow's owned black subtraction,
+  normalization, Bayer reconstruction, white balance and camera-to-linear-sRGB path. An exact
+  local DCP may replace the provider's generic matrix; profiles carrying unsupported creative
+  tables are rejected as a whole. `render_reference_rgb` remains only the explicit
+  provider-processed compatibility route. Every choice and fallback is recorded in the pipeline
+  receipt and cache identity.
 - `render_reference_proxy_jpeg` bounds the longest edge (2048, quality 95, and 4:4:4 chroma in the current recipe) and rejects unbounded requests. Its version belongs in the cache key.
 - `decode_jpeg_display_luma` is a separate analysis path over compressed display proxies. It requires 8-bit libjpeg-turbo with in-memory sources, rejects encoded inputs above 128 MiB and source headers above 65,535 per axis or 100 million pixels, applies a stricter 50-million-pixel limit to multi-scan inputs, caps libjpeg memory at 256 MiB, and bounds scaled intermediates before emitting a tightly packed normalized `float` luma plane with a caller-selected edge in 1 through 512. Corrupt-data warnings, including synthesized end-of-image recovery for truncation, fail closed.
 - A `DecodeSession` is thread-confined. Providers may be shared; parallel work should open independent sessions.
@@ -41,6 +43,30 @@ Current contract rules:
   pre-demosaic; unsupported CFA layouts remain inspectable but cannot enter Bayer-only
   processing. A later opaque/tiled buffer can remove this copy without changing the frame
   semantics.
+- Native-size Bayer reconstruction, the precompiled camera transform and orientation are fused
+  into one output pass. The CPU path remains the exact reference. On macOS, Metal v1 performs the
+  same full-detail contract in fp32 and bounded output tiles; area-integrated catalog previews
+  remain on CPU. The actual `shadow-fused-raw-cpu-v1` or
+  `shadow-fused-raw-metal-full-v1` identity is cache-visible. Metal failure in automatic mode
+  falls back to CPU inside the RawFrame route and can never silently select provider-processed
+  RGB.
+
+Runtime controls:
+
+```text
+SHADOW_RAW_PIPELINE=auto|raw-frame|processed
+SHADOW_IMAGE_ACCELERATION=auto|cpu|metal
+```
+
+`metal` requires Metal for eligible native-size work; area previews deliberately continue to use
+CPU. Build-time `SHADOW_ENABLE_METAL=OFF` compiles the same public API against a cross-platform
+stub.
+
+Metal-capable CI or a local release gate should configure
+`SHADOW_REQUIRE_METAL_TESTS=ON`. That mode makes CTest require a real Metal device, forces the
+full RawFrame pipeline onto Metal, and lowers the scheduling-only tile budget so the compact
+fixture exercises multi-tile copies. Ordinary portable tests keep this option off and validate the
+same API against the CPU/stub implementation.
 
 ### Local private-provider development path
 

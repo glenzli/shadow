@@ -73,6 +73,15 @@ void validate_bayer_frame(const RawFrame& frame, const char* operation) {
             std::string(operation) + " requires an explicit Bayer two-by-two CFA layout"
         );
     }
+    if (frame.descriptor.storage_dimensions.width < 2U
+        || frame.descriptor.storage_dimensions.height < 2U) {
+        throw DecodeError(
+            DecodeErrorCode::unsupported_layout,
+            0,
+            std::string(operation)
+                + " requires at least a two-by-two stored Bayer sensor plane"
+        );
+    }
 }
 
 CameraRgb bilinear_camera_rgb_at(

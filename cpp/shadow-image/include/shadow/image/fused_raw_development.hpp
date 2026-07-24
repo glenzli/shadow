@@ -5,8 +5,41 @@
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <string_view>
 
 namespace shadow::image {
+
+// The backend is part of RAW-development provenance. CPU and Metal deliberately share the same
+// public pixel contract, but Metal performs its hot arithmetic in fp32 and is therefore not
+// assumed to be bit-identical to the CPU reference.
+enum class RawDevelopmentBackend : std::uint8_t {
+    cpu,
+    metal,
+};
+
+enum class RawDevelopmentBackendMode : std::uint8_t {
+    automatic,
+    cpu,
+    metal,
+};
+
+inline constexpr std::uint32_t fused_raw_cpu_backend_version = 1U;
+inline constexpr std::uint32_t fused_raw_metal_backend_version = 1U;
+
+[[nodiscard]] std::string_view raw_development_backend_identity(
+    RawDevelopmentBackend backend
+) noexcept;
+[[nodiscard]] bool raw_development_backend_available(
+    RawDevelopmentBackend backend
+) noexcept;
+
+// Runtime developer/testing override:
+//   SHADOW_IMAGE_ACCELERATION=auto|cpu|metal
+// `auto` always falls back to the CPU reference inside the same RAW path when Metal is
+// unavailable or rejects an eligible request. `metal` fails explicitly for eligible full-detail
+// work; stages that Metal v1 does not implement (currently area previews) retain their CPU
+// implementation.
+[[nodiscard]] RawDevelopmentBackendMode raw_development_backend_mode_from_environment();
 
 // Camera RGB -> linear sRGB/Rec.709 D65, row-major. The caller compiles all color decisions into
 // this one immutable matrix before rendering:
@@ -29,6 +62,7 @@ struct RawFrameLinearTransform final {
 struct FusedRawFrameDevelopment final {
     PixelBuffer pixels;
     RawDemosaicReceipt demosaic_receipt;
+    RawDevelopmentBackend backend = RawDevelopmentBackend::cpu;
 
     [[nodiscard]] bool valid() const noexcept;
 };
@@ -44,6 +78,15 @@ struct FusedRawFrameDevelopment final {
     const RawFrame& frame,
     const RawFrameLinearTransform& transform,
     std::optional<std::uint32_t> preview_max_edge = std::nullopt
+);
+
+// Deterministic selector used by parity tests and diagnostics. Production callers normally use
+// the environment-aware overload above.
+[[nodiscard]] FusedRawFrameDevelopment develop_bayer_linear_srgb_u16_fused_with_backend(
+    const RawFrame& frame,
+    const RawFrameLinearTransform& transform,
+    std::optional<std::uint32_t> preview_max_edge,
+    RawDevelopmentBackendMode backend_mode
 );
 
 } // namespace shadow::image

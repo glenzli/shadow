@@ -5,10 +5,12 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <iostream>
 #include <optional>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace image = shadow::image;
 
@@ -22,6 +24,11 @@ void expect(const bool condition, const std::string_view message) {
         std::cerr << "FAILED: " << message << '\n';
         ++failures;
     }
+}
+
+[[nodiscard]] bool environment_enabled(const char* name) noexcept {
+    const char* value = std::getenv(name);
+    return value != nullptr && std::string_view(value) == "1";
 }
 
 [[nodiscard]] image::RawFrame synthetic_frame(const std::int32_t orientation) {
@@ -155,11 +162,17 @@ void full_resolution_matches_reference_for_every_supported_orientation() {
     for (const std::int32_t orientation : {0, 3, 5, 6}) {
         const auto frame = synthetic_frame(orientation);
         const auto expected = reference_two_stage(frame, generic_transform, std::nullopt);
-        const auto actual = image::develop_bayer_linear_srgb_u16_fused(
+        const auto actual = image::develop_bayer_linear_srgb_u16_fused_with_backend(
             frame,
-            generic_transform
+            generic_transform,
+            std::nullopt,
+            image::RawDevelopmentBackendMode::cpu
         );
         expect(actual.valid(), "full fused result has a complete typed contract");
+        expect(
+            actual.backend == image::RawDevelopmentBackend::cpu,
+            "forced CPU result records its effective backend"
+        );
         expect(
             actual.demosaic_receipt.algorithm
                 == image::RawDemosaicAlgorithm::bayer_bilinear_v1,
@@ -184,10 +197,11 @@ void area_preview_matches_reference_for_every_supported_orientation() {
     for (const std::int32_t orientation : {0, 3, 5, 6}) {
         const auto frame = synthetic_frame(orientation);
         const auto expected = reference_two_stage(frame, dcp_transform, 3U);
-        const auto actual = image::develop_bayer_linear_srgb_u16_fused(
+        const auto actual = image::develop_bayer_linear_srgb_u16_fused_with_backend(
             frame,
             dcp_transform,
-            3U
+            3U,
+            image::RawDevelopmentBackendMode::cpu
         );
         expect(actual.valid(), "preview fused result has a complete typed contract");
         expect(
@@ -200,6 +214,87 @@ void area_preview_matches_reference_for_every_supported_orientation() {
                 && actual.pixels.samples == expected.samples,
             "preview fused pixels exactly match the float reference path after orientation"
         );
+    }
+}
+
+void metal_full_resolution_stays_within_the_linear_u16_contract() {
+    expect(
+        image::raw_development_backend_identity(image::RawDevelopmentBackend::cpu)
+            != image::raw_development_backend_identity(image::RawDevelopmentBackend::metal),
+        "CPU and Metal development identities remain distinct"
+    );
+    if (!image::raw_development_backend_available(image::RawDevelopmentBackend::metal)) {
+        expect(
+            !environment_enabled("SHADOW_TEST_REQUIRE_METAL"),
+            "Metal was required for this validation run but no Metal backend is available"
+        );
+        return;
+    }
+    const image::RawFrameLinearTransform transform{{
+        1.31, -0.27, 0.08,
+        -0.06, 1.14, -0.03,
+        0.04, -0.22, 1.57,
+    }};
+    for (const std::int32_t orientation : {0, 3, 5, 6}) {
+        const auto frame = synthetic_frame(orientation);
+        const auto cpu = image::develop_bayer_linear_srgb_u16_fused_with_backend(
+            frame,
+            transform,
+            std::nullopt,
+            image::RawDevelopmentBackendMode::cpu
+        );
+        const auto metal = image::develop_bayer_linear_srgb_u16_fused_with_backend(
+            frame,
+            transform,
+            std::nullopt,
+            image::RawDevelopmentBackendMode::metal
+        );
+        const auto repeated = image::develop_bayer_linear_srgb_u16_fused_with_backend(
+            frame,
+            transform,
+            std::nullopt,
+            image::RawDevelopmentBackendMode::metal
+        );
+        expect(metal.valid(), "Metal full result has a complete typed contract");
+        expect(
+            metal.backend == image::RawDevelopmentBackend::metal,
+            "forced Metal result records its effective backend"
+        );
+        expect(
+            metal.pixels.dimensions == cpu.pixels.dimensions
+                && metal.pixels.samples.size() == cpu.pixels.samples.size(),
+            "Metal preserves CPU dimensions and packed sample count"
+        );
+        expect(
+            metal.pixels.samples == repeated.pixels.samples,
+            "repeated Metal development is byte deterministic"
+        );
+
+        std::vector<std::uint16_t> differences;
+        differences.reserve(cpu.pixels.samples.size());
+        std::uint64_t total_difference = 0U;
+        for (std::size_t index = 0U; index < cpu.pixels.samples.size(); ++index) {
+            const auto difference = static_cast<std::uint16_t>(
+                std::abs(
+                    static_cast<std::int32_t>(cpu.pixels.samples[index])
+                    - static_cast<std::int32_t>(metal.pixels.samples[index])
+                )
+            );
+            differences.push_back(difference);
+            total_difference += difference;
+        }
+        std::sort(differences.begin(), differences.end());
+        const auto p99_index = differences.empty()
+            ? 0U : (differences.size() - 1U) * 99U / 100U;
+        const auto maximum = differences.empty() ? 0U : differences.back();
+        const auto p99 = differences.empty() ? 0U : differences[p99_index];
+        const double mean = differences.empty()
+            ? 0.0
+            : static_cast<double>(total_difference)
+                / static_cast<double>(differences.size());
+        expect(maximum <= 2U, "Metal maximum error stays within two u16 codes");
+        expect(p99 <= 1U, "Metal p99 error stays within one u16 code");
+        expect(mean <= 0.05, "Metal mean error stays below 0.05 u16 codes");
     }
 }
 
@@ -236,6 +331,38 @@ void invalid_inputs_fail_closed() {
             "invalid fused request returns a typed request error"
         );
     }
+
+    for (const image::Dimensions dimensions : {
+             image::Dimensions{1U, 4U},
+             image::Dimensions{4U, 1U},
+         }) {
+        auto degenerate = synthetic_frame(0);
+        degenerate.descriptor.storage_dimensions = dimensions;
+        degenerate.descriptor.active_dimensions = dimensions;
+        degenerate.descriptor.active_margins = {};
+        degenerate.samples.resize(
+            static_cast<std::size_t>(dimensions.width) * dimensions.height
+        );
+        for (const auto backend : {
+                 image::RawDevelopmentBackendMode::cpu,
+                 image::RawDevelopmentBackendMode::metal,
+             }) {
+            try {
+                static_cast<void>(image::develop_bayer_linear_srgb_u16_fused_with_backend(
+                    degenerate,
+                    identity,
+                    std::nullopt,
+                    backend
+                ));
+                expect(false, "degenerate Bayer storage is rejected before backend selection");
+            } catch (const image::DecodeError& error) {
+                expect(
+                    error.code() == image::DecodeErrorCode::unsupported_layout,
+                    "CPU and Metal reject degenerate Bayer storage with the same typed error"
+                );
+            }
+        }
+    }
 }
 
 } // namespace
@@ -243,6 +370,7 @@ void invalid_inputs_fail_closed() {
 int main() {
     full_resolution_matches_reference_for_every_supported_orientation();
     area_preview_matches_reference_for_every_supported_orientation();
+    metal_full_resolution_stays_within_the_linear_u16_contract();
     invalid_inputs_fail_closed();
     return failures == 0 ? 0 : 1;
 }

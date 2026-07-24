@@ -12,6 +12,9 @@ pkg_check_modules(LittleCms REQUIRED IMPORTED_TARGET lcms2)
 pkg_check_modules(LibHeif QUIET IMPORTED_TARGET libheif>=1.19.7)
 find_package(JPEG REQUIRED)
 
+add_library(shadow-image-platform-runtime INTERFACE)
+add_library(Shadow::ImagePlatformRuntime ALIAS shadow-image-platform-runtime)
+
 function(shadow_image_enable_warnings target)
     if(MSVC)
         target_compile_options(${target} PRIVATE /W4 /permissive-)
@@ -55,6 +58,21 @@ add_library(
     src/proxy/jpeg_display_luma.cpp
     src/proxy/jpeg_proxy.cpp
 )
+if(APPLE AND SHADOW_ENABLE_METAL)
+    find_library(SHADOW_METAL_FRAMEWORK Metal REQUIRED)
+    find_library(SHADOW_FOUNDATION_FRAMEWORK Foundation REQUIRED)
+    target_sources(shadow-image PRIVATE src/raw/metal_raw_development.mm)
+    target_compile_definitions(shadow-image PRIVATE SHADOW_IMAGE_HAS_METAL=1)
+    target_link_libraries(
+        shadow-image-platform-runtime
+        INTERFACE
+            "${SHADOW_METAL_FRAMEWORK}"
+            "${SHADOW_FOUNDATION_FRAMEWORK}"
+    )
+else()
+    target_sources(shadow-image PRIVATE src/raw/metal_raw_development_stub.cpp)
+    target_compile_definitions(shadow-image PRIVATE SHADOW_IMAGE_HAS_METAL=0)
+endif()
 add_library(Shadow::Image ALIAS shadow-image)
 target_compile_features(shadow-image PUBLIC cxx_std_20)
 set_target_properties(shadow-image PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -66,6 +84,7 @@ target_include_directories(
 target_link_libraries(
     shadow-image
     PRIVATE PkgConfig::LibRaw PkgConfig::LittleCms JPEG::JPEG ${CMAKE_DL_LIBS}
+    PUBLIC Shadow::ImagePlatformRuntime
 )
 if(Lensfun_FOUND)
     # An explicitly selected Lensfun prefix must win over broad dependency include roots such as
@@ -223,6 +242,21 @@ if(BUILD_TESTING)
         NAME shadow-image-fused-raw-development-contract
         COMMAND shadow-image-fused-raw-development-tests
     )
+    if(SHADOW_REQUIRE_METAL_TESTS)
+        set_tests_properties(
+            shadow-image-fused-raw-development-contract
+            PROPERTIES
+                ENVIRONMENT
+                    "SHADOW_IMAGE_ACCELERATION=metal;SHADOW_TEST_REQUIRE_METAL=1;SHADOW_TEST_METAL_TILE_BYTES=1"
+                LABELS "metal-required"
+        )
+        set_tests_properties(
+            shadow-image-raw-pipeline-contract
+            PROPERTIES
+                ENVIRONMENT "SHADOW_IMAGE_ACCELERATION=metal"
+                LABELS "metal-required"
+        )
+    endif()
 
     add_executable(shadow-image-dcp-parser-tests tests/dcp_parser_contract_test.cpp)
     target_link_libraries(shadow-image-dcp-parser-tests PRIVATE Shadow::Image)

@@ -224,6 +224,7 @@ using Matrix3 = std::array<double, 9U>;
     const RawDevelopmentPlan& plan,
     const Dimensions rendered_dimensions,
     const RawDemosaicReceipt& demosaic,
+    const RawDevelopmentBackend backend,
     const DcpColorTransform* camera_profile
 ) {
     RawDevelopmentReceipt receipt;
@@ -236,6 +237,8 @@ using Matrix3 = std::array<double, 9U>;
         demosaic.algorithm == RawDemosaicAlgorithm::bayer_area_preview_v1
         ? "shadow-raw-v1;demosaic=bayer-area-preview"
         : "shadow-raw-v1;demosaic=bayer-bilinear";
+    receipt.development_settings_signature += ";backend="
+        + std::string(raw_development_backend_identity(backend));
     if (camera_profile != nullptr) {
         receipt.development_settings_signature += ";color=dcp;"
             + dcp_color_receipt_identity(camera_profile->receipt);
@@ -278,7 +281,12 @@ using Matrix3 = std::array<double, 9U>;
     return receipt;
 }
 
-[[nodiscard]] PixelBuffer develop_raw_frame(
+struct DevelopedRawFrame final {
+    PixelBuffer pixels;
+    RawDevelopmentBackend backend = RawDevelopmentBackend::cpu;
+};
+
+[[nodiscard]] DevelopedRawFrame develop_raw_frame(
     RawFrame frame,
     const RawDevelopmentPlan& plan,
     const std::optional<std::uint32_t> preview_max_edge,
@@ -331,9 +339,13 @@ using Matrix3 = std::array<double, 9U>;
         plan,
         output.dimensions,
         developed.demosaic_receipt,
+        developed.backend,
         camera_profile
     );
-    return output;
+    return DevelopedRawFrame{
+        .pixels = std::move(output),
+        .backend = developed.backend,
+    };
 }
 
 [[nodiscard]] DevelopedSourceReference provider_processed_source(
@@ -633,12 +645,13 @@ DevelopedSourceReference develop_source_reference(
                 camera_profile_diagnostic = profile_error.what();
             }
         }
-        PixelBuffer pixels = develop_raw_frame(
+        DevelopedRawFrame developed = develop_raw_frame(
             std::move(frame),
             negotiation.effective,
             preview_max_edge,
             dcp_transform.has_value() ? &*dcp_transform : nullptr
         );
+        PixelBuffer pixels = std::move(developed.pixels);
         pixels.raw_development_receipt.requested_plan = plan;
         pixels.raw_development_receipt.requested_plan_identity =
             raw_development_plan_identity(plan);
@@ -649,6 +662,8 @@ DevelopedSourceReference develop_source_reference(
         RawPipelineReceipt pipeline;
         pipeline.path = RawPipelinePath::shadow_raw_frame;
         pipeline.pipeline_identity = std::string(raw_frame_pipeline_identity);
+        pipeline.pipeline_identity += ";backend="
+            + std::string(raw_development_backend_identity(developed.backend));
         pipeline.source_provider_id = source_provider_id;
         pipeline.source_provider_version = source_provider_version;
         pipeline.raw_frame_schema_version = raw_frame_schema_version;

@@ -1,6 +1,7 @@
 #include <shadow/image/fused_raw_development.hpp>
 
 #include "bayer_sampling.hpp"
+#include "metal_raw_development.hpp"
 #include "../concurrency/row_scheduler.hpp"
 
 #include <algorithm>
@@ -8,7 +9,10 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <limits>
+#include <string>
+#include <string_view>
 #include <utility>
 
 namespace shadow::image {
@@ -16,6 +20,8 @@ namespace shadow::image {
 namespace {
 
 using CameraRgb = detail::CameraRgb;
+inline constexpr std::string_view raw_acceleration_environment =
+    "SHADOW_IMAGE_ACCELERATION";
 
 void validate_request(
     const RawFrame& frame,
@@ -145,43 +151,11 @@ void write_transformed_pixel(
         && !receipt.dng_opcodes_applied;
 }
 
-} // namespace
-
-bool RawFrameLinearTransform::valid() const noexcept {
-    bool non_zero = false;
-    for (const double coefficient : camera_to_linear_srgb_d65) {
-        if (!std::isfinite(coefficient)) {
-            return false;
-        }
-        non_zero = non_zero || coefficient != 0.0;
-    }
-    return non_zero;
-}
-
-bool FusedRawFrameDevelopment::valid() const noexcept {
-    const auto width = static_cast<std::uint64_t>(pixels.dimensions.width);
-    const auto height = static_cast<std::uint64_t>(pixels.dimensions.height);
-    if (width == 0U || height == 0U || pixels.bits_per_channel != 16U
-        || pixels.channels != 3U
-        || pixels.row_stride_bytes != width * 3U * sizeof(std::uint16_t)
-        || pixels.primaries != RgbPrimaries::srgb_rec709_d65
-        || pixels.transfer_function != RgbTransferFunction::linear
-        || pixels.reference != RgbBufferReference::processed_raw
-        || !valid_demosaic_receipt(demosaic_receipt)) {
-        return false;
-    }
-    const auto sample_count = width * height * 3U;
-    return sample_count <= static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())
-        && pixels.samples.size() == static_cast<std::size_t>(sample_count);
-}
-
-FusedRawFrameDevelopment develop_bayer_linear_srgb_u16_fused(
+[[nodiscard]] FusedRawFrameDevelopment develop_on_cpu(
     const RawFrame& frame,
     const RawFrameLinearTransform& transform,
     const std::optional<std::uint32_t> preview_max_edge
 ) {
-    validate_request(frame, transform, preview_max_edge);
-
     const auto& descriptor = frame.descriptor;
     const Dimensions reconstruction_dimensions = preview_max_edge.has_value()
         ? proxy_dimensions(descriptor.active_dimensions, *preview_max_edge)
@@ -254,12 +228,142 @@ FusedRawFrameDevelopment develop_bayer_linear_srgb_u16_fused(
                 ? RawDemosaicAlgorithm::bayer_area_preview_v1
                 : RawDemosaicAlgorithm::bayer_bilinear_v1
         ),
+        .backend = RawDevelopmentBackend::cpu,
     };
     if (!result.valid()) {
         throw DecodeError(
             DecodeErrorCode::internal,
             0,
-            "fused Bayer development produced an invalid scene-linear raster"
+            "fused CPU Bayer development produced an invalid scene-linear raster"
+        );
+    }
+    return result;
+}
+
+} // namespace
+
+std::string_view raw_development_backend_identity(
+    const RawDevelopmentBackend backend
+) noexcept {
+    switch (backend) {
+    case RawDevelopmentBackend::cpu:
+        return "shadow-fused-raw-cpu-v1";
+    case RawDevelopmentBackend::metal:
+        return "shadow-fused-raw-metal-full-v1;math=f32-precise";
+    }
+    return "shadow-fused-raw-unknown";
+}
+
+bool raw_development_backend_available(const RawDevelopmentBackend backend) noexcept {
+    switch (backend) {
+    case RawDevelopmentBackend::cpu:
+        return true;
+    case RawDevelopmentBackend::metal:
+        return detail::metal_raw_development_available();
+    }
+    return false;
+}
+
+RawDevelopmentBackendMode raw_development_backend_mode_from_environment() {
+    const auto* configured = std::getenv(raw_acceleration_environment.data());
+    if (configured == nullptr || *configured == '\0'
+        || std::string_view(configured) == "auto") {
+        return RawDevelopmentBackendMode::automatic;
+    }
+    if (std::string_view(configured) == "cpu") {
+        return RawDevelopmentBackendMode::cpu;
+    }
+    if (std::string_view(configured) == "metal") {
+        return RawDevelopmentBackendMode::metal;
+    }
+    throw DecodeError(
+        DecodeErrorCode::invalid_request,
+        0,
+        "SHADOW_IMAGE_ACCELERATION must be auto, cpu, or metal"
+    );
+}
+
+bool RawFrameLinearTransform::valid() const noexcept {
+    bool non_zero = false;
+    for (const double coefficient : camera_to_linear_srgb_d65) {
+        if (!std::isfinite(coefficient)) {
+            return false;
+        }
+        non_zero = non_zero || coefficient != 0.0;
+    }
+    return non_zero;
+}
+
+bool FusedRawFrameDevelopment::valid() const noexcept {
+    const auto width = static_cast<std::uint64_t>(pixels.dimensions.width);
+    const auto height = static_cast<std::uint64_t>(pixels.dimensions.height);
+    const bool known_backend = backend == RawDevelopmentBackend::cpu
+        || backend == RawDevelopmentBackend::metal;
+    if (!known_backend || width == 0U || height == 0U || pixels.bits_per_channel != 16U
+        || pixels.channels != 3U
+        || pixels.row_stride_bytes != width * 3U * sizeof(std::uint16_t)
+        || pixels.primaries != RgbPrimaries::srgb_rec709_d65
+        || pixels.transfer_function != RgbTransferFunction::linear
+        || pixels.reference != RgbBufferReference::processed_raw
+        || !valid_demosaic_receipt(demosaic_receipt)) {
+        return false;
+    }
+    const auto sample_count = width * height * 3U;
+    return sample_count <= static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())
+        && pixels.samples.size() == static_cast<std::size_t>(sample_count);
+}
+
+FusedRawFrameDevelopment develop_bayer_linear_srgb_u16_fused(
+    const RawFrame& frame,
+    const RawFrameLinearTransform& transform,
+    const std::optional<std::uint32_t> preview_max_edge
+) {
+    return develop_bayer_linear_srgb_u16_fused_with_backend(
+        frame,
+        transform,
+        preview_max_edge,
+        raw_development_backend_mode_from_environment()
+    );
+}
+
+FusedRawFrameDevelopment develop_bayer_linear_srgb_u16_fused_with_backend(
+    const RawFrame& frame,
+    const RawFrameLinearTransform& transform,
+    const std::optional<std::uint32_t> preview_max_edge,
+    const RawDevelopmentBackendMode backend_mode
+) {
+    validate_request(frame, transform, preview_max_edge);
+    const bool area_preview = preview_max_edge.has_value()
+        && proxy_dimensions(frame.descriptor.active_dimensions, *preview_max_edge)
+            != frame.descriptor.active_dimensions;
+    if (area_preview) {
+        return develop_on_cpu(frame, transform, preview_max_edge);
+    }
+    if (backend_mode != RawDevelopmentBackendMode::cpu) {
+        auto attempt = detail::try_develop_bayer_linear_srgb_u16_metal(
+            frame,
+            transform,
+            preview_max_edge
+        );
+        if (attempt.development.has_value()) {
+            return std::move(*attempt.development);
+        }
+        if (backend_mode == RawDevelopmentBackendMode::metal) {
+            const std::string diagnostic = attempt.diagnostic.empty()
+                ? "Metal RAW development is unavailable" : std::move(attempt.diagnostic);
+            throw DecodeError(
+                DecodeErrorCode::internal,
+                0,
+                diagnostic
+            );
+        }
+    }
+    auto result = develop_on_cpu(frame, transform, preview_max_edge);
+    if (!result.valid()) {
+        throw DecodeError(
+            DecodeErrorCode::internal,
+            0,
+            "fused RAW backend selection produced an invalid scene-linear raster"
         );
     }
     return result;
