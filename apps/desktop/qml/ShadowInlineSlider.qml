@@ -92,6 +92,8 @@ Slider {
     }
 
     ToolTip {
+        id: toolTip
+
         parent: control
         visible: control.enabled && control.hovered
             && !control.pressed && control.toolTipText.length > 0

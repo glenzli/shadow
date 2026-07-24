@@ -76,6 +76,8 @@ Item {
         }
 
         ToolTip {
+            id: toolTip
+
             parent: header
             visible: headerMouse.containsMouse && root.toolTipText.length > 0
             delay: 500
@@ -85,7 +87,7 @@ Item {
             y: header.height + 6
 
             contentItem: Label {
-                text: parent.text
+                text: toolTip.text
                 color: Theme.textPrimary
                 font.pixelSize: Theme.fontMeta
                 wrapMode: Text.WordWrap

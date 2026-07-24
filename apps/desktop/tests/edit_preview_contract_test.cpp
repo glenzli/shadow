@@ -46,14 +46,12 @@ void slots_have_independent_generations() {
         QByteArrayLiteral("current"),
         QSize(20, 10),
         {},
-        {},
         7
     );
     store.publish(
         EditPreviewSlot::Before,
         QByteArrayLiteral("before"),
         QSize(30, 15),
-        {},
         {},
         3
     );
@@ -86,10 +84,10 @@ void slots_have_independent_generations() {
 void provider_routes_only_named_slots() {
     auto store = std::make_shared<EditPreviewStore>();
     store->publish(
-        EditPreviewSlot::Current, encoded_square(Qt::red), QSize(2, 2), {}, {}, 10
+        EditPreviewSlot::Current, encoded_square(Qt::red), QSize(2, 2), {}, 10
     );
     store->publish(
-        EditPreviewSlot::Before, encoded_square(Qt::blue), QSize(2, 2), {}, {}, 20
+        EditPreviewSlot::Before, encoded_square(Qt::blue), QSize(2, 2), {}, 20
     );
     EditPreviewProvider provider(store);
 

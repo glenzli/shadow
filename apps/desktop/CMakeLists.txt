@@ -41,6 +41,7 @@ file(
     "${PROJECT_SOURCE_DIR}/cpp/shadow-image/include/**/*.hpp"
     "${PROJECT_SOURCE_DIR}/cpp/shadow-image/src/**/*.cpp"
     "${PROJECT_SOURCE_DIR}/cpp/shadow-image/src/**/*.hpp"
+    "${PROJECT_SOURCE_DIR}/cpp/shadow-image/src/**/*.ipp"
 )
 
 set(
@@ -86,6 +87,8 @@ qt_add_executable(
     src/desktop_backend.hpp
     src/edit_controller.cpp
     src/edit_controller.hpp
+    src/edit_persistence_coordinator.cpp
+    src/edit_render_coordinator.cpp
     src/edit_task_runner.cpp
     src/edit_task_runner.hpp
     src/edit_history.hpp
@@ -202,10 +205,14 @@ qt_add_qml_module(
         qml/PreferencesMenu.qml
         qml/PrecisionCanvas.qml
         qml/PrecisionInspector.qml
+        qml/PrecisionTechnicalTools.qml
+        qml/PrecisionVersionsPane.qml
         qml/RecipeRecoveryPopup.qml
         qml/PrecisionWorkspace.qml
         qml/ReviewWorkspace.qml
+        qml/ReviewComparisonView.qml
         qml/ReviewPhotoCard.qml
+        qml/ReviewPhotoInspector.qml
         qml/ShadowButton.qml
         qml/ShadowColorLabelButton.qml
         qml/ShadowColorWheel.qml
