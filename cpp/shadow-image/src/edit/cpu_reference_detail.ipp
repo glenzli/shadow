@@ -609,6 +609,57 @@ void apply_dehaze_and_defringe(
     );
 }
 
+struct PreparedColorGradingWheel final {
+    double delta_a = 0.0;
+    double delta_b = 0.0;
+    double delta_lightness = 0.0;
+};
+
+struct PreparedColorGrading final {
+    PreparedColorGradingWheel shadows;
+    PreparedColorGradingWheel midtones;
+    PreparedColorGradingWheel highlights;
+    double center = 0.5;
+    double width = 0.23;
+};
+
+[[nodiscard]] PreparedColorGrading prepare_color_grading(
+    const SharpenAdjustment& parameters
+) noexcept {
+    const auto prepare_wheel = [](const double hue, const double saturation,
+                                  const double luminance) {
+        const double angle = hue * pi / 180.0;
+        return PreparedColorGradingWheel{
+            .delta_a = 0.09 * saturation * std::cos(angle),
+            .delta_b = 0.09 * saturation * std::sin(angle),
+            .delta_lightness = 0.12 * luminance,
+        };
+    };
+    return PreparedColorGrading{
+        .shadows = prepare_wheel(
+            parameters.shadows_hue,
+            parameters.shadows_saturation,
+            parameters.shadows_luminance
+        ),
+        .midtones = prepare_wheel(
+            parameters.midtones_hue,
+            parameters.midtones_saturation,
+            parameters.midtones_luminance
+        ),
+        .highlights = prepare_wheel(
+            parameters.highlights_hue,
+            parameters.highlights_saturation,
+            parameters.highlights_luminance
+        ),
+        .center = std::clamp(
+            0.5 + 0.22 * parameters.grading_balance,
+            0.18,
+            0.82
+        ),
+        .width = 0.08 + 0.30 * parameters.grading_blending,
+    };
+}
+
 void apply_color_grading(
     FloatRgbImage& image,
     const AdjustmentNode& node,
@@ -624,6 +675,7 @@ void apply_color_grading(
     if (!grading) {
         return;
     }
+    const PreparedColorGrading prepared = prepare_color_grading(parameters);
     const auto luma_weights = image.working_space.luminance_coefficients;
     const WorkingSpaceTransform color_transform = prepare_working_space_transform(
         image.working_space, node, node_index
@@ -632,41 +684,39 @@ void apply_color_grading(
         image,
         node_index,
         node,
-        [&parameters, luma_weights, &color_transform](const Vector3& input) {
+        [&prepared, luma_weights, &color_transform](const Vector3& input) {
             const double luma = input[0] * luma_weights[0]
                 + input[1] * luma_weights[1] + input[2] * luma_weights[2];
             Vector3 lab = xyz_to_oklab(multiply(color_transform.rgb_to_xyz, input));
             const double normalized = std::max(0.0, luma) / (std::max(0.0, luma) + 0.18);
-            const double center = std::clamp(
-                0.5 + 0.22 * parameters.grading_balance, 0.18, 0.82
+            double shadow_weight = 1.0 - smoothstep(
+                prepared.center - prepared.width,
+                prepared.center + prepared.width,
+                normalized
             );
-            const double width = 0.08 + 0.30 * parameters.grading_blending;
-            double shadow_weight = 1.0 - smoothstep(center - width, center + width, normalized);
-            double highlight_weight = smoothstep(center - width, center + width, normalized);
-            double midtone_weight = 1.0 - std::abs(normalized - center)
-                / std::max(0.12, 0.5 + width);
+            double highlight_weight = smoothstep(
+                prepared.center - prepared.width,
+                prepared.center + prepared.width,
+                normalized
+            );
+            double midtone_weight = 1.0 - std::abs(normalized - prepared.center)
+                / std::max(0.12, 0.5 + prepared.width);
             midtone_weight = std::clamp(midtone_weight, 0.0, 1.0);
             const double total = shadow_weight + midtone_weight + highlight_weight;
             shadow_weight /= total;
             midtone_weight /= total;
             highlight_weight /= total;
-            const auto wheel = [&lab](
-                const double hue,
-                const double saturation,
-                const double luminance,
+            const auto apply_wheel = [&lab](
+                const PreparedColorGradingWheel& wheel,
                 const double weight
             ) {
-                const double angle = hue * pi / 180.0;
-                lab[0] += 0.12 * luminance * weight;
-                lab[1] += 0.09 * saturation * weight * std::cos(angle);
-                lab[2] += 0.09 * saturation * weight * std::sin(angle);
+                lab[0] += wheel.delta_lightness * weight;
+                lab[1] += wheel.delta_a * weight;
+                lab[2] += wheel.delta_b * weight;
             };
-            wheel(parameters.shadows_hue, parameters.shadows_saturation,
-                  parameters.shadows_luminance, shadow_weight);
-            wheel(parameters.midtones_hue, parameters.midtones_saturation,
-                  parameters.midtones_luminance, midtone_weight);
-            wheel(parameters.highlights_hue, parameters.highlights_saturation,
-                  parameters.highlights_luminance, highlight_weight);
+            apply_wheel(prepared.shadows, shadow_weight);
+            apply_wheel(prepared.midtones, midtone_weight);
+            apply_wheel(prepared.highlights, highlight_weight);
             return multiply(color_transform.xyz_to_rgb, oklab_to_xyz(lab));
         }
     );

@@ -140,6 +140,85 @@ private:
     };
 }
 
+[[nodiscard]] image::CubeLut3D advanced_test_lut() {
+    image::CubeLut3D lut{
+        .title = "GPU advanced contract",
+        .size = 3U,
+        .domain_min = {-0.25, -0.10, -0.20},
+        .domain_max = {1.50, 1.30, 1.70},
+    };
+    lut.entries.reserve(27U);
+    for (std::uint16_t blue = 0U; blue < lut.size; ++blue) {
+        for (std::uint16_t green = 0U; green < lut.size; ++green) {
+            for (std::uint16_t red = 0U; red < lut.size; ++red) {
+                const float r = static_cast<float>(red) / 2.0F;
+                const float g = static_cast<float>(green) / 2.0F;
+                const float b = static_cast<float>(blue) / 2.0F;
+                lut.entries.push_back({
+                    0.05F + 0.78F * r + 0.12F * g,
+                    0.03F + 0.82F * g + 0.10F * b,
+                    0.02F + 0.14F * r + 0.76F * b,
+                });
+            }
+        }
+    }
+    return lut;
+}
+
+[[nodiscard]] std::array<image::AdjustmentNode, 3U> advanced_nodes(
+    const double curve_midpoint = 0.76,
+    const double lut_intensity = 0.64
+) {
+    return {
+        image::AdjustmentNode{
+            .node_id = "oklab-lightness-curve",
+            .parameter_schema_version =
+                image::oklab_lightness_tone_curve_parameter_schema_version,
+            .implementation_version =
+                image::oklab_lightness_tone_curve_implementation_version,
+            .parameters = image::OklabLightnessToneCurve{
+                .lightness = {
+                    .points = {
+                        {0.0, 0.0},
+                        {0.18, 0.11},
+                        {0.62, curve_midpoint},
+                        {1.0, 1.08},
+                    },
+                },
+            },
+        },
+        image::AdjustmentNode{
+            .node_id = "pure-color-grading",
+            .parameter_schema_version =
+                image::detail_effects_v3_parameter_schema_version,
+            .implementation_version =
+                image::color_grading_v3_implementation_version,
+            .parameters = image::SharpenAdjustment{
+                .execution_pass =
+                    image::DetailEffectsExecutionPass::color_grading,
+                .shadows_hue = 28.0,
+                .shadows_saturation = 0.32,
+                .shadows_luminance = -0.16,
+                .midtones_hue = 118.0,
+                .midtones_saturation = 0.20,
+                .midtones_luminance = 0.08,
+                .highlights_hue = 248.0,
+                .highlights_saturation = 0.38,
+                .highlights_luminance = 0.18,
+                .grading_blending = 0.66,
+                .grading_balance = -0.24,
+            },
+        },
+        image::AdjustmentNode{
+            .node_id = "cube-lut",
+            .parameters = image::CubeLutAdjustment{
+                .lut = advanced_test_lut(),
+                .intensity = lut_intensity,
+            },
+        },
+    };
+}
+
 [[nodiscard]] bool close_to_cpu(
     const image::FloatRgbImage& actual,
     const image::FloatRgbImage& expected,
@@ -204,8 +283,6 @@ void neutral_and_disabled_plans_have_no_backend_route() {
 
 void unsupported_operations_are_whole_stage_fallbacks() {
     const auto input = make_image(13U, 9U);
-    auto curve = image::OklabLightnessToneCurve{};
-    curve.lightness.points = {{0.0, -0.05}, {0.45, 0.50}, {1.0, 1.10}};
     const std::array nodes{
         image::AdjustmentNode{
             .node_id = "gpu-prefix",
@@ -213,7 +290,11 @@ void unsupported_operations_are_whole_stage_fallbacks() {
         },
         image::AdjustmentNode{
             .node_id = "unsupported-middle",
-            .parameters = std::move(curve),
+            .parameter_schema_version =
+                image::perceptual_color_v3_parameter_schema_version,
+            .implementation_version =
+                image::perceptual_color_v3_implementation_version,
+            .parameters = image::PerceptualColorAdjustment{.vibrance = 0.35},
         },
         image::AdjustmentNode{
             .node_id = "gpu-suffix",
@@ -286,6 +367,128 @@ void unsupported_operations_are_whole_stage_fallbacks() {
         expect(
             error.code() == image::EditErrorCode::backend_failure,
             "forced neighborhood Metal rejection remains typed"
+        );
+    }
+}
+
+void fp32_unsafe_curve_and_lut_domains_fall_back_before_dispatch() {
+    const auto input = make_image(11U, 7U);
+    const auto expect_lut_fallback = [&input](
+        image::CubeLut3D lut,
+        const std::string_view description
+    ) {
+        const std::array nodes{
+            image::AdjustmentNode{
+                .node_id = std::string(description),
+                .parameters = image::CubeLutAdjustment{
+                    .lut = std::move(lut),
+                    .intensity = 1.0,
+                },
+            },
+        };
+        const auto cpu = image::execute_adjustment_nodes(input, nodes);
+        const auto automatic = image::execute_adjustment_nodes_with_backend(
+            input,
+            nodes,
+            {},
+            image::AdjustmentBackendMode::automatic
+        );
+        expect(
+            automatic.backend == image::AdjustmentBackend::cpu
+                && automatic.fell_back
+                && automatic.diagnostic.find("domain") != std::string::npos
+                && automatic.pixels.samples == cpu.samples,
+            description
+        );
+        try {
+            static_cast<void>(image::execute_adjustment_nodes_with_backend(
+                input,
+                nodes,
+                {},
+                image::AdjustmentBackendMode::metal
+            ));
+            expect(false, "forced Metal rejects an fp32-unsafe LUT domain");
+        } catch (const image::EditError& error) {
+            expect(
+                error.code() == image::EditErrorCode::backend_failure,
+                "an fp32-unsafe LUT domain reports a typed backend failure"
+            );
+        }
+    };
+
+    auto collapsed_lut = advanced_test_lut();
+    collapsed_lut.domain_min[0] = 1.0e20;
+    collapsed_lut.domain_max[0] = std::nextafter(
+        collapsed_lut.domain_min[0],
+        std::numeric_limits<double>::infinity()
+    );
+    expect_lut_fallback(
+        std::move(collapsed_lut),
+        "a LUT interval that collapses during fp32 quantization replays on CPU"
+    );
+
+    auto overflowing_lut = advanced_test_lut();
+    const double float_limit =
+        static_cast<double>(std::numeric_limits<float>::max());
+    overflowing_lut.domain_min[1] = -float_limit;
+    overflowing_lut.domain_max[1] = float_limit;
+    expect_lut_fallback(
+        std::move(overflowing_lut),
+        "a LUT interval whose fp32 span overflows replays on CPU"
+    );
+
+    const std::array curve_nodes{
+        image::AdjustmentNode{
+            .node_id = "fp32-collapsed-curve-knots",
+            .parameter_schema_version =
+                image::oklab_lightness_tone_curve_parameter_schema_version,
+            .implementation_version =
+                image::oklab_lightness_tone_curve_implementation_version,
+            .parameters = image::OklabLightnessToneCurve{
+                .lightness = {
+                    .points = {
+                        {0.0, 0.0},
+                        {0.5, 0.42},
+                        {
+                            std::nextafter(
+                                0.5,
+                                std::numeric_limits<double>::infinity()
+                            ),
+                            0.58,
+                        },
+                        {1.0, 1.0},
+                    },
+                },
+            },
+        },
+    };
+    const auto curve_cpu = image::execute_adjustment_nodes(input, curve_nodes);
+    const auto curve_automatic = image::execute_adjustment_nodes_with_backend(
+        input,
+        curve_nodes,
+        {},
+        image::AdjustmentBackendMode::automatic
+    );
+    expect(
+        curve_automatic.backend == image::AdjustmentBackend::cpu
+            && curve_automatic.fell_back
+            && curve_automatic.diagnostic.find("curve knots")
+                != std::string::npos
+            && curve_automatic.pixels.samples == curve_cpu.samples,
+        "curve knots that collapse during fp32 quantization replay on CPU"
+    );
+    try {
+        static_cast<void>(image::execute_adjustment_nodes_with_backend(
+            input,
+            curve_nodes,
+            {},
+            image::AdjustmentBackendMode::metal
+        ));
+        expect(false, "forced Metal rejects fp32-collapsed curve knots");
+    } catch (const image::EditError& error) {
+        expect(
+            error.code() == image::EditErrorCode::backend_failure,
+            "fp32-collapsed curve knots report a typed backend failure"
         );
     }
 }
@@ -451,6 +654,108 @@ void backend_availability_and_resource_failure_are_explicit() {
             );
         }
     }
+}
+
+void advanced_pixel_local_operations_match_the_cpu_oracle() {
+    if (!image::adjustment_backend_available(image::AdjustmentBackend::metal)) {
+        return;
+    }
+    const auto input = make_image(41U, 27U, true);
+    const auto nodes = advanced_nodes();
+    double worst_error = 0.0;
+    for (std::size_t index = 0U; index < nodes.size(); ++index) {
+        const std::span<const image::AdjustmentNode> isolated{
+            nodes.data() + index,
+            1U,
+        };
+        const auto cpu = image::execute_adjustment_nodes(input, isolated);
+        const auto metal = image::execute_adjustment_nodes_with_backend(
+            input,
+            isolated,
+            {},
+            image::AdjustmentBackendMode::metal
+        );
+        double error = 0.0;
+        const bool parity = close_to_cpu(metal.pixels, cpu, error, 4.0e-5);
+        if (!parity) {
+            std::cerr << "Advanced standalone parity operation=" << index
+                      << " max=" << error << '\n';
+        }
+        expect(
+            metal.backend == image::AdjustmentBackend::metal
+                && !metal.fell_back && parity,
+            "each advanced pixel-local operation matches the CPU oracle on Metal"
+        );
+        worst_error = std::max(worst_error, error);
+    }
+
+    const auto cpu = image::execute_adjustment_nodes(input, nodes);
+    const auto metal = image::execute_adjustment_nodes_with_backend(
+        input,
+        nodes,
+        {},
+        image::AdjustmentBackendMode::metal
+    );
+    double combined_error = 0.0;
+    const bool combined_parity =
+        close_to_cpu(metal.pixels, cpu, combined_error, 8.0e-5);
+    if (!combined_parity) {
+        std::cerr << "Advanced standalone combined parity max="
+                  << combined_error << '\n';
+    }
+    expect(
+        metal.backend == image::AdjustmentBackend::metal
+            && !metal.fell_back && combined_parity,
+        "Oklab curve, pure color grading, and LUT preserve CPU order and semantics on Metal"
+    );
+    worst_error = std::max(worst_error, combined_error);
+
+    std::vector<image::ToneCurvePoint> dense_points;
+    dense_points.reserve(image::maximum_tone_curve_points);
+    for (std::size_t index = 0U;
+         index < image::maximum_tone_curve_points;
+         ++index) {
+        const double x = static_cast<double>(index)
+            / static_cast<double>(image::maximum_tone_curve_points - 1U);
+        dense_points.push_back({
+            .x = x,
+            .y = x + 0.04 * x * (1.0 - x),
+        });
+    }
+    const std::array dense_curve{
+        image::AdjustmentNode{
+            .node_id = "maximum-density-oklab-curve",
+            .parameter_schema_version =
+                image::oklab_lightness_tone_curve_parameter_schema_version,
+            .implementation_version =
+                image::oklab_lightness_tone_curve_implementation_version,
+            .parameters = image::OklabLightnessToneCurve{
+                .lightness = {.points = std::move(dense_points)},
+            },
+        },
+    };
+    const auto dense_cpu = image::execute_adjustment_nodes(input, dense_curve);
+    const auto dense_metal = image::execute_adjustment_nodes_with_backend(
+        input,
+        dense_curve,
+        {},
+        image::AdjustmentBackendMode::metal
+    );
+    double dense_error = 0.0;
+    expect(
+        dense_metal.backend == image::AdjustmentBackend::metal
+            && !dense_metal.fell_back
+            && close_to_cpu(
+                dense_metal.pixels,
+                dense_cpu,
+                dense_error,
+                8.0e-5
+            ),
+        "a maximum-density 256-point curve remains eligible and CPU-equivalent on Metal"
+    );
+    worst_error = std::max(worst_error, dense_error);
+    std::cout << "Metal advanced-operation maximum absolute error: "
+              << worst_error << '\n';
 }
 
 void every_core_order_matches_the_cpu_oracle() {
@@ -705,8 +1010,10 @@ void optional_true_machine_benchmark() {
 int main() {
     neutral_and_disabled_plans_have_no_backend_route();
     unsupported_operations_are_whole_stage_fallbacks();
+    fp32_unsafe_curve_and_lut_domains_fall_back_before_dispatch();
     malformed_disabled_nodes_fail_before_backend_selection();
     backend_availability_and_resource_failure_are_explicit();
+    advanced_pixel_local_operations_match_the_cpu_oracle();
     every_core_order_matches_the_cpu_oracle();
     randomized_and_endpoint_parameters_match_the_cpu_oracle();
     repeated_nodes_and_concurrent_renders_are_deterministic();

@@ -17,26 +17,43 @@ namespace {
 inline constexpr std::string_view image_acceleration_environment =
     "SHADOW_IMAGE_ACCELERATION";
 
-[[nodiscard]] std::optional<std::string> metal_v1_ineligibility(
-    const EditExecutionPlan& plan
+[[nodiscard]] std::optional<std::string> metal_ineligibility(
+    const EditExecutionPlan& plan,
+    const std::span<const AdjustmentNode> nodes
 ) {
     for (const auto& segment : plan.segments) {
         if (segment.locality != AdjustmentLocality::pixel_local) {
-            return "Metal adjustment v1 requires every active node to be pixel-local";
+            return "Metal adjustment requires every active node to be pixel-local";
         }
         for (const auto& step : segment.steps) {
+            if (step.node_index >= nodes.size()
+                || operation(nodes[step.node_index].parameters) != step.operation) {
+                return "Metal adjustment plan no longer matches its source nodes";
+            }
             switch (step.operation) {
             case AdjustmentOperation::rgb_white_balance:
             case AdjustmentOperation::exposure:
             case AdjustmentOperation::contrast:
             case AdjustmentOperation::saturation:
-                break;
             case AdjustmentOperation::oklab_lightness_tone_curve:
+            case AdjustmentOperation::lut_3d:
+                break;
+            case AdjustmentOperation::sharpen: {
+                const auto* parameters = std::get_if<SharpenAdjustment>(
+                    &nodes[step.node_index].parameters
+                );
+                if (parameters == nullptr
+                    || parameters->execution_pass
+                        != DetailEffectsExecutionPass::color_grading
+                    || parameters->clarity != 0.0 || parameters->texture != 0.0) {
+                    return "Metal adjustment supports only pixel-local color grading "
+                        "from the Detail & Effects node";
+                }
+                break;
+            }
             case AdjustmentOperation::selective_tone:
             case AdjustmentOperation::perceptual_color:
-            case AdjustmentOperation::lut_3d:
-            case AdjustmentOperation::sharpen:
-                return "Metal adjustment v1 does not support active operation "
+                return "Metal adjustment does not support active operation "
                     + std::string(operation_id(step.operation));
             }
         }
@@ -70,7 +87,7 @@ inline constexpr std::string_view image_acceleration_environment =
 
 [[noreturn]] void throw_forced_metal_failure(std::string diagnostic) {
     if (diagnostic.empty()) {
-        diagnostic = "Metal adjustment v1 declined the complete adjustment stage";
+        diagnostic = "Metal adjustment declined the complete adjustment stage";
     }
     throw EditError(EditErrorCode::backend_failure, std::nullopt, std::move(diagnostic));
 }
@@ -82,7 +99,8 @@ std::string_view adjustment_backend_identity(const AdjustmentBackend backend) no
     case AdjustmentBackend::cpu:
         return "shadow-adjustment-cpu-v1;math=f64";
     case AdjustmentBackend::metal:
-        return "shadow-adjustment-metal-v1;abi=1;math=f32-safe;ops=wb,exposure,contrast,saturation";
+        return "shadow-adjustment-metal-v2;abi=2;math=f32-safe;"
+            "ops=wb,exposure,contrast,saturation,curve,grading,lut";
     }
     return "shadow-adjustment-unknown";
 }
@@ -169,14 +187,14 @@ AdjustmentExecutionResult execute_adjustment_nodes_with_backend(
         return execute_on_cpu(input, nodes, context, false, {});
     }
 
-    if (const auto ineligible = metal_v1_ineligibility(plan); ineligible.has_value()) {
+    if (const auto ineligible = metal_ineligibility(plan, nodes); ineligible.has_value()) {
         if (backend_mode == AdjustmentBackendMode::metal) {
             throw_forced_metal_failure(*ineligible);
         }
         return execute_on_cpu(input, nodes, context, true, *ineligible);
     }
 
-    auto preparation = detail::prepare_metal_adjustment_v1(
+    auto preparation = detail::prepare_metal_adjustment(
         input,
         nodes,
         plan,
@@ -192,12 +210,12 @@ AdjustmentExecutionResult execute_adjustment_nodes_with_backend(
             context,
             true,
             preparation.diagnostic.empty()
-                ? "Metal adjustment v1 could not prepare the complete stage"
+                ? "Metal adjustment could not prepare the complete stage"
                 : std::move(preparation.diagnostic)
         );
     }
 
-    auto attempt = detail::try_execute_adjustments_metal_v1(
+    auto attempt = detail::try_execute_adjustments_metal(
         input,
         *preparation.program
     );
@@ -209,7 +227,7 @@ AdjustmentExecutionResult execute_adjustment_nodes_with_backend(
         if (!result.valid()) {
             if (backend_mode == AdjustmentBackendMode::metal) {
                 throw_forced_metal_failure(
-                    "Metal adjustment v1 returned an invalid complete-stage result"
+                    "Metal adjustment returned an invalid complete-stage result"
                 );
             }
             return execute_on_cpu(
@@ -217,7 +235,7 @@ AdjustmentExecutionResult execute_adjustment_nodes_with_backend(
                 nodes,
                 context,
                 true,
-                "Metal adjustment v1 returned an invalid result; the complete stage was replayed"
+                "Metal adjustment returned an invalid result; the complete stage was replayed"
             );
         }
         return result;
@@ -232,7 +250,7 @@ AdjustmentExecutionResult execute_adjustment_nodes_with_backend(
         context,
         true,
         attempt.diagnostic.empty()
-            ? "Metal adjustment v1 declined the request; the complete stage was replayed"
+            ? "Metal adjustment declined the request; the complete stage was replayed"
             : std::move(attempt.diagnostic)
     );
 }

@@ -119,9 +119,9 @@ struct SaturationAdjustment final {
 // toe/shoulder response while recovery controls apply a wider EV-domain exposure field.
 //
 // Version 3 evaluates those fields against a complete self-guided filter in log scene
-// luminance, then applies the resulting EV gain to the original scene-linear RGB. The filter
-// averages its local linear coefficients in a second box pass, so neighbouring pixels in the
-// same tonal region share a gain (preserving local contrast) while high-contrast edges remain
+// luminance, then applies the resulting EV gain to Oklab lightness while preserving a/b. The
+// filter averages its local linear coefficients in a second box pass, so neighbouring pixels in
+// the same tonal region share a gain (preserving local contrast) while high-contrast edges remain
 // boundaries for the mask. Zeroes are exactly neutral and do not allocate any spatial working
 // state.
 struct SelectiveToneAdjustment final {
@@ -167,7 +167,7 @@ struct PerceptualColorRange final {
 };
 
 // Perceptual color controls evaluated in Oklab/Oklch. The public band order is red, orange,
-// yellow, green, aqua, blue, purple, magenta. Implementation-version 1 anchors those names at
+// yellow, green, aqua, blue, purple, magenta. Implementation version 3 anchors those names at
 // the non-uniform Oklch hues of representative linear-sRGB colors and uses a smooth periodic
 // partition of unity between adjacent anchors; it must never be interpreted as an HSV wheel.
 // hue values in [-1, 1] map to [-30, 30] degrees; saturation/lightness and vibrance are
@@ -506,13 +506,14 @@ inline constexpr std::string_view edit_preview_analysis_version =
 // the immutable session or generic EncodedProxy payload.
 inline constexpr std::uint32_t edit_preview_execution_receipt_schema_version = 1U;
 inline constexpr std::uint32_t edit_preview_cpu_adjustment_backend_version = 1U;
-inline constexpr std::uint32_t edit_preview_metal_adjustment_backend_version = 1U;
+inline constexpr std::uint32_t edit_preview_metal_adjustment_backend_version = 2U;
 inline constexpr std::uint32_t edit_preview_cpu_display_backend_version = 1U;
 inline constexpr std::uint32_t edit_preview_metal_display_backend_version = 1U;
 // The session-resident backend fuses adjustment and display in one Metal kernel. It has a
 // distinct receipt version because it keeps the immutable source on-device and uses fp32-safe
-// fused execution rather than the earlier host-separated adjustment/display stages.
-inline constexpr std::uint32_t edit_preview_warm_fused_metal_backend_version = 2U;
+// fused execution rather than the earlier host-separated adjustment/display stages. Version 3
+// adds immutable curve/LUT side tables and the corresponding pixel-local operations.
+inline constexpr std::uint32_t edit_preview_warm_fused_metal_backend_version = 3U;
 inline constexpr std::uint32_t edit_preview_jpeg_444_contract_version = 1U;
 
 enum class EditPreviewBackend : std::uint8_t {
@@ -584,6 +585,9 @@ struct WarmEditPreviewGpuStats final {
     std::uint64_t render_count = 0U;
     std::uint64_t completed_render_count = 0U;
     std::uint64_t peak_concurrent_renders = 0U;
+    std::uint64_t curve_resource_upload_count = 0U;
+    std::uint64_t lut_resource_upload_count = 0U;
+    std::uint64_t resource_cache_hit_count = 0U;
     std::uint64_t resident_bytes = 0U;
 
     auto operator<=>(const WarmEditPreviewGpuStats&) const = default;

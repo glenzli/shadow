@@ -1623,11 +1623,15 @@ void warm_edit_preview_receipt_tracks_the_effective_display_backend() {
     if (resident_before_render.resident) {
         expect(
             resident_before_render.source_upload_count == 1U
-                && resident_before_render.gpu_buffer_allocation_count == 9U
+                && resident_before_render.gpu_buffer_allocation_count == 10U
                 && resident_before_render.render_count == 0U
                 && resident_before_render.completed_render_count == 0U
+                && resident_before_render.curve_resource_upload_count == 0U
+                && resident_before_render.lut_resource_upload_count == 0U
+                && resident_before_render.resource_cache_hit_count == 0U
                 && resident_before_render.resident_bytes > 0U,
-            "warm Metal preparation uploads one immutable source and allocates two fixed slots"
+            "warm Metal preparation uploads one immutable source, an empty side table, "
+            "and two fixed slots"
         );
     }
     const std::array neutral_nodes{

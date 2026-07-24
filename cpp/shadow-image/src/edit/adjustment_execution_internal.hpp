@@ -12,18 +12,21 @@
 
 namespace shadow::image::detail {
 
-inline constexpr std::uint32_t metal_adjustment_parameter_abi_version = 1U;
+inline constexpr std::uint32_t metal_adjustment_parameter_abi_version = 2U;
 
-enum class MetalAdjustmentOpcodeV1 : std::uint32_t {
+enum class MetalAdjustmentOpcode : std::uint32_t {
     rgb_white_balance = 1U,
     exposure = 2U,
     contrast = 3U,
     saturation = 4U,
+    oklab_lightness_tone_curve = 5U,
+    color_grading = 6U,
+    lut_3d = 7U,
 };
 
 // Fixed-width transient ABI shared with the runtime-compiled Metal kernel. This is deliberately
 // independent of Recipe and catalog schemas.
-struct alignas(16) MetalAdjustmentInvocationV1 final {
+struct alignas(16) MetalAdjustmentInvocation final {
     std::uint32_t abi_version = metal_adjustment_parameter_abi_version;
     std::uint32_t plan_identity_version = edit_execution_plan_identity_version;
     std::uint32_t width = 0U;
@@ -31,41 +34,69 @@ struct alignas(16) MetalAdjustmentInvocationV1 final {
     std::uint32_t input_row_floats = 0U;
     std::uint32_t output_row_floats = 0U;
     std::uint32_t step_count = 0U;
-    std::uint32_t reserved = 0U;
+    std::uint32_t curve_segment_count = 0U;
+    std::uint32_t lut_entry_count = 0U;
+    std::uint32_t reserved_0 = 0U;
+    std::uint32_t reserved_1 = 0U;
+    std::uint32_t reserved_2 = 0U;
     std::array<float, 4U> rgb_to_xyz_row_0{};
     std::array<float, 4U> rgb_to_xyz_row_1{};
     std::array<float, 4U> rgb_to_xyz_row_2{};
     std::array<float, 4U> xyz_to_rgb_row_0{};
     std::array<float, 4U> xyz_to_rgb_row_1{};
     std::array<float, 4U> xyz_to_rgb_row_2{};
+    std::array<float, 4U> working_luminance{};
 };
 
-struct alignas(16) MetalAdjustmentOpV1 final {
+struct alignas(16) MetalAdjustmentOp final {
     std::uint32_t opcode = 0U;
     std::uint32_t source_node_index = 0U;
-    std::uint32_t reserved_0 = 0U;
-    std::uint32_t reserved_1 = 0U;
+    std::uint32_t resource_offset = 0U;
+    std::uint32_t resource_count = 0U;
     std::array<float, 4U> parameter_0{};
     std::array<float, 4U> parameter_1{};
     std::array<float, 4U> parameter_2{};
 };
 
-static_assert(sizeof(MetalAdjustmentInvocationV1) == 128U);
-static_assert(alignof(MetalAdjustmentInvocationV1) == 16U);
-static_assert(offsetof(MetalAdjustmentInvocationV1, rgb_to_xyz_row_0) == 32U);
-static_assert(offsetof(MetalAdjustmentInvocationV1, xyz_to_rgb_row_2) == 112U);
-static_assert(sizeof(MetalAdjustmentOpV1) == 64U);
-static_assert(alignof(MetalAdjustmentOpV1) == 16U);
-static_assert(offsetof(MetalAdjustmentOpV1, parameter_0) == 16U);
-static_assert(offsetof(MetalAdjustmentOpV1, parameter_2) == 48U);
-
-struct PreparedMetalAdjustmentV1 final {
-    MetalAdjustmentInvocationV1 invocation;
-    std::vector<MetalAdjustmentOpV1> operations;
+// One shape-preserving PCHIP interval. left/right are x, y, derivative, padding.
+struct alignas(16) MetalCurveSegment final {
+    std::array<float, 4U> left{};
+    std::array<float, 4U> right{};
 };
 
-struct MetalAdjustmentPreparationV1 final {
-    std::optional<PreparedMetalAdjustmentV1> program;
+// A .cube row promoted to float4 so Metal can read the canonical red-fastest table without
+// relying on a packed float3 ABI.
+struct alignas(16) MetalLutEntry final {
+    std::array<float, 4U> value{};
+};
+
+static_assert(sizeof(MetalAdjustmentInvocation) == 160U);
+static_assert(alignof(MetalAdjustmentInvocation) == 16U);
+static_assert(offsetof(MetalAdjustmentInvocation, curve_segment_count) == 28U);
+static_assert(offsetof(MetalAdjustmentInvocation, lut_entry_count) == 32U);
+static_assert(offsetof(MetalAdjustmentInvocation, rgb_to_xyz_row_0) == 48U);
+static_assert(offsetof(MetalAdjustmentInvocation, xyz_to_rgb_row_2) == 128U);
+static_assert(offsetof(MetalAdjustmentInvocation, working_luminance) == 144U);
+static_assert(sizeof(MetalAdjustmentOp) == 64U);
+static_assert(alignof(MetalAdjustmentOp) == 16U);
+static_assert(offsetof(MetalAdjustmentOp, resource_offset) == 8U);
+static_assert(offsetof(MetalAdjustmentOp, resource_count) == 12U);
+static_assert(offsetof(MetalAdjustmentOp, parameter_0) == 16U);
+static_assert(offsetof(MetalAdjustmentOp, parameter_2) == 48U);
+static_assert(sizeof(MetalCurveSegment) == 32U);
+static_assert(alignof(MetalCurveSegment) == 16U);
+static_assert(sizeof(MetalLutEntry) == 16U);
+static_assert(alignof(MetalLutEntry) == 16U);
+
+struct PreparedMetalAdjustment final {
+    MetalAdjustmentInvocation invocation;
+    std::vector<MetalAdjustmentOp> operations;
+    std::vector<MetalCurveSegment> curve_segments;
+    std::vector<MetalLutEntry> lut_entries;
+};
+
+struct MetalAdjustmentPreparation final {
+    std::optional<PreparedMetalAdjustment> program;
     std::string diagnostic;
 };
 
@@ -76,7 +107,7 @@ struct MetalAdjustmentAttempt final {
 
 // Implemented beside the CPU oracle so Metal parameter preparation reuses its exact working-space
 // and CAT16 math rather than maintaining a second host-side interpretation.
-[[nodiscard]] MetalAdjustmentPreparationV1 prepare_metal_adjustment_v1(
+[[nodiscard]] MetalAdjustmentPreparation prepare_metal_adjustment(
     const FloatRgbImage& input,
     std::span<const AdjustmentNode> nodes,
     const EditExecutionPlan& plan,
@@ -89,9 +120,9 @@ struct MetalAdjustmentAttempt final {
 
 [[nodiscard]] bool metal_adjustment_available() noexcept;
 
-[[nodiscard]] MetalAdjustmentAttempt try_execute_adjustments_metal_v1(
+[[nodiscard]] MetalAdjustmentAttempt try_execute_adjustments_metal(
     const FloatRgbImage& input,
-    const PreparedMetalAdjustmentV1& program
+    const PreparedMetalAdjustment& program
 );
 
 } // namespace shadow::image::detail

@@ -10,8 +10,8 @@
 namespace shadow::image {
 
 // Provenance-bearing dispatcher for one complete adjustment stage. The CPU implementation is
-// the authoritative oracle. Metal v1 is intentionally all-or-nothing: a render either executes
-// every active node on Metal in source order, or restarts the complete stage on CPU from the
+// the authoritative oracle. Metal is intentionally all-or-nothing: a render either executes every
+// active supported node on Metal in source order, or restarts the complete stage on CPU from the
 // immutable input.
 enum class AdjustmentBackend : std::uint8_t {
     cpu,
@@ -25,7 +25,7 @@ enum class AdjustmentBackendMode : std::uint8_t {
 };
 
 inline constexpr std::uint32_t adjustment_cpu_backend_version = 1U;
-inline constexpr std::uint32_t adjustment_metal_backend_version = 1U;
+inline constexpr std::uint32_t adjustment_metal_backend_version = 2U;
 
 [[nodiscard]] std::string_view adjustment_backend_identity(
     AdjustmentBackend backend

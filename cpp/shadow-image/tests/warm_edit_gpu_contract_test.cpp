@@ -152,10 +152,90 @@ private:
     };
 }
 
+[[nodiscard]] image::CubeLut3D advanced_test_lut() {
+    image::CubeLut3D lut{
+        .title = "Warm GPU advanced contract",
+        .size = 3U,
+        .domain_min = {-0.25, -0.10, -0.20},
+        .domain_max = {1.50, 1.30, 1.70},
+    };
+    lut.entries.reserve(27U);
+    for (std::uint16_t blue = 0U; blue < lut.size; ++blue) {
+        for (std::uint16_t green = 0U; green < lut.size; ++green) {
+            for (std::uint16_t red = 0U; red < lut.size; ++red) {
+                const float r = static_cast<float>(red) / 2.0F;
+                const float g = static_cast<float>(green) / 2.0F;
+                const float b = static_cast<float>(blue) / 2.0F;
+                lut.entries.push_back({
+                    0.05F + 0.78F * r + 0.12F * g,
+                    0.03F + 0.82F * g + 0.10F * b,
+                    0.02F + 0.14F * r + 0.76F * b,
+                });
+            }
+        }
+    }
+    return lut;
+}
+
+[[nodiscard]] std::array<image::AdjustmentNode, 3U> advanced_nodes(
+    const double curve_midpoint = 0.76,
+    const double lut_intensity = 0.64
+) {
+    return {
+        image::AdjustmentNode{
+            .node_id = "oklab-lightness-curve",
+            .parameter_schema_version =
+                image::oklab_lightness_tone_curve_parameter_schema_version,
+            .implementation_version =
+                image::oklab_lightness_tone_curve_implementation_version,
+            .parameters = image::OklabLightnessToneCurve{
+                .lightness = {
+                    .points = {
+                        {0.0, 0.0},
+                        {0.18, 0.11},
+                        {0.62, curve_midpoint},
+                        {1.0, 1.08},
+                    },
+                },
+            },
+        },
+        image::AdjustmentNode{
+            .node_id = "pure-color-grading",
+            .parameter_schema_version =
+                image::detail_effects_v3_parameter_schema_version,
+            .implementation_version =
+                image::color_grading_v3_implementation_version,
+            .parameters = image::SharpenAdjustment{
+                .execution_pass =
+                    image::DetailEffectsExecutionPass::color_grading,
+                .shadows_hue = 28.0,
+                .shadows_saturation = 0.32,
+                .shadows_luminance = -0.16,
+                .midtones_hue = 118.0,
+                .midtones_saturation = 0.20,
+                .midtones_luminance = 0.08,
+                .highlights_hue = 248.0,
+                .highlights_saturation = 0.38,
+                .highlights_luminance = 0.18,
+                .grading_blending = 0.66,
+                .grading_balance = -0.24,
+            },
+        },
+        image::AdjustmentNode{
+            .node_id = "cube-lut",
+            .parameters = image::CubeLutAdjustment{
+                .lut = advanced_test_lut(),
+                .intensity = lut_intensity,
+            },
+        },
+    };
+}
+
 [[nodiscard]] bool linear_close(
     const image::FloatRgbImage& actual,
     const image::FloatRgbImage& expected,
-    double& maximum_error
+    double& maximum_error,
+    const double relative_tolerance = 6.0e-5
 ) {
     if (actual.dimensions != expected.dimensions
         || actual.row_stride_bytes % sizeof(float) != 0U
@@ -188,10 +268,8 @@ private:
                 static_cast<double>(actual.samples[actual_row + x]) - reference
             );
             maximum_error = std::max(maximum_error, difference);
-            // A second Oklab round-trip after white balance can accumulate roughly 4.8e-5 in
-            // fp32 for the two worst source orders. The display contract below remains stricter:
-            // at most one RGB8 code and p99 exact.
-            if (difference > 6.0e-5 * std::max(1.0, std::abs(reference))) {
+            if (difference
+                > relative_tolerance * std::max(1.0, std::abs(reference))) {
                 close = false;
             }
         }
@@ -247,9 +325,9 @@ void resident_backend_matches_cpu_oracle() {
     expect(
         initial_stats.resident
             && initial_stats.source_upload_count == 1U
-            && initial_stats.gpu_buffer_allocation_count == 9U
+            && initial_stats.gpu_buffer_allocation_count == 10U
             && initial_stats.render_count == 0U,
-        "resident backend starts with one upload and two four-buffer slots"
+        "resident backend starts with one source, one dummy side table, and two four-buffer slots"
     );
 
     auto original_nodes = core_nodes();
@@ -391,6 +469,133 @@ void resident_backend_matches_cpu_oracle() {
             "injected warm failure declines before a slot and never allocates transient buffers"
         );
     }
+}
+
+void advanced_resources_match_cpu_and_reuse_side_table_uploads() {
+    const auto source = make_random_image(137U, 83U, true);
+    auto preparation = image::detail::prepare_warm_edit_gpu_session(source);
+    if (!preparation.session) {
+        expect(
+            std::getenv("SHADOW_TEST_REQUIRE_WARM_METAL") == nullptr,
+            "advanced resident Metal was required but could not be prepared"
+        );
+        return;
+    }
+
+    const auto initial = preparation.session->stats();
+    expect(
+        initial.curve_resource_upload_count == 0U
+            && initial.lut_resource_upload_count == 0U
+            && initial.resource_cache_hit_count == 0U,
+        "a new warm session has an empty advanced-resource cache"
+    );
+    const auto render_and_compare = [&source, &preparation](
+        const std::span<const image::AdjustmentNode> nodes,
+        const std::string_view description
+    ) {
+        const auto plan = image::compile_edit_execution_plan(nodes);
+        const auto cpu = image::execute_adjustment_nodes_with_backend(
+            source,
+            nodes,
+            {.full_dimensions = source.dimensions},
+            image::AdjustmentBackendMode::cpu
+        );
+        const auto cpu_display =
+            image::render_linear_srgb_to_display_srgb8_with_backend(
+                cpu.pixels,
+                {.target_dimensions = source.dimensions},
+                image::DisplayOutputBackendMode::cpu
+            );
+        const auto gpu = preparation.session->render(nodes, plan, true);
+        if (!gpu.output.has_value() || !gpu.output->analyzed_linear.has_value()) {
+            std::cerr << "Advanced warm render failed: " << gpu.diagnostic << '\n';
+            expect(false, description);
+            return;
+        }
+        double maximum_error = 0.0;
+        const bool linear_parity = linear_close(
+            *gpu.output->analyzed_linear,
+            cpu.pixels,
+            maximum_error,
+            8.0e-5
+        );
+        const auto display_difference =
+            rgb8_difference(gpu.output->rgb8, cpu_display.bytes);
+        if (!linear_parity) {
+            std::cerr << "Advanced warm linear parity max="
+                      << maximum_error << '\n';
+        }
+        expect(
+            linear_parity
+                && display_difference.maximum <= 1U
+                && display_difference.p99 <= 1U,
+            description
+        );
+    };
+
+    auto nodes = advanced_nodes();
+    render_and_compare(nodes, "the first advanced warm render matches the CPU oracle");
+    const auto after_first = preparation.session->stats();
+    expect(
+        after_first.curve_resource_upload_count
+                == initial.curve_resource_upload_count + 1U
+            && after_first.lut_resource_upload_count
+                == initial.lut_resource_upload_count + 1U
+            && after_first.resource_cache_hit_count
+                == initial.resource_cache_hit_count
+            && after_first.gpu_buffer_allocation_count
+                == initial.gpu_buffer_allocation_count + 2U
+            && after_first.resident_bytes > initial.resident_bytes,
+        "the first curve and LUT each publish one resident side-table buffer"
+    );
+
+    render_and_compare(nodes, "an identical advanced warm render remains CPU-equivalent");
+    const auto after_identical = preparation.session->stats();
+    expect(
+        after_identical.curve_resource_upload_count
+                == after_first.curve_resource_upload_count
+            && after_identical.lut_resource_upload_count
+                == after_first.lut_resource_upload_count
+            && after_identical.resource_cache_hit_count
+                == after_first.resource_cache_hit_count + 2U
+            && after_identical.gpu_buffer_allocation_count
+                == after_first.gpu_buffer_allocation_count
+            && after_identical.resident_bytes == after_first.resident_bytes,
+        "an identical curve and LUT hit both caches without another upload"
+    );
+
+    std::get<image::CubeLutAdjustment>(nodes[2U].parameters).intensity = 0.31;
+    render_and_compare(nodes, "changing LUT intensity remains CPU-equivalent");
+    const auto after_intensity = preparation.session->stats();
+    expect(
+        after_intensity.curve_resource_upload_count
+                == after_identical.curve_resource_upload_count
+            && after_intensity.lut_resource_upload_count
+                == after_identical.lut_resource_upload_count
+            && after_intensity.resource_cache_hit_count
+                == after_identical.resource_cache_hit_count + 2U
+            && after_intensity.gpu_buffer_allocation_count
+                == after_identical.gpu_buffer_allocation_count
+            && after_intensity.resident_bytes == after_identical.resident_bytes,
+        "LUT intensity is an operation scalar and does not re-upload either side table"
+    );
+
+    std::get<image::OklabLightnessToneCurve>(nodes[0U].parameters)
+        .lightness.points[2U].y = 0.68;
+    render_and_compare(nodes, "changing the Oklab curve remains CPU-equivalent");
+    const auto after_curve = preparation.session->stats();
+    expect(
+        after_curve.curve_resource_upload_count
+                == after_intensity.curve_resource_upload_count + 1U
+            && after_curve.lut_resource_upload_count
+                == after_intensity.lut_resource_upload_count
+            && after_curve.resource_cache_hit_count
+                == after_intensity.resource_cache_hit_count + 1U
+            && after_curve.gpu_buffer_allocation_count
+                == after_intensity.gpu_buffer_allocation_count + 1U
+            && after_curve.resident_bytes > after_intensity.resident_bytes,
+        "changing only the curve publishes one curve buffer and reuses the LUT"
+    );
 }
 
 void cancellation_is_terminal_without_diagnostic() {
@@ -539,6 +744,7 @@ void benchmark_resident_backend_when_requested() {
 
 int main() {
     resident_backend_matches_cpu_oracle();
+    advanced_resources_match_cpu_and_reuse_side_table_uploads();
     cancellation_is_terminal_without_diagnostic();
     benchmark_resident_backend_when_requested();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;

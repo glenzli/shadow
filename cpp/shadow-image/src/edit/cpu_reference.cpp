@@ -1457,7 +1457,7 @@ EditExecutionPlan compile_edit_execution_plan(
 
 namespace detail {
 
-MetalAdjustmentPreparationV1 prepare_metal_adjustment_v1(
+MetalAdjustmentPreparation prepare_metal_adjustment(
     const FloatRgbImage& input,
     const std::span<const AdjustmentNode> nodes,
     const EditExecutionPlan& plan,
@@ -1469,50 +1469,108 @@ MetalAdjustmentPreparationV1 prepare_metal_adjustment_v1(
     }
     static_cast<void>(validate_execution_context(input, context));
     if (plan.source_node_count != nodes.size()) {
-        return MetalAdjustmentPreparationV1{
+        return MetalAdjustmentPreparation{
             .program = std::nullopt,
             .diagnostic = "Metal adjustment plan no longer matches its source nodes",
         };
     }
 
     std::size_t step_count = 0U;
+    std::size_t curve_segment_count = 0U;
+    std::size_t lut_entry_count = 0U;
+    const auto checked_resource_add = [](std::size_t& total, const std::size_t addition) {
+        constexpr std::size_t maximum =
+            static_cast<std::size_t>(std::numeric_limits<std::uint32_t>::max());
+        if (total > maximum || addition > maximum - total) {
+            return false;
+        }
+        total += addition;
+        return true;
+    };
     for (const auto& segment : plan.segments) {
         if (segment.locality != AdjustmentLocality::pixel_local) {
-            return MetalAdjustmentPreparationV1{
+            return MetalAdjustmentPreparation{
                 .program = std::nullopt,
-                .diagnostic = "Metal adjustment v1 cannot prepare a neighborhood segment",
+                .diagnostic = "Metal adjustment cannot prepare a neighborhood segment",
             };
         }
         if (segment.steps.size() > std::numeric_limits<std::size_t>::max() - step_count) {
-            return MetalAdjustmentPreparationV1{
+            return MetalAdjustmentPreparation{
                 .program = std::nullopt,
                 .diagnostic = "Metal adjustment operation count overflowed",
             };
         }
         step_count += segment.steps.size();
+        for (const auto& step : segment.steps) {
+            if (step.node_index >= nodes.size()) {
+                return MetalAdjustmentPreparation{
+                    .program = std::nullopt,
+                    .diagnostic = "Metal adjustment plan references a missing source node",
+                };
+            }
+            const AdjustmentNode& node = nodes[step.node_index];
+            if (operation(node.parameters) != step.operation) {
+                return MetalAdjustmentPreparation{
+                    .program = std::nullopt,
+                    .diagnostic =
+                        "Metal adjustment plan operation no longer matches its source node",
+                };
+            }
+            if (step.operation == AdjustmentOperation::oklab_lightness_tone_curve) {
+                const auto& parameters =
+                    std::get<OklabLightnessToneCurve>(node.parameters);
+                if (parameters.lightness.points.size() < 2U
+                    || !checked_resource_add(
+                        curve_segment_count,
+                        parameters.lightness.points.size() - 1U
+                    )) {
+                    return MetalAdjustmentPreparation{
+                        .program = std::nullopt,
+                        .diagnostic =
+                            "Metal curve segment table exceeds its uint32 ABI",
+                    };
+                }
+            } else if (step.operation == AdjustmentOperation::lut_3d) {
+                const auto& parameters = std::get<CubeLutAdjustment>(node.parameters);
+                if (!checked_resource_add(
+                        lut_entry_count,
+                        parameters.lut.entries.size()
+                    )) {
+                    return MetalAdjustmentPreparation{
+                        .program = std::nullopt,
+                        .diagnostic = "Metal LUT entry table exceeds its uint32 ABI",
+                    };
+                }
+            }
+        }
     }
     if (step_count == 0U || step_count > std::numeric_limits<std::uint32_t>::max()) {
-        return MetalAdjustmentPreparationV1{
+        return MetalAdjustmentPreparation{
             .program = std::nullopt,
             .diagnostic = step_count == 0U
-                ? "Metal adjustment v1 received no executable operations"
+                ? "Metal adjustment received no executable operations"
                 : "Metal adjustment operation count exceeds its uint32 ABI",
         };
     }
     if (input.dimensions.width > std::numeric_limits<std::uint32_t>::max() / 3U) {
-        return MetalAdjustmentPreparationV1{
+        return MetalAdjustmentPreparation{
             .program = std::nullopt,
             .diagnostic = "Metal adjustment row width exceeds its uint32 ABI",
         };
     }
 
-    PreparedMetalAdjustmentV1 prepared;
+    PreparedMetalAdjustment prepared;
     prepared.invocation.width = input.dimensions.width;
     prepared.invocation.height = input.dimensions.height;
     prepared.invocation.input_row_floats = input.dimensions.width * 3U;
     prepared.invocation.output_row_floats = input.dimensions.width * 3U;
     prepared.invocation.step_count = static_cast<std::uint32_t>(step_count);
+    prepared.invocation.curve_segment_count =
+        static_cast<std::uint32_t>(curve_segment_count);
+    prepared.invocation.lut_entry_count = static_cast<std::uint32_t>(lut_entry_count);
     prepared.operations.reserve(step_count);
+    prepared.curve_segments.reserve(curve_segment_count);
+    prepared.lut_entries.reserve(lut_entry_count);
 
     const auto checked_parameter_float = [](const double value) -> std::optional<float> {
         if (!std::isfinite(value)
@@ -1522,6 +1580,38 @@ MetalAdjustmentPreparationV1 prepare_metal_adjustment_v1(
         }
         const float converted = static_cast<float>(value);
         return std::isfinite(converted) ? std::optional<float>{converted} : std::nullopt;
+    };
+    const auto checked_normalized_interval = [&checked_parameter_float](
+        const double source_minimum,
+        const double source_maximum,
+        const double maximum_relative_quantization
+    ) -> std::optional<std::array<float, 2U>> {
+        const auto minimum = checked_parameter_float(source_minimum);
+        const auto maximum = checked_parameter_float(source_maximum);
+        if (!minimum.has_value() || !maximum.has_value()
+            || !(*minimum < *maximum)) {
+            return std::nullopt;
+        }
+        const double source_span = source_maximum - source_minimum;
+        const float metal_span = *maximum - *minimum;
+        if (!std::isfinite(source_span) || !(source_span > 0.0)
+            || !std::isfinite(metal_span)
+            || metal_span < std::numeric_limits<float>::min()) {
+            return std::nullopt;
+        }
+        // Metal has no fp64 arithmetic. Reject intervals whose fp32 endpoints would move the
+        // normalized coordinate materially instead of silently sampling a different curve/LUT.
+        const double endpoint_error = std::max(
+            std::abs(static_cast<double>(*minimum) - source_minimum),
+            std::abs(static_cast<double>(*maximum) - source_maximum)
+        );
+        const double span_error =
+            std::abs(static_cast<double>(metal_span) - source_span);
+        if (endpoint_error / source_span > maximum_relative_quantization
+            || span_error / source_span > maximum_relative_quantization) {
+            return std::nullopt;
+        }
+        return std::array<float, 2U>{*minimum, *maximum};
     };
     const auto fill_matrix_rows = [&checked_parameter_float](
         const Matrix3& matrix,
@@ -1541,13 +1631,39 @@ MetalAdjustmentPreparationV1 prepare_metal_adjustment_v1(
         }
         return true;
     };
+    const auto fill_vector = [&checked_parameter_float](
+        const std::array<double, 4U>& source,
+        std::array<float, 4U>& destination
+    ) {
+        for (std::size_t component = 0U; component < source.size(); ++component) {
+            const auto converted = checked_parameter_float(source[component]);
+            if (!converted.has_value()) {
+                return false;
+            }
+            destination[component] = *converted;
+        }
+        return true;
+    };
+    for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
+        const auto coefficient = checked_parameter_float(
+            input.working_space.luminance_coefficients[channel]
+        );
+        if (!coefficient.has_value()) {
+            return MetalAdjustmentPreparation{
+                .program = std::nullopt,
+                .diagnostic =
+                    "Metal working-space luminance coefficients exceed finite fp32 range",
+            };
+        }
+        prepared.invocation.working_luminance[channel] = *coefficient;
+    }
 
     std::optional<WorkingSpaceTransform> working_transform;
     for (const auto& segment : plan.segments) {
         for (const auto& step : segment.steps) {
             if (step.node_index >= nodes.size()
                 || step.node_index > std::numeric_limits<std::uint32_t>::max()) {
-                return MetalAdjustmentPreparationV1{
+                return MetalAdjustmentPreparation{
                     .program = std::nullopt,
                     .diagnostic =
                         "Metal adjustment source-node index exceeds its uint32 ABI",
@@ -1555,20 +1671,20 @@ MetalAdjustmentPreparationV1 prepare_metal_adjustment_v1(
             }
             const AdjustmentNode& node = nodes[step.node_index];
             if (operation(node.parameters) != step.operation) {
-                return MetalAdjustmentPreparationV1{
+                return MetalAdjustmentPreparation{
                     .program = std::nullopt,
                     .diagnostic =
                         "Metal adjustment plan operation no longer matches its source node",
                 };
             }
 
-            MetalAdjustmentOpV1 operation_record{
+            MetalAdjustmentOp operation_record{
                 .source_node_index = static_cast<std::uint32_t>(step.node_index),
             };
             switch (step.operation) {
             case AdjustmentOperation::rgb_white_balance: {
                 operation_record.opcode = static_cast<std::uint32_t>(
-                    MetalAdjustmentOpcodeV1::rgb_white_balance
+                    MetalAdjustmentOpcode::rgb_white_balance
                 );
                 const auto& parameters =
                     std::get<RgbWhiteBalanceAdjustment>(node.parameters);
@@ -1584,7 +1700,7 @@ MetalAdjustmentPreparationV1 prepare_metal_adjustment_v1(
                         operation_record.parameter_1,
                         operation_record.parameter_2
                     )) {
-                    return MetalAdjustmentPreparationV1{
+                    return MetalAdjustmentPreparation{
                         .program = std::nullopt,
                         .diagnostic =
                             "Metal white-balance matrix exceeds finite fp32 range",
@@ -1594,12 +1710,12 @@ MetalAdjustmentPreparationV1 prepare_metal_adjustment_v1(
             }
             case AdjustmentOperation::exposure: {
                 operation_record.opcode = static_cast<std::uint32_t>(
-                    MetalAdjustmentOpcodeV1::exposure
+                    MetalAdjustmentOpcode::exposure
                 );
                 const auto& parameters = std::get<ExposureAdjustment>(node.parameters);
                 const auto gain = checked_parameter_float(std::exp2(parameters.stops));
                 if (!gain.has_value() || *gain <= 0.0F) {
-                    return MetalAdjustmentPreparationV1{
+                    return MetalAdjustmentPreparation{
                         .program = std::nullopt,
                         .diagnostic = "Metal exposure gain exceeds finite fp32 range",
                     };
@@ -1609,7 +1725,7 @@ MetalAdjustmentPreparationV1 prepare_metal_adjustment_v1(
             }
             case AdjustmentOperation::contrast: {
                 operation_record.opcode = static_cast<std::uint32_t>(
-                    MetalAdjustmentOpcodeV1::contrast
+                    MetalAdjustmentOpcode::contrast
                 );
                 const auto& parameters = std::get<ContrastAdjustment>(node.parameters);
                 const double pivot = std::cbrt(std::max(parameters.pivot, 1.0e-9));
@@ -1619,7 +1735,7 @@ MetalAdjustmentPreparationV1 prepare_metal_adjustment_v1(
                 const auto pivot_float = checked_parameter_float(pivot);
                 const auto amount_float = checked_parameter_float(amount);
                 if (!pivot_float.has_value() || !amount_float.has_value()) {
-                    return MetalAdjustmentPreparationV1{
+                    return MetalAdjustmentPreparation{
                         .program = std::nullopt,
                         .diagnostic = "Metal contrast parameters exceed finite fp32 range",
                     };
@@ -1641,12 +1757,12 @@ MetalAdjustmentPreparationV1 prepare_metal_adjustment_v1(
             }
             case AdjustmentOperation::saturation: {
                 operation_record.opcode = static_cast<std::uint32_t>(
-                    MetalAdjustmentOpcodeV1::saturation
+                    MetalAdjustmentOpcode::saturation
                 );
                 const auto& parameters = std::get<SaturationAdjustment>(node.parameters);
                 const auto factor = checked_parameter_float(parameters.factor);
                 if (!factor.has_value()) {
-                    return MetalAdjustmentPreparationV1{
+                    return MetalAdjustmentPreparation{
                         .program = std::nullopt,
                         .diagnostic = "Metal saturation factor exceeds finite fp32 range",
                     };
@@ -1661,14 +1777,244 @@ MetalAdjustmentPreparationV1 prepare_metal_adjustment_v1(
                 }
                 break;
             }
-            case AdjustmentOperation::oklab_lightness_tone_curve:
+            case AdjustmentOperation::oklab_lightness_tone_curve: {
+                operation_record.opcode = static_cast<std::uint32_t>(
+                    MetalAdjustmentOpcode::oklab_lightness_tone_curve
+                );
+                const auto& parameters =
+                    std::get<OklabLightnessToneCurve>(node.parameters);
+                const PreparedSmoothToneCurve curve =
+                    prepare_oklab_lightness_tone_curve_node(
+                        parameters,
+                        node,
+                        step.node_index
+                    );
+                const std::size_t segment_count = parameters.lightness.points.size() - 1U;
+                if (curve.identity || segment_count == 0U
+                    || prepared.curve_segments.size()
+                        > std::numeric_limits<std::uint32_t>::max()
+                    || segment_count > std::numeric_limits<std::uint32_t>::max()
+                    || prepared.curve_segments.size()
+                        > std::numeric_limits<std::uint32_t>::max() - segment_count) {
+                    return MetalAdjustmentPreparation{
+                        .program = std::nullopt,
+                        .diagnostic =
+                            "Metal curve resource range is inconsistent with its active plan",
+                    };
+                }
+                operation_record.resource_offset =
+                    static_cast<std::uint32_t>(prepared.curve_segments.size());
+                operation_record.resource_count = static_cast<std::uint32_t>(segment_count);
+                for (std::size_t index = 0U; index < segment_count; ++index) {
+                    const ToneCurvePoint left = parameters.lightness.points[index];
+                    const ToneCurvePoint right = parameters.lightness.points[index + 1U];
+                    const auto metal_interval =
+                        checked_normalized_interval(
+                            left.x,
+                            right.x,
+                            128.0 * static_cast<double>(
+                                std::numeric_limits<float>::epsilon()
+                            )
+                        );
+                    if (!metal_interval.has_value()) {
+                        return MetalAdjustmentPreparation{
+                            .program = std::nullopt,
+                            .diagnostic =
+                                "Metal curve knots cannot preserve their interval in fp32",
+                        };
+                    }
+                    MetalCurveSegment segment_record;
+                    if (!fill_vector(
+                            {
+                                static_cast<double>((*metal_interval)[0]),
+                                left.y,
+                                curve.knot_derivatives[index],
+                                0.0,
+                            },
+                            segment_record.left
+                        )
+                        || !fill_vector(
+                            {
+                                static_cast<double>((*metal_interval)[1]),
+                                right.y,
+                                curve.knot_derivatives[index + 1U],
+                                0.0,
+                            },
+                            segment_record.right
+                        )) {
+                        return MetalAdjustmentPreparation{
+                            .program = std::nullopt,
+                            .diagnostic =
+                                "Metal curve segment exceeds finite fp32 range",
+                        };
+                    }
+                    prepared.curve_segments.push_back(segment_record);
+                }
+                operation_record.parameter_0 =
+                    prepared.curve_segments[operation_record.resource_offset].left;
+                operation_record.parameter_1 = prepared.curve_segments[
+                    static_cast<std::size_t>(operation_record.resource_offset)
+                        + segment_count - 1U
+                ].right;
+                if (!working_transform.has_value()) {
+                    working_transform = prepare_working_space_transform(
+                        input.working_space,
+                        node,
+                        step.node_index
+                    );
+                }
+                break;
+            }
+            case AdjustmentOperation::lut_3d: {
+                operation_record.opcode = static_cast<std::uint32_t>(
+                    MetalAdjustmentOpcode::lut_3d
+                );
+                const auto& parameters = std::get<CubeLutAdjustment>(node.parameters);
+                const std::size_t lut_size = parameters.lut.size;
+                if (lut_size < 2U || lut_size > 65U
+                    || lut_size > std::numeric_limits<std::size_t>::max() / lut_size
+                    || lut_size * lut_size
+                        > std::numeric_limits<std::size_t>::max() / lut_size) {
+                    return MetalAdjustmentPreparation{
+                        .program = std::nullopt,
+                        .diagnostic = "Metal LUT dimensions overflowed",
+                    };
+                }
+                const std::size_t expected_entries = lut_size * lut_size * lut_size;
+                if (parameters.lut.entries.size() != expected_entries
+                    || prepared.lut_entries.size()
+                        > std::numeric_limits<std::uint32_t>::max()
+                    || lut_size > std::numeric_limits<std::uint32_t>::max()
+                    || expected_entries
+                        > std::numeric_limits<std::uint32_t>::max()
+                            - prepared.lut_entries.size()) {
+                    return MetalAdjustmentPreparation{
+                        .program = std::nullopt,
+                        .diagnostic =
+                            "Metal LUT resource range is inconsistent with its active plan",
+                    };
+                }
+                operation_record.resource_offset =
+                    static_cast<std::uint32_t>(prepared.lut_entries.size());
+                // For LUT operations resource_count is the cube edge length. The total entry
+                // count lives in the invocation and bounds the red-fastest N^3 address range.
+                operation_record.resource_count = static_cast<std::uint32_t>(lut_size);
+                const auto intensity = checked_parameter_float(parameters.intensity);
+                std::array<std::array<float, 2U>, rgb_channels> metal_domains{};
+                bool domains_are_representable = intensity.has_value();
+                for (std::size_t channel = 0U;
+                     channel < rgb_channels && domains_are_representable;
+                     ++channel) {
+                    const auto interval = checked_normalized_interval(
+                        parameters.lut.domain_min[channel],
+                        parameters.lut.domain_max[channel],
+                        16.0 * static_cast<double>(
+                            std::numeric_limits<float>::epsilon()
+                        )
+                    );
+                    if (!interval.has_value()) {
+                        domains_are_representable = false;
+                    } else {
+                        metal_domains[channel] = *interval;
+                    }
+                }
+                if (!domains_are_representable) {
+                    return MetalAdjustmentPreparation{
+                        .program = std::nullopt,
+                        .diagnostic =
+                            "Metal LUT domain cannot preserve normalized coordinates in fp32",
+                    };
+                }
+                operation_record.parameter_0 = {
+                    *intensity,
+                    metal_domains[0][0],
+                    metal_domains[1][0],
+                    metal_domains[2][0],
+                };
+                operation_record.parameter_1 = {
+                    metal_domains[0][1],
+                    metal_domains[1][1],
+                    metal_domains[2][1],
+                    0.0F,
+                };
+                for (const auto& entry : parameters.lut.entries) {
+                    MetalLutEntry entry_record;
+                    for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
+                        const auto converted = checked_parameter_float(entry[channel]);
+                        if (!converted.has_value()) {
+                            return MetalAdjustmentPreparation{
+                                .program = std::nullopt,
+                                .diagnostic =
+                                    "Metal LUT entry exceeds finite fp32 range",
+                            };
+                        }
+                        entry_record.value[channel] = *converted;
+                    }
+                    prepared.lut_entries.push_back(entry_record);
+                }
+                break;
+            }
+            case AdjustmentOperation::sharpen: {
+                const auto& parameters = std::get<SharpenAdjustment>(node.parameters);
+                if (parameters.execution_pass != DetailEffectsExecutionPass::color_grading
+                    || parameters.clarity != 0.0 || parameters.texture != 0.0) {
+                    return MetalAdjustmentPreparation{
+                        .program = std::nullopt,
+                        .diagnostic =
+                            "Metal color grading requires the pixel-local grading-only pass",
+                    };
+                }
+                operation_record.opcode = static_cast<std::uint32_t>(
+                    MetalAdjustmentOpcode::color_grading
+                );
+                const PreparedColorGrading grading = prepare_color_grading(parameters);
+                if (!fill_vector(
+                        {
+                            grading.shadows.delta_a,
+                            grading.shadows.delta_b,
+                            grading.shadows.delta_lightness,
+                            grading.center,
+                        },
+                        operation_record.parameter_0
+                    )
+                    || !fill_vector(
+                        {
+                            grading.midtones.delta_a,
+                            grading.midtones.delta_b,
+                            grading.midtones.delta_lightness,
+                            grading.width,
+                        },
+                        operation_record.parameter_1
+                    )
+                    || !fill_vector(
+                        {
+                            grading.highlights.delta_a,
+                            grading.highlights.delta_b,
+                            grading.highlights.delta_lightness,
+                            0.0,
+                        },
+                        operation_record.parameter_2
+                    )) {
+                    return MetalAdjustmentPreparation{
+                        .program = std::nullopt,
+                        .diagnostic =
+                            "Metal color-grading parameters exceed finite fp32 range",
+                    };
+                }
+                if (!working_transform.has_value()) {
+                    working_transform = prepare_working_space_transform(
+                        input.working_space,
+                        node,
+                        step.node_index
+                    );
+                }
+                break;
+            }
             case AdjustmentOperation::selective_tone:
             case AdjustmentOperation::perceptual_color:
-            case AdjustmentOperation::lut_3d:
-            case AdjustmentOperation::sharpen:
-                return MetalAdjustmentPreparationV1{
+                return MetalAdjustmentPreparation{
                     .program = std::nullopt,
-                    .diagnostic = "Metal adjustment v1 received an unsupported operation",
+                    .diagnostic = "Metal adjustment received an unsupported operation",
                 };
             }
             prepared.operations.push_back(operation_record);
@@ -1688,12 +2034,20 @@ MetalAdjustmentPreparationV1 prepare_metal_adjustment_v1(
                 prepared.invocation.xyz_to_rgb_row_1,
                 prepared.invocation.xyz_to_rgb_row_2
             ))) {
-        return MetalAdjustmentPreparationV1{
+        return MetalAdjustmentPreparation{
             .program = std::nullopt,
             .diagnostic = "Metal working-space transform exceeds finite fp32 range",
         };
     }
-    return MetalAdjustmentPreparationV1{
+    if (prepared.operations.size() != step_count
+        || prepared.curve_segments.size() != curve_segment_count
+        || prepared.lut_entries.size() != lut_entry_count) {
+        return MetalAdjustmentPreparation{
+            .program = std::nullopt,
+            .diagnostic = "Metal adjustment resource compilation produced inconsistent counts",
+        };
+    }
+    return MetalAdjustmentPreparation{
         .program = std::move(prepared),
         .diagnostic = {},
     };

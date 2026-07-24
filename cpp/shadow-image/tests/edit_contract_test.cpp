@@ -595,6 +595,40 @@ LUT_3D_SIZE 2
     );
 }
 
+void cube_lut_blending_preserves_finite_extreme_scene_values() {
+    const float maximum = std::numeric_limits<float>::max();
+    image::CubeLut3D lut{
+        .size = 2U,
+        .entries = std::vector<std::array<float, 3>>(
+            8U,
+            std::array<float, 3>{maximum, -maximum, 0.0F}
+        ),
+    };
+    const auto input = rgb_image(1, {-maximum, maximum, maximum});
+    const std::array node{
+        image::AdjustmentNode{
+            .node_id = "lut-finite-extreme-blend",
+            .parameters = image::CubeLutAdjustment{
+                .lut = std::move(lut),
+                .intensity = 0.5,
+            },
+        },
+    };
+    const auto output = image::execute_adjustment_nodes(input, node);
+    expect(
+        std::isfinite(output.samples[0]) && output.samples[0] == 0.0F,
+        "LUT blending cancels opposing finite red extremes without float overflow"
+    );
+    expect(
+        std::isfinite(output.samples[1]) && output.samples[1] == 0.0F,
+        "LUT blending cancels opposing finite green extremes without float overflow"
+    );
+    expect(
+        std::isfinite(output.samples[2]) && output.samples[2] == maximum * 0.5F,
+        "LUT blending keeps a finite half-strength super-white value"
+    );
+}
+
 void sharpen_is_neutral_on_identity_and_flat_fields() {
     const auto varied = rgb_image(
         4,
@@ -2389,6 +2423,339 @@ void oklab_lightness_curve_changes_only_perceptual_lightness() {
     );
 }
 
+void oklab_lightness_curve_uses_shape_preserving_pchip_and_tangent_extrapolation() {
+    const image::ToneCurveSet curve{
+        .points = {{0.0, 0.0}, {0.5, 0.25}, {1.0, 1.0}},
+    };
+    const auto samples = image::sample_smooth_tone_curve(curve, 1'001U);
+    expect_close_double(
+        samples[250U].y,
+        0.078125,
+        1.0e-12,
+        "Oklab-L PCHIP bends smoothly below the first chord"
+    );
+    expect_close_double(
+        samples[500U].y,
+        0.25,
+        1.0e-12,
+        "Oklab-L PCHIP passes through its interior knot"
+    );
+    expect_close_double(
+        samples[750U].y,
+        0.546875,
+        1.0e-12,
+        "Oklab-L PCHIP bends smoothly below the last chord"
+    );
+
+    const std::array source_lightness{-0.5, 0.5, 1.5};
+    std::vector<float> source_samples;
+    source_samples.reserve(source_lightness.size() * 3U);
+    for (const double lightness : source_lightness) {
+        const auto rgb = linear_srgb_from_oklch(lightness, 0.0, 0.0);
+        source_samples.insert(source_samples.end(), rgb.begin(), rgb.end());
+    }
+    auto input = rgb_image(
+        static_cast<std::uint32_t>(source_lightness.size()),
+        std::move(source_samples)
+    );
+    input.working_space = linear_srgb();
+    const auto output = image::apply_oklab_lightness_tone_curve(
+        input,
+        image::OklabLightnessToneCurve{.lightness = curve}
+    );
+    const std::array expected_lightness{0.0, 0.25, 2.0};
+    for (std::size_t pixel = 0U; pixel < expected_lightness.size(); ++pixel) {
+        const std::size_t offset = pixel * 3U;
+        const auto lab = oklab_from_linear_srgb({
+            output.samples[offset],
+            output.samples[offset + 1U],
+            output.samples[offset + 2U],
+        });
+        expect_close_double(
+            lab[0],
+            expected_lightness[pixel],
+            8.0e-5,
+            "Oklab-L PCHIP linearly extrapolates with the constrained endpoint tangent"
+        );
+    }
+
+    const auto two_point_output = image::apply_oklab_lightness_tone_curve(
+        input,
+        image::OklabLightnessToneCurve{
+            .lightness = image::ToneCurveSet{
+                .points = {{0.0, 0.1}, {1.0, 0.9}},
+            },
+        }
+    );
+    const std::array two_point_expected{-0.3, 0.5, 1.3};
+    for (std::size_t pixel = 0U; pixel < two_point_expected.size(); ++pixel) {
+        const std::size_t offset = pixel * 3U;
+        const auto lab = oklab_from_linear_srgb({
+            two_point_output.samples[offset],
+            two_point_output.samples[offset + 1U],
+            two_point_output.samples[offset + 2U],
+        });
+        expect_close_double(
+            lab[0],
+            two_point_expected[pixel],
+            8.0e-5,
+            "a two-knot Oklab-L curve extrapolates its secant at both endpoints"
+        );
+    }
+
+    const image::ToneCurveSet reversing{
+        .points = {
+            {0.0, 0.0},
+            {0.25, 0.8},
+            {0.5, 0.2},
+            {0.75, 0.9},
+            {1.0, 0.4},
+        },
+    };
+    const auto reversing_samples = image::sample_smooth_tone_curve(reversing, 1'001U);
+    for (const auto sample : reversing_samples) {
+        const auto upper = std::upper_bound(
+            reversing.points.begin(),
+            reversing.points.end(),
+            sample.x,
+            [](const double x, const image::ToneCurvePoint& point) {
+                return x < point.x;
+            }
+        );
+        const std::size_t segment = upper == reversing.points.begin()
+            ? 0U
+            : std::min(
+                  static_cast<std::size_t>(upper - reversing.points.begin()) - 1U,
+                  reversing.points.size() - 2U
+              );
+        const double lower = std::min(
+            reversing.points[segment].y,
+            reversing.points[segment + 1U].y
+        );
+        const double upper_value = std::max(
+            reversing.points[segment].y,
+            reversing.points[segment + 1U].y
+        );
+        expect(
+            sample.y >= lower - 1.0e-12 && sample.y <= upper_value + 1.0e-12,
+            "Oklab-L PCHIP does not overshoot an authored rising or falling segment"
+        );
+    }
+    expect_close_double(
+        reversing_samples[250U].y,
+        0.8,
+        1.0e-12,
+        "Oklab-L PCHIP retains an authored local maximum"
+    );
+    expect_close_double(
+        reversing_samples[500U].y,
+        0.2,
+        1.0e-12,
+        "Oklab-L PCHIP retains an authored local minimum"
+    );
+    expect_close_double(
+        reversing_samples[750U].y,
+        0.9,
+        1.0e-12,
+        "Oklab-L PCHIP retains a second authored reversal"
+    );
+
+    const image::ToneCurveSet nonuniform{
+        .points = {
+            {0.0, 0.0},
+            {0.05, 0.1},
+            {0.2, 0.12},
+            {0.85, 0.9},
+            {1.0, 1.0},
+        },
+    };
+    const auto nonuniform_samples = image::sample_smooth_tone_curve(nonuniform, 1'001U);
+    for (std::size_t index = 1U; index < nonuniform_samples.size(); ++index) {
+        expect(
+            nonuniform_samples[index].y
+                >= nonuniform_samples[index - 1U].y - 1.0e-12,
+            "weighted Oklab-L PCHIP remains monotone across non-uniform knot spacing"
+        );
+    }
+}
+
+void color_grading_wheels_have_numeric_and_locality_contracts() {
+    const auto source = linear_srgb_from_oklch(0.58, 0.0, 0.0);
+    auto input = rgb_image(1, {source[0], source[1], source[2]});
+    input.working_space = linear_srgb();
+    const auto source_lab = oklab_from_linear_srgb(source);
+
+    const auto grading_weights = [&input, &source](
+        const double blending,
+        const double balance
+    ) {
+        const auto smoothstep = [](const double lower, const double upper, const double value) {
+            const double t = std::clamp((value - lower) / (upper - lower), 0.0, 1.0);
+            return t * t * (3.0 - 2.0 * t);
+        };
+        const auto luma_coefficients = input.working_space.luminance_coefficients;
+        const double luma = static_cast<double>(source[0]) * luma_coefficients[0]
+            + static_cast<double>(source[1]) * luma_coefficients[1]
+            + static_cast<double>(source[2]) * luma_coefficients[2];
+        const double normalized = std::max(0.0, luma) / (std::max(0.0, luma) + 0.18);
+        const double center = std::clamp(0.5 + 0.22 * balance, 0.18, 0.82);
+        const double width = 0.08 + 0.30 * blending;
+        double shadows = 1.0 - smoothstep(center - width, center + width, normalized);
+        double highlights = smoothstep(center - width, center + width, normalized);
+        double midtones = std::clamp(
+            1.0 - std::abs(normalized - center) / std::max(0.12, 0.5 + width),
+            0.0,
+            1.0
+        );
+        const double total = shadows + midtones + highlights;
+        return std::array{
+            shadows / total,
+            midtones / total,
+            highlights / total,
+        };
+    };
+    const auto render_lab = [&input](const image::SharpenAdjustment& parameters) {
+        const std::array node{
+            image::AdjustmentNode{
+                .node_id = "color-grading-numeric",
+                .parameter_schema_version =
+                    image::detail_effects_v3_parameter_schema_version,
+                .implementation_version =
+                    image::color_grading_v3_implementation_version,
+                .parameters = parameters,
+            },
+        };
+        const auto output = image::execute_adjustment_nodes(input, node);
+        return oklab_from_linear_srgb({
+            output.samples[0],
+            output.samples[1],
+            output.samples[2],
+        });
+    };
+    const auto expect_wheels = [&grading_weights, &render_lab, &source_lab](
+        const image::SharpenAdjustment& parameters,
+        const std::string_view description
+    ) {
+        const auto weights = grading_weights(
+            parameters.grading_blending,
+            parameters.grading_balance
+        );
+        std::array expected = source_lab;
+        const auto accumulate = [&expected](
+            const double hue,
+            const double saturation,
+            const double luminance,
+            const double weight
+        ) {
+            constexpr double local_pi = 3.141592653589793238462643383279502884;
+            const double angle = hue * local_pi / 180.0;
+            expected[0] += 0.12 * luminance * weight;
+            expected[1] += 0.09 * saturation * weight * std::cos(angle);
+            expected[2] += 0.09 * saturation * weight * std::sin(angle);
+        };
+        accumulate(
+            parameters.shadows_hue,
+            parameters.shadows_saturation,
+            parameters.shadows_luminance,
+            weights[0]
+        );
+        accumulate(
+            parameters.midtones_hue,
+            parameters.midtones_saturation,
+            parameters.midtones_luminance,
+            weights[1]
+        );
+        accumulate(
+            parameters.highlights_hue,
+            parameters.highlights_saturation,
+            parameters.highlights_luminance,
+            weights[2]
+        );
+        const auto actual = render_lab(parameters);
+        expect_close_double(actual[0], expected[0], 3.0e-5, description);
+        expect_close_double(actual[1], expected[1], 3.0e-5, description);
+        expect_close_double(actual[2], expected[2], 3.0e-5, description);
+    };
+
+    image::SharpenAdjustment shadows{
+        .execution_pass = image::DetailEffectsExecutionPass::color_grading,
+        .shadows_hue = 15.0,
+        .shadows_saturation = 0.6,
+        .shadows_luminance = -0.25,
+    };
+    expect_wheels(shadows, "an isolated shadow wheel follows its Oklab numeric contract");
+
+    image::SharpenAdjustment midtones{
+        .execution_pass = image::DetailEffectsExecutionPass::color_grading,
+        .midtones_hue = 120.0,
+        .midtones_saturation = 0.35,
+        .midtones_luminance = 0.2,
+    };
+    expect_wheels(midtones, "an isolated midtone wheel follows its Oklab numeric contract");
+
+    image::SharpenAdjustment highlights{
+        .execution_pass = image::DetailEffectsExecutionPass::color_grading,
+        .highlights_hue = 260.0,
+        .highlights_saturation = 0.75,
+        .highlights_luminance = 0.3,
+    };
+    expect_wheels(
+        highlights,
+        "an isolated highlight wheel follows its Oklab numeric contract"
+    );
+
+    image::SharpenAdjustment combined{
+        .execution_pass = image::DetailEffectsExecutionPass::color_grading,
+        .shadows_hue = 15.0,
+        .shadows_saturation = 0.5,
+        .shadows_luminance = -0.2,
+        .midtones_hue = 120.0,
+        .midtones_saturation = 0.3,
+        .midtones_luminance = 0.1,
+        .highlights_hue = 260.0,
+        .highlights_saturation = 0.8,
+        .highlights_luminance = 0.35,
+        .grading_blending = 0.72,
+        .grading_balance = -0.45,
+    };
+    expect_wheels(
+        combined,
+        "combined grading wheels sum their independently weighted Oklab deltas"
+    );
+
+    image::SharpenAdjustment hue_only{
+        .execution_pass = image::DetailEffectsExecutionPass::color_grading,
+        .shadows_hue = 320.0,
+        .midtones_hue = 120.0,
+        .highlights_hue = 45.0,
+        .grading_blending = 0.8,
+        .grading_balance = -0.5,
+    };
+    const auto neutral = render_lab(hue_only);
+    expect(
+        neutral == source_lab,
+        "hue, blending, and balance without wheel strength are an exact no-op"
+    );
+
+    expect(
+        image::locality(image::AdjustmentParameters{shadows})
+                == image::AdjustmentLocality::pixel_local
+            && image::footprint(shadows) == image::AdjustmentFootprint{},
+        "pure color grading is pixel-local"
+    );
+    shadows.clarity = 0.25;
+    expect(
+        image::locality(image::AdjustmentParameters{shadows})
+                == image::AdjustmentLocality::neighborhood
+            && image::footprint(shadows)
+                == image::AdjustmentFootprint{
+                    .horizontal_radius = 36U,
+                    .vertical_radius = 36U,
+                },
+        "active clarity promotes a color-grading node to neighborhood execution"
+    );
+}
+
 #if 0 // Removed RGB master/channel curve contract tests.
 void smooth_rgb_tone_curve_is_an_exact_identity_operation() {
     const auto input = rgb_image(
@@ -2869,6 +3236,7 @@ int main() {
     edit_execution_plan_validates_before_elision_and_uses_a_stable_identity();
     edit_execution_plan_preserves_order_and_compiles_maximal_locality_segments();
     cube_lut_is_exactly_bypassable_and_blends_deterministically();
+    cube_lut_blending_preserves_finite_extreme_scene_values();
     sharpen_is_neutral_on_identity_and_flat_fields();
     sharpen_emphasizes_log_luminance_without_chromatic_fringes();
     point_color_current_contract_applies_ranges_in_order();
@@ -2897,5 +3265,7 @@ int main() {
     new_adjustment_bounds_are_validated_without_pixels();
     color_and_layout_assumptions_are_enforced();
     oklab_lightness_curve_changes_only_perceptual_lightness();
+    oklab_lightness_curve_uses_shape_preserving_pchip_and_tangent_extrapolation();
+    color_grading_wheels_have_numeric_and_locality_contracts();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

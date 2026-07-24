@@ -6,6 +6,7 @@
 #undef shadow
 
 #include "adjustment_execution_internal.hpp"
+#include "metal_adjustment_msl.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -23,147 +24,15 @@ namespace shadow::image::detail {
 
 namespace {
 
-constexpr char metal_source[] = R"METAL(
-#include <metal_stdlib>
-using namespace metal;
-
-constant uint parameter_abi_version = 1u;
-constant uint plan_identity_version = 1u;
-constant uint opcode_white_balance = 1u;
-constant uint opcode_exposure = 2u;
-constant uint opcode_contrast = 3u;
-constant uint opcode_saturation = 4u;
-constant uint status_non_finite = 1u;
-constant uint status_bad_abi = 2u;
-constant uint status_bad_opcode = 4u;
-
-struct MetalAdjustmentInvocationV1 {
-    uint abi_version;
-    uint plan_identity_version;
-    uint width;
-    uint height;
-    uint input_row_floats;
-    uint output_row_floats;
-    uint step_count;
-    uint reserved;
-    float4 rgb_to_xyz_row_0;
-    float4 rgb_to_xyz_row_1;
-    float4 rgb_to_xyz_row_2;
-    float4 xyz_to_rgb_row_0;
-    float4 xyz_to_rgb_row_1;
-    float4 xyz_to_rgb_row_2;
-};
-
-struct MetalAdjustmentOpV1 {
-    uint opcode;
-    uint source_node_index;
-    uint reserved_0;
-    uint reserved_1;
-    float4 parameter_0;
-    float4 parameter_1;
-    float4 parameter_2;
-};
-
-struct MetalAdjustmentStatusV1 {
-    atomic_uint flags;
-    atomic_uint earliest_step;
-    uint reserved_0;
-    uint reserved_1;
-};
-
-inline float signed_cbrt(float value) {
-    if (value == 0.0f) {
-        return 0.0f;
-    }
-    // MSL has no cbrt overload. Safe-mode pow preserves signed extended-gamut inputs without
-    // opting into the native/fast namespace.
-    return copysign(pow(abs(value), 1.0f / 3.0f), value);
-}
-
-inline float3 multiply_rows(float4 row_0, float4 row_1, float4 row_2, float3 value) {
-    return float3(
-        dot(row_0.xyz, value),
-        dot(row_1.xyz, value),
-        dot(row_2.xyz, value)
-    );
-}
-
-inline float3 xyz_to_oklab(float3 xyz) {
-    const float l = signed_cbrt(
-        0.8190224379967030f * xyz.x + 0.3619062600528904f * xyz.y
-            - 0.1288737815209879f * xyz.z
-    );
-    const float m = signed_cbrt(
-        0.0329836539323885f * xyz.x + 0.9292868615863434f * xyz.y
-            + 0.0361446663506424f * xyz.z
-    );
-    const float s = signed_cbrt(
-        0.0481771893596242f * xyz.x + 0.2642395317527308f * xyz.y
-            + 0.6335478284694309f * xyz.z
-    );
-    return float3(
-        0.2104542553f * l + 0.7936177850f * m - 0.0040720468f * s,
-        1.9779984951f * l - 2.4285922050f * m + 0.4505937099f * s,
-        0.0259040371f * l + 0.7827717662f * m - 0.8086757660f * s
-    );
-}
-
-inline float3 oklab_to_xyz(float3 lab) {
-    const float l_root = lab.x + 0.3963377774f * lab.y + 0.2158037573f * lab.z;
-    const float m_root = lab.x - 0.1055613458f * lab.y - 0.0638541728f * lab.z;
-    const float s_root = lab.x - 0.0894841775f * lab.y - 1.2914855480f * lab.z;
-    const float l = l_root * l_root * l_root;
-    const float m = m_root * m_root * m_root;
-    const float s = s_root * s_root * s_root;
-    return float3(
-        1.2268798758459240f * l - 0.5578149944602170f * m
-            + 0.2813910456659646f * s,
-        -0.0405757452148009f * l + 1.1122868032803173f * m
-            - 0.0717110580655164f * s,
-        -0.0763729366746600f * l - 0.4214933324022431f * m
-            + 1.5869240198367816f * s
-    );
-}
-
-inline float3 working_rgb_to_oklab(
-    float3 rgb,
-    constant MetalAdjustmentInvocationV1& invocation
-) {
-    return xyz_to_oklab(multiply_rows(
-        invocation.rgb_to_xyz_row_0,
-        invocation.rgb_to_xyz_row_1,
-        invocation.rgb_to_xyz_row_2,
-        rgb
-    ));
-}
-
-inline float3 oklab_to_working_rgb(
-    float3 lab,
-    constant MetalAdjustmentInvocationV1& invocation
-) {
-    return multiply_rows(
-        invocation.xyz_to_rgb_row_0,
-        invocation.xyz_to_rgb_row_1,
-        invocation.xyz_to_rgb_row_2,
-        oklab_to_xyz(lab)
-    );
-}
-
-inline void report_failure(
-    device MetalAdjustmentStatusV1& status,
-    uint flag,
-    uint step
-) {
-    atomic_fetch_or_explicit(&status.flags, flag, memory_order_relaxed);
-    atomic_fetch_min_explicit(&status.earliest_step, step, memory_order_relaxed);
-}
-
-kernel void execute_adjustment_program_v1(
+constexpr std::string_view standalone_kernel_source = R"METAL(
+kernel void execute_adjustment_program_v2(
     device const float* input [[buffer(0)]],
     device float* output [[buffer(1)]],
-    device const MetalAdjustmentOpV1* operations [[buffer(2)]],
-    constant MetalAdjustmentInvocationV1& invocation [[buffer(3)]],
-    device MetalAdjustmentStatusV1& status [[buffer(4)]],
+    device const MetalAdjustmentOp* operations [[buffer(2)]],
+    constant MetalAdjustmentInvocation& invocation [[buffer(3)]],
+    device MetalAdjustmentStatus& status [[buffer(4)]],
+    device const MetalCurveSegment* curve_segments [[buffer(5)]],
+    device const float4* lut_entries [[buffer(6)]],
     uint2 position [[thread_position_in_grid]]
 ) {
     if (position.x >= invocation.width || position.y >= invocation.height) {
@@ -171,7 +40,7 @@ kernel void execute_adjustment_program_v1(
     }
     if (invocation.abi_version != parameter_abi_version
         || invocation.plan_identity_version != plan_identity_version) {
-        report_failure(status, status_bad_abi, 0u);
+        report_adjustment_failure(status, status_bad_abi, 0u);
         return;
     }
 
@@ -183,55 +52,15 @@ kernel void execute_adjustment_program_v1(
         input[input_index + 2u]
     );
 
-    for (uint step = 0u; step < invocation.step_count; ++step) {
-        const MetalAdjustmentOpV1 operation = operations[step];
-        switch (operation.opcode) {
-        case opcode_white_balance:
-            rgb = multiply_rows(
-                operation.parameter_0,
-                operation.parameter_1,
-                operation.parameter_2,
-                rgb
-            );
-            break;
-        case opcode_exposure:
-            rgb *= operation.parameter_0.x;
-            break;
-        case opcode_contrast: {
-            float3 lab = working_rgb_to_oklab(rgb, invocation);
-            if (lab.x > 0.0f && isfinite(lab.x)) {
-                const float pivot = operation.parameter_0.x;
-                if (operation.parameter_0.z != 0.0f) {
-                    lab.x = pivot;
-                } else {
-                    const float normalized = lab.x / (lab.x + pivot);
-                    const float amount = operation.parameter_0.y;
-                    const float shaped = normalized
-                        + amount * 2.0f * normalized * (1.0f - normalized)
-                            * (2.0f * normalized - 1.0f);
-                    const float bounded = clamp(shaped, 1.0e-7f, 1.0f - 1.0e-7f);
-                    lab.x = pivot * bounded / (1.0f - bounded);
-                }
-                rgb = oklab_to_working_rgb(lab, invocation);
-            }
-            break;
-        }
-        case opcode_saturation:
-            // Match the CPU oracle's exact neutral-axis bypass before any matrix round trip.
-            if (!(rgb.x == rgb.y && rgb.y == rgb.z)) {
-                float3 lab = working_rgb_to_oklab(rgb, invocation);
-                lab.yz *= operation.parameter_0.x;
-                rgb = oklab_to_working_rgb(lab, invocation);
-            }
-            break;
-        default:
-            report_failure(status, status_bad_opcode, step);
-            return;
-        }
-        if (!all(isfinite(rgb))) {
-            report_failure(status, status_non_finite, step);
-            return;
-        }
+    if (!execute_adjustment_program(
+            rgb,
+            operations,
+            curve_segments,
+            lut_entries,
+            invocation,
+            status
+        )) {
+        return;
     }
 
     const uint output_index =
@@ -242,15 +71,15 @@ kernel void execute_adjustment_program_v1(
 }
 )METAL";
 
-struct MetalAdjustmentStatusV1 final {
+struct MetalAdjustmentStatus final {
     std::uint32_t flags = 0U;
     std::uint32_t earliest_step = std::numeric_limits<std::uint32_t>::max();
     std::uint32_t reserved_0 = 0U;
     std::uint32_t reserved_1 = 0U;
 };
 
-static_assert(sizeof(MetalAdjustmentStatusV1) == 16U);
-static_assert(offsetof(MetalAdjustmentStatusV1, earliest_step) == 4U);
+static_assert(sizeof(MetalAdjustmentStatus) == 16U);
+static_assert(offsetof(MetalAdjustmentStatus, earliest_step) == 4U);
 
 class OwnedObjectiveCObject final {
 public:
@@ -298,7 +127,18 @@ public:
             auto* options = static_cast<MTLCompileOptions*>(compile_options.get());
             options.mathMode = MTLMathModeSafe;
             NSError* error = nil;
-            NSString* source = [NSString stringWithUTF8String:metal_source];
+            const std::string metal_source =
+                make_metal_adjustment_source(standalone_kernel_source);
+            OwnedObjectiveCObject source_object(
+                [[NSString alloc] initWithBytes:metal_source.data()
+                                        length:metal_source.size()
+                                      encoding:NSUTF8StringEncoding]
+            );
+            if (!source_object) {
+                diagnostic_ = "Metal adjustment shader source is not valid UTF-8";
+                return;
+            }
+            auto* source = static_cast<NSString*>(source_object.get());
             OwnedObjectiveCObject library(
                 [device_ newLibraryWithSource:source options:options error:&error]
             );
@@ -309,7 +149,7 @@ public:
             }
             OwnedObjectiveCObject function(
                 [static_cast<id<MTLLibrary>>(library.get())
-                    newFunctionWithName:@"execute_adjustment_program_v1"]
+                    newFunctionWithName:@"execute_adjustment_program_v2"]
             );
             if (!function) {
                 diagnostic_ = "Metal adjustment shader entry point is unavailable";
@@ -409,9 +249,9 @@ bool metal_adjustment_available() noexcept {
     return metal_context().valid();
 }
 
-MetalAdjustmentAttempt try_execute_adjustments_metal_v1(
+MetalAdjustmentAttempt try_execute_adjustments_metal(
     const FloatRgbImage& input,
-    const PreparedMetalAdjustmentV1& program
+    const PreparedMetalAdjustment& program
 ) {
     auto& context = metal_context();
     if (!context.valid()) {
@@ -431,6 +271,8 @@ MetalAdjustmentAttempt try_execute_adjustments_metal_v1(
         || program.invocation.width != input.dimensions.width
         || program.invocation.height != input.dimensions.height
         || program.invocation.step_count != program.operations.size()
+        || program.invocation.curve_segment_count != program.curve_segments.size()
+        || program.invocation.lut_entry_count != program.lut_entries.size()
         || program.operations.empty()) {
         return MetalAdjustmentAttempt{
             .output = std::nullopt,
@@ -440,6 +282,8 @@ MetalAdjustmentAttempt try_execute_adjustments_metal_v1(
 
     std::size_t row_bytes = 0U;
     std::size_t operation_bytes = 0U;
+    std::size_t curve_bytes = 0U;
+    std::size_t lut_bytes = 0U;
     if (!checked_multiply(
             static_cast<std::size_t>(input.dimensions.width),
             3U * sizeof(float),
@@ -447,8 +291,18 @@ MetalAdjustmentAttempt try_execute_adjustments_metal_v1(
         )
         || !checked_multiply(
             program.operations.size(),
-            sizeof(MetalAdjustmentOpV1),
+            sizeof(MetalAdjustmentOp),
             operation_bytes
+        )
+        || !checked_multiply(
+            program.curve_segments.size(),
+            sizeof(MetalCurveSegment),
+            curve_bytes
+        )
+        || !checked_multiply(
+            program.lut_entries.size(),
+            sizeof(MetalLutEntry),
+            lut_bytes
         )
         || row_bytes == 0U || operation_bytes == 0U) {
         return MetalAdjustmentAttempt{
@@ -461,7 +315,9 @@ MetalAdjustmentAttempt try_execute_adjustments_metal_v1(
         static_cast<std::size_t>(context.device().maxBufferLength);
     if (row_bytes > maximum_buffer_bytes
         || operation_bytes > maximum_buffer_bytes
-        || sizeof(MetalAdjustmentStatusV1) > maximum_buffer_bytes) {
+        || curve_bytes > maximum_buffer_bytes
+        || lut_bytes > maximum_buffer_bytes
+        || sizeof(MetalAdjustmentStatus) > maximum_buffer_bytes) {
         return MetalAdjustmentAttempt{
             .output = std::nullopt,
             .diagnostic = "Metal adjustment request exceeds this device's buffer limit",
@@ -533,10 +389,31 @@ MetalAdjustmentAttempt try_execute_adjustments_metal_v1(
         );
         OwnedObjectiveCObject status_buffer(
             [context.device()
-                newBufferWithLength:sizeof(MetalAdjustmentStatusV1)
+                newBufferWithLength:sizeof(MetalAdjustmentStatus)
                 options:MTLResourceStorageModeShared]
         );
-        if (!input_buffer || !output_buffer || !operations_buffer || !status_buffer) {
+        const MetalCurveSegment empty_curve{};
+        const MetalLutEntry empty_lut{};
+        OwnedObjectiveCObject curve_buffer(
+            [context.device()
+                newBufferWithBytes:program.curve_segments.empty()
+                    ? static_cast<const void*>(&empty_curve)
+                    : static_cast<const void*>(program.curve_segments.data())
+                length:program.curve_segments.empty()
+                    ? sizeof(empty_curve)
+                    : curve_bytes
+                options:MTLResourceStorageModeShared]
+        );
+        OwnedObjectiveCObject lut_buffer(
+            [context.device()
+                newBufferWithBytes:program.lut_entries.empty()
+                    ? static_cast<const void*>(&empty_lut)
+                    : static_cast<const void*>(program.lut_entries.data())
+                length:program.lut_entries.empty() ? sizeof(empty_lut) : lut_bytes
+                options:MTLResourceStorageModeShared]
+        );
+        if (!input_buffer || !output_buffer || !operations_buffer || !status_buffer
+            || !curve_buffer || !lut_buffer) {
             return MetalAdjustmentAttempt{
                 .output = std::nullopt,
                 .diagnostic = "Metal could not allocate bounded adjustment buffers",
@@ -585,11 +462,11 @@ MetalAdjustmentAttempt try_execute_adjustments_metal_v1(
                 );
             }
 
-            auto* status = static_cast<MetalAdjustmentStatusV1*>(
+            auto* status = static_cast<MetalAdjustmentStatus*>(
                 [static_cast<id<MTLBuffer>>(status_buffer.get()) contents]
             );
-            *status = MetalAdjustmentStatusV1{};
-            MetalAdjustmentInvocationV1 invocation = program.invocation;
+            *status = MetalAdjustmentStatus{};
+            MetalAdjustmentInvocation invocation = program.invocation;
             invocation.height = current_rows;
 
             id<MTLCommandBuffer> command_buffer = [context.queue() commandBuffer];
@@ -616,6 +493,12 @@ MetalAdjustmentAttempt try_execute_adjustments_metal_v1(
             [encoder setBuffer:static_cast<id<MTLBuffer>>(status_buffer.get())
                         offset:0U
                        atIndex:4U];
+            [encoder setBuffer:static_cast<id<MTLBuffer>>(curve_buffer.get())
+                        offset:0U
+                       atIndex:5U];
+            [encoder setBuffer:static_cast<id<MTLBuffer>>(lut_buffer.get())
+                        offset:0U
+                       atIndex:6U];
             [encoder dispatchThreads:MTLSizeMake(
                     input.dimensions.width,
                     current_rows,

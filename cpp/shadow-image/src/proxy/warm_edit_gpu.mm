@@ -6,6 +6,7 @@
 #undef shadow
 
 #include "warm_edit_gpu.hpp"
+#include "../edit/metal_adjustment_msl.hpp"
 
 #include <algorithm>
 #include <array>
@@ -21,7 +22,9 @@
 #include <ranges>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
+#include <vector>
 
 namespace shadow::image::detail {
 
@@ -29,137 +32,16 @@ namespace {
 
 inline constexpr std::size_t warm_slot_count = 2U;
 inline constexpr std::size_t maximum_warm_adjustment_operations = 256U;
+inline constexpr std::size_t maximum_resident_curve_tables = 16U;
+inline constexpr std::size_t maximum_resident_lut_tables = 4U;
 
-constexpr char metal_source[] = R"METAL(
-#include <metal_stdlib>
-using namespace metal;
-
-constant uint parameter_abi_version = 1u;
-constant uint plan_identity_version = 1u;
-constant uint opcode_white_balance = 1u;
-constant uint opcode_exposure = 2u;
-constant uint opcode_contrast = 3u;
-constant uint opcode_saturation = 4u;
-constant uint status_non_finite = 1u;
-constant uint status_bad_abi = 2u;
-constant uint status_bad_opcode = 4u;
-
-struct MetalAdjustmentInvocationV1 {
-    uint abi_version;
-    uint plan_identity_version;
-    uint width;
-    uint height;
-    uint input_row_floats;
-    uint output_row_floats;
-    uint step_count;
-    uint reserved;
-    float4 rgb_to_xyz_row_0;
-    float4 rgb_to_xyz_row_1;
-    float4 rgb_to_xyz_row_2;
-    float4 xyz_to_rgb_row_0;
-    float4 xyz_to_rgb_row_1;
-    float4 xyz_to_rgb_row_2;
-};
-
-struct MetalAdjustmentOpV1 {
-    uint opcode;
-    uint source_node_index;
-    uint reserved_0;
-    uint reserved_1;
-    float4 parameter_0;
-    float4 parameter_1;
-    float4 parameter_2;
-};
-
+constexpr std::string_view warm_kernel_source = R"METAL(
 struct WarmDisplayParameters {
     uint output_origin_x;
     uint output_origin_y;
     uint apply_scene_curve;
     uint retain_linear;
 };
-
-struct WarmStatus {
-    atomic_uint flags;
-    atomic_uint earliest_step;
-    uint reserved_0;
-    uint reserved_1;
-};
-
-inline float signed_cbrt(float value) {
-    if (value == 0.0f) {
-        return 0.0f;
-    }
-    return copysign(pow(abs(value), 1.0f / 3.0f), value);
-}
-
-inline float3 multiply_rows(float4 row_0, float4 row_1, float4 row_2, float3 value) {
-    return float3(
-        dot(row_0.xyz, value),
-        dot(row_1.xyz, value),
-        dot(row_2.xyz, value)
-    );
-}
-
-inline float3 xyz_to_oklab(float3 xyz) {
-    const float l = signed_cbrt(
-        0.8190224379967030f * xyz.x + 0.3619062600528904f * xyz.y
-            - 0.1288737815209879f * xyz.z
-    );
-    const float m = signed_cbrt(
-        0.0329836539323885f * xyz.x + 0.9292868615863434f * xyz.y
-            + 0.0361446663506424f * xyz.z
-    );
-    const float s = signed_cbrt(
-        0.0481771893596242f * xyz.x + 0.2642395317527308f * xyz.y
-            + 0.6335478284694309f * xyz.z
-    );
-    return float3(
-        0.2104542553f * l + 0.7936177850f * m - 0.0040720468f * s,
-        1.9779984951f * l - 2.4285922050f * m + 0.4505937099f * s,
-        0.0259040371f * l + 0.7827717662f * m - 0.8086757660f * s
-    );
-}
-
-inline float3 oklab_to_xyz(float3 lab) {
-    const float l_root = lab.x + 0.3963377774f * lab.y + 0.2158037573f * lab.z;
-    const float m_root = lab.x - 0.1055613458f * lab.y - 0.0638541728f * lab.z;
-    const float s_root = lab.x - 0.0894841775f * lab.y - 1.2914855480f * lab.z;
-    const float l = l_root * l_root * l_root;
-    const float m = m_root * m_root * m_root;
-    const float s = s_root * s_root * s_root;
-    return float3(
-        1.2268798758459240f * l - 0.5578149944602170f * m
-            + 0.2813910456659646f * s,
-        -0.0405757452148009f * l + 1.1122868032803173f * m
-            - 0.0717110580655164f * s,
-        -0.0763729366746600f * l - 0.4214933324022431f * m
-            + 1.5869240198367816f * s
-    );
-}
-
-inline float3 working_rgb_to_oklab(
-    float3 rgb,
-    constant MetalAdjustmentInvocationV1& invocation
-) {
-    return xyz_to_oklab(multiply_rows(
-        invocation.rgb_to_xyz_row_0,
-        invocation.rgb_to_xyz_row_1,
-        invocation.rgb_to_xyz_row_2,
-        rgb
-    ));
-}
-
-inline float3 oklab_to_working_rgb(
-    float3 lab,
-    constant MetalAdjustmentInvocationV1& invocation
-) {
-    return multiply_rows(
-        invocation.xyz_to_rgb_row_0,
-        invocation.xyz_to_rgb_row_1,
-        invocation.xyz_to_rgb_row_2,
-        oklab_to_xyz(lab)
-    );
-}
 
 inline float3 linear_srgb_to_oklab(float3 rgb) {
     const float l = signed_cbrt(
@@ -279,23 +161,16 @@ inline uchar encode_srgb8(float linear_sample, float dither) {
     return uchar(clamp(floor(encoded * 255.0f + dither + 0.5f), 0.0f, 255.0f));
 }
 
-inline void report_failure(
-    device WarmStatus& status,
-    uint flag,
-    uint step
-) {
-    atomic_fetch_or_explicit(&status.flags, flag, memory_order_relaxed);
-    atomic_fetch_min_explicit(&status.earliest_step, step, memory_order_relaxed);
-}
-
-kernel void render_warm_preview_v2(
+kernel void render_warm_preview_v3(
     device const float* source [[buffer(0)]],
     device float* adjusted [[buffer(1)]],
     device uchar* display_rgb8 [[buffer(2)]],
-    device const MetalAdjustmentOpV1* operations [[buffer(3)]],
-    constant MetalAdjustmentInvocationV1& invocation [[buffer(4)]],
+    device const MetalAdjustmentOp* operations [[buffer(3)]],
+    constant MetalAdjustmentInvocation& invocation [[buffer(4)]],
     constant WarmDisplayParameters& display [[buffer(5)]],
-    device WarmStatus& status [[buffer(6)]],
+    device MetalAdjustmentStatus& status [[buffer(6)]],
+    device const MetalCurveSegment* curve_segments [[buffer(7)]],
+    device const float4* lut_entries [[buffer(8)]],
     uint2 position [[thread_position_in_grid]]
 ) {
     if (position.x >= invocation.width || position.y >= invocation.height) {
@@ -303,7 +178,7 @@ kernel void render_warm_preview_v2(
     }
     if (invocation.abi_version != parameter_abi_version
         || invocation.plan_identity_version != plan_identity_version) {
-        report_failure(status, status_bad_abi, 0u);
+        report_adjustment_failure(status, status_bad_abi, 0u);
         return;
     }
 
@@ -314,54 +189,15 @@ kernel void render_warm_preview_v2(
         source[input_index + 1u],
         source[input_index + 2u]
     );
-    for (uint step = 0u; step < invocation.step_count; ++step) {
-        const MetalAdjustmentOpV1 operation = operations[step];
-        switch (operation.opcode) {
-        case opcode_white_balance:
-            rgb = multiply_rows(
-                operation.parameter_0,
-                operation.parameter_1,
-                operation.parameter_2,
-                rgb
-            );
-            break;
-        case opcode_exposure:
-            rgb *= operation.parameter_0.x;
-            break;
-        case opcode_contrast: {
-            float3 lab = working_rgb_to_oklab(rgb, invocation);
-            if (lab.x > 0.0f && isfinite(lab.x)) {
-                const float pivot = operation.parameter_0.x;
-                if (operation.parameter_0.z != 0.0f) {
-                    lab.x = pivot;
-                } else {
-                    const float normalized = lab.x / (lab.x + pivot);
-                    const float amount = operation.parameter_0.y;
-                    const float shaped = normalized
-                        + amount * 2.0f * normalized * (1.0f - normalized)
-                            * (2.0f * normalized - 1.0f);
-                    const float bounded = clamp(shaped, 1.0e-7f, 1.0f - 1.0e-7f);
-                    lab.x = pivot * bounded / (1.0f - bounded);
-                }
-                rgb = oklab_to_working_rgb(lab, invocation);
-            }
-            break;
-        }
-        case opcode_saturation:
-            if (!(rgb.x == rgb.y && rgb.y == rgb.z)) {
-                float3 lab = working_rgb_to_oklab(rgb, invocation);
-                lab.yz *= operation.parameter_0.x;
-                rgb = oklab_to_working_rgb(lab, invocation);
-            }
-            break;
-        default:
-            report_failure(status, status_bad_opcode, step);
-            return;
-        }
-        if (!all(isfinite(rgb))) {
-            report_failure(status, status_non_finite, step);
-            return;
-        }
+    if (!execute_adjustment_program(
+            rgb,
+            operations,
+            curve_segments,
+            lut_entries,
+            invocation,
+            status
+        )) {
+        return;
     }
 
     if (display.retain_linear != 0u) {
@@ -455,9 +291,20 @@ public:
             MTLCompileOptions* options = [[MTLCompileOptions alloc] init];
             options.mathMode = MTLMathModeSafe;
             NSError* error = nil;
-            NSString* source = [NSString stringWithUTF8String:metal_source];
+            const std::string metal_source =
+                make_metal_adjustment_source(warm_kernel_source);
+            NSString* source = [[NSString alloc]
+                initWithBytes:metal_source.data()
+                       length:metal_source.size()
+                     encoding:NSUTF8StringEncoding];
+            if (source == nil) {
+                [options release];
+                diagnostic_ = "Metal warm-preview shader source is not valid UTF-8";
+                return;
+            }
             id<MTLLibrary> library =
                 [device_ newLibraryWithSource:source options:options error:&error];
+            [source release];
             [options release];
             if (library == nil) {
                 diagnostic_ = "Metal warm-preview shader compilation failed: "
@@ -465,7 +312,7 @@ public:
                 return;
             }
             id<MTLFunction> function =
-                [library newFunctionWithName:@"render_warm_preview_v2"];
+                [library newFunctionWithName:@"render_warm_preview_v3"];
             [library release];
             if (function == nil) {
                 diagnostic_ = "Metal warm-preview shader entry point is unavailable";
@@ -537,10 +384,116 @@ struct WarmSlot final {
     bool busy = false;
 };
 
+class RetainedMetalBuffer final {
+public:
+    RetainedMetalBuffer() noexcept = default;
+
+    explicit RetainedMetalBuffer(id<MTLBuffer> value) noexcept
+        : value_(value) {
+        [value_ retain];
+    }
+
+    ~RetainedMetalBuffer() {
+        [value_ release];
+    }
+
+    RetainedMetalBuffer(const RetainedMetalBuffer&) = delete;
+    RetainedMetalBuffer& operator=(const RetainedMetalBuffer&) = delete;
+
+    RetainedMetalBuffer(RetainedMetalBuffer&& other) noexcept
+        : value_(std::exchange(other.value_, nil)) {}
+
+    RetainedMetalBuffer& operator=(RetainedMetalBuffer&& other) noexcept {
+        if (this != &other) {
+            [value_ release];
+            value_ = std::exchange(other.value_, nil);
+        }
+        return *this;
+    }
+
+    [[nodiscard]] id<MTLBuffer> get() const noexcept { return value_; }
+    [[nodiscard]] explicit operator bool() const noexcept { return value_ != nil; }
+
+private:
+    id<MTLBuffer> value_ = nil;
+};
+
+struct SideBufferAttempt final {
+    RetainedMetalBuffer buffer;
+    bool cancelled = false;
+    std::string diagnostic;
+};
+
+[[nodiscard]] std::uint64_t side_table_content_hash(
+    const std::span<const std::byte> bytes
+) noexcept {
+    // A transient accelerator only: exact bytes below remain authoritative against collisions.
+    std::uint64_t hash = 14695981039346656037ULL;
+    for (const std::byte byte : bytes) {
+        hash ^= static_cast<std::uint8_t>(byte);
+        hash *= 1099511628211ULL;
+    }
+    return hash;
+}
+
+struct ResidentSideTable final {
+    std::vector<std::byte> content;
+    std::uint64_t content_hash = 0U;
+    id<MTLBuffer> buffer = nil;
+    std::uint64_t last_use = 0U;
+
+    ResidentSideTable(
+        std::vector<std::byte> bytes,
+        const std::uint64_t hash,
+        id<MTLBuffer> owned_buffer,
+        const std::uint64_t use
+    ) noexcept
+        : content(std::move(bytes)),
+          content_hash(hash),
+          buffer(owned_buffer),
+          last_use(use) {}
+
+    ~ResidentSideTable() {
+        [buffer release];
+    }
+
+    ResidentSideTable(const ResidentSideTable&) = delete;
+    ResidentSideTable& operator=(const ResidentSideTable&) = delete;
+
+    ResidentSideTable(ResidentSideTable&& other) noexcept
+        : content(std::move(other.content)),
+          content_hash(other.content_hash),
+          buffer(std::exchange(other.buffer, nil)),
+          last_use(other.last_use) {}
+
+    ResidentSideTable& operator=(ResidentSideTable&& other) noexcept {
+        if (this != &other) {
+            [buffer release];
+            content = std::move(other.content);
+            content_hash = other.content_hash;
+            buffer = std::exchange(other.buffer, nil);
+            last_use = other.last_use;
+        }
+        return *this;
+    }
+
+    [[nodiscard]] bool matches(
+        const std::uint64_t hash,
+        const std::span<const std::byte> bytes
+    ) const noexcept {
+        return content_hash == hash && content.size() == bytes.size()
+            && (bytes.empty()
+                || std::memcmp(content.data(), bytes.data(), bytes.size()) == 0);
+    }
+};
+
 } // namespace
 
 struct WarmEditGpuSession::Impl final {
     id<MTLBuffer> source = nil;
+    // A valid non-null binding is required even when one side table is empty. One immutable
+    // zero buffer safely serves both arguments without treating emptiness as a cache upload.
+    id<MTLBuffer> empty_side_table = nil;
     std::array<WarmSlot, warm_slot_count> slots;
     Dimensions dimensions;
     std::size_t row_stride_bytes = 0U;
@@ -556,6 +509,9 @@ struct WarmEditGpuSession::Impl final {
     double level_zero_to_raster_scale_y = 1.0;
     std::size_t rgb8_bytes = 0U;
     std::size_t operation_buffer_bytes = 0U;
+    std::vector<ResidentSideTable> curve_tables;
+    std::vector<ResidentSideTable> lut_tables;
+    std::uint64_t side_table_use_sequence = 0U;
 
     mutable std::mutex mutex;
     mutable std::condition_variable_any available_slot;
@@ -570,7 +526,113 @@ struct WarmEditGpuSession::Impl final {
             [slot.rgb8 release];
             [slot.adjusted release];
         }
+        [empty_side_table release];
         [source release];
+    }
+
+    template <typename Element>
+    [[nodiscard]] SideBufferAttempt acquire_side_buffer(
+        const std::vector<Element>& elements,
+        const std::stop_token cancellation
+    ) {
+        static_assert(
+            std::is_same_v<Element, MetalCurveSegment>
+                || std::is_same_v<Element, MetalLutEntry>
+        );
+        if (cancellation.stop_requested()) {
+            return SideBufferAttempt{.cancelled = true};
+        }
+        if (elements.empty()) {
+            return SideBufferAttempt{
+                .buffer = RetainedMetalBuffer(empty_side_table),
+            };
+        }
+
+        const std::span<const Element> values(elements);
+        const std::span<const std::byte> bytes = std::as_bytes(values);
+        const std::uint64_t content_hash = side_table_content_hash(bytes);
+        auto& cache = [&]() -> std::vector<ResidentSideTable>& {
+            if constexpr (std::is_same_v<Element, MetalCurveSegment>) {
+                return curve_tables;
+            } else {
+                return lut_tables;
+            }
+        }();
+        constexpr std::size_t capacity =
+            std::is_same_v<Element, MetalCurveSegment>
+                ? maximum_resident_curve_tables
+                : maximum_resident_lut_tables;
+
+        std::lock_guard lock(mutex);
+        if (cancellation.stop_requested()) {
+            return SideBufferAttempt{.cancelled = true};
+        }
+        ++side_table_use_sequence;
+        for (auto& entry : cache) {
+            // The byte comparison is authoritative. No hash-only identity can alias two curves
+            // or LUTs into the same resident resource.
+            if (entry.matches(content_hash, bytes)) {
+                entry.last_use = side_table_use_sequence;
+                ++stats.resource_cache_hit_count;
+                return SideBufferAttempt{
+                    .buffer = RetainedMetalBuffer(entry.buffer),
+                };
+            }
+        }
+
+        const std::size_t maximum_buffer_bytes =
+            static_cast<std::size_t>(metal_context().device().maxBufferLength);
+        if (bytes.size() > maximum_buffer_bytes) {
+            return SideBufferAttempt{
+                .diagnostic = "warm-preview adjustment side table exceeds the Metal buffer limit",
+            };
+        }
+        // Copy the immutable identity before allocating the Metal object. Cache publication is
+        // a single step after both are complete; cancellation never exposes a partial entry.
+        std::vector<std::byte> owned_bytes(bytes.begin(), bytes.end());
+        id<MTLBuffer> uploaded = [metal_context().device()
+            newBufferWithBytes:bytes.data()
+            length:bytes.size()
+            options:MTLResourceStorageModeShared];
+        if (uploaded == nil) {
+            return SideBufferAttempt{
+                .diagnostic = "Metal could not upload an adjustment side table",
+            };
+        }
+        if (cancellation.stop_requested()) {
+            [uploaded release];
+            return SideBufferAttempt{.cancelled = true};
+        }
+
+        if (cache.size() >= capacity) {
+            const auto oldest = std::min_element(
+                cache.begin(),
+                cache.end(),
+                [](const ResidentSideTable& left, const ResidentSideTable& right) {
+                    return left.last_use < right.last_use;
+                }
+            );
+            stats.resident_bytes -= static_cast<std::uint64_t>(oldest->content.size());
+            cache.erase(oldest);
+        }
+        cache.emplace_back(
+            std::move(owned_bytes),
+            content_hash,
+            uploaded,
+            side_table_use_sequence
+        );
+        ++stats.gpu_buffer_allocation_count;
+        stats.resident_bytes += static_cast<std::uint64_t>(bytes.size());
+        if constexpr (std::is_same_v<Element, MetalCurveSegment>) {
+            ++stats.curve_resource_upload_count;
+        } else {
+            ++stats.lut_resource_upload_count;
+        }
+        return SideBufferAttempt{
+            // Cache owns uploaded's original +1; the returned retain protects an in-flight
+            // command if a concurrent render evicts this LRU entry.
+            .buffer = RetainedMetalBuffer(cache.back().buffer),
+        };
     }
 
     [[nodiscard]] std::optional<std::size_t> acquire_slot(
@@ -649,7 +711,7 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
         };
     }
 
-    PreparedMetalAdjustmentV1 program;
+    PreparedMetalAdjustment program;
     if (plan.segments.empty()) {
         program.invocation.width = impl_->dimensions.width;
         program.invocation.height = impl_->dimensions.height;
@@ -674,7 +736,7 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
             // repeated full-raster finiteness scan.
             .samples = {},
         };
-        auto preparation = prepare_metal_adjustment_v1(
+        auto preparation = prepare_metal_adjustment(
             source_layout,
             nodes,
             plan,
@@ -709,6 +771,37 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
     if (cancellation.stop_requested()) {
         return cancelled();
     }
+    auto curve_buffer_attempt =
+        impl_->acquire_side_buffer(program.curve_segments, cancellation);
+    if (curve_buffer_attempt.cancelled) {
+        return cancelled();
+    }
+    if (!curve_buffer_attempt.buffer) {
+        return RenderAttempt{
+            .status = RenderStatus::unavailable_or_failed,
+            .output = std::nullopt,
+            .diagnostic = curve_buffer_attempt.diagnostic.empty()
+                ? "session-resident Metal warm preview has no curve side table"
+                : std::move(curve_buffer_attempt.diagnostic),
+        };
+    }
+    auto lut_buffer_attempt =
+        impl_->acquire_side_buffer(program.lut_entries, cancellation);
+    if (lut_buffer_attempt.cancelled) {
+        return cancelled();
+    }
+    if (!lut_buffer_attempt.buffer) {
+        return RenderAttempt{
+            .status = RenderStatus::unavailable_or_failed,
+            .output = std::nullopt,
+            .diagnostic = lut_buffer_attempt.diagnostic.empty()
+                ? "session-resident Metal warm preview has no LUT side table"
+                : std::move(lut_buffer_attempt.diagnostic),
+        };
+    }
+    if (cancellation.stop_requested()) {
+        return cancelled();
+    }
     const auto acquired_slot = impl_->acquire_slot(cancellation);
     if (!acquired_slot.has_value()) {
         return cancelled();
@@ -728,7 +821,7 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
 
     @autoreleasepool {
         const std::size_t operation_bytes =
-            program.operations.size() * sizeof(MetalAdjustmentOpV1);
+            program.operations.size() * sizeof(MetalAdjustmentOp);
         if (operation_bytes > 0U) {
             std::memcpy(
                 [slot.operations contents],
@@ -764,6 +857,8 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
                   atIndex:4U];
         [encoder setBytes:&display length:sizeof(display) atIndex:5U];
         [encoder setBuffer:slot.status offset:0U atIndex:6U];
+        [encoder setBuffer:curve_buffer_attempt.buffer.get() offset:0U atIndex:7U];
+        [encoder setBuffer:lut_buffer_attempt.buffer.get() offset:0U atIndex:8U];
 
         const NSUInteger thread_width = std::min<NSUInteger>(
             32U,
@@ -939,14 +1034,26 @@ WarmEditGpuPreparation prepare_warm_edit_gpu_session(const FloatRgbImage& source
             .diagnostic = "warm-preview resident Metal buffer size overflowed",
         };
     }
+    constexpr std::size_t maximum_shader_sample_index =
+        static_cast<std::size_t>(std::numeric_limits<std::uint32_t>::max());
+    if (sample_count > maximum_shader_sample_index
+        || adjusted_sample_count > maximum_shader_sample_index) {
+        return WarmEditGpuPreparation{
+            .session = nullptr,
+            .diagnostic =
+                "warm-preview raster exceeds the Metal kernel's uint32 sample address space",
+        };
+    }
     constexpr std::size_t operation_buffer_bytes =
-        maximum_warm_adjustment_operations * sizeof(MetalAdjustmentOpV1);
+        maximum_warm_adjustment_operations * sizeof(MetalAdjustmentOp);
+    constexpr std::size_t empty_side_table_bytes = sizeof(MetalCurveSegment);
     const std::size_t maximum_buffer_bytes =
         static_cast<std::size_t>(context.device().maxBufferLength);
     if (source_bytes > maximum_buffer_bytes
         || adjusted_bytes > maximum_buffer_bytes
         || rgb8_bytes > maximum_buffer_bytes
-        || operation_buffer_bytes > maximum_buffer_bytes) {
+        || operation_buffer_bytes > maximum_buffer_bytes
+        || empty_side_table_bytes > maximum_buffer_bytes) {
         return WarmEditGpuPreparation{
             .session = nullptr,
             .diagnostic = "warm-preview resident buffers exceed this Metal device's limit",
@@ -960,7 +1067,8 @@ WarmEditGpuPreparation prepare_warm_edit_gpu_session(const FloatRgbImage& source
         || !checked_add(per_slot_bytes, operation_buffer_bytes, per_slot_bytes)
         || !checked_add(per_slot_bytes, sizeof(WarmStatus), per_slot_bytes)
         || !checked_multiply(per_slot_bytes, warm_slot_count, slots_bytes)
-        || !checked_add(source_bytes, slots_bytes, resident_bytes)) {
+        || !checked_add(source_bytes, slots_bytes, resident_bytes)
+        || !checked_add(resident_bytes, empty_side_table_bytes, resident_bytes)) {
         return WarmEditGpuPreparation{
             .session = nullptr,
             .diagnostic = "warm-preview resident working-set size overflowed",
@@ -992,10 +1100,12 @@ WarmEditGpuPreparation prepare_warm_edit_gpu_session(const FloatRgbImage& source
     impl->level_zero_to_raster_scale_y = source.level_zero_to_raster_scale_y;
     impl->rgb8_bytes = rgb8_bytes;
     impl->operation_buffer_bytes = operation_buffer_bytes;
+    impl->curve_tables.reserve(maximum_resident_curve_tables);
+    impl->lut_tables.reserve(maximum_resident_lut_tables);
     impl->stats = WarmEditPreviewGpuStats{
         .resident = true,
         .source_upload_count = 1U,
-        .gpu_buffer_allocation_count = 1U + warm_slot_count * 4U,
+        .gpu_buffer_allocation_count = 2U + warm_slot_count * 4U,
         .resident_bytes = resident_bytes,
     };
 
@@ -1008,6 +1118,17 @@ WarmEditGpuPreparation prepare_warm_edit_gpu_session(const FloatRgbImage& source
             return WarmEditGpuPreparation{
                 .session = nullptr,
                 .diagnostic = "Metal could not upload the immutable warm-preview source",
+            };
+        }
+        const MetalCurveSegment empty_side_table{};
+        impl->empty_side_table = [context.device()
+            newBufferWithBytes:&empty_side_table
+            length:sizeof(empty_side_table)
+            options:MTLResourceStorageModeShared];
+        if (impl->empty_side_table == nil) {
+            return WarmEditGpuPreparation{
+                .session = nullptr,
+                .diagnostic = "Metal could not allocate the empty adjustment side table",
             };
         }
         for (auto& slot : impl->slots) {

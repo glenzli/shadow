@@ -6,9 +6,9 @@ bool metal_adjustment_available() noexcept {
     return false;
 }
 
-MetalAdjustmentAttempt try_execute_adjustments_metal_v1(
+MetalAdjustmentAttempt try_execute_adjustments_metal(
     const FloatRgbImage&,
-    const PreparedMetalAdjustmentV1&
+    const PreparedMetalAdjustment&
 ) {
     return MetalAdjustmentAttempt{
         .output = std::nullopt,
