@@ -51,23 +51,24 @@ file(
     "${PROJECT_SOURCE_DIR}/crates/*/src/*.rs"
     "${PROJECT_SOURCE_DIR}/crates/*/src/**/*.rs"
     "${PROJECT_SOURCE_DIR}/cpp/shadow-image/include/**/*.hpp"
-    "${PROJECT_SOURCE_DIR}/cpp/shadow-image/src/**/*.cpp"
-    "${PROJECT_SOURCE_DIR}/cpp/shadow-image/src/**/*.hpp"
-    "${PROJECT_SOURCE_DIR}/cpp/shadow-image/src/**/*.ipp"
-    "${PROJECT_SOURCE_DIR}/cpp/shadow-image/src/**/*.mm"
+    "${PROJECT_SOURCE_DIR}/cpp/shadow-image/src/bridge/cxx_bridge.cpp"
 )
 
 set(
     SHADOW_DESKTOP_RUST_LIBRARY
     "${SHADOW_CARGO_TARGET_DIRECTORY}/${SHADOW_CARGO_PROFILE}/libshadow_desktop_bridge.a"
 )
-set(SHADOW_CARGO_ENV "${CMAKE_COMMAND}" -E env)
-if(SHADOW_LENSFUN_PKGCONFIG_PATH)
-    # The Rust bridge compiles the same optical adapter independently. Keep its pkg-config view
-    # aligned with CMake's optional Lensfun prefix; otherwise the GUI could link Lensfun while
-    # the bridge silently compiled its no-op provider.
-    list(APPEND SHADOW_CARGO_ENV "PKG_CONFIG_PATH=${SHADOW_LENSFUN_PKGCONFIG_PATH}")
+if(UNIX)
+    # `cmake -E env` closes GNU Make's jobserver descriptors before launching Cargo. Use the
+    # system `env` executable on Unix so JOB_SERVER_AWARE can preserve bounded parallelism.
+    find_program(SHADOW_ENV_EXECUTABLE env REQUIRED)
+    set(SHADOW_CARGO_ENV "${SHADOW_ENV_EXECUTABLE}")
+else()
+    set(SHADOW_CARGO_ENV "${CMAKE_COMMAND}" -E env)
 endif()
+# CMake owns the desktop image implementation. Cargo contributes only Rust plus the generated CXX
+# ABI shim, so native implementation translation units are compiled exactly once as Shadow::Image.
+list(APPEND SHADOW_CARGO_ENV SHADOW_BRIDGE_EXTERNAL_IMAGE=1)
 if(APPLE)
     # Homebrew's Qt 6.11 frameworks currently target macOS 26.0. Match the
     # Rust static library so the final app does not raise mixed-minimum warnings.
@@ -88,6 +89,7 @@ add_custom_command(
     DEPENDS ${SHADOW_RUST_BRIDGE_INPUTS}
     WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
     COMMENT "Building the Rust desktop snapshot bridge"
+    JOB_SERVER_AWARE TRUE
     VERBATIM
 )
 add_custom_target(shadow-desktop-rust-build DEPENDS "${SHADOW_DESKTOP_RUST_LIBRARY}")
@@ -291,6 +293,7 @@ target_link_libraries(
     shadow-desktop
     PRIVATE
         shadow-desktop-rust
+        Shadow::Image
         PkgConfig::LibRaw
         PkgConfig::LittleCms
         ${CMAKE_DL_LIBS}

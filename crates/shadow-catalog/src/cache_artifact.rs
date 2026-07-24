@@ -48,6 +48,17 @@ pub struct CachedArtifact {
     pub created_at_ms: i64,
 }
 
+/// The exact implementation identity required for a cached artifact consumer.
+///
+/// Artifact rows remain rebuildable history. Consumers use this value to
+/// reject output produced by an incompatible generator without deleting the
+/// older row or coupling that policy to the Catalog schema.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct CachedArtifactGeneratorIdentity {
+    pub generator_id: String,
+    pub generator_version: String,
+}
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct RecordCachedArtifact {
     pub representation_id: RepresentationId,

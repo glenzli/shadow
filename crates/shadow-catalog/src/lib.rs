@@ -28,8 +28,8 @@ use thiserror::Error;
 use uuid::Uuid;
 
 pub use cache_artifact::{
-    CachedArtifact, CachedArtifactRecord, CachedArtifactRole, InvalidateCachedArtifactStatus,
-    RecordCachedArtifact, RecordCachedArtifactStatus,
+    CachedArtifact, CachedArtifactGeneratorIdentity, CachedArtifactRecord, CachedArtifactRole,
+    InvalidateCachedArtifactStatus, RecordCachedArtifact, RecordCachedArtifactStatus,
 };
 pub use decision::{MAX_PHOTO_DECISION_PAGE_SIZE, PhotoDecisionPage};
 pub use decode_snapshot::{

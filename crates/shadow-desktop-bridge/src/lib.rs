@@ -112,7 +112,8 @@ use edit_version_diff::{
 };
 use edit_version_diff::{commit_record, ffi_edit_version};
 use raw_pipeline_cache::{
-    current_source_environment_cache_identity, prepared_raw_pipeline_cache_identity,
+    EDIT_PREVIEW_GENERATOR_ID, current_source_environment_cache_identity,
+    edit_preview_generator_version, prepared_raw_pipeline_cache_identity,
 };
 use recipe_v1::*;
 
@@ -1470,9 +1471,10 @@ impl DesktopSession {
                 artifact: CachedArtifact {
                     role: CachedArtifactRole::RecipePreview,
                     variant_key,
-                    generator_id: "shadow-edit-preview".to_owned(),
-                    generator_version: raw_pipeline
-                        .edit_preview_generator_version(request.source_environment_cache_identity),
+                    generator_id: EDIT_PREVIEW_GENERATOR_ID.to_owned(),
+                    generator_version: edit_preview_generator_version(
+                        request.source_environment_cache_identity,
+                    ),
                     recipe_snapshot_digest: Some(request.recipe_snapshot_digest),
                     provider_preview_id: None,
                     blob_algorithm: blob.digest.algorithm().to_owned(),

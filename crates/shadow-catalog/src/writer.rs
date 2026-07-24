@@ -15,11 +15,11 @@ use shadow_domain::{
 };
 
 use crate::{
-    AlbumKind, AlbumRecord, CachedArtifactRecord, Catalog, CatalogError, CatalogStats,
-    CatalogStore, CommitEditRepository, CommitRecipe, CommitRecipeAndEditRepository,
-    CommitRecipeAndEditRepositoryResult, ContentIdentity, DecodeSnapshotRecord,
-    EditObjectPackWrite, EditObjectRecord, EditRepositoryCommitRecord, EditRepositoryRefRecord,
-    FeedbackPage, ImportSession, ImportSessionState, ImportSessionSummary,
+    AlbumKind, AlbumRecord, CachedArtifactGeneratorIdentity, CachedArtifactRecord, Catalog,
+    CatalogError, CatalogStats, CatalogStore, CommitEditRepository, CommitRecipe,
+    CommitRecipeAndEditRepository, CommitRecipeAndEditRepositoryResult, ContentIdentity,
+    DecodeSnapshotRecord, EditObjectPackWrite, EditObjectRecord, EditRepositoryCommitRecord,
+    EditRepositoryRefRecord, FeedbackPage, ImportSession, ImportSessionState, ImportSessionSummary,
     InvalidateCachedArtifactStatus, LibraryPhotoCursor, LibraryPhotoFacts, LibraryPhotoFilter,
     LibraryPhotoPage, LibrarySourceRecord, PhotoDecisionPage, PhotoLibraryState,
     RecipeCommitRecord, RecipeRefRecord, RecordCachedArtifact, RecordCachedArtifactStatus,
@@ -150,6 +150,7 @@ enum Message {
         Option<ReviewCursor>,
         usize,
         Option<TechnicalObservationRevision>,
+        Option<CachedArtifactGeneratorIdentity>,
         SyncSender<Result<ReviewPageRecord, CatalogError>>,
     ),
     ReviewSource(
@@ -709,7 +710,7 @@ impl CatalogHandle {
         after: Option<&ReviewCursor>,
         limit: usize,
     ) -> Result<ReviewPageRecord, CatalogError> {
-        self.request(|response| Message::ReviewPage(after.cloned(), limit, None, response))
+        self.request(|response| Message::ReviewPage(after.cloned(), limit, None, None, response))
     }
 
     /// Returns a Review page with summaries for one exact technical revision.
@@ -725,7 +726,38 @@ impl CatalogHandle {
         revision: &TechnicalObservationRevision,
     ) -> Result<ReviewPageRecord, CatalogError> {
         self.request(|response| {
-            Message::ReviewPage(after.cloned(), limit, Some(revision.clone()), response)
+            Message::ReviewPage(
+                after.cloned(),
+                limit,
+                Some(revision.clone()),
+                None,
+                response,
+            )
+        })
+    }
+
+    /// Returns a Review page whose Recipe-preview candidates must match one
+    /// exact generator implementation identity.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] if the writer is unavailable, the query fails,
+    /// or a matching persisted observation fails integrity validation.
+    pub fn review_page_with_technical_and_recipe_preview_generator(
+        &self,
+        after: Option<&ReviewCursor>,
+        limit: usize,
+        revision: &TechnicalObservationRevision,
+        recipe_preview_generator: &CachedArtifactGeneratorIdentity,
+    ) -> Result<ReviewPageRecord, CatalogError> {
+        self.request(|response| {
+            Message::ReviewPage(
+                after.cloned(),
+                limit,
+                Some(revision.clone()),
+                Some(recipe_preview_generator.clone()),
+                response,
+            )
         })
     }
 
@@ -1274,11 +1306,23 @@ fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
                     &revision,
                 ));
             }
-            Message::ReviewPage(after, limit, revision, response) => {
-                let result = revision.as_ref().map_or_else(
-                    || catalog.review_page(after.as_ref(), limit),
-                    |revision| catalog.review_page_with_technical(after.as_ref(), limit, revision),
-                );
+            Message::ReviewPage(after, limit, revision, recipe_preview_generator, response) => {
+                let result = match (revision.as_ref(), recipe_preview_generator.as_ref()) {
+                    (Some(revision), Some(recipe_preview_generator)) => catalog
+                        .review_page_with_technical_and_recipe_preview_generator(
+                            after.as_ref(),
+                            limit,
+                            revision,
+                            recipe_preview_generator,
+                        ),
+                    (Some(revision), None) => {
+                        catalog.review_page_with_technical(after.as_ref(), limit, revision)
+                    }
+                    (None, None) => catalog.review_page(after.as_ref(), limit),
+                    (None, Some(_)) => unreachable!(
+                        "a Recipe-preview generator filter requires a technical Review query"
+                    ),
+                };
                 let _ = response.send(result);
             }
             Message::ReviewSource(photo_id, revision, response) => {

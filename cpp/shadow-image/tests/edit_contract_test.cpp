@@ -566,6 +566,91 @@ void selective_color_has_distinct_relative_absolute_and_neutral_semantics() {
     );
 }
 
+void perceptual_color_bypasses_independent_neutral_stages_exactly() {
+    auto input = rgb_image(
+        3,
+        {
+            0.70F, 0.20F, 0.10F,
+            0.08F, 0.45F, 0.75F,
+            1.20F, 0.65F, 0.25F,
+        }
+    );
+    input.working_space = linear_srgb();
+
+    image::PerceptualColorAdjustment mapping_only;
+    mapping_only.saturation.fill(0.20);
+    image::PerceptualColorAdjustment mapping_with_inert_selective = mapping_only;
+    // Relative/absolute mode and lightness protection have no meaning until at
+    // least one Selective Color CMYK component is non-zero.
+    mapping_with_inert_selective.selective_color_relative = false;
+    mapping_with_inert_selective.selective_color_lightness_protection = 1.0;
+    const auto mapping_node = [](const std::string_view id,
+                                 const image::PerceptualColorAdjustment& parameters) {
+        return image::AdjustmentNode{
+            .node_id = std::string(id),
+            .parameter_schema_version = image::perceptual_color_v3_parameter_schema_version,
+            .implementation_version = image::perceptual_color_v3_implementation_version,
+            .parameters = parameters,
+        };
+    };
+    const std::array mapping_only_nodes{
+        mapping_node("mapping-only", mapping_only),
+    };
+    const std::array mapping_with_inert_selective_nodes{
+        mapping_node("mapping-with-inert-selective", mapping_with_inert_selective),
+    };
+    const auto mapped = image::execute_adjustment_nodes(input, mapping_only_nodes);
+    const auto mapped_with_inert_selective = image::execute_adjustment_nodes(
+        input,
+        mapping_with_inert_selective_nodes
+    );
+    expect(
+        mapped.samples == mapped_with_inert_selective.samples,
+        "neutral Selective Color is a bit-exact bypass inside active perceptual mapping"
+    );
+    expect(
+        mapped.samples != input.samples,
+        "active perceptual mapping remains observable when Selective Color is neutral"
+    );
+
+    image::PerceptualColorAdjustment selective_only;
+    selective_only.selective_color_cmyk[0][1] = 0.25;
+    image::PerceptualColorAdjustment selective_with_inert_ranges = selective_only;
+    selective_with_inert_ranges.color_range = image::PerceptualColorRange{
+        .enabled = true,
+        .center_degrees = 35.0,
+        .width_degrees = 20.0,
+        .softness = 0.5,
+    };
+    selective_with_inert_ranges.additional_color_ranges.push_back(
+        image::PerceptualColorRange{
+            .enabled = true,
+            .center_degrees = 220.0,
+            .width_degrees = 30.0,
+            .softness = 0.5,
+        }
+    );
+    const std::array selective_only_nodes{
+        mapping_node("selective-only", selective_only),
+    };
+    const std::array selective_with_inert_ranges_nodes{
+        mapping_node("selective-with-inert-ranges", selective_with_inert_ranges),
+    };
+    const auto selected = image::execute_adjustment_nodes(input, selective_only_nodes);
+    const auto selected_with_inert_ranges = image::execute_adjustment_nodes(
+        input,
+        selective_with_inert_ranges_nodes
+    );
+    expect(
+        selected.samples == selected_with_inert_ranges.samples,
+        "neutral Point Color ranges are a bit-exact bypass inside active Selective Color"
+    );
+    expect(
+        selected.samples != input.samples && selected.samples[1] < input.samples[1],
+        "non-neutral Selective Color remains effective when perceptual mapping is neutral"
+    );
+}
+
 void detail_effects_current_contract_is_observable_and_obsolete_contract_is_rejected() {
     const auto input = rgb_raster(
         3,
@@ -1258,6 +1343,8 @@ void perceptual_color_is_exactly_neutral_for_identity_and_low_chroma() {
     neutral_parameters.color_range.center_degrees = 360.0;
     neutral_parameters.color_range.width_degrees = 1.0;
     neutral_parameters.color_range.softness = 0.0;
+    neutral_parameters.selective_color_relative = false;
+    neutral_parameters.selective_color_lightness_protection = 1.0;
     const std::array neutral_node{
         image::AdjustmentNode{
             .node_id = "neutral-perceptual-color",
@@ -2549,6 +2636,7 @@ int main() {
     sharpen_emphasizes_log_luminance_without_chromatic_fringes();
     point_color_current_contract_applies_ranges_in_order();
     selective_color_has_distinct_relative_absolute_and_neutral_semantics();
+    perceptual_color_bypasses_independent_neutral_stages_exactly();
     detail_effects_current_contract_is_observable_and_obsolete_contract_is_rejected();
     purple_and_green_defringe_ranges_are_independent();
     global_effect_coordinates_are_tile_invariant();

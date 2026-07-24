@@ -156,7 +156,7 @@ template <std::size_t Size>
         && parameters.whites == 0.0 && parameters.blacks == 0.0;
 }
 
-[[nodiscard]] bool perceptual_color_is_neutral(
+[[nodiscard]] bool perceptual_color_mapping_is_neutral(
     const PerceptualColorAdjustment& parameters
 ) noexcept {
     const bool bands_are_neutral = std::ranges::all_of(parameters.hue, [](const double value) {
@@ -173,7 +173,13 @@ template <std::size_t Size>
     };
     const bool ranges_are_neutral = range_is_neutral(parameters.color_range)
         && std::ranges::all_of(parameters.additional_color_ranges, range_is_neutral);
-    const bool selective_color_is_neutral = std::ranges::all_of(
+    return parameters.vibrance == 0.0 && bands_are_neutral && ranges_are_neutral;
+}
+
+[[nodiscard]] bool selective_color_is_neutral(
+    const PerceptualColorAdjustment& parameters
+) noexcept {
+    return std::ranges::all_of(
         parameters.selective_color_cmyk,
         [](const auto& target) {
             return std::ranges::all_of(target, [](const double value) {
@@ -181,8 +187,6 @@ template <std::size_t Size>
             });
         }
     );
-    return parameters.vibrance == 0.0 && bands_are_neutral && ranges_are_neutral
-        && selective_color_is_neutral;
 }
 
 [[nodiscard]] std::array<double, selective_color_target_count>

@@ -5,8 +5,8 @@ use shadow_domain::{
 };
 
 use crate::{
-    CachedArtifact, CachedArtifactRecord, Catalog, CatalogError, RepresentationFingerprint,
-    TechnicalObservationRevision, TechnicalObservationSummary,
+    CachedArtifact, CachedArtifactGeneratorIdentity, CachedArtifactRecord, Catalog, CatalogError,
+    RepresentationFingerprint, TechnicalObservationRevision, TechnicalObservationSummary,
     cache_artifact::{
         digest, non_negative_u16, non_negative_u32, non_negative_u64, optional_usize,
         parse_byte_order, parse_codec, parse_role,
@@ -314,7 +314,7 @@ impl Catalog {
         after: Option<&ReviewCursor>,
         requested_limit: usize,
     ) -> Result<ReviewPageRecord, CatalogError> {
-        self.review_page_inner(after, requested_limit, None)
+        self.review_page_inner(after, requested_limit, None, None)
     }
 
     /// Returns a Review page with technical summaries for exactly one explicit
@@ -330,7 +330,33 @@ impl Catalog {
         requested_limit: usize,
         revision: &TechnicalObservationRevision,
     ) -> Result<ReviewPageRecord, CatalogError> {
-        self.review_page_inner(after, requested_limit, Some(revision))
+        self.review_page_inner(after, requested_limit, Some(revision), None)
+    }
+
+    /// Returns a Review page whose edited visuals were produced by the exact
+    /// Recipe-preview implementation expected by the caller.
+    ///
+    /// A matching working Recipe with only an older generator's preview is
+    /// reported as edited but falls back to another current source visual. The
+    /// older cache row is retained so cache policy remains non-destructive.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] for unknown persisted values, corrupt matching
+    /// observation payloads, or a failed query.
+    pub fn review_page_with_technical_and_recipe_preview_generator(
+        &self,
+        after: Option<&ReviewCursor>,
+        requested_limit: usize,
+        revision: &TechnicalObservationRevision,
+        recipe_preview_generator: &CachedArtifactGeneratorIdentity,
+    ) -> Result<ReviewPageRecord, CatalogError> {
+        self.review_page_inner(
+            after,
+            requested_limit,
+            Some(revision),
+            Some(recipe_preview_generator),
+        )
     }
 
     // Keeping the positional SQL projection beside its row decoder makes schema drift auditable.
@@ -340,6 +366,7 @@ impl Catalog {
         after: Option<&ReviewCursor>,
         requested_limit: usize,
         revision: Option<&TechnicalObservationRevision>,
+        recipe_preview_generator: Option<&CachedArtifactGeneratorIdentity>,
     ) -> Result<ReviewPageRecord, CatalogError> {
         let revision = supported_revision(revision);
         let page_size = requested_limit.clamp(1, MAX_REVIEW_PAGE_SIZE);
@@ -375,13 +402,19 @@ impl Catalog {
                    AND a2.source_modified_at_ms IS r.modified_at_ms
                    AND (
                        a2.role != 'recipe_preview'
-                       OR EXISTS (
-                           SELECT 1 FROM recipe_refs rr
-                           JOIN recipe_commits rc
-                             ON rc.id = rr.commit_id AND rc.photo_id = rr.photo_id
-                           WHERE rr.photo_id = r.photo_id
-                             AND rr.name = 'working'
-                             AND rc.snapshot_digest = a2.recipe_snapshot_digest
+                       OR (
+                           (?8 IS NULL OR (
+                               a2.generator_id = ?8
+                               AND a2.generator_version = ?9
+                           ))
+                           AND EXISTS (
+                               SELECT 1 FROM recipe_refs rr
+                               JOIN recipe_commits rc
+                                 ON rc.id = rr.commit_id AND rc.photo_id = rr.photo_id
+                               WHERE rr.photo_id = r.photo_id
+                                 AND rr.name = 'working'
+                                 AND rc.snapshot_digest = a2.recipe_snapshot_digest
+                           )
                        )
                    )
                  ORDER BY CASE a2.role
@@ -447,6 +480,8 @@ impl Catalog {
                 revision.map(|value| value.implementation_version.as_str()),
                 revision.map(|value| i64::from(value.display_luma_contract_version)),
                 revision.map(|value| value.preprocessing_version.as_str()),
+                recipe_preview_generator.map(|identity| identity.generator_id.as_str()),
+                recipe_preview_generator.map(|identity| identity.generator_version.as_str()),
             ],
             read_review_item,
         )?;
@@ -802,6 +837,162 @@ mod tests {
                 .items[0]
                 .decision,
             expected
+        );
+    }
+
+    #[test]
+    fn review_page_treats_an_old_recipe_preview_generator_as_a_cache_miss() {
+        let mut catalog = Catalog::open_in_memory().expect("open catalog");
+        let source = RepresentationFingerprint {
+            byte_len: 4_096,
+            modified_at_ms: Some(123),
+        };
+        let registered = catalog
+            .register_asset(&RegisterAsset {
+                kind: RepresentationKind::OriginalRaw,
+                location: AssetLocation::new(
+                    Platform::MacOs,
+                    b"/photos/generator-aware.dng".to_vec(),
+                    "/photos/generator-aware.dng",
+                ),
+                byte_len: source.byte_len,
+                modified_at_ms: source.modified_at_ms,
+                now_ms: 100,
+            })
+            .expect("register RAW");
+        let generated_proxy = CachedArtifact {
+            role: CachedArtifactRole::GeneratedProxy,
+            variant_key: "proxy-v1".into(),
+            generator_id: "libraw".into(),
+            generator_version: "1".into(),
+            recipe_snapshot_digest: None,
+            provider_preview_id: None,
+            blob_algorithm: "blake3-256".into(),
+            blob_digest: [1; 32],
+            blob_byte_len: 1_024,
+            codec: PreviewCodec::Jpeg,
+            byte_order: PreviewByteOrder::NotApplicable,
+            dimensions: ImageDimensions {
+                width: 1_600,
+                height: 1_200,
+            },
+            bits_per_channel: 8,
+            channels: 3,
+            created_at_ms: 150,
+        };
+        catalog
+            .record_cached_artifact(&RecordCachedArtifact {
+                representation_id: registered.representation_id,
+                expected_source: source,
+                artifact: generated_proxy.clone(),
+            })
+            .expect("record generated fallback");
+
+        let recipe = RecipeCommit::new(
+            shadow_domain::RecipeCommitId::new_v7(),
+            RecipeId::new_v7(),
+            Vec::new(),
+            RecipeSnapshot::empty(),
+            Some("working edit".into()),
+            200,
+        )
+        .expect("build working Recipe");
+        let recipe = catalog
+            .commit_recipe(&CommitRecipe {
+                photo_id: registered.photo_id,
+                commit: recipe,
+                update_refs: vec![RecipeRefTarget {
+                    name: "working".into(),
+                    kind: RecipeRefKind::Working,
+                    expectation: None,
+                }],
+            })
+            .expect("persist working Recipe");
+        let stale_preview = CachedArtifact {
+            role: CachedArtifactRole::RecipePreview,
+            variant_key: "recipe-old-environment".into(),
+            generator_id: "shadow-edit-preview".into(),
+            generator_version: "shadow-edit-preview-v1;environment=old".into(),
+            recipe_snapshot_digest: Some(recipe.snapshot_digest),
+            blob_digest: [2; 32],
+            dimensions: ImageDimensions {
+                width: 2_400,
+                height: 1_800,
+            },
+            created_at_ms: 250,
+            ..generated_proxy.clone()
+        };
+        catalog
+            .record_cached_artifact(&RecordCachedArtifact {
+                representation_id: registered.representation_id,
+                expected_source: source,
+                artifact: stale_preview.clone(),
+            })
+            .expect("record old-environment Recipe preview");
+
+        let revision = TechnicalObservationRevision::current("generator-aware-review");
+        let current_generator = CachedArtifactGeneratorIdentity {
+            generator_id: "shadow-edit-preview".into(),
+            generator_version: "shadow-edit-preview-v1;environment=current".into(),
+        };
+        let page = catalog
+            .review_page_with_technical_and_recipe_preview_generator(
+                None,
+                10,
+                &revision,
+                &current_generator,
+            )
+            .expect("read generator-aware Review page");
+        assert!(page.items[0].has_development_edits);
+        assert_eq!(
+            page.items[0]
+                .visual
+                .as_ref()
+                .expect("fallback visual")
+                .artifact,
+            generated_proxy
+        );
+        assert!(
+            catalog
+                .cached_artifacts(registered.representation_id)
+                .expect("list retained cache rows")
+                .iter()
+                .any(|record| record.artifact == stale_preview)
+        );
+
+        let current_preview = CachedArtifact {
+            variant_key: "recipe-current-environment".into(),
+            generator_version: current_generator.generator_version.clone(),
+            blob_digest: [3; 32],
+            dimensions: ImageDimensions {
+                width: 1_200,
+                height: 900,
+            },
+            created_at_ms: 300,
+            ..stale_preview
+        };
+        catalog
+            .record_cached_artifact(&RecordCachedArtifact {
+                representation_id: registered.representation_id,
+                expected_source: source,
+                artifact: current_preview.clone(),
+            })
+            .expect("record current-environment Recipe preview");
+        let refreshed = catalog
+            .review_page_with_technical_and_recipe_preview_generator(
+                None,
+                10,
+                &revision,
+                &current_generator,
+            )
+            .expect("read refreshed Review page");
+        assert_eq!(
+            refreshed.items[0]
+                .visual
+                .as_ref()
+                .expect("current Recipe preview")
+                .artifact,
+            current_preview
         );
     }
 

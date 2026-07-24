@@ -906,7 +906,12 @@ void apply_node(
                 }
                 apply_guided_selective_tone(image, node, index, parameters);
             } else if constexpr (std::is_same_v<Parameters, PerceptualColorAdjustment>) {
-                if (perceptual_color_is_neutral(parameters)) {
+                // Classify the two independent color stages once per node. In particular, do
+                // not scan the Selective Color parameter grid or perform a second complete
+                // RGB -> Oklab conversion for every pixel when its CMYK adjustments are neutral.
+                const bool mapping_is_neutral = perceptual_color_mapping_is_neutral(parameters);
+                const bool selective_is_neutral = selective_color_is_neutral(parameters);
+                if (mapping_is_neutral && selective_is_neutral) {
                     return;
                 }
                 const WorkingSpaceTransform color_transform =
@@ -915,7 +920,12 @@ void apply_node(
                     image,
                     index,
                     node,
-                    [&parameters, &color_transform](const Vector3& input) {
+                    [&parameters, &color_transform, mapping_is_neutral, selective_is_neutral](
+                        const Vector3& input
+                    ) {
+                        if (mapping_is_neutral) {
+                            return apply_selective_color(input, parameters, color_transform);
+                        }
                         Vector3 lab = xyz_to_oklab(multiply(color_transform.rgb_to_xyz, input));
                         const double chroma = std::hypot(lab[1], lab[2]);
                         const double relative_chroma = chroma
@@ -979,7 +989,9 @@ void apply_node(
                                 );
                             }
                         }
-                        return apply_selective_color(adjusted, parameters, color_transform);
+                        return selective_is_neutral
+                            ? adjusted
+                            : apply_selective_color(adjusted, parameters, color_transform);
                     }
                 );
             } else if constexpr (std::is_same_v<Parameters, CubeLutAdjustment>) {

@@ -19,9 +19,11 @@ use shadow_ai::{
     PresentedVisualFrame, PresentedVisualProvenance, PresentedVisualRole,
     UnitInterval as AiUnitInterval,
 };
+use shadow_bridge::photo_provider_version;
 use shadow_catalog::{
-    CachedArtifact, CachedArtifactRecord, CachedArtifactRole, CatalogHandle,
-    RepresentationFingerprint, ReviewCursor, ReviewItemRecord, TechnicalObservationRevision,
+    CachedArtifact, CachedArtifactGeneratorIdentity, CachedArtifactRecord, CachedArtifactRole,
+    CatalogHandle, RepresentationFingerprint, ReviewCursor, ReviewItemRecord,
+    TechnicalObservationRevision,
 };
 use shadow_core::{CachedArtifactLoader, technical_analysis_preprocessing_version};
 use shadow_domain::{
@@ -30,7 +32,13 @@ use shadow_domain::{
 };
 use uuid::Uuid;
 
-use crate::{current_time_ms, ffi};
+use crate::{
+    current_time_ms, ffi,
+    raw_pipeline_cache::{
+        EDIT_PREVIEW_GENERATOR_ID, current_source_environment_cache_identity,
+        edit_preview_generator_version,
+    },
+};
 
 const GRID_VISUAL_HANDLE_PREFIX: &str = "shadow-grid-visual-v1.";
 const GRID_VISUAL_HANDLE_SCHEMA_VERSION: u8 = 2;
@@ -150,11 +158,20 @@ impl ReviewService {
         let cursor = parse_cursor(cursor_path, cursor_representation_id)?;
         let revision =
             TechnicalObservationRevision::current(technical_analysis_preprocessing_version());
-        let page = self.catalog.review_page_with_technical(
-            cursor.as_ref(),
-            usize::try_from(limit).unwrap_or(usize::MAX),
-            &revision,
-        )?;
+        let source_environment =
+            current_source_environment_cache_identity(&photo_provider_version());
+        let recipe_preview_generator = CachedArtifactGeneratorIdentity {
+            generator_id: EDIT_PREVIEW_GENERATOR_ID.to_owned(),
+            generator_version: edit_preview_generator_version(&source_environment),
+        };
+        let page = self
+            .catalog
+            .review_page_with_technical_and_recipe_preview_generator(
+                cursor.as_ref(),
+                usize::try_from(limit).unwrap_or(usize::MAX),
+                &revision,
+                &recipe_preview_generator,
+            )?;
         let (has_more, next_cursor_path, next_cursor_representation_id) =
             if let Some(cursor) = page.next_cursor {
                 (

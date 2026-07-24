@@ -13,6 +13,7 @@ use shadow_bridge::RawPipelineReceipt;
 const PREPARED_PIPELINE_CACHE_SCHEMA: &str = "raw-pipeline-v1";
 const SOURCE_ENVIRONMENT_CACHE_SCHEMA: &str = "source-environment-v1";
 const EDIT_PREVIEW_GENERATOR_SCHEMA: &str = "shadow-edit-preview-v1";
+pub(super) const EDIT_PREVIEW_GENERATOR_ID: &str = "shadow-edit-preview";
 const RAW_PIPELINE_ENVIRONMENT: &str = "SHADOW_RAW_PIPELINE";
 const IMAGE_ACCELERATION_ENVIRONMENT: &str = "SHADOW_IMAGE_ACCELERATION";
 const CAMERA_PROFILE_DIRECTORY_ENVIRONMENT: &str = "SHADOW_CAMERA_PROFILE_DIRECTORY";
@@ -29,16 +30,16 @@ impl PreparedRawPipelineCacheIdentity {
     pub(super) fn component(&self) -> &str {
         &self.component
     }
+}
 
-    pub(super) fn edit_preview_generator_version(
-        &self,
-        source_environment_identity: &str,
-    ) -> String {
-        format!(
-            "{EDIT_PREVIEW_GENERATOR_SCHEMA};environment={source_environment_identity};pipeline={}",
-            self.component,
-        )
-    }
+/// Identifies the Recipe-preview implementation before a source is decoded.
+///
+/// The prepared pipeline receipt remains part of each artifact's variant key,
+/// where it distinguishes actual CPU/Metal and provider execution. Keeping the
+/// generator version source-environment-only makes the exact current read
+/// contract available to the Library before any expensive render is prepared.
+pub(super) fn edit_preview_generator_version(source_environment_identity: &str) -> String {
+    format!("{EDIT_PREVIEW_GENERATOR_SCHEMA};environment={source_environment_identity}")
 }
 
 /// Compacts the native canonical receipt without exposing any of its diagnostic text.
@@ -189,16 +190,6 @@ mod tests {
             prepared_raw_pipeline_cache_identity(&receipt("different canonical receipt"))
                 .expect("compact changed receipt")
         );
-        assert_ne!(
-            identity.edit_preview_generator_version("source-environment-v1-router"),
-            prepared_raw_pipeline_cache_identity(&receipt("different canonical receipt"))
-                .expect("compact changed receipt")
-                .edit_preview_generator_version("source-environment-v1-router")
-        );
-        assert_ne!(
-            identity.edit_preview_generator_version("source-environment-v1-router"),
-            identity.edit_preview_generator_version("source-environment-v1-other-router")
-        );
     }
 
     #[test]
@@ -223,10 +214,20 @@ mod tests {
         .expect("compact Metal receipt");
 
         assert_ne!(cpu, metal);
-        assert_ne!(
-            cpu.edit_preview_generator_version("source-environment-v1-auto"),
-            metal.edit_preview_generator_version("source-environment-v1-auto")
+    }
+
+    #[test]
+    fn edit_preview_generator_is_known_before_preparing_a_source() {
+        let current = edit_preview_generator_version("source-environment-v1-current-environment");
+        assert_eq!(
+            current,
+            "shadow-edit-preview-v1;environment=source-environment-v1-current-environment"
         );
+        assert_ne!(
+            current,
+            edit_preview_generator_version("source-environment-v1-other-environment")
+        );
+        assert!(!current.contains("raw-pipeline"));
     }
 
     #[test]

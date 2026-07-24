@@ -1,18 +1,146 @@
 use std::{env, path::PathBuf};
 
+const BRIDGE_INPUTS: &[&str] = &[
+    "include/shadow/image/decoder.hpp",
+    "include/shadow/image/private_decoder_plugin.hpp",
+    "include/shadow/image/display_luma.hpp",
+    "include/shadow/image/sensor_clipping.hpp",
+    "include/shadow/image/edit.hpp",
+    "include/shadow/image/lut.hpp",
+    "include/shadow/image/optics.hpp",
+    "include/shadow/image/raw_development.hpp",
+    "include/shadow/image/raw_pipeline.hpp",
+    "include/shadow/image/camera_profile.hpp",
+    "include/shadow/image/camera_profile_catalog.hpp",
+    "include/shadow/image/dcp_color_development.hpp",
+    "include/shadow/image/fused_raw_development.hpp",
+    "include/shadow/image/cxx_bridge.hpp",
+    "include/shadow/image/color_management.hpp",
+    "include/shadow/image/source_rendering.hpp",
+    "include/shadow/image/source_profile_catalog.hpp",
+    "src/bridge/cxx_bridge.cpp",
+];
+
+const EMBEDDED_IMAGE_INPUTS: &[&str] = &[
+    "src/decoder/libraw_decoder.cpp",
+    "src/decoder/raster_exif.hpp",
+    "src/decoder/raster_exif.cpp",
+    "src/decoder/raster_decoder.cpp",
+    "src/decoder/heif_decoder.hpp",
+    "src/decoder/heif_decoder.cpp",
+    "src/decoder/decode_session_isolation.hpp",
+    "src/decoder/decode_session_isolation.cpp",
+    "src/decoder/photo_decoder_router.cpp",
+    "src/decoder/private_decoder_plugin.cpp",
+    "src/color/lcms_color_management.cpp",
+    "src/color/source_profile_catalog.cpp",
+    "src/color/source_rendering.cpp",
+    "src/edit/cube_lut.cpp",
+    "src/edit/cpu_reference.cpp",
+    "src/edit/cpu_reference_color.ipp",
+    "src/edit/cpu_reference_curve.ipp",
+    "src/edit/cpu_reference_detail.ipp",
+    "src/edit/cpu_reference_tone.ipp",
+    "src/concurrency/row_scheduler.hpp",
+    "src/concurrency/row_scheduler.cpp",
+    "src/raw/bayer_demosaic.cpp",
+    "src/raw/bayer_sampling.hpp",
+    "src/raw/bayer_sampling.cpp",
+    "src/raw/camera_profile_catalog.cpp",
+    "src/raw/dcp_color_development.cpp",
+    "src/raw/dcp_parser.cpp",
+    "src/raw/fused_raw_development.cpp",
+    "src/raw/metal_raw_development.hpp",
+    "src/raw/metal_raw_development.mm",
+    "src/raw/metal_raw_development_stub.cpp",
+    "src/raw/raw_pipeline.cpp",
+    "src/raw/sensor_clipping.cpp",
+    "src/optics/lensfun_optics.cpp",
+    "src/proxy/display_rgb_math.hpp",
+    "src/proxy/jpeg_display_luma.cpp",
+    "src/proxy/jpeg_proxy.cpp",
+];
+
+fn parse_flag(name: &str, default: bool) -> bool {
+    match env::var(name).ok().as_deref() {
+        None => default,
+        Some("1" | "ON" | "on" | "true" | "TRUE") => true,
+        Some("0" | "OFF" | "off" | "false" | "FALSE") => false,
+        Some(value) => {
+            panic!("{name} must be 0/1, OFF/ON, or false/true; received {value}")
+        }
+    }
+}
+
+macro_rules! configure_warnings {
+    ($build:expr) => {
+        if env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
+            $build.flag("/W4").flag("/permissive-");
+        } else {
+            $build
+                .flag("-Wall")
+                .flag("-Wextra")
+                .flag("-Wpedantic")
+                .flag("-Wconversion")
+                .flag("-Wsign-conversion");
+        }
+    };
+}
+
+fn track_inputs(image_root: &std::path::Path, inputs: &[&str]) {
+    for relative_path in inputs {
+        println!(
+            "cargo:rerun-if-changed={}",
+            image_root.join(relative_path).display()
+        );
+    }
+}
+
 #[allow(clippy::too_many_lines)] // Native source tracking stays beside the matching CXX build.
 fn main() {
-    // The desktop CMake target may provide an explicit Lensfun prefix via this pkg-config search
-    // path. Reconfigure the native bridge whenever that choice changes; its availability changes
-    // both the compiled adapter and the cache-visible optical behavior.
+    // Direct Cargo builds may select optional native dependencies through pkg-config. Desktop
+    // CMake builds still use pkg-config here for the cache-visible libjpeg identity, while CMake
+    // itself owns all implementation dependencies.
     println!("cargo:rerun-if-env-changed=PKG_CONFIG_PATH");
     println!("cargo:rerun-if-env-changed=SHADOW_ENABLE_METAL");
+    println!("cargo:rerun-if-env-changed=SHADOW_BRIDGE_EXTERNAL_IMAGE");
     let crate_root = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("crate root"));
     let repository_root = crate_root.join("../..");
     let image_root = repository_root.join("cpp/shadow-image");
     let image_include = image_root.join("include");
-    // The bridge can run independent decoder sessions concurrently, so the non-reentrant
-    // Unix/macOS `libraw` library is never an acceptable fallback.
+    let external_image = parse_flag("SHADOW_BRIDGE_EXTERNAL_IMAGE", false);
+
+    // The Rust preprocessing identity must describe the libjpeg used by the final process in
+    // both build modes. In CMake desktop builds this is metadata-only; the bridge does not compile
+    // or link the image implementation itself.
+    let libjpeg = pkg_config::Config::new()
+        .cargo_metadata(false)
+        .probe("libjpeg")
+        .expect("libjpeg-turbo must be discoverable through pkg-config");
+    println!(
+        "cargo:rustc-env=SHADOW_LIBJPEG_TURBO_VERSION={}",
+        libjpeg.version
+    );
+
+    let mut build = cxx_build::bridge("src/lib.rs");
+    build
+        .file(image_root.join("src/bridge/cxx_bridge.cpp"))
+        .include(&image_include)
+        .std("c++20");
+
+    if external_image {
+        // CMake already owns Shadow::Image for desktop builds. Keep only the generated CXX glue
+        // and the coarse bridge shim in Cargo's archive; the final Qt target resolves their native
+        // calls through the single CMake-built image library.
+        configure_warnings!(&mut build);
+        build.compile("shadow-bridge-cxx");
+        println!("cargo:rerun-if-changed=src/lib.rs");
+        track_inputs(&image_root, BRIDGE_INPUTS);
+        return;
+    }
+
+    // Direct Cargo builds remain self-contained. Independent decoder sessions require the
+    // reentrant LibRaw build; the non-reentrant Unix/macOS library is never an acceptable fallback.
     let libraw = pkg_config::Config::new()
         .atleast_version("0.22.0")
         .cargo_metadata(false)
@@ -26,10 +154,6 @@ fn main() {
             libraw.libs
         );
     }
-    let libjpeg = pkg_config::Config::new()
-        .cargo_metadata(false)
-        .probe("libjpeg")
-        .expect("libjpeg-turbo must be discoverable through pkg-config");
     let lensfun = pkg_config::Config::new()
         .cargo_metadata(false)
         .probe("lensfun")
@@ -43,31 +167,15 @@ fn main() {
         .cargo_metadata(false)
         .probe("libheif")
         .ok();
-    println!(
-        "cargo:rustc-env=SHADOW_LIBJPEG_TURBO_VERSION={}",
-        libjpeg.version
-    );
     let target_family = env::var("CARGO_CFG_TARGET_FAMILY").unwrap_or_default();
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
-    let requested_metal = env::var("SHADOW_ENABLE_METAL").ok();
-    let metal_enabled = match requested_metal.as_deref() {
-        None => target_os == "macos",
-        Some("1" | "ON" | "on" | "true" | "TRUE") => {
-            assert!(
-                target_os == "macos",
-                "SHADOW_ENABLE_METAL=1 is supported only for a macOS target"
-            );
-            true
-        }
-        Some("0" | "OFF" | "off" | "false" | "FALSE") => false,
-        Some(value) => {
-            panic!("SHADOW_ENABLE_METAL must be 0/1, OFF/ON, or false/true; received {value}")
-        }
-    };
+    let metal_enabled = parse_flag("SHADOW_ENABLE_METAL", target_os == "macos");
+    assert!(
+        !metal_enabled || target_os == "macos",
+        "SHADOW_ENABLE_METAL=1 is supported only for a macOS target"
+    );
 
-    let mut build = cxx_build::bridge("src/lib.rs");
     build
-        .file(image_root.join("src/bridge/cxx_bridge.cpp"))
         .file(image_root.join("src/decoder/libraw_decoder.cpp"))
         .file(image_root.join("src/decoder/raster_exif.cpp"))
         .file(image_root.join("src/decoder/raster_decoder.cpp"))
@@ -91,9 +199,7 @@ fn main() {
         .file(image_root.join("src/raw/sensor_clipping.cpp"))
         .file(image_root.join("src/optics/lensfun_optics.cpp"))
         .file(image_root.join("src/proxy/jpeg_display_luma.cpp"))
-        .file(image_root.join("src/proxy/jpeg_proxy.cpp"))
-        .include(&image_include)
-        .std("c++20");
+        .file(image_root.join("src/proxy/jpeg_proxy.cpp"));
     if metal_enabled {
         build
             .file(image_root.join("src/raw/metal_raw_development.mm"))
@@ -164,16 +270,7 @@ fn main() {
             build.include(include_path);
         }
     }
-    if env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
-        build.flag("/W4").flag("/permissive-");
-    } else {
-        build
-            .flag("-Wall")
-            .flag("-Wextra")
-            .flag("-Wpedantic")
-            .flag("-Wconversion")
-            .flag("-Wsign-conversion");
-    }
+    configure_warnings!(&mut build);
     build.compile("shadow-bridge-cxx");
 
     if metal_enabled {
@@ -256,66 +353,6 @@ fn main() {
     }
 
     println!("cargo:rerun-if-changed=src/lib.rs");
-    for relative_path in [
-        "include/shadow/image/decoder.hpp",
-        "include/shadow/image/private_decoder_plugin.hpp",
-        "include/shadow/image/display_luma.hpp",
-        "include/shadow/image/sensor_clipping.hpp",
-        "include/shadow/image/edit.hpp",
-        "include/shadow/image/lut.hpp",
-        "include/shadow/image/optics.hpp",
-        "include/shadow/image/raw_development.hpp",
-        "include/shadow/image/raw_pipeline.hpp",
-        "include/shadow/image/camera_profile.hpp",
-        "include/shadow/image/camera_profile_catalog.hpp",
-        "include/shadow/image/dcp_color_development.hpp",
-        "include/shadow/image/fused_raw_development.hpp",
-        "include/shadow/image/cxx_bridge.hpp",
-        "include/shadow/image/color_management.hpp",
-        "include/shadow/image/source_rendering.hpp",
-        "include/shadow/image/source_profile_catalog.hpp",
-        "src/bridge/cxx_bridge.cpp",
-        "src/decoder/libraw_decoder.cpp",
-        "src/decoder/raster_exif.hpp",
-        "src/decoder/raster_exif.cpp",
-        "src/decoder/raster_decoder.cpp",
-        "src/decoder/heif_decoder.hpp",
-        "src/decoder/heif_decoder.cpp",
-        "src/decoder/decode_session_isolation.hpp",
-        "src/decoder/decode_session_isolation.cpp",
-        "src/decoder/photo_decoder_router.cpp",
-        "src/decoder/private_decoder_plugin.cpp",
-        "src/color/lcms_color_management.cpp",
-        "src/color/source_profile_catalog.cpp",
-        "src/color/source_rendering.cpp",
-        "src/edit/cube_lut.cpp",
-        "src/edit/cpu_reference.cpp",
-        "src/edit/cpu_reference_color.ipp",
-        "src/edit/cpu_reference_curve.ipp",
-        "src/edit/cpu_reference_detail.ipp",
-        "src/edit/cpu_reference_tone.ipp",
-        "src/concurrency/row_scheduler.hpp",
-        "src/concurrency/row_scheduler.cpp",
-        "src/raw/bayer_demosaic.cpp",
-        "src/raw/bayer_sampling.hpp",
-        "src/raw/bayer_sampling.cpp",
-        "src/raw/camera_profile_catalog.cpp",
-        "src/raw/dcp_color_development.cpp",
-        "src/raw/dcp_parser.cpp",
-        "src/raw/fused_raw_development.cpp",
-        "src/raw/metal_raw_development.hpp",
-        "src/raw/metal_raw_development.mm",
-        "src/raw/metal_raw_development_stub.cpp",
-        "src/raw/raw_pipeline.cpp",
-        "src/raw/sensor_clipping.cpp",
-        "src/optics/lensfun_optics.cpp",
-        "src/proxy/display_rgb_math.hpp",
-        "src/proxy/jpeg_display_luma.cpp",
-        "src/proxy/jpeg_proxy.cpp",
-    ] {
-        println!(
-            "cargo:rerun-if-changed={}",
-            image_root.join(relative_path).display()
-        );
-    }
+    track_inputs(&image_root, BRIDGE_INPUTS);
+    track_inputs(&image_root, EMBEDDED_IMAGE_INPUTS);
 }
