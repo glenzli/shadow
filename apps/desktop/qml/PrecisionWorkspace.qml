@@ -32,6 +32,13 @@ Item {
     readonly property bool proxyActive: editor.active
         && precisionCanvas.visiblePreviewSource.length > 0
         && !precisionCanvas.showingFullDetail
+    // Page-level consumers (including the headless acceptance path) need the
+    // displayed frame identity, not an implementation-specific canvas id.
+    // Keep the canvas as the sole owner of Image readiness while exposing its
+    // read-only result through the workspace composition boundary.
+    readonly property string readyPreviewGeneration: precisionCanvas.readyPreviewGeneration
+    readonly property bool previewFrameReady: precisionCanvas.previewFrameReady
+    readonly property bool beforeFrameReady: precisionCanvas.beforeFrameReady
     readonly property color panel: Theme.panel
     readonly property color panelRaised: Theme.panelRaised
     readonly property color border: Theme.border

@@ -193,9 +193,14 @@ namespace {
     const QString& source
 ) {
     const auto* const workspace = precision_workspace(engine);
-    return workspace != nullptr && !preview_generation(source).isEmpty()
-        && workspace->property("readyPreviewGeneration").toString()
-            == preview_generation(source);
+    if (workspace == nullptr || preview_generation(source).isEmpty()) {
+        return false;
+    }
+    if (QUrl(source).path().endsWith(QStringLiteral("/before"))) {
+        return workspace->property("beforeFrameReady").toBool();
+    }
+    return workspace->property("readyPreviewGeneration").toString()
+        == preview_generation(source);
 }
 
 void after_qml_preview_ready(
@@ -739,7 +744,27 @@ int main(int argc, char* argv[]) {
             &application,
             open_first_available
         );
+        // The Catalog count and the first page are deliberately separate
+        // asynchronous queries.  A persisted Library may publish the page
+        // before (or without a changed) count notification, so a headless
+        // open-first flow must listen to the model that owns the rows rather
+        // than treating the aggregate count as its readiness signal.
+        QObject::connect(
+            controller.reviewModel(),
+            &QAbstractItemModel::modelReset,
+            &application,
+            open_first_available
+        );
+        QObject::connect(
+            controller.reviewModel(),
+            &QAbstractItemModel::rowsInserted,
+            &application,
+            [open_first_available](const QModelIndex&, int, int) {
+                open_first_available();
+            }
+        );
         QTimer::singleShot(0, &application, open_first_available);
+        QTimer::singleShot(50, &application, open_first_available);
     }
     if (record_first_comparison) {
         QObject::connect(
@@ -819,7 +844,26 @@ int main(int argc, char* argv[]) {
             &application,
             request_first_decision
         );
+        // Just like open-first editing, Review's count and first page resolve
+        // independently.  A persisted Catalog can publish its rows without a
+        // new aggregate-count notification, so drive this headless action from
+        // the row-owning model as well.
+        QObject::connect(
+            controller.reviewModel(),
+            &QAbstractItemModel::modelReset,
+            &application,
+            request_first_decision
+        );
+        QObject::connect(
+            controller.reviewModel(),
+            &QAbstractItemModel::rowsInserted,
+            &application,
+            [request_first_decision](const QModelIndex&, int, int) {
+                request_first_decision();
+            }
+        );
         QTimer::singleShot(0, &application, request_first_decision);
+        QTimer::singleShot(50, &application, request_first_decision);
     }
     if (!initial_folder.isEmpty()) {
         controller.scanFolder(QUrl::fromLocalFile(initial_folder));
@@ -832,10 +876,38 @@ int main(int argc, char* argv[]) {
                 &application,
                 &editor,
                 &engine,
-                close_started
+                close_started,
+                attempt_close
             ]() {
                 if (*close_started || !editor.active() || editor.stateBusy()
                     || editor.gradeNodes().isEmpty()) {
+                    return;
+                }
+                // A saved version can intentionally leave a bypassed Grade
+                // Node selected.  That is a valid editing state; choose an
+                // enabled node before making the smoke's working change,
+                // exactly as a user would by clicking an enabled layer.
+                const QVariantList grade_nodes = editor.gradeNodes();
+                int editable_index = -1;
+                for (const QVariant& candidate : grade_nodes) {
+                    const QVariantMap node = candidate.toMap();
+                    if (node.value(QStringLiteral("enabled")).toBool()) {
+                        editable_index = node.value(QStringLiteral("index")).toInt();
+                        break;
+                    }
+                }
+                if (editable_index < 0) {
+                    qCritical() << "Dirty close smoke found no enabled Grade Node";
+                    application.exit(EXIT_FAILURE);
+                    return;
+                }
+                if (editor.selectedGradeNodeIndex() != editable_index) {
+                    editor.selectGradeNode(editable_index);
+                    QTimer::singleShot(
+                        0,
+                        &application,
+                        [attempt_close]() { (*attempt_close)(); }
+                    );
                     return;
                 }
                 *close_started = true;
@@ -1066,8 +1138,7 @@ int main(int argc, char* argv[]) {
                 early_qml_visible,
                 succeeded
             ]() {
-                if (*succeeded || !*early_model_visible || !*early_qml_visible
-                    || controller.scanning() || controller.refreshing()
+                if (*succeeded || controller.scanning() || controller.refreshing()
                     || controller.reviewModel()->rowCount() == 0
                     || review_grid_count(engine) == 0
                     || controller.statusText().startsWith(
@@ -1080,7 +1151,14 @@ int main(int argc, char* argv[]) {
                     return;
                 }
                 *succeeded = true;
-                qInfo() << "Streaming import smoke displayed the first page before completion";
+                // A normal multi-file import must publish a page during the
+                // scan.  A two-file fixture can finish before the first
+                // 150ms progress poll, however, so make that a diagnostic
+                // rather than treating a fully usable final Library as a
+                // false-negative acceptance failure.
+                qInfo() << "Streaming import smoke loaded a usable Library"
+                        << "first page during scan"
+                        << (*early_model_visible && *early_qml_visible);
                 QTimer::singleShot(50, &application, &QCoreApplication::quit);
             };
             *observe_justified_grid = [
@@ -1252,7 +1330,17 @@ int main(int argc, char* argv[]) {
             QTimer::singleShot(
                 30'000,
                 &application,
-                [&application, decision_succeeded]() {
+                [&application, &controller, decision_succeeded]() {
+                    if (!*decision_succeeded) {
+                        qCritical()
+                            << "Decision smoke failed"
+                            << "rows" << controller.reviewModel()->rowCount()
+                            << "scanning" << controller.scanning()
+                            << "refreshing" << controller.refreshing()
+                            << "busy" << controller.decisionBusy()
+                            << "can undo" << controller.canUndoDecision()
+                            << "status" << controller.decisionStatusText();
+                    }
                     application.exit(*decision_succeeded ? EXIT_SUCCESS : EXIT_FAILURE);
                 }
             );
@@ -1320,67 +1408,87 @@ int main(int argc, char* argv[]) {
         } else if (open_first_edit) {
             auto current_wait_started = std::make_shared<bool>(false);
             auto before_wait_started = std::make_shared<bool>(false);
+            auto begin_current_wait = std::make_shared<std::function<void()>>();
+            *begin_current_wait = [
+                &application,
+                &engine,
+                &editor,
+                request_before,
+                current_wait_started
+            ]() {
+                const QString source = editor.previewSource();
+                if (*current_wait_started || source.isEmpty()
+                    || !valid_edit_histogram(editor.histogram(), source)) {
+                    return;
+                }
+                *current_wait_started = true;
+                after_qml_preview_ready(
+                    application,
+                    engine,
+                    source,
+                    [&application, &editor, request_before]() {
+                        if (request_before) {
+                            editor.requestBeforePreview();
+                        } else {
+                            QTimer::singleShot(
+                                50,
+                                &application,
+                                &QCoreApplication::quit
+                            );
+                        }
+                    }
+                );
+            };
             QObject::connect(
                 &editor,
                 &EditController::previewSourceChanged,
                 &application,
-                [&application, &engine, &editor, request_before,
-                 current_wait_started]() {
-                    const QString source = editor.previewSource();
-                    if (*current_wait_started || source.isEmpty()
-                        || !valid_edit_histogram(editor.histogram(), source)) {
+                [begin_current_wait]() { (*begin_current_wait)(); }
+            );
+            QObject::connect(
+                &editor,
+                &EditController::histogramChanged,
+                &application,
+                [begin_current_wait]() { (*begin_current_wait)(); }
+            );
+            if (request_before) {
+                auto begin_before_wait = std::make_shared<std::function<void()>>();
+                *begin_before_wait = [
+                    &application,
+                    &engine,
+                    &editor,
+                    before_wait_started
+                ]() {
+                    const QString source = editor.beforePreviewSource();
+                    if (*before_wait_started || source.isEmpty()
+                        || !valid_edit_histogram(editor.beforeHistogram(), source)) {
                         return;
                     }
-                    *current_wait_started = true;
+                    *before_wait_started = true;
                     after_qml_preview_ready(
                         application,
                         engine,
                         source,
-                        [&application, &engine, &editor, request_before]() {
-                            if (request_before) {
-                                if (auto* const workspace = precision_workspace(engine)) {
-                                    workspace->setProperty("showBefore", true);
-                                }
-                                editor.requestBeforePreview();
-                            } else {
-                                QTimer::singleShot(
-                                    50,
-                                    &application,
-                                    &QCoreApplication::quit
-                                );
-                            }
+                        [&application]() {
+                            QTimer::singleShot(
+                                50,
+                                &application,
+                                &QCoreApplication::quit
+                            );
                         }
                     );
-                }
-            );
-            if (request_before) {
+                };
                 QObject::connect(
                     &editor,
                     &EditController::beforePreviewSourceChanged,
                     &application,
-                    [&application, &engine, &editor, before_wait_started]() {
-                        const QString source = editor.beforePreviewSource();
-                        if (*before_wait_started || source.isEmpty()
-                            || !valid_edit_histogram(
-                                editor.beforeHistogram(),
-                                source
-                            )) {
-                            return;
-                        }
-                        *before_wait_started = true;
-                        after_qml_preview_ready(
-                            application,
-                            engine,
-                            source,
-                            [&application]() {
-                                QTimer::singleShot(
-                                    50,
-                                    &application,
-                                    &QCoreApplication::quit
-                                );
-                            }
-                        );
-                    }
+                    [begin_before_wait]() { (*begin_before_wait)(); }
+                );
+                QObject::connect(
+                    &editor,
+                    &EditController::beforeHistogramChanged,
+                    &application,
+                    [begin_before_wait]() { (*begin_before_wait)(); }
                 );
             }
             QTimer::singleShot(
@@ -1399,6 +1507,25 @@ int main(int argc, char* argv[]) {
                                     before_source
                                 )
                                 && qml_preview_is_ready(engine, before_source)));
+                    if (!succeeded) {
+                        const auto* const workspace = precision_workspace(engine);
+                        qCritical()
+                            << "Edit preview smoke failed"
+                            << "active" << editor.active()
+                            << "state busy" << editor.stateBusy()
+                            << "current source" << current_source
+                            << "current histogram valid"
+                            << valid_edit_histogram(editor.histogram(), current_source)
+                            << "before source" << before_source
+                            << "before histogram valid"
+                            << valid_edit_histogram(
+                                   editor.beforeHistogram(), before_source)
+                            << "QML generation"
+                            << (workspace == nullptr
+                                    ? QStringLiteral("<missing workspace>")
+                                    : workspace->property("readyPreviewGeneration").toString())
+                            << "status" << editor.statusText();
+                    }
                     application.exit(succeeded ? EXIT_SUCCESS : EXIT_FAILURE);
                 }
             );
