@@ -81,6 +81,17 @@ struct WarmSharpenParameters {
     float blue_luminance;
 };
 
+struct WarmTextureParameters {
+    uint width;
+    uint height;
+    uint horizontal_radius;
+    uint vertical_radius;
+    float sigma_x;
+    float sigma_y;
+    float amount;
+    float reserved;
+};
+
 inline float3 linear_srgb_to_oklab(float3 rgb) {
     const float l = signed_cbrt(
         0.4122214708f * rgb.r + 0.5363325363f * rgb.g + 0.0514459929f * rgb.b
@@ -522,6 +533,98 @@ kernel void warm_sharpen_apply_v1(
     output[rgb_index + 1u] = rgb.g * gain;
     output[rgb_index + 2u] = rgb.b * gain;
 }
+
+// Texture follows the CPU perceptual-detail contract: analyse only Oklab L, soften its compact
+// base band, then add a shadow-protected and compressed residual before converting to the
+// original working RGB space. This deliberately leaves Oklab a/b untouched.
+kernel void warm_texture_lightness_v1(
+    device const float* input [[buffer(0)]],
+    device float* lightness [[buffer(1)]],
+    constant WarmTextureParameters& parameters [[buffer(2)]],
+    constant MetalAdjustmentInvocation& invocation [[buffer(3)]],
+    uint2 position [[thread_position_in_grid]]
+) {
+    if (position.x >= parameters.width || position.y >= parameters.height) {
+        return;
+    }
+    const uint rgb_index = (position.y * parameters.width + position.x) * 3u;
+    const float3 rgb = float3(
+        input[rgb_index], input[rgb_index + 1u], input[rgb_index + 2u]
+    );
+    lightness[position.y * parameters.width + position.x] =
+        working_rgb_to_oklab(rgb, invocation).x;
+}
+
+kernel void warm_texture_horizontal_v1(
+    device const float* input [[buffer(0)]],
+    device float* horizontal [[buffer(1)]],
+    constant WarmTextureParameters& parameters [[buffer(2)]],
+    uint2 position [[thread_position_in_grid]]
+) {
+    if (position.x >= parameters.width || position.y >= parameters.height) {
+        return;
+    }
+    const int radius = int(parameters.horizontal_radius);
+    const float inverse_two_sigma_squared = 1.0f / max(
+        2.0f * parameters.sigma_x * parameters.sigma_x,
+        1.0e-12f
+    );
+    float weighted_sum = 0.0f;
+    float weight_sum = 0.0f;
+    for (int offset = -15; offset <= 15; ++offset) {
+        if (abs(offset) > radius) {
+            continue;
+        }
+        const float weight = exp(-float(offset * offset) * inverse_two_sigma_squared);
+        const uint sample_x = warm_reflect101_coordinate(int(position.x) + offset, parameters.width);
+        weighted_sum += input[position.y * parameters.width + sample_x] * weight;
+        weight_sum += weight;
+    }
+    horizontal[position.y * parameters.width + position.x] = weighted_sum / max(weight_sum, 1.0e-12f);
+}
+
+kernel void warm_texture_apply_v1(
+    device const float* input [[buffer(0)]],
+    device const float* horizontal [[buffer(1)]],
+    device float* output [[buffer(2)]],
+    constant WarmTextureParameters& parameters [[buffer(3)]],
+    constant MetalAdjustmentInvocation& invocation [[buffer(4)]],
+    uint2 position [[thread_position_in_grid]]
+) {
+    if (position.x >= parameters.width || position.y >= parameters.height) {
+        return;
+    }
+    const int radius = int(parameters.vertical_radius);
+    const float inverse_two_sigma_squared = 1.0f / max(
+        2.0f * parameters.sigma_y * parameters.sigma_y,
+        1.0e-12f
+    );
+    float weighted_sum = 0.0f;
+    float weight_sum = 0.0f;
+    for (int offset = -15; offset <= 15; ++offset) {
+        if (abs(offset) > radius) {
+            continue;
+        }
+        const float weight = exp(-float(offset * offset) * inverse_two_sigma_squared);
+        const uint sample_y = warm_reflect101_coordinate(int(position.y) + offset, parameters.height);
+        weighted_sum += horizontal[sample_y * parameters.width + position.x] * weight;
+        weight_sum += weight;
+    }
+    const uint rgb_index = (position.y * parameters.width + position.x) * 3u;
+    const float3 rgb = float3(
+        input[rgb_index], input[rgb_index + 1u], input[rgb_index + 2u]
+    );
+    float3 lab = working_rgb_to_oklab(rgb, invocation);
+    const float base = weighted_sum / max(weight_sum, 1.0e-12f);
+    const float residual = lab.x - base;
+    const float compressed = residual / (1.0f + abs(residual) / 0.035f);
+    const float shadow_protection = adjustment_smoothstep(0.015f, 0.090f, lab.x);
+    lab.x += parameters.amount * 0.70f * compressed * shadow_protection;
+    const float3 adjusted = oklab_to_working_rgb(lab, invocation);
+    output[rgb_index] = adjusted.x;
+    output[rgb_index + 1u] = adjusted.y;
+    output[rgb_index + 2u] = adjusted.z;
+}
 )METAL";
 
 struct WarmDisplayParameters final {
@@ -577,11 +680,34 @@ struct WarmSharpenParameters final {
 
 static_assert(sizeof(WarmSharpenParameters) == 48U);
 
+struct WarmTextureParameters final {
+    std::uint32_t width = 0U;
+    std::uint32_t height = 0U;
+    std::uint32_t horizontal_radius = 0U;
+    std::uint32_t vertical_radius = 0U;
+    float sigma_x = 1.0F;
+    float sigma_y = 1.0F;
+    float amount = 0.0F;
+    float reserved = 0.0F;
+};
+
+static_assert(sizeof(WarmTextureParameters) == 32U);
+
 struct WarmTechnicalDetailStage final {
     EditExecutionPlan before;
     EditExecutionPlan after;
     std::optional<WarmDenoiseParameters> denoise;
     std::optional<WarmSharpenParameters> sharpen;
+};
+
+// Texture is a color-grading detail component, but the following color wheels in that same node
+// are pixel-local. Keep a copy with Texture zeroed for the post stage so the GPU preserves the
+// CPU order: Oklab-L texture first, color wheels second, then later nodes.
+struct WarmTextureStage final {
+    EditExecutionPlan before;
+    EditExecutionPlan after;
+    std::vector<AdjustmentNode> post_nodes;
+    WarmTextureParameters parameters;
 };
 
 [[nodiscard]] bool is_gpu_warm_technical_detail_supported(
@@ -721,6 +847,115 @@ struct WarmTechnicalDetailStage final {
     return result;
 }
 
+[[nodiscard]] std::optional<WarmTextureStage> prepare_warm_texture_stage(
+    const std::span<const AdjustmentNode> nodes,
+    const EditExecutionPlan& plan,
+    const Dimensions dimensions,
+    const double level_zero_to_raster_scale_x,
+    const double level_zero_to_raster_scale_y
+) {
+    std::optional<std::size_t> neighbourhood_segment;
+    for (std::size_t index = 0U; index < plan.segments.size(); ++index) {
+        if (plan.segments[index].locality == AdjustmentLocality::neighborhood) {
+            if (neighbourhood_segment.has_value()) {
+                return std::nullopt;
+            }
+            neighbourhood_segment = index;
+        }
+    }
+    if (!neighbourhood_segment.has_value()) {
+        return std::nullopt;
+    }
+    const EditExecutionSegment& segment = plan.segments[*neighbourhood_segment];
+    if (segment.steps.size() != 1U) {
+        return std::nullopt;
+    }
+    const EditExecutionStep& step = segment.steps.front();
+    if (step.operation != AdjustmentOperation::sharpen || step.node_index >= nodes.size()) {
+        return std::nullopt;
+    }
+    const auto* detail = std::get_if<SharpenAdjustment>(&nodes[step.node_index].parameters);
+    if (detail == nullptr
+        || detail->execution_pass != DetailEffectsExecutionPass::color_grading
+        || detail->texture == 0.0 || detail->clarity != 0.0) {
+        return std::nullopt;
+    }
+    for (std::size_t index = 0U; index < plan.segments.size(); ++index) {
+        if (index != *neighbourhood_segment
+            && plan.segments[index].locality != AdjustmentLocality::pixel_local) {
+            return std::nullopt;
+        }
+    }
+    constexpr double texture_sigma_level_zero = 1.4;
+    const double sigma_x = texture_sigma_level_zero * level_zero_to_raster_scale_x;
+    const double sigma_y = texture_sigma_level_zero * level_zero_to_raster_scale_y;
+    const double radius_x = std::ceil(3.0 * sigma_x);
+    const double radius_y = std::ceil(3.0 * sigma_y);
+    if (radius_x > 15.0 || radius_y > 15.0) {
+        return std::nullopt;
+    }
+
+    WarmTextureStage result{
+        .before = EditExecutionPlan{.source_node_count = plan.source_node_count},
+        .after = EditExecutionPlan{.source_node_count = plan.source_node_count},
+        .post_nodes = std::vector<AdjustmentNode>(nodes.begin(), nodes.end()),
+        .parameters = WarmTextureParameters{
+            .width = dimensions.width,
+            .height = dimensions.height,
+            .horizontal_radius = static_cast<std::uint32_t>(radius_x),
+            .vertical_radius = static_cast<std::uint32_t>(radius_y),
+            .sigma_x = static_cast<float>(sigma_x),
+            .sigma_y = static_cast<float>(sigma_y),
+            .amount = static_cast<float>(detail->texture),
+        },
+    };
+    auto& post_detail = std::get<SharpenAdjustment>(
+        result.post_nodes[step.node_index].parameters
+    );
+    post_detail.texture = 0.0;
+
+    result.before.segments.insert(
+        result.before.segments.end(),
+        plan.segments.begin(),
+        plan.segments.begin() + static_cast<std::ptrdiff_t>(*neighbourhood_segment)
+    );
+    // Recompile only the post portion. Keep one explicit replacement step even when all wheels
+    // are neutral: it obtains the validated working-space transform for the Texture kernels and
+    // is an exact no-op in the final pixel-local interpreter.
+    result.after.segments.push_back(EditExecutionSegment{
+        .locality = AdjustmentLocality::pixel_local,
+        .first_node_index = step.node_index,
+        .past_last_node_index = step.node_index + 1U,
+        .steps = {EditExecutionStep{
+            .node_index = step.node_index,
+            .operation = AdjustmentOperation::sharpen,
+        }},
+    });
+    const EditExecutionPlan post_plan = compile_edit_execution_plan(
+        result.post_nodes,
+        level_zero_to_raster_scale_x,
+        level_zero_to_raster_scale_y
+    );
+    for (const auto& post_segment : post_plan.segments) {
+        EditExecutionSegment retained{
+            .locality = post_segment.locality,
+            .first_node_index = post_segment.first_node_index,
+            .past_last_node_index = post_segment.past_last_node_index,
+        };
+        for (const auto& post_step : post_segment.steps) {
+            if (post_step.node_index > step.node_index) {
+                retained.steps.push_back(post_step);
+            }
+        }
+        if (!retained.steps.empty()) {
+            retained.first_node_index = retained.steps.front().node_index;
+            retained.past_last_node_index = retained.steps.back().node_index + 1U;
+            result.after.segments.push_back(std::move(retained));
+        }
+    }
+    return result;
+}
+
 [[nodiscard]] bool checked_multiply(
     const std::size_t left,
     const std::size_t right,
@@ -803,15 +1038,26 @@ public:
                 [library newFunctionWithName:@"warm_sharpen_horizontal_v1"];
             id<MTLFunction> sharpen_apply_function =
                 [library newFunctionWithName:@"warm_sharpen_apply_v1"];
+            id<MTLFunction> texture_lightness_function =
+                [library newFunctionWithName:@"warm_texture_lightness_v1"];
+            id<MTLFunction> texture_horizontal_function =
+                [library newFunctionWithName:@"warm_texture_horizontal_v1"];
+            id<MTLFunction> texture_apply_function =
+                [library newFunctionWithName:@"warm_texture_apply_v1"];
             if (display_function == nil || adjustment_function == nil
                 || denoise_function == nil || sharpen_log_function == nil
-                || sharpen_horizontal_function == nil || sharpen_apply_function == nil) {
+                || sharpen_horizontal_function == nil || sharpen_apply_function == nil
+                || texture_lightness_function == nil || texture_horizontal_function == nil
+                || texture_apply_function == nil) {
                 [display_function release];
                 [adjustment_function release];
                 [denoise_function release];
                 [sharpen_log_function release];
                 [sharpen_horizontal_function release];
                 [sharpen_apply_function release];
+                [texture_lightness_function release];
+                [texture_horizontal_function release];
+                [texture_apply_function release];
                 [library release];
                 diagnostic_ = "Metal warm-preview shader entry point is unavailable";
                 return;
@@ -825,6 +1071,9 @@ public:
                 [sharpen_log_function release];
                 [sharpen_horizontal_function release];
                 [sharpen_apply_function release];
+                [texture_lightness_function release];
+                [texture_horizontal_function release];
+                [texture_apply_function release];
                 [library release];
                 diagnostic_ = "Metal warm-preview pipeline creation failed: "
                     + error_description(error);
@@ -838,6 +1087,9 @@ public:
                 [sharpen_log_function release];
                 [sharpen_horizontal_function release];
                 [sharpen_apply_function release];
+                [texture_lightness_function release];
+                [texture_horizontal_function release];
+                [texture_apply_function release];
                 [library release];
                 diagnostic_ = "Metal warm-preview adjustment pipeline creation failed: "
                     + error_description(error);
@@ -850,6 +1102,9 @@ public:
                 [sharpen_log_function release];
                 [sharpen_horizontal_function release];
                 [sharpen_apply_function release];
+                [texture_lightness_function release];
+                [texture_horizontal_function release];
+                [texture_apply_function release];
                 [library release];
                 diagnostic_ = "Metal warm-preview denoise pipeline creation failed: "
                     + error_description(error);
@@ -861,6 +1116,9 @@ public:
             if (sharpen_log_pipeline_ == nil) {
                 [sharpen_horizontal_function release];
                 [sharpen_apply_function release];
+                [texture_lightness_function release];
+                [texture_horizontal_function release];
+                [texture_apply_function release];
                 [library release];
                 diagnostic_ = "Metal warm-preview sharpen-log pipeline creation failed: "
                     + error_description(error);
@@ -871,6 +1129,9 @@ public:
             [sharpen_horizontal_function release];
             if (sharpen_horizontal_pipeline_ == nil) {
                 [sharpen_apply_function release];
+                [texture_lightness_function release];
+                [texture_horizontal_function release];
+                [texture_apply_function release];
                 [library release];
                 diagnostic_ = "Metal warm-preview sharpen-horizontal pipeline creation failed: "
                     + error_description(error);
@@ -879,15 +1140,51 @@ public:
             sharpen_apply_pipeline_ = [device_
                 newComputePipelineStateWithFunction:sharpen_apply_function error:&error];
             [sharpen_apply_function release];
-            [library release];
             if (sharpen_apply_pipeline_ == nil) {
+                [texture_lightness_function release];
+                [texture_horizontal_function release];
+                [texture_apply_function release];
+                [library release];
                 diagnostic_ = "Metal warm-preview sharpen-apply pipeline creation failed: "
+                    + error_description(error);
+                return;
+            }
+            texture_lightness_pipeline_ = [device_
+                newComputePipelineStateWithFunction:texture_lightness_function error:&error];
+            [texture_lightness_function release];
+            if (texture_lightness_pipeline_ == nil) {
+                [texture_horizontal_function release];
+                [texture_apply_function release];
+                [library release];
+                diagnostic_ = "Metal warm-preview texture-lightness pipeline creation failed: "
+                    + error_description(error);
+                return;
+            }
+            texture_horizontal_pipeline_ = [device_
+                newComputePipelineStateWithFunction:texture_horizontal_function error:&error];
+            [texture_horizontal_function release];
+            if (texture_horizontal_pipeline_ == nil) {
+                [texture_apply_function release];
+                [library release];
+                diagnostic_ = "Metal warm-preview texture-horizontal pipeline creation failed: "
+                    + error_description(error);
+                return;
+            }
+            texture_apply_pipeline_ = [device_
+                newComputePipelineStateWithFunction:texture_apply_function error:&error];
+            [texture_apply_function release];
+            [library release];
+            if (texture_apply_pipeline_ == nil) {
+                diagnostic_ = "Metal warm-preview texture-apply pipeline creation failed: "
                     + error_description(error);
             }
         }
     }
 
     ~WarmMetalContext() {
+        [texture_apply_pipeline_ release];
+        [texture_horizontal_pipeline_ release];
+        [texture_lightness_pipeline_ release];
         [sharpen_apply_pipeline_ release];
         [sharpen_horizontal_pipeline_ release];
         [sharpen_log_pipeline_ release];
@@ -905,7 +1202,8 @@ public:
         return device_ != nil && queue_ != nil && display_pipeline_ != nil
             && adjustment_pipeline_ != nil && denoise_pipeline_ != nil
             && sharpen_log_pipeline_ != nil && sharpen_horizontal_pipeline_ != nil
-            && sharpen_apply_pipeline_ != nil;
+            && sharpen_apply_pipeline_ != nil && texture_lightness_pipeline_ != nil
+            && texture_horizontal_pipeline_ != nil && texture_apply_pipeline_ != nil;
     }
     [[nodiscard]] id<MTLDevice> device() const noexcept { return device_; }
     [[nodiscard]] id<MTLCommandQueue> queue() const noexcept { return queue_; }
@@ -927,6 +1225,15 @@ public:
     [[nodiscard]] id<MTLComputePipelineState> sharpen_apply_pipeline() const noexcept {
         return sharpen_apply_pipeline_;
     }
+    [[nodiscard]] id<MTLComputePipelineState> texture_lightness_pipeline() const noexcept {
+        return texture_lightness_pipeline_;
+    }
+    [[nodiscard]] id<MTLComputePipelineState> texture_horizontal_pipeline() const noexcept {
+        return texture_horizontal_pipeline_;
+    }
+    [[nodiscard]] id<MTLComputePipelineState> texture_apply_pipeline() const noexcept {
+        return texture_apply_pipeline_;
+    }
     [[nodiscard]] const std::string& diagnostic() const noexcept {
         return diagnostic_;
     }
@@ -940,6 +1247,9 @@ private:
     id<MTLComputePipelineState> sharpen_log_pipeline_ = nil;
     id<MTLComputePipelineState> sharpen_horizontal_pipeline_ = nil;
     id<MTLComputePipelineState> sharpen_apply_pipeline_ = nil;
+    id<MTLComputePipelineState> texture_lightness_pipeline_ = nil;
+    id<MTLComputePipelineState> texture_horizontal_pipeline_ = nil;
+    id<MTLComputePipelineState> texture_apply_pipeline_ = nil;
     std::string diagnostic_;
 };
 
@@ -1547,7 +1857,8 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
         .samples = {},
     };
     std::string preparation_diagnostic;
-    const auto prepare_program = [&source_layout, &nodes, this, &preparation_diagnostic](
+    const auto prepare_program = [&source_layout, this, &preparation_diagnostic](
+        const std::span<const AdjustmentNode> program_nodes,
         const EditExecutionPlan& candidate,
         const std::uint32_t input_row_floats,
         const std::uint32_t output_row_floats
@@ -1560,7 +1871,7 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
         } else {
             auto preparation = prepare_metal_adjustment(
                 source_layout,
-                nodes,
+                program_nodes,
                 candidate,
                 AdjustmentExecutionContext{.full_dimensions = impl_->dimensions},
                 true
@@ -1596,15 +1907,28 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
         impl_->level_zero_to_raster_scale_x,
         impl_->level_zero_to_raster_scale_y
     );
+    const auto texture_stage = technical_detail_stage.has_value()
+        ? std::optional<WarmTextureStage>{}
+        : prepare_warm_texture_stage(
+            nodes,
+            plan,
+            impl_->dimensions,
+            impl_->level_zero_to_raster_scale_x,
+            impl_->level_zero_to_raster_scale_y
+        );
+    const bool has_neighbourhood_stage = technical_detail_stage.has_value()
+        || texture_stage.has_value();
     PreparedMetalAdjustment before_program;
     std::optional<PreparedMetalAdjustment> final_program;
     if (technical_detail_stage.has_value()) {
         auto prepared_before = prepare_program(
+            nodes,
             technical_detail_stage->before,
             source_row_floats,
             packed_row_floats
         );
         final_program = prepare_program(
+            nodes,
             technical_detail_stage->after,
             packed_row_floats,
             packed_row_floats
@@ -1617,8 +1941,29 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
             };
         }
         before_program = std::move(*prepared_before);
+    } else if (texture_stage.has_value()) {
+        auto prepared_before = prepare_program(
+            nodes,
+            texture_stage->before,
+            source_row_floats,
+            packed_row_floats
+        );
+        final_program = prepare_program(
+            texture_stage->post_nodes,
+            texture_stage->after,
+            packed_row_floats,
+            packed_row_floats
+        );
+        if (!prepared_before.has_value() || !final_program.has_value()) {
+            return RenderAttempt{
+                .status = RenderStatus::unavailable_or_failed,
+                .output = std::nullopt,
+                .diagnostic = std::move(preparation_diagnostic),
+            };
+        }
+        before_program = std::move(*prepared_before);
     } else {
-        final_program = prepare_program(plan, source_row_floats, packed_row_floats);
+        final_program = prepare_program(nodes, plan, source_row_floats, packed_row_floats);
         if (!final_program.has_value()) {
             return RenderAttempt{
                 .status = RenderStatus::unavailable_or_failed,
@@ -1632,7 +1977,7 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
         return cancelled();
     }
     std::optional<WarmProgramBuffers> before_buffers;
-    if (technical_detail_stage.has_value()) {
+    if (has_neighbourhood_stage) {
         auto attempt = impl_->acquire_program_buffers(before_program, cancellation);
         if (attempt.cancelled) {
             return cancelled();
@@ -1688,6 +2033,15 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
                 .diagnostic = diagnostic,
             };
         }
+    } else if (texture_stage.has_value()) {
+        const std::string diagnostic = impl_->ensure_sharpen_resources(slot_index);
+        if (!diagnostic.empty()) {
+            return RenderAttempt{
+                .status = RenderStatus::unavailable_or_failed,
+                .output = std::nullopt,
+                .diagnostic = diagnostic,
+            };
+        }
     }
 
     @autoreleasepool {
@@ -1699,7 +2053,7 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
                 std::memcpy([destination contents], program.operations.data(), bytes);
             }
         };
-        if (technical_detail_stage.has_value()) {
+        if (has_neighbourhood_stage) {
             upload_operations(slot.before_operations, before_program);
             upload_operations(slot.after_operations, *final_program);
         } else {
@@ -1763,7 +2117,7 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
             [encoder setBuffer:buffers.selective_color.get() offset:0U atIndex:11U];
         };
 
-        id<MTLBuffer> technical_detail_output = impl_->source;
+        id<MTLBuffer> neighbourhood_output = impl_->source;
         if (technical_detail_stage.has_value()) {
             [encoder setComputePipelineState:context.adjustment_pipeline()];
             bind_adjustment(
@@ -1774,7 +2128,7 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
                 *before_buffers
             );
             dispatch(context.adjustment_pipeline());
-            technical_detail_output = slot.adjusted;
+            neighbourhood_output = slot.adjusted;
 
             if (technical_detail_stage->denoise.has_value()) {
                 const auto& denoise = *technical_detail_stage->denoise;
@@ -1783,20 +2137,20 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
                 [encoder setBuffer:slot.denoised offset:0U atIndex:1U];
                 [encoder setBytes:&denoise length:sizeof(denoise) atIndex:2U];
                 dispatch(context.denoise_pipeline());
-                technical_detail_output = slot.denoised;
+                neighbourhood_output = slot.denoised;
                 if (denoise.passes > 1U) {
                     [encoder setBuffer:slot.denoised offset:0U atIndex:0U];
                     [encoder setBuffer:slot.adjusted offset:0U atIndex:1U];
                     [encoder setBytes:&denoise length:sizeof(denoise) atIndex:2U];
                     dispatch(context.denoise_pipeline());
-                    technical_detail_output = slot.adjusted;
+                    neighbourhood_output = slot.adjusted;
                 }
             }
 
             if (technical_detail_stage->sharpen.has_value()) {
                 const auto& sharpen = *technical_detail_stage->sharpen;
                 [encoder setComputePipelineState:context.sharpen_log_pipeline()];
-                [encoder setBuffer:technical_detail_output offset:0U atIndex:0U];
+                [encoder setBuffer:neighbourhood_output offset:0U atIndex:0U];
                 [encoder setBuffer:slot.sharpen_log_luminance offset:0U atIndex:1U];
                 [encoder setBytes:&sharpen length:sizeof(sharpen) atIndex:2U];
                 dispatch(context.sharpen_log_pipeline());
@@ -1807,25 +2161,62 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
                 [encoder setBytes:&sharpen length:sizeof(sharpen) atIndex:2U];
                 dispatch(context.sharpen_horizontal_pipeline());
 
-                const id<MTLBuffer> sharpened_output = technical_detail_output == slot.adjusted
+                const id<MTLBuffer> sharpened_output = neighbourhood_output == slot.adjusted
                     ? slot.denoised
                     : slot.adjusted;
                 [encoder setComputePipelineState:context.sharpen_apply_pipeline()];
-                [encoder setBuffer:technical_detail_output offset:0U atIndex:0U];
+                [encoder setBuffer:neighbourhood_output offset:0U atIndex:0U];
                 [encoder setBuffer:slot.sharpen_horizontal offset:0U atIndex:1U];
                 [encoder setBuffer:sharpened_output offset:0U atIndex:2U];
                 [encoder setBytes:&sharpen length:sizeof(sharpen) atIndex:3U];
                 dispatch(context.sharpen_apply_pipeline());
-                technical_detail_output = sharpened_output;
+                neighbourhood_output = sharpened_output;
             }
+        } else if (texture_stage.has_value()) {
+            [encoder setComputePipelineState:context.adjustment_pipeline()];
+            bind_adjustment(
+                impl_->source,
+                slot.adjusted,
+                slot.before_operations,
+                before_program,
+                *before_buffers
+            );
+            dispatch(context.adjustment_pipeline());
+
+            const auto& texture = texture_stage->parameters;
+            [encoder setComputePipelineState:context.texture_lightness_pipeline()];
+            [encoder setBuffer:slot.adjusted offset:0U atIndex:0U];
+            [encoder setBuffer:slot.sharpen_log_luminance offset:0U atIndex:1U];
+            [encoder setBytes:&texture length:sizeof(texture) atIndex:2U];
+            [encoder setBytes:&final_program->invocation
+                       length:sizeof(final_program->invocation)
+                      atIndex:3U];
+            dispatch(context.texture_lightness_pipeline());
+
+            [encoder setComputePipelineState:context.texture_horizontal_pipeline()];
+            [encoder setBuffer:slot.sharpen_log_luminance offset:0U atIndex:0U];
+            [encoder setBuffer:slot.sharpen_horizontal offset:0U atIndex:1U];
+            [encoder setBytes:&texture length:sizeof(texture) atIndex:2U];
+            dispatch(context.texture_horizontal_pipeline());
+
+            [encoder setComputePipelineState:context.texture_apply_pipeline()];
+            [encoder setBuffer:slot.adjusted offset:0U atIndex:0U];
+            [encoder setBuffer:slot.sharpen_horizontal offset:0U atIndex:1U];
+            [encoder setBuffer:slot.denoised offset:0U atIndex:2U];
+            [encoder setBytes:&texture length:sizeof(texture) atIndex:3U];
+            [encoder setBytes:&final_program->invocation
+                       length:sizeof(final_program->invocation)
+                      atIndex:4U];
+            dispatch(context.texture_apply_pipeline());
+            neighbourhood_output = slot.denoised;
         }
 
         [encoder setComputePipelineState:context.display_pipeline()];
-        id<MTLBuffer> final_input = technical_detail_output;
-        id<MTLBuffer> final_adjusted = technical_detail_stage.has_value()
+        id<MTLBuffer> final_input = neighbourhood_output;
+        id<MTLBuffer> final_adjusted = has_neighbourhood_stage
             ? (final_input == slot.adjusted ? slot.denoised : slot.adjusted)
             : slot.adjusted;
-        id<MTLBuffer> final_operations = technical_detail_stage.has_value()
+        id<MTLBuffer> final_operations = has_neighbourhood_stage
             ? slot.after_operations
             : slot.before_operations;
         [encoder setBuffer:final_input offset:0U atIndex:0U];
@@ -1871,7 +2262,7 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
                     );
                 }
             };
-            if (technical_detail_stage.has_value()) {
+            if (has_neighbourhood_stage) {
                 append_node(before_program);
                 append_node(*final_program);
             } else {

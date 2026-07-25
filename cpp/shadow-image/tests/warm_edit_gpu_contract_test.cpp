@@ -672,6 +672,92 @@ void resident_gpu_technical_detail_is_complete_or_declines() {
     );
 }
 
+void resident_gpu_texture_is_complete_or_declines() {
+    const auto source = make_random_image(193U, 113U, true);
+    auto preparation = image::detail::prepare_warm_edit_gpu_session(source);
+    if (!preparation.session) {
+        expect(
+            std::getenv("SHADOW_TEST_REQUIRE_WARM_METAL") == nullptr,
+            "GPU Texture was required but no resident Metal session could be prepared"
+        );
+        return;
+    }
+
+    std::array<image::AdjustmentNode, 3U> nodes{
+        image::AdjustmentNode{
+            .node_id = "before-texture-exposure",
+            .parameters = image::ExposureAdjustment{.stops = 0.18},
+        },
+        image::AdjustmentNode{
+            .node_id = "perceptual-texture",
+            .parameter_schema_version = image::detail_effects_v3_parameter_schema_version,
+            .implementation_version = image::color_grading_v3_implementation_version,
+            .parameters = image::SharpenAdjustment{
+                .execution_pass = image::DetailEffectsExecutionPass::color_grading,
+                .texture = 0.72,
+                .shadows_hue = 24.0,
+                .shadows_saturation = 0.17,
+                .midtones_hue = 148.0,
+                .midtones_saturation = 0.12,
+                .highlights_hue = 248.0,
+                .highlights_saturation = 0.21,
+                .grading_blending = 0.68,
+                .grading_balance = -0.18,
+            },
+        },
+        image::AdjustmentNode{
+            .node_id = "after-texture-saturation",
+            .parameters = image::SaturationAdjustment{.factor = 0.83},
+        },
+    };
+    const auto plan = image::compile_edit_execution_plan(nodes);
+    const auto gpu = preparation.session->render(nodes, plan, true);
+    expect(
+        gpu.status == image::detail::WarmEditGpuSession::RenderStatus::completed
+            && gpu.output.has_value()
+            && gpu.output->analyzed_linear.has_value()
+            && std::ranges::all_of(
+                gpu.output->analyzed_linear->samples,
+                [](const float value) { return std::isfinite(value); }
+            ),
+        "a supported Oklab-L Texture stage completes on the resident GPU"
+    );
+    if (gpu.output && gpu.output->analyzed_linear) {
+        const auto cpu = image::execute_adjustment_nodes_with_backend(
+            source,
+            nodes,
+            {.full_dimensions = source.dimensions},
+            image::AdjustmentBackendMode::cpu
+        );
+        double maximum_error = 0.0;
+        const bool linear_parity = linear_close(
+            *gpu.output->analyzed_linear,
+            cpu.pixels,
+            maximum_error,
+            2.5e-4
+        );
+        if (!linear_parity) {
+            std::cerr << "Texture warm linear parity max="
+                      << maximum_error << '\n';
+        }
+        expect(
+            linear_parity,
+            "the resident Texture path tracks the CPU Oklab-L reference"
+        );
+    }
+
+    std::get<image::SharpenAdjustment>(nodes[1U].parameters).clarity = 0.25;
+    const auto unsupported_plan = image::compile_edit_execution_plan(nodes);
+    const auto unsupported = preparation.session->render(nodes, unsupported_plan, false);
+    expect(
+        unsupported.status
+                == image::detail::WarmEditGpuSession::RenderStatus::unavailable_or_failed
+            && !unsupported.output.has_value()
+            && !unsupported.diagnostic.empty(),
+        "Texture plus unsupported broad Clarity declines as one coherent CPU fallback"
+    );
+}
+
 void advanced_resources_match_cpu_and_reuse_side_table_uploads() {
     const auto source = make_random_image(137U, 83U, true);
     auto preparation = image::detail::prepare_warm_edit_gpu_session(source);
@@ -1124,6 +1210,7 @@ void benchmark_resident_backend_when_requested() {
 int main() {
     resident_backend_matches_cpu_oracle();
     resident_gpu_technical_detail_is_complete_or_declines();
+    resident_gpu_texture_is_complete_or_declines();
     advanced_resources_match_cpu_and_reuse_side_table_uploads();
     perceptual_resources_match_cpu_and_have_independent_caches();
     cancellation_is_terminal_without_diagnostic();
