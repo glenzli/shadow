@@ -837,15 +837,32 @@ void resident_gpu_clarity_is_complete_or_declines() {
     }
 
     std::get<image::SharpenAdjustment>(nodes[1U].parameters).texture = 0.25;
-    const auto unsupported_plan = image::compile_edit_execution_plan(nodes);
-    const auto unsupported = preparation.session->render(nodes, unsupported_plan, false);
+    const auto combined_plan = image::compile_edit_execution_plan(nodes);
+    const auto combined = preparation.session->render(nodes, combined_plan, true);
     expect(
-        unsupported.status
-                == image::detail::WarmEditGpuSession::RenderStatus::unavailable_or_failed
-            && !unsupported.output.has_value()
-            && !unsupported.diagnostic.empty(),
-        "Clarity plus Texture declines until their combined GPU stage is implemented"
+        combined.status == image::detail::WarmEditGpuSession::RenderStatus::completed
+            && combined.output.has_value()
+            && combined.output->analyzed_linear.has_value(),
+        "a preview-scale Texture plus Clarity stage completes on the resident GPU"
     );
+    if (combined.output && combined.output->analyzed_linear) {
+        const auto cpu = image::execute_adjustment_nodes_with_backend(
+            source, nodes, {.full_dimensions = source.dimensions},
+            image::AdjustmentBackendMode::cpu
+        );
+        double maximum_error = 0.0;
+        const bool linear_parity = linear_close(
+            *combined.output->analyzed_linear, cpu.pixels, maximum_error, 3.5e-4
+        );
+        if (!linear_parity) {
+            std::cerr << "Texture + Clarity warm linear parity max="
+                      << maximum_error << '\n';
+        }
+        expect(
+            linear_parity,
+            "the combined resident Texture plus Clarity path tracks the CPU reference"
+        );
+    }
 }
 
 void resident_gpu_dehaze_and_defringe_is_complete_or_declines() {

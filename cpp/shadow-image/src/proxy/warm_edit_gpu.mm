@@ -129,6 +129,17 @@ struct WarmDehazeDefringeParameters {
     float reserved_1;
 };
 
+struct WarmTextureClarityParameters {
+    uint width;
+    uint height;
+    uint vertical_radius;
+    uint reserved;
+    float sigma_y;
+    float texture_amount;
+    float clarity_amount;
+    float reserved_0;
+};
+
 inline float3 linear_srgb_to_oklab(float3 rgb) {
     const float l = signed_cbrt(
         0.4122214708f * rgb.r + 0.5363325363f * rgb.g + 0.0514459929f * rgb.b
@@ -818,6 +829,61 @@ kernel void warm_dehaze_defringe_v1(
     output[rgb_index + 1u] = adjusted.y;
     output[rgb_index + 2u] = adjusted.z;
 }
+
+kernel void warm_texture_clarity_apply_v1(
+    device const float* input [[buffer(0)]],
+    device const float* texture_base [[buffer(1)]],
+    device const float* clarity_small [[buffer(2)]],
+    device const float* clarity_large_horizontal [[buffer(3)]],
+    device float* output [[buffer(4)]],
+    constant WarmTextureClarityParameters& parameters [[buffer(5)]],
+    constant MetalAdjustmentInvocation& invocation [[buffer(6)]],
+    uint2 position [[thread_position_in_grid]]
+) {
+    if (position.x >= parameters.width || position.y >= parameters.height) {
+        return;
+    }
+    const int radius = int(parameters.vertical_radius);
+    const float inverse_two_sigma_squared = 1.0f / max(
+        2.0f * parameters.sigma_y * parameters.sigma_y,
+        1.0e-12f
+    );
+    float weighted_sum = 0.0f;
+    float weight_sum = 0.0f;
+    for (int offset = -15; offset <= 15; ++offset) {
+        if (abs(offset) > radius) {
+            continue;
+        }
+        const float weight = exp(-float(offset * offset) * inverse_two_sigma_squared);
+        const uint sample_y = warm_reflect101_coordinate(int(position.y) + offset, parameters.height);
+        weighted_sum += clarity_large_horizontal[sample_y * parameters.width + position.x] * weight;
+        weight_sum += weight;
+    }
+    const uint pixel = position.y * parameters.width + position.x;
+    const uint rgb_index = pixel * 3u;
+    const float3 rgb = float3(
+        input[rgb_index], input[rgb_index + 1u], input[rgb_index + 2u]
+    );
+    float3 lab = working_rgb_to_oklab(rgb, invocation);
+    const float shadow_protection = adjustment_smoothstep(0.015f, 0.090f, lab.x);
+    const float texture_residual = lab.x - texture_base[pixel];
+    lab.x += parameters.texture_amount * 0.70f
+        * (texture_residual / (1.0f + abs(texture_residual) / 0.035f))
+        * shadow_protection;
+    const float high_frequency = lab.x - clarity_small[pixel];
+    const float mid_frequency = clarity_small[pixel]
+        - weighted_sum / max(weight_sum, 1.0e-12f);
+    const float edge_protection = 1.0f - adjustment_smoothstep(
+        0.018f, 0.085f, abs(high_frequency)
+    );
+    lab.x += parameters.clarity_amount * 1.15f
+        * (mid_frequency / (1.0f + abs(mid_frequency) / 0.090f))
+        * edge_protection * shadow_protection;
+    const float3 adjusted = oklab_to_working_rgb(lab, invocation);
+    output[rgb_index] = adjusted.x;
+    output[rgb_index + 1u] = adjusted.y;
+    output[rgb_index + 2u] = adjusted.z;
+}
 )METAL";
 
 struct WarmDisplayParameters final {
@@ -928,6 +994,19 @@ struct WarmDehazeDefringeParameters final {
 
 static_assert(sizeof(WarmDehazeDefringeParameters) == 48U);
 
+struct WarmTextureClarityParameters final {
+    std::uint32_t width = 0U;
+    std::uint32_t height = 0U;
+    std::uint32_t vertical_radius = 0U;
+    std::uint32_t reserved = 0U;
+    float sigma_y = 1.0F;
+    float texture_amount = 0.0F;
+    float clarity_amount = 0.0F;
+    float reserved_0 = 0.0F;
+};
+
+static_assert(sizeof(WarmTextureClarityParameters) == 32U);
+
 struct WarmTechnicalDetailStage final {
     EditExecutionPlan before;
     EditExecutionPlan after;
@@ -959,6 +1038,16 @@ struct WarmDehazeDefringeStage final {
     EditExecutionPlan after;
     std::vector<AdjustmentNode> post_nodes;
     WarmDehazeDefringeParameters parameters;
+};
+
+struct WarmTextureClarityStage final {
+    EditExecutionPlan before;
+    EditExecutionPlan after;
+    std::vector<AdjustmentNode> post_nodes;
+    WarmGaussianParameters texture_gaussian;
+    WarmGaussianParameters clarity_small_gaussian;
+    WarmGaussianParameters clarity_large_gaussian;
+    WarmTextureClarityParameters parameters;
 };
 
 [[nodiscard]] bool is_gpu_warm_technical_detail_supported(
@@ -1318,6 +1407,115 @@ struct WarmDehazeDefringeStage final {
         level_zero_to_raster_scale_x,
         level_zero_to_raster_scale_y
     );
+    for (const auto& post_segment : post_plan.segments) {
+        EditExecutionSegment retained{
+            .locality = post_segment.locality,
+            .first_node_index = post_segment.first_node_index,
+            .past_last_node_index = post_segment.past_last_node_index,
+        };
+        for (const auto& post_step : post_segment.steps) {
+            if (post_step.node_index > step.node_index) {
+                retained.steps.push_back(post_step);
+            }
+        }
+        if (!retained.steps.empty()) {
+            retained.first_node_index = retained.steps.front().node_index;
+            retained.past_last_node_index = retained.steps.back().node_index + 1U;
+            result.after.segments.push_back(std::move(retained));
+        }
+    }
+    return result;
+}
+
+[[nodiscard]] std::optional<WarmTextureClarityStage> prepare_warm_texture_clarity_stage(
+    const std::span<const AdjustmentNode> nodes,
+    const EditExecutionPlan& plan,
+    const Dimensions dimensions,
+    const double scale_x,
+    const double scale_y
+) {
+    std::optional<std::size_t> neighbourhood_segment;
+    for (std::size_t index = 0U; index < plan.segments.size(); ++index) {
+        if (plan.segments[index].locality == AdjustmentLocality::neighborhood) {
+            if (neighbourhood_segment.has_value()) {
+                return std::nullopt;
+            }
+            neighbourhood_segment = index;
+        }
+    }
+    if (!neighbourhood_segment.has_value()) {
+        return std::nullopt;
+    }
+    const auto& segment = plan.segments[*neighbourhood_segment];
+    if (segment.steps.size() != 1U) {
+        return std::nullopt;
+    }
+    const auto& step = segment.steps.front();
+    if (step.operation != AdjustmentOperation::sharpen || step.node_index >= nodes.size()) {
+        return std::nullopt;
+    }
+    const auto* detail = std::get_if<SharpenAdjustment>(&nodes[step.node_index].parameters);
+    if (detail == nullptr || detail->execution_pass != DetailEffectsExecutionPass::color_grading
+        || detail->texture == 0.0 || detail->clarity == 0.0) {
+        return std::nullopt;
+    }
+    for (std::size_t index = 0U; index < plan.segments.size(); ++index) {
+        if (index != *neighbourhood_segment
+            && plan.segments[index].locality != AdjustmentLocality::pixel_local) {
+            return std::nullopt;
+        }
+    }
+    const auto gaussian = [dimensions, scale_x, scale_y](const double sigma) {
+        const double sigma_x = sigma * scale_x;
+        const double sigma_y = sigma * scale_y;
+        return WarmGaussianParameters{
+            .width = dimensions.width,
+            .height = dimensions.height,
+            .horizontal_radius = static_cast<std::uint32_t>(std::ceil(3.0 * sigma_x)),
+            .vertical_radius = static_cast<std::uint32_t>(std::ceil(3.0 * sigma_y)),
+            .sigma_x = static_cast<float>(sigma_x),
+            .sigma_y = static_cast<float>(sigma_y),
+        };
+    };
+    const WarmGaussianParameters texture = gaussian(1.4);
+    const WarmGaussianParameters small = gaussian(2.4);
+    const WarmGaussianParameters large = gaussian(12.0);
+    if (texture.horizontal_radius > 15U || texture.vertical_radius > 15U
+        || small.horizontal_radius > 15U || small.vertical_radius > 15U
+        || large.horizontal_radius > 15U || large.vertical_radius > 15U) {
+        return std::nullopt;
+    }
+    WarmTextureClarityStage result{
+        .before = EditExecutionPlan{.source_node_count = plan.source_node_count},
+        .after = EditExecutionPlan{.source_node_count = plan.source_node_count},
+        .post_nodes = std::vector<AdjustmentNode>(nodes.begin(), nodes.end()),
+        .texture_gaussian = texture,
+        .clarity_small_gaussian = small,
+        .clarity_large_gaussian = large,
+        .parameters = WarmTextureClarityParameters{
+            .width = dimensions.width,
+            .height = dimensions.height,
+            .vertical_radius = large.vertical_radius,
+            .sigma_y = large.sigma_y,
+            .texture_amount = static_cast<float>(detail->texture),
+            .clarity_amount = static_cast<float>(detail->clarity),
+        },
+    };
+    auto& post_detail = std::get<SharpenAdjustment>(result.post_nodes[step.node_index].parameters);
+    post_detail.texture = 0.0;
+    post_detail.clarity = 0.0;
+    result.before.segments.insert(
+        result.before.segments.end(), plan.segments.begin(),
+        plan.segments.begin() + static_cast<std::ptrdiff_t>(*neighbourhood_segment)
+    );
+    result.after.segments.push_back(EditExecutionSegment{
+        .locality = AdjustmentLocality::pixel_local,
+        .first_node_index = step.node_index,
+        .past_last_node_index = step.node_index + 1U,
+        .steps = {EditExecutionStep{.node_index = step.node_index,
+                                    .operation = AdjustmentOperation::sharpen}},
+    });
+    const auto post_plan = compile_edit_execution_plan(result.post_nodes, scale_x, scale_y);
     for (const auto& post_segment : post_plan.segments) {
         EditExecutionSegment retained{
             .locality = post_segment.locality,
@@ -1727,15 +1925,32 @@ public:
             dehaze_defringe_pipeline_ = [device_
                 newComputePipelineStateWithFunction:dehaze_defringe_function error:&error];
             [dehaze_defringe_function release];
-            [library release];
             if (dehaze_defringe_pipeline_ == nil) {
+                [library release];
                 diagnostic_ = "Metal warm-preview dehaze-defringe pipeline creation failed: "
+                    + error_description(error);
+                return;
+            }
+            id<MTLFunction> texture_clarity_apply_function =
+                [library newFunctionWithName:@"warm_texture_clarity_apply_v1"];
+            if (texture_clarity_apply_function == nil) {
+                [library release];
+                diagnostic_ = "Metal warm-preview texture-clarity shader entry point is unavailable";
+                return;
+            }
+            texture_clarity_apply_pipeline_ = [device_
+                newComputePipelineStateWithFunction:texture_clarity_apply_function error:&error];
+            [texture_clarity_apply_function release];
+            [library release];
+            if (texture_clarity_apply_pipeline_ == nil) {
+                diagnostic_ = "Metal warm-preview texture-clarity pipeline creation failed: "
                     + error_description(error);
             }
         }
     }
 
     ~WarmMetalContext() {
+        [texture_clarity_apply_pipeline_ release];
         [dehaze_defringe_pipeline_ release];
         [clarity_apply_pipeline_ release];
         [scalar_vertical_pipeline_ release];
@@ -1762,7 +1977,7 @@ public:
             && sharpen_apply_pipeline_ != nil && texture_lightness_pipeline_ != nil
             && texture_horizontal_pipeline_ != nil && texture_apply_pipeline_ != nil
             && scalar_vertical_pipeline_ != nil && clarity_apply_pipeline_ != nil
-            && dehaze_defringe_pipeline_ != nil;
+            && dehaze_defringe_pipeline_ != nil && texture_clarity_apply_pipeline_ != nil;
     }
     [[nodiscard]] id<MTLDevice> device() const noexcept { return device_; }
     [[nodiscard]] id<MTLCommandQueue> queue() const noexcept { return queue_; }
@@ -1802,6 +2017,9 @@ public:
     [[nodiscard]] id<MTLComputePipelineState> dehaze_defringe_pipeline() const noexcept {
         return dehaze_defringe_pipeline_;
     }
+    [[nodiscard]] id<MTLComputePipelineState> texture_clarity_apply_pipeline() const noexcept {
+        return texture_clarity_apply_pipeline_;
+    }
     [[nodiscard]] const std::string& diagnostic() const noexcept {
         return diagnostic_;
     }
@@ -1821,6 +2039,7 @@ private:
     id<MTLComputePipelineState> scalar_vertical_pipeline_ = nil;
     id<MTLComputePipelineState> clarity_apply_pipeline_ = nil;
     id<MTLComputePipelineState> dehaze_defringe_pipeline_ = nil;
+    id<MTLComputePipelineState> texture_clarity_apply_pipeline_ = nil;
     std::string diagnostic_;
 };
 
@@ -1851,6 +2070,7 @@ struct WarmSlot final {
     id<MTLBuffer> sharpen_log_luminance = nil;
     id<MTLBuffer> sharpen_horizontal = nil;
     id<MTLBuffer> perceptual_small = nil;
+    id<MTLBuffer> perceptual_texture = nil;
     id<MTLBuffer> rgb8 = nil;
     id<MTLBuffer> before_operations = nil;
     id<MTLBuffer> after_operations = nil;
@@ -2016,6 +2236,7 @@ struct WarmEditGpuSession::Impl final {
             [slot.after_operations release];
             [slot.before_operations release];
             [slot.rgb8 release];
+            [slot.perceptual_texture release];
             [slot.perceptual_small release];
             [slot.sharpen_horizontal release];
             [slot.sharpen_log_luminance release];
@@ -2416,6 +2637,43 @@ struct WarmEditGpuSession::Impl final {
         stats.resident_bytes += static_cast<std::uint64_t>(scalar_bytes);
         return {};
     }
+
+    [[nodiscard]] std::string ensure_texture_clarity_resources(
+        const std::size_t index
+    ) {
+        const std::string detail_diagnostic = ensure_clarity_resources(index);
+        if (!detail_diagnostic.empty()) {
+            return detail_diagnostic;
+        }
+        std::lock_guard lock(mutex);
+        WarmSlot& slot = slots[index];
+        if (slot.perceptual_texture != nil) {
+            return {};
+        }
+        const std::size_t scalar_bytes = adjusted_bytes / 3U;
+        if (scalar_bytes > std::numeric_limits<std::size_t>::max()
+                - static_cast<std::size_t>(stats.resident_bytes)) {
+            return "warm-preview texture-clarity resource size overflowed";
+        }
+        const auto recommended = static_cast<std::size_t>(
+            metal_context().device().recommendedMaxWorkingSetSize
+        );
+        const std::size_t allowance = recommended / 2U;
+        if (recommended > 0U && (scalar_bytes > allowance
+                || static_cast<std::size_t>(stats.resident_bytes)
+                    > allowance - scalar_bytes)) {
+            return "warm-preview texture-clarity resources exceed half the recommended Metal working set";
+        }
+        id<MTLBuffer> texture = [metal_context().device()
+            newBufferWithLength:scalar_bytes options:MTLResourceStorageModeShared];
+        if (texture == nil) {
+            return "Metal could not allocate a resident warm-preview texture raster";
+        }
+        slot.perceptual_texture = texture;
+        ++stats.gpu_buffer_allocation_count;
+        stats.resident_bytes += static_cast<std::uint64_t>(scalar_bytes);
+        return {};
+    }
 };
 
 WarmEditGpuSession::WarmEditGpuSession(std::unique_ptr<Impl> impl)
@@ -2518,7 +2776,16 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
         impl_->level_zero_to_raster_scale_x,
         impl_->level_zero_to_raster_scale_y
     );
-    const auto texture_stage = technical_detail_stage.has_value()
+    const auto texture_clarity_stage = technical_detail_stage.has_value()
+        ? std::optional<WarmTextureClarityStage>{}
+        : prepare_warm_texture_clarity_stage(
+            nodes,
+            plan,
+            impl_->dimensions,
+            impl_->level_zero_to_raster_scale_x,
+            impl_->level_zero_to_raster_scale_y
+        );
+    const auto texture_stage = technical_detail_stage.has_value() || texture_clarity_stage.has_value()
         ? std::optional<WarmTextureStage>{}
         : prepare_warm_texture_stage(
             nodes,
@@ -2527,7 +2794,8 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
             impl_->level_zero_to_raster_scale_x,
             impl_->level_zero_to_raster_scale_y
         );
-    const auto clarity_stage = technical_detail_stage.has_value() || texture_stage.has_value()
+    const auto clarity_stage = technical_detail_stage.has_value() || texture_clarity_stage.has_value()
+            || texture_stage.has_value()
         ? std::optional<WarmClarityStage>{}
         : prepare_warm_clarity_stage(
             nodes,
@@ -2537,11 +2805,11 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
             impl_->level_zero_to_raster_scale_y
         );
     const auto dehaze_defringe_stage = technical_detail_stage.has_value()
-            || texture_stage.has_value() || clarity_stage.has_value()
+            || texture_clarity_stage.has_value() || texture_stage.has_value() || clarity_stage.has_value()
         ? std::optional<WarmDehazeDefringeStage>{}
         : prepare_warm_dehaze_defringe_stage(nodes, plan, impl_->working_space);
     const bool has_neighbourhood_stage = technical_detail_stage.has_value()
-        || texture_stage.has_value() || clarity_stage.has_value()
+        || texture_clarity_stage.has_value() || texture_stage.has_value() || clarity_stage.has_value()
         || dehaze_defringe_stage.has_value();
     PreparedMetalAdjustment before_program;
     std::optional<PreparedMetalAdjustment> final_program;
@@ -2564,6 +2832,25 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
                 .output = std::nullopt,
                 .diagnostic = std::move(preparation_diagnostic),
             };
+        }
+        before_program = std::move(*prepared_before);
+    } else if (texture_clarity_stage.has_value()) {
+        auto prepared_before = prepare_program(
+            nodes,
+            texture_clarity_stage->before,
+            source_row_floats,
+            packed_row_floats
+        );
+        final_program = prepare_program(
+            texture_clarity_stage->post_nodes,
+            texture_clarity_stage->after,
+            packed_row_floats,
+            packed_row_floats
+        );
+        if (!prepared_before.has_value() || !final_program.has_value()) {
+            return RenderAttempt{.status = RenderStatus::unavailable_or_failed,
+                                 .output = std::nullopt,
+                                 .diagnostic = std::move(preparation_diagnostic)};
         }
         before_program = std::move(*prepared_before);
     } else if (texture_stage.has_value()) {
@@ -2699,6 +2986,13 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
                 .output = std::nullopt,
                 .diagnostic = diagnostic,
             };
+        }
+    } else if (texture_clarity_stage.has_value()) {
+        const std::string diagnostic = impl_->ensure_texture_clarity_resources(slot_index);
+        if (!diagnostic.empty()) {
+            return RenderAttempt{.status = RenderStatus::unavailable_or_failed,
+                                 .output = std::nullopt,
+                                 .diagnostic = diagnostic};
         }
     } else if (texture_stage.has_value()) {
         const std::string diagnostic = impl_->ensure_sharpen_resources(slot_index);
@@ -2857,6 +3151,62 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
                 dispatch(context.sharpen_apply_pipeline());
                 neighbourhood_output = sharpened_output;
             }
+        } else if (texture_clarity_stage.has_value()) {
+            [encoder setComputePipelineState:context.adjustment_pipeline()];
+            bind_adjustment(impl_->source, slot.adjusted, slot.before_operations,
+                            before_program, *before_buffers);
+            dispatch(context.adjustment_pipeline());
+
+            const auto& texture = texture_clarity_stage->texture_gaussian;
+            const auto& small = texture_clarity_stage->clarity_small_gaussian;
+            const auto& large = texture_clarity_stage->clarity_large_gaussian;
+            const auto& combined = texture_clarity_stage->parameters;
+            [encoder setComputePipelineState:context.texture_lightness_pipeline()];
+            [encoder setBuffer:slot.adjusted offset:0U atIndex:0U];
+            [encoder setBuffer:slot.sharpen_log_luminance offset:0U atIndex:1U];
+            [encoder setBytes:&texture length:sizeof(texture) atIndex:2U];
+            [encoder setBytes:&final_program->invocation length:sizeof(final_program->invocation)
+                      atIndex:3U];
+            dispatch(context.texture_lightness_pipeline());
+
+            [encoder setComputePipelineState:context.texture_horizontal_pipeline()];
+            [encoder setBuffer:slot.sharpen_log_luminance offset:0U atIndex:0U];
+            [encoder setBuffer:slot.sharpen_horizontal offset:0U atIndex:1U];
+            [encoder setBytes:&texture length:sizeof(texture) atIndex:2U];
+            dispatch(context.texture_horizontal_pipeline());
+            [encoder setComputePipelineState:context.scalar_vertical_pipeline()];
+            [encoder setBuffer:slot.sharpen_horizontal offset:0U atIndex:0U];
+            [encoder setBuffer:slot.perceptual_texture offset:0U atIndex:1U];
+            [encoder setBytes:&texture length:sizeof(texture) atIndex:2U];
+            dispatch(context.scalar_vertical_pipeline());
+
+            [encoder setComputePipelineState:context.texture_horizontal_pipeline()];
+            [encoder setBuffer:slot.sharpen_log_luminance offset:0U atIndex:0U];
+            [encoder setBuffer:slot.sharpen_horizontal offset:0U atIndex:1U];
+            [encoder setBytes:&small length:sizeof(small) atIndex:2U];
+            dispatch(context.texture_horizontal_pipeline());
+            [encoder setComputePipelineState:context.scalar_vertical_pipeline()];
+            [encoder setBuffer:slot.sharpen_horizontal offset:0U atIndex:0U];
+            [encoder setBuffer:slot.perceptual_small offset:0U atIndex:1U];
+            [encoder setBytes:&small length:sizeof(small) atIndex:2U];
+            dispatch(context.scalar_vertical_pipeline());
+
+            [encoder setComputePipelineState:context.texture_horizontal_pipeline()];
+            [encoder setBuffer:slot.sharpen_log_luminance offset:0U atIndex:0U];
+            [encoder setBuffer:slot.sharpen_horizontal offset:0U atIndex:1U];
+            [encoder setBytes:&large length:sizeof(large) atIndex:2U];
+            dispatch(context.texture_horizontal_pipeline());
+            [encoder setComputePipelineState:context.texture_clarity_apply_pipeline()];
+            [encoder setBuffer:slot.adjusted offset:0U atIndex:0U];
+            [encoder setBuffer:slot.perceptual_texture offset:0U atIndex:1U];
+            [encoder setBuffer:slot.perceptual_small offset:0U atIndex:2U];
+            [encoder setBuffer:slot.sharpen_horizontal offset:0U atIndex:3U];
+            [encoder setBuffer:slot.denoised offset:0U atIndex:4U];
+            [encoder setBytes:&combined length:sizeof(combined) atIndex:5U];
+            [encoder setBytes:&final_program->invocation length:sizeof(final_program->invocation)
+                      atIndex:6U];
+            dispatch(context.texture_clarity_apply_pipeline());
+            neighbourhood_output = slot.denoised;
         } else if (texture_stage.has_value()) {
             [encoder setComputePipelineState:context.adjustment_pipeline()];
             bind_adjustment(
