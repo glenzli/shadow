@@ -1538,7 +1538,7 @@ std::string edit_preview_generator_implementation_identity() {
         )
         + ";warm-fused-metal-v"
         + std::to_string(edit_preview_warm_fused_metal_backend_version)
-        + "=resident-source,double-slot,immutable-curve-lut,adjustment+display"
+        + "=resident-source,double-slot,immutable-color-resources,adjustment+display"
         + ";display-contract=" + std::to_string(display_srgb8_output_transform_version)
         + ";jpeg-444=" + std::to_string(edit_preview_jpeg_444_contract_version);
 }

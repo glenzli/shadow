@@ -219,6 +219,108 @@ private:
     };
 }
 
+[[nodiscard]] image::PerceptualColorAdjustment perceptual_mapping_parameters() {
+    image::PerceptualColorAdjustment parameters;
+    parameters.vibrance = 0.38;
+    parameters.hue = {0.22, -0.16, 0.08, -0.12, 0.18, -0.20, 0.14, -0.09};
+    parameters.saturation = {0.15, -0.10, 0.07, 0.13, -0.08, 0.17, -0.12, 0.09};
+    parameters.lightness = {-0.08, 0.11, -0.06, 0.09, -0.10, 0.07, -0.05, 0.12};
+    return parameters;
+}
+
+[[nodiscard]] image::PerceptualColorAdjustment primary_point_parameters() {
+    image::PerceptualColorAdjustment parameters;
+    parameters.color_range = image::PerceptualColorRange{
+        .enabled = true,
+        .center_degrees = 28.0,
+        .width_degrees = 54.0,
+        .softness = 0.45,
+        .hue_shift_degrees = 17.0,
+        .saturation = 0.28,
+        .lightness = -0.16,
+    };
+    return parameters;
+}
+
+[[nodiscard]] image::PerceptualColorAdjustment ordered_point_parameters() {
+    image::PerceptualColorAdjustment parameters;
+    parameters.additional_color_ranges = {
+        image::PerceptualColorRange{
+            .enabled = true,
+            .center_degrees = 30.0,
+            .width_degrees = 75.0,
+            .softness = 0.35,
+            .hue_shift_degrees = 46.0,
+            .saturation = 0.21,
+            .lightness = -0.08,
+        },
+        image::PerceptualColorRange{
+            .enabled = true,
+            .center_degrees = 82.0,
+            .width_degrees = 62.0,
+            .softness = 0.55,
+            .hue_shift_degrees = -19.0,
+            .saturation = -0.17,
+            .lightness = 0.14,
+        },
+        image::PerceptualColorRange{
+            .enabled = true,
+            .center_degrees = 318.0,
+            .width_degrees = 48.0,
+            .softness = 0.30,
+            .hue_shift_degrees = 11.0,
+            .saturation = 0.09,
+            .lightness = 0.06,
+        },
+    };
+    return parameters;
+}
+
+[[nodiscard]] image::PerceptualColorAdjustment selective_color_parameters() {
+    image::PerceptualColorAdjustment parameters;
+    parameters.selective_color_relative = false;
+    parameters.selective_color_lightness_protection = 0.72;
+    parameters.selective_color_cmyk = {{
+        {{0.12, -0.18, 0.07, 0.05}},
+        {{-0.09, 0.14, 0.05, -0.04}},
+        {{0.08, -0.06, 0.16, 0.03}},
+        {{-0.11, 0.07, -0.13, 0.06}},
+        {{0.15, 0.04, -0.08, -0.03}},
+        {{-0.05, 0.17, 0.09, 0.04}},
+        {{0.03, -0.02, 0.04, 0.08}},
+        {{-0.04, 0.05, -0.03, 0.06}},
+        {{0.02, -0.01, 0.03, -0.12}},
+    }};
+    return parameters;
+}
+
+[[nodiscard]] image::PerceptualColorAdjustment combined_perceptual_parameters() {
+    auto parameters = perceptual_mapping_parameters();
+    parameters.color_range = primary_point_parameters().color_range;
+    parameters.additional_color_ranges =
+        ordered_point_parameters().additional_color_ranges;
+    const auto selective = selective_color_parameters();
+    parameters.selective_color_relative = selective.selective_color_relative;
+    parameters.selective_color_lightness_protection =
+        selective.selective_color_lightness_protection;
+    parameters.selective_color_cmyk = selective.selective_color_cmyk;
+    return parameters;
+}
+
+[[nodiscard]] image::AdjustmentNode perceptual_node(
+    std::string id,
+    image::PerceptualColorAdjustment parameters
+) {
+    return image::AdjustmentNode{
+        .node_id = std::move(id),
+        .parameter_schema_version =
+            image::perceptual_color_v3_parameter_schema_version,
+        .implementation_version =
+            image::perceptual_color_v3_implementation_version,
+        .parameters = std::move(parameters),
+    };
+}
+
 [[nodiscard]] bool close_to_cpu(
     const image::FloatRgbImage& actual,
     const image::FloatRgbImage& expected,
@@ -247,6 +349,26 @@ private:
         }
     }
     return true;
+}
+
+[[nodiscard]] std::uint8_t maximum_rgb8_difference(
+    const std::span<const std::uint8_t> actual,
+    const std::span<const std::uint8_t> expected
+) {
+    if (actual.size() != expected.size()) {
+        return std::numeric_limits<std::uint8_t>::max();
+    }
+    std::uint8_t maximum = 0U;
+    for (std::size_t index = 0U; index < actual.size(); ++index) {
+        maximum = std::max(
+            maximum,
+            static_cast<std::uint8_t>(std::abs(
+                static_cast<int>(actual[index])
+                - static_cast<int>(expected[index])
+            ))
+        );
+    }
+    return maximum;
 }
 
 void neutral_and_disabled_plans_have_no_backend_route() {
@@ -291,10 +413,14 @@ void unsupported_operations_are_whole_stage_fallbacks() {
         image::AdjustmentNode{
             .node_id = "unsupported-middle",
             .parameter_schema_version =
-                image::perceptual_color_v3_parameter_schema_version,
+                image::detail_effects_v3_parameter_schema_version,
             .implementation_version =
-                image::perceptual_color_v3_implementation_version,
-            .parameters = image::PerceptualColorAdjustment{.vibrance = 0.35},
+                image::finishing_effects_v3_implementation_version,
+            .parameters = image::SharpenAdjustment{
+                .execution_pass =
+                    image::DetailEffectsExecutionPass::finishing_effects,
+                .grain_amount = 0.35,
+            },
         },
         image::AdjustmentNode{
             .node_id = "gpu-suffix",
@@ -491,6 +617,64 @@ void fp32_unsafe_curve_and_lut_domains_fall_back_before_dispatch() {
             "fp32-collapsed curve knots report a typed backend failure"
         );
     }
+
+    const auto expect_perceptual_fallback = [&input](
+        image::PerceptualColorAdjustment parameters,
+        const std::string_view expected_diagnostic,
+        const std::string_view description
+    ) {
+        const std::array nodes{
+            perceptual_node(std::string(description), std::move(parameters)),
+        };
+        const auto cpu = image::execute_adjustment_nodes(input, nodes);
+        const auto automatic = image::execute_adjustment_nodes_with_backend(
+            input,
+            nodes,
+            {},
+            image::AdjustmentBackendMode::automatic
+        );
+        expect(
+            automatic.backend == image::AdjustmentBackend::cpu
+                && automatic.fell_back
+                && automatic.diagnostic.find(expected_diagnostic)
+                    != std::string::npos
+                && automatic.pixels.samples == cpu.samples,
+            description
+        );
+        try {
+            static_cast<void>(image::execute_adjustment_nodes_with_backend(
+                input,
+                nodes,
+                {},
+                image::AdjustmentBackendMode::metal
+            ));
+            expect(false, "forced Metal rejects fp32-collapsed perceptual controls");
+        } catch (const image::EditError& error) {
+            expect(
+                error.code() == image::EditErrorCode::backend_failure,
+                "fp32-collapsed perceptual controls report a typed backend failure"
+            );
+        }
+    };
+
+    auto collapsed_point_range = primary_point_parameters();
+    collapsed_point_range.color_range.softness =
+        std::numeric_limits<double>::denorm_min();
+    expect_perceptual_fallback(
+        std::move(collapsed_point_range),
+        "Point Color",
+        "a nonzero Point Color parameter that collapses to zero in fp32 replays on CPU"
+    );
+
+    auto collapsed_selective_color = selective_color_parameters();
+    collapsed_selective_color.selective_color_cmyk = {};
+    collapsed_selective_color.selective_color_cmyk[0][0] =
+        std::numeric_limits<double>::denorm_min();
+    expect_perceptual_fallback(
+        std::move(collapsed_selective_color),
+        "Selective Color table",
+        "a nonzero Selective Color amount that collapses to zero in fp32 replays on CPU"
+    );
 }
 
 void malformed_disabled_nodes_fail_before_backend_selection() {
@@ -758,6 +942,130 @@ void advanced_pixel_local_operations_match_the_cpu_oracle() {
               << worst_error << '\n';
 }
 
+void perceptual_color_matches_cpu_and_display_oracles_on_metal() {
+    if (!image::adjustment_backend_available(image::AdjustmentBackend::metal)) {
+        return;
+    }
+    const auto input = make_image(43U, 29U, true);
+    double worst_linear_error = 0.0;
+    std::uint8_t worst_display_error = 0U;
+    const auto verify = [&input, &worst_linear_error, &worst_display_error](
+        const std::span<const image::AdjustmentNode> nodes,
+        const std::string_view description
+    ) {
+        const auto cpu = image::execute_adjustment_nodes_with_backend(
+            input,
+            nodes,
+            {.full_dimensions = input.dimensions},
+            image::AdjustmentBackendMode::cpu
+        );
+        const auto metal = image::execute_adjustment_nodes_with_backend(
+            input,
+            nodes,
+            {.full_dimensions = input.dimensions},
+            image::AdjustmentBackendMode::metal
+        );
+        double linear_error = 0.0;
+        const bool linear_parity = close_to_cpu(
+            metal.pixels,
+            cpu.pixels,
+            linear_error,
+            2.0e-4
+        );
+        const auto cpu_display =
+            image::render_linear_srgb_to_display_srgb8_cpu_reference(
+                cpu.pixels,
+                {.target_dimensions = input.dimensions}
+            );
+        const auto metal_display =
+            image::render_linear_srgb_to_display_srgb8_cpu_reference(
+                metal.pixels,
+                {.target_dimensions = input.dimensions}
+            );
+        const std::uint8_t display_error = maximum_rgb8_difference(
+            metal_display.bytes,
+            cpu_display.bytes
+        );
+        if (!linear_parity || display_error > 1U) {
+            std::cerr << "Perceptual Metal parity " << description
+                      << ": linear max=" << linear_error
+                      << ", display max=" << static_cast<unsigned int>(display_error)
+                      << '\n';
+        }
+        expect(
+            metal.backend == image::AdjustmentBackend::metal
+                && !metal.fell_back && linear_parity,
+            description
+        );
+        expect(
+            display_error <= 1U,
+            "PerceptualColor Metal output remains within one display RGB8 code"
+        );
+        worst_linear_error = std::max(worst_linear_error, linear_error);
+        worst_display_error = std::max(worst_display_error, display_error);
+        return cpu.pixels;
+    };
+
+    const std::array isolated{
+        perceptual_node("perceptual-mixer", perceptual_mapping_parameters()),
+        perceptual_node("primary-point-color", primary_point_parameters()),
+        perceptual_node("ordered-point-color", ordered_point_parameters()),
+        perceptual_node("selective-color", selective_color_parameters()),
+        perceptual_node("combined-perceptual-color", combined_perceptual_parameters()),
+    };
+    for (std::size_t index = 0U; index < isolated.size(); ++index) {
+        verify(
+            {isolated.data() + index, 1U},
+            "an isolated PerceptualColor sub-stage matches the CPU oracle on forced Metal"
+        );
+    }
+
+    const auto advanced = advanced_nodes();
+    const std::array combined{
+        image::AdjustmentNode{
+            .node_id = "pre-perceptual-exposure",
+            .parameters = image::ExposureAdjustment{.stops = 0.42},
+        },
+        perceptual_node(
+            "combined-perceptual-between-nodes",
+            combined_perceptual_parameters()
+        ),
+        advanced[0],
+        advanced[2],
+    };
+    verify(
+        combined,
+        "PerceptualColor preserves declared order with exposure, Oklab curve, and LUT"
+    );
+
+    const image::AdjustmentNode exposure{
+        .node_id = "order-exposure",
+        .parameters = image::ExposureAdjustment{.stops = 0.85},
+    };
+    const auto perceptual = perceptual_node(
+        "order-perceptual",
+        combined_perceptual_parameters()
+    );
+    const std::array exposure_then_perceptual{exposure, perceptual};
+    const std::array perceptual_then_exposure{perceptual, exposure};
+    const auto first_cpu = verify(
+        exposure_then_perceptual,
+        "exposure followed by PerceptualColor matches CPU on forced Metal"
+    );
+    const auto second_cpu = verify(
+        perceptual_then_exposure,
+        "PerceptualColor followed by exposure matches CPU on forced Metal"
+    );
+    expect(
+        first_cpu.samples != second_cpu.samples,
+        "PerceptualColor and neighboring pixel-local nodes retain observable source order"
+    );
+
+    std::cout << "Metal PerceptualColor maximum absolute error: "
+              << worst_linear_error << "; display RGB8 max="
+              << static_cast<unsigned int>(worst_display_error) << '\n';
+}
+
 void every_core_order_matches_the_cpu_oracle() {
     if (!image::adjustment_backend_available(image::AdjustmentBackend::metal)) {
         return;
@@ -1014,6 +1322,7 @@ int main() {
     malformed_disabled_nodes_fail_before_backend_selection();
     backend_availability_and_resource_failure_are_explicit();
     advanced_pixel_local_operations_match_the_cpu_oracle();
+    perceptual_color_matches_cpu_and_display_oracles_on_metal();
     every_core_order_matches_the_cpu_oracle();
     randomized_and_endpoint_parameters_match_the_cpu_oracle();
     repeated_nodes_and_concurrent_renders_are_deterministic();

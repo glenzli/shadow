@@ -506,14 +506,15 @@ inline constexpr std::string_view edit_preview_analysis_version =
 // the immutable session or generic EncodedProxy payload.
 inline constexpr std::uint32_t edit_preview_execution_receipt_schema_version = 1U;
 inline constexpr std::uint32_t edit_preview_cpu_adjustment_backend_version = 1U;
-inline constexpr std::uint32_t edit_preview_metal_adjustment_backend_version = 2U;
+inline constexpr std::uint32_t edit_preview_metal_adjustment_backend_version = 3U;
 inline constexpr std::uint32_t edit_preview_cpu_display_backend_version = 1U;
 inline constexpr std::uint32_t edit_preview_metal_display_backend_version = 1U;
 // The session-resident backend fuses adjustment and display in one Metal kernel. It has a
 // distinct receipt version because it keeps the immutable source on-device and uses fp32-safe
-// fused execution rather than the earlier host-separated adjustment/display stages. Version 3
-// adds immutable curve/LUT side tables and the corresponding pixel-local operations.
-inline constexpr std::uint32_t edit_preview_warm_fused_metal_backend_version = 3U;
+// fused execution rather than the earlier host-separated adjustment/display stages. Version 4
+// adds resident perceptual mixer/range and Selective Color tables to the immutable curve/LUT
+// resources used by the pixel-local interpreter.
+inline constexpr std::uint32_t edit_preview_warm_fused_metal_backend_version = 4U;
 inline constexpr std::uint32_t edit_preview_jpeg_444_contract_version = 1U;
 
 enum class EditPreviewBackend : std::uint8_t {
@@ -587,6 +588,9 @@ struct WarmEditPreviewGpuStats final {
     std::uint64_t peak_concurrent_renders = 0U;
     std::uint64_t curve_resource_upload_count = 0U;
     std::uint64_t lut_resource_upload_count = 0U;
+    std::uint64_t perceptual_mixer_resource_upload_count = 0U;
+    std::uint64_t perceptual_range_resource_upload_count = 0U;
+    std::uint64_t selective_color_resource_upload_count = 0U;
     std::uint64_t resource_cache_hit_count = 0U;
     std::uint64_t resident_bytes = 0U;
 

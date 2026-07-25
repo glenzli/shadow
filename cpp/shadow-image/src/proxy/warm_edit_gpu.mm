@@ -34,6 +34,9 @@ inline constexpr std::size_t warm_slot_count = 2U;
 inline constexpr std::size_t maximum_warm_adjustment_operations = 256U;
 inline constexpr std::size_t maximum_resident_curve_tables = 16U;
 inline constexpr std::size_t maximum_resident_lut_tables = 4U;
+inline constexpr std::size_t maximum_resident_perceptual_mixer_tables = 16U;
+inline constexpr std::size_t maximum_resident_perceptual_range_tables = 16U;
+inline constexpr std::size_t maximum_resident_selective_color_tables = 16U;
 
 constexpr std::string_view warm_kernel_source = R"METAL(
 struct WarmDisplayParameters {
@@ -161,7 +164,7 @@ inline uchar encode_srgb8(float linear_sample, float dither) {
     return uchar(clamp(floor(encoded * 255.0f + dither + 0.5f), 0.0f, 255.0f));
 }
 
-kernel void render_warm_preview_v3(
+kernel void render_warm_preview_v4(
     device const float* source [[buffer(0)]],
     device float* adjusted [[buffer(1)]],
     device uchar* display_rgb8 [[buffer(2)]],
@@ -171,6 +174,9 @@ kernel void render_warm_preview_v3(
     device MetalAdjustmentStatus& status [[buffer(6)]],
     device const MetalCurveSegment* curve_segments [[buffer(7)]],
     device const float4* lut_entries [[buffer(8)]],
+    device const float4* perceptual_mixer_entries [[buffer(9)]],
+    device const MetalPerceptualRange* perceptual_range_entries [[buffer(10)]],
+    device const float4* selective_color_entries [[buffer(11)]],
     uint2 position [[thread_position_in_grid]]
 ) {
     if (position.x >= invocation.width || position.y >= invocation.height) {
@@ -194,6 +200,9 @@ kernel void render_warm_preview_v3(
             operations,
             curve_segments,
             lut_entries,
+            perceptual_mixer_entries,
+            perceptual_range_entries,
+            selective_color_entries,
             invocation,
             status
         )) {
@@ -312,7 +321,7 @@ public:
                 return;
             }
             id<MTLFunction> function =
-                [library newFunctionWithName:@"render_warm_preview_v3"];
+                [library newFunctionWithName:@"render_warm_preview_v4"];
             [library release];
             if (function == nil) {
                 diagnostic_ = "Metal warm-preview shader entry point is unavailable";
@@ -511,6 +520,9 @@ struct WarmEditGpuSession::Impl final {
     std::size_t operation_buffer_bytes = 0U;
     std::vector<ResidentSideTable> curve_tables;
     std::vector<ResidentSideTable> lut_tables;
+    std::vector<ResidentSideTable> perceptual_mixer_tables;
+    std::vector<ResidentSideTable> perceptual_range_tables;
+    std::vector<ResidentSideTable> selective_color_tables;
     std::uint64_t side_table_use_sequence = 0U;
 
     mutable std::mutex mutex;
@@ -538,6 +550,9 @@ struct WarmEditGpuSession::Impl final {
         static_assert(
             std::is_same_v<Element, MetalCurveSegment>
                 || std::is_same_v<Element, MetalLutEntry>
+                || std::is_same_v<Element, MetalPerceptualMixerEntry>
+                || std::is_same_v<Element, MetalPerceptualRange>
+                || std::is_same_v<Element, MetalSelectiveColorEntry>
         );
         if (cancellation.stop_requested()) {
             return SideBufferAttempt{.cancelled = true};
@@ -554,14 +569,37 @@ struct WarmEditGpuSession::Impl final {
         auto& cache = [&]() -> std::vector<ResidentSideTable>& {
             if constexpr (std::is_same_v<Element, MetalCurveSegment>) {
                 return curve_tables;
-            } else {
+            } else if constexpr (std::is_same_v<Element, MetalLutEntry>) {
                 return lut_tables;
+            } else if constexpr (
+                std::is_same_v<Element, MetalPerceptualMixerEntry>
+            ) {
+                return perceptual_mixer_tables;
+            } else if constexpr (
+                std::is_same_v<Element, MetalPerceptualRange>
+            ) {
+                return perceptual_range_tables;
+            } else {
+                return selective_color_tables;
             }
         }();
-        constexpr std::size_t capacity =
-            std::is_same_v<Element, MetalCurveSegment>
-                ? maximum_resident_curve_tables
-                : maximum_resident_lut_tables;
+        constexpr std::size_t capacity = [] {
+            if constexpr (std::is_same_v<Element, MetalCurveSegment>) {
+                return maximum_resident_curve_tables;
+            } else if constexpr (std::is_same_v<Element, MetalLutEntry>) {
+                return maximum_resident_lut_tables;
+            } else if constexpr (
+                std::is_same_v<Element, MetalPerceptualMixerEntry>
+            ) {
+                return maximum_resident_perceptual_mixer_tables;
+            } else if constexpr (
+                std::is_same_v<Element, MetalPerceptualRange>
+            ) {
+                return maximum_resident_perceptual_range_tables;
+            } else {
+                return maximum_resident_selective_color_tables;
+            }
+        }();
 
         std::lock_guard lock(mutex);
         if (cancellation.stop_requested()) {
@@ -569,8 +607,8 @@ struct WarmEditGpuSession::Impl final {
         }
         ++side_table_use_sequence;
         for (auto& entry : cache) {
-            // The byte comparison is authoritative. No hash-only identity can alias two curves
-            // or LUTs into the same resident resource.
+            // The byte comparison is authoritative. No hash-only identity can alias two
+            // immutable color-resource tables into the same resident buffer.
             if (entry.matches(content_hash, bytes)) {
                 entry.last_use = side_table_use_sequence;
                 ++stats.resource_cache_hit_count;
@@ -625,8 +663,16 @@ struct WarmEditGpuSession::Impl final {
         stats.resident_bytes += static_cast<std::uint64_t>(bytes.size());
         if constexpr (std::is_same_v<Element, MetalCurveSegment>) {
             ++stats.curve_resource_upload_count;
-        } else {
+        } else if constexpr (std::is_same_v<Element, MetalLutEntry>) {
             ++stats.lut_resource_upload_count;
+        } else if constexpr (
+            std::is_same_v<Element, MetalPerceptualMixerEntry>
+        ) {
+            ++stats.perceptual_mixer_resource_upload_count;
+        } else if constexpr (std::is_same_v<Element, MetalPerceptualRange>) {
+            ++stats.perceptual_range_resource_upload_count;
+        } else {
+            ++stats.selective_color_resource_upload_count;
         }
         return SideBufferAttempt{
             // Cache owns uploaded's original +1; the returned retain protects an in-flight
@@ -799,6 +845,48 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
                 : std::move(lut_buffer_attempt.diagnostic),
         };
     }
+    auto perceptual_mixer_buffer_attempt =
+        impl_->acquire_side_buffer(program.perceptual_mixer_entries, cancellation);
+    if (perceptual_mixer_buffer_attempt.cancelled) {
+        return cancelled();
+    }
+    if (!perceptual_mixer_buffer_attempt.buffer) {
+        return RenderAttempt{
+            .status = RenderStatus::unavailable_or_failed,
+            .output = std::nullopt,
+            .diagnostic = perceptual_mixer_buffer_attempt.diagnostic.empty()
+                ? "session-resident Metal warm preview has no perceptual mixer table"
+                : std::move(perceptual_mixer_buffer_attempt.diagnostic),
+        };
+    }
+    auto perceptual_range_buffer_attempt =
+        impl_->acquire_side_buffer(program.perceptual_range_entries, cancellation);
+    if (perceptual_range_buffer_attempt.cancelled) {
+        return cancelled();
+    }
+    if (!perceptual_range_buffer_attempt.buffer) {
+        return RenderAttempt{
+            .status = RenderStatus::unavailable_or_failed,
+            .output = std::nullopt,
+            .diagnostic = perceptual_range_buffer_attempt.diagnostic.empty()
+                ? "session-resident Metal warm preview has no perceptual range table"
+                : std::move(perceptual_range_buffer_attempt.diagnostic),
+        };
+    }
+    auto selective_color_buffer_attempt =
+        impl_->acquire_side_buffer(program.selective_color_entries, cancellation);
+    if (selective_color_buffer_attempt.cancelled) {
+        return cancelled();
+    }
+    if (!selective_color_buffer_attempt.buffer) {
+        return RenderAttempt{
+            .status = RenderStatus::unavailable_or_failed,
+            .output = std::nullopt,
+            .diagnostic = selective_color_buffer_attempt.diagnostic.empty()
+                ? "session-resident Metal warm preview has no Selective Color table"
+                : std::move(selective_color_buffer_attempt.diagnostic),
+        };
+    }
     if (cancellation.stop_requested()) {
         return cancelled();
     }
@@ -859,6 +947,15 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
         [encoder setBuffer:slot.status offset:0U atIndex:6U];
         [encoder setBuffer:curve_buffer_attempt.buffer.get() offset:0U atIndex:7U];
         [encoder setBuffer:lut_buffer_attempt.buffer.get() offset:0U atIndex:8U];
+        [encoder setBuffer:perceptual_mixer_buffer_attempt.buffer.get()
+                    offset:0U
+                   atIndex:9U];
+        [encoder setBuffer:perceptual_range_buffer_attempt.buffer.get()
+                    offset:0U
+                   atIndex:10U];
+        [encoder setBuffer:selective_color_buffer_attempt.buffer.get()
+                    offset:0U
+                   atIndex:11U];
 
         const NSUInteger thread_width = std::min<NSUInteger>(
             32U,
@@ -1102,6 +1199,15 @@ WarmEditGpuPreparation prepare_warm_edit_gpu_session(const FloatRgbImage& source
     impl->operation_buffer_bytes = operation_buffer_bytes;
     impl->curve_tables.reserve(maximum_resident_curve_tables);
     impl->lut_tables.reserve(maximum_resident_lut_tables);
+    impl->perceptual_mixer_tables.reserve(
+        maximum_resident_perceptual_mixer_tables
+    );
+    impl->perceptual_range_tables.reserve(
+        maximum_resident_perceptual_range_tables
+    );
+    impl->selective_color_tables.reserve(
+        maximum_resident_selective_color_tables
+    );
     impl->stats = WarmEditPreviewGpuStats{
         .resident = true,
         .source_upload_count = 1U,

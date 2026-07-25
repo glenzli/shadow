@@ -12,7 +12,7 @@ inline constexpr std::string_view metal_adjustment_msl_common = R"METAL(
 #include <metal_stdlib>
 using namespace metal;
 
-constant uint parameter_abi_version = 2u;
+constant uint parameter_abi_version = 3u;
 constant uint plan_identity_version = 1u;
 constant uint opcode_white_balance = 1u;
 constant uint opcode_exposure = 2u;
@@ -21,10 +21,21 @@ constant uint opcode_saturation = 4u;
 constant uint opcode_oklab_lightness_curve = 5u;
 constant uint opcode_color_grading = 6u;
 constant uint opcode_lut_3d = 7u;
+constant uint opcode_perceptual_mapping = 8u;
+constant uint opcode_selective_color = 9u;
 constant uint status_non_finite = 1u;
 constant uint status_bad_abi = 2u;
 constant uint status_bad_opcode = 4u;
 constant uint status_bad_resource = 8u;
+constant float adjustment_pi = 3.14159265358979323846f;
+constant float selective_color_hue_anchors[6] = {
+    29.23388536933038f,
+    109.76923279602303f,
+    142.49533925535556f,
+    194.76894786887132f,
+    264.05202307198110f,
+    328.36341829329797f,
+};
 
 struct MetalAdjustmentInvocation {
     uint abi_version;
@@ -36,9 +47,9 @@ struct MetalAdjustmentInvocation {
     uint step_count;
     uint curve_segment_count;
     uint lut_entry_count;
-    uint reserved_0;
-    uint reserved_1;
-    uint reserved_2;
+    uint perceptual_mixer_entry_count;
+    uint perceptual_range_entry_count;
+    uint selective_color_entry_count;
     float4 rgb_to_xyz_row_0;
     float4 rgb_to_xyz_row_1;
     float4 rgb_to_xyz_row_2;
@@ -53,6 +64,10 @@ struct MetalAdjustmentOp {
     uint source_node_index;
     uint resource_offset;
     uint resource_count;
+    uint secondary_resource_offset;
+    uint secondary_resource_count;
+    uint reserved_0;
+    uint reserved_1;
     float4 parameter_0;
     float4 parameter_1;
     float4 parameter_2;
@@ -62,6 +77,11 @@ struct MetalCurveSegment {
     // x, y, derivative, padding.
     float4 left;
     float4 right;
+};
+
+struct MetalPerceptualRange {
+    float4 selection;
+    float4 adjustment;
 };
 
 struct MetalAdjustmentStatus {
@@ -318,11 +338,265 @@ inline float3 sample_lut_3d(
     return convex_lerp(c0, c1, fraction.z);
 }
 
+inline float wrap_degrees(float degrees) {
+    const float wrapped = fmod(degrees, 360.0f);
+    return wrapped < 0.0f ? wrapped + 360.0f : wrapped;
+}
+
+inline float signed_hue_distance(float hue, float center) {
+    const float delta = hue - center;
+    // rint() preserves std::remainder's nearest-integer quotient at the circular seam.
+    return delta - 360.0f * rint(delta / 360.0f);
+}
+
+inline float perceptual_range_weight(float4 selection, float hue) {
+    if (selection.x == 0.0f) {
+        return 0.0f;
+    }
+    const float distance = abs(signed_hue_distance(hue, selection.y));
+    const float feather = selection.z * selection.w;
+    if (feather == 0.0f) {
+        return distance <= selection.z ? 1.0f : 0.0f;
+    }
+    const float fully_selected = selection.z - feather;
+    return 1.0f - adjustment_smoothstep(fully_selected, selection.z, distance);
+}
+
+inline bool apply_ordered_perceptual_range(
+    thread float3& lab,
+    float4 selection,
+    float4 adjustment
+) {
+    if (selection.x == 0.0f) {
+        return false;
+    }
+    const float chroma = length(lab.yz);
+    const float relative_chroma = chroma / max(1.0e-6f, abs(lab.x));
+    const float confidence = adjustment_smoothstep(0.002f, 0.02f, relative_chroma);
+    if (confidence == 0.0f) {
+        return false;
+    }
+    const float hue =
+        wrap_degrees(atan2(lab.z, lab.y) * (180.0f / adjustment_pi));
+    const float weight = confidence * perceptual_range_weight(selection, hue);
+    if (weight == 0.0f) {
+        return false;
+    }
+    const float adjusted_hue =
+        (hue + weight * adjustment.x) * (adjustment_pi / 180.0f);
+    const float adjusted_chroma = chroma * (1.0f + weight * adjustment.y);
+    lab.x += 0.15f * weight * adjustment.z;
+    lab.y = adjusted_chroma * cos(adjusted_hue);
+    lab.z = adjusted_chroma * sin(adjusted_hue);
+    return adjustment.x != 0.0f || adjustment.y != 0.0f
+        || adjustment.z != 0.0f;
+}
+
+inline float3 apply_perceptual_mapping(
+    float3 rgb,
+    const MetalAdjustmentOp operation,
+    device const float4* mixer_entries,
+    device const MetalPerceptualRange* range_entries,
+    constant MetalAdjustmentInvocation& invocation
+) {
+    float3 lab = working_rgb_to_oklab(rgb, invocation);
+    const float chroma = length(lab.yz);
+    const float relative_chroma = chroma / max(1.0e-6f, abs(lab.x));
+    if (!(relative_chroma > 1.0e-7f)) {
+        return rgb;
+    }
+
+    const float source_hue =
+        wrap_degrees(atan2(lab.z, lab.y) * (180.0f / adjustment_pi));
+    uint right = 0u;
+    bool found_right = false;
+    for (uint index = 0u; index < operation.resource_count; ++index) {
+        const float anchor =
+            mixer_entries[operation.resource_offset + index].x;
+        if (!found_right && source_hue < anchor) {
+            right = index;
+            found_right = true;
+        }
+    }
+    const uint left = right == 0u ? operation.resource_count - 1u : right - 1u;
+    const float4 left_entry =
+        mixer_entries[operation.resource_offset + left];
+    const float4 right_entry =
+        mixer_entries[operation.resource_offset + right];
+    const float left_hue = left_entry.x;
+    const float right_hue = right == 0u
+        ? right_entry.x + 360.0f
+        : right_entry.x;
+    const float unwrapped_hue = right == 0u && source_hue < left_hue
+        ? source_hue + 360.0f
+        : source_hue;
+    const float position = clamp(
+        (unwrapped_hue - left_hue) / (right_hue - left_hue),
+        0.0f,
+        1.0f
+    );
+    const float right_weight =
+        0.5f * (1.0f - cos(adjustment_pi * position));
+    const float4 mixed =
+        left_entry * (1.0f - right_weight) + right_entry * right_weight;
+
+    const float hue_confidence =
+        adjustment_smoothstep(0.002f, 0.02f, relative_chroma);
+    const float band_hue = hue_confidence * mixed.y;
+    const float band_saturation = hue_confidence * mixed.z;
+    const float band_lightness = hue_confidence * mixed.w;
+    const float4 primary_selection = float4(
+        operation.parameter_0.y,
+        operation.parameter_0.z,
+        operation.parameter_0.w,
+        operation.parameter_1.x
+    );
+    const float4 primary_adjustment = float4(
+        operation.parameter_1.y,
+        operation.parameter_1.z,
+        operation.parameter_1.w,
+        0.0f
+    );
+    const float primary_weight =
+        hue_confidence * perceptual_range_weight(primary_selection, source_hue);
+    const float vibrance_weight =
+        1.0f - adjustment_smoothstep(0.05f, 0.35f, relative_chroma);
+    const float chroma_factor =
+        (1.0f + operation.parameter_0.x * vibrance_weight)
+        * (1.0f + band_saturation)
+        * (1.0f + primary_weight * primary_adjustment.y);
+    const float hue_delta = band_hue
+        + primary_weight * primary_adjustment.x;
+    const float lightness_delta = 0.15f
+        * (band_lightness + primary_weight * primary_adjustment.z);
+    bool changed = chroma_factor != 1.0f || hue_delta != 0.0f
+        || lightness_delta != 0.0f;
+    if (changed) {
+        const float adjusted_hue =
+            (source_hue + hue_delta) * (adjustment_pi / 180.0f);
+        const float adjusted_chroma = chroma * chroma_factor;
+        lab.x += lightness_delta;
+        lab.y = adjusted_chroma * cos(adjusted_hue);
+        lab.z = adjusted_chroma * sin(adjusted_hue);
+    }
+
+    for (uint index = 0u; index < operation.secondary_resource_count; ++index) {
+        const MetalPerceptualRange entry =
+            range_entries[operation.secondary_resource_offset + index];
+        changed = apply_ordered_perceptual_range(
+            lab,
+            entry.selection,
+            entry.adjustment
+        ) || changed;
+    }
+    return changed ? oklab_to_working_rgb(lab, invocation) : rgb;
+}
+
+inline float3 apply_selective_color(
+    float3 rgb,
+    const MetalAdjustmentOp operation,
+    device const float4* selective_color_entries,
+    constant MetalAdjustmentInvocation& invocation
+) {
+    const float3 source_lab = working_rgb_to_oklab(rgb, invocation);
+    const float lightness = clamp(source_lab.x, 0.0f, 1.0f);
+    const float chroma = length(source_lab.yz);
+    const float relative_chroma =
+        chroma / max(1.0e-6f, abs(source_lab.x));
+    const float chromatic =
+        adjustment_smoothstep(0.002f, 0.08f, relative_chroma);
+
+    float4 adjustment = float4(0.0f);
+    if (chromatic > 0.0f) {
+        const float hue =
+            wrap_degrees(
+                atan2(source_lab.z, source_lab.y) * (180.0f / adjustment_pi)
+            );
+        uint right = 0u;
+        bool found_right = false;
+        for (uint index = 0u; index < 6u; ++index) {
+            if (!found_right && hue < selective_color_hue_anchors[index]) {
+                right = index;
+                found_right = true;
+            }
+        }
+        const uint left = right == 0u ? 5u : right - 1u;
+        const float left_hue = selective_color_hue_anchors[left];
+        const float right_hue =
+            right == 0u
+                ? selective_color_hue_anchors[0] + 360.0f
+                : selective_color_hue_anchors[right];
+        const float unwrapped_hue =
+            right == 0u && hue < left_hue ? hue + 360.0f : hue;
+        const float position = clamp(
+            (unwrapped_hue - left_hue) / (right_hue - left_hue),
+            0.0f,
+            1.0f
+        );
+        const float right_weight =
+            0.5f * (1.0f - cos(adjustment_pi * position));
+        adjustment += chromatic
+            * ((1.0f - right_weight)
+                   * selective_color_entries[operation.resource_offset + left]
+               + right_weight
+                   * selective_color_entries[operation.resource_offset + right]);
+    }
+    const float neutral = 1.0f - chromatic;
+    const float white_weight =
+        neutral * adjustment_smoothstep(0.62f, 0.94f, lightness);
+    const float black_weight =
+        neutral * (1.0f - adjustment_smoothstep(0.06f, 0.38f, lightness));
+    const float neutral_weight =
+        max(0.0f, neutral - white_weight - black_weight);
+    adjustment +=
+        white_weight * selective_color_entries[operation.resource_offset + 6u]
+        + neutral_weight * selective_color_entries[operation.resource_offset + 7u]
+        + black_weight * selective_color_entries[operation.resource_offset + 8u];
+    if (all(adjustment == float4(0.0f))) {
+        return rgb;
+    }
+
+    const float peak = max(1.0f, max(rgb.x, max(rgb.y, rgb.z)));
+    const float3 normalized = clamp(rgb / peak, 0.0f, 1.0f);
+    const float key = 1.0f - max(normalized.x, max(normalized.y, normalized.z));
+    const float chromatic_denominator = 1.0f - key;
+    float4 cmyk = float4(
+        chromatic_denominator > 1.0e-9f
+            ? (1.0f - normalized.x - key) / chromatic_denominator
+            : 0.0f,
+        chromatic_denominator > 1.0e-9f
+            ? (1.0f - normalized.y - key) / chromatic_denominator
+            : 0.0f,
+        chromatic_denominator > 1.0e-9f
+            ? (1.0f - normalized.z - key) / chromatic_denominator
+            : 0.0f,
+        key
+    );
+    const bool relative = operation.parameter_0.x != 0.0f;
+    cmyk = clamp(
+        cmyk + (relative ? cmyk * adjustment : adjustment),
+        0.0f,
+        1.0f
+    );
+    const float ink_scale = 1.0f - cmyk.w;
+    float3 output = peak * (1.0f - cmyk.xyz) * ink_scale;
+    const float protection = operation.parameter_0.y;
+    if (protection > 0.0f) {
+        float3 corrected_lab = working_rgb_to_oklab(output, invocation);
+        corrected_lab.x = mix(corrected_lab.x, source_lab.x, protection);
+        output = oklab_to_working_rgb(corrected_lab, invocation);
+    }
+    return output;
+}
+
 inline bool execute_adjustment_program(
     thread float3& rgb,
     device const MetalAdjustmentOp* operations,
     device const MetalCurveSegment* curve_segments,
     device const float4* lut_entries,
+    device const float4* mixer_entries,
+    device const MetalPerceptualRange* range_entries,
+    device const float4* selective_color_entries,
     constant MetalAdjustmentInvocation& invocation,
     device MetalAdjustmentStatus& status
 ) {
@@ -417,6 +691,48 @@ inline bool execute_adjustment_program(
             rgb = convex_lerp(rgb, sampled, operation.parameter_0.x);
             break;
         }
+        case opcode_perceptual_mapping:
+            if (operation.resource_count != 8u
+                || !resource_range_is_valid(
+                    operation.resource_offset,
+                    operation.resource_count,
+                    invocation.perceptual_mixer_entry_count
+                )
+                || operation.secondary_resource_count > 15u
+                || (operation.secondary_resource_count > 0u
+                    && !resource_range_is_valid(
+                        operation.secondary_resource_offset,
+                        operation.secondary_resource_count,
+                        invocation.perceptual_range_entry_count
+                    ))) {
+                report_adjustment_failure(status, status_bad_resource, step);
+                return false;
+            }
+            rgb = apply_perceptual_mapping(
+                rgb,
+                operation,
+                mixer_entries,
+                range_entries,
+                invocation
+            );
+            break;
+        case opcode_selective_color:
+            if (operation.resource_count != 9u
+                || !resource_range_is_valid(
+                    operation.resource_offset,
+                    operation.resource_count,
+                    invocation.selective_color_entry_count
+                )) {
+                report_adjustment_failure(status, status_bad_resource, step);
+                return false;
+            }
+            rgb = apply_selective_color(
+                rgb,
+                operation,
+                selective_color_entries,
+                invocation
+            );
+            break;
         default:
             report_adjustment_failure(status, status_bad_opcode, step);
             return false;

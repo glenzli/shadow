@@ -1478,6 +1478,9 @@ MetalAdjustmentPreparation prepare_metal_adjustment(
     std::size_t step_count = 0U;
     std::size_t curve_segment_count = 0U;
     std::size_t lut_entry_count = 0U;
+    std::size_t perceptual_mixer_entry_count = 0U;
+    std::size_t perceptual_range_entry_count = 0U;
+    std::size_t selective_color_entry_count = 0U;
     const auto checked_resource_add = [](std::size_t& total, const std::size_t addition) {
         constexpr std::size_t maximum =
             static_cast<std::size_t>(std::numeric_limits<std::uint32_t>::max());
@@ -1494,13 +1497,6 @@ MetalAdjustmentPreparation prepare_metal_adjustment(
                 .diagnostic = "Metal adjustment cannot prepare a neighborhood segment",
             };
         }
-        if (segment.steps.size() > std::numeric_limits<std::size_t>::max() - step_count) {
-            return MetalAdjustmentPreparation{
-                .program = std::nullopt,
-                .diagnostic = "Metal adjustment operation count overflowed",
-            };
-        }
-        step_count += segment.steps.size();
         for (const auto& step : segment.steps) {
             if (step.node_index >= nodes.size()) {
                 return MetalAdjustmentPreparation{
@@ -1516,6 +1512,7 @@ MetalAdjustmentPreparation prepare_metal_adjustment(
                         "Metal adjustment plan operation no longer matches its source node",
                 };
             }
+            std::size_t emitted_operation_count = 1U;
             if (step.operation == AdjustmentOperation::oklab_lightness_tone_curve) {
                 const auto& parameters =
                     std::get<OklabLightnessToneCurve>(node.parameters);
@@ -1541,15 +1538,62 @@ MetalAdjustmentPreparation prepare_metal_adjustment(
                         .diagnostic = "Metal LUT entry table exceeds its uint32 ABI",
                     };
                 }
+            } else if (step.operation == AdjustmentOperation::perceptual_color) {
+                const auto& parameters =
+                    std::get<PerceptualColorAdjustment>(node.parameters);
+                const bool mapping_is_neutral =
+                    perceptual_color_mapping_is_neutral(parameters);
+                const bool selective_is_neutral =
+                    selective_color_is_neutral(parameters);
+                emitted_operation_count =
+                    (mapping_is_neutral ? 0U : 1U)
+                    + (selective_is_neutral ? 0U : 1U);
+                if (emitted_operation_count == 0U) {
+                    return MetalAdjustmentPreparation{
+                        .program = std::nullopt,
+                        .diagnostic =
+                            "Metal perceptual-color plan contains no active sub-operation",
+                    };
+                }
+                if (!mapping_is_neutral
+                    && (!checked_resource_add(
+                            perceptual_mixer_entry_count,
+                            perceptual_hue_band_count
+                        )
+                        || !checked_resource_add(
+                            perceptual_range_entry_count,
+                            parameters.additional_color_ranges.size()
+                        ))) {
+                    return MetalAdjustmentPreparation{
+                        .program = std::nullopt,
+                        .diagnostic =
+                            "Metal perceptual-color resource tables exceed their uint32 ABI",
+                    };
+                }
+                if (!selective_is_neutral
+                    && !checked_resource_add(
+                        selective_color_entry_count,
+                        selective_color_target_count
+                    )) {
+                    return MetalAdjustmentPreparation{
+                        .program = std::nullopt,
+                        .diagnostic =
+                            "Metal Selective Color table exceeds its uint32 ABI",
+                    };
+                }
+            }
+            if (!checked_resource_add(step_count, emitted_operation_count)) {
+                return MetalAdjustmentPreparation{
+                    .program = std::nullopt,
+                    .diagnostic = "Metal adjustment operation count exceeds its uint32 ABI",
+                };
             }
         }
     }
-    if (step_count == 0U || step_count > std::numeric_limits<std::uint32_t>::max()) {
+    if (step_count == 0U) {
         return MetalAdjustmentPreparation{
             .program = std::nullopt,
-            .diagnostic = step_count == 0U
-                ? "Metal adjustment received no executable operations"
-                : "Metal adjustment operation count exceeds its uint32 ABI",
+            .diagnostic = "Metal adjustment received no executable operations",
         };
     }
     if (input.dimensions.width > std::numeric_limits<std::uint32_t>::max() / 3U) {
@@ -1568,9 +1612,18 @@ MetalAdjustmentPreparation prepare_metal_adjustment(
     prepared.invocation.curve_segment_count =
         static_cast<std::uint32_t>(curve_segment_count);
     prepared.invocation.lut_entry_count = static_cast<std::uint32_t>(lut_entry_count);
+    prepared.invocation.perceptual_mixer_entry_count =
+        static_cast<std::uint32_t>(perceptual_mixer_entry_count);
+    prepared.invocation.perceptual_range_entry_count =
+        static_cast<std::uint32_t>(perceptual_range_entry_count);
+    prepared.invocation.selective_color_entry_count =
+        static_cast<std::uint32_t>(selective_color_entry_count);
     prepared.operations.reserve(step_count);
     prepared.curve_segments.reserve(curve_segment_count);
     prepared.lut_entries.reserve(lut_entry_count);
+    prepared.perceptual_mixer_entries.reserve(perceptual_mixer_entry_count);
+    prepared.perceptual_range_entries.reserve(perceptual_range_entry_count);
+    prepared.selective_color_entries.reserve(selective_color_entry_count);
 
     const auto checked_parameter_float = [](const double value) -> std::optional<float> {
         if (!std::isfinite(value)
@@ -1580,6 +1633,28 @@ MetalAdjustmentPreparation prepare_metal_adjustment(
         }
         const float converted = static_cast<float>(value);
         return std::isfinite(converted) ? std::optional<float>{converted} : std::nullopt;
+    };
+    const auto checked_semantic_float =
+        [&checked_parameter_float](const double value) -> std::optional<float> {
+        const auto converted = checked_parameter_float(value);
+        if (!converted.has_value()) {
+            return std::nullopt;
+        }
+        if (value != 0.0
+            && (*converted == 0.0F
+                || std::abs(*converted) < std::numeric_limits<float>::min())) {
+            return std::nullopt;
+        }
+        // Perceptual controls are authored as bounded doubles but executed as fp32 on Metal.
+        // Reject a future parameter extension that would quantize beyond a small number of
+        // float ULPs rather than silently selecting another hue/range or CMYK amount.
+        const double tolerance =
+            16.0 * static_cast<double>(std::numeric_limits<float>::epsilon())
+            * std::max(1.0, std::abs(value));
+        if (std::abs(static_cast<double>(*converted) - value) > tolerance) {
+            return std::nullopt;
+        }
+        return converted;
     };
     const auto checked_normalized_interval = [&checked_parameter_float](
         const double source_minimum,
@@ -1637,6 +1712,19 @@ MetalAdjustmentPreparation prepare_metal_adjustment(
     ) {
         for (std::size_t component = 0U; component < source.size(); ++component) {
             const auto converted = checked_parameter_float(source[component]);
+            if (!converted.has_value()) {
+                return false;
+            }
+            destination[component] = *converted;
+        }
+        return true;
+    };
+    const auto fill_semantic_vector = [&checked_semantic_float](
+        const std::array<double, 4U>& source,
+        std::array<float, 4U>& destination
+    ) {
+        for (std::size_t component = 0U; component < source.size(); ++component) {
+            const auto converted = checked_semantic_float(source[component]);
             if (!converted.has_value()) {
                 return false;
             }
@@ -2010,8 +2098,209 @@ MetalAdjustmentPreparation prepare_metal_adjustment(
                 }
                 break;
             }
+            case AdjustmentOperation::perceptual_color: {
+                const auto& parameters =
+                    std::get<PerceptualColorAdjustment>(node.parameters);
+                const bool mapping_is_neutral =
+                    perceptual_color_mapping_is_neutral(parameters);
+                const bool selective_is_neutral =
+                    selective_color_is_neutral(parameters);
+                if (mapping_is_neutral && selective_is_neutral) {
+                    return MetalAdjustmentPreparation{
+                        .program = std::nullopt,
+                        .diagnostic =
+                            "Metal perceptual-color plan contains no active sub-operation",
+                    };
+                }
+
+                if (!mapping_is_neutral) {
+                    MetalAdjustmentOp mapping_record{
+                        .opcode = static_cast<std::uint32_t>(
+                            MetalAdjustmentOpcode::perceptual_mapping
+                        ),
+                        .source_node_index =
+                            static_cast<std::uint32_t>(step.node_index),
+                    };
+                    if (prepared.perceptual_mixer_entries.size()
+                            > std::numeric_limits<std::uint32_t>::max()
+                        || perceptual_hue_band_count
+                            > std::numeric_limits<std::uint32_t>::max()
+                                - prepared.perceptual_mixer_entries.size()
+                        || prepared.perceptual_range_entries.size()
+                            > std::numeric_limits<std::uint32_t>::max()
+                        || parameters.additional_color_ranges.size()
+                            > std::numeric_limits<std::uint32_t>::max()
+                                - prepared.perceptual_range_entries.size()) {
+                        return MetalAdjustmentPreparation{
+                            .program = std::nullopt,
+                            .diagnostic =
+                                "Metal perceptual-color resource range is inconsistent "
+                                "with its active plan",
+                        };
+                    }
+                    mapping_record.resource_offset = static_cast<std::uint32_t>(
+                        prepared.perceptual_mixer_entries.size()
+                    );
+                    mapping_record.resource_count =
+                        static_cast<std::uint32_t>(perceptual_hue_band_count);
+                    mapping_record.secondary_resource_offset =
+                        static_cast<std::uint32_t>(
+                            prepared.perceptual_range_entries.size()
+                        );
+                    mapping_record.secondary_resource_count =
+                        static_cast<std::uint32_t>(
+                            parameters.additional_color_ranges.size()
+                        );
+                    if (!fill_semantic_vector(
+                            {
+                                parameters.vibrance,
+                                parameters.color_range.enabled ? 1.0 : 0.0,
+                                parameters.color_range.center_degrees,
+                                parameters.color_range.width_degrees,
+                            },
+                            mapping_record.parameter_0
+                        )
+                        || !fill_semantic_vector(
+                            {
+                                parameters.color_range.softness,
+                                parameters.color_range.hue_shift_degrees,
+                                parameters.color_range.saturation,
+                                parameters.color_range.lightness,
+                            },
+                            mapping_record.parameter_1
+                        )) {
+                        return MetalAdjustmentPreparation{
+                            .program = std::nullopt,
+                            .diagnostic =
+                                "Metal primary Point Color parameters cannot preserve "
+                                "their fp32 semantics",
+                        };
+                    }
+                    for (std::size_t band = 0U;
+                         band < perceptual_hue_band_count;
+                         ++band) {
+                        MetalPerceptualMixerEntry entry;
+                        if (!fill_semantic_vector(
+                                {
+                                    perceptual_hue_anchors[band],
+                                    30.0 * parameters.hue[band],
+                                    parameters.saturation[band],
+                                    parameters.lightness[band],
+                                },
+                                entry.value
+                            )) {
+                            return MetalAdjustmentPreparation{
+                                .program = std::nullopt,
+                                .diagnostic =
+                                    "Metal perceptual mixer entries cannot preserve "
+                                    "their fp32 semantics",
+                            };
+                        }
+                        prepared.perceptual_mixer_entries.push_back(entry);
+                    }
+                    for (const auto& range : parameters.additional_color_ranges) {
+                        MetalPerceptualRange entry;
+                        if (!fill_semantic_vector(
+                                {
+                                    range.enabled ? 1.0 : 0.0,
+                                    range.center_degrees,
+                                    range.width_degrees,
+                                    range.softness,
+                                },
+                                entry.selection
+                            )
+                            || !fill_semantic_vector(
+                                {
+                                    range.hue_shift_degrees,
+                                    range.saturation,
+                                    range.lightness,
+                                    0.0,
+                                },
+                                entry.adjustment
+                            )) {
+                            return MetalAdjustmentPreparation{
+                                .program = std::nullopt,
+                                .diagnostic =
+                                    "Metal ordered Point Color range cannot preserve "
+                                    "its fp32 semantics",
+                            };
+                        }
+                        prepared.perceptual_range_entries.push_back(entry);
+                    }
+
+                    if (selective_is_neutral) {
+                        operation_record = mapping_record;
+                    } else {
+                        // CPU applies the mapping and Selective Color sub-stages in this exact
+                        // order inside one source node. Emit two adjacent transient operations
+                        // without changing the durable execution plan or Recipe schema.
+                        prepared.operations.push_back(mapping_record);
+                    }
+                }
+
+                if (!selective_is_neutral) {
+                    operation_record = MetalAdjustmentOp{
+                        .opcode = static_cast<std::uint32_t>(
+                            MetalAdjustmentOpcode::selective_color
+                        ),
+                        .source_node_index =
+                            static_cast<std::uint32_t>(step.node_index),
+                    };
+                    if (prepared.selective_color_entries.size()
+                            > std::numeric_limits<std::uint32_t>::max()
+                        || selective_color_target_count
+                            > std::numeric_limits<std::uint32_t>::max()
+                                - prepared.selective_color_entries.size()) {
+                        return MetalAdjustmentPreparation{
+                            .program = std::nullopt,
+                            .diagnostic =
+                                "Metal Selective Color resource range is inconsistent "
+                                "with its active plan",
+                        };
+                    }
+                    operation_record.resource_offset = static_cast<std::uint32_t>(
+                        prepared.selective_color_entries.size()
+                    );
+                    operation_record.resource_count =
+                        static_cast<std::uint32_t>(selective_color_target_count);
+                    if (!fill_semantic_vector(
+                            {
+                                parameters.selective_color_relative ? 1.0 : 0.0,
+                                parameters.selective_color_lightness_protection,
+                                0.0,
+                                0.0,
+                            },
+                            operation_record.parameter_0
+                        )) {
+                        return MetalAdjustmentPreparation{
+                            .program = std::nullopt,
+                            .diagnostic =
+                                "Metal Selective Color mode cannot preserve its fp32 semantics",
+                        };
+                    }
+                    for (const auto& target : parameters.selective_color_cmyk) {
+                        MetalSelectiveColorEntry entry;
+                        if (!fill_semantic_vector(target, entry.cmyk)) {
+                            return MetalAdjustmentPreparation{
+                                .program = std::nullopt,
+                                .diagnostic =
+                                    "Metal Selective Color table cannot preserve "
+                                    "its fp32 semantics",
+                            };
+                        }
+                        prepared.selective_color_entries.push_back(entry);
+                    }
+                }
+                if (!working_transform.has_value()) {
+                    working_transform = prepare_working_space_transform(
+                        input.working_space,
+                        node,
+                        step.node_index
+                    );
+                }
+                break;
+            }
             case AdjustmentOperation::selective_tone:
-            case AdjustmentOperation::perceptual_color:
                 return MetalAdjustmentPreparation{
                     .program = std::nullopt,
                     .diagnostic = "Metal adjustment received an unsupported operation",
@@ -2041,7 +2330,13 @@ MetalAdjustmentPreparation prepare_metal_adjustment(
     }
     if (prepared.operations.size() != step_count
         || prepared.curve_segments.size() != curve_segment_count
-        || prepared.lut_entries.size() != lut_entry_count) {
+        || prepared.lut_entries.size() != lut_entry_count
+        || prepared.perceptual_mixer_entries.size()
+            != perceptual_mixer_entry_count
+        || prepared.perceptual_range_entries.size()
+            != perceptual_range_entry_count
+        || prepared.selective_color_entries.size()
+            != selective_color_entry_count) {
         return MetalAdjustmentPreparation{
             .program = std::nullopt,
             .diagnostic = "Metal adjustment resource compilation produced inconsistent counts",

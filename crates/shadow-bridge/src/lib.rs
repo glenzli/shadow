@@ -1656,13 +1656,14 @@ pub const EDIT_PREVIEW_ANALYSIS_VERSION: &str = concat!(
 pub const EDIT_PREVIEW_EXECUTION_RECEIPT_SCHEMA_VERSION: u32 = 1;
 pub const EDIT_PREVIEW_EXECUTION_PLAN_CONTRACT_VERSION: u32 = 1;
 pub const EDIT_PREVIEW_CPU_ADJUSTMENT_BACKEND_VERSION: u32 = 1;
-pub const EDIT_PREVIEW_METAL_ADJUSTMENT_BACKEND_VERSION: u32 = 1;
+pub const EDIT_PREVIEW_METAL_ADJUSTMENT_BACKEND_VERSION: u32 = 3;
 pub const EDIT_PREVIEW_CPU_DISPLAY_BACKEND_VERSION: u32 = 1;
 pub const EDIT_PREVIEW_METAL_DISPLAY_BACKEND_VERSION: u32 = 1;
 /// Session-resident Metal path: one immutable source upload, double-buffered execution, and a
-/// fused adjustment/display kernel. Kept distinct from the earlier split Metal stages so cache
-/// receipts cannot alias different fp32 execution graphs.
-pub const EDIT_PREVIEW_WARM_FUSED_METAL_BACKEND_VERSION: u32 = 2;
+/// fused adjustment/display kernel with immutable perceptual mixer, Point Color, Selective
+/// Color, curve, and LUT resources. Kept distinct from the split Metal stages so cache receipts
+/// cannot alias different fp32 execution graphs.
+pub const EDIT_PREVIEW_WARM_FUSED_METAL_BACKEND_VERSION: u32 = 4;
 pub const DISPLAY_SRGB8_OUTPUT_CONTRACT_VERSION: u32 = 6;
 
 /// Hard width and height bound for one full-resolution detail tile.
@@ -5319,6 +5320,47 @@ mod tests {
     }
 
     #[test]
+    fn rust_edit_preview_backend_versions_match_the_native_generator_contract() {
+        let native_identity = edit_preview_generator_implementation_identity();
+        assert!(
+            native_identity.contains(&format!(
+                "adjustment-metal=shadow-adjustment-metal-v{};",
+                EDIT_PREVIEW_METAL_ADJUSTMENT_BACKEND_VERSION
+            )),
+            "Rust's split Metal receipt version must track the native adjustment identity: \
+             {native_identity}"
+        );
+        assert!(
+            native_identity.contains(&format!(
+                "warm-fused-metal-v{}=",
+                EDIT_PREVIEW_WARM_FUSED_METAL_BACKEND_VERSION
+            )),
+            "Rust's fused warm receipt version must track the native generator identity: \
+             {native_identity}"
+        );
+
+        let mut split_metal = valid_ffi_edit_preview_execution_receipt();
+        split_metal.cache_identity = format!(
+            "shadow-edit-preview-execution-v1;adjustment=metal-v{};\
+             plan=1;display=cpu-v1;display-contract=6",
+            EDIT_PREVIEW_METAL_ADJUSTMENT_BACKEND_VERSION
+        );
+        split_metal.adjustment_backend = ffi::FfiEditPreviewBackend::Metal;
+        split_metal.adjustment_backend_version = EDIT_PREVIEW_METAL_ADJUSTMENT_BACKEND_VERSION;
+        edit_preview_execution_receipt(split_metal)
+            .expect("the current native split Metal receipt is accepted");
+
+        let mut stale_split_metal = valid_ffi_edit_preview_execution_receipt();
+        stale_split_metal.adjustment_backend = ffi::FfiEditPreviewBackend::Metal;
+        stale_split_metal.adjustment_backend_version =
+            EDIT_PREVIEW_METAL_ADJUSTMENT_BACKEND_VERSION - 1;
+        assert!(matches!(
+            edit_preview_execution_receipt(stale_split_metal),
+            Err(BridgeError::InvalidEditPreviewOutput(_))
+        ));
+    }
+
+    #[test]
     fn edit_preview_analysis_validation_fails_closed() {
         let proxy_dimensions = ImageDimensions {
             width: 2,
@@ -5452,11 +5494,12 @@ mod tests {
         assert!(!validated.cache_identity.contains("/Users"));
 
         let mut fused = valid_ffi_edit_preview_execution_receipt();
-        fused.cache_identity = concat!(
-            "shadow-edit-preview-execution-v1;adjustment=metal-v2;",
-            "plan=1;display=metal-v2;display-contract=6"
-        )
-        .to_owned();
+        fused.cache_identity = format!(
+            "shadow-edit-preview-execution-v1;adjustment=metal-v{};\
+             plan=1;display=metal-v{};display-contract=6",
+            EDIT_PREVIEW_WARM_FUSED_METAL_BACKEND_VERSION,
+            EDIT_PREVIEW_WARM_FUSED_METAL_BACKEND_VERSION
+        );
         fused.adjustment_backend = ffi::FfiEditPreviewBackend::Metal;
         fused.adjustment_backend_version = EDIT_PREVIEW_WARM_FUSED_METAL_BACKEND_VERSION;
         fused.display_backend = ffi::FfiEditPreviewBackend::Metal;

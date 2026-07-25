@@ -25,7 +25,7 @@ namespace shadow::image::detail {
 namespace {
 
 constexpr std::string_view standalone_kernel_source = R"METAL(
-kernel void execute_adjustment_program_v2(
+kernel void execute_adjustment_program_v3(
     device const float* input [[buffer(0)]],
     device float* output [[buffer(1)]],
     device const MetalAdjustmentOp* operations [[buffer(2)]],
@@ -33,6 +33,9 @@ kernel void execute_adjustment_program_v2(
     device MetalAdjustmentStatus& status [[buffer(4)]],
     device const MetalCurveSegment* curve_segments [[buffer(5)]],
     device const float4* lut_entries [[buffer(6)]],
+    device const float4* perceptual_mixer_entries [[buffer(7)]],
+    device const MetalPerceptualRange* perceptual_range_entries [[buffer(8)]],
+    device const float4* selective_color_entries [[buffer(9)]],
     uint2 position [[thread_position_in_grid]]
 ) {
     if (position.x >= invocation.width || position.y >= invocation.height) {
@@ -57,6 +60,9 @@ kernel void execute_adjustment_program_v2(
             operations,
             curve_segments,
             lut_entries,
+            perceptual_mixer_entries,
+            perceptual_range_entries,
+            selective_color_entries,
             invocation,
             status
         )) {
@@ -149,7 +155,7 @@ public:
             }
             OwnedObjectiveCObject function(
                 [static_cast<id<MTLLibrary>>(library.get())
-                    newFunctionWithName:@"execute_adjustment_program_v2"]
+                    newFunctionWithName:@"execute_adjustment_program_v3"]
             );
             if (!function) {
                 diagnostic_ = "Metal adjustment shader entry point is unavailable";
@@ -273,6 +279,12 @@ MetalAdjustmentAttempt try_execute_adjustments_metal(
         || program.invocation.step_count != program.operations.size()
         || program.invocation.curve_segment_count != program.curve_segments.size()
         || program.invocation.lut_entry_count != program.lut_entries.size()
+        || program.invocation.perceptual_mixer_entry_count
+            != program.perceptual_mixer_entries.size()
+        || program.invocation.perceptual_range_entry_count
+            != program.perceptual_range_entries.size()
+        || program.invocation.selective_color_entry_count
+            != program.selective_color_entries.size()
         || program.operations.empty()) {
         return MetalAdjustmentAttempt{
             .output = std::nullopt,
@@ -284,6 +296,9 @@ MetalAdjustmentAttempt try_execute_adjustments_metal(
     std::size_t operation_bytes = 0U;
     std::size_t curve_bytes = 0U;
     std::size_t lut_bytes = 0U;
+    std::size_t perceptual_mixer_bytes = 0U;
+    std::size_t perceptual_range_bytes = 0U;
+    std::size_t selective_color_bytes = 0U;
     if (!checked_multiply(
             static_cast<std::size_t>(input.dimensions.width),
             3U * sizeof(float),
@@ -304,6 +319,21 @@ MetalAdjustmentAttempt try_execute_adjustments_metal(
             sizeof(MetalLutEntry),
             lut_bytes
         )
+        || !checked_multiply(
+            program.perceptual_mixer_entries.size(),
+            sizeof(MetalPerceptualMixerEntry),
+            perceptual_mixer_bytes
+        )
+        || !checked_multiply(
+            program.perceptual_range_entries.size(),
+            sizeof(MetalPerceptualRange),
+            perceptual_range_bytes
+        )
+        || !checked_multiply(
+            program.selective_color_entries.size(),
+            sizeof(MetalSelectiveColorEntry),
+            selective_color_bytes
+        )
         || row_bytes == 0U || operation_bytes == 0U) {
         return MetalAdjustmentAttempt{
             .output = std::nullopt,
@@ -317,6 +347,9 @@ MetalAdjustmentAttempt try_execute_adjustments_metal(
         || operation_bytes > maximum_buffer_bytes
         || curve_bytes > maximum_buffer_bytes
         || lut_bytes > maximum_buffer_bytes
+        || perceptual_mixer_bytes > maximum_buffer_bytes
+        || perceptual_range_bytes > maximum_buffer_bytes
+        || selective_color_bytes > maximum_buffer_bytes
         || sizeof(MetalAdjustmentStatus) > maximum_buffer_bytes) {
         return MetalAdjustmentAttempt{
             .output = std::nullopt,
@@ -394,6 +427,9 @@ MetalAdjustmentAttempt try_execute_adjustments_metal(
         );
         const MetalCurveSegment empty_curve{};
         const MetalLutEntry empty_lut{};
+        const MetalPerceptualMixerEntry empty_perceptual_mixer{};
+        const MetalPerceptualRange empty_perceptual_range{};
+        const MetalSelectiveColorEntry empty_selective_color{};
         OwnedObjectiveCObject curve_buffer(
             [context.device()
                 newBufferWithBytes:program.curve_segments.empty()
@@ -412,8 +448,45 @@ MetalAdjustmentAttempt try_execute_adjustments_metal(
                 length:program.lut_entries.empty() ? sizeof(empty_lut) : lut_bytes
                 options:MTLResourceStorageModeShared]
         );
+        OwnedObjectiveCObject perceptual_mixer_buffer(
+            [context.device()
+                newBufferWithBytes:program.perceptual_mixer_entries.empty()
+                    ? static_cast<const void*>(&empty_perceptual_mixer)
+                    : static_cast<const void*>(
+                        program.perceptual_mixer_entries.data()
+                    )
+                length:program.perceptual_mixer_entries.empty()
+                    ? sizeof(empty_perceptual_mixer)
+                    : perceptual_mixer_bytes
+                options:MTLResourceStorageModeShared]
+        );
+        OwnedObjectiveCObject perceptual_range_buffer(
+            [context.device()
+                newBufferWithBytes:program.perceptual_range_entries.empty()
+                    ? static_cast<const void*>(&empty_perceptual_range)
+                    : static_cast<const void*>(
+                        program.perceptual_range_entries.data()
+                    )
+                length:program.perceptual_range_entries.empty()
+                    ? sizeof(empty_perceptual_range)
+                    : perceptual_range_bytes
+                options:MTLResourceStorageModeShared]
+        );
+        OwnedObjectiveCObject selective_color_buffer(
+            [context.device()
+                newBufferWithBytes:program.selective_color_entries.empty()
+                    ? static_cast<const void*>(&empty_selective_color)
+                    : static_cast<const void*>(
+                        program.selective_color_entries.data()
+                    )
+                length:program.selective_color_entries.empty()
+                    ? sizeof(empty_selective_color)
+                    : selective_color_bytes
+                options:MTLResourceStorageModeShared]
+        );
         if (!input_buffer || !output_buffer || !operations_buffer || !status_buffer
-            || !curve_buffer || !lut_buffer) {
+            || !curve_buffer || !lut_buffer || !perceptual_mixer_buffer
+            || !perceptual_range_buffer || !selective_color_buffer) {
             return MetalAdjustmentAttempt{
                 .output = std::nullopt,
                 .diagnostic = "Metal could not allocate bounded adjustment buffers",
@@ -499,6 +572,18 @@ MetalAdjustmentAttempt try_execute_adjustments_metal(
             [encoder setBuffer:static_cast<id<MTLBuffer>>(lut_buffer.get())
                         offset:0U
                        atIndex:6U];
+            [encoder setBuffer:
+                        static_cast<id<MTLBuffer>>(perceptual_mixer_buffer.get())
+                        offset:0U
+                       atIndex:7U];
+            [encoder setBuffer:
+                        static_cast<id<MTLBuffer>>(perceptual_range_buffer.get())
+                        offset:0U
+                       atIndex:8U];
+            [encoder setBuffer:
+                        static_cast<id<MTLBuffer>>(selective_color_buffer.get())
+                        offset:0U
+                       atIndex:9U];
             [encoder dispatchThreads:MTLSizeMake(
                     input.dimensions.width,
                     current_rows,

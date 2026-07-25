@@ -36,6 +36,7 @@ inline constexpr std::string_view image_acceleration_environment =
             case AdjustmentOperation::contrast:
             case AdjustmentOperation::saturation:
             case AdjustmentOperation::oklab_lightness_tone_curve:
+            case AdjustmentOperation::perceptual_color:
             case AdjustmentOperation::lut_3d:
                 break;
             case AdjustmentOperation::sharpen: {
@@ -52,7 +53,6 @@ inline constexpr std::string_view image_acceleration_environment =
                 break;
             }
             case AdjustmentOperation::selective_tone:
-            case AdjustmentOperation::perceptual_color:
                 return "Metal adjustment does not support active operation "
                     + std::string(operation_id(step.operation));
             }
@@ -99,8 +99,9 @@ std::string_view adjustment_backend_identity(const AdjustmentBackend backend) no
     case AdjustmentBackend::cpu:
         return "shadow-adjustment-cpu-v1;math=f64";
     case AdjustmentBackend::metal:
-        return "shadow-adjustment-metal-v2;abi=2;math=f32-safe;"
-            "ops=wb,exposure,contrast,saturation,curve,grading,lut";
+        return "shadow-adjustment-metal-v3;abi=3;math=f32-safe;"
+            "ops=wb,exposure,contrast,saturation,perceptual,selective-color,"
+            "curve,grading,lut";
     }
     return "shadow-adjustment-unknown";
 }
