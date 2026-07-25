@@ -243,6 +243,8 @@ using Matrix3 = std::array<double, 9U>;
         + std::string(raw_development_backend_identity(backend));
     receipt.development_settings_signature += ";raw-denoise="
         + std::string(raw_bayer_denoise_mode_identity(raw_denoise.mode));
+    receipt.development_settings_signature += ";raw-denoise-backend="
+        + std::string(raw_bayer_denoise_backend_identity(raw_denoise.backend));
     if (raw_denoise.used_sensor_noise_calibration) {
         receipt.development_settings_signature += ";raw-denoise-calibration=provider";
     }

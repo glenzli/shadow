@@ -1,5 +1,6 @@
 #include <shadow/image/raw_denoise.hpp>
 
+#include "metal_raw_development.hpp"
 #include "../concurrency/row_scheduler.hpp"
 
 #include <algorithm>
@@ -202,14 +203,28 @@ const char* raw_bayer_denoise_mode_identity(const RawBayerDenoiseMode mode) noex
     return "unknown";
 }
 
+const char* raw_bayer_denoise_backend_identity(const RawBayerDenoiseBackend backend) noexcept {
+    switch (backend) {
+    case RawBayerDenoiseBackend::cpu:
+        return "cpu";
+    case RawBayerDenoiseBackend::metal:
+        return "metal";
+    }
+    return "unknown";
+}
+
 bool RawBayerDenoiseReceipt::valid() const noexcept {
     if (schema_version != raw_bayer_denoise_receipt_schema_version) {
+        return false;
+    }
+    if (backend != RawBayerDenoiseBackend::cpu && backend != RawBayerDenoiseBackend::metal) {
         return false;
     }
     switch (mode) {
     case RawBayerDenoiseMode::skipped:
         return effective_intent == RawNoiseReductionIntent::disabled
-            && !used_sensor_noise_calibration;
+            && !used_sensor_noise_calibration
+            && backend == RawBayerDenoiseBackend::cpu;
     case RawBayerDenoiseMode::cfa_bilateral_conservative_v1:
         return effective_intent == RawNoiseReductionIntent::conservative;
     case RawBayerDenoiseMode::cfa_bilateral_noise_robust_v1:
@@ -247,13 +262,47 @@ RawBayerDenoiseResult denoise_bayer_raw_frame(
         };
     }
 
+    // Raw denoise is a large, regular same-CFA stencil and is therefore a good Metal candidate.
+    // The execution choice shares the existing developer setting: automatic tries Metal then
+    // falls back transparently, CPU disables it, and a forced Metal request fails closed rather
+    // than silently claiming an acceleration that did not happen.
+    const double iso = resolved_iso(frame, request);
+    const RawDevelopmentBackendMode backend_mode = raw_development_backend_mode_from_environment();
+    if (backend_mode != RawDevelopmentBackendMode::cpu) {
+        auto metal_attempt = detail::try_denoise_bayer_raw_frame_metal(
+            frame,
+            mode,
+            iso
+        );
+        if (metal_attempt.applied) {
+            return RawBayerDenoiseResult{
+                .frame = std::move(frame),
+                .receipt = RawBayerDenoiseReceipt{
+                    .schema_version = receipt.schema_version,
+                    .requested_intent = receipt.requested_intent,
+                    .effective_intent = receipt.effective_intent,
+                    .mode = receipt.mode,
+                    .backend = RawBayerDenoiseBackend::metal,
+                    .used_sensor_noise_calibration = receipt.used_sensor_noise_calibration,
+                },
+            };
+        }
+        if (backend_mode == RawDevelopmentBackendMode::metal) {
+            throw DecodeError(
+                DecodeErrorCode::internal,
+                0,
+                metal_attempt.diagnostic.empty()
+                    ? "Metal RAW denoise is unavailable" : std::move(metal_attempt.diagnostic)
+            );
+        }
+    }
+
     const std::vector<std::uint16_t> source = frame.samples;
     const auto& descriptor = frame.descriptor;
     const std::uint32_t left = descriptor.active_margins.left;
     const std::uint32_t top = descriptor.active_margins.top;
     const std::uint32_t right = left + descriptor.active_dimensions.width;
     const std::uint32_t bottom = top + descriptor.active_dimensions.height;
-    const double iso = resolved_iso(frame, request);
     const std::uint32_t width = descriptor.storage_dimensions.width;
     detail::parallel_for_rows(
         bottom - top,

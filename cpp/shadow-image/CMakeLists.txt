@@ -323,6 +323,13 @@ if(BUILD_TESTING)
         set_tests_properties(
             shadow-image-raw-pipeline-contract
             PROPERTIES
+                ENVIRONMENT
+                    "SHADOW_IMAGE_ACCELERATION=metal;SHADOW_TEST_REQUIRE_METAL=1"
+                LABELS "metal-required"
+        )
+        set_tests_properties(
+            shadow-image-raw-pipeline-contract
+            PROPERTIES
                 ENVIRONMENT "SHADOW_IMAGE_ACCELERATION=metal"
                 LABELS "metal-required"
         )

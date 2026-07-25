@@ -161,6 +161,105 @@ inline ushort quantize_linear(float value) {
     return ushort(scaled);
 }
 
+// Keep this stencil in the sensor domain: every neighbour is two samples away in both axes, so
+// red, green and blue measurements can never be averaged together before demosaic. Its arithmetic
+// mirrors raw_denoise.cpp; this implementation difference is intentionally only the executor.
+struct RawDenoiseParameters {
+    uint storage_width;
+    uint storage_height;
+    uint active_left;
+    uint active_top;
+    uint active_right;
+    uint active_bottom;
+    uint mode;
+    uint uses_calibrated_sensor_noise;
+    float iso_sensitivity;
+    float black_levels[4];
+    float white_levels[4];
+    float read_noise_stddev_dn[4];
+    float shot_noise_variance_per_dn[4];
+};
+
+inline float raw_noise_stddev(
+    const ushort sample,
+    const uint site,
+    constant RawDenoiseParameters& parameters
+) {
+    if (parameters.uses_calibrated_sensor_noise != 0u) {
+        const float signal = max(0.0f, float(sample) - parameters.black_levels[site]);
+        return sqrt(
+            parameters.read_noise_stddev_dn[site] * parameters.read_noise_stddev_dn[site]
+            + parameters.shot_noise_variance_per_dn[site] * signal
+        );
+    }
+    const float normalized_iso = parameters.iso_sensitivity > 0.0f
+        ? parameters.iso_sensitivity : 100.0f;
+    const float iso_multiplier = sqrt(normalized_iso / 100.0f);
+    const float range = parameters.white_levels[site] - parameters.black_levels[site];
+    return max(1.0f, range * (0.0015f + 0.00035f * iso_multiplier));
+}
+
+kernel void denoise_bayer_same_cfa(
+    device const ushort* source [[buffer(0)]],
+    device ushort* destination [[buffer(1)]],
+    constant RawDenoiseParameters& parameters [[buffer(2)]],
+    uint2 position [[thread_position_in_grid]]
+) {
+    if (position.x >= parameters.storage_width || position.y >= parameters.storage_height
+        || position.x < parameters.active_left || position.x >= parameters.active_right
+        || position.y < parameters.active_top || position.y >= parameters.active_bottom) {
+        return;
+    }
+
+    const uint site = cfa_site(position.x, position.y);
+    const uint source_index = position.y * parameters.storage_width + position.x;
+    const ushort center = source[source_index];
+    const float sigma = raw_noise_stddev(center, site, parameters);
+    const int radius = parameters.mode == 2u ? 2 : 1;
+    const float range_scale = parameters.mode == 2u ? 3.0f : 2.25f;
+    const float blend = parameters.mode == 2u ? 0.90f : 0.62f;
+    const float range = max(1.0f, sigma * range_scale);
+    const float inverse_range_squared = 1.0f / (range * range);
+    float weighted_total = 0.0f;
+    float total_weight = 0.0f;
+
+    for (int offset_y = -radius; offset_y <= radius; ++offset_y) {
+        const int candidate_y = int(position.y) + offset_y * 2;
+        if (candidate_y < int(parameters.active_top)
+            || candidate_y >= int(parameters.active_bottom)) {
+            continue;
+        }
+        for (int offset_x = -radius; offset_x <= radius; ++offset_x) {
+            if (parameters.mode == 1u && abs(offset_x) + abs(offset_y) > 1) {
+                continue;
+            }
+            const int candidate_x = int(position.x) + offset_x * 2;
+            if (candidate_x < int(parameters.active_left)
+                || candidate_x >= int(parameters.active_right)) {
+                continue;
+            }
+            const ushort candidate = source[
+                uint(candidate_y) * parameters.storage_width + uint(candidate_x)
+            ];
+            const float delta = float(candidate) - float(center);
+            const float spatial = 1.0f / float(
+                1 + offset_x * offset_x + offset_y * offset_y
+            );
+            const float range_weight = 1.0f / (1.0f + delta * delta * inverse_range_squared);
+            const float weight = spatial * range_weight;
+            weighted_total += float(candidate) * weight;
+            total_weight += weight;
+        }
+    }
+    if (total_weight <= 0.0f || !isfinite(total_weight)) {
+        destination[source_index] = center;
+        return;
+    }
+    const float filtered = weighted_total / total_weight;
+    const float blended = float(center) + (filtered - float(center)) * blend;
+    destination[source_index] = ushort(clamp(floor(blended + 0.5f), 0.0f, 65535.0f));
+}
+
 kernel void develop_bayer_full(
     device const ushort* samples [[buffer(0)]],
     device ushort* output [[buffer(1)]],
@@ -249,6 +348,31 @@ static_assert(offsetof(RawDevelopmentParameters, black_levels) == 60U);
 static_assert(offsetof(RawDevelopmentParameters, white_minus_black) == 76U);
 static_assert(offsetof(RawDevelopmentParameters, camera_to_linear_srgb) == 92U);
 
+struct RawDenoiseParameters final {
+    std::uint32_t storage_width = 0U;
+    std::uint32_t storage_height = 0U;
+    std::uint32_t active_left = 0U;
+    std::uint32_t active_top = 0U;
+    std::uint32_t active_right = 0U;
+    std::uint32_t active_bottom = 0U;
+    std::uint32_t mode = 0U;
+    std::uint32_t uses_calibrated_sensor_noise = 0U;
+    float iso_sensitivity = 0.0F;
+    float black_levels[4]{};
+    float white_levels[4]{};
+    float read_noise_stddev_dn[4]{};
+    float shot_noise_variance_per_dn[4]{};
+};
+
+static_assert(sizeof(RawDenoiseParameters) == 100U);
+static_assert(offsetof(RawDenoiseParameters, storage_width) == 0U);
+static_assert(offsetof(RawDenoiseParameters, mode) == 24U);
+static_assert(offsetof(RawDenoiseParameters, iso_sensitivity) == 32U);
+static_assert(offsetof(RawDenoiseParameters, black_levels) == 36U);
+static_assert(offsetof(RawDenoiseParameters, white_levels) == 52U);
+static_assert(offsetof(RawDenoiseParameters, read_noise_stddev_dn) == 68U);
+static_assert(offsetof(RawDenoiseParameters, shot_noise_variance_per_dn) == 84U);
+
 class OwnedObjectiveCObject final {
 public:
     explicit OwnedObjectiveCObject(id value = nil) noexcept
@@ -318,11 +442,30 @@ public:
             if (pipeline_ == nil) {
                 diagnostic_ = "Metal RAW pipeline creation failed: "
                     + error_description(error);
+                return;
+            }
+
+            error = nil;
+            OwnedObjectiveCObject denoise_function(
+                [static_cast<id<MTLLibrary>>(library.get())
+                    newFunctionWithName:@"denoise_bayer_same_cfa"]
+            );
+            if (!denoise_function) {
+                denoise_diagnostic_ = "Metal RAW denoise shader entry point is unavailable";
+                return;
+            }
+            denoise_pipeline_ = [device_ newComputePipelineStateWithFunction:
+                static_cast<id<MTLFunction>>(denoise_function.get())
+                error:&error];
+            if (denoise_pipeline_ == nil) {
+                denoise_diagnostic_ = "Metal RAW denoise pipeline creation failed: "
+                    + error_description(error);
             }
         }
     }
 
     ~MetalRawContext() {
+        [denoise_pipeline_ release];
         [pipeline_ release];
         [queue_ release];
         [device_ release];
@@ -335,18 +478,30 @@ public:
         return device_ != nil && queue_ != nil && pipeline_ != nil;
     }
 
+    [[nodiscard]] bool raw_denoise_valid() const noexcept {
+        return device_ != nil && queue_ != nil && denoise_pipeline_ != nil;
+    }
+
     [[nodiscard]] id<MTLDevice> device() const noexcept { return device_; }
     [[nodiscard]] id<MTLCommandQueue> queue() const noexcept { return queue_; }
     [[nodiscard]] id<MTLComputePipelineState> pipeline() const noexcept {
         return pipeline_;
     }
+    [[nodiscard]] id<MTLComputePipelineState> raw_denoise_pipeline() const noexcept {
+        return denoise_pipeline_;
+    }
     [[nodiscard]] const std::string& diagnostic() const noexcept { return diagnostic_; }
+    [[nodiscard]] const std::string& raw_denoise_diagnostic() const noexcept {
+        return denoise_diagnostic_.empty() ? diagnostic_ : denoise_diagnostic_;
+    }
 
 private:
     id<MTLDevice> device_ = nil;
     id<MTLCommandQueue> queue_ = nil;
     id<MTLComputePipelineState> pipeline_ = nil;
+    id<MTLComputePipelineState> denoise_pipeline_ = nil;
     std::string diagnostic_;
+    std::string denoise_diagnostic_;
 };
 
 [[nodiscard]] MetalRawContext& metal_context() {
@@ -506,6 +661,44 @@ private:
     return parameters;
 }
 
+[[nodiscard]] RawDenoiseParameters make_raw_denoise_parameters(
+    const RawFrame& frame,
+    const RawBayerDenoiseMode mode,
+    const double iso_sensitivity
+) {
+    const auto& descriptor = frame.descriptor;
+    RawDenoiseParameters parameters;
+    parameters.storage_width = descriptor.storage_dimensions.width;
+    parameters.storage_height = descriptor.storage_dimensions.height;
+    parameters.active_left = descriptor.active_margins.left;
+    parameters.active_top = descriptor.active_margins.top;
+    parameters.active_right = descriptor.active_margins.left + descriptor.active_dimensions.width;
+    parameters.active_bottom = descriptor.active_margins.top + descriptor.active_dimensions.height;
+    parameters.mode = static_cast<std::uint32_t>(mode);
+    parameters.iso_sensitivity = static_cast<float>(std::clamp(
+        iso_sensitivity,
+        0.0,
+        static_cast<double>(std::numeric_limits<float>::max())
+    ));
+
+    const auto& calibration = descriptor.sensor_noise;
+    parameters.uses_calibrated_sensor_noise = (
+        calibration.valid()
+        && calibration.model == RawSensorNoiseModel::poisson_gaussian_per_cfa
+    ) ? 1U : 0U;
+    for (std::size_t site = 0U; site < 4U; ++site) {
+        parameters.black_levels[site] = static_cast<float>(descriptor.black_levels[site]);
+        parameters.white_levels[site] = static_cast<float>(descriptor.white_levels[site]);
+        parameters.read_noise_stddev_dn[site] = static_cast<float>(
+            calibration.read_noise_stddev_dn[site]
+        );
+        parameters.shot_noise_variance_per_dn[site] = static_cast<float>(
+            calibration.shot_noise_variance_per_dn[site]
+        );
+    }
+    return parameters;
+}
+
 [[nodiscard]] std::string command_buffer_diagnostic(id<MTLCommandBuffer> command_buffer) {
     NSError* error = command_buffer.error;
     std::string detail = error_description(error);
@@ -518,6 +711,136 @@ private:
 
 bool metal_raw_development_available() noexcept {
     return metal_context().valid();
+}
+
+bool metal_raw_denoise_available() noexcept {
+    return metal_context().raw_denoise_valid();
+}
+
+MetalRawDenoiseAttempt try_denoise_bayer_raw_frame_metal(
+    RawFrame& frame,
+    const RawBayerDenoiseMode mode,
+    const double iso_sensitivity
+) {
+    if (mode == RawBayerDenoiseMode::skipped) {
+        return MetalRawDenoiseAttempt{
+            .applied = false,
+            .diagnostic = "Metal RAW denoise cannot execute a skipped mode",
+        };
+    }
+    auto& context = metal_context();
+    if (!context.raw_denoise_valid()) {
+        return MetalRawDenoiseAttempt{
+            .applied = false,
+            .diagnostic = context.raw_denoise_diagnostic(),
+        };
+    }
+
+    std::size_t bytes = 0U;
+    if (!checked_multiply(frame.samples.size(), sizeof(std::uint16_t), bytes)
+        || bytes == 0U
+        || bytes > static_cast<std::size_t>(context.device().maxBufferLength)) {
+        return MetalRawDenoiseAttempt{
+            .applied = false,
+            .diagnostic = "RAW sensor plane exceeds this Metal device's denoise buffer limit",
+        };
+    }
+    std::size_t working_set = 0U;
+    if (!checked_add(bytes, bytes, working_set)) {
+        return MetalRawDenoiseAttempt{
+            .applied = false,
+            .diagnostic = "Metal RAW denoise working-set size overflowed",
+        };
+    }
+    const auto recommended_working_set = static_cast<std::size_t>(
+        context.device().recommendedMaxWorkingSetSize
+    );
+    if (recommended_working_set > 0U && working_set > recommended_working_set / 3U) {
+        return MetalRawDenoiseAttempt{
+            .applied = false,
+            .diagnostic = "RAW sensor plane exceeds Shadow's Metal denoise working-set allowance",
+        };
+    }
+
+    // The shared queue and the large source/output pair are intentionally serialized. It avoids
+    // multiplying the 200 MiB-class peak of a modern full-frame RAW when the import queue opens
+    // several high-ISO files at once; parallelism remains across independent CPU preparation.
+    std::lock_guard execution_lock(metal_execution_mutex());
+    @autoreleasepool {
+        OwnedObjectiveCObject source_buffer(
+            [context.device()
+                newBufferWithBytes:frame.samples.data()
+                length:bytes
+                options:MTLResourceStorageModeShared]
+        );
+        OwnedObjectiveCObject output_buffer(
+            [context.device()
+                newBufferWithBytes:frame.samples.data()
+                length:bytes
+                options:MTLResourceStorageModeShared]
+        );
+        if (!source_buffer || !output_buffer) {
+            return MetalRawDenoiseAttempt{
+                .applied = false,
+                .diagnostic = "Metal could not allocate the RAW denoise source and output planes",
+            };
+        }
+
+        const RawDenoiseParameters parameters = make_raw_denoise_parameters(
+            frame,
+            mode,
+            iso_sensitivity
+        );
+        const auto pipeline = context.raw_denoise_pipeline();
+        const NSUInteger thread_width = std::min<NSUInteger>(
+            32U,
+            std::max<NSUInteger>(1U, pipeline.threadExecutionWidth)
+        );
+        const NSUInteger thread_height = std::max<NSUInteger>(
+            1U,
+            std::min<NSUInteger>(
+                8U,
+                pipeline.maxTotalThreadsPerThreadgroup / thread_width
+            )
+        );
+        const MTLSize threads_per_group = MTLSizeMake(thread_width, thread_height, 1U);
+        id<MTLCommandBuffer> command_buffer = [context.queue() commandBuffer];
+        id<MTLComputeCommandEncoder> encoder = [command_buffer computeCommandEncoder];
+        if (command_buffer == nil || encoder == nil) {
+            return MetalRawDenoiseAttempt{
+                .applied = false,
+                .diagnostic = "Metal could not create a RAW denoise compute command",
+            };
+        }
+        [encoder setComputePipelineState:pipeline];
+        [encoder setBuffer:static_cast<id<MTLBuffer>>(source_buffer.get()) offset:0U atIndex:0U];
+        [encoder setBuffer:static_cast<id<MTLBuffer>>(output_buffer.get()) offset:0U atIndex:1U];
+        [encoder setBytes:&parameters length:sizeof(parameters) atIndex:2U];
+        [encoder dispatchThreads:MTLSizeMake(
+                parameters.storage_width,
+                parameters.storage_height,
+                1U
+            )
+            threadsPerThreadgroup:threads_per_group];
+        [encoder endEncoding];
+        [command_buffer commit];
+        [command_buffer waitUntilCompleted];
+        if (command_buffer.status != MTLCommandBufferStatusCompleted) {
+            return MetalRawDenoiseAttempt{
+                .applied = false,
+                .diagnostic = command_buffer_diagnostic(command_buffer),
+            };
+        }
+        std::memcpy(
+            frame.samples.data(),
+            [static_cast<id<MTLBuffer>>(output_buffer.get()) contents],
+            bytes
+        );
+    }
+    return MetalRawDenoiseAttempt{
+        .applied = true,
+        .diagnostic = {},
+    };
 }
 
 MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_u16_metal(

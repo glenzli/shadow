@@ -452,6 +452,18 @@ void raw_denoise_is_cfa_preserving_and_preview_aware() {
             && automatic_detail.receipt.used_sensor_noise_calibration,
         "high-ISO automatic RAW denoise resolves to calibrated conservative CFA processing"
     );
+    const auto configured_backend = image::raw_development_backend_mode_from_environment();
+    if (configured_backend == image::RawDevelopmentBackendMode::cpu) {
+        expect(
+            automatic_detail.receipt.backend == image::RawBayerDenoiseBackend::cpu,
+            "forced CPU keeps the RAW-denoise receipt on the CPU backend"
+        );
+    } else if (configured_backend == image::RawDevelopmentBackendMode::metal) {
+        expect(
+            automatic_detail.receipt.backend == image::RawBayerDenoiseBackend::metal,
+            "forced Metal executes high-ISO RAW denoise before demosaic"
+        );
+    }
     expect(
         flat_cfa_error(automatic_detail.frame) < flat_cfa_error(source),
         "same-CFA RAW denoise reduces flat-field sensor variation before demosaic"

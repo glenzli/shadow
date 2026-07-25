@@ -18,6 +18,14 @@ enum class RawBayerDenoiseMode : std::uint8_t {
     cfa_bilateral_noise_robust_v1,
 };
 
+// The computation backend is part of the rendered-cache identity. Metal is intentionally an
+// executor of the same CFA-preserving algorithm, but tiny floating-point rounding differences
+// must never let a CPU cache entry be presented as a byte-identical GPU result (or vice versa).
+enum class RawBayerDenoiseBackend : std::uint8_t {
+    cpu,
+    metal,
+};
+
 struct RawBayerDenoiseRequest final {
     RawNoiseReductionIntent intent = RawNoiseReductionIntent::provider_default;
     // The source metadata supplies ISO independently from RawFrame. Zero means unknown, not
@@ -33,6 +41,7 @@ struct RawBayerDenoiseReceipt final {
     RawNoiseReductionIntent requested_intent = RawNoiseReductionIntent::provider_default;
     RawNoiseReductionIntent effective_intent = RawNoiseReductionIntent::disabled;
     RawBayerDenoiseMode mode = RawBayerDenoiseMode::skipped;
+    RawBayerDenoiseBackend backend = RawBayerDenoiseBackend::cpu;
     bool used_sensor_noise_calibration = false;
 
     [[nodiscard]] bool applied() const noexcept {
@@ -49,6 +58,10 @@ struct RawBayerDenoiseResult final {
 
 [[nodiscard]] const char* raw_bayer_denoise_mode_identity(
     RawBayerDenoiseMode mode
+) noexcept;
+
+[[nodiscard]] const char* raw_bayer_denoise_backend_identity(
+    RawBayerDenoiseBackend backend
 ) noexcept;
 
 // Uses a per-CFA bilateral estimator only when the request makes that truthful: automatic mode

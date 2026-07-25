@@ -418,7 +418,7 @@ struct WarmDenoiseParameters final {
     std::uint32_t width = 0U;
     std::uint32_t height = 0U;
     std::uint32_t radius = 1U;
-    std::uint32_t reserved = 0U;
+    std::uint32_t passes = 1U;
     float luminance_strength = 0.0F;
     float color_strength = 0.0F;
     float spatial_sigma = 1.0F;
@@ -510,6 +510,11 @@ struct WarmDenoiseStage final {
                 1.0,
                 4.0
             )),
+            // A single edge-aware pass gives the normal interactive controls a light hand. At
+            // the top end, run the exact same bilateral stage once more while both rasters are
+            // already resident. This keeps a 100% request visibly decisive without widening a
+            // single support enough to bleed across the mast, horizon, or specular highlights.
+            .passes = authority >= 0.70 ? 2U : 1U,
             .luminance_strength = static_cast<float>(detail->denoise_luminance),
             .color_strength = static_cast<float>(detail->denoise_color),
             .spatial_sigma = static_cast<float>(0.90 + 0.52 * authority),
@@ -1471,17 +1476,31 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
                        length:sizeof(denoise_stage->parameters)
                       atIndex:2U];
             dispatch(context.denoise_pipeline());
+
+            if (denoise_stage->parameters.passes > 1U) {
+                [encoder setBuffer:slot.denoised offset:0U atIndex:0U];
+                [encoder setBuffer:slot.adjusted offset:0U atIndex:1U];
+                [encoder setBytes:&denoise_stage->parameters
+                           length:sizeof(denoise_stage->parameters)
+                          atIndex:2U];
+                dispatch(context.denoise_pipeline());
+            }
         }
 
         [encoder setComputePipelineState:context.display_pipeline()];
+        const bool two_pass_denoise = denoise_stage.has_value()
+            && denoise_stage->parameters.passes > 1U;
         id<MTLBuffer> final_input = denoise_stage.has_value()
-            ? slot.denoised
+            ? (two_pass_denoise ? slot.adjusted : slot.denoised)
             : impl_->source;
+        id<MTLBuffer> final_adjusted = denoise_stage.has_value()
+            ? (two_pass_denoise ? slot.denoised : slot.adjusted)
+            : slot.adjusted;
         id<MTLBuffer> final_operations = denoise_stage.has_value()
             ? slot.after_operations
             : slot.before_operations;
         [encoder setBuffer:final_input offset:0U atIndex:0U];
-        [encoder setBuffer:slot.adjusted offset:0U atIndex:1U];
+        [encoder setBuffer:final_adjusted offset:0U atIndex:1U];
         [encoder setBuffer:slot.rgb8 offset:0U atIndex:2U];
         [encoder setBuffer:final_operations offset:0U atIndex:3U];
         [encoder setBytes:&final_program->invocation
@@ -1560,7 +1579,7 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
             };
             std::memcpy(
                 linear.samples.data(),
-                [slot.adjusted contents],
+                [final_adjusted contents],
                 impl_->adjusted_bytes
             );
             result.analyzed_linear = std::move(linear);
