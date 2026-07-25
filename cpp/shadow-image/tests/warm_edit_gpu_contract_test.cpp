@@ -394,6 +394,9 @@ void resident_backend_matches_cpu_oracle() {
     const auto source = make_random_image(257U, 129U, true);
     auto preparation = image::detail::prepare_warm_edit_gpu_session(source);
     if (!preparation.session) {
+        if (std::getenv("SHADOW_TEST_REQUIRE_WARM_METAL") != nullptr) {
+            std::cerr << "Warm Metal preparation: " << preparation.diagnostic << '\n';
+        }
         expect(
             std::getenv("SHADOW_TEST_REQUIRE_WARM_METAL") == nullptr,
             "session-resident warm Metal was required but could not be prepared"
@@ -548,6 +551,88 @@ void resident_backend_matches_cpu_oracle() {
             "injected warm failure declines before a slot and never allocates transient buffers"
         );
     }
+}
+
+void resident_gpu_denoise_is_complete_or_declines() {
+    const auto source = make_random_image(193U, 113U, true);
+    auto preparation = image::detail::prepare_warm_edit_gpu_session(source);
+    if (!preparation.session) {
+        expect(
+            std::getenv("SHADOW_TEST_REQUIRE_WARM_METAL") == nullptr,
+            "GPU denoise was required but no resident Metal session could be prepared"
+        );
+        return;
+    }
+    const auto before_denoise = preparation.session->stats();
+
+    std::array<image::AdjustmentNode, 3U> nodes{
+        image::AdjustmentNode{
+            .node_id = "before-denoise-exposure",
+            .parameters = image::ExposureAdjustment{.stops = 0.18},
+        },
+        image::AdjustmentNode{
+            .node_id = "technical-denoise",
+            .parameter_schema_version = image::detail_effects_v3_parameter_schema_version,
+            .implementation_version = image::technical_detail_v3_implementation_version,
+            .parameters = image::SharpenAdjustment{
+                .execution_pass = image::DetailEffectsExecutionPass::technical_detail,
+                .denoise_luminance = 1.0,
+                .denoise_detail = 0.15,
+                .denoise_color = 0.90,
+            },
+        },
+        image::AdjustmentNode{
+            .node_id = "after-denoise-saturation",
+            .parameters = image::SaturationAdjustment{.factor = 0.83},
+        },
+    };
+    const auto plan = image::compile_edit_execution_plan(nodes);
+    const auto rendered = preparation.session->render(nodes, plan, true);
+    expect(
+        rendered.status == image::detail::WarmEditGpuSession::RenderStatus::completed
+            && rendered.output.has_value()
+            && rendered.output->analyzed_linear.has_value(),
+        "a supported technical denoise stage completes entirely on the resident GPU"
+    );
+    const auto after_denoise = preparation.session->stats();
+    expect(
+        after_denoise.gpu_buffer_allocation_count
+                == before_denoise.gpu_buffer_allocation_count + 2U
+            && after_denoise.resident_bytes > before_denoise.resident_bytes,
+        "the first GPU denoise render lazily creates only its slot-local intermediate buffers"
+    );
+    if (rendered.output && rendered.output->analyzed_linear) {
+        double mean_delta = 0.0;
+        const std::size_t source_stride = source.row_stride_bytes / sizeof(float);
+        const auto& output = *rendered.output->analyzed_linear;
+        for (std::uint32_t y = 0U; y < source.dimensions.height; ++y) {
+            for (std::uint32_t x = 0U; x < source.dimensions.width * 3U; ++x) {
+                mean_delta += std::abs(
+                    static_cast<double>(source.samples[
+                        static_cast<std::size_t>(y) * source_stride + x
+                    ]) - output.samples[
+                        static_cast<std::size_t>(y) * source.dimensions.width * 3U + x
+                    ]
+                );
+            }
+        }
+        mean_delta /= static_cast<double>(source.dimensions.pixel_count() * 3U);
+        expect(
+            mean_delta > 0.01,
+            "the GPU denoise stage visibly changes a noisy warm proxy before display output"
+        );
+    }
+
+    std::get<image::SharpenAdjustment>(nodes[1U].parameters).amount = 0.25;
+    const auto unsupported_plan = image::compile_edit_execution_plan(nodes);
+    const auto unsupported = preparation.session->render(nodes, unsupported_plan, false);
+    expect(
+        unsupported.status
+                == image::detail::WarmEditGpuSession::RenderStatus::unavailable_or_failed
+            && !unsupported.output.has_value()
+            && !unsupported.diagnostic.empty(),
+        "a mixed technical-detail node declines as a whole instead of producing a hybrid GPU/CPU frame"
+    );
 }
 
 void advanced_resources_match_cpu_and_reuse_side_table_uploads() {
@@ -1001,6 +1086,7 @@ void benchmark_resident_backend_when_requested() {
 
 int main() {
     resident_backend_matches_cpu_oracle();
+    resident_gpu_denoise_is_complete_or_declines();
     advanced_resources_match_cpu_and_reuse_side_table_uploads();
     perceptual_resources_match_cpu_and_have_independent_caches();
     cancellation_is_terminal_without_diagnostic();

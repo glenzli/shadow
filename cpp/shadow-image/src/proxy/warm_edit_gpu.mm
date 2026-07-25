@@ -19,6 +19,7 @@
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <ranges>
 #include <string>
 #include <string_view>
@@ -44,6 +45,25 @@ struct WarmDisplayParameters {
     uint output_origin_y;
     uint apply_scene_curve;
     uint retain_linear;
+};
+
+// This first Metal neighbourhood stage deliberately keeps the working image in scene-linear
+// RGB. It retains the CPU denoiser's luma/chroma decomposition, but folds the local statistics
+// into one resident, edge-aware pass so slider updates do not have to round-trip a proxy through
+// system memory.
+struct WarmDenoiseParameters {
+    uint width;
+    uint height;
+    uint radius;
+    uint reserved;
+    float luminance_strength;
+    float color_strength;
+    float spatial_sigma;
+    float edge_sigma;
+    float red_luminance;
+    float green_luminance;
+    float blue_luminance;
+    float reserved_1;
 };
 
 inline float3 linear_srgb_to_oklab(float3 rgb) {
@@ -231,6 +251,153 @@ kernel void render_warm_preview_v4(
     display_rgb8[output_index + 1u] = encode_srgb8(mapped.g, dither);
     display_rgb8[output_index + 2u] = encode_srgb8(mapped.b, dither);
 }
+
+kernel void execute_warm_adjustment_v4(
+    device const float* source [[buffer(0)]],
+    device float* adjusted [[buffer(1)]],
+    device const MetalAdjustmentOp* operations [[buffer(3)]],
+    constant MetalAdjustmentInvocation& invocation [[buffer(4)]],
+    device MetalAdjustmentStatus& status [[buffer(6)]],
+    device const MetalCurveSegment* curve_segments [[buffer(7)]],
+    device const float4* lut_entries [[buffer(8)]],
+    device const float4* perceptual_mixer_entries [[buffer(9)]],
+    device const MetalPerceptualRange* perceptual_range_entries [[buffer(10)]],
+    device const float4* selective_color_entries [[buffer(11)]],
+    uint2 position [[thread_position_in_grid]]
+) {
+    if (position.x >= invocation.width || position.y >= invocation.height) {
+        return;
+    }
+    if (invocation.abi_version != parameter_abi_version
+        || invocation.plan_identity_version != plan_identity_version) {
+        report_adjustment_failure(status, status_bad_abi, 0u);
+        return;
+    }
+
+    const uint input_index =
+        position.y * invocation.input_row_floats + position.x * 3u;
+    float3 rgb = float3(
+        source[input_index],
+        source[input_index + 1u],
+        source[input_index + 2u]
+    );
+    if (!execute_adjustment_program(
+            rgb,
+            operations,
+            curve_segments,
+            lut_entries,
+            perceptual_mixer_entries,
+            perceptual_range_entries,
+            selective_color_entries,
+            invocation,
+            status
+        )) {
+        return;
+    }
+
+    const uint output_index =
+        position.y * invocation.output_row_floats + position.x * 3u;
+    adjusted[output_index] = rgb.x;
+    adjusted[output_index + 1u] = rgb.y;
+    adjusted[output_index + 2u] = rgb.z;
+}
+
+kernel void guided_denoise_warm_v1(
+    device const float* input [[buffer(0)]],
+    device float* output [[buffer(1)]],
+    constant WarmDenoiseParameters& parameters [[buffer(2)]],
+    uint2 position [[thread_position_in_grid]]
+) {
+    if (position.x >= parameters.width || position.y >= parameters.height) {
+        return;
+    }
+    const uint width = parameters.width;
+    const uint output_index = (position.y * width + position.x) * 3u;
+    const float3 centre = float3(
+        input[output_index], input[output_index + 1u], input[output_index + 2u]
+    );
+    const float centre_luma = centre.r * parameters.red_luminance
+        + centre.g * parameters.green_luminance
+        + centre.b * parameters.blue_luminance;
+    const float centre_red_chroma = centre.r - centre_luma;
+    const float centre_blue_chroma = centre.b - centre_luma;
+    const int radius = int(parameters.radius);
+    const float spatial_denominator = max(
+        2.0f * parameters.spatial_sigma * parameters.spatial_sigma,
+        1.0e-8f
+    );
+    const float edge_denominator = max(
+        2.0f * parameters.edge_sigma * parameters.edge_sigma,
+        1.0e-8f
+    );
+
+    float weight_sum = 0.0f;
+    float luma_sum = 0.0f;
+    float red_chroma_sum = 0.0f;
+    float blue_chroma_sum = 0.0f;
+    for (int offset_y = -4; offset_y <= 4; ++offset_y) {
+        if (abs(offset_y) > radius) {
+            continue;
+        }
+        const uint sample_y = uint(clamp(
+            int(position.y) + offset_y,
+            0,
+            int(parameters.height) - 1
+        ));
+        for (int offset_x = -4; offset_x <= 4; ++offset_x) {
+            if (abs(offset_x) > radius) {
+                continue;
+            }
+            const uint sample_x = uint(clamp(
+                int(position.x) + offset_x,
+                0,
+                int(parameters.width) - 1
+            ));
+            const uint sample_index = (sample_y * width + sample_x) * 3u;
+            const float3 sample = float3(
+                input[sample_index],
+                input[sample_index + 1u],
+                input[sample_index + 2u]
+            );
+            const float sample_luma = sample.r * parameters.red_luminance
+                + sample.g * parameters.green_luminance
+                + sample.b * parameters.blue_luminance;
+            const float luma_delta = sample_luma - centre_luma;
+            const float distance_squared = float(offset_x * offset_x + offset_y * offset_y);
+            const float weight = exp(-distance_squared / spatial_denominator)
+                * exp(-(luma_delta * luma_delta) / edge_denominator);
+            weight_sum += weight;
+            luma_sum += weight * sample_luma;
+            red_chroma_sum += weight * (sample.r - sample_luma);
+            blue_chroma_sum += weight * (sample.b - sample_luma);
+        }
+    }
+    const float inverse_weight = 1.0f / max(weight_sum, 1.0e-8f);
+    const float filtered_luma = luma_sum * inverse_weight;
+    const float filtered_red_chroma = red_chroma_sum * inverse_weight;
+    const float filtered_blue_chroma = blue_chroma_sum * inverse_weight;
+    const float output_luma = mix(
+        centre_luma,
+        filtered_luma,
+        clamp(parameters.luminance_strength, 0.0f, 1.0f)
+    );
+    const float output_red_chroma = mix(
+        centre_red_chroma,
+        filtered_red_chroma,
+        clamp(parameters.color_strength, 0.0f, 1.0f)
+    );
+    const float output_blue_chroma = mix(
+        centre_blue_chroma,
+        filtered_blue_chroma,
+        clamp(parameters.color_strength, 0.0f, 1.0f)
+    );
+    output[output_index] = output_luma + output_red_chroma;
+    output[output_index + 1u] = output_luma
+        - (parameters.red_luminance * output_red_chroma
+            + parameters.blue_luminance * output_blue_chroma)
+            / max(parameters.green_luminance, 1.0e-6f);
+    output[output_index + 2u] = output_luma + output_blue_chroma;
+}
 )METAL";
 
 struct WarmDisplayParameters final {
@@ -247,8 +414,126 @@ struct WarmStatus final {
     std::uint32_t reserved_1 = 0U;
 };
 
+struct WarmDenoiseParameters final {
+    std::uint32_t width = 0U;
+    std::uint32_t height = 0U;
+    std::uint32_t radius = 1U;
+    std::uint32_t reserved = 0U;
+    float luminance_strength = 0.0F;
+    float color_strength = 0.0F;
+    float spatial_sigma = 1.0F;
+    float edge_sigma = 0.01F;
+    float red_luminance = 0.2126F;
+    float green_luminance = 0.7152F;
+    float blue_luminance = 0.0722F;
+    float reserved_1 = 0.0F;
+};
+
 static_assert(sizeof(WarmDisplayParameters) == 16U);
 static_assert(sizeof(WarmStatus) == 16U);
+static_assert(sizeof(WarmDenoiseParameters) == 48U);
+
+struct WarmDenoiseStage final {
+    EditExecutionPlan before;
+    EditExecutionPlan after;
+    WarmDenoiseParameters parameters;
+};
+
+[[nodiscard]] bool is_gpu_warm_denoise_only(
+    const SharpenAdjustment& parameters
+) noexcept {
+    return parameters.execution_pass == DetailEffectsExecutionPass::technical_detail
+        && (parameters.denoise_luminance > 0.0 || parameters.denoise_color > 0.0)
+        && parameters.amount == 0.0
+        && parameters.dehaze == 0.0
+        && parameters.defringe_purple_amount == 0.0
+        && parameters.defringe_green_amount == 0.0;
+}
+
+[[nodiscard]] std::optional<WarmDenoiseStage> prepare_warm_denoise_stage(
+    const std::span<const AdjustmentNode> nodes,
+    const EditExecutionPlan& plan,
+    const Dimensions dimensions,
+    const WorkingRgbSpace& working_space
+) {
+    std::optional<std::size_t> neighbourhood_segment;
+    for (std::size_t index = 0U; index < plan.segments.size(); ++index) {
+        if (plan.segments[index].locality == AdjustmentLocality::neighborhood) {
+            if (neighbourhood_segment.has_value()) {
+                return std::nullopt;
+            }
+            neighbourhood_segment = index;
+        }
+    }
+    if (!neighbourhood_segment.has_value()) {
+        return std::nullopt;
+    }
+    const EditExecutionSegment& segment = plan.segments[*neighbourhood_segment];
+    if (segment.steps.size() != 1U) {
+        return std::nullopt;
+    }
+    const EditExecutionStep& step = segment.steps.front();
+    if (step.operation != AdjustmentOperation::sharpen || step.node_index >= nodes.size()) {
+        return std::nullopt;
+    }
+    const auto* detail = std::get_if<SharpenAdjustment>(&nodes[step.node_index].parameters);
+    if (detail == nullptr || !is_gpu_warm_denoise_only(*detail)
+        || working_space.luminance_coefficients[1] <= 0.0) {
+        return std::nullopt;
+    }
+    for (std::size_t index = 0U; index < plan.segments.size(); ++index) {
+        if (index == *neighbourhood_segment) {
+            continue;
+        }
+        if (plan.segments[index].locality != AdjustmentLocality::pixel_local) {
+            return std::nullopt;
+        }
+    }
+
+    const double strength = std::max(
+        detail->denoise_luminance,
+        detail->denoise_color
+    );
+    const double authority = std::clamp(
+        strength * strength * (1.0 - 0.60 * detail->denoise_detail),
+        0.0,
+        1.0
+    );
+    WarmDenoiseStage result{
+        .before = EditExecutionPlan{.source_node_count = plan.source_node_count},
+        .after = EditExecutionPlan{.source_node_count = plan.source_node_count},
+        .parameters = WarmDenoiseParameters{
+            .width = dimensions.width,
+            .height = dimensions.height,
+            .radius = static_cast<std::uint32_t>(std::clamp(
+                std::ceil(1.0 + 3.0 * authority),
+                1.0,
+                4.0
+            )),
+            .luminance_strength = static_cast<float>(detail->denoise_luminance),
+            .color_strength = static_cast<float>(detail->denoise_color),
+            .spatial_sigma = static_cast<float>(0.90 + 0.52 * authority),
+            // A high ISO warm proxy needs enough range tolerance to identify independent
+            // pixel noise as a flat region, while the luma edge term still protects real
+            // subject boundaries. This mirrors the CPU path's epsilon authority mapping.
+            .edge_sigma = static_cast<float>(0.010 + 0.085 * authority),
+            .red_luminance = static_cast<float>(working_space.luminance_coefficients[0]),
+            .green_luminance = static_cast<float>(working_space.luminance_coefficients[1]),
+            .blue_luminance = static_cast<float>(working_space.luminance_coefficients[2]),
+        },
+    };
+    result.before.segments.insert(
+        result.before.segments.end(),
+        plan.segments.begin(),
+        plan.segments.begin() + static_cast<std::ptrdiff_t>(*neighbourhood_segment)
+    );
+    result.after.segments.insert(
+        result.after.segments.end(),
+        plan.segments.begin() + static_cast<std::ptrdiff_t>(*neighbourhood_segment + 1U),
+        plan.segments.end()
+    );
+    return result;
+}
 
 [[nodiscard]] bool checked_multiply(
     const std::size_t left,
@@ -320,24 +605,57 @@ public:
                     + error_description(error);
                 return;
             }
-            id<MTLFunction> function =
+            id<MTLFunction> display_function =
                 [library newFunctionWithName:@"render_warm_preview_v4"];
-            [library release];
-            if (function == nil) {
+            id<MTLFunction> adjustment_function =
+                [library newFunctionWithName:@"execute_warm_adjustment_v4"];
+            id<MTLFunction> denoise_function =
+                [library newFunctionWithName:@"guided_denoise_warm_v1"];
+            if (display_function == nil || adjustment_function == nil
+                || denoise_function == nil) {
+                [display_function release];
+                [adjustment_function release];
+                [denoise_function release];
+                [library release];
                 diagnostic_ = "Metal warm-preview shader entry point is unavailable";
                 return;
             }
-            pipeline_ = [device_ newComputePipelineStateWithFunction:function error:&error];
-            [function release];
-            if (pipeline_ == nil) {
+            display_pipeline_ = [device_
+                newComputePipelineStateWithFunction:display_function error:&error];
+            [display_function release];
+            if (display_pipeline_ == nil) {
+                [adjustment_function release];
+                [denoise_function release];
+                [library release];
                 diagnostic_ = "Metal warm-preview pipeline creation failed: "
+                    + error_description(error);
+                return;
+            }
+            adjustment_pipeline_ = [device_
+                newComputePipelineStateWithFunction:adjustment_function error:&error];
+            [adjustment_function release];
+            if (adjustment_pipeline_ == nil) {
+                [denoise_function release];
+                [library release];
+                diagnostic_ = "Metal warm-preview adjustment pipeline creation failed: "
+                    + error_description(error);
+                return;
+            }
+            denoise_pipeline_ = [device_
+                newComputePipelineStateWithFunction:denoise_function error:&error];
+            [denoise_function release];
+            [library release];
+            if (denoise_pipeline_ == nil) {
+                diagnostic_ = "Metal warm-preview denoise pipeline creation failed: "
                     + error_description(error);
             }
         }
     }
 
     ~WarmMetalContext() {
-        [pipeline_ release];
+        [denoise_pipeline_ release];
+        [adjustment_pipeline_ release];
+        [display_pipeline_ release];
         [queue_ release];
         [device_ release];
     }
@@ -346,12 +664,19 @@ public:
     WarmMetalContext& operator=(const WarmMetalContext&) = delete;
 
     [[nodiscard]] bool valid() const noexcept {
-        return device_ != nil && queue_ != nil && pipeline_ != nil;
+        return device_ != nil && queue_ != nil && display_pipeline_ != nil
+            && adjustment_pipeline_ != nil && denoise_pipeline_ != nil;
     }
     [[nodiscard]] id<MTLDevice> device() const noexcept { return device_; }
     [[nodiscard]] id<MTLCommandQueue> queue() const noexcept { return queue_; }
-    [[nodiscard]] id<MTLComputePipelineState> pipeline() const noexcept {
-        return pipeline_;
+    [[nodiscard]] id<MTLComputePipelineState> display_pipeline() const noexcept {
+        return display_pipeline_;
+    }
+    [[nodiscard]] id<MTLComputePipelineState> adjustment_pipeline() const noexcept {
+        return adjustment_pipeline_;
+    }
+    [[nodiscard]] id<MTLComputePipelineState> denoise_pipeline() const noexcept {
+        return denoise_pipeline_;
     }
     [[nodiscard]] const std::string& diagnostic() const noexcept {
         return diagnostic_;
@@ -360,7 +685,9 @@ public:
 private:
     id<MTLDevice> device_ = nil;
     id<MTLCommandQueue> queue_ = nil;
-    id<MTLComputePipelineState> pipeline_ = nil;
+    id<MTLComputePipelineState> display_pipeline_ = nil;
+    id<MTLComputePipelineState> adjustment_pipeline_ = nil;
+    id<MTLComputePipelineState> denoise_pipeline_ = nil;
     std::string diagnostic_;
 };
 
@@ -387,8 +714,10 @@ private:
 
 struct WarmSlot final {
     id<MTLBuffer> adjusted = nil;
+    id<MTLBuffer> denoised = nil;
     id<MTLBuffer> rgb8 = nil;
-    id<MTLBuffer> operations = nil;
+    id<MTLBuffer> before_operations = nil;
+    id<MTLBuffer> after_operations = nil;
     id<MTLBuffer> status = nil;
     bool busy = false;
 };
@@ -425,6 +754,20 @@ public:
 
 private:
     id<MTLBuffer> value_ = nil;
+};
+
+struct WarmProgramBuffers final {
+    RetainedMetalBuffer curve;
+    RetainedMetalBuffer lut;
+    RetainedMetalBuffer perceptual_mixer;
+    RetainedMetalBuffer perceptual_range;
+    RetainedMetalBuffer selective_color;
+};
+
+struct WarmProgramBufferAttempt final {
+    WarmProgramBuffers buffers;
+    bool cancelled = false;
+    std::string diagnostic;
 };
 
 struct SideBufferAttempt final {
@@ -534,8 +877,10 @@ struct WarmEditGpuSession::Impl final {
     ~Impl() {
         for (auto& slot : slots) {
             [slot.status release];
-            [slot.operations release];
+            [slot.after_operations release];
+            [slot.before_operations release];
             [slot.rgb8 release];
+            [slot.denoised release];
             [slot.adjusted release];
         }
         [empty_side_table release];
@@ -681,6 +1026,87 @@ struct WarmEditGpuSession::Impl final {
         };
     }
 
+    [[nodiscard]] WarmProgramBufferAttempt acquire_program_buffers(
+        const PreparedMetalAdjustment& program,
+        const std::stop_token cancellation
+    ) {
+        WarmProgramBufferAttempt result;
+        auto curve = acquire_side_buffer(program.curve_segments, cancellation);
+        if (curve.cancelled) {
+            result.cancelled = true;
+            return result;
+        }
+        if (!curve.buffer) {
+            result.diagnostic = curve.diagnostic.empty()
+                ? "session-resident Metal warm preview has no curve side table"
+                : std::move(curve.diagnostic);
+            return result;
+        }
+        result.buffers.curve = std::move(curve.buffer);
+
+        auto lut = acquire_side_buffer(program.lut_entries, cancellation);
+        if (lut.cancelled) {
+            result.cancelled = true;
+            return result;
+        }
+        if (!lut.buffer) {
+            result.diagnostic = lut.diagnostic.empty()
+                ? "session-resident Metal warm preview has no LUT side table"
+                : std::move(lut.diagnostic);
+            return result;
+        }
+        result.buffers.lut = std::move(lut.buffer);
+
+        auto perceptual_mixer = acquire_side_buffer(
+            program.perceptual_mixer_entries,
+            cancellation
+        );
+        if (perceptual_mixer.cancelled) {
+            result.cancelled = true;
+            return result;
+        }
+        if (!perceptual_mixer.buffer) {
+            result.diagnostic = perceptual_mixer.diagnostic.empty()
+                ? "session-resident Metal warm preview has no perceptual mixer table"
+                : std::move(perceptual_mixer.diagnostic);
+            return result;
+        }
+        result.buffers.perceptual_mixer = std::move(perceptual_mixer.buffer);
+
+        auto perceptual_range = acquire_side_buffer(
+            program.perceptual_range_entries,
+            cancellation
+        );
+        if (perceptual_range.cancelled) {
+            result.cancelled = true;
+            return result;
+        }
+        if (!perceptual_range.buffer) {
+            result.diagnostic = perceptual_range.diagnostic.empty()
+                ? "session-resident Metal warm preview has no perceptual range table"
+                : std::move(perceptual_range.diagnostic);
+            return result;
+        }
+        result.buffers.perceptual_range = std::move(perceptual_range.buffer);
+
+        auto selective_color = acquire_side_buffer(
+            program.selective_color_entries,
+            cancellation
+        );
+        if (selective_color.cancelled) {
+            result.cancelled = true;
+            return result;
+        }
+        if (!selective_color.buffer) {
+            result.diagnostic = selective_color.diagnostic.empty()
+                ? "session-resident Metal warm preview has no Selective Color table"
+                : std::move(selective_color.diagnostic);
+            return result;
+        }
+        result.buffers.selective_color = std::move(selective_color.buffer);
+        return result;
+    }
+
     [[nodiscard]] std::optional<std::size_t> acquire_slot(
         const std::stop_token cancellation
     ) {
@@ -718,6 +1144,50 @@ struct WarmEditGpuSession::Impl final {
             }
         }
         available_slot.notify_one();
+    }
+
+    [[nodiscard]] std::string ensure_denoise_resources(
+        const std::size_t index
+    ) {
+        std::lock_guard lock(mutex);
+        WarmSlot& slot = slots[index];
+        if (slot.denoised != nil && slot.after_operations != nil) {
+            return {};
+        }
+        if (slot.denoised != nil || slot.after_operations != nil) {
+            return "warm-preview denoise slot was only partially initialized";
+        }
+        std::size_t addition = 0U;
+        if (!checked_add(adjusted_bytes, operation_buffer_bytes, addition)
+            || addition > std::numeric_limits<std::size_t>::max()
+                - static_cast<std::size_t>(stats.resident_bytes)) {
+            return "warm-preview denoise resource size overflowed";
+        }
+        const auto recommended = static_cast<std::size_t>(
+            metal_context().device().recommendedMaxWorkingSetSize
+        );
+        const std::size_t allowance = recommended / 2U;
+        if (recommended > 0U && (addition > allowance
+                || static_cast<std::size_t>(stats.resident_bytes)
+                    > allowance - addition)) {
+            return "warm-preview denoise resources exceed half the recommended Metal working set";
+        }
+        id<MTLBuffer> denoised = [metal_context().device()
+            newBufferWithLength:adjusted_bytes
+            options:MTLResourceStorageModeShared];
+        id<MTLBuffer> after_operations = [metal_context().device()
+            newBufferWithLength:operation_buffer_bytes
+            options:MTLResourceStorageModeShared];
+        if (denoised == nil || after_operations == nil) {
+            [denoised release];
+            [after_operations release];
+            return "Metal could not allocate a resident warm-preview denoise slot";
+        }
+        slot.denoised = denoised;
+        slot.after_operations = after_operations;
+        stats.gpu_buffer_allocation_count += 2U;
+        stats.resident_bytes += static_cast<std::uint64_t>(addition);
+        return {};
     }
 };
 
@@ -757,136 +1227,129 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
         };
     }
 
-    PreparedMetalAdjustment program;
-    if (plan.segments.empty()) {
-        program.invocation.width = impl_->dimensions.width;
-        program.invocation.height = impl_->dimensions.height;
-        program.invocation.input_row_floats =
-            static_cast<std::uint32_t>(impl_->row_stride_bytes / sizeof(float));
-        program.invocation.output_row_floats = static_cast<std::uint32_t>(
-            impl_->adjusted_row_stride_bytes / sizeof(float)
+    const FloatRgbImage source_layout{
+        .dimensions = impl_->dimensions,
+        .row_stride_bytes = impl_->row_stride_bytes,
+        .pixel_format = impl_->pixel_format,
+        .transfer_function = impl_->transfer_function,
+        .reference = impl_->reference,
+        .working_space = impl_->working_space,
+        .level_zero_to_raster_scale_x = impl_->level_zero_to_raster_scale_x,
+        .level_zero_to_raster_scale_y = impl_->level_zero_to_raster_scale_y,
+        // The immutable source was fully validated before upload. Warm parameter preparation
+        // needs its layout/color metadata, not another full-raster finiteness scan.
+        .samples = {},
+    };
+    std::string preparation_diagnostic;
+    const auto prepare_program = [&source_layout, &nodes, this, &preparation_diagnostic](
+        const EditExecutionPlan& candidate,
+        const std::uint32_t input_row_floats,
+        const std::uint32_t output_row_floats
+    ) -> std::optional<PreparedMetalAdjustment> {
+        PreparedMetalAdjustment result;
+        if (candidate.segments.empty()) {
+            result.invocation.width = impl_->dimensions.width;
+            result.invocation.height = impl_->dimensions.height;
+            result.invocation.step_count = 0U;
+        } else {
+            auto preparation = prepare_metal_adjustment(
+                source_layout,
+                nodes,
+                candidate,
+                AdjustmentExecutionContext{.full_dimensions = impl_->dimensions},
+                true
+            );
+            if (!preparation.program.has_value()) {
+                preparation_diagnostic = preparation.diagnostic.empty()
+                    ? "session-resident Metal warm preview could not prepare the adjustment plan"
+                    : std::move(preparation.diagnostic);
+                return std::nullopt;
+            }
+            result = std::move(*preparation.program);
+        }
+        result.invocation.input_row_floats = input_row_floats;
+        result.invocation.output_row_floats = output_row_floats;
+        if (result.operations.size() > maximum_warm_adjustment_operations) {
+            preparation_diagnostic =
+                "session-resident Metal warm preview exceeds its 256-operation slot capacity";
+            return std::nullopt;
+        }
+        return result;
+    };
+
+    const std::uint32_t source_row_floats =
+        static_cast<std::uint32_t>(impl_->row_stride_bytes / sizeof(float));
+    const std::uint32_t packed_row_floats = static_cast<std::uint32_t>(
+        impl_->adjusted_row_stride_bytes / sizeof(float)
+    );
+    const auto denoise_stage = prepare_warm_denoise_stage(
+        nodes,
+        plan,
+        impl_->dimensions,
+        impl_->working_space
+    );
+    PreparedMetalAdjustment before_program;
+    std::optional<PreparedMetalAdjustment> final_program;
+    if (denoise_stage.has_value()) {
+        auto prepared_before = prepare_program(
+            denoise_stage->before,
+            source_row_floats,
+            packed_row_floats
         );
-        program.invocation.step_count = 0U;
-    } else {
-        FloatRgbImage source_layout{
-            .dimensions = impl_->dimensions,
-            .row_stride_bytes = impl_->row_stride_bytes,
-            .pixel_format = impl_->pixel_format,
-            .transfer_function = impl_->transfer_function,
-            .reference = impl_->reference,
-            .working_space = impl_->working_space,
-            .level_zero_to_raster_scale_x = impl_->level_zero_to_raster_scale_x,
-            .level_zero_to_raster_scale_y = impl_->level_zero_to_raster_scale_y,
-            // The immutable source was fully validated before upload. Warm parameter
-            // preparation uses only layout/color metadata and therefore intentionally skips a
-            // repeated full-raster finiteness scan.
-            .samples = {},
-        };
-        auto preparation = prepare_metal_adjustment(
-            source_layout,
-            nodes,
-            plan,
-            AdjustmentExecutionContext{.full_dimensions = impl_->dimensions},
-            true
+        final_program = prepare_program(
+            denoise_stage->after,
+            packed_row_floats,
+            packed_row_floats
         );
-        if (!preparation.program.has_value()) {
+        if (!prepared_before.has_value() || !final_program.has_value()) {
             return RenderAttempt{
                 .status = RenderStatus::unavailable_or_failed,
                 .output = std::nullopt,
-                .diagnostic = preparation.diagnostic.empty()
-                    ? "session-resident Metal warm preview could not prepare the adjustment plan"
-                    : std::move(preparation.diagnostic),
+                .diagnostic = std::move(preparation_diagnostic),
             };
         }
-        program = std::move(*preparation.program);
-        program.invocation.input_row_floats =
-            static_cast<std::uint32_t>(impl_->row_stride_bytes / sizeof(float));
-        program.invocation.output_row_floats = static_cast<std::uint32_t>(
-            impl_->adjusted_row_stride_bytes / sizeof(float)
-        );
-    }
-    if (program.operations.size() > maximum_warm_adjustment_operations) {
-        return RenderAttempt{
-            .status = RenderStatus::unavailable_or_failed,
-            .output = std::nullopt,
-            .diagnostic =
-                "session-resident Metal warm preview exceeds its 256-operation slot capacity",
-        };
+        before_program = std::move(*prepared_before);
+    } else {
+        final_program = prepare_program(plan, source_row_floats, packed_row_floats);
+        if (!final_program.has_value()) {
+            return RenderAttempt{
+                .status = RenderStatus::unavailable_or_failed,
+                .output = std::nullopt,
+                .diagnostic = std::move(preparation_diagnostic),
+            };
+        }
     }
 
     if (cancellation.stop_requested()) {
         return cancelled();
     }
-    auto curve_buffer_attempt =
-        impl_->acquire_side_buffer(program.curve_segments, cancellation);
-    if (curve_buffer_attempt.cancelled) {
+    std::optional<WarmProgramBuffers> before_buffers;
+    if (denoise_stage.has_value()) {
+        auto attempt = impl_->acquire_program_buffers(before_program, cancellation);
+        if (attempt.cancelled) {
+            return cancelled();
+        }
+        if (!attempt.diagnostic.empty()) {
+            return RenderAttempt{
+                .status = RenderStatus::unavailable_or_failed,
+                .output = std::nullopt,
+                .diagnostic = std::move(attempt.diagnostic),
+            };
+        }
+        before_buffers.emplace(std::move(attempt.buffers));
+    }
+    auto final_buffers_attempt = impl_->acquire_program_buffers(*final_program, cancellation);
+    if (final_buffers_attempt.cancelled) {
         return cancelled();
     }
-    if (!curve_buffer_attempt.buffer) {
+    if (!final_buffers_attempt.diagnostic.empty()) {
         return RenderAttempt{
             .status = RenderStatus::unavailable_or_failed,
             .output = std::nullopt,
-            .diagnostic = curve_buffer_attempt.diagnostic.empty()
-                ? "session-resident Metal warm preview has no curve side table"
-                : std::move(curve_buffer_attempt.diagnostic),
+            .diagnostic = std::move(final_buffers_attempt.diagnostic),
         };
     }
-    auto lut_buffer_attempt =
-        impl_->acquire_side_buffer(program.lut_entries, cancellation);
-    if (lut_buffer_attempt.cancelled) {
-        return cancelled();
-    }
-    if (!lut_buffer_attempt.buffer) {
-        return RenderAttempt{
-            .status = RenderStatus::unavailable_or_failed,
-            .output = std::nullopt,
-            .diagnostic = lut_buffer_attempt.diagnostic.empty()
-                ? "session-resident Metal warm preview has no LUT side table"
-                : std::move(lut_buffer_attempt.diagnostic),
-        };
-    }
-    auto perceptual_mixer_buffer_attempt =
-        impl_->acquire_side_buffer(program.perceptual_mixer_entries, cancellation);
-    if (perceptual_mixer_buffer_attempt.cancelled) {
-        return cancelled();
-    }
-    if (!perceptual_mixer_buffer_attempt.buffer) {
-        return RenderAttempt{
-            .status = RenderStatus::unavailable_or_failed,
-            .output = std::nullopt,
-            .diagnostic = perceptual_mixer_buffer_attempt.diagnostic.empty()
-                ? "session-resident Metal warm preview has no perceptual mixer table"
-                : std::move(perceptual_mixer_buffer_attempt.diagnostic),
-        };
-    }
-    auto perceptual_range_buffer_attempt =
-        impl_->acquire_side_buffer(program.perceptual_range_entries, cancellation);
-    if (perceptual_range_buffer_attempt.cancelled) {
-        return cancelled();
-    }
-    if (!perceptual_range_buffer_attempt.buffer) {
-        return RenderAttempt{
-            .status = RenderStatus::unavailable_or_failed,
-            .output = std::nullopt,
-            .diagnostic = perceptual_range_buffer_attempt.diagnostic.empty()
-                ? "session-resident Metal warm preview has no perceptual range table"
-                : std::move(perceptual_range_buffer_attempt.diagnostic),
-        };
-    }
-    auto selective_color_buffer_attempt =
-        impl_->acquire_side_buffer(program.selective_color_entries, cancellation);
-    if (selective_color_buffer_attempt.cancelled) {
-        return cancelled();
-    }
-    if (!selective_color_buffer_attempt.buffer) {
-        return RenderAttempt{
-            .status = RenderStatus::unavailable_or_failed,
-            .output = std::nullopt,
-            .diagnostic = selective_color_buffer_attempt.diagnostic.empty()
-                ? "session-resident Metal warm preview has no Selective Color table"
-                : std::move(selective_color_buffer_attempt.diagnostic),
-        };
-    }
+    WarmProgramBuffers final_buffers = std::move(final_buffers_attempt.buffers);
     if (cancellation.stop_requested()) {
         return cancelled();
     }
@@ -906,16 +1369,31 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
     if (cancellation.stop_requested()) {
         return cancelled();
     }
+    if (denoise_stage.has_value()) {
+        const std::string diagnostic = impl_->ensure_denoise_resources(slot_index);
+        if (!diagnostic.empty()) {
+            return RenderAttempt{
+                .status = RenderStatus::unavailable_or_failed,
+                .output = std::nullopt,
+                .diagnostic = diagnostic,
+            };
+        }
+    }
 
     @autoreleasepool {
-        const std::size_t operation_bytes =
-            program.operations.size() * sizeof(MetalAdjustmentOp);
-        if (operation_bytes > 0U) {
-            std::memcpy(
-                [slot.operations contents],
-                program.operations.data(),
-                operation_bytes
-            );
+        const auto upload_operations = [](id<MTLBuffer> destination,
+                                          const PreparedMetalAdjustment& program) {
+            const std::size_t bytes = program.operations.size()
+                * sizeof(MetalAdjustmentOp);
+            if (bytes > 0U) {
+                std::memcpy([destination contents], program.operations.data(), bytes);
+            }
+        };
+        if (denoise_stage.has_value()) {
+            upload_operations(slot.before_operations, before_program);
+            upload_operations(slot.after_operations, *final_program);
+        } else {
+            upload_operations(slot.before_operations, *final_program);
         }
         auto* status = static_cast<WarmStatus*>([slot.status contents]);
         *status = WarmStatus{};
@@ -935,49 +1413,88 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
                 .diagnostic = "Metal could not create a warm-preview compute command",
             };
         }
-        [encoder setComputePipelineState:context.pipeline()];
-        [encoder setBuffer:impl_->source offset:0U atIndex:0U];
+        const auto dispatch = [encoder, this](id<MTLComputePipelineState> pipeline) {
+            const NSUInteger thread_width = std::min<NSUInteger>(
+                32U,
+                std::max<NSUInteger>(1U, pipeline.threadExecutionWidth)
+            );
+            const NSUInteger thread_height = std::max<NSUInteger>(
+                1U,
+                std::min<NSUInteger>(
+                    8U,
+                    pipeline.maxTotalThreadsPerThreadgroup / thread_width
+                )
+            );
+            [encoder dispatchThreads:MTLSizeMake(
+                    impl_->dimensions.width,
+                    impl_->dimensions.height,
+                    1U
+                )
+                threadsPerThreadgroup:MTLSizeMake(thread_width, thread_height, 1U)];
+        };
+        const auto bind_adjustment = [&encoder, &slot](
+            id<MTLBuffer> input,
+            id<MTLBuffer> output,
+            id<MTLBuffer> operations,
+            const PreparedMetalAdjustment& program,
+            const WarmProgramBuffers& buffers
+        ) {
+            [encoder setBuffer:input offset:0U atIndex:0U];
+            [encoder setBuffer:output offset:0U atIndex:1U];
+            [encoder setBuffer:operations offset:0U atIndex:3U];
+            [encoder setBytes:&program.invocation
+                       length:sizeof(program.invocation)
+                      atIndex:4U];
+            [encoder setBuffer:slot.status offset:0U atIndex:6U];
+            [encoder setBuffer:buffers.curve.get() offset:0U atIndex:7U];
+            [encoder setBuffer:buffers.lut.get() offset:0U atIndex:8U];
+            [encoder setBuffer:buffers.perceptual_mixer.get() offset:0U atIndex:9U];
+            [encoder setBuffer:buffers.perceptual_range.get() offset:0U atIndex:10U];
+            [encoder setBuffer:buffers.selective_color.get() offset:0U atIndex:11U];
+        };
+
+        if (denoise_stage.has_value()) {
+            [encoder setComputePipelineState:context.adjustment_pipeline()];
+            bind_adjustment(
+                impl_->source,
+                slot.adjusted,
+                slot.before_operations,
+                before_program,
+                *before_buffers
+            );
+            dispatch(context.adjustment_pipeline());
+
+            [encoder setComputePipelineState:context.denoise_pipeline()];
+            [encoder setBuffer:slot.adjusted offset:0U atIndex:0U];
+            [encoder setBuffer:slot.denoised offset:0U atIndex:1U];
+            [encoder setBytes:&denoise_stage->parameters
+                       length:sizeof(denoise_stage->parameters)
+                      atIndex:2U];
+            dispatch(context.denoise_pipeline());
+        }
+
+        [encoder setComputePipelineState:context.display_pipeline()];
+        id<MTLBuffer> final_input = denoise_stage.has_value()
+            ? slot.denoised
+            : impl_->source;
+        id<MTLBuffer> final_operations = denoise_stage.has_value()
+            ? slot.after_operations
+            : slot.before_operations;
+        [encoder setBuffer:final_input offset:0U atIndex:0U];
         [encoder setBuffer:slot.adjusted offset:0U atIndex:1U];
         [encoder setBuffer:slot.rgb8 offset:0U atIndex:2U];
-        [encoder setBuffer:slot.operations offset:0U atIndex:3U];
-        [encoder setBytes:&program.invocation
-                   length:sizeof(program.invocation)
+        [encoder setBuffer:final_operations offset:0U atIndex:3U];
+        [encoder setBytes:&final_program->invocation
+                   length:sizeof(final_program->invocation)
                   atIndex:4U];
         [encoder setBytes:&display length:sizeof(display) atIndex:5U];
         [encoder setBuffer:slot.status offset:0U atIndex:6U];
-        [encoder setBuffer:curve_buffer_attempt.buffer.get() offset:0U atIndex:7U];
-        [encoder setBuffer:lut_buffer_attempt.buffer.get() offset:0U atIndex:8U];
-        [encoder setBuffer:perceptual_mixer_buffer_attempt.buffer.get()
-                    offset:0U
-                   atIndex:9U];
-        [encoder setBuffer:perceptual_range_buffer_attempt.buffer.get()
-                    offset:0U
-                   atIndex:10U];
-        [encoder setBuffer:selective_color_buffer_attempt.buffer.get()
-                    offset:0U
-                   atIndex:11U];
-
-        const NSUInteger thread_width = std::min<NSUInteger>(
-            32U,
-            std::max<NSUInteger>(1U, context.pipeline().threadExecutionWidth)
-        );
-        const NSUInteger thread_height = std::max<NSUInteger>(
-            1U,
-            std::min<NSUInteger>(
-                8U,
-                context.pipeline().maxTotalThreadsPerThreadgroup / thread_width
-            )
-        );
-        [encoder dispatchThreads:MTLSizeMake(
-                impl_->dimensions.width,
-                impl_->dimensions.height,
-                1U
-            )
-            threadsPerThreadgroup:MTLSizeMake(
-                thread_width,
-                thread_height,
-                1U
-            )];
+        [encoder setBuffer:final_buffers.curve.get() offset:0U atIndex:7U];
+        [encoder setBuffer:final_buffers.lut.get() offset:0U atIndex:8U];
+        [encoder setBuffer:final_buffers.perceptual_mixer.get() offset:0U atIndex:9U];
+        [encoder setBuffer:final_buffers.perceptual_range.get() offset:0U atIndex:10U];
+        [encoder setBuffer:final_buffers.selective_color.get() offset:0U atIndex:11U];
+        dispatch(context.display_pipeline());
         [encoder endEncoding];
         if (cancellation.stop_requested()) {
             return cancelled();
@@ -997,11 +1514,20 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
         if (status->flags != 0U) {
             std::string diagnostic =
                 "session-resident Metal warm preview produced an invalid result";
-            if (status->earliest_step < program.operations.size()) {
-                diagnostic += " at source node "
-                    + std::to_string(
+            const auto append_node = [&diagnostic, status](
+                const PreparedMetalAdjustment& program
+            ) {
+                if (status->earliest_step < program.operations.size()) {
+                    diagnostic += " at source node " + std::to_string(
                         program.operations[status->earliest_step].source_node_index
                     );
+                }
+            };
+            if (denoise_stage.has_value()) {
+                append_node(before_program);
+                append_node(*final_program);
+            } else {
+                append_node(*final_program);
             }
             return RenderAttempt{
                 .status = RenderStatus::unavailable_or_failed,
@@ -1244,14 +1770,14 @@ WarmEditGpuPreparation prepare_warm_edit_gpu_session(const FloatRgbImage& source
             slot.rgb8 = [context.device()
                 newBufferWithLength:rgb8_bytes
                 options:MTLResourceStorageModeShared];
-            slot.operations = [context.device()
+            slot.before_operations = [context.device()
                 newBufferWithLength:operation_buffer_bytes
                 options:MTLResourceStorageModeShared];
             slot.status = [context.device()
                 newBufferWithLength:sizeof(WarmStatus)
                 options:MTLResourceStorageModeShared];
             if (slot.adjusted == nil || slot.rgb8 == nil
-                || slot.operations == nil || slot.status == nil) {
+                || slot.before_operations == nil || slot.status == nil) {
                 return WarmEditGpuPreparation{
                     .session = nullptr,
                     .diagnostic =
