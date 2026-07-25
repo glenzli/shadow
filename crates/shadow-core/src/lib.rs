@@ -6,6 +6,7 @@ mod import;
 mod native_path;
 mod performance;
 mod technical_observation;
+mod work_scheduler;
 
 pub use cached_artifact_loader::{
     CachedArtifactInvalidationReason, CachedArtifactLoadError, CachedArtifactLoader,
@@ -35,4 +36,10 @@ pub use technical_observation::{
     TECHNICAL_ANALYSIS_MAX_EDGE, TechnicalObservationActor, TechnicalObservationError,
     TechnicalObservationHandle, TechnicalObservationOutcome, TechnicalObservationTicket,
     technical_analysis_preprocessing_version,
+};
+pub use work_scheduler::{
+    WorkCancellation, WorkContext, WorkDiscardReason, WorkGeneration, WorkGenerationSource,
+    WorkOutcome, WorkPriority, WorkScheduler, WorkSchedulerConfig, WorkSchedulerError,
+    WorkSchedulerHandle, WorkSchedulerSnapshot, WorkSpec, WorkSubmitError, WorkTicket,
+    WorkWaitError,
 };
