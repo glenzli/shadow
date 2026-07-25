@@ -758,6 +758,96 @@ void resident_gpu_texture_is_complete_or_declines() {
     );
 }
 
+void resident_gpu_clarity_is_complete_or_declines() {
+    auto source = make_random_image(193U, 113U, true);
+    // Clarity is intentionally a preview-scale Metal stage: its large 12px native support is
+    // compact at a quarter-scale warm proxy while full-size output keeps using the CPU oracle.
+    source.level_zero_to_raster_scale_x = 0.25;
+    source.level_zero_to_raster_scale_y = 0.25;
+    auto preparation = image::detail::prepare_warm_edit_gpu_session(source);
+    if (!preparation.session) {
+        expect(
+            std::getenv("SHADOW_TEST_REQUIRE_WARM_METAL") == nullptr,
+            "GPU Clarity was required but no resident Metal session could be prepared"
+        );
+        return;
+    }
+
+    std::array<image::AdjustmentNode, 3U> nodes{
+        image::AdjustmentNode{
+            .node_id = "before-clarity-exposure",
+            .parameters = image::ExposureAdjustment{.stops = -0.12},
+        },
+        image::AdjustmentNode{
+            .node_id = "perceptual-clarity",
+            .parameter_schema_version = image::detail_effects_v3_parameter_schema_version,
+            .implementation_version = image::color_grading_v3_implementation_version,
+            .parameters = image::SharpenAdjustment{
+                .execution_pass = image::DetailEffectsExecutionPass::color_grading,
+                .clarity = 0.64,
+                .shadows_hue = 38.0,
+                .shadows_saturation = 0.14,
+                .midtones_hue = 154.0,
+                .midtones_saturation = 0.10,
+                .highlights_hue = 236.0,
+                .highlights_saturation = 0.19,
+                .grading_blending = 0.64,
+                .grading_balance = 0.15,
+            },
+        },
+        image::AdjustmentNode{
+            .node_id = "after-clarity-saturation",
+            .parameters = image::SaturationAdjustment{.factor = 1.08},
+        },
+    };
+    const auto plan = image::compile_edit_execution_plan(nodes);
+    const auto gpu = preparation.session->render(nodes, plan, true);
+    expect(
+        gpu.status == image::detail::WarmEditGpuSession::RenderStatus::completed
+            && gpu.output.has_value()
+            && gpu.output->analyzed_linear.has_value()
+            && std::ranges::all_of(
+                gpu.output->analyzed_linear->samples,
+                [](const float value) { return std::isfinite(value); }
+            ),
+        "a preview-scale Oklab-L Clarity stage completes on the resident GPU"
+    );
+    if (gpu.output && gpu.output->analyzed_linear) {
+        const auto cpu = image::execute_adjustment_nodes_with_backend(
+            source,
+            nodes,
+            {.full_dimensions = source.dimensions},
+            image::AdjustmentBackendMode::cpu
+        );
+        double maximum_error = 0.0;
+        const bool linear_parity = linear_close(
+            *gpu.output->analyzed_linear,
+            cpu.pixels,
+            maximum_error,
+            3.0e-4
+        );
+        if (!linear_parity) {
+            std::cerr << "Clarity warm linear parity max="
+                      << maximum_error << '\n';
+        }
+        expect(
+            linear_parity,
+            "the resident Clarity path tracks the CPU Oklab-L reference"
+        );
+    }
+
+    std::get<image::SharpenAdjustment>(nodes[1U].parameters).texture = 0.25;
+    const auto unsupported_plan = image::compile_edit_execution_plan(nodes);
+    const auto unsupported = preparation.session->render(nodes, unsupported_plan, false);
+    expect(
+        unsupported.status
+                == image::detail::WarmEditGpuSession::RenderStatus::unavailable_or_failed
+            && !unsupported.output.has_value()
+            && !unsupported.diagnostic.empty(),
+        "Clarity plus Texture declines until their combined GPU stage is implemented"
+    );
+}
+
 void advanced_resources_match_cpu_and_reuse_side_table_uploads() {
     const auto source = make_random_image(137U, 83U, true);
     auto preparation = image::detail::prepare_warm_edit_gpu_session(source);
@@ -1211,6 +1301,7 @@ int main() {
     resident_backend_matches_cpu_oracle();
     resident_gpu_technical_detail_is_complete_or_declines();
     resident_gpu_texture_is_complete_or_declines();
+    resident_gpu_clarity_is_complete_or_declines();
     advanced_resources_match_cpu_and_reuse_side_table_uploads();
     perceptual_resources_match_cpu_and_have_independent_caches();
     cancellation_is_terminal_without_diagnostic();
