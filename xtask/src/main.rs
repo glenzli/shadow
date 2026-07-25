@@ -24,6 +24,14 @@ fn main() -> io::Result<()> {
             run("cmake", &["--preset", "desktop-dev"])?;
             run("cmake", &["--build", "--preset", "desktop-dev"])
         }
+        "desktop-check" => {
+            run("cmake", &["--preset", "desktop-dev"])?;
+            run("cmake", &["--build", "--preset", "desktop-dev"])?;
+            run(
+                "ctest",
+                &["--test-dir", "build/desktop-dev", "--output-on-failure"],
+            )
+        }
         "desktop-release" => {
             run("cmake", &["--preset", "desktop-release"])?;
             run("cmake", &["--build", "--preset", "desktop-release"])
@@ -46,7 +54,7 @@ fn main() -> io::Result<()> {
         }
         _ => {
             println!(
-                "cargo xtask <check|test|native-configure|native-build|native-check|desktop-build|desktop-release|raw-smoke [fixture-directory]|doctor>"
+                "cargo xtask <check|test|native-configure|native-build|native-check|desktop-build|desktop-check|desktop-release|raw-smoke [fixture-directory]|doctor>"
             );
             Ok(())
         }
