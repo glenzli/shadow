@@ -1,6 +1,7 @@
 //! Application use cases shared by the desktop app and developer CLI.
 
 mod cached_artifact_loader;
+mod catalog_backup;
 mod decode_inspection;
 mod import;
 mod native_path;
@@ -10,6 +11,11 @@ mod work_scheduler;
 
 pub use cached_artifact_loader::{
     CachedArtifactInvalidationReason, CachedArtifactLoadError, CachedArtifactLoader,
+};
+pub use catalog_backup::{
+    CatalogBackupCompletion, CatalogBackupJob, CatalogBackupJobError, CatalogBackupPlan,
+    CatalogBackupPolicy, CatalogBackupPolicyError, CatalogBackupRetention,
+    CatalogBackupScheduleError, CatalogBackupService,
 };
 pub use decode_inspection::{
     DecodeInspectionActor, DecodeInspectionDiscardReason, DecodeInspectionError,
