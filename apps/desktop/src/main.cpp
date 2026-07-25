@@ -183,7 +183,7 @@ namespace {
         return 0;
     }
     const auto* const grid = engine.rootObjects().front()->findChild<QObject*>(
-        QStringLiteral("reviewGrid")
+        QStringLiteral("reviewJustifiedGrid")
     );
     return grid == nullptr ? 0 : grid->property("count").toInt();
 }
@@ -717,27 +717,29 @@ int main(int argc, char* argv[]) {
         "SHADOW_DESKTOP_DIRTY_CLOSE_SMOKE"
     );
     if (open_first_edit && !record_first_comparison && !set_first_decision) {
+        const auto open_first_available = [&controller, &editor, &engine]() {
+            auto* const model = controller.reviewModel();
+            if (editor.active() || model->rowCount() == 0) {
+                return;
+            }
+            const QModelIndex first = model->index(0, 0);
+            editor.openPhoto(
+                model->data(first, ReviewModel::PhotoIdRole).toString(),
+                model->data(first, ReviewModel::RepresentationIdRole).toString(),
+                model->data(first, ReviewModel::SourcePathRole).toString(),
+                model->data(first, ReviewModel::TitleRole).toString()
+            );
+            if (!engine.rootObjects().isEmpty()) {
+                engine.rootObjects().front()->setProperty("workspaceIndex", 1);
+            }
+        };
         QObject::connect(
             &controller,
             &ReviewController::itemCountChanged,
             &application,
-            [&controller, &editor, &engine]() {
-                auto* model = controller.reviewModel();
-                if (editor.active() || model->rowCount() == 0) {
-                    return;
-                }
-                const QModelIndex first = model->index(0, 0);
-                editor.openPhoto(
-                    model->data(first, ReviewModel::PhotoIdRole).toString(),
-                    model->data(first, ReviewModel::RepresentationIdRole).toString(),
-                    model->data(first, ReviewModel::SourcePathRole).toString(),
-                    model->data(first, ReviewModel::TitleRole).toString()
-                );
-                if (!engine.rootObjects().isEmpty()) {
-                    engine.rootObjects().front()->setProperty("workspaceIndex", 1);
-                }
-            }
+            open_first_available
         );
+        QTimer::singleShot(0, &application, open_first_available);
     }
     if (record_first_comparison) {
         QObject::connect(
@@ -797,25 +799,27 @@ int main(int argc, char* argv[]) {
     }
     if (set_first_decision && !record_first_comparison) {
         auto decision_requested = std::make_shared<bool>(false);
+        const auto request_first_decision = [&controller, decision_requested]() {
+            auto* const model = controller.reviewModel();
+            if (*decision_requested || model->rowCount() == 0
+                || controller.scanning() || controller.refreshing()
+                || controller.decisionBusy()) {
+                return;
+            }
+            *decision_requested = true;
+            const QModelIndex first = model->index(0, 0);
+            controller.setPhotoFlag(
+                model->data(first, ReviewModel::PhotoIdRole).toString(),
+                QStringLiteral("picked")
+            );
+        };
         QObject::connect(
             &controller,
             &ReviewController::itemCountChanged,
             &application,
-            [&controller, decision_requested]() {
-                auto* model = controller.reviewModel();
-                if (*decision_requested || model->rowCount() == 0
-                    || controller.scanning() || controller.refreshing()
-                    || controller.decisionBusy()) {
-                    return;
-                }
-                *decision_requested = true;
-                const QModelIndex first = model->index(0, 0);
-                controller.setPhotoFlag(
-                    model->data(first, ReviewModel::PhotoIdRole).toString(),
-                    QStringLiteral("picked")
-                );
-            }
+            request_first_decision
         );
+        QTimer::singleShot(0, &application, request_first_decision);
     }
     if (!initial_folder.isEmpty()) {
         controller.scanFolder(QUrl::fromLocalFile(initial_folder));
@@ -1053,6 +1057,7 @@ int main(int argc, char* argv[]) {
             auto early_qml_visible = std::make_shared<bool>(false);
             auto succeeded = std::make_shared<bool>(false);
             auto evaluate = std::make_shared<std::function<void()>>();
+            auto observe_justified_grid = std::make_shared<std::function<void()>>();
             *evaluate = [
                 &application,
                 &controller,
@@ -1078,6 +1083,19 @@ int main(int argc, char* argv[]) {
                 qInfo() << "Streaming import smoke displayed the first page before completion";
                 QTimer::singleShot(50, &application, &QCoreApplication::quit);
             };
+            *observe_justified_grid = [
+                &controller,
+                &engine,
+                early_qml_visible,
+                evaluate
+            ]() {
+                if (controller.scanning()
+                    && controller.reviewModel()->rowCount() > 0
+                    && review_grid_count(engine) > 0) {
+                    *early_qml_visible = true;
+                }
+                (*evaluate)();
+            };
             QObject::connect(
                 &controller,
                 &ReviewController::itemCountChanged,
@@ -1085,9 +1103,8 @@ int main(int argc, char* argv[]) {
                 [
                     &application,
                     &controller,
-                    &engine,
                     early_model_visible,
-                    early_qml_visible,
+                    observe_justified_grid,
                     evaluate
                 ]() {
                     if (controller.scanning()
@@ -1096,14 +1113,12 @@ int main(int argc, char* argv[]) {
                         QTimer::singleShot(
                             0,
                             &application,
-                            [&controller, &engine, early_qml_visible, evaluate]() {
-                                if (controller.scanning()
-                                    && controller.reviewModel()->rowCount() > 0
-                                    && review_grid_count(engine) > 0) {
-                                    *early_qml_visible = true;
-                                }
-                                (*evaluate)();
-                            }
+                            [observe_justified_grid]() { (*observe_justified_grid)(); }
+                        );
+                        QTimer::singleShot(
+                            50,
+                            &application,
+                            [observe_justified_grid]() { (*observe_justified_grid)(); }
                         );
                     }
                     (*evaluate)();
