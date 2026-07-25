@@ -6,12 +6,14 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <list>
 #include <limits>
 #include <memory>
 #include <mutex>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -39,6 +41,20 @@ struct IccTransform::State final {
             cmsDeleteTransform(transform);
         }
     }
+};
+
+struct IccTransformCache::State final {
+    struct Entry final {
+        IccTransform transform;
+        std::list<std::string>::iterator recency;
+    };
+
+    explicit State(const std::size_t requested_capacity) : capacity(requested_capacity) {}
+
+    mutable std::mutex mutex;
+    std::size_t capacity;
+    std::list<std::string> most_recent_first;
+    std::unordered_map<std::string, Entry> entries;
 };
 
 namespace {
@@ -378,6 +394,99 @@ IccTransform make_icc_transform(
         .black_point_compensation = black_point_compensation,
     };
     return IccTransform(std::move(state));
+}
+
+IccTransformCache::IccTransformCache(const std::size_t capacity)
+    : state_(std::make_shared<State>(capacity)) {}
+
+IccTransformCache::~IccTransformCache() = default;
+
+IccTransform IccTransformCache::resolve(
+    const IccProfile& source,
+    const IccProfile& destination,
+    const IccRenderingIntent intent,
+    const bool black_point_compensation
+) const {
+    const std::string key = transform_id(
+        source.info(),
+        destination.info(),
+        intent,
+        black_point_compensation
+    );
+    {
+        std::lock_guard lock(state_->mutex);
+        const auto existing = state_->entries.find(key);
+        if (existing != state_->entries.end()) {
+            state_->most_recent_first.splice(
+                state_->most_recent_first.begin(),
+                state_->most_recent_first,
+                existing->second.recency
+            );
+            return existing->second.transform;
+        }
+    }
+
+    // LittleCMS creation can allocate and inspect profile structures. Do it
+    // outside the lock so one cache miss never serializes unrelated display
+    // tiles. A simultaneous equivalent miss may build an extra transform, but
+    // only one is retained and both carry the same immutable output contract.
+    IccTransform created = make_icc_transform(
+        source,
+        destination,
+        intent,
+        black_point_compensation
+    );
+    std::lock_guard lock(state_->mutex);
+    if (state_->capacity == 0U) {
+        return created;
+    }
+    const auto existing = state_->entries.find(key);
+    if (existing != state_->entries.end()) {
+        state_->most_recent_first.splice(
+            state_->most_recent_first.begin(),
+            state_->most_recent_first,
+            existing->second.recency
+        );
+        return existing->second.transform;
+    }
+
+    state_->most_recent_first.push_front(key);
+    const auto recency = state_->most_recent_first.begin();
+    const auto [inserted, added] = state_->entries.emplace(
+        *recency,
+        State::Entry{.transform = std::move(created), .recency = recency}
+    );
+    if (!added) {
+        state_->most_recent_first.pop_front();
+        return inserted->second.transform;
+    }
+    while (state_->entries.size() > state_->capacity) {
+        const auto oldest = std::prev(state_->most_recent_first.end());
+        state_->entries.erase(*oldest);
+        state_->most_recent_first.erase(oldest);
+    }
+    return inserted->second.transform;
+}
+
+std::size_t IccTransformCache::capacity() const noexcept {
+    return state_ == nullptr ? 0U : state_->capacity;
+}
+
+std::size_t IccTransformCache::size() const {
+    if (state_ == nullptr) {
+        return 0U;
+    }
+    std::lock_guard lock(state_->mutex);
+    return state_->entries.size();
+}
+
+void IccTransformCache::clear() const {
+    if (state_ == nullptr) {
+        return;
+    }
+    std::lock_guard lock(state_->mutex);
+    state_->entries.clear();
+    state_->most_recent_first.clear();
 }
 
 } // namespace shadow::image

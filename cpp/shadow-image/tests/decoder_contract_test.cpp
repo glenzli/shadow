@@ -506,6 +506,52 @@ void icc_color_management_is_content_addressed_and_transfer_aware() {
         perceptual_transform.info().id != display_transform.info().id,
         "rendering intent participates in the ICC transform cache identity"
     );
+
+    image::IccTransformCache transform_cache(2U);
+    const auto cached_display_transform = transform_cache.resolve(
+        linear_srgb,
+        display_srgb,
+        image::IccRenderingIntent::relative_colorimetric
+    );
+    const auto cached_equivalent_transform = transform_cache.resolve(
+        another_linear_srgb,
+        round_tripped_display_srgb,
+        image::IccRenderingIntent::relative_colorimetric
+    );
+    expect(
+        cached_display_transform.info().id == display_transform.info().id
+            && cached_equivalent_transform.info().id == display_transform.info().id,
+        "ICC transform cache preserves the complete transform contract"
+    );
+    expect(
+        transform_cache.capacity() == 2U && transform_cache.size() == 1U,
+        "equivalent source and destination profile content reuse one cache entry"
+    );
+    static_cast<void>(transform_cache.resolve(
+        linear_srgb,
+        display_srgb,
+        image::IccRenderingIntent::relative_colorimetric,
+        false
+    ));
+    static_cast<void>(transform_cache.resolve(
+        display_srgb,
+        linear_srgb,
+        image::IccRenderingIntent::relative_colorimetric
+    ));
+    expect(
+        transform_cache.size() == 2U,
+        "ICC transform cache bounds distinct intent and direction entries"
+    );
+    transform_cache.clear();
+    expect(transform_cache.size() == 0U, "ICC transform cache can release its retained transforms");
+
+    image::IccTransformCache disabled_transform_cache(0U);
+    const auto uncached_transform = disabled_transform_cache.resolve(linear_srgb, display_srgb);
+    expect(
+        uncached_transform.info().id == display_transform.info().id
+            && disabled_transform_cache.size() == 0U,
+        "zero-capacity ICC cache keeps the exact contract without retaining state"
+    );
     std::array<float, 3U> middle_gray{0.18F, 0.18F, 0.18F};
     display_transform.apply_interleaved_rgb(middle_gray);
     for (const auto encoded : middle_gray) {

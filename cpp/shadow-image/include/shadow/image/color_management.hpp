@@ -128,6 +128,40 @@ private:
     );
 };
 
+/// Bounded, thread-safe cache of immutable LittleCMS transforms.
+///
+/// The cache key is the full [`IccTransformInfo::id`]: source and destination
+/// profile content, rendering intent, and black-point-compensation policy all
+/// participate. It therefore improves interactive display and soft-proof
+/// throughput without allowing a transform for one output contract to leak
+/// into another. A zero capacity is an explicit no-cache mode useful to
+/// deterministic diagnostics and constrained environments.
+class IccTransformCache final {
+public:
+    struct State;
+
+    explicit IccTransformCache(std::size_t capacity = 16U);
+    IccTransformCache(const IccTransformCache&) = default;
+    IccTransformCache& operator=(const IccTransformCache&) = default;
+    IccTransformCache(IccTransformCache&&) noexcept = default;
+    IccTransformCache& operator=(IccTransformCache&&) noexcept = default;
+    ~IccTransformCache();
+
+    [[nodiscard]] IccTransform resolve(
+        const IccProfile& source,
+        const IccProfile& destination,
+        IccRenderingIntent intent = IccRenderingIntent::relative_colorimetric,
+        bool black_point_compensation = true
+    ) const;
+
+    [[nodiscard]] std::size_t capacity() const noexcept;
+    [[nodiscard]] std::size_t size() const;
+    void clear() const;
+
+private:
+    std::shared_ptr<State> state_;
+};
+
 [[nodiscard]] IccTransform make_icc_transform(
     const IccProfile& source,
     const IccProfile& destination,
