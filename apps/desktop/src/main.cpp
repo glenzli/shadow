@@ -551,6 +551,9 @@ int main(int argc, char* argv[]) {
     QDir().mkpath(application_data);
     const QString catalog_path = QDir(application_data).filePath(QStringLiteral("catalog.sqlite"));
     const QString cache_root = QDir(application_data).filePath(QStringLiteral("cache"));
+    const bool headless_startup_smoke = qEnvironmentVariableIsSet(
+        "SHADOW_DESKTOP_SMOKE_TEST"
+    );
     const QString isolated_settings_file =
         qEnvironmentVariableIsSet("SHADOW_DESKTOP_DATA_ROOT")
         ? QDir(application_data).filePath(QStringLiteral("ui-preferences.ini"))
@@ -570,13 +573,22 @@ int main(int argc, char* argv[]) {
             backend = std::make_shared<DesktopBackend>(catalog_path, cache_root);
         } catch (const std::exception& error) {
             qCritical() << "Cannot start Shadow's local backend:" << error.what();
-            const auto choice = offer_development_catalog_reset(error);
-            if (choice != QMessageBox::Reset) {
+            const bool reset_for_smoke = headless_startup_smoke
+                && is_development_catalog_reset_error(error);
+            if (!reset_for_smoke && headless_startup_smoke) {
+                return EXIT_FAILURE;
+            }
+            if (!reset_for_smoke
+                && offer_development_catalog_reset(error) != QMessageBox::Reset) {
                 return EXIT_FAILURE;
             }
 
             QString reset_error;
             if (!reset_local_development_catalog(catalog_path, cache_root, &reset_error)) {
+                if (headless_startup_smoke) {
+                    qCritical() << "Catalog reset failed:" << reset_error;
+                    return EXIT_FAILURE;
+                }
                 QMessageBox::critical(
                     nullptr,
                     QObject::tr("Catalog reset failed"),
