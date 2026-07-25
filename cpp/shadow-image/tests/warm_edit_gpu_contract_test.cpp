@@ -848,6 +848,90 @@ void resident_gpu_clarity_is_complete_or_declines() {
     );
 }
 
+void resident_gpu_dehaze_and_defringe_is_complete_or_declines() {
+    const auto source = make_random_image(193U, 113U, true);
+    auto preparation = image::detail::prepare_warm_edit_gpu_session(source);
+    if (!preparation.session) {
+        expect(
+            std::getenv("SHADOW_TEST_REQUIRE_WARM_METAL") == nullptr,
+            "GPU dehaze / defringe was required but no resident Metal session could be prepared"
+        );
+        return;
+    }
+
+    std::array<image::AdjustmentNode, 3U> nodes{
+        image::AdjustmentNode{
+            .node_id = "before-technical-optics-exposure",
+            .parameters = image::ExposureAdjustment{.stops = -0.24},
+        },
+        image::AdjustmentNode{
+            .node_id = "technical-dehaze-defringe",
+            .parameter_schema_version = image::detail_effects_v3_parameter_schema_version,
+            .implementation_version = image::technical_detail_v3_implementation_version,
+            .parameters = image::SharpenAdjustment{
+                .execution_pass = image::DetailEffectsExecutionPass::technical_detail,
+                .dehaze = 0.56,
+                .defringe_purple_amount = 0.41,
+                .defringe_purple_hue_low = 272.0,
+                .defringe_purple_hue_high = 338.0,
+                .defringe_green_amount = 0.35,
+                .defringe_green_hue_low = 104.0,
+                .defringe_green_hue_high = 162.0,
+            },
+        },
+        image::AdjustmentNode{
+            .node_id = "after-technical-optics-saturation",
+            .parameters = image::SaturationAdjustment{.factor = 0.88},
+        },
+    };
+    const auto plan = image::compile_edit_execution_plan(nodes);
+    const auto gpu = preparation.session->render(nodes, plan, true);
+    expect(
+        gpu.status == image::detail::WarmEditGpuSession::RenderStatus::completed
+            && gpu.output.has_value()
+            && gpu.output->analyzed_linear.has_value()
+            && std::ranges::all_of(
+                gpu.output->analyzed_linear->samples,
+                [](const float value) { return std::isfinite(value); }
+            ),
+        "a supported technical dehaze / defringe stage completes on the resident GPU"
+    );
+    if (gpu.output && gpu.output->analyzed_linear) {
+        const auto cpu = image::execute_adjustment_nodes_with_backend(
+            source,
+            nodes,
+            {.full_dimensions = source.dimensions},
+            image::AdjustmentBackendMode::cpu
+        );
+        double maximum_error = 0.0;
+        const bool linear_parity = linear_close(
+            *gpu.output->analyzed_linear,
+            cpu.pixels,
+            maximum_error,
+            2.5e-4
+        );
+        if (!linear_parity) {
+            std::cerr << "Technical optics warm linear parity max="
+                      << maximum_error << '\n';
+        }
+        expect(
+            linear_parity,
+            "the resident dehaze / defringe path tracks the CPU technical reference"
+        );
+    }
+
+    std::get<image::SharpenAdjustment>(nodes[1U].parameters).denoise_luminance = 0.40;
+    const auto unsupported_plan = image::compile_edit_execution_plan(nodes);
+    const auto unsupported = preparation.session->render(nodes, unsupported_plan, false);
+    expect(
+        unsupported.status
+                == image::detail::WarmEditGpuSession::RenderStatus::unavailable_or_failed
+            && !unsupported.output.has_value()
+            && !unsupported.diagnostic.empty(),
+        "mixed technical denoise plus dehaze / defringe declines as one CPU fallback"
+    );
+}
+
 void advanced_resources_match_cpu_and_reuse_side_table_uploads() {
     const auto source = make_random_image(137U, 83U, true);
     auto preparation = image::detail::prepare_warm_edit_gpu_session(source);
@@ -1302,6 +1386,7 @@ int main() {
     resident_gpu_technical_detail_is_complete_or_declines();
     resident_gpu_texture_is_complete_or_declines();
     resident_gpu_clarity_is_complete_or_declines();
+    resident_gpu_dehaze_and_defringe_is_complete_or_declines();
     advanced_resources_match_cpu_and_reuse_side_table_uploads();
     perceptual_resources_match_cpu_and_have_independent_caches();
     cancellation_is_terminal_without_diagnostic();

@@ -114,6 +114,21 @@ struct WarmClarityParameters {
     float reserved_1;
 };
 
+struct WarmDehazeDefringeParameters {
+    float dehaze;
+    float purple_amount;
+    float green_amount;
+    float purple_hue_low;
+    float purple_hue_high;
+    float green_hue_low;
+    float green_hue_high;
+    float red_luminance;
+    float green_luminance;
+    float blue_luminance;
+    float reserved_0;
+    float reserved_1;
+};
+
 inline float3 linear_srgb_to_oklab(float3 rgb) {
     const float l = signed_cbrt(
         0.4122214708f * rgb.r + 0.5363325363f * rgb.g + 0.0514459929f * rgb.b
@@ -732,6 +747,77 @@ kernel void warm_clarity_apply_v1(
     output[rgb_index + 1u] = adjusted.y;
     output[rgb_index + 2u] = adjusted.z;
 }
+
+inline float warm_wrap_degrees(float degrees) {
+    const float wrapped = fmod(degrees, 360.0f);
+    return wrapped < 0.0f ? wrapped + 360.0f : wrapped;
+}
+
+// The dehaze / defringe reference operator is pixel-local. Keep it in the technical stage so
+// a slider change never forces the warm preview through a CPU proxy, while preserving the exact
+// CPU ordering before any creative grade or LUT.
+kernel void warm_dehaze_defringe_v1(
+    device const float* input [[buffer(0)]],
+    device float* output [[buffer(1)]],
+    constant WarmDehazeDefringeParameters& parameters [[buffer(2)]],
+    constant MetalAdjustmentInvocation& invocation [[buffer(3)]],
+    uint2 position [[thread_position_in_grid]]
+) {
+    if (position.x >= invocation.width || position.y >= invocation.height) {
+        return;
+    }
+    const uint rgb_index = (position.y * invocation.width + position.x) * 3u;
+    float3 rgb = float3(input[rgb_index], input[rgb_index + 1u], input[rgb_index + 2u]);
+    const float luma = rgb.r * parameters.red_luminance
+        + rgb.g * parameters.green_luminance + rgb.b * parameters.blue_luminance;
+    if (parameters.dehaze > 0.0f) {
+        const float veil = max(0.0f, min(rgb.r, min(rgb.g, rgb.b)));
+        const float maximum = max(0.0f, max(rgb.r, max(rgb.g, rgb.b)));
+        const float veil_fraction = clamp(veil / (maximum + 0.18f), 0.0f, 1.0f);
+        const float transmission = max(
+            0.2f,
+            1.0f - 0.88f * parameters.dehaze * veil_fraction
+        );
+        rgb = (rgb - parameters.dehaze * 0.65f * veil) / transmission;
+    } else if (parameters.dehaze < 0.0f) {
+        const float amount = -parameters.dehaze;
+        const float atmosphere = max(0.18f, luma + 0.28f);
+        rgb = mix(rgb, float3(atmosphere), 0.55f * amount);
+    }
+    float3 lab = working_rgb_to_oklab(rgb, invocation);
+    const float chroma = length(lab.yz);
+    if ((parameters.purple_amount > 0.0f || parameters.green_amount > 0.0f)
+        && chroma > 1.0e-8f) {
+        const float hue = warm_wrap_degrees(atan2(lab.z, lab.y) * 57.2957795131f);
+        const float purple_weight = adjustment_smoothstep(
+            parameters.purple_hue_low - 10.0f,
+            parameters.purple_hue_low,
+            hue
+        ) * (1.0f - adjustment_smoothstep(
+            parameters.purple_hue_high,
+            parameters.purple_hue_high + 10.0f,
+            hue
+        ));
+        const float green_weight = adjustment_smoothstep(
+            parameters.green_hue_low - 10.0f,
+            parameters.green_hue_low,
+            hue
+        ) * (1.0f - adjustment_smoothstep(
+            parameters.green_hue_high,
+            parameters.green_hue_high + 10.0f,
+            hue
+        ));
+        const float reduction = max(
+            parameters.purple_amount * purple_weight,
+            parameters.green_amount * green_weight
+        );
+        lab.yz *= 1.0f - 0.9f * reduction;
+    }
+    const float3 adjusted = oklab_to_working_rgb(lab, invocation);
+    output[rgb_index] = adjusted.x;
+    output[rgb_index + 1u] = adjusted.y;
+    output[rgb_index + 2u] = adjusted.z;
+}
 )METAL";
 
 struct WarmDisplayParameters final {
@@ -825,6 +911,23 @@ struct WarmClarityParameters final {
 static_assert(sizeof(WarmGaussianParameters) == 32U);
 static_assert(sizeof(WarmClarityParameters) == 32U);
 
+struct WarmDehazeDefringeParameters final {
+    float dehaze = 0.0F;
+    float purple_amount = 0.0F;
+    float green_amount = 0.0F;
+    float purple_hue_low = 270.0F;
+    float purple_hue_high = 340.0F;
+    float green_hue_low = 100.0F;
+    float green_hue_high = 165.0F;
+    float red_luminance = 0.2126F;
+    float green_luminance = 0.7152F;
+    float blue_luminance = 0.0722F;
+    float reserved_0 = 0.0F;
+    float reserved_1 = 0.0F;
+};
+
+static_assert(sizeof(WarmDehazeDefringeParameters) == 48U);
+
 struct WarmTechnicalDetailStage final {
     EditExecutionPlan before;
     EditExecutionPlan after;
@@ -849,6 +952,13 @@ struct WarmClarityStage final {
     WarmGaussianParameters small_gaussian;
     WarmGaussianParameters large_gaussian;
     WarmClarityParameters parameters;
+};
+
+struct WarmDehazeDefringeStage final {
+    EditExecutionPlan before;
+    EditExecutionPlan after;
+    std::vector<AdjustmentNode> post_nodes;
+    WarmDehazeDefringeParameters parameters;
 };
 
 [[nodiscard]] bool is_gpu_warm_technical_detail_supported(
@@ -1228,6 +1338,118 @@ struct WarmClarityStage final {
     return result;
 }
 
+[[nodiscard]] std::optional<WarmDehazeDefringeStage> prepare_warm_dehaze_defringe_stage(
+    const std::span<const AdjustmentNode> nodes,
+    const EditExecutionPlan& plan,
+    const WorkingRgbSpace& working_space
+) {
+    std::optional<std::size_t> neighbourhood_segment;
+    for (std::size_t index = 0U; index < plan.segments.size(); ++index) {
+        if (plan.segments[index].locality == AdjustmentLocality::neighborhood) {
+            if (neighbourhood_segment.has_value()) {
+                return std::nullopt;
+            }
+            neighbourhood_segment = index;
+        }
+    }
+    if (!neighbourhood_segment.has_value()) {
+        return std::nullopt;
+    }
+    const EditExecutionSegment& segment = plan.segments[*neighbourhood_segment];
+    if (segment.steps.size() != 1U) {
+        return std::nullopt;
+    }
+    const EditExecutionStep& step = segment.steps.front();
+    if (step.operation != AdjustmentOperation::sharpen || step.node_index >= nodes.size()) {
+        return std::nullopt;
+    }
+    const auto* detail = std::get_if<SharpenAdjustment>(&nodes[step.node_index].parameters);
+    if (detail == nullptr
+        || detail->execution_pass != DetailEffectsExecutionPass::technical_detail
+        || (detail->dehaze == 0.0 && detail->defringe_purple_amount == 0.0
+            && detail->defringe_green_amount == 0.0)
+        || detail->denoise_luminance != 0.0 || detail->denoise_color != 0.0
+        || detail->amount != 0.0 || working_space.luminance_coefficients[1] <= 0.0) {
+        return std::nullopt;
+    }
+    for (std::size_t index = 0U; index < plan.segments.size(); ++index) {
+        if (index != *neighbourhood_segment
+            && plan.segments[index].locality != AdjustmentLocality::pixel_local) {
+            return std::nullopt;
+        }
+    }
+
+    WarmDehazeDefringeStage result{
+        .before = EditExecutionPlan{.source_node_count = plan.source_node_count},
+        .after = EditExecutionPlan{.source_node_count = plan.source_node_count},
+        .post_nodes = std::vector<AdjustmentNode>(nodes.begin(), nodes.end()),
+        .parameters = WarmDehazeDefringeParameters{
+            .dehaze = static_cast<float>(detail->dehaze),
+            .purple_amount = static_cast<float>(detail->defringe_purple_amount),
+            .green_amount = static_cast<float>(detail->defringe_green_amount),
+            .purple_hue_low = static_cast<float>(detail->defringe_purple_hue_low),
+            .purple_hue_high = static_cast<float>(detail->defringe_purple_hue_high),
+            .green_hue_low = static_cast<float>(detail->defringe_green_hue_low),
+            .green_hue_high = static_cast<float>(detail->defringe_green_hue_high),
+            .red_luminance = static_cast<float>(working_space.luminance_coefficients[0]),
+            .green_luminance = static_cast<float>(working_space.luminance_coefficients[1]),
+            .blue_luminance = static_cast<float>(working_space.luminance_coefficients[2]),
+        },
+    };
+    auto& post_node = result.post_nodes[step.node_index];
+    auto& post_detail = std::get<SharpenAdjustment>(post_node.parameters);
+    // The Metal generic interpreter accepts only the color-grading variant of this shared node.
+    // Turn it into an explicit no-op solely to obtain its working-space transform for the
+    // technical optical kernel; all creative wheel controls are neutralized.
+    post_node.implementation_version = color_grading_v3_implementation_version;
+    post_detail.execution_pass = DetailEffectsExecutionPass::color_grading;
+    post_detail.dehaze = 0.0;
+    post_detail.defringe_purple_amount = 0.0;
+    post_detail.defringe_green_amount = 0.0;
+    post_detail.clarity = 0.0;
+    post_detail.texture = 0.0;
+    post_detail.shadows_saturation = 0.0;
+    post_detail.shadows_luminance = 0.0;
+    post_detail.midtones_saturation = 0.0;
+    post_detail.midtones_luminance = 0.0;
+    post_detail.highlights_saturation = 0.0;
+    post_detail.highlights_luminance = 0.0;
+
+    result.before.segments.insert(
+        result.before.segments.end(),
+        plan.segments.begin(),
+        plan.segments.begin() + static_cast<std::ptrdiff_t>(*neighbourhood_segment)
+    );
+    result.after.segments.push_back(EditExecutionSegment{
+        .locality = AdjustmentLocality::pixel_local,
+        .first_node_index = step.node_index,
+        .past_last_node_index = step.node_index + 1U,
+        .steps = {EditExecutionStep{
+            .node_index = step.node_index,
+            .operation = AdjustmentOperation::sharpen,
+        }},
+    });
+    const EditExecutionPlan post_plan = compile_edit_execution_plan(result.post_nodes);
+    for (const auto& post_segment : post_plan.segments) {
+        EditExecutionSegment retained{
+            .locality = post_segment.locality,
+            .first_node_index = post_segment.first_node_index,
+            .past_last_node_index = post_segment.past_last_node_index,
+        };
+        for (const auto& post_step : post_segment.steps) {
+            if (post_step.node_index > step.node_index) {
+                retained.steps.push_back(post_step);
+            }
+        }
+        if (!retained.steps.empty()) {
+            retained.first_node_index = retained.steps.front().node_index;
+            retained.past_last_node_index = retained.steps.back().node_index + 1U;
+            result.after.segments.push_back(std::move(retained));
+        }
+    }
+    return result;
+}
+
 [[nodiscard]] bool checked_multiply(
     const std::size_t left,
     const std::size_t right,
@@ -1489,15 +1711,32 @@ public:
             clarity_apply_pipeline_ = [device_
                 newComputePipelineStateWithFunction:clarity_apply_function error:&error];
             [clarity_apply_function release];
-            [library release];
             if (clarity_apply_pipeline_ == nil) {
+                [library release];
                 diagnostic_ = "Metal warm-preview clarity-apply pipeline creation failed: "
+                    + error_description(error);
+                return;
+            }
+            id<MTLFunction> dehaze_defringe_function =
+                [library newFunctionWithName:@"warm_dehaze_defringe_v1"];
+            if (dehaze_defringe_function == nil) {
+                [library release];
+                diagnostic_ = "Metal warm-preview dehaze-defringe shader entry point is unavailable";
+                return;
+            }
+            dehaze_defringe_pipeline_ = [device_
+                newComputePipelineStateWithFunction:dehaze_defringe_function error:&error];
+            [dehaze_defringe_function release];
+            [library release];
+            if (dehaze_defringe_pipeline_ == nil) {
+                diagnostic_ = "Metal warm-preview dehaze-defringe pipeline creation failed: "
                     + error_description(error);
             }
         }
     }
 
     ~WarmMetalContext() {
+        [dehaze_defringe_pipeline_ release];
         [clarity_apply_pipeline_ release];
         [scalar_vertical_pipeline_ release];
         [texture_apply_pipeline_ release];
@@ -1522,7 +1761,8 @@ public:
             && sharpen_log_pipeline_ != nil && sharpen_horizontal_pipeline_ != nil
             && sharpen_apply_pipeline_ != nil && texture_lightness_pipeline_ != nil
             && texture_horizontal_pipeline_ != nil && texture_apply_pipeline_ != nil
-            && scalar_vertical_pipeline_ != nil && clarity_apply_pipeline_ != nil;
+            && scalar_vertical_pipeline_ != nil && clarity_apply_pipeline_ != nil
+            && dehaze_defringe_pipeline_ != nil;
     }
     [[nodiscard]] id<MTLDevice> device() const noexcept { return device_; }
     [[nodiscard]] id<MTLCommandQueue> queue() const noexcept { return queue_; }
@@ -1559,6 +1799,9 @@ public:
     [[nodiscard]] id<MTLComputePipelineState> clarity_apply_pipeline() const noexcept {
         return clarity_apply_pipeline_;
     }
+    [[nodiscard]] id<MTLComputePipelineState> dehaze_defringe_pipeline() const noexcept {
+        return dehaze_defringe_pipeline_;
+    }
     [[nodiscard]] const std::string& diagnostic() const noexcept {
         return diagnostic_;
     }
@@ -1577,6 +1820,7 @@ private:
     id<MTLComputePipelineState> texture_apply_pipeline_ = nil;
     id<MTLComputePipelineState> scalar_vertical_pipeline_ = nil;
     id<MTLComputePipelineState> clarity_apply_pipeline_ = nil;
+    id<MTLComputePipelineState> dehaze_defringe_pipeline_ = nil;
     std::string diagnostic_;
 };
 
@@ -2292,8 +2536,13 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
             impl_->level_zero_to_raster_scale_x,
             impl_->level_zero_to_raster_scale_y
         );
+    const auto dehaze_defringe_stage = technical_detail_stage.has_value()
+            || texture_stage.has_value() || clarity_stage.has_value()
+        ? std::optional<WarmDehazeDefringeStage>{}
+        : prepare_warm_dehaze_defringe_stage(nodes, plan, impl_->working_space);
     const bool has_neighbourhood_stage = technical_detail_stage.has_value()
-        || texture_stage.has_value() || clarity_stage.has_value();
+        || texture_stage.has_value() || clarity_stage.has_value()
+        || dehaze_defringe_stage.has_value();
     PreparedMetalAdjustment before_program;
     std::optional<PreparedMetalAdjustment> final_program;
     if (technical_detail_stage.has_value()) {
@@ -2348,6 +2597,27 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
         final_program = prepare_program(
             clarity_stage->post_nodes,
             clarity_stage->after,
+            packed_row_floats,
+            packed_row_floats
+        );
+        if (!prepared_before.has_value() || !final_program.has_value()) {
+            return RenderAttempt{
+                .status = RenderStatus::unavailable_or_failed,
+                .output = std::nullopt,
+                .diagnostic = std::move(preparation_diagnostic),
+            };
+        }
+        before_program = std::move(*prepared_before);
+    } else if (dehaze_defringe_stage.has_value()) {
+        auto prepared_before = prepare_program(
+            nodes,
+            dehaze_defringe_stage->before,
+            source_row_floats,
+            packed_row_floats
+        );
+        final_program = prepare_program(
+            dehaze_defringe_stage->post_nodes,
+            dehaze_defringe_stage->after,
             packed_row_floats,
             packed_row_floats
         );
@@ -2441,6 +2711,15 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
         }
     } else if (clarity_stage.has_value()) {
         const std::string diagnostic = impl_->ensure_clarity_resources(slot_index);
+        if (!diagnostic.empty()) {
+            return RenderAttempt{
+                .status = RenderStatus::unavailable_or_failed,
+                .output = std::nullopt,
+                .diagnostic = diagnostic,
+            };
+        }
+    } else if (dehaze_defringe_stage.has_value()) {
+        const std::string diagnostic = impl_->ensure_denoise_resources(slot_index);
         if (!diagnostic.empty()) {
             return RenderAttempt{
                 .status = RenderStatus::unavailable_or_failed,
@@ -2666,6 +2945,27 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
                        length:sizeof(final_program->invocation)
                       atIndex:5U];
             dispatch(context.clarity_apply_pipeline());
+            neighbourhood_output = slot.denoised;
+        } else if (dehaze_defringe_stage.has_value()) {
+            [encoder setComputePipelineState:context.adjustment_pipeline()];
+            bind_adjustment(
+                impl_->source,
+                slot.adjusted,
+                slot.before_operations,
+                before_program,
+                *before_buffers
+            );
+            dispatch(context.adjustment_pipeline());
+
+            const auto& technical_optics = dehaze_defringe_stage->parameters;
+            [encoder setComputePipelineState:context.dehaze_defringe_pipeline()];
+            [encoder setBuffer:slot.adjusted offset:0U atIndex:0U];
+            [encoder setBuffer:slot.denoised offset:0U atIndex:1U];
+            [encoder setBytes:&technical_optics length:sizeof(technical_optics) atIndex:2U];
+            [encoder setBytes:&final_program->invocation
+                       length:sizeof(final_program->invocation)
+                      atIndex:3U];
+            dispatch(context.dehaze_defringe_pipeline());
             neighbourhood_output = slot.denoised;
         }
 

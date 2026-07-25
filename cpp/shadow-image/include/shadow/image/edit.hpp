@@ -512,9 +512,9 @@ inline constexpr std::uint32_t edit_preview_metal_display_backend_version = 1U;
 // The session-resident backend fuses adjustment and display in one Metal kernel. It has a
 // distinct receipt version because it keeps the immutable source on-device and uses fp32-safe
 // fused execution rather than the earlier host-separated adjustment/display stages. Version 5
-// adds resident technical detail; Version 6 adds Texture; Version 7 adds proxy-scale Clarity.
-// Each changes the preview route and must never reuse an earlier CPU-fallback cache entry.
-inline constexpr std::uint32_t edit_preview_warm_fused_metal_backend_version = 7U;
+// adds resident technical detail; Version 6 adds Texture; Version 7 adds proxy-scale Clarity;
+// Version 8 adds technical dehaze / defringe. Each must bypass an earlier CPU-fallback cache.
+inline constexpr std::uint32_t edit_preview_warm_fused_metal_backend_version = 8U;
 inline constexpr std::uint32_t edit_preview_jpeg_444_contract_version = 1U;
 
 enum class EditPreviewBackend : std::uint8_t {
