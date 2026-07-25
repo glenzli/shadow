@@ -2193,6 +2193,46 @@ void libraw_development_settings_are_explicit_and_cache_visible() {
     }
 }
 
+void known_canon_black_level_fixture_keeps_common_and_component_terms(
+    const std::string_view fixture,
+    const image::RawFrame& frame
+) {
+    const auto separator = fixture.find_last_of("/\\");
+    const std::string_view name = separator == std::string_view::npos
+        ? fixture
+        : fixture.substr(separator + 1U);
+    std::optional<std::array<std::uint32_t, 4U>> expected;
+    if (name == "sample_canon_400d1.cr2") {
+        // LibRaw reports common=255, cblack={1,0,0,1} and RGBG component
+        // indices {0,1,3,2} for this RGGB sensor. The row-major site levels
+        // must therefore be {256,255,256,255}, not {1,255,1,255}.
+        expected = std::array<std::uint32_t, 4U>{256U, 255U, 256U, 255U};
+    } else if (name == "Canon-eos-r-raw-00002.cr3") {
+        // This EOS R sample carries common=511 and a 1-DN blue correction.
+        expected = std::array<std::uint32_t, 4U>{511U, 511U, 511U, 512U};
+    } else if (name == "Canon-eos-r-raw-00018.cr3") {
+        expected = std::array<std::uint32_t, 4U>{2'048U, 2'048U, 2'048U, 2'048U};
+    }
+    if (!expected.has_value()) {
+        return;
+    }
+    expect(
+        frame.descriptor.cfa_pattern == "RGGB"
+            && frame.descriptor.bayer_2x2
+                == std::array{
+                    image::RawCfaColor::red,
+                    image::RawCfaColor::green,
+                    image::RawCfaColor::green,
+                    image::RawCfaColor::blue,
+                },
+        "known Canon fixture retains LibRaw's row-major RGGB CFA mapping"
+    );
+    expect(
+        frame.descriptor.black_levels == *expected,
+        "known Canon fixture adds common black level and per-component correction at each CFA site"
+    );
+}
+
 void real_libraw_boundary_and_neutral_preview_when_configured() {
     const char* fixture = std::getenv("SHADOW_TEST_DNG");
     if (fixture == nullptr || *fixture == '\0') {
@@ -2209,6 +2249,7 @@ void real_libraw_boundary_and_neutral_preview_when_configured() {
     if (decoder->capabilities().raw_frame) {
         const auto frame = decoder->decode_raw_frame();
         expect(frame.valid(), "real LibRaw RAW frame preserves a complete owned sample plane");
+        known_canon_black_level_fixture_keeps_common_and_component_terms(fixture, frame);
         expect(
             frame.descriptor.provider_id == provider->info().id
                 && frame.descriptor.provider_version == provider->info().version,
@@ -2345,7 +2386,10 @@ void real_libraw_boundary_and_neutral_preview_when_configured() {
     if (source_edge > 16'384U) {
         return;
     }
-    const image::ProxyRequest request{.max_edge = source_edge, .jpeg_quality = 90};
+    const image::ProxyRequest request{
+        .max_edge = std::min(source_edge, image::maximum_warm_edit_preview_edge),
+        .jpeg_quality = 90,
+    };
     const auto reference = image::render_reference_proxy_jpeg(retained, request);
     const std::array neutral_nodes{
         image::AdjustmentNode{

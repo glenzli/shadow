@@ -19,7 +19,7 @@ namespace shadow::image {
 namespace {
 
 using ProcessedImage = std::unique_ptr<libraw_processed_image_t, void (*)(libraw_processed_image_t*)>;
-inline constexpr std::uint32_t libraw_capability_contract_version = 5U;
+inline constexpr std::uint32_t libraw_capability_contract_version = 6U;
 // This version covers the display-orientation semantics of cached embedded-preview descriptors.
 // It is deliberately separate from the raw-frame and rendered-RGB contracts: the JPEG bytes do
 // not change, but their catalog geometry must match the auto-oriented image that Qt presents.
@@ -362,16 +362,32 @@ void require_libraw_success(const int result, const std::string_view operation) 
     return index >= 0 && index < 4;
 }
 
+[[nodiscard]] constexpr std::uint32_t combined_black_level(
+    const std::uint32_t common,
+    const std::uint32_t correction
+) noexcept {
+    return correction > std::numeric_limits<std::uint32_t>::max() - common
+        ? std::numeric_limits<std::uint32_t>::max()
+        : common + correction;
+}
+
+static_assert(combined_black_level(255U, 1U) == 256U);
+static_assert(
+    combined_black_level(std::numeric_limits<std::uint32_t>::max(), 1U)
+    == std::numeric_limits<std::uint32_t>::max()
+);
+
 [[nodiscard]] std::uint32_t raw_frame_black_level(
     const libraw_colordata_t& color,
     const int color_index
 ) noexcept {
     const auto index = static_cast<std::size_t>(color_index);
-    // `cblack[0..3]` is indexed by LibRaw's colour component, not by the row-major CFA site.
-    // Preserve an explicit zero when the source has no global fallback.
-    return color.cblack[index] != 0U || color.black == 0U
-        ? color.cblack[index]
-        : color.black;
+    // LibRaw defines `black` as the common sensor floor and `cblack[0..3]` as
+    // per-channel corrections to that floor. They are additive, not competing
+    // alternatives. Treating a small correction (for example Canon's 1 DN)
+    // as the complete black level lifts that CFA channel by hundreds of DN
+    // and turns clipped/high-key regions pink after white balance.
+    return combined_black_level(color.black, color.cblack[index]);
 }
 
 [[nodiscard]] std::uint32_t raw_frame_white_level(
