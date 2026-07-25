@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
@@ -25,6 +26,17 @@ enum class IccRenderingIntent : std::uint8_t {
     absolute_colorimetric,
 };
 
+// Complete cache/export identity for one ICC transform. A display tile, soft-proof result, or
+// exported derivative must not be reused when any member changes, even if its pixel dimensions
+// and edit recipe remain identical.
+struct IccTransformInfo final {
+    std::string id;
+    IccProfileInfo source;
+    IccProfileInfo destination;
+    IccRenderingIntent intent = IccRenderingIntent::relative_colorimetric;
+    bool black_point_compensation = true;
+};
+
 class IccTransform;
 
 class IccProfile final {
@@ -41,6 +53,9 @@ public:
     ~IccProfile();
 
     [[nodiscard]] const IccProfileInfo& info() const noexcept;
+    // Canonical serialized ICC payload suitable for embedding in an exported image. The view
+    // remains valid while this profile (or another copy sharing its state) remains alive.
+    [[nodiscard]] std::span<const std::byte> serialized() const noexcept;
 
 private:
     explicit IccProfile(std::shared_ptr<const State> state);
@@ -97,6 +112,8 @@ public:
     [[nodiscard]] const IccProfileInfo& source() const noexcept;
     [[nodiscard]] const IccProfileInfo& destination() const noexcept;
     [[nodiscard]] IccRenderingIntent intent() const noexcept;
+    [[nodiscard]] bool black_point_compensation() const noexcept;
+    [[nodiscard]] const IccTransformInfo& info() const noexcept;
 
 private:
     explicit IccTransform(std::shared_ptr<const State> state);

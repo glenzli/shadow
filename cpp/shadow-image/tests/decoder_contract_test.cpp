@@ -442,6 +442,15 @@ void icc_color_management_is_content_addressed_and_transfer_aware() {
         display_rec709.info().id != display_srgb.info().id,
         "Rec.709 and sRGB transfers cannot share a cache identity"
     );
+    expect(
+        display_srgb.serialized().size() == display_srgb.info().serialized_bytes,
+        "ICC profile exposes its complete canonical payload for export embedding"
+    );
+    const auto round_tripped_display_srgb = image::load_icc_profile(display_srgb.serialized());
+    expect(
+        round_tripped_display_srgb.info().id == display_srgb.info().id,
+        "serializing and reopening an ICC profile preserves its content identity"
+    );
 
     const auto identity = image::make_icc_transform(linear_srgb, linear_srgb);
     std::array<float, 6U> samples{0.18F, 0.5F, 1.2F, 0.0F, 0.25F, 0.75F};
@@ -458,6 +467,44 @@ void icc_color_management_is_content_addressed_and_transfer_aware() {
         linear_srgb,
         display_srgb,
         image::IccRenderingIntent::relative_colorimetric
+    );
+    const auto equivalent_display_transform = image::make_icc_transform(
+        another_linear_srgb,
+        round_tripped_display_srgb,
+        image::IccRenderingIntent::relative_colorimetric
+    );
+    expect(
+        display_transform.info().id == equivalent_display_transform.info().id,
+        "equivalent ICC transforms have a stable cache identity"
+    );
+    expect(
+        display_transform.info().source.id == linear_srgb.info().id
+            && display_transform.info().destination.id == display_srgb.info().id,
+        "ICC transform identity records both profile identities"
+    );
+    expect(
+        display_transform.black_point_compensation(),
+        "ICC transform reports its black-point compensation policy"
+    );
+    const auto no_bpc_transform = image::make_icc_transform(
+        linear_srgb,
+        display_srgb,
+        image::IccRenderingIntent::relative_colorimetric,
+        false
+    );
+    const auto perceptual_transform = image::make_icc_transform(
+        linear_srgb,
+        display_srgb,
+        image::IccRenderingIntent::perceptual
+    );
+    expect(
+        no_bpc_transform.info().id != display_transform.info().id
+            && !no_bpc_transform.black_point_compensation(),
+        "black-point compensation participates in the ICC transform cache identity"
+    );
+    expect(
+        perceptual_transform.info().id != display_transform.info().id,
+        "rendering intent participates in the ICC transform cache identity"
     );
     std::array<float, 3U> middle_gray{0.18F, 0.18F, 0.18F};
     display_transform.apply_interleaved_rgb(middle_gray);

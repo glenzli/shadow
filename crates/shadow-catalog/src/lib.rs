@@ -3,6 +3,7 @@
 //! This crate owns the current development schema and write transactions. It deliberately
 //! knows nothing about Qt, RAW decoding, or render jobs.
 
+mod backup;
 mod cache_artifact;
 mod decision;
 mod decode_snapshot;
@@ -27,6 +28,10 @@ use shadow_domain::{
 use thiserror::Error;
 use uuid::Uuid;
 
+pub use backup::{
+    CatalogBackupError, CatalogBackupReceipt, CatalogBackupVerification, create_catalog_backup,
+    verify_catalog_backup,
+};
 pub use cache_artifact::{
     CachedArtifact, CachedArtifactGeneratorIdentity, CachedArtifactRecord, CachedArtifactRole,
     InvalidateCachedArtifactStatus, RecordCachedArtifact, RecordCachedArtifactStatus,

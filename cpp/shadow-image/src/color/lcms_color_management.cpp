@@ -20,6 +20,7 @@ namespace shadow::image {
 struct IccProfile::State final {
     cmsHPROFILE profile = nullptr;
     IccProfileInfo info;
+    std::vector<std::byte> serialized;
 
     ~State() {
         if (profile != nullptr) {
@@ -30,9 +31,7 @@ struct IccProfile::State final {
 
 struct IccTransform::State final {
     cmsHTRANSFORM transform = nullptr;
-    IccProfileInfo source;
-    IccProfileInfo destination;
-    IccRenderingIntent intent = IccRenderingIntent::relative_colorimetric;
+    IccTransformInfo info;
     mutable std::mutex mutex;
 
     ~State() {
@@ -62,6 +61,23 @@ constexpr std::uint64_t fnv1a_prime = 1'099'511'628'211ULL;
     stream << "icc-fnv1a64-v1:" << std::hex << fnv1a64(bytes) << ";bytes=" << std::dec
            << bytes.size();
     return stream.str();
+}
+
+[[nodiscard]] std::string transform_id(
+    const IccProfileInfo& source,
+    const IccProfileInfo& destination,
+    const IccRenderingIntent intent,
+    const bool black_point_compensation
+) {
+    std::ostringstream contract;
+    contract << "source=" << source.id << ";destination=" << destination.id
+             << ";intent=" << static_cast<unsigned int>(intent)
+             << ";bpc=" << (black_point_compensation ? 1 : 0);
+    const auto text = contract.str();
+    const auto bytes = std::as_bytes(std::span<const char>(text.data(), text.size()));
+    std::ostringstream identity;
+    identity << "icc-transform-fnv1a64-v1:" << std::hex << fnv1a64(bytes);
+    return identity.str();
 }
 
 [[nodiscard]] std::vector<std::byte> serialize_profile(cmsHPROFILE profile) {
@@ -190,6 +206,7 @@ constexpr std::uint64_t fnv1a_prime = 1'099'511'628'211ULL;
             .description = profile_description(profile),
             .serialized_bytes = static_cast<std::uint64_t>(serialized.size()),
         };
+        state->serialized = serialized;
         return state;
     } catch (...) {
         cmsCloseProfile(profile);
@@ -210,6 +227,13 @@ const IccProfileInfo& IccProfile::info() const noexcept {
         .serialized_bytes = 0U,
     };
     return state_ == nullptr ? unavailable : state_->info;
+}
+
+std::span<const std::byte> IccProfile::serialized() const noexcept {
+    if (state_ == nullptr) {
+        return {};
+    }
+    return state_->serialized;
 }
 
 IccProfile make_linear_srgb_icc_profile() {
@@ -279,15 +303,40 @@ void IccTransform::apply_interleaved_rgb(const std::span<float> samples) const {
 }
 
 const IccProfileInfo& IccTransform::source() const noexcept {
-    return state_ == nullptr ? IccProfile{}.info() : state_->source;
+    return state_ == nullptr ? IccProfile{}.info() : state_->info.source;
 }
 
 const IccProfileInfo& IccTransform::destination() const noexcept {
-    return state_ == nullptr ? IccProfile{}.info() : state_->destination;
+    return state_ == nullptr ? IccProfile{}.info() : state_->info.destination;
 }
 
 IccRenderingIntent IccTransform::intent() const noexcept {
-    return state_ == nullptr ? IccRenderingIntent::relative_colorimetric : state_->intent;
+    return state_ == nullptr
+        ? IccRenderingIntent::relative_colorimetric
+        : state_->info.intent;
+}
+
+bool IccTransform::black_point_compensation() const noexcept {
+    return state_ == nullptr || state_->info.black_point_compensation;
+}
+
+const IccTransformInfo& IccTransform::info() const noexcept {
+    static const IccTransformInfo unavailable{
+        .id = "icc-transform-unavailable",
+        .source = {
+            .id = "icc-unavailable",
+            .description = "Unavailable ICC profile",
+            .serialized_bytes = 0U,
+        },
+        .destination = {
+            .id = "icc-unavailable",
+            .description = "Unavailable ICC profile",
+            .serialized_bytes = 0U,
+        },
+        .intent = IccRenderingIntent::relative_colorimetric,
+        .black_point_compensation = true,
+    };
+    return state_ == nullptr ? unavailable : state_->info;
 }
 
 IccTransform make_icc_transform(
@@ -316,9 +365,18 @@ IccTransform make_icc_transform(
     }
     auto state = std::make_shared<IccTransform::State>();
     state->transform = transform;
-    state->source = source.info();
-    state->destination = destination.info();
-    state->intent = intent;
+    state->info = {
+        .id = transform_id(
+            source.info(),
+            destination.info(),
+            intent,
+            black_point_compensation
+        ),
+        .source = source.info(),
+        .destination = destination.info(),
+        .intent = intent,
+        .black_point_compensation = black_point_compensation,
+    };
     return IccTransform(std::move(state));
 }
 
