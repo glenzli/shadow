@@ -9,7 +9,10 @@ use shadow_bridge::{
     extract_best_libraw_preview, inspect_libraw, libraw_provider_version,
     render_libraw_reference_proxy,
 };
-use shadow_catalog::{CatalogActor, CatalogStats, RegisterAsset};
+use shadow_catalog::{
+    CatalogActor, CatalogBackupReceipt, CatalogBackupVerification, CatalogStats, RegisterAsset,
+    create_catalog_backup, verify_catalog_backup,
+};
 use shadow_core::{
     CachedArtifactLoader, DecodeInspectionActor, DecodeInspectionOutcome, DecodeInspectionRequest,
     DecodeInspector, PreviewCacheOutcome, ScanReport, fingerprint_source, native_location,
@@ -49,6 +52,12 @@ fn main() -> Result<()> {
                     session.updated_at_ms
                 );
             }
+        }
+        [command, catalog_path, backup_path] if command == "backup" => {
+            create_backup(catalog_path, backup_path)?;
+        }
+        [command, backup_path] if command == "verify-backup" => {
+            verify_backup(backup_path)?;
         }
         [command, raw_path] if command == "inspect-raw" => {
             let snapshot = inspect_libraw(Path::new(raw_path))
@@ -267,6 +276,42 @@ fn print_stats(stats: CatalogStats) {
     );
 }
 
+fn create_backup(catalog_path: &str, backup_path: &str) -> Result<()> {
+    let receipt = create_catalog_backup(Path::new(catalog_path), Path::new(backup_path))
+        .with_context(|| {
+            format!("create verified catalog backup from {catalog_path} to {backup_path}")
+        })?;
+    print_backup_receipt(&receipt);
+    Ok(())
+}
+
+fn verify_backup(backup_path: &str) -> Result<()> {
+    let verification = verify_catalog_backup(Path::new(backup_path))
+        .with_context(|| format!("verify catalog backup {backup_path}"))?;
+    println!("verified catalog backup: {backup_path}");
+    print_backup_verification(&verification);
+    Ok(())
+}
+
+fn print_backup_receipt(receipt: &CatalogBackupReceipt) {
+    println!(
+        "created verified catalog backup: {}",
+        receipt.destination.display()
+    );
+    print_backup_verification(&receipt.verification);
+}
+
+fn print_backup_verification(verification: &CatalogBackupVerification) {
+    println!(
+        "backup: schema_v{} pages={} page_size={} bytes={}",
+        verification.schema_version,
+        verification.page_count,
+        verification.page_size,
+        verification.database_bytes
+    );
+    print_stats(verification.stats.clone());
+}
+
 fn print_decoder_snapshot(snapshot: &DecoderSnapshot) {
     let metadata = &snapshot.metadata;
     let capabilities = &snapshot.capabilities;
@@ -326,7 +371,7 @@ fn print_decoder_snapshot(snapshot: &DecoderSnapshot) {
 
 fn print_usage() {
     eprintln!(
-        "usage:\n  shadow-cli init <catalog.sqlite>\n  shadow-cli scan <catalog.sqlite> <folder>\n  shadow-cli scan-cache <catalog.sqlite> <cache-root> <folder>\n  shadow-cli cache-read <catalog.sqlite> <cache-root> <path>\n  shadow-cli resume <catalog.sqlite> <session-id>\n  shadow-cli recoverable <catalog.sqlite>\n  shadow-cli stats <catalog.sqlite>\n  shadow-cli inspect-raw <path>\n  shadow-cli inspect-store <catalog.sqlite> <cache-root> <path>"
+        "usage:\n  shadow-cli init <catalog.sqlite>\n  shadow-cli scan <catalog.sqlite> <folder>\n  shadow-cli scan-cache <catalog.sqlite> <cache-root> <folder>\n  shadow-cli cache-read <catalog.sqlite> <cache-root> <path>\n  shadow-cli resume <catalog.sqlite> <session-id>\n  shadow-cli recoverable <catalog.sqlite>\n  shadow-cli stats <catalog.sqlite>\n  shadow-cli backup <catalog.sqlite> <backup.sqlite>\n  shadow-cli verify-backup <backup.sqlite>\n  shadow-cli inspect-raw <path>\n  shadow-cli inspect-store <catalog.sqlite> <cache-root> <path>"
     );
 }
 
