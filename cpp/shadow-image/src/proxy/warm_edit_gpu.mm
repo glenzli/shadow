@@ -66,6 +66,21 @@ struct WarmDenoiseParameters {
     float reserved_1;
 };
 
+struct WarmSharpenParameters {
+    uint width;
+    uint height;
+    uint horizontal_radius;
+    uint vertical_radius;
+    float sigma_x;
+    float sigma_y;
+    float amount;
+    float threshold_ev;
+    float masking;
+    float red_luminance;
+    float green_luminance;
+    float blue_luminance;
+};
+
 inline float3 linear_srgb_to_oklab(float3 rgb) {
     const float l = signed_cbrt(
         0.4122214708f * rgb.r + 0.5363325363f * rgb.g + 0.0514459929f * rgb.b
@@ -398,6 +413,115 @@ kernel void guided_denoise_warm_v1(
             / max(parameters.green_luminance, 1.0e-6f);
     output[output_index + 2u] = output_luma + output_blue_chroma;
 }
+
+inline uint warm_reflect101_coordinate(int coordinate, uint extent) {
+    if (extent <= 1u) {
+        return 0u;
+    }
+    const int signed_extent = int(extent);
+    while (coordinate < 0 || coordinate >= signed_extent) {
+        coordinate = coordinate < 0
+            ? -coordinate
+            : 2 * signed_extent - 2 - coordinate;
+    }
+    return uint(coordinate);
+}
+
+// Keep the sharpening analysis scalar. The RGB gain is reconstructed only in the final pass,
+// exactly as in the CPU capture-sharpening operator, so fine detail cannot create a color halo.
+kernel void warm_sharpen_log_luminance_v1(
+    device const float* input [[buffer(0)]],
+    device float* log_luminance [[buffer(1)]],
+    constant WarmSharpenParameters& parameters [[buffer(2)]],
+    uint2 position [[thread_position_in_grid]]
+) {
+    if (position.x >= parameters.width || position.y >= parameters.height) {
+        return;
+    }
+    const uint rgb_index = (position.y * parameters.width + position.x) * 3u;
+    const float luma = input[rgb_index] * parameters.red_luminance
+        + input[rgb_index + 1u] * parameters.green_luminance
+        + input[rgb_index + 2u] * parameters.blue_luminance;
+    log_luminance[position.y * parameters.width + position.x] = log2(max(luma, 5.9604645e-8f));
+}
+
+kernel void warm_sharpen_horizontal_v1(
+    device const float* input [[buffer(0)]],
+    device float* horizontal [[buffer(1)]],
+    constant WarmSharpenParameters& parameters [[buffer(2)]],
+    uint2 position [[thread_position_in_grid]]
+) {
+    if (position.x >= parameters.width || position.y >= parameters.height) {
+        return;
+    }
+    const int radius = int(parameters.horizontal_radius);
+    const float inverse_two_sigma_squared = 1.0f / max(
+        2.0f * parameters.sigma_x * parameters.sigma_x,
+        1.0e-12f
+    );
+    float weighted_sum = 0.0f;
+    float weight_sum = 0.0f;
+    for (int offset = -15; offset <= 15; ++offset) {
+        if (abs(offset) > radius) {
+            continue;
+        }
+        const float weight = exp(-float(offset * offset) * inverse_two_sigma_squared);
+        const uint sample_x = warm_reflect101_coordinate(int(position.x) + offset, parameters.width);
+        weighted_sum += input[position.y * parameters.width + sample_x] * weight;
+        weight_sum += weight;
+    }
+    horizontal[position.y * parameters.width + position.x] = weighted_sum / max(weight_sum, 1.0e-12f);
+}
+
+kernel void warm_sharpen_apply_v1(
+    device const float* input [[buffer(0)]],
+    device const float* horizontal [[buffer(1)]],
+    device float* output [[buffer(2)]],
+    constant WarmSharpenParameters& parameters [[buffer(3)]],
+    uint2 position [[thread_position_in_grid]]
+) {
+    if (position.x >= parameters.width || position.y >= parameters.height) {
+        return;
+    }
+    const int radius = int(parameters.vertical_radius);
+    const float inverse_two_sigma_squared = 1.0f / max(
+        2.0f * parameters.sigma_y * parameters.sigma_y,
+        1.0e-12f
+    );
+    float weighted_sum = 0.0f;
+    float weight_sum = 0.0f;
+    for (int offset = -15; offset <= 15; ++offset) {
+        if (abs(offset) > radius) {
+            continue;
+        }
+        const float weight = exp(-float(offset * offset) * inverse_two_sigma_squared);
+        const uint sample_y = warm_reflect101_coordinate(int(position.y) + offset, parameters.height);
+        weighted_sum += horizontal[sample_y * parameters.width + position.x] * weight;
+        weight_sum += weight;
+    }
+    const uint rgb_index = (position.y * parameters.width + position.x) * 3u;
+    const float3 rgb = float3(
+        input[rgb_index], input[rgb_index + 1u], input[rgb_index + 2u]
+    );
+    const float luma = rgb.r * parameters.red_luminance
+        + rgb.g * parameters.green_luminance + rgb.b * parameters.blue_luminance;
+    const float blurred = weighted_sum / max(weight_sum, 1.0e-12f);
+    const float detail = log2(max(luma, 5.9604645e-8f)) - blurred;
+    const float thresholded = copysign(max(0.0f, abs(detail) - parameters.threshold_ev), detail);
+    const float edge_confidence = smoothstep(
+        parameters.threshold_ev,
+        parameters.threshold_ev + 0.25f,
+        abs(detail)
+    );
+    const float mask = (1.0f - parameters.masking)
+        + parameters.masking * edge_confidence;
+    const float gain = luma <= 5.9604645e-8f || thresholded == 0.0f
+        ? 1.0f
+        : exp2(parameters.amount * thresholded * mask);
+    output[rgb_index] = rgb.r * gain;
+    output[rgb_index + 1u] = rgb.g * gain;
+    output[rgb_index + 2u] = rgb.b * gain;
+}
 )METAL";
 
 struct WarmDisplayParameters final {
@@ -433,28 +557,51 @@ static_assert(sizeof(WarmDisplayParameters) == 16U);
 static_assert(sizeof(WarmStatus) == 16U);
 static_assert(sizeof(WarmDenoiseParameters) == 48U);
 
-struct WarmDenoiseStage final {
-    EditExecutionPlan before;
-    EditExecutionPlan after;
-    WarmDenoiseParameters parameters;
+// Capture sharpening is evaluated in log luminance, matching the CPU technical-detail
+// contract. The two scalar buffers required by its separable Gaussian stay resident beside the
+// RGB slots, so changing Amount/Radius/Threshold never round-trips the warm proxy to the host.
+struct WarmSharpenParameters final {
+    std::uint32_t width = 0U;
+    std::uint32_t height = 0U;
+    std::uint32_t horizontal_radius = 0U;
+    std::uint32_t vertical_radius = 0U;
+    float sigma_x = 1.0F;
+    float sigma_y = 1.0F;
+    float amount = 0.0F;
+    float threshold_ev = 0.0F;
+    float masking = 0.0F;
+    float red_luminance = 0.2126F;
+    float green_luminance = 0.7152F;
+    float blue_luminance = 0.0722F;
 };
 
-[[nodiscard]] bool is_gpu_warm_denoise_only(
+static_assert(sizeof(WarmSharpenParameters) == 48U);
+
+struct WarmTechnicalDetailStage final {
+    EditExecutionPlan before;
+    EditExecutionPlan after;
+    std::optional<WarmDenoiseParameters> denoise;
+    std::optional<WarmSharpenParameters> sharpen;
+};
+
+[[nodiscard]] bool is_gpu_warm_technical_detail_supported(
     const SharpenAdjustment& parameters
 ) noexcept {
     return parameters.execution_pass == DetailEffectsExecutionPass::technical_detail
-        && (parameters.denoise_luminance > 0.0 || parameters.denoise_color > 0.0)
-        && parameters.amount == 0.0
+        && (parameters.denoise_luminance > 0.0 || parameters.denoise_color > 0.0
+            || parameters.amount > 0.0)
         && parameters.dehaze == 0.0
         && parameters.defringe_purple_amount == 0.0
         && parameters.defringe_green_amount == 0.0;
 }
 
-[[nodiscard]] std::optional<WarmDenoiseStage> prepare_warm_denoise_stage(
+[[nodiscard]] std::optional<WarmTechnicalDetailStage> prepare_warm_technical_detail_stage(
     const std::span<const AdjustmentNode> nodes,
     const EditExecutionPlan& plan,
     const Dimensions dimensions,
-    const WorkingRgbSpace& working_space
+    const WorkingRgbSpace& working_space,
+    const double level_zero_to_raster_scale_x,
+    const double level_zero_to_raster_scale_y
 ) {
     std::optional<std::size_t> neighbourhood_segment;
     for (std::size_t index = 0U; index < plan.segments.size(); ++index) {
@@ -477,7 +624,7 @@ struct WarmDenoiseStage final {
         return std::nullopt;
     }
     const auto* detail = std::get_if<SharpenAdjustment>(&nodes[step.node_index].parameters);
-    if (detail == nullptr || !is_gpu_warm_denoise_only(*detail)
+    if (detail == nullptr || !is_gpu_warm_technical_detail_supported(*detail)
         || working_space.luminance_coefficients[1] <= 0.0) {
         return std::nullopt;
     }
@@ -499,10 +646,12 @@ struct WarmDenoiseStage final {
         0.0,
         1.0
     );
-    WarmDenoiseStage result{
+    WarmTechnicalDetailStage result{
         .before = EditExecutionPlan{.source_node_count = plan.source_node_count},
         .after = EditExecutionPlan{.source_node_count = plan.source_node_count},
-        .parameters = WarmDenoiseParameters{
+    };
+    if (detail->denoise_luminance > 0.0 || detail->denoise_color > 0.0) {
+        result.denoise = WarmDenoiseParameters{
             .width = dimensions.width,
             .height = dimensions.height,
             .radius = static_cast<std::uint32_t>(std::clamp(
@@ -525,8 +674,40 @@ struct WarmDenoiseStage final {
             .red_luminance = static_cast<float>(working_space.luminance_coefficients[0]),
             .green_luminance = static_cast<float>(working_space.luminance_coefficients[1]),
             .blue_luminance = static_cast<float>(working_space.luminance_coefficients[2]),
-        },
-    };
+        };
+    }
+    if (detail->amount > 0.0) {
+        const double radius_x = std::ceil(
+            3.0 * detail->radius * level_zero_to_raster_scale_x
+        );
+        const double radius_y = std::ceil(
+            3.0 * detail->radius * level_zero_to_raster_scale_y
+        );
+        // The shader intentionally has a fixed loop bound, keeping its resource and execution
+        // footprint predictable. A non-preview-scale source that needs wider support simply
+        // declines and replays through the complete CPU oracle.
+        if (radius_x > 15.0 || radius_y > 15.0) {
+            return std::nullopt;
+        }
+        result.sharpen = WarmSharpenParameters{
+            .width = dimensions.width,
+            .height = dimensions.height,
+            .horizontal_radius = static_cast<std::uint32_t>(radius_x),
+            .vertical_radius = static_cast<std::uint32_t>(radius_y),
+            .sigma_x = static_cast<float>(
+                detail->radius * level_zero_to_raster_scale_x
+            ),
+            .sigma_y = static_cast<float>(
+                detail->radius * level_zero_to_raster_scale_y
+            ),
+            .amount = static_cast<float>(detail->amount),
+            .threshold_ev = static_cast<float>(detail->threshold * 0.25),
+            .masking = static_cast<float>(detail->masking),
+            .red_luminance = static_cast<float>(working_space.luminance_coefficients[0]),
+            .green_luminance = static_cast<float>(working_space.luminance_coefficients[1]),
+            .blue_luminance = static_cast<float>(working_space.luminance_coefficients[2]),
+        };
+    }
     result.before.segments.insert(
         result.before.segments.end(),
         plan.segments.begin(),
@@ -616,11 +797,21 @@ public:
                 [library newFunctionWithName:@"execute_warm_adjustment_v4"];
             id<MTLFunction> denoise_function =
                 [library newFunctionWithName:@"guided_denoise_warm_v1"];
+            id<MTLFunction> sharpen_log_function =
+                [library newFunctionWithName:@"warm_sharpen_log_luminance_v1"];
+            id<MTLFunction> sharpen_horizontal_function =
+                [library newFunctionWithName:@"warm_sharpen_horizontal_v1"];
+            id<MTLFunction> sharpen_apply_function =
+                [library newFunctionWithName:@"warm_sharpen_apply_v1"];
             if (display_function == nil || adjustment_function == nil
-                || denoise_function == nil) {
+                || denoise_function == nil || sharpen_log_function == nil
+                || sharpen_horizontal_function == nil || sharpen_apply_function == nil) {
                 [display_function release];
                 [adjustment_function release];
                 [denoise_function release];
+                [sharpen_log_function release];
+                [sharpen_horizontal_function release];
+                [sharpen_apply_function release];
                 [library release];
                 diagnostic_ = "Metal warm-preview shader entry point is unavailable";
                 return;
@@ -631,6 +822,9 @@ public:
             if (display_pipeline_ == nil) {
                 [adjustment_function release];
                 [denoise_function release];
+                [sharpen_log_function release];
+                [sharpen_horizontal_function release];
+                [sharpen_apply_function release];
                 [library release];
                 diagnostic_ = "Metal warm-preview pipeline creation failed: "
                     + error_description(error);
@@ -641,6 +835,9 @@ public:
             [adjustment_function release];
             if (adjustment_pipeline_ == nil) {
                 [denoise_function release];
+                [sharpen_log_function release];
+                [sharpen_horizontal_function release];
+                [sharpen_apply_function release];
                 [library release];
                 diagnostic_ = "Metal warm-preview adjustment pipeline creation failed: "
                     + error_description(error);
@@ -649,15 +846,51 @@ public:
             denoise_pipeline_ = [device_
                 newComputePipelineStateWithFunction:denoise_function error:&error];
             [denoise_function release];
-            [library release];
             if (denoise_pipeline_ == nil) {
+                [sharpen_log_function release];
+                [sharpen_horizontal_function release];
+                [sharpen_apply_function release];
+                [library release];
                 diagnostic_ = "Metal warm-preview denoise pipeline creation failed: "
+                    + error_description(error);
+                return;
+            }
+            sharpen_log_pipeline_ = [device_
+                newComputePipelineStateWithFunction:sharpen_log_function error:&error];
+            [sharpen_log_function release];
+            if (sharpen_log_pipeline_ == nil) {
+                [sharpen_horizontal_function release];
+                [sharpen_apply_function release];
+                [library release];
+                diagnostic_ = "Metal warm-preview sharpen-log pipeline creation failed: "
+                    + error_description(error);
+                return;
+            }
+            sharpen_horizontal_pipeline_ = [device_
+                newComputePipelineStateWithFunction:sharpen_horizontal_function error:&error];
+            [sharpen_horizontal_function release];
+            if (sharpen_horizontal_pipeline_ == nil) {
+                [sharpen_apply_function release];
+                [library release];
+                diagnostic_ = "Metal warm-preview sharpen-horizontal pipeline creation failed: "
+                    + error_description(error);
+                return;
+            }
+            sharpen_apply_pipeline_ = [device_
+                newComputePipelineStateWithFunction:sharpen_apply_function error:&error];
+            [sharpen_apply_function release];
+            [library release];
+            if (sharpen_apply_pipeline_ == nil) {
+                diagnostic_ = "Metal warm-preview sharpen-apply pipeline creation failed: "
                     + error_description(error);
             }
         }
     }
 
     ~WarmMetalContext() {
+        [sharpen_apply_pipeline_ release];
+        [sharpen_horizontal_pipeline_ release];
+        [sharpen_log_pipeline_ release];
         [denoise_pipeline_ release];
         [adjustment_pipeline_ release];
         [display_pipeline_ release];
@@ -670,7 +903,9 @@ public:
 
     [[nodiscard]] bool valid() const noexcept {
         return device_ != nil && queue_ != nil && display_pipeline_ != nil
-            && adjustment_pipeline_ != nil && denoise_pipeline_ != nil;
+            && adjustment_pipeline_ != nil && denoise_pipeline_ != nil
+            && sharpen_log_pipeline_ != nil && sharpen_horizontal_pipeline_ != nil
+            && sharpen_apply_pipeline_ != nil;
     }
     [[nodiscard]] id<MTLDevice> device() const noexcept { return device_; }
     [[nodiscard]] id<MTLCommandQueue> queue() const noexcept { return queue_; }
@@ -683,6 +918,15 @@ public:
     [[nodiscard]] id<MTLComputePipelineState> denoise_pipeline() const noexcept {
         return denoise_pipeline_;
     }
+    [[nodiscard]] id<MTLComputePipelineState> sharpen_log_pipeline() const noexcept {
+        return sharpen_log_pipeline_;
+    }
+    [[nodiscard]] id<MTLComputePipelineState> sharpen_horizontal_pipeline() const noexcept {
+        return sharpen_horizontal_pipeline_;
+    }
+    [[nodiscard]] id<MTLComputePipelineState> sharpen_apply_pipeline() const noexcept {
+        return sharpen_apply_pipeline_;
+    }
     [[nodiscard]] const std::string& diagnostic() const noexcept {
         return diagnostic_;
     }
@@ -693,6 +937,9 @@ private:
     id<MTLComputePipelineState> display_pipeline_ = nil;
     id<MTLComputePipelineState> adjustment_pipeline_ = nil;
     id<MTLComputePipelineState> denoise_pipeline_ = nil;
+    id<MTLComputePipelineState> sharpen_log_pipeline_ = nil;
+    id<MTLComputePipelineState> sharpen_horizontal_pipeline_ = nil;
+    id<MTLComputePipelineState> sharpen_apply_pipeline_ = nil;
     std::string diagnostic_;
 };
 
@@ -720,6 +967,8 @@ private:
 struct WarmSlot final {
     id<MTLBuffer> adjusted = nil;
     id<MTLBuffer> denoised = nil;
+    id<MTLBuffer> sharpen_log_luminance = nil;
+    id<MTLBuffer> sharpen_horizontal = nil;
     id<MTLBuffer> rgb8 = nil;
     id<MTLBuffer> before_operations = nil;
     id<MTLBuffer> after_operations = nil;
@@ -885,6 +1134,8 @@ struct WarmEditGpuSession::Impl final {
             [slot.after_operations release];
             [slot.before_operations release];
             [slot.rgb8 release];
+            [slot.sharpen_horizontal release];
+            [slot.sharpen_log_luminance release];
             [slot.denoised release];
             [slot.adjusted release];
         }
@@ -1194,6 +1445,56 @@ struct WarmEditGpuSession::Impl final {
         stats.resident_bytes += static_cast<std::uint64_t>(addition);
         return {};
     }
+
+    [[nodiscard]] std::string ensure_sharpen_resources(
+        const std::size_t index
+    ) {
+        const std::string detail_diagnostic = ensure_denoise_resources(index);
+        if (!detail_diagnostic.empty()) {
+            return detail_diagnostic;
+        }
+        std::lock_guard lock(mutex);
+        WarmSlot& slot = slots[index];
+        if (slot.sharpen_log_luminance != nil && slot.sharpen_horizontal != nil) {
+            return {};
+        }
+        if (slot.sharpen_log_luminance != nil || slot.sharpen_horizontal != nil) {
+            return "warm-preview sharpen slot was only partially initialized";
+        }
+        // adjusted_bytes is the already-checked packed RGB allocation for this slot.
+        const std::size_t scalar_bytes = adjusted_bytes / 3U;
+        std::size_t addition = 0U;
+        if (!checked_add(scalar_bytes, scalar_bytes, addition)
+            || addition > std::numeric_limits<std::size_t>::max()
+                - static_cast<std::size_t>(stats.resident_bytes)) {
+            return "warm-preview sharpen resource size overflowed";
+        }
+        const auto recommended = static_cast<std::size_t>(
+            metal_context().device().recommendedMaxWorkingSetSize
+        );
+        const std::size_t allowance = recommended / 2U;
+        if (recommended > 0U && (addition > allowance
+                || static_cast<std::size_t>(stats.resident_bytes)
+                    > allowance - addition)) {
+            return "warm-preview sharpen resources exceed half the recommended Metal working set";
+        }
+        id<MTLBuffer> log_luminance = [metal_context().device()
+            newBufferWithLength:scalar_bytes
+            options:MTLResourceStorageModeShared];
+        id<MTLBuffer> horizontal = [metal_context().device()
+            newBufferWithLength:scalar_bytes
+            options:MTLResourceStorageModeShared];
+        if (log_luminance == nil || horizontal == nil) {
+            [log_luminance release];
+            [horizontal release];
+            return "Metal could not allocate a resident warm-preview sharpen slot";
+        }
+        slot.sharpen_log_luminance = log_luminance;
+        slot.sharpen_horizontal = horizontal;
+        stats.gpu_buffer_allocation_count += 2U;
+        stats.resident_bytes += static_cast<std::uint64_t>(addition);
+        return {};
+    }
 };
 
 WarmEditGpuSession::WarmEditGpuSession(std::unique_ptr<Impl> impl)
@@ -1287,22 +1588,24 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
     const std::uint32_t packed_row_floats = static_cast<std::uint32_t>(
         impl_->adjusted_row_stride_bytes / sizeof(float)
     );
-    const auto denoise_stage = prepare_warm_denoise_stage(
+    const auto technical_detail_stage = prepare_warm_technical_detail_stage(
         nodes,
         plan,
         impl_->dimensions,
-        impl_->working_space
+        impl_->working_space,
+        impl_->level_zero_to_raster_scale_x,
+        impl_->level_zero_to_raster_scale_y
     );
     PreparedMetalAdjustment before_program;
     std::optional<PreparedMetalAdjustment> final_program;
-    if (denoise_stage.has_value()) {
+    if (technical_detail_stage.has_value()) {
         auto prepared_before = prepare_program(
-            denoise_stage->before,
+            technical_detail_stage->before,
             source_row_floats,
             packed_row_floats
         );
         final_program = prepare_program(
-            denoise_stage->after,
+            technical_detail_stage->after,
             packed_row_floats,
             packed_row_floats
         );
@@ -1329,7 +1632,7 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
         return cancelled();
     }
     std::optional<WarmProgramBuffers> before_buffers;
-    if (denoise_stage.has_value()) {
+    if (technical_detail_stage.has_value()) {
         auto attempt = impl_->acquire_program_buffers(before_program, cancellation);
         if (attempt.cancelled) {
             return cancelled();
@@ -1374,8 +1677,10 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
     if (cancellation.stop_requested()) {
         return cancelled();
     }
-    if (denoise_stage.has_value()) {
-        const std::string diagnostic = impl_->ensure_denoise_resources(slot_index);
+    if (technical_detail_stage.has_value()) {
+        const std::string diagnostic = technical_detail_stage->sharpen.has_value()
+            ? impl_->ensure_sharpen_resources(slot_index)
+            : impl_->ensure_denoise_resources(slot_index);
         if (!diagnostic.empty()) {
             return RenderAttempt{
                 .status = RenderStatus::unavailable_or_failed,
@@ -1394,7 +1699,7 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
                 std::memcpy([destination contents], program.operations.data(), bytes);
             }
         };
-        if (denoise_stage.has_value()) {
+        if (technical_detail_stage.has_value()) {
             upload_operations(slot.before_operations, before_program);
             upload_operations(slot.after_operations, *final_program);
         } else {
@@ -1458,7 +1763,8 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
             [encoder setBuffer:buffers.selective_color.get() offset:0U atIndex:11U];
         };
 
-        if (denoise_stage.has_value()) {
+        id<MTLBuffer> technical_detail_output = impl_->source;
+        if (technical_detail_stage.has_value()) {
             [encoder setComputePipelineState:context.adjustment_pipeline()];
             bind_adjustment(
                 impl_->source,
@@ -1468,35 +1774,58 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
                 *before_buffers
             );
             dispatch(context.adjustment_pipeline());
+            technical_detail_output = slot.adjusted;
 
-            [encoder setComputePipelineState:context.denoise_pipeline()];
-            [encoder setBuffer:slot.adjusted offset:0U atIndex:0U];
-            [encoder setBuffer:slot.denoised offset:0U atIndex:1U];
-            [encoder setBytes:&denoise_stage->parameters
-                       length:sizeof(denoise_stage->parameters)
-                      atIndex:2U];
-            dispatch(context.denoise_pipeline());
-
-            if (denoise_stage->parameters.passes > 1U) {
-                [encoder setBuffer:slot.denoised offset:0U atIndex:0U];
-                [encoder setBuffer:slot.adjusted offset:0U atIndex:1U];
-                [encoder setBytes:&denoise_stage->parameters
-                           length:sizeof(denoise_stage->parameters)
-                          atIndex:2U];
+            if (technical_detail_stage->denoise.has_value()) {
+                const auto& denoise = *technical_detail_stage->denoise;
+                [encoder setComputePipelineState:context.denoise_pipeline()];
+                [encoder setBuffer:slot.adjusted offset:0U atIndex:0U];
+                [encoder setBuffer:slot.denoised offset:0U atIndex:1U];
+                [encoder setBytes:&denoise length:sizeof(denoise) atIndex:2U];
                 dispatch(context.denoise_pipeline());
+                technical_detail_output = slot.denoised;
+                if (denoise.passes > 1U) {
+                    [encoder setBuffer:slot.denoised offset:0U atIndex:0U];
+                    [encoder setBuffer:slot.adjusted offset:0U atIndex:1U];
+                    [encoder setBytes:&denoise length:sizeof(denoise) atIndex:2U];
+                    dispatch(context.denoise_pipeline());
+                    technical_detail_output = slot.adjusted;
+                }
+            }
+
+            if (technical_detail_stage->sharpen.has_value()) {
+                const auto& sharpen = *technical_detail_stage->sharpen;
+                [encoder setComputePipelineState:context.sharpen_log_pipeline()];
+                [encoder setBuffer:technical_detail_output offset:0U atIndex:0U];
+                [encoder setBuffer:slot.sharpen_log_luminance offset:0U atIndex:1U];
+                [encoder setBytes:&sharpen length:sizeof(sharpen) atIndex:2U];
+                dispatch(context.sharpen_log_pipeline());
+
+                [encoder setComputePipelineState:context.sharpen_horizontal_pipeline()];
+                [encoder setBuffer:slot.sharpen_log_luminance offset:0U atIndex:0U];
+                [encoder setBuffer:slot.sharpen_horizontal offset:0U atIndex:1U];
+                [encoder setBytes:&sharpen length:sizeof(sharpen) atIndex:2U];
+                dispatch(context.sharpen_horizontal_pipeline());
+
+                const id<MTLBuffer> sharpened_output = technical_detail_output == slot.adjusted
+                    ? slot.denoised
+                    : slot.adjusted;
+                [encoder setComputePipelineState:context.sharpen_apply_pipeline()];
+                [encoder setBuffer:technical_detail_output offset:0U atIndex:0U];
+                [encoder setBuffer:slot.sharpen_horizontal offset:0U atIndex:1U];
+                [encoder setBuffer:sharpened_output offset:0U atIndex:2U];
+                [encoder setBytes:&sharpen length:sizeof(sharpen) atIndex:3U];
+                dispatch(context.sharpen_apply_pipeline());
+                technical_detail_output = sharpened_output;
             }
         }
 
         [encoder setComputePipelineState:context.display_pipeline()];
-        const bool two_pass_denoise = denoise_stage.has_value()
-            && denoise_stage->parameters.passes > 1U;
-        id<MTLBuffer> final_input = denoise_stage.has_value()
-            ? (two_pass_denoise ? slot.adjusted : slot.denoised)
-            : impl_->source;
-        id<MTLBuffer> final_adjusted = denoise_stage.has_value()
-            ? (two_pass_denoise ? slot.denoised : slot.adjusted)
+        id<MTLBuffer> final_input = technical_detail_output;
+        id<MTLBuffer> final_adjusted = technical_detail_stage.has_value()
+            ? (final_input == slot.adjusted ? slot.denoised : slot.adjusted)
             : slot.adjusted;
-        id<MTLBuffer> final_operations = denoise_stage.has_value()
+        id<MTLBuffer> final_operations = technical_detail_stage.has_value()
             ? slot.after_operations
             : slot.before_operations;
         [encoder setBuffer:final_input offset:0U atIndex:0U];
@@ -1542,7 +1871,7 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
                     );
                 }
             };
-            if (denoise_stage.has_value()) {
+            if (technical_detail_stage.has_value()) {
                 append_node(before_program);
                 append_node(*final_program);
             } else {

@@ -553,7 +553,7 @@ void resident_backend_matches_cpu_oracle() {
     }
 }
 
-void resident_gpu_denoise_is_complete_or_declines() {
+void resident_gpu_technical_detail_is_complete_or_declines() {
     const auto source = make_random_image(193U, 113U, true);
     auto preparation = image::detail::prepare_warm_edit_gpu_session(source);
     if (!preparation.session) {
@@ -624,6 +624,43 @@ void resident_gpu_denoise_is_complete_or_declines() {
     }
 
     std::get<image::SharpenAdjustment>(nodes[1U].parameters).amount = 0.25;
+    const auto sharpen_plan = image::compile_edit_execution_plan(nodes);
+    const auto sharpened = preparation.session->render(nodes, sharpen_plan, true);
+    expect(
+        sharpened.status == image::detail::WarmEditGpuSession::RenderStatus::completed
+            && sharpened.output.has_value()
+            && sharpened.output->analyzed_linear.has_value()
+            && std::ranges::all_of(
+                sharpened.output->analyzed_linear->samples,
+                [](const float value) { return std::isfinite(value); }
+            ),
+        "a mixed technical denoise and capture-sharpening node stays on the resident GPU"
+    );
+    if (rendered.output && rendered.output->analyzed_linear
+        && sharpened.output && sharpened.output->analyzed_linear) {
+        double sharpen_delta = 0.0;
+        const auto& denoised_pixels = rendered.output->analyzed_linear->samples;
+        const auto& sharpened_pixels = sharpened.output->analyzed_linear->samples;
+        for (std::size_t index = 0U; index < sharpened_pixels.size(); ++index) {
+            sharpen_delta += std::abs(
+                static_cast<double>(sharpened_pixels[index]) - denoised_pixels[index]
+            );
+        }
+        sharpen_delta /= static_cast<double>(sharpened_pixels.size());
+        expect(
+            sharpen_delta > 1.0e-5,
+            "the resident capture-sharpening stage visibly changes its denoised input"
+        );
+    }
+    const auto after_sharpen = preparation.session->stats();
+    expect(
+        after_sharpen.gpu_buffer_allocation_count
+                == after_denoise.gpu_buffer_allocation_count + 4U
+            && after_sharpen.resident_bytes > after_denoise.resident_bytes,
+        "the next execution slot lazily creates its detail raster plus two sharpening scalar buffers"
+    );
+
+    std::get<image::SharpenAdjustment>(nodes[1U].parameters).dehaze = 0.25;
     const auto unsupported_plan = image::compile_edit_execution_plan(nodes);
     const auto unsupported = preparation.session->render(nodes, unsupported_plan, false);
     expect(
@@ -631,7 +668,7 @@ void resident_gpu_denoise_is_complete_or_declines() {
                 == image::detail::WarmEditGpuSession::RenderStatus::unavailable_or_failed
             && !unsupported.output.has_value()
             && !unsupported.diagnostic.empty(),
-        "a mixed technical-detail node declines as a whole instead of producing a hybrid GPU/CPU frame"
+        "an unsupported technical-detail combination declines as a whole rather than producing a hybrid frame"
     );
 }
 
@@ -1086,7 +1123,7 @@ void benchmark_resident_backend_when_requested() {
 
 int main() {
     resident_backend_matches_cpu_oracle();
-    resident_gpu_denoise_is_complete_or_declines();
+    resident_gpu_technical_detail_is_complete_or_declines();
     advanced_resources_match_cpu_and_reuse_side_table_uploads();
     perceptual_resources_match_cpu_and_have_independent_caches();
     cancellation_is_terminal_without_diagnostic();
