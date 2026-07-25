@@ -1676,10 +1676,9 @@ pub const EDIT_PREVIEW_METAL_ADJUSTMENT_BACKEND_VERSION: u32 = 3;
 pub const EDIT_PREVIEW_CPU_DISPLAY_BACKEND_VERSION: u32 = 1;
 pub const EDIT_PREVIEW_METAL_DISPLAY_BACKEND_VERSION: u32 = 1;
 /// Session-resident Metal path: one immutable source upload, double-buffered execution, and a
-/// fused adjustment/display kernel with immutable perceptual mixer, Point Color, Selective
-/// Color, curve, and LUT resources. Kept distinct from the split Metal stages so cache receipts
-/// cannot alias different fp32 execution graphs.
-pub const EDIT_PREVIEW_WARM_FUSED_METAL_BACKEND_VERSION: u32 = 4;
+/// fused adjustment/display kernel. This must match the native backend because the number is
+/// embedded in cache receipts and intentionally invalidates results when fused operations change.
+pub const EDIT_PREVIEW_WARM_FUSED_METAL_BACKEND_VERSION: u32 = 9;
 pub const DISPLAY_SRGB8_OUTPUT_CONTRACT_VERSION: u32 = 6;
 
 /// Hard width and height bound for one full-resolution detail tile.

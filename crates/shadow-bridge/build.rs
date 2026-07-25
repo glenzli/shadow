@@ -16,6 +16,7 @@ const BRIDGE_INPUTS: &[&str] = &[
     "include/shadow/image/camera_profile_catalog.hpp",
     "include/shadow/image/dcp_color_development.hpp",
     "include/shadow/image/fused_raw_development.hpp",
+    "include/shadow/image/raw_denoise.hpp",
     "include/shadow/image/cxx_bridge.hpp",
     "include/shadow/image/color_management.hpp",
     "include/shadow/image/source_rendering.hpp",
@@ -62,6 +63,7 @@ const EMBEDDED_IMAGE_INPUTS: &[&str] = &[
     "src/raw/metal_raw_development.hpp",
     "src/raw/metal_raw_development.mm",
     "src/raw/metal_raw_development_stub.cpp",
+    "src/raw/raw_denoise.cpp",
     "src/raw/raw_pipeline.cpp",
     "src/raw/sensor_clipping.cpp",
     "src/optics/lensfun_optics.cpp",
@@ -215,6 +217,7 @@ fn main() {
         .file(image_root.join("src/raw/dcp_color_development.cpp"))
         .file(image_root.join("src/raw/dcp_parser.cpp"))
         .file(image_root.join("src/raw/fused_raw_development.cpp"))
+        .file(image_root.join("src/raw/raw_denoise.cpp"))
         .file(image_root.join("src/raw/raw_pipeline.cpp"))
         .file(image_root.join("src/raw/sensor_clipping.cpp"))
         .file(image_root.join("src/optics/lensfun_optics.cpp"))

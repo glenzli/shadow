@@ -5,10 +5,13 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <iomanip>
 #include <limits>
+#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -71,6 +74,89 @@ constexpr double automatic_minimum_iso = 800.0;
         return RawNoiseReductionIntent::noise_robust;
     }
     return RawNoiseReductionIntent::disabled;
+}
+
+[[nodiscard]] const char* intent_identity(
+    const RawNoiseReductionIntent intent
+) noexcept {
+    switch (intent) {
+    case RawNoiseReductionIntent::provider_default:
+        return "provider-default";
+    case RawNoiseReductionIntent::disabled:
+        return "disabled";
+    case RawNoiseReductionIntent::conservative:
+        return "conservative";
+    case RawNoiseReductionIntent::noise_robust:
+        return "noise-robust";
+    }
+    return "unknown";
+}
+
+[[nodiscard]] const char* calibration_source_identity(
+    const RawSensorNoiseCalibrationSource source
+) noexcept {
+    switch (source) {
+    case RawSensorNoiseCalibrationSource::unavailable:
+        return "unavailable";
+    case RawSensorNoiseCalibrationSource::embedded_metadata:
+        return "embedded-metadata";
+    case RawSensorNoiseCalibrationSource::provider_calibration_profile:
+        return "provider-profile";
+    }
+    return "unknown";
+}
+
+void append_double_bits(std::ostringstream& output, const double value) {
+    output << std::hex << std::setw(16) << std::setfill('0')
+           << std::bit_cast<std::uint64_t>(value) << std::dec;
+}
+
+[[nodiscard]] std::string denoise_cache_identity(
+    const RawFrame& frame,
+    const RawBayerDenoiseReceipt& receipt,
+    const double iso
+) {
+    std::ostringstream identity;
+    identity << "raw-denoise=" << raw_bayer_denoise_mode_identity(receipt.mode)
+             << ";raw-denoise-request=" << intent_identity(receipt.requested_intent)
+             << ";raw-denoise-effective=" << intent_identity(receipt.effective_intent)
+             << ";raw-denoise-backend="
+             << raw_bayer_denoise_backend_identity(receipt.backend);
+    if (!receipt.applied()) {
+        identity << ";raw-denoise-model=none";
+        return identity.str();
+    }
+
+    const auto& calibration = frame.descriptor.sensor_noise;
+    if (receipt.used_sensor_noise_calibration) {
+        identity << ";raw-denoise-model=poisson-gaussian-per-cfa-v1"
+                 << ";raw-denoise-calibration-source="
+                 << calibration_source_identity(calibration.source)
+                 << ";raw-denoise-calibration-iso=";
+        append_double_bits(identity, calibration.iso_sensitivity);
+        identity << ";raw-denoise-read=";
+        for (const double value : calibration.read_noise_stddev_dn) {
+            append_double_bits(identity, value);
+        }
+        identity << ";raw-denoise-shot=";
+        for (const double value : calibration.shot_noise_variance_per_dn) {
+            append_double_bits(identity, value);
+        }
+        return identity.str();
+    }
+
+    identity << ";raw-denoise-model=iso-fallback-v1;raw-denoise-iso=";
+    append_double_bits(identity, iso);
+    return identity.str();
+}
+
+[[nodiscard]] RawBayerDenoiseReceipt finalize_receipt(
+    const RawFrame& frame,
+    RawBayerDenoiseReceipt receipt,
+    const double iso
+) {
+    receipt.cache_identity = denoise_cache_identity(frame, receipt, iso);
+    return receipt;
 }
 
 [[nodiscard]] double fallback_noise_stddev_dn(
@@ -220,15 +306,23 @@ bool RawBayerDenoiseReceipt::valid() const noexcept {
     if (backend != RawBayerDenoiseBackend::cpu && backend != RawBayerDenoiseBackend::metal) {
         return false;
     }
+    if (cache_identity.rfind("raw-denoise=", 0U) != 0U) {
+        return false;
+    }
     switch (mode) {
     case RawBayerDenoiseMode::skipped:
         return effective_intent == RawNoiseReductionIntent::disabled
             && !used_sensor_noise_calibration
-            && backend == RawBayerDenoiseBackend::cpu;
+            && backend == RawBayerDenoiseBackend::cpu
+            && (requested_intent == RawNoiseReductionIntent::disabled
+                || requested_intent == RawNoiseReductionIntent::provider_default);
     case RawBayerDenoiseMode::cfa_bilateral_conservative_v1:
-        return effective_intent == RawNoiseReductionIntent::conservative;
+        return effective_intent == RawNoiseReductionIntent::conservative
+            && (requested_intent == RawNoiseReductionIntent::conservative
+                || requested_intent == RawNoiseReductionIntent::provider_default);
     case RawBayerDenoiseMode::cfa_bilateral_noise_robust_v1:
-        return effective_intent == RawNoiseReductionIntent::noise_robust;
+        return effective_intent == RawNoiseReductionIntent::noise_robust
+            && requested_intent == RawNoiseReductionIntent::noise_robust;
     }
     return false;
 }
@@ -245,6 +339,7 @@ RawBayerDenoiseResult denoise_bayer_raw_frame(
         );
     }
 
+    const double iso = resolved_iso(frame, request);
     const RawBayerDenoiseMode mode = resolve_mode(frame, request);
     RawBayerDenoiseReceipt receipt{
         .schema_version = raw_bayer_denoise_receipt_schema_version,
@@ -256,9 +351,10 @@ RawBayerDenoiseResult denoise_bayer_raw_frame(
                 == RawSensorNoiseModel::poisson_gaussian_per_cfa,
     };
     if (mode == RawBayerDenoiseMode::skipped) {
+        auto finalized_receipt = finalize_receipt(frame, std::move(receipt), iso);
         return RawBayerDenoiseResult{
             .frame = std::move(frame),
-            .receipt = receipt,
+            .receipt = std::move(finalized_receipt),
         };
     }
 
@@ -266,7 +362,6 @@ RawBayerDenoiseResult denoise_bayer_raw_frame(
     // The execution choice shares the existing developer setting: automatic tries Metal then
     // falls back transparently, CPU disables it, and a forced Metal request fails closed rather
     // than silently claiming an acceleration that did not happen.
-    const double iso = resolved_iso(frame, request);
     const RawDevelopmentBackendMode backend_mode = raw_development_backend_mode_from_environment();
     if (backend_mode != RawDevelopmentBackendMode::cpu) {
         auto metal_attempt = detail::try_denoise_bayer_raw_frame_metal(
@@ -275,16 +370,11 @@ RawBayerDenoiseResult denoise_bayer_raw_frame(
             iso
         );
         if (metal_attempt.applied) {
+            receipt.backend = RawBayerDenoiseBackend::metal;
+            auto finalized_receipt = finalize_receipt(frame, std::move(receipt), iso);
             return RawBayerDenoiseResult{
                 .frame = std::move(frame),
-                .receipt = RawBayerDenoiseReceipt{
-                    .schema_version = receipt.schema_version,
-                    .requested_intent = receipt.requested_intent,
-                    .effective_intent = receipt.effective_intent,
-                    .mode = receipt.mode,
-                    .backend = RawBayerDenoiseBackend::metal,
-                    .used_sensor_noise_calibration = receipt.used_sensor_noise_calibration,
-                },
+                .receipt = std::move(finalized_receipt),
             };
         }
         if (backend_mode == RawDevelopmentBackendMode::metal) {
@@ -322,9 +412,10 @@ RawBayerDenoiseResult denoise_bayer_raw_frame(
             }
         }
     );
+    auto finalized_receipt = finalize_receipt(frame, std::move(receipt), iso);
     return RawBayerDenoiseResult{
         .frame = std::move(frame),
-        .receipt = receipt,
+        .receipt = std::move(finalized_receipt),
     };
 }
 

@@ -24,7 +24,8 @@ MetalRawDenoiseAttempt try_denoise_bayer_raw_frame_metal(
 MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_u16_metal(
     const RawFrame&,
     const RawFrameLinearTransform&,
-    const std::optional<std::uint32_t>
+    const std::optional<std::uint32_t>,
+    const RawHighlightRecoveryIntent
 ) {
     return MetalRawDevelopmentAttempt{
         .development = std::nullopt,

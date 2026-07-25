@@ -23,14 +23,17 @@ enum class RawDevelopmentBackendMode : std::uint8_t {
     metal,
 };
 
-inline constexpr std::uint32_t fused_raw_cpu_backend_version = 1U;
-inline constexpr std::uint32_t fused_raw_metal_backend_version = 1U;
+inline constexpr std::uint32_t fused_raw_cpu_backend_version = 2U;
+inline constexpr std::uint32_t fused_raw_metal_backend_version = 3U;
 
 [[nodiscard]] std::string_view raw_development_backend_identity(
     RawDevelopmentBackend backend
 ) noexcept;
 [[nodiscard]] bool raw_development_backend_available(
     RawDevelopmentBackend backend
+) noexcept;
+[[nodiscard]] std::string_view raw_highlight_treatment_identity(
+    RawHighlightRecoveryIntent intent
 ) noexcept;
 
 // Runtime developer/testing override:
@@ -63,6 +66,8 @@ struct FusedRawFrameDevelopment final {
     PixelBuffer pixels;
     RawDemosaicReceipt demosaic_receipt;
     RawDevelopmentBackend backend = RawDevelopmentBackend::cpu;
+    RawHighlightRecoveryIntent highlight_recovery =
+        RawHighlightRecoveryIntent::provider_default;
 
     [[nodiscard]] bool valid() const noexcept;
 };
@@ -77,7 +82,9 @@ struct FusedRawFrameDevelopment final {
 [[nodiscard]] FusedRawFrameDevelopment develop_bayer_linear_srgb_u16_fused(
     const RawFrame& frame,
     const RawFrameLinearTransform& transform,
-    std::optional<std::uint32_t> preview_max_edge = std::nullopt
+    std::optional<std::uint32_t> preview_max_edge = std::nullopt,
+    RawHighlightRecoveryIntent highlight_recovery =
+        RawHighlightRecoveryIntent::provider_default
 );
 
 // Deterministic selector used by parity tests and diagnostics. Production callers normally use
@@ -86,7 +93,9 @@ struct FusedRawFrameDevelopment final {
     const RawFrame& frame,
     const RawFrameLinearTransform& transform,
     std::optional<std::uint32_t> preview_max_edge,
-    RawDevelopmentBackendMode backend_mode
+    RawDevelopmentBackendMode backend_mode,
+    RawHighlightRecoveryIntent highlight_recovery =
+        RawHighlightRecoveryIntent::provider_default
 );
 
 } // namespace shadow::image

@@ -10,6 +10,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <span>
+#include <string>
 #include <string_view>
 #include <utility>
 
@@ -499,6 +500,86 @@ void raw_denoise_is_cfa_preserving_and_preview_aware() {
     );
 }
 
+void raw_denoise_execution_and_calibration_are_cache_visible() {
+    const auto source = noisy_bayer_frame();
+    const auto first = image::denoise_bayer_raw_frame(
+        source,
+        image::RawBayerDenoiseRequest{
+            .intent = image::RawNoiseReductionIntent::provider_default,
+        }
+    );
+    expect(
+        first.receipt.valid()
+            && first.receipt.cache_identity.find(
+                image::raw_bayer_denoise_backend_identity(first.receipt.backend)
+            ) != std::string::npos
+            && first.receipt.cache_identity.find(
+                "raw-denoise-model=poisson-gaussian-per-cfa-v1"
+            ) != std::string::npos,
+        "RAW denoise receipt identifies its actual executor and numeric model"
+    );
+
+    auto recalibrated = source;
+    recalibrated.descriptor.sensor_noise.read_noise_stddev_dn[0] += 1.0;
+    const auto second = image::denoise_bayer_raw_frame(
+        recalibrated,
+        image::RawBayerDenoiseRequest{
+            .intent = image::RawNoiseReductionIntent::provider_default,
+        }
+    );
+    expect(
+        first.receipt.cache_identity != second.receipt.cache_identity,
+        "changing sensor-noise calibration invalidates the RAW denoise identity"
+    );
+
+    SyntheticRawSession session(source);
+    const auto developed = image::develop_source_reference(
+        session,
+        image::default_raw_development_plan(),
+        std::nullopt,
+        image::RawPipelinePolicy{
+            .mode = image::RawPipelineMode::require_shadow_raw_frame,
+        }
+    );
+    expect(
+        developed.pipeline_receipt.pipeline_identity.find(first.receipt.cache_identity)
+                != std::string::npos
+            && image::raw_pipeline_receipt_identity(developed.pipeline_receipt).find(
+                   first.receipt.cache_identity
+               ) != std::string::npos
+            && developed.pixels.raw_development_receipt.development_settings_signature.find(
+                   first.receipt.cache_identity
+               ) != std::string::npos,
+        "RAW source, canonical cache, and development receipts share denoise provenance"
+    );
+}
+
+void raw_highlight_treatment_is_executed_and_cache_visible() {
+    auto plan = image::default_raw_development_plan();
+    plan.highlight_recovery = image::RawHighlightRecoveryIntent::disabled;
+    SyntheticRawSession session(synthetic_bayer_frame());
+    const auto developed = image::develop_source_reference(
+        session,
+        plan,
+        std::nullopt,
+        image::RawPipelinePolicy{
+            .mode = image::RawPipelineMode::require_shadow_raw_frame,
+        }
+    );
+    constexpr std::string_view disabled_identity = "sensor-highlights=disabled";
+    expect(
+        developed.pixels.raw_development_receipt.development_settings_signature.find(
+            disabled_identity
+        ) != std::string::npos
+            && developed.pipeline_receipt.pipeline_identity.find(disabled_identity)
+                != std::string::npos
+            && image::raw_pipeline_receipt_identity(developed.pipeline_receipt).find(
+                disabled_identity
+            ) != std::string::npos,
+        "development, pipeline, and canonical cache identities record actual highlight treatment"
+    );
+}
+
 } // namespace
 
 int main() {
@@ -507,5 +588,7 @@ int main() {
     unsupported_host_stage_falls_back_explicitly();
     exact_dcp_replaces_missing_generic_matrix();
     raw_denoise_is_cfa_preserving_and_preview_aware();
+    raw_denoise_execution_and_calibration_are_cache_visible();
+    raw_highlight_treatment_is_executed_and_cache_visible();
     return failures == 0 ? 0 : 1;
 }

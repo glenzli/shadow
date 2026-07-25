@@ -44,6 +44,7 @@ struct RawDevelopmentParameters {
     int orientation;
     uint output_row_offset;
     uint output_tile_height;
+    uint neutralize_sensor_highlights;
     uint cfa_channels[4];
     float black_levels[4];
     float white_minus_black[4];
@@ -311,10 +312,10 @@ kernel void develop_bayer_full(
         parameters.camera_to_linear_srgb[6] * camera.values.x
         + parameters.camera_to_linear_srgb[7] * camera.values.y
         + parameters.camera_to_linear_srgb[8] * camera.values.z;
-    const float3 scene_linear = neutralize_sensor_clipped_highlight(
-        float3(red, green, blue),
-        camera
-    );
+    float3 scene_linear = float3(red, green, blue);
+    if (parameters.neutralize_sensor_highlights != 0u) {
+        scene_linear = neutralize_sensor_clipped_highlight(scene_linear, camera);
+    }
     const uint output_index =
         (position.y * parameters.output_width + output_x) * 3u;
     output[output_index] = quantize_linear(scene_linear.x);
@@ -435,10 +436,10 @@ kernel void develop_bayer_area_preview(
         parameters.camera_to_linear_srgb[6] * camera.values.x
         + parameters.camera_to_linear_srgb[7] * camera.values.y
         + parameters.camera_to_linear_srgb[8] * camera.values.z;
-    const float3 scene_linear = neutralize_sensor_clipped_highlight(
-        float3(red, green, blue),
-        camera
-    );
+    float3 scene_linear = float3(red, green, blue);
+    if (parameters.neutralize_sensor_highlights != 0u) {
+        scene_linear = neutralize_sensor_clipped_highlight(scene_linear, camera);
+    }
     const uint output_index = (position.y * parameters.output_width + output_x) * 3u;
     output[output_index] = quantize_linear(scene_linear.x);
     output[output_index + 1u] = quantize_linear(scene_linear.y);
@@ -460,20 +461,22 @@ struct RawDevelopmentParameters final {
     std::int32_t orientation = 0;
     std::uint32_t output_row_offset = 0U;
     std::uint32_t output_tile_height = 0U;
+    std::uint32_t neutralize_sensor_highlights = 0U;
     std::uint32_t cfa_channels[4]{};
     float black_levels[4]{};
     float white_minus_black[4]{};
     float camera_to_linear_srgb[9]{};
 };
 
-static_assert(sizeof(RawDevelopmentParameters) == 136U);
+static_assert(sizeof(RawDevelopmentParameters) == 140U);
 static_assert(offsetof(RawDevelopmentParameters, storage_width) == 0U);
 static_assert(offsetof(RawDevelopmentParameters, reconstruction_width) == 32U);
 static_assert(offsetof(RawDevelopmentParameters, orientation) == 40U);
-static_assert(offsetof(RawDevelopmentParameters, cfa_channels) == 52U);
-static_assert(offsetof(RawDevelopmentParameters, black_levels) == 68U);
-static_assert(offsetof(RawDevelopmentParameters, white_minus_black) == 84U);
-static_assert(offsetof(RawDevelopmentParameters, camera_to_linear_srgb) == 100U);
+static_assert(offsetof(RawDevelopmentParameters, neutralize_sensor_highlights) == 52U);
+static_assert(offsetof(RawDevelopmentParameters, cfa_channels) == 56U);
+static_assert(offsetof(RawDevelopmentParameters, black_levels) == 72U);
+static_assert(offsetof(RawDevelopmentParameters, white_minus_black) == 88U);
+static_assert(offsetof(RawDevelopmentParameters, camera_to_linear_srgb) == 104U);
 
 struct RawDenoiseParameters final {
     std::uint32_t storage_width = 0U;
@@ -794,7 +797,8 @@ private:
     const RawFrame& frame,
     const RawFrameLinearTransform& transform,
     const Dimensions reconstruction_dimensions,
-    const Dimensions output_dimensions
+    const Dimensions output_dimensions,
+    const RawHighlightRecoveryIntent highlight_recovery
 ) {
     const auto& descriptor = frame.descriptor;
     RawDevelopmentParameters parameters;
@@ -809,6 +813,8 @@ private:
     parameters.reconstruction_width = reconstruction_dimensions.width;
     parameters.reconstruction_height = reconstruction_dimensions.height;
     parameters.orientation = descriptor.orientation;
+    parameters.neutralize_sensor_highlights =
+        highlight_recovery == RawHighlightRecoveryIntent::provider_default ? 1U : 0U;
     for (std::size_t site = 0U; site < 4U; ++site) {
         parameters.cfa_channels[site] = cfa_channel(descriptor.bayer_2x2[site]);
         parameters.black_levels[site] =
@@ -1009,7 +1015,8 @@ MetalRawDenoiseAttempt try_denoise_bayer_raw_frame_metal(
 MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_u16_metal(
     const RawFrame& frame,
     const RawFrameLinearTransform& transform,
-    const std::optional<std::uint32_t> preview_max_edge
+    const std::optional<std::uint32_t> preview_max_edge,
+    const RawHighlightRecoveryIntent highlight_recovery
 ) {
     const Dimensions reconstruction_dimensions = preview_max_edge.has_value()
         ? proxy_dimensions(frame.descriptor.active_dimensions, *preview_max_edge)
@@ -1147,7 +1154,8 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_u16_metal(
             frame,
             transform,
             reconstruction_dimensions,
-            output_dimensions
+            output_dimensions,
+            highlight_recovery
         );
         const auto pipeline = area_preview
             ? context.area_preview_pipeline() : context.pipeline();
@@ -1231,6 +1239,7 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_u16_metal(
                 : RawDemosaicAlgorithm::bayer_bilinear_v1
         ),
         .backend = RawDevelopmentBackend::metal,
+        .highlight_recovery = highlight_recovery,
     };
     if (!development.valid()) {
         return MetalRawDevelopmentAttempt{

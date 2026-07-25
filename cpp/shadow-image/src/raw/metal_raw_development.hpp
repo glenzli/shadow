@@ -40,7 +40,8 @@ struct MetalRawDenoiseAttempt final {
 [[nodiscard]] MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_u16_metal(
     const RawFrame& frame,
     const RawFrameLinearTransform& transform,
-    std::optional<std::uint32_t> preview_max_edge
+    std::optional<std::uint32_t> preview_max_edge,
+    RawHighlightRecoveryIntent highlight_recovery
 );
 
 } // namespace shadow::image::detail

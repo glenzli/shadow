@@ -241,13 +241,9 @@ using Matrix3 = std::array<double, 9U>;
         : "shadow-raw-v1;demosaic=bayer-bilinear";
     receipt.development_settings_signature += ";backend="
         + std::string(raw_development_backend_identity(backend));
-    receipt.development_settings_signature += ";raw-denoise="
-        + std::string(raw_bayer_denoise_mode_identity(raw_denoise.mode));
-    receipt.development_settings_signature += ";raw-denoise-backend="
-        + std::string(raw_bayer_denoise_backend_identity(raw_denoise.backend));
-    if (raw_denoise.used_sensor_noise_calibration) {
-        receipt.development_settings_signature += ";raw-denoise-calibration=provider";
-    }
+    receipt.development_settings_signature += ";"
+        + std::string(raw_highlight_treatment_identity(plan.highlight_recovery));
+    receipt.development_settings_signature += ";" + raw_denoise.cache_identity;
     if (camera_profile != nullptr) {
         receipt.development_settings_signature += ";color=dcp;"
             + dcp_color_receipt_identity(camera_profile->receipt);
@@ -293,6 +289,9 @@ using Matrix3 = std::array<double, 9U>;
 struct DevelopedRawFrame final {
     PixelBuffer pixels;
     RawDevelopmentBackend backend = RawDevelopmentBackend::cpu;
+    RawHighlightRecoveryIntent highlight_recovery =
+        RawHighlightRecoveryIntent::provider_default;
+    std::string raw_denoise_cache_identity;
 };
 
 [[nodiscard]] DevelopedRawFrame develop_raw_frame(
@@ -349,7 +348,8 @@ struct DevelopedRawFrame final {
     FusedRawFrameDevelopment developed = develop_bayer_linear_srgb_u16_fused(
         denoised.frame,
         transform,
-        preview_max_edge
+        preview_max_edge,
+        plan.highlight_recovery
     );
     PixelBuffer output = std::move(developed.pixels);
     output.raw_development_receipt = raw_frame_development_receipt(
@@ -364,6 +364,8 @@ struct DevelopedRawFrame final {
     return DevelopedRawFrame{
         .pixels = std::move(output),
         .backend = developed.backend,
+        .highlight_recovery = developed.highlight_recovery,
+        .raw_denoise_cache_identity = denoised.receipt.cache_identity,
     };
 }
 
@@ -686,6 +688,9 @@ DevelopedSourceReference develop_source_reference(
         pipeline.pipeline_identity = std::string(raw_frame_pipeline_identity);
         pipeline.pipeline_identity += ";backend="
             + std::string(raw_development_backend_identity(developed.backend));
+        pipeline.pipeline_identity += ";"
+            + std::string(raw_highlight_treatment_identity(developed.highlight_recovery));
+        pipeline.pipeline_identity += ";" + developed.raw_denoise_cache_identity;
         pipeline.source_provider_id = source_provider_id;
         pipeline.source_provider_version = source_provider_version;
         pipeline.raw_frame_schema_version = raw_frame_schema_version;

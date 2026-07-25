@@ -26,7 +26,8 @@ inline constexpr std::string_view raw_acceleration_environment =
 void validate_request(
     const RawFrame& frame,
     const RawFrameLinearTransform& transform,
-    const std::optional<std::uint32_t> preview_max_edge
+    const std::optional<std::uint32_t> preview_max_edge,
+    const RawHighlightRecoveryIntent highlight_recovery
 ) {
     detail::validate_bayer_frame(frame, "fused Bayer development");
     if (!transform.valid()) {
@@ -49,6 +50,16 @@ void validate_request(
             DecodeErrorCode::invalid_request,
             0,
             "fused Bayer preview max edge must be non-zero"
+        );
+    }
+    if (
+        highlight_recovery != RawHighlightRecoveryIntent::provider_default
+        && highlight_recovery != RawHighlightRecoveryIntent::disabled
+    ) {
+        throw DecodeError(
+            DecodeErrorCode::unsupported,
+            0,
+            "fused Bayer development does not implement the requested highlight recovery"
         );
     }
 }
@@ -151,6 +162,7 @@ void neutralize_sensor_clipped_highlight(
 void write_transformed_pixel(
     const CameraRgbSample& camera,
     const RawFrameLinearTransform& transform,
+    const bool neutralize_clipped_highlights,
     std::uint16_t* destination
 ) noexcept {
     std::array<double, 3U> scene_linear{};
@@ -162,7 +174,9 @@ void write_transformed_pixel(
         }
         scene_linear[output] = value;
     }
-    neutralize_sensor_clipped_highlight(scene_linear, camera);
+    if (neutralize_clipped_highlights) {
+        neutralize_sensor_clipped_highlight(scene_linear, camera);
+    }
     for (std::size_t output = 0U; output < 3U; ++output) {
         destination[output] = quantize_linear(scene_linear[output]);
     }
@@ -218,7 +232,8 @@ void write_transformed_pixel(
 [[nodiscard]] FusedRawFrameDevelopment develop_on_cpu(
     const RawFrame& frame,
     const RawFrameLinearTransform& transform,
-    const std::optional<std::uint32_t> preview_max_edge
+    const std::optional<std::uint32_t> preview_max_edge,
+    const RawHighlightRecoveryIntent highlight_recovery
 ) {
     const auto& descriptor = frame.descriptor;
     const Dimensions reconstruction_dimensions = preview_max_edge.has_value()
@@ -245,7 +260,8 @@ void write_transformed_pixel(
          reconstruction_dimensions,
          output_dimensions,
          area_preview,
-         area_sampling](
+         area_sampling,
+         highlight_recovery](
             const std::uint32_t first_row,
             const std::uint32_t last_row
         ) {
@@ -277,6 +293,8 @@ void write_transformed_pixel(
                     write_transformed_pixel(
                         camera,
                         transform,
+                        highlight_recovery
+                            == RawHighlightRecoveryIntent::provider_default,
                         output.samples.data() + output_index
                     );
                 }
@@ -293,6 +311,7 @@ void write_transformed_pixel(
                 : RawDemosaicAlgorithm::bayer_bilinear_v1
         ),
         .backend = RawDevelopmentBackend::cpu,
+        .highlight_recovery = highlight_recovery,
     };
     if (!result.valid()) {
         throw DecodeError(
@@ -311,12 +330,26 @@ std::string_view raw_development_backend_identity(
 ) noexcept {
     switch (backend) {
     case RawDevelopmentBackend::cpu:
-        return "shadow-fused-raw-cpu-v1;sensor-highlights=neutral-v1";
+        return "shadow-fused-raw-cpu-v2";
     case RawDevelopmentBackend::metal:
-        return "shadow-fused-raw-metal-v2;math=f32-precise;area-preview=cfa-footprint-v1;"
-            "sensor-highlights=neutral-v1";
+        return "shadow-fused-raw-metal-v3;math=f32-precise;area-preview=cfa-footprint-v1";
     }
     return "shadow-fused-raw-unknown";
+}
+
+std::string_view raw_highlight_treatment_identity(
+    const RawHighlightRecoveryIntent intent
+) noexcept {
+    switch (intent) {
+    case RawHighlightRecoveryIntent::provider_default:
+        return "sensor-highlights=neutral-v1";
+    case RawHighlightRecoveryIntent::disabled:
+        return "sensor-highlights=disabled";
+    case RawHighlightRecoveryIntent::conservative:
+    case RawHighlightRecoveryIntent::aggressive:
+        return "sensor-highlights=unsupported";
+    }
+    return "sensor-highlights=unknown";
 }
 
 bool raw_development_backend_available(const RawDevelopmentBackend backend) noexcept {
@@ -364,7 +397,11 @@ bool FusedRawFrameDevelopment::valid() const noexcept {
     const auto height = static_cast<std::uint64_t>(pixels.dimensions.height);
     const bool known_backend = backend == RawDevelopmentBackend::cpu
         || backend == RawDevelopmentBackend::metal;
-    if (!known_backend || width == 0U || height == 0U || pixels.bits_per_channel != 16U
+    const bool known_highlight_treatment =
+        highlight_recovery == RawHighlightRecoveryIntent::provider_default
+        || highlight_recovery == RawHighlightRecoveryIntent::disabled;
+    if (!known_backend || !known_highlight_treatment
+        || width == 0U || height == 0U || pixels.bits_per_channel != 16U
         || pixels.channels != 3U
         || pixels.row_stride_bytes != width * 3U * sizeof(std::uint16_t)
         || pixels.primaries != RgbPrimaries::srgb_rec709_d65
@@ -381,13 +418,15 @@ bool FusedRawFrameDevelopment::valid() const noexcept {
 FusedRawFrameDevelopment develop_bayer_linear_srgb_u16_fused(
     const RawFrame& frame,
     const RawFrameLinearTransform& transform,
-    const std::optional<std::uint32_t> preview_max_edge
+    const std::optional<std::uint32_t> preview_max_edge,
+    const RawHighlightRecoveryIntent highlight_recovery
 ) {
     return develop_bayer_linear_srgb_u16_fused_with_backend(
         frame,
         transform,
         preview_max_edge,
-        raw_development_backend_mode_from_environment()
+        raw_development_backend_mode_from_environment(),
+        highlight_recovery
     );
 }
 
@@ -395,14 +434,16 @@ FusedRawFrameDevelopment develop_bayer_linear_srgb_u16_fused_with_backend(
     const RawFrame& frame,
     const RawFrameLinearTransform& transform,
     const std::optional<std::uint32_t> preview_max_edge,
-    const RawDevelopmentBackendMode backend_mode
+    const RawDevelopmentBackendMode backend_mode,
+    const RawHighlightRecoveryIntent highlight_recovery
 ) {
-    validate_request(frame, transform, preview_max_edge);
+    validate_request(frame, transform, preview_max_edge, highlight_recovery);
     if (backend_mode != RawDevelopmentBackendMode::cpu) {
         auto attempt = detail::try_develop_bayer_linear_srgb_u16_metal(
             frame,
             transform,
-            preview_max_edge
+            preview_max_edge,
+            highlight_recovery
         );
         if (attempt.development.has_value()) {
             return std::move(*attempt.development);
@@ -417,7 +458,7 @@ FusedRawFrameDevelopment develop_bayer_linear_srgb_u16_fused_with_backend(
             );
         }
     }
-    auto result = develop_on_cpu(frame, transform, preview_max_edge);
+    auto result = develop_on_cpu(frame, transform, preview_max_edge, highlight_recovery);
     if (!result.valid()) {
         throw DecodeError(
             DecodeErrorCode::internal,

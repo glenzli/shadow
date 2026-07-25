@@ -416,6 +416,10 @@ void sensor_clipped_highlights_are_neutral_before_u16_clipping() {
             max_edge,
             image::RawDevelopmentBackendMode::cpu
         );
+        expect(
+            cpu.highlight_recovery == image::RawHighlightRecoveryIntent::provider_default,
+            "default fused development records sensor-highlight neutralization"
+        );
         for (std::size_t index = 0U; index < cpu.pixels.samples.size(); index += 3U) {
             const auto red = cpu.pixels.samples[index];
             const auto green = cpu.pixels.samples[index + 1U];
@@ -428,6 +432,34 @@ void sensor_clipped_highlights_are_neutral_before_u16_clipping() {
             );
         }
     }
+
+    const auto disabled = image::develop_bayer_linear_srgb_u16_fused_with_backend(
+        sensor_clipped_frame(),
+        transform,
+        std::nullopt,
+        image::RawDevelopmentBackendMode::cpu,
+        image::RawHighlightRecoveryIntent::disabled
+    );
+    expect(
+        disabled.valid()
+            && disabled.highlight_recovery == image::RawHighlightRecoveryIntent::disabled
+            && image::raw_highlight_treatment_identity(disabled.highlight_recovery)
+                == "sensor-highlights=disabled",
+        "disabled highlight treatment remains explicit in the fused result"
+    );
+    bool disabled_preserves_channel_difference = false;
+    for (std::size_t index = 0U; index < disabled.pixels.samples.size(); index += 3U) {
+        const auto red = disabled.pixels.samples[index];
+        const auto green = disabled.pixels.samples[index + 1U];
+        const auto blue = disabled.pixels.samples[index + 2U];
+        disabled_preserves_channel_difference =
+            disabled_preserves_channel_difference
+            || std::min({red, green, blue}) + 2U < std::max({red, green, blue});
+    }
+    expect(
+        disabled_preserves_channel_difference,
+        "disabled highlight treatment does not silently neutralize clipped sensor colours"
+    );
 
     const auto one_channel = image::develop_bayer_linear_srgb_u16_fused_with_backend(
         single_channel_clipped_frame(),
@@ -466,6 +498,32 @@ void sensor_clipped_highlights_are_neutral_before_u16_clipping() {
         metal.pixels.samples == cpu.pixels.samples,
         "Metal applies the same sensor-highlight neutralization as CPU"
     );
+
+    const auto disabled_metal = image::develop_bayer_linear_srgb_u16_fused_with_backend(
+        sensor_clipped_frame(),
+        transform,
+        std::nullopt,
+        image::RawDevelopmentBackendMode::metal,
+        image::RawHighlightRecoveryIntent::disabled
+    );
+    expect(
+        disabled_metal.highlight_recovery == image::RawHighlightRecoveryIntent::disabled,
+        "Metal records disabled sensor-highlight treatment"
+    );
+    std::uint16_t maximum_disabled_difference = 0U;
+    for (std::size_t index = 0U; index < disabled.pixels.samples.size(); ++index) {
+        maximum_disabled_difference = std::max(
+            maximum_disabled_difference,
+            static_cast<std::uint16_t>(std::abs(
+                static_cast<std::int32_t>(disabled.pixels.samples[index])
+                - static_cast<std::int32_t>(disabled_metal.pixels.samples[index])
+            ))
+        );
+    }
+    expect(
+        maximum_disabled_difference <= 2U,
+        "Metal disabled-highlight output stays within two u16 codes of CPU"
+    );
 }
 
 void invalid_inputs_fail_closed() {
@@ -499,6 +557,22 @@ void invalid_inputs_fail_closed() {
         expect(
             error.code() == image::DecodeErrorCode::invalid_request,
             "invalid fused request returns a typed request error"
+        );
+    }
+
+    try {
+        static_cast<void>(image::develop_bayer_linear_srgb_u16_fused_with_backend(
+            synthetic_frame(0),
+            identity,
+            std::nullopt,
+            image::RawDevelopmentBackendMode::cpu,
+            image::RawHighlightRecoveryIntent::conservative
+        ));
+        expect(false, "unimplemented highlight reconstruction is rejected");
+    } catch (const image::DecodeError& error) {
+        expect(
+            error.code() == image::DecodeErrorCode::unsupported,
+            "unimplemented highlight reconstruction fails with a typed unsupported error"
         );
     }
 

@@ -3,6 +3,7 @@
 #include <shadow/image/decoder.hpp>
 
 #include <cstdint>
+#include <string>
 
 namespace shadow::image {
 
@@ -43,6 +44,9 @@ struct RawBayerDenoiseReceipt final {
     RawBayerDenoiseMode mode = RawBayerDenoiseMode::skipped;
     RawBayerDenoiseBackend backend = RawBayerDenoiseBackend::cpu;
     bool used_sensor_noise_calibration = false;
+    // Canonical identity of the actual executor and numeric noise model used for these samples.
+    // The RAW pipeline incorporates this verbatim into its rendered-source cache identity.
+    std::string cache_identity;
 
     [[nodiscard]] bool applied() const noexcept {
         return mode != RawBayerDenoiseMode::skipped;
