@@ -11,6 +11,7 @@ mod preview_render_registry;
 mod recipe_v1;
 mod review_service;
 mod scan_service;
+mod session_preview_store;
 mod shared_grade_application;
 mod shared_grade_library;
 
@@ -104,6 +105,7 @@ use crate::photo_provider::PhotoInspector;
 use crate::photo_provider::isolated_edit_raster;
 use crate::review_service::ReviewService;
 use crate::scan_service::ScanService;
+use crate::session_preview_store::SessionPreviewStore;
 use detail_tile_cache::{CachedDetailSource, EditDetailSessionCache, cached_detail_tile};
 use detail_viewport::{
     MAX_DETAIL_VIEWPORT_SIDE, detail_viewport_rects, validate_detail_viewport_request,
@@ -275,8 +277,11 @@ mod ffi {
         unchanged: u64,
         needs_revalidation: u64,
         decode_inspections_queued: u64,
+        /// Each cataloged visual that became immediately displayable. An
+        /// embedded preview and its later generated proxy are separate events.
+        preview_artifacts_published: u64,
         /// Exact actor-drain counters. They remain zero while the job is active
-        /// and are published together in the terminal snapshot.
+        /// until individual inspections finish.
         decode_inspections_completed: u64,
         decode_hard_failures: u64,
         preview_failures: u64,
@@ -1051,7 +1056,14 @@ impl DesktopSession {
         report: &shadow_core::ScanReport,
         summary: &DecodeInspectionSummary,
     ) -> AnyResult<bool> {
-        self.scanner.finish(scan_id, report, summary)
+        self.scanner.finish(
+            scan_id,
+            report,
+            &shadow_core::DecodeInspectionProgress {
+                summary: *summary,
+                visual_artifacts_published: 0,
+            },
+        )
     }
 
     fn review_page(
@@ -2483,10 +2495,15 @@ fn open_desktop_session(catalog_path: &str, cache_root: &str) -> AnyResult<Box<D
         .map_err(|error| anyhow!("open catalog {}: {error}", catalog_path.display()))?;
     let catalog = actor.handle();
     let loader = CachedArtifactLoader::open(catalog.clone(), &cache_root)?;
+    let session_previews = Arc::new(SessionPreviewStore::default());
     Ok(Box::new(DesktopSession {
         _actor: actor,
-        review: ReviewService::new(catalog.clone(), loader.clone()),
-        scanner: ScanService::new(catalog.clone(), cache_root.clone()),
+        review: ReviewService::new_with_session_previews(
+            catalog.clone(),
+            loader.clone(),
+            Arc::clone(&session_previews),
+        ),
+        scanner: ScanService::new(catalog.clone(), cache_root.clone(), session_previews),
         catalog,
         loader,
         cache_root,

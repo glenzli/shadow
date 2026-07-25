@@ -146,6 +146,14 @@ pub enum DecodeInspectionOutcome {
 pub enum PreviewCacheOutcome {
     NotRequested,
     NoVisualAvailable,
+    /// An embedded camera preview was handed to a session-owned visual sink.
+    ///
+    /// Unlike [`Self::StoredEmbeddedPreview`], this result intentionally has
+    /// no cache blob or Catalog artifact. It is valid only while that desktop
+    /// session keeps the preview in memory.
+    PublishedEmbeddedPreview {
+        byte_len: u64,
+    },
     StoredEmbeddedPreview {
         digest_hex: String,
         byte_len: u64,
@@ -171,6 +179,45 @@ pub struct DecodeInspectionSummary {
     pub hard_failures: u64,
     pub preview_failures: u64,
     pub cancelled: u64,
+}
+
+/// A non-terminal observation of a decode inspection pool.
+///
+/// `summary` preserves the exact terminal accounting contract: a request only
+/// contributes to it after its complete inspection has finished.  Visual
+/// publications are deliberately separate because an embedded camera preview
+/// may become usable before the worker has finished generating Shadow's proxy.
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
+pub struct DecodeInspectionProgress {
+    pub summary: DecodeInspectionSummary,
+    pub visual_artifacts_published: u64,
+}
+
+/// One session-scoped embedded preview publication.
+///
+/// The decode scheduler owns extraction timing, while the consumer owns
+/// retention. This prevents camera-produced previews from becoming durable
+/// Shadow cache artifacts while still allowing a Library card to appear
+/// before deterministic proxy rendering has finished.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct EmbeddedPreviewPublication {
+    pub representation_id: RepresentationId,
+    pub source: RepresentationFingerprint,
+    pub preview: PreviewPayload,
+}
+
+/// Receives transient camera previews for the lifetime of a host session.
+///
+/// Implementations must not assume that the source will remain valid after
+/// publication; consumers should use `representation_id` plus `source` as
+/// their identity guard. Returning an error discards only this temporary
+/// visual and never prevents generated-proxy rendering from continuing.
+pub trait EmbeddedPreviewSink: Send + Sync {
+    /// Publishes one embedded preview without creating a durable cache entry.
+    fn publish_embedded_preview(
+        &self,
+        publication: EmbeddedPreviewPublication,
+    ) -> Result<(), String>;
 }
 
 /// Terminal accounting and optional phase aggregates for one decode actor.
@@ -286,6 +333,7 @@ struct DecodeInspectionState {
     stopping: bool,
     worker_panicked: bool,
     summary: DecodeInspectionSummary,
+    visual_artifacts_published: u64,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -396,6 +444,7 @@ fn spawn_inspection_threads<I: DecodeInspector>(
     inspectors: Vec<I>,
     cache: Option<&ContentAddressedStore>,
     technical_handle: Option<&TechnicalObservationHandle>,
+    embedded_preview_sink: Option<&Arc<dyn EmbeddedPreviewSink>>,
     state: &Arc<Mutex<DecodeInspectionState>>,
     profiled: bool,
     queue_capacity: usize,
@@ -412,6 +461,7 @@ fn spawn_inspection_threads<I: DecodeInspector>(
         let worker_catalog = catalog.clone();
         let worker_cache = cache.cloned();
         let worker_technical_handle = technical_handle.cloned();
+        let worker_embedded_preview_sink = embedded_preview_sink.cloned();
         let worker_state = Arc::clone(state);
         let worker_name = if worker_count == 1 {
             "shadow-decode-inspector".to_owned()
@@ -425,6 +475,7 @@ fn spawn_inspection_threads<I: DecodeInspector>(
                     inspector,
                     worker_cache.as_ref(),
                     worker_technical_handle.as_ref(),
+                    worker_embedded_preview_sink.as_deref(),
                     &receiver,
                     &worker_state,
                     profiled,
@@ -562,13 +613,21 @@ impl DecodeInspectionActor {
         profiled: bool,
         queue_capacity: usize,
     ) -> Result<Self, DecodeInspectionError> {
-        Self::spawn_many_inner(catalog, vec![inspector], cache, profiled, queue_capacity)
+        Self::spawn_many_inner(
+            catalog,
+            vec![inspector],
+            cache,
+            None,
+            profiled,
+            queue_capacity,
+        )
     }
 
     fn spawn_many_inner<I: DecodeInspector>(
         catalog: &CatalogHandle,
         inspectors: Vec<I>,
         cache: Option<&ContentAddressedStore>,
+        embedded_preview_sink: Option<Arc<dyn EmbeddedPreviewSink>>,
         profiled: bool,
         queue_capacity: usize,
     ) -> Result<Self, DecodeInspectionError> {
@@ -606,6 +665,7 @@ impl DecodeInspectionActor {
             inspectors,
             cache,
             technical_handle.as_ref(),
+            embedded_preview_sink.as_ref(),
             &state,
             profiled,
             queue_capacity,
@@ -780,6 +840,7 @@ impl DecodeInspectionPool {
             worker_count,
             factory,
             None,
+            None,
             false,
             INSPECTION_QUEUE_CAPACITY,
         )
@@ -812,6 +873,41 @@ impl DecodeInspectionPool {
             worker_count,
             factory,
             Some(&cache),
+            None,
+            false,
+            INSPECTION_QUEUE_CAPACITY,
+        )
+    }
+
+    /// Starts a cached pool whose embedded camera previews are published to a
+    /// session-owned sink rather than persisted as cache artifacts.
+    ///
+    /// Generated Shadow proxies still use the supplied cache root and replace
+    /// the transient visual as soon as they are ready.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same cache, provider, and worker startup errors as
+    /// [`Self::spawn_with_cache`].
+    pub fn spawn_with_cache_and_embedded_preview_sink<I, F, E>(
+        catalog: CatalogHandle,
+        worker_count: usize,
+        factory: F,
+        cache_root: impl Into<PathBuf>,
+        embedded_preview_sink: Arc<dyn EmbeddedPreviewSink>,
+    ) -> Result<Self, DecodeInspectionError>
+    where
+        I: DecodeInspector,
+        F: FnMut(usize) -> Result<I, E>,
+        E: std::fmt::Display,
+    {
+        let cache = ContentAddressedStore::open(cache_root)?;
+        Self::spawn_inner(
+            &catalog,
+            worker_count,
+            factory,
+            Some(&cache),
+            Some(embedded_preview_sink),
             false,
             INSPECTION_QUEUE_CAPACITY,
         )
@@ -840,6 +936,7 @@ impl DecodeInspectionPool {
             worker_count,
             factory,
             Some(&cache),
+            None,
             true,
             INSPECTION_QUEUE_CAPACITY,
         )
@@ -877,6 +974,7 @@ impl DecodeInspectionPool {
         worker_count: usize,
         mut factory: F,
         cache: Option<&ContentAddressedStore>,
+        embedded_preview_sink: Option<Arc<dyn EmbeddedPreviewSink>>,
         profiled: bool,
         queue_capacity: usize,
     ) -> Result<Self, DecodeInspectionError>
@@ -901,6 +999,7 @@ impl DecodeInspectionPool {
             catalog,
             inspectors,
             cache,
+            embedded_preview_sink,
             profiled,
             queue_capacity,
         )?;
@@ -1003,6 +1102,23 @@ impl DecodeInspectionHandle {
 
     pub fn technical_preprocessing_version(&self) -> Option<&str> {
         self.technical_preprocessing_version.as_deref()
+    }
+
+    /// Returns a cheap, non-blocking snapshot suitable for import progress.
+    ///
+    /// This intentionally reports visual publications separately from completed
+    /// inspections: a Library can show an embedded camera preview while the
+    /// same worker continues creating its deterministic generated proxy.
+    #[must_use]
+    pub fn progress_snapshot(&self) -> DecodeInspectionProgress {
+        let state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        DecodeInspectionProgress {
+            summary: state.summary,
+            visual_artifacts_published: state.visual_artifacts_published,
+        }
     }
 
     /// Queues an inspection and returns immediately with a completion ticket.
@@ -1187,6 +1303,7 @@ fn run_worker(
     mut inspector: impl DecodeInspector,
     cache: Option<&ContentAddressedStore>,
     technical_observer: Option<&TechnicalObservationHandle>,
+    embedded_preview_sink: Option<&dyn EmbeddedPreviewSink>,
     receiver: &Receiver<Message>,
     state: &Mutex<DecodeInspectionState>,
     profiled: bool,
@@ -1211,8 +1328,10 @@ fn run_worker(
                         &mut inspector,
                         cache,
                         technical_observer,
+                        embedded_preview_sink,
                         &inspection.request,
                         &inspection.cancellation,
+                        state,
                         &mut performance,
                     )
                 };
@@ -1236,8 +1355,10 @@ fn inspect_and_record(
     inspector: &mut impl DecodeInspector,
     cache: Option<&ContentAddressedStore>,
     technical_observer: Option<&TechnicalObservationHandle>,
+    embedded_preview_sink: Option<&dyn EmbeddedPreviewSink>,
     request: &DecodeInspectionRequest,
     cancellation: &ScanCancellation,
+    inspection_state: &Mutex<DecodeInspectionState>,
     performance: &mut DecodePerformance,
 ) -> Result<DecodeInspectionOutcome, DecodeInspectionError> {
     if cancellation.is_cancelled() {
@@ -1315,11 +1436,13 @@ fn inspect_and_record(
                             catalog,
                             cache,
                             technical_observer,
+                            embedded_preview_sink,
                             request,
                             provider_id: &provider_id,
                             provider_version: &provider_version,
                             cancellation,
                         },
+                        inspection_state,
                         performance,
                     )
                 })
@@ -1336,11 +1459,12 @@ fn inspect_and_record(
     })
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Copy, Clone)]
 struct PreviewCacheContext<'a> {
     catalog: &'a CatalogHandle,
     cache: &'a ContentAddressedStore,
     technical_observer: Option<&'a TechnicalObservationHandle>,
+    embedded_preview_sink: Option<&'a dyn EmbeddedPreviewSink>,
     request: &'a DecodeInspectionRequest,
     provider_id: &'a str,
     provider_version: &'a str,
@@ -1350,6 +1474,7 @@ struct PreviewCacheContext<'a> {
 fn cache_preview_with_context(
     inspector: &mut impl DecodeInspector,
     context: PreviewCacheContext<'_>,
+    inspection_state: &Mutex<DecodeInspectionState>,
     performance: &mut DecodePerformance,
 ) -> PreviewCacheOutcome {
     if context.cancellation.is_cancelled() {
@@ -1359,13 +1484,19 @@ fn cache_preview_with_context(
         return PreviewCacheOutcome::Discarded(DecodeInspectionDiscardReason::FilesystemChanged);
     }
     // A camera preview is the fast path to a populated Library, not the final
-    // Shadow rendering contract. Persist it first, then continue developing a
-    // generated proxy from the same source. Catalog preference switches to the
-    // generated proxy as soon as that second artifact is recorded.
+    // Shadow rendering contract. Desktop sessions may keep it only in memory;
+    // callers without a sink retain the legacy durable-cache behavior. In both
+    // cases a generated proxy continues from the same source and replaces the
+    // temporary visual when its deterministic render is recorded.
     let mut fallback = None;
-    match prepare_embedded_preview(inspector, context, performance) {
-        Ok(Some(prepared)) => {
-            let outcome = store_prepared_cached_visual(context, prepared, performance);
+    match extract_embedded_preview(inspector, context, performance) {
+        Ok(Some(preview)) => {
+            let outcome = if let Some(sink) = context.embedded_preview_sink {
+                publish_embedded_preview(context, sink, preview, inspection_state, performance)
+            } else {
+                let prepared = prepare_embedded_cached_visual(context, preview);
+                store_prepared_cached_visual(context, prepared, inspection_state, performance)
+            };
             if matches!(outcome, PreviewCacheOutcome::Discarded(_)) {
                 return outcome;
             }
@@ -1382,7 +1513,8 @@ fn cache_preview_with_context(
 
     match prepare_generated_proxy(inspector, context, performance) {
         Ok(Some(prepared)) => {
-            let outcome = store_prepared_cached_visual(context, prepared, performance);
+            let outcome =
+                store_prepared_cached_visual(context, prepared, inspection_state, performance);
             match outcome {
                 PreviewCacheOutcome::StoredGeneratedProxy { .. }
                 | PreviewCacheOutcome::Discarded(_) => outcome,
@@ -1405,6 +1537,7 @@ type PreparedCachedVisual = (Vec<u8>, CachedArtifact, CachedVisualKind);
 fn store_prepared_cached_visual(
     context: PreviewCacheContext<'_>,
     prepared: PreparedCachedVisual,
+    inspection_state: &Mutex<DecodeInspectionState>,
     performance: &mut DecodePerformance,
 ) -> PreviewCacheOutcome {
     let (bytes, artifact, stored_kind) = prepared;
@@ -1441,7 +1574,7 @@ fn store_prepared_cached_visual(
         created_at_ms: now_ms(),
         ..artifact
     };
-    record_cached_visual(
+    let outcome = record_cached_visual(
         context.catalog,
         context.technical_observer,
         context.request,
@@ -1449,14 +1582,59 @@ fn store_prepared_cached_visual(
         stored_kind,
         &blob,
         performance,
-    )
+    );
+    count_published_visual(outcome.clone(), inspection_state);
+    outcome
 }
 
-fn prepare_embedded_preview(
+fn count_published_visual(
+    outcome: PreviewCacheOutcome,
+    inspection_state: &Mutex<DecodeInspectionState>,
+) {
+    if matches!(
+        outcome,
+        PreviewCacheOutcome::PublishedEmbeddedPreview { .. }
+            | PreviewCacheOutcome::StoredEmbeddedPreview { .. }
+            | PreviewCacheOutcome::StoredGeneratedProxy { .. }
+    ) {
+        let mut state = inspection_state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.visual_artifacts_published = state.visual_artifacts_published.saturating_add(1);
+    }
+}
+
+fn publish_embedded_preview(
+    context: PreviewCacheContext<'_>,
+    sink: &dyn EmbeddedPreviewSink,
+    preview: PreviewPayload,
+    inspection_state: &Mutex<DecodeInspectionState>,
+    performance: &mut DecodePerformance,
+) -> PreviewCacheOutcome {
+    if context.cancellation.is_cancelled() {
+        return cancelled_preview();
+    }
+    if source_changed_profiled(context.request, performance) {
+        return PreviewCacheOutcome::Discarded(DecodeInspectionDiscardReason::FilesystemChanged);
+    }
+    let byte_len = u64::try_from(preview.bytes.len()).unwrap_or(u64::MAX);
+    let outcome = match sink.publish_embedded_preview(EmbeddedPreviewPublication {
+        representation_id: context.request.representation_id,
+        source: context.request.expected_source,
+        preview,
+    }) {
+        Ok(()) => PreviewCacheOutcome::PublishedEmbeddedPreview { byte_len },
+        Err(error) => PreviewCacheOutcome::Failed(error),
+    };
+    count_published_visual(outcome.clone(), inspection_state);
+    outcome
+}
+
+fn extract_embedded_preview(
     inspector: &mut impl DecodeInspector,
     context: PreviewCacheContext<'_>,
     performance: &mut DecodePerformance,
-) -> Result<Option<PreparedCachedVisual>, PreviewCacheOutcome> {
+) -> Result<Option<PreviewPayload>, PreviewCacheOutcome> {
     if context.cancellation.is_cancelled() {
         return Err(cancelled_preview());
     }
@@ -1474,31 +1652,31 @@ fn prepare_embedded_preview(
             DecodeInspectionDiscardReason::FilesystemChanged,
         ));
     }
-    if let Some(preview) = preview {
-        let artifact = CachedArtifact {
-            role: CachedArtifactRole::EmbeddedPreview,
-            variant_key: context.provider_id.to_owned(),
-            generator_id: context.provider_id.to_owned(),
-            generator_version: context.provider_version.to_owned(),
-            recipe_snapshot_digest: None,
-            provider_preview_id: Some(preview.descriptor.provider_id),
-            blob_algorithm: String::new(),
-            blob_digest: [0; 32],
-            blob_byte_len: 0,
-            codec: preview.descriptor.codec,
-            byte_order: preview.byte_order,
-            dimensions: preview.descriptor.dimensions,
-            bits_per_channel: preview.descriptor.bits_per_channel,
-            channels: preview.descriptor.channels,
-            created_at_ms: 0,
-        };
-        return Ok(Some((
-            preview.bytes,
-            artifact,
-            CachedVisualKind::EmbeddedPreview,
-        )));
-    }
-    Ok(None)
+    Ok(preview)
+}
+
+fn prepare_embedded_cached_visual(
+    context: PreviewCacheContext<'_>,
+    preview: PreviewPayload,
+) -> PreparedCachedVisual {
+    let artifact = CachedArtifact {
+        role: CachedArtifactRole::EmbeddedPreview,
+        variant_key: context.provider_id.to_owned(),
+        generator_id: context.provider_id.to_owned(),
+        generator_version: context.provider_version.to_owned(),
+        recipe_snapshot_digest: None,
+        provider_preview_id: Some(preview.descriptor.provider_id),
+        blob_algorithm: String::new(),
+        blob_digest: [0; 32],
+        blob_byte_len: 0,
+        codec: preview.descriptor.codec,
+        byte_order: preview.byte_order,
+        dimensions: preview.descriptor.dimensions,
+        bits_per_channel: preview.descriptor.bits_per_channel,
+        channels: preview.descriptor.channels,
+        created_at_ms: 0,
+    };
+    (preview.bytes, artifact, CachedVisualKind::EmbeddedPreview)
 }
 
 fn prepare_generated_proxy(
@@ -1654,7 +1832,7 @@ mod tests {
     use std::{
         fs,
         sync::{
-            Arc,
+            Arc, Mutex,
             atomic::{AtomicUsize, Ordering},
             mpsc,
         },
@@ -1783,6 +1961,7 @@ mod tests {
                     Ok(sample_snapshot())
                 })
             },
+            None,
             None,
             true,
             2,
@@ -2308,6 +2487,145 @@ mod tests {
     }
 
     #[test]
+    fn progress_publishes_embedded_preview_before_proxy_finishes() {
+        let fixture = Fixture::new();
+        let actor = CatalogActor::spawn(&fixture.database_path).expect("spawn catalog");
+        let catalog = actor.handle();
+        let source = fingerprint_source(&fixture.raw_path).expect("fingerprint source");
+        let registered = catalog
+            .register_asset(&fixture.registration(source))
+            .expect("register source");
+        let (proxy_started_sender, proxy_started_receiver) = mpsc::sync_channel(0);
+        let (release_proxy_sender, release_proxy_receiver) = mpsc::sync_channel(0);
+        let worker = DecodeInspectionActor::spawn_with_cache(
+            catalog,
+            BlockingProxyInspector {
+                proxy_started_sender,
+                release_proxy_receiver,
+            },
+            fixture.root.join("cache"),
+        )
+        .expect("spawn cached inspector");
+        let handle = worker.handle();
+        let ticket = handle
+            .submit(DecodeInspectionRequest {
+                representation_id: registered.representation_id,
+                path: fixture.raw_path.clone(),
+                expected_source: source,
+            })
+            .expect("submit inspection");
+
+        proxy_started_receiver
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .expect("embedded preview commits before proxy work blocks");
+        assert_eq!(
+            handle.progress_snapshot(),
+            DecodeInspectionProgress {
+                summary: DecodeInspectionSummary::default(),
+                visual_artifacts_published: 1,
+            }
+        );
+
+        release_proxy_sender
+            .send(())
+            .expect("release generated proxy");
+        assert!(matches!(
+            ticket.wait().expect("proxy finishes"),
+            DecodeInspectionOutcome::Recorded {
+                preview: PreviewCacheOutcome::StoredGeneratedProxy { .. },
+                ..
+            }
+        ));
+        assert_eq!(
+            handle.progress_snapshot(),
+            DecodeInspectionProgress {
+                summary: DecodeInspectionSummary {
+                    completed: 1,
+                    hard_failures: 0,
+                    preview_failures: 0,
+                    cancelled: 0,
+                },
+                visual_artifacts_published: 2,
+            }
+        );
+
+        worker.shutdown().expect("shutdown inspector");
+        actor.shutdown().expect("shutdown catalog");
+    }
+
+    #[test]
+    fn session_preview_sink_never_persists_the_embedded_camera_preview() {
+        let fixture = Fixture::new();
+        let actor = CatalogActor::spawn(&fixture.database_path).expect("spawn catalog");
+        let catalog = actor.handle();
+        let source = fingerprint_source(&fixture.raw_path).expect("fingerprint source");
+        let registered = catalog
+            .register_asset(&fixture.registration(source))
+            .expect("register source");
+        let (proxy_started_sender, proxy_started_receiver) = mpsc::sync_channel(0);
+        let (release_proxy_sender, release_proxy_receiver) = mpsc::sync_channel(0);
+        let sink = Arc::new(RecordingPreviewSink::default());
+        let preview_sink: Arc<dyn EmbeddedPreviewSink> = sink.clone();
+        let mut inspector = Some(BlockingProxyInspector {
+            proxy_started_sender,
+            release_proxy_receiver,
+        });
+        let pool = DecodeInspectionPool::spawn_with_cache_and_embedded_preview_sink(
+            catalog.clone(),
+            1,
+            move |_| Ok::<_, String>(inspector.take().expect("one test inspector")),
+            fixture.root.join("cache"),
+            preview_sink,
+        )
+        .expect("spawn session preview pool");
+        let handle = pool.handle();
+        let ticket = handle
+            .submit(DecodeInspectionRequest {
+                representation_id: registered.representation_id,
+                path: fixture.raw_path.clone(),
+                expected_source: source,
+            })
+            .expect("submit inspection");
+
+        proxy_started_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("session preview publishes before proxy blocks");
+        assert_eq!(sink.publication_count(), 1);
+        assert!(
+            catalog
+                .cached_artifacts(registered.representation_id)
+                .expect("read durable artifacts before proxy")
+                .is_empty()
+        );
+        assert_eq!(
+            handle.progress_snapshot().visual_artifacts_published,
+            1,
+            "session visual is immediately visible even though it is not cached"
+        );
+
+        release_proxy_sender.send(()).expect("release proxy");
+        assert!(matches!(
+            ticket.wait().expect("proxy finishes"),
+            DecodeInspectionOutcome::Recorded {
+                preview: PreviewCacheOutcome::StoredGeneratedProxy { .. },
+                ..
+            }
+        ));
+        let artifacts = catalog
+            .cached_artifacts(registered.representation_id)
+            .expect("read durable artifacts after proxy");
+        assert_eq!(artifacts.len(), 1);
+        assert_eq!(
+            artifacts[0].artifact.role,
+            CachedArtifactRole::GeneratedProxy
+        );
+        assert_eq!(handle.progress_snapshot().visual_artifacts_published, 2);
+
+        pool.shutdown().expect("shutdown session preview pool");
+        actor.shutdown().expect("shutdown catalog");
+    }
+
+    #[test]
     fn missing_embedded_preview_falls_back_to_versioned_generated_proxy() {
         let fixture = Fixture::new();
         let actor = CatalogActor::spawn(&fixture.database_path).expect("spawn catalog");
@@ -2415,6 +2733,35 @@ mod tests {
     #[derive(Debug, Copy, Clone)]
     struct PreviewInspector;
 
+    struct BlockingProxyInspector {
+        proxy_started_sender: mpsc::SyncSender<()>,
+        release_proxy_receiver: mpsc::Receiver<()>,
+    }
+
+    #[derive(Debug, Default)]
+    struct RecordingPreviewSink {
+        publications: Mutex<Vec<EmbeddedPreviewPublication>>,
+    }
+
+    impl RecordingPreviewSink {
+        fn publication_count(&self) -> usize {
+            self.publications.lock().map_or(0, |items| items.len())
+        }
+    }
+
+    impl EmbeddedPreviewSink for RecordingPreviewSink {
+        fn publish_embedded_preview(
+            &self,
+            publication: EmbeddedPreviewPublication,
+        ) -> Result<(), String> {
+            self.publications
+                .lock()
+                .map_err(|_| "recording preview sink lock is poisoned".to_owned())?
+                .push(publication);
+            Ok(())
+        }
+    }
+
     #[derive(Debug, Default)]
     struct SummaryInspector {
         inspect_calls: usize,
@@ -2467,6 +2814,51 @@ mod tests {
         }
 
         fn render_proxy(&mut self, _path: &Path) -> Result<Option<ProxyPayload>, String> {
+            Ok(Some(ProxyPayload {
+                dimensions: ImageDimensions {
+                    width: 2_048,
+                    height: 1_365,
+                },
+                codec: PreviewCodec::Jpeg,
+                bits_per_channel: 8,
+                channels: 3,
+                bytes: TEST_DISPLAY_JPEG.to_vec(),
+            }))
+        }
+    }
+
+    impl DecodeInspector for BlockingProxyInspector {
+        fn provider_id(&self) -> &'static str {
+            "test-decoder"
+        }
+
+        fn inspect(&mut self, _path: &Path) -> Result<DecoderSnapshot, String> {
+            let mut snapshot = sample_snapshot();
+            snapshot.provider.id = "test-decoder".into();
+            snapshot.capabilities.embedded_previews = DecodeSupport::Available;
+            snapshot.previews.push(preview_descriptor());
+            Ok(snapshot)
+        }
+
+        fn extract_best_preview(&mut self, _path: &Path) -> Result<Option<PreviewPayload>, String> {
+            Ok(Some(PreviewPayload {
+                descriptor: preview_descriptor(),
+                byte_order: PreviewByteOrder::NotApplicable,
+                bytes: TEST_DISPLAY_JPEG.to_vec(),
+            }))
+        }
+
+        fn proxy_variant_key(&self) -> &'static str {
+            "test-decoder:grid-jpeg-2048-q90-v2"
+        }
+
+        fn render_proxy(&mut self, _path: &Path) -> Result<Option<ProxyPayload>, String> {
+            self.proxy_started_sender
+                .send(())
+                .map_err(|error| error.to_string())?;
+            self.release_proxy_receiver
+                .recv()
+                .map_err(|error| error.to_string())?;
             Ok(Some(ProxyPayload {
                 dimensions: ImageDimensions {
                     width: 2_048,

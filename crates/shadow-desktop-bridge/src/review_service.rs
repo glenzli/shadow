@@ -8,7 +8,7 @@
 use std::{
     collections::{HashMap, HashSet},
     path::Path,
-    sync::Mutex,
+    sync::{Arc, Mutex},
 };
 
 use anyhow::{Context, Result as AnyResult, anyhow, bail};
@@ -38,10 +38,13 @@ use crate::{
         EDIT_PREVIEW_GENERATOR_ID, current_source_environment_cache_identity,
         edit_preview_generator_version,
     },
+    session_preview_store::{SessionPreviewDescriptor, SessionPreviewStore},
 };
 
 const GRID_VISUAL_HANDLE_PREFIX: &str = "shadow-grid-visual-v1.";
+const SESSION_GRID_VISUAL_HANDLE_PREFIX: &str = "shadow-grid-session-v1.";
 const GRID_VISUAL_HANDLE_SCHEMA_VERSION: u8 = 2;
+const SESSION_GRID_VISUAL_HANDLE_SCHEMA_VERSION: u8 = 1;
 const MAX_GRID_VISUAL_PAYLOAD_BYTES: usize = 16 * 1_024;
 const MAX_PENDING_REVIEW_COMPARISONS: usize = 64;
 pub(crate) const REVIEW_COMPARE_SURFACE_ID: &str = "shadow.desktop.review-compare";
@@ -65,6 +68,7 @@ pub(crate) struct ReviewVisualSelection {
 pub(crate) struct ReviewService {
     catalog: CatalogHandle,
     loader: CachedArtifactLoader,
+    session_previews: Arc<SessionPreviewStore>,
     feedback_session_id: String,
     visual_signing_key: [u8; 32],
     comparisons: Mutex<ReviewComparisonRegistry>,
@@ -92,10 +96,15 @@ struct PendingReviewVisual {
 }
 
 impl ReviewService {
-    pub(crate) fn new(catalog: CatalogHandle, loader: CachedArtifactLoader) -> Self {
+    pub(crate) fn new_with_session_previews(
+        catalog: CatalogHandle,
+        loader: CachedArtifactLoader,
+        session_previews: Arc<SessionPreviewStore>,
+    ) -> Self {
         Self {
             catalog,
             loader,
+            session_previews,
             feedback_session_id: Uuid::now_v7().to_string(),
             visual_signing_key: new_visual_signing_key(),
             comparisons: Mutex::new(ReviewComparisonRegistry::default()),
@@ -109,6 +118,17 @@ impl ReviewService {
     }
 
     pub(crate) fn load_visual(&self, ticket: &str) -> AnyResult<ffi::FfiVisualPayload> {
+        if ticket.starts_with(SESSION_GRID_VISUAL_HANDLE_PREFIX) {
+            let descriptor = self.decode_session_grid_visual_handle(ticket)?;
+            let bytes = self
+                .session_previews
+                .load(descriptor)
+                .ok_or_else(|| anyhow!("embedded preview has expired from this Shadow session"))?;
+            return Ok(ffi::FfiVisualPayload {
+                bytes: bytes.as_ref().to_vec(),
+                requires_frame_receipt: false,
+            });
+        }
         if ticket.starts_with(GRID_VISUAL_HANDLE_PREFIX) {
             let selection = self.decode_grid_visual_handle(ticket)?;
             return Ok(ffi::FfiVisualPayload {
@@ -202,28 +222,56 @@ impl ReviewService {
     // Adding one EXIF field then touches precisely this service and the CXX ABI.
     #[allow(clippy::too_many_lines)]
     fn review_item(&self, record: ReviewItemRecord) -> AnyResult<ffi::FfiReviewItem> {
-        let visual_handle = record
+        // Older development builds persisted embedded camera previews. They
+        // are not a valid Shadow rendering contract and can be visibly stale
+        // after decoder/color-pipeline changes, so retire the exact obsolete
+        // Catalog row opportunistically. The blob is content-addressed and
+        // may be reclaimed by normal cache garbage collection later.
+        if let Some(visual) = record
             .visual
             .as_ref()
-            .map(|visual| {
-                self.encode_grid_visual_handle(&ReviewVisualSelection {
-                    photo_id: record.photo_id,
-                    record: visual.clone(),
-                })
+            .filter(|visual| visual.artifact.role == CachedArtifactRole::EmbeddedPreview)
+        {
+            let _ = self.catalog.invalidate_cached_artifact(visual);
+        }
+        let durable_visual = record
+            .visual
+            .as_ref()
+            .filter(|visual| visual.artifact.role != CachedArtifactRole::EmbeddedPreview);
+        let session_preview = record
+            .visual
+            .as_ref()
+            .map_or(true, |visual| {
+                visual.artifact.role == CachedArtifactRole::EmbeddedPreview
             })
-            .transpose()?
-            .unwrap_or_default();
-        let (visual_role, visual_width, visual_height, has_visual) = record.visual.map_or_else(
-            || (String::new(), 0, 0, false),
-            |visual| {
+            .then(|| {
+                self.session_previews
+                    .lookup(record.representation_id, record.source)
+            })
+            .flatten();
+        let (visual_handle, visual_role, visual_width, visual_height, has_visual) =
+            if let Some(visual) = durable_visual {
                 (
+                    self.encode_grid_visual_handle(&ReviewVisualSelection {
+                        photo_id: record.photo_id,
+                        record: visual.clone(),
+                    })?,
                     role_name(visual.artifact.role).to_owned(),
                     visual.artifact.dimensions.width,
                     visual.artifact.dimensions.height,
                     true,
                 )
-            },
-        );
+            } else if let Some(descriptor) = session_preview {
+                (
+                    self.encode_session_grid_visual_handle(descriptor)?,
+                    "embedded".to_owned(),
+                    descriptor.dimensions.width,
+                    descriptor.dimensions.height,
+                    true,
+                )
+            } else {
+                (String::new(), String::new(), 0, 0, false)
+            };
         let technical = record.technical;
         let metadata = record.metadata;
         let has_metadata = metadata.is_some();
@@ -709,6 +757,139 @@ impl ReviewService {
         let payload: SignedGridVisualPayload =
             serde_json::from_slice(&payload).context("parse Review grid visual handle")?;
         payload.into_selection()
+    }
+
+    fn encode_session_grid_visual_handle(
+        &self,
+        descriptor: SessionPreviewDescriptor,
+    ) -> AnyResult<String> {
+        let payload = SignedSessionGridVisualPayload::from_descriptor(descriptor);
+        let payload =
+            serde_json::to_vec(&payload).context("encode session Review grid visual handle")?;
+        if payload.len() > MAX_GRID_VISUAL_PAYLOAD_BYTES {
+            bail!("session Review grid visual handle payload exceeds its size limit");
+        }
+        let signature = blake3::keyed_hash(&self.visual_signing_key, &payload);
+        Ok(format!(
+            "{SESSION_GRID_VISUAL_HANDLE_PREFIX}{}.{}",
+            encode_hex(&payload),
+            signature.to_hex()
+        ))
+    }
+
+    fn decode_session_grid_visual_handle(
+        &self,
+        handle: &str,
+    ) -> AnyResult<SessionPreviewDescriptor> {
+        let encoded = handle
+            .strip_prefix(SESSION_GRID_VISUAL_HANDLE_PREFIX)
+            .ok_or_else(|| anyhow!("invalid session Review grid visual handle prefix"))?;
+        let (payload_hex, signature_hex) = encoded
+            .split_once('.')
+            .ok_or_else(|| anyhow!("malformed session Review grid visual handle"))?;
+        if payload_hex.len() > MAX_GRID_VISUAL_PAYLOAD_BYTES.saturating_mul(2) {
+            bail!("session Review grid visual handle payload exceeds its size limit");
+        }
+        if signature_hex.len() != 64 || !is_lower_hex(signature_hex) {
+            bail!("malformed session Review grid visual handle signature");
+        }
+        let payload =
+            decode_hex(payload_hex).context("decode session Review grid visual handle")?;
+        if payload.len() > MAX_GRID_VISUAL_PAYLOAD_BYTES {
+            bail!("session Review grid visual handle payload exceeds its size limit");
+        }
+        let supplied_signature = decode_hex_32(signature_hex)
+            .context("decode session Review grid visual handle signature")?;
+        let expected_signature = blake3::keyed_hash(&self.visual_signing_key, &payload);
+        if !constant_time_eq(expected_signature.as_bytes(), &supplied_signature) {
+            bail!("session Review grid visual handle signature is invalid for this session");
+        }
+        let payload: SignedSessionGridVisualPayload =
+            serde_json::from_slice(&payload).context("parse session Review grid visual handle")?;
+        payload.into_descriptor()
+    }
+}
+
+/// Signed session-only reference to encoded camera-preview bytes.
+///
+/// This is intentionally much smaller than [`SignedGridVisualPayload`]: it
+/// authenticates only the identity needed to retrieve a value from the
+/// process-local store, never a durable Catalog/cache artifact.
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SignedSessionGridVisualPayload {
+    schema_version: u8,
+    representation_id: String,
+    source_byte_len: u64,
+    source_modified_at_ms: Option<i64>,
+    revision: u64,
+    codec: String,
+    byte_order: String,
+    width: u32,
+    height: u32,
+    bits_per_channel: u16,
+    channels: u16,
+}
+
+impl SignedSessionGridVisualPayload {
+    fn from_descriptor(descriptor: SessionPreviewDescriptor) -> Self {
+        Self {
+            schema_version: SESSION_GRID_VISUAL_HANDLE_SCHEMA_VERSION,
+            representation_id: descriptor.representation_id.to_string(),
+            source_byte_len: descriptor.source.byte_len,
+            source_modified_at_ms: descriptor.source.modified_at_ms,
+            revision: descriptor.revision,
+            codec: descriptor.codec.as_str().to_owned(),
+            byte_order: descriptor.byte_order.as_str().to_owned(),
+            width: descriptor.dimensions.width,
+            height: descriptor.dimensions.height,
+            bits_per_channel: descriptor.bits_per_channel,
+            channels: descriptor.channels,
+        }
+    }
+
+    fn into_descriptor(self) -> AnyResult<SessionPreviewDescriptor> {
+        if self.schema_version != SESSION_GRID_VISUAL_HANDLE_SCHEMA_VERSION {
+            bail!(
+                "unsupported session Review grid visual handle schema {}",
+                self.schema_version
+            );
+        }
+        let representation_id = self
+            .representation_id
+            .parse()
+            .context("parse representation id in session Review grid visual handle")?;
+        let codec = match self.codec.as_str() {
+            "unknown" => PreviewCodec::Unknown,
+            "jpeg" => PreviewCodec::Jpeg,
+            "bitmap" => PreviewCodec::Bitmap,
+            "jpeg_xl" => PreviewCodec::JpegXl,
+            "h265" => PreviewCodec::H265,
+            other => bail!("unsupported session Review visual codec {other:?}"),
+        };
+        let byte_order = match self.byte_order.as_str() {
+            "not_applicable" => PreviewByteOrder::NotApplicable,
+            "native" => PreviewByteOrder::Native,
+            "little_endian" => PreviewByteOrder::LittleEndian,
+            "big_endian" => PreviewByteOrder::BigEndian,
+            other => bail!("unsupported session Review visual byte order {other:?}"),
+        };
+        Ok(SessionPreviewDescriptor {
+            representation_id,
+            source: RepresentationFingerprint {
+                byte_len: self.source_byte_len,
+                modified_at_ms: self.source_modified_at_ms,
+            },
+            revision: self.revision,
+            codec,
+            byte_order,
+            dimensions: ImageDimensions {
+                width: self.width,
+                height: self.height,
+            },
+            bits_per_channel: self.bits_per_channel,
+            channels: self.channels,
+        })
     }
 }
 

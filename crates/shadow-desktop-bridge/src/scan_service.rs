@@ -1,29 +1,37 @@
 //! Folder-import coordination for the desktop bridge.
 //!
 //! The scanner owns cancellation, observable progress and terminal state.  It
-//! creates short-lived decoder workers for a single run, but keeps no decoded
-//! pixels itself; artifacts and source facts remain in the Catalog/cache.
+//! creates short-lived decoder workers for a single run. Generated Shadow
+//! proxies and source facts remain durable Catalog/cache data; camera previews
+//! are instead published to the separate session-only preview store.
 
 use std::{
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread::{self, JoinHandle},
+    time::Duration,
 };
 
 use anyhow::{Context, Result as AnyResult, anyhow, bail};
 use shadow_catalog::CatalogHandle;
 use shadow_core::{
-    DecodeInspectionPool, DecodeInspectionSummary, ScanCancellation, ScanCompletion, ScanPhase,
+    DecodeInspectionHandle, DecodeInspectionPool, DecodeInspectionProgress,
+    DecodeInspectionSummary, EmbeddedPreviewSink, ScanCancellation, ScanCompletion, ScanPhase,
     ScanProgress, recommended_decode_inspection_worker_count,
     scan_folder_with_inspection_controlled,
 };
 
-use crate::{ffi, photo_provider::PhotoInspector};
+use crate::{ffi, photo_provider::PhotoInspector, session_preview_store::SessionPreviewStore};
 
 #[derive(Debug)]
 pub(crate) struct ScanService {
     catalog: CatalogHandle,
     cache_root: PathBuf,
-    registry: Mutex<FolderScanRegistry>,
+    session_previews: Arc<SessionPreviewStore>,
+    registry: Arc<Mutex<FolderScanRegistry>>,
 }
 
 #[derive(Debug, Default)]
@@ -43,6 +51,7 @@ struct FolderScanState {
     unchanged: u64,
     needs_revalidation: u64,
     decode_inspections_queued: u64,
+    preview_artifacts_published: u64,
     decode_inspections_completed: u64,
     decode_hard_failures: u64,
     preview_failures: u64,
@@ -65,6 +74,7 @@ impl FolderScanState {
             unchanged: 0,
             needs_revalidation: 0,
             decode_inspections_queued: 0,
+            preview_artifacts_published: 0,
             decode_inspections_completed: 0,
             decode_hard_failures: 0,
             preview_failures: 0,
@@ -96,6 +106,7 @@ impl FolderScanState {
             unchanged: self.unchanged,
             needs_revalidation: self.needs_revalidation,
             decode_inspections_queued: self.decode_inspections_queued,
+            preview_artifacts_published: self.preview_artifacts_published,
             decode_inspections_completed: self.decode_inspections_completed,
             decode_hard_failures: self.decode_hard_failures,
             preview_failures: self.preview_failures,
@@ -106,12 +117,101 @@ impl FolderScanState {
     }
 }
 
+/// Keeps import-visible progress moving after source discovery has finished.
+///
+/// The scanner intentionally does not wait for each decode task.  Once it has
+/// scheduled the last task, this small service-owned pump continues publishing
+/// the worker pool's visual commits so the QML grid can replace card artwork in
+/// place instead of waiting for the terminal scan result.
+struct InspectionProgressPump {
+    stop: Arc<AtomicBool>,
+    join: Option<JoinHandle<()>>,
+}
+
+impl InspectionProgressPump {
+    fn spawn(
+        scan_id: u64,
+        registry: Arc<Mutex<FolderScanRegistry>>,
+        inspections: DecodeInspectionHandle,
+    ) -> Self {
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_for_thread = Arc::clone(&stop);
+        let join = thread::Builder::new()
+            .name("shadow-import-progress".to_owned())
+            .spawn(move || {
+                while !stop_for_thread.load(Ordering::Acquire) {
+                    publish_inspection_progress(
+                        &registry,
+                        scan_id,
+                        inspections.progress_snapshot(),
+                    );
+                    thread::sleep(Duration::from_millis(75));
+                }
+                publish_inspection_progress(&registry, scan_id, inspections.progress_snapshot());
+            })
+            .ok();
+        Self { stop, join }
+    }
+
+    fn stop_and_join(mut self) {
+        self.stop.store(true, Ordering::Release);
+        if let Some(join) = self.join.take() {
+            let _ = join.join();
+        }
+    }
+}
+
+fn apply_inspection_progress(
+    state: &mut FolderScanState,
+    progress: DecodeInspectionProgress,
+) -> bool {
+    let summary = progress.summary;
+    let changed = state.preview_artifacts_published != progress.visual_artifacts_published
+        || state.decode_inspections_completed != summary.completed
+        || state.decode_hard_failures != summary.hard_failures
+        || state.preview_failures != summary.preview_failures
+        || state.decode_inspections_cancelled != summary.cancelled;
+    if changed {
+        state.preview_artifacts_published = progress.visual_artifacts_published;
+        state.decode_inspections_completed = summary.completed;
+        state.decode_hard_failures = summary.hard_failures;
+        state.preview_failures = summary.preview_failures;
+        state.decode_inspections_cancelled = summary.cancelled;
+    }
+    changed
+}
+
+fn publish_inspection_progress(
+    registry: &Mutex<FolderScanRegistry>,
+    scan_id: u64,
+    progress: DecodeInspectionProgress,
+) {
+    let Ok(mut registry) = registry.lock() else {
+        return;
+    };
+    let Some(state) = registry
+        .current
+        .as_mut()
+        .filter(|state| state.scan_id == scan_id && state.is_active())
+    else {
+        return;
+    };
+    if apply_inspection_progress(state, progress) {
+        state.update_sequence = state.update_sequence.saturating_add(1);
+    }
+}
+
 impl ScanService {
-    pub(crate) fn new(catalog: CatalogHandle, cache_root: PathBuf) -> Self {
+    pub(crate) fn new(
+        catalog: CatalogHandle,
+        cache_root: PathBuf,
+        session_previews: Arc<SessionPreviewStore>,
+    ) -> Self {
         Self {
             catalog,
             cache_root,
-            registry: Mutex::new(FolderScanRegistry::default()),
+            session_previews,
+            registry: Arc::new(Mutex::new(FolderScanRegistry::default())),
         }
     }
 
@@ -124,11 +224,13 @@ impl ScanService {
         let folder_path = Path::new(folder_path);
         let mut catalog = self.catalog.clone();
         let worker_count = recommended_decode_inspection_worker_count();
-        let inspector = match DecodeInspectionPool::spawn_with_cache(
+        let embedded_preview_sink: Arc<dyn EmbeddedPreviewSink> = self.session_previews.clone();
+        let inspector = match DecodeInspectionPool::spawn_with_cache_and_embedded_preview_sink(
             catalog.clone(),
             worker_count,
             |_| PhotoInspector::new_with_isolated_proxy_cache(Some(self.cache_root.clone())),
             &self.cache_root,
+            embedded_preview_sink,
         ) {
             Ok(inspector) => inspector,
             Err(error) => {
@@ -136,13 +238,20 @@ impl ScanService {
                 return Err(error.into());
             }
         };
+        let inspection_handle = inspector.handle();
+        let progress_pump = InspectionProgressPump::spawn(
+            scan_id,
+            Arc::clone(&self.registry),
+            inspection_handle.clone(),
+        );
         let report_result = scan_folder_with_inspection_controlled(
             &mut catalog,
-            &inspector.handle(),
+            &inspection_handle,
             folder_path,
             &cancellation,
             |progress| {
-                let _ = self.update_progress(scan_id, progress);
+                let _ =
+                    self.update_progress(scan_id, progress, inspection_handle.progress_snapshot());
             },
         )
         .with_context(|| format!("scan {}", folder_path.display()));
@@ -158,6 +267,7 @@ impl ScanService {
             Err(error) => {
                 cancellation.cancel();
                 let shutdown_result = inspector.shutdown_with_summary();
+                progress_pump.stop_and_join();
                 self.finish_failed(scan_id)?;
                 if let Err(shutdown_error) = shutdown_result {
                     return Err(error.context(format!(
@@ -170,17 +280,20 @@ impl ScanService {
         let summary = match inspector.shutdown_with_summary() {
             Ok(summary) => summary,
             Err(error) => {
+                progress_pump.stop_and_join();
                 self.finish_failed(scan_id)?;
                 return Err(error.into());
             }
         };
+        progress_pump.stop_and_join();
+        let inspection_progress = inspection_handle.progress_snapshot();
         if let Err(error) =
             validate_decode_inspection_summary(report.decode_inspections_queued, &summary)
         {
             self.finish_failed(scan_id)?;
             return Err(error);
         }
-        let cancelled = self.finish(scan_id, &report, &summary)?;
+        let cancelled = self.finish(scan_id, &report, &inspection_progress)?;
         Ok(ffi::FfiScanReport {
             folder_path: folder_path.display().to_string(),
             files_seen: report.files_seen,
@@ -279,7 +392,12 @@ impl ScanService {
         Ok(state.cancellation.clone())
     }
 
-    fn update_progress(&self, scan_id: u64, progress: &ScanProgress) -> AnyResult<()> {
+    fn update_progress(
+        &self,
+        scan_id: u64,
+        progress: &ScanProgress,
+        inspection_progress: DecodeInspectionProgress,
+    ) -> AnyResult<()> {
         let mut registry = self
             .registry
             .lock()
@@ -295,6 +413,7 @@ impl ScanService {
         state.unchanged = progress.unchanged;
         state.needs_revalidation = progress.needs_revalidation;
         state.decode_inspections_queued = progress.decode_inspections_queued;
+        apply_inspection_progress(state, inspection_progress);
         state.skipped = progress.skipped;
         state.issue_count = progress.issue_count;
         state.phase = if state.cancellation.is_cancelled() || progress.phase == ScanPhase::Cancelled
@@ -344,7 +463,7 @@ impl ScanService {
         &self,
         scan_id: u64,
         report: &shadow_core::ScanReport,
-        summary: &DecodeInspectionSummary,
+        inspection_progress: &DecodeInspectionProgress,
     ) -> AnyResult<bool> {
         let mut registry = self
             .registry
@@ -361,10 +480,7 @@ impl ScanService {
         state.unchanged = report.unchanged;
         state.needs_revalidation = report.needs_revalidation;
         state.decode_inspections_queued = report.decode_inspections_queued;
-        state.decode_inspections_completed = summary.completed;
-        state.decode_hard_failures = summary.hard_failures;
-        state.preview_failures = summary.preview_failures;
-        state.decode_inspections_cancelled = summary.cancelled;
+        apply_inspection_progress(state, *inspection_progress);
         state.skipped = report.skipped;
         state.issue_count = u64::try_from(report.issues.len()).unwrap_or(u64::MAX);
         let cancelled =
@@ -406,6 +522,7 @@ fn invalid_progress(scan_id: u64) -> ffi::FfiScanProgress {
         unchanged: 0,
         needs_revalidation: 0,
         decode_inspections_queued: 0,
+        preview_artifacts_published: 0,
         decode_inspections_completed: 0,
         decode_hard_failures: 0,
         preview_failures: 0,
