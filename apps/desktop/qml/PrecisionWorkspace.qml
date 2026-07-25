@@ -158,6 +158,32 @@ Item {
                 }
             }
             PopupAction {
+                text: qsTr("Use linear mask")
+                enabled: precision.editor.active && !precision.editor.stateBusy
+                onClicked: {
+                    gradeNodeContextPopup.close()
+                    precision.editor.setSelectedLocalMask(1)
+                }
+            }
+            PopupAction {
+                text: qsTr("Use radial mask")
+                enabled: precision.editor.active && !precision.editor.stateBusy
+                onClicked: {
+                    gradeNodeContextPopup.close()
+                    precision.editor.setSelectedLocalMask(2)
+                }
+            }
+            PopupAction {
+                visible: gradeNodeContextPopup.targetData
+                    && gradeNodeContextPopup.targetData.hasLocalMask
+                text: qsTr("Remove local mask")
+                enabled: precision.editor.active && !precision.editor.stateBusy
+                onClicked: {
+                    gradeNodeContextPopup.close()
+                    precision.editor.setSelectedLocalMask(0)
+                }
+            }
+            PopupAction {
                 text: qsTr("Delete node")
                 enabled: precision.editor.canDeleteGradeNode
                 onClicked: {
@@ -579,6 +605,8 @@ Item {
             readyPreviewGeneration: precisionCanvas.readyPreviewGeneration
             previewFrameReady: precisionCanvas.previewFrameReady
             comparisonActive: precisionCanvas.comparisonActive
+            currentPhotoAspect: precisionCanvas.imagePixelWidth
+                / Math.max(1, precisionCanvas.imagePixelHeight)
             workspaceWidth: precision.width
             panel: precision.panel
             panelRaised: precision.panelRaised

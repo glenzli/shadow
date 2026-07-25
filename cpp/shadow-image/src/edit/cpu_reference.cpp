@@ -728,6 +728,12 @@ void validate_image(const FloatRgbImage& image) {
                         "3D LUT requires a valid cube and intensity within [0, 1]"
                     );
                 }
+            } else if constexpr (std::is_same_v<Parameters, SpotHealAdjustment>) {
+                try {
+                    validate_spot_heal(parameters);
+                } catch (const EditError& error) {
+                    throw_node_error(error.code(), index, node, error.what());
+                }
             } else if constexpr (std::is_same_v<Parameters, SharpenAdjustment>) {
                 const auto unit = [](const double value) {
                     return std::isfinite(value) && value >= 0.0 && value <= 1.0;
@@ -839,6 +845,8 @@ void validate_image(const FloatRgbImage& image) {
                     && selective_color_is_neutral(value);
             } else if constexpr (std::is_same_v<Parameters, CubeLutAdjustment>) {
                 return value.intensity == 0.0;
+            } else if constexpr (std::is_same_v<Parameters, SpotHealAdjustment>) {
+                return value.spots.empty();
             } else {
                 static_assert(std::is_same_v<Parameters, SharpenAdjustment>);
                 switch (value.execution_pass) {
@@ -1096,6 +1104,8 @@ void apply_node(
                         };
                     }
                 );
+            } else if constexpr (std::is_same_v<Parameters, SpotHealAdjustment>) {
+                apply_spot_heal(image, parameters, context);
             } else if constexpr (std::is_same_v<Parameters, SharpenAdjustment>) {
                 switch (parameters.execution_pass) {
                 case DetailEffectsExecutionPass::technical_detail:
@@ -1162,6 +1172,8 @@ AdjustmentOperation operation(const AdjustmentParameters& parameters) noexcept {
                 return AdjustmentOperation::perceptual_color;
             } else if constexpr (std::is_same_v<Parameters, CubeLutAdjustment>) {
                 return AdjustmentOperation::lut_3d;
+            } else if constexpr (std::is_same_v<Parameters, SpotHealAdjustment>) {
+                return AdjustmentOperation::spot_heal;
             } else {
                 static_assert(std::is_same_v<Parameters, SharpenAdjustment>);
                 return AdjustmentOperation::sharpen;
@@ -1191,6 +1203,8 @@ std::string_view operation_id(const AdjustmentOperation operation) noexcept {
         return "shadow.lut_3d";
     case AdjustmentOperation::sharpen:
         return "shadow.sharpen";
+    case AdjustmentOperation::spot_heal:
+        return "shadow.spot_heal";
     }
     return "shadow.unknown";
 }
@@ -1207,6 +1221,7 @@ AdjustmentLocality locality(const AdjustmentOperation operation) noexcept {
         return AdjustmentLocality::pixel_local;
     case AdjustmentOperation::selective_tone:
     case AdjustmentOperation::sharpen:
+    case AdjustmentOperation::spot_heal:
         return AdjustmentLocality::neighborhood;
     }
     return AdjustmentLocality::pixel_local;
@@ -1217,6 +1232,8 @@ AdjustmentLocality locality(const AdjustmentParameters& parameters) noexcept {
         [](const auto& value) {
             using Parameters = std::decay_t<decltype(value)>;
             if constexpr (std::is_same_v<Parameters, SelectiveToneAdjustment>) {
+                return AdjustmentLocality::neighborhood;
+            } else if constexpr (std::is_same_v<Parameters, SpotHealAdjustment>) {
                 return AdjustmentLocality::neighborhood;
             } else if constexpr (std::is_same_v<Parameters, SharpenAdjustment>) {
                 return value.execution_pass == DetailEffectsExecutionPass::technical_detail
@@ -1273,6 +1290,36 @@ AdjustmentFootprint footprint(
                     .vertical_radius = selective_tone_guided_filter_support_radius(
                         level_zero_to_raster_scale_y
                     ),
+                };
+            } else if constexpr (std::is_same_v<Parameters, SpotHealAdjustment>) {
+                validate_spot_heal(value);
+                const auto maximum = std::ranges::max_element(
+                    value.spots,
+                    {},
+                    [](const SpotHealTarget& target) {
+                        return target.radius_level_zero_pixels;
+                    }
+                );
+                const double radius = static_cast<double>(
+                    maximum->radius_level_zero_pixels
+                );
+                const double horizontal = std::ceil(
+                    radius * 2.0 * level_zero_to_raster_scale_x
+                );
+                const double vertical = std::ceil(
+                    radius * 2.0 * level_zero_to_raster_scale_y
+                );
+                if (horizontal > std::numeric_limits<std::uint32_t>::max()
+                    || vertical > std::numeric_limits<std::uint32_t>::max()) {
+                    throw EditError(
+                        EditErrorCode::numeric_overflow,
+                        std::nullopt,
+                        "spot-heal adjustment footprint exceeds the supported integer range"
+                    );
+                }
+                return AdjustmentFootprint{
+                    .horizontal_radius = static_cast<std::uint32_t>(horizontal),
+                    .vertical_radius = static_cast<std::uint32_t>(vertical),
                 };
             } else if constexpr (std::is_same_v<Parameters, SharpenAdjustment>) {
                 if (value.execution_pass != DetailEffectsExecutionPass::technical_detail) {
@@ -2303,6 +2350,7 @@ MetalAdjustmentPreparation prepare_metal_adjustment(
                 break;
             }
             case AdjustmentOperation::selective_tone:
+            case AdjustmentOperation::spot_heal:
                 return MetalAdjustmentPreparation{
                     .program = std::nullopt,
                     .diagnostic = "Metal adjustment received an unsupported operation",

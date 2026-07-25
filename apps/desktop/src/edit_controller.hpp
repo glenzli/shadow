@@ -120,6 +120,21 @@ class EditController final : public QObject {
     Q_PROPERTY(bool opticsManualProfile READ opticsManualProfile NOTIFY opticsChanged)
     Q_PROPERTY(QString opticsCameraProfile READ opticsCameraProfile NOTIFY opticsChanged)
     Q_PROPERTY(QString opticsLensProfile READ opticsLensProfile NOTIFY opticsChanged)
+    // A local mask belongs to the selected Grade Node instance, never to the
+    // shareable adjustment graph. The compact map keeps QML insulated from
+    // the persisted backend layout while all shape values remain normalized.
+    Q_PROPERTY(
+        QVariantMap selectedLocalMask
+        READ selectedLocalMask
+        NOTIFY parametersChanged
+    )
+    // Retouch belongs to the whole photo, after every Grade Node. Unlike a
+    // local mask it must remain usable even when the selected node is shared
+    // or disabled.
+    Q_PROPERTY(QVariantList retouchSpots READ retouchSpots NOTIFY parametersChanged)
+    // Crop/orientation is photo-local too. It is intentionally not a Grade
+    // Node control, because framing must never become a shared style.
+    Q_PROPERTY(QVariantMap photoGeometry READ photoGeometry NOTIFY parametersChanged)
     Q_PROPERTY(QVariantList gradeNodes READ gradeNodes NOTIFY gradeNodesChanged)
     Q_PROPERTY(
         QVariantList sharedGradeNodes
@@ -202,6 +217,7 @@ class EditController final : public QObject {
     Q_PROPERTY(QVariantList pointColors READ pointColors NOTIFY parametersChanged)
     Q_PROPERTY(int selectedPointColorIndex READ selectedPointColorIndex NOTIFY parametersChanged)
     Q_PROPERTY(bool pointColorPickerActive READ pointColorPickerActive NOTIFY pointColorPickerActiveChanged)
+    Q_PROPERTY(bool retouchPickerActive READ retouchPickerActive NOTIFY retouchPickerActiveChanged)
     Q_PROPERTY(
         bool whiteBalancePickerActive
         READ whiteBalancePickerActive
@@ -272,6 +288,9 @@ public:
     [[nodiscard]] bool opticsManualProfile() const noexcept;
     [[nodiscard]] QString opticsCameraProfile() const;
     [[nodiscard]] QString opticsLensProfile() const;
+    [[nodiscard]] QVariantMap selectedLocalMask() const;
+    [[nodiscard]] QVariantList retouchSpots() const;
+    [[nodiscard]] QVariantMap photoGeometry() const;
     [[nodiscard]] QVariantList gradeNodes() const;
     [[nodiscard]] QVariantList sharedGradeNodes() const;
     [[nodiscard]] int selectedGradeNodeIndex() const noexcept;
@@ -292,6 +311,7 @@ public:
     [[nodiscard]] QVariantList pointColors() const;
     [[nodiscard]] int selectedPointColorIndex() const noexcept;
     [[nodiscard]] bool pointColorPickerActive() const noexcept;
+    [[nodiscard]] bool retouchPickerActive() const noexcept;
     [[nodiscard]] bool whiteBalancePickerActive() const noexcept;
     [[nodiscard]] bool hasToneCurve() const noexcept;
     [[nodiscard]] bool toneCurveEditable() const noexcept;
@@ -336,6 +356,22 @@ public:
     Q_INVOKABLE void insertSharedGradeNode(const QString& layer_id);
     Q_INVOKABLE void deleteSelectedGradeNode();
     Q_INVOKABLE void moveSelectedGradeNode(int destination_index);
+    Q_INVOKABLE void setSelectedLocalMask(int kind);
+    Q_INVOKABLE void setSelectedLocalMaskValue(const QString& key, double value);
+    Q_INVOKABLE void setSelectedLocalMaskInverted(bool inverted);
+    Q_INVOKABLE void setRetouchPickerActive(bool active);
+    Q_INVOKABLE void addRetouchSpotFromPreview(double normalized_x, double normalized_y);
+    Q_INVOKABLE void setRetouchSpotRadius(int index, int radius_level_zero_pixels);
+    Q_INVOKABLE void removeRetouchSpot(int index);
+    Q_INVOKABLE void rotatePhotoClockwise();
+    Q_INVOKABLE void rotatePhotoCounterClockwise();
+    Q_INVOKABLE void flipPhotoHorizontally();
+    Q_INVOKABLE void flipPhotoVertically();
+    Q_INVOKABLE void setCenteredPhotoCropAspectRatio(
+        double output_aspect_ratio,
+        double current_output_aspect_ratio
+    );
+    Q_INVOKABLE void resetPhotoGeometry();
     Q_INVOKABLE void beginParameterEdit(const QString& parameter_key);
     Q_INVOKABLE void endParameterEdit(const QString& parameter_key);
     Q_INVOKABLE double parameterValue(const QString& parameter_key) const;
@@ -470,6 +506,7 @@ signals:
     void parametersChanged();
     void toneCurveChanged();
     void pointColorPickerActiveChanged();
+    void retouchPickerActiveChanged();
     void whiteBalancePickerActiveChanged();
 
 private slots:
@@ -639,6 +676,7 @@ private:
     int selected_grade_node_index_ = -1;
     int selected_point_color_index_ = -1;
     bool point_color_picker_active_ = false;
+    bool retouch_picker_active_ = false;
     bool white_balance_picker_active_ = false;
     quint64 parameter_revision_ = 0;
 };

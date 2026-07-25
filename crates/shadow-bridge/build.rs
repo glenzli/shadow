@@ -45,6 +45,9 @@ const EMBEDDED_IMAGE_INPUTS: &[&str] = &[
     "src/edit/cpu_reference_curve.ipp",
     "src/edit/cpu_reference_detail.ipp",
     "src/edit/cpu_reference_tone.ipp",
+    "src/edit/local_mask.cpp",
+    "src/edit/photo_geometry.cpp",
+    "src/edit/retouch.cpp",
     "src/edit/metal_adjustment.mm",
     "src/edit/metal_adjustment_stub.cpp",
     "src/concurrency/row_scheduler.hpp",
@@ -202,6 +205,9 @@ fn main() {
         .file(image_root.join("src/edit/adjustment_execution.cpp"))
         .file(image_root.join("src/edit/cube_lut.cpp"))
         .file(image_root.join("src/edit/cpu_reference.cpp"))
+        .file(image_root.join("src/edit/local_mask.cpp"))
+        .file(image_root.join("src/edit/photo_geometry.cpp"))
+        .file(image_root.join("src/edit/retouch.cpp"))
         .file(image_root.join("src/concurrency/row_scheduler.cpp"))
         .file(image_root.join("src/raw/bayer_demosaic.cpp"))
         .file(image_root.join("src/raw/bayer_sampling.cpp"))

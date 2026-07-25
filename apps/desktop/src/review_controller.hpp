@@ -294,6 +294,7 @@ private:
     quint64 unchanged_files_ = 0;
     quint64 revalidation_files_ = 0;
     quint64 decode_queued_ = 0;
+    quint64 preview_artifacts_ready_ = 0;
     quint64 decode_completed_ = 0;
     quint64 decode_hard_failures_ = 0;
     quint64 preview_failures_ = 0;
@@ -301,6 +302,7 @@ private:
     quint64 skipped_files_ = 0;
     quint64 issue_count_ = 0;
     quint64 next_stream_refresh_at_ = 1;
+    quint64 last_stream_visual_refresh_at_ = 0;
     qint64 last_stream_refresh_ms_ = -1;
     BackendScanPhase scan_phase_ = BackendScanPhase::Idle;
     QString scan_terminal_error_;

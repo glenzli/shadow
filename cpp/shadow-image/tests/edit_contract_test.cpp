@@ -1163,6 +1163,218 @@ void global_effect_coordinates_are_tile_invariant() {
     }
 }
 
+void local_mask_layers_blend_complete_adjustments_in_global_coordinates() {
+    const auto input = rgb_raster(
+        4U,
+        1U,
+        {
+            0.25F, 0.25F, 0.25F,
+            0.25F, 0.25F, 0.25F,
+            0.25F, 0.25F, 0.25F,
+            0.25F, 0.25F, 0.25F,
+        }
+    );
+    const image::AdjustmentNode exposure{
+        .node_id = "local-mask-exposure",
+        .parameters = image::ExposureAdjustment{.stops = 1.0},
+    };
+    const std::array layers{
+        image::AdjustmentLayer{
+            .layer_id = "linear-layer",
+            .mask = image::LocalMask{
+                .kind = image::LocalMaskKind::linear_gradient,
+                .x0 = 0.25,
+                .y0 = 0.5,
+                .x1 = 0.75,
+                .y1 = 0.5,
+            },
+            .nodes = {exposure},
+        },
+    };
+    const auto output = image::execute_adjustment_layers(input, layers);
+    expect_close(output.samples[0], 0.25F, "linear masks leave the zero-coverage edge unchanged");
+    expect_close(output.samples[3], 0.3125F, "linear masks blend an intermediate before/after result");
+    expect_close(output.samples[6], 0.4375F, "linear masks continue their normalized ramp");
+    expect_close(output.samples[9], 0.5F, "linear masks apply the complete adjustment at full coverage");
+
+    const auto full = image::execute_adjustment_layers(
+        input,
+        layers,
+        image::AdjustmentExecutionContext{.full_dimensions = {4U, 1U}}
+    );
+    for (std::uint32_t tile_index = 0U; tile_index < 2U; ++tile_index) {
+        const std::size_t begin = static_cast<std::size_t>(tile_index) * 6U;
+        const auto tile = rgb_raster(
+            2U,
+            1U,
+            std::vector<float>(
+                input.samples.begin() + static_cast<std::ptrdiff_t>(begin),
+                input.samples.begin() + static_cast<std::ptrdiff_t>(begin + 6U)
+            )
+        );
+        const auto rendered_tile = image::execute_adjustment_layers(
+            tile,
+            layers,
+            image::AdjustmentExecutionContext{
+                .origin_x = tile_index * 2U,
+                .full_dimensions = {4U, 1U},
+            }
+        );
+        for (std::size_t sample = 0U; sample < rendered_tile.samples.size(); ++sample) {
+            expect_close(
+                rendered_tile.samples[sample],
+                full.samples[begin + sample],
+                "local masks retain the same coverage for independently rendered detail tiles"
+            );
+        }
+    }
+
+    const std::array invalid_layers{
+        image::AdjustmentLayer{
+            .layer_id = "invalid-radial",
+            .mask = image::LocalMask{
+                .kind = image::LocalMaskKind::radial_gradient,
+                .x0 = 0.5,
+                .y0 = 0.5,
+                .radius_x = 0.0,
+                .radius_y = 0.2,
+            },
+            .nodes = {exposure},
+        },
+    };
+    expect_edit_error(
+        [&] { static_cast<void>(image::execute_adjustment_layers(input, invalid_layers)); },
+        image::EditErrorCode::invalid_parameter,
+        std::nullopt,
+        "invalid local-mask geometry fails closed before it can affect a recipe"
+    );
+}
+
+void spot_heal_repairs_small_defects_in_global_coordinates() {
+    std::vector<float> samples(9U * 9U * 3U, 0.2F);
+    const std::size_t center = (4U * 9U + 4U) * 3U;
+    samples[center] = 1.0F;
+    samples[center + 1U] = 0.0F;
+    samples[center + 2U] = 0.0F;
+    const auto input = rgb_raster(9U, 9U, samples);
+    const std::array nodes{
+        image::AdjustmentNode{
+            .node_id = "spot-heal-dust",
+            .parameters = image::SpotHealAdjustment{
+                .spots = {{
+                    .center_x = 0.5,
+                    .center_y = 0.5,
+                    .radius_level_zero_pixels = 1U,
+                }},
+            },
+        },
+    };
+    const auto plan = image::compile_edit_execution_plan(nodes);
+    expect(
+        plan.cumulative_footprint == image::AdjustmentFootprint{
+            .horizontal_radius = 2U,
+            .vertical_radius = 2U,
+        },
+        "spot-heal declares enough detail-tile support for its reconstruction ring"
+    );
+    const auto output = image::execute_adjustment_nodes(input, nodes);
+    expect_close(output.samples[center], 0.2F, "spot-heal restores a red defect from its ring");
+    expect_close(
+        output.samples[center + 1U],
+        0.2F,
+        "spot-heal restores a green defect component from its ring"
+    );
+    expect_close(
+        output.samples[center + 2U],
+        0.2F,
+        "spot-heal restores a blue defect component from its ring"
+    );
+
+    image::SpotHealAdjustment invalid;
+    invalid.spots.push_back(image::SpotHealTarget{
+        .center_x = 0.5,
+        .center_y = 0.5,
+        .radius_level_zero_pixels = 0U,
+    });
+    expect_edit_error(
+        [&] { image::validate_spot_heal(invalid); },
+        image::EditErrorCode::invalid_parameter,
+        std::nullopt,
+        "spot-heal rejects an out-of-contract radius before touching pixels"
+    );
+}
+
+void photo_geometry_is_lossless_and_maps_detail_tiles_to_source_space() {
+    const auto input = rgb_raster(
+        3U,
+        2U,
+        {
+            0.0F, 0.0F, 0.0F,
+            1.0F, 1.0F, 1.0F,
+            2.0F, 2.0F, 2.0F,
+            3.0F, 3.0F, 3.0F,
+            4.0F, 4.0F, 4.0F,
+            5.0F, 5.0F, 5.0F,
+        }
+    );
+    const image::PhotoGeometry clockwise{
+        .quarter_turn = image::PhotoQuarterTurn::clockwise_90,
+    };
+    const auto layout = image::photo_geometry_layout(input.dimensions, clockwise);
+    expect(
+        layout.output_dimensions == image::Dimensions{2U, 3U},
+        "a quarter turn swaps the output canvas dimensions"
+    );
+    const auto output = image::apply_photo_geometry(input, clockwise);
+    const std::array<float, 6U> expected_values{3.0F, 0.0F, 4.0F, 1.0F, 5.0F, 2.0F};
+    for (std::size_t index = 0U; index < expected_values.size(); ++index) {
+        expect_close(
+            output.samples[index * 3U],
+            expected_values[index],
+            "quarter-turn geometry uses an exact source-pixel permutation"
+        );
+    }
+
+    const image::GeometryPixelRect output_row{.x = 0U, .y = 1U, .width = 2U, .height = 1U};
+    const auto required_source = image::photo_geometry_source_rect_for_output(
+        layout,
+        clockwise,
+        output_row
+    );
+    expect(
+        required_source == image::GeometryPixelRect{.x = 1U, .y = 0U, .width = 1U, .height = 2U},
+        "a rotated output tile requests only its exact source-space rectangle"
+    );
+    const auto source_tile = rgb_raster(
+        1U,
+        2U,
+        {1.0F, 1.0F, 1.0F, 4.0F, 4.0F, 4.0F}
+    );
+    const auto output_tile = image::apply_photo_geometry_tile(
+        source_tile,
+        required_source,
+        layout,
+        clockwise,
+        output_row
+    );
+    expect_close(output_tile.samples[0], 4.0F, "geometry detail tile retains its first mapped pixel");
+    expect_close(output_tile.samples[3], 1.0F, "geometry detail tile retains its second mapped pixel");
+
+    const image::PhotoGeometry centered_crop{
+        .crop_left = 1.0 / 3.0,
+        .crop_top = 0.0,
+        .crop_right = 1.0,
+        .crop_bottom = 1.0,
+    };
+    const auto cropped = image::apply_photo_geometry(input, centered_crop);
+    expect(
+        cropped.dimensions == image::Dimensions{2U, 2U},
+        "normalized crop edges resolve to a stable integer source rectangle"
+    );
+    expect_close(cropped.samples[0], 1.0F, "crop begins at the expected source column");
+    expect_close(cropped.samples[9], 5.0F, "crop retains the expected final source pixel");
+}
+
 void exposure_preserves_unclipped_scene_range_and_padding() {
     const auto input = rgb_image(1, {-0.25F, 0.5F, 1.5F, 37.0F}, 1U);
     const std::array nodes{
@@ -3690,6 +3902,9 @@ int main() {
     denoise_remains_observable_on_a_reduced_edit_proxy();
     purple_and_green_defringe_ranges_are_independent();
     global_effect_coordinates_are_tile_invariant();
+    local_mask_layers_blend_complete_adjustments_in_global_coordinates();
+    spot_heal_repairs_small_defects_in_global_coordinates();
+    photo_geometry_is_lossless_and_maps_detail_tiles_to_source_space();
     exposure_preserves_unclipped_scene_range_and_padding();
     rgb_white_balance_and_saturation_have_numeric_contracts();
     selective_tone_is_exactly_neutral_and_preserves_scene_range();

@@ -53,6 +53,7 @@ inline constexpr std::string_view image_acceleration_environment =
                 break;
             }
             case AdjustmentOperation::selective_tone:
+            case AdjustmentOperation::spot_heal:
                 return "Metal adjustment does not support active operation "
                     + std::string(operation_id(step.operation));
             }

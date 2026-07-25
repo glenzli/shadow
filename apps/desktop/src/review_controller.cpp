@@ -18,6 +18,7 @@ constexpr std::uint32_t REVIEW_PAGE_SIZE = 96;
 constexpr int SCAN_PROGRESS_POLL_MS = 150;
 constexpr quint64 STREAM_REFRESH_STRIDE = 16;
 constexpr qint64 STREAM_REFRESH_MIN_INTERVAL_MS = 400;
+constexpr qint64 STREAM_VISUAL_REFRESH_MIN_INTERVAL_MS = 150;
 constexpr auto color_labels_settings_key = "review/color_labels";
 
 [[nodiscard]] LocalizedUiMessage review_message(
@@ -472,6 +473,7 @@ QVariantMap ReviewController::scanProgress() const {
         {QStringLiteral("unchangedFiles"), QVariant::fromValue(unchanged_files_)},
         {QStringLiteral("revalidationFiles"), QVariant::fromValue(revalidation_files_)},
         {QStringLiteral("decodeQueued"), QVariant::fromValue(decode_queued_)},
+        {QStringLiteral("previewArtifactsReady"), QVariant::fromValue(preview_artifacts_ready_)},
         {QStringLiteral("decodeCompleted"), QVariant::fromValue(decode_completed_)},
         {
             QStringLiteral("decodeHardFailures"),
@@ -595,6 +597,7 @@ void ReviewController::scanFolder(const QUrl& folder_url) {
     unchanged_files_ = 0;
     revalidation_files_ = 0;
     decode_queued_ = 0;
+    preview_artifacts_ready_ = 0;
     decode_completed_ = 0;
     decode_hard_failures_ = 0;
     preview_failures_ = 0;
@@ -602,6 +605,7 @@ void ReviewController::scanFolder(const QUrl& folder_url) {
     skipped_files_ = 0;
     issue_count_ = 0;
     next_stream_refresh_at_ = 1;
+    last_stream_visual_refresh_at_ = 0;
     last_stream_refresh_ms_ = -1;
     scan_phase_ = BackendScanPhase::Discovering;
     scan_terminal_error_.clear();
@@ -1148,6 +1152,7 @@ void ReviewController::pollScanProgress() {
     unchanged_files_ = progress.unchanged;
     revalidation_files_ = progress.needs_revalidation;
     decode_queued_ = progress.decode_queued;
+    preview_artifacts_ready_ = progress.preview_artifacts_ready;
     decode_completed_ = progress.decode_completed;
     decode_hard_failures_ = progress.decode_hard_failures;
     preview_failures_ = progress.preview_failures;
@@ -1166,9 +1171,14 @@ void ReviewController::pollScanProgress() {
     const bool paced_refresh = catalogued >= next_stream_refresh_at_
         && (last_stream_refresh_ms_ < 0
             || elapsed - last_stream_refresh_ms_ >= STREAM_REFRESH_MIN_INTERVAL_MS);
-    if (scan_running_ && !page_running_ && (first_visible_page || paced_refresh)) {
+    const bool visual_refresh = preview_artifacts_ready_ > last_stream_visual_refresh_at_
+        && (last_stream_refresh_ms_ < 0
+            || elapsed - last_stream_refresh_ms_ >= STREAM_VISUAL_REFRESH_MIN_INTERVAL_MS);
+    if (scan_running_ && !page_running_
+        && (first_visible_page || paced_refresh || visual_refresh)) {
         last_stream_refresh_ms_ = elapsed;
         next_stream_refresh_at_ = catalogued + STREAM_REFRESH_STRIDE;
+        last_stream_visual_refresh_at_ = preview_artifacts_ready_;
         startPage(PageTaskKind::StreamingPrefix);
     }
 }

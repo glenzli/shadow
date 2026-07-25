@@ -653,65 +653,6 @@ void validate_detail_tile_rect(
     };
 }
 
-[[nodiscard]] FloatRgbImage crop_working_core(
-    const FloatRgbImage& source,
-    const std::uint32_t offset_x,
-    const std::uint32_t offset_y,
-    const Dimensions dimensions
-) {
-    if (
-        offset_x > source.dimensions.width
-        || offset_y > source.dimensions.height
-        || dimensions.width > source.dimensions.width - offset_x
-        || dimensions.height > source.dimensions.height - offset_y
-    ) {
-        throw DecodeError(
-            DecodeErrorCode::internal,
-            0,
-            "detail core lies outside its expanded working image"
-        );
-    }
-    const std::size_t sample_count = checked_rgb_size(dimensions);
-    const std::uint64_t row_samples = static_cast<std::uint64_t>(dimensions.width) * 3U;
-    if (row_samples > std::numeric_limits<std::size_t>::max() / sizeof(float)) {
-        throw DecodeError(
-            DecodeErrorCode::resource_limit,
-            0,
-            "detail core row stride exceeds the address space"
-        );
-    }
-
-    FloatRgbImage output;
-    output.dimensions = dimensions;
-    output.row_stride_bytes = static_cast<std::size_t>(row_samples) * sizeof(float);
-    output.pixel_format = source.pixel_format;
-    output.transfer_function = source.transfer_function;
-    output.reference = source.reference;
-    output.working_space = source.working_space;
-    output.level_zero_to_raster_scale_x = source.level_zero_to_raster_scale_x;
-    output.level_zero_to_raster_scale_y = source.level_zero_to_raster_scale_y;
-    output.samples.resize(sample_count);
-
-    const std::size_t source_stride = source.row_stride_bytes / sizeof(float);
-    const std::size_t output_stride = output.row_stride_bytes / sizeof(float);
-    const std::size_t copy_samples = static_cast<std::size_t>(dimensions.width) * 3U;
-    for (std::uint32_t row = 0U; row < dimensions.height; ++row) {
-        const auto source_begin = source.samples.cbegin()
-            + static_cast<std::ptrdiff_t>(
-                (static_cast<std::size_t>(offset_y + row) * source_stride)
-                + static_cast<std::size_t>(offset_x) * 3U
-            );
-        std::copy_n(
-            source_begin,
-            static_cast<std::ptrdiff_t>(copy_samples),
-            output.samples.begin() + static_cast<std::ptrdiff_t>(
-                static_cast<std::size_t>(row) * output_stride
-            )
-        );
-    }
-    return output;
-}
-
 [[nodiscard]] std::uint64_t checked_detail_retained_bytes(const PixelBuffer& source) {
     if (
         source.samples.capacity()
@@ -936,6 +877,7 @@ struct PreparedEditPreviewPixels final {
     const std::shared_ptr<detail::WarmEditGpuSession>& warm_gpu_session,
     const std::string_view warm_gpu_diagnostic,
     const std::span<const AdjustmentNode> nodes,
+    const PhotoGeometry& geometry,
     const bool retain_linear_for_analysis,
     const std::stop_token cancellation
 ) {
@@ -944,7 +886,8 @@ struct PreparedEditPreviewPixels final {
     }
     const AdjustmentBackendMode backend_mode =
         adjustment_backend_mode_from_environment();
-    if (backend_mode != AdjustmentBackendMode::cpu) {
+    const bool identity_geometry = geometry == PhotoGeometry{};
+    if (backend_mode != AdjustmentBackendMode::cpu && identity_geometry) {
         // Compile before inspecting runtime availability so disabled malformed nodes and source
         // ordering fail identically on every backend.
         const EditExecutionPlan plan = compile_edit_execution_plan(
@@ -1013,6 +956,7 @@ struct PreparedEditPreviewPixels final {
         // source; it never drops into the old split Metal stages and cannot expose partial data.
         AdjustmentExecutionResult adjustment;
         DisplayRgb8Image display;
+        FloatRgbImage geometry_applied;
         try {
             detail::ScopedRowCancellation scoped_cancellation(cancellation);
             detail::throw_if_row_cancelled();
@@ -1025,9 +969,10 @@ struct PreparedEditPreviewPixels final {
                 AdjustmentBackendMode::cpu
             );
             detail::throw_if_row_cancelled();
+            geometry_applied = apply_photo_geometry(adjustment.pixels, geometry);
             display = render_linear_srgb_to_display_srgb8_with_backend(
-                adjustment.pixels,
-                DisplayOutputRequest{.target_dimensions = adjustment.pixels.dimensions},
+                geometry_applied,
+                DisplayOutputRequest{.target_dimensions = geometry_applied.dimensions},
                 DisplayOutputBackendMode::cpu
             );
             detail::throw_if_row_cancelled();
@@ -1049,9 +994,9 @@ struct PreparedEditPreviewPixels final {
             );
         }
         return PreparedEditPreviewPixels{
-            .dimensions = adjustment.pixels.dimensions,
+            .dimensions = geometry_applied.dimensions,
             .edited = retain_linear_for_analysis
-                ? std::optional<FloatRgbImage>{std::move(adjustment.pixels)}
+                ? std::optional<FloatRgbImage>{std::move(geometry_applied)}
                 : std::nullopt,
             .rgb = std::move(display.bytes),
             .execution = std::move(receipt),
@@ -1060,6 +1005,7 @@ struct PreparedEditPreviewPixels final {
 
     AdjustmentExecutionResult adjustment;
     DisplayRgb8Image display;
+    FloatRgbImage geometry_applied;
     try {
         detail::ScopedRowCancellation scoped_cancellation(cancellation);
         detail::throw_if_row_cancelled();
@@ -1072,9 +1018,76 @@ struct PreparedEditPreviewPixels final {
             AdjustmentBackendMode::cpu
         );
         detail::throw_if_row_cancelled();
+        geometry_applied = apply_photo_geometry(adjustment.pixels, geometry);
         display = render_linear_srgb_to_display_srgb8_with_backend(
-            adjustment.pixels,
-            DisplayOutputRequest{.target_dimensions = adjustment.pixels.dimensions},
+            geometry_applied,
+            DisplayOutputRequest{.target_dimensions = geometry_applied.dimensions},
+            DisplayOutputBackendMode::cpu
+        );
+        detail::throw_if_row_cancelled();
+    } catch (const detail::RowExecutionCancelled&) {
+        return std::nullopt;
+    }
+    if (cancellation.stop_requested()) {
+        return std::nullopt;
+    }
+    if (!identity_geometry && backend_mode != AdjustmentBackendMode::cpu) {
+        adjustment.fell_back = true;
+        adjustment.diagnostic = "photo geometry currently uses the CPU executor";
+    }
+    auto execution = edit_preview_execution_receipt(adjustment, display);
+    return PreparedEditPreviewPixels{
+        .dimensions = geometry_applied.dimensions,
+        .edited = retain_linear_for_analysis
+            ? std::optional<FloatRgbImage>{std::move(geometry_applied)}
+            : std::nullopt,
+        .rgb = std::move(display.bytes),
+        .execution = std::move(execution),
+    };
+}
+
+// Local-mask layers deliberately execute on the CPU for now. The existing Metal executor owns
+// a flat node stream, while a layer needs a temporary before/after image and a spatial blend.
+// Keeping this separate means ordinary unmasked recipes retain the fast path unchanged and the
+// later GPU implementation has one clear semantic target to match.
+[[nodiscard]] std::optional<PreparedEditPreviewPixels> prepare_edit_preview_layer_pixels(
+    const FloatRgbImage& working_proxy,
+    const std::span<const AdjustmentLayer> layers,
+    const PhotoGeometry& geometry,
+    const bool retain_linear_for_analysis,
+    const std::stop_token cancellation
+) {
+    if (cancellation.stop_requested()) {
+        return std::nullopt;
+    }
+
+    const AdjustmentBackendMode requested_backend =
+        adjustment_backend_mode_from_environment();
+    const bool cpu_fallback = requested_backend != AdjustmentBackendMode::cpu;
+
+    AdjustmentExecutionResult adjustment;
+    DisplayRgb8Image display;
+    FloatRgbImage geometry_applied;
+    try {
+        detail::ScopedRowCancellation scoped_cancellation(cancellation);
+        detail::throw_if_row_cancelled();
+        adjustment = AdjustmentExecutionResult{
+            .pixels = execute_adjustment_layers(
+                working_proxy,
+                layers,
+                AdjustmentExecutionContext{.full_dimensions = working_proxy.dimensions}
+            ),
+            .backend = AdjustmentBackend::cpu,
+            .fell_back = cpu_fallback,
+            .diagnostic = cpu_fallback
+                ? "local-mask layers currently use the CPU executor"
+                : "",
+        };
+        detail::throw_if_row_cancelled();
+        geometry_applied = apply_photo_geometry(adjustment.pixels, geometry);
+        display = render_linear_srgb_to_display_srgb8_with_backend(
+            geometry_applied,
+            DisplayOutputRequest{.target_dimensions = geometry_applied.dimensions},
             DisplayOutputBackendMode::cpu
         );
         detail::throw_if_row_cancelled();
@@ -1086,9 +1099,9 @@ struct PreparedEditPreviewPixels final {
     }
     auto execution = edit_preview_execution_receipt(adjustment, display);
     return PreparedEditPreviewPixels{
-        .dimensions = adjustment.pixels.dimensions,
+        .dimensions = geometry_applied.dimensions,
         .edited = retain_linear_for_analysis
-            ? std::optional<FloatRgbImage>{std::move(adjustment.pixels)}
+            ? std::optional<FloatRgbImage>{std::move(geometry_applied)}
             : std::nullopt,
         .rgb = std::move(display.bytes),
         .execution = std::move(execution),
@@ -1564,9 +1577,10 @@ WarmEditPreviewGpuStats WarmEditPreviewSession::gpu_stats() const noexcept {
 
 EncodedProxy WarmEditPreviewSession::render_jpeg(
     const std::span<const AdjustmentNode> nodes,
-    const std::uint8_t jpeg_quality
+    const std::uint8_t jpeg_quality,
+    const PhotoGeometry& geometry
 ) const {
-    auto rendered = render_jpeg_cancellable(nodes, jpeg_quality, {});
+    auto rendered = render_jpeg_cancellable(nodes, jpeg_quality, {}, geometry);
     if (rendered.cancelled()) {
         throw DecodeError(
             DecodeErrorCode::internal,
@@ -1579,9 +1593,10 @@ EncodedProxy WarmEditPreviewSession::render_jpeg(
 
 AnalyzedEditPreview WarmEditPreviewSession::render_jpeg_with_analysis(
     const std::span<const AdjustmentNode> nodes,
-    const std::uint8_t jpeg_quality
+    const std::uint8_t jpeg_quality,
+    const PhotoGeometry& geometry
 ) const {
-    auto rendered = render_jpeg_with_analysis_cancellable(nodes, jpeg_quality, {});
+    auto rendered = render_jpeg_with_analysis_cancellable(nodes, jpeg_quality, {}, geometry);
     if (rendered.cancelled()) {
         throw DecodeError(
             DecodeErrorCode::internal,
@@ -1592,11 +1607,64 @@ AnalyzedEditPreview WarmEditPreviewSession::render_jpeg_with_analysis(
     return std::move(*rendered.completed);
 }
 
+EncodedProxy WarmEditPreviewSession::render_jpeg_layers(
+    const std::span<const AdjustmentLayer> layers,
+    const std::uint8_t jpeg_quality,
+    const PhotoGeometry& geometry
+) const {
+    validate_jpeg_quality(jpeg_quality);
+    auto prepared = prepare_edit_preview_layer_pixels(working_proxy_, layers, geometry, false, {});
+    if (!prepared.has_value()) {
+        throw DecodeError(
+            DecodeErrorCode::internal,
+            0,
+            "non-cancellable local-mask warm preview was unexpectedly cancelled"
+        );
+    }
+    return EncodedProxy{
+        .dimensions = prepared->dimensions,
+        .bytes = encode_jpeg(prepared->rgb, prepared->dimensions, jpeg_quality),
+    };
+}
+
+AnalyzedEditPreview WarmEditPreviewSession::render_jpeg_with_analysis_layers(
+    const std::span<const AdjustmentLayer> layers,
+    const std::uint8_t jpeg_quality,
+    const PhotoGeometry& geometry
+) const {
+    validate_jpeg_quality(jpeg_quality);
+    auto prepared = prepare_edit_preview_layer_pixels(working_proxy_, layers, geometry, true, {});
+    if (!prepared.has_value() || !prepared->edited.has_value()) {
+        throw DecodeError(
+            DecodeErrorCode::internal,
+            0,
+            "local-mask analyzed warm preview did not retain its scene-linear result"
+        );
+    }
+    auto analysis = analyze_edit_preview(*prepared->edited, prepared->rgb, {});
+    if (!analysis.has_value()) {
+        throw DecodeError(
+            DecodeErrorCode::internal,
+            0,
+            "non-cancellable local-mask preview analysis was unexpectedly cancelled"
+        );
+    }
+    return AnalyzedEditPreview{
+        .proxy = EncodedProxy{
+            .dimensions = prepared->dimensions,
+            .bytes = encode_jpeg(prepared->rgb, prepared->dimensions, jpeg_quality),
+        },
+        .analysis = std::move(*analysis),
+        .execution = std::move(prepared->execution),
+    };
+}
+
 CancellableEditPreviewResult<EncodedProxy>
 WarmEditPreviewSession::render_jpeg_cancellable(
     const std::span<const AdjustmentNode> nodes,
     const std::uint8_t jpeg_quality,
-    const std::stop_token cancellation
+    const std::stop_token cancellation,
+    const PhotoGeometry& geometry
 ) const {
     validate_jpeg_quality(jpeg_quality);
     auto prepared = prepare_edit_preview_pixels(
@@ -1604,6 +1672,7 @@ WarmEditPreviewSession::render_jpeg_cancellable(
         warm_gpu_session_,
         warm_gpu_diagnostic_,
         nodes,
+        geometry,
         false,
         cancellation
     );
@@ -1631,7 +1700,8 @@ CancellableEditPreviewResult<AnalyzedEditPreview>
 WarmEditPreviewSession::render_jpeg_with_analysis_cancellable(
     const std::span<const AdjustmentNode> nodes,
     const std::uint8_t jpeg_quality,
-    const std::stop_token cancellation
+    const std::stop_token cancellation,
+    const PhotoGeometry& geometry
 ) const {
     validate_jpeg_quality(jpeg_quality);
     auto prepared = prepare_edit_preview_pixels(
@@ -1639,6 +1709,7 @@ WarmEditPreviewSession::render_jpeg_with_analysis_cancellable(
         warm_gpu_session_,
         warm_gpu_diagnostic_,
         nodes,
+        geometry,
         true,
         cancellation
     );
@@ -1762,13 +1833,27 @@ const OpticsProfileReceipt& FullEditDetailSession::optics_receipt() const noexce
 
 RenderedDetailTile FullEditDetailSession::render_rgb8(
     const std::span<const AdjustmentNode> nodes,
-    const DetailTileRect rect
+    const DetailTileRect rect,
+    const PhotoGeometry& geometry
 ) const {
     validate_adjustment_nodes(nodes);
-    validate_detail_tile_rect(rect, reference_rgb_.dimensions);
+    const PhotoGeometryLayout geometry_layout =
+        photo_geometry_layout(reference_rgb_.dimensions, geometry);
+    validate_detail_tile_rect(rect, geometry_layout.output_dimensions);
+    const GeometryPixelRect output_rect{rect.x, rect.y, rect.width, rect.height};
+    const GeometryPixelRect source_core = photo_geometry_source_rect_for_output(
+        geometry_layout,
+        geometry,
+        output_rect
+    );
     const AdjustmentFootprint apron = required_detail_apron(nodes);
     const DetailTileRect working_rect = expanded_detail_rect(
-        rect,
+        DetailTileRect{
+            .x = source_core.x,
+            .y = source_core.y,
+            .width = source_core.width,
+            .height = source_core.height,
+        },
         reference_rgb_.dimensions,
         apron
     );
@@ -1783,17 +1868,97 @@ RenderedDetailTile FullEditDetailSession::render_rgb8(
             .full_dimensions = reference_rgb_.dimensions,
         }
     );
-    const Dimensions dimensions{rect.width, rect.height};
-    const FloatRgbImage edited = crop_working_core(
+    const FloatRgbImage edited = apply_photo_geometry_tile(
         edited_working,
-        rect.x - working_rect.x,
-        rect.y - working_rect.y,
-        dimensions
+        GeometryPixelRect{
+            .x = working_rect.x,
+            .y = working_rect.y,
+            .width = working_rect.width,
+            .height = working_rect.height,
+        },
+        geometry_layout,
+        geometry,
+        output_rect
     );
-    auto bytes = resize_working_to_display_srgb8(edited, dimensions, rect.x, rect.y);
+    auto bytes = resize_working_to_display_srgb8(
+        edited,
+        edited.dimensions,
+        rect.x,
+        rect.y
+    );
     return RenderedDetailTile{
         .rect = rect,
-        .full_dimensions = reference_rgb_.dimensions,
+        .full_dimensions = geometry_layout.output_dimensions,
+        .row_stride_bytes = rect.width * 3U,
+        .bytes = std::move(bytes),
+    };
+}
+
+RenderedDetailTile FullEditDetailSession::render_rgb8_layers(
+    const std::span<const AdjustmentLayer> layers,
+    const DetailTileRect rect,
+    const PhotoGeometry& geometry
+) const {
+    const PhotoGeometryLayout geometry_layout =
+        photo_geometry_layout(reference_rgb_.dimensions, geometry);
+    validate_detail_tile_rect(rect, geometry_layout.output_dimensions);
+    const GeometryPixelRect output_rect{rect.x, rect.y, rect.width, rect.height};
+    const GeometryPixelRect source_core = photo_geometry_source_rect_for_output(
+        geometry_layout,
+        geometry,
+        output_rect
+    );
+    std::vector<AdjustmentNode> flattened_nodes;
+    for (const auto& layer : layers) {
+        flattened_nodes.insert(
+            flattened_nodes.end(),
+            layer.nodes.begin(),
+            layer.nodes.end()
+        );
+    }
+    const AdjustmentFootprint apron = required_detail_apron(flattened_nodes);
+    const DetailTileRect working_rect = expanded_detail_rect(
+        DetailTileRect{
+            .x = source_core.x,
+            .y = source_core.y,
+            .width = source_core.width,
+            .height = source_core.height,
+        },
+        reference_rgb_.dimensions,
+        apron
+    );
+    FloatRgbImage tile = crop_processed_linear_to_working(reference_rgb_, working_rect);
+    apply_source_rendering(tile, source_rendering_);
+    const FloatRgbImage edited_working = execute_adjustment_layers(
+        tile,
+        layers,
+        AdjustmentExecutionContext{
+            .origin_x = working_rect.x,
+            .origin_y = working_rect.y,
+            .full_dimensions = reference_rgb_.dimensions,
+        }
+    );
+    const FloatRgbImage edited = apply_photo_geometry_tile(
+        edited_working,
+        GeometryPixelRect{
+            .x = working_rect.x,
+            .y = working_rect.y,
+            .width = working_rect.width,
+            .height = working_rect.height,
+        },
+        geometry_layout,
+        geometry,
+        output_rect
+    );
+    auto bytes = resize_working_to_display_srgb8(
+        edited,
+        edited.dimensions,
+        rect.x,
+        rect.y
+    );
+    return RenderedDetailTile{
+        .rect = rect,
+        .full_dimensions = geometry_layout.output_dimensions,
         .row_stride_bytes = rect.width * 3U,
         .bytes = std::move(bytes),
     };
@@ -1943,6 +2108,42 @@ EncodedProxy render_edited_reference_proxy_jpeg(
         optics_settings
     );
     return preview.render_jpeg(nodes, request.jpeg_quality);
+}
+
+EncodedProxy render_edited_reference_proxy_jpeg_layers(
+    const DecodeSession& session,
+    const std::span<const AdjustmentLayer> layers,
+    const ProxyRequest request,
+    const OpticsProvider* optics_provider,
+    const OpticsSettings& optics_settings
+) {
+    return render_edited_reference_proxy_jpeg_layers(
+        session,
+        layers,
+        request,
+        preview_raw_development_plan(),
+        optics_provider,
+        optics_settings
+    );
+}
+
+EncodedProxy render_edited_reference_proxy_jpeg_layers(
+    const DecodeSession& session,
+    const std::span<const AdjustmentLayer> layers,
+    const ProxyRequest request,
+    const RawDevelopmentPlan& raw_development_plan,
+    const OpticsProvider* optics_provider,
+    const OpticsSettings& optics_settings
+) {
+    validate_proxy_request(request);
+    const WarmEditPreviewSession preview = prepare_warm_edit_preview(
+        session,
+        request.max_edge,
+        raw_development_plan,
+        optics_provider,
+        optics_settings
+    );
+    return preview.render_jpeg_layers(layers, request.jpeg_quality);
 }
 
 } // namespace shadow::image

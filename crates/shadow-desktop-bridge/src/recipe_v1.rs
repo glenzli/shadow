@@ -24,6 +24,17 @@ pub(crate) const RECIPE_V1_SELECTIVE_TONE_RENDER_OP_ID_DOMAIN: &[u8] =
 pub(crate) const RECIPE_V1_PERCEPTUAL_COLOR_RENDER_OP_ID_DOMAIN: &[u8] =
     b"shadow.desktop.perceptual-color-slot-id.v1\0";
 pub(crate) const RECIPE_V1_LUT_RENDER_OP_ID_DOMAIN: &[u8] = b"shadow.desktop.lut-slot-id.v1\0";
+/// A local spatial mask belongs to the *instance* of a Grade Node. Its
+/// generated identity incorporates the shape payload, so two immutable recipe
+/// snapshots can never claim that one mask revision means different pixels.
+pub(crate) const RECIPE_V1_LOCAL_MASK_ID_DOMAIN: &[u8] =
+    b"shadow.desktop.local-mask-revision-id.v1\0";
+// Retouch is photo-local rather than a Grade Node. These fixed, compiler-only
+// stream identities keep it deterministic without making it user-visible or
+// shareable by mistake.
+const RECIPE_V1_RETOUCH_LAYER_START_ID: &str = "recipe-v1-photo-retouch:start";
+const RECIPE_V1_RETOUCH_RENDER_NODE_ID: &str = "recipe-v1-photo-retouch:spots";
+const RECIPE_V1_RETOUCH_LAYER_END_ID: &str = "recipe-v1-photo-retouch:end";
 // The external Qt DTO keeps its historical `sharpen_render_op_id` slot, but
 // schema 3 gives it the technical-detail role. The two new internal slots are
 // deterministic from the Grade Node identity and intentionally never leak as
@@ -92,6 +103,29 @@ pub(crate) fn recipe_v3_finishing_effects_render_op_id(grade_node_id: LayerInsta
 
 pub(crate) fn recipe_v1_lut_render_op_id(grade_node_id: LayerInstanceId) -> NodeId {
     recipe_v1_derived_render_op_id(RECIPE_V1_LUT_RENDER_OP_ID_DOMAIN, grade_node_id)
+}
+
+fn recipe_v1_local_mask_revision(
+    grade_node_id: LayerInstanceId,
+    definition: &MaskDefinition,
+) -> AnyResult<MaskRevision> {
+    let encoded = serde_json::to_vec(definition)
+        .context("serialize normalized local-mask definition for identity")?;
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(RECIPE_V1_LOCAL_MASK_ID_DOMAIN);
+    hasher.update(grade_node_id.as_bytes());
+    hasher.update(&encoded);
+    let mut bytes = [0_u8; 16];
+    bytes.copy_from_slice(&hasher.finalize().as_bytes()[..16]);
+    bytes[6] = (bytes[6] & 0x0f) | 0x80;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    MaskRevision::new(
+        MaskId::from_uuid(Uuid::from_bytes(bytes)),
+        1,
+        MaskCoordinateSpace::Original,
+        definition.clone(),
+    )
+    .map_err(Into::into)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -165,6 +199,9 @@ impl GradeNodeRecipeV1Identity {
 pub(crate) struct GradeNodeDraft {
     pub(crate) recipe_v1_identity: GradeNodeRecipeV1Identity,
     pub(crate) shared: Option<SharedGradeNodeReference>,
+    /// Spatial placement is deliberately instance-local. Publishing a Grade
+    /// Node shares its adjustment graph, never this photo's mask placement.
+    pub(crate) local_mask: Option<MaskDefinition>,
     pub(crate) label: String,
     pub(crate) basic: BasicEditParameters,
     pub(crate) fine: FineEditParameters,
@@ -205,11 +242,88 @@ impl Default for LutEditParameters {
     }
 }
 
+const LOCAL_MASK_NONE: u8 = 0;
+const LOCAL_MASK_LINEAR_GRADIENT: u8 = 1;
+const LOCAL_MASK_RADIAL_GRADIENT: u8 = 2;
+
+type FfiLocalMaskFields = (u8, f64, f64, f64, f64, f64, f64, f64, bool);
+
+fn ffi_local_mask_fields(mask: Option<&MaskDefinition>) -> FfiLocalMaskFields {
+    match mask {
+        None => (LOCAL_MASK_NONE, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, false),
+        Some(MaskDefinition::LinearGradient {
+            start_x,
+            start_y,
+            end_x,
+            end_y,
+            invert,
+        }) => (
+            LOCAL_MASK_LINEAR_GRADIENT,
+            start_x.get(),
+            start_y.get(),
+            end_x.get(),
+            end_y.get(),
+            0.0,
+            0.0,
+            0.0,
+            *invert,
+        ),
+        Some(MaskDefinition::RadialGradient {
+            center_x,
+            center_y,
+            radius_x,
+            radius_y,
+            feather,
+            invert,
+        }) => (
+            LOCAL_MASK_RADIAL_GRADIENT,
+            center_x.get(),
+            center_y.get(),
+            0.0,
+            0.0,
+            radius_x.get(),
+            radius_y.get(),
+            feather.get(),
+            *invert,
+        ),
+    }
+}
+
+fn local_mask_definition_from_ffi(
+    grade_node: &ffi::FfiGradeNode,
+    index: usize,
+) -> AnyResult<Option<MaskDefinition>> {
+    let unit = |name: &str, value: f64| {
+        UnitInterval::new(value)
+            .with_context(|| format!("Grade Node {index} local mask {name} must be in [0, 1]"))
+    };
+    match grade_node.local_mask_kind {
+        LOCAL_MASK_NONE => Ok(None),
+        LOCAL_MASK_LINEAR_GRADIENT => Ok(Some(MaskDefinition::linear_gradient(
+            unit("start x", grade_node.local_mask_x0)?,
+            unit("start y", grade_node.local_mask_y0)?,
+            unit("end x", grade_node.local_mask_x1)?,
+            unit("end y", grade_node.local_mask_y1)?,
+            grade_node.local_mask_invert,
+        )?)),
+        LOCAL_MASK_RADIAL_GRADIENT => Ok(Some(MaskDefinition::radial_gradient(
+            unit("center x", grade_node.local_mask_x0)?,
+            unit("center y", grade_node.local_mask_y0)?,
+            unit("radius x", grade_node.local_mask_radius_x)?,
+            unit("radius y", grade_node.local_mask_radius_y)?,
+            unit("feather", grade_node.local_mask_feather)?,
+            grade_node.local_mask_invert,
+        )?)),
+        other => bail!("Grade Node {index} has unsupported local mask kind {other}"),
+    }
+}
+
 impl GradeNodeDraft {
     pub(crate) fn neutral(label: impl Into<String>) -> Self {
         Self {
             recipe_v1_identity: GradeNodeRecipeV1Identity::new(),
             shared: None,
+            local_mask: None,
             label: label.into(),
             basic: BasicEditParameters::default(),
             fine: FineEditParameters::default(),
@@ -224,6 +338,7 @@ impl GradeNodeDraft {
             // Duplicating is an explicit independent copy. The new node keeps
             // the rendered controls but must never inherit the source link.
             shared: None,
+            local_mask: self.local_mask.clone(),
             label: self.label.clone(),
             basic: self.basic,
             fine: self.fine.clone(),
@@ -236,6 +351,70 @@ impl GradeNodeDraft {
 pub(crate) struct GradeStackDraft {
     pub(crate) optics: RecipeOpticsSettings,
     pub(crate) grade_nodes: Vec<GradeNodeDraft>,
+    /// Photo-local small repairs run after all Grade Nodes. They deliberately
+    /// remain outside a reusable Grade Node graph.
+    pub(crate) retouch_spots: Vec<RetouchSpot>,
+    /// Final-canvas crop and orientation. This is photo-local for the same
+    /// reason retouch is: a reusable Grade Node cannot decide another photo's
+    /// framing.
+    pub(crate) geometry: PhotoGeometry,
+}
+
+fn photo_geometry_from_ffi(geometry: &ffi::FfiPhotoGeometry) -> AnyResult<PhotoGeometry> {
+    let unit = |name: &str, value: f64| {
+        UnitInterval::new(value).with_context(|| format!("photo geometry {name} must be in [0, 1]"))
+    };
+    let quarter_turn = match geometry.quarter_turn {
+        0 => PhotoQuarterTurn::Zero,
+        1 => PhotoQuarterTurn::Clockwise90,
+        2 => PhotoQuarterTurn::Clockwise180,
+        3 => PhotoQuarterTurn::Clockwise270,
+        other => bail!("photo geometry uses unsupported quarter-turn {other}"),
+    };
+    PhotoGeometry::new(
+        unit("crop left", geometry.crop_left)?,
+        unit("crop top", geometry.crop_top)?,
+        unit("crop right", geometry.crop_right)?,
+        unit("crop bottom", geometry.crop_bottom)?,
+        quarter_turn,
+        geometry.flip_horizontal,
+        geometry.flip_vertical,
+    )
+    .map_err(Into::into)
+}
+
+fn ffi_photo_geometry(geometry: PhotoGeometry) -> ffi::FfiPhotoGeometry {
+    ffi::FfiPhotoGeometry {
+        crop_left: geometry.crop_left().get(),
+        crop_top: geometry.crop_top().get(),
+        crop_right: geometry.crop_right().get(),
+        crop_bottom: geometry.crop_bottom().get(),
+        quarter_turn: match geometry.quarter_turn() {
+            PhotoQuarterTurn::Zero => 0,
+            PhotoQuarterTurn::Clockwise90 => 1,
+            PhotoQuarterTurn::Clockwise180 => 2,
+            PhotoQuarterTurn::Clockwise270 => 3,
+        },
+        flip_horizontal: geometry.flip_horizontal(),
+        flip_vertical: geometry.flip_vertical(),
+    }
+}
+
+fn adjustment_geometry(geometry: PhotoGeometry) -> AdjustmentGeometry {
+    AdjustmentGeometry {
+        crop_left: geometry.crop_left().get(),
+        crop_top: geometry.crop_top().get(),
+        crop_right: geometry.crop_right().get(),
+        crop_bottom: geometry.crop_bottom().get(),
+        quarter_turn: match geometry.quarter_turn() {
+            PhotoQuarterTurn::Zero => AdjustmentQuarterTurn::Zero,
+            PhotoQuarterTurn::Clockwise90 => AdjustmentQuarterTurn::Clockwise90,
+            PhotoQuarterTurn::Clockwise180 => AdjustmentQuarterTurn::Clockwise180,
+            PhotoQuarterTurn::Clockwise270 => AdjustmentQuarterTurn::Clockwise270,
+        },
+        flip_horizontal: geometry.flip_horizontal(),
+        flip_vertical: geometry.flip_vertical(),
+    }
 }
 
 pub(crate) fn recipe_optics_settings(settings: &ffi::FfiOpticsSettings) -> RecipeOpticsSettings {
@@ -304,6 +483,8 @@ impl Default for GradeStackDraft {
         Self {
             optics: RecipeOpticsSettings::default(),
             grade_nodes: vec![GradeNodeDraft::neutral(BASIC_LAYER_LABEL)],
+            retouch_spots: Vec::new(),
+            geometry: PhotoGeometry::identity(),
         }
     }
 }
@@ -331,6 +512,8 @@ pub(crate) fn new_basic_grade_node(label: &str) -> AnyResult<ffi::FfiGradeNode> 
     let grade_stack = GradeStackDraft {
         optics: RecipeOpticsSettings::default(),
         grade_nodes: vec![grade_node.clone()],
+        retouch_spots: Vec::new(),
+        geometry: PhotoGeometry::identity(),
     };
     grade_stack_recipe_v1_snapshot(&grade_stack, None).context("validate new Basic Grade Node")?;
     Ok(encode_grade_node_draft_recipe_v1(grade_node))
@@ -350,6 +533,24 @@ pub(crate) fn decode_grade_stack_draft_recipe_v1(
             .enumerate()
             .map(|(index, grade_node)| decode_grade_node_draft_recipe_v1(grade_node, index))
             .collect::<AnyResult<Vec<_>>>()?,
+        retouch_spots: settings
+            .retouch_spots
+            .iter()
+            .enumerate()
+            .map(|(index, spot)| {
+                RetouchSpot::new(
+                    UnitInterval::new(spot.center_x).with_context(|| {
+                        format!("retouch spot {index} center x must be in [0, 1]")
+                    })?,
+                    UnitInterval::new(spot.center_y).with_context(|| {
+                        format!("retouch spot {index} center y must be in [0, 1]")
+                    })?,
+                    spot.radius_level_zero_pixels,
+                )
+                .with_context(|| format!("retouch spot {index} is invalid"))
+            })
+            .collect::<AnyResult<Vec<_>>>()?,
+        geometry: photo_geometry_from_ffi(&settings.geometry)?,
     };
     validate_grade_stack_draft_recipe_v1(&grade_stack)?;
     // Domain construction authoritatively validates labels and the complete
@@ -436,6 +637,7 @@ pub(crate) fn decode_grade_node_draft_recipe_v1(
             finishing_effects_render_op_id: recipe_v3_finishing_effects_render_op_id(grade_node_id),
         },
         shared,
+        local_mask: local_mask_definition_from_ffi(grade_node, index)?,
         label: grade_node.label.clone(),
         basic: basic_parameters(&grade_node.basic)?,
         fine: fine_parameters(&grade_node.fine)?,
@@ -579,6 +781,20 @@ pub(crate) fn preview_grade_stack_draft_recipe_v1(
 pub(crate) fn validate_grade_stack_draft_recipe_v1(grade_stack: &GradeStackDraft) -> AnyResult<()> {
     if !(1..=MAX_GRADE_NODES).contains(&grade_stack.grade_nodes.len()) {
         bail!("Grade Stack must contain 1 through 16 Grade Nodes");
+    }
+    if grade_stack.retouch_spots.len() > MAX_RETOUCH_SPOTS_PER_RECIPE {
+        bail!(
+            "Grade Stack contains {} repair spots, but at most {} are supported",
+            grade_stack.retouch_spots.len(),
+            MAX_RETOUCH_SPOTS_PER_RECIPE
+        );
+    }
+    for spot in &grade_stack.retouch_spots {
+        RetouchSpot::new(
+            spot.center_x(),
+            spot.center_y(),
+            spot.radius_level_zero_pixels(),
+        )?;
     }
     let mut grade_node_ids = HashSet::with_capacity(grade_stack.grade_nodes.len());
     let mut render_op_ids = HashSet::with_capacity(grade_stack.grade_nodes.len() * 11);
@@ -948,6 +1164,16 @@ pub(crate) fn encode_grade_stack_draft_recipe_v1(
             .into_iter()
             .map(encode_grade_node_draft_recipe_v1)
             .collect(),
+        retouch_spots: grade_stack
+            .retouch_spots
+            .into_iter()
+            .map(|spot| ffi::FfiRetouchSpot {
+                center_x: spot.center_x().get(),
+                center_y: spot.center_y().get(),
+                radius_level_zero_pixels: spot.radius_level_zero_pixels(),
+            })
+            .collect(),
+        geometry: ffi_photo_geometry(grade_stack.geometry),
     }
 }
 
@@ -957,10 +1183,30 @@ pub(crate) fn encode_grade_node_draft_recipe_v1(grade_node: GradeNodeDraft) -> f
         || (String::new(), String::new()),
         |shared| (shared.layer_id.to_string(), shared.revision_id.to_string()),
     );
+    let (
+        local_mask_kind,
+        local_mask_x0,
+        local_mask_y0,
+        local_mask_x1,
+        local_mask_y1,
+        local_mask_radius_x,
+        local_mask_radius_y,
+        local_mask_feather,
+        local_mask_invert,
+    ) = ffi_local_mask_fields(grade_node.local_mask.as_ref());
     ffi::FfiGradeNode {
         grade_node_id: identity.grade_node_id.to_string(),
         shared_layer_id,
         shared_revision_id,
+        local_mask_kind,
+        local_mask_x0,
+        local_mask_y0,
+        local_mask_x1,
+        local_mask_y1,
+        local_mask_radius_x,
+        local_mask_radius_y,
+        local_mask_feather,
+        local_mask_invert,
         label: grade_node.label,
         enabled: grade_node.enabled,
         exposure_render_op_id: identity.exposure_render_op_id.to_string(),
@@ -997,36 +1243,181 @@ pub(crate) fn compile_recipe_render_plan(
         bail!("Recipe v1 render compiler supports 1 through 16 Grade Nodes");
     }
 
+    // A photo-local repair must run after every Grade Node. It uses an
+    // unmasked boundary layer so the native executor can keep one ordering
+    // grammar for both local Grade Nodes and photo-local spatial operations.
+    let has_retouch = !snapshot.retouch_spots().is_empty();
+    let use_layer_boundaries =
+        has_retouch || snapshot.layers().iter().any(|layer| layer.mask().is_some());
     let mut compiled = Vec::new();
     let mut compiled_node_ids = HashSet::new();
     for layer in snapshot.layers() {
+        if use_layer_boundaries {
+            let mask = match layer.mask() {
+                None => None,
+                Some(reference) => {
+                    if reference.coordinate_space() != MaskCoordinateSpace::Original {
+                        bail!(
+                            "Recipe layer {} uses unsupported {:?}-space local mask",
+                            layer.id(),
+                            reference.coordinate_space()
+                        );
+                    }
+                    let definition = snapshot.resolve_mask(reference).ok_or_else(|| {
+                        anyhow!(
+                            "Recipe layer {} references local mask {} revision {} that is not stored in this Recipe snapshot",
+                            layer.id(),
+                            reference.mask_id(),
+                            reference.revision()
+                        )
+                    })?;
+                    Some(adjustment_local_mask(definition.definition()))
+                }
+            };
+            let start_id = format!("local-mask-layer-start:{}", layer.id());
+            let end_id = format!("local-mask-layer-end:{}", layer.id());
+            for boundary_id in [&start_id, &end_id] {
+                if !compiled_node_ids.insert(boundary_id.clone()) {
+                    bail!(
+                        "Recipe render compiler rejects duplicate local-mask boundary id {boundary_id}"
+                    );
+                }
+            }
+            compiled.push(AdjustmentRenderNode {
+                node_id: start_id,
+                parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+                implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
+                enabled: layer.enabled(),
+                operation: AdjustmentRenderOperation::LocalMaskLayerStart {
+                    opacity: layer.opacity().get(),
+                    mask,
+                },
+            });
+        }
         let nodes = grade_node_recipe_v1_render_ops(layer)?;
         for node in nodes.ordered() {
-            if !compiled_node_ids.insert(node.id()) {
+            if !compiled_node_ids.insert(node.id().to_string()) {
                 bail!(
                     "Recipe v1 render compiler rejects duplicate render-op id {}",
                     node.id()
                 );
             }
-            compiled.push(compile_recipe_node(node, layer.id(), layer.enabled())?);
+            compiled.push(compile_recipe_node(
+                node,
+                layer.id(),
+                if use_layer_boundaries {
+                    true
+                } else {
+                    layer.enabled()
+                },
+            )?);
         }
+        if use_layer_boundaries {
+            compiled.push(AdjustmentRenderNode {
+                node_id: format!("local-mask-layer-end:{}", layer.id()),
+                parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+                implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
+                enabled: true,
+                operation: AdjustmentRenderOperation::LocalMaskLayerEnd,
+            });
+        }
+    }
+    if has_retouch {
+        for boundary_id in [
+            RECIPE_V1_RETOUCH_LAYER_START_ID,
+            RECIPE_V1_RETOUCH_RENDER_NODE_ID,
+            RECIPE_V1_RETOUCH_LAYER_END_ID,
+        ] {
+            if !compiled_node_ids.insert(boundary_id.to_owned()) {
+                bail!("Recipe render compiler rejects duplicate photo-retouch id {boundary_id}");
+            }
+        }
+        compiled.push(AdjustmentRenderNode {
+            node_id: RECIPE_V1_RETOUCH_LAYER_START_ID.to_owned(),
+            parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+            implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
+            enabled: true,
+            operation: AdjustmentRenderOperation::LocalMaskLayerStart {
+                opacity: 1.0,
+                mask: None,
+            },
+        });
+        compiled.push(AdjustmentRenderNode {
+            node_id: RECIPE_V1_RETOUCH_RENDER_NODE_ID.to_owned(),
+            parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+            implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
+            enabled: true,
+            operation: AdjustmentRenderOperation::SpotHeal {
+                targets: snapshot
+                    .retouch_spots()
+                    .iter()
+                    .map(|spot| AdjustmentSpotHealTarget {
+                        center_x: spot.center_x().get(),
+                        center_y: spot.center_y().get(),
+                        radius_level_zero_pixels: spot.radius_level_zero_pixels(),
+                    })
+                    .collect(),
+            },
+        });
+        compiled.push(AdjustmentRenderNode {
+            node_id: RECIPE_V1_RETOUCH_LAYER_END_ID.to_owned(),
+            parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+            implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
+            enabled: true,
+            operation: AdjustmentRenderOperation::LocalMaskLayerEnd,
+        });
     }
     if compiled.len() > MAX_ADJUSTMENT_RENDER_NODES {
         bail!("Recipe render compiler supports at most 256 executable nodes");
     }
-    let plan = AdjustmentRenderPlan { nodes: compiled };
+    let plan = AdjustmentRenderPlan {
+        nodes: compiled,
+        geometry: adjustment_geometry(snapshot.geometry()),
+    };
     plan.validate()
         .context("validate compiled Recipe render plan")?;
     Ok(plan)
+}
+
+fn adjustment_local_mask(definition: &MaskDefinition) -> AdjustmentLocalMask {
+    match definition {
+        MaskDefinition::LinearGradient {
+            start_x,
+            start_y,
+            end_x,
+            end_y,
+            invert,
+        } => AdjustmentLocalMask::LinearGradient {
+            start_x: start_x.get(),
+            start_y: start_y.get(),
+            end_x: end_x.get(),
+            end_y: end_y.get(),
+            invert: *invert,
+        },
+        MaskDefinition::RadialGradient {
+            center_x,
+            center_y,
+            radius_x,
+            radius_y,
+            feather,
+            invert,
+        } => AdjustmentLocalMask::RadialGradient {
+            center_x: center_x.get(),
+            center_y: center_y.get(),
+            radius_x: radius_x.get(),
+            radius_y: radius_y.get(),
+            feather: feather.get(),
+            invert: *invert,
+        },
+    }
 }
 
 pub(crate) fn ordered_layer_nodes(layer: &LayerInstance) -> AnyResult<Vec<&AdjustmentNode>> {
     if layer.scope() != AdjustmentScope::Photo
         || layer.opacity() != UnitInterval::ONE
         || layer.blend_mode() != BlendMode::Normal
-        || layer.mask().is_some()
     {
-        bail!("Recipe render compiler does not support this layer scope, blend, opacity, or mask");
+        bail!("Recipe render compiler does not support this layer scope, blend, or opacity");
     }
     let graph = layer.content().graph();
     let rgb = PortType::Image(ImageDomain::WorkingRgb);
@@ -1452,9 +1843,24 @@ pub(crate) fn grade_stack_recipe_v1_snapshot(
         .iter()
         .map(encode_grade_node_as_recipe_v1_layer)
         .collect::<AnyResult<Vec<_>>>()?;
-    RecipeSnapshot::new_with_input_settings(
+    let recipe_v1_masks = grade_stack
+        .grade_nodes
+        .iter()
+        .filter_map(|grade_node| {
+            grade_node.local_mask.as_ref().map(|definition| {
+                recipe_v1_local_mask_revision(
+                    grade_node.recipe_v1_identity.grade_node_id,
+                    definition,
+                )
+            })
+        })
+        .collect::<AnyResult<Vec<_>>>()?;
+    RecipeSnapshot::new_with_input_settings_masks_retouch_and_geometry(
         CURRENT_RECIPE_SCHEMA_VERSION,
         RecipeInputSettings::new(grade_stack.optics.clone()),
+        recipe_v1_masks,
+        grade_stack.retouch_spots.clone(),
+        grade_stack.geometry,
         recipe_v1_layers,
     )
     .map_err(Into::into)
@@ -1468,6 +1874,11 @@ pub(crate) fn encode_grade_node_as_recipe_v1_layer(
     let fine = &grade_node.fine;
     let rgb = PortType::Image(ImageDomain::WorkingRgb);
     let identity = &grade_node.recipe_v1_identity;
+    let local_mask = grade_node
+        .local_mask
+        .as_ref()
+        .map(|definition| recipe_v1_local_mask_revision(identity.grade_node_id, definition))
+        .transpose()?;
     let exposure_id = identity.exposure_render_op_id;
     let contrast_id = identity.contrast_render_op_id;
     let selective_tone_id = identity.selective_tone_render_op_id;
@@ -1638,7 +2049,7 @@ pub(crate) fn encode_grade_node_as_recipe_v1_layer(
         grade_node.enabled,
         UnitInterval::ONE,
         BlendMode::Normal,
-        None,
+        local_mask.as_ref().map(MaskRevision::reference),
     )
     .map_err(Into::into)
 }
@@ -2621,8 +3032,13 @@ pub(crate) fn decode_grade_stack_draft_from_recipe_v1_snapshot(
         grade_nodes: snapshot
             .layers()
             .iter()
-            .map(decode_grade_node_draft_from_recipe_v1_layer)
+            .map(|layer| {
+                let local_mask = recipe_v1_local_mask_from_snapshot(snapshot, layer)?;
+                decode_grade_node_draft_from_recipe_v1_layer(layer, local_mask)
+            })
             .collect::<AnyResult<Vec<_>>>()?,
+        retouch_spots: snapshot.retouch_spots().to_vec(),
+        geometry: snapshot.geometry(),
     };
     validate_grade_stack_draft_recipe_v1(&grade_stack)?;
     Ok(grade_stack)
@@ -2630,6 +3046,7 @@ pub(crate) fn decode_grade_stack_draft_from_recipe_v1_snapshot(
 
 pub(crate) fn decode_grade_node_draft_from_recipe_v1_layer(
     layer: &LayerInstance,
+    local_mask: Option<MaskDefinition>,
 ) -> AnyResult<GradeNodeDraft> {
     let nodes = grade_node_recipe_v1_render_ops(layer)?;
     if nodes.color_grading.id() != recipe_v3_color_grading_render_op_id(layer.id())
@@ -2676,10 +3093,36 @@ pub(crate) fn decode_grade_node_draft_from_recipe_v1_layer(
             } => bail!("working shared Grade Node must resolve to a pinned revision"),
         },
         label: layer.label().to_owned(),
+        local_mask,
         basic,
         fine,
         enabled: layer.enabled(),
     })
+}
+
+fn recipe_v1_local_mask_from_snapshot(
+    snapshot: &RecipeSnapshot,
+    layer: &LayerInstance,
+) -> AnyResult<Option<MaskDefinition>> {
+    let Some(reference) = layer.mask() else {
+        return Ok(None);
+    };
+    if reference.coordinate_space() != MaskCoordinateSpace::Original {
+        bail!(
+            "Grade Node {} uses unsupported {:?}-space local mask",
+            layer.id(),
+            reference.coordinate_space()
+        );
+    }
+    let mask = snapshot.resolve_mask(reference).ok_or_else(|| {
+        anyhow!(
+            "Grade Node {} references local mask {} revision {} that is not stored in this Recipe snapshot",
+            layer.id(),
+            reference.mask_id(),
+            reference.revision()
+        )
+    })?;
+    Ok(Some(mask.definition().clone()))
 }
 
 pub(crate) fn grade_node_draft_from_shared_revision(
@@ -2699,7 +3142,7 @@ pub(crate) fn grade_node_draft_from_shared_revision(
         BlendMode::Normal,
         None,
     )?;
-    decode_grade_node_draft_from_recipe_v1_layer(&layer)
+    decode_grade_node_draft_from_recipe_v1_layer(&layer, None)
 }
 
 pub(crate) fn ffi_shared_grade_node(

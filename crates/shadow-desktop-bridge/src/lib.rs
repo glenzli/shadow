@@ -27,8 +27,9 @@ use std::{
 
 use anyhow::{Context, Result as AnyResult, anyhow, bail};
 use shadow_bridge::{
-    ADJUSTMENT_IMPLEMENTATION_VERSION, ADJUSTMENT_PARAMETER_SCHEMA_VERSION, AdjustmentRenderNode,
-    AdjustmentRenderOperation, AdjustmentRenderPlan, BasicEditParameters,
+    ADJUSTMENT_IMPLEMENTATION_VERSION, ADJUSTMENT_PARAMETER_SCHEMA_VERSION, AdjustmentGeometry,
+    AdjustmentLocalMask, AdjustmentQuarterTurn, AdjustmentRenderNode, AdjustmentRenderOperation,
+    AdjustmentRenderPlan, AdjustmentSpotHealTarget, BasicEditParameters,
     COLOR_GRADING_V3_IMPLEMENTATION_VERSION as COLOR_GRADING_V3_IMPLEMENTATION_REVISION,
     COLOR_MIXER_BAND_COUNT, CancellableEditPreview, ColorRangeParameters, DetailTileRect,
     DetailTileRequest, EditPreviewExecutionReceipt,
@@ -92,11 +93,13 @@ use shadow_domain::{
     EditGraph, EditObject, EditObjectKind, EditObjectPack, EditRepositoryCommit,
     EditRepositoryCommitPayloadV1, EditRepositoryRefExpectation, EditRepositoryRefKind, EntityId,
     FiniteF64, ImageDimensions, ImageDomain, LayerContent, LayerId, LayerInstance, LayerInstanceId,
-    LayerRevision, LayerRevisionId, LayerRevisionSelector, LibraryRootV1, NodeId, NodeInput,
-    OperationDescriptor, OperationId, ParameterBlock, ParameterKey, ParameterValue, PhotoId,
-    PortType, PreviewByteOrder, PreviewCodec, ProcessingStage, ProxyPayload, RecipeCommit,
-    RecipeCommitId, RecipeId, RecipeInputSettings, RecipeOpticsSettings, RecipeSnapshot,
-    RepresentationId, UnitInterval, VersionName, diff_recipe_snapshots,
+    LayerRevision, LayerRevisionId, LayerRevisionSelector, LibraryRootV1,
+    MAX_RETOUCH_SPOTS_PER_RECIPE, MaskCoordinateSpace, MaskDefinition, MaskId, MaskRevision,
+    NodeId, NodeInput, OperationDescriptor, OperationId, ParameterBlock, ParameterKey,
+    ParameterValue, PhotoGeometry, PhotoId, PhotoQuarterTurn, PortType, PreviewByteOrder,
+    PreviewCodec, ProcessingStage, ProxyPayload, RecipeCommit, RecipeCommitId, RecipeId,
+    RecipeInputSettings, RecipeOpticsSettings, RecipeSnapshot, RepresentationId, RetouchSpot,
+    UnitInterval, VersionName, diff_recipe_snapshots,
 };
 use uuid::Uuid;
 
@@ -409,6 +412,18 @@ mod ffi {
         shared_layer_id: String,
         /// Empty for a photo-local node; shared nodes always pin one revision.
         shared_revision_id: String,
+        /// 0 = none, 1 = linear gradient, 2 = radial gradient. The common
+        /// normalized fields keep this CXX DTO stable while the domain owns
+        /// the authoritative typed shape validation.
+        local_mask_kind: u8,
+        local_mask_x0: f64,
+        local_mask_y0: f64,
+        local_mask_x1: f64,
+        local_mask_y1: f64,
+        local_mask_radius_x: f64,
+        local_mask_radius_y: f64,
+        local_mask_feather: f64,
+        local_mask_invert: bool,
         label: String,
         enabled: bool,
         exposure_render_op_id: String,
@@ -431,6 +446,28 @@ mod ffi {
         revision_number: u32,
         label: String,
         grade_node: FfiGradeNode,
+    }
+
+    /// One small, deterministic repair target. Coordinates are normalized to
+    /// the original oriented image; radius stays in full-resolution pixels.
+    #[derive(Debug, Clone, Copy)]
+    struct FfiRetouchSpot {
+        center_x: f64,
+        center_y: f64,
+        radius_level_zero_pixels: u16,
+    }
+
+    /// Photo-local final-canvas geometry. The field is intentionally separate
+    /// from the Grade Node list because crop/orientation is never shareable.
+    #[derive(Debug, Clone, Copy)]
+    struct FfiPhotoGeometry {
+        crop_left: f64,
+        crop_top: f64,
+        crop_right: f64,
+        crop_bottom: f64,
+        quarter_turn: u8,
+        flip_horizontal: bool,
+        flip_vertical: bool,
     }
 
     /// One explicit Library selection for a shared-node batch operation.
@@ -457,6 +494,8 @@ mod ffi {
     struct FfiEditSettings {
         optics: FfiOpticsSettings,
         grade_nodes: Vec<FfiGradeNode>,
+        retouch_spots: Vec<FfiRetouchSpot>,
+        geometry: FfiPhotoGeometry,
     }
 
     #[derive(Debug, Clone)]
@@ -3901,6 +3940,16 @@ mod tests {
                 lens_profile_model: String::new(),
             },
             grade_nodes: vec![created.clone()],
+            retouch_spots: Vec::new(),
+            geometry: ffi::FfiPhotoGeometry {
+                crop_left: 0.0,
+                crop_top: 0.0,
+                crop_right: 1.0,
+                crop_bottom: 1.0,
+                quarter_turn: 0,
+                flip_horizontal: false,
+                flip_vertical: false,
+            },
         })
         .expect("decode freshly allocated Grade Node");
         let tone_curve_slot = decoded.grade_nodes[0]
@@ -3938,6 +3987,16 @@ mod tests {
                 lens_profile_model: "DA 35mm".to_owned(),
             },
             grade_nodes: vec![created],
+            retouch_spots: Vec::new(),
+            geometry: ffi::FfiPhotoGeometry {
+                crop_left: 0.0,
+                crop_top: 0.0,
+                crop_right: 1.0,
+                crop_bottom: 1.0,
+                quarter_turn: 0,
+                flip_horizontal: false,
+                flip_vertical: false,
+            },
         };
         let decoded = decode_grade_stack_draft_recipe_v1(&incoming).expect("decode Grade Stack");
         let outgoing = encode_grade_stack_draft_recipe_v1(decoded);
@@ -4085,6 +4144,8 @@ mod tests {
             &GradeStackDraft {
                 optics: RecipeOpticsSettings::default(),
                 grade_nodes: vec![grade_node],
+                retouch_spots: Vec::new(),
+                geometry: PhotoGeometry::identity(),
             },
             None,
         )
@@ -4167,6 +4228,8 @@ mod tests {
         let grade_stack = GradeStackDraft {
             optics: RecipeOpticsSettings::default(),
             grade_nodes: vec![grade_node],
+            retouch_spots: Vec::new(),
+            geometry: PhotoGeometry::identity(),
         };
         let snapshot =
             grade_stack_recipe_v1_snapshot(&grade_stack, None).expect("current snapshot");
@@ -4239,6 +4302,8 @@ mod tests {
         let invalid = GradeStackDraft {
             optics: RecipeOpticsSettings::default(),
             grade_nodes: vec![first.clone(), second.clone()],
+            retouch_spots: Vec::new(),
+            geometry: PhotoGeometry::identity(),
         };
 
         let ffi_error = decode_grade_stack_draft_recipe_v1(&encode_grade_stack_draft_recipe_v1(
@@ -4361,6 +4426,8 @@ mod tests {
         let replacement_settings = GradeStackDraft {
             optics: RecipeOpticsSettings::default(),
             grade_nodes: vec![base_settings.grade_nodes[1].clone(), replacement],
+            retouch_spots: Vec::new(),
+            geometry: PhotoGeometry::identity(),
         };
         assert!(
             grade_stack_recipe_v1_snapshot(&replacement_settings, Some(&base))
@@ -4408,7 +4475,9 @@ mod tests {
             grade_stack_recipe_v1_snapshot(
                 &GradeStackDraft {
                     optics: RecipeOpticsSettings::default(),
-                    grade_nodes: Vec::new()
+                    grade_nodes: Vec::new(),
+                    retouch_spots: Vec::new(),
+                    geometry: PhotoGeometry::identity(),
                 },
                 None
             )
@@ -4421,6 +4490,8 @@ mod tests {
             grade_nodes: (0..MAX_GRADE_NODES)
                 .map(|index| GradeNodeDraft::neutral(format!("Basic {index}")))
                 .collect(),
+            retouch_spots: Vec::new(),
+            geometry: PhotoGeometry::identity(),
         };
         let snapshot =
             grade_stack_recipe_v1_snapshot(&sixteen, None).expect("sixteen-node snapshot");
@@ -4447,6 +4518,46 @@ mod tests {
                 .to_string()
                 .contains("1 through 16")
         );
+    }
+
+    #[test]
+    fn photo_geometry_round_trips_without_becoming_a_grade_node() {
+        let geometry = PhotoGeometry::new(
+            UnitInterval::new(0.125).expect("crop left"),
+            UnitInterval::new(0.25).expect("crop top"),
+            UnitInterval::new(0.875).expect("crop right"),
+            UnitInterval::new(0.75).expect("crop bottom"),
+            PhotoQuarterTurn::Clockwise90,
+            true,
+            false,
+        )
+        .expect("valid photo-local geometry");
+        let mut grade_stack = GradeStackDraft::default();
+        grade_stack.geometry = geometry;
+
+        let snapshot =
+            grade_stack_recipe_v1_snapshot(&grade_stack, None).expect("persist photo geometry");
+        assert_eq!(snapshot.geometry(), geometry);
+        assert_eq!(snapshot.layers().len(), 1, "geometry is not a Grade Node");
+
+        let plan = compile_recipe_render_plan(&snapshot).expect("compile photo geometry");
+        assert_eq!(plan.geometry.crop_left, 0.125);
+        assert_eq!(plan.geometry.crop_top, 0.25);
+        assert_eq!(plan.geometry.crop_right, 0.875);
+        assert_eq!(plan.geometry.crop_bottom, 0.75);
+        assert_eq!(
+            plan.geometry.quarter_turn,
+            AdjustmentQuarterTurn::Clockwise90
+        );
+        assert!(plan.geometry.flip_horizontal);
+        assert!(!plan.geometry.flip_vertical);
+
+        let ffi = encode_grade_stack_draft_recipe_v1(grade_stack);
+        assert_eq!(ffi.geometry.quarter_turn, 1);
+        assert!(ffi.geometry.flip_horizontal);
+        assert!(!ffi.geometry.flip_vertical);
+        let decoded = decode_grade_stack_draft_recipe_v1(&ffi).expect("decode photo geometry");
+        assert_eq!(decoded.geometry, geometry);
     }
 
     #[test]
@@ -4529,6 +4640,8 @@ mod tests {
                 fine: expected.clone(),
                 ..GradeNodeDraft::neutral(BASIC_LAYER_LABEL)
             }],
+            retouch_spots: Vec::new(),
+            geometry: PhotoGeometry::identity(),
         };
 
         let ffi_round_trip = decode_grade_stack_draft_recipe_v1(
@@ -4673,6 +4786,8 @@ mod tests {
         let grade_stack = GradeStackDraft {
             optics: RecipeOpticsSettings::default(),
             grade_nodes: vec![grade_node],
+            retouch_spots: Vec::new(),
+            geometry: PhotoGeometry::identity(),
         };
         let snapshot = grade_stack_recipe_v1_snapshot(&grade_stack, None)
             .expect("persist managed LUT selection");
@@ -4756,6 +4871,8 @@ mod tests {
                 }))),
                 ..GradeNodeDraft::neutral(BASIC_LAYER_LABEL)
             }],
+            retouch_spots: Vec::new(),
+            geometry: PhotoGeometry::identity(),
         };
         let with_curve = recipe_without_sharpen(
             &grade_stack_recipe_v1_snapshot(&curved_draft, None).expect("new curved Recipe"),
@@ -7280,6 +7397,16 @@ mod tests {
         ffi::FfiEditSettings {
             optics: ffi_optics_settings(&RecipeOpticsSettings::default()),
             grade_nodes: vec![grade_node],
+            retouch_spots: Vec::new(),
+            geometry: ffi::FfiPhotoGeometry {
+                crop_left: 0.0,
+                crop_top: 0.0,
+                crop_right: 1.0,
+                crop_bottom: 1.0,
+                quarter_turn: 0,
+                flip_horizontal: false,
+                flip_vertical: false,
+            },
         }
     }
 

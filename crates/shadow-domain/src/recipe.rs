@@ -739,6 +739,377 @@ impl MaskReference {
     }
 }
 
+/// One renderer-neutral spatial mask shape stored in normalized image
+/// coordinates.
+///
+/// Local masks deliberately describe *where* a layer applies, never which
+/// adjustment it contains. A Grade Node can therefore remain a complete,
+/// reusable adjustment while each photo instance supplies its own placement.
+/// The first public shapes cover the two most useful non-destructive local
+/// workflows; drawn and parametric ranges can be added as new variants
+/// without changing the ownership or revision contract.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum MaskDefinition {
+    /// A smooth 0-to-1 ramp from `start` to `end`. Pixels before `start` have
+    /// zero coverage; pixels after `end` have full coverage.
+    LinearGradient {
+        start_x: UnitInterval,
+        start_y: UnitInterval,
+        end_x: UnitInterval,
+        end_y: UnitInterval,
+        #[serde(default)]
+        invert: bool,
+    },
+    /// An elliptical mask centered at `center`. Coverage is full inside the
+    /// inner ellipse and falls to zero across `feather` of its radius.
+    RadialGradient {
+        center_x: UnitInterval,
+        center_y: UnitInterval,
+        radius_x: UnitInterval,
+        radius_y: UnitInterval,
+        feather: UnitInterval,
+        #[serde(default)]
+        invert: bool,
+    },
+}
+
+impl MaskDefinition {
+    /// Creates a normalized linear-gradient mask after validating that it has
+    /// a measurable direction.
+    pub fn linear_gradient(
+        start_x: UnitInterval,
+        start_y: UnitInterval,
+        end_x: UnitInterval,
+        end_y: UnitInterval,
+        invert: bool,
+    ) -> Result<Self, RecipeValidationError> {
+        let definition = Self::LinearGradient {
+            start_x,
+            start_y,
+            end_x,
+            end_y,
+            invert,
+        };
+        definition.validate()?;
+        Ok(definition)
+    }
+
+    /// Creates a normalized radial-gradient mask after validating its
+    /// non-zero ellipse radii.
+    pub fn radial_gradient(
+        center_x: UnitInterval,
+        center_y: UnitInterval,
+        radius_x: UnitInterval,
+        radius_y: UnitInterval,
+        feather: UnitInterval,
+        invert: bool,
+    ) -> Result<Self, RecipeValidationError> {
+        let definition = Self::RadialGradient {
+            center_x,
+            center_y,
+            radius_x,
+            radius_y,
+            feather,
+            invert,
+        };
+        definition.validate()?;
+        Ok(definition)
+    }
+
+    fn validate(&self) -> Result<(), RecipeValidationError> {
+        match self {
+            Self::LinearGradient {
+                start_x,
+                start_y,
+                end_x,
+                end_y,
+                ..
+            } => {
+                let dx = end_x.get() - start_x.get();
+                let dy = end_y.get() - start_y.get();
+                if dx.mul_add(dx, dy * dy) <= f64::EPSILON {
+                    return Err(RecipeValidationError::DegenerateLinearMask);
+                }
+            }
+            Self::RadialGradient {
+                radius_x, radius_y, ..
+            } => {
+                if radius_x.get() <= 0.0 || radius_y.get() <= 0.0 {
+                    return Err(RecipeValidationError::DegenerateRadialMask);
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// One immutable, recipe-local revision of a spatial mask.
+///
+/// Recipes carry the definition rather than merely an identifier so a saved
+/// version can still reproduce its pixels after a user revises or deletes a
+/// similarly named mask in a later workspace state.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MaskRevision {
+    id: MaskId,
+    revision: u32,
+    coordinate_space: MaskCoordinateSpace,
+    definition: MaskDefinition,
+}
+
+impl MaskRevision {
+    /// Creates one immutable mask revision.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for a zero revision or a degenerate shape.
+    pub fn new(
+        id: MaskId,
+        revision: u32,
+        coordinate_space: MaskCoordinateSpace,
+        definition: MaskDefinition,
+    ) -> Result<Self, RecipeValidationError> {
+        if revision == 0 {
+            return Err(RecipeValidationError::ZeroMaskRevision);
+        }
+        definition.validate()?;
+        Ok(Self {
+            id,
+            revision,
+            coordinate_space,
+            definition,
+        })
+    }
+
+    pub const fn id(&self) -> MaskId {
+        self.id
+    }
+
+    pub const fn revision(&self) -> u32 {
+        self.revision
+    }
+
+    pub const fn coordinate_space(&self) -> MaskCoordinateSpace {
+        self.coordinate_space
+    }
+
+    pub const fn definition(&self) -> &MaskDefinition {
+        &self.definition
+    }
+
+    pub fn reference(&self) -> MaskReference {
+        // Construction has already checked this immutable revision.
+        MaskReference {
+            mask_id: self.id,
+            revision: self.revision,
+            coordinate_space: self.coordinate_space,
+        }
+    }
+
+    fn validate(&self) -> Result<(), RecipeValidationError> {
+        Self::new(
+            self.id,
+            self.revision,
+            self.coordinate_space,
+            self.definition.clone(),
+        )
+        .map(|_| ())
+    }
+}
+
+/// One small, non-generative repair target in original-image coordinates.
+///
+/// The recipe records only location and physical radius; renderer-specific
+/// sampling remains an implementation detail. The radius is expressed in
+/// level-zero pixels so warm proxies can scale it without changing intent.
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RetouchSpot {
+    center_x: UnitInterval,
+    center_y: UnitInterval,
+    radius_level_zero_pixels: u16,
+}
+
+impl RetouchSpot {
+    pub const MIN_RADIUS_LEVEL_ZERO_PIXELS: u16 = 1;
+    pub const MAX_RADIUS_LEVEL_ZERO_PIXELS: u16 = 128;
+
+    /// Creates a bounded dust-spot repair target.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the radius cannot fit within Shadow's bounded
+    /// detail-tile apron contract.
+    pub const fn new(
+        center_x: UnitInterval,
+        center_y: UnitInterval,
+        radius_level_zero_pixels: u16,
+    ) -> Result<Self, RecipeValidationError> {
+        if radius_level_zero_pixels < Self::MIN_RADIUS_LEVEL_ZERO_PIXELS
+            || radius_level_zero_pixels > Self::MAX_RADIUS_LEVEL_ZERO_PIXELS
+        {
+            return Err(RecipeValidationError::InvalidRetouchSpotRadius(
+                radius_level_zero_pixels,
+            ));
+        }
+        Ok(Self {
+            center_x,
+            center_y,
+            radius_level_zero_pixels,
+        })
+    }
+
+    pub const fn center_x(self) -> UnitInterval {
+        self.center_x
+    }
+
+    pub const fn center_y(self) -> UnitInterval {
+        self.center_y
+    }
+
+    pub const fn radius_level_zero_pixels(self) -> u16 {
+        self.radius_level_zero_pixels
+    }
+
+    fn validate(self) -> Result<(), RecipeValidationError> {
+        Self::new(self.center_x, self.center_y, self.radius_level_zero_pixels).map(|_| ())
+    }
+}
+
+pub const MAX_RETOUCH_SPOTS_PER_RECIPE: usize = 64;
+
+/// A lossless 90-degree orientation applied after the photo's local edits.
+///
+/// Geometry is deliberately photo-local: a reusable Grade Node may describe a
+/// colour treatment, but it must never silently crop or rotate every other
+/// photograph that happens to reuse it.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PhotoQuarterTurn {
+    Zero,
+    Clockwise90,
+    Clockwise180,
+    Clockwise270,
+}
+
+/// The first persistent, non-destructive geometry contract.
+///
+/// Crop edges live in original-image *edge* coordinates.  They are therefore
+/// independent of the proxy size used to show the photo.  A renderer turns
+/// them into one pixel-aligned source rectangle at its current resolution;
+/// right-angle orientation and flips then rearrange those pixels without an
+/// additional resampling pass.  Arbitrary straighten/perspective work will
+/// extend this photo-level contract rather than becoming a Grade Node.
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PhotoGeometry {
+    crop_left: UnitInterval,
+    crop_top: UnitInterval,
+    crop_right: UnitInterval,
+    crop_bottom: UnitInterval,
+    quarter_turn: PhotoQuarterTurn,
+    flip_horizontal: bool,
+    flip_vertical: bool,
+}
+
+impl Default for PhotoGeometry {
+    fn default() -> Self {
+        Self::identity()
+    }
+}
+
+impl PhotoGeometry {
+    /// Returns the exact original-image canvas without any orientation change.
+    pub const fn identity() -> Self {
+        Self {
+            crop_left: UnitInterval::ZERO,
+            crop_top: UnitInterval::ZERO,
+            crop_right: UnitInterval::ONE,
+            crop_bottom: UnitInterval::ONE,
+            quarter_turn: PhotoQuarterTurn::Zero,
+            flip_horizontal: false,
+            flip_vertical: false,
+        }
+    }
+
+    /// Creates a validated photo-local crop/orientation state.
+    ///
+    /// The crop must retain non-zero extent on both axes.  Pixel-level
+    /// clamping remains the renderer's responsibility because it alone knows
+    /// the original raster dimensions.
+    pub const fn new(
+        crop_left: UnitInterval,
+        crop_top: UnitInterval,
+        crop_right: UnitInterval,
+        crop_bottom: UnitInterval,
+        quarter_turn: PhotoQuarterTurn,
+        flip_horizontal: bool,
+        flip_vertical: bool,
+    ) -> Result<Self, RecipeValidationError> {
+        if crop_left.get() >= crop_right.get() || crop_top.get() >= crop_bottom.get() {
+            return Err(RecipeValidationError::DegeneratePhotoCrop);
+        }
+        Ok(Self {
+            crop_left,
+            crop_top,
+            crop_right,
+            crop_bottom,
+            quarter_turn,
+            flip_horizontal,
+            flip_vertical,
+        })
+    }
+
+    pub const fn crop_left(self) -> UnitInterval {
+        self.crop_left
+    }
+
+    pub const fn crop_top(self) -> UnitInterval {
+        self.crop_top
+    }
+
+    pub const fn crop_right(self) -> UnitInterval {
+        self.crop_right
+    }
+
+    pub const fn crop_bottom(self) -> UnitInterval {
+        self.crop_bottom
+    }
+
+    pub const fn quarter_turn(self) -> PhotoQuarterTurn {
+        self.quarter_turn
+    }
+
+    pub const fn flip_horizontal(self) -> bool {
+        self.flip_horizontal
+    }
+
+    pub const fn flip_vertical(self) -> bool {
+        self.flip_vertical
+    }
+
+    pub const fn is_identity(&self) -> bool {
+        self.crop_left.get() == 0.0
+            && self.crop_top.get() == 0.0
+            && self.crop_right.get() == 1.0
+            && self.crop_bottom.get() == 1.0
+            && matches!(self.quarter_turn, PhotoQuarterTurn::Zero)
+            && !self.flip_horizontal
+            && !self.flip_vertical
+    }
+
+    fn validate(self) -> Result<(), RecipeValidationError> {
+        Self::new(
+            self.crop_left,
+            self.crop_top,
+            self.crop_right,
+            self.crop_bottom,
+            self.quarter_turn,
+            self.flip_horizontal,
+            self.flip_vertical,
+        )
+        .map(|_| ())
+    }
+}
+
 /// The execution and sharing target of a layer. Photo scope is relative to
 /// the recipe owner; broader scopes carry strongly typed persistent IDs.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
@@ -1247,6 +1618,20 @@ pub struct RecipeSnapshot {
     schema_version: u32,
     #[serde(default, skip_serializing_if = "RecipeInputSettings::is_default")]
     input_settings: RecipeInputSettings,
+    /// Immutable local-mask definitions needed to reproduce this exact
+    /// snapshot. Empty remains intentionally omitted from serialized legacy
+    /// recipes until a layer actually uses a local spatial mask.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    masks: Vec<MaskRevision>,
+    /// Non-generative small-area repairs owned by this photo recipe. They
+    /// never belong to a reusable Grade Node shared across photographs.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    retouch_spots: Vec<RetouchSpot>,
+    /// Photo-local crop and lossless orientation. This intentionally sits
+    /// outside input/decode settings and reusable Grade Nodes: it describes
+    /// the final canvas after the common RGB edit graph.
+    #[serde(default, skip_serializing_if = "PhotoGeometry::is_identity")]
+    geometry: PhotoGeometry,
     layers: Vec<LayerInstance>,
 }
 
@@ -1276,9 +1661,69 @@ impl RecipeSnapshot {
         input_settings: RecipeInputSettings,
         layers: Vec<LayerInstance>,
     ) -> Result<Self, RecipeValidationError> {
+        Self::new_with_input_settings_and_masks(schema_version, input_settings, Vec::new(), layers)
+    }
+
+    /// Creates a complete recipe with its input-stage settings and immutable
+    /// local-mask definitions.
+    ///
+    /// A snapshot can still contain an external mask reference while `masks`
+    /// is empty: that preserves the original generic graph contract. The
+    /// desktop adapter writes every user-authored local mask into this vector,
+    /// making normal Shadow photo recipes self-contained at commit time.
+    pub fn new_with_input_settings_and_masks(
+        schema_version: u32,
+        input_settings: RecipeInputSettings,
+        masks: Vec<MaskRevision>,
+        layers: Vec<LayerInstance>,
+    ) -> Result<Self, RecipeValidationError> {
+        Self::new_with_input_settings_masks_and_retouch(
+            schema_version,
+            input_settings,
+            masks,
+            Vec::new(),
+            layers,
+        )
+    }
+
+    /// Creates a complete recipe with local-mask revisions and deterministic
+    /// small-area repair targets.
+    pub fn new_with_input_settings_masks_and_retouch(
+        schema_version: u32,
+        input_settings: RecipeInputSettings,
+        masks: Vec<MaskRevision>,
+        retouch_spots: Vec<RetouchSpot>,
+        layers: Vec<LayerInstance>,
+    ) -> Result<Self, RecipeValidationError> {
+        Self::new_with_input_settings_masks_retouch_and_geometry(
+            schema_version,
+            input_settings,
+            masks,
+            retouch_spots,
+            PhotoGeometry::identity(),
+            layers,
+        )
+    }
+
+    /// Creates a complete recipe with photo-local repair and geometry state.
+    ///
+    /// The geometry is intentionally applied after the original-coordinate
+    /// Grade Node graph and retouch targets. This keeps a later crop/rotate
+    /// from changing what a persisted local mask or repair coordinate means.
+    pub fn new_with_input_settings_masks_retouch_and_geometry(
+        schema_version: u32,
+        input_settings: RecipeInputSettings,
+        masks: Vec<MaskRevision>,
+        retouch_spots: Vec<RetouchSpot>,
+        geometry: PhotoGeometry,
+        layers: Vec<LayerInstance>,
+    ) -> Result<Self, RecipeValidationError> {
         let recipe = Self {
             schema_version,
             input_settings,
+            masks,
+            retouch_spots,
+            geometry,
             layers,
         };
         recipe.validate()?;
@@ -1289,6 +1734,9 @@ impl RecipeSnapshot {
         Self {
             schema_version: CURRENT_RECIPE_SCHEMA_VERSION,
             input_settings: RecipeInputSettings::default(),
+            masks: Vec::new(),
+            retouch_spots: Vec::new(),
+            geometry: PhotoGeometry::identity(),
             layers: Vec::new(),
         }
     }
@@ -1305,6 +1753,33 @@ impl RecipeSnapshot {
         &self.layers
     }
 
+    /// Returns immutable spatial-mask revisions stored directly in this
+    /// snapshot.
+    pub fn masks(&self) -> &[MaskRevision] {
+        &self.masks
+    }
+
+    /// Returns the non-generative repair targets owned by this recipe.
+    pub fn retouch_spots(&self) -> &[RetouchSpot] {
+        &self.retouch_spots
+    }
+
+    /// Returns the photo-local final-canvas geometry.
+    pub const fn geometry(&self) -> PhotoGeometry {
+        self.geometry
+    }
+
+    /// Resolves one snapshot-local mask revision exactly. The coordinate
+    /// space is part of the reference, so an accidental sensor/output-space
+    /// mismatch can never silently render in the wrong geometry.
+    pub fn resolve_mask(&self, reference: MaskReference) -> Option<&MaskRevision> {
+        self.masks.iter().find(|mask| {
+            mask.id == reference.mask_id
+                && mask.revision == reference.revision
+                && mask.coordinate_space == reference.coordinate_space
+        })
+    }
+
     /// Validates a working recipe, including dynamic shared-layer references.
     ///
     /// # Errors
@@ -1315,6 +1790,25 @@ impl RecipeSnapshot {
             return Err(RecipeValidationError::ZeroRecipeSchemaVersion);
         }
         self.input_settings.optics.validate()?;
+        let mut mask_revisions = HashSet::with_capacity(self.masks.len());
+        for mask in &self.masks {
+            mask.validate()?;
+            if !mask_revisions.insert((mask.id, mask.revision)) {
+                return Err(RecipeValidationError::DuplicateMaskRevision {
+                    mask_id: mask.id,
+                    revision: mask.revision,
+                });
+            }
+        }
+        if self.retouch_spots.len() > MAX_RETOUCH_SPOTS_PER_RECIPE {
+            return Err(RecipeValidationError::TooManyRetouchSpots(
+                self.retouch_spots.len(),
+            ));
+        }
+        for spot in &self.retouch_spots {
+            spot.validate()?;
+        }
+        self.geometry.validate()?;
         let mut ids = HashSet::with_capacity(self.layers.len());
         for layer in &self.layers {
             if !ids.insert(layer.id) {
@@ -1814,6 +2308,18 @@ pub enum RecipeValidationError {
     },
     #[error("mask revision must be non-zero")]
     ZeroMaskRevision,
+    #[error("linear-gradient mask start and end must not be the same point")]
+    DegenerateLinearMask,
+    #[error("radial-gradient mask radii must both be greater than zero")]
+    DegenerateRadialMask,
+    #[error("mask {mask_id} revision {revision} appears more than once")]
+    DuplicateMaskRevision { mask_id: MaskId, revision: u32 },
+    #[error("retouch spot radius {0} must be between 1 and 128 full-resolution pixels")]
+    InvalidRetouchSpotRadius(u16),
+    #[error("Recipe contains {0} retouch spots, but at most 64 are supported")]
+    TooManyRetouchSpots(usize),
+    #[error("photo crop must retain non-zero width and height")]
+    DegeneratePhotoCrop,
     #[error("inline layer {layer_id} must have PHOTO scope")]
     InlineLayerMustBePhotoScoped { layer_id: LayerInstanceId },
     #[error("layer revision must be non-zero")]
@@ -1951,6 +2457,97 @@ mod tests {
     }
 
     #[test]
+    fn local_mask_revisions_are_validated_and_resolve_by_exact_space() {
+        let mask = MaskRevision::new(
+            MaskId::new_v7(),
+            1,
+            MaskCoordinateSpace::Original,
+            MaskDefinition::linear_gradient(
+                UnitInterval::new(0.15).expect("start x"),
+                UnitInterval::new(0.25).expect("start y"),
+                UnitInterval::new(0.85).expect("end x"),
+                UnitInterval::new(0.75).expect("end y"),
+                false,
+            )
+            .expect("valid gradient"),
+        )
+        .expect("valid mask revision");
+        let snapshot = RecipeSnapshot::new_with_input_settings_and_masks(
+            CURRENT_RECIPE_SCHEMA_VERSION,
+            RecipeInputSettings::default(),
+            vec![mask.clone()],
+            vec![inline_layer()],
+        )
+        .expect("valid recipe");
+
+        assert_eq!(snapshot.resolve_mask(mask.reference()), Some(&mask));
+        let different_space =
+            MaskReference::new(mask.id(), mask.revision(), MaskCoordinateSpace::Output)
+                .expect("valid reference");
+        assert_eq!(snapshot.resolve_mask(different_space), None);
+
+        let encoded = serde_json::to_string(&snapshot).expect("serialize recipe");
+        assert!(encoded.contains("linear_gradient"));
+        let decoded: RecipeSnapshot = serde_json::from_str(&encoded).expect("deserialize recipe");
+        decoded.validate().expect("valid deserialized recipe");
+        assert_eq!(decoded, snapshot);
+    }
+
+    #[test]
+    fn local_masks_reject_degenerate_geometry_and_duplicate_revisions() {
+        assert_eq!(
+            MaskDefinition::linear_gradient(
+                UnitInterval::new(0.5).expect("unit"),
+                UnitInterval::new(0.5).expect("unit"),
+                UnitInterval::new(0.5).expect("unit"),
+                UnitInterval::new(0.5).expect("unit"),
+                false,
+            ),
+            Err(RecipeValidationError::DegenerateLinearMask)
+        );
+        assert_eq!(
+            MaskDefinition::radial_gradient(
+                UnitInterval::new(0.5).expect("unit"),
+                UnitInterval::new(0.5).expect("unit"),
+                UnitInterval::ZERO,
+                UnitInterval::new(0.3).expect("unit"),
+                UnitInterval::new(0.5).expect("unit"),
+                false,
+            ),
+            Err(RecipeValidationError::DegenerateRadialMask)
+        );
+
+        let mask_id = MaskId::new_v7();
+        let mask = MaskRevision::new(
+            mask_id,
+            1,
+            MaskCoordinateSpace::Original,
+            MaskDefinition::radial_gradient(
+                UnitInterval::new(0.5).expect("unit"),
+                UnitInterval::new(0.5).expect("unit"),
+                UnitInterval::new(0.3).expect("unit"),
+                UnitInterval::new(0.2).expect("unit"),
+                UnitInterval::new(0.5).expect("unit"),
+                false,
+            )
+            .expect("valid radial"),
+        )
+        .expect("valid mask");
+        assert_eq!(
+            RecipeSnapshot::new_with_input_settings_and_masks(
+                CURRENT_RECIPE_SCHEMA_VERSION,
+                RecipeInputSettings::default(),
+                vec![mask.clone(), mask],
+                vec![inline_layer()],
+            ),
+            Err(RecipeValidationError::DuplicateMaskRevision {
+                mask_id,
+                revision: 1,
+            })
+        );
+    }
+
+    #[test]
     fn recipe_rejects_an_incomplete_manual_optics_identity() {
         let optics = RecipeOpticsSettings {
             camera_profile_maker: "Pentax".to_owned(),
@@ -1966,6 +2563,94 @@ mod tests {
                 Vec::new(),
             ),
             Err(RecipeValidationError::IncompleteOpticsProfile)
+        );
+    }
+
+    #[test]
+    fn retouch_spots_are_bounded_and_persist_with_the_photo_recipe() {
+        let spot = RetouchSpot::new(
+            UnitInterval::new(0.25).expect("normalized x"),
+            UnitInterval::new(0.75).expect("normalized y"),
+            18,
+        )
+        .expect("valid repair spot");
+        let snapshot = RecipeSnapshot::new_with_input_settings_masks_and_retouch(
+            CURRENT_RECIPE_SCHEMA_VERSION,
+            RecipeInputSettings::default(),
+            Vec::new(),
+            vec![spot],
+            Vec::new(),
+        )
+        .expect("valid photo-local repair");
+
+        assert_eq!(snapshot.retouch_spots(), &[spot]);
+        assert!(
+            serde_json::to_string(&snapshot)
+                .expect("serialize repair")
+                .contains("retouch_spots")
+        );
+        assert_eq!(
+            RetouchSpot::new(
+                UnitInterval::new(0.5).expect("normalized x"),
+                UnitInterval::new(0.5).expect("normalized y"),
+                0,
+            ),
+            Err(RecipeValidationError::InvalidRetouchSpotRadius(0))
+        );
+
+        let too_many = vec![spot; MAX_RETOUCH_SPOTS_PER_RECIPE + 1];
+        assert_eq!(
+            RecipeSnapshot::new_with_input_settings_masks_and_retouch(
+                CURRENT_RECIPE_SCHEMA_VERSION,
+                RecipeInputSettings::default(),
+                Vec::new(),
+                too_many,
+                Vec::new(),
+            ),
+            Err(RecipeValidationError::TooManyRetouchSpots(
+                MAX_RETOUCH_SPOTS_PER_RECIPE + 1
+            ))
+        );
+    }
+
+    #[test]
+    fn photo_geometry_is_recipe_local_and_rejects_degenerate_crop() {
+        let geometry = PhotoGeometry::new(
+            UnitInterval::new(0.125).unwrap(),
+            UnitInterval::new(0.2).unwrap(),
+            UnitInterval::new(0.875).unwrap(),
+            UnitInterval::new(0.8).unwrap(),
+            PhotoQuarterTurn::Clockwise90,
+            true,
+            false,
+        )
+        .expect("valid crop and orientation");
+        let snapshot = RecipeSnapshot::new_with_input_settings_masks_retouch_and_geometry(
+            CURRENT_RECIPE_SCHEMA_VERSION,
+            RecipeInputSettings::default(),
+            Vec::new(),
+            Vec::new(),
+            geometry,
+            vec![inline_layer()],
+        )
+        .expect("geometry belongs to a valid snapshot");
+        assert_eq!(snapshot.geometry(), geometry);
+        assert!(
+            serde_json::to_string(&snapshot)
+                .expect("serialize geometry")
+                .contains("quarter_turn")
+        );
+        assert_eq!(
+            PhotoGeometry::new(
+                UnitInterval::new(0.5).unwrap(),
+                UnitInterval::ZERO,
+                UnitInterval::new(0.5).unwrap(),
+                UnitInterval::ONE,
+                PhotoQuarterTurn::Zero,
+                false,
+                false,
+            ),
+            Err(RecipeValidationError::DegeneratePhotoCrop)
         );
     }
 

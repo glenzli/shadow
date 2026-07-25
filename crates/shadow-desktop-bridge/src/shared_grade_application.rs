@@ -28,6 +28,10 @@ pub(crate) fn merge_shared_grade_node(
     {
         let mut replacement = shared.clone();
         replacement.enabled = existing.enabled;
+        // The library revision owns only the complete adjustment graph. A
+        // mask is photo-instance placement and must survive an update to the
+        // shared look itself.
+        replacement.local_mask = existing.local_mask.clone();
         if *existing == replacement {
             return Ok(SharedGradeMerge::Unchanged);
         }
@@ -52,7 +56,7 @@ fn same_shared_identity(
 mod tests {
     use super::*;
     use crate::recipe_v1::GradeNodeDraft;
-    use shadow_domain::{EntityId, LayerId, LayerRevisionId, RecipeOpticsSettings};
+    use shadow_domain::{EntityId, LayerId, LayerRevisionId, PhotoGeometry, RecipeOpticsSettings};
 
     fn shared_node(layer_id: LayerId, revision_id: LayerRevisionId) -> GradeNodeDraft {
         let mut node = GradeNodeDraft::neutral("Shared");
@@ -72,6 +76,8 @@ mod tests {
         let mut stack = GradeStackDraft {
             optics: RecipeOpticsSettings::default(),
             grade_nodes: vec![GradeNodeDraft::neutral("Local"), existing],
+            retouch_spots: Vec::new(),
+            geometry: PhotoGeometry::identity(),
         };
 
         assert_eq!(
@@ -89,6 +95,8 @@ mod tests {
         let mut stack = GradeStackDraft {
             optics: RecipeOpticsSettings::default(),
             grade_nodes: vec![shared.clone()],
+            retouch_spots: Vec::new(),
+            geometry: PhotoGeometry::identity(),
         };
 
         assert_eq!(

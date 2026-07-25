@@ -174,6 +174,8 @@ qt_add_resources(
         icons/eyedropper.svg
         icons/export.svg
         icons/fit-view.svg
+        icons/flip-horizontal.svg
+        icons/flip-vertical.svg
         icons/filter.svg
         icons/history.svg
         icons/library-manage.svg
@@ -184,6 +186,7 @@ qt_add_resources(
         icons/pick.svg
         icons/redo.svg
         icons/reject.svg
+        icons/retouch.svg
         icons/review-grid.svg
         icons/settings.svg
         icons/shared-link.svg
@@ -235,6 +238,9 @@ qt_add_qml_module(
         qml/PreferencesMenu.qml
         qml/PrecisionCanvas.qml
         qml/PrecisionInspector.qml
+        qml/PrecisionGeometryTools.qml
+        qml/PrecisionLocalMaskTools.qml
+        qml/PrecisionRetouchTools.qml
         qml/PrecisionTechnicalTools.qml
         qml/PrecisionVersionsPane.qml
         qml/RecipeRecoveryPopup.qml

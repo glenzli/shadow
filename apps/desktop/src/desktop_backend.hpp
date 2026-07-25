@@ -49,6 +49,7 @@ struct BackendScanProgress final {
     std::uint64_t unchanged = 0;
     std::uint64_t needs_revalidation = 0;
     std::uint64_t decode_queued = 0;
+    std::uint64_t preview_artifacts_ready = 0;
     std::uint64_t decode_completed = 0;
     std::uint64_t decode_hard_failures = 0;
     std::uint64_t preview_failures = 0;
@@ -264,6 +265,18 @@ struct BackendGradeNode final {
     QString grade_node_id;
     QString shared_layer_id;
     QString shared_revision_id;
+    // 0 = none, 1 = linear gradient, 2 = radial gradient. These values are
+    // normalized image coordinates; Rust owns their typed validation and
+    // immutable Recipe serialization.
+    std::uint8_t local_mask_kind = 0;
+    double local_mask_x0 = 0.0;
+    double local_mask_y0 = 0.0;
+    double local_mask_x1 = 0.0;
+    double local_mask_y1 = 0.0;
+    double local_mask_radius_x = 0.0;
+    double local_mask_radius_y = 0.0;
+    double local_mask_feather = 0.0;
+    bool local_mask_invert = false;
     QString label;
     QString exposure_render_op_id;
     QString contrast_render_op_id;
@@ -303,6 +316,32 @@ struct BackendBatchGradeReceipt final {
     QVector<QString> errors;
 };
 
+// A small non-generative repair target. The shell keeps only normalized
+// placement plus a full-resolution radius; validation and reconstruction stay
+// in the recipe/domain and image-kernel layers.
+struct BackendRetouchSpot final {
+    double center_x = 0.5;
+    double center_y = 0.5;
+    std::uint16_t radius_level_zero_pixels = 18;
+
+    bool operator==(const BackendRetouchSpot&) const = default;
+};
+
+// Framing belongs to a photo, not to a reusable Grade Node. Keeping this
+// compact normalized representation at the shell boundary makes every preview,
+// detail tile, and export resolve the same crop/orientation contract.
+struct BackendPhotoGeometry final {
+    double crop_left = 0.0;
+    double crop_top = 0.0;
+    double crop_right = 1.0;
+    double crop_bottom = 1.0;
+    std::uint8_t quarter_turn = 0;
+    bool flip_horizontal = false;
+    bool flip_vertical = false;
+
+    bool operator==(const BackendPhotoGeometry&) const = default;
+};
+
 struct BackendGradeStack final {
     struct Optics final {
         bool enabled = true;
@@ -323,6 +362,8 @@ struct BackendGradeStack final {
         bool operator==(const Optics&) const = default;
     } optics;
     QVector<BackendGradeNode> grade_nodes;
+    QVector<BackendRetouchSpot> retouch_spots;
+    BackendPhotoGeometry geometry;
 
     bool operator==(const BackendGradeStack&) const = default;
 };

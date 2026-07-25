@@ -6,8 +6,11 @@
 #include <shadow/image/source_rendering.hpp>
 #include <shadow/image/source_profile_catalog.hpp>
 
+#include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <limits>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -184,6 +187,41 @@ template <std::size_t Size>
 
 [[nodiscard]] image::DetailTileRect detail_tile_rect(const FfiDetailTileRect& value) noexcept {
     return image::DetailTileRect{value.x, value.y, value.width, value.height};
+}
+
+[[nodiscard]] image::PhotoGeometry photo_geometry(const FfiPhotoGeometry& value) {
+    image::PhotoQuarterTurn quarter_turn = image::PhotoQuarterTurn::zero;
+    switch (value.quarter_turn) {
+    case 0U:
+        quarter_turn = image::PhotoQuarterTurn::zero;
+        break;
+    case 1U:
+        quarter_turn = image::PhotoQuarterTurn::clockwise_90;
+        break;
+    case 2U:
+        quarter_turn = image::PhotoQuarterTurn::clockwise_180;
+        break;
+    case 3U:
+        quarter_turn = image::PhotoQuarterTurn::clockwise_270;
+        break;
+    default:
+        throw image::DecodeError(
+            image::DecodeErrorCode::invalid_request,
+            0,
+            "photo geometry uses an unsupported quarter-turn"
+        );
+    }
+    const image::PhotoGeometry geometry{
+        .crop_left = value.crop_left,
+        .crop_top = value.crop_top,
+        .crop_right = value.crop_right,
+        .crop_bottom = value.crop_bottom,
+        .quarter_turn = quarter_turn,
+        .flip_horizontal = value.flip_horizontal,
+        .flip_vertical = value.flip_vertical,
+    };
+    image::validate_photo_geometry(geometry);
+    return geometry;
 }
 
 [[nodiscard]] FfiRenderedDetailTile rendered_detail_tile(
@@ -661,6 +699,7 @@ void require_parameter_count(
 
     if (
         source.operation != FfiAdjustmentOperation::PerceptualColor
+        && source.operation != FfiAdjustmentOperation::SpotHeal
         && !source.parameter_group_lengths.empty()
     ) {
         throw_invalid_adjustment_plan(
@@ -904,6 +943,45 @@ void require_parameter_count(
         result.parameters = parameters;
         break;
     }
+    case FfiAdjustmentOperation::SpotHeal: {
+        if (source.parameter_group_lengths.size() != 1U) {
+            throw_invalid_adjustment_plan(
+                "spot-heal requires one target-count parameter group"
+            );
+        }
+        const std::size_t target_count = source.parameter_group_lengths[0];
+        if (target_count == 0U || target_count > 64U
+            || source.parameters.size() != target_count * 3U) {
+            throw_invalid_adjustment_plan(
+                "spot-heal must contain 1 through 64 flattened x/y/radius targets"
+            );
+        }
+        image::SpotHealAdjustment parameters;
+        parameters.spots.reserve(target_count);
+        for (std::size_t index = 0U; index < target_count; ++index) {
+            const std::size_t offset = index * 3U;
+            const double encoded_radius = source.parameters[offset + 2U];
+            if (!std::isfinite(source.parameters[offset])
+                || !std::isfinite(source.parameters[offset + 1U])
+                || !std::isfinite(encoded_radius)
+                || source.parameters[offset] < 0.0 || source.parameters[offset] > 1.0
+                || source.parameters[offset + 1U] < 0.0
+                || source.parameters[offset + 1U] > 1.0
+                || encoded_radius < 1.0 || encoded_radius > 128.0
+                || std::floor(encoded_radius) != encoded_radius) {
+                throw_invalid_adjustment_plan(
+                    "spot-heal target coordinates or radius are outside the supported range"
+                );
+            }
+            parameters.spots.push_back(image::SpotHealTarget{
+                .center_x = source.parameters[offset],
+                .center_y = source.parameters[offset + 1U],
+                .radius_level_zero_pixels = static_cast<std::uint16_t>(encoded_radius),
+            });
+        }
+        result.parameters = std::move(parameters);
+        break;
+    }
     default:
         throw_invalid_adjustment_plan("adjustment node operation is unsupported");
     }
@@ -926,6 +1004,109 @@ void require_parameter_count(
         result.push_back(adjustment_node(source));
     }
     return result;
+}
+
+[[nodiscard]] std::optional<std::vector<image::AdjustmentLayer>> adjustment_layers(
+    const rust::Vec<FfiAdjustmentNode>& source
+) {
+    const bool has_boundaries = std::any_of(
+        source.begin(),
+        source.end(),
+        [](const FfiAdjustmentNode& node) {
+            return node.operation == FfiAdjustmentOperation::LocalMaskLayerStart
+                || node.operation == FfiAdjustmentOperation::LocalMaskLayerEnd;
+        }
+    );
+    if (!has_boundaries) {
+        return std::nullopt;
+    }
+    if (source.empty() || source.size() > maximum_adjustment_nodes) {
+        throw_invalid_adjustment_plan(
+            "local-mask adjustment stream must contain between 1 and 256 nodes"
+        );
+    }
+
+    std::vector<image::AdjustmentLayer> layers;
+    std::optional<image::AdjustmentLayer> open_layer;
+    for (const auto& node : source) {
+        if (node.operation == FfiAdjustmentOperation::LocalMaskLayerStart) {
+            if (open_layer.has_value()) {
+                throw_invalid_adjustment_plan("local-mask layers may not nest");
+            }
+            if (node.parameter_schema_version != image::adjustment_parameter_schema_version
+                || node.implementation_version != image::adjustment_implementation_version
+                || !node.payload.empty() || !node.parameter_group_lengths.empty()
+                || node.parameters.size() != 10U) {
+                throw_invalid_adjustment_plan("local-mask layer start has an invalid contract");
+            }
+            for (const double value : node.parameters) {
+                if (!std::isfinite(value)) {
+                    throw_invalid_adjustment_plan("local-mask layer start has a non-finite parameter");
+                }
+            }
+            const double opacity = node.parameters[0];
+            const double kind = node.parameters[1];
+            const double invert = node.parameters[9];
+            if (opacity < 0.0 || opacity > 1.0
+                || (kind != 0.0 && kind != 1.0 && kind != 2.0)
+                || (invert != 0.0 && invert != 1.0)) {
+                throw_invalid_adjustment_plan("local-mask layer start has an out-of-range parameter");
+            }
+            image::AdjustmentLayer layer{
+                .layer_id = std::string(node.node_id.data(), node.node_id.size()),
+                .enabled = node.enabled,
+                .opacity = opacity,
+                .mask = std::nullopt,
+                .nodes = {},
+            };
+            if (kind == 1.0) {
+                layer.mask = image::LocalMask{
+                    .kind = image::LocalMaskKind::linear_gradient,
+                    .x0 = node.parameters[2],
+                    .y0 = node.parameters[3],
+                    .x1 = node.parameters[4],
+                    .y1 = node.parameters[5],
+                    .invert = invert == 1.0,
+                };
+            } else if (kind == 2.0) {
+                layer.mask = image::LocalMask{
+                    .kind = image::LocalMaskKind::radial_gradient,
+                    .x0 = node.parameters[2],
+                    .y0 = node.parameters[3],
+                    .radius_x = node.parameters[6],
+                    .radius_y = node.parameters[7],
+                    .feather = node.parameters[8],
+                    .invert = invert == 1.0,
+                };
+            }
+            open_layer = std::move(layer);
+            continue;
+        }
+        if (node.operation == FfiAdjustmentOperation::LocalMaskLayerEnd) {
+            if (!open_layer.has_value() || !node.parameters.empty() || !node.payload.empty()
+                || !node.parameter_group_lengths.empty()) {
+                throw_invalid_adjustment_plan("local-mask layer end has no matching valid start");
+            }
+            if (open_layer->nodes.empty()) {
+                throw_invalid_adjustment_plan("local-mask layer must contain at least one adjustment");
+            }
+            layers.push_back(std::move(*open_layer));
+            open_layer.reset();
+            continue;
+        }
+        if (!open_layer.has_value()) {
+            throw_invalid_adjustment_plan(
+                "local-mask adjustment appears outside a complete layer boundary"
+            );
+        }
+        open_layer->nodes.push_back(adjustment_node(node));
+    }
+    // Sixteen user Grade Nodes plus one photo-local repair layer. The latter
+    // is compiler-owned and never appears as a second user node limit.
+    if (open_layer.has_value() || layers.empty() || layers.size() > 17U) {
+        throw_invalid_adjustment_plan("local-mask layer stream is incomplete or exceeds 17 layers");
+    }
+    return layers;
 }
 
 [[nodiscard]] std::filesystem::path filesystem_path_from_utf8(const rust::Str path) {
@@ -1189,14 +1370,17 @@ FfiEncodedProxy DecodeHandle::render_reference_proxy(
 FfiEncodedProxy DecodeHandle::render_adjustment_plan(
     const FfiAdjustmentRenderRequest& request
 ) const {
-    const auto nodes = adjustment_nodes(request.nodes);
-    const auto proxy = image::render_edited_reference_proxy_jpeg(
+    const auto layers = adjustment_layers(request.nodes);
+    const auto geometry = photo_geometry(request.geometry);
+    const auto preview = image::prepare_warm_edit_preview(
         *session_,
-        nodes,
-        image::ProxyRequest{request.max_edge, request.jpeg_quality},
+        request.max_edge,
         optics_provider_.get(),
         optics_settings_
     );
+    const auto proxy = layers.has_value()
+        ? preview.render_jpeg_layers(*layers, request.jpeg_quality, geometry)
+        : preview.render_jpeg(adjustment_nodes(request.nodes), request.jpeg_quality, geometry);
     return encoded_proxy(proxy);
 }
 
@@ -1297,8 +1481,13 @@ FfiEncodedProxy EditPreviewHandle::render_adjustment_plan(
             "warm edit preview request does not match the prepared max edge"
         );
     }
-    const auto nodes = adjustment_nodes(request.nodes);
-    return encoded_proxy(session_.render_jpeg(nodes, request.jpeg_quality));
+    const auto layers = adjustment_layers(request.nodes);
+    const auto geometry = photo_geometry(request.geometry);
+    return encoded_proxy(
+        layers.has_value()
+            ? session_.render_jpeg_layers(*layers, request.jpeg_quality, geometry)
+            : session_.render_jpeg(adjustment_nodes(request.nodes), request.jpeg_quality, geometry)
+    );
 }
 
 FfiAnalyzedEditPreview EditPreviewHandle::render_adjustment_plan_with_analysis(
@@ -1311,9 +1500,16 @@ FfiAnalyzedEditPreview EditPreviewHandle::render_adjustment_plan_with_analysis(
             "warm edit preview request does not match the prepared max edge"
         );
     }
-    const auto nodes = adjustment_nodes(request.nodes);
+    const auto layers = adjustment_layers(request.nodes);
+    const auto geometry = photo_geometry(request.geometry);
     return analyzed_edit_preview(
-        session_.render_jpeg_with_analysis(nodes, request.jpeg_quality)
+        layers.has_value()
+            ? session_.render_jpeg_with_analysis_layers(*layers, request.jpeg_quality, geometry)
+            : session_.render_jpeg_with_analysis(
+                  adjustment_nodes(request.nodes),
+                  request.jpeg_quality,
+                  geometry
+              )
     );
 }
 
@@ -1328,11 +1524,24 @@ FfiCancellableEncodedProxy EditPreviewHandle::render_adjustment_plan_cancellable
             "warm edit preview request does not match the prepared max edge"
         );
     }
+    const auto layers = adjustment_layers(request.nodes);
+    const auto geometry = photo_geometry(request.geometry);
+    if (layers.has_value()) {
+        if (cancellation.token().stop_requested()) {
+            return FfiCancellableEncodedProxy{.cancelled = true, .proxy = {}};
+        }
+        auto rendered = session_.render_jpeg_layers(*layers, request.jpeg_quality, geometry);
+        return FfiCancellableEncodedProxy{
+            .cancelled = cancellation.token().stop_requested(),
+            .proxy = cancellation.token().stop_requested() ? FfiEncodedProxy{} : encoded_proxy(rendered),
+        };
+    }
     const auto nodes = adjustment_nodes(request.nodes);
     auto rendered = session_.render_jpeg_cancellable(
         nodes,
         request.jpeg_quality,
-        cancellation.token()
+        cancellation.token(),
+        geometry
     );
     if (rendered.cancelled()) {
         return FfiCancellableEncodedProxy{
@@ -1358,11 +1567,30 @@ EditPreviewHandle::render_adjustment_plan_with_analysis_cancellable(
             "warm edit preview request does not match the prepared max edge"
         );
     }
+    const auto layers = adjustment_layers(request.nodes);
+    const auto geometry = photo_geometry(request.geometry);
+    if (layers.has_value()) {
+        if (cancellation.token().stop_requested()) {
+            return FfiCancellableAnalyzedEditPreview{.cancelled = true, .preview = {}};
+        }
+        auto rendered = session_.render_jpeg_with_analysis_layers(
+            *layers,
+            request.jpeg_quality,
+            geometry
+        );
+        return FfiCancellableAnalyzedEditPreview{
+            .cancelled = cancellation.token().stop_requested(),
+            .preview = cancellation.token().stop_requested()
+                ? FfiAnalyzedEditPreview{}
+                : analyzed_edit_preview(rendered),
+        };
+    }
     const auto nodes = adjustment_nodes(request.nodes);
     auto rendered = session_.render_jpeg_with_analysis_cancellable(
         nodes,
         request.jpeg_quality,
-        cancellation.token()
+        cancellation.token(),
+        geometry
     );
     if (rendered.cancelled()) {
         return FfiCancellableAnalyzedEditPreview{
@@ -1429,9 +1657,16 @@ FfiRawPipelineReceipt FullEditDetailHandle::raw_pipeline_receipt() const {
 FfiRenderedDetailTile FullEditDetailHandle::render_adjustment_plan_tile(
     const FfiAdjustmentDetailTileRequest& request
 ) const {
-    const auto nodes = adjustment_nodes(request.nodes);
+    const auto layers = adjustment_layers(request.nodes);
+    const auto geometry = photo_geometry(request.geometry);
     return rendered_detail_tile(
-        session_.render_rgb8(nodes, detail_tile_rect(request.rect))
+        layers.has_value()
+            ? session_.render_rgb8_layers(*layers, detail_tile_rect(request.rect), geometry)
+            : session_.render_rgb8(
+                  adjustment_nodes(request.nodes),
+                  detail_tile_rect(request.rect),
+                  geometry
+              )
     );
 }
 

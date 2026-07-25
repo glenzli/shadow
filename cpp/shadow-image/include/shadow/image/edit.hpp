@@ -82,6 +82,72 @@ struct FloatRgbImage final {
     std::vector<float> samples;
 };
 
+/// Lossless right-angle orientation applied to the final photo canvas.
+///
+/// This is intentionally outside the adjustment-node enum: crop and
+/// orientation alter output dimensions, while a node transforms samples in an
+/// already-established raster. The source-coordinate Grade Node graph and
+/// photo-local repair pass therefore execute before this state is applied.
+enum class PhotoQuarterTurn : std::uint8_t {
+    zero = 0U,
+    clockwise_90 = 1U,
+    clockwise_180 = 2U,
+    clockwise_270 = 3U,
+};
+
+struct PhotoGeometry final {
+    double crop_left = 0.0;
+    double crop_top = 0.0;
+    double crop_right = 1.0;
+    double crop_bottom = 1.0;
+    PhotoQuarterTurn quarter_turn = PhotoQuarterTurn::zero;
+    bool flip_horizontal = false;
+    bool flip_vertical = false;
+
+    auto operator<=>(const PhotoGeometry&) const = default;
+};
+
+struct GeometryPixelRect final {
+    std::uint32_t x = 0U;
+    std::uint32_t y = 0U;
+    std::uint32_t width = 0U;
+    std::uint32_t height = 0U;
+
+    auto operator<=>(const GeometryPixelRect&) const = default;
+};
+
+/// A validated integer crop and its final output dimensions. This one layout
+/// is shared by complete warm-proxy execution and bounded full-detail tiles,
+/// so their crop edges can never diverge due to independent rounding rules.
+struct PhotoGeometryLayout final {
+    GeometryPixelRect source_crop;
+    Dimensions output_dimensions;
+
+    auto operator<=>(const PhotoGeometryLayout&) const = default;
+};
+
+void validate_photo_geometry(const PhotoGeometry& geometry);
+[[nodiscard]] PhotoGeometryLayout photo_geometry_layout(
+    Dimensions source_dimensions,
+    const PhotoGeometry& geometry
+);
+[[nodiscard]] GeometryPixelRect photo_geometry_source_rect_for_output(
+    const PhotoGeometryLayout& layout,
+    const PhotoGeometry& geometry,
+    GeometryPixelRect output_rect
+);
+[[nodiscard]] FloatRgbImage apply_photo_geometry(
+    const FloatRgbImage& source,
+    const PhotoGeometry& geometry
+);
+[[nodiscard]] FloatRgbImage apply_photo_geometry_tile(
+    const FloatRgbImage& source_tile,
+    GeometryPixelRect source_tile_rect,
+    const PhotoGeometryLayout& layout,
+    const PhotoGeometry& geometry,
+    GeometryPixelRect output_rect
+);
+
 struct ExposureAdjustment final {
     // Linear-light gain is 2^stops. No highlight clipping is performed.
     double stops = 0.0;
@@ -298,6 +364,19 @@ struct OklabLightnessToneCurve final {
     ToneCurveSet lightness;
 };
 
+// One small non-generative repair. Coordinates are normalized to the full
+// original-oriented image; the radius remains in level-zero pixels so warm
+// proxies and full detail apply the same physical selection.
+struct SpotHealTarget final {
+    double center_x = 0.5;
+    double center_y = 0.5;
+    std::uint16_t radius_level_zero_pixels = 1U;
+};
+
+struct SpotHealAdjustment final {
+    std::vector<SpotHealTarget> spots;
+};
+
 using AdjustmentParameters = std::variant<
     ExposureAdjustment,
     ContrastAdjustment,
@@ -307,7 +386,8 @@ using AdjustmentParameters = std::variant<
     SelectiveToneAdjustment,
     PerceptualColorAdjustment,
     CubeLutAdjustment,
-    SharpenAdjustment>;
+    SharpenAdjustment,
+    SpotHealAdjustment>;
 
 enum class AdjustmentOperation : std::uint8_t {
     exposure,
@@ -319,6 +399,7 @@ enum class AdjustmentOperation : std::uint8_t {
     perceptual_color,
     lut_3d,
     sharpen,
+    spot_heal,
 };
 
 enum class AdjustmentLocality : std::uint8_t {
@@ -460,6 +541,48 @@ struct AdjustmentExecutionContext final {
     Dimensions full_dimensions{};
 };
 
+// Validates and deterministically repairs small spots from a smooth ring of
+// surrounding pixels. This deliberately is not an inpainting/generative API:
+// its result is fully determined by the current raster and stored targets.
+void validate_spot_heal(const SpotHealAdjustment& adjustment);
+void apply_spot_heal(
+    FloatRgbImage& image,
+    const SpotHealAdjustment& adjustment,
+    AdjustmentExecutionContext context = {}
+);
+
+// A normalized selection shape owned by one adjustment-layer instance. It is
+// intentionally independent from AdjustmentNode: a complete Grade Node still
+// owns all of its color/tone controls, while this value only describes where
+// its before/after blend is visible.
+enum class LocalMaskKind : std::uint8_t {
+    linear_gradient,
+    radial_gradient,
+};
+
+struct LocalMask final {
+    LocalMaskKind kind = LocalMaskKind::linear_gradient;
+    double x0 = 0.0;
+    double y0 = 0.0;
+    double x1 = 1.0;
+    double y1 = 0.0;
+    double radius_x = 0.0;
+    double radius_y = 0.0;
+    double feather = 0.0;
+    bool invert = false;
+};
+
+// A sequential Grade Node layer. The first implementation supports only
+// Normal blending; opacity and an optional spatial mask define the mix between
+// the image before and after the enclosed adjustment chain.
+struct AdjustmentLayer final {
+    std::string layer_id;
+    bool enabled = true;
+    double opacity = 1.0;
+    std::optional<LocalMask> mask;
+    std::vector<AdjustmentNode> nodes;
+};
+
 // Executes an intentionally compact subset of the future typed edit graph. The recommended
 // default pipeline order is RgbWhiteBalance -> Exposure -> Contrast -> SelectiveTone ->
 // Saturation -> PerceptualColor -> OklabLightnessToneCurve, but that is a recipe
@@ -469,6 +592,17 @@ struct AdjustmentExecutionContext final {
 [[nodiscard]] FloatRgbImage execute_adjustment_nodes(
     const FloatRgbImage& input,
     std::span<const AdjustmentNode> nodes,
+    AdjustmentExecutionContext context = {}
+);
+
+// Executes complete Grade Node layers. Unmasked, fully opaque layers take the
+// same direct node path; masked layers render a temporary result then blend it
+// with the incoming image in original normalized coordinates. This preserves
+// exact placement between warm proxies and independently requested detail
+// tiles.
+[[nodiscard]] FloatRgbImage execute_adjustment_layers(
+    const FloatRgbImage& input,
+    std::span<const AdjustmentLayer> layers,
     AdjustmentExecutionContext context = {}
 );
 
@@ -630,22 +764,36 @@ public:
     [[nodiscard]] WarmEditPreviewGpuStats gpu_stats() const noexcept;
     [[nodiscard]] EncodedProxy render_jpeg(
         std::span<const AdjustmentNode> nodes,
-        std::uint8_t jpeg_quality = 95
+        std::uint8_t jpeg_quality = 95,
+        const PhotoGeometry& geometry = {}
+    ) const;
+    [[nodiscard]] EncodedProxy render_jpeg_layers(
+        std::span<const AdjustmentLayer> layers,
+        std::uint8_t jpeg_quality = 95,
+        const PhotoGeometry& geometry = {}
     ) const;
     [[nodiscard]] AnalyzedEditPreview render_jpeg_with_analysis(
         std::span<const AdjustmentNode> nodes,
-        std::uint8_t jpeg_quality = 95
+        std::uint8_t jpeg_quality = 95,
+        const PhotoGeometry& geometry = {}
+    ) const;
+    [[nodiscard]] AnalyzedEditPreview render_jpeg_with_analysis_layers(
+        std::span<const AdjustmentLayer> layers,
+        std::uint8_t jpeg_quality = 95,
+        const PhotoGeometry& geometry = {}
     ) const;
     [[nodiscard]] CancellableEditPreviewResult<EncodedProxy> render_jpeg_cancellable(
         std::span<const AdjustmentNode> nodes,
         std::uint8_t jpeg_quality,
-        std::stop_token cancellation
+        std::stop_token cancellation,
+        const PhotoGeometry& geometry = {}
     ) const;
     [[nodiscard]] CancellableEditPreviewResult<AnalyzedEditPreview>
     render_jpeg_with_analysis_cancellable(
         std::span<const AdjustmentNode> nodes,
         std::uint8_t jpeg_quality,
-        std::stop_token cancellation
+        std::stop_token cancellation,
+        const PhotoGeometry& geometry = {}
     ) const;
 
 private:
@@ -717,7 +865,13 @@ public:
     [[nodiscard]] const OpticsProfileReceipt& optics_receipt() const noexcept;
     [[nodiscard]] RenderedDetailTile render_rgb8(
         std::span<const AdjustmentNode> nodes,
-        DetailTileRect rect
+        DetailTileRect rect,
+        const PhotoGeometry& geometry = {}
+    ) const;
+    [[nodiscard]] RenderedDetailTile render_rgb8_layers(
+        std::span<const AdjustmentLayer> layers,
+        DetailTileRect rect,
+        const PhotoGeometry& geometry = {}
     ) const;
 
 private:
@@ -806,6 +960,17 @@ private:
     const OpticsSettings& optics_settings = default_optics_settings()
 );
 
+// Layer-aware equivalent of the standard reference proxy route. It is deliberately a separate
+// entry point so the established flat-node call path keeps its accelerated implementation until
+// a layer-aware GPU executor is available. The output contract remains the same JPEG proxy.
+[[nodiscard]] EncodedProxy render_edited_reference_proxy_jpeg_layers(
+    const DecodeSession& session,
+    std::span<const AdjustmentLayer> layers,
+    ProxyRequest request = {},
+    const OpticsProvider* optics_provider = nullptr,
+    const OpticsSettings& optics_settings = default_optics_settings()
+);
+
 // Explicit plan-bearing forms used by cache-aware callers. Existing overloads above select the
 // canonical preview plan, preserving their source-compatible behavior.
 [[nodiscard]] EncodedProxy render_reference_proxy_jpeg(
@@ -817,6 +982,15 @@ private:
 [[nodiscard]] EncodedProxy render_edited_reference_proxy_jpeg(
     const DecodeSession& session,
     std::span<const AdjustmentNode> nodes,
+    ProxyRequest request,
+    const RawDevelopmentPlan& raw_development_plan,
+    const OpticsProvider* optics_provider = nullptr,
+    const OpticsSettings& optics_settings = default_optics_settings()
+);
+
+[[nodiscard]] EncodedProxy render_edited_reference_proxy_jpeg_layers(
+    const DecodeSession& session,
+    std::span<const AdjustmentLayer> layers,
     ProxyRequest request,
     const RawDevelopmentPlan& raw_development_plan,
     const OpticsProvider* optics_provider = nullptr,

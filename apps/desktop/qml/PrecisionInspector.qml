@@ -19,6 +19,7 @@ Rectangle {
     required property string readyPreviewGeneration
     required property bool previewFrameReady
     required property bool comparisonActive
+    required property real currentPhotoAspect
     required property real workspaceWidth
     required property color panel
     required property color panelRaised
@@ -1435,6 +1436,24 @@ Rectangle {
                                     inspector.openOpticsProfileLibraryRequested()
                             }
 
+                            PrecisionLocalMaskTools {
+                                Layout.fillWidth: true
+                                inspector: inspector
+                                currentTabIndex: inspectorTabStrip.currentIndex
+                            }
+
+                        }
+
+                        PrecisionRetouchTools {
+                            Layout.fillWidth: true
+                            inspector: inspector
+                            currentTabIndex: inspectorTabStrip.currentIndex
+                        }
+
+                        PrecisionGeometryTools {
+                            Layout.fillWidth: true
+                            inspector: inspector
+                            currentTabIndex: inspectorTabStrip.currentIndex
                         }
 
                         RowLayout {

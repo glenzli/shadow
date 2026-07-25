@@ -220,6 +220,7 @@ void EditController::closePhoto() {
     }
     pending_photo_open_.reset();
     setPointColorPickerActive(false);
+    setRetouchPickerActive(false);
     setWhiteBalancePickerActive(false);
     clearSessionHistory();
     resetDetailState();

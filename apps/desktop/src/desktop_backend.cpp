@@ -328,6 +328,15 @@ template <std::size_t Size>
     grade_node.grade_node_id = source.grade_node_id.toStdString();
     grade_node.shared_layer_id = source.shared_layer_id.toStdString();
     grade_node.shared_revision_id = source.shared_revision_id.toStdString();
+    grade_node.local_mask_kind = source.local_mask_kind;
+    grade_node.local_mask_x0 = source.local_mask_x0;
+    grade_node.local_mask_y0 = source.local_mask_y0;
+    grade_node.local_mask_x1 = source.local_mask_x1;
+    grade_node.local_mask_y1 = source.local_mask_y1;
+    grade_node.local_mask_radius_x = source.local_mask_radius_x;
+    grade_node.local_mask_radius_y = source.local_mask_radius_y;
+    grade_node.local_mask_feather = source.local_mask_feather;
+    grade_node.local_mask_invert = source.local_mask_invert;
     grade_node.label = source.label.toStdString();
     grade_node.exposure_render_op_id = source.exposure_render_op_id.toStdString();
     grade_node.contrast_render_op_id = source.contrast_render_op_id.toStdString();
@@ -352,6 +361,15 @@ template <std::size_t Size>
     grade_node.grade_node_id = qstring(source.grade_node_id);
     grade_node.shared_layer_id = qstring(source.shared_layer_id);
     grade_node.shared_revision_id = qstring(source.shared_revision_id);
+    grade_node.local_mask_kind = source.local_mask_kind;
+    grade_node.local_mask_x0 = source.local_mask_x0;
+    grade_node.local_mask_y0 = source.local_mask_y0;
+    grade_node.local_mask_x1 = source.local_mask_x1;
+    grade_node.local_mask_y1 = source.local_mask_y1;
+    grade_node.local_mask_radius_x = source.local_mask_radius_x;
+    grade_node.local_mask_radius_y = source.local_mask_radius_y;
+    grade_node.local_mask_feather = source.local_mask_feather;
+    grade_node.local_mask_invert = source.local_mask_invert;
     grade_node.label = qstring(source.label);
     grade_node.exposure_render_op_id = qstring(source.exposure_render_op_id);
     grade_node.contrast_render_op_id = qstring(source.contrast_render_op_id);
@@ -403,6 +421,23 @@ template <std::size_t Size>
     for (const auto& grade_node : source.grade_nodes) {
         settings.grade_nodes.push_back(ffi_grade_node(grade_node));
     }
+    settings.retouch_spots.reserve(static_cast<std::size_t>(source.retouch_spots.size()));
+    for (const auto& spot : source.retouch_spots) {
+        settings.retouch_spots.push_back(shadow::desktop::FfiRetouchSpot{
+            .center_x = spot.center_x,
+            .center_y = spot.center_y,
+            .radius_level_zero_pixels = spot.radius_level_zero_pixels,
+        });
+    }
+    settings.geometry = shadow::desktop::FfiPhotoGeometry{
+        .crop_left = source.geometry.crop_left,
+        .crop_top = source.geometry.crop_top,
+        .crop_right = source.geometry.crop_right,
+        .crop_bottom = source.geometry.crop_bottom,
+        .quarter_turn = source.geometry.quarter_turn,
+        .flip_horizontal = source.geometry.flip_horizontal,
+        .flip_vertical = source.geometry.flip_vertical,
+    };
     return settings;
 }
 
@@ -432,6 +467,25 @@ template <std::size_t Size>
     for (const auto& grade_node : source.grade_nodes) {
         grade_stack.grade_nodes.push_back(::grade_node(grade_node));
     }
+    grade_stack.retouch_spots.reserve(
+        checked_qt_vector_size(source.retouch_spots.size(), "retouch_spots")
+    );
+    for (const auto& spot : source.retouch_spots) {
+        grade_stack.retouch_spots.push_back({
+            .center_x = spot.center_x,
+            .center_y = spot.center_y,
+            .radius_level_zero_pixels = spot.radius_level_zero_pixels,
+        });
+    }
+    grade_stack.geometry = {
+        .crop_left = source.geometry.crop_left,
+        .crop_top = source.geometry.crop_top,
+        .crop_right = source.geometry.crop_right,
+        .crop_bottom = source.geometry.crop_bottom,
+        .quarter_turn = source.geometry.quarter_turn,
+        .flip_horizontal = source.geometry.flip_horizontal,
+        .flip_vertical = source.geometry.flip_vertical,
+    };
     return grade_stack;
 }
 
@@ -611,6 +665,7 @@ BackendScanProgress DesktopBackend::scanProgress(const std::uint64_t scan_id) co
         .unchanged = source.unchanged,
         .needs_revalidation = source.needs_revalidation,
         .decode_queued = source.decode_inspections_queued,
+        .preview_artifacts_ready = source.preview_artifacts_published,
         .decode_completed = source.decode_inspections_completed,
         .decode_hard_failures = source.decode_hard_failures,
         .preview_failures = source.preview_failures,

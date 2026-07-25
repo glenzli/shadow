@@ -147,7 +147,9 @@ Rectangle {
             1, (mapped.x - paintedX) / paintedWidth))
         const normalizedY = Math.max(0, Math.min(
             1, (mapped.y - paintedY) / paintedHeight))
-        if (editor.whiteBalancePickerActive)
+        if (editor.retouchPickerActive)
+            editor.addRetouchSpotFromPreview(normalizedX, normalizedY)
+        else if (editor.whiteBalancePickerActive)
             editor.setWhiteBalanceFromPreview(
                 normalizedX, normalizedY, readyPreviewGenerationState)
         else
@@ -966,7 +968,8 @@ Rectangle {
                             anchors.fill: parent
                             z: 100
                             enabled: (canvas.editor.pointColorPickerActive
-                                    || canvas.editor.whiteBalancePickerActive)
+                                    || canvas.editor.whiteBalancePickerActive
+                                    || canvas.editor.retouchPickerActive)
                                 && !canvas.comparisonActive
                                 && canvas.previewFrameReady
                                 && canvas.readyPreviewGeneration.length > 0

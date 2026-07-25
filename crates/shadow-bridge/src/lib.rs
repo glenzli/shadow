@@ -414,6 +414,8 @@ mod ffi {
 
     #[derive(Debug)]
     enum FfiAdjustmentOperation {
+        LocalMaskLayerStart,
+        LocalMaskLayerEnd,
         Exposure,
         Contrast,
         OklabLightnessToneCurve,
@@ -423,6 +425,7 @@ mod ffi {
         PerceptualColor,
         Lut3D,
         Sharpen,
+        SpotHeal,
     }
 
     #[derive(Debug)]
@@ -436,15 +439,27 @@ mod ffi {
         /// Operation-specific immutable binary document. Only Lut3D accepts
         /// a validated `.cube` document; every other operation requires empty.
         payload: Vec<u8>,
-        /// Lengths for grouped variable-size parameters. Oklab Lightness Tone
-        /// Curve stores its control-point count; Perceptual Color stores the
-        /// number of additional sampled color ranges.
+        /// Lengths for grouped variable-size parameters. Perceptual Color
+        /// stores the number of additional sampled color ranges; Spot Heal
+        /// stores its target count.
         parameter_group_lengths: Vec<u32>,
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    struct FfiPhotoGeometry {
+        crop_left: f64,
+        crop_top: f64,
+        crop_right: f64,
+        crop_bottom: f64,
+        quarter_turn: u8,
+        flip_horizontal: bool,
+        flip_vertical: bool,
     }
 
     #[derive(Debug)]
     struct FfiAdjustmentRenderRequest {
         nodes: Vec<FfiAdjustmentNode>,
+        geometry: FfiPhotoGeometry,
         max_edge: u32,
         jpeg_quality: u8,
     }
@@ -460,6 +475,7 @@ mod ffi {
     #[derive(Debug)]
     struct FfiAdjustmentDetailTileRequest {
         nodes: Vec<FfiAdjustmentNode>,
+        geometry: FfiPhotoGeometry,
         rect: FfiDetailTileRect,
     }
 
@@ -2023,6 +2039,18 @@ impl Default for SharpenParameters {
 /// Typed pixel operation in execution order.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AdjustmentRenderOperation {
+    /// Opens one complete Grade Node layer in the flat bridge stream. The
+    /// native executor snapshots its input, runs the enclosed adjustments,
+    /// then mixes the result by this spatial mask before continuing. Keeping
+    /// the boundary in the existing ordered node stream preserves the stable
+    /// CXX request shape while adding true per-node-instance locality.
+    LocalMaskLayerStart {
+        opacity: f64,
+        mask: Option<AdjustmentLocalMask>,
+    },
+    /// Closes the current local-mask layer opened by
+    /// [`AdjustmentRenderOperation::LocalMaskLayerStart`].
+    LocalMaskLayerEnd,
     Exposure {
         stops: f64,
     },
@@ -2053,6 +2081,155 @@ pub enum AdjustmentRenderOperation {
     Sharpen {
         parameters: Box<SharpenParameters>,
     },
+    /// Deterministic, non-generative repair of small defects. Each target is
+    /// expressed in original-image coordinates and sampled from a surrounding
+    /// ring so preview, detail tile, and export share the exact same intent.
+    SpotHeal {
+        targets: Vec<AdjustmentSpotHealTarget>,
+    },
+}
+
+/// One bounded source-space target for [`AdjustmentRenderOperation::SpotHeal`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AdjustmentSpotHealTarget {
+    pub center_x: f64,
+    pub center_y: f64,
+    pub radius_level_zero_pixels: u16,
+}
+
+/// Lossless right-angle orientation for the photo-level final canvas.
+///
+/// This remains separate from adjustment operations because it changes the
+/// output raster geometry rather than mutating samples in the current raster.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum AdjustmentQuarterTurn {
+    Zero,
+    Clockwise90,
+    Clockwise180,
+    Clockwise270,
+}
+
+/// A bounded photo-level crop/orientation request ready for native rendering.
+///
+/// Crop values are original-image edge coordinates. The native kernel and the
+/// Rust detail scheduler both turn those normalized edges into exactly the
+/// same pixel-aligned canvas before they schedule tiles.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AdjustmentGeometry {
+    pub crop_left: f64,
+    pub crop_top: f64,
+    pub crop_right: f64,
+    pub crop_bottom: f64,
+    pub quarter_turn: AdjustmentQuarterTurn,
+    pub flip_horizontal: bool,
+    pub flip_vertical: bool,
+}
+
+impl Default for AdjustmentGeometry {
+    fn default() -> Self {
+        Self::identity()
+    }
+}
+
+impl AdjustmentGeometry {
+    #[must_use]
+    pub const fn identity() -> Self {
+        Self {
+            crop_left: 0.0,
+            crop_top: 0.0,
+            crop_right: 1.0,
+            crop_bottom: 1.0,
+            quarter_turn: AdjustmentQuarterTurn::Zero,
+            flip_horizontal: false,
+            flip_vertical: false,
+        }
+    }
+
+    #[must_use]
+    pub const fn is_identity(self) -> bool {
+        self.crop_left == 0.0
+            && self.crop_top == 0.0
+            && self.crop_right == 1.0
+            && self.crop_bottom == 1.0
+            && matches!(self.quarter_turn, AdjustmentQuarterTurn::Zero)
+            && !self.flip_horizontal
+            && !self.flip_vertical
+    }
+
+    fn validate(self) -> Result<(), BridgeError> {
+        let values = [
+            self.crop_left,
+            self.crop_top,
+            self.crop_right,
+            self.crop_bottom,
+        ];
+        if values
+            .iter()
+            .any(|value| !value.is_finite() || !(0.0..=1.0).contains(value))
+        {
+            return Err(BridgeError::InvalidEditRequest(
+                "photo geometry crop edges must be finite and normalized to 0..=1",
+            ));
+        }
+        if self.crop_left >= self.crop_right || self.crop_top >= self.crop_bottom {
+            return Err(BridgeError::InvalidEditRequest(
+                "photo geometry crop must retain non-zero width and height",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Computes the exact pixel canvas used by geometry-aware detail tiles.
+    pub fn output_dimensions(
+        self,
+        source: ImageDimensions,
+    ) -> Result<ImageDimensions, BridgeError> {
+        self.validate()?;
+        let crop_axis = |source_extent: u32, lower: f64, upper: f64| {
+            if source_extent == 0 {
+                return Err(BridgeError::InvalidEditRequest(
+                    "photo geometry requires non-zero source dimensions",
+                ));
+            }
+            let extent = f64::from(source_extent);
+            let lower = (lower * extent).floor().clamp(0.0, extent - 1.0) as u32;
+            let upper = (upper * extent).ceil().clamp(1.0, extent) as u32;
+            upper.checked_sub(lower).filter(|value| *value > 0).ok_or(
+                BridgeError::InvalidEditRequest(
+                    "photo geometry crop has no addressable source pixels",
+                ),
+            )
+        };
+        let width = crop_axis(source.width, self.crop_left, self.crop_right)?;
+        let height = crop_axis(source.height, self.crop_top, self.crop_bottom)?;
+        let (width, height) = match self.quarter_turn {
+            AdjustmentQuarterTurn::Zero | AdjustmentQuarterTurn::Clockwise180 => (width, height),
+            AdjustmentQuarterTurn::Clockwise90 | AdjustmentQuarterTurn::Clockwise270 => {
+                (height, width)
+            }
+        };
+        Ok(ImageDimensions { width, height })
+    }
+}
+
+/// A normalized spatial mask ready for the native layer mixer.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AdjustmentLocalMask {
+    LinearGradient {
+        start_x: f64,
+        start_y: f64,
+        end_x: f64,
+        end_y: f64,
+        invert: bool,
+    },
+    RadialGradient {
+        center_x: f64,
+        center_y: f64,
+        radius_x: f64,
+        radius_y: f64,
+        feather: f64,
+        invert: bool,
+    },
 }
 
 /// A bounded, versioned node ready for the C++ reference executor.
@@ -2065,15 +2242,19 @@ pub struct AdjustmentRenderNode {
     pub operation: AdjustmentRenderOperation,
 }
 
-/// A dependency-ordered linear execution plan.
+/// A dependency-ordered execution plan.
 ///
-/// Graph topology, stages, masks, layer blending, and shared revisions are
-/// deliberately compiled before this boundary. This type contains only the
-/// operations the current CPU reference backend can execute. Neighborhood
+/// Graph topology, stages, shared revisions, and immutable local-mask
+/// definitions are compiled before this boundary. A mask-bearing recipe uses
+/// explicit layer boundary records; ordinary recipes remain a compact flat
+/// stream and keep their existing accelerated fast path. Neighborhood
 /// footprint scheduling remains inside the C++ image kernel.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AdjustmentRenderPlan {
     pub nodes: Vec<AdjustmentRenderNode>,
+    /// Photo-local final-canvas geometry compiled independently from the
+    /// original-coordinate adjustment stream.
+    pub geometry: AdjustmentGeometry,
 }
 
 impl AdjustmentRenderPlan {
@@ -2087,6 +2268,7 @@ impl AdjustmentRenderPlan {
     /// plans, duplicate/invalid node ids, unsupported versions, malformed Tone
     /// Curves, or non-finite values.
     pub fn validate(&self) -> Result<(), BridgeError> {
+        self.geometry.validate()?;
         if self.nodes.is_empty() || self.nodes.len() > MAX_ADJUSTMENT_RENDER_NODES {
             return Err(BridgeError::InvalidEditRequest(
                 "adjustment render plan must contain 1 through 256 nodes",
@@ -2105,6 +2287,13 @@ impl AdjustmentRenderPlan {
                 ));
             }
             let contract_matches = match &node.operation {
+                AdjustmentRenderOperation::LocalMaskLayerStart { .. }
+                | AdjustmentRenderOperation::LocalMaskLayerEnd => {
+                    (
+                        ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+                        ADJUSTMENT_IMPLEMENTATION_VERSION,
+                    ) == (node.parameter_schema_version, node.implementation_version)
+                }
                 AdjustmentRenderOperation::OklabLightnessToneCurve { .. } => {
                     (
                         OKLAB_LIGHTNESS_TONE_CURVE_PARAMETER_SCHEMA_VERSION,
@@ -2132,6 +2321,12 @@ impl AdjustmentRenderPlan {
                                 | FINISHING_EFFECTS_V3_IMPLEMENTATION_VERSION
                         )
                 }
+                AdjustmentRenderOperation::SpotHeal { .. } => {
+                    (
+                        ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+                        ADJUSTMENT_IMPLEMENTATION_VERSION,
+                    ) == (node.parameter_schema_version, node.implementation_version)
+                }
                 _ => {
                     (
                         ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
@@ -2153,6 +2348,19 @@ impl AdjustmentRenderPlan {
 #[allow(clippy::float_cmp)] // Tone Curve schemas require exact normalized endpoints.
 fn validate_render_operation(operation: &AdjustmentRenderOperation) -> Result<(), BridgeError> {
     match operation {
+        AdjustmentRenderOperation::LocalMaskLayerStart { opacity, mask } => {
+            validate_finite_render_parameter(*opacity)?;
+            if !(0.0..=1.0).contains(opacity) {
+                return Err(BridgeError::InvalidEditRequest(
+                    "local-mask layer opacity must be in 0..=1",
+                ));
+            }
+            if let Some(mask) = mask {
+                validate_adjustment_local_mask(mask)?;
+            }
+            Ok(())
+        }
+        AdjustmentRenderOperation::LocalMaskLayerEnd => Ok(()),
         AdjustmentRenderOperation::Exposure { stops } => {
             validate_finite_render_parameter(*stops)?;
             let gain = stops.exp2();
@@ -2232,7 +2440,81 @@ fn validate_render_operation(operation: &AdjustmentRenderOperation) -> Result<()
             }
         }
         AdjustmentRenderOperation::Sharpen { parameters } => validate_sharpen(parameters),
+        AdjustmentRenderOperation::SpotHeal { targets } => {
+            if targets.is_empty() || targets.len() > 64 {
+                return Err(BridgeError::InvalidEditRequest(
+                    "spot-heal must contain 1 through 64 targets",
+                ));
+            }
+            for target in targets {
+                for value in [target.center_x, target.center_y] {
+                    validate_finite_render_parameter(value)?;
+                    if !(0.0..=1.0).contains(&value) {
+                        return Err(BridgeError::InvalidEditRequest(
+                            "spot-heal target coordinates must be normalized to 0..=1",
+                        ));
+                    }
+                }
+                if !(1..=128).contains(&target.radius_level_zero_pixels) {
+                    return Err(BridgeError::InvalidEditRequest(
+                        "spot-heal radius must be between 1 and 128 full-resolution pixels",
+                    ));
+                }
+            }
+            Ok(())
+        }
     }
+}
+
+fn validate_adjustment_local_mask(mask: &AdjustmentLocalMask) -> Result<(), BridgeError> {
+    let unit = |value: f64| {
+        validate_finite_render_parameter(value)?;
+        if (0.0..=1.0).contains(&value) {
+            Ok(())
+        } else {
+            Err(BridgeError::InvalidEditRequest(
+                "local-mask coordinates must be normalized to 0..=1",
+            ))
+        }
+    };
+    match mask {
+        AdjustmentLocalMask::LinearGradient {
+            start_x,
+            start_y,
+            end_x,
+            end_y,
+            ..
+        } => {
+            for value in [*start_x, *start_y, *end_x, *end_y] {
+                unit(value)?;
+            }
+            let dx = *end_x - *start_x;
+            let dy = *end_y - *start_y;
+            if dx.mul_add(dx, dy * dy) <= f64::EPSILON {
+                return Err(BridgeError::InvalidEditRequest(
+                    "local-mask linear gradient must have a non-zero direction",
+                ));
+            }
+        }
+        AdjustmentLocalMask::RadialGradient {
+            center_x,
+            center_y,
+            radius_x,
+            radius_y,
+            feather,
+            ..
+        } => {
+            for value in [*center_x, *center_y, *radius_x, *radius_y, *feather] {
+                unit(value)?;
+            }
+            if *radius_x <= 0.0 || *radius_y <= 0.0 {
+                return Err(BridgeError::InvalidEditRequest(
+                    "local-mask radial gradient radii must both be greater than zero",
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 #[allow(clippy::float_cmp)] // Tone Curve schemas require exact normalized endpoints.
@@ -2576,6 +2858,7 @@ pub fn basic_adjustment_render_plan(
                 },
             ),
         ],
+        geometry: AdjustmentGeometry::identity(),
     };
     plan.validate()?;
     Ok(plan)
@@ -3177,10 +3460,17 @@ impl LibRawEditPreviewSession {
     ) -> Result<shadow_domain::ProxyPayload, BridgeError> {
         plan.validate()?;
         validate_jpeg_quality(jpeg_quality)?;
+        let output_dimensions = plan.geometry.output_dimensions(self.dimensions)?;
         let handle = self.handle.as_ref().ok_or(BridgeError::NullHandle)?;
         let request = ffi_render_request(plan, self.max_edge, jpeg_quality);
         let proxy = handle.render_adjustment_plan(&request)?;
-        Ok(proxy_payload(proxy))
+        let proxy = proxy_payload(proxy);
+        if proxy.dimensions != output_dimensions {
+            return Err(BridgeError::InvalidEditPreviewOutput(
+                "geometry-aware preview dimensions do not match the rendered canvas",
+            ));
+        }
+        Ok(proxy)
     }
 
     /// Executes a typed plan with cooperative native cancellation.
@@ -3196,6 +3486,7 @@ impl LibRawEditPreviewSession {
     ) -> Result<CancellableEditPreview<shadow_domain::ProxyPayload>, BridgeError> {
         plan.validate()?;
         validate_jpeg_quality(jpeg_quality)?;
+        let output_dimensions = plan.geometry.output_dimensions(self.dimensions)?;
         let handle = self.handle.as_ref().ok_or(BridgeError::NullHandle)?;
         let cancellation = cancellation
             .handle
@@ -3206,9 +3497,13 @@ impl LibRawEditPreviewSession {
         if rendered.cancelled {
             return Ok(CancellableEditPreview::Cancelled);
         }
-        Ok(CancellableEditPreview::Completed(proxy_payload(
-            rendered.proxy,
-        )))
+        let proxy = proxy_payload(rendered.proxy);
+        if proxy.dimensions != output_dimensions {
+            return Err(BridgeError::InvalidEditPreviewOutput(
+                "geometry-aware preview dimensions do not match the rendered canvas",
+            ));
+        }
+        Ok(CancellableEditPreview::Completed(proxy))
     }
 
     /// Executes a typed plan and returns its JPEG plus generation-matched
@@ -3231,6 +3526,7 @@ impl LibRawEditPreviewSession {
     ) -> Result<AnalyzedEditPreview, BridgeError> {
         plan.validate()?;
         validate_jpeg_quality(jpeg_quality)?;
+        let output_dimensions = plan.geometry.output_dimensions(self.dimensions)?;
         let handle = self.handle.as_ref().ok_or(BridgeError::NullHandle)?;
         let request = ffi_render_request(plan, self.max_edge, jpeg_quality);
         let analyzed = handle.render_adjustment_plan_with_analysis(&request)?;
@@ -3239,7 +3535,7 @@ impl LibRawEditPreviewSession {
             proxy,
             analyzed.analysis,
             analyzed.execution,
-            self.dimensions,
+            output_dimensions,
         )
     }
 
@@ -3254,6 +3550,7 @@ impl LibRawEditPreviewSession {
     ) -> Result<CancellableEditPreview<AnalyzedEditPreview>, BridgeError> {
         plan.validate()?;
         validate_jpeg_quality(jpeg_quality)?;
+        let output_dimensions = plan.geometry.output_dimensions(self.dimensions)?;
         let handle = self.handle.as_ref().ok_or(BridgeError::NullHandle)?;
         let cancellation = cancellation
             .handle
@@ -3271,7 +3568,7 @@ impl LibRawEditPreviewSession {
             proxy,
             analyzed.analysis,
             analyzed.execution,
-            self.dimensions,
+            output_dimensions,
         )?;
         Ok(CancellableEditPreview::Completed(completed))
     }
@@ -3423,13 +3720,14 @@ impl LibRawEditDetailSession {
         request: DetailTileRequest,
     ) -> Result<RenderedDetailTile, BridgeError> {
         plan.validate()?;
-        request.validate(self.dimensions)?;
+        let output_dimensions = plan.geometry.output_dimensions(self.dimensions)?;
+        request.validate(output_dimensions)?;
         let handle = self.handle.as_ref().ok_or(BridgeError::NullHandle)?;
         let rendered =
             handle.render_adjustment_plan_tile(&ffi_detail_tile_request(plan, request))?;
         let rect = detail_tile_rect(rendered.rect);
         let full_dimensions = dimensions(&rendered.full_dimensions);
-        if rect != request.rect || full_dimensions != self.dimensions {
+        if rect != request.rect || full_dimensions != output_dimensions {
             return Err(BridgeError::InvalidEditDetailOutput(
                 "returned identity does not match the requested tile and prepared source",
             ));
@@ -3586,6 +3884,7 @@ fn ffi_render_request(
 ) -> ffi::FfiAdjustmentRenderRequest {
     ffi::FfiAdjustmentRenderRequest {
         nodes: plan.nodes.iter().map(ffi_render_node).collect(),
+        geometry: ffi_photo_geometry(plan.geometry),
         max_edge,
         jpeg_quality,
     }
@@ -3597,7 +3896,25 @@ fn ffi_detail_tile_request(
 ) -> ffi::FfiAdjustmentDetailTileRequest {
     ffi::FfiAdjustmentDetailTileRequest {
         nodes: plan.nodes.iter().map(ffi_render_node).collect(),
+        geometry: ffi_photo_geometry(plan.geometry),
         rect: ffi_detail_tile_rect(request.rect),
+    }
+}
+
+const fn ffi_photo_geometry(geometry: AdjustmentGeometry) -> ffi::FfiPhotoGeometry {
+    ffi::FfiPhotoGeometry {
+        crop_left: geometry.crop_left,
+        crop_top: geometry.crop_top,
+        crop_right: geometry.crop_right,
+        crop_bottom: geometry.crop_bottom,
+        quarter_turn: match geometry.quarter_turn {
+            AdjustmentQuarterTurn::Zero => 0,
+            AdjustmentQuarterTurn::Clockwise90 => 1,
+            AdjustmentQuarterTurn::Clockwise180 => 2,
+            AdjustmentQuarterTurn::Clockwise270 => 3,
+        },
+        flip_horizontal: geometry.flip_horizontal,
+        flip_vertical: geometry.flip_vertical,
     }
 }
 
@@ -3623,6 +3940,60 @@ const fn detail_tile_rect(rect: ffi::FfiDetailTileRect) -> DetailTileRect {
 #[allow(clippy::too_many_lines)]
 fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustmentNode {
     let (operation, parameters, parameter_group_lengths, payload) = match &node.operation {
+        AdjustmentRenderOperation::LocalMaskLayerStart { opacity, mask } => {
+            let (kind, x0, y0, x1, y1, radius_x, radius_y, feather, invert) = match mask {
+                None => (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+                Some(AdjustmentLocalMask::LinearGradient {
+                    start_x,
+                    start_y,
+                    end_x,
+                    end_y,
+                    invert,
+                }) => (
+                    1.0,
+                    *start_x,
+                    *start_y,
+                    *end_x,
+                    *end_y,
+                    0.0,
+                    0.0,
+                    0.0,
+                    if *invert { 1.0 } else { 0.0 },
+                ),
+                Some(AdjustmentLocalMask::RadialGradient {
+                    center_x,
+                    center_y,
+                    radius_x,
+                    radius_y,
+                    feather,
+                    invert,
+                }) => (
+                    2.0,
+                    *center_x,
+                    *center_y,
+                    0.0,
+                    0.0,
+                    *radius_x,
+                    *radius_y,
+                    *feather,
+                    if *invert { 1.0 } else { 0.0 },
+                ),
+            };
+            (
+                ffi::FfiAdjustmentOperation::LocalMaskLayerStart,
+                vec![
+                    *opacity, kind, x0, y0, x1, y1, radius_x, radius_y, feather, invert,
+                ],
+                vec![],
+                vec![],
+            )
+        }
+        AdjustmentRenderOperation::LocalMaskLayerEnd => (
+            ffi::FfiAdjustmentOperation::LocalMaskLayerEnd,
+            vec![],
+            vec![],
+            vec![],
+        ),
         AdjustmentRenderOperation::Exposure { stops } => (
             ffi::FfiAdjustmentOperation::Exposure,
             vec![*stops],
@@ -3769,6 +4140,25 @@ fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustmentNode {
                 ffi::FfiAdjustmentOperation::Sharpen,
                 flattened,
                 vec![],
+                vec![],
+            )
+        }
+        AdjustmentRenderOperation::SpotHeal { targets } => {
+            let mut flattened = Vec::with_capacity(targets.len() * 3);
+            for target in targets {
+                flattened.extend([
+                    target.center_x,
+                    target.center_y,
+                    f64::from(target.radius_level_zero_pixels),
+                ]);
+            }
+            (
+                ffi::FfiAdjustmentOperation::SpotHeal,
+                flattened,
+                vec![
+                    u32::try_from(targets.len())
+                        .expect("validated spot-heal target count fits u32"),
+                ],
                 vec![],
             )
         }
@@ -4924,6 +5314,7 @@ mod tests {
                     AdjustmentRenderOperation::Saturation { factor: 1.0 },
                 ),
             ],
+            geometry: AdjustmentGeometry::identity(),
         };
         assert!(matches!(
             duplicate.validate(),
@@ -4951,6 +5342,7 @@ mod tests {
                         curve: Box::new(OklabLightnessToneCurve { lightness: points }),
                     },
                 }],
+                geometry: AdjustmentGeometry::identity(),
             };
             assert!(matches!(
                 malformed.validate(),
@@ -4978,6 +5370,7 @@ mod tests {
                     enabled: true,
                     operation,
                 }],
+                geometry: AdjustmentGeometry::identity(),
             };
             assert!(matches!(
                 invalid.validate(),
@@ -5049,6 +5442,7 @@ mod tests {
                     },
                 },
             ],
+            geometry: AdjustmentGeometry::identity(),
         };
 
         plan.validate().expect("extended plan is valid");
@@ -5107,6 +5501,7 @@ mod tests {
                 enabled: true,
                 operation,
             }],
+            geometry: AdjustmentGeometry::identity(),
         };
 
         for parameters in [
@@ -5188,6 +5583,7 @@ mod tests {
                     enabled: true,
                     operation: AdjustmentRenderOperation::Exposure { stops: 0.0 },
                 }],
+                geometry: AdjustmentGeometry::identity(),
             };
 
             assert!(matches!(
@@ -5211,6 +5607,7 @@ mod tests {
                     },
                 },
             }],
+            geometry: AdjustmentGeometry::identity(),
         };
         assert!(matches!(
             one_pass_v2.validate(),
