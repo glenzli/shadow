@@ -36,6 +36,9 @@ CMakeUserPresets.json
 *.local.toml
 *.local.json
 
+# Local multi-agent coordination state
+/.agent-coordination/
+
 # IDE / OS
 .idea/
 .vscode/
@@ -46,4 +49,3 @@ Thumbs.db
 *.log
 *.dmp
 *.core
-
