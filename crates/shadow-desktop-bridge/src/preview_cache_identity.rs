@@ -240,12 +240,12 @@ mod tests {
     fn effective_backend_changes_the_bounded_durable_identity() {
         let cpu = prepared_raw_pipeline_cache_identity(&receipt(
             "raw-pipeline-receipt-v1;pipeline=shadow-raw-frame-v1;\
-             backend=shadow-fused-raw-cpu-v1",
+             backend=shadow-fused-raw-cpu-v1;sensor-highlights=neutral-v1",
         ))
         .expect("compact CPU receipt");
         let metal = prepared_raw_pipeline_cache_identity(&receipt(
             "raw-pipeline-receipt-v1;pipeline=shadow-raw-frame-v1;\
-             backend=shadow-fused-raw-metal-full-v1;math=f32-precise",
+             backend=shadow-fused-raw-metal-full-v1;math=f32-precise;sensor-highlights=neutral-v1",
         ))
         .expect("compact Metal receipt");
 

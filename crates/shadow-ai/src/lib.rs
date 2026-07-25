@@ -7,6 +7,7 @@
 
 mod contract;
 mod feedback;
+mod generated;
 mod manifest;
 mod preference;
 mod resource;
@@ -25,6 +26,14 @@ pub use feedback::{
     PresentationContext, PresentedCandidate, PresentedFitMode, PresentedVisualArtifact,
     PresentedVisualFrame, PresentedVisualProvenance, PresentedVisualRole, SuggestionDecision,
     build_incremental_preference_batch,
+};
+pub use generated::{
+    AI_GENERATED_ARTIFACT_CONTRACT_VERSION, AiArtifactContractError, AiGeneratedPayload,
+    AiTaskParameters, ArtifactHashAlgorithm, DenoiseDomainPolicy, DenoiseParameters,
+    DenoiseQuality, DenoisedRasterArtifact, GeneratedArtifactReference,
+    GeneratedArtifactStorageClass, MAX_MASK_PROMPT_POINTS, MAX_RASTER_DIMENSION, MaskPointPolarity,
+    MaskPrompt, MaskPromptPoint, MaskSemantic, NormalizedMaskBox, RasterExtent, RasterPixelLayout,
+    RasterSampleFormat, SoftMaskArtifact, SoftMaskEncoding, SubjectMaskParameters, TileContract,
 };
 pub use manifest::{
     BackendRequirement, Dimension, DistributionTerms, ElementType, LicensePermission, LicenseTerms,

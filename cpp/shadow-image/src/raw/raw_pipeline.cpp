@@ -2,6 +2,7 @@
 #include <shadow/image/camera_profile_catalog.hpp>
 #include <shadow/image/dcp_color_development.hpp>
 #include <shadow/image/fused_raw_development.hpp>
+#include <shadow/image/raw_denoise.hpp>
 
 #include <algorithm>
 #include <array>
@@ -23,7 +24,7 @@ namespace {
 inline constexpr std::string_view raw_pipeline_environment = "SHADOW_RAW_PIPELINE";
 inline constexpr std::string_view raw_frame_pipeline_identity =
     "shadow-raw-frame-developer-v1:bayer-area-preview+bayer-bilinear:"
-    "as-shot-neutral:camera-matrix:linear-srgb-u16";
+    "raw-denoise-cfa-bilateral-v1:as-shot-neutral:camera-matrix:linear-srgb-u16";
 
 [[nodiscard]] const char* path_name(const RawPipelinePath path) noexcept {
     switch (path) {
@@ -225,7 +226,8 @@ using Matrix3 = std::array<double, 9U>;
     const Dimensions rendered_dimensions,
     const RawDemosaicReceipt& demosaic,
     const RawDevelopmentBackend backend,
-    const DcpColorTransform* camera_profile
+    const DcpColorTransform* camera_profile,
+    const RawBayerDenoiseReceipt& raw_denoise
 ) {
     RawDevelopmentReceipt receipt;
     receipt.schema_version = raw_development_receipt_schema_version;
@@ -239,6 +241,11 @@ using Matrix3 = std::array<double, 9U>;
         : "shadow-raw-v1;demosaic=bayer-bilinear";
     receipt.development_settings_signature += ";backend="
         + std::string(raw_development_backend_identity(backend));
+    receipt.development_settings_signature += ";raw-denoise="
+        + std::string(raw_bayer_denoise_mode_identity(raw_denoise.mode));
+    if (raw_denoise.used_sensor_noise_calibration) {
+        receipt.development_settings_signature += ";raw-denoise-calibration=provider";
+    }
     if (camera_profile != nullptr) {
         receipt.development_settings_signature += ";color=dcp;"
             + dcp_color_receipt_identity(camera_profile->receipt);
@@ -290,7 +297,8 @@ struct DevelopedRawFrame final {
     RawFrame frame,
     const RawDevelopmentPlan& plan,
     const std::optional<std::uint32_t> preview_max_edge,
-    const DcpColorTransform* camera_profile
+    const DcpColorTransform* camera_profile,
+    const double iso_sensitivity
 ) {
     if (!frame.valid() || !frame.is_bayer_2x2()) {
         throw DecodeError(
@@ -328,19 +336,28 @@ struct DevelopedRawFrame final {
     const RawFrameLinearTransform transform = camera_profile == nullptr
         ? generic_raw_frame_transform(frame.descriptor)
         : RawFrameLinearTransform{camera_profile->camera_to_linear_srgb_d65};
+    RawBayerDenoiseResult denoised = denoise_bayer_raw_frame(
+        std::move(frame),
+        RawBayerDenoiseRequest{
+            .intent = plan.noise_reduction,
+            .iso_sensitivity = iso_sensitivity,
+            .preview = preview_max_edge.has_value(),
+        }
+    );
     FusedRawFrameDevelopment developed = develop_bayer_linear_srgb_u16_fused(
-        frame,
+        denoised.frame,
         transform,
         preview_max_edge
     );
     PixelBuffer output = std::move(developed.pixels);
     output.raw_development_receipt = raw_frame_development_receipt(
-        frame.descriptor,
+        denoised.frame.descriptor,
         plan,
         output.dimensions,
         developed.demosaic_receipt,
         developed.backend,
-        camera_profile
+        camera_profile,
+        denoised.receipt
     );
     return DevelopedRawFrame{
         .pixels = std::move(output),
@@ -402,7 +419,9 @@ struct DevelopedRawFrame final {
         dng_opcode_policy_mask(DngOpcodePolicy::provider_default);
     capabilities.supported_noise_reduction_intents =
         raw_noise_reduction_intent_mask(RawNoiseReductionIntent::provider_default)
-        | raw_noise_reduction_intent_mask(RawNoiseReductionIntent::disabled);
+        | raw_noise_reduction_intent_mask(RawNoiseReductionIntent::disabled)
+        | raw_noise_reduction_intent_mask(RawNoiseReductionIntent::conservative)
+        | raw_noise_reduction_intent_mask(RawNoiseReductionIntent::noise_robust);
     capabilities.supported_highlight_recovery_intents =
         raw_highlight_recovery_intent_mask(RawHighlightRecoveryIntent::provider_default)
         | raw_highlight_recovery_intent_mask(RawHighlightRecoveryIntent::disabled);
@@ -649,7 +668,8 @@ DevelopedSourceReference develop_source_reference(
             std::move(frame),
             negotiation.effective,
             preview_max_edge,
-            dcp_transform.has_value() ? &*dcp_transform : nullptr
+            dcp_transform.has_value() ? &*dcp_transform : nullptr,
+            session.metadata().iso_speed
         );
         PixelBuffer pixels = std::move(developed.pixels);
         pixels.raw_development_receipt.requested_plan = plan;

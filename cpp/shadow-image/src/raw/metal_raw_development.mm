@@ -65,13 +65,23 @@ inline float normalized_sample(
         / parameters.white_minus_black[site];
 }
 
-inline float3 camera_rgb_at(
+inline float sensor_clip_evidence(const float normalized) {
+    return clamp((normalized - 0.98f) * 50.0f, 0.0f, 1.0f);
+}
+
+struct CameraRgbSample {
+    float3 values;
+    float3 sensor_clip_coverage;
+};
+
+inline CameraRgbSample camera_rgb_at(
     device const ushort* samples,
     constant RawDevelopmentParameters& parameters,
     uint raw_x,
     uint raw_y
 ) {
     float totals[3] = {0.0f, 0.0f, 0.0f};
+    float clipped_totals[3] = {0.0f, 0.0f, 0.0f};
     uint counts[3] = {0u, 0u, 0u};
     for (int dy = -1; dy <= 1; ++dy) {
         const int candidate_y = int(raw_y) + dy;
@@ -86,15 +96,64 @@ inline float3 camera_rgb_at(
             const uint x = uint(candidate_x);
             const uint y = uint(candidate_y);
             const uint channel = parameters.cfa_channels[cfa_site(x, y)];
-            totals[channel] += normalized_sample(samples, parameters, x, y);
+            const float normalized = normalized_sample(samples, parameters, x, y);
+            totals[channel] += normalized;
+            clipped_totals[channel] += sensor_clip_evidence(normalized);
             counts[channel] += 1u;
         }
     }
-    return float3(
-        totals[0] / float(counts[0]),
-        totals[1] / float(counts[1]),
-        totals[2] / float(counts[2])
+    return CameraRgbSample{
+        float3(
+            totals[0] / float(counts[0]),
+            totals[1] / float(counts[1]),
+            totals[2] / float(counts[2])
+        ),
+        float3(
+            clipped_totals[0] / float(counts[0]),
+            clipped_totals[1] / float(counts[1]),
+            clipped_totals[2] / float(counts[2])
+        )
+    };
+}
+
+inline float smoothstep_scalar(const float edge0, const float edge1, const float value) {
+    const float normalized = clamp((value - edge0) / (edge1 - edge0), 0.0f, 1.0f);
+    return normalized * normalized * (3.0f - 2.0f * normalized);
+}
+
+inline float3 neutralize_sensor_clipped_highlight(
+    const float3 scene_linear,
+    const CameraRgbSample camera
+) {
+    const float3 sensor_clip_coverage = camera.sensor_clip_coverage;
+    const float lowest = min(
+        sensor_clip_coverage.x,
+        min(sensor_clip_coverage.y, sensor_clip_coverage.z)
     );
+    const float highest = max(
+        sensor_clip_coverage.x,
+        max(sensor_clip_coverage.y, sensor_clip_coverage.z)
+    );
+    const float second_highest = sensor_clip_coverage.x + sensor_clip_coverage.y
+        + sensor_clip_coverage.z - lowest - highest;
+    const float camera_lowest = min(
+        camera.values.x,
+        min(camera.values.y, camera.values.z)
+    );
+    const float camera_highest = max(
+        camera.values.x,
+        max(camera.values.y, camera.values.z)
+    );
+    const float camera_second_highest = camera.values.x + camera.values.y + camera.values.z
+        - camera_lowest - camera_highest;
+    const float multi_channel_clip = smoothstep_scalar(0.15f, 0.75f, second_highest);
+    const float single_channel_white = smoothstep_scalar(0.40f, 0.90f, highest)
+        * smoothstep_scalar(0.84f, 0.98f, camera_second_highest);
+    const float clipped_ratio = max(multi_channel_clip, single_channel_white);
+    const float peak = max(scene_linear.x, max(scene_linear.y, scene_linear.z));
+    const float highlight_ratio = smoothstep_scalar(0.85f, 1.05f, peak);
+    const float blend = clipped_ratio * highlight_ratio;
+    return mix(scene_linear, float3(max(0.0f, peak)), blend);
 }
 
 inline ushort quantize_linear(float value) {
@@ -134,29 +193,33 @@ kernel void develop_bayer_full(
         break;
     }
 
-    const float3 camera = camera_rgb_at(
+    const CameraRgbSample camera = camera_rgb_at(
         samples,
         parameters,
         parameters.margin_left + source_x,
         parameters.margin_top + source_y
     );
     const float red =
-        parameters.camera_to_linear_srgb[0] * camera.x
-        + parameters.camera_to_linear_srgb[1] * camera.y
-        + parameters.camera_to_linear_srgb[2] * camera.z;
+        parameters.camera_to_linear_srgb[0] * camera.values.x
+        + parameters.camera_to_linear_srgb[1] * camera.values.y
+        + parameters.camera_to_linear_srgb[2] * camera.values.z;
     const float green =
-        parameters.camera_to_linear_srgb[3] * camera.x
-        + parameters.camera_to_linear_srgb[4] * camera.y
-        + parameters.camera_to_linear_srgb[5] * camera.z;
+        parameters.camera_to_linear_srgb[3] * camera.values.x
+        + parameters.camera_to_linear_srgb[4] * camera.values.y
+        + parameters.camera_to_linear_srgb[5] * camera.values.z;
     const float blue =
-        parameters.camera_to_linear_srgb[6] * camera.x
-        + parameters.camera_to_linear_srgb[7] * camera.y
-        + parameters.camera_to_linear_srgb[8] * camera.z;
+        parameters.camera_to_linear_srgb[6] * camera.values.x
+        + parameters.camera_to_linear_srgb[7] * camera.values.y
+        + parameters.camera_to_linear_srgb[8] * camera.values.z;
+    const float3 scene_linear = neutralize_sensor_clipped_highlight(
+        float3(red, green, blue),
+        camera
+    );
     const uint output_index =
         (position.y * parameters.output_width + output_x) * 3u;
-    output[output_index] = quantize_linear(red);
-    output[output_index + 1u] = quantize_linear(green);
-    output[output_index + 2u] = quantize_linear(blue);
+    output[output_index] = quantize_linear(scene_linear.x);
+    output[output_index + 1u] = quantize_linear(scene_linear.y);
+    output[output_index + 2u] = quantize_linear(scene_linear.z);
 }
 )METAL";
 

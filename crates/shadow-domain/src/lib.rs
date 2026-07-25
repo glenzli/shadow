@@ -38,6 +38,7 @@ pub use recipe::{
     NodeInput, OperationDescriptor, OperationId, ParameterBlock, ParameterKey, ParameterValue,
     PortType, ProcessingStage, RecipeBranch, RecipeCommit, RecipeHistory, RecipeInputSettings,
     RecipeOpticsSettings, RecipeSnapshot, RecipeValidationError, UnitInterval, VersionName,
+    canonical_recipe_snapshot_digest,
 };
 pub use recipe_diff::{
     GraphDiff, IndexedLayer, LayerContentDiff, LayerContentKind, LayerInstanceDiff,

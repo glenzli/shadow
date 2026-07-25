@@ -14,13 +14,13 @@
 
 namespace {
 
-// Interactive editing renders one stable prepared source at two JPEG quality
-// levels. Keeping the complete render state machine in this translation unit
-// makes preview/detail scheduling independently maintainable from Qt controls
-// and catalog persistence.
-constexpr std::uint32_t EDIT_PREVIEW_EDGE = 2'048;
+// Interactive and settled overview frames deliberately share one prepared
+// 1536px source. Using a second edge for slider gestures caused the first edit
+// to decode and develop the RAW again instead of reusing the proxy prepared
+// when the photo opened. Full-resolution inspection remains a separate,
+// explicitly warmed detail path.
+constexpr std::uint32_t EDIT_PREVIEW_EDGE = 1'536;
 constexpr std::uint8_t EDIT_PREVIEW_QUALITY = 90;
-constexpr std::uint32_t EDIT_INTERACTIVE_PREVIEW_EDGE = 1'536;
 constexpr std::uint8_t EDIT_INTERACTIVE_PREVIEW_QUALITY = 84;
 constexpr int EDIT_DETAIL_DEBOUNCE_MS = 70;
 constexpr int EDIT_DETAIL_WARMUP_IDLE_MS = 180;
@@ -509,8 +509,7 @@ void EditController::startPreviewRender() {
     const bool interactive = !active_parameter_gestures_.isEmpty();
     const EditPreviewPolicy policy = interactive
         ? EditPreviewPolicy::Interactive : EditPreviewPolicy::Settled;
-    const std::uint32_t max_edge = interactive
-        ? EDIT_INTERACTIVE_PREVIEW_EDGE : EDIT_PREVIEW_EDGE;
+    const std::uint32_t max_edge = EDIT_PREVIEW_EDGE;
     const std::uint8_t jpeg_quality = interactive
         ? EDIT_INTERACTIVE_PREVIEW_QUALITY : EDIT_PREVIEW_QUALITY;
     preview_render_token_ = backend_->beginEditPreviewRequest();

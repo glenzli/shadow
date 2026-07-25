@@ -988,6 +988,38 @@ void detail_effects_current_contract_is_observable_and_obsolete_contract_is_reje
     );
 }
 
+void denoise_remains_observable_on_a_reduced_edit_proxy() {
+    std::vector<float> samples(3U * 3U * 3U, 0.20F);
+    const std::size_t center = (1U * 3U + 1U) * 3U;
+    samples[center] = 0.28F;
+    samples[center + 1U] = 0.28F;
+    samples[center + 2U] = 0.28F;
+    auto input = rgb_raster(3U, 3U, std::move(samples));
+    input.level_zero_to_raster_scale_x = 0.10;
+    input.level_zero_to_raster_scale_y = 0.10;
+    const std::array nodes{
+        image::AdjustmentNode{
+            .node_id = "proxy-denoise",
+            .parameter_schema_version = image::detail_effects_v3_parameter_schema_version,
+            .implementation_version = image::technical_detail_v3_implementation_version,
+            .parameters = image::SharpenAdjustment{
+                .denoise_luminance = 1.0,
+                .denoise_detail = 0.5,
+            },
+        },
+    };
+
+    const auto output = image::execute_adjustment_nodes(input, nodes);
+    expect(
+        output.samples[center] < 0.23F,
+        "maximum proxy denoise has enough upper-range authority for high-ISO noise"
+    );
+    expect(
+        output.samples[center] > 0.20F,
+        "proxy denoise remains edge-aware instead of flattening to the neighbourhood mean"
+    );
+}
+
 void purple_and_green_defringe_ranges_are_independent() {
     const auto purple = linear_srgb_from_oklch(0.62, 0.16, 305.0);
     const auto green = linear_srgb_from_oklch(0.62, 0.16, 135.0);
@@ -3655,6 +3687,7 @@ int main() {
     selective_color_has_distinct_relative_absolute_and_neutral_semantics();
     perceptual_color_bypasses_independent_neutral_stages_exactly();
     detail_effects_current_contract_is_observable_and_obsolete_contract_is_rejected();
+    denoise_remains_observable_on_a_reduced_edit_proxy();
     purple_and_green_defringe_ranges_are_independent();
     global_effect_coordinates_are_tile_invariant();
     exposure_preserves_unclipped_scene_range_and_padding();

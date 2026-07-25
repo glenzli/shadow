@@ -93,7 +93,12 @@ ColumnLayout {
         ShadowSubsectionLabel {
             Layout.topMargin: 6
             text: qsTr("DENOISE")
-            toolTipText: qsTr("Conventional RGB preview denoise. RAW-domain denoise is planned separately in the RAW processing pipeline.")
+            toolTipText: qsTr("Shadow automatically applies conservative same-CFA RAW denoise before demosaicing for suitable high-ISO detail and export renders. The controls below refine the developed RGB preview.")
+        }
+
+        ShadowSubsectionLabel {
+            text: qsTr("RAW PREPROCESSING · AUTOMATIC")
+            toolTipText: qsTr("RAW files use a sensor-domain path when it is useful; JPEG and HEIF continue with the RGB controls below. Normal previews keep this automatic path lightweight so editing remains responsive.")
         }
 
         Repeater {

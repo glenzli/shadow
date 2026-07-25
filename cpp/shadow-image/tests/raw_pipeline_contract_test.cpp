@@ -1,10 +1,12 @@
 #include <shadow/image/raw_pipeline.hpp>
 #include <shadow/image/camera_profile_catalog.hpp>
 #include <shadow/image/fused_raw_development.hpp>
+#include <shadow/image/raw_denoise.hpp>
 
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <iostream>
 #include <span>
 #include <string_view>
@@ -84,6 +86,52 @@ void expect(const bool condition, const std::string_view message) {
         }
     }
     return frame;
+}
+
+[[nodiscard]] image::RawFrame noisy_bayer_frame() {
+    auto frame = synthetic_bayer_frame();
+    auto& descriptor = frame.descriptor;
+    descriptor.storage_dimensions = {12U, 12U};
+    descriptor.active_dimensions = descriptor.storage_dimensions;
+    descriptor.white_levels = {4'095U, 4'095U, 4'095U, 4'095U};
+    descriptor.sensor_noise = {
+        .schema_version = image::raw_sensor_noise_calibration_schema_version,
+        .model = image::RawSensorNoiseModel::poisson_gaussian_per_cfa,
+        .source = image::RawSensorNoiseCalibrationSource::provider_calibration_profile,
+        .iso_sensitivity = 6'400.0,
+        .read_noise_stddev_dn = {42.0, 39.0, 39.0, 44.0},
+        .shot_noise_variance_per_dn = {0.08, 0.08, 0.08, 0.09},
+    };
+    frame.samples.resize(12U * 12U);
+    constexpr std::array<std::uint16_t, 4U> flat_signal{600U, 1'200U, 1'160U, 400U};
+    constexpr std::array<int, 4U> perturbation{-72, 56, -44, 68};
+    for (std::uint32_t y = 0U; y < descriptor.storage_dimensions.height; ++y) {
+        for (std::uint32_t x = 0U; x < descriptor.storage_dimensions.width; ++x) {
+            const auto site = static_cast<std::size_t>((y & 1U) * 2U + (x & 1U));
+            const int phase = static_cast<int>(((x / 2U) + (y / 2U)) & 1U);
+            const int sample = static_cast<int>(flat_signal[site])
+                + (phase == 0 ? perturbation[site] : -perturbation[site]);
+            frame.samples[static_cast<std::size_t>(y) * descriptor.storage_dimensions.width + x]
+                = static_cast<std::uint16_t>(sample);
+        }
+    }
+    return frame;
+}
+
+[[nodiscard]] std::uint64_t flat_cfa_error(const image::RawFrame& frame) {
+    constexpr std::array<std::uint16_t, 4U> flat_signal{600U, 1'200U, 1'160U, 400U};
+    const auto width = frame.descriptor.storage_dimensions.width;
+    std::uint64_t total = 0U;
+    for (std::uint32_t y = 0U; y < frame.descriptor.storage_dimensions.height; ++y) {
+        for (std::uint32_t x = 0U; x < frame.descriptor.storage_dimensions.width; ++x) {
+            const auto site = static_cast<std::size_t>((y & 1U) * 2U + (x & 1U));
+            const auto sample = frame.samples[static_cast<std::size_t>(y) * width + x];
+            total += static_cast<std::uint64_t>(std::abs(
+                static_cast<int>(sample) - static_cast<int>(flat_signal[site])
+            ));
+        }
+    }
+    return total;
 }
 
 [[nodiscard]] image::PixelBuffer processed_fallback() {
@@ -361,6 +409,63 @@ void exact_dcp_replaces_missing_generic_matrix() {
     }
 }
 
+void raw_denoise_is_cfa_preserving_and_preview_aware() {
+    const auto source = noisy_bayer_frame();
+    const auto disabled = image::denoise_bayer_raw_frame(
+        source,
+        image::RawBayerDenoiseRequest{
+            .intent = image::RawNoiseReductionIntent::disabled,
+            .iso_sensitivity = 6'400.0,
+        }
+    );
+    expect(
+        !disabled.receipt.applied() && disabled.frame.samples == source.samples,
+        "disabled RAW denoise preserves every sensor sample exactly"
+    );
+
+    const auto preview_auto = image::denoise_bayer_raw_frame(
+        source,
+        image::RawBayerDenoiseRequest{
+            .intent = image::RawNoiseReductionIntent::provider_default,
+            .iso_sensitivity = 6'400.0,
+            .preview = true,
+        }
+    );
+    expect(
+        !preview_auto.receipt.applied() && preview_auto.frame.samples == source.samples,
+        "automatic RAW denoise keeps bounded previews responsive"
+    );
+
+    const auto automatic_detail = image::denoise_bayer_raw_frame(
+        source,
+        image::RawBayerDenoiseRequest{
+            .intent = image::RawNoiseReductionIntent::provider_default,
+            .iso_sensitivity = 6'400.0,
+        }
+    );
+    expect(
+        automatic_detail.receipt.valid()
+            && automatic_detail.receipt.applied()
+            && automatic_detail.receipt.effective_intent
+                == image::RawNoiseReductionIntent::conservative
+            && automatic_detail.receipt.used_sensor_noise_calibration,
+        "high-ISO automatic RAW denoise resolves to calibrated conservative CFA processing"
+    );
+    expect(
+        flat_cfa_error(automatic_detail.frame) < flat_cfa_error(source),
+        "same-CFA RAW denoise reduces flat-field sensor variation before demosaic"
+    );
+    const auto red = automatic_detail.frame.samples[0U];
+    const auto green = automatic_detail.frame.samples[1U];
+    const auto blue = automatic_detail.frame.samples[
+        static_cast<std::size_t>(automatic_detail.frame.descriptor.storage_dimensions.width) + 1U
+    ];
+    expect(
+        red < 800U && green > 1'000U && blue < 700U,
+        "RAW denoise never mixes distinct Bayer colour planes"
+    );
+}
+
 } // namespace
 
 int main() {
@@ -368,5 +473,6 @@ int main() {
     full_pipeline_records_the_effective_backend_in_every_identity();
     unsupported_host_stage_falls_back_explicitly();
     exact_dcp_replaces_missing_generic_matrix();
+    raw_denoise_is_cfa_preserving_and_preview_aware();
     return failures == 0 ? 0 : 1;
 }

@@ -1440,6 +1440,21 @@ impl RecipeCommit {
     }
 }
 
+/// Returns the stable semantic cache identity of one Recipe snapshot.
+///
+/// Direct struct serialization is not an identity boundary because nested
+/// object members can be emitted in a different order after a valid
+/// deserialize/serialize round trip. Canonicalizing through `serde_json::Value`
+/// makes equal Recipe values hash identically across Catalog and renderer
+/// boundaries.
+pub fn canonical_recipe_snapshot_digest(
+    snapshot: &RecipeSnapshot,
+) -> Result<[u8; 32], serde_json::Error> {
+    let canonical = serde_json::to_value(snapshot)?;
+    let bytes = serde_json::to_vec(&canonical)?;
+    Ok(*blake3::hash(&bytes).as_bytes())
+}
+
 /// A movable branch ref. Updating it means replacing this value, not mutating
 /// a commit.
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]

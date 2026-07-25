@@ -1646,9 +1646,8 @@ impl DesktopSession {
             .as_ref()
             .map(|record| record.commit.snapshot());
         let snapshot = grade_stack_recipe_v1_snapshot(&grade_stack, template)?;
-        let serialized = serde_json::to_vec(&snapshot)
+        let identity = shadow_domain::canonical_recipe_snapshot_digest(&snapshot)
             .context("serialize exact detail Recipe cache identity")?;
-        let identity = *blake3::hash(&serialized).as_bytes();
         Ok((compile_recipe_render_plan(&snapshot)?, identity))
     }
 
@@ -6453,7 +6452,7 @@ mod tests {
     }
 
     #[test]
-    fn corrupt_working_recipe_digest_requires_confirmation_then_resets() {
+    fn stale_working_recipe_digest_is_repaired_without_blocking_autosave() {
         let (root, session, photo_id_text, source_path) = test_edit_session();
         let photo_id: PhotoId = photo_id_text.parse().expect("photo id");
         session
@@ -6486,25 +6485,18 @@ mod tests {
             root.join("cache").to_str().expect("cache path"),
         )
         .expect("reopen edited fixture");
-        let error = session
+        let state = session
             .photo_edit_state(&photo_id_text, &source_path)
-            .expect_err("corrupt stored digest requires an explicit reset");
-        assert!(
-            error
-                .to_string()
-                .starts_with("incompatible development Recipe: could not read working commit")
-        );
-
-        let reset = session
-            .reset_incompatible_photo_edit_history(&photo_id_text, &source_path)
-            .expect("reset corrupt edit history after user confirmation");
-        assert!(!reset.has_working_version);
+            .expect("valid Recipe semantics repair a stale redundant digest");
+        assert!(state.has_working_version);
+        assert!(!state.working_commit_id.is_empty());
         assert!(
             session
                 .catalog
                 .recipe_commits(photo_id)
-                .expect("read discarded corrupt Recipe history")
-                .is_empty()
+                .expect("read repaired Recipe history")
+                .iter()
+                .all(|record| record.snapshot_digest != [0; 32])
         );
 
         drop(session);

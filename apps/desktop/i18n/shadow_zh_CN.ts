@@ -2363,8 +2363,18 @@ R %2 · G %3 · B %4</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionTechnicalTools.qml" line="96"/>
-        <source>Conventional RGB preview denoise. RAW-domain denoise is planned separately in the RAW processing pipeline.</source>
-        <translation>常规 RGB 预览降噪。RAW 域降噪将在 RAW 处理管线中独立实现。</translation>
+        <source>Shadow automatically applies conservative same-CFA RAW denoise before demosaicing for suitable high-ISO detail and export renders. The controls below refine the developed RGB preview.</source>
+        <translation>对于合适的高 ISO 细节与导出渲染，Shadow 会在去马赛克前自动进行保守的同 CFA RAW 降噪。下方控件用于进一步微调已显影的 RGB 预览。</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionTechnicalTools.qml" line="100"/>
+        <source>RAW PREPROCESSING · AUTOMATIC</source>
+        <translation>RAW 预处理 · 自动</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionTechnicalTools.qml" line="101"/>
+        <source>RAW files use a sensor-domain path when it is useful; JPEG and HEIF continue with the RGB controls below. Normal previews keep this automatic path lightweight so editing remains responsive.</source>
+        <translation>RAW 文件会在适合时使用传感器域处理；JPEG 与 HEIF 继续使用下方 RGB 控件。普通预览保持此自动路径轻量，以确保编辑响应。</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionTechnicalTools.qml" line="143"/>

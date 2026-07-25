@@ -142,6 +142,7 @@ void print_session(const image::ProviderInfo& provider, const image::DecodeSessi
               << "camera.normalized_model=" << metadata.normalized_model << '\n'
               << "raw.count=" << metadata.raw_count << '\n'
               << "raw.dng_version=" << metadata.dng_version << '\n'
+              << "capture.iso=" << metadata.iso_speed << '\n'
               << "raw.dimensions=" << metadata.raw_dimensions.width << 'x'
               << metadata.raw_dimensions.height << '\n'
               << "image.dimensions=" << metadata.image_dimensions.width << 'x'
@@ -268,6 +269,8 @@ void render_reference_rgb(image::DecodeSession& session, const fs::path& output_
               << rendered.raw_development_receipt.requested_plan_identity << '\n'
               << "reference_rgb.plan.effective="
               << rendered.raw_development_receipt.effective_plan_identity << '\n'
+              << "reference_rgb.development="
+              << rendered.raw_development_receipt.development_settings_signature << '\n'
               << "reference_rgb.pipeline.path="
               << static_cast<unsigned>(source.pipeline_receipt.path) << '\n'
               << "reference_rgb.pipeline.identity="

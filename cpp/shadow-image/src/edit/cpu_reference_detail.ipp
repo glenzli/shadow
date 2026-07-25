@@ -455,20 +455,40 @@ void apply_edge_aware_denoise(
     const std::size_t stride = image.row_stride_bytes / sizeof(float);
     const auto source = image.samples;
     const auto weights = image.working_space.luminance_coefficients;
-    const double range_sigma = 0.025 + 0.18 * (1.0 - parameters.denoise_detail);
+    const double strongest_amount = std::max(
+        parameters.denoise_luminance,
+        parameters.denoise_color
+    );
+    const double high_strength_response = strongest_amount * strongest_amount;
+    // Amount must control more than the final blend. With a fixed range sigma,
+    // high-ISO samples outside that narrow range are rejected before a 100%
+    // setting can act on them, making the upper half of the slider feel
+    // compressed. Expand the accepted noise range progressively while Detail
+    // continues to protect real tonal boundaries.
+    const double range_sigma = 0.025
+        + 0.18 * (1.0 - parameters.denoise_detail)
+        + 0.16 * high_strength_response
+            * (1.0 - 0.75 * parameters.denoise_detail);
     const double inverse_range = 1.0 / (2.0 * range_sigma * range_sigma);
     // The UI defines detail radius in level-zero (native RAW) pixels. A fixed 5x5 kernel on a
     // 1200px warm proxy would otherwise denoise a much larger physical region than the same
     // setting on a full-detail tile. Preserve the native sigma, then convert it separately to
     // each raster axis just as capture sharpening already does.
-    constexpr double denoise_native_sigma = 1.5;
+    const double denoise_native_sigma = 1.5 + 0.75 * high_strength_response;
     constexpr double denoise_native_support = 2.0;
+    // A native-pixel kernel can become sub-pixel after the RAW source is
+    // reduced to an overview proxy. Sampling that literal sigma on the proxy
+    // makes every neighbour weight effectively zero, so the interactive
+    // denoise controls appear disconnected. The full-detail route still uses
+    // its native scale; overview rasters use a one-pixel approximation of the
+    // pre-downsample filter instead of silently becoming an identity.
+    const double minimum_proxy_sigma = 0.65 + 0.35 * high_strength_response;
     const double sigma_x = std::max(
-        0.20,
+        minimum_proxy_sigma,
         denoise_native_sigma * image.level_zero_to_raster_scale_x
     );
     const double sigma_y = std::max(
-        0.20,
+        minimum_proxy_sigma,
         denoise_native_sigma * image.level_zero_to_raster_scale_y
     );
     const std::int64_t radius_x = std::max<std::int64_t>(
@@ -485,59 +505,67 @@ void apply_edge_aware_denoise(
     );
     const double inverse_two_sigma_x_squared = 1.0 / (2.0 * sigma_x * sigma_x);
     const double inverse_two_sigma_y_squared = 1.0 / (2.0 * sigma_y * sigma_y);
-    for (std::size_t y = 0; y < height; ++y) {
-        for (std::size_t x = 0; x < width; ++x) {
-            const std::size_t center = y * stride + x * rgb_channels;
-            const Vector3 original{
-                source[center], source[center + 1U], source[center + 2U],
-            };
-            const double original_luma = original[0] * weights[0]
-                + original[1] * weights[1] + original[2] * weights[2];
-            Vector3 filtered{};
-            double weight_sum = 0.0;
-            for (std::int64_t dy = -radius_y; dy <= radius_y; ++dy) {
-                const std::size_t source_y = reflect101_index(
-                    static_cast<std::int64_t>(y) + dy, height
-                );
-                for (std::int64_t dx = -radius_x; dx <= radius_x; ++dx) {
-                    const std::size_t source_x = reflect101_index(
-                        static_cast<std::int64_t>(x) + dx, width
+    parallel_for_rows(height, [&](const std::uint32_t first_row,
+                                  const std::uint32_t past_last_row) {
+        for (std::uint32_t y = first_row; y < past_last_row; ++y) {
+            for (std::size_t x = 0; x < width; ++x) {
+                const std::size_t center =
+                    static_cast<std::size_t>(y) * stride + x * rgb_channels;
+                const Vector3 original{
+                    source[center], source[center + 1U], source[center + 2U],
+                };
+                const double original_luma = original[0] * weights[0]
+                    + original[1] * weights[1] + original[2] * weights[2];
+                Vector3 filtered{};
+                double weight_sum = 0.0;
+                for (std::int64_t dy = -radius_y; dy <= radius_y; ++dy) {
+                    const std::size_t source_y = reflect101_index(
+                        static_cast<std::int64_t>(y) + dy, height
                     );
-                    const std::size_t sample = source_y * stride + source_x * rgb_channels;
-                    const Vector3 neighbor{
-                        source[sample], source[sample + 1U], source[sample + 2U],
-                    };
-                    const double neighbor_luma = neighbor[0] * weights[0]
-                        + neighbor[1] * weights[1] + neighbor[2] * weights[2];
-                    const double delta = neighbor_luma - original_luma;
-                    const double spatial = static_cast<double>(dx * dx)
-                            * inverse_two_sigma_x_squared
-                        + static_cast<double>(dy * dy) * inverse_two_sigma_y_squared;
-                    const double weight = std::exp(-spatial - delta * delta * inverse_range);
-                    for (std::size_t channel = 0; channel < rgb_channels; ++channel) {
-                        filtered[channel] += neighbor[channel] * weight;
+                    for (std::int64_t dx = -radius_x; dx <= radius_x; ++dx) {
+                        const std::size_t source_x = reflect101_index(
+                            static_cast<std::int64_t>(x) + dx, width
+                        );
+                        const std::size_t sample =
+                            source_y * stride + source_x * rgb_channels;
+                        const Vector3 neighbor{
+                            source[sample], source[sample + 1U], source[sample + 2U],
+                        };
+                        const double neighbor_luma = neighbor[0] * weights[0]
+                            + neighbor[1] * weights[1] + neighbor[2] * weights[2];
+                        const double delta = neighbor_luma - original_luma;
+                        const double spatial = static_cast<double>(dx * dx)
+                                * inverse_two_sigma_x_squared
+                            + static_cast<double>(dy * dy)
+                                * inverse_two_sigma_y_squared;
+                        const double weight =
+                            std::exp(-spatial - delta * delta * inverse_range);
+                        for (std::size_t channel = 0; channel < rgb_channels; ++channel) {
+                            filtered[channel] += neighbor[channel] * weight;
+                        }
+                        weight_sum += weight;
                     }
-                    weight_sum += weight;
+                }
+                for (double& channel : filtered) {
+                    channel /= weight_sum;
+                }
+                const double filtered_luma = filtered[0] * weights[0]
+                    + filtered[1] * weights[1] + filtered[2] * weights[2];
+                const double luminance = std::lerp(
+                    original_luma, filtered_luma, parameters.denoise_luminance
+                );
+                for (std::size_t channel = 0; channel < rgb_channels; ++channel) {
+                    const double original_chroma = original[channel] - original_luma;
+                    const double filtered_chroma = filtered[channel] - filtered_luma;
+                    const double output = luminance + std::lerp(
+                        original_chroma, filtered_chroma, parameters.denoise_color
+                    );
+                    image.samples[center + channel] =
+                        checked_float(output, node_index, node);
                 }
             }
-            for (double& channel : filtered) {
-                channel /= weight_sum;
-            }
-            const double filtered_luma = filtered[0] * weights[0]
-                + filtered[1] * weights[1] + filtered[2] * weights[2];
-            const double luminance = std::lerp(
-                original_luma, filtered_luma, parameters.denoise_luminance
-            );
-            for (std::size_t channel = 0; channel < rgb_channels; ++channel) {
-                const double original_chroma = original[channel] - original_luma;
-                const double filtered_chroma = filtered[channel] - filtered_luma;
-                const double output = luminance + std::lerp(
-                    original_chroma, filtered_chroma, parameters.denoise_color
-                );
-                image.samples[center + channel] = checked_float(output, node_index, node);
-            }
         }
-    }
+    });
 }
 
 void apply_dehaze_and_defringe(

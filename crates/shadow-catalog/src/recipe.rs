@@ -1,5 +1,7 @@
 use rusqlite::{OptionalExtension, Transaction, params};
-use shadow_domain::{EntityId, PhotoId, RecipeCommit, RecipeCommitId, RecipeId};
+use shadow_domain::{
+    EntityId, PhotoId, RecipeCommit, RecipeCommitId, RecipeId, canonical_recipe_snapshot_digest,
+};
 
 use crate::{Catalog, CatalogError, cache_artifact::digest, read_id};
 
@@ -290,9 +292,8 @@ pub(crate) fn commit_recipe_in_transaction(
         }
     }
     let commit_json = serde_json::to_string(&request.commit).map_err(CatalogError::RecipeJson)?;
-    let snapshot_json =
-        serde_json::to_vec(request.commit.snapshot()).map_err(CatalogError::RecipeJson)?;
-    let snapshot_digest = *blake3::hash(&snapshot_json).as_bytes();
+    let snapshot_digest = canonical_recipe_snapshot_digest(request.commit.snapshot())
+        .map_err(CatalogError::RecipeJson)?;
     ensure_photo(transaction, request.photo_id)?;
     ensure_commit_absent(transaction, request.commit.id())?;
     for parent in request.commit.parents() {
@@ -368,16 +369,31 @@ fn decode_recipe_record(
             "stored Recipe JSON parents disagree with normalized parent edges".into(),
         ));
     }
-    let snapshot_json = serde_json::to_vec(commit.snapshot()).map_err(CatalogError::RecipeJson)?;
-    if blake3::hash(&snapshot_json).as_bytes() != &snapshot_digest {
-        return Err(CatalogError::InvalidRecipe(
-            "stored Recipe snapshot digest does not match".into(),
-        ));
+    let canonical_digest =
+        canonical_recipe_snapshot_digest(commit.snapshot()).map_err(CatalogError::RecipeJson)?;
+    if canonical_digest != snapshot_digest {
+        // The digest is a cache identity for the semantic Recipe snapshot, not
+        // a checksum of one incidental JSON object-key order. Older v1 writers
+        // hashed the direct struct serialization; a deserialize/serialize
+        // round trip could reorder nested flattened maps without changing a
+        // single Recipe value. Repair that redundant identity in place after
+        // the full Recipe and normalized parent edges have validated.
+        connection.execute(
+            "UPDATE recipe_commits
+             SET snapshot_digest = ?1
+             WHERE photo_id = ?2 AND id = ?3 AND snapshot_digest = ?4",
+            params![
+                canonical_digest.as_slice(),
+                photo_id.as_bytes().as_slice(),
+                stored_id.as_bytes().as_slice(),
+                snapshot_digest.as_slice(),
+            ],
+        )?;
     }
     Ok(RecipeCommitRecord {
         photo_id,
         commit,
-        snapshot_digest,
+        snapshot_digest: canonical_digest,
     })
 }
 
@@ -865,11 +881,29 @@ mod tests {
             (registered.photo_id, commit.id(), record.snapshot_digest)
         };
 
+        let connection = rusqlite::Connection::open(&path).expect("open persisted recipe directly");
+        connection
+            .execute(
+                "UPDATE recipe_commits SET snapshot_digest = zeroblob(32) WHERE id = ?1",
+                [commit_id.as_bytes().as_slice()],
+            )
+            .expect("simulate a stale non-canonical v1 digest");
+        drop(connection);
+
         let catalog = Catalog::open(&path).expect("reopen catalog");
         let records = catalog.recipe_commits(photo_id).expect("reload commits");
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].commit.id(), commit_id);
         assert_eq!(records[0].snapshot_digest, digest);
+        let repaired_digest: Vec<u8> = catalog
+            .connection
+            .query_row(
+                "SELECT snapshot_digest FROM recipe_commits WHERE id = ?1",
+                [commit_id.as_bytes().as_slice()],
+                |row| row.get(0),
+            )
+            .expect("read repaired digest");
+        assert_eq!(repaired_digest, digest);
         let direct = catalog
             .recipe_commit(photo_id, commit_id)
             .expect("load one commit")

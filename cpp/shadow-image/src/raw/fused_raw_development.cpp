@@ -19,7 +19,7 @@ namespace shadow::image {
 
 namespace {
 
-using CameraRgb = detail::CameraRgb;
+using CameraRgbSample = detail::CameraRgbSample;
 inline constexpr std::string_view raw_acceleration_environment =
     "SHADOW_IMAGE_ACCELERATION";
 
@@ -89,18 +89,82 @@ void validate_request(
     );
 }
 
+[[nodiscard]] double smoothstep(
+    const double edge0,
+    const double edge1,
+    const double value
+) noexcept {
+    const double normalized = std::clamp((value - edge0) / (edge1 - edge0), 0.0, 1.0);
+    return normalized * normalized * (3.0 - 2.0 * normalized);
+}
+
+// CFA channels do not necessarily hit sensor white at the same time. Once multiple reconstructed
+// neighbourhoods are clipped — or one is clipped while the other two are also near white — the
+// colour ratio is no longer a measurement. Neutralize only that irrecoverable highlight before
+// per-channel clipping so a camera matrix cannot turn it into a magenta or green false colour.
+void neutralize_sensor_clipped_highlight(
+    std::array<double, 3U>& scene_linear,
+    const CameraRgbSample& camera
+) noexcept {
+    const double lowest = std::min({
+        static_cast<double>(camera.sensor_clip_coverage[0]),
+        static_cast<double>(camera.sensor_clip_coverage[1]),
+        static_cast<double>(camera.sensor_clip_coverage[2]),
+    });
+    const double highest = std::max({
+        static_cast<double>(camera.sensor_clip_coverage[0]),
+        static_cast<double>(camera.sensor_clip_coverage[1]),
+        static_cast<double>(camera.sensor_clip_coverage[2]),
+    });
+    const double second_highest = static_cast<double>(camera.sensor_clip_coverage[0])
+        + static_cast<double>(camera.sensor_clip_coverage[1])
+        + static_cast<double>(camera.sensor_clip_coverage[2]) - lowest - highest;
+    const double camera_lowest = std::min({
+        static_cast<double>(camera.values[0]),
+        static_cast<double>(camera.values[1]),
+        static_cast<double>(camera.values[2]),
+    });
+    const double camera_highest = std::max({
+        static_cast<double>(camera.values[0]),
+        static_cast<double>(camera.values[1]),
+        static_cast<double>(camera.values[2]),
+    });
+    const double camera_second_highest = static_cast<double>(camera.values[0])
+        + static_cast<double>(camera.values[1])
+        + static_cast<double>(camera.values[2]) - camera_lowest - camera_highest;
+    const double multi_channel_clip = smoothstep(0.15, 0.75, second_highest);
+    const double single_channel_white = smoothstep(0.40, 0.90, highest)
+        * smoothstep(0.84, 0.98, camera_second_highest);
+    const double clipped_ratio = std::max(multi_channel_clip, single_channel_white);
+    const double peak = std::max({scene_linear[0], scene_linear[1], scene_linear[2]});
+    const double highlight_ratio = smoothstep(0.85, 1.05, peak);
+    const double blend = clipped_ratio * highlight_ratio;
+    if (blend == 0.0) {
+        return;
+    }
+    const double neutral = std::max(0.0, peak);
+    for (double& value : scene_linear) {
+        value += (neutral - value) * blend;
+    }
+}
+
 void write_transformed_pixel(
-    const CameraRgb& camera,
+    const CameraRgbSample& camera,
     const RawFrameLinearTransform& transform,
     std::uint16_t* destination
 ) noexcept {
+    std::array<double, 3U> scene_linear{};
     for (std::size_t output = 0U; output < 3U; ++output) {
         double value = 0.0;
         for (std::size_t input = 0U; input < 3U; ++input) {
             value += transform.camera_to_linear_srgb_d65[output * 3U + input]
-                * static_cast<double>(camera[input]);
+                * static_cast<double>(camera.values[input]);
         }
-        destination[output] = quantize_linear(value);
+        scene_linear[output] = value;
+    }
+    neutralize_sensor_clipped_highlight(scene_linear, camera);
+    for (std::size_t output = 0U; output < 3U; ++output) {
+        destination[output] = quantize_linear(scene_linear[output]);
     }
 }
 
@@ -195,14 +259,14 @@ void write_transformed_pixel(
                         reconstruction_dimensions,
                         frame.descriptor.orientation
                     );
-                    const CameraRgb camera = area_preview
-                        ? detail::area_camera_rgb_at(
+                    const CameraRgbSample camera = area_preview
+                        ? detail::area_camera_rgb_sample_at(
                             frame,
                             *area_sampling,
                             source_x,
                             source_y
                         )
-                        : detail::bilinear_camera_rgb_at(
+                        : detail::bilinear_camera_rgb_sample_at(
                             frame,
                             frame.descriptor.active_margins.left + source_x,
                             frame.descriptor.active_margins.top + source_y
@@ -247,9 +311,9 @@ std::string_view raw_development_backend_identity(
 ) noexcept {
     switch (backend) {
     case RawDevelopmentBackend::cpu:
-        return "shadow-fused-raw-cpu-v1";
+        return "shadow-fused-raw-cpu-v1;sensor-highlights=neutral-v1";
     case RawDevelopmentBackend::metal:
-        return "shadow-fused-raw-metal-full-v1;math=f32-precise";
+        return "shadow-fused-raw-metal-full-v1;math=f32-precise;sensor-highlights=neutral-v1";
     }
     return "shadow-fused-raw-unknown";
 }

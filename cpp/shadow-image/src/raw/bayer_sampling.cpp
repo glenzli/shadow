@@ -56,6 +56,12 @@ namespace {
     );
 }
 
+[[nodiscard]] float sensor_clip_evidence(const float normalized) noexcept {
+    // Preserve a small shoulder below the declared white level: some camera encoders reserve
+    // one or two codes below that level, but the ratio is already not trustworthy there.
+    return std::clamp((normalized - 0.98F) * 50.0F, 0.0F, 1.0F);
+}
+
 } // namespace
 
 void validate_bayer_frame(const RawFrame& frame, const char* operation) {
@@ -84,7 +90,7 @@ void validate_bayer_frame(const RawFrame& frame, const char* operation) {
     }
 }
 
-CameraRgb bilinear_camera_rgb_at(
+CameraRgbSample bilinear_camera_rgb_sample_at(
     const RawFrame& frame,
     const std::uint32_t raw_x,
     const std::uint32_t raw_y
@@ -93,6 +99,7 @@ CameraRgb bilinear_camera_rgb_at(
     const auto width = descriptor.storage_dimensions.width;
     const auto height = descriptor.storage_dimensions.height;
     std::array<double, 3U> totals{};
+    std::array<double, 3U> clipped_totals{};
     std::array<std::uint32_t, 3U> counts{};
     for (int dy = -1; dy <= 1; ++dy) {
         const auto candidate_y = static_cast<std::int64_t>(raw_y) + dy;
@@ -111,13 +118,15 @@ CameraRgb bilinear_camera_rgb_at(
                 continue;
             }
             const auto index = static_cast<std::size_t>(channel);
-            totals[index] += normalized_sample(frame, x, y);
+            const auto normalized = normalized_sample(frame, x, y);
+            totals[index] += normalized;
+            clipped_totals[index] += sensor_clip_evidence(normalized);
             ++counts[index];
         }
     }
 
-    CameraRgb result{};
-    for (std::size_t channel = 0U; channel < result.size(); ++channel) {
+    CameraRgbSample result;
+    for (std::size_t channel = 0U; channel < result.values.size(); ++channel) {
         if (counts[channel] == 0U) {
             throw DecodeError(
                 DecodeErrorCode::unsupported_layout,
@@ -125,11 +134,22 @@ CameraRgb bilinear_camera_rgb_at(
                 "Bayer reconstruction found no same-colour neighbour"
             );
         }
-        result[channel] = static_cast<float>(
+        result.values[channel] = static_cast<float>(
             totals[channel] / static_cast<double>(counts[channel])
+        );
+        result.sensor_clip_coverage[channel] = static_cast<float>(
+            clipped_totals[channel] / static_cast<double>(counts[channel])
         );
     }
     return result;
+}
+
+CameraRgb bilinear_camera_rgb_at(
+    const RawFrame& frame,
+    const std::uint32_t raw_x,
+    const std::uint32_t raw_y
+) {
+    return bilinear_camera_rgb_sample_at(frame, raw_x, raw_y).values;
 }
 
 BayerAreaSamplingGrid make_bayer_area_sampling_grid(
@@ -154,7 +174,7 @@ BayerAreaSamplingGrid make_bayer_area_sampling_grid(
     };
 }
 
-CameraRgb area_camera_rgb_at(
+CameraRgbSample area_camera_rgb_sample_at(
     const RawFrame& frame,
     const BayerAreaSamplingGrid& grid,
     const std::uint32_t target_x,
@@ -176,6 +196,7 @@ CameraRgb area_camera_rgb_at(
 
     std::array<double, 3U> totals{};
     std::array<double, 3U> weights{};
+    std::array<double, 3U> clipped_weights{};
     for (std::uint32_t raw_y = first_source_y; raw_y < last_source_y; ++raw_y) {
         const double overlap_y = std::max(
             0.0,
@@ -194,13 +215,15 @@ CameraRgb area_camera_rgb_at(
             }
             const double weight = overlap_x * overlap_y;
             const auto index = static_cast<std::size_t>(channel);
-            totals[index] += normalized_sample(frame, raw_x, raw_y) * weight;
+            const auto normalized = normalized_sample(frame, raw_x, raw_y);
+            totals[index] += normalized * weight;
             weights[index] += weight;
+            clipped_weights[index] += sensor_clip_evidence(normalized) * weight;
         }
     }
 
-    CameraRgb result{};
-    for (std::size_t channel = 0U; channel < result.size(); ++channel) {
+    CameraRgbSample result;
+    for (std::size_t channel = 0U; channel < result.values.size(); ++channel) {
         if (weights[channel] <= 0.0) {
             const auto center_x = std::min(
                 descriptor.storage_dimensions.width - 1U,
@@ -210,11 +233,23 @@ CameraRgb area_camera_rgb_at(
                 descriptor.storage_dimensions.height - 1U,
                 static_cast<std::uint32_t>((source_top + source_bottom) * 0.5)
             );
-            return bilinear_camera_rgb_at(frame, center_x, center_y);
+            return bilinear_camera_rgb_sample_at(frame, center_x, center_y);
         }
-        result[channel] = static_cast<float>(totals[channel] / weights[channel]);
+        result.values[channel] = static_cast<float>(totals[channel] / weights[channel]);
+        result.sensor_clip_coverage[channel] = static_cast<float>(
+            clipped_weights[channel] / weights[channel]
+        );
     }
     return result;
+}
+
+CameraRgb area_camera_rgb_at(
+    const RawFrame& frame,
+    const BayerAreaSamplingGrid& grid,
+    const std::uint32_t target_x,
+    const std::uint32_t target_y
+) {
+    return area_camera_rgb_sample_at(frame, grid, target_x, target_y).values;
 }
 
 } // namespace shadow::image::detail

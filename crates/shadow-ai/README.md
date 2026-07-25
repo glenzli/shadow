@@ -10,6 +10,16 @@ responsibilities; the first such adapter now lives in `shadow-core` and
 
 - Stable task/capability, input artifact, observation, provenance, confidence,
   privacy, and proposal-review contracts.
+- Typed subject-mask and denoise requests plus validated generated-artifact
+  outputs. A soft mask records both its stored raster extent and the image
+  coordinate extent it maps to. A denoise output records its exact source pixel
+  contract, image domain, layout, sample format, tiling halo, and whether it is
+  full resolution.
+- A storage-class boundary for generated pixels: workers emit rebuildable
+  proposals, while the application must promote an accepted mask or denoised
+  raster to managed derived storage before a Recipe can depend on it. Generated
+  pixels are never intended to live as SQLite blobs or ordinary evictable
+  thumbnail cache entries.
 - A strict model manifest covering exact artifact revision/hash, tensor I/O,
   preprocessing, execution targets, RAM/VRAM, code/weight/data license notes,
   redistribution, gating, and side-loading.
@@ -37,11 +47,12 @@ responsibilities; the first such adapter now lives in `shadow-core` and
   feature vectors. It is a real, serializable CPU update path, but it is not a
   substitute for the still-unselected image feature extractor.
 
-All model-derived data remains rebuildable. Human decisions, feedback events, and
-accepted edit versions remain durable application facts. The current application
-stores manual Pick/Reject/rating transitions in a separate immutable Catalog v9
-ledger, but does not expose that ledger as AI training data or grant models write
-access to it. A feedback candidate may
+Unaccepted model-derived data remains rebuildable. Human decisions, feedback
+events, accepted edit versions, and accepted generated edit dependencies are
+durable application facts. The current application stores manual
+Pick/Reject/rating transitions in a separate immutable Catalog ledger, but does
+not expose that ledger as AI training data or grant models write access to it. A
+feedback candidate may
 also carry the exact encoded visual artifact and the normalized decoded-frame
 receipt that were presented when the decision was made. This provenance is an
 identity contract, not proof that two differently authored proxies are comparable.
@@ -51,7 +62,7 @@ identity contract, not proof that two differently authored proxies are comparabl
 The import/decode path now sends the preferred cached JPEG visual to a dedicated
 single-worker actor with a bounded queue. It verifies the content-addressed blob,
 decodes a maximum-512-edge display-luma plane through `shadow-bridge`, runs the
-deterministic observer, and asks Catalog schema v9 to commit only against the
+deterministic observer, and asks the Catalog to commit only against the
 exact representation fingerprint, cached-artifact identity, observation schema,
 implementation version, luma contract, and preprocessing revision. Stale jobs
 are discarded. Invalid persisted observation data is treated as rebuildable and
@@ -79,6 +90,9 @@ observation is displayed separately and is not yet copied into the feedback even
 - No ONNX Runtime/Core ML/CUDA/Metal/DirectML/Windows ML adapter.
 - No DINO, CLIP, face/eye, SAM, depth, inpaint, diffusion, VLM, or LLM model.
 - No fabricated quality score, embedding, mask, recipe, or generated patch.
+- No persistent mask raster store or managed derived-raster store yet. The
+  generated-artifact contracts define the promotion boundary but do not pretend
+  the storage or renderer exists.
 - No model downloader, remote API call, Python runtime, or direct Catalog access
   from this crate.
 - No cross-photo quality rank derived from the current display-proxy metrics.
@@ -113,9 +127,11 @@ and the two target machines before an implementation is called usable:
 8. **Model distribution and licenses:** registry/signature format, upstream
    acceptance flow, China-reachable mirror/side-load UX, notices, and per-release
    audit of code, weights, and training-data terms.
-9. **Recipe/mask integration:** typed edit-graph payloads, parameter safety bounds,
-   coordinate spaces, immutable AI branches, and frozen generative patch
-   provenance once the edit/recipe crates stabilize.
+9. **Recipe/mask integration:** persist immutable mask revisions, compile node
+   masks in the renderer, compose add/subtract/intersect operations, and promote
+   accepted generated results into managed content-addressed assets. Recipe
+   history must retain the exact model and pixel provenance without storing the
+   generated pixels inside SQLite.
 10. **Remote providers:** whether any BYOK API is worth supporting, supported
     regions, crop-only upload policy, cost estimate/ceiling, deletion/privacy
     guarantees, and deterministic local fallback. Remote use remains off by

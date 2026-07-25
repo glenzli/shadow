@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use shadow_domain::{GroupId, PhotoId};
 
-use crate::{ResourceEstimate, UnitInterval};
+use crate::{AiArtifactContractError, AiTaskParameters, ResourceEstimate, UnitInterval};
 
 /// Replaceable AI capabilities. A provider advertises these rather than a vendor name.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
@@ -152,7 +152,22 @@ pub struct AiJobRequest {
     pub priority: TaskPriority,
     pub privacy: PrivacyClass,
     pub inputs: Vec<ArtifactReference>,
+    #[serde(default)]
+    pub parameters: AiTaskParameters,
     pub estimate: ResourceEstimate,
+}
+
+impl AiJobRequest {
+    /// Validates task-specific parameters before a request crosses into a
+    /// model worker.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a task is paired with missing or unrelated typed
+    /// parameters.
+    pub fn validate_task_parameters(&self) -> Result<(), AiArtifactContractError> {
+        self.parameters.validate_for(self.task)
+    }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]

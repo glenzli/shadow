@@ -52,6 +52,7 @@ add_library(
     src/raw/dcp_color_development.cpp
     src/raw/dcp_parser.cpp
     src/raw/fused_raw_development.cpp
+    src/raw/raw_denoise.cpp
     src/raw/raw_pipeline.cpp
     src/raw/sensor_clipping.cpp
     src/decoder/private_decoder_plugin.cpp
