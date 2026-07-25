@@ -309,7 +309,7 @@ fn print_backup_verification(verification: &CatalogBackupVerification) {
         verification.page_size,
         verification.database_bytes
     );
-    print_stats(verification.stats.clone());
+    print_stats(verification.stats);
 }
 
 fn print_decoder_snapshot(snapshot: &DecoderSnapshot) {
