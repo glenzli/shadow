@@ -12,7 +12,7 @@
 
 namespace shadow::image::detail {
 
-inline constexpr std::uint32_t metal_adjustment_parameter_abi_version = 3U;
+inline constexpr std::uint32_t metal_adjustment_parameter_abi_version = 1U;
 
 enum class MetalAdjustmentOpcode : std::uint32_t {
     rgb_white_balance = 1U,

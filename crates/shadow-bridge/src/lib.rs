@@ -368,6 +368,7 @@ mod ffi {
         display_backend: FfiEditPreviewBackend,
         display_backend_version: u32,
         display_output_contract_version: u32,
+        fused_pipeline: bool,
         adjustment_fell_back: bool,
         display_fell_back: bool,
         diagnostic: String,
@@ -428,10 +429,18 @@ mod ffi {
         SpotHeal,
     }
 
+    #[derive(Debug, Clone, Copy)]
+    enum FfiDetailEffectsPass {
+        TechnicalDetail,
+        ColorGrading,
+        FinishingEffects,
+    }
+
     #[derive(Debug)]
     struct FfiAdjustmentNode {
         node_id: String,
         operation: FfiAdjustmentOperation,
+        detail_effects_pass: FfiDetailEffectsPass,
         parameter_schema_version: u32,
         implementation_version: u32,
         enabled: bool,
@@ -452,6 +461,7 @@ mod ffi {
         crop_right: f64,
         crop_bottom: f64,
         quarter_turn: u8,
+        straighten_degrees: f64,
         flip_horizontal: bool,
         flip_vertical: bool,
     }
@@ -920,7 +930,7 @@ pub struct RawDevelopmentReceipt {
 
 impl RawDevelopmentReceipt {
     /// Matches the currently supported C++ `RawDevelopmentReceipt` schema.
-    pub const CURRENT_SCHEMA_VERSION: u32 = 2;
+    pub const CURRENT_SCHEMA_VERSION: u32 = 1;
 
     #[must_use]
     pub const fn recorded(&self) -> bool {
@@ -1672,14 +1682,10 @@ pub const EDIT_PREVIEW_ANALYSIS_VERSION: &str = concat!(
 pub const EDIT_PREVIEW_EXECUTION_RECEIPT_SCHEMA_VERSION: u32 = 1;
 pub const EDIT_PREVIEW_EXECUTION_PLAN_CONTRACT_VERSION: u32 = 1;
 pub const EDIT_PREVIEW_CPU_ADJUSTMENT_BACKEND_VERSION: u32 = 1;
-pub const EDIT_PREVIEW_METAL_ADJUSTMENT_BACKEND_VERSION: u32 = 3;
+pub const EDIT_PREVIEW_METAL_ADJUSTMENT_BACKEND_VERSION: u32 = 1;
 pub const EDIT_PREVIEW_CPU_DISPLAY_BACKEND_VERSION: u32 = 1;
 pub const EDIT_PREVIEW_METAL_DISPLAY_BACKEND_VERSION: u32 = 1;
-/// Session-resident Metal path: one immutable source upload, double-buffered execution, and a
-/// fused adjustment/display kernel. This must match the native backend because the number is
-/// embedded in cache receipts and intentionally invalidates results when fused operations change.
-pub const EDIT_PREVIEW_WARM_FUSED_METAL_BACKEND_VERSION: u32 = 9;
-pub const DISPLAY_SRGB8_OUTPUT_CONTRACT_VERSION: u32 = 6;
+pub const DISPLAY_SRGB8_OUTPUT_CONTRACT_VERSION: u32 = 1;
 
 /// Hard width and height bound for one full-resolution detail tile.
 pub const MAX_EDIT_DETAIL_TILE_SIDE: u32 = 1_024;
@@ -1695,7 +1701,7 @@ pub const MAX_JPEG_DISPLAY_LUMA_EDGE: u32 = 512;
 /// The complete returned version appends `:max-edge-N`, because sharpness
 /// observations from different analysis scales are not directly comparable.
 pub const JPEG_DISPLAY_LUMA_PREPROCESSING_VERSION_PREFIX: &str = concat!(
-    "shadow.jpeg-luma.v2:libjpeg-turbo-",
+    "shadow.jpeg-luma.v1:libjpeg-turbo-",
     env!("SHADOW_LIBJPEG_TURBO_VERSION"),
     ":rgb8:islow:no-fancy-upsampling:no-block-smoothing:assume-srgb:ignore-icc:",
     "stored-orientation:idct-scale-1-2-4-8:bilinear-center-q16:rec709-encoded-q16"
@@ -1794,15 +1800,12 @@ pub fn decode_jpeg_display_luma(
 
 /// Numeric v1 contract used by the non-curve adjustment operations.
 pub const ADJUSTMENT_PARAMETER_SCHEMA_VERSION: u32 = 1;
-/// Numeric v1 executor revision. Per-operation v2 contracts must not upgrade
-/// unrelated persisted nodes.
+/// Numeric v1 executor revision.
 pub const ADJUSTMENT_IMPLEMENTATION_VERSION: u32 = 1;
 /// Numeric parameter contract for the complete guided scene-linear Selective Tone filter.
-/// Its public slider shape remains four normalized values, but its second coefficient-averaging
-/// pass must never silently reinterpret the historical pixel-local v1 or one-pass v2 contract.
-pub const SELECTIVE_TONE_V3_PARAMETER_SCHEMA_VERSION: u32 = 3;
+pub const SELECTIVE_TONE_PARAMETER_SCHEMA_VERSION: u32 = 1;
 /// Numeric executor revision for the complete guided Selective Tone filter.
-pub const SELECTIVE_TONE_V3_IMPLEMENTATION_VERSION: u32 = 3;
+pub const SELECTIVE_TONE_IMPLEMENTATION_VERSION: u32 = 1;
 /// Numeric contract for Shadow's sole Oklab-L perceptual curve.
 pub const OKLAB_LIGHTNESS_TONE_CURVE_PARAMETER_SCHEMA_VERSION: u32 = 1;
 pub const OKLAB_LIGHTNESS_TONE_CURVE_IMPLEMENTATION_VERSION: u32 = 1;
@@ -1823,21 +1826,16 @@ pub const SELECTIVE_COLOR_TARGET_COUNT: usize = 9;
 pub const SELECTIVE_COLOR_COMPONENT_COUNT: usize = 4;
 pub const SELECTIVE_COLOR_VALUE_COUNT: usize =
     SELECTIVE_COLOR_TARGET_COUNT * SELECTIVE_COLOR_COMPONENT_COUNT;
-pub const PERCEPTUAL_COLOR_V3_PARAMETER_SCHEMA_VERSION: u32 = 3;
-pub const PERCEPTUAL_COLOR_V3_IMPLEMENTATION_VERSION: u32 = 3;
+pub const PERCEPTUAL_COLOR_PARAMETER_SCHEMA_VERSION: u32 = 1;
+pub const PERCEPTUAL_COLOR_IMPLEMENTATION_VERSION: u32 = 1;
 /// The visible Detail & Effects payload is one 35-value FFI record,
-/// but Recipe schema 3 compiles it into three internal passes. Their distinct
-/// numeric revisions make a C++ executor reject an accidental reordering.
-pub const TECHNICAL_DETAIL_V3_PARAMETER_SCHEMA_VERSION: u32 = 3;
-pub const TECHNICAL_DETAIL_V3_IMPLEMENTATION_VERSION: u32 = 3;
-pub const COLOR_GRADING_V3_PARAMETER_SCHEMA_VERSION: u32 = 3;
-pub const COLOR_GRADING_V3_IMPLEMENTATION_VERSION: u32 = 4;
-pub const FINISHING_EFFECTS_V3_PARAMETER_SCHEMA_VERSION: u32 = 3;
-pub const FINISHING_EFFECTS_V3_IMPLEMENTATION_VERSION: u32 = 5;
-/// Retained only to decode/reject old fixtures explicitly; the current
-/// compiler never emits this monolithic contract.
-pub const DETAIL_EFFECTS_V2_PARAMETER_SCHEMA_VERSION: u32 = 2;
-pub const DETAIL_EFFECTS_V2_IMPLEMENTATION_VERSION: u32 = 2;
+/// compiled into three ordered v1 internal passes.
+pub const TECHNICAL_DETAIL_PARAMETER_SCHEMA_VERSION: u32 = 1;
+pub const TECHNICAL_DETAIL_IMPLEMENTATION_VERSION: u32 = 1;
+pub const COLOR_GRADING_PARAMETER_SCHEMA_VERSION: u32 = 1;
+pub const COLOR_GRADING_IMPLEMENTATION_VERSION: u32 = 1;
+pub const FINISHING_EFFECTS_PARAMETER_SCHEMA_VERSION: u32 = 1;
+pub const FINISHING_EFFECTS_IMPLEMENTATION_VERSION: u32 = 1;
 
 /// One authored point in Shadow's perceptual tone-curve contract.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -2078,6 +2076,7 @@ pub enum AdjustmentRenderOperation {
         intensity: f64,
     },
     Sharpen {
+        pass: AdjustmentDetailEffectsPass,
         parameters: Box<SharpenParameters>,
     },
     /// Deterministic, non-generative repair of small defects. Each target is
@@ -2088,12 +2087,28 @@ pub enum AdjustmentRenderOperation {
     },
 }
 
+/// Explicit processing role for the shared Detail & Effects parameter bundle.
+///
+/// This is intentionally independent from contract versions: all three roles
+/// use the current v1 contract, while this enum determines pipeline placement.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum AdjustmentDetailEffectsPass {
+    TechnicalDetail,
+    ColorGrading,
+    FinishingEffects,
+}
+
 /// One bounded source-space target for [`AdjustmentRenderOperation::SpotHeal`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AdjustmentSpotHealTarget {
     pub center_x: f64,
     pub center_y: f64,
     pub radius_level_zero_pixels: u16,
+    /// 0 = heal, 1 = clone.
+    pub mode: u8,
+    pub source_offset_x_radii: f64,
+    pub source_offset_y_radii: f64,
+    pub feather: f64,
 }
 
 /// Lossless right-angle orientation for the photo-level final canvas.
@@ -2120,6 +2135,7 @@ pub struct AdjustmentGeometry {
     pub crop_right: f64,
     pub crop_bottom: f64,
     pub quarter_turn: AdjustmentQuarterTurn,
+    pub straighten_degrees: f64,
     pub flip_horizontal: bool,
     pub flip_vertical: bool,
 }
@@ -2139,6 +2155,7 @@ impl AdjustmentGeometry {
             crop_right: 1.0,
             crop_bottom: 1.0,
             quarter_turn: AdjustmentQuarterTurn::Zero,
+            straighten_degrees: 0.0,
             flip_horizontal: false,
             flip_vertical: false,
         }
@@ -2151,6 +2168,7 @@ impl AdjustmentGeometry {
             && self.crop_right == 1.0
             && self.crop_bottom == 1.0
             && matches!(self.quarter_turn, AdjustmentQuarterTurn::Zero)
+            && self.straighten_degrees == 0.0
             && !self.flip_horizontal
             && !self.flip_vertical
     }
@@ -2173,6 +2191,13 @@ impl AdjustmentGeometry {
         if self.crop_left >= self.crop_right || self.crop_top >= self.crop_bottom {
             return Err(BridgeError::InvalidEditRequest(
                 "photo geometry crop must retain non-zero width and height",
+            ));
+        }
+        if !self.straighten_degrees.is_finite()
+            || !(-45.0..=45.0).contains(&self.straighten_degrees)
+        {
+            return Err(BridgeError::InvalidEditRequest(
+                "photo geometry straighten angle must be in -45..=45 degrees",
             ));
         }
         Ok(())
@@ -2229,6 +2254,20 @@ pub enum AdjustmentLocalMask {
         feather: f64,
         invert: bool,
     },
+    Brush {
+        points: Vec<AdjustmentMaskBrushPoint>,
+        radius: f64,
+        feather: f64,
+        invert: bool,
+    },
+}
+
+/// One normalized freehand-mask sample prepared for the native mixer.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AdjustmentMaskBrushPoint {
+    pub x: f64,
+    pub y: f64,
+    pub begins_stroke: bool,
 }
 
 /// A bounded, versioned node ready for the C++ reference executor.
@@ -2301,24 +2340,19 @@ impl AdjustmentRenderPlan {
                 }
                 AdjustmentRenderOperation::SelectiveTone { .. } => {
                     (
-                        SELECTIVE_TONE_V3_PARAMETER_SCHEMA_VERSION,
-                        SELECTIVE_TONE_V3_IMPLEMENTATION_VERSION,
+                        SELECTIVE_TONE_PARAMETER_SCHEMA_VERSION,
+                        SELECTIVE_TONE_IMPLEMENTATION_VERSION,
                     ) == (node.parameter_schema_version, node.implementation_version)
                 }
                 AdjustmentRenderOperation::PerceptualColor { .. } => {
                     (
-                        PERCEPTUAL_COLOR_V3_PARAMETER_SCHEMA_VERSION,
-                        PERCEPTUAL_COLOR_V3_IMPLEMENTATION_VERSION,
+                        PERCEPTUAL_COLOR_PARAMETER_SCHEMA_VERSION,
+                        PERCEPTUAL_COLOR_IMPLEMENTATION_VERSION,
                     ) == (node.parameter_schema_version, node.implementation_version)
                 }
                 AdjustmentRenderOperation::Sharpen { .. } => {
-                    node.parameter_schema_version == TECHNICAL_DETAIL_V3_PARAMETER_SCHEMA_VERSION
-                        && matches!(
-                            node.implementation_version,
-                            TECHNICAL_DETAIL_V3_IMPLEMENTATION_VERSION
-                                | COLOR_GRADING_V3_IMPLEMENTATION_VERSION
-                                | FINISHING_EFFECTS_V3_IMPLEMENTATION_VERSION
-                        )
+                    node.parameter_schema_version == TECHNICAL_DETAIL_PARAMETER_SCHEMA_VERSION
+                        && node.implementation_version == TECHNICAL_DETAIL_IMPLEMENTATION_VERSION
                 }
                 AdjustmentRenderOperation::SpotHeal { .. } => {
                     (
@@ -2438,7 +2472,7 @@ fn validate_render_operation(operation: &AdjustmentRenderOperation) -> Result<()
                 ))
             }
         }
-        AdjustmentRenderOperation::Sharpen { parameters } => validate_sharpen(parameters),
+        AdjustmentRenderOperation::Sharpen { parameters, .. } => validate_sharpen(parameters),
         AdjustmentRenderOperation::SpotHeal { targets } => {
             if targets.is_empty() || targets.len() > 64 {
                 return Err(BridgeError::InvalidEditRequest(
@@ -2446,17 +2480,29 @@ fn validate_render_operation(operation: &AdjustmentRenderOperation) -> Result<()
                 ));
             }
             for target in targets {
-                for value in [target.center_x, target.center_y] {
+                for value in [
+                    target.center_x,
+                    target.center_y,
+                    target.source_offset_x_radii,
+                    target.source_offset_y_radii,
+                    target.feather,
+                ] {
                     validate_finite_render_parameter(value)?;
+                }
+                for value in [target.center_x, target.center_y, target.feather] {
                     if !(0.0..=1.0).contains(&value) {
                         return Err(BridgeError::InvalidEditRequest(
-                            "spot-heal target coordinates must be normalized to 0..=1",
+                            "spot-heal coordinates and feather must be normalized to 0..=1",
                         ));
                     }
                 }
-                if !(1..=128).contains(&target.radius_level_zero_pixels) {
+                if target.mode > 1
+                    || !(-2.0..=2.0).contains(&target.source_offset_x_radii)
+                    || !(-2.0..=2.0).contains(&target.source_offset_y_radii)
+                    || !(1..=128).contains(&target.radius_level_zero_pixels)
+                {
                     return Err(BridgeError::InvalidEditRequest(
-                        "spot-heal radius must be between 1 and 128 full-resolution pixels",
+                        "spot-heal mode, source offset, or radius is outside its supported range",
                     ));
                 }
             }
@@ -2510,6 +2556,30 @@ fn validate_adjustment_local_mask(mask: &AdjustmentLocalMask) -> Result<(), Brid
                 return Err(BridgeError::InvalidEditRequest(
                     "local-mask radial gradient radii must both be greater than zero",
                 ));
+            }
+        }
+        AdjustmentLocalMask::Brush {
+            points,
+            radius,
+            feather,
+            ..
+        } => {
+            for value in [*radius, *feather] {
+                unit(value)?;
+            }
+            if *radius <= 0.0 {
+                return Err(BridgeError::InvalidEditRequest(
+                    "local-mask brush radius must be greater than zero",
+                ));
+            }
+            if points.len() > 4_096 {
+                return Err(BridgeError::InvalidEditRequest(
+                    "local-mask brush supports at most 4096 points",
+                ));
+            }
+            for point in points {
+                unit(point.x)?;
+                unit(point.y)?;
             }
         }
     }
@@ -3097,6 +3167,7 @@ pub struct EditPreviewExecutionReceipt {
     pub display_backend: EditPreviewBackend,
     pub display_backend_version: u32,
     pub display_output_contract_version: u32,
+    pub fused_pipeline: bool,
     pub adjustment_fell_back: bool,
     pub display_fell_back: bool,
     pub diagnostic: Option<String>,
@@ -3912,6 +3983,7 @@ const fn ffi_photo_geometry(geometry: AdjustmentGeometry) -> ffi::FfiPhotoGeomet
             AdjustmentQuarterTurn::Clockwise180 => 2,
             AdjustmentQuarterTurn::Clockwise270 => 3,
         },
+        straighten_degrees: geometry.straighten_degrees,
         flip_horizontal: geometry.flip_horizontal,
         flip_vertical: geometry.flip_vertical,
     }
@@ -3940,50 +4012,87 @@ const fn detail_tile_rect(rect: ffi::FfiDetailTileRect) -> DetailTileRect {
 fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustmentNode {
     let (operation, parameters, parameter_group_lengths, payload) = match &node.operation {
         AdjustmentRenderOperation::LocalMaskLayerStart { opacity, mask } => {
-            let (kind, x0, y0, x1, y1, radius_x, radius_y, feather, invert) = match mask {
-                None => (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
-                Some(AdjustmentLocalMask::LinearGradient {
-                    start_x,
-                    start_y,
-                    end_x,
-                    end_y,
-                    invert,
-                }) => (
-                    1.0,
-                    *start_x,
-                    *start_y,
-                    *end_x,
-                    *end_y,
-                    0.0,
-                    0.0,
-                    0.0,
-                    if *invert { 1.0 } else { 0.0 },
-                ),
-                Some(AdjustmentLocalMask::RadialGradient {
-                    center_x,
-                    center_y,
-                    radius_x,
-                    radius_y,
-                    feather,
-                    invert,
-                }) => (
-                    2.0,
-                    *center_x,
-                    *center_y,
-                    0.0,
-                    0.0,
-                    *radius_x,
-                    *radius_y,
-                    *feather,
-                    if *invert { 1.0 } else { 0.0 },
-                ),
-            };
+            let (kind, x0, y0, x1, y1, radius_x, radius_y, feather, invert, brush_points) =
+                match mask {
+                    None => (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, Vec::new()),
+                    Some(AdjustmentLocalMask::LinearGradient {
+                        start_x,
+                        start_y,
+                        end_x,
+                        end_y,
+                        invert,
+                    }) => (
+                        1.0,
+                        *start_x,
+                        *start_y,
+                        *end_x,
+                        *end_y,
+                        0.0,
+                        0.0,
+                        0.0,
+                        if *invert { 1.0 } else { 0.0 },
+                        Vec::new(),
+                    ),
+                    Some(AdjustmentLocalMask::RadialGradient {
+                        center_x,
+                        center_y,
+                        radius_x,
+                        radius_y,
+                        feather,
+                        invert,
+                    }) => (
+                        2.0,
+                        *center_x,
+                        *center_y,
+                        0.0,
+                        0.0,
+                        *radius_x,
+                        *radius_y,
+                        *feather,
+                        if *invert { 1.0 } else { 0.0 },
+                        Vec::new(),
+                    ),
+                    Some(AdjustmentLocalMask::Brush {
+                        points,
+                        radius,
+                        feather,
+                        invert,
+                    }) => (
+                        3.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        *radius,
+                        0.0,
+                        *feather,
+                        if *invert { 1.0 } else { 0.0 },
+                        points
+                            .iter()
+                            .flat_map(|point| {
+                                [
+                                    point.x,
+                                    point.y,
+                                    if point.begins_stroke { 1.0 } else { 0.0 },
+                                ]
+                            })
+                            .collect(),
+                    ),
+                };
+            let point_count = u32::try_from(brush_points.len() / 3)
+                .expect("validated brush point count fits in u32");
+            let mut parameters = vec![
+                *opacity, kind, x0, y0, x1, y1, radius_x, radius_y, feather, invert,
+            ];
+            parameters.extend(brush_points);
             (
                 ffi::FfiAdjustmentOperation::LocalMaskLayerStart,
-                vec![
-                    *opacity, kind, x0, y0, x1, y1, radius_x, radius_y, feather, invert,
-                ],
-                vec![],
+                parameters,
+                if kind == 3.0 {
+                    vec![point_count]
+                } else {
+                    vec![]
+                },
                 vec![],
             )
         }
@@ -4095,7 +4204,7 @@ fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustmentNode {
             vec![],
             document.clone(),
         ),
-        AdjustmentRenderOperation::Sharpen { parameters } => {
+        AdjustmentRenderOperation::Sharpen { parameters, .. } => {
             let mut flattened = vec![
                 parameters.amount,
                 parameters.radius,
@@ -4143,12 +4252,16 @@ fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustmentNode {
             )
         }
         AdjustmentRenderOperation::SpotHeal { targets } => {
-            let mut flattened = Vec::with_capacity(targets.len() * 3);
+            let mut flattened = Vec::with_capacity(targets.len() * 7);
             for target in targets {
                 flattened.extend([
                     target.center_x,
                     target.center_y,
                     f64::from(target.radius_level_zero_pixels),
+                    f64::from(target.mode),
+                    target.source_offset_x_radii,
+                    target.source_offset_y_radii,
+                    target.feather,
                 ]);
             }
             (
@@ -4162,9 +4275,25 @@ fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustmentNode {
             )
         }
     };
+    let detail_effects_pass = match &node.operation {
+        AdjustmentRenderOperation::Sharpen {
+            pass: AdjustmentDetailEffectsPass::TechnicalDetail,
+            ..
+        } => ffi::FfiDetailEffectsPass::TechnicalDetail,
+        AdjustmentRenderOperation::Sharpen {
+            pass: AdjustmentDetailEffectsPass::ColorGrading,
+            ..
+        } => ffi::FfiDetailEffectsPass::ColorGrading,
+        AdjustmentRenderOperation::Sharpen {
+            pass: AdjustmentDetailEffectsPass::FinishingEffects,
+            ..
+        } => ffi::FfiDetailEffectsPass::FinishingEffects,
+        _ => ffi::FfiDetailEffectsPass::TechnicalDetail,
+    };
     ffi::FfiAdjustmentNode {
         node_id: node.node_id.clone(),
         operation,
+        detail_effects_pass,
         parameter_schema_version: node.parameter_schema_version,
         implementation_version: node.implementation_version,
         enabled: node.enabled,
@@ -4258,8 +4387,6 @@ fn edit_preview_execution_receipt(
         }
         EditPreviewBackend::Metal => {
             receipt.adjustment_backend_version == EDIT_PREVIEW_METAL_ADJUSTMENT_BACKEND_VERSION
-                || receipt.adjustment_backend_version
-                    == EDIT_PREVIEW_WARM_FUSED_METAL_BACKEND_VERSION
         }
     };
     let display_backend_version_is_current = match display_backend {
@@ -4268,17 +4395,12 @@ fn edit_preview_execution_receipt(
         }
         EditPreviewBackend::Metal => {
             receipt.display_backend_version == EDIT_PREVIEW_METAL_DISPLAY_BACKEND_VERSION
-                || receipt.display_backend_version == EDIT_PREVIEW_WARM_FUSED_METAL_BACKEND_VERSION
         }
     };
-    let fused_adjustment = adjustment_backend == EditPreviewBackend::Metal
-        && receipt.adjustment_backend_version == EDIT_PREVIEW_WARM_FUSED_METAL_BACKEND_VERSION;
-    let fused_display = display_backend == EditPreviewBackend::Metal
-        && receipt.display_backend_version == EDIT_PREVIEW_WARM_FUSED_METAL_BACKEND_VERSION;
     if !adjustment_backend_version_is_current
         || !display_backend_version_is_current
-        || (fused_adjustment && !fused_display)
-        || (fused_display && adjustment_backend != EditPreviewBackend::Cpu && !fused_adjustment)
+        || (receipt.fused_pipeline && display_backend != EditPreviewBackend::Metal)
+        || (receipt.fused_pipeline && (receipt.adjustment_fell_back || receipt.display_fell_back))
         || receipt.adjustment_execution_contract_version
             != EDIT_PREVIEW_EXECUTION_PLAN_CONTRACT_VERSION
         || receipt.display_output_contract_version != DISPLAY_SRGB8_OUTPUT_CONTRACT_VERSION
@@ -4305,6 +4427,7 @@ fn edit_preview_execution_receipt(
         display_backend,
         display_backend_version: receipt.display_backend_version,
         display_output_contract_version: receipt.display_output_contract_version,
+        fused_pipeline: receipt.fused_pipeline,
         adjustment_fell_back: receipt.adjustment_fell_back,
         display_fell_back: receipt.display_fell_back,
         diagnostic: (!receipt.diagnostic.is_empty()).then_some(receipt.diagnostic),
@@ -4794,7 +4917,7 @@ mod tests {
             },
             effective_plan: ffi_detail_raw_development_plan(),
             plan_negotiation_status: ffi::FfiRawDevelopmentPlanNegotiationStatus::Adjusted,
-            processed_linear_reference_contract_version: 7,
+            processed_linear_reference_contract_version: 1,
             declared_image_dimensions: ffi::FfiDimensions {
                 width: 8,
                 height: 4,
@@ -4939,7 +5062,7 @@ mod tests {
                 },
                 effective_plan: RawDevelopmentPlan::detail(),
                 plan_negotiation_status: RawDevelopmentPlanNegotiationStatus::Adjusted,
-                processed_linear_reference_contract_version: 7,
+                processed_linear_reference_contract_version: 1,
                 declared_image_dimensions: ImageDimensions {
                     width: 8,
                     height: 4,
@@ -4981,12 +5104,11 @@ mod tests {
             "the bridge's fixed receipt remains serializable without losing provenance"
         );
 
-        let mut legacy_value: serde_json::Value =
+        let mut incomplete_value: serde_json::Value =
             serde_json::from_slice(&serialized).expect("decode receipt JSON value");
-        let legacy = legacy_value
+        let incomplete = incomplete_value
             .as_object_mut()
             .expect("receipt serializes as an object");
-        legacy.insert("schema_version".to_owned(), serde_json::Value::from(1_u32));
         for field in [
             "requested_plan_identity",
             "effective_plan_identity",
@@ -4995,19 +5117,19 @@ mod tests {
             "plan_negotiation_status",
             "dng_opcode_execution",
         ] {
-            legacy.remove(field);
+            incomplete.remove(field);
         }
-        let legacy: RawDevelopmentReceipt = serde_json::from_value(legacy_value)
-            .expect("v1 receipt still preserves unknown-plan absence");
-        assert_eq!(legacy.schema_version, 1);
-        assert!(legacy.requested_plan_identity.is_empty());
-        assert_eq!(legacy.requested_plan, RawDevelopmentPlan::detail());
+        let incomplete: RawDevelopmentReceipt = serde_json::from_value(incomplete_value)
+            .expect("an incomplete v1 receipt preserves explicit unknown-plan absence");
+        assert_eq!(incomplete.schema_version, 1);
+        assert!(incomplete.requested_plan_identity.is_empty());
+        assert_eq!(incomplete.requested_plan, RawDevelopmentPlan::detail());
         assert_eq!(
-            legacy.plan_negotiation_status,
+            incomplete.plan_negotiation_status,
             RawDevelopmentPlanNegotiationStatus::Rejected
         );
         assert_eq!(
-            legacy.dng_opcode_execution,
+            incomplete.dng_opcode_execution,
             [DngOpcodeExecutionStatus::NotDeclared; 3]
         );
     }
@@ -5404,8 +5526,8 @@ mod tests {
             nodes: vec![
                 AdjustmentRenderNode {
                     node_id: "selective-tone".to_owned(),
-                    parameter_schema_version: SELECTIVE_TONE_V3_PARAMETER_SCHEMA_VERSION,
-                    implementation_version: SELECTIVE_TONE_V3_IMPLEMENTATION_VERSION,
+                    parameter_schema_version: SELECTIVE_TONE_PARAMETER_SCHEMA_VERSION,
+                    implementation_version: SELECTIVE_TONE_IMPLEMENTATION_VERSION,
                     enabled: true,
                     operation: AdjustmentRenderOperation::SelectiveTone {
                         parameters: SelectiveToneParameters {
@@ -5418,8 +5540,8 @@ mod tests {
                 },
                 AdjustmentRenderNode {
                     node_id: "perceptual-color".to_owned(),
-                    parameter_schema_version: PERCEPTUAL_COLOR_V3_PARAMETER_SCHEMA_VERSION,
-                    implementation_version: PERCEPTUAL_COLOR_V3_IMPLEMENTATION_VERSION,
+                    parameter_schema_version: PERCEPTUAL_COLOR_PARAMETER_SCHEMA_VERSION,
+                    implementation_version: PERCEPTUAL_COLOR_IMPLEMENTATION_VERSION,
                     enabled: true,
                     operation: AdjustmentRenderOperation::PerceptualColor {
                         parameters: Box::new(perceptual),
@@ -5427,10 +5549,11 @@ mod tests {
                 },
                 AdjustmentRenderNode {
                     node_id: "technical-detail".to_owned(),
-                    parameter_schema_version: TECHNICAL_DETAIL_V3_PARAMETER_SCHEMA_VERSION,
-                    implementation_version: TECHNICAL_DETAIL_V3_IMPLEMENTATION_VERSION,
+                    parameter_schema_version: TECHNICAL_DETAIL_PARAMETER_SCHEMA_VERSION,
+                    implementation_version: TECHNICAL_DETAIL_IMPLEMENTATION_VERSION,
                     enabled: true,
                     operation: AdjustmentRenderOperation::Sharpen {
+                        pass: AdjustmentDetailEffectsPass::TechnicalDetail,
                         parameters: Box::new(SharpenParameters {
                             amount: 1.25,
                             radius: 2.5,
@@ -5554,6 +5677,7 @@ mod tests {
         ] {
             assert!(matches!(
                 node(AdjustmentRenderOperation::Sharpen {
+                    pass: AdjustmentDetailEffectsPass::TechnicalDetail,
                     parameters: Box::new(parameters),
                 })
                 .validate(),
@@ -5700,7 +5824,7 @@ mod tests {
             schema_version: EDIT_PREVIEW_EXECUTION_RECEIPT_SCHEMA_VERSION,
             cache_identity: concat!(
                 "shadow-edit-preview-execution-v1;adjustment=cpu-v1;",
-                "plan=1;display=cpu-v1;display-contract=6"
+                "plan=1;display=cpu-v1;display-contract=1;route=staged"
             )
             .to_owned(),
             adjustment_backend: ffi::FfiEditPreviewBackend::Cpu,
@@ -5709,6 +5833,7 @@ mod tests {
             display_backend: ffi::FfiEditPreviewBackend::Cpu,
             display_backend_version: 1,
             display_output_contract_version: DISPLAY_SRGB8_OUTPUT_CONTRACT_VERSION,
+            fused_pipeline: false,
             adjustment_fell_back: false,
             display_fell_back: false,
             diagnostic: String::new(),
@@ -5727,18 +5852,15 @@ mod tests {
              {native_identity}"
         );
         assert!(
-            native_identity.contains(&format!(
-                "warm-fused-metal-v{}=",
-                EDIT_PREVIEW_WARM_FUSED_METAL_BACKEND_VERSION
-            )),
-            "Rust's fused warm receipt version must track the native generator identity: \
+            native_identity.contains("warm-fused-metal=v1;features="),
+            "Rust's fused warm route must be named in the native generator identity: \
              {native_identity}"
         );
 
         let mut split_metal = valid_ffi_edit_preview_execution_receipt();
         split_metal.cache_identity = format!(
             "shadow-edit-preview-execution-v1;adjustment=metal-v{};\
-             plan=1;display=cpu-v1;display-contract=6",
+             plan=1;display=cpu-v1;display-contract=1;route=staged",
             EDIT_PREVIEW_METAL_ADJUSTMENT_BACKEND_VERSION
         );
         split_metal.adjustment_backend = ffi::FfiEditPreviewBackend::Metal;
@@ -5880,7 +6002,7 @@ mod tests {
             validated.cache_identity,
             concat!(
                 "shadow-edit-preview-execution-v1;adjustment=cpu-v1;",
-                "plan=1;display=cpu-v1;display-contract=6"
+                "plan=1;display=cpu-v1;display-contract=1;route=staged"
             )
         );
         assert_eq!(
@@ -5892,31 +6014,32 @@ mod tests {
         let mut fused = valid_ffi_edit_preview_execution_receipt();
         fused.cache_identity = format!(
             "shadow-edit-preview-execution-v1;adjustment=metal-v{};\
-             plan=1;display=metal-v{};display-contract=6",
-            EDIT_PREVIEW_WARM_FUSED_METAL_BACKEND_VERSION,
-            EDIT_PREVIEW_WARM_FUSED_METAL_BACKEND_VERSION
+             plan=1;display=metal-v{};display-contract=1;route=fused",
+            EDIT_PREVIEW_METAL_ADJUSTMENT_BACKEND_VERSION,
+            EDIT_PREVIEW_METAL_DISPLAY_BACKEND_VERSION
         );
         fused.adjustment_backend = ffi::FfiEditPreviewBackend::Metal;
-        fused.adjustment_backend_version = EDIT_PREVIEW_WARM_FUSED_METAL_BACKEND_VERSION;
+        fused.adjustment_backend_version = EDIT_PREVIEW_METAL_ADJUSTMENT_BACKEND_VERSION;
         fused.display_backend = ffi::FfiEditPreviewBackend::Metal;
-        fused.display_backend_version = EDIT_PREVIEW_WARM_FUSED_METAL_BACKEND_VERSION;
+        fused.display_backend_version = EDIT_PREVIEW_METAL_DISPLAY_BACKEND_VERSION;
+        fused.fused_pipeline = true;
         let validated_fused =
             edit_preview_execution_receipt(fused).expect("valid fused warm Metal receipt");
         assert_eq!(
             validated_fused.adjustment_backend_version,
-            EDIT_PREVIEW_WARM_FUSED_METAL_BACKEND_VERSION
+            EDIT_PREVIEW_METAL_ADJUSTMENT_BACKEND_VERSION
         );
         assert_eq!(
             validated_fused.display_backend_version,
-            EDIT_PREVIEW_WARM_FUSED_METAL_BACKEND_VERSION
+            EDIT_PREVIEW_METAL_DISPLAY_BACKEND_VERSION
         );
+        assert!(validated_fused.fused_pipeline);
 
         let mut impossible_hybrid = valid_ffi_edit_preview_execution_receipt();
         impossible_hybrid.adjustment_backend = ffi::FfiEditPreviewBackend::Metal;
         impossible_hybrid.adjustment_backend_version =
-            EDIT_PREVIEW_WARM_FUSED_METAL_BACKEND_VERSION;
-        impossible_hybrid.display_backend = ffi::FfiEditPreviewBackend::Metal;
-        impossible_hybrid.display_backend_version = EDIT_PREVIEW_METAL_DISPLAY_BACKEND_VERSION;
+            EDIT_PREVIEW_METAL_ADJUSTMENT_BACKEND_VERSION;
+        impossible_hybrid.fused_pipeline = true;
         assert!(matches!(
             edit_preview_execution_receipt(impossible_hybrid),
             Err(BridgeError::InvalidEditPreviewOutput(_))

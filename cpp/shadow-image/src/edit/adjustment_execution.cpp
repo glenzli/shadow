@@ -100,7 +100,7 @@ std::string_view adjustment_backend_identity(const AdjustmentBackend backend) no
     case AdjustmentBackend::cpu:
         return "shadow-adjustment-cpu-v1;math=f64";
     case AdjustmentBackend::metal:
-        return "shadow-adjustment-metal-v3;abi=3;math=f32-safe;"
+        return "shadow-adjustment-metal-v1;abi=1;math=f32-safe;"
             "ops=wb,exposure,contrast,saturation,perceptual,selective-color,"
             "curve,grading,lut";
     }

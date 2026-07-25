@@ -827,10 +827,10 @@ struct RawFrame final {
 // `process_warnings` preserves a renderer's complete warning bit mask without collapsing future
 // warning bits into a lossy boolean set.
 //
-// Version 2 adds the provider-neutral development plan identity and the per-list DNG opcode
-// outcome. It intentionally does not retroactively interpret a v1 receipt: a rendering system
-// must regenerate source pixels if it needs plan-aware cache/provenance data.
-inline constexpr std::uint32_t raw_development_receipt_schema_version = 2U;
+// The provider-neutral development plan identity and per-list DNG opcode
+// outcome belong to the sole pre-release v1 receipt. Incompatible development
+// data is regenerated rather than migrated.
+inline constexpr std::uint32_t raw_development_receipt_schema_version = 1U;
 
 enum class DngOpcodeExecutionStatus : std::uint8_t {
     not_declared,
@@ -917,13 +917,13 @@ struct PixelBuffer final {
 // those decode semantics must increment this cache-visible contract version.
 inline constexpr std::uint32_t processed_linear_reference_rgb_contract_version = 1U;
 inline constexpr float processed_linear_reference_maximum_adjustment_threshold = 0.0F;
-// Version 6 accepts both standardized scene-referred RAW RGB and standardized display-referred
+// The v1 output accepts both standardized scene-referred RAW RGB and standardized display-referred
 // raster RGB. RAW first receives Shadow's neutral scene-to-display curve; JPEG/SDR HEIF keeps
 // its existing display rendering and receives only gamut mapping plus the sRGB OETF. JPEG proxy
 // encoding uses 4:4:4 sampling so this output contract does not discard chroma detail after
 // rendering. It is a deterministic SDR display rendering, not a camera-JPEG emulation.
-inline constexpr std::uint32_t display_srgb8_output_transform_version = 6U;
-// The v4 gamut mapper is bounded work per out-of-gamut pixel. 0.5 is a conservative ceiling
+inline constexpr std::uint32_t display_srgb8_output_transform_version = 1U;
+// The gamut mapper is bounded work per out-of-gamut pixel. 0.5 is a conservative ceiling
 // above the display-sRGB Oklab gamut; sixteen bisections resolve chroma well below one 8-bit code
 // step.
 inline constexpr double display_srgb8_maximum_oklab_chroma = 0.5;

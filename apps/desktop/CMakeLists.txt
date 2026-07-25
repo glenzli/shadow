@@ -168,6 +168,7 @@ qt_add_resources(
         icons/compare-stacked.svg
         icons/compare-wipe-horizontal.svg
         icons/compare-wipe-vertical.svg
+        icons/crop.svg
         icons/duplicate.svg
         icons/edit.svg
         icons/edit-off.svg
@@ -179,6 +180,7 @@ qt_add_resources(
         icons/filter.svg
         icons/history.svg
         icons/library-manage.svg
+        icons/mask.svg
         icons/metadata.svg
         icons/move-down.svg
         icons/move-up.svg
@@ -239,6 +241,9 @@ qt_add_qml_module(
         qml/PrecisionCanvas.qml
         qml/PrecisionInspector.qml
         qml/PrecisionGeometryTools.qml
+        qml/PrecisionLocalMaskOverlay.qml
+        qml/PrecisionCropOverlay.qml
+        qml/PrecisionRetouchOverlay.qml
         qml/PrecisionLocalMaskTools.qml
         qml/PrecisionRetouchTools.qml
         qml/PrecisionTechnicalTools.qml
@@ -351,6 +356,17 @@ set_target_properties(
 )
 
 if(BUILD_TESTING)
+    add_test(
+        NAME shadow-desktop-qml-startup
+        COMMAND $<TARGET_FILE:shadow-desktop>
+    )
+    set_tests_properties(
+        shadow-desktop-qml-startup
+        PROPERTIES
+            ENVIRONMENT
+                "QT_QPA_PLATFORM=offscreen;SHADOW_DESKTOP_SMOKE_TEST=1;SHADOW_DESKTOP_DATA_ROOT=${CMAKE_CURRENT_BINARY_DIR}/qml-startup-smoke"
+    )
+
     add_executable(
         shadow-ui-preferences-test
         tests/ui_preferences_test.cpp

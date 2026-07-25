@@ -23,8 +23,8 @@ enum class RawDevelopmentBackendMode : std::uint8_t {
     metal,
 };
 
-inline constexpr std::uint32_t fused_raw_cpu_backend_version = 2U;
-inline constexpr std::uint32_t fused_raw_metal_backend_version = 3U;
+inline constexpr std::uint32_t fused_raw_cpu_backend_version = 1U;
+inline constexpr std::uint32_t fused_raw_metal_backend_version = 1U;
 
 [[nodiscard]] std::string_view raw_development_backend_identity(
     RawDevelopmentBackend backend

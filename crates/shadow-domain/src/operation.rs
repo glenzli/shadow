@@ -1,8 +1,8 @@
-//! Stable identifiers shared by persisted Recipes and operation executors.
+//! Identifiers shared by persisted Recipes and operation executors.
 //!
-//! Changing one of these strings changes the persisted operation contract. A
-//! different parameter shape or implementation therefore needs a new schema
-//! or implementation version instead of silently reusing an existing value.
+//! During pre-release development, contract changes replace the sole v1 shape
+//! and invalidate old local data rather than accumulating compatibility
+//! versions. Execution roles remain explicit types instead of version values.
 
 /// Parameter schema used by the v1 CPU reference operations. A newer
 /// per-operation contract must not silently upgrade unrelated nodes.
@@ -41,11 +41,11 @@ pub const SATURATION_FACTOR_PARAMETER_KEY: &str = "factor";
 
 pub const SELECTIVE_TONE_OPERATION_ID: &str = "shadow.selective_tone";
 /// The current Selective Tone evaluator uses a complete self-guided log-luminance filter. It
-/// keeps the four existing slider values but averages the local a/b coefficients in a second box
-/// pass, so it is intentionally a new persisted contract rather than a reinterpretation of the
-/// v1 pixel-local or v2 one-pass evaluator.
-pub const SELECTIVE_TONE_V3_PARAMETER_SCHEMA_VERSION: u32 = 3;
-pub const SELECTIVE_TONE_V3_IMPLEMENTATION_VERSION: &str = "shadow-cpu-selective-tone-guided-v3";
+/// keeps the four slider values and averages the local a/b coefficients in a second box pass.
+/// Until Shadow makes its first compatibility promise this implementation replaces earlier
+/// development experiments in the sole v1 contract.
+pub const SELECTIVE_TONE_PARAMETER_SCHEMA_VERSION: u32 = 1;
+pub const SELECTIVE_TONE_IMPLEMENTATION_VERSION: &str = "shadow-cpu-selective-tone-guided-v1";
 pub const HIGHLIGHTS_PARAMETER_KEY: &str = "highlights";
 pub const SHADOWS_PARAMETER_KEY: &str = "shadows";
 pub const WHITES_PARAMETER_KEY: &str = "whites";
@@ -75,7 +75,7 @@ pub const SELECTIVE_COLOR_RELATIVE_PARAMETER_KEY: &str = "selective_color_relati
 pub const SELECTIVE_COLOR_LIGHTNESS_PROTECTION_PARAMETER_KEY: &str =
     "selective_color_lightness_protection";
 pub const SELECTIVE_COLOR_CMYK_PARAMETER_KEY: &str = "selective_color_cmyk";
-pub const PERCEPTUAL_COLOR_V3_IMPLEMENTATION_VERSION: &str = "shadow-cpu-perceptual-color-v3";
+pub const PERCEPTUAL_COLOR_IMPLEMENTATION_VERSION: &str = "shadow-cpu-perceptual-color-v1";
 
 pub const LUT_3D_OPERATION_ID: &str = "shadow.lut_3d";
 pub const LUT_RESOURCE_ID_PARAMETER_KEY: &str = "resource_id";
@@ -83,42 +83,33 @@ pub const LUT_TITLE_PARAMETER_KEY: &str = "title";
 pub const LUT_MANAGED_PATH_PARAMETER_KEY: &str = "managed_path";
 pub const LUT_INTENSITY_PARAMETER_KEY: &str = "intensity";
 
-/// Legacy monolithic Detail & Effects operation. Schema 3 intentionally does
-/// not emit it: a Recipe must use the three ordered contracts below.
 pub const SHARPEN_OPERATION_ID: &str = "shadow.sharpen";
 pub const SHARPEN_AMOUNT_PARAMETER_KEY: &str = "amount";
 pub const SHARPEN_RADIUS_PARAMETER_KEY: &str = "radius";
 pub const SHARPEN_THRESHOLD_PARAMETER_KEY: &str = "threshold";
 pub const SHARPEN_MASKING_PARAMETER_KEY: &str = "masking";
 pub const DETAIL_EFFECTS_PARAMETERS_KEY: &str = "detail_effects";
-pub const DETAIL_EFFECTS_V2_IMPLEMENTATION_VERSION: &str = "shadow-cpu-detail-effects-v2";
 
-/// Schema-3 technical pass. It consumes the existing complete Detail &
-/// Effects parameter payload but evaluates only denoise, dehaze, defringe,
-/// and capture sharpening.
+/// Technical pass over the complete Detail & Effects payload.
 pub const TECHNICAL_DETAIL_OPERATION_ID: &str = "shadow.technical_detail";
-pub const TECHNICAL_DETAIL_V3_PARAMETER_SCHEMA_VERSION: u32 = 3;
-pub const TECHNICAL_DETAIL_V3_IMPLEMENTATION_VERSION: &str = "shadow-cpu-technical-detail-v3";
+pub const TECHNICAL_DETAIL_PARAMETER_SCHEMA_VERSION: u32 = 1;
+pub const TECHNICAL_DETAIL_IMPLEMENTATION_VERSION: &str = "shadow-cpu-technical-detail-v1";
 
-/// Schema-3 creative color-wheel pass. It keeps the existing color-grading
-/// controls out of the technical recovery stage while preserving their UI/FFI
-/// parameter shape.
+/// Creative color-wheel pass kept out of the technical recovery stage.
 pub const COLOR_GRADING_OPERATION_ID: &str = "shadow.color_grading";
-pub const COLOR_GRADING_V3_PARAMETER_SCHEMA_VERSION: u32 = 3;
-pub const COLOR_GRADING_V3_IMPLEMENTATION_VERSION: &str = "shadow-cpu-color-grading-v3";
+pub const COLOR_GRADING_PARAMETER_SCHEMA_VERSION: u32 = 1;
+pub const COLOR_GRADING_IMPLEMENTATION_VERSION: &str = "shadow-cpu-color-grading-v1";
 
-/// Schema-3 post-look pass. It evaluates grain and vignette only after the
-/// LUT and color grading chain.
+/// Post-look pass evaluated after the LUT and color-grading chain.
 pub const FINISHING_EFFECTS_OPERATION_ID: &str = "shadow.finishing_effects";
-pub const FINISHING_EFFECTS_V3_PARAMETER_SCHEMA_VERSION: u32 = 3;
-pub const FINISHING_EFFECTS_V3_IMPLEMENTATION_VERSION: &str = "shadow-cpu-finishing-effects-v3";
+pub const FINISHING_EFFECTS_PARAMETER_SCHEMA_VERSION: u32 = 1;
+pub const FINISHING_EFFECTS_IMPLEMENTATION_VERSION: &str = "shadow-cpu-finishing-effects-v1";
 
 /// Graph schema used by the current default adjustment layer.
 ///
-/// Version 2 evaluates the foundational color controls before the tone curve.
-/// It deliberately supersedes the short-lived v1 graph rather than preserving
-/// a second execution contract during early development.
-pub const BASIC_GRAPH_SCHEMA_VERSION: u32 = 2;
+/// During pre-release development, changed graph shapes replace this v1
+/// contract and old local Recipes are discarded rather than migrated.
+pub const BASIC_GRAPH_SCHEMA_VERSION: u32 = 1;
 
 /// Persisted label assigned to a newly created default adjustment layer.
 ///
@@ -188,6 +179,33 @@ mod tests {
         ] {
             ParameterKey::new(parameter_key)
                 .expect("operation contract parameter key must remain valid");
+        }
+    }
+
+    #[test]
+    fn pre_release_operation_contracts_remain_v1() {
+        assert_eq!(CPU_REFERENCE_PARAMETER_SCHEMA_VERSION, 1);
+        assert_eq!(CPU_REFERENCE_IMPLEMENTATION_REVISION, 1);
+        assert_eq!(OKLAB_LIGHTNESS_TONE_CURVE_PARAMETER_SCHEMA_VERSION, 1);
+        assert_eq!(SELECTIVE_TONE_PARAMETER_SCHEMA_VERSION, 1);
+        assert_eq!(TECHNICAL_DETAIL_PARAMETER_SCHEMA_VERSION, 1);
+        assert_eq!(COLOR_GRADING_PARAMETER_SCHEMA_VERSION, 1);
+        assert_eq!(FINISHING_EFFECTS_PARAMETER_SCHEMA_VERSION, 1);
+        assert_eq!(BASIC_GRAPH_SCHEMA_VERSION, 1);
+
+        for identity in [
+            CPU_REFERENCE_IMPLEMENTATION_VERSION,
+            OKLAB_LIGHTNESS_TONE_CURVE_IMPLEMENTATION_VERSION,
+            SELECTIVE_TONE_IMPLEMENTATION_VERSION,
+            PERCEPTUAL_COLOR_IMPLEMENTATION_VERSION,
+            TECHNICAL_DETAIL_IMPLEMENTATION_VERSION,
+            COLOR_GRADING_IMPLEMENTATION_VERSION,
+            FINISHING_EFFECTS_IMPLEMENTATION_VERSION,
+        ] {
+            assert!(
+                identity.ends_with("-v1"),
+                "pre-release implementation identity escaped v1: {identity}"
+            );
         }
     }
 }

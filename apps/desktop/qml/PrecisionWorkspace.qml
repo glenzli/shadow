@@ -17,6 +17,18 @@ Item {
     signal openOpticsProfileLibraryRequested()
     signal returnToReviewRequested()
 
+    // Special canvas tools are mutually exclusive and page-scoped. They do
+    // not belong to a Grade Node parameter section because each tool owns a
+    // coordinated inspector, pointer mode, and direct-manipulation overlay.
+    readonly property int toolNone: 0
+    readonly property int toolMask: 1
+    readonly property int toolCrop: 2
+    readonly property int toolRepair: 3
+    property int activeSpecialTool: toolNone
+    // Zero means freeform. Positive values are output-space aspect locks used
+    // by the crop overlay, never persisted as a second geometry authority.
+    property real cropAspectRatioLock: 0
+
     readonly property bool proxyActive: editor.active
         && precisionCanvas.visiblePreviewSource.length > 0
         && !precisionCanvas.showingFullDetail
@@ -27,6 +39,42 @@ Item {
     readonly property color textSecondary: Theme.textSecondary
     readonly property color textMuted: Theme.textMuted
     readonly property color accent: Theme.accent
+
+    function setActiveSpecialTool(requestedTool) {
+        const nextTool = activeSpecialTool === requestedTool
+            ? toolNone : requestedTool
+
+        editor.setPointColorPickerActive(false)
+        editor.setWhiteBalancePickerActive(false)
+        if (nextTool !== toolRepair)
+            editor.setRetouchPickerActive(false)
+
+        activeSpecialTool = nextTool
+        editor.setCropToolActive(nextTool === toolCrop)
+        if (nextTool === toolRepair)
+            editor.setRetouchPickerActive(true)
+    }
+
+    function leaveSpecialTool() {
+        if (activeSpecialTool === toolNone)
+            return
+        activeSpecialTool = toolNone
+        editor.setCropToolActive(false)
+        editor.setRetouchPickerActive(false)
+    }
+
+    Connections {
+        target: precision.editor
+
+        function onSourceIdentityChanged() {
+            precision.leaveSpecialTool()
+        }
+
+        function onActiveChanged() {
+            if (!precision.editor.active)
+                precision.leaveSpecialTool()
+        }
+    }
 
     component PopupAction: Button {
         id: popupAction
@@ -155,6 +203,16 @@ Item {
                 onClicked: {
                     gradeNodeContextPopup.close()
                     precision.editor.duplicateSelectedGradeNode()
+                }
+            }
+            PopupAction {
+                text: qsTr("Reset node")
+                enabled: precision.editor.active
+                    && precision.editor.hasSelectedGradeNode
+                    && !precision.editor.stateBusy
+                onClicked: {
+                    gradeNodeContextPopup.close()
+                    precision.editor.resetSelectedGradeNode()
                 }
             }
             PopupAction {
@@ -547,6 +605,15 @@ Item {
                         onClicked: precision.editor.deleteSelectedGradeNode()
                     }
                     ShadowIconButton {
+                        id: clearGradeNodesButton
+                        source: "qrc:/icons/clear.svg"
+                        toolTipText: qsTr("Clear all Grade Nodes")
+                        accessibleName: toolTipText
+                        enabled: precision.editor.active
+                            && !precision.editor.stateBusy
+                        onClicked: precision.editor.resetAllGradeNodes()
+                    }
+                    ShadowIconButton {
                         id: moveGradeNodeUpButton
                         source: "qrc:/icons/move-up.svg"
                         enabled: precision.editor.canMoveGradeNodeUp
@@ -592,12 +659,16 @@ Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
             editor: precision.editor
+            activeToolMode: precision.activeSpecialTool
+            cropAspectRatioLock: precision.cropAspectRatioLock
         }
 
         PrecisionInspector {
             Layout.preferredWidth: Math.max(304, Math.min(348, precision.width * 0.24))
             Layout.fillHeight: true
             editor: precision.editor
+            activeToolMode: precision.activeSpecialTool
+            cropAspectRatioLock: precision.cropAspectRatioLock
             lutLibrary: precision.lutLibrary
             captureMetadata: precision.captureMetadata
             displayedHistogram: precisionCanvas.displayedHistogram
@@ -618,6 +689,9 @@ Item {
             onOpenLutLibraryRequested: precision.openLutLibraryRequested()
             onOpenOpticsProfileLibraryRequested:
                 precision.openOpticsProfileLibraryRequested()
+            onToolModeRequested: mode => precision.setActiveSpecialTool(mode)
+            onCropAspectRatioRequested: ratio =>
+                precision.cropAspectRatioLock = ratio
         }
     }
 

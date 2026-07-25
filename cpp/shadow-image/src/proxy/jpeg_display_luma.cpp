@@ -39,7 +39,7 @@ namespace {
 #define SHADOW_STRINGIFY(value) SHADOW_STRINGIFY_IMPL(value)
 
 inline constexpr std::string_view preprocessing_version_prefix =
-    "shadow.jpeg-luma.v2:libjpeg-turbo-" SHADOW_STRINGIFY(LIBJPEG_TURBO_VERSION)
+    "shadow.jpeg-luma.v1:libjpeg-turbo-" SHADOW_STRINGIFY(LIBJPEG_TURBO_VERSION)
     ":rgb8:islow:no-fancy-upsampling:no-block-smoothing:assume-srgb:ignore-icc:"
     "stored-orientation:idct-scale-1-2-4-8:bilinear-center-q16:rec709-encoded-q16";
 

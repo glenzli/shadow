@@ -916,11 +916,12 @@ struct PreparedEditPreviewPixels final {
                 if (output.had_active_adjustments) {
                     receipt.adjustment_backend = EditPreviewBackend::metal;
                     receipt.adjustment_backend_version =
-                        edit_preview_warm_fused_metal_backend_version;
+                        edit_preview_metal_adjustment_backend_version;
                 }
                 receipt.display_backend = EditPreviewBackend::metal;
                 receipt.display_backend_version =
-                    edit_preview_warm_fused_metal_backend_version;
+                    edit_preview_metal_display_backend_version;
+                receipt.fused_pipeline = true;
                 if (!receipt.valid()) {
                     throw DecodeError(
                         DecodeErrorCode::internal,
@@ -1449,8 +1450,7 @@ bool EditPreviewExecutionReceipt::valid() const noexcept {
         case EditPreviewBackend::cpu:
             return version == edit_preview_cpu_adjustment_backend_version;
         case EditPreviewBackend::metal:
-            return version == edit_preview_metal_adjustment_backend_version
-                || version == edit_preview_warm_fused_metal_backend_version;
+            return version == edit_preview_metal_adjustment_backend_version;
         }
         return false;
     };
@@ -1462,17 +1462,10 @@ bool EditPreviewExecutionReceipt::valid() const noexcept {
         case EditPreviewBackend::cpu:
             return version == edit_preview_cpu_display_backend_version;
         case EditPreviewBackend::metal:
-            return version == edit_preview_metal_display_backend_version
-                || version == edit_preview_warm_fused_metal_backend_version;
+            return version == edit_preview_metal_display_backend_version;
         }
         return false;
     };
-    const bool fused_adjustment =
-        adjustment_backend == EditPreviewBackend::metal
-        && adjustment_backend_version == edit_preview_warm_fused_metal_backend_version;
-    const bool fused_display =
-        display_backend == EditPreviewBackend::metal
-        && display_backend_version == edit_preview_warm_fused_metal_backend_version;
     return schema_version == edit_preview_execution_receipt_schema_version
         && valid_adjustment_backend(adjustment_backend, adjustment_backend_version)
         && adjustment_execution_contract_version == edit_execution_plan_identity_version
@@ -1480,10 +1473,8 @@ bool EditPreviewExecutionReceipt::valid() const noexcept {
         && display_output_contract_version == display_srgb8_output_transform_version
         && (!adjustment_fell_back || adjustment_backend == EditPreviewBackend::cpu)
         && (!display_fell_back || display_backend == EditPreviewBackend::cpu)
-        && (!fused_adjustment || fused_display)
-        && (!fused_display
-            || adjustment_backend == EditPreviewBackend::cpu
-            || fused_adjustment)
+        && (!fused_pipeline || display_backend == EditPreviewBackend::metal)
+        && (!fused_pipeline || (!adjustment_fell_back && !display_fell_back))
         && ((adjustment_fell_back || display_fell_back) == !diagnostic.empty());
 }
 
@@ -1508,7 +1499,8 @@ std::string edit_preview_execution_receipt_identity(
         + ";plan=" + std::to_string(receipt.adjustment_execution_contract_version)
         + ";display=" + std::string(backend_identity(receipt.display_backend))
         + "-v" + std::to_string(receipt.display_backend_version)
-        + ";display-contract=" + std::to_string(receipt.display_output_contract_version);
+        + ";display-contract=" + std::to_string(receipt.display_output_contract_version)
+        + ";route=" + (receipt.fused_pipeline ? "fused" : "staged");
 }
 
 std::string edit_preview_generator_implementation_identity() {
@@ -1528,9 +1520,9 @@ std::string edit_preview_generator_implementation_identity() {
         + ";display-metal=" + std::string(
             display_output_backend_identity(DisplayOutputBackend::metal)
         )
-        + ";warm-fused-metal-v"
-        + std::to_string(edit_preview_warm_fused_metal_backend_version)
-        + "=resident-source,double-slot,immutable-color-resources,adjustment+display"
+        + ";warm-fused-metal=v1;features=resident-source,double-slot,"
+            "immutable-color-resources,technical-detail,texture,clarity,optics,"
+            "adjustment,display"
         + ";display-contract=" + std::to_string(display_srgb8_output_transform_version)
         + ";jpeg-444=" + std::to_string(edit_preview_jpeg_444_contract_version);
 }

@@ -190,9 +190,9 @@ private:
         image::AdjustmentNode{
             .node_id = "pure-color-grading",
             .parameter_schema_version =
-                image::detail_effects_v3_parameter_schema_version,
+                image::detail_effects_parameter_schema_version,
             .implementation_version =
-                image::color_grading_v3_implementation_version,
+                image::color_grading_implementation_version,
             .parameters = image::SharpenAdjustment{
                 .execution_pass =
                     image::DetailEffectsExecutionPass::color_grading,
@@ -314,9 +314,9 @@ private:
     return image::AdjustmentNode{
         .node_id = std::move(id),
         .parameter_schema_version =
-            image::perceptual_color_v3_parameter_schema_version,
+            image::perceptual_color_parameter_schema_version,
         .implementation_version =
-            image::perceptual_color_v3_implementation_version,
+            image::perceptual_color_implementation_version,
         .parameters = std::move(parameters),
     };
 }
@@ -413,9 +413,9 @@ void unsupported_operations_are_whole_stage_fallbacks() {
         image::AdjustmentNode{
             .node_id = "unsupported-middle",
             .parameter_schema_version =
-                image::detail_effects_v3_parameter_schema_version,
+                image::detail_effects_parameter_schema_version,
             .implementation_version =
-                image::finishing_effects_v3_implementation_version,
+                image::finishing_effects_implementation_version,
             .parameters = image::SharpenAdjustment{
                 .execution_pass =
                     image::DetailEffectsExecutionPass::finishing_effects,
@@ -460,9 +460,9 @@ void unsupported_operations_are_whole_stage_fallbacks() {
         image::AdjustmentNode{
             .node_id = "active-neighborhood",
             .parameter_schema_version =
-                image::selective_tone_v3_parameter_schema_version,
+                image::selective_tone_parameter_schema_version,
             .implementation_version =
-                image::selective_tone_v3_implementation_version,
+                image::selective_tone_implementation_version,
             .parameters = image::SelectiveToneAdjustment{.shadows = 0.25},
         },
     };

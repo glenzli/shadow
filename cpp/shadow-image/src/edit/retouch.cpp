@@ -59,6 +59,49 @@ constexpr std::uint16_t maximum_spot_radius_level_zero = 128U;
         + static_cast<std::size_t>(x) * rgb_channels;
 }
 
+[[nodiscard]] std::array<double, rgb_channels> sample_bilinear(
+    const FloatRgbImage& image,
+    const double x,
+    const double y
+) {
+    const double clamped_x = std::clamp(
+        x,
+        0.0,
+        static_cast<double>(image.dimensions.width - 1U)
+    );
+    const double clamped_y = std::clamp(
+        y,
+        0.0,
+        static_cast<double>(image.dimensions.height - 1U)
+    );
+    const auto x0 = static_cast<std::uint32_t>(std::floor(clamped_x));
+    const auto y0 = static_cast<std::uint32_t>(std::floor(clamped_y));
+    const auto x1 = std::min(x0 + 1U, image.dimensions.width - 1U);
+    const auto y1 = std::min(y0 + 1U, image.dimensions.height - 1U);
+    const double blend_x = clamped_x - static_cast<double>(x0);
+    const double blend_y = clamped_y - static_cast<double>(y0);
+    const std::size_t top_left = sample_index(image, x0, y0);
+    const std::size_t top_right = sample_index(image, x1, y0);
+    const std::size_t bottom_left = sample_index(image, x0, y1);
+    const std::size_t bottom_right = sample_index(image, x1, y1);
+
+    std::array<double, rgb_channels> result{};
+    for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
+        const double top = std::lerp(
+            static_cast<double>(image.samples[top_left + channel]),
+            static_cast<double>(image.samples[top_right + channel]),
+            blend_x
+        );
+        const double bottom = std::lerp(
+            static_cast<double>(image.samples[bottom_left + channel]),
+            static_cast<double>(image.samples[bottom_right + channel]),
+            blend_x
+        );
+        result[channel] = std::lerp(top, bottom, blend_y);
+    }
+    return result;
+}
+
 void apply_target(
     FloatRgbImage& image,
     const SpotHealTarget target,
@@ -104,33 +147,35 @@ void apply_target(
         ));
     };
     const FloatRgbImage source = image;
-    std::array<double, rgb_channels> ring_sum{};
-    std::uint64_t ring_count = 0U;
-    const auto ring_min = 1.18;
-    const auto ring_max = 1.92;
-    for (std::int64_t y = lower_y; y <= upper_y; ++y) {
-        for (std::int64_t x = lower_x; x <= upper_x; ++x) {
-            const double dx = (static_cast<double>(x) - center_x) / radius_x;
-            const double dy = (static_cast<double>(y) - center_y) / radius_y;
-            const double distance = std::sqrt(std::fma(dx, dx, dy * dy));
-            if (distance < ring_min || distance > ring_max) {
-                continue;
-            }
-            const std::size_t sample = sample_index(source, clamp_x(x), clamp_y(y));
-            for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
-                ring_sum[channel] += source.samples[sample + channel];
-            }
-            ++ring_count;
-        }
-    }
-    if (ring_count == 0U) {
-        return;
-    }
     std::array<double, rgb_channels> repair{};
-    for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
-        repair[channel] = ring_sum[channel] / static_cast<double>(ring_count);
-        if (!std::isfinite(repair[channel])) {
-            invalid_retouch("surrounding-pixel reconstruction overflowed");
+    if (target.mode == SpotRepairMode::heal) {
+        std::array<double, rgb_channels> ring_sum{};
+        std::uint64_t ring_count = 0U;
+        constexpr double ring_min = 1.18;
+        constexpr double ring_max = 1.92;
+        for (std::int64_t y = lower_y; y <= upper_y; ++y) {
+            for (std::int64_t x = lower_x; x <= upper_x; ++x) {
+                const double dx = (static_cast<double>(x) - center_x) / radius_x;
+                const double dy = (static_cast<double>(y) - center_y) / radius_y;
+                const double distance = std::sqrt(std::fma(dx, dx, dy * dy));
+                if (distance < ring_min || distance > ring_max) {
+                    continue;
+                }
+                const std::size_t sample = sample_index(source, clamp_x(x), clamp_y(y));
+                for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
+                    ring_sum[channel] += source.samples[sample + channel];
+                }
+                ++ring_count;
+            }
+        }
+        if (ring_count == 0U) {
+            return;
+        }
+        for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
+            repair[channel] = ring_sum[channel] / static_cast<double>(ring_count);
+            if (!std::isfinite(repair[channel])) {
+                invalid_retouch("surrounding-pixel reconstruction overflowed");
+            }
         }
     }
 
@@ -152,19 +197,28 @@ void apply_target(
             if (distance > 1.0) {
                 continue;
             }
-            // Keep the central majority fully repaired and soften only the
-            // outer edge. This avoids a visible hard disc without diffusing
-            // the selected defect across the whole radius.
-            const double alpha = 1.0 - smoothstep(0.72, 1.0, distance);
+            const double feather_start = 1.0 - target.feather;
+            const double alpha = target.feather <= 0.0
+                ? 1.0
+                : 1.0 - smoothstep(feather_start, 1.0, distance);
             const std::size_t sample = sample_index(
                 image,
                 static_cast<std::uint32_t>(x),
                 static_cast<std::uint32_t>(y)
             );
+            const std::array<double, rgb_channels> replacement =
+                target.mode == SpotRepairMode::clone
+                ? sample_bilinear(
+                    source,
+                    static_cast<double>(x) + target.source_offset_x_radii * radius_x,
+                    static_cast<double>(y) + target.source_offset_y_radii * radius_y
+                )
+                : repair;
             for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
                 const double value = std::fma(
                     alpha,
-                    repair[channel] - static_cast<double>(source.samples[sample + channel]),
+                    replacement[channel]
+                        - static_cast<double>(source.samples[sample + channel]),
                     static_cast<double>(source.samples[sample + channel])
                 );
                 if (!std::isfinite(value)
@@ -189,7 +243,17 @@ void validate_spot_heal(const SpotHealAdjustment& adjustment) {
             || target.center_x < 0.0 || target.center_x > 1.0
             || target.center_y < 0.0 || target.center_y > 1.0
             || target.radius_level_zero_pixels < minimum_spot_radius_level_zero
-            || target.radius_level_zero_pixels > maximum_spot_radius_level_zero) {
+            || target.radius_level_zero_pixels > maximum_spot_radius_level_zero
+            || (target.mode != SpotRepairMode::heal
+                && target.mode != SpotRepairMode::clone)
+            || !std::isfinite(target.source_offset_x_radii)
+            || !std::isfinite(target.source_offset_y_radii)
+            || target.source_offset_x_radii < -2.0
+            || target.source_offset_x_radii > 2.0
+            || target.source_offset_y_radii < -2.0
+            || target.source_offset_y_radii > 2.0
+            || !std::isfinite(target.feather)
+            || target.feather < 0.0 || target.feather > 1.0) {
             invalid_retouch("target coordinates or radius are outside the supported range");
         }
     }

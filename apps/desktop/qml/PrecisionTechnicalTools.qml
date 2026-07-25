@@ -162,154 +162,271 @@ ColumnLayout {
             Layout.leftMargin: 14
             Layout.rightMargin: 14
             visible: technical.opticsTabIndex === 0
-            spacing: 5
+            spacing: 8
 
-            RowLayout {
+            Rectangle {
                 Layout.fillWidth: true
-                spacing: 6
+                Layout.preferredHeight: opticsCardContent.implicitHeight + 20
+                radius: 8
+                color: Theme.surfaceSubtle
+                border.width: 1
+                border.color: inspector.editor.opticsReceipt.status === "matched"
+                    ? Theme.accentBorder : inspector.panelBorder
 
-                Label {
-                    text: inspector.editor.opticsManualProfile
-                        ? qsTr("OVERRIDE") : qsTr("AUTO")
-                    color: inspector.editor.opticsManualProfile
-                        ? inspector.accent : Theme.successText
-                    font.pixelSize: 9
-                    font.weight: Font.DemiBold
-                    font.letterSpacing: 0.5
-                }
+                ColumnLayout {
+                    id: opticsCardContent
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: 10
+                    spacing: 8
 
-                Label {
-                    id: activeOpticsProfileLabel
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
 
-                    Layout.fillWidth: true
-                    text: {
-                        const receipt = inspector.editor.opticsReceipt
-                        if (!receipt.valid)
-                            return qsTr("Preparing lens profile…")
-                        if (receipt.status === "matched")
-                            return receipt.lensProfile.length > 0
-                                ? receipt.lensProfile
-                                : qsTr("Lens profile matched")
-                        if (receipt.status === "disabled")
-                            return qsTr("Profile correction disabled")
-                        if (receipt.status === "provider_unavailable")
-                            return qsTr("Lensfun unavailable")
-                        if (receipt.status === "camera_not_found")
-                            return qsTr("Camera not found")
-                        if (receipt.status === "lens_not_found")
-                            return qsTr("Lens not found")
-                        return qsTr("Lens metadata unavailable")
+                        Rectangle {
+                            Layout.preferredWidth: 8
+                            Layout.preferredHeight: 8
+                            radius: 4
+                            color: inspector.editor.opticsReceipt.status === "matched"
+                                ? Theme.successText
+                                : inspector.editor.opticsManualProfile
+                                    ? inspector.accent : Theme.textMuted
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 1
+
+                            Label {
+                                text: inspector.editor.opticsManualProfile
+                                    ? qsTr("PROFILE OVERRIDE")
+                                    : qsTr("AUTOMATIC PROFILE")
+                                color: inspector.editor.opticsManualProfile
+                                    ? inspector.accent : Theme.textSecondary
+                                font.pixelSize: 8
+                                font.weight: Font.DemiBold
+                                font.letterSpacing: 0.45
+                            }
+
+                            Label {
+                                id: activeOpticsProfileLabel
+                                Layout.fillWidth: true
+                                text: {
+                                    const receipt = inspector.editor.opticsReceipt
+                                    if (!receipt.valid)
+                                        return qsTr("Preparing lens profile…")
+                                    if (receipt.status === "matched")
+                                        return receipt.lensProfile.length > 0
+                                            ? receipt.lensProfile
+                                            : qsTr("Lens profile matched")
+                                    if (receipt.status === "disabled")
+                                        return qsTr("Profile correction disabled")
+                                    if (receipt.status === "provider_unavailable")
+                                        return qsTr("Lensfun unavailable")
+                                    if (receipt.status === "camera_not_found")
+                                        return qsTr("Camera not found")
+                                    if (receipt.status === "lens_not_found")
+                                        return qsTr("Lens not found")
+                                    return qsTr("Lens metadata unavailable")
+                                }
+                                color: inspector.editor.opticsReceipt.status
+                                    === "matched"
+                                    ? Theme.textPrimary : Theme.textMuted
+                                font.pixelSize: 10
+                                font.weight: Font.Medium
+                                elide: Text.ElideRight
+
+                                HoverHandler { id: activeOpticsProfileHover }
+                                ToolTip.visible: activeOpticsProfileHover.hovered
+                                    && activeOpticsProfileLabel.truncated
+                                ToolTip.delay: 500
+                                ToolTip.text: activeOpticsProfileLabel.text
+                            }
+                        }
+
+                        Switch {
+                            id: opticsMasterSwitch
+                            Layout.preferredWidth: 34
+                            Layout.preferredHeight: 20
+                            checked: inspector.editor.opticsEnabled
+                            enabled: inspector.editor.active
+                                && !inspector.editor.stateBusy
+                            Accessible.name: qsTr("Profile correction")
+                            onToggled:
+                                inspector.editor.opticsEnabled = checked
+                            indicator: Rectangle {
+                                implicitWidth: 32
+                                implicitHeight: 16
+                                x: (opticsMasterSwitch.width - width) / 2
+                                y: (opticsMasterSwitch.height - height) / 2
+                                radius: height / 2
+                                color: opticsMasterSwitch.checked
+                                    ? Theme.switchOnSurface
+                                    : Theme.switchOffSurface
+                                border.color: opticsMasterSwitch.checked
+                                    ? Theme.switchOnBorder
+                                    : Theme.switchOffBorder
+                                opacity: opticsMasterSwitch.enabled ? 1 : 0.42
+                                Rectangle {
+                                    width: 10
+                                    height: 10
+                                    y: 3
+                                    x: opticsMasterSwitch.checked
+                                        ? parent.width - width - 3 : 3
+                                    radius: width / 2
+                                    color: opticsMasterSwitch.checked
+                                        ? inspector.accent : inspector.textMuted
+                                }
+                            }
+                            contentItem: Item {}
+                        }
                     }
-                    color: inspector.editor.opticsReceipt.status === "matched"
-                        ? Theme.textSecondary : Theme.textMuted
-                    font.pixelSize: 10
-                    elide: Text.ElideRight
 
-                    HoverHandler { id: activeOpticsProfileHover }
-                    ToolTip.visible: activeOpticsProfileHover.hovered
-                        && activeOpticsProfileLabel.truncated
-                    ToolTip.delay: 500
-                    ToolTip.text: activeOpticsProfileLabel.text
-                }
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 1
+                        color: inspector.panelBorder
+                    }
 
-                ShadowIconButton {
-                    source: "qrc:/icons/library-manage.svg"
-                    buttonSize: 26
-                    toolTipText: qsTr("Choose lens profile")
-                    accessibleName: toolTipText
-                    onClicked: technical.openOpticsProfileLibraryRequested()
-                }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 6
 
-                ShadowIconButton {
-                    visible: inspector.editor.opticsManualProfile
-                    source: "qrc:/icons/clear.svg"
-                    buttonSize: 26
-                    toolTipText: qsTr("Return to automatic matching")
-                    accessibleName: toolTipText
-                    onClicked: inspector.editor.clearManualOpticsProfile()
+                        Label {
+                            Layout.fillWidth: true
+                            text: {
+                                const receipt = inspector.editor.opticsReceipt
+                                return receipt.cameraProfile
+                                    && receipt.cameraProfile.length > 0
+                                    ? receipt.cameraProfile
+                                    : qsTr("EXIF camera and lens matching")
+                            }
+                            color: Theme.textMuted
+                            font.pixelSize: 9
+                            elide: Text.ElideRight
+                        }
+
+                        ShadowIconButton {
+                            source: "qrc:/icons/library-manage.svg"
+                            buttonSize: 26
+                            toolTipText: qsTr("Choose or override lens profile")
+                            accessibleName: toolTipText
+                            onClicked:
+                                technical.openOpticsProfileLibraryRequested()
+                        }
+
+                        ShadowIconButton {
+                            visible: inspector.editor.opticsManualProfile
+                            source: "qrc:/icons/clear.svg"
+                            buttonSize: 26
+                            toolTipText: qsTr("Return to automatic matching")
+                            accessibleName: toolTipText
+                            onClicked:
+                                inspector.editor.clearManualOpticsProfile()
+                        }
+                    }
                 }
             }
 
-            Repeater {
-                model: [
-                    { "key": "master", "name": qsTr("Profile correction") },
-                    { "key": "distortion", "name": qsTr("Distortion") },
-                    { "key": "tca", "name": qsTr("Chromatic aberration") },
-                    { "key": "vignetting", "name": qsTr("Lens vignetting") },
-                    { "key": "scale", "name": qsTr("Automatic crop") }
-                ]
-                delegate: RowLayout {
-                    required property var modelData
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 24
-                    spacing: 8
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 1
+                enabled: inspector.editor.opticsEnabled
+                opacity: enabled ? 1 : 0.42
 
-                    readonly property bool optionChecked:
-                        modelData.key === "master" ? inspector.editor.opticsEnabled
-                        : modelData.key === "distortion" ? inspector.editor.opticsDistortionEnabled
-                        : modelData.key === "tca" ? inspector.editor.opticsTcaEnabled
-                        : modelData.key === "vignetting" ? inspector.editor.opticsVignettingEnabled
-                        : inspector.editor.opticsAutomaticScale
-
-                    Label {
+                Repeater {
+                    model: [
+                        { "key": "distortion", "name": qsTr("Distortion") },
+                        { "key": "tca", "name": qsTr("Chromatic aberration") },
+                        { "key": "vignetting", "name": qsTr("Lens vignetting") },
+                        { "key": "scale", "name": qsTr("Automatic crop") }
+                    ]
+                    delegate: RowLayout {
+                        required property var modelData
                         Layout.fillWidth: true
-                        text: parent.modelData.name
-                        color: parent.enabled ? Theme.textSecondary : Theme.textDisabled
-                        font.pixelSize: 10
-                    }
+                        Layout.preferredHeight: 26
+                        spacing: 8
 
-                    Label {
-                        readonly property bool applied:
-                            inspector.opticsEffectState(
-                                parent.modelData.key).startsWith(
-                                    qsTr("Applied"))
-                        text: inspector.opticsEffectState(parent.modelData.key)
-                        color: applied ? Theme.successText : Theme.textMuted
-                        font.pixelSize: 9
-                        elide: Text.ElideRight
-                        visible: text.length > 0
-                    }
+                        readonly property bool optionChecked:
+                            modelData.key === "distortion"
+                                ? inspector.editor.opticsDistortionEnabled
+                            : modelData.key === "tca"
+                                ? inspector.editor.opticsTcaEnabled
+                            : modelData.key === "vignetting"
+                                ? inspector.editor.opticsVignettingEnabled
+                            : inspector.editor.opticsAutomaticScale
 
-                    Switch {
-                        id: opticsSwitch
-                        Layout.preferredWidth: 34
-                        Layout.preferredHeight: 20
-                        checked: parent.optionChecked
-                        enabled: inspector.editor.active
-                            && !inspector.editor.stateBusy
-                            && (parent.modelData.key === "master"
-                                || inspector.editor.opticsEnabled)
-                        onToggled: {
-                            if (parent.modelData.key === "master")
-                                inspector.editor.opticsEnabled = checked
-                            else if (parent.modelData.key === "distortion")
-                                inspector.editor.opticsDistortionEnabled = checked
-                            else if (parent.modelData.key === "tca")
-                                inspector.editor.opticsTcaEnabled = checked
-                            else if (parent.modelData.key === "vignetting")
-                                inspector.editor.opticsVignettingEnabled = checked
-                            else
-                                inspector.editor.opticsAutomaticScale = checked
+                        Rectangle {
+                            Layout.preferredWidth: 5
+                            Layout.preferredHeight: 5
+                            radius: 3
+                            color: inspector.opticsEffectState(
+                                parent.modelData.key).startsWith(qsTr("Applied"))
+                                ? Theme.successText : Theme.textMuted
                         }
-                        indicator: Rectangle {
-                            implicitWidth: 32
-                            implicitHeight: 16
-                            x: (opticsSwitch.width - width) / 2
-                            y: (opticsSwitch.height - height) / 2
-                            radius: height / 2
-                            color: opticsSwitch.checked
-                                ? Theme.switchOnSurface : Theme.switchOffSurface
-                            border.color: opticsSwitch.checked
-                                ? Theme.switchOnBorder : Theme.switchOffBorder
-                            opacity: opticsSwitch.enabled ? 1 : 0.45
-                            Rectangle {
-                                width: 10; height: 10; y: 3
-                                x: opticsSwitch.checked ? parent.width - width - 3 : 3
-                                radius: width / 2
-                                color: opticsSwitch.checked ? inspector.accent : inspector.textMuted
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: parent.modelData.name
+                            color: Theme.textSecondary
+                            font.pixelSize: 10
+                        }
+
+                        Label {
+                            text: inspector.opticsEffectState(
+                                parent.modelData.key)
+                            color: text.startsWith(qsTr("Applied"))
+                                ? Theme.successText : Theme.textMuted
+                            font.pixelSize: 8
+                            elide: Text.ElideRight
+                            visible: text.length > 0
+                        }
+
+                        Switch {
+                            id: opticsSwitch
+                            Layout.preferredWidth: 34
+                            Layout.preferredHeight: 20
+                            checked: parent.optionChecked
+                            enabled: inspector.editor.active
+                                && !inspector.editor.stateBusy
+                            onToggled: {
+                                if (parent.modelData.key === "distortion")
+                                    inspector.editor.opticsDistortionEnabled = checked
+                                else if (parent.modelData.key === "tca")
+                                    inspector.editor.opticsTcaEnabled = checked
+                                else if (parent.modelData.key === "vignetting")
+                                    inspector.editor.opticsVignettingEnabled = checked
+                                else
+                                    inspector.editor.opticsAutomaticScale = checked
                             }
+                            indicator: Rectangle {
+                                implicitWidth: 32
+                                implicitHeight: 16
+                                x: (opticsSwitch.width - width) / 2
+                                y: (opticsSwitch.height - height) / 2
+                                radius: height / 2
+                                color: opticsSwitch.checked
+                                    ? Theme.switchOnSurface
+                                    : Theme.switchOffSurface
+                                border.color: opticsSwitch.checked
+                                    ? Theme.switchOnBorder
+                                    : Theme.switchOffBorder
+                                opacity: opticsSwitch.enabled ? 1 : 0.42
+                                Rectangle {
+                                    width: 10
+                                    height: 10
+                                    y: 3
+                                    x: opticsSwitch.checked
+                                        ? parent.width - width - 3 : 3
+                                    radius: width / 2
+                                    color: opticsSwitch.checked
+                                        ? inspector.accent : inspector.textMuted
+                                }
+                            }
+                            contentItem: Item {}
                         }
-                        contentItem: Item {}
                     }
                 }
             }

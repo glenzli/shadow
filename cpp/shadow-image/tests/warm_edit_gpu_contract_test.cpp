@@ -203,9 +203,9 @@ private:
         image::AdjustmentNode{
             .node_id = "pure-color-grading",
             .parameter_schema_version =
-                image::detail_effects_v3_parameter_schema_version,
+                image::detail_effects_parameter_schema_version,
             .implementation_version =
-                image::color_grading_v3_implementation_version,
+                image::color_grading_implementation_version,
             .parameters = image::SharpenAdjustment{
                 .execution_pass =
                     image::DetailEffectsExecutionPass::color_grading,
@@ -302,9 +302,9 @@ private:
         image::AdjustmentNode{
             .node_id = "warm-perceptual-color",
             .parameter_schema_version =
-                image::perceptual_color_v3_parameter_schema_version,
+                image::perceptual_color_parameter_schema_version,
             .implementation_version =
-                image::perceptual_color_v3_implementation_version,
+                image::perceptual_color_implementation_version,
             .parameters = std::move(parameters),
         },
     };
@@ -572,8 +572,8 @@ void resident_gpu_technical_detail_is_complete_or_declines() {
         },
         image::AdjustmentNode{
             .node_id = "technical-denoise",
-            .parameter_schema_version = image::detail_effects_v3_parameter_schema_version,
-            .implementation_version = image::technical_detail_v3_implementation_version,
+            .parameter_schema_version = image::detail_effects_parameter_schema_version,
+            .implementation_version = image::technical_detail_implementation_version,
             .parameters = image::SharpenAdjustment{
                 .execution_pass = image::DetailEffectsExecutionPass::technical_detail,
                 .denoise_luminance = 1.0,
@@ -690,8 +690,8 @@ void resident_gpu_texture_is_complete_or_declines() {
         },
         image::AdjustmentNode{
             .node_id = "perceptual-texture",
-            .parameter_schema_version = image::detail_effects_v3_parameter_schema_version,
-            .implementation_version = image::color_grading_v3_implementation_version,
+            .parameter_schema_version = image::detail_effects_parameter_schema_version,
+            .implementation_version = image::color_grading_implementation_version,
             .parameters = image::SharpenAdjustment{
                 .execution_pass = image::DetailEffectsExecutionPass::color_grading,
                 .texture = 0.72,
@@ -780,8 +780,8 @@ void resident_gpu_clarity_is_complete_or_declines() {
         },
         image::AdjustmentNode{
             .node_id = "perceptual-clarity",
-            .parameter_schema_version = image::detail_effects_v3_parameter_schema_version,
-            .implementation_version = image::color_grading_v3_implementation_version,
+            .parameter_schema_version = image::detail_effects_parameter_schema_version,
+            .implementation_version = image::color_grading_implementation_version,
             .parameters = image::SharpenAdjustment{
                 .execution_pass = image::DetailEffectsExecutionPass::color_grading,
                 .clarity = 0.64,
@@ -883,8 +883,8 @@ void resident_gpu_dehaze_and_defringe_is_complete_or_declines() {
         },
         image::AdjustmentNode{
             .node_id = "technical-dehaze-defringe",
-            .parameter_schema_version = image::detail_effects_v3_parameter_schema_version,
-            .implementation_version = image::technical_detail_v3_implementation_version,
+            .parameter_schema_version = image::detail_effects_parameter_schema_version,
+            .implementation_version = image::technical_detail_implementation_version,
             .parameters = image::SharpenAdjustment{
                 .execution_pass = image::DetailEffectsExecutionPass::technical_detail,
                 .dehaze = 0.56,

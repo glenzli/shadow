@@ -51,7 +51,7 @@ accepts `max_edge` only in 1 through 512 and returns owned `width`, `height`, sa
 normalized `Vec<f32>` luma, and the exact preprocessing version. The output is tightly packed and
 can be borrowed directly by `shadow_ai::DisplayLumaPlane`. Its semantics are explicitly an
 assumed-sRGB JPEG display proxy without ICC or orientation interpretation, never a RAW-domain
-measurement. Its version-2 identity includes the discovered libjpeg-turbo package revision,
+measurement. Its v1 identity includes the discovered libjpeg-turbo package revision,
 RGB8 output, slow integer DCT, disabled fancy upsampling and block smoothing, fixed IDCT
 scale/resize/luma rules, and the requested edge. Rust rejects a C++ result whose reported identity
 does not match the build-time contract. This makes incompatible preprocessing detectable; it does

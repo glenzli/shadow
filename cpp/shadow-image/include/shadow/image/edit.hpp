@@ -101,6 +101,7 @@ struct PhotoGeometry final {
     double crop_right = 1.0;
     double crop_bottom = 1.0;
     PhotoQuarterTurn quarter_turn = PhotoQuarterTurn::zero;
+    double straighten_degrees = 0.0;
     bool flip_horizontal = false;
     bool flip_vertical = false;
 
@@ -184,7 +185,7 @@ struct SaturationAdjustment final {
 // from the broad recovery ranges (Shadows/Highlights): endpoint controls shape a tighter
 // toe/shoulder response while recovery controls apply a wider EV-domain exposure field.
 //
-// Version 3 evaluates those fields against a complete self-guided filter in log scene
+// The v1 contract evaluates those fields against a complete self-guided filter in log scene
 // luminance, then applies the resulting EV gain to Oklab lightness while preserving a/b. The
 // filter averages its local linear coefficients in a second box pass, so neighbouring pixels in
 // the same tonal region share a gain (preserving local contrast) while high-contrast edges remain
@@ -197,11 +198,8 @@ struct SelectiveToneAdjustment final {
     double blacks = 0.0;
 };
 
-// The four public tone controls retain their compact v1 parameter shape, but their masked
-// scene-linear processing is a different operation contract. Do not reinterpret a persisted v1
-// or v2 control set as v3: callers must explicitly create the current contract.
-inline constexpr std::uint32_t selective_tone_v3_parameter_schema_version = 3;
-inline constexpr std::uint32_t selective_tone_v3_implementation_version = 3;
+inline constexpr std::uint32_t selective_tone_parameter_schema_version = 1;
+inline constexpr std::uint32_t selective_tone_implementation_version = 1;
 
 // Native/full-resolution radius of each box pass in the deterministic self-guided log-luminance
 // filter. The executor converts this independently for each raster axis, so a warm proxy and a
@@ -216,8 +214,8 @@ inline constexpr std::size_t selective_color_target_count = 9U;
 inline constexpr std::size_t selective_color_component_count = 4U;
 inline constexpr std::size_t selective_color_value_count =
     selective_color_target_count * selective_color_component_count;
-inline constexpr std::uint32_t perceptual_color_v3_parameter_schema_version = 3;
-inline constexpr std::uint32_t perceptual_color_v3_implementation_version = 3;
+inline constexpr std::uint32_t perceptual_color_parameter_schema_version = 1;
+inline constexpr std::uint32_t perceptual_color_implementation_version = 1;
 
 // Optional circular hue selection evaluated against the source Oklch hue. width_degrees is the
 // half-width of the selected range; softness is the fraction of that half-width used as a smooth
@@ -233,7 +231,7 @@ struct PerceptualColorRange final {
 };
 
 // Perceptual color controls evaluated in Oklab/Oklch. The public band order is red, orange,
-// yellow, green, aqua, blue, purple, magenta. Implementation version 3 anchors those names at
+// yellow, green, aqua, blue, purple, magenta. The v1 implementation anchors those names at
 // the non-uniform Oklch hues of representative linear-sRGB colors and uses a smooth periodic
 // partition of unity between adjacent anchors; it must never be interpreted as an HSV wheel.
 // hue values in [-1, 1] map to [-30, 30] degrees; saturation/lightness and vibrance are
@@ -269,8 +267,8 @@ struct CubeLutAdjustment final {
 };
 
 // The visible Detail & Effects control bundle is deliberately kept intact at
-// the UI/CXX boundary. Recipe schema 3 assigns one of these internal passes
-// to each copy of the bundle, preventing a creative LUT from accidentally
+// the UI/CXX boundary. The Recipe assigns one of these internal passes to each
+// copy of the bundle, preventing a creative LUT from accidentally
 // moving technical recovery or grain/vignette work across the pipeline.
 enum class DetailEffectsExecutionPass : std::uint8_t {
     technical_detail,
@@ -324,15 +322,13 @@ struct SharpenAdjustment final {
     double vignette_highlights = 0.0;
 };
 
-inline constexpr std::uint32_t detail_effects_v2_parameter_schema_version = 2;
-inline constexpr std::uint32_t detail_effects_v2_implementation_version = 2;
-// Recipe schema 3 carries the 35-scalar Detail & Effects wire shape, including
-// Oklab-L frequency detail, and gives each execution pass a non-interchangeable
-// contract revision.
-inline constexpr std::uint32_t detail_effects_v3_parameter_schema_version = 3;
-inline constexpr std::uint32_t technical_detail_v3_implementation_version = 3;
-inline constexpr std::uint32_t color_grading_v3_implementation_version = 4;
-inline constexpr std::uint32_t finishing_effects_v3_implementation_version = 5;
+// The 35-scalar Detail & Effects wire shape is divided into three ordered
+// execution passes. During pre-release development these all remain v1; old
+// local Recipes are discarded when the shape or behavior changes.
+inline constexpr std::uint32_t detail_effects_parameter_schema_version = 1;
+inline constexpr std::uint32_t technical_detail_implementation_version = 1;
+inline constexpr std::uint32_t color_grading_implementation_version = 1;
+inline constexpr std::uint32_t finishing_effects_implementation_version = 1;
 
 inline constexpr std::uint32_t oklab_lightness_tone_curve_parameter_schema_version = 1;
 inline constexpr std::uint32_t oklab_lightness_tone_curve_implementation_version = 1;
@@ -367,10 +363,19 @@ struct OklabLightnessToneCurve final {
 // One small non-generative repair. Coordinates are normalized to the full
 // original-oriented image; the radius remains in level-zero pixels so warm
 // proxies and full detail apply the same physical selection.
+enum class SpotRepairMode : std::uint8_t {
+    heal = 0U,
+    clone = 1U,
+};
+
 struct SpotHealTarget final {
     double center_x = 0.5;
     double center_y = 0.5;
     std::uint16_t radius_level_zero_pixels = 1U;
+    SpotRepairMode mode = SpotRepairMode::heal;
+    double source_offset_x_radii = 0.0;
+    double source_offset_y_radii = 0.0;
+    double feather = 0.28;
 };
 
 struct SpotHealAdjustment final {
@@ -558,6 +563,13 @@ void apply_spot_heal(
 enum class LocalMaskKind : std::uint8_t {
     linear_gradient,
     radial_gradient,
+    brush,
+};
+
+struct LocalMaskPoint final {
+    double x = 0.0;
+    double y = 0.0;
+    bool begins_stroke = false;
 };
 
 struct LocalMask final {
@@ -570,6 +582,7 @@ struct LocalMask final {
     double radius_y = 0.0;
     double feather = 0.0;
     bool invert = false;
+    std::vector<LocalMaskPoint> points;
 };
 
 // A sequential Grade Node layer. The first implementation supports only
@@ -640,15 +653,9 @@ inline constexpr std::string_view edit_preview_analysis_version =
 // the immutable session or generic EncodedProxy payload.
 inline constexpr std::uint32_t edit_preview_execution_receipt_schema_version = 1U;
 inline constexpr std::uint32_t edit_preview_cpu_adjustment_backend_version = 1U;
-inline constexpr std::uint32_t edit_preview_metal_adjustment_backend_version = 3U;
+inline constexpr std::uint32_t edit_preview_metal_adjustment_backend_version = 1U;
 inline constexpr std::uint32_t edit_preview_cpu_display_backend_version = 1U;
 inline constexpr std::uint32_t edit_preview_metal_display_backend_version = 1U;
-// The session-resident backend fuses adjustment and display in one Metal kernel. It has a
-// distinct receipt version because it keeps the immutable source on-device and uses fp32-safe
-// fused execution rather than the earlier host-separated adjustment/display stages. Version 5
-// adds resident technical detail; Version 6 adds Texture; Version 7 adds proxy-scale Clarity;
-// Version 8 adds technical optics; Version 9 fuses Texture plus Clarity. All bypass old caches.
-inline constexpr std::uint32_t edit_preview_warm_fused_metal_backend_version = 9U;
 inline constexpr std::uint32_t edit_preview_jpeg_444_contract_version = 1U;
 
 enum class EditPreviewBackend : std::uint8_t {
@@ -667,6 +674,10 @@ struct EditPreviewExecutionReceipt final {
     std::uint32_t display_backend_version = edit_preview_cpu_display_backend_version;
     std::uint32_t display_output_contract_version =
         display_srgb8_output_transform_version;
+    // The session-resident Metal route is structurally distinct from the
+    // staged adjustment/display route. Keep that fact explicit instead of
+    // encoding a route choice by inflating a backend version number.
+    bool fused_pipeline = false;
     // These fields are diagnostic only. If automatic acceleration falls back, the complete
     // affected stage must restart from its immutable input; the effective CPU/Metal route above
     // then completely identifies the output math.

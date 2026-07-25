@@ -19,11 +19,11 @@ namespace shadow::image {
 namespace {
 
 using ProcessedImage = std::unique_ptr<libraw_processed_image_t, void (*)(libraw_processed_image_t*)>;
-inline constexpr std::uint32_t libraw_capability_contract_version = 6U;
+inline constexpr std::uint32_t libraw_capability_contract_version = 1U;
 // This version covers the display-orientation semantics of cached embedded-preview descriptors.
 // It is deliberately separate from the raw-frame and rendered-RGB contracts: the JPEG bytes do
 // not change, but their catalog geometry must match the auto-oriented image that Qt presents.
-inline constexpr std::uint32_t libraw_embedded_preview_geometry_contract_version = 2U;
+inline constexpr std::uint32_t libraw_embedded_preview_geometry_contract_version = 1U;
 inline constexpr int libraw_reference_output_color = 1;
 inline constexpr double libraw_reference_gamma_inverse_power = 1.0;
 inline constexpr double libraw_reference_gamma_linear_toe_slope = 1.0;

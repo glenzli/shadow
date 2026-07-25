@@ -357,7 +357,7 @@ void processed_linear_contract_is_required_before_editing() {
 }
 
 void display_gamut_mapping_preserves_oklab_hue_with_bounded_work() {
-    static_assert(image::display_srgb8_output_transform_version == 6U);
+    static_assert(image::display_srgb8_output_transform_version == 1U);
     static_assert(image::display_srgb8_gamut_search_iterations <= 16U);
     static_assert(image::display_srgb8_maximum_oklab_chroma == 0.5);
 
@@ -482,8 +482,8 @@ void neighborhood_tiles_accumulate_two_sharpen_footprints_without_seams() {
     const std::array plan{
         image::AdjustmentNode{
             .node_id = "wide-sharpen-first",
-            .parameter_schema_version = image::detail_effects_v3_parameter_schema_version,
-            .implementation_version = image::technical_detail_v3_implementation_version,
+            .parameter_schema_version = image::detail_effects_parameter_schema_version,
+            .implementation_version = image::technical_detail_implementation_version,
             .parameters = image::SharpenAdjustment{
                 .amount = 0.7,
                 .radius = 5.0,
@@ -493,8 +493,8 @@ void neighborhood_tiles_accumulate_two_sharpen_footprints_without_seams() {
         },
         image::AdjustmentNode{
             .node_id = "wide-sharpen-second",
-            .parameter_schema_version = image::detail_effects_v3_parameter_schema_version,
-            .implementation_version = image::technical_detail_v3_implementation_version,
+            .parameter_schema_version = image::detail_effects_parameter_schema_version,
+            .implementation_version = image::technical_detail_implementation_version,
             .parameters = image::SharpenAdjustment{
                 .amount = 0.4,
                 .radius = 5.0,
@@ -572,8 +572,8 @@ void guided_selective_tone_tiles_match_full_execution_at_edges_and_boundaries() 
     const std::array plan{
         image::AdjustmentNode{
             .node_id = "guided-selective-tone",
-            .parameter_schema_version = image::selective_tone_v3_parameter_schema_version,
-            .implementation_version = image::selective_tone_v3_implementation_version,
+            .parameter_schema_version = image::selective_tone_parameter_schema_version,
+            .implementation_version = image::selective_tone_implementation_version,
             .parameters = image::SelectiveToneAdjustment{
                 .highlights = -0.55,
                 .shadows = 0.7,
@@ -630,8 +630,8 @@ void neighborhood_resource_limits_fail_closed_before_allocation() {
     for (std::size_t index = 0U; index < 35U; ++index) {
         plan.push_back(image::AdjustmentNode{
             .node_id = "apron-limit-sharpen-" + std::to_string(index),
-            .parameter_schema_version = image::detail_effects_v3_parameter_schema_version,
-            .implementation_version = image::technical_detail_v3_implementation_version,
+            .parameter_schema_version = image::detail_effects_parameter_schema_version,
+            .implementation_version = image::technical_detail_implementation_version,
             .parameters = image::SharpenAdjustment{.amount = 1.0, .radius = 5.0},
         });
     }

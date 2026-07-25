@@ -12,7 +12,7 @@ inline constexpr std::string_view metal_adjustment_msl_common = R"METAL(
 #include <metal_stdlib>
 using namespace metal;
 
-constant uint parameter_abi_version = 3u;
+constant uint parameter_abi_version = 1u;
 constant uint plan_identity_version = 1u;
 constant uint opcode_white_balance = 1u;
 constant uint opcode_exposure = 2u;

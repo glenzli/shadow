@@ -165,6 +165,7 @@ template <std::size_t Size>
     result.display_backend = edit_preview_backend(receipt.display_backend);
     result.display_backend_version = receipt.display_backend_version;
     result.display_output_contract_version = receipt.display_output_contract_version;
+    result.fused_pipeline = receipt.fused_pipeline;
     result.adjustment_fell_back = receipt.adjustment_fell_back;
     result.display_fell_back = receipt.display_fell_back;
     result.diagnostic = rust::String(receipt.diagnostic);
@@ -217,6 +218,7 @@ template <std::size_t Size>
         .crop_right = value.crop_right,
         .crop_bottom = value.crop_bottom,
         .quarter_turn = quarter_turn,
+        .straighten_degrees = value.straighten_degrees,
         .flip_horizontal = value.flip_horizontal,
         .flip_vertical = value.flip_vertical,
     };
@@ -771,9 +773,9 @@ void require_parameter_count(
         break;
     case FfiAdjustmentOperation::SelectiveTone:
         if (source.parameter_schema_version
-                != image::selective_tone_v3_parameter_schema_version
+                != image::selective_tone_parameter_schema_version
             || source.implementation_version
-                != image::selective_tone_v3_implementation_version) {
+                != image::selective_tone_implementation_version) {
             throw_invalid_adjustment_plan(
                 "selective tone requires the complete self-guided filter contract"
             );
@@ -788,9 +790,9 @@ void require_parameter_count(
         break;
     case FfiAdjustmentOperation::PerceptualColor: {
         if (source.parameter_schema_version
-                != image::perceptual_color_v3_parameter_schema_version
+                != image::perceptual_color_parameter_schema_version
             || source.implementation_version
-                != image::perceptual_color_v3_implementation_version
+                != image::perceptual_color_implementation_version
             || source.parameter_group_lengths.size() != 1U) {
             throw_invalid_adjustment_plan(
                 "perceptual color requires the current Color Mixer and Selective Color contract"
@@ -878,26 +880,22 @@ void require_parameter_count(
     }
     case FfiAdjustmentOperation::Sharpen: {
         if (source.parameter_schema_version
-            != image::detail_effects_v3_parameter_schema_version) {
+            != image::detail_effects_parameter_schema_version) {
             throw_invalid_adjustment_plan(
                 "detail and effects requires the current split-pass contract"
             );
         }
         image::DetailEffectsExecutionPass execution_pass;
-        switch (source.implementation_version) {
-        case image::technical_detail_v3_implementation_version:
+        switch (source.detail_effects_pass) {
+        case FfiDetailEffectsPass::TechnicalDetail:
             execution_pass = image::DetailEffectsExecutionPass::technical_detail;
             break;
-        case image::color_grading_v3_implementation_version:
+        case FfiDetailEffectsPass::ColorGrading:
             execution_pass = image::DetailEffectsExecutionPass::color_grading;
             break;
-        case image::finishing_effects_v3_implementation_version:
+        case FfiDetailEffectsPass::FinishingEffects:
             execution_pass = image::DetailEffectsExecutionPass::finishing_effects;
             break;
-        default:
-            throw_invalid_adjustment_plan(
-                "detail and effects execution pass is unsupported"
-            );
         }
         require_parameter_count(source, 35U, "detail and effects");
         image::SharpenAdjustment parameters{
@@ -951,32 +949,50 @@ void require_parameter_count(
         }
         const std::size_t target_count = source.parameter_group_lengths[0];
         if (target_count == 0U || target_count > 64U
-            || source.parameters.size() != target_count * 3U) {
+            || source.parameters.size() != target_count * 7U) {
             throw_invalid_adjustment_plan(
-                "spot-heal must contain 1 through 64 flattened x/y/radius targets"
+                "spot-heal must contain 1 through 64 complete repair targets"
             );
         }
         image::SpotHealAdjustment parameters;
         parameters.spots.reserve(target_count);
         for (std::size_t index = 0U; index < target_count; ++index) {
-            const std::size_t offset = index * 3U;
+            const std::size_t offset = index * 7U;
             const double encoded_radius = source.parameters[offset + 2U];
+            const double encoded_mode = source.parameters[offset + 3U];
             if (!std::isfinite(source.parameters[offset])
                 || !std::isfinite(source.parameters[offset + 1U])
                 || !std::isfinite(encoded_radius)
+                || !std::isfinite(encoded_mode)
+                || !std::isfinite(source.parameters[offset + 4U])
+                || !std::isfinite(source.parameters[offset + 5U])
+                || !std::isfinite(source.parameters[offset + 6U])
                 || source.parameters[offset] < 0.0 || source.parameters[offset] > 1.0
                 || source.parameters[offset + 1U] < 0.0
                 || source.parameters[offset + 1U] > 1.0
                 || encoded_radius < 1.0 || encoded_radius > 128.0
-                || std::floor(encoded_radius) != encoded_radius) {
+                || std::floor(encoded_radius) != encoded_radius
+                || (encoded_mode != 0.0 && encoded_mode != 1.0)
+                || source.parameters[offset + 4U] < -2.0
+                || source.parameters[offset + 4U] > 2.0
+                || source.parameters[offset + 5U] < -2.0
+                || source.parameters[offset + 5U] > 2.0
+                || source.parameters[offset + 6U] < 0.0
+                || source.parameters[offset + 6U] > 1.0) {
                 throw_invalid_adjustment_plan(
-                    "spot-heal target coordinates or radius are outside the supported range"
+                    "spot-heal target behavior is outside the supported range"
                 );
             }
             parameters.spots.push_back(image::SpotHealTarget{
                 .center_x = source.parameters[offset],
                 .center_y = source.parameters[offset + 1U],
                 .radius_level_zero_pixels = static_cast<std::uint16_t>(encoded_radius),
+                .mode = encoded_mode == 0.0
+                    ? image::SpotRepairMode::heal
+                    : image::SpotRepairMode::clone,
+                .source_offset_x_radii = source.parameters[offset + 4U],
+                .source_offset_y_radii = source.parameters[offset + 5U],
+                .feather = source.parameters[offset + 6U],
             });
         }
         result.parameters = std::move(parameters);
@@ -1035,8 +1051,7 @@ void require_parameter_count(
             }
             if (node.parameter_schema_version != image::adjustment_parameter_schema_version
                 || node.implementation_version != image::adjustment_implementation_version
-                || !node.payload.empty() || !node.parameter_group_lengths.empty()
-                || node.parameters.size() != 10U) {
+                || !node.payload.empty() || node.parameters.size() < 10U) {
                 throw_invalid_adjustment_plan("local-mask layer start has an invalid contract");
             }
             for (const double value : node.parameters) {
@@ -1048,9 +1063,21 @@ void require_parameter_count(
             const double kind = node.parameters[1];
             const double invert = node.parameters[9];
             if (opacity < 0.0 || opacity > 1.0
-                || (kind != 0.0 && kind != 1.0 && kind != 2.0)
+                || (kind != 0.0 && kind != 1.0 && kind != 2.0 && kind != 3.0)
                 || (invert != 0.0 && invert != 1.0)) {
                 throw_invalid_adjustment_plan("local-mask layer start has an out-of-range parameter");
+            }
+            const bool brush = kind == 3.0;
+            if ((!brush && (!node.parameter_group_lengths.empty()
+                            || node.parameters.size() != 10U))
+                || (brush && (node.parameter_group_lengths.size() != 1U
+                              || node.parameters.size()
+                                  != 10U
+                                      + static_cast<std::size_t>(
+                                          node.parameter_group_lengths[0]
+                                      ) * 3U
+                              || node.parameter_group_lengths[0] > 4096U))) {
+                throw_invalid_adjustment_plan("local-mask layer start has invalid brush groups");
             }
             image::AdjustmentLayer layer{
                 .layer_id = std::string(node.node_id.data(), node.node_id.size()),
@@ -1077,6 +1104,29 @@ void require_parameter_count(
                     .radius_y = node.parameters[7],
                     .feather = node.parameters[8],
                     .invert = invert == 1.0,
+                };
+            } else if (kind == 3.0) {
+                std::vector<image::LocalMaskPoint> points;
+                points.reserve(node.parameter_group_lengths[0]);
+                for (std::size_t offset = 10U; offset < node.parameters.size(); offset += 3U) {
+                    const double begins_stroke = node.parameters[offset + 2U];
+                    if (begins_stroke != 0.0 && begins_stroke != 1.0) {
+                        throw_invalid_adjustment_plan(
+                            "local-mask brush point has an invalid stroke marker"
+                        );
+                    }
+                    points.push_back(image::LocalMaskPoint{
+                        .x = node.parameters[offset],
+                        .y = node.parameters[offset + 1U],
+                        .begins_stroke = begins_stroke == 1.0,
+                    });
+                }
+                layer.mask = image::LocalMask{
+                    .kind = image::LocalMaskKind::brush,
+                    .radius_x = node.parameters[6],
+                    .feather = node.parameters[8],
+                    .invert = invert == 1.0,
+                    .points = std::move(points),
                 };
             }
             open_layer = std::move(layer);

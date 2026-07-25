@@ -42,6 +42,17 @@ void validate_mask(const LocalMask& mask) {
             invalid_mask("local-mask radial gradient radii must both be greater than zero");
         }
         return;
+    case LocalMaskKind::brush:
+        validate_normalized(mask.radius_x, "brush radius");
+        validate_normalized(mask.feather, "brush feather");
+        if (mask.radius_x <= 0.0 || mask.points.size() > 4096U) {
+            invalid_mask("local-mask brush radius or point count is invalid");
+        }
+        for (const auto& point : mask.points) {
+            validate_normalized(point.x, "brush x");
+            validate_normalized(point.y, "brush y");
+        }
+        return;
     }
     invalid_mask("local-mask has an unsupported kind");
 }
@@ -51,10 +62,43 @@ void validate_mask(const LocalMask& mask) {
     return x * x * x * (x * (x * 6.0 - 15.0) + 10.0);
 }
 
+[[nodiscard]] double segment_distance(
+    const double x,
+    const double y,
+    const LocalMaskPoint& start,
+    const LocalMaskPoint& end,
+    const double scale_x,
+    const double scale_y
+) noexcept {
+    const double scaled_x = x * scale_x;
+    const double scaled_y = y * scale_y;
+    const double start_x = start.x * scale_x;
+    const double start_y = start.y * scale_y;
+    const double end_x = end.x * scale_x;
+    const double end_y = end.y * scale_y;
+    const double dx = end_x - start_x;
+    const double dy = end_y - start_y;
+    const double denominator = std::fma(dx, dx, dy * dy);
+    if (denominator <= std::numeric_limits<double>::epsilon()) {
+        return std::hypot(scaled_x - end_x, scaled_y - end_y);
+    }
+    const double t = std::clamp(
+        ((scaled_x - start_x) * dx + (scaled_y - start_y) * dy) / denominator,
+        0.0,
+        1.0
+    );
+    return std::hypot(
+        scaled_x - std::fma(t, dx, start_x),
+        scaled_y - std::fma(t, dy, start_y)
+    );
+}
+
 [[nodiscard]] double coverage_at(
     const LocalMask& mask,
     const double x,
-    const double y
+    const double y,
+    const double brush_scale_x,
+    const double brush_scale_y
 ) noexcept {
     double coverage = 0.0;
     switch (mask.kind) {
@@ -75,6 +119,45 @@ void validate_mask(const LocalMask& mask) {
             const double inner = 1.0 - mask.feather;
             coverage = 1.0 - smootherstep((distance - inner) / mask.feather);
         }
+        break;
+    }
+    case LocalMaskKind::brush: {
+        if (mask.points.empty()) {
+            coverage = 0.0;
+            break;
+        }
+        double distance = std::numeric_limits<double>::infinity();
+        for (std::size_t index = 0U; index < mask.points.size(); ++index) {
+            const auto& point = mask.points[index];
+            distance = std::min(
+                distance,
+                std::hypot(
+                    (x - point.x) * brush_scale_x,
+                    (y - point.y) * brush_scale_y
+                )
+            );
+            if (index > 0U && !point.begins_stroke) {
+                distance = std::min(
+                    distance,
+                    segment_distance(
+                        x,
+                        y,
+                        mask.points[index - 1U],
+                        point,
+                        brush_scale_x,
+                        brush_scale_y
+                    )
+                );
+            }
+        }
+        const double inner = mask.radius_x * (1.0 - mask.feather);
+        const double transition = std::max(
+            mask.radius_x - inner,
+            std::numeric_limits<double>::epsilon()
+        );
+        coverage = mask.feather <= 0.0
+            ? (distance <= mask.radius_x ? 1.0 : 0.0)
+            : 1.0 - smootherstep((distance - inner) / transition);
         break;
     }
     }
@@ -113,6 +196,11 @@ void mix_masked_layer(
     const std::size_t stride = destination.row_stride_bytes / sizeof(float);
     const auto width = static_cast<std::size_t>(destination.dimensions.width);
     const auto height = static_cast<std::size_t>(destination.dimensions.height);
+    const double shorter_side = static_cast<double>(
+        std::min(full.width, full.height)
+    );
+    const double brush_scale_x = static_cast<double>(full.width) / shorter_side;
+    const double brush_scale_y = static_cast<double>(full.height) / shorter_side;
     for (std::size_t row = 0U; row < height; ++row) {
         const double y = (static_cast<double>(context.origin_y) + static_cast<double>(row) + 0.5)
             / static_cast<double>(full.height);
@@ -120,7 +208,8 @@ void mix_masked_layer(
             const double x = (static_cast<double>(context.origin_x)
                                   + static_cast<double>(column) + 0.5)
                 / static_cast<double>(full.width);
-            const double alpha = opacity * coverage_at(mask, x, y);
+            const double alpha = opacity
+                * coverage_at(mask, x, y, brush_scale_x, brush_scale_y);
             const std::size_t sample = row * stride + column * 3U;
             for (std::size_t channel = 0U; channel < 3U; ++channel) {
                 const double before = static_cast<double>(source.samples[sample + channel]);

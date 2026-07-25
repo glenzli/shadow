@@ -24,6 +24,13 @@ Rectangle {
     color: Theme.photoCanvas
 
     required property var editor
+    required property int activeToolMode
+    required property real cropAspectRatioLock
+
+    readonly property int toolNone: 0
+    readonly property int toolMask: 1
+    readonly property int toolCrop: 2
+    readonly property int toolRepair: 3
 
     // Public viewport state.
     property real zoomFactor: 1.0
@@ -119,6 +126,10 @@ Rectangle {
     onComparisonModeChanged: comparisonStateChanged()
     onComparisonPositionChanged: comparisonStateChanged()
     onZebraEnabledChanged: analysisOverlayStateChanged()
+    onActiveToolModeChanged: {
+        comparisonActive = false
+        resetView()
+    }
     onPreviewFrameReadyStateChanged: previewFrameStateChanged()
     onBeforeFrameReadyStateChanged: previewFrameStateChanged()
     onReadyPreviewGenerationStateChanged: previewFrameStateChanged()
@@ -963,6 +974,41 @@ Rectangle {
                             }
                         }
 
+                        PrecisionLocalMaskOverlay {
+                            anchors.fill: parent
+                            z: 95
+                            editor: canvas.editor
+                            interactionEnabled: canvas.activeToolMode
+                                    === canvas.toolMask
+                                && !canvas.comparisonActive
+                                && !canvas.editor.pointColorPickerActive
+                                && !canvas.editor.whiteBalancePickerActive
+                                && !canvas.editor.retouchPickerActive
+                        }
+
+                        PrecisionCropOverlay {
+                            anchors.fill: parent
+                            z: 97
+                            editor: canvas.editor
+                            aspectRatioLock: canvas.cropAspectRatioLock
+                            interactionEnabled: canvas.activeToolMode
+                                === canvas.toolCrop
+                                && !canvas.comparisonActive
+                                && canvas.previewFrameReady
+                        }
+
+                        PrecisionRetouchOverlay {
+                            anchors.fill: parent
+                            z: 103
+                            editor: canvas.editor
+                            interactionEnabled: canvas.activeToolMode
+                                === canvas.toolRepair
+                                && !canvas.comparisonActive
+                                && canvas.previewFrameReady
+                            levelZeroWidth: canvas.imagePixelWidth
+                            levelZeroHeight: canvas.imagePixelHeight
+                        }
+
                         MouseArea {
                             id: pointColorPickArea
                             anchors.fill: parent
@@ -973,9 +1019,65 @@ Rectangle {
                                 && !canvas.comparisonActive
                                 && canvas.previewFrameReady
                                 && canvas.readyPreviewGeneration.length > 0
-                            cursorShape: Qt.CrossCursor
+                            hoverEnabled: true
+                            cursorShape: enabled ? Qt.BlankCursor : Qt.ArrowCursor
+                            property real pointerX: width / 2
+                            property real pointerY: height / 2
+                            onPositionChanged: mouse => {
+                                pointerX = mouse.x
+                                pointerY = mouse.y
+                            }
                             onClicked: mouse => canvas.pickPreviewColor(
                                 pointColorPickArea, mouse.x, mouse.y)
+                        }
+
+                        Item {
+                            z: 101
+                            visible: pointColorPickArea.enabled
+                                && pointColorPickArea.containsMouse
+                            x: pointColorPickArea.pointerX
+                            y: pointColorPickArea.pointerY
+
+                            Rectangle {
+                                visible: canvas.editor.retouchPickerActive
+                                anchors.centerIn: parent
+                                width: Math.max(18, 36 * canvas.displayScale)
+                                height: width
+                                radius: width / 2
+                                color: Theme.transparent
+                                border.width: 1
+                                border.color: Theme.previewCompareDivider
+
+                                Rectangle {
+                                    anchors.fill: parent
+                                    anchors.margins: 1
+                                    radius: width / 2
+                                    color: Theme.transparent
+                                    border.width: 1
+                                    border.color: Theme.accent
+                                }
+                            }
+
+                            Item {
+                                visible: !canvas.editor.retouchPickerActive
+                                x: -6
+                                y: -19
+                                width: 24
+                                height: 24
+
+                                ShadowIcon {
+                                    x: 1
+                                    y: 1
+                                    source: "qrc:/icons/eyedropper.svg"
+                                    color: Theme.previewHudStrongOverlay
+                                    size: 24
+                                }
+                                ShadowIcon {
+                                    source: "qrc:/icons/eyedropper.svg"
+                                    color: Theme.previewCompareDivider
+                                    size: 24
+                                }
+                            }
                         }
                     }
 

@@ -30,23 +30,22 @@ use shadow_bridge::{
     ADJUSTMENT_IMPLEMENTATION_VERSION, ADJUSTMENT_PARAMETER_SCHEMA_VERSION, AdjustmentGeometry,
     AdjustmentLocalMask, AdjustmentQuarterTurn, AdjustmentRenderNode, AdjustmentRenderOperation,
     AdjustmentRenderPlan, AdjustmentSpotHealTarget, BasicEditParameters,
-    COLOR_GRADING_V3_IMPLEMENTATION_VERSION as COLOR_GRADING_V3_IMPLEMENTATION_REVISION,
+    COLOR_GRADING_IMPLEMENTATION_VERSION as COLOR_GRADING_IMPLEMENTATION_REVISION,
     COLOR_MIXER_BAND_COUNT, CancellableEditPreview, ColorRangeParameters, DetailTileRect,
     DetailTileRequest, EditPreviewExecutionReceipt,
-    FINISHING_EFFECTS_V3_IMPLEMENTATION_VERSION as FINISHING_EFFECTS_V3_IMPLEMENTATION_REVISION,
+    FINISHING_EFFECTS_IMPLEMENTATION_VERSION as FINISHING_EFFECTS_IMPLEMENTATION_REVISION,
     MAX_ADJUSTMENT_RENDER_NODES, MAX_EDIT_DETAIL_TILE_SIDE, MAX_LUT_DOCUMENT_BYTES,
     MAX_POINT_COLOR_RANGES, MAX_TONE_CURVE_POINTS,
     OKLAB_LIGHTNESS_TONE_CURVE_IMPLEMENTATION_VERSION as OKLAB_LIGHTNESS_TONE_CURVE_IMPLEMENTATION_REVISION,
     OKLAB_LIGHTNESS_TONE_CURVE_PARAMETER_SCHEMA_VERSION as OKLAB_LIGHTNESS_TONE_CURVE_PARAMETER_SCHEMA_REVISION,
     OklabLightnessToneCurve, OpticsSettings,
-    PERCEPTUAL_COLOR_V3_IMPLEMENTATION_VERSION as PERCEPTUAL_COLOR_V3_IMPLEMENTATION_REVISION,
-    PERCEPTUAL_COLOR_V3_PARAMETER_SCHEMA_VERSION, PerceptualColorParameters,
-    PhotoEditDetailSession, PhotoEditPreviewSession, RawDevelopmentPlan, RawPipelineReceipt,
-    SELECTIVE_COLOR_VALUE_COUNT,
-    SELECTIVE_TONE_V3_IMPLEMENTATION_VERSION as SELECTIVE_TONE_V3_IMPLEMENTATION_REVISION,
-    SELECTIVE_TONE_V3_PARAMETER_SCHEMA_VERSION as SELECTIVE_TONE_V3_PARAMETER_SCHEMA_REVISION,
+    PERCEPTUAL_COLOR_IMPLEMENTATION_VERSION as PERCEPTUAL_COLOR_IMPLEMENTATION_REVISION,
+    PERCEPTUAL_COLOR_PARAMETER_SCHEMA_VERSION, PerceptualColorParameters, PhotoEditDetailSession,
+    PhotoEditPreviewSession, RawDevelopmentPlan, RawPipelineReceipt, SELECTIVE_COLOR_VALUE_COUNT,
+    SELECTIVE_TONE_IMPLEMENTATION_VERSION as SELECTIVE_TONE_IMPLEMENTATION_REVISION,
+    SELECTIVE_TONE_PARAMETER_SCHEMA_VERSION as SELECTIVE_TONE_PARAMETER_SCHEMA_REVISION,
     SelectiveToneParameters, SharpenParameters,
-    TECHNICAL_DETAIL_V3_IMPLEMENTATION_VERSION as TECHNICAL_DETAIL_V3_IMPLEMENTATION_REVISION,
+    TECHNICAL_DETAIL_IMPLEMENTATION_VERSION as TECHNICAL_DETAIL_IMPLEMENTATION_REVISION,
     ToneCurvePoint, edit_preview_generator_implementation_identity, photo_provider_version,
     query_optics_profiles_from_metadata, query_photo_optics_profiles,
     raw_development_plan_identity,
@@ -62,7 +61,7 @@ use shadow_core::{CachedArtifactLoader, fingerprint_source};
 use shadow_core::{DecodeInspectionSummary, ScanCancellation, ScanCompletion};
 use shadow_domain::operation::{
     BASIC_GRAPH_SCHEMA_VERSION, BASIC_LAYER_LABEL, BLACKS_PARAMETER_KEY,
-    COLOR_GRADING_OPERATION_ID, COLOR_GRADING_V3_IMPLEMENTATION_VERSION,
+    COLOR_GRADING_IMPLEMENTATION_VERSION, COLOR_GRADING_OPERATION_ID,
     COLOR_MIXER_HUE_PARAMETER_KEY, COLOR_MIXER_LIGHTNESS_PARAMETER_KEY,
     COLOR_MIXER_SATURATION_PARAMETER_KEY, COLOR_RANGE_CENTER_PARAMETER_KEY,
     COLOR_RANGE_ENABLED_PARAMETER_KEY, COLOR_RANGE_HUE_PARAMETER_KEY,
@@ -71,20 +70,20 @@ use shadow_domain::operation::{
     CONTRAST_FACTOR_PARAMETER_KEY, CONTRAST_OPERATION_ID, CONTRAST_PIVOT_PARAMETER_KEY,
     CPU_REFERENCE_IMPLEMENTATION_REVISION, CPU_REFERENCE_IMPLEMENTATION_VERSION,
     CPU_REFERENCE_PARAMETER_SCHEMA_VERSION, DETAIL_EFFECTS_PARAMETERS_KEY, EXPOSURE_OPERATION_ID,
-    EXPOSURE_STOPS_PARAMETER_KEY, FINISHING_EFFECTS_OPERATION_ID,
-    FINISHING_EFFECTS_V3_IMPLEMENTATION_VERSION, HIGHLIGHTS_PARAMETER_KEY, LUT_3D_OPERATION_ID,
+    EXPOSURE_STOPS_PARAMETER_KEY, FINISHING_EFFECTS_IMPLEMENTATION_VERSION,
+    FINISHING_EFFECTS_OPERATION_ID, HIGHLIGHTS_PARAMETER_KEY, LUT_3D_OPERATION_ID,
     LUT_INTENSITY_PARAMETER_KEY, LUT_MANAGED_PATH_PARAMETER_KEY, LUT_RESOURCE_ID_PARAMETER_KEY,
     LUT_TITLE_PARAMETER_KEY, OKLAB_LIGHTNESS_TONE_CURVE_IMPLEMENTATION_VERSION,
     OKLAB_LIGHTNESS_TONE_CURVE_OPERATION_ID, OKLAB_LIGHTNESS_TONE_CURVE_PARAMETER_SCHEMA_VERSION,
-    OKLAB_LIGHTNESS_TONE_CURVE_POINTS_PARAMETER_KEY, PERCEPTUAL_COLOR_OPERATION_ID,
-    PERCEPTUAL_COLOR_V3_IMPLEMENTATION_VERSION, POINT_COLOR_RANGES_PARAMETER_KEY,
+    OKLAB_LIGHTNESS_TONE_CURVE_POINTS_PARAMETER_KEY, PERCEPTUAL_COLOR_IMPLEMENTATION_VERSION,
+    PERCEPTUAL_COLOR_OPERATION_ID, POINT_COLOR_RANGES_PARAMETER_KEY,
     RGB_WHITE_BALANCE_OPERATION_ID, SATURATION_FACTOR_PARAMETER_KEY, SATURATION_OPERATION_ID,
     SELECTIVE_COLOR_CMYK_PARAMETER_KEY, SELECTIVE_COLOR_LIGHTNESS_PROTECTION_PARAMETER_KEY,
-    SELECTIVE_COLOR_RELATIVE_PARAMETER_KEY, SELECTIVE_TONE_OPERATION_ID,
-    SELECTIVE_TONE_V3_IMPLEMENTATION_VERSION, SELECTIVE_TONE_V3_PARAMETER_SCHEMA_VERSION,
-    SHADOWS_PARAMETER_KEY, SHARPEN_AMOUNT_PARAMETER_KEY, SHARPEN_MASKING_PARAMETER_KEY,
-    SHARPEN_RADIUS_PARAMETER_KEY, SHARPEN_THRESHOLD_PARAMETER_KEY, TECHNICAL_DETAIL_OPERATION_ID,
-    TECHNICAL_DETAIL_V3_IMPLEMENTATION_VERSION, TECHNICAL_DETAIL_V3_PARAMETER_SCHEMA_VERSION,
+    SELECTIVE_COLOR_RELATIVE_PARAMETER_KEY, SELECTIVE_TONE_IMPLEMENTATION_VERSION,
+    SELECTIVE_TONE_OPERATION_ID, SELECTIVE_TONE_PARAMETER_SCHEMA_VERSION, SHADOWS_PARAMETER_KEY,
+    SHARPEN_AMOUNT_PARAMETER_KEY, SHARPEN_MASKING_PARAMETER_KEY, SHARPEN_RADIUS_PARAMETER_KEY,
+    SHARPEN_THRESHOLD_PARAMETER_KEY, TECHNICAL_DETAIL_IMPLEMENTATION_VERSION,
+    TECHNICAL_DETAIL_OPERATION_ID, TECHNICAL_DETAIL_PARAMETER_SCHEMA_VERSION,
     VIBRANCE_PARAMETER_KEY, WHITE_BALANCE_TEMPERATURE_PARAMETER_KEY,
     WHITE_BALANCE_TINT_PARAMETER_KEY, WHITES_PARAMETER_KEY,
 };
@@ -93,13 +92,13 @@ use shadow_domain::{
     EditGraph, EditObject, EditObjectKind, EditObjectPack, EditRepositoryCommit,
     EditRepositoryCommitPayloadV1, EditRepositoryRefExpectation, EditRepositoryRefKind, EntityId,
     FiniteF64, ImageDimensions, ImageDomain, LayerContent, LayerId, LayerInstance, LayerInstanceId,
-    LayerRevision, LayerRevisionId, LayerRevisionSelector, LibraryRootV1,
-    MAX_RETOUCH_SPOTS_PER_RECIPE, MaskCoordinateSpace, MaskDefinition, MaskId, MaskRevision,
-    NodeId, NodeInput, OperationDescriptor, OperationId, ParameterBlock, ParameterKey,
-    ParameterValue, PhotoGeometry, PhotoId, PhotoQuarterTurn, PortType, PreviewByteOrder,
-    PreviewCodec, ProcessingStage, ProxyPayload, RecipeCommit, RecipeCommitId, RecipeId,
-    RecipeInputSettings, RecipeOpticsSettings, RecipeSnapshot, RepresentationId, RetouchSpot,
-    UnitInterval, VersionName, diff_recipe_snapshots,
+    LayerRevision, LayerRevisionId, LayerRevisionSelector, LibraryRootV1, MAX_MASK_BRUSH_POINTS,
+    MAX_RETOUCH_SPOTS_PER_RECIPE, MaskBrushPoint, MaskCoordinateSpace, MaskDefinition, MaskId,
+    MaskRevision, NodeId, NodeInput, OperationDescriptor, OperationId, ParameterBlock,
+    ParameterKey, ParameterValue, PhotoGeometry, PhotoId, PhotoQuarterTurn, PortType,
+    PreviewByteOrder, PreviewCodec, ProcessingStage, ProxyPayload, RecipeCommit, RecipeCommitId,
+    RecipeId, RecipeInputSettings, RecipeOpticsSettings, RecipeSnapshot, RepresentationId,
+    RetouchMode, RetouchSpot, UnitInterval, VersionName, diff_recipe_snapshots,
 };
 use uuid::Uuid;
 
@@ -412,7 +411,7 @@ mod ffi {
         shared_layer_id: String,
         /// Empty for a photo-local node; shared nodes always pin one revision.
         shared_revision_id: String,
-        /// 0 = none, 1 = linear gradient, 2 = radial gradient. The common
+        /// 0 = none, 1 = linear gradient, 2 = radial gradient, 3 = brush. The common
         /// normalized fields keep this CXX DTO stable while the domain owns
         /// the authoritative typed shape validation.
         local_mask_kind: u8,
@@ -424,6 +423,8 @@ mod ffi {
         local_mask_radius_y: f64,
         local_mask_feather: f64,
         local_mask_invert: bool,
+        /// Flattened brush triples: x, y, begins-stroke (0 or 1).
+        local_mask_brush_points: Vec<f64>,
         label: String,
         enabled: bool,
         exposure_render_op_id: String,
@@ -455,6 +456,11 @@ mod ffi {
         center_x: f64,
         center_y: f64,
         radius_level_zero_pixels: u16,
+        /// 0 = heal, 1 = clone.
+        mode: u8,
+        source_offset_x_radii: f64,
+        source_offset_y_radii: f64,
+        feather: f64,
     }
 
     /// Photo-local final-canvas geometry. The field is intentionally separate
@@ -466,6 +472,7 @@ mod ffi {
         crop_right: f64,
         crop_bottom: f64,
         quarter_turn: u8,
+        straighten_degrees: f64,
         flip_horizontal: bool,
         flip_vertical: bool,
     }
@@ -2672,7 +2679,8 @@ mod tests {
         assert_eq!(
             inspector.proxy_variant_key(),
             format!(
-                "shadow-photo-router:grid-jpeg-2048-q90-444-v3;{}",
+                "shadow-photo-router:grid-jpeg-2048-q90-444-v1;\
+                 source=provider-neutral-raw-plan;{}",
                 raw_development_plan_identity(RawDevelopmentPlan::preview())
                     .expect("canonical preview plan identity")
             )
@@ -3947,6 +3955,7 @@ mod tests {
                 crop_right: 1.0,
                 crop_bottom: 1.0,
                 quarter_turn: 0,
+                straighten_degrees: 0.0,
                 flip_horizontal: false,
                 flip_vertical: false,
             },
@@ -3994,6 +4003,7 @@ mod tests {
                 crop_right: 1.0,
                 crop_bottom: 1.0,
                 quarter_turn: 0,
+                straighten_degrees: 0.0,
                 flip_horizontal: false,
                 flip_vertical: false,
             },
@@ -4675,17 +4685,17 @@ mod tests {
         ));
         assert!(matches!(
             &plan.nodes[7].operation,
-            AdjustmentRenderOperation::Sharpen { parameters }
+            AdjustmentRenderOperation::Sharpen { parameters, .. }
                 if parameters.as_ref() == &expected.sharpen
         ));
         assert!(matches!(
             &plan.nodes[8].operation,
-            AdjustmentRenderOperation::Sharpen { parameters }
+            AdjustmentRenderOperation::Sharpen { parameters, .. }
                 if parameters.as_ref() == &expected.sharpen
         ));
         assert!(matches!(
             &plan.nodes[10].operation,
-            AdjustmentRenderOperation::Sharpen { parameters }
+            AdjustmentRenderOperation::Sharpen { parameters, .. }
                 if parameters.as_ref() == &expected.sharpen
         ));
     }
@@ -5198,12 +5208,14 @@ mod tests {
         assert_eq!(
             plan.nodes[7].operation,
             AdjustmentRenderOperation::Sharpen {
+                pass: shadow_bridge::AdjustmentDetailEffectsPass::TechnicalDetail,
                 parameters: Box::new(SharpenParameters::default()),
             }
         );
         assert_eq!(
             plan.nodes[8].operation,
             AdjustmentRenderOperation::Sharpen {
+                pass: shadow_bridge::AdjustmentDetailEffectsPass::ColorGrading,
                 parameters: Box::new(SharpenParameters::default()),
             }
         );
@@ -5217,6 +5229,7 @@ mod tests {
         assert_eq!(
             plan.nodes[10].operation,
             AdjustmentRenderOperation::Sharpen {
+                pass: shadow_bridge::AdjustmentDetailEffectsPass::FinishingEffects,
                 parameters: Box::new(SharpenParameters::default()),
             }
         );
@@ -5230,12 +5243,12 @@ mod tests {
                 plan.nodes[10].implementation_version,
             ),
             (
-                TECHNICAL_DETAIL_V3_PARAMETER_SCHEMA_VERSION,
-                TECHNICAL_DETAIL_V3_IMPLEMENTATION_REVISION,
-                COLOR_GRADING_V3_PARAMETER_SCHEMA_VERSION,
-                COLOR_GRADING_V3_IMPLEMENTATION_REVISION,
-                FINISHING_EFFECTS_V3_PARAMETER_SCHEMA_VERSION,
-                FINISHING_EFFECTS_V3_IMPLEMENTATION_REVISION,
+                TECHNICAL_DETAIL_PARAMETER_SCHEMA_VERSION,
+                TECHNICAL_DETAIL_IMPLEMENTATION_REVISION,
+                COLOR_GRADING_PARAMETER_SCHEMA_VERSION,
+                COLOR_GRADING_IMPLEMENTATION_REVISION,
+                FINISHING_EFFECTS_PARAMETER_SCHEMA_VERSION,
+                FINISHING_EFFECTS_IMPLEMENTATION_REVISION,
             )
         );
     }
@@ -7404,6 +7417,7 @@ mod tests {
                 crop_right: 1.0,
                 crop_bottom: 1.0,
                 quarter_turn: 0,
+                straighten_degrees: 0.0,
                 flip_horizontal: false,
                 flip_vertical: false,
             },

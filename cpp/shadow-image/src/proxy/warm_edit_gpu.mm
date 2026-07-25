@@ -258,7 +258,7 @@ inline uchar encode_srgb8(float linear_sample, float dither) {
     return uchar(clamp(floor(encoded * 255.0f + dither + 0.5f), 0.0f, 255.0f));
 }
 
-kernel void render_warm_preview_v4(
+kernel void render_warm_preview_v1(
     device const float* source [[buffer(0)]],
     device float* adjusted [[buffer(1)]],
     device uchar* display_rgb8 [[buffer(2)]],
@@ -326,7 +326,7 @@ kernel void render_warm_preview_v4(
     display_rgb8[output_index + 2u] = encode_srgb8(mapped.b, dither);
 }
 
-kernel void execute_warm_adjustment_v4(
+kernel void execute_warm_adjustment_v1(
     device const float* source [[buffer(0)]],
     device float* adjusted [[buffer(1)]],
     device const MetalAdjustmentOp* operations [[buffer(3)]],
@@ -1599,7 +1599,7 @@ struct WarmTextureClarityStage final {
     // The Metal generic interpreter accepts only the color-grading variant of this shared node.
     // Turn it into an explicit no-op solely to obtain its working-space transform for the
     // technical optical kernel; all creative wheel controls are neutralized.
-    post_node.implementation_version = color_grading_v3_implementation_version;
+    post_node.implementation_version = color_grading_implementation_version;
     post_detail.execution_pass = DetailEffectsExecutionPass::color_grading;
     post_detail.dehaze = 0.0;
     post_detail.defringe_purple_amount = 0.0;
@@ -1719,9 +1719,9 @@ public:
                 return;
             }
             id<MTLFunction> display_function =
-                [library newFunctionWithName:@"render_warm_preview_v4"];
+                [library newFunctionWithName:@"render_warm_preview_v1"];
             id<MTLFunction> adjustment_function =
-                [library newFunctionWithName:@"execute_warm_adjustment_v4"];
+                [library newFunctionWithName:@"execute_warm_adjustment_v1"];
             id<MTLFunction> denoise_function =
                 [library newFunctionWithName:@"guided_denoise_warm_v1"];
             id<MTLFunction> sharpen_log_function =

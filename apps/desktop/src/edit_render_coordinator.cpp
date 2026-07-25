@@ -156,7 +156,8 @@ void EditController::requestDetailViewport(
     const int viewport_width_pixels,
     const int viewport_height_pixels
 ) {
-    if (!active_ || !std::isfinite(center_x) || !std::isfinite(center_y)
+    if (!active_ || crop_tool_active_
+        || !std::isfinite(center_x) || !std::isfinite(center_y)
         || center_x < 0.0 || center_x > 1.0 || center_y < 0.0 || center_y > 1.0
         || viewport_width_pixels <= 0 || viewport_height_pixels <= 0
         || viewport_width_pixels > 8'192 || viewport_height_pixels > 8'192) {
@@ -514,6 +515,13 @@ void EditController::startPreviewRender() {
         ? EDIT_INTERACTIVE_PREVIEW_QUALITY : EDIT_PREVIEW_QUALITY;
     preview_render_token_ = backend_->beginEditPreviewRequest();
     in_flight_preview_policy_ = policy;
+    BackendGradeStack preview_stack = grade_stack_;
+    if (crop_tool_active_) {
+        preview_stack.geometry.crop_left = 0.0;
+        preview_stack.geometry.crop_top = 0.0;
+        preview_stack.geometry.crop_right = 1.0;
+        preview_stack.geometry.crop_bottom = 1.0;
+    }
   setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
       "EditController", "Rendering preview…")));
     preview_watcher_.setFuture(QtConcurrent::run(
@@ -522,7 +530,7 @@ void EditController::startPreviewRender() {
         photo_id_,
         source_path_,
         base_commit_id_,
-        grade_stack_,
+        std::move(preview_stack),
         preview_render_token_,
         max_edge,
         jpeg_quality,
@@ -536,7 +544,7 @@ void EditController::startPreviewRender() {
 }
 
 void EditController::startDetailRender() {
-    if (!detail_mode_ || !active_) {
+    if (!detail_mode_ || !active_ || crop_tool_active_) {
         detail_queued_ = false;
         return;
     }
@@ -575,7 +583,7 @@ void EditController::startDetailRender() {
 }
 
 void EditController::scheduleDetailWarmup() {
-    if (!active_ || detail_mode_ || state_running_ || current_rendering_
+    if (!active_ || crop_tool_active_ || detail_mode_ || state_running_ || current_rendering_
         || detail_rendering_ || settled_render_revision_ != render_revision_
         || detail_warmup_watcher_.isRunning()) {
         return;
@@ -584,7 +592,7 @@ void EditController::scheduleDetailWarmup() {
 }
 
 void EditController::startDetailWarmup() {
-    if (!active_ || detail_mode_ || state_running_ || current_rendering_
+    if (!active_ || crop_tool_active_ || detail_mode_ || state_running_ || current_rendering_
         || before_rendering_ || detail_rendering_
         || settled_render_revision_ != render_revision_
         || detail_warmup_watcher_.isRunning()) {

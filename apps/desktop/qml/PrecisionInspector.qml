@@ -12,6 +12,8 @@ Rectangle {
     // boundary lets all adjustment controls stay together while the canvas
     // and grade-node list evolve independently.
     required property var editor
+    required property int activeToolMode
+    required property real cropAspectRatioLock
     required property var lutLibrary
     required property var captureMetadata
     required property var displayedHistogram
@@ -31,6 +33,13 @@ Rectangle {
 
     signal openLutLibraryRequested()
     signal openOpticsProfileLibraryRequested()
+    signal toolModeRequested(int mode)
+    signal cropAspectRatioRequested(real ratio)
+
+    readonly property int toolNone: 0
+    readonly property int toolMask: 1
+    readonly property int toolCrop: 2
+    readonly property int toolRepair: 3
 
     property int mixerViewMode: 0
     property int selectedMixerBand: 0
@@ -307,9 +316,82 @@ Rectangle {
         }
 
         Rectangle {
+            id: specialToolStrip
+            Layout.fillWidth: true
+            Layout.preferredHeight: 44
+            color: inspector.panel
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                height: 1
+                color: inspector.panelBorder
+            }
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 12
+                anchors.rightMargin: 12
+                spacing: 4
+
+                ShadowIconButton {
+                    source: "qrc:/icons/mask.svg"
+                    selected: inspector.activeToolMode === inspector.toolMask
+                    toolTipText: qsTr("Mask")
+                    accessibleName: toolTipText
+                    enabled: inspector.editor.active
+                        && inspector.editor.hasSelectedGradeNode
+                        && !inspector.editor.stateBusy
+                    onClicked: inspector.toolModeRequested(inspector.toolMask)
+                }
+
+                ShadowIconButton {
+                    source: "qrc:/icons/crop.svg"
+                    selected: inspector.activeToolMode === inspector.toolCrop
+                    toolTipText: qsTr("Crop and straighten")
+                    accessibleName: toolTipText
+                    enabled: inspector.editor.active
+                        && inspector.previewFrameReady
+                        && !inspector.editor.stateBusy
+                    onClicked: inspector.toolModeRequested(inspector.toolCrop)
+                }
+
+                ShadowIconButton {
+                    source: "qrc:/icons/retouch.svg"
+                    selected: inspector.activeToolMode === inspector.toolRepair
+                    toolTipText: qsTr("Repair")
+                    accessibleName: toolTipText
+                    enabled: inspector.editor.active
+                        && inspector.previewFrameReady
+                        && !inspector.editor.stateBusy
+                    onClicked: inspector.toolModeRequested(inspector.toolRepair)
+                }
+
+                Item { Layout.fillWidth: true }
+
+                Rectangle {
+                    Layout.preferredWidth: 1
+                    Layout.preferredHeight: 20
+                    color: inspector.panelBorder
+                }
+
+                ShadowIconButton {
+                    source: "qrc:/icons/clear.svg"
+                    toolTipText: qsTr("Reset all adjustments · Undo available")
+                    accessibleName: toolTipText
+                    enabled: inspector.editor.active
+                        && !inspector.editor.stateBusy
+                    onClicked: inspector.editor.resetAllAdjustments()
+                }
+            }
+        }
+
+        Rectangle {
             id: inspectorTabStrip
             Layout.fillWidth: true
-            Layout.preferredHeight: 38
+            Layout.preferredHeight: visible ? 38 : 0
+            visible: inspector.activeToolMode === inspector.toolNone
             color: inspector.panel
 
             property int currentIndex: 0
@@ -370,7 +452,7 @@ Rectangle {
             // Precision while versioning moves to the catalog-level
             // History workspace; it must not masquerade as a global
             // Git-like commit view here.
-            currentIndex: 0
+            currentIndex: inspector.activeToolMode === inspector.toolNone ? 0 : 1
 
             Item {
                 ScrollView {
@@ -1436,56 +1518,6 @@ Rectangle {
                                     inspector.openOpticsProfileLibraryRequested()
                             }
 
-                            PrecisionLocalMaskTools {
-                                Layout.fillWidth: true
-                                inspector: inspector
-                                currentTabIndex: inspectorTabStrip.currentIndex
-                            }
-
-                        }
-
-                        PrecisionRetouchTools {
-                            Layout.fillWidth: true
-                            inspector: inspector
-                            currentTabIndex: inspectorTabStrip.currentIndex
-                        }
-
-                        PrecisionGeometryTools {
-                            Layout.fillWidth: true
-                            inspector: inspector
-                            currentTabIndex: inspectorTabStrip.currentIndex
-                        }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            Layout.leftMargin: 14
-                            Layout.rightMargin: 14
-                            Layout.topMargin: 4
-                            spacing: 4
-
-                            Item { Layout.fillWidth: true }
-
-                            ShadowIconButton {
-                                id: resetButton
-                                source: "qrc:/icons/redo.svg"
-                                toolTipText: qsTr("Reset the selected Grade Node")
-                                accessibleName: toolTipText
-                                enabled: inspector.editor.active
-                                    && inspector.editor.hasSelectedGradeNode
-                                    && !inspector.editor.stateBusy
-                                onClicked: inspector.editor.resetSelectedGradeNode()
-                            }
-
-                            ShadowIconButton {
-                                id: revertButton
-                                source: "qrc:/icons/clear.svg"
-                                toolTipText: qsTr("Restore the last autosaved adjustments")
-                                accessibleName: toolTipText
-                                enabled: inspector.editor.active
-                                    && inspector.editor.dirty
-                                    && !inspector.editor.stateBusy
-                                onClicked: inspector.editor.revertEdits()
-                            }
                         }
 
                         Item { Layout.preferredHeight: 14 }
@@ -1493,8 +1525,46 @@ Rectangle {
                 }
             }
 
-            PrecisionVersionsPane {
-                inspector: inspector
+            Item {
+                ScrollView {
+                    id: specialToolScroll
+                    anchors.fill: parent
+                    clip: true
+                    contentWidth: availableWidth
+
+                    ColumnLayout {
+                        width: parent.width
+                        spacing: 0
+                        enabled: inspector.editor.active
+                            && !inspector.editor.stateBusy
+
+                        PrecisionLocalMaskTools {
+                            Layout.fillWidth: true
+                            visible: inspector.activeToolMode === inspector.toolMask
+                            inspector: inspector
+                            currentTabIndex: 0
+                        }
+
+                        PrecisionGeometryTools {
+                            Layout.fillWidth: true
+                            visible: inspector.activeToolMode === inspector.toolCrop
+                            inspector: inspector
+                            currentTabIndex: 0
+                            aspectRatioLock: inspector.cropAspectRatioLock
+                            onAspectRatioRequested: ratio =>
+                                inspector.cropAspectRatioRequested(ratio)
+                        }
+
+                        PrecisionRetouchTools {
+                            Layout.fillWidth: true
+                            visible: inspector.activeToolMode === inspector.toolRepair
+                            inspector: inspector
+                            currentTabIndex: 0
+                        }
+
+                        Item { Layout.preferredHeight: 14 }
+                    }
+                }
             }
         }
     }

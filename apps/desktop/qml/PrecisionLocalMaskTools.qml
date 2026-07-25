@@ -17,7 +17,7 @@ ColumnLayout {
 
     readonly property var mask: inspector.editor.selectedLocalMask
     readonly property int kind: Number(mask.kind || 0)
-    readonly property bool activeMask: kind === 1 || kind === 2
+    readonly property bool activeMask: kind >= 1 && kind <= 3
 
     spacing: 8
 
@@ -26,9 +26,11 @@ ColumnLayout {
         visible: localMask.currentTabIndex === 0
         title: qsTr("LOCAL MASK")
         summary: localMask.activeMask
-            ? (localMask.kind === 1 ? qsTr("Linear") : qsTr("Radial"))
+            ? (localMask.kind === 1
+                ? qsTr("Linear")
+                : localMask.kind === 2 ? qsTr("Radial") : qsTr("Brush"))
             : qsTr("None")
-        toolTipText: qsTr("Apply the selected Grade Node only within a linear or radial normalized region. The mask stays with this photo's node instance when the adjustment itself is shared.")
+        toolTipText: qsTr("Constrain this Grade Node with an editable photo-local mask.")
         sectionEnabled: localMask.inspector.editor.active
             && localMask.inspector.editor.hasSelectedGradeNode
             && !localMask.inspector.editor.stateBusy
@@ -61,6 +63,18 @@ ColumnLayout {
                     && !localMask.inspector.editor.stateBusy
                 toolTipText: qsTr("Blend the entire Grade Node inside a feathered ellipse")
                 onClicked: localMask.inspector.editor.setSelectedLocalMask(2)
+            }
+
+            ShadowButton {
+                compact: true
+                Layout.fillWidth: true
+                text: qsTr("Brush")
+                selected: localMask.kind === 3
+                enabled: localMask.inspector.editor.active
+                    && localMask.inspector.editor.hasSelectedGradeNode
+                    && !localMask.inspector.editor.stateBusy
+                toolTipText: qsTr("Paint one or more feathered freehand strokes")
+                onClicked: localMask.inspector.editor.setSelectedLocalMask(3)
             }
 
             ShadowIconButton {
@@ -102,6 +116,20 @@ ColumnLayout {
                         { "key": "radiusY", "name": qsTr("Radius Y"), "from": 0.01 },
                         { "key": "feather", "name": qsTr("Feather") }
                     ]
+                    : localMask.kind === 3
+                        ? [
+                            {
+                                "key": "radiusX",
+                                "name": qsTr("Size"),
+                                "from": 0.005,
+                                "neutral": 0.035
+                            },
+                            {
+                                "key": "feather",
+                                "name": qsTr("Feather"),
+                                "neutral": 0.6
+                            }
+                        ]
                     : []
             delegate: ShadowSlider {
                 required property var modelData
@@ -111,18 +139,22 @@ ColumnLayout {
                 label: modelData.name
                 from: modelData.from === undefined ? 0 : modelData.from
                 to: 1
-                neutralValue: 0.5
-                stepSize: 0.01
+                neutralValue: modelData.neutral === undefined
+                    ? 0.5 : modelData.neutral
+                stepSize: modelData.key === "radiusX"
+                    && localMask.kind === 3 ? 0.005 : 0.01
                 decimals: 0
                 displayMultiplier: 100
                 suffix: "%"
                 value: Number(localMask.mask[modelData.key] || 0)
                 enabled: localMask.inspector.editor.active
                     && !localMask.inspector.editor.stateBusy
-                onGestureStarted: localMask.inspector.editor.beginParameterEdit("local_mask")
+                onGestureStarted: localMask.inspector.editor.beginParameterEdit(
+                    "local_mask/" + modelData.key)
                 onEdited: value => localMask.inspector.editor.setSelectedLocalMaskValue(
                     modelData.key, value)
-                onGestureFinished: localMask.inspector.editor.endParameterEdit("local_mask")
+                onGestureFinished: localMask.inspector.editor.endParameterEdit(
+                    "local_mask/" + modelData.key)
             }
         }
 
@@ -138,6 +170,17 @@ ColumnLayout {
                 text: qsTr("Invert")
                 color: Theme.textSecondary
                 font.pixelSize: 10
+            }
+
+            ShadowIconButton {
+                visible: localMask.kind === 3
+                source: "qrc:/icons/clear.svg"
+                toolTipText: qsTr("Clear brush strokes")
+                accessibleName: toolTipText
+                enabled: localMask.inspector.editor.active
+                    && !localMask.inspector.editor.stateBusy
+                    && (localMask.mask.brushPoints || []).length > 0
+                onClicked: localMask.inspector.editor.clearSelectedLocalMaskBrush()
             }
 
             Switch {

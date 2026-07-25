@@ -548,26 +548,26 @@ void validate_image(const FloatRgbImage& image) {
     const bool detail_effects = std::holds_alternative<SharpenAdjustment>(node.parameters);
     const std::uint32_t expected_parameter_schema = oklab_lightness_tone_curve
         ? oklab_lightness_tone_curve_parameter_schema_version
-        : selective_tone ? selective_tone_v3_parameter_schema_version
-        : perceptual_color ? perceptual_color_v3_parameter_schema_version
-        : detail_effects ? detail_effects_v3_parameter_schema_version
+        : selective_tone ? selective_tone_parameter_schema_version
+        : perceptual_color ? perceptual_color_parameter_schema_version
+        : detail_effects ? detail_effects_parameter_schema_version
                          : adjustment_parameter_schema_version;
     const std::uint32_t expected_implementation = oklab_lightness_tone_curve
         ? oklab_lightness_tone_curve_implementation_version
-        : selective_tone ? selective_tone_v3_implementation_version
-        : perceptual_color ? perceptual_color_v3_implementation_version
+        : selective_tone ? selective_tone_implementation_version
+        : perceptual_color ? perceptual_color_implementation_version
                          : adjustment_implementation_version;
     const bool supported_detail_pass = detail_effects
         && ((std::get<SharpenAdjustment>(node.parameters).execution_pass
                 == DetailEffectsExecutionPass::technical_detail
-                && node.implementation_version == technical_detail_v3_implementation_version)
+                && node.implementation_version == technical_detail_implementation_version)
             || (std::get<SharpenAdjustment>(node.parameters).execution_pass
                     == DetailEffectsExecutionPass::color_grading
-                    && node.implementation_version == color_grading_v3_implementation_version)
+                    && node.implementation_version == color_grading_implementation_version)
             || (std::get<SharpenAdjustment>(node.parameters).execution_pass
                     == DetailEffectsExecutionPass::finishing_effects
                     && node.implementation_version
-                        == finishing_effects_v3_implementation_version));
+                        == finishing_effects_implementation_version));
     if (
         node.parameter_schema_version != expected_parameter_schema
         || (!detail_effects && node.implementation_version != expected_implementation)
@@ -1303,12 +1303,17 @@ AdjustmentFootprint footprint(
                 const double radius = static_cast<double>(
                     maximum->radius_level_zero_pixels
                 );
+                // Heal samples a ring almost two radii from the target centre
+                // while writing the opposite edge of the selected disc. Clone
+                // can source pixels two radii away and uses bilinear sampling.
+                // A three-radius apron plus one interpolation pixel safely
+                // covers both contracts at detail-tile boundaries.
                 const double horizontal = std::ceil(
-                    radius * 2.0 * level_zero_to_raster_scale_x
-                );
+                    radius * 3.0 * level_zero_to_raster_scale_x
+                ) + 1.0;
                 const double vertical = std::ceil(
-                    radius * 2.0 * level_zero_to_raster_scale_y
-                );
+                    radius * 3.0 * level_zero_to_raster_scale_y
+                ) + 1.0;
                 if (horizontal > std::numeric_limits<std::uint32_t>::max()
                     || vertical > std::numeric_limits<std::uint32_t>::max()) {
                     throw EditError(

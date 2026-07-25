@@ -79,7 +79,12 @@ void validate_output_rect(
     }
 }
 
-[[nodiscard]] std::pair<std::uint32_t, std::uint32_t> source_coordinate_for_output(
+struct ContinuousCoordinate final {
+    double x = 0.0;
+    double y = 0.0;
+};
+
+[[nodiscard]] ContinuousCoordinate source_coordinate_for_output(
     const PhotoGeometryLayout& layout,
     const PhotoGeometry& geometry,
     const std::uint32_t output_x,
@@ -87,35 +92,50 @@ void validate_output_rect(
 ) {
     const std::uint32_t crop_width = layout.source_crop.width;
     const std::uint32_t crop_height = layout.source_crop.height;
-    std::uint32_t crop_x = 0U;
-    std::uint32_t crop_y = 0U;
+    const double output_width = static_cast<double>(layout.output_dimensions.width);
+    const double output_height = static_cast<double>(layout.output_dimensions.height);
+    const double angle = geometry.straighten_degrees
+        * 3.141592653589793238462643383279502884 / 180.0;
+    const double cosine = std::cos(angle);
+    const double sine = std::sin(angle);
+    const double output_dx = static_cast<double>(output_x) + 0.5 - output_width * 0.5;
+    const double output_dy = static_cast<double>(output_y) + 0.5 - output_height * 0.5;
+    // Inverse-map the clockwise display rotation so every output pixel samples
+    // the immutable source raster exactly once.
+    const double oriented_x =
+        std::fma(cosine, output_dx, sine * output_dy) + output_width * 0.5;
+    const double oriented_y =
+        std::fma(-sine, output_dx, cosine * output_dy) + output_height * 0.5;
+
+    double crop_x = 0.0;
+    double crop_y = 0.0;
     switch (geometry.quarter_turn) {
     case PhotoQuarterTurn::zero:
-        crop_x = output_x;
-        crop_y = output_y;
+        crop_x = oriented_x;
+        crop_y = oriented_y;
         break;
     case PhotoQuarterTurn::clockwise_90:
-        crop_x = output_y;
-        crop_y = crop_height - 1U - output_x;
+        crop_x = oriented_y;
+        crop_y = static_cast<double>(crop_height) - oriented_x;
         break;
     case PhotoQuarterTurn::clockwise_180:
-        crop_x = crop_width - 1U - output_x;
-        crop_y = crop_height - 1U - output_y;
+        crop_x = static_cast<double>(crop_width) - oriented_x;
+        crop_y = static_cast<double>(crop_height) - oriented_y;
         break;
     case PhotoQuarterTurn::clockwise_270:
-        crop_x = crop_width - 1U - output_y;
-        crop_y = output_x;
+        crop_x = static_cast<double>(crop_width) - oriented_y;
+        crop_y = oriented_x;
         break;
     }
     if (geometry.flip_horizontal) {
-        crop_x = crop_width - 1U - crop_x;
+        crop_x = static_cast<double>(crop_width) - crop_x;
     }
     if (geometry.flip_vertical) {
-        crop_y = crop_height - 1U - crop_y;
+        crop_y = static_cast<double>(crop_height) - crop_y;
     }
-    return {
-        layout.source_crop.x + crop_x,
-        layout.source_crop.y + crop_y,
+    return ContinuousCoordinate{
+        .x = static_cast<double>(layout.source_crop.x) + crop_x - 0.5,
+        .y = static_cast<double>(layout.source_crop.y) + crop_y - 0.5,
     };
 }
 
@@ -134,6 +154,10 @@ void validate_photo_geometry(const PhotoGeometry& geometry) {
     }
     if (geometry.crop_left >= geometry.crop_right || geometry.crop_top >= geometry.crop_bottom) {
         invalid_geometry("crop must retain non-zero width and height");
+    }
+    if (!std::isfinite(geometry.straighten_degrees)
+        || geometry.straighten_degrees < -45.0 || geometry.straighten_degrees > 45.0) {
+        invalid_geometry("straighten angle must be finite and in [-45, 45] degrees");
     }
     switch (geometry.quarter_turn) {
     case PhotoQuarterTurn::zero:
@@ -187,7 +211,7 @@ GeometryPixelRect photo_geometry_source_rect_for_output(
         invalid_geometry("layout has an empty source crop");
     }
     validate_output_rect(output_rect, layout.output_dimensions);
-    const std::array<std::pair<std::uint32_t, std::uint32_t>, 4U> corners{
+    const std::array<ContinuousCoordinate, 4U> corners{
         source_coordinate_for_output(layout, geometry, output_rect.x, output_rect.y),
         source_coordinate_for_output(
             layout,
@@ -208,21 +232,47 @@ GeometryPixelRect photo_geometry_source_rect_for_output(
             output_rect.y + output_rect.height - 1U
         ),
     };
-    std::uint32_t min_x = corners.front().first;
-    std::uint32_t max_x = min_x;
-    std::uint32_t min_y = corners.front().second;
-    std::uint32_t max_y = min_y;
-    for (const auto& [x, y] : corners) {
-        min_x = std::min(min_x, x);
-        max_x = std::max(max_x, x);
-        min_y = std::min(min_y, y);
-        max_y = std::max(max_y, y);
+    double min_x = corners.front().x;
+    double max_x = min_x;
+    double min_y = corners.front().y;
+    double max_y = min_y;
+    for (const auto& corner : corners) {
+        min_x = std::min(min_x, corner.x);
+        max_x = std::max(max_x, corner.x);
+        min_y = std::min(min_y, corner.y);
+        max_y = std::max(max_y, corner.y);
     }
+    const auto crop_right = layout.source_crop.x + layout.source_crop.width - 1U;
+    const auto crop_bottom = layout.source_crop.y + layout.source_crop.height - 1U;
+    const auto bounded_floor = [](const double value, const std::uint32_t lower,
+                                  const std::uint32_t upper) {
+        return static_cast<std::uint32_t>(std::clamp(
+            std::floor(value),
+            static_cast<double>(lower),
+            static_cast<double>(upper)
+        ));
+    };
+    const auto bounded_ceil = [](const double value, const std::uint32_t lower,
+                                 const std::uint32_t upper) {
+        return static_cast<std::uint32_t>(std::clamp(
+            std::ceil(value),
+            static_cast<double>(lower),
+            static_cast<double>(upper)
+        ));
+    };
+    const std::uint32_t source_left =
+        bounded_floor(min_x, layout.source_crop.x, crop_right);
+    const std::uint32_t source_right =
+        bounded_ceil(max_x, layout.source_crop.x, crop_right);
+    const std::uint32_t source_top =
+        bounded_floor(min_y, layout.source_crop.y, crop_bottom);
+    const std::uint32_t source_bottom =
+        bounded_ceil(max_y, layout.source_crop.y, crop_bottom);
     return GeometryPixelRect{
-        .x = min_x,
-        .y = min_y,
-        .width = max_x - min_x + 1U,
-        .height = max_y - min_y + 1U,
+        .x = source_left,
+        .y = source_top,
+        .width = source_right - source_left + 1U,
+        .height = source_bottom - source_top + 1U,
     };
 }
 
@@ -270,23 +320,71 @@ FloatRgbImage apply_photo_geometry_tile(
 
     for (std::uint32_t y = 0U; y < output_rect.height; ++y) {
         for (std::uint32_t x = 0U; x < output_rect.width; ++x) {
-            const auto [source_x, source_y] = source_coordinate_for_output(
+            const auto source = source_coordinate_for_output(
                 layout,
                 geometry,
                 output_rect.x + x,
                 output_rect.y + y
             );
-            const std::uint32_t local_x = source_x - source_tile_rect.x;
-            const std::uint32_t local_y = source_y - source_tile_rect.y;
-            const std::size_t source_index =
-                (static_cast<std::size_t>(local_y) * source_tile.dimensions.width + local_x) * 3U;
             const std::size_t output_index =
                 (static_cast<std::size_t>(y) * output.dimensions.width + x) * 3U;
-            std::copy_n(
-                source_tile.samples.begin() + static_cast<std::ptrdiff_t>(source_index),
-                3U,
-                output.samples.begin() + static_cast<std::ptrdiff_t>(output_index)
+            const double crop_left = static_cast<double>(layout.source_crop.x);
+            const double crop_top = static_cast<double>(layout.source_crop.y);
+            const double crop_right = static_cast<double>(
+                layout.source_crop.x + layout.source_crop.width - 1U
             );
+            const double crop_bottom = static_cast<double>(
+                layout.source_crop.y + layout.source_crop.height - 1U
+            );
+            if (source.x < crop_left || source.x > crop_right
+                || source.y < crop_top || source.y > crop_bottom) {
+                std::fill_n(
+                    output.samples.begin() + static_cast<std::ptrdiff_t>(output_index),
+                    3U,
+                    0.0F
+                );
+                continue;
+            }
+            const std::uint32_t source_x0 =
+                static_cast<std::uint32_t>(std::floor(source.x));
+            const std::uint32_t source_y0 =
+                static_cast<std::uint32_t>(std::floor(source.y));
+            const std::uint32_t source_x1 = std::min(
+                source_x0 + 1U,
+                layout.source_crop.x + layout.source_crop.width - 1U
+            );
+            const std::uint32_t source_y1 = std::min(
+                source_y0 + 1U,
+                layout.source_crop.y + layout.source_crop.height - 1U
+            );
+            const double fraction_x = source.x - static_cast<double>(source_x0);
+            const double fraction_y = source.y - static_cast<double>(source_y0);
+            const auto source_index = [&](const std::uint32_t source_x,
+                                          const std::uint32_t source_y) {
+                const std::uint32_t local_x = source_x - source_tile_rect.x;
+                const std::uint32_t local_y = source_y - source_tile_rect.y;
+                return (static_cast<std::size_t>(local_y)
+                            * source_tile.dimensions.width + local_x) * 3U;
+            };
+            const std::size_t index_00 = source_index(source_x0, source_y0);
+            const std::size_t index_10 = source_index(source_x1, source_y0);
+            const std::size_t index_01 = source_index(source_x0, source_y1);
+            const std::size_t index_11 = source_index(source_x1, source_y1);
+            for (std::size_t channel = 0U; channel < 3U; ++channel) {
+                const double top = std::lerp(
+                    static_cast<double>(source_tile.samples[index_00 + channel]),
+                    static_cast<double>(source_tile.samples[index_10 + channel]),
+                    fraction_x
+                );
+                const double bottom = std::lerp(
+                    static_cast<double>(source_tile.samples[index_01 + channel]),
+                    static_cast<double>(source_tile.samples[index_11 + channel]),
+                    fraction_x
+                );
+                output.samples[output_index + channel] = static_cast<float>(
+                    std::lerp(top, bottom, fraction_y)
+                );
+            }
         }
     }
     return output;

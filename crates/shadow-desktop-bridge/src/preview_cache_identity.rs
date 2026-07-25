@@ -286,7 +286,7 @@ mod tests {
     #[test]
     fn edit_execution_identity_uses_only_the_native_canonical_route() {
         let canonical = "shadow-edit-preview-execution-v1;adjustment=cpu-v1;plan=1;\
-             display=cpu-v1;display-contract=6";
+             display=cpu-v1;display-contract=1;route=staged";
         let receipt = EditPreviewExecutionReceipt {
             schema_version: 1,
             cache_identity: canonical.into(),
@@ -295,7 +295,8 @@ mod tests {
             adjustment_execution_contract_version: 1,
             display_backend: EditPreviewBackend::Cpu,
             display_backend_version: 1,
-            display_output_contract_version: 6,
+            display_output_contract_version: 1,
+            fused_pipeline: false,
             adjustment_fell_back: true,
             display_fell_back: false,
             diagnostic: Some("/Users/example/private Metal diagnostic".into()),

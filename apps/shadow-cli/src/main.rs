@@ -195,6 +195,9 @@ fn print_inspection_outcome(outcome: &DecodeInspectionOutcome) {
         } => {
             println!("stored decoder snapshot: provider={provider_id} version={provider_version}");
             match preview {
+                PreviewCacheOutcome::PublishedEmbeddedPreview { byte_len } => {
+                    println!("published session embedded preview: bytes={byte_len}")
+                }
                 PreviewCacheOutcome::StoredEmbeddedPreview {
                     digest_hex,
                     byte_len,
@@ -364,7 +367,7 @@ impl DecodeInspector for LibRawInspector {
     }
 
     fn proxy_variant_key(&self) -> &'static str {
-        "libraw:grid-jpeg-2048-q95-444-v2"
+        "libraw:grid-jpeg-2048-q95-444-v1"
     }
 }
 

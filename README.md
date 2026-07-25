@@ -2,6 +2,15 @@
 
 Shadow is a local-first, AI-native photo catalog and non-destructive editor. The project is currently in its Mac-first foundation phase; the persistent core and image interfaces are designed to remain portable to Windows.
 
+## Pre-release contract policy
+
+Until Shadow makes its first compatibility promise, every Shadow-owned persisted
+schema, render contract, cache identity, and implementation revision remains v1.
+Contract changes replace v1 and may invalidate local development data or
+rebuildable caches; they do not create migration ladders. Variants and execution
+routes use explicit types or feature identities, never inflated version numbers.
+External standards and dependencies retain their real upstream versions.
+
 ## License and upstream provenance
 
 Shadow is free software under the GNU General Public License, version 3 or later

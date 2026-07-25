@@ -12,8 +12,7 @@ const _: () = assert!(
         && CPU_REFERENCE_IMPLEMENTATION_REVISION == ADJUSTMENT_IMPLEMENTATION_VERSION
         && OKLAB_LIGHTNESS_TONE_CURVE_PARAMETER_SCHEMA_VERSION
             == OKLAB_LIGHTNESS_TONE_CURVE_PARAMETER_SCHEMA_REVISION
-        && SELECTIVE_TONE_V3_PARAMETER_SCHEMA_VERSION
-            == SELECTIVE_TONE_V3_PARAMETER_SCHEMA_REVISION
+        && SELECTIVE_TONE_PARAMETER_SCHEMA_VERSION == SELECTIVE_TONE_PARAMETER_SCHEMA_REVISION
 );
 
 pub(crate) const MAX_GRADE_NODES: usize = 16;
@@ -35,16 +34,15 @@ pub(crate) const RECIPE_V1_LOCAL_MASK_ID_DOMAIN: &[u8] =
 const RECIPE_V1_RETOUCH_LAYER_START_ID: &str = "recipe-v1-photo-retouch:start";
 const RECIPE_V1_RETOUCH_RENDER_NODE_ID: &str = "recipe-v1-photo-retouch:spots";
 const RECIPE_V1_RETOUCH_LAYER_END_ID: &str = "recipe-v1-photo-retouch:end";
-// The external Qt DTO keeps its historical `sharpen_render_op_id` slot, but
-// schema 3 gives it the technical-detail role. The two new internal slots are
-// deterministic from the Grade Node identity and intentionally never leak as
-// extra UI controls.
-pub(crate) const RECIPE_V3_TECHNICAL_DETAIL_RENDER_OP_ID_DOMAIN: &[u8] =
-    b"shadow.desktop.technical-detail-slot-id.v3\0";
-pub(crate) const RECIPE_V3_COLOR_GRADING_RENDER_OP_ID_DOMAIN: &[u8] =
-    b"shadow.desktop.color-grading-slot-id.v3\0";
-pub(crate) const RECIPE_V3_FINISHING_EFFECTS_RENDER_OP_ID_DOMAIN: &[u8] =
-    b"shadow.desktop.finishing-effects-slot-id.v3\0";
+// The external Qt DTO keeps its historical `sharpen_render_op_id` slot, which
+// owns the technical-detail role. The two additional internal slots are
+// deterministic from the Grade Node identity and never leak as extra UI controls.
+pub(crate) const RECIPE_V1_TECHNICAL_DETAIL_RENDER_OP_ID_DOMAIN: &[u8] =
+    b"shadow.desktop.technical-detail-slot-id.v1\0";
+pub(crate) const RECIPE_V1_COLOR_GRADING_RENDER_OP_ID_DOMAIN: &[u8] =
+    b"shadow.desktop.color-grading-slot-id.v1\0";
+pub(crate) const RECIPE_V1_FINISHING_EFFECTS_RENDER_OP_ID_DOMAIN: &[u8] =
+    b"shadow.desktop.finishing-effects-slot-id.v1\0";
 
 /// Derives the reserved identity of a render-operation slot from its owning
 /// Grade Node. UUID version 8 marks this as a Shadow-defined value while the
@@ -85,18 +83,18 @@ pub(crate) fn recipe_v1_perceptual_color_render_op_id(grade_node_id: LayerInstan
 
 pub(crate) fn recipe_v1_sharpen_render_op_id(grade_node_id: LayerInstanceId) -> NodeId {
     recipe_v1_derived_render_op_id(
-        RECIPE_V3_TECHNICAL_DETAIL_RENDER_OP_ID_DOMAIN,
+        RECIPE_V1_TECHNICAL_DETAIL_RENDER_OP_ID_DOMAIN,
         grade_node_id,
     )
 }
 
-pub(crate) fn recipe_v3_color_grading_render_op_id(grade_node_id: LayerInstanceId) -> NodeId {
-    recipe_v1_derived_render_op_id(RECIPE_V3_COLOR_GRADING_RENDER_OP_ID_DOMAIN, grade_node_id)
+pub(crate) fn recipe_color_grading_render_op_id(grade_node_id: LayerInstanceId) -> NodeId {
+    recipe_v1_derived_render_op_id(RECIPE_V1_COLOR_GRADING_RENDER_OP_ID_DOMAIN, grade_node_id)
 }
 
-pub(crate) fn recipe_v3_finishing_effects_render_op_id(grade_node_id: LayerInstanceId) -> NodeId {
+pub(crate) fn recipe_finishing_effects_render_op_id(grade_node_id: LayerInstanceId) -> NodeId {
     recipe_v1_derived_render_op_id(
-        RECIPE_V3_FINISHING_EFFECTS_RENDER_OP_ID_DOMAIN,
+        RECIPE_V1_FINISHING_EFFECTS_RENDER_OP_ID_DOMAIN,
         grade_node_id,
     )
 }
@@ -161,8 +159,8 @@ impl GradeNodeRecipeV1Identity {
             perceptual_color_render_op_id: recipe_v1_perceptual_color_render_op_id(grade_node_id),
             lut_render_op_id: recipe_v1_lut_render_op_id(grade_node_id),
             sharpen_render_op_id: recipe_v1_sharpen_render_op_id(grade_node_id),
-            color_grading_render_op_id: recipe_v3_color_grading_render_op_id(grade_node_id),
-            finishing_effects_render_op_id: recipe_v3_finishing_effects_render_op_id(grade_node_id),
+            color_grading_render_op_id: recipe_color_grading_render_op_id(grade_node_id),
+            finishing_effects_render_op_id: recipe_finishing_effects_render_op_id(grade_node_id),
         }
     }
 
@@ -245,12 +243,24 @@ impl Default for LutEditParameters {
 const LOCAL_MASK_NONE: u8 = 0;
 const LOCAL_MASK_LINEAR_GRADIENT: u8 = 1;
 const LOCAL_MASK_RADIAL_GRADIENT: u8 = 2;
+const LOCAL_MASK_BRUSH: u8 = 3;
 
-type FfiLocalMaskFields = (u8, f64, f64, f64, f64, f64, f64, f64, bool);
+type FfiLocalMaskFields = (u8, f64, f64, f64, f64, f64, f64, f64, bool, Vec<f64>);
 
 fn ffi_local_mask_fields(mask: Option<&MaskDefinition>) -> FfiLocalMaskFields {
     match mask {
-        None => (LOCAL_MASK_NONE, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, false),
+        None => (
+            LOCAL_MASK_NONE,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            false,
+            Vec::new(),
+        ),
         Some(MaskDefinition::LinearGradient {
             start_x,
             start_y,
@@ -267,6 +277,7 @@ fn ffi_local_mask_fields(mask: Option<&MaskDefinition>) -> FfiLocalMaskFields {
             0.0,
             0.0,
             *invert,
+            Vec::new(),
         ),
         Some(MaskDefinition::RadialGradient {
             center_x,
@@ -285,6 +296,33 @@ fn ffi_local_mask_fields(mask: Option<&MaskDefinition>) -> FfiLocalMaskFields {
             radius_y.get(),
             feather.get(),
             *invert,
+            Vec::new(),
+        ),
+        Some(MaskDefinition::Brush {
+            points,
+            radius,
+            feather,
+            invert,
+        }) => (
+            LOCAL_MASK_BRUSH,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            radius.get(),
+            0.0,
+            feather.get(),
+            *invert,
+            points
+                .iter()
+                .flat_map(|point| {
+                    [
+                        point.x().get(),
+                        point.y().get(),
+                        if point.begins_stroke() { 1.0 } else { 0.0 },
+                    ]
+                })
+                .collect(),
         ),
     }
 }
@@ -314,6 +352,44 @@ fn local_mask_definition_from_ffi(
             unit("feather", grade_node.local_mask_feather)?,
             grade_node.local_mask_invert,
         )?)),
+        LOCAL_MASK_BRUSH => {
+            if grade_node.local_mask_brush_points.len() % 3 != 0 {
+                bail!("Grade Node {index} brush mask must contain x/y/stroke triples");
+            }
+            let point_count = grade_node.local_mask_brush_points.len() / 3;
+            if point_count > MAX_MASK_BRUSH_POINTS {
+                bail!(
+                    "Grade Node {index} brush mask contains {point_count} points, but at most {MAX_MASK_BRUSH_POINTS} are supported"
+                );
+            }
+            let mut points = Vec::with_capacity(point_count);
+            for (point_index, point) in grade_node
+                .local_mask_brush_points
+                .chunks_exact(3)
+                .enumerate()
+            {
+                let begins_stroke = match point[2] {
+                    0.0 => false,
+                    1.0 => true,
+                    _ => {
+                        bail!(
+                            "Grade Node {index} brush point {point_index} has an invalid stroke marker"
+                        )
+                    }
+                };
+                points.push(MaskBrushPoint::new(
+                    unit("brush x", point[0])?,
+                    unit("brush y", point[1])?,
+                    begins_stroke,
+                ));
+            }
+            Ok(Some(MaskDefinition::brush(
+                points,
+                unit("brush radius", grade_node.local_mask_radius_x)?,
+                unit("brush feather", grade_node.local_mask_feather)?,
+                grade_node.local_mask_invert,
+            )?))
+        }
         other => bail!("Grade Node {index} has unsupported local mask kind {other}"),
     }
 }
@@ -380,6 +456,7 @@ fn photo_geometry_from_ffi(geometry: &ffi::FfiPhotoGeometry) -> AnyResult<PhotoG
         geometry.flip_horizontal,
         geometry.flip_vertical,
     )
+    .and_then(|value| value.with_straighten_degrees(geometry.straighten_degrees))
     .map_err(Into::into)
 }
 
@@ -395,6 +472,7 @@ fn ffi_photo_geometry(geometry: PhotoGeometry) -> ffi::FfiPhotoGeometry {
             PhotoQuarterTurn::Clockwise180 => 2,
             PhotoQuarterTurn::Clockwise270 => 3,
         },
+        straighten_degrees: geometry.straighten_degrees(),
         flip_horizontal: geometry.flip_horizontal(),
         flip_vertical: geometry.flip_vertical(),
     }
@@ -412,6 +490,7 @@ fn adjustment_geometry(geometry: PhotoGeometry) -> AdjustmentGeometry {
             PhotoQuarterTurn::Clockwise180 => AdjustmentQuarterTurn::Clockwise180,
             PhotoQuarterTurn::Clockwise270 => AdjustmentQuarterTurn::Clockwise270,
         },
+        straighten_degrees: geometry.straighten_degrees(),
         flip_horizontal: geometry.flip_horizontal(),
         flip_vertical: geometry.flip_vertical(),
     }
@@ -538,6 +617,11 @@ pub(crate) fn decode_grade_stack_draft_recipe_v1(
             .iter()
             .enumerate()
             .map(|(index, spot)| {
+                let mode = match spot.mode {
+                    0 => RetouchMode::Heal,
+                    1 => RetouchMode::Clone,
+                    other => bail!("retouch spot {index} has unsupported mode {other}"),
+                };
                 RetouchSpot::new(
                     UnitInterval::new(spot.center_x).with_context(|| {
                         format!("retouch spot {index} center x must be in [0, 1]")
@@ -547,6 +631,14 @@ pub(crate) fn decode_grade_stack_draft_recipe_v1(
                     })?,
                     spot.radius_level_zero_pixels,
                 )
+                .and_then(|value| {
+                    value.with_behavior(
+                        mode,
+                        spot.source_offset_x_radii,
+                        spot.source_offset_y_radii,
+                        UnitInterval::new(spot.feather)?,
+                    )
+                })
                 .with_context(|| format!("retouch spot {index} is invalid"))
             })
             .collect::<AnyResult<Vec<_>>>()?,
@@ -633,8 +725,8 @@ pub(crate) fn decode_grade_node_draft_recipe_v1(
             )?,
             lut_render_op_id: parse_render_op_id("LUT", &grade_node.lut_render_op_id)?,
             sharpen_render_op_id: parse_render_op_id("sharpen", &grade_node.sharpen_render_op_id)?,
-            color_grading_render_op_id: recipe_v3_color_grading_render_op_id(grade_node_id),
-            finishing_effects_render_op_id: recipe_v3_finishing_effects_render_op_id(grade_node_id),
+            color_grading_render_op_id: recipe_color_grading_render_op_id(grade_node_id),
+            finishing_effects_render_op_id: recipe_finishing_effects_render_op_id(grade_node_id),
         },
         shared,
         local_mask: local_mask_definition_from_ffi(grade_node, index)?,
@@ -794,6 +886,12 @@ pub(crate) fn validate_grade_stack_draft_recipe_v1(grade_stack: &GradeStackDraft
             spot.center_x(),
             spot.center_y(),
             spot.radius_level_zero_pixels(),
+        )?
+        .with_behavior(
+            spot.mode(),
+            spot.source_offset_x_radii(),
+            spot.source_offset_y_radii(),
+            spot.feather(),
         )?;
     }
     let mut grade_node_ids = HashSet::with_capacity(grade_stack.grade_nodes.len());
@@ -1171,6 +1269,13 @@ pub(crate) fn encode_grade_stack_draft_recipe_v1(
                 center_x: spot.center_x().get(),
                 center_y: spot.center_y().get(),
                 radius_level_zero_pixels: spot.radius_level_zero_pixels(),
+                mode: match spot.mode() {
+                    RetouchMode::Heal => 0,
+                    RetouchMode::Clone => 1,
+                },
+                source_offset_x_radii: spot.source_offset_x_radii(),
+                source_offset_y_radii: spot.source_offset_y_radii(),
+                feather: spot.feather().get(),
             })
             .collect(),
         geometry: ffi_photo_geometry(grade_stack.geometry),
@@ -1193,6 +1298,7 @@ pub(crate) fn encode_grade_node_draft_recipe_v1(grade_node: GradeNodeDraft) -> f
         local_mask_radius_y,
         local_mask_feather,
         local_mask_invert,
+        local_mask_brush_points,
     ) = ffi_local_mask_fields(grade_node.local_mask.as_ref());
     ffi::FfiGradeNode {
         grade_node_id: identity.grade_node_id.to_string(),
@@ -1207,6 +1313,7 @@ pub(crate) fn encode_grade_node_draft_recipe_v1(grade_node: GradeNodeDraft) -> f
         local_mask_radius_y,
         local_mask_feather,
         local_mask_invert,
+        local_mask_brush_points,
         label: grade_node.label,
         enabled: grade_node.enabled,
         exposure_render_op_id: identity.exposure_render_op_id.to_string(),
@@ -1355,6 +1462,13 @@ pub(crate) fn compile_recipe_render_plan(
                         center_x: spot.center_x().get(),
                         center_y: spot.center_y().get(),
                         radius_level_zero_pixels: spot.radius_level_zero_pixels(),
+                        mode: match spot.mode() {
+                            RetouchMode::Heal => 0,
+                            RetouchMode::Clone => 1,
+                        },
+                        source_offset_x_radii: spot.source_offset_x_radii(),
+                        source_offset_y_radii: spot.source_offset_y_radii(),
+                        feather: spot.feather().get(),
                     })
                     .collect(),
             },
@@ -1406,6 +1520,24 @@ fn adjustment_local_mask(definition: &MaskDefinition) -> AdjustmentLocalMask {
             center_y: center_y.get(),
             radius_x: radius_x.get(),
             radius_y: radius_y.get(),
+            feather: feather.get(),
+            invert: *invert,
+        },
+        MaskDefinition::Brush {
+            points,
+            radius,
+            feather,
+            invert,
+        } => AdjustmentLocalMask::Brush {
+            points: points
+                .iter()
+                .map(|point| shadow_bridge::AdjustmentMaskBrushPoint {
+                    x: point.x().get(),
+                    y: point.y().get(),
+                    begins_stroke: point.begins_stroke(),
+                })
+                .collect(),
+            radius: radius.get(),
             feather: feather.get(),
             invert: *invert,
         },
@@ -1482,23 +1614,23 @@ pub(crate) fn compile_recipe_node(
         && descriptor.implementation_version() == OKLAB_LIGHTNESS_TONE_CURVE_IMPLEMENTATION_VERSION;
     let is_current_selective_tone = descriptor.operation_id().as_str()
         == SELECTIVE_TONE_OPERATION_ID
-        && descriptor.parameter_schema_version() == SELECTIVE_TONE_V3_PARAMETER_SCHEMA_VERSION
-        && descriptor.implementation_version() == SELECTIVE_TONE_V3_IMPLEMENTATION_VERSION;
+        && descriptor.parameter_schema_version() == SELECTIVE_TONE_PARAMETER_SCHEMA_VERSION
+        && descriptor.implementation_version() == SELECTIVE_TONE_IMPLEMENTATION_VERSION;
     let is_current_perceptual_color = descriptor.operation_id().as_str()
         == PERCEPTUAL_COLOR_OPERATION_ID
-        && descriptor.parameter_schema_version() == PERCEPTUAL_COLOR_V3_PARAMETER_SCHEMA_VERSION
-        && descriptor.implementation_version() == PERCEPTUAL_COLOR_V3_IMPLEMENTATION_VERSION;
+        && descriptor.parameter_schema_version() == PERCEPTUAL_COLOR_PARAMETER_SCHEMA_VERSION
+        && descriptor.implementation_version() == PERCEPTUAL_COLOR_IMPLEMENTATION_VERSION;
     let is_current_technical_detail = descriptor.operation_id().as_str()
         == TECHNICAL_DETAIL_OPERATION_ID
-        && descriptor.parameter_schema_version() == TECHNICAL_DETAIL_V3_PARAMETER_SCHEMA_VERSION
-        && descriptor.implementation_version() == TECHNICAL_DETAIL_V3_IMPLEMENTATION_VERSION;
+        && descriptor.parameter_schema_version() == TECHNICAL_DETAIL_PARAMETER_SCHEMA_VERSION
+        && descriptor.implementation_version() == TECHNICAL_DETAIL_IMPLEMENTATION_VERSION;
     let is_current_color_grading = descriptor.operation_id().as_str() == COLOR_GRADING_OPERATION_ID
-        && descriptor.parameter_schema_version() == TECHNICAL_DETAIL_V3_PARAMETER_SCHEMA_VERSION
-        && descriptor.implementation_version() == COLOR_GRADING_V3_IMPLEMENTATION_VERSION;
+        && descriptor.parameter_schema_version() == TECHNICAL_DETAIL_PARAMETER_SCHEMA_VERSION
+        && descriptor.implementation_version() == COLOR_GRADING_IMPLEMENTATION_VERSION;
     let is_current_finishing_effects = descriptor.operation_id().as_str()
         == FINISHING_EFFECTS_OPERATION_ID
-        && descriptor.parameter_schema_version() == TECHNICAL_DETAIL_V3_PARAMETER_SCHEMA_VERSION
-        && descriptor.implementation_version() == FINISHING_EFFECTS_V3_IMPLEMENTATION_VERSION;
+        && descriptor.parameter_schema_version() == TECHNICAL_DETAIL_PARAMETER_SCHEMA_VERSION
+        && descriptor.implementation_version() == FINISHING_EFFECTS_IMPLEMENTATION_VERSION;
     if (!is_base_contract
         && !is_current_oklab_lightness_tone_curve
         && !is_current_selective_tone
@@ -1772,7 +1904,15 @@ pub(crate) fn compile_recipe_node(
                     expected_len,
                 )?,
             )?;
+            let pass = if is_current_technical_detail {
+                shadow_bridge::AdjustmentDetailEffectsPass::TechnicalDetail
+            } else if is_current_color_grading {
+                shadow_bridge::AdjustmentDetailEffectsPass::ColorGrading
+            } else {
+                shadow_bridge::AdjustmentDetailEffectsPass::FinishingEffects
+            };
             AdjustmentRenderOperation::Sharpen {
+                pass,
                 parameters: Box::new(parameters),
             }
         }
@@ -1785,17 +1925,17 @@ pub(crate) fn compile_recipe_node(
         node_id: format!("{layer_id}/{}", node.id()),
         parameter_schema_version: descriptor.parameter_schema_version(),
         implementation_version: if is_current_selective_tone {
-            SELECTIVE_TONE_V3_IMPLEMENTATION_REVISION
+            SELECTIVE_TONE_IMPLEMENTATION_REVISION
         } else if is_current_perceptual_color {
-            PERCEPTUAL_COLOR_V3_IMPLEMENTATION_REVISION
+            PERCEPTUAL_COLOR_IMPLEMENTATION_REVISION
         } else if is_current_oklab_lightness_tone_curve {
             OKLAB_LIGHTNESS_TONE_CURVE_IMPLEMENTATION_REVISION
         } else if is_current_technical_detail {
-            TECHNICAL_DETAIL_V3_IMPLEMENTATION_REVISION
+            TECHNICAL_DETAIL_IMPLEMENTATION_REVISION
         } else if is_current_color_grading {
-            COLOR_GRADING_V3_IMPLEMENTATION_REVISION
+            COLOR_GRADING_IMPLEMENTATION_REVISION
         } else if is_current_finishing_effects {
-            FINISHING_EFFECTS_V3_IMPLEMENTATION_REVISION
+            FINISHING_EFFECTS_IMPLEMENTATION_REVISION
         } else {
             CPU_REFERENCE_IMPLEMENTATION_REVISION
         },
@@ -1993,7 +2133,7 @@ pub(crate) fn encode_grade_node_as_recipe_v1_layer(
     nodes.push(recipe_detail_effects_render_op(
         technical_detail_id,
         TECHNICAL_DETAIL_OPERATION_ID,
-        TECHNICAL_DETAIL_V3_IMPLEMENTATION_VERSION,
+        TECHNICAL_DETAIL_IMPLEMENTATION_VERSION,
         ProcessingStage::TechnicalDetail,
         NodeInput::Node {
             node_id: perceptual_tone_input,
@@ -2004,7 +2144,7 @@ pub(crate) fn encode_grade_node_as_recipe_v1_layer(
         recipe_detail_effects_render_op(
             color_grading_id,
             COLOR_GRADING_OPERATION_ID,
-            COLOR_GRADING_V3_IMPLEMENTATION_VERSION,
+            COLOR_GRADING_IMPLEMENTATION_VERSION,
             ProcessingStage::CreativeColor,
             NodeInput::Node {
                 node_id: technical_detail_id,
@@ -2021,7 +2161,7 @@ pub(crate) fn encode_grade_node_as_recipe_v1_layer(
         recipe_detail_effects_render_op(
             finishing_effects_id,
             FINISHING_EFFECTS_OPERATION_ID,
-            FINISHING_EFFECTS_V3_IMPLEMENTATION_VERSION,
+            FINISHING_EFFECTS_IMPLEMENTATION_VERSION,
             ProcessingStage::FinishingEffects,
             NodeInput::Node { node_id: lut_id },
             &fine.sharpen,
@@ -2118,8 +2258,8 @@ pub(crate) fn recipe_selective_tone_render_op(
     let rgb = PortType::Image(ImageDomain::WorkingRgb);
     let operation = OperationDescriptor::new(
         OperationId::new(SELECTIVE_TONE_OPERATION_ID)?,
-        SELECTIVE_TONE_V3_PARAMETER_SCHEMA_VERSION,
-        SELECTIVE_TONE_V3_IMPLEMENTATION_VERSION,
+        SELECTIVE_TONE_PARAMETER_SCHEMA_VERSION,
+        SELECTIVE_TONE_IMPLEMENTATION_VERSION,
         ProcessingStage::ToneAndLocalContrast,
         vec![rgb],
         rgb,
@@ -2355,8 +2495,8 @@ pub(crate) fn recipe_perceptual_color_render_op(
     let rgb = PortType::Image(ImageDomain::WorkingRgb);
     let operation = OperationDescriptor::new(
         OperationId::new(PERCEPTUAL_COLOR_OPERATION_ID)?,
-        PERCEPTUAL_COLOR_V3_PARAMETER_SCHEMA_VERSION,
-        PERCEPTUAL_COLOR_V3_IMPLEMENTATION_VERSION,
+        PERCEPTUAL_COLOR_PARAMETER_SCHEMA_VERSION,
+        PERCEPTUAL_COLOR_IMPLEMENTATION_VERSION,
         ProcessingStage::ToneAndLocalContrast,
         vec![rgb],
         rgb,
@@ -2535,7 +2675,7 @@ pub(crate) fn recipe_detail_effects_render_op(
     let rgb = PortType::Image(ImageDomain::WorkingRgb);
     let operation = OperationDescriptor::new(
         OperationId::new(operation_id)?,
-        TECHNICAL_DETAIL_V3_PARAMETER_SCHEMA_VERSION,
+        TECHNICAL_DETAIL_PARAMETER_SCHEMA_VERSION,
         implementation_version,
         stage,
         vec![rgb],
@@ -2727,7 +2867,7 @@ pub(crate) fn grade_node_recipe_v1_render_ops(
     validate_recipe_detail_effects_render_op(
         technical_detail,
         TECHNICAL_DETAIL_OPERATION_ID,
-        TECHNICAL_DETAIL_V3_IMPLEMENTATION_VERSION,
+        TECHNICAL_DETAIL_IMPLEMENTATION_VERSION,
         ProcessingStage::TechnicalDetail,
         NodeInput::Node {
             node_id: technical_input,
@@ -2736,7 +2876,7 @@ pub(crate) fn grade_node_recipe_v1_render_ops(
     validate_recipe_detail_effects_render_op(
         color_grading,
         COLOR_GRADING_OPERATION_ID,
-        COLOR_GRADING_V3_IMPLEMENTATION_VERSION,
+        COLOR_GRADING_IMPLEMENTATION_VERSION,
         ProcessingStage::CreativeColor,
         NodeInput::Node {
             node_id: technical_detail.id(),
@@ -2753,7 +2893,7 @@ pub(crate) fn grade_node_recipe_v1_render_ops(
     validate_recipe_detail_effects_render_op(
         finishing_effects,
         FINISHING_EFFECTS_OPERATION_ID,
-        FINISHING_EFFECTS_V3_IMPLEMENTATION_VERSION,
+        FINISHING_EFFECTS_IMPLEMENTATION_VERSION,
         ProcessingStage::FinishingEffects,
         NodeInput::Node { node_id: lut.id() },
     )?;
@@ -2958,7 +3098,7 @@ pub(crate) fn fine_parameters_from_nodes(
     };
     let sharpen = {
         let node = nodes.technical_detail;
-        // The three schema-3 passes intentionally carry the same visible
+        // The three ordered v1 passes intentionally carry the same visible
         // parameter packet. Reject any hand-edited divergence rather than
         // guessing which copy of a slider should win when a Recipe is read.
         if nodes.color_grading.parameters() != node.parameters()
@@ -3049,8 +3189,8 @@ pub(crate) fn decode_grade_node_draft_from_recipe_v1_layer(
     local_mask: Option<MaskDefinition>,
 ) -> AnyResult<GradeNodeDraft> {
     let nodes = grade_node_recipe_v1_render_ops(layer)?;
-    if nodes.color_grading.id() != recipe_v3_color_grading_render_op_id(layer.id())
-        || nodes.finishing_effects.id() != recipe_v3_finishing_effects_render_op_id(layer.id())
+    if nodes.color_grading.id() != recipe_color_grading_render_op_id(layer.id())
+        || nodes.finishing_effects.id() != recipe_finishing_effects_render_op_id(layer.id())
         || nodes.oklab_lightness_curve.is_some_and(|node| {
             node.id() != recipe_v1_oklab_lightness_tone_curve_render_op_id(layer.id())
         })
@@ -3233,8 +3373,8 @@ pub(crate) fn validate_recipe_selective_tone_render_op(
     let operation = node.operation();
     let rgb = PortType::Image(ImageDomain::WorkingRgb);
     let contract_is_supported = operation.parameter_schema_version()
-        == SELECTIVE_TONE_V3_PARAMETER_SCHEMA_VERSION
-        && operation.implementation_version() == SELECTIVE_TONE_V3_IMPLEMENTATION_VERSION;
+        == SELECTIVE_TONE_PARAMETER_SCHEMA_VERSION
+        && operation.implementation_version() == SELECTIVE_TONE_IMPLEMENTATION_VERSION;
     if operation.operation_id().as_str() != SELECTIVE_TONE_OPERATION_ID
         || !contract_is_supported
         || operation.stage() != ProcessingStage::ToneAndLocalContrast
@@ -3256,8 +3396,8 @@ pub(crate) fn validate_recipe_perceptual_color_render_op(
     let operation = node.operation();
     let rgb = PortType::Image(ImageDomain::WorkingRgb);
     let contract_is_supported = operation.parameter_schema_version()
-        == PERCEPTUAL_COLOR_V3_PARAMETER_SCHEMA_VERSION
-        && operation.implementation_version() == PERCEPTUAL_COLOR_V3_IMPLEMENTATION_VERSION;
+        == PERCEPTUAL_COLOR_PARAMETER_SCHEMA_VERSION
+        && operation.implementation_version() == PERCEPTUAL_COLOR_IMPLEMENTATION_VERSION;
     if operation.operation_id().as_str() != PERCEPTUAL_COLOR_OPERATION_ID
         || !contract_is_supported
         || operation.stage() != ProcessingStage::ToneAndLocalContrast
@@ -3282,7 +3422,7 @@ pub(crate) fn validate_recipe_detail_effects_render_op(
     let operation = node.operation();
     let rgb = PortType::Image(ImageDomain::WorkingRgb);
     let contract_is_supported = operation.parameter_schema_version()
-        == TECHNICAL_DETAIL_V3_PARAMETER_SCHEMA_VERSION
+        == TECHNICAL_DETAIL_PARAMETER_SCHEMA_VERSION
         && operation.implementation_version() == implementation_version;
     if operation.operation_id().as_str() != operation_id
         || !contract_is_supported

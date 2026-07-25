@@ -135,6 +135,15 @@ class EditController final : public QObject {
     // Crop/orientation is photo-local too. It is intentionally not a Grade
     // Node control, because framing must never become a shared style.
     Q_PROPERTY(QVariantMap photoGeometry READ photoGeometry NOTIFY parametersChanged)
+    // Crop is edited against the complete oriented source rather than the
+    // already-cropped output. This is transient presentation state only; the
+    // persisted v1 Recipe remains the single owner of the actual bounds.
+    Q_PROPERTY(
+        bool cropToolActive
+        READ cropToolActive
+        WRITE setCropToolActive
+        NOTIFY cropToolActiveChanged
+    )
     Q_PROPERTY(QVariantList gradeNodes READ gradeNodes NOTIFY gradeNodesChanged)
     Q_PROPERTY(
         QVariantList sharedGradeNodes
@@ -219,6 +228,12 @@ class EditController final : public QObject {
     Q_PROPERTY(bool pointColorPickerActive READ pointColorPickerActive NOTIFY pointColorPickerActiveChanged)
     Q_PROPERTY(bool retouchPickerActive READ retouchPickerActive NOTIFY retouchPickerActiveChanged)
     Q_PROPERTY(
+        int retouchCreationMode
+        READ retouchCreationMode
+        WRITE setRetouchCreationMode
+        NOTIFY retouchCreationModeChanged
+    )
+    Q_PROPERTY(
         bool whiteBalancePickerActive
         READ whiteBalancePickerActive
         NOTIFY whiteBalancePickerActiveChanged
@@ -291,6 +306,7 @@ public:
     [[nodiscard]] QVariantMap selectedLocalMask() const;
     [[nodiscard]] QVariantList retouchSpots() const;
     [[nodiscard]] QVariantMap photoGeometry() const;
+    [[nodiscard]] bool cropToolActive() const noexcept;
     [[nodiscard]] QVariantList gradeNodes() const;
     [[nodiscard]] QVariantList sharedGradeNodes() const;
     [[nodiscard]] int selectedGradeNodeIndex() const noexcept;
@@ -312,6 +328,7 @@ public:
     [[nodiscard]] int selectedPointColorIndex() const noexcept;
     [[nodiscard]] bool pointColorPickerActive() const noexcept;
     [[nodiscard]] bool retouchPickerActive() const noexcept;
+    [[nodiscard]] int retouchCreationMode() const noexcept;
     [[nodiscard]] bool whiteBalancePickerActive() const noexcept;
     [[nodiscard]] bool hasToneCurve() const noexcept;
     [[nodiscard]] bool toneCurveEditable() const noexcept;
@@ -358,10 +375,34 @@ public:
     Q_INVOKABLE void moveSelectedGradeNode(int destination_index);
     Q_INVOKABLE void setSelectedLocalMask(int kind);
     Q_INVOKABLE void setSelectedLocalMaskValue(const QString& key, double value);
+    Q_INVOKABLE void setSelectedLocalMaskPoint(
+        const QString& point,
+        double normalized_x,
+        double normalized_y
+    );
+    Q_INVOKABLE void appendSelectedLocalMaskBrushPoint(
+        double normalized_x,
+        double normalized_y,
+        bool begins_stroke
+    );
+    Q_INVOKABLE void clearSelectedLocalMaskBrush();
     Q_INVOKABLE void setSelectedLocalMaskInverted(bool inverted);
     Q_INVOKABLE void setRetouchPickerActive(bool active);
+    Q_INVOKABLE void setRetouchCreationMode(int mode);
     Q_INVOKABLE void addRetouchSpotFromPreview(double normalized_x, double normalized_y);
+    Q_INVOKABLE void setRetouchSpotCenter(
+        int index,
+        double normalized_x,
+        double normalized_y
+    );
     Q_INVOKABLE void setRetouchSpotRadius(int index, int radius_level_zero_pixels);
+    Q_INVOKABLE void setRetouchSpotMode(int index, int mode);
+    Q_INVOKABLE void setRetouchSpotFeather(int index, double feather);
+    Q_INVOKABLE void setRetouchSpotSourceOffset(
+        int index,
+        double offset_x_radii,
+        double offset_y_radii
+    );
     Q_INVOKABLE void removeRetouchSpot(int index);
     Q_INVOKABLE void rotatePhotoClockwise();
     Q_INVOKABLE void rotatePhotoCounterClockwise();
@@ -371,6 +412,14 @@ public:
         double output_aspect_ratio,
         double current_output_aspect_ratio
     );
+    Q_INVOKABLE void setPhotoCropBounds(
+        double crop_left,
+        double crop_top,
+        double crop_right,
+        double crop_bottom
+    );
+    Q_INVOKABLE void setPhotoStraightenDegrees(double degrees);
+    Q_INVOKABLE void setCropToolActive(bool active);
     Q_INVOKABLE void resetPhotoGeometry();
     Q_INVOKABLE void beginParameterEdit(const QString& parameter_key);
     Q_INVOKABLE void endParameterEdit(const QString& parameter_key);
@@ -441,6 +490,8 @@ public:
     Q_INVOKABLE void undo();
     Q_INVOKABLE void redo();
     Q_INVOKABLE void resetSelectedGradeNode();
+    Q_INVOKABLE void resetAllGradeNodes();
+    Q_INVOKABLE void resetAllAdjustments();
     Q_INVOKABLE void revertEdits();
     Q_INVOKABLE void requestBeforePreview();
     Q_INVOKABLE void requestDetailViewport(
@@ -507,7 +558,9 @@ signals:
     void toneCurveChanged();
     void pointColorPickerActiveChanged();
     void retouchPickerActiveChanged();
+    void retouchCreationModeChanged();
     void whiteBalancePickerActiveChanged();
+    void cropToolActiveChanged();
 
 private slots:
     void finishStateTask();
@@ -677,6 +730,8 @@ private:
     int selected_point_color_index_ = -1;
     bool point_color_picker_active_ = false;
     bool retouch_picker_active_ = false;
+    int retouch_creation_mode_ = 0;
     bool white_balance_picker_active_ = false;
+    bool crop_tool_active_ = false;
     quint64 parameter_revision_ = 0;
 };

@@ -43,7 +43,7 @@ use crate::{
 
 const GRID_VISUAL_HANDLE_PREFIX: &str = "shadow-grid-visual-v1.";
 const SESSION_GRID_VISUAL_HANDLE_PREFIX: &str = "shadow-grid-session-v1.";
-const GRID_VISUAL_HANDLE_SCHEMA_VERSION: u8 = 2;
+const GRID_VISUAL_HANDLE_SCHEMA_VERSION: u8 = 1;
 const SESSION_GRID_VISUAL_HANDLE_SCHEMA_VERSION: u8 = 1;
 const MAX_GRID_VISUAL_PAYLOAD_BYTES: usize = 16 * 1_024;
 const MAX_PENDING_REVIEW_COMPARISONS: usize = 64;

@@ -370,8 +370,8 @@ void render_warm_denoise_diagnostic(
     const std::array denoise_nodes{
         image::AdjustmentNode{
             .node_id = "raw-probe-max-denoise",
-            .parameter_schema_version = image::detail_effects_v3_parameter_schema_version,
-            .implementation_version = image::technical_detail_v3_implementation_version,
+            .parameter_schema_version = image::detail_effects_parameter_schema_version,
+            .implementation_version = image::technical_detail_implementation_version,
             .parameters = image::SharpenAdjustment{
                 .denoise_luminance = 1.0,
                 .denoise_detail = 0.24,

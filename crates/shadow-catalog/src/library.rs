@@ -691,8 +691,9 @@ impl Catalog {
 }
 
 fn library_photo_query_parts(filter: &LibraryPhotoFilter) -> (String, String, Vec<Value>) {
-    // Both correlated subqueries are backed by v12's `(photo, kind, created)`
-    // and `(representation, status, created)` indexes. This keeps one logical
+    // Both correlated subqueries are backed by the current v1 catalog's
+    // `(photo, kind, created)` and `(representation, status, created)` indexes.
+    // This keeps one logical
     // row per photo without requiring a directory-derived materialized view.
     // Original rasters are first-class Library sources; RAW retains a stable
     // preference only when both are attached to one logical photo.

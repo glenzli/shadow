@@ -18,7 +18,7 @@ namespace shadow::image {
 // sampling its own already-cropped pixels when distortion/TCA require coordinates elsewhere in
 // the complete image.
 inline constexpr std::uint32_t optics_settings_schema_version = 1U;
-inline constexpr std::uint32_t optics_implementation_version = 3U;
+inline constexpr std::uint32_t optics_implementation_version = 1U;
 
 struct OpticsSettings final {
     std::uint32_t schema_version = optics_settings_schema_version;

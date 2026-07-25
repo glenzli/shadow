@@ -25,7 +25,7 @@ enum class AdjustmentBackendMode : std::uint8_t {
 };
 
 inline constexpr std::uint32_t adjustment_cpu_backend_version = 1U;
-inline constexpr std::uint32_t adjustment_metal_backend_version = 3U;
+inline constexpr std::uint32_t adjustment_metal_backend_version = 1U;
 
 [[nodiscard]] std::string_view adjustment_backend_identity(
     AdjustmentBackend backend

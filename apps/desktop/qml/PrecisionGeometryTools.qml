@@ -5,22 +5,24 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
-// Photo-local framing controls. The crop contract is already persisted by the
-// backend, but this compact first surface exposes only transformations that
-// have a complete, lossless canvas implementation. A crop overlay will join
-// this group once its interactive source-space gesture is ready.
+// Photo-local framing controls paired with the direct-manipulation crop
+// overlay. Aspect is a transient constraint; normalized crop bounds and
+// orientation remain the persisted v1 Recipe authority.
 ColumnLayout {
     id: geometry
 
     required property var inspector
     required property int currentTabIndex
+    required property real aspectRatioLock
+
+    signal aspectRatioRequested(real ratio)
 
     spacing: 0
 
     ShadowAdjustmentSection {
         Layout.fillWidth: true
         visible: geometry.currentTabIndex === 0
-        title: qsTr("TRANSFORM")
+        title: qsTr("CROP")
         summary: geometry.inspector.editor.photoGeometry.identity
             ? qsTr("Original") : qsTr("Adjusted")
         toolTipText: qsTr("Photo-local orientation. It is applied after grading and never becomes a shared Grade Node.")
@@ -72,10 +74,34 @@ ColumnLayout {
             }
         }
 
+        ShadowSlider {
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            Layout.topMargin: 6
+            label: qsTr("Straighten")
+            from: -45
+            to: 45
+            neutralValue: 0
+            stepSize: 0.1
+            decimals: 1
+            suffix: "°"
+            value: Number(
+                geometry.inspector.editor.photoGeometry.straightenDegrees || 0)
+            enabled: geometry.inspector.previewFrameReady
+                && !geometry.inspector.editor.stateBusy
+            onGestureStarted: geometry.inspector.editor.beginParameterEdit(
+                "geometry/straighten")
+            onEdited: value =>
+                geometry.inspector.editor.setPhotoStraightenDegrees(value)
+            onGestureFinished: geometry.inspector.editor.endParameterEdit(
+                "geometry/straighten")
+        }
+
         ShadowSubsectionLabel {
             Layout.topMargin: 6
-            text: qsTr("CROP")
-            toolTipText: qsTr("Apply a centered crop ratio. Freeform crop handles will use the same photo-local geometry later.")
+            text: qsTr("ASPECT")
+            toolTipText: qsTr("Freeform by default. A selected ratio constrains the canvas handles without becoming separate Recipe state.")
         }
 
         RowLayout {
@@ -86,6 +112,7 @@ ColumnLayout {
 
             Repeater {
                 model: [
+                    { "label": qsTr("Free"), "aspect": 0.0 },
                     { "label": "1:1", "aspect": 1.0 },
                     { "label": "4:5", "aspect": 4.0 / 5.0 },
                     { "label": "3:2", "aspect": 3.0 / 2.0 },
@@ -100,11 +127,30 @@ ColumnLayout {
                     minimumButtonWidth: 38
                     variant: ShadowButton.Ghost
                     text: modelData.label
+                    selected: Math.abs(
+                        geometry.aspectRatioLock - modelData.aspect) < 0.0001
                     enabled: geometry.inspector.previewFrameReady
-                    onClicked: geometry.inspector.editor.setCenteredPhotoCropAspectRatio(
-                        modelData.aspect, geometry.inspector.currentPhotoAspect)
+                    onClicked: {
+                        geometry.aspectRatioRequested(modelData.aspect)
+                        if (modelData.aspect > 0) {
+                            geometry.inspector.editor.setCenteredPhotoCropAspectRatio(
+                                modelData.aspect,
+                                geometry.inspector.currentPhotoAspect)
+                        }
+                    }
                 }
             }
+        }
+
+        Label {
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            Layout.topMargin: 6
+            text: qsTr("Drag the frame, edges, or corners directly on the photo.")
+            color: Theme.textMuted
+            font.pixelSize: 9
+            wrapMode: Text.WordWrap
         }
     }
 }

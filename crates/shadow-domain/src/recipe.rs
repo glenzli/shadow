@@ -13,17 +13,6 @@ use crate::{
     OutputTargetId, RecipeCommitId, RecipeId, SelectionId, ShootId, VersionId,
 };
 
-// Version 2 moves the post-demosaic creative white-balance transform ahead of exposure and tone
-// controls. Shadow is still in its pre-release recipe phase, so incompatible v1 recipe graphs
-// are rejected rather than silently reinterpreted under the new scene-linear ordering.
-// Schema 3 splits the former monolithic Detail & Effects operation into
-// ordered technical-detail, creative color-grading, and finishing-effect
-// contracts. Shadow is still pre-release, so old Recipes are deliberately
-// rejected by the desktop compiler rather than silently changing their
-// pixels. Schema 4 upgrades Selective Tone from a one-pass local-linear
-// response to the complete self-guided filter, including its second local
-// coefficient-average pass. Its unchanged slider shape must not conceal
-// a different pixel contract, so schema-3 Recipes are likewise rejected.
 // Shadow is still in its pre-release development phase. Keep the persisted
 // photo-edit contract at v1 until a real compatibility policy exists; a
 // breaking local-development change is handled as an explicit per-photo reset
@@ -59,6 +48,10 @@ impl FiniteF64 {
     pub const fn get(self) -> f64 {
         self.0
     }
+}
+
+const fn default_finite_zero() -> FiniteF64 {
+    FiniteF64(0.0)
 }
 
 impl TryFrom<f64> for FiniteF64 {
@@ -745,9 +738,8 @@ impl MaskReference {
 /// Local masks deliberately describe *where* a layer applies, never which
 /// adjustment it contains. A Grade Node can therefore remain a complete,
 /// reusable adjustment while each photo instance supplies its own placement.
-/// The first public shapes cover the two most useful non-destructive local
-/// workflows; drawn and parametric ranges can be added as new variants
-/// without changing the ownership or revision contract.
+/// Gradient and freehand shapes share one ownership/revision contract, so a
+/// future AI-generated mask can be added without changing Grade Node identity.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum MaskDefinition {
@@ -772,7 +764,48 @@ pub enum MaskDefinition {
         #[serde(default)]
         invert: bool,
     },
+    /// One or more freehand strokes. A point marked `begins_stroke` starts a
+    /// disconnected stroke; subsequent points are joined by round segments.
+    Brush {
+        points: Vec<MaskBrushPoint>,
+        radius: UnitInterval,
+        feather: UnitInterval,
+        #[serde(default)]
+        invert: bool,
+    },
 }
+
+/// One immutable freehand-mask sample in original-image coordinates.
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MaskBrushPoint {
+    x: UnitInterval,
+    y: UnitInterval,
+    begins_stroke: bool,
+}
+
+impl MaskBrushPoint {
+    pub const fn new(x: UnitInterval, y: UnitInterval, begins_stroke: bool) -> Self {
+        Self {
+            x,
+            y,
+            begins_stroke,
+        }
+    }
+
+    pub const fn x(self) -> UnitInterval {
+        self.x
+    }
+
+    pub const fn y(self) -> UnitInterval {
+        self.y
+    }
+
+    pub const fn begins_stroke(self) -> bool {
+        self.begins_stroke
+    }
+}
+
+pub const MAX_MASK_BRUSH_POINTS: usize = 4_096;
 
 impl MaskDefinition {
     /// Creates a normalized linear-gradient mask after validating that it has
@@ -817,6 +850,24 @@ impl MaskDefinition {
         Ok(definition)
     }
 
+    /// Creates an editable freehand mask. No points means zero coverage until
+    /// the first stroke is drawn, which is valid persistent tool state.
+    pub fn brush(
+        points: Vec<MaskBrushPoint>,
+        radius: UnitInterval,
+        feather: UnitInterval,
+        invert: bool,
+    ) -> Result<Self, RecipeValidationError> {
+        let definition = Self::Brush {
+            points,
+            radius,
+            feather,
+            invert,
+        };
+        definition.validate()?;
+        Ok(definition)
+    }
+
     fn validate(&self) -> Result<(), RecipeValidationError> {
         match self {
             Self::LinearGradient {
@@ -837,6 +888,14 @@ impl MaskDefinition {
             } => {
                 if radius_x.get() <= 0.0 || radius_y.get() <= 0.0 {
                     return Err(RecipeValidationError::DegenerateRadialMask);
+                }
+            }
+            Self::Brush { points, radius, .. } => {
+                if points.len() > MAX_MASK_BRUSH_POINTS {
+                    return Err(RecipeValidationError::TooManyMaskBrushPoints(points.len()));
+                }
+                if radius.get() <= 0.0 {
+                    return Err(RecipeValidationError::DegenerateBrushMask);
                 }
             }
         }
@@ -917,16 +976,38 @@ impl MaskRevision {
     }
 }
 
+/// Deterministic non-generative repair behavior.
+#[derive(Debug, Copy, Clone, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RetouchMode {
+    /// Reconstruct from a smooth ring surrounding the selected defect.
+    #[default]
+    Heal,
+    /// Copy from a nearby source offset measured in brush radii.
+    Clone,
+}
+
+const fn default_retouch_feather() -> UnitInterval {
+    UnitInterval(FiniteF64(0.28))
+}
+
 /// One small, non-generative repair target in original-image coordinates.
 ///
-/// The recipe records only location and physical radius; renderer-specific
-/// sampling remains an implementation detail. The radius is expressed in
-/// level-zero pixels so warm proxies can scale it without changing intent.
+/// Radius is expressed in level-zero pixels. Clone offsets are measured in
+/// radii and deliberately bounded, preserving tile-local detail execution.
 #[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RetouchSpot {
     center_x: UnitInterval,
     center_y: UnitInterval,
     radius_level_zero_pixels: u16,
+    #[serde(default)]
+    mode: RetouchMode,
+    #[serde(default = "default_finite_zero")]
+    source_offset_x_radii: FiniteF64,
+    #[serde(default = "default_finite_zero")]
+    source_offset_y_radii: FiniteF64,
+    #[serde(default = "default_retouch_feather")]
+    feather: UnitInterval,
 }
 
 impl RetouchSpot {
@@ -955,7 +1036,32 @@ impl RetouchSpot {
             center_x,
             center_y,
             radius_level_zero_pixels,
+            mode: RetouchMode::Heal,
+            source_offset_x_radii: default_finite_zero(),
+            source_offset_y_radii: default_finite_zero(),
+            feather: default_retouch_feather(),
         })
+    }
+
+    pub fn with_behavior(
+        mut self,
+        mode: RetouchMode,
+        source_offset_x_radii: f64,
+        source_offset_y_radii: f64,
+        feather: UnitInterval,
+    ) -> Result<Self, RecipeValidationError> {
+        let source_offset_x_radii = FiniteF64::new(source_offset_x_radii)?;
+        let source_offset_y_radii = FiniteF64::new(source_offset_y_radii)?;
+        if !(-2.0..=2.0).contains(&source_offset_x_radii.get())
+            || !(-2.0..=2.0).contains(&source_offset_y_radii.get())
+        {
+            return Err(RecipeValidationError::InvalidRetouchSourceOffset);
+        }
+        self.mode = mode;
+        self.source_offset_x_radii = source_offset_x_radii;
+        self.source_offset_y_radii = source_offset_y_radii;
+        self.feather = feather;
+        Ok(self)
     }
 
     pub const fn center_x(self) -> UnitInterval {
@@ -970,8 +1076,31 @@ impl RetouchSpot {
         self.radius_level_zero_pixels
     }
 
+    pub const fn mode(self) -> RetouchMode {
+        self.mode
+    }
+
+    pub const fn source_offset_x_radii(self) -> f64 {
+        self.source_offset_x_radii.get()
+    }
+
+    pub const fn source_offset_y_radii(self) -> f64 {
+        self.source_offset_y_radii.get()
+    }
+
+    pub const fn feather(self) -> UnitInterval {
+        self.feather
+    }
+
     fn validate(self) -> Result<(), RecipeValidationError> {
-        Self::new(self.center_x, self.center_y, self.radius_level_zero_pixels).map(|_| ())
+        Self::new(self.center_x, self.center_y, self.radius_level_zero_pixels)?
+            .with_behavior(
+                self.mode,
+                self.source_offset_x_radii.get(),
+                self.source_offset_y_radii.get(),
+                self.feather,
+            )
+            .map(|_| ())
     }
 }
 
@@ -997,8 +1126,8 @@ pub enum PhotoQuarterTurn {
 /// independent of the proxy size used to show the photo.  A renderer turns
 /// them into one pixel-aligned source rectangle at its current resolution;
 /// right-angle orientation and flips then rearrange those pixels without an
-/// additional resampling pass.  Arbitrary straighten/perspective work will
-/// extend this photo-level contract rather than becoming a Grade Node.
+/// additional resampling pass. Fine straighten remains in this same
+/// photo-level contract and uses one final geometry resampling pass.
 #[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PhotoGeometry {
     crop_left: UnitInterval,
@@ -1006,6 +1135,8 @@ pub struct PhotoGeometry {
     crop_right: UnitInterval,
     crop_bottom: UnitInterval,
     quarter_turn: PhotoQuarterTurn,
+    #[serde(default = "default_finite_zero")]
+    straighten_degrees: FiniteF64,
     flip_horizontal: bool,
     flip_vertical: bool,
 }
@@ -1025,6 +1156,7 @@ impl PhotoGeometry {
             crop_right: UnitInterval::ONE,
             crop_bottom: UnitInterval::ONE,
             quarter_turn: PhotoQuarterTurn::Zero,
+            straighten_degrees: default_finite_zero(),
             flip_horizontal: false,
             flip_vertical: false,
         }
@@ -1053,9 +1185,24 @@ impl PhotoGeometry {
             crop_right,
             crop_bottom,
             quarter_turn,
+            straighten_degrees: default_finite_zero(),
             flip_horizontal,
             flip_vertical,
         })
+    }
+
+    /// Adds a fine clockwise straighten rotation in the bounded range used by
+    /// professional crop tools. It remains part of the same Recipe v1
+    /// geometry contract while Shadow is pre-release.
+    pub fn with_straighten_degrees(mut self, degrees: f64) -> Result<Self, RecipeValidationError> {
+        let degrees = FiniteF64::new(degrees)?;
+        if !(-45.0..=45.0).contains(&degrees.get()) {
+            return Err(RecipeValidationError::InvalidPhotoStraightenDegrees(
+                degrees.get(),
+            ));
+        }
+        self.straighten_degrees = degrees;
+        Ok(self)
     }
 
     pub const fn crop_left(self) -> UnitInterval {
@@ -1078,6 +1225,10 @@ impl PhotoGeometry {
         self.quarter_turn
     }
 
+    pub const fn straighten_degrees(self) -> f64 {
+        self.straighten_degrees.get()
+    }
+
     pub const fn flip_horizontal(self) -> bool {
         self.flip_horizontal
     }
@@ -1092,12 +1243,13 @@ impl PhotoGeometry {
             && self.crop_right.get() == 1.0
             && self.crop_bottom.get() == 1.0
             && matches!(self.quarter_turn, PhotoQuarterTurn::Zero)
+            && self.straighten_degrees.get() == 0.0
             && !self.flip_horizontal
             && !self.flip_vertical
     }
 
     fn validate(self) -> Result<(), RecipeValidationError> {
-        Self::new(
+        let normalized = Self::new(
             self.crop_left,
             self.crop_top,
             self.crop_right,
@@ -1105,8 +1257,10 @@ impl PhotoGeometry {
             self.quarter_turn,
             self.flip_horizontal,
             self.flip_vertical,
-        )
-        .map(|_| ())
+        )?;
+        normalized
+            .with_straighten_degrees(self.straighten_degrees.get())
+            .map(|_| ())
     }
 }
 
@@ -2312,14 +2466,22 @@ pub enum RecipeValidationError {
     DegenerateLinearMask,
     #[error("radial-gradient mask radii must both be greater than zero")]
     DegenerateRadialMask,
+    #[error("brush mask radius must be greater than zero")]
+    DegenerateBrushMask,
+    #[error("brush mask contains {0} points, but at most 4096 are supported")]
+    TooManyMaskBrushPoints(usize),
     #[error("mask {mask_id} revision {revision} appears more than once")]
     DuplicateMaskRevision { mask_id: MaskId, revision: u32 },
     #[error("retouch spot radius {0} must be between 1 and 128 full-resolution pixels")]
     InvalidRetouchSpotRadius(u16),
+    #[error("retouch clone source offset must stay within two brush radii")]
+    InvalidRetouchSourceOffset,
     #[error("Recipe contains {0} retouch spots, but at most 64 are supported")]
     TooManyRetouchSpots(usize),
     #[error("photo crop must retain non-zero width and height")]
     DegeneratePhotoCrop,
+    #[error("photo straighten angle {0}° is outside the supported -45°..45° range")]
+    InvalidPhotoStraightenDegrees(f64),
     #[error("inline layer {layer_id} must have PHOTO scope")]
     InlineLayerMustBePhotoScoped { layer_id: LayerInstanceId },
     #[error("layer revision must be non-zero")]
@@ -2548,6 +2710,47 @@ mod tests {
     }
 
     #[test]
+    fn brush_masks_round_trip_multiple_editable_strokes() {
+        let definition = MaskDefinition::brush(
+            vec![
+                MaskBrushPoint::new(
+                    UnitInterval::new(0.2).expect("x"),
+                    UnitInterval::new(0.3).expect("y"),
+                    true,
+                ),
+                MaskBrushPoint::new(
+                    UnitInterval::new(0.4).expect("x"),
+                    UnitInterval::new(0.5).expect("y"),
+                    false,
+                ),
+                MaskBrushPoint::new(
+                    UnitInterval::new(0.7).expect("x"),
+                    UnitInterval::new(0.6).expect("y"),
+                    true,
+                ),
+            ],
+            UnitInterval::new(0.04).expect("radius"),
+            UnitInterval::new(0.6).expect("feather"),
+            false,
+        )
+        .expect("valid brush");
+        let encoded = serde_json::to_string(&definition).expect("serialize brush");
+        assert!(encoded.contains("\"kind\":\"brush\""));
+        let decoded: MaskDefinition = serde_json::from_str(&encoded).expect("deserialize brush");
+        assert_eq!(decoded, definition);
+
+        assert_eq!(
+            MaskDefinition::brush(
+                Vec::new(),
+                UnitInterval::ZERO,
+                UnitInterval::new(0.5).expect("feather"),
+                false,
+            ),
+            Err(RecipeValidationError::DegenerateBrushMask)
+        );
+    }
+
+    #[test]
     fn recipe_rejects_an_incomplete_manual_optics_identity() {
         let optics = RecipeOpticsSettings {
             camera_profile_maker: "Pentax".to_owned(),
@@ -2573,7 +2776,14 @@ mod tests {
             UnitInterval::new(0.75).expect("normalized y"),
             18,
         )
-        .expect("valid repair spot");
+        .expect("valid repair spot")
+        .with_behavior(
+            RetouchMode::Clone,
+            1.5,
+            -1.0,
+            UnitInterval::new(0.4).expect("feather"),
+        )
+        .expect("valid clone behavior");
         let snapshot = RecipeSnapshot::new_with_input_settings_masks_and_retouch(
             CURRENT_RECIPE_SCHEMA_VERSION,
             RecipeInputSettings::default(),
@@ -2584,10 +2794,29 @@ mod tests {
         .expect("valid photo-local repair");
 
         assert_eq!(snapshot.retouch_spots(), &[spot]);
+        assert_eq!(spot.mode(), RetouchMode::Clone);
+        assert_eq!(spot.source_offset_x_radii(), 1.5);
+        assert_eq!(spot.source_offset_y_radii(), -1.0);
+        assert_eq!(spot.feather().get(), 0.4);
         assert!(
             serde_json::to_string(&snapshot)
                 .expect("serialize repair")
-                .contains("retouch_spots")
+                .contains("\"mode\":\"clone\"")
+        );
+        assert_eq!(
+            RetouchSpot::new(
+                UnitInterval::new(0.5).expect("normalized x"),
+                UnitInterval::new(0.5).expect("normalized y"),
+                18,
+            )
+            .expect("valid repair spot")
+            .with_behavior(
+                RetouchMode::Clone,
+                2.01,
+                0.0,
+                UnitInterval::new(0.4).expect("feather"),
+            ),
+            Err(RecipeValidationError::InvalidRetouchSourceOffset)
         );
         assert_eq!(
             RetouchSpot::new(
@@ -2624,7 +2853,9 @@ mod tests {
             true,
             false,
         )
-        .expect("valid crop and orientation");
+        .expect("valid crop and orientation")
+        .with_straighten_degrees(-3.25)
+        .expect("valid fine straighten");
         let snapshot = RecipeSnapshot::new_with_input_settings_masks_retouch_and_geometry(
             CURRENT_RECIPE_SCHEMA_VERSION,
             RecipeInputSettings::default(),
@@ -2635,6 +2866,7 @@ mod tests {
         )
         .expect("geometry belongs to a valid snapshot");
         assert_eq!(snapshot.geometry(), geometry);
+        assert_eq!(snapshot.geometry().straighten_degrees(), -3.25);
         assert!(
             serde_json::to_string(&snapshot)
                 .expect("serialize geometry")
@@ -2651,6 +2883,10 @@ mod tests {
                 false,
             ),
             Err(RecipeValidationError::DegeneratePhotoCrop)
+        );
+        assert_eq!(
+            PhotoGeometry::identity().with_straighten_degrees(45.1),
+            Err(RecipeValidationError::InvalidPhotoStraightenDegrees(45.1))
         );
     }
 

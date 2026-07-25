@@ -136,7 +136,7 @@ void raw_development_receipt_is_explicitly_absent_until_a_provider_records_it() 
         "generic processed RGB never pretends to carry RAW provenance"
     );
     expect(
-        image::raw_development_receipt_schema_version == 2U,
+        image::raw_development_receipt_schema_version == 1U,
         "RAW development receipt schema is explicitly versioned"
     );
 }
@@ -1490,8 +1490,8 @@ void rotated_raw_preview_preserves_native_effect_radius() {
     const std::array nodes{
         image::AdjustmentNode{
             .node_id = "orientation-aware-native-denoise",
-            .parameter_schema_version = image::detail_effects_v3_parameter_schema_version,
-            .implementation_version = image::technical_detail_v3_implementation_version,
+            .parameter_schema_version = image::detail_effects_parameter_schema_version,
+            .implementation_version = image::technical_detail_implementation_version,
             .parameters = image::SharpenAdjustment{
                 .denoise_luminance = 0.7,
                 .denoise_color = 0.3,
@@ -1671,7 +1671,8 @@ void warm_edit_preview_receipt_tracks_the_effective_display_backend() {
                 && metal.execution.adjustment_backend == image::EditPreviewBackend::cpu
                 && metal.execution.display_backend == image::EditPreviewBackend::metal
                 && metal.execution.display_backend_version
-                    == image::edit_preview_warm_fused_metal_backend_version
+                    == image::edit_preview_metal_display_backend_version
+                && metal.execution.fused_pipeline
                 && !metal.execution.adjustment_fell_back
                 && !metal.execution.display_fell_back
                 && metal.execution.diagnostic.empty(),
@@ -1694,10 +1695,11 @@ void warm_edit_preview_receipt_tracks_the_effective_display_backend() {
                 && accelerated.execution.adjustment_backend
                     == image::EditPreviewBackend::metal
                 && accelerated.execution.adjustment_backend_version
-                    == image::edit_preview_warm_fused_metal_backend_version
+                    == image::edit_preview_metal_adjustment_backend_version
                 && accelerated.execution.display_backend == image::EditPreviewBackend::metal
                 && accelerated.execution.display_backend_version
-                    == image::edit_preview_warm_fused_metal_backend_version
+                    == image::edit_preview_metal_display_backend_version
+                && accelerated.execution.fused_pipeline
                 && !accelerated.execution.adjustment_fell_back
                 && !accelerated.execution.display_fell_back
                 && accelerated.execution.diagnostic.empty(),
@@ -1842,7 +1844,7 @@ void edit_preview_execution_identity_excludes_fallback_diagnostics() {
         cpu.valid()
             && cpu_identity
                 == "shadow-edit-preview-execution-v1;adjustment=cpu-v1;plan=1;"
-                   "display=cpu-v1;display-contract=6",
+                   "display=cpu-v1;display-contract=1;route=staged",
         "the current CPU adjustment/display route has one canonical cache identity"
     );
 
@@ -1876,10 +1878,11 @@ void edit_preview_execution_identity_excludes_fallback_diagnostics() {
     image::EditPreviewExecutionReceipt fused = cpu;
     fused.adjustment_backend = image::EditPreviewBackend::metal;
     fused.adjustment_backend_version =
-        image::edit_preview_warm_fused_metal_backend_version;
+        image::edit_preview_metal_adjustment_backend_version;
     fused.display_backend = image::EditPreviewBackend::metal;
     fused.display_backend_version =
-        image::edit_preview_warm_fused_metal_backend_version;
+        image::edit_preview_metal_display_backend_version;
+    fused.fused_pipeline = true;
     const std::string fused_identity =
         image::edit_preview_execution_receipt_identity(fused);
     expect(
@@ -1890,8 +1893,9 @@ void edit_preview_execution_identity_excludes_fallback_diagnostics() {
         "session-resident fused Metal has a distinct cache-safe execution identity"
     );
     image::EditPreviewExecutionReceipt impossible_fused_hybrid = fused;
+    impossible_fused_hybrid.display_backend = image::EditPreviewBackend::cpu;
     impossible_fused_hybrid.display_backend_version =
-        image::edit_preview_metal_display_backend_version;
+        image::edit_preview_cpu_display_backend_version;
     expect(
         !impossible_fused_hybrid.valid(),
         "a fused adjustment receipt cannot masquerade as the split display stage"
@@ -2059,7 +2063,7 @@ void provider_identity_versions_shadow_pixel_contracts() {
         "provider identity versions the processed-linear reference RGB contract"
     );
     expect(
-        version.find("receipt=2") != std::string_view::npos,
+        version.find("receipt=1") != std::string_view::npos,
         "provider identity versions RAW-development provenance semantics"
     );
     expect(
@@ -2071,11 +2075,11 @@ void provider_identity_versions_shadow_pixel_contracts() {
         "provider identity versions the owned RAW frame contract"
     );
     expect(
-        version.find("preview=2") != std::string_view::npos,
+        version.find("preview=1") != std::string_view::npos,
         "provider identity versions display-oriented embedded-preview geometry"
     );
     expect(
-        version.find("display=6") != std::string_view::npos,
+        version.find("display=1") != std::string_view::npos,
         "provider identity versions the display output transform for cache invalidation"
     );
     expect(

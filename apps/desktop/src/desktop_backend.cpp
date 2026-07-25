@@ -337,6 +337,12 @@ template <std::size_t Size>
     grade_node.local_mask_radius_y = source.local_mask_radius_y;
     grade_node.local_mask_feather = source.local_mask_feather;
     grade_node.local_mask_invert = source.local_mask_invert;
+    grade_node.local_mask_brush_points.reserve(
+        static_cast<std::size_t>(source.local_mask_brush_points.size())
+    );
+    for (const double value : source.local_mask_brush_points) {
+        grade_node.local_mask_brush_points.push_back(value);
+    }
     grade_node.label = source.label.toStdString();
     grade_node.exposure_render_op_id = source.exposure_render_op_id.toStdString();
     grade_node.contrast_render_op_id = source.contrast_render_op_id.toStdString();
@@ -370,6 +376,12 @@ template <std::size_t Size>
     grade_node.local_mask_radius_y = source.local_mask_radius_y;
     grade_node.local_mask_feather = source.local_mask_feather;
     grade_node.local_mask_invert = source.local_mask_invert;
+    grade_node.local_mask_brush_points.reserve(
+        static_cast<qsizetype>(source.local_mask_brush_points.size())
+    );
+    for (const double value : source.local_mask_brush_points) {
+        grade_node.local_mask_brush_points.push_back(value);
+    }
     grade_node.label = qstring(source.label);
     grade_node.exposure_render_op_id = qstring(source.exposure_render_op_id);
     grade_node.contrast_render_op_id = qstring(source.contrast_render_op_id);
@@ -427,6 +439,10 @@ template <std::size_t Size>
             .center_x = spot.center_x,
             .center_y = spot.center_y,
             .radius_level_zero_pixels = spot.radius_level_zero_pixels,
+            .mode = spot.mode,
+            .source_offset_x_radii = spot.source_offset_x_radii,
+            .source_offset_y_radii = spot.source_offset_y_radii,
+            .feather = spot.feather,
         });
     }
     settings.geometry = shadow::desktop::FfiPhotoGeometry{
@@ -435,6 +451,7 @@ template <std::size_t Size>
         .crop_right = source.geometry.crop_right,
         .crop_bottom = source.geometry.crop_bottom,
         .quarter_turn = source.geometry.quarter_turn,
+        .straighten_degrees = source.geometry.straighten_degrees,
         .flip_horizontal = source.geometry.flip_horizontal,
         .flip_vertical = source.geometry.flip_vertical,
     };
@@ -475,6 +492,10 @@ template <std::size_t Size>
             .center_x = spot.center_x,
             .center_y = spot.center_y,
             .radius_level_zero_pixels = spot.radius_level_zero_pixels,
+            .mode = spot.mode,
+            .source_offset_x_radii = spot.source_offset_x_radii,
+            .source_offset_y_radii = spot.source_offset_y_radii,
+            .feather = spot.feather,
         });
     }
     grade_stack.geometry = {
@@ -483,6 +504,7 @@ template <std::size_t Size>
         .crop_right = source.geometry.crop_right,
         .crop_bottom = source.geometry.crop_bottom,
         .quarter_turn = source.geometry.quarter_turn,
+        .straighten_degrees = source.geometry.straighten_degrees,
         .flip_horizontal = source.geometry.flip_horizontal,
         .flip_vertical = source.geometry.flip_vertical,
     };

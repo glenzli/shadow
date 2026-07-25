@@ -54,7 +54,8 @@ impl PhotoInspector {
             // identity distinguishes two renders through the same provider with different
             // source-development intent or policy.
             proxy_variant_key: format!(
-                "shadow-photo-router:grid-jpeg-2048-q90-444-v3;{raw_development_plan_identity}"
+                "shadow-photo-router:grid-jpeg-2048-q90-444-v1;\
+                 source=provider-neutral-raw-plan;{raw_development_plan_identity}"
             ),
             isolated_proxy_runtime_cache: runtime_cache_root,
         })

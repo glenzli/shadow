@@ -9,12 +9,12 @@ startup Catalog page / Add Folder / QML Review grid
   → shadow-core controlled scan / cancellable decode workers
   → shadow-catalog single writer
   → embedded preview or generated proxy cache
-  → bounded display-luma observation worker → Catalog v9 summary
+  → bounded display-luma observation worker → Catalog v1 summary
 
 two signed exact-artifact handles / explicit outcome
   → compare-only request tickets → verified cache bytes
   → Qt decoded RGBA frame receipt → ReviewController evidence write
-  → Catalog v9 append-only Global feedback / forget fact
+  → Catalog v1 append-only Global feedback / forget fact
 
 Pick / Reject / 0–5 rating command
   → full-state expected-head CAS → immutable human decision event
@@ -96,11 +96,10 @@ artifact A → B change cannot rewrite historical evidence.
 
 This provenance boundary ends at the normalized decoded frame. It does not claim
 to preserve display ICC, GPU scaling, the window's final raster, or physical
-screen pixels. Legacy feedback remains readable with an explicitly absent visual
-field. Catalog v8 was a marker-only payload-contract migration and never guesses
-provenance from today's cache; current schema v10 retains that rule, adds the
-separate manual decision ledger, and introduces the parallel content-addressed
-Library edit repository without rewriting any legacy Recipe row.
+screen pixels. The pre-release catalog has one supported development schema, v1.
+Schema changes replace that shape and require resetting old local development
+data; Shadow does not accumulate migration or compatibility chains before its
+first stability promise.
 
 Available display-luma observations may appear alongside each photo as parallel
 technical facts. The UI does not subtract them, name a winner, or use them to

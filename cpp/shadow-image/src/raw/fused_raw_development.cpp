@@ -330,9 +330,11 @@ std::string_view raw_development_backend_identity(
 ) noexcept {
     switch (backend) {
     case RawDevelopmentBackend::cpu:
-        return "shadow-fused-raw-cpu-v2";
+        return "shadow-fused-raw-cpu-v1;demosaic=bilinear-or-cfa-area;"
+            "sensor-highlight-policy=explicit";
     case RawDevelopmentBackend::metal:
-        return "shadow-fused-raw-metal-v3;math=f32-precise;area-preview=cfa-footprint-v1";
+        return "shadow-fused-raw-metal-v1;math=f32-precise;"
+            "demosaic=bilinear-or-cfa-area;sensor-highlight-policy=explicit";
     }
     return "shadow-fused-raw-unknown";
 }

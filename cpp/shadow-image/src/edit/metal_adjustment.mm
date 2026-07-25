@@ -25,7 +25,7 @@ namespace shadow::image::detail {
 namespace {
 
 constexpr std::string_view standalone_kernel_source = R"METAL(
-kernel void execute_adjustment_program_v3(
+kernel void execute_adjustment_program_v1(
     device const float* input [[buffer(0)]],
     device float* output [[buffer(1)]],
     device const MetalAdjustmentOp* operations [[buffer(2)]],
@@ -155,7 +155,7 @@ public:
             }
             OwnedObjectiveCObject function(
                 [static_cast<id<MTLLibrary>>(library.get())
-                    newFunctionWithName:@"execute_adjustment_program_v3"]
+                    newFunctionWithName:@"execute_adjustment_program_v1"]
             );
             if (!function) {
                 diagnostic_ = "Metal adjustment shader entry point is unavailable";

@@ -265,7 +265,7 @@ struct BackendGradeNode final {
     QString grade_node_id;
     QString shared_layer_id;
     QString shared_revision_id;
-    // 0 = none, 1 = linear gradient, 2 = radial gradient. These values are
+    // 0 = none, 1 = linear gradient, 2 = radial gradient, 3 = brush. These values are
     // normalized image coordinates; Rust owns their typed validation and
     // immutable Recipe serialization.
     std::uint8_t local_mask_kind = 0;
@@ -277,6 +277,9 @@ struct BackendGradeNode final {
     double local_mask_radius_y = 0.0;
     double local_mask_feather = 0.0;
     bool local_mask_invert = false;
+    // Flattened x/y/begins-stroke triples. Keeping the wire shape flat avoids
+    // making Qt own the typed persistent mask contract.
+    QVector<double> local_mask_brush_points;
     QString label;
     QString exposure_render_op_id;
     QString contrast_render_op_id;
@@ -323,6 +326,10 @@ struct BackendRetouchSpot final {
     double center_x = 0.5;
     double center_y = 0.5;
     std::uint16_t radius_level_zero_pixels = 18;
+    std::uint8_t mode = 0;
+    double source_offset_x_radii = 0.0;
+    double source_offset_y_radii = 0.0;
+    double feather = 0.28;
 
     bool operator==(const BackendRetouchSpot&) const = default;
 };
@@ -336,6 +343,7 @@ struct BackendPhotoGeometry final {
     double crop_right = 1.0;
     double crop_bottom = 1.0;
     std::uint8_t quarter_turn = 0;
+    double straighten_degrees = 0.0;
     bool flip_horizontal = false;
     bool flip_vertical = false;
 
