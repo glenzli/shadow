@@ -2363,18 +2363,18 @@ R %2 · G %3 · B %4</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionTechnicalTools.qml" line="96"/>
-        <source>Shadow automatically applies conservative same-CFA RAW denoise before demosaicing for suitable high-ISO detail and export renders. The controls below refine the developed RGB preview.</source>
-        <translation>对于合适的高 ISO 细节与导出渲染，Shadow 会在去马赛克前自动进行保守的同 CFA RAW 降噪。下方控件用于进一步微调已显影的 RGB 预览。</translation>
+        <source>The controls below denoise the current RGB preview immediately with separate luminance and color passes. RAW files can additionally use a conservative sensor-domain pass for full-size processing and export.</source>
+        <translation>下方控件会立即对当前 RGB 预览分别进行明度与色彩降噪。RAW 文件在准备全尺寸处理和导出时，还可额外使用保守的传感器域降噪。</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionTechnicalTools.qml" line="100"/>
-        <source>RAW PREPROCESSING · AUTOMATIC</source>
-        <translation>RAW 预处理 · 自动</translation>
+        <source>RAW BASE DENOISE · FULL SIZE &amp; EXPORT</source>
+        <translation>RAW 基础降噪 · 全尺寸与导出</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionTechnicalTools.qml" line="101"/>
-        <source>RAW files use a sensor-domain path when it is useful; JPEG and HEIF continue with the RGB controls below. Normal previews keep this automatic path lightweight so editing remains responsive.</source>
-        <translation>RAW 文件会在适合时使用传感器域处理；JPEG 与 HEIF 继续使用下方 RGB 控件。普通预览保持此自动路径轻量，以确保编辑响应。</translation>
+        <source>RAW files can use an additional sensor-domain pass when full-size data is prepared. JPEG and HEIF only use the immediate RGB controls below, so dragging remains responsive.</source>
+        <translation>RAW 文件在准备全尺寸数据时可额外使用传感器域处理。JPEG 与 HEIF 只使用下方即时 RGB 控件，因此拖动调整会保持响应。</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionTechnicalTools.qml" line="143"/>

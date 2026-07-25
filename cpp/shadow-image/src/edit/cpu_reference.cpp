@@ -1342,14 +1342,16 @@ AdjustmentFootprint footprint(
                 const double sharpen_vertical = value.amount == 0.0 ? 0.0 : std::ceil(
                     3.0 * value.radius * level_zero_to_raster_scale_y
                 );
-                const double denoise_horizontal = denoise_active ? std::max(
-                    1.0,
-                    std::ceil(2.0 * level_zero_to_raster_scale_x)
-                ) : 0.0;
-                const double denoise_vertical = denoise_active ? std::max(
-                    1.0,
-                    std::ceil(2.0 * level_zero_to_raster_scale_y)
-                ) : 0.0;
+                // The RGB preview denoiser is a two-scale guided filter. Its support is
+                // defined in the raster currently being processed (rather than in camera
+                // pixels), so every full-detail tile must request its coarse radius as an
+                // apron. This keeps seams from appearing at high denoise strengths.
+                const double denoise_horizontal = denoise_active
+                    ? static_cast<double>(guided_denoise_coarse_radius(value))
+                    : 0.0;
+                const double denoise_vertical = denoise_active
+                    ? static_cast<double>(guided_denoise_coarse_radius(value))
+                    : 0.0;
                 const double horizontal = sharpen_horizontal + denoise_horizontal;
                 const double vertical = sharpen_vertical + denoise_vertical;
                 if (

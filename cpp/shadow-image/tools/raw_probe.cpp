@@ -1,9 +1,12 @@
 #include <shadow/image/decoder.hpp>
+#include <shadow/image/display_luma.hpp>
+#include <shadow/image/edit.hpp>
 #include <shadow/image/raw_pipeline.hpp>
 
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -324,10 +327,152 @@ void render_warm_preview_reference_rgb(
               << "timing.preview_reference_ms=" << timer.elapsed_ms() << '\n';
 }
 
+[[nodiscard]] double display_high_frequency_energy(
+    const image::DisplayLumaImage& luma
+) {
+    if (luma.dimensions.width < 3U || luma.dimensions.height < 3U) {
+        return 0.0;
+    }
+    long double total = 0.0L;
+    std::uint64_t sample_count = 0U;
+    for (std::uint32_t y = 1U; y + 1U < luma.dimensions.height; ++y) {
+        for (std::uint32_t x = 1U; x + 1U < luma.dimensions.width; ++x) {
+            const std::size_t center = static_cast<std::size_t>(y)
+                    * luma.row_stride_samples + x;
+            const double neighbourhood = (
+                luma.samples[center - 1U]
+                + luma.samples[center + 1U]
+                + luma.samples[center - luma.row_stride_samples]
+                + luma.samples[center + luma.row_stride_samples]
+            ) * 0.25;
+            total += std::abs(static_cast<double>(luma.samples[center]) - neighbourhood);
+            ++sample_count;
+        }
+    }
+    return sample_count == 0U ? 0.0 : static_cast<double>(
+        total / static_cast<long double>(sample_count)
+    );
+}
+
+void render_warm_denoise_diagnostic(
+    const image::DecodeSession& session,
+    const fs::path& output_directory
+) {
+    // Match the desktop's current diagnostic case rather than testing an isolated image kernel:
+    // a 1536px warm edit source, its complete CPU fallback for non-local operations, JPEG output,
+    // and the same Detail & Effects node representation that is persisted in the catalog.
+    constexpr std::uint32_t warm_preview_edge = 1'536U;
+    const image::WarmEditPreviewSession preview = image::prepare_warm_edit_preview(
+        session,
+        warm_preview_edge
+    );
+    const std::array<image::AdjustmentNode, 0U> neutral_nodes{};
+    const std::array denoise_nodes{
+        image::AdjustmentNode{
+            .node_id = "raw-probe-max-denoise",
+            .parameter_schema_version = image::detail_effects_v3_parameter_schema_version,
+            .implementation_version = image::technical_detail_v3_implementation_version,
+            .parameters = image::SharpenAdjustment{
+                .denoise_luminance = 1.0,
+                .denoise_detail = 0.24,
+                .denoise_color = 1.0,
+            },
+        },
+    };
+
+    const Stopwatch timer;
+    const image::AnalyzedEditPreview neutral = preview.render_jpeg_with_analysis(neutral_nodes);
+    const double neutral_ms = timer.elapsed_ms();
+    const image::AnalyzedEditPreview denoised = preview.render_jpeg_with_analysis(denoise_nodes);
+    const double denoised_ms = timer.elapsed_ms() - neutral_ms;
+    auto robust_raw_plan = image::preview_raw_development_plan();
+    robust_raw_plan.noise_reduction = image::RawNoiseReductionIntent::noise_robust;
+    const Stopwatch raw_denoise_timer;
+    const image::WarmEditPreviewSession raw_denoised_preview =
+        image::prepare_warm_edit_preview(session, warm_preview_edge, robust_raw_plan);
+    const double raw_denoise_prepare_ms = raw_denoise_timer.elapsed_ms();
+    const image::AnalyzedEditPreview raw_denoised =
+        raw_denoised_preview.render_jpeg_with_analysis(neutral_nodes);
+    const double raw_denoise_render_ms = raw_denoise_timer.elapsed_ms() - raw_denoise_prepare_ms;
+    write_binary(output_directory / "warm-neutral.jpg", neutral.proxy.bytes);
+    write_binary(output_directory / "warm-denoise-l100-d24-c100.jpg", denoised.proxy.bytes);
+    write_binary(output_directory / "warm-raw-denoise-robust.jpg", raw_denoised.proxy.bytes);
+
+    const image::DisplayLumaImage neutral_luma = image::decode_jpeg_display_luma(neutral.proxy.bytes);
+    const image::DisplayLumaImage denoised_luma = image::decode_jpeg_display_luma(denoised.proxy.bytes);
+    const image::DisplayLumaImage raw_denoised_luma =
+        image::decode_jpeg_display_luma(raw_denoised.proxy.bytes);
+    if (neutral_luma.dimensions != denoised_luma.dimensions
+        || neutral_luma.dimensions != raw_denoised_luma.dimensions
+        || neutral_luma.samples.size() != denoised_luma.samples.size()
+        || neutral_luma.samples.size() != raw_denoised_luma.samples.size()) {
+        throw std::runtime_error("warm denoise diagnostic produced mismatched output dimensions");
+    }
+    long double absolute_difference = 0.0L;
+    long double raw_absolute_difference = 0.0L;
+    for (std::size_t index = 0U; index < neutral_luma.samples.size(); ++index) {
+        absolute_difference += std::abs(
+            static_cast<double>(neutral_luma.samples[index])
+            - static_cast<double>(denoised_luma.samples[index])
+        );
+        raw_absolute_difference += std::abs(
+            static_cast<double>(neutral_luma.samples[index])
+            - static_cast<double>(raw_denoised_luma.samples[index])
+        );
+    }
+    const double neutral_energy = display_high_frequency_energy(neutral_luma);
+    const double denoised_energy = display_high_frequency_energy(denoised_luma);
+    const double raw_denoised_energy = display_high_frequency_energy(raw_denoised_luma);
+    const auto backend_name = [](const image::EditPreviewBackend backend) {
+        return backend == image::EditPreviewBackend::metal ? "metal" : "cpu";
+    };
+    std::cout << "denoise_diagnostic.status=ok\n"
+              << "denoise_diagnostic.dimensions=" << neutral.proxy.dimensions.width << 'x'
+              << neutral.proxy.dimensions.height << '\n'
+              << "denoise_diagnostic.parameters=luminance:1.000,detail:0.240,color:1.000\n"
+              << "denoise_diagnostic.execution.neutral="
+              << backend_name(neutral.execution.adjustment_backend) << '\n'
+              << "denoise_diagnostic.execution.denoised="
+              << backend_name(denoised.execution.adjustment_backend) << '\n'
+              << "denoise_diagnostic.display_mean_absolute_difference="
+              << static_cast<double>(absolute_difference
+                  / static_cast<long double>(neutral_luma.samples.size())) << '\n'
+              << "denoise_diagnostic.raw_robust_display_mean_absolute_difference="
+              << static_cast<double>(raw_absolute_difference
+                  / static_cast<long double>(neutral_luma.samples.size())) << '\n'
+              << "denoise_diagnostic.display_high_frequency_energy.neutral="
+              << neutral_energy << '\n'
+              << "denoise_diagnostic.display_high_frequency_energy.denoised="
+              << denoised_energy << '\n'
+              << "denoise_diagnostic.display_high_frequency_energy_reduction="
+              << (neutral_energy == 0.0 ? 0.0 : 1.0 - denoised_energy / neutral_energy) << '\n'
+              << "denoise_diagnostic.raw_robust_high_frequency_energy="
+              << raw_denoised_energy << '\n'
+              << "denoise_diagnostic.raw_robust_high_frequency_energy_reduction="
+              << (neutral_energy == 0.0 ? 0.0 : 1.0 - raw_denoised_energy / neutral_energy)
+              << '\n'
+              << "denoise_diagnostic.raw_robust_development="
+              << raw_denoised_preview.raw_development_receipt().development_settings_signature
+              << '\n'
+              << "denoise_diagnostic.neutral_output="
+              << (output_directory / "warm-neutral.jpg").string() << '\n'
+              << "denoise_diagnostic.denoised_output="
+              << (output_directory / "warm-denoise-l100-d24-c100.jpg").string() << '\n'
+              << "denoise_diagnostic.raw_robust_output="
+              << (output_directory / "warm-raw-denoise-robust.jpg").string() << '\n'
+              << "timing.denoise_diagnostic.neutral_ms=" << neutral_ms << '\n'
+              << "timing.denoise_diagnostic.denoised_ms=" << denoised_ms << '\n'
+              << "timing.denoise_diagnostic.raw_robust_prepare_ms="
+              << raw_denoise_prepare_ms << '\n'
+              << "timing.denoise_diagnostic.raw_robust_render_ms="
+              << raw_denoise_render_ms << '\n';
+}
+
 int run(
     const fs::path& input_path,
     const fs::path& output_directory,
-    const bool preview_only
+    const bool preview_only,
+    const bool denoise_diagnostic
 ) {
     fs::create_directories(output_directory);
     // Deliberately use the same routed provider as the desktop app. With no
@@ -360,6 +505,10 @@ int run(
         return 0;
     }
     render_warm_preview_reference_rgb(*session, output_directory);
+    if (denoise_diagnostic) {
+        render_warm_denoise_diagnostic(*session, output_directory);
+        return 0;
+    }
     if (preview_only) {
         return 0;
     }
@@ -379,13 +528,16 @@ int run(
 int main(const int argument_count, char** arguments) {
     const bool preview_only = argument_count == 4
         && std::string_view(arguments[3]) == "--preview-only";
-    if (argument_count != 3 && !preview_only) {
-        std::cerr << "usage: shadow-raw-probe <input-raw> <output-directory> [--preview-only]\n";
+    const bool denoise_diagnostic = argument_count == 4
+        && std::string_view(arguments[3]) == "--denoise-diagnostic";
+    if (argument_count != 3 && !preview_only && !denoise_diagnostic) {
+        std::cerr << "usage: shadow-raw-probe <input-raw> <output-directory> "
+                     "[--preview-only|--denoise-diagnostic]\n";
         return 2;
     }
 
     try {
-        return run(arguments[1], arguments[2], preview_only);
+        return run(arguments[1], arguments[2], preview_only, denoise_diagnostic);
     } catch (const image::DecodeError& error) {
         std::cerr << "shadow-raw-probe: " << error.what() << " [provider="
                   << error.provider_code() << "]\n";

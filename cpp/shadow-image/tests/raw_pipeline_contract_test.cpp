@@ -1,5 +1,6 @@
 #include <shadow/image/raw_pipeline.hpp>
 #include <shadow/image/camera_profile_catalog.hpp>
+#include <shadow/image/edit.hpp>
 #include <shadow/image/fused_raw_development.hpp>
 #include <shadow/image/raw_denoise.hpp>
 
@@ -463,6 +464,26 @@ void raw_denoise_is_cfa_preserving_and_preview_aware() {
     expect(
         red < 800U && green > 1'000U && blue < 700U,
         "RAW denoise never mixes distinct Bayer colour planes"
+    );
+
+    // LibRaw's provider fallback may only advertise provider-default denoise, while the owned
+    // RawFrame route can execute a stronger Shadow stage. Preparation must choose its route
+    // before negotiating rather than let that fallback capability reject a valid host plan.
+    SyntheticRawSession session(source);
+    auto robust_preview_plan = image::preview_raw_development_plan();
+    robust_preview_plan.noise_reduction = image::RawNoiseReductionIntent::noise_robust;
+    const auto warm = image::prepare_warm_edit_preview(
+        session,
+        4U,
+        robust_preview_plan
+    );
+    expect(
+        warm.raw_development_receipt().development_settings_signature.find(
+            "raw-denoise=cfa-bilateral-noise-robust-v1"
+        ) != std::string::npos
+            && session.raw_frame_count() == 1U
+            && session.processed_count() == 0U,
+        "a host-owned robust RAW plan is not pre-empted by the provider RGB fallback"
     );
 }
 

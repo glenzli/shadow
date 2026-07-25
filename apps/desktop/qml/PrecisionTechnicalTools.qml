@@ -93,12 +93,12 @@ ColumnLayout {
         ShadowSubsectionLabel {
             Layout.topMargin: 6
             text: qsTr("DENOISE")
-            toolTipText: qsTr("Shadow automatically applies conservative same-CFA RAW denoise before demosaicing for suitable high-ISO detail and export renders. The controls below refine the developed RGB preview.")
+            toolTipText: qsTr("The controls below denoise the current RGB preview immediately with separate luminance and color passes. RAW files can additionally use a conservative sensor-domain pass for full-size processing and export.")
         }
 
         ShadowSubsectionLabel {
-            text: qsTr("RAW PREPROCESSING · AUTOMATIC")
-            toolTipText: qsTr("RAW files use a sensor-domain path when it is useful; JPEG and HEIF continue with the RGB controls below. Normal previews keep this automatic path lightweight so editing remains responsive.")
+            text: qsTr("RAW BASE DENOISE · FULL SIZE & EXPORT")
+            toolTipText: qsTr("RAW files can use an additional sensor-domain pass when full-size data is prepared. JPEG and HEIF only use the immediate RGB controls below, so dragging remains responsive.")
         }
 
         Repeater {

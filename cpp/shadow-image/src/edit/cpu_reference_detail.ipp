@@ -441,7 +441,404 @@ void apply_sharpen(
     }
 }
 
-void apply_edge_aware_denoise(
+// A guided filter has a fixed number of box-filter passes irrespective of its radius. This is
+// important for editing: a large support is needed to remove high-ISO colour blotches, but a
+// direct bilateral kernel becomes prohibitively expensive as that support grows. Replicated
+// borders are intentional here; full-detail tile preparation supplies the corresponding apron.
+[[nodiscard]] std::vector<float> box_mean_scalar(
+    const std::vector<float>& source,
+    const std::size_t width,
+    const std::size_t height,
+    const std::uint32_t radius
+) {
+    if (radius == 0U || width == 0U || height == 0U) {
+        return source;
+    }
+    std::vector<float> horizontal(source.size());
+    std::vector<float> result(source.size());
+    const auto clamped_index = [](const std::int64_t coordinate, const std::size_t extent) {
+        return static_cast<std::size_t>(std::clamp(
+            coordinate,
+            std::int64_t{0},
+            static_cast<std::int64_t>(extent - 1U)
+        ));
+    };
+    const auto signed_radius = static_cast<std::int64_t>(radius);
+    const double inverse_window = 1.0 / static_cast<double>(radius * 2U + 1U);
+    parallel_for_rows(height, [&](const std::uint32_t first_row,
+                                  const std::uint32_t past_last_row) {
+        for (std::size_t y = first_row; y < past_last_row; ++y) {
+            const std::size_t row = y * width;
+            double sum = 0.0;
+            for (std::int64_t offset = -signed_radius; offset <= signed_radius; ++offset) {
+                sum += source[row + clamped_index(offset, width)];
+            }
+            horizontal[row] = static_cast<float>(sum * inverse_window);
+            for (std::size_t x = 1U; x < width; ++x) {
+                sum += source[row + clamped_index(
+                    static_cast<std::int64_t>(x) + signed_radius,
+                    width
+                )];
+                sum -= source[row + clamped_index(
+                    static_cast<std::int64_t>(x) - signed_radius - 1,
+                    width
+                )];
+                horizontal[row + x] = static_cast<float>(sum * inverse_window);
+            }
+        }
+    });
+    // Each column is independent in the second pass. Reuse the bounded row scheduler with the
+    // x coordinate as its work index instead of creating a second threading system.
+    parallel_for_rows(width, [&](const std::uint32_t first_column,
+                                 const std::uint32_t past_last_column) {
+        for (std::size_t x = first_column; x < past_last_column; ++x) {
+            double sum = 0.0;
+            for (std::int64_t offset = -signed_radius; offset <= signed_radius; ++offset) {
+                sum += horizontal[clamped_index(offset, height) * width + x];
+            }
+            result[x] = static_cast<float>(sum * inverse_window);
+            for (std::size_t y = 1U; y < height; ++y) {
+                sum += horizontal[clamped_index(
+                    static_cast<std::int64_t>(y) + signed_radius,
+                    height
+                ) * width + x];
+                sum -= horizontal[clamped_index(
+                    static_cast<std::int64_t>(y) - signed_radius - 1,
+                    height
+                ) * width + x];
+                result[y * width + x] = static_cast<float>(sum * inverse_window);
+            }
+        }
+    });
+    return result;
+}
+
+struct GuidedDenoiseGuide final {
+    std::vector<float> mean;
+    std::vector<float> variance;
+};
+
+[[nodiscard]] GuidedDenoiseGuide prepare_guided_denoise_guide(
+    const std::vector<float>& guide,
+    const std::size_t width,
+    const std::size_t height,
+    const std::uint32_t radius
+) {
+    std::vector<float> squared(guide.size());
+    parallel_for_rows(height, [&](const std::uint32_t first_row,
+                                  const std::uint32_t past_last_row) {
+        for (std::size_t y = first_row; y < past_last_row; ++y) {
+            const std::size_t row = y * width;
+            for (std::size_t x = 0U; x < width; ++x) {
+                const double value = guide[row + x];
+                squared[row + x] = static_cast<float>(value * value);
+            }
+        }
+    });
+    GuidedDenoiseGuide result{
+        .mean = box_mean_scalar(guide, width, height, radius),
+        .variance = box_mean_scalar(squared, width, height, radius),
+    };
+    parallel_for_rows(height, [&](const std::uint32_t first_row,
+                                  const std::uint32_t past_last_row) {
+        for (std::size_t y = first_row; y < past_last_row; ++y) {
+            const std::size_t row = y * width;
+            for (std::size_t x = 0U; x < width; ++x) {
+                const std::size_t pixel = row + x;
+                result.variance[pixel] = static_cast<float>(std::max(
+                    0.0,
+                    static_cast<double>(result.variance[pixel])
+                        - static_cast<double>(result.mean[pixel])
+                            * static_cast<double>(result.mean[pixel])
+                ));
+            }
+        }
+    });
+    return result;
+}
+
+[[nodiscard]] std::vector<float> guided_self_filter(
+    const std::vector<float>& guide,
+    const GuidedDenoiseGuide& statistics,
+    const std::size_t width,
+    const std::size_t height,
+    const std::uint32_t radius,
+    const double epsilon
+) {
+    std::vector<float> a(guide.size());
+    std::vector<float> b(guide.size());
+    parallel_for_rows(height, [&](const std::uint32_t first_row,
+                                  const std::uint32_t past_last_row) {
+        for (std::size_t y = first_row; y < past_last_row; ++y) {
+            const std::size_t row = y * width;
+            for (std::size_t x = 0U; x < width; ++x) {
+                const std::size_t pixel = row + x;
+                const double variance = statistics.variance[pixel];
+                const double coefficient = variance / (variance + epsilon);
+                a[pixel] = static_cast<float>(coefficient);
+                b[pixel] = static_cast<float>(statistics.mean[pixel] * (1.0 - coefficient));
+            }
+        }
+    });
+    const auto mean_a = box_mean_scalar(a, width, height, radius);
+    const auto mean_b = box_mean_scalar(b, width, height, radius);
+    std::vector<float> output(guide.size());
+    parallel_for_rows(height, [&](const std::uint32_t first_row,
+                                  const std::uint32_t past_last_row) {
+        for (std::size_t y = first_row; y < past_last_row; ++y) {
+            const std::size_t row = y * width;
+            for (std::size_t x = 0U; x < width; ++x) {
+                const std::size_t pixel = row + x;
+                output[pixel] = static_cast<float>(
+                    static_cast<double>(mean_a[pixel]) * guide[pixel] + mean_b[pixel]
+                );
+            }
+        }
+    });
+    return output;
+}
+
+[[nodiscard]] std::vector<float> guided_target_filter(
+    const std::vector<float>& guide,
+    const GuidedDenoiseGuide& statistics,
+    const std::vector<float>& target,
+    const std::size_t width,
+    const std::size_t height,
+    const std::uint32_t radius,
+    const double epsilon
+) {
+    const auto mean_target = box_mean_scalar(target, width, height, radius);
+    std::vector<float> cross(guide.size());
+    parallel_for_rows(height, [&](const std::uint32_t first_row,
+                                  const std::uint32_t past_last_row) {
+        for (std::size_t y = first_row; y < past_last_row; ++y) {
+            const std::size_t row = y * width;
+            for (std::size_t x = 0U; x < width; ++x) {
+                const std::size_t pixel = row + x;
+                cross[pixel] = static_cast<float>(
+                    static_cast<double>(guide[pixel]) * target[pixel]
+                );
+            }
+        }
+    });
+    const auto mean_cross = box_mean_scalar(cross, width, height, radius);
+    std::vector<float> a(guide.size());
+    std::vector<float> b(guide.size());
+    parallel_for_rows(height, [&](const std::uint32_t first_row,
+                                  const std::uint32_t past_last_row) {
+        for (std::size_t y = first_row; y < past_last_row; ++y) {
+            const std::size_t row = y * width;
+            for (std::size_t x = 0U; x < width; ++x) {
+                const std::size_t pixel = row + x;
+                const double covariance = static_cast<double>(mean_cross[pixel])
+                    - static_cast<double>(statistics.mean[pixel]) * mean_target[pixel];
+                const double coefficient = covariance /
+                    (static_cast<double>(statistics.variance[pixel]) + epsilon);
+                a[pixel] = static_cast<float>(coefficient);
+                b[pixel] = static_cast<float>(
+                    mean_target[pixel] - coefficient * statistics.mean[pixel]
+                );
+            }
+        }
+    });
+    const auto mean_a = box_mean_scalar(a, width, height, radius);
+    const auto mean_b = box_mean_scalar(b, width, height, radius);
+    std::vector<float> output(target.size());
+    parallel_for_rows(height, [&](const std::uint32_t first_row,
+                                  const std::uint32_t past_last_row) {
+        for (std::size_t y = first_row; y < past_last_row; ++y) {
+            const std::size_t row = y * width;
+            for (std::size_t x = 0U; x < width; ++x) {
+                const std::size_t pixel = row + x;
+                output[pixel] = static_cast<float>(
+                    static_cast<double>(mean_a[pixel]) * guide[pixel] + mean_b[pixel]
+                );
+            }
+        }
+    });
+    return output;
+}
+
+[[nodiscard]] std::uint32_t guided_denoise_coarse_radius(
+    const SharpenAdjustment& parameters
+) noexcept {
+    const double strength = std::max(parameters.denoise_luminance, parameters.denoise_color);
+    const double authority = strength * strength * (1.0 - 0.60 * parameters.denoise_detail);
+    return static_cast<std::uint32_t>(std::clamp(
+        std::ceil(2.0 + 5.0 * authority),
+        2.0,
+        7.0
+    ));
+}
+
+void apply_multiscale_guided_denoise(
+    FloatRgbImage& image,
+    const AdjustmentNode& node,
+    const std::size_t node_index,
+    const SharpenAdjustment& parameters
+) {
+    const std::size_t width = image.dimensions.width;
+    const std::size_t height = image.dimensions.height;
+    const std::size_t stride = image.row_stride_bytes / sizeof(float);
+    if (width == 0U || height == 0U || width > std::numeric_limits<std::size_t>::max() / height) {
+        throw_node_error(
+            EditErrorCode::numeric_overflow,
+            node_index,
+            node,
+            "guided denoise working buffer exceeds the address space"
+        );
+    }
+    const std::size_t pixels = width * height;
+    const auto weights = image.working_space.luminance_coefficients;
+    if (weights[1] <= 0.0) {
+        throw_node_error(
+            EditErrorCode::invalid_parameter,
+            node_index,
+            node,
+            "guided denoise requires a working space with a positive green luminance weight"
+        );
+    }
+    std::vector<float> luma(pixels);
+    std::vector<float> red_chroma(pixels);
+    std::vector<float> blue_chroma(pixels);
+    parallel_for_rows(height, [&](const std::uint32_t first_row,
+                                  const std::uint32_t past_last_row) {
+        for (std::size_t y = first_row; y < past_last_row; ++y) {
+            const std::size_t source_row = y * stride;
+            const std::size_t target_row = y * width;
+            for (std::size_t x = 0U; x < width; ++x) {
+                const std::size_t sample = source_row + x * rgb_channels;
+                const double lightness = static_cast<double>(image.samples[sample]) * weights[0]
+                    + static_cast<double>(image.samples[sample + 1U]) * weights[1]
+                    + static_cast<double>(image.samples[sample + 2U]) * weights[2];
+                const std::size_t pixel = target_row + x;
+                luma[pixel] = static_cast<float>(lightness);
+                red_chroma[pixel] = static_cast<float>(image.samples[sample] - lightness);
+                blue_chroma[pixel] = static_cast<float>(image.samples[sample + 2U] - lightness);
+            }
+        }
+    });
+
+    const double strength = std::max(parameters.denoise_luminance, parameters.denoise_color);
+    const double authority = strength * strength * (1.0 - 0.60 * parameters.denoise_detail);
+    const std::uint32_t fine_radius = static_cast<std::uint32_t>(std::clamp(
+        std::ceil(1.0 + 2.0 * authority),
+        1.0,
+        3.0
+    ));
+    const std::uint32_t coarse_radius = guided_denoise_coarse_radius(parameters);
+    // Keep epsilon intentionally below the sensor-noise floor. It is an edge protector, not
+    // a generic blur amount: pushing it too high turns the 100% setting into a foggy image
+    // before it has differentiated the horizon, mast, or small specular edges from noise.
+    const double fine_epsilon = 0.0003 + 0.006 * authority;
+    const double coarse_epsilon = 0.0007 + 0.015 * authority;
+    const double coarse_mix = std::clamp(0.10 + 0.38 * authority, 0.0, 0.50);
+
+    std::vector<float> fine_luma;
+    std::vector<float> fine_red_chroma;
+    std::vector<float> fine_blue_chroma;
+    {
+        const auto guide = prepare_guided_denoise_guide(luma, width, height, fine_radius);
+        if (parameters.denoise_luminance > 0.0) {
+            fine_luma = guided_self_filter(
+                luma, guide, width, height, fine_radius, fine_epsilon
+            );
+        }
+        if (parameters.denoise_color > 0.0) {
+            fine_red_chroma = guided_target_filter(
+                luma, guide, red_chroma, width, height, fine_radius, fine_epsilon
+            );
+            fine_blue_chroma = guided_target_filter(
+                luma, guide, blue_chroma, width, height, fine_radius, fine_epsilon
+            );
+        }
+    }
+    std::vector<float> coarse_luma;
+    std::vector<float> coarse_red_chroma;
+    std::vector<float> coarse_blue_chroma;
+    {
+        const auto guide = prepare_guided_denoise_guide(luma, width, height, coarse_radius);
+        if (parameters.denoise_luminance > 0.0) {
+            coarse_luma = guided_self_filter(
+                luma, guide, width, height, coarse_radius, coarse_epsilon
+            );
+        }
+        if (parameters.denoise_color > 0.0) {
+            coarse_red_chroma = guided_target_filter(
+                luma, guide, red_chroma, width, height, coarse_radius, coarse_epsilon
+            );
+            coarse_blue_chroma = guided_target_filter(
+                luma, guide, blue_chroma, width, height, coarse_radius, coarse_epsilon
+            );
+        }
+    }
+
+    parallel_for_rows(height, [&](const std::uint32_t first_row,
+                                  const std::uint32_t past_last_row) {
+        for (std::size_t y = first_row; y < past_last_row; ++y) {
+            const std::size_t source_row = y * stride;
+            const std::size_t target_row = y * width;
+            for (std::size_t x = 0U; x < width; ++x) {
+                const std::size_t pixel = target_row + x;
+                const std::size_t sample = source_row + x * rgb_channels;
+                const double filtered_luma = parameters.denoise_luminance == 0.0
+                    ? luma[pixel]
+                    : std::lerp(
+                        static_cast<double>(fine_luma[pixel]),
+                        static_cast<double>(coarse_luma[pixel]),
+                        coarse_mix
+                    );
+                const double filtered_red_chroma = parameters.denoise_color == 0.0
+                    ? red_chroma[pixel]
+                    : std::lerp(
+                        static_cast<double>(fine_red_chroma[pixel]),
+                        static_cast<double>(coarse_red_chroma[pixel]),
+                        coarse_mix
+                    );
+                const double filtered_blue_chroma = parameters.denoise_color == 0.0
+                    ? blue_chroma[pixel]
+                    : std::lerp(
+                        static_cast<double>(fine_blue_chroma[pixel]),
+                        static_cast<double>(coarse_blue_chroma[pixel]),
+                        coarse_mix
+                    );
+                const double output_luma = std::lerp(
+                    static_cast<double>(luma[pixel]),
+                    filtered_luma,
+                    parameters.denoise_luminance
+                );
+                const double output_red_chroma = std::lerp(
+                    static_cast<double>(red_chroma[pixel]),
+                    filtered_red_chroma,
+                    parameters.denoise_color
+                );
+                const double output_blue_chroma = std::lerp(
+                    static_cast<double>(blue_chroma[pixel]),
+                    filtered_blue_chroma,
+                    parameters.denoise_color
+                );
+                image.samples[sample] = checked_float(
+                    output_luma + output_red_chroma,
+                    node_index,
+                    node
+                );
+                image.samples[sample + 1U] = checked_float(
+                    output_luma - (weights[0] * output_red_chroma
+                        + weights[2] * output_blue_chroma) / weights[1],
+                    node_index,
+                    node
+                );
+                image.samples[sample + 2U] = checked_float(
+                    output_luma + output_blue_chroma,
+                    node_index,
+                    node
+                );
+            }
+        }
+    });
+}
+
+void apply_bilateral_fallback_denoise(
     FloatRgbImage& image,
     const AdjustmentNode& node,
     const std::size_t node_index,
@@ -566,6 +963,25 @@ void apply_edge_aware_denoise(
             }
         }
     });
+}
+
+void apply_edge_aware_denoise(
+    FloatRgbImage& image,
+    const AdjustmentNode& node,
+    const std::size_t node_index,
+    const SharpenAdjustment& parameters
+) {
+    if (parameters.denoise_luminance == 0.0 && parameters.denoise_color == 0.0) {
+        return;
+    }
+    // A normal proxy or full-detail tile has enough samples for the two-scale guided path.
+    // Keep the previous tiny bilateral implementation only as a well-defined fallback for
+    // degenerate images used by defensive callers and small contract fixtures.
+    if (image.dimensions.width < 3U || image.dimensions.height < 3U) {
+        apply_bilateral_fallback_denoise(image, node, node_index, parameters);
+        return;
+    }
+    apply_multiscale_guided_denoise(image, node, node_index, parameters);
 }
 
 void apply_dehaze_and_defringe(

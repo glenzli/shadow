@@ -87,7 +87,6 @@ void validate_warm_edit_max_edge(const std::uint32_t max_edge) {
 }
 
 void validate_raw_development_plan_intent(
-    const DecodeSession& session,
     const RawDevelopmentPlan& plan,
     const RawDevelopmentIntent required_intent,
     const std::string_view operation
@@ -109,31 +108,11 @@ void validate_raw_development_plan_intent(
         );
     }
 
-    // A decoded raster deliberately has no RAW-development capability. It shares the common
-    // edit graph, but its source pixels are already final and must not be rejected simply
-    // because a cache-aware caller supplied the canonical preview/detail plan.
-    if (!session.raw_development_capabilities().available) {
-        return;
-    }
-
-    const RawDevelopmentPlanNegotiation negotiation =
-        session.negotiate_raw_development_plan(plan);
-    if (!negotiation.accepted()) {
-        throw DecodeError(
-            DecodeErrorCode::unsupported,
-            0,
-            std::string(operation)
-                + " is not supported by this RAW provider's development capabilities"
-        );
-    }
-    if (negotiation.effective.intent != required_intent) {
-        throw DecodeError(
-            DecodeErrorCode::unsupported,
-            0,
-            std::string(operation)
-                + " negotiated a RAW-development plan with an incompatible intent"
-        );
-    }
+    // Whether a plan is executable is route-dependent. A LibRaw provider can only advertise
+    // its processed-RGB fallback, while Shadow's owned RawFrame route can implement additional
+    // plans (for example robust CFA denoise) before demosaic. Defer capability negotiation to
+    // develop_source_reference(), after the source route has been selected, so the fallback
+    // cannot pre-empt a capable host-owned RAW developer.
 }
 
 [[nodiscard]] std::size_t validated_source_row_stride(const PixelBuffer& source) {
@@ -1727,7 +1706,6 @@ WarmEditPreviewSession prepare_warm_edit_preview(
 ) {
     validate_warm_edit_max_edge(max_edge);
     validate_raw_development_plan_intent(
-        session,
         raw_development_plan,
         RawDevelopmentIntent::preview,
         "warm edit preview"
@@ -1852,7 +1830,6 @@ FullEditDetailSession prepare_full_edit_detail(
         );
     }
     validate_raw_development_plan_intent(
-        session,
         raw_development_plan,
         raw_development_plan.intent,
         raw_development_plan.intent == RawDevelopmentIntent::detail
@@ -1906,7 +1883,6 @@ EncodedProxy render_reference_proxy_jpeg(
 ) {
     validate_proxy_request(request);
     validate_raw_development_plan_intent(
-        session,
         raw_development_plan,
         RawDevelopmentIntent::preview,
         "reference proxy"
