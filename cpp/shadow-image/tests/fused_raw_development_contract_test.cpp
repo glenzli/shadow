@@ -298,6 +298,73 @@ void metal_full_resolution_stays_within_the_linear_u16_contract() {
     }
 }
 
+void metal_area_preview_preserves_the_cfa_footprint_contract() {
+    if (!image::raw_development_backend_available(image::RawDevelopmentBackend::metal)) {
+        expect(
+            !environment_enabled("SHADOW_TEST_REQUIRE_METAL"),
+            "Metal was required for area-preview validation but no Metal backend is available"
+        );
+        return;
+    }
+    const image::RawFrameLinearTransform transform{{
+        1.31, -0.27, 0.08,
+        -0.06, 1.14, -0.03,
+        0.04, -0.22, 1.57,
+    }};
+    for (const std::int32_t orientation : {0, 3, 5, 6}) {
+        const auto frame = synthetic_frame(orientation);
+        const auto cpu = image::develop_bayer_linear_srgb_u16_fused_with_backend(
+            frame,
+            transform,
+            3U,
+            image::RawDevelopmentBackendMode::cpu
+        );
+        const auto metal = image::develop_bayer_linear_srgb_u16_fused_with_backend(
+            frame,
+            transform,
+            3U,
+            image::RawDevelopmentBackendMode::metal
+        );
+        const auto repeated = image::develop_bayer_linear_srgb_u16_fused_with_backend(
+            frame,
+            transform,
+            3U,
+            image::RawDevelopmentBackendMode::metal
+        );
+        expect(
+            metal.valid()
+                && metal.backend == image::RawDevelopmentBackend::metal
+                && metal.demosaic_receipt.algorithm
+                    == image::RawDemosaicAlgorithm::bayer_area_preview_v1,
+            "Metal area preview retains the typed CFA-footprint receipt"
+        );
+        expect(
+            metal.pixels.dimensions == cpu.pixels.dimensions
+                && metal.pixels.samples.size() == cpu.pixels.samples.size(),
+            "Metal area preview preserves CPU output dimensions and packing"
+        );
+        expect(
+            metal.pixels.samples == repeated.pixels.samples,
+            "Metal area preview is byte deterministic"
+        );
+        std::uint16_t maximum_error = 0U;
+        std::uint64_t total_error = 0U;
+        for (std::size_t index = 0U; index < cpu.pixels.samples.size(); ++index) {
+            const auto error = static_cast<std::uint16_t>(std::abs(
+                static_cast<std::int32_t>(cpu.pixels.samples[index])
+                - static_cast<std::int32_t>(metal.pixels.samples[index])
+            ));
+            maximum_error = std::max(maximum_error, error);
+            total_error += error;
+        }
+        const double mean_error = cpu.pixels.samples.empty()
+            ? 0.0
+            : static_cast<double>(total_error) / static_cast<double>(cpu.pixels.samples.size());
+        expect(maximum_error <= 2U, "Metal area preview stays within two u16 codes of CPU");
+        expect(mean_error <= 0.20, "Metal area preview has a sub-code mean error");
+    }
+}
+
 [[nodiscard]] image::RawFrame sensor_clipped_frame() {
     auto frame = synthetic_frame(0);
     for (std::uint32_t y = 0U; y < frame.descriptor.storage_dimensions.height; ++y) {
@@ -474,6 +541,7 @@ int main() {
     full_resolution_matches_reference_for_every_supported_orientation();
     area_preview_matches_reference_for_every_supported_orientation();
     metal_full_resolution_stays_within_the_linear_u16_contract();
+    metal_area_preview_preserves_the_cfa_footprint_contract();
     sensor_clipped_highlights_are_neutral_before_u16_clipping();
     invalid_inputs_fail_closed();
     return failures == 0 ? 0 : 1;

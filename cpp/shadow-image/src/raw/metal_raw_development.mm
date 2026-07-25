@@ -24,9 +24,8 @@ namespace shadow::image::detail {
 
 namespace {
 
-// The first Metal kernel deliberately covers only native-size reconstruction. Area-integrated
-// preview geometry remains on the exact CPU implementation until its floating footprint math has
-// an integer formulation that can be shared by C++ and MSL.
+// Metal owns both native-size reconstruction and CFA-aware area previews. CPU remains the exact
+// fallback when a device cannot satisfy the request or the host explicitly selects it.
 constexpr char metal_source[] = R"METAL(
 #include <metal_stdlib>
 using namespace metal;
@@ -40,6 +39,8 @@ struct RawDevelopmentParameters {
     uint margin_top;
     uint output_width;
     uint output_height;
+    uint reconstruction_width;
+    uint reconstruction_height;
     int orientation;
     uint output_row_offset;
     uint output_tile_height;
@@ -277,16 +278,16 @@ kernel void develop_bayer_full(
     uint source_y = output_y;
     switch (parameters.orientation) {
     case 3:
-        source_x = parameters.active_width - 1u - output_x;
-        source_y = parameters.active_height - 1u - output_y;
+        source_x = parameters.reconstruction_width - 1u - output_x;
+        source_y = parameters.reconstruction_height - 1u - output_y;
         break;
     case 5:
-        source_x = parameters.active_width - 1u - output_y;
+        source_x = parameters.reconstruction_width - 1u - output_y;
         source_y = output_x;
         break;
     case 6:
         source_x = output_y;
-        source_y = parameters.active_height - 1u - output_x;
+        source_y = parameters.reconstruction_height - 1u - output_x;
         break;
     default:
         break;
@@ -320,6 +321,129 @@ kernel void develop_bayer_full(
     output[output_index + 1u] = quantize_linear(scene_linear.y);
     output[output_index + 2u] = quantize_linear(scene_linear.z);
 }
+
+// Preview pixels integrate their complete active-sensor footprint per CFA colour before the
+// camera matrix. This is deliberately not a quick resized full development: that would alias
+// Bayer phase into colour noise at fit-to-window scale. The CPU path uses the same footprint
+// definition with double accumulation; Metal keeps the interactive path in f32.
+kernel void develop_bayer_area_preview(
+    device const ushort* samples [[buffer(0)]],
+    device ushort* output [[buffer(1)]],
+    constant RawDevelopmentParameters& parameters [[buffer(2)]],
+    uint2 position [[thread_position_in_grid]]
+) {
+    if (position.x >= parameters.output_width
+        || position.y >= parameters.output_tile_height) {
+        return;
+    }
+
+    const uint output_x = position.x;
+    const uint output_y = parameters.output_row_offset + position.y;
+    uint source_x = output_x;
+    uint source_y = output_y;
+    switch (parameters.orientation) {
+    case 3:
+        source_x = parameters.reconstruction_width - 1u - output_x;
+        source_y = parameters.reconstruction_height - 1u - output_y;
+        break;
+    case 5:
+        source_x = parameters.reconstruction_width - 1u - output_y;
+        source_y = output_x;
+        break;
+    case 6:
+        source_x = output_y;
+        source_y = parameters.reconstruction_height - 1u - output_x;
+        break;
+    default:
+        break;
+    }
+
+    const float scale_x = float(parameters.active_width) / float(parameters.reconstruction_width);
+    const float scale_y = float(parameters.active_height) / float(parameters.reconstruction_height);
+    const float active_left = float(parameters.margin_left);
+    const float active_top = float(parameters.margin_top);
+    const float active_right = active_left + float(parameters.active_width);
+    const float active_bottom = active_top + float(parameters.active_height);
+    const float source_left = active_left + float(source_x) * scale_x;
+    const float source_right = min(active_right, active_left + float(source_x + 1u) * scale_x);
+    const float source_top = active_top + float(source_y) * scale_y;
+    const float source_bottom = min(active_bottom, active_top + float(source_y + 1u) * scale_y);
+    const uint first_source_x = uint(floor(max(active_left, source_left)));
+    const uint last_source_x = min(
+        parameters.margin_left + parameters.active_width,
+        uint(ceil(source_right))
+    );
+    const uint first_source_y = uint(floor(max(active_top, source_top)));
+    const uint last_source_y = min(
+        parameters.margin_top + parameters.active_height,
+        uint(ceil(source_bottom))
+    );
+    float totals[3] = {0.0f, 0.0f, 0.0f};
+    float weights[3] = {0.0f, 0.0f, 0.0f};
+    float clipped_weights[3] = {0.0f, 0.0f, 0.0f};
+    for (uint raw_y = first_source_y; raw_y < last_source_y; ++raw_y) {
+        const float overlap_y = max(
+            0.0f,
+            min(source_bottom, float(raw_y + 1u)) - max(source_top, float(raw_y))
+        );
+        for (uint raw_x = first_source_x; raw_x < last_source_x; ++raw_x) {
+            const float overlap_x = max(
+                0.0f,
+                min(source_right, float(raw_x + 1u)) - max(source_left, float(raw_x))
+            );
+            const uint channel = parameters.cfa_channels[cfa_site(raw_x, raw_y)];
+            const float weight = overlap_x * overlap_y;
+            const float normalized = normalized_sample(samples, parameters, raw_x, raw_y);
+            totals[channel] += normalized * weight;
+            weights[channel] += weight;
+            clipped_weights[channel] += sensor_clip_evidence(normalized) * weight;
+        }
+    }
+    // An active footprint always contains each CFA colour for supported previews. Preserve the
+    // CPU fallback nonetheless so an edge rounding quirk cannot turn an unusual crop into NaN.
+    const uint center_x = min(
+        parameters.storage_width - 1u,
+        uint((source_left + source_right) * 0.5f)
+    );
+    const uint center_y = min(
+        parameters.storage_height - 1u,
+        uint((source_top + source_bottom) * 0.5f)
+    );
+    const CameraRgbSample camera = (
+        weights[0] <= 0.0f || weights[1] <= 0.0f || weights[2] <= 0.0f
+    ) ? camera_rgb_at(samples, parameters, center_x, center_y) : CameraRgbSample{
+        float3(
+            totals[0] / weights[0],
+            totals[1] / weights[1],
+            totals[2] / weights[2]
+        ),
+        float3(
+            clipped_weights[0] / weights[0],
+            clipped_weights[1] / weights[1],
+            clipped_weights[2] / weights[2]
+        )
+    };
+    const float red =
+        parameters.camera_to_linear_srgb[0] * camera.values.x
+        + parameters.camera_to_linear_srgb[1] * camera.values.y
+        + parameters.camera_to_linear_srgb[2] * camera.values.z;
+    const float green =
+        parameters.camera_to_linear_srgb[3] * camera.values.x
+        + parameters.camera_to_linear_srgb[4] * camera.values.y
+        + parameters.camera_to_linear_srgb[5] * camera.values.z;
+    const float blue =
+        parameters.camera_to_linear_srgb[6] * camera.values.x
+        + parameters.camera_to_linear_srgb[7] * camera.values.y
+        + parameters.camera_to_linear_srgb[8] * camera.values.z;
+    const float3 scene_linear = neutralize_sensor_clipped_highlight(
+        float3(red, green, blue),
+        camera
+    );
+    const uint output_index = (position.y * parameters.output_width + output_x) * 3u;
+    output[output_index] = quantize_linear(scene_linear.x);
+    output[output_index + 1u] = quantize_linear(scene_linear.y);
+    output[output_index + 2u] = quantize_linear(scene_linear.z);
+}
 )METAL";
 
 struct RawDevelopmentParameters final {
@@ -331,6 +455,8 @@ struct RawDevelopmentParameters final {
     std::uint32_t margin_top = 0U;
     std::uint32_t output_width = 0U;
     std::uint32_t output_height = 0U;
+    std::uint32_t reconstruction_width = 0U;
+    std::uint32_t reconstruction_height = 0U;
     std::int32_t orientation = 0;
     std::uint32_t output_row_offset = 0U;
     std::uint32_t output_tile_height = 0U;
@@ -340,13 +466,14 @@ struct RawDevelopmentParameters final {
     float camera_to_linear_srgb[9]{};
 };
 
-static_assert(sizeof(RawDevelopmentParameters) == 128U);
+static_assert(sizeof(RawDevelopmentParameters) == 136U);
 static_assert(offsetof(RawDevelopmentParameters, storage_width) == 0U);
-static_assert(offsetof(RawDevelopmentParameters, orientation) == 32U);
-static_assert(offsetof(RawDevelopmentParameters, cfa_channels) == 44U);
-static_assert(offsetof(RawDevelopmentParameters, black_levels) == 60U);
-static_assert(offsetof(RawDevelopmentParameters, white_minus_black) == 76U);
-static_assert(offsetof(RawDevelopmentParameters, camera_to_linear_srgb) == 92U);
+static_assert(offsetof(RawDevelopmentParameters, reconstruction_width) == 32U);
+static_assert(offsetof(RawDevelopmentParameters, orientation) == 40U);
+static_assert(offsetof(RawDevelopmentParameters, cfa_channels) == 52U);
+static_assert(offsetof(RawDevelopmentParameters, black_levels) == 68U);
+static_assert(offsetof(RawDevelopmentParameters, white_minus_black) == 84U);
+static_assert(offsetof(RawDevelopmentParameters, camera_to_linear_srgb) == 100U);
 
 struct RawDenoiseParameters final {
     std::uint32_t storage_width = 0U;
@@ -446,6 +573,23 @@ public:
             }
 
             error = nil;
+            OwnedObjectiveCObject preview_function(
+                [static_cast<id<MTLLibrary>>(library.get())
+                    newFunctionWithName:@"develop_bayer_area_preview"]
+            );
+            if (!preview_function) {
+                preview_diagnostic_ = "Metal RAW area-preview shader entry point is unavailable";
+            } else {
+                preview_pipeline_ = [device_ newComputePipelineStateWithFunction:
+                    static_cast<id<MTLFunction>>(preview_function.get())
+                    error:&error];
+                if (preview_pipeline_ == nil) {
+                    preview_diagnostic_ = "Metal RAW area-preview pipeline creation failed: "
+                        + error_description(error);
+                }
+            }
+
+            error = nil;
             OwnedObjectiveCObject denoise_function(
                 [static_cast<id<MTLLibrary>>(library.get())
                     newFunctionWithName:@"denoise_bayer_same_cfa"]
@@ -466,6 +610,7 @@ public:
 
     ~MetalRawContext() {
         [denoise_pipeline_ release];
+        [preview_pipeline_ release];
         [pipeline_ release];
         [queue_ release];
         [device_ release];
@@ -482,6 +627,10 @@ public:
         return device_ != nil && queue_ != nil && denoise_pipeline_ != nil;
     }
 
+    [[nodiscard]] bool area_preview_valid() const noexcept {
+        return device_ != nil && queue_ != nil && preview_pipeline_ != nil;
+    }
+
     [[nodiscard]] id<MTLDevice> device() const noexcept { return device_; }
     [[nodiscard]] id<MTLCommandQueue> queue() const noexcept { return queue_; }
     [[nodiscard]] id<MTLComputePipelineState> pipeline() const noexcept {
@@ -490,7 +639,13 @@ public:
     [[nodiscard]] id<MTLComputePipelineState> raw_denoise_pipeline() const noexcept {
         return denoise_pipeline_;
     }
+    [[nodiscard]] id<MTLComputePipelineState> area_preview_pipeline() const noexcept {
+        return preview_pipeline_;
+    }
     [[nodiscard]] const std::string& diagnostic() const noexcept { return diagnostic_; }
+    [[nodiscard]] const std::string& area_preview_diagnostic() const noexcept {
+        return preview_diagnostic_.empty() ? diagnostic_ : preview_diagnostic_;
+    }
     [[nodiscard]] const std::string& raw_denoise_diagnostic() const noexcept {
         return denoise_diagnostic_.empty() ? diagnostic_ : denoise_diagnostic_;
     }
@@ -499,8 +654,10 @@ private:
     id<MTLDevice> device_ = nil;
     id<MTLCommandQueue> queue_ = nil;
     id<MTLComputePipelineState> pipeline_ = nil;
+    id<MTLComputePipelineState> preview_pipeline_ = nil;
     id<MTLComputePipelineState> denoise_pipeline_ = nil;
     std::string diagnostic_;
+    std::string preview_diagnostic_;
     std::string denoise_diagnostic_;
 };
 
@@ -618,11 +775,14 @@ private:
     return output;
 }
 
-[[nodiscard]] RawDemosaicReceipt make_receipt(const RawFrame& frame) noexcept {
+[[nodiscard]] RawDemosaicReceipt make_receipt(
+    const RawFrame& frame,
+    const RawDemosaicAlgorithm algorithm
+) noexcept {
     return RawDemosaicReceipt{
         .schema_version = raw_demosaic_receipt_schema_version,
         .source_raw_frame_schema_version = frame.descriptor.schema_version,
-        .algorithm = RawDemosaicAlgorithm::bayer_bilinear_v1,
+        .algorithm = algorithm,
         .black_subtraction_applied = true,
         .white_level_normalization_applied = true,
         .white_balance_applied = false,
@@ -633,6 +793,7 @@ private:
 [[nodiscard]] RawDevelopmentParameters make_parameters(
     const RawFrame& frame,
     const RawFrameLinearTransform& transform,
+    const Dimensions reconstruction_dimensions,
     const Dimensions output_dimensions
 ) {
     const auto& descriptor = frame.descriptor;
@@ -645,6 +806,8 @@ private:
     parameters.margin_top = descriptor.active_margins.top;
     parameters.output_width = output_dimensions.width;
     parameters.output_height = output_dimensions.height;
+    parameters.reconstruction_width = reconstruction_dimensions.width;
+    parameters.reconstruction_height = reconstruction_dimensions.height;
     parameters.orientation = descriptor.orientation;
     for (std::size_t site = 0U; site < 4U; ++site) {
         parameters.cfa_channels[site] = cfa_channel(descriptor.bayer_2x2[site]);
@@ -851,19 +1014,19 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_u16_metal(
     const Dimensions reconstruction_dimensions = preview_max_edge.has_value()
         ? proxy_dimensions(frame.descriptor.active_dimensions, *preview_max_edge)
         : frame.descriptor.active_dimensions;
-    if (reconstruction_dimensions != frame.descriptor.active_dimensions) {
-        return MetalRawDevelopmentAttempt{
-            .development = std::nullopt,
-            .diagnostic =
-                "Metal RAW v1 supports native-size Bayer development; area previews use CPU",
-        };
-    }
+    const bool area_preview = reconstruction_dimensions != frame.descriptor.active_dimensions;
 
     auto& context = metal_context();
     if (!context.valid()) {
         return MetalRawDevelopmentAttempt{
             .development = std::nullopt,
             .diagnostic = context.diagnostic(),
+        };
+    }
+    if (area_preview && !context.area_preview_valid()) {
+        return MetalRawDevelopmentAttempt{
+            .development = std::nullopt,
+            .diagnostic = context.area_preview_diagnostic(),
         };
     }
 
@@ -983,9 +1146,11 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_u16_metal(
         RawDevelopmentParameters parameters = make_parameters(
             frame,
             transform,
+            reconstruction_dimensions,
             output_dimensions
         );
-        const auto pipeline = context.pipeline();
+        const auto pipeline = area_preview
+            ? context.area_preview_pipeline() : context.pipeline();
         const NSUInteger thread_width = std::min<NSUInteger>(
             32U,
             std::max<NSUInteger>(1U, pipeline.threadExecutionWidth)
@@ -1059,7 +1224,12 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_u16_metal(
 
     FusedRawFrameDevelopment development{
         .pixels = std::move(output),
-        .demosaic_receipt = make_receipt(frame),
+        .demosaic_receipt = make_receipt(
+            frame,
+            area_preview
+                ? RawDemosaicAlgorithm::bayer_area_preview_v1
+                : RawDemosaicAlgorithm::bayer_bilinear_v1
+        ),
         .backend = RawDevelopmentBackend::metal,
     };
     if (!development.valid()) {

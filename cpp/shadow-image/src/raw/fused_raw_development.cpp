@@ -313,7 +313,8 @@ std::string_view raw_development_backend_identity(
     case RawDevelopmentBackend::cpu:
         return "shadow-fused-raw-cpu-v1;sensor-highlights=neutral-v1";
     case RawDevelopmentBackend::metal:
-        return "shadow-fused-raw-metal-full-v1;math=f32-precise;sensor-highlights=neutral-v1";
+        return "shadow-fused-raw-metal-v2;math=f32-precise;area-preview=cfa-footprint-v1;"
+            "sensor-highlights=neutral-v1";
     }
     return "shadow-fused-raw-unknown";
 }
@@ -397,12 +398,6 @@ FusedRawFrameDevelopment develop_bayer_linear_srgb_u16_fused_with_backend(
     const RawDevelopmentBackendMode backend_mode
 ) {
     validate_request(frame, transform, preview_max_edge);
-    const bool area_preview = preview_max_edge.has_value()
-        && proxy_dimensions(frame.descriptor.active_dimensions, *preview_max_edge)
-            != frame.descriptor.active_dimensions;
-    if (area_preview) {
-        return develop_on_cpu(frame, transform, preview_max_edge);
-    }
     if (backend_mode != RawDevelopmentBackendMode::cpu) {
         auto attempt = detail::try_develop_bayer_linear_srgb_u16_metal(
             frame,

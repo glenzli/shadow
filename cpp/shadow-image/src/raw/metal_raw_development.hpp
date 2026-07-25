@@ -35,9 +35,8 @@ struct MetalRawDenoiseAttempt final {
     double iso_sensitivity
 );
 
-// First Metal stage: native-size Bayer reconstruction, camera transform and orientation into the
-// common linear-sRGB u16 boundary. Area-integrated previews intentionally remain on the exact CPU
-// implementation until their floating footprint geometry has an integer formulation.
+// Metal Bayer reconstruction, CFA-aware area previews, camera transform and orientation into the
+// common linear-sRGB u16 boundary. A typed unavailable result preserves CPU fallback semantics.
 [[nodiscard]] MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_u16_metal(
     const RawFrame& frame,
     const RawFrameLinearTransform& transform,
