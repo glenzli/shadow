@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Dialogs
 import QtQuick.Layouts
 
 Item {
@@ -10,8 +11,93 @@ Item {
     required property var controller
     signal chooseFolderRequested()
 
+    property string pendingRelinkLocationId: ""
+    property url pendingRelinkCandidate: ""
+
     readonly property bool activityRunning: controller.scanning
         || controller.refreshing || controller.busy
+
+    FileDialog {
+        id: relinkFileDialog
+        title: qsTr("Choose the moved original file")
+        fileMode: FileDialog.OpenFile
+        onAccepted: {
+            library.pendingRelinkCandidate = selectedFile
+            relinkConfirmPopup.open()
+        }
+    }
+
+    Popup {
+        id: relinkConfirmPopup
+        parent: Overlay.overlay
+        x: Math.round((parent.width - width) / 2)
+        y: Math.round((parent.height - height) / 2)
+        width: 390
+        padding: 18
+        modal: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+        background: Rectangle {
+            radius: 10
+            color: Theme.panelRaised
+            border.width: 1
+            border.color: Theme.borderStrong
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 12
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("Verify and link original")
+                color: Theme.textPrimary
+                font.pixelSize: 15
+                font.weight: Font.DemiBold
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("Shadow will read the complete selected file and link it only when its exact content identity belongs to this historical photo. File name, EXIF and size are not used as a match.")
+                color: Theme.textMuted
+                font.pixelSize: 11
+                wrapMode: Text.WordWrap
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: library.pendingRelinkCandidate.toString()
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fontMeta
+                elide: Text.ElideMiddle
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                Item { Layout.fillWidth: true }
+
+                ShadowButton {
+                    text: qsTr("CANCEL")
+                    variant: ShadowButton.Ghost
+                    onClicked: relinkConfirmPopup.close()
+                }
+
+                ShadowButton {
+                    text: qsTr("VERIFY AND LINK")
+                    variant: ShadowButton.Primary
+                    onClicked: {
+                        library.controller.relinkMissingSourceLocation(
+                            library.pendingRelinkLocationId,
+                            library.pendingRelinkCandidate
+                        )
+                        relinkConfirmPopup.close()
+                    }
+                }
+            }
+        }
+    }
 
     Rectangle {
         anchors.fill: parent
@@ -314,7 +400,43 @@ Item {
                                                 font.pixelSize: Theme.fontMeta
                                                 elide: Text.ElideRight
                                             }
+
+                                            RowLayout {
+                                                Layout.fillWidth: true
+                                                spacing: 6
+
+                                                ShadowIconButton {
+                                                    source: "qrc:/icons/add-folder.svg"
+                                                    variant: ShadowIconButton.Quiet
+                                                    toolTipText: qsTr("LOCATE MOVED ORIGINAL")
+                                                    accessibleName: toolTipText
+                                                    enabled: !library.controller.sourceRelinkBusy
+                                                    onClicked: {
+                                                        library.pendingRelinkLocationId = modelData.locationId
+                                                        relinkFileDialog.open()
+                                                    }
+                                                }
+
+                                                Label {
+                                                    Layout.fillWidth: true
+                                                    visible: library.controller.sourceRelinkBusy
+                                                        && library.pendingRelinkLocationId === modelData.locationId
+                                                    text: qsTr("Verifying complete file…")
+                                                    color: Theme.textMuted
+                                                    font.pixelSize: Theme.fontMeta
+                                                    elide: Text.ElideRight
+                                                }
+                                            }
                                         }
+                                    }
+
+                                    Label {
+                                        Layout.fillWidth: true
+                                        visible: library.controller.sourceRelinkStatusText.length > 0
+                                        text: library.controller.sourceRelinkStatusText
+                                        color: Theme.textMuted
+                                        font.pixelSize: Theme.fontMeta
+                                        wrapMode: Text.WordWrap
                                     }
 
                                     ShadowIconButton {
@@ -330,7 +452,7 @@ Item {
 
                                     Label {
                                         Layout.fillWidth: true
-                                        text: qsTr("Review only. A moved file must still pass full identity verification before a separate confirmation can attach it.")
+                                        text: qsTr("Select a moved original to verify it. Shadow creates no new Library source and changes nothing unless the complete file identity matches exactly.")
                                         color: Theme.textSubtle
                                         font.pixelSize: Theme.fontMeta
                                         wrapMode: Text.WordWrap

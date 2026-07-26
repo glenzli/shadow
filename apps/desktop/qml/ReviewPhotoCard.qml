@@ -17,6 +17,7 @@ Item {
     readonly property var decisionHeadSequence: entry.decisionHeadSequence || 0
     readonly property string decisionFlag: String(entry.decisionFlag || "unflagged")
     readonly property int decisionRating: Number(entry.decisionRating || 0)
+    readonly property bool liked: Boolean(entry.liked)
     readonly property string colorLabel: String(entry.colorLabel || "none")
     readonly property bool hasDevelopmentEdits: Boolean(entry.hasDevelopmentEdits)
     readonly property string title: String(entry.title || "")
@@ -81,6 +82,7 @@ Item {
     onFocalLengthMmChanged: refreshSelectedMetadata()
     onFocalLength35mmChanged: refreshSelectedMetadata()
     onCapturedAtUnixSecondsChanged: refreshSelectedMetadata()
+    onLikedChanged: refreshSelectedMetadata()
 
     Accessible.role: Accessible.ListItem
     Accessible.name: title

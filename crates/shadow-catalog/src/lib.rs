@@ -66,7 +66,7 @@ pub use library::{
     LibraryPhotoRecord, LibrarySourceHealth, LibrarySourceRecord, MAX_LIBRARY_FACET_PAGE_SIZE,
     MAX_LIBRARY_PAGE_SIZE,
     MissingSourceLocationCursor, MissingSourceLocationPage, MissingSourceLocationRecord,
-    PhotoLibraryState, RecordRepresentationContentIdentity,
+    MissingSourceRelinkTarget, PhotoLibraryState, RecordRepresentationContentIdentity,
     RecordRepresentationContentIdentityStatus, RelinkMatch, SetPhotoLibraryState,
     SmartAlbumQueryV1, library_equipment_key,
 };

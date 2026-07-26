@@ -9,10 +9,9 @@
 use anyhow::{Context, Result as AnyResult, bail};
 use shadow_catalog::{
     AlbumKind, AlbumRecord, CatalogHandle, LibraryApertureRange, LibraryDateRange,
-    LibraryFacetCursor, LibraryFacetKind, LibraryFacetPage, LibraryPhotoCursor,
-    LibraryPhotoFilter, LibraryPhotoPage, LibraryPhotoRecord,
-    LibrarySourceHealth, MissingSourceLocationCursor, MissingSourceLocationPage,
-    SetPhotoLibraryState, SmartAlbumQueryV1,
+    LibraryFacetCursor, LibraryFacetKind, LibraryFacetPage, LibraryPhotoCursor, LibraryPhotoFilter,
+    LibraryPhotoPage, LibraryPhotoRecord, LibrarySourceHealth, MissingSourceLocationCursor,
+    MissingSourceLocationPage, SetPhotoLibraryState, SmartAlbumQueryV1,
 };
 use shadow_domain::{CollectionId, ImportSessionId, LocationId, PhotoFlag, PhotoId};
 
@@ -130,7 +129,10 @@ impl LibraryService {
             after.as_ref(),
             usize::try_from(limit).unwrap_or(usize::MAX),
         )?;
-        Ok(page.map_or_else(empty_ffi_missing_source_location_page, ffi_missing_source_location_page))
+        Ok(page.map_or_else(
+            empty_ffi_missing_source_location_page,
+            ffi_missing_source_location_page,
+        ))
     }
 
     /// Lists the durable user albums. The desktop uses this for its Library
@@ -556,9 +558,7 @@ fn ffi_library_filter(filter: LibraryPhotoFilter) -> ffi::FfiLibraryPhotoFilter 
     }
 }
 
-fn library_facet_kind_from_ffi(
-    kind: ffi::FfiLibraryFacetKind,
-) -> AnyResult<LibraryFacetKind> {
+fn library_facet_kind_from_ffi(kind: ffi::FfiLibraryFacetKind) -> AnyResult<LibraryFacetKind> {
     match kind {
         ffi::FfiLibraryFacetKind::CaptureMonth => Ok(LibraryFacetKind::CaptureMonth),
         ffi::FfiLibraryFacetKind::Camera => Ok(LibraryFacetKind::Camera),

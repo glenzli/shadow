@@ -884,6 +884,17 @@ template <std::size_t Size>
     };
 }
 
+[[nodiscard]] BackendVerifiedSourceRelinkReceipt verified_source_relink_receipt(
+    const shadow::desktop::FfiVerifiedSourceRelinkReceipt& source
+) {
+    return {
+        .photo_id = qstring(source.photo_id),
+        .representation_id = qstring(source.representation_id),
+        .location_id = qstring(source.location_id),
+        .display_path = qstring(source.display_path),
+    };
+}
+
 [[nodiscard]] shadow::desktop::FfiLibraryPhotoCursor ffi_library_cursor(
     const BackendLibraryPhotoCursor& source
 ) {
@@ -1414,6 +1425,20 @@ BackendMissingSourceLocationPage DesktopBackend::missingSourceLocationPage(
         page.items.push_back(missing_source_location(item));
     }
     return page;
+}
+
+BackendVerifiedSourceRelinkReceipt DesktopBackend::relinkMissingSourceLocation(
+    const QString& scan_session_id,
+    const QString& location_id,
+    const QString& candidate_path
+) const {
+    return verified_source_relink_receipt(
+        impl_->session->relink_missing_source_location(
+            scan_session_id.toStdString(),
+            location_id.toStdString(),
+            candidate_path.toStdString()
+        )
+    );
 }
 
 BackendLibraryAlbum DesktopBackend::createManualLibraryAlbum(

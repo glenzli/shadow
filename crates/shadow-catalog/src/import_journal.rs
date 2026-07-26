@@ -114,6 +114,33 @@ impl Catalog {
         Ok(id)
     }
 
+    /// Starts a durable journal for one explicit source reattach without
+    /// promoting the candidate's parent folder into a Library discovery
+    /// source. The newly verified location remains usable, but the user keeps
+    /// control over which directories are scanned by the Library.
+    pub fn begin_relocation_session(
+        &mut self,
+        root: &AssetLocation,
+        now_ms: i64,
+    ) -> Result<ImportSessionId, CatalogError> {
+        let id = ImportSessionId::new_v7();
+        self.connection.execute(
+            "INSERT INTO import_sessions(
+                 id, source_id, root_platform, root_native_path, root_display_path,
+                 state, started_at_ms, updated_at_ms
+             ) VALUES (?1, NULL, ?2, ?3, ?4, ?5, ?6, ?6)",
+            params![
+                id.as_bytes().as_slice(),
+                root.platform.as_str(),
+                root.native_path.as_slice(),
+                root.display_path,
+                ImportSessionState::Running.as_str(),
+                now_ms,
+            ],
+        )?;
+        Ok(id)
+    }
+
     /// Returns one import session by identifier.
     ///
     /// # Errors
@@ -734,6 +761,60 @@ mod tests {
             catalog
                 .unfinished_import_sessions()
                 .expect("unfinished sessions")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn explicit_relocation_session_keeps_candidate_out_of_library_sources() {
+        let mut catalog = Catalog::open_in_memory().expect("open catalog");
+        let original = catalog
+            .register_asset(&request())
+            .expect("register original source");
+        let identity = ContentIdentity::whole_file_blake3([17; 32]);
+        catalog
+            .record_representation_content_identity(&RecordRepresentationContentIdentity {
+                representation_id: original.representation_id,
+                expected_source: RepresentationFingerprint {
+                    byte_len: 42,
+                    modified_at_ms: Some(100),
+                },
+                identity: identity.clone(),
+                observed_at_ms: 10,
+            })
+            .expect("record exact identity");
+
+        let moved_request = relocated_request();
+        let session_id = catalog
+            .begin_relocation_session(&moved_request.location, 20)
+            .expect("begin explicit relocation");
+        assert_eq!(
+            catalog
+                .import_session(session_id)
+                .expect("read relocation session")
+                .expect("relocation session exists")
+                .source_id,
+            None
+        );
+        catalog
+            .record_import_discovered(session_id, &moved_request)
+            .expect("journal moved candidate");
+        catalog
+            .register_import_verified_relocation(
+                session_id,
+                &moved_request,
+                original.representation_id,
+                &identity,
+            )
+            .expect("attach exact relocation");
+        catalog
+            .finish_import_session(session_id, ImportSessionState::Completed, None, 30)
+            .expect("complete relocation");
+
+        assert!(
+            catalog
+                .library_sources()
+                .expect("list library sources")
                 .is_empty()
         );
     }

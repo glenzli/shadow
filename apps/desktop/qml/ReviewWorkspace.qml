@@ -19,6 +19,7 @@ Item {
     property var selectedDecisionHeadSequence: 0
     property string selectedDecisionFlag: "unflagged"
     property int selectedDecisionRating: 0
+    property bool selectedLiked: false
     property string selectedColorLabel: "none"
     property string selectedTitle: ""
     property string selectedPath: ""
@@ -735,6 +736,7 @@ Item {
         selectedDecisionHeadSequence = card.decisionHeadSequence
         selectedDecisionFlag = card.decisionFlag
         selectedDecisionRating = card.decisionRating
+        selectedLiked = card.liked
         selectedColorLabel = card.colorLabel
         selectedTitle = card.title
         selectedPath = card.sourcePath
@@ -812,6 +814,7 @@ Item {
         selectedDecisionHeadSequence = 0
         selectedDecisionFlag = "unflagged"
         selectedDecisionRating = 0
+        selectedLiked = false
         selectedColorLabel = "none"
         selectedTitle = ""
         selectedPath = ""
@@ -1047,6 +1050,10 @@ Item {
         function onColorLabelChanged(photoId, colorLabel) {
             if (review.selectedPhotoId === photoId)
                 review.selectedColorLabel = colorLabel
+        }
+        function onLikedChanged(photoId, liked) {
+            if (review.selectedPhotoId === photoId)
+                review.selectedLiked = liked
         }
     }
 
@@ -1649,6 +1656,23 @@ Item {
                     }
 
                     ShadowIconButton {
+                        source: review.selectedLiked
+                            ? "qrc:/icons/heart-filled.svg"
+                            : "qrc:/icons/heart.svg"
+                        selected: review.selectedLiked
+                        foregroundColor: review.selectedLiked
+                            ? review.accent : review.textMuted
+                        toolTipText: review.selectedLiked
+                            ? qsTr("Remove Like from selected photo")
+                            : qsTr("Like selected photo")
+                        accessibleName: toolTipText
+                        enabled: review.selectedPhotoCount === 1
+                            && review.canMutateDecision
+                        onClicked: review.controller.setPhotoLiked(
+                            review.selectedPhotoId, !review.selectedLiked)
+                    }
+
+                    ShadowIconButton {
                         id: addToManualAlbumButton
                         source: "qrc:/icons/add-folder.svg"
                         toolTipText: qsTr("Add selected photos to a Manual Album")
@@ -1771,6 +1795,7 @@ Item {
                     required property var decisionHeadSequence
                     required property string decisionFlag
                     required property int decisionRating
+                    required property bool liked
                     required property string colorLabel
                     required property bool hasDevelopmentEdits
                     required property bool hasTechnicalObservation
@@ -1818,6 +1843,7 @@ Item {
                     onFocalLengthMmChanged: refreshSelectedMetadata()
                     onFocalLength35mmChanged: refreshSelectedMetadata()
                     onCapturedAtUnixSecondsChanged: refreshSelectedMetadata()
+                    onLikedChanged: refreshSelectedMetadata()
 
                     Accessible.role: Accessible.ListItem
                     Accessible.name: card.title

@@ -31,6 +31,11 @@ namespace {
         || filter == QStringLiteral("unedited");
 }
 
+[[nodiscard]] bool is_liked_filter(const QString& filter) {
+    return filter == QStringLiteral("all") || filter == QStringLiteral("liked")
+        || filter == QStringLiteral("unliked");
+}
+
 } // namespace
 
 ReviewFilterModel::ReviewFilterModel(QObject* const parent)
@@ -54,6 +59,10 @@ QString ReviewFilterModel::editFilter() const {
     return edit_filter_;
 }
 
+QString ReviewFilterModel::likedFilter() const {
+    return liked_filter_;
+}
+
 QString ReviewFilterModel::captureMonth() const {
     return capture_month_;
 }
@@ -69,7 +78,8 @@ QString ReviewFilterModel::lensKey() const {
 bool ReviewFilterModel::hasActiveServerFilter() const {
     return flag_filter_ != QStringLiteral("all") || minimum_rating_ > 0
         || color_filter_ != QStringLiteral("all")
-        || edit_filter_ != QStringLiteral("all") || !capture_month_.isEmpty()
+        || edit_filter_ != QStringLiteral("all")
+        || liked_filter_ != QStringLiteral("all") || !capture_month_.isEmpty()
         || !camera_key_.isEmpty() || !lens_key_.isEmpty();
 }
 
@@ -113,6 +123,16 @@ void ReviewFilterModel::setEditFilter(const QString& filter) {
     emit filtersChanged();
 }
 
+void ReviewFilterModel::setLikedFilter(const QString& filter) {
+    const QString normalized = normalizeLikedFilter(filter);
+    if (liked_filter_ == normalized) {
+        return;
+    }
+    liked_filter_ = normalized;
+    refreshRowsFilter();
+    emit filtersChanged();
+}
+
 void ReviewFilterModel::setCaptureMonth(const QString& capture_month) {
     const QString normalized = normalizeCaptureMonth(capture_month);
     if (capture_month_ == normalized) {
@@ -143,12 +163,14 @@ void ReviewFilterModel::setLensKey(const QString& lens_key) {
 void ReviewFilterModel::clearFilters() {
     const bool changed = flag_filter_ != QStringLiteral("all")
         || minimum_rating_ != 0 || color_filter_ != QStringLiteral("all")
-        || edit_filter_ != QStringLiteral("all") || !capture_month_.isEmpty()
+        || edit_filter_ != QStringLiteral("all")
+        || liked_filter_ != QStringLiteral("all") || !capture_month_.isEmpty()
         || !camera_key_.isEmpty() || !lens_key_.isEmpty();
     flag_filter_ = QStringLiteral("all");
     minimum_rating_ = 0;
     color_filter_ = QStringLiteral("all");
     edit_filter_ = QStringLiteral("all");
+    liked_filter_ = QStringLiteral("all");
     capture_month_.clear();
     camera_key_.clear();
     lens_key_.clear();
@@ -192,9 +214,15 @@ bool ReviewFilterModel::filterAcceptsRow(
         row,
         ReviewModel::HasDevelopmentEditsRole
     ).toBool();
-    return edit_filter_ == QStringLiteral("all")
+    if (!(edit_filter_ == QStringLiteral("all")
         || (edit_filter_ == QStringLiteral("edited") && edited)
-        || (edit_filter_ == QStringLiteral("unedited") && !edited);
+        || (edit_filter_ == QStringLiteral("unedited") && !edited))) {
+        return false;
+    }
+    const bool liked = sourceModel()->data(row, ReviewModel::LikedRole).toBool();
+    return liked_filter_ == QStringLiteral("all")
+        || (liked_filter_ == QStringLiteral("liked") && liked)
+        || (liked_filter_ == QStringLiteral("unliked") && !liked);
 }
 
 QString ReviewFilterModel::normalizeFlagFilter(const QString& filter) {
@@ -210,6 +238,11 @@ QString ReviewFilterModel::normalizeColorFilter(const QString& filter) {
 QString ReviewFilterModel::normalizeEditFilter(const QString& filter) {
     const QString normalized = filter.trimmed().toLower();
     return is_edit_filter(normalized) ? normalized : QStringLiteral("all");
+}
+
+QString ReviewFilterModel::normalizeLikedFilter(const QString& filter) {
+    const QString normalized = filter.trimmed().toLower();
+    return is_liked_filter(normalized) ? normalized : QStringLiteral("all");
 }
 
 QString ReviewFilterModel::normalizeCaptureMonth(const QString& value) {

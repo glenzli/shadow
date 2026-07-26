@@ -9,6 +9,7 @@ Menu {
 
     required property var preferences
     signal openLutLibraryRequested()
+    signal openCacheMaintenanceRequested()
 
     title: qsTr("Settings")
     width: 236
@@ -187,6 +188,10 @@ Menu {
 
     PreferenceSeparator {}
 
+    PreferenceSection {
+        text: qsTr("Library")
+    }
+
     MenuItem {
         id: lutLibraryItem
         width: root.availableWidth
@@ -205,6 +210,26 @@ Menu {
                 ? Theme.buttonGhostHover : Theme.transparent
         }
         onTriggered: root.openLutLibraryRequested()
+    }
+
+    MenuItem {
+        id: cacheMaintenanceItem
+        width: root.availableWidth
+        height: Theme.controlHeight
+        text: qsTr("Cache Maintenance…")
+        leftPadding: 35
+        contentItem: Label {
+            text: cacheMaintenanceItem.text
+            color: Theme.textPrimary
+            font.pixelSize: 12
+            verticalAlignment: Text.AlignVCenter
+        }
+        background: Rectangle {
+            radius: Theme.controlRadius
+            color: cacheMaintenanceItem.highlighted
+                ? Theme.buttonGhostHover : Theme.transparent
+        }
+        onTriggered: root.openCacheMaintenanceRequested()
     }
 
     PreferenceSeparator {}

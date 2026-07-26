@@ -98,6 +98,13 @@ struct MissingSourceLocationTaskResult final {
     bool append = false;
 };
 
+struct MissingSourceRelinkTaskResult final {
+    BackendVerifiedSourceRelinkReceipt receipt;
+    QString error;
+    QString location_id;
+    quint64 request_id = 0;
+};
+
 enum class ReviewEvidenceTaskKind : std::uint8_t {
     Record,
     Forget,
@@ -186,6 +193,12 @@ class ReviewController final : public QObject {
         NOTIFY filtersChanged
     )
     Q_PROPERTY(
+        QString filterLiked
+        READ filterLiked
+        WRITE setFilterLiked
+        NOTIFY filtersChanged
+    )
+    Q_PROPERTY(
         QString filterCaptureMonth
         READ filterCaptureMonth
         WRITE setFilterCaptureMonth
@@ -270,6 +283,16 @@ class ReviewController final : public QObject {
         NOTIFY missingSourceLocationReviewChanged
     )
     Q_PROPERTY(
+        bool sourceRelinkBusy
+        READ sourceRelinkBusy
+        NOTIFY missingSourceLocationReviewChanged
+    )
+    Q_PROPERTY(
+        QString sourceRelinkStatusText
+        READ sourceRelinkStatusText
+        NOTIFY missingSourceLocationReviewChanged
+    )
+    Q_PROPERTY(
         int filteredItemCount
         READ filteredItemCount
         NOTIFY filtersChanged
@@ -309,6 +332,7 @@ public:
     [[nodiscard]] int filterMinimumRating() const noexcept;
     [[nodiscard]] QString filterColorLabel() const;
     [[nodiscard]] QString filterEditState() const;
+    [[nodiscard]] QString filterLiked() const;
     [[nodiscard]] QString filterCaptureMonth() const;
     [[nodiscard]] QString filterCameraKey() const;
     [[nodiscard]] QString filterLensKey() const;
@@ -325,6 +349,8 @@ public:
     [[nodiscard]] QString missingSourceLocationScanId() const;
     [[nodiscard]] bool missingSourceLocationsBusy() const noexcept;
     [[nodiscard]] bool missingSourceLocationsHasMore() const noexcept;
+    [[nodiscard]] bool sourceRelinkBusy() const noexcept;
+    [[nodiscard]] QString sourceRelinkStatusText() const;
     [[nodiscard]] int filteredItemCount() const noexcept;
     [[nodiscard]] QVariantList sharedGradeNodes() const;
     [[nodiscard]] QAbstractItemModel* model() noexcept;
@@ -334,6 +360,7 @@ public:
     void setFilterMinimumRating(int rating);
     void setFilterColorLabel(const QString& color_label);
     void setFilterEditState(const QString& edit_state);
+    void setFilterLiked(const QString& liked);
     void setFilterCaptureMonth(const QString& capture_month);
     void setFilterCameraKey(const QString& camera_key);
     void setFilterLensKey(const QString& lens_key);
@@ -371,6 +398,10 @@ public:
     Q_INVOKABLE void openMissingSourceLocationReview(const QString& scan_session_id);
     Q_INVOKABLE void closeMissingSourceLocationReview();
     Q_INVOKABLE void loadMoreMissingSourceLocations();
+    Q_INVOKABLE void relinkMissingSourceLocation(
+        const QString& location_id,
+        const QUrl& candidate_url
+    );
     Q_INVOKABLE void createManualLibraryAlbum(const QString& name);
     Q_INVOKABLE void createSmartLibraryAlbum(const QString& name);
     Q_INVOKABLE void renameLibraryAlbum(
@@ -417,6 +448,7 @@ signals:
         int rating
     );
     void colorLabelChanged(const QString& photoId, const QString& colorLabel);
+    void likedChanged(const QString& photoId, bool liked);
     void filtersChanged();
     void libraryAlbumChanged();
     void libraryAlbumsChanged();
@@ -435,6 +467,7 @@ private:
     void finishLibraryAlbumsTask();
     void finishLibrarySourceHealthTask();
     void finishMissingSourceLocationTask();
+    void finishMissingSourceRelinkTask();
     void pollScanProgress();
     void finishEvidenceTask();
     void finishDecisionTask();
@@ -458,6 +491,7 @@ private:
     );
     void startLibrarySourceHealthTask();
     void startMissingSourceLocationTask(bool append);
+    void startMissingSourceRelinkTask(const QString& location_id, const QString& candidate_path);
     void startDecisionMutation(const ReviewDecisionMutationRequest& request);
     void emitWorkStateChanges(
         bool old_busy,
@@ -555,6 +589,10 @@ private:
     QString missing_source_location_next_cursor_;
     QVector<BackendMissingSourceLocation> missing_source_locations_;
     bool missing_source_locations_has_more_ = false;
+    bool source_relink_task_running_ = false;
+    quint64 source_relink_request_id_ = 0;
+    quint64 active_source_relink_request_id_ = 0;
+    QString source_relink_status_text_;
     QElapsedTimer scan_clock_;
     QTimer scan_progress_timer_;
     QTimer filter_debounce_timer_;
@@ -571,6 +609,7 @@ private:
     QFutureWatcher<LibraryAlbumTaskResult> library_albums_watcher_;
     QFutureWatcher<LibrarySourceHealthTaskResult> library_source_health_watcher_;
     QFutureWatcher<MissingSourceLocationTaskResult> missing_source_locations_watcher_;
+    QFutureWatcher<MissingSourceRelinkTaskResult> source_relink_watcher_;
     QFutureWatcher<ReviewEvidenceTaskResult> evidence_watcher_;
     QFutureWatcher<ReviewDecisionTaskResult> decision_watcher_;
 };

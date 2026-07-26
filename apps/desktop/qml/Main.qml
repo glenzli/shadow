@@ -12,6 +12,7 @@ ApplicationWindow {
     required property var justifiedReviewLayout
     required property var editor
     required property var exportController
+    required property var cacheMaintenanceController
     required property var preferences
     required property var lutLibrary
     required property var opticsProfileLibrary
@@ -94,11 +95,17 @@ ApplicationWindow {
         id: preferencesMenu
         preferences: window.preferences
         onOpenLutLibraryRequested: window.openLutManager()
+        onOpenCacheMaintenanceRequested: window.openCacheMaintenance()
     }
 
     LutManagerWindow {
         id: lutManager
         lutLibrary: window.lutLibrary
+    }
+
+    CacheMaintenanceWindow {
+        id: cacheMaintenanceWindow
+        cacheMaintenanceController: window.cacheMaintenanceController
     }
 
     OpticsProfileManagerWindow {
@@ -114,6 +121,10 @@ ApplicationWindow {
 
     function openLutManager() {
         lutManager.openManager()
+    }
+
+    function openCacheMaintenance() {
+        cacheMaintenanceWindow.present()
     }
 
     function openOpticsProfileManager() {
@@ -767,6 +778,7 @@ ApplicationWindow {
                     || window.controller.filterMinimumRating > 0
                     || window.controller.filterColorLabel !== "all"
                     || window.controller.filterEditState !== "all"
+                    || window.controller.filterLiked !== "all"
                     ? Theme.accentSurfaceQuiet : Theme.surfaceSubtle
 
                 Row {
@@ -797,6 +809,7 @@ ApplicationWindow {
                             && window.controller.filterMinimumRating === 0
                             && window.controller.filterColorLabel === "all"
                             && window.controller.filterEditState === "all"
+                            && window.controller.filterLiked === "all"
                         toolTipText: qsTr("Clear all Library filters")
                         accessibleName: toolTipText
                         onClicked: window.controller.clearFilters()
@@ -848,6 +861,25 @@ ApplicationWindow {
                             onClicked: window.controller.filterMinimumRating
                                 = selected ? 0 : index + 1
                         }
+                    }
+
+                    Rectangle {
+                        width: 1
+                        height: 16
+                        anchors.verticalCenter: parent.verticalCenter
+                        color: window.border
+                    }
+
+                    ShadowIconButton {
+                        buttonSize: 24
+                        iconSize: 15
+                        source: "qrc:/icons/heart-filled.svg"
+                        selected: window.controller.filterLiked === "liked"
+                        foregroundColor: selected ? Theme.accent : Theme.textMuted
+                        toolTipText: qsTr("Filter liked photos")
+                        accessibleName: toolTipText
+                        onClicked: window.controller.filterLiked = selected
+                            ? "all" : "liked"
                     }
 
                     Rectangle {

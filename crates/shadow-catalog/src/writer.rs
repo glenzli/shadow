@@ -23,10 +23,10 @@ use crate::{
     ExportJobProgress, ExportJobRecord, ExportOutputReceiptRecord, ExportPresetId,
     ExportPresetRecord, ExportPresetRevisionRecord, ExportQueueRecovery, FeedbackPage,
     ImportSession, ImportSessionState, ImportSessionSummary, InvalidateCachedArtifactStatus,
-    LibraryFacetCursor, LibraryFacetKind, LibraryFacetPage, LibraryPhotoCursor,
-    LibraryPhotoFacts, LibraryPhotoFilter, LibraryPhotoPage,
-    LibrarySourceHealth, LibrarySourceRecord, LiveCachedArtifactBlob, MissingSourceLocationCursor,
-    MissingSourceLocationPage, PhotoDecisionPage, PhotoLibraryState, RecipeCommitRecord,
+    LibraryFacetCursor, LibraryFacetKind, LibraryFacetPage, LibraryPhotoCursor, LibraryPhotoFacts,
+    LibraryPhotoFilter, LibraryPhotoPage, LibrarySourceHealth, LibrarySourceRecord,
+    LiveCachedArtifactBlob, MissingSourceLocationCursor, MissingSourceLocationPage,
+    MissingSourceRelinkTarget, PhotoDecisionPage, PhotoLibraryState, RecipeCommitRecord,
     RecipeRefRecord, RecordCachedArtifact, RecordCachedArtifactStatus, RecordDecodeSnapshot,
     RecordDecodeSnapshotStatus, RecordRepresentationContentIdentity,
     RecordRepresentationContentIdentityStatus, RecordTechnicalObservation,
@@ -66,6 +66,11 @@ enum Message {
     RelinkMatch(
         ContentIdentity,
         SyncSender<Result<Option<RelinkMatch>, CatalogError>>,
+    ),
+    MissingSourceRelinkTarget(
+        ImportSessionId,
+        shadow_domain::LocationId,
+        SyncSender<Result<Option<MissingSourceRelinkTarget>, CatalogError>>,
     ),
     UpsertPhotoLibraryFacts(Box<LibraryPhotoFacts>, SyncSender<Result<(), CatalogError>>),
     PhotoLibraryFacts(
@@ -334,6 +339,11 @@ enum Message {
         i64,
         SyncSender<Result<ImportSessionId, CatalogError>>,
     ),
+    BeginRelocationSession(
+        AssetLocation,
+        i64,
+        SyncSender<Result<ImportSessionId, CatalogError>>,
+    ),
     ResumeImportSession(
         ImportSessionId,
         i64,
@@ -571,6 +581,18 @@ impl CatalogHandle {
         self.request(|response| Message::RelinkMatch(identity.clone(), response))
     }
 
+    /// Reads the exact historical location selected from one completed source
+    /// scan before a user-confirmed reattach is allowed to hash a candidate.
+    pub fn missing_source_relink_target(
+        &self,
+        scan_session_id: ImportSessionId,
+        location_id: shadow_domain::LocationId,
+    ) -> Result<Option<MissingSourceRelinkTarget>, CatalogError> {
+        self.request(|response| {
+            Message::MissingSourceRelinkTarget(scan_session_id, location_id, response)
+        })
+    }
+
     /// Atomically binds a freshly discovered location to an already verified
     /// representation identity and records the import-journal result through
     /// the single catalog writer.
@@ -599,6 +621,16 @@ impl CatalogHandle {
                 response,
             )
         })
+    }
+
+    /// Starts an explicit relocation journal which intentionally has no
+    /// Library discovery source.
+    pub fn begin_relocation_session(
+        &self,
+        root: &AssetLocation,
+        now_ms: i64,
+    ) -> Result<ImportSessionId, CatalogError> {
+        self.request(|response| Message::BeginRelocationSession(root.clone(), now_ms, response))
     }
 
     /// Updates the compact, indexed photo facts projection after metadata
@@ -1717,6 +1749,10 @@ fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
             Message::RelinkMatch(identity, response) => {
                 let _ = response.send(catalog.relink_match(&identity));
             }
+            Message::MissingSourceRelinkTarget(scan_session_id, location_id, response) => {
+                let _ = response
+                    .send(catalog.missing_source_relink_target(scan_session_id, location_id));
+            }
             Message::UpsertPhotoLibraryFacts(facts, response) => {
                 let _ = response.send(catalog.upsert_photo_library_facts(facts.as_ref()));
             }
@@ -1993,6 +2029,9 @@ fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
             Message::Feedback(message) => run_feedback_message(&mut catalog, message),
             Message::BeginImportSession(root, now_ms, response) => {
                 let _ = response.send(catalog.begin_import_session(&root, now_ms));
+            }
+            Message::BeginRelocationSession(root, now_ms, response) => {
+                let _ = response.send(catalog.begin_relocation_session(&root, now_ms));
             }
             Message::ResumeImportSession(id, now_ms, response) => {
                 let _ = response.send(catalog.resume_import_session(id, now_ms));

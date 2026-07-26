@@ -12,6 +12,7 @@ mod photo_provider;
 mod preview_cache_identity;
 mod preview_render_registry;
 mod recipe_v1;
+mod relink_service;
 mod review_service;
 mod scan_service;
 mod session_preview_store;
@@ -120,6 +121,7 @@ use crate::isolated_proxy::{
     NativeDecodeAdmission, configured_helper_path, native_decode_admission_after_isolated_stages,
     snapshot_isolated_photo_metadata,
 };
+use crate::relink_service::{RelinkService, VerifiedSourceRelinkReceipt};
 use crate::review_service::ReviewService;
 use crate::scan_service::ScanService;
 use crate::session_preview_store::SessionPreviewStore;
@@ -452,6 +454,16 @@ mod ffi {
         items: Vec<FfiMissingSourceLocation>,
         has_more: bool,
         next_location_id: String,
+    }
+
+    /// One completed user-confirmed reattach. The location is an additional
+    /// verified source for the existing photo, not a filename-based merge.
+    #[derive(Debug)]
+    struct FfiVerifiedSourceRelinkReceipt {
+        photo_id: String,
+        representation_id: String,
+        location_id: String,
+        display_path: String,
     }
 
     /// Stable cursor for capture-time-descending Library pages. An empty
@@ -1119,6 +1131,12 @@ mod ffi {
             after_location_id: &str,
             limit: u32,
         ) -> Result<FfiMissingSourceLocationPage>;
+        fn relink_missing_source_location(
+            self: &DesktopSession,
+            scan_session_id: &str,
+            location_id: &str,
+            candidate_path: &str,
+        ) -> Result<FfiVerifiedSourceRelinkReceipt>;
         fn create_manual_library_album(
             self: &DesktopSession,
             name: &str,
@@ -1376,6 +1394,7 @@ struct DesktopSession {
     edit_detail_sessions: Mutex<EditDetailSessionCache>,
     edit_detail_render_token: AtomicU64,
     library: LibraryService,
+    relink: RelinkService,
     cache_maintenance: CacheMaintenanceService,
     review: ReviewService,
     export_queue: export_queue_service::ExportQueueService,
@@ -1396,6 +1415,17 @@ fn ffi_cache_maintenance_inventory(
         unknown_entry_count: u64::try_from(cache.unknown_relative_paths.len()).unwrap_or(u64::MAX),
         unsupported_algorithm_count: u32::try_from(unsupported_algorithms.len())
             .unwrap_or(u32::MAX),
+    }
+}
+
+fn ffi_verified_source_relink_receipt(
+    source: VerifiedSourceRelinkReceipt,
+) -> ffi::FfiVerifiedSourceRelinkReceipt {
+    ffi::FfiVerifiedSourceRelinkReceipt {
+        photo_id: source.photo_id,
+        representation_id: source.representation_id,
+        location_id: source.location_id,
+        display_path: source.display_path,
     }
 }
 
@@ -1766,6 +1796,20 @@ impl DesktopSession {
     ) -> AnyResult<ffi::FfiMissingSourceLocationPage> {
         self.library
             .ffi_missing_source_location_page(scan_session_id, after_location_id, limit)
+    }
+
+    fn relink_missing_source_location(
+        &self,
+        scan_session_id: &str,
+        location_id: &str,
+        candidate_path: &str,
+    ) -> AnyResult<ffi::FfiVerifiedSourceRelinkReceipt> {
+        let receipt = self.relink.relink_missing_source_location(
+            scan_session_id,
+            location_id,
+            candidate_path,
+        )?;
+        Ok(ffi_verified_source_relink_receipt(receipt))
     }
 
     fn create_manual_library_album(&self, name: &str) -> AnyResult<ffi::FfiLibraryAlbum> {
@@ -3392,6 +3436,7 @@ fn open_desktop_session(catalog_path: &str, cache_root: &str) -> AnyResult<Box<D
     Ok(Box::new(DesktopSession {
         _actor: actor,
         library: LibraryService::new(catalog.clone()),
+        relink: RelinkService::new(catalog.clone()),
         cache_maintenance,
         review: ReviewService::new_with_session_previews(
             catalog.clone(),

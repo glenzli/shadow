@@ -1,4 +1,5 @@
 #include "desktop_backend.hpp"
+#include "cache_maintenance_controller.hpp"
 #include "edit_controller.hpp"
 #include "export_controller.hpp"
 #include "edit_preview_provider.hpp"
@@ -605,6 +606,7 @@ int main(int argc, char* argv[]) {
     }
     ReviewController controller(backend, isolated_settings_file);
     ExportController export_controller(backend, isolated_settings_file);
+    CacheMaintenanceController cache_maintenance_controller(backend);
     JustifiedReviewLayoutModel justified_review_layout;
     justified_review_layout.setSourceModel(controller.model());
     auto edit_preview_store = std::make_shared<EditPreviewStore>();
@@ -641,6 +643,10 @@ int main(int argc, char* argv[]) {
         {
             QStringLiteral("exportController"),
             QVariant::fromValue(&export_controller),
+        },
+        {
+            QStringLiteral("cacheMaintenanceController"),
+            QVariant::fromValue(&cache_maintenance_controller),
         },
         {QStringLiteral("preferences"), QVariant::fromValue(&preferences)},
         {QStringLiteral("lutLibrary"), QVariant::fromValue(&lut_library)},

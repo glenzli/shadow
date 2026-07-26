@@ -148,6 +148,15 @@ pub struct RelinkMatch {
     pub representation_id: RepresentationId,
 }
 
+/// A scan-scoped historical location that a user explicitly selected for an
+/// exact source reattach. It is deliberately obtained from the completed scan
+/// evidence rather than supplied by the UI, so the expected representation is
+/// a catalog fact, never a caller-controlled identifier.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct MissingSourceRelinkTarget {
+    pub location: MissingSourceLocationRecord,
+}
+
 /// A discovery entry point. It only determines where scans start; a photo can
 /// have locations from any number of sources and does not disappear if one is
 /// removed.
@@ -1033,6 +1042,51 @@ impl Catalog {
             items,
             next_cursor,
         }))
+    }
+
+    /// Returns one original location that was absent from a particular
+    /// completed source scan. This is the read boundary for an explicit
+    /// user-confirmed reattach; it never guesses from a path or metadata.
+    pub fn missing_source_relink_target(
+        &self,
+        scan_session_id: ImportSessionId,
+        location_id: LocationId,
+    ) -> Result<Option<MissingSourceRelinkTarget>, CatalogError> {
+        let Some(reconciliation) = self.source_scan_reconciliation(scan_session_id)? else {
+            return Ok(None);
+        };
+        self.connection
+            .query_row(
+                "SELECT p.id, r.id, l.id, l.platform, l.native_path, l.display_path,
+                        r.kind, r.byte_len, r.modified_at_ms,
+                        f.captured_at_unix_seconds, f.camera_key,
+                        source_locations.last_seen_at_ms
+                 FROM location_sources source_locations
+                 JOIN locations l ON l.id = source_locations.location_id
+                 JOIN representations r ON r.id = l.representation_id
+                 JOIN photos p ON p.id = r.photo_id
+                 LEFT JOIN photo_library_facts f ON f.photo_id = p.id
+                 WHERE source_locations.source_id = ?1
+                   AND source_locations.location_id = ?2
+                   AND NOT EXISTS (
+                       SELECT 1 FROM import_entries seen
+                       WHERE seen.session_id = ?3
+                         AND seen.location_id = source_locations.location_id
+                         AND seen.state IN ('inserted', 'unchanged', 'needs_revalidation')
+                   )",
+                params![
+                    reconciliation.source_id.as_bytes().as_slice(),
+                    location_id.as_bytes().as_slice(),
+                    scan_session_id.as_bytes().as_slice(),
+                ],
+                |row| {
+                    Ok(MissingSourceRelinkTarget {
+                        location: read_missing_source_location(row)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(Into::into)
     }
 
     /// Returns one bounded, photo-first Library grid page.
@@ -2924,6 +2978,15 @@ mod tests {
             .expect("durable source page");
         assert_eq!(first_page.reconciliation, *scan);
         assert_eq!(first_page.items.len(), 1);
+        let relink_target = catalog
+            .missing_source_relink_target(second_scan, first_page.items[0].location_id)
+            .expect("read exact source relink target")
+            .expect("first-page item remains valid reattach evidence");
+        assert_eq!(relink_target.location, first_page.items[0]);
+        assert!(catalog
+            .missing_source_relink_target(second_scan, observed.location_id)
+            .expect("check observed source")
+            .is_none());
 
         // Refresh the *other* missing location in a later scan. The review
         // must still page the old completed session without skipping it just

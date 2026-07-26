@@ -121,6 +121,8 @@ qt_add_executable(
     MACOSX_BUNDLE
     src/desktop_backend.cpp
     src/desktop_backend.hpp
+    src/cache_maintenance_controller.cpp
+    src/cache_maintenance_controller.hpp
     src/edit_controller.cpp
     src/edit_controller.hpp
     src/edit_persistence_coordinator.cpp
@@ -191,6 +193,8 @@ qt_add_resources(
         icons/flip-vertical.svg
         icons/filter.svg
         icons/history.svg
+        icons/heart.svg
+        icons/heart-filled.svg
         icons/library-manage.svg
         icons/mask.svg
         icons/metadata.svg
@@ -254,6 +258,7 @@ qt_add_qml_module(
         qml/PrecisionCanvas.qml
         qml/PrecisionInspector.qml
         qml/ColorWarperEditor.qml
+        qml/CacheMaintenanceWindow.qml
         qml/HueCurveEditor.qml
         qml/PrecisionGeometryTools.qml
         qml/PrecisionLocalMaskOverlay.qml

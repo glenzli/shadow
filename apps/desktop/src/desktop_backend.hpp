@@ -234,6 +234,15 @@ struct BackendMissingSourceLocationPage final {
     QString next_location_id;
 };
 
+/// Receipt for an explicit source reattach that passed complete identity
+/// verification. It adds a source location to an existing photo.
+struct BackendVerifiedSourceRelinkReceipt final {
+    QString photo_id;
+    QString representation_id;
+    QString location_id;
+    QString display_path;
+};
+
 /// Keyset cursor for capture-time-descending Library pages. `photo_id` is the
 /// stable tie-breaker, so relinking/renaming a source never invalidates it.
 struct BackendLibraryPhotoCursor final {
@@ -786,6 +795,11 @@ public:
         const QString& scan_session_id,
         const QString& after_location_id,
         std::uint32_t limit
+    ) const;
+    [[nodiscard]] BackendVerifiedSourceRelinkReceipt relinkMissingSourceLocation(
+        const QString& scan_session_id,
+        const QString& location_id,
+        const QString& candidate_path
     ) const;
     [[nodiscard]] BackendLibraryAlbum createManualLibraryAlbum(
         const QString& name

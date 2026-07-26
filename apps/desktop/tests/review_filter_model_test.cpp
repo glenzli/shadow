@@ -19,7 +19,8 @@ void require(const bool condition, const std::string& message) {
     const char* const representation_id,
     const char* const flag,
     const int rating,
-    const bool edited = false
+    const bool edited = false,
+    const bool liked = false
 ) {
     ReviewItem value;
     value.photo_id = QString::fromLatin1(photo_id);
@@ -27,6 +28,7 @@ void require(const bool condition, const std::string& message) {
     value.decision_flag = QString::fromLatin1(flag);
     value.decision_rating = rating;
     value.has_development_edits = edited;
+    value.liked = liked;
     return value;
 }
 
@@ -34,7 +36,7 @@ void combined_lightroom_filters_intersect() {
     ReviewModel source;
     source.replace(
         {
-            item("photo-a", "representation-a", "picked", 5, true),
+            item("photo-a", "representation-a", "picked", 5, true, true),
             item("photo-b", "representation-b", "rejected", 3),
             item("photo-c", "representation-c", "unflagged", 1),
         },
@@ -43,7 +45,7 @@ void combined_lightroom_filters_intersect() {
     require(
         source.updateLibraryState(
             QStringLiteral("photo-a"),
-            false,
+            true,
             QStringLiteral("blue"),
             1
         )
@@ -89,6 +91,17 @@ void combined_lightroom_filters_intersect() {
     require(
         filtered.rowCount() == 2,
         "the unedited facet must exclude photos with development edits"
+    );
+    filtered.clearFilters();
+    filtered.setLikedFilter(QStringLiteral("liked"));
+    require(
+        filtered.rowCount() == 1,
+        "the liked facet must select only Catalog-liked photos"
+    );
+    filtered.setLikedFilter(QStringLiteral("unliked"));
+    require(
+        filtered.rowCount() == 2,
+        "the unliked facet must exclude Catalog-liked photos"
     );
     filtered.clearFilters();
     require(filtered.rowCount() == 3, "clearing filters must restore the grid");

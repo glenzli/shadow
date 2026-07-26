@@ -190,6 +190,23 @@ pub struct PendingStrongRelink {
     pub evidence: WeakRelinkEvidence,
 }
 
+impl PendingStrongRelink {
+    /// Starts a strong relink verification after the photographer explicitly
+    /// selected both the historical Library location and a replacement file.
+    ///
+    /// This deliberately carries no weak-evidence bits: filenames, EXIF, and
+    /// byte length never authorize the attachment in this path. The complete
+    /// file hash and the subsequent catalog owner check remain mandatory.
+    #[must_use]
+    pub fn explicitly_selected(source: RelinkSource, candidate: RelinkCandidate) -> Self {
+        Self {
+            source,
+            candidate,
+            evidence: WeakRelinkEvidence::from_bits(0),
+        }
+    }
+}
+
 /// A source whose complete file bytes were read consistently and hashed.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct VerifiedRelink {

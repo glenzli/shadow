@@ -32,6 +32,12 @@ class ReviewFilterModel final : public QSortFilterProxyModel {
         WRITE setEditFilter
         NOTIFY filtersChanged
     )
+    Q_PROPERTY(
+        QString likedFilter
+        READ likedFilter
+        WRITE setLikedFilter
+        NOTIFY filtersChanged
+    )
 
 public:
     explicit ReviewFilterModel(QObject* parent = nullptr);
@@ -40,6 +46,7 @@ public:
     [[nodiscard]] int minimumRating() const noexcept;
     [[nodiscard]] QString colorFilter() const;
     [[nodiscard]] QString editFilter() const;
+    [[nodiscard]] QString likedFilter() const;
     [[nodiscard]] QString captureMonth() const;
     [[nodiscard]] QString cameraKey() const;
     [[nodiscard]] QString lensKey() const;
@@ -49,6 +56,7 @@ public:
     void setMinimumRating(int rating);
     void setColorFilter(const QString& filter);
     void setEditFilter(const QString& filter);
+    void setLikedFilter(const QString& filter);
     /// Metadata facets are catalog-side values. They intentionally do not
     /// attempt a lossy make/model comparison over the currently retained grid
     /// page; the next photo-first page is the authoritative result.
@@ -70,6 +78,7 @@ private:
     [[nodiscard]] static QString normalizeFlagFilter(const QString& filter);
     [[nodiscard]] static QString normalizeColorFilter(const QString& filter);
     [[nodiscard]] static QString normalizeEditFilter(const QString& filter);
+    [[nodiscard]] static QString normalizeLikedFilter(const QString& filter);
     [[nodiscard]] static QString normalizeCaptureMonth(const QString& value);
     [[nodiscard]] static QString normalizeFacetKey(const QString& value);
     void refreshRowsFilter();
@@ -78,6 +87,7 @@ private:
     int minimum_rating_ = 0;
     QString color_filter_ = QStringLiteral("all");
     QString edit_filter_ = QStringLiteral("all");
+    QString liked_filter_ = QStringLiteral("all");
     QString capture_month_;
     QString camera_key_;
     QString lens_key_;
