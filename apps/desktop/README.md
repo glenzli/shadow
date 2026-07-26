@@ -28,7 +28,9 @@ QML never opens SQLite, calls LibRaw, or interprets blob paths. The global local
 `EditController` is the stable QObject/QML facade, with implementation grouped by responsibility:
 
 - [`src/edit_controller.cpp`](src/edit_controller.cpp) owns adjustment interaction, Grade Node
-  composition, geometry, and session-local edit history.
+  composition, and session-local edit history.
+- [`src/edit_geometry_controller.cpp`](src/edit_geometry_controller.cpp) owns crop-tool state,
+  crop bounds and aspect ratios, straighten, rotation, flips, and geometry reset.
 - [`src/edit_local_mask_controller.cpp`](src/edit_local_mask_controller.cpp) owns local-mask
   presentation, asset persistence, clipboard semantics, geometry validation, and brush strokes.
 - [`src/edit_retouch_controller.cpp`](src/edit_retouch_controller.cpp) owns photo-level repair and
