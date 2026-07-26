@@ -1,6 +1,6 @@
 #pragma once
 
-#include <shadow/image/decoder.hpp>
+#include <shadow/image/raw_development.hpp>
 
 #include <compare>
 #include <cstdint>
@@ -99,6 +99,16 @@ struct OpticsCorrectionResult final {
     std::optional<PixelBuffer> corrected_reference_rgb;
 };
 
+// Equivalent result for Shadow-owned RawFrame development.  Unlike PixelBuffer this carries
+// unbounded scene-linear fp32 samples, so a lens profile must not turn recoverable sensor
+// highlight headroom into a 16-bit display-white clip simply to perform a geometric remap.
+struct SceneLinearOpticsCorrectionResult final {
+    OpticsProfileReceipt receipt;
+    // Empty means that input samples already are the appropriate source.  This mirrors the
+    // packed result and avoids duplicating a full RAW frame for disabled or unmatched profiles.
+    std::optional<SceneLinearRgbFrame> corrected_scene_linear_rgb;
+};
+
 struct OpticsProviderInfo final {
     std::string id;
     std::string version;
@@ -120,6 +130,26 @@ public:
         const AssetMetadata& metadata,
         const OpticsSettings& settings
     ) const = 0;
+    // Existing third-party optics adapters may only understand packed provider RGB.  Preserve
+    // their source compatibility: the default explicitly declines a scene-linear frame rather
+    // than forcing a lossy conversion.  Lensfun and any future float-native provider override
+    // this method.
+    [[nodiscard]] virtual SceneLinearOpticsCorrectionResult correct_scene_linear_reference(
+        const SceneLinearRgbFrame& input,
+        const AssetMetadata& metadata,
+        const OpticsSettings& settings
+    ) const {
+        (void)input;
+        (void)metadata;
+        (void)settings;
+        return SceneLinearOpticsCorrectionResult{
+            .receipt = {
+                .status = OpticsProfileStatus::incompatible_input,
+                .provider_id = info().id,
+                .provider_version = info().version,
+            },
+        };
+    }
     [[nodiscard]] virtual std::vector<OpticsProfileCandidate> profile_candidates(
         const AssetMetadata& metadata
     ) const {

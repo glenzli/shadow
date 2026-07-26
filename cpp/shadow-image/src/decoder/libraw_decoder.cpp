@@ -12,6 +12,7 @@
 #include <memory>
 #include <optional>
 #include <sstream>
+#include <string_view>
 #include <utility>
 
 namespace shadow::image {
@@ -19,7 +20,7 @@ namespace shadow::image {
 namespace {
 
 using ProcessedImage = std::unique_ptr<libraw_processed_image_t, void (*)(libraw_processed_image_t*)>;
-inline constexpr std::uint32_t libraw_capability_contract_version = 1U;
+inline constexpr std::uint32_t libraw_capability_contract_version = 2U;
 // This version covers the display-orientation semantics of cached embedded-preview descriptors.
 // It is deliberately separate from the raw-frame and rendered-RGB contracts: the JPEG bytes do
 // not change, but their catalog geometry must match the auto-oriented image that Qt presents.
@@ -27,6 +28,36 @@ inline constexpr std::uint32_t libraw_embedded_preview_geometry_contract_version
 inline constexpr int libraw_reference_output_color = 1;
 inline constexpr double libraw_reference_gamma_inverse_power = 1.0;
 inline constexpr double libraw_reference_gamma_linear_toe_slope = 1.0;
+// LibRaw parses Nikon's MakerNote compression tag even when its public decoder cannot safely
+// develop that bitstream.  Values 13 and 14 are Nikon High Efficiency and High Efficiency*,
+// respectively (see LibRaw's libraw_makernotes_t documentation).  Treating either as a normal
+// unpackable Bayer source is unsafe: current public LibRaw builds can advertise a decoder and
+// then fail, or crash, only after the host has entered the RAW-development path.
+inline constexpr std::uint16_t nikon_nef_high_efficiency_compression = 13U;
+inline constexpr std::uint16_t nikon_nef_high_efficiency_star_compression = 14U;
+
+[[nodiscard]] bool libraw_nef_compression_requires_external_provider(
+    const LibRaw& decoder
+) noexcept {
+    const std::uint16_t compression = decoder.imgdata.makernotes.nikon.NEFCompression;
+    return compression == nikon_nef_high_efficiency_compression
+        || compression == nikon_nef_high_efficiency_star_compression;
+}
+
+// The public LibRaw processed-RGB developer is stable on the Z9 lossless NEF fixtures, while
+// Shadow's new owned RawFrame path is not yet safe for that exact source family.  Advertising an
+// owned frame would route the host into the sensor-domain developer before it has a chance to
+// choose LibRaw's proven processed compatibility path. Keep reference-RGB editing available and
+// make only the unverified RawFrame capability unavailable until that developer has a dedicated
+// Z9 calibration/layout validation suite.
+[[nodiscard]] bool libraw_raw_frame_is_temporarily_unsafe(
+    const LibRaw& decoder
+) noexcept {
+    const auto& identity = decoder.imgdata.idata;
+    return decoder.imgdata.makernotes.nikon.NEFCompression == 3U
+        && std::string_view(identity.normalized_make) == "Nikon"
+        && std::string_view(identity.normalized_model) == "Z 9";
+}
 
 [[nodiscard]] RawDevelopmentCapabilities libraw_raw_development_capabilities() noexcept {
     RawDevelopmentCapabilities capabilities;
@@ -718,13 +749,20 @@ public:
         metadata_ = read_metadata(decoder_);
         previews_ = read_previews(decoder_.imgdata);
         libraw_decoder_info_t decoder_info{};
-        const bool decoder_can_unpack =
+        const bool decoder_advertises_unpack =
             decoder_.get_decoder_info(&decoder_info) == LIBRAW_SUCCESS
             && (decoder_info.decoder_flags
                 & (LIBRAW_DECODER_UNSUPPORTED_FORMAT | LIBRAW_DECODER_NOTSET)) == 0U;
+        // Preserve factual metadata and any camera JPEG for browse mode, but do not let public
+        // LibRaw enter its unsafe HE/HE* development path. The photo router still gives an
+        // independently installed private provider the opportunity to claim this source after
+        // seeing these public capabilities.
+        const bool decoder_can_unpack = decoder_advertises_unpack
+            && !libraw_nef_compression_requires_external_provider(decoder_);
         capabilities_.metadata = true;
         capabilities_.embedded_previews = !previews_.empty();
         capabilities_.raw_frame = decoder_can_unpack
+            && !libraw_raw_frame_is_temporarily_unsafe(decoder_)
             && (decoder_.imgdata.idata.filters != 0U
                 || decoder_.imgdata.idata.colors == 1);
         capabilities_.reference_rgb = decoder_can_unpack;
@@ -829,6 +867,7 @@ public:
     }
 
     [[nodiscard]] RawFrame decode_raw_frame() override {
+        require_raw_frame();
         ensure_unpacked();
         const auto& sizes = decoder_.imgdata.sizes;
         const auto* raw_image = decoder_.imgdata.rawdata.raw_image;
@@ -1005,6 +1044,7 @@ private:
         const RawDevelopmentPlanNegotiation& negotiation,
         const std::optional<std::uint32_t> preview_max_edge = std::nullopt
     ) const {
+        require_editable_raw();
         // LibRaw embeds sizeable fixed storage in the decoder object. QtConcurrent worker
         // threads use a substantially smaller stack than the process main thread on macOS,
         // so keeping a temporary LibRaw here can overflow the worker before open_file runs.
@@ -1143,11 +1183,52 @@ private:
     }
 
     void ensure_unpacked() {
+        require_raw_frame();
         if (unpacked_) {
             return;
         }
         require_libraw_success(decoder_.unpack(), "unpack");
         unpacked_ = true;
+    }
+
+    void require_editable_raw() const {
+        if (capabilities_.reference_rgb) {
+            return;
+        }
+        const std::uint16_t compression = decoder_.imgdata.makernotes.nikon.NEFCompression;
+        if (compression == nikon_nef_high_efficiency_compression) {
+            throw DecodeError(
+                DecodeErrorCode::unsupported,
+                LIBRAW_NOT_IMPLEMENTED,
+                "Nikon NEF High Efficiency compression requires an external decoder provider"
+            );
+        }
+        if (compression == nikon_nef_high_efficiency_star_compression) {
+            throw DecodeError(
+                DecodeErrorCode::unsupported,
+                LIBRAW_NOT_IMPLEMENTED,
+                "Nikon NEF High Efficiency* compression requires an external decoder provider"
+            );
+        }
+        throw DecodeError(
+            DecodeErrorCode::unsupported,
+            LIBRAW_NOT_IMPLEMENTED,
+            "LibRaw cannot develop this RAW source"
+        );
+    }
+
+    void require_raw_frame() const {
+        if (capabilities_.raw_frame) {
+            return;
+        }
+        if (capabilities_.reference_rgb) {
+            throw DecodeError(
+                DecodeErrorCode::unsupported,
+                LIBRAW_NOT_IMPLEMENTED,
+                "this LibRaw source uses the processed-RGB compatibility path instead of Shadow RawFrame"
+            );
+        }
+        require_editable_raw();
     }
 
     std::filesystem::path path_;

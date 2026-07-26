@@ -237,6 +237,24 @@ void sensor_clipping_marks_sensor_endpoints_without_confusing_dark_content() {
         rotated.valid() && (rotated.samples[12U] & image::sensor_highlight_clipped) != 0U,
         "LibRaw's 90-degree counterclockwise orientation maps RAW diagnostics into display space"
     );
+
+    // A downsampled diagnostic bin is an exact sensor-domain reduction: one
+    // clipped sensor sample wins the highlight flag, while a shadow flag
+    // survives only when every source sample in the bin is at the black floor.
+    frame.descriptor.storage_dimensions = {6U, 4U};
+    frame.descriptor.active_dimensions = {6U, 4U};
+    frame.descriptor.orientation = 5;
+    frame.samples.assign(24U, 100U);
+    frame.samples[0U] = 1'000U;
+    const auto reduced_rotated = image::project_sensor_clipping_mask(frame, {2U, 3U});
+    expect(
+        reduced_rotated.valid()
+            && reduced_rotated.highlight_pixel_count == 1U
+            && reduced_rotated.shadow_pixel_count == 5U
+            && (reduced_rotated.samples[4U] & image::sensor_highlight_clipped) != 0U
+            && (reduced_rotated.samples[4U] & image::sensor_shadow_clipped) == 0U,
+        "downsampled rotated clipping diagnostics retain exact any-highlight and all-shadow semantics"
+    );
 }
 
 void raw_frame_sensor_noise_calibration_is_explicit_and_fail_closed() {
@@ -710,8 +728,9 @@ void private_decoder_plugin_loads_an_explicit_local_module() {
     expect(
         provider->info().version.starts_with("1.0.0;abi=1;contract=")
             && provider->info().version.find(";plan=1;frame=1;wrapped=") != std::string::npos
+            && provider->info().version.find(";module=") != std::string::npos
             && provider->info().version.size() <= 128U,
-        "private plugin version, ABI seal and wrapped-provider cache identity stay bounded"
+        "private plugin version, ABI seal, wrapped provider and local module identity stay bounded"
     );
     const auto session = provider->open("does-not-need-to-exist.raw");
     expect(
@@ -737,8 +756,12 @@ void private_decoder_plugin_loads_an_explicit_local_module() {
                     0.70, 0.20, 0.10,
                     0.10, 0.80, 0.10,
                     0.05, 0.15, 0.80,
-                },
-        "private plugin RawFrame crosses the local ABI with CFA calibration intact"
+                }
+            && raw_frame.descriptor.provider_id == provider->info().id
+            && raw_frame.descriptor.provider_version.starts_with(
+                provider->info().version + ";frame="
+            ),
+        "private plugin RawFrame keeps CFA calibration and host-bound cache provenance"
     );
     const auto pixels = session->render_reference_rgb();
     expect(
@@ -903,6 +926,45 @@ void optics_settings_are_explicit_and_provider_safe() {
     }
 }
 
+void scene_linear_optics_preserves_headroom_for_manual_correction() {
+    image::SceneLinearRgbFrame input;
+    input.dimensions = {4U, 4U};
+    input.row_stride_bytes = 4U * 3U * sizeof(float);
+    input.samples.assign(4U * 4U * 3U, 1.5F);
+    expect(input.valid(), "scene-linear optics fixture has a valid fp32 layout");
+
+    auto settings = image::default_optics_settings();
+    settings.correct_distortion = false;
+    settings.correct_tca = false;
+    settings.correct_vignetting = false;
+    settings.manual_vignetting_amount = 100;
+    settings.manual_vignetting_midpoint = 0U;
+    const auto provider = image::make_lensfun_optics_provider();
+    const auto result = provider->correct_scene_linear_reference(
+        input,
+        image::AssetMetadata{},
+        settings
+    );
+    expect(
+        result.receipt.status != image::OpticsProfileStatus::incompatible_input,
+        "Lensfun's float optics path does not reject an owned scene-linear RAW frame"
+    );
+    expect(
+        result.corrected_scene_linear_rgb.has_value(),
+        "manual scene-linear optics materializes a corrected float frame"
+    );
+    if (!result.corrected_scene_linear_rgb.has_value()) {
+        return;
+    }
+    const auto& output = *result.corrected_scene_linear_rgb;
+    expect(output.valid(), "manual scene-linear optics keeps its fp32 frame valid");
+    expect(
+        output.samples.front() > input.samples.front()
+            && output.samples.front() > 1.0F,
+        "manual optical vignetting preserves and increases super-white RAW headroom"
+    );
+}
+
 void lensfun_adapter_applies_a_real_profile_when_a_test_database_is_available() {
     const auto* database = std::getenv("SHADOW_TEST_LENSFUN_DB");
     if (database == nullptr || *database == '\0') {
@@ -970,6 +1032,50 @@ void lensfun_adapter_applies_a_real_profile_when_a_test_database_is_available() 
         expect(
             result.corrected_reference_rgb->samples != input.samples,
             "profile correction changes the synthetic gradient"
+        );
+    }
+
+    // The same calibrated profile must accept the host's scene-linear RAW reference directly.
+    // Keep every fixture sample above display white so a regression through the legacy u16 path
+    // is observable even when Lensfun's geometric remap changes which source samples land at
+    // the canvas edge.
+    image::SceneLinearRgbFrame scene_linear_input;
+    scene_linear_input.dimensions = input.dimensions;
+    scene_linear_input.row_stride_bytes =
+        static_cast<std::size_t>(input.dimensions.width) * 3U * sizeof(float);
+    scene_linear_input.samples.assign(
+        static_cast<std::size_t>(input.dimensions.width) * input.dimensions.height * 3U,
+        1.5F
+    );
+    const auto scene_linear_result = provider->correct_scene_linear_reference(
+        scene_linear_input,
+        metadata,
+        image::default_optics_settings()
+    );
+    expect(
+        scene_linear_result.receipt.status == image::OpticsProfileStatus::matched
+            && scene_linear_result.receipt.applied_distortion
+            && scene_linear_result.receipt.applied_tca
+            && scene_linear_result.receipt.applied_vignetting,
+        "Lensfun applies its calibrated profile to a scene-linear RAW reference"
+    );
+    expect(
+        scene_linear_result.corrected_scene_linear_rgb.has_value(),
+        "a calibrated float optics pass materializes a scene-linear frame"
+    );
+    if (scene_linear_result.corrected_scene_linear_rgb.has_value()) {
+        const auto& float_output = *scene_linear_result.corrected_scene_linear_rgb;
+        expect(
+            float_output.valid() && float_output.dimensions == scene_linear_input.dimensions,
+            "calibrated float optics preserves the scene-linear RGB frame layout"
+        );
+        expect(
+            std::any_of(
+                float_output.samples.begin(),
+                float_output.samples.end(),
+                [](const float sample) { return sample > 1.0F; }
+            ),
+            "calibrated float optics preserves super-white RAW highlight headroom"
         );
     }
 
@@ -2521,6 +2627,7 @@ int main() {
     private_decoder_plugin_loads_an_explicit_local_module();
     private_decoder_router_prefers_an_explicit_local_module();
     optics_settings_are_explicit_and_provider_safe();
+    scene_linear_optics_preserves_headroom_for_manual_correction();
     lensfun_adapter_applies_a_real_profile_when_a_test_database_is_available();
     optics_runs_before_preview_and_full_detail_preparation();
     largest_decodable_preview_wins();

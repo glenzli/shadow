@@ -17,6 +17,7 @@
 #include <numeric>
 #include <optional>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -157,6 +158,35 @@ void validate_raw_development_plan_intent(
         throw DecodeError(DecodeErrorCode::corrupt_data, 0, "proxy source buffer is truncated");
     }
     return row_stride;
+}
+
+[[nodiscard]] std::size_t validated_scene_linear_row_stride(const SceneLinearRgbFrame& source) {
+    if (!source.valid() || source.row_stride_bytes % sizeof(float) != 0U) {
+        throw DecodeError(
+            DecodeErrorCode::corrupt_data,
+            0,
+            "proxy renderer received an invalid fp32 scene-linear RAW source"
+        );
+    }
+    return source.row_stride_bytes / sizeof(float);
+}
+
+[[nodiscard]] Dimensions source_dimensions(const DevelopedSourcePixels& source) noexcept {
+    return std::visit([](const auto& value) { return value.dimensions; }, source);
+}
+
+void validate_developed_source(const DevelopedSourcePixels& source) {
+    std::visit(
+        [](const auto& value) {
+            using Value = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<Value, PixelBuffer>) {
+                static_cast<void>(validated_source_row_stride(value));
+            } else {
+                static_cast<void>(validated_scene_linear_row_stride(value));
+            }
+        },
+        source
+    );
 }
 
 [[nodiscard]] std::uint16_t source_sample(
@@ -442,15 +472,63 @@ struct OklabColor final {
     return output;
 }
 
+[[nodiscard]] FloatRgbImage resize_processed_linear_to_working(
+    const SceneLinearRgbFrame& source,
+    const Dimensions target
+) {
+    const std::size_t source_stride = validated_scene_linear_row_stride(source);
+    const std::size_t sample_count = checked_rgb_size(target);
+    FloatRgbImage output;
+    output.dimensions = target;
+    output.row_stride_bytes = static_cast<std::size_t>(target.width) * 3U * sizeof(float);
+    output.pixel_format = FloatPixelFormat::rgb_f32_native_interleaved;
+    output.transfer_function = TransferFunction::linear;
+    output.reference = ImageReference::scene_referred;
+    output.working_space = linear_srgb_working_space();
+    output.level_zero_to_raster_scale_x = static_cast<double>(target.width)
+        / static_cast<double>(source.dimensions.width);
+    output.level_zero_to_raster_scale_y = static_cast<double>(target.height)
+        / static_cast<double>(source.dimensions.height);
+    output.samples.resize(sample_count);
+    const double scale_x = static_cast<double>(source.dimensions.width)
+        / static_cast<double>(target.width);
+    const double scale_y = static_cast<double>(source.dimensions.height)
+        / static_cast<double>(target.height);
+    for (std::uint32_t output_y = 0U; output_y < target.height; ++output_y) {
+        const double source_y = std::max(0.0, (static_cast<double>(output_y) + 0.5) * scale_y - 0.5);
+        const auto y0 = static_cast<std::size_t>(source_y);
+        const auto y1 = std::min(y0 + 1U, static_cast<std::size_t>(source.dimensions.height - 1U));
+        const double fraction_y = source_y - static_cast<double>(y0);
+        for (std::uint32_t output_x = 0U; output_x < target.width; ++output_x) {
+            const double source_x = std::max(0.0, (static_cast<double>(output_x) + 0.5) * scale_x - 0.5);
+            const auto x0 = static_cast<std::size_t>(source_x);
+            const auto x1 = std::min(x0 + 1U, static_cast<std::size_t>(source.dimensions.width - 1U));
+            const double fraction_x = source_x - static_cast<double>(x0);
+            const std::size_t output_index = (static_cast<std::size_t>(output_y) * target.width + output_x) * 3U;
+            for (std::size_t channel = 0U; channel < 3U; ++channel) {
+                const auto sample = [&, channel](const std::size_t x, const std::size_t y) {
+                    return static_cast<double>(source.samples[y * source_stride + x * 3U + channel]);
+                };
+                const double top = sample(x0, y0) * (1.0 - fraction_x) + sample(x1, y0) * fraction_x;
+                const double bottom = sample(x0, y1) * (1.0 - fraction_x) + sample(x1, y1) * fraction_x;
+                output.samples[output_index + channel] = static_cast<float>(
+                    top * (1.0 - fraction_y) + bottom * fraction_y
+                );
+            }
+        }
+    }
+    return output;
+}
+
 [[nodiscard]] FloatRgbImage copy_processed_linear_to_working(const PixelBuffer& source) {
     return resize_processed_linear_to_working(source, source.dimensions);
 }
 
-// Lensfun operates on a standardized u16 RGB raster. For an interactive preview, reduce the
-// source before entering Lensfun and round-trip only the bounded proxy through that API. This
-// avoids a 45 MP geometry remap just to display 1200 px, while full-detail sessions still run on
-// the complete native reference. The source reference is preserved; the current Lensfun adapter
-// deliberately accepts only processed RAW, so JPEG/HEIF cannot be silently double-corrected.
+// Packed-provider RGB optics stays on its original u16 path. For an interactive preview, reduce
+// the source before entering the provider and round-trip only the bounded proxy through that API.
+// This avoids a 45 MP geometry remap just to display 1200 px, while full-detail sessions still
+// run on the complete native reference. JPEG/HEIF remain excluded so they cannot be silently
+// double-corrected.
 [[nodiscard]] PixelBuffer working_to_linear_reference(const FloatRgbImage& source) {
     if (
         source.pixel_format != FloatPixelFormat::rgb_f32_native_interleaved
@@ -491,6 +569,51 @@ struct OklabColor final {
             0LL,
             65'535LL
         ));
+    }
+    return output;
+}
+
+// Shadow-owned RawFrame development never crosses the packed provider-RGB boundary. This tiny
+// adapter intentionally preserves every finite scene-linear float, including values above one
+// and small negative gamut components, for providers that explicitly advertise float support.
+[[nodiscard]] SceneLinearRgbFrame working_to_scene_linear_reference(
+    const FloatRgbImage& source
+) {
+    if (
+        source.pixel_format != FloatPixelFormat::rgb_f32_native_interleaved
+        || source.transfer_function != TransferFunction::linear
+        || source.reference != ImageReference::scene_referred
+        || source.dimensions.width == 0U || source.dimensions.height == 0U
+    ) {
+        throw DecodeError(
+            DecodeErrorCode::unsupported_layout,
+            0,
+            "scene-linear preview optics requires standardized scene-referred RGB float pixels"
+        );
+    }
+    const std::size_t expected_samples = checked_rgb_size(source.dimensions);
+    const std::size_t expected_stride =
+        static_cast<std::size_t>(source.dimensions.width) * 3U * sizeof(float);
+    if (
+        source.row_stride_bytes != expected_stride || source.samples.size() != expected_samples
+    ) {
+        throw DecodeError(
+            DecodeErrorCode::corrupt_data,
+            0,
+            "scene-linear preview optics found an invalid float RGB layout"
+        );
+    }
+    SceneLinearRgbFrame output{
+        .dimensions = source.dimensions,
+        .row_stride_bytes = expected_stride,
+        .samples = source.samples,
+    };
+    if (!output.valid()) {
+        throw DecodeError(
+            DecodeErrorCode::corrupt_data,
+            0,
+            "scene-linear preview optics found non-finite float RGB samples"
+        );
     }
     return output;
 }
@@ -573,6 +696,29 @@ void validate_detail_tile_rect(
                     static_cast<float>(linear);
             }
         }
+    }
+    return output;
+}
+
+[[nodiscard]] FloatRgbImage crop_processed_linear_to_working(
+    const SceneLinearRgbFrame& source,
+    const DetailTileRect rect
+) {
+    const std::size_t source_stride = validated_scene_linear_row_stride(source);
+    FloatRgbImage output;
+    output.dimensions = Dimensions{rect.width, rect.height};
+    output.row_stride_bytes = static_cast<std::size_t>(rect.width) * 3U * sizeof(float);
+    output.pixel_format = FloatPixelFormat::rgb_f32_native_interleaved;
+    output.transfer_function = TransferFunction::linear;
+    output.reference = ImageReference::scene_referred;
+    output.working_space = linear_srgb_working_space();
+    output.samples.resize(checked_rgb_size(output.dimensions));
+    for (std::uint32_t y = 0U; y < rect.height; ++y) {
+        const std::size_t source_row = static_cast<std::size_t>(rect.y + y) * source_stride;
+        const std::size_t destination_row = static_cast<std::size_t>(y) * rect.width * 3U;
+        const std::size_t source_offset = source_row + static_cast<std::size_t>(rect.x) * 3U;
+        std::copy_n(source.samples.data() + source_offset, static_cast<std::size_t>(rect.width) * 3U,
+                    output.samples.data() + destination_row);
     }
     return output;
 }
@@ -676,20 +822,33 @@ void validate_detail_tile_rect(
     return bytes;
 }
 
+[[nodiscard]] std::uint64_t checked_detail_retained_bytes(const SceneLinearRgbFrame& source) {
+    static_cast<void>(validated_scene_linear_row_stride(source));
+    const std::uint64_t bytes = static_cast<std::uint64_t>(source.samples.size()) * sizeof(float);
+    if (bytes > maximum_full_edit_scene_linear_retained_bytes) {
+        throw DecodeError(
+            DecodeErrorCode::resource_limit,
+            0,
+            "full edit scene-linear RAW source exceeds the 1 GiB retained-buffer limit"
+        );
+    }
+    return bytes;
+}
+
 void preflight_detail_metadata(const AssetMetadata& metadata) {
     const std::uint64_t pixels = std::max(
         metadata.raw_dimensions.pixel_count(),
         metadata.image_dimensions.pixel_count()
     );
-    constexpr std::uint64_t rgb_u16_bytes_per_pixel = 3U * sizeof(std::uint16_t);
+    constexpr std::uint64_t scene_linear_bytes_per_pixel = 3U * sizeof(float);
     if (
         pixels == 0U
-        || pixels > maximum_full_edit_detail_retained_bytes / rgb_u16_bytes_per_pixel
+        || pixels > maximum_full_edit_scene_linear_retained_bytes / scene_linear_bytes_per_pixel
     ) {
         throw DecodeError(
             DecodeErrorCode::resource_limit,
             0,
-            "full edit detail metadata exceeds the 512 MiB worst-case RGB u16 limit"
+            "full edit detail metadata exceeds the 1 GiB worst-case scene-linear RGB limit"
         );
     }
 }
@@ -1286,7 +1445,7 @@ struct PreparedEditPreviewPixels final {
 }
 
 struct PreparedReferenceRgb final {
-    PixelBuffer pixels;
+    DevelopedSourcePixels source;
     RawDevelopmentReceipt raw_development_receipt;
     RawPipelineReceipt raw_pipeline_receipt;
     OpticsProfileReceipt optics_receipt;
@@ -1298,6 +1457,7 @@ struct PreparedWarmEditProxy final {
     RawDevelopmentReceipt raw_development_receipt;
     RawPipelineReceipt raw_pipeline_receipt;
     OpticsProfileReceipt optics_receipt;
+    std::optional<SensorClippingMask> sensor_clipping_mask;
 };
 
 // LibRaw's `sizes.flip` describes the output raster orientation. Its processed RGB is already
@@ -1325,22 +1485,23 @@ struct PreparedWarmEditProxy final {
         std::nullopt,
         raw_pipeline_policy_from_environment()
     );
-    PixelBuffer pixels = std::move(developed.pixels);
-    // Fail with the decoder contract's typed error before source-profile resolution performs
-    // any content analysis. This keeps a malformed provider raster from escaping as an unrelated
-    // std::invalid_argument and preserves the editor's normal unsupported-source recovery path.
-    static_cast<void>(validated_source_row_stride(pixels));
+    DevelopedSourcePixels source = std::move(developed.source);
+    // Validate the provider source before source-render normalization inspects its luminance.
+    // That preserves the renderer's public typed-error contract for malformed decoded rasters
+    // and keeps an invalid transfer/primaries declaration from escaping as std::invalid_argument.
+    validate_developed_source(source);
     // Decoder provenance belongs to the source render, not to a later optical remap. Preserve it
     // independently before passing the buffer to arbitrary provider implementations, which may
     // correctly allocate a new PixelBuffer without knowing Shadow's future sidecar fields.
-    RawDevelopmentReceipt raw_development_receipt = pixels.raw_development_receipt;
+    RawDevelopmentReceipt raw_development_receipt = std::move(developed.raw_development_receipt);
     // Resolve the source profile from the decoder's standardized raster before handing it to a
     // pluggable optics implementation. Optical adapters are permitted to return an independent
     // pixel allocation; they must not become accidental owners of source-profile provenance.
-    const SourceRenderingReceipt source_rendering = resolve_source_rendering(
-        pixels,
-        session.metadata(),
-        developed.pipeline_receipt
+    const SourceRenderingReceipt source_rendering = std::visit(
+        [&](const auto& value) {
+            return resolve_source_rendering(value, session.metadata(), developed.pipeline_receipt);
+        },
+        source
     );
     OpticsProfileReceipt receipt;
     if (optics_provider == nullptr) {
@@ -1348,24 +1509,32 @@ struct PreparedWarmEditProxy final {
         receipt.provider_id = "none";
         receipt.provider_version = "none";
         return {
-            .pixels = std::move(pixels),
+            .source = std::move(source),
             .raw_development_receipt = std::move(raw_development_receipt),
             .raw_pipeline_receipt = std::move(developed.pipeline_receipt),
             .optics_receipt = std::move(receipt),
             .source_rendering = source_rendering,
         };
     }
-    auto corrected = optics_provider->correct_reference_rgb(
-        pixels,
-        session.metadata(),
-        optics_settings
-    );
-    receipt = std::move(corrected.receipt);
-    if (corrected.corrected_reference_rgb.has_value()) {
-        pixels = std::move(*corrected.corrected_reference_rgb);
+    if (std::holds_alternative<PixelBuffer>(source)) {
+        auto corrected = optics_provider->correct_reference_rgb(
+            std::get<PixelBuffer>(source), session.metadata(), optics_settings
+        );
+        receipt = std::move(corrected.receipt);
+        if (corrected.corrected_reference_rgb.has_value()) {
+            source = std::move(*corrected.corrected_reference_rgb);
+        }
+    } else {
+        auto corrected = optics_provider->correct_scene_linear_reference(
+            std::get<SceneLinearRgbFrame>(source), session.metadata(), optics_settings
+        );
+        receipt = std::move(corrected.receipt);
+        if (corrected.corrected_scene_linear_rgb.has_value()) {
+            source = std::move(*corrected.corrected_scene_linear_rgb);
+        }
     }
     return {
-        .pixels = std::move(pixels),
+        .source = std::move(source),
         .raw_development_receipt = std::move(raw_development_receipt),
         .raw_pipeline_receipt = std::move(developed.pipeline_receipt),
         .optics_receipt = std::move(receipt),
@@ -1386,19 +1555,28 @@ struct PreparedWarmEditProxy final {
         max_edge,
         raw_pipeline_policy_from_environment()
     );
-    PixelBuffer preview_reference = std::move(developed.pixels);
-    static_cast<void>(validated_source_row_stride(preview_reference));
+    DevelopedSourcePixels preview_reference = std::move(developed.source);
+    validate_developed_source(preview_reference);
     // The float working proxy intentionally contains only pixels and scale metadata. Retain the
     // decoder's receipt separately before the RGB conversion so a prepared session can report
     // the exact RAW-development request that created its source raster.
-    RawDevelopmentReceipt raw_development_receipt = preview_reference.raw_development_receipt;
-    const SourceRenderingReceipt source_rendering = resolve_source_rendering(
-        preview_reference,
-        session.metadata(),
-        developed.pipeline_receipt
+    RawDevelopmentReceipt raw_development_receipt = std::move(developed.raw_development_receipt);
+    std::optional<SensorClippingMask> sensor_clipping_mask = std::move(
+        developed.sensor_clipping_mask
     );
-    const Dimensions target = proxy_dimensions(preview_reference.dimensions, max_edge);
-    FloatRgbImage working_proxy = resize_processed_linear_to_working(preview_reference, target);
+    const SourceRenderingReceipt source_rendering = std::visit(
+        [&](const auto& value) {
+            return resolve_source_rendering(value, session.metadata(), developed.pipeline_receipt);
+        },
+        preview_reference
+    );
+    const Dimensions target = proxy_dimensions(source_dimensions(preview_reference), max_edge);
+    FloatRgbImage working_proxy = std::visit(
+        [&](const auto& value) {
+            return resize_processed_linear_to_working(value, target);
+        },
+        preview_reference
+    );
     // LibRaw may use a half-size demosaic above. Detail-and-effects radii remain expressed in
     // native level-zero pixels, so preserve the relationship to the *oriented* full output
     // dimensions rather than accidentally doubling one axis for a rotated camera frame.
@@ -1415,7 +1593,7 @@ struct PreparedWarmEditProxy final {
         receipt.status = OpticsProfileStatus::disabled;
         receipt.provider_id = "none";
         receipt.provider_version = "none";
-    } else {
+    } else if (std::holds_alternative<PixelBuffer>(preview_reference)) {
         auto corrected = optics_provider->correct_reference_rgb(
             working_to_linear_reference(working_proxy),
             session.metadata(),
@@ -1429,13 +1607,40 @@ struct PreparedWarmEditProxy final {
             working_proxy.level_zero_to_raster_scale_x = level_zero_scale_x;
             working_proxy.level_zero_to_raster_scale_y = level_zero_scale_y;
         }
+    } else {
+        auto corrected = optics_provider->correct_scene_linear_reference(
+            working_to_scene_linear_reference(working_proxy),
+            session.metadata(),
+            optics_settings
+        );
+        receipt = std::move(corrected.receipt);
+        if (corrected.corrected_scene_linear_rgb.has_value()) {
+            const double level_zero_scale_x = working_proxy.level_zero_to_raster_scale_x;
+            const double level_zero_scale_y = working_proxy.level_zero_to_raster_scale_y;
+            working_proxy = resize_processed_linear_to_working(
+                *corrected.corrected_scene_linear_rgb,
+                corrected.corrected_scene_linear_rgb->dimensions
+            );
+            working_proxy.level_zero_to_raster_scale_x = level_zero_scale_x;
+            working_proxy.level_zero_to_raster_scale_y = level_zero_scale_y;
+        }
     }
     apply_source_rendering(working_proxy, source_rendering);
+    // Optical providers currently retain preview raster geometry. If an adapter ever returns a
+    // different extent, a pre-warp sensor map would be misleading; omit it instead of stretching
+    // it or reopening the RAW source just for diagnostics.
+    if (
+        sensor_clipping_mask.has_value()
+        && sensor_clipping_mask->dimensions != working_proxy.dimensions
+    ) {
+        sensor_clipping_mask.reset();
+    }
     return {
         .working_proxy = std::move(working_proxy),
         .raw_development_receipt = std::move(raw_development_receipt),
         .raw_pipeline_receipt = std::move(developed.pipeline_receipt),
         .optics_receipt = std::move(receipt),
+        .sensor_clipping_mask = std::move(sensor_clipping_mask),
     };
 }
 
@@ -1532,12 +1737,14 @@ WarmEditPreviewSession::WarmEditPreviewSession(
     const std::uint32_t max_edge,
     RawDevelopmentReceipt raw_development_receipt,
     RawPipelineReceipt raw_pipeline_receipt,
-    OpticsProfileReceipt optics_receipt
+    OpticsProfileReceipt optics_receipt,
+    std::optional<SensorClippingMask> sensor_clipping_mask
 )
     : working_proxy_(std::move(working_proxy)), max_edge_(max_edge),
       raw_development_receipt_(std::move(raw_development_receipt)),
       raw_pipeline_receipt_(std::move(raw_pipeline_receipt)),
-      optics_receipt_(std::move(optics_receipt)) {
+      optics_receipt_(std::move(optics_receipt)),
+      sensor_clipping_mask_(std::move(sensor_clipping_mask)) {
     auto gpu = detail::prepare_warm_edit_gpu_session(working_proxy_);
     warm_gpu_session_ = std::move(gpu.session);
     warm_gpu_diagnostic_ = std::move(gpu.diagnostic);
@@ -1561,6 +1768,11 @@ const RawPipelineReceipt& WarmEditPreviewSession::raw_pipeline_receipt() const n
 
 const OpticsProfileReceipt& WarmEditPreviewSession::optics_receipt() const noexcept {
     return optics_receipt_;
+}
+
+const std::optional<SensorClippingMask>& WarmEditPreviewSession::sensor_clipping_mask() const
+    noexcept {
+    return sensor_clipping_mask_;
 }
 
 WarmEditPreviewGpuStats WarmEditPreviewSession::gpu_stats() const noexcept {
@@ -1785,26 +1997,27 @@ WarmEditPreviewSession prepare_warm_edit_preview(
         max_edge,
         std::move(prepared.raw_development_receipt),
         std::move(prepared.raw_pipeline_receipt),
-        std::move(prepared.optics_receipt)
+        std::move(prepared.optics_receipt),
+        std::move(prepared.sensor_clipping_mask)
     );
 }
 
 FullEditDetailSession::FullEditDetailSession(
-    PixelBuffer reference_rgb,
+    DevelopedSourcePixels reference_source,
     const std::uint64_t retained_bytes,
     RawDevelopmentReceipt raw_development_receipt,
     RawPipelineReceipt raw_pipeline_receipt,
     OpticsProfileReceipt optics_receipt,
     SourceRenderingReceipt source_rendering
 )
-    : reference_rgb_(std::move(reference_rgb)), retained_bytes_(retained_bytes),
+    : reference_source_(std::move(reference_source)), retained_bytes_(retained_bytes),
       raw_development_receipt_(std::move(raw_development_receipt)),
       raw_pipeline_receipt_(std::move(raw_pipeline_receipt)),
       optics_receipt_(std::move(optics_receipt)),
       source_rendering_(std::move(source_rendering)) {}
 
 Dimensions FullEditDetailSession::dimensions() const noexcept {
-    return reference_rgb_.dimensions;
+    return source_dimensions(reference_source_);
 }
 
 std::uint64_t FullEditDetailSession::retained_bytes() const noexcept {
@@ -1830,7 +2043,7 @@ RenderedDetailTile FullEditDetailSession::render_rgb8(
 ) const {
     validate_adjustment_nodes(nodes);
     const PhotoGeometryLayout geometry_layout =
-        photo_geometry_layout(reference_rgb_.dimensions, geometry);
+        photo_geometry_layout(source_dimensions(reference_source_), geometry);
     validate_detail_tile_rect(rect, geometry_layout.output_dimensions);
     const GeometryPixelRect output_rect{rect.x, rect.y, rect.width, rect.height};
     const GeometryPixelRect source_core = photo_geometry_source_rect_for_output(
@@ -1846,10 +2059,13 @@ RenderedDetailTile FullEditDetailSession::render_rgb8(
             .width = source_core.width,
             .height = source_core.height,
         },
-        reference_rgb_.dimensions,
+        source_dimensions(reference_source_),
         apron
     );
-    FloatRgbImage tile = crop_processed_linear_to_working(reference_rgb_, working_rect);
+    FloatRgbImage tile = std::visit(
+        [&](const auto& value) { return crop_processed_linear_to_working(value, working_rect); },
+        reference_source_
+    );
     apply_source_rendering(tile, source_rendering_);
     const FloatRgbImage edited_working = execute_adjustment_nodes(
         tile,
@@ -1857,7 +2073,7 @@ RenderedDetailTile FullEditDetailSession::render_rgb8(
         AdjustmentExecutionContext{
             .origin_x = working_rect.x,
             .origin_y = working_rect.y,
-            .full_dimensions = reference_rgb_.dimensions,
+            .full_dimensions = source_dimensions(reference_source_),
         }
     );
     const FloatRgbImage edited = apply_photo_geometry_tile(
@@ -1892,7 +2108,7 @@ RenderedDetailTile FullEditDetailSession::render_rgb8_layers(
     const PhotoGeometry& geometry
 ) const {
     const PhotoGeometryLayout geometry_layout =
-        photo_geometry_layout(reference_rgb_.dimensions, geometry);
+        photo_geometry_layout(source_dimensions(reference_source_), geometry);
     validate_detail_tile_rect(rect, geometry_layout.output_dimensions);
     const GeometryPixelRect output_rect{rect.x, rect.y, rect.width, rect.height};
     const GeometryPixelRect source_core = photo_geometry_source_rect_for_output(
@@ -1916,10 +2132,13 @@ RenderedDetailTile FullEditDetailSession::render_rgb8_layers(
             .width = source_core.width,
             .height = source_core.height,
         },
-        reference_rgb_.dimensions,
+        source_dimensions(reference_source_),
         apron
     );
-    FloatRgbImage tile = crop_processed_linear_to_working(reference_rgb_, working_rect);
+    FloatRgbImage tile = std::visit(
+        [&](const auto& value) { return crop_processed_linear_to_working(value, working_rect); },
+        reference_source_
+    );
     apply_source_rendering(tile, source_rendering_);
     const FloatRgbImage edited_working = execute_adjustment_layers(
         tile,
@@ -1927,7 +2146,7 @@ RenderedDetailTile FullEditDetailSession::render_rgb8_layers(
         AdjustmentExecutionContext{
             .origin_x = working_rect.x,
             .origin_y = working_rect.y,
-            .full_dimensions = reference_rgb_.dimensions,
+            .full_dimensions = source_dimensions(reference_source_),
         }
     );
     const FloatRgbImage edited = apply_photo_geometry_tile(
@@ -1998,10 +2217,11 @@ FullEditDetailSession prepare_full_edit_detail(
         optics_provider,
         optics_settings
     );
-    static_cast<void>(validated_source_row_stride(reference.pixels));
-    const std::uint64_t retained_bytes = checked_detail_retained_bytes(reference.pixels);
+    const std::uint64_t retained_bytes = std::visit(
+        [](const auto& value) { return checked_detail_retained_bytes(value); }, reference.source
+    );
     return FullEditDetailSession(
-        std::move(reference.pixels),
+        std::move(reference.source),
         retained_bytes,
         std::move(reference.raw_development_receipt),
         std::move(reference.raw_pipeline_receipt),
@@ -2050,13 +2270,18 @@ EncodedProxy render_reference_proxy_jpeg(
         request.max_edge,
         raw_pipeline_policy_from_environment()
     );
-    const PixelBuffer& source = developed.pixels;
-    const Dimensions target = proxy_dimensions(source.dimensions, request.max_edge);
-    FloatRgbImage working = resize_processed_linear_to_working(source, target);
-    apply_source_rendering(
-        working,
-        resolve_source_rendering(source, session.metadata(), developed.pipeline_receipt)
+    const Dimensions target = proxy_dimensions(source_dimensions(developed.source), request.max_edge);
+    FloatRgbImage working = std::visit(
+        [&](const auto& value) { return resize_processed_linear_to_working(value, target); },
+        developed.source
     );
+    const SourceRenderingReceipt source_rendering = std::visit(
+        [&](const auto& value) {
+            return resolve_source_rendering(value, session.metadata(), developed.pipeline_receipt);
+        },
+        developed.source
+    );
+    apply_source_rendering(working, source_rendering);
     const auto rgb = resize_working_to_display_srgb8(working, target);
 
     EncodedProxy proxy;

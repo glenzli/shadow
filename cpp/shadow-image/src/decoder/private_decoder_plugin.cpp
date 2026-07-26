@@ -48,6 +48,28 @@ namespace {
     return stream.str();
 }
 
+// A private module is commonly rebuilt in place during local development.
+// Keep the binary fingerprint beside the plugin-declared semantic version so
+// a RawFrame cannot retain a stale sensor/development cache identity merely
+// because its author forgot to bump a local version string.
+[[nodiscard]] std::string private_module_binary_identity(const std::filesystem::path& path) {
+    std::error_code error;
+    const auto canonical = std::filesystem::weakly_canonical(path, error);
+    const auto effective_path = error ? path : canonical;
+    error.clear();
+    const auto size = std::filesystem::file_size(effective_path, error);
+    const auto effective_size = error ? std::uintmax_t{0U} : size;
+    error.clear();
+    const auto write_time = std::filesystem::last_write_time(effective_path, error);
+    const auto ticks = error
+        ? std::intmax_t{0}
+        : static_cast<std::intmax_t>(write_time.time_since_epoch().count());
+    return compact_identity(
+        effective_path.generic_string() + ";size=" + std::to_string(effective_size)
+        + ";mtime=" + std::to_string(ticks)
+    );
+}
+
 [[noreturn]] void throw_plugin_error(const std::string& message) {
     throw DecodeError(DecodeErrorCode::unsupported, 0, message);
 }
@@ -192,6 +214,16 @@ public:
 
     [[nodiscard]] RawFrame decode_raw_frame() override {
         auto frame = session_->decode_raw_frame();
+        // RawFrame sensor/detail cache keys must name the exact host-facing
+        // private module identity, not an arbitrary provider-local string.
+        // This mirrors receipt binding for rendered RGB and prevents a rebuilt
+        // local decoder from silently reusing its previous raw-development
+        // products.
+        const std::string plugin_frame_identity = frame.descriptor.provider_id
+            + ";" + frame.descriptor.provider_version;
+        frame.descriptor.provider_id = provider_info_.id;
+        frame.descriptor.provider_version = provider_info_.version
+            + ";frame=" + compact_identity(plugin_frame_identity);
         if (raw_development_capabilities().raw_frame && !frame.valid()) {
             throw_plugin_error("private decoder plugin returned an invalid RAW frame");
         }
@@ -319,7 +351,8 @@ class PluginDecoderProvider final : public DecoderProvider {
 public:
     PluginDecoderProvider(
         std::shared_ptr<const PluginModule> module,
-        DecoderProvider* provider
+        DecoderProvider* provider,
+        std::string module_binary_identity
     )
         : module_(std::move(module)), provider_(provider) {
         if (provider_ == nullptr) {
@@ -343,6 +376,7 @@ public:
             + ";frame="
             + std::to_string(descriptor->raw_frame_schema_version)
             + ";wrapped=" + compact_identity(wrapped_identity);
+        info_.version += ";module=" + std::move(module_binary_identity);
         if (info_.version.size() > 128U) {
             throw_plugin_error("private decoder provider cache identity exceeds 128 bytes");
         }
@@ -416,7 +450,11 @@ std::unique_ptr<DecoderProvider> load_private_decoder_plugin(
     }
     auto module = std::make_shared<PluginModule>(module_path);
     auto* provider = module->create();
-    return std::make_unique<PluginDecoderProvider>(std::move(module), provider);
+    return std::make_unique<PluginDecoderProvider>(
+        std::move(module),
+        provider,
+        private_module_binary_identity(module_path)
+    );
 }
 
 } // namespace shadow::image

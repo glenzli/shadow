@@ -2,13 +2,17 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
+#include <exception>
 #include <iomanip>
 #include <limits>
+#include <mutex>
 #include <optional>
 #include <ranges>
 #include <sstream>
 #include <string_view>
+#include <thread>
 
 namespace shadow::image {
 
@@ -41,8 +45,8 @@ inline constexpr Matrix3 linear_srgb_to_xyz_d65{
 };
 // DCP's HueSatMap, LookTable, and ProfileToneCurve are specified in the
 // linear ProPhoto/ROMM RGB working space after the camera transform. These
-// matrices form a contained boundary around the current linear-sRGB u16 RAW
-// buffer; no creative Recipe operation needs to know about the profile space.
+// matrices form a contained boundary around Shadow's linear-sRGB RAW source;
+// no creative Recipe operation needs to know about the profile space.
 inline constexpr Matrix3 xyz_d50_to_linear_prophoto{
     1.3459433, -0.2556075, -0.0511118,
     -0.5445989, 1.5081673, 0.0205351,
@@ -679,6 +683,194 @@ struct HsvDeltaSample final {
     return hsv_to_rgb(hsv);
 }
 
+[[nodiscard]] Matrix3 srgb_to_dcp_working_space() noexcept {
+    return multiply(
+        xyz_d50_to_linear_prophoto,
+        multiply(
+            chromatic_adaptation(d65_xyz, d50_xyz),
+            linear_srgb_to_xyz_d65
+        )
+    );
+}
+
+[[nodiscard]] Matrix3 dcp_working_space_to_srgb() noexcept {
+    return multiply(
+        xyz_d65_to_linear_srgb,
+        multiply(
+            chromatic_adaptation(d50_xyz, d65_xyz),
+            linear_prophoto_to_xyz_d50
+        )
+    );
+}
+
+[[nodiscard]] bool finite_vector(const Vector3& value) noexcept {
+    return std::ranges::all_of(value, [](const double channel) {
+        return std::isfinite(channel);
+    });
+}
+
+// DCP input rendering is a camera-owned, per-pixel stage after the fused RAW
+// developer.  HueSatMap and LookTable evaluation is expensive enough to make
+// a substantial preview feel serial on desktop CPUs, while each pixel remains
+// completely independent.  Keep the threshold high enough that tiny proxies
+// avoid scheduling overhead, cap the worker count for concurrent catalog work,
+// and retain the exact per-pixel arithmetic of the serial reference path.
+inline constexpr std::size_t dcp_parallel_minimum_pixels = 32U * 1'024U;
+inline constexpr std::size_t dcp_parallel_maximum_workers = 8U;
+
+template <typename PixelOperation>
+void apply_dcp_to_pixels(
+    const std::size_t pixel_count,
+    PixelOperation&& operation
+) {
+    if (pixel_count < dcp_parallel_minimum_pixels) {
+        for (std::size_t pixel = 0U; pixel < pixel_count; ++pixel) {
+            operation(pixel * 3U);
+        }
+        return;
+    }
+
+    const std::size_t hardware_workers = std::max<std::size_t>(
+        1U,
+        static_cast<std::size_t>(std::thread::hardware_concurrency())
+    );
+    const std::size_t useful_workers =
+        (pixel_count + dcp_parallel_minimum_pixels - 1U) / dcp_parallel_minimum_pixels;
+    const std::size_t worker_count = std::min({
+        hardware_workers,
+        useful_workers,
+        dcp_parallel_maximum_workers,
+    });
+    if (worker_count <= 1U) {
+        for (std::size_t pixel = 0U; pixel < pixel_count; ++pixel) {
+            operation(pixel * 3U);
+        }
+        return;
+    }
+
+    const std::size_t pixels_per_worker = (pixel_count + worker_count - 1U) / worker_count;
+    std::atomic_bool cancelled{false};
+    std::exception_ptr failure;
+    std::mutex failure_mutex;
+    {
+        std::vector<std::jthread> workers;
+        workers.reserve(worker_count);
+        for (std::size_t worker = 0U; worker < worker_count; ++worker) {
+            const std::size_t first_pixel = worker * pixels_per_worker;
+            const std::size_t final_pixel = std::min(first_pixel + pixels_per_worker, pixel_count);
+            if (first_pixel >= final_pixel) {
+                continue;
+            }
+            workers.emplace_back([&, first_pixel, final_pixel] {
+                try {
+                    for (std::size_t pixel = first_pixel; pixel < final_pixel; ++pixel) {
+                        if (cancelled.load(std::memory_order_relaxed)) {
+                            return;
+                        }
+                        operation(pixel * 3U);
+                    }
+                } catch (...) {
+                    {
+                        std::lock_guard failure_lock(failure_mutex);
+                        if (failure == nullptr) {
+                            failure = std::current_exception();
+                        }
+                    }
+                    cancelled.store(true, std::memory_order_relaxed);
+                }
+            });
+        }
+    }
+    if (failure != nullptr) {
+        std::rethrow_exception(failure);
+    }
+}
+
+// DCP's HSV tables and tone curve have a defined [0, 1] domain.  For an HDR
+// scene-linear pixel, apply them to its chromatic ratio and restore the peak
+// afterwards.  This is continuous at display white, keeps the profile's hue
+// and saturation intent, and—unlike the former packed compatibility route—
+// does not throw away measured highlight headroom.  Negative gamut-excursion
+// components bypass these bounded profile stages rather than being silently
+// clamped to black.
+[[nodiscard]] Vector3 apply_dcp_post_matrix_stages(
+    const Vector3& linear_srgb,
+    const DcpColorTransform& transform
+) {
+    if (!finite_vector(linear_srgb)) {
+        fail(
+            DcpColorDevelopmentErrorCode::invalid_input,
+            "DCP input rendering received non-finite scene-linear samples"
+        );
+    }
+    Vector3 linear_prophoto = multiply(srgb_to_dcp_working_space(), linear_srgb);
+    if (!finite_vector(linear_prophoto)) {
+        fail(
+            DcpColorDevelopmentErrorCode::invalid_input,
+            "DCP input rendering produced non-finite working-space samples"
+        );
+    }
+    const bool bounded_input = std::ranges::all_of(linear_prophoto, [](const double channel) {
+        return channel >= 0.0 && channel <= 1.0;
+    });
+    if (!bounded_input) {
+        const double peak = std::max({
+            linear_prophoto[0], linear_prophoto[1], linear_prophoto[2],
+        });
+        if (peak <= 0.0) {
+            return linear_srgb;
+        }
+        for (double& channel : linear_prophoto) {
+            if (channel < 0.0) {
+                return linear_srgb;
+            }
+            channel /= peak;
+        }
+        if (transform.hue_sat_map.has_value()) {
+            linear_prophoto = apply_hsv_table(linear_prophoto, *transform.hue_sat_map);
+        }
+        if (transform.look_table.has_value()) {
+            linear_prophoto = apply_hsv_table(linear_prophoto, *transform.look_table);
+        }
+        if (!transform.tone_curve.empty()) {
+            for (double& channel : linear_prophoto) {
+                channel = sample_tone_curve(
+                    transform.tone_curve,
+                    transform.tone_curve_second_derivatives,
+                    channel
+                );
+            }
+        }
+        for (double& channel : linear_prophoto) {
+            channel *= peak;
+        }
+    } else {
+        if (transform.hue_sat_map.has_value()) {
+            linear_prophoto = apply_hsv_table(linear_prophoto, *transform.hue_sat_map);
+        }
+        if (transform.look_table.has_value()) {
+            linear_prophoto = apply_hsv_table(linear_prophoto, *transform.look_table);
+        }
+        if (!transform.tone_curve.empty()) {
+            for (double& channel : linear_prophoto) {
+                channel = sample_tone_curve(
+                    transform.tone_curve,
+                    transform.tone_curve_second_derivatives,
+                    channel
+                );
+            }
+        }
+    }
+    const Vector3 result = multiply(dcp_working_space_to_srgb(), linear_prophoto);
+    if (!finite_vector(result)) {
+        fail(
+            DcpColorDevelopmentErrorCode::invalid_input,
+            "DCP input rendering produced non-finite linear-sRGB samples"
+        );
+    }
+    return result;
+}
+
 struct ResolvedCalibration final {
     Matrix3 color_matrix;
     std::optional<Matrix3> forward_matrix;
@@ -932,6 +1124,52 @@ DcpColorTransform compile_dcp_color_transform(
 }
 
 void apply_dcp_color_rendering_stages(
+    SceneLinearRgbFrame& pixels,
+    const DcpColorTransform& transform
+) {
+    if (!transform.valid()) {
+        fail(
+            DcpColorDevelopmentErrorCode::invalid_input,
+            "DCP input rendering received an invalid compiled transform"
+        );
+    }
+    if (!transform.has_post_matrix_stages()) {
+        return;
+    }
+    const std::size_t expected_samples = static_cast<std::size_t>(pixels.dimensions.width)
+        * static_cast<std::size_t>(pixels.dimensions.height) * 3U;
+    if (!pixels.valid()
+        || pixels.row_stride_bytes
+            != static_cast<std::size_t>(pixels.dimensions.width) * 3U * sizeof(float)
+        || pixels.samples.size() != expected_samples) {
+        fail(
+            DcpColorDevelopmentErrorCode::invalid_input,
+            "DCP input rendering requires Shadow's canonical scene-linear fp32 RAW frame"
+        );
+    }
+    apply_dcp_to_pixels(pixels.samples.size() / 3U, [&](const std::size_t index) {
+        const Vector3 linear_srgb = apply_dcp_post_matrix_stages(
+            Vector3{
+                static_cast<double>(pixels.samples[index]),
+                static_cast<double>(pixels.samples[index + 1U]),
+                static_cast<double>(pixels.samples[index + 2U]),
+            },
+            transform
+        );
+        for (std::size_t channel = 0U; channel < 3U; ++channel) {
+            if (linear_srgb[channel] > static_cast<double>(std::numeric_limits<float>::max())
+                || linear_srgb[channel] < -static_cast<double>(std::numeric_limits<float>::max())) {
+                fail(
+                    DcpColorDevelopmentErrorCode::invalid_input,
+                    "DCP input rendering exceeded the fp32 scene-linear range"
+                );
+            }
+            pixels.samples[index + channel] = static_cast<float>(linear_srgb[channel]);
+        }
+    });
+}
+
+void apply_dcp_color_rendering_stages(
     PixelBuffer& pixels,
     const DcpColorTransform& transform
 ) {
@@ -958,51 +1196,21 @@ void apply_dcp_color_rendering_stages(
             "DCP input rendering requires Shadow's canonical linear-sRGB RAW buffer"
         );
     }
-    const Matrix3 srgb_to_prophoto = multiply(
-        xyz_d50_to_linear_prophoto,
-        multiply(
-            chromatic_adaptation(d65_xyz, d50_xyz),
-            linear_srgb_to_xyz_d65
-        )
-    );
-    const Matrix3 prophoto_to_srgb = multiply(
-        xyz_d65_to_linear_srgb,
-        multiply(
-            chromatic_adaptation(d50_xyz, d65_xyz),
-            linear_prophoto_to_xyz_d50
-        )
-    );
     constexpr double u16_scale = 1.0 / static_cast<double>(std::numeric_limits<std::uint16_t>::max());
-    for (std::size_t index = 0U; index < pixels.samples.size(); index += 3U) {
-        Vector3 linear_prophoto = multiply(
-            srgb_to_prophoto,
+    apply_dcp_to_pixels(pixels.samples.size() / 3U, [&](const std::size_t index) {
+        const Vector3 linear_srgb = apply_dcp_post_matrix_stages(
             Vector3{
                 static_cast<double>(pixels.samples[index]) * u16_scale,
                 static_cast<double>(pixels.samples[index + 1U]) * u16_scale,
                 static_cast<double>(pixels.samples[index + 2U]) * u16_scale,
-            }
+            },
+            transform
         );
-        if (transform.hue_sat_map.has_value()) {
-            linear_prophoto = apply_hsv_table(linear_prophoto, *transform.hue_sat_map);
-        }
-        if (transform.look_table.has_value()) {
-            linear_prophoto = apply_hsv_table(linear_prophoto, *transform.look_table);
-        }
-        if (!transform.tone_curve.empty()) {
-            for (double& channel : linear_prophoto) {
-                channel = sample_tone_curve(
-                    transform.tone_curve,
-                    transform.tone_curve_second_derivatives,
-                    channel
-                );
-            }
-        }
-        const Vector3 linear_srgb = multiply(prophoto_to_srgb, linear_prophoto);
         for (std::size_t channel = 0U; channel < 3U; ++channel) {
             const double encoded = std::round(clamp_unit(linear_srgb[channel]) / u16_scale);
             pixels.samples[index + channel] = static_cast<std::uint16_t>(encoded);
         }
-    }
+    });
 }
 
 std::string dcp_color_receipt_identity(const DcpColorDevelopmentReceipt& receipt) {

@@ -27,6 +27,7 @@ void validate_request(
     const RawFrame& frame,
     const RawFrameLinearTransform& transform,
     const std::optional<std::uint32_t> preview_max_edge,
+    const RawDevelopmentQuality quality,
     const RawHighlightRecoveryIntent highlight_recovery
 ) {
     detail::validate_bayer_frame(frame, "fused Bayer development");
@@ -50,6 +51,17 @@ void validate_request(
             DecodeErrorCode::invalid_request,
             0,
             "fused Bayer preview max edge must be non-zero"
+        );
+    }
+    if (
+        quality != RawDevelopmentQuality::fast
+        && quality != RawDevelopmentQuality::balanced
+        && quality != RawDevelopmentQuality::high
+    ) {
+        throw DecodeError(
+            DecodeErrorCode::invalid_request,
+            0,
+            "fused Bayer development received an unknown RAW quality tier"
         );
     }
     if (
@@ -92,12 +104,6 @@ void validate_request(
     default:
         return {output_x, output_y};
     }
-}
-
-[[nodiscard]] std::uint16_t quantize_linear(const double value) noexcept {
-    return static_cast<std::uint16_t>(
-        std::lround(std::clamp(value, 0.0, 1.0) * 65'535.0)
-    );
 }
 
 [[nodiscard]] double smoothstep(
@@ -163,7 +169,7 @@ void write_transformed_pixel(
     const CameraRgbSample& camera,
     const RawFrameLinearTransform& transform,
     const bool neutralize_clipped_highlights,
-    std::uint16_t* destination
+    float* destination
 ) noexcept {
     std::array<double, 3U> scene_linear{};
     for (std::size_t output = 0U; output < 3U; ++output) {
@@ -178,11 +184,11 @@ void write_transformed_pixel(
         neutralize_sensor_clipped_highlight(scene_linear, camera);
     }
     for (std::size_t output = 0U; output < 3U; ++output) {
-        destination[output] = quantize_linear(scene_linear[output]);
+        destination[output] = static_cast<float>(scene_linear[output]);
     }
 }
 
-[[nodiscard]] PixelBuffer allocate_output(const Dimensions dimensions) {
+[[nodiscard]] SceneLinearRgbFrame allocate_output(const Dimensions dimensions) {
     const auto sample_count = static_cast<std::uint64_t>(dimensions.width)
         * dimensions.height * 3U;
     if (sample_count > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())) {
@@ -192,15 +198,10 @@ void write_transformed_pixel(
             "fused Bayer development output exceeds the address space"
         );
     }
-    PixelBuffer output;
+    SceneLinearRgbFrame output;
     output.dimensions = dimensions;
-    output.bits_per_channel = 16U;
-    output.channels = 3U;
     output.row_stride_bytes =
-        static_cast<std::size_t>(dimensions.width) * 3U * sizeof(std::uint16_t);
-    output.primaries = RgbPrimaries::srgb_rec709_d65;
-    output.transfer_function = RgbTransferFunction::linear;
-    output.reference = RgbBufferReference::processed_raw;
+        static_cast<std::size_t>(dimensions.width) * 3U * sizeof(float);
     output.samples.resize(static_cast<std::size_t>(sample_count));
     return output;
 }
@@ -233,6 +234,7 @@ void write_transformed_pixel(
     const RawFrame& frame,
     const RawFrameLinearTransform& transform,
     const std::optional<std::uint32_t> preview_max_edge,
+    const RawDevelopmentQuality quality,
     const RawHighlightRecoveryIntent highlight_recovery
 ) {
     const auto& descriptor = frame.descriptor;
@@ -249,7 +251,7 @@ void write_transformed_pixel(
         reconstruction_dimensions,
         descriptor.orientation
     );
-    PixelBuffer output = allocate_output(output_dimensions);
+    SceneLinearRgbFrame output = allocate_output(output_dimensions);
 
     detail::parallel_for_rows(
         output_dimensions.height,
@@ -261,6 +263,7 @@ void write_transformed_pixel(
          output_dimensions,
          area_preview,
          area_sampling,
+         quality,
          highlight_recovery](
             const std::uint32_t first_row,
             const std::uint32_t last_row
@@ -282,11 +285,17 @@ void write_transformed_pixel(
                             source_x,
                             source_y
                         )
-                        : detail::bilinear_camera_rgb_sample_at(
-                            frame,
-                            frame.descriptor.active_margins.left + source_x,
-                            frame.descriptor.active_margins.top + source_y
-                        );
+                        : quality == RawDevelopmentQuality::high
+                            ? detail::edge_aware_camera_rgb_sample_at(
+                                frame,
+                                frame.descriptor.active_margins.left + source_x,
+                                frame.descriptor.active_margins.top + source_y
+                            )
+                            : detail::bilinear_camera_rgb_sample_at(
+                                frame,
+                                frame.descriptor.active_margins.left + source_x,
+                                frame.descriptor.active_margins.top + source_y
+                            );
                     const auto output_index =
                         (static_cast<std::size_t>(output_y) * output_dimensions.width + output_x)
                         * 3U;
@@ -303,12 +312,14 @@ void write_transformed_pixel(
     );
 
     FusedRawFrameDevelopment result{
-        .pixels = std::move(output),
+        .scene_linear = std::move(output),
         .demosaic_receipt = make_demosaic_receipt(
             frame,
             area_preview
                 ? RawDemosaicAlgorithm::bayer_area_preview_v1
-                : RawDemosaicAlgorithm::bayer_bilinear_v1
+                : quality == RawDevelopmentQuality::high
+                    ? RawDemosaicAlgorithm::bayer_edge_aware_v1
+                    : RawDemosaicAlgorithm::bayer_bilinear_v1
         ),
         .backend = RawDevelopmentBackend::cpu,
         .highlight_recovery = highlight_recovery,
@@ -330,11 +341,11 @@ std::string_view raw_development_backend_identity(
 ) noexcept {
     switch (backend) {
     case RawDevelopmentBackend::cpu:
-        return "shadow-fused-raw-cpu-v1;demosaic=bilinear-or-cfa-area;"
+        return "shadow-fused-raw-cpu-v1;demosaic=plan-selected;"
             "sensor-highlight-policy=explicit";
     case RawDevelopmentBackend::metal:
         return "shadow-fused-raw-metal-v1;math=f32-precise;"
-            "demosaic=bilinear-or-cfa-area;sensor-highlight-policy=explicit";
+            "demosaic=plan-selected;sensor-highlight-policy=explicit";
     }
     return "shadow-fused-raw-unknown";
 }
@@ -395,57 +406,54 @@ bool RawFrameLinearTransform::valid() const noexcept {
 }
 
 bool FusedRawFrameDevelopment::valid() const noexcept {
-    const auto width = static_cast<std::uint64_t>(pixels.dimensions.width);
-    const auto height = static_cast<std::uint64_t>(pixels.dimensions.height);
+    const auto width = static_cast<std::uint64_t>(scene_linear.dimensions.width);
+    const auto height = static_cast<std::uint64_t>(scene_linear.dimensions.height);
     const bool known_backend = backend == RawDevelopmentBackend::cpu
         || backend == RawDevelopmentBackend::metal;
     const bool known_highlight_treatment =
         highlight_recovery == RawHighlightRecoveryIntent::provider_default
         || highlight_recovery == RawHighlightRecoveryIntent::disabled;
     if (!known_backend || !known_highlight_treatment
-        || width == 0U || height == 0U || pixels.bits_per_channel != 16U
-        || pixels.channels != 3U
-        || pixels.row_stride_bytes != width * 3U * sizeof(std::uint16_t)
-        || pixels.primaries != RgbPrimaries::srgb_rec709_d65
-        || pixels.transfer_function != RgbTransferFunction::linear
-        || pixels.reference != RgbBufferReference::processed_raw
+        || width == 0U || height == 0U || !scene_linear.valid()
         || !valid_demosaic_receipt(demosaic_receipt)) {
         return false;
     }
-    const auto sample_count = width * height * 3U;
-    return sample_count <= static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())
-        && pixels.samples.size() == static_cast<std::size_t>(sample_count);
+    return true;
 }
 
-FusedRawFrameDevelopment develop_bayer_linear_srgb_u16_fused(
+FusedRawFrameDevelopment develop_bayer_linear_srgb_f32_fused(
     const RawFrame& frame,
     const RawFrameLinearTransform& transform,
     const std::optional<std::uint32_t> preview_max_edge,
-    const RawHighlightRecoveryIntent highlight_recovery
+    const RawHighlightRecoveryIntent highlight_recovery,
+    const RawDevelopmentQuality quality
 ) {
-    return develop_bayer_linear_srgb_u16_fused_with_backend(
+    return develop_bayer_linear_srgb_f32_fused_with_backend(
         frame,
         transform,
         preview_max_edge,
         raw_development_backend_mode_from_environment(),
-        highlight_recovery
+        highlight_recovery,
+        quality
     );
 }
 
-FusedRawFrameDevelopment develop_bayer_linear_srgb_u16_fused_with_backend(
+FusedRawFrameDevelopment develop_bayer_linear_srgb_f32_fused_with_backend(
     const RawFrame& frame,
     const RawFrameLinearTransform& transform,
     const std::optional<std::uint32_t> preview_max_edge,
     const RawDevelopmentBackendMode backend_mode,
-    const RawHighlightRecoveryIntent highlight_recovery
+    const RawHighlightRecoveryIntent highlight_recovery,
+    const RawDevelopmentQuality quality
 ) {
-    validate_request(frame, transform, preview_max_edge, highlight_recovery);
+    validate_request(frame, transform, preview_max_edge, quality, highlight_recovery);
     if (backend_mode != RawDevelopmentBackendMode::cpu) {
-        auto attempt = detail::try_develop_bayer_linear_srgb_u16_metal(
+        auto attempt = detail::try_develop_bayer_linear_srgb_f32_metal(
             frame,
             transform,
             preview_max_edge,
-            highlight_recovery
+            highlight_recovery,
+            quality
         );
         if (attempt.development.has_value()) {
             return std::move(*attempt.development);
@@ -460,7 +468,7 @@ FusedRawFrameDevelopment develop_bayer_linear_srgb_u16_fused_with_backend(
             );
         }
     }
-    auto result = develop_on_cpu(frame, transform, preview_max_edge, highlight_recovery);
+    auto result = develop_on_cpu(frame, transform, preview_max_edge, quality, highlight_recovery);
     if (!result.valid()) {
         throw DecodeError(
             DecodeErrorCode::internal,

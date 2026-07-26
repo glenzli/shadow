@@ -17,6 +17,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 
@@ -84,6 +85,37 @@ void write_u16_pnm(
     if (!output) {
         throw std::runtime_error("cannot write " + path.string());
     }
+}
+
+struct ProbeLinearSource final {
+    image::Dimensions dimensions;
+    std::uint16_t bits_per_channel = 16U;
+    std::uint16_t channels = 3U;
+    std::vector<std::uint16_t> samples;
+    bool scene_linear_f32 = false;
+};
+
+[[nodiscard]] ProbeLinearSource materialize_probe_source(
+    const image::DevelopedSourcePixels& source
+) {
+    if (const auto* packed = std::get_if<image::PixelBuffer>(&source)) {
+        return ProbeLinearSource{
+            .dimensions = packed->dimensions,
+            .channels = packed->channels,
+            .samples = packed->samples,
+        };
+    }
+    const auto& scene = std::get<image::SceneLinearRgbFrame>(source);
+    ProbeLinearSource result;
+    result.dimensions = scene.dimensions;
+    result.samples.resize(scene.samples.size());
+    result.scene_linear_f32 = true;
+    for (std::size_t index = 0U; index < scene.samples.size(); ++index) {
+        result.samples[index] = static_cast<std::uint16_t>(std::lround(std::clamp(
+            static_cast<double>(scene.samples[index]), 0.0, 1.0
+        ) * 65'535.0));
+    }
+    return result;
 }
 
 void write_bitmap_preview(const fs::path& path, const image::PreviewPayload& preview) {
@@ -255,7 +287,7 @@ void render_reference_rgb(image::DecodeSession& session, const fs::path& output_
         std::nullopt,
         image::raw_pipeline_policy_from_environment()
     );
-    const image::PixelBuffer& rendered = source.pixels;
+    const ProbeLinearSource rendered = materialize_probe_source(source.source);
     const fs::path output_path = output_directory / "reference-linear-srgb-16bit.ppm";
     write_u16_pnm(output_path, rendered.dimensions, rendered.channels, rendered.samples);
 
@@ -269,11 +301,12 @@ void render_reference_rgb(image::DecodeSession& session, const fs::path& output_
               << "reference_rgb.reference=processed-raw\n"
               << "reference_rgb.samples=" << rendered.samples.size() << '\n'
               << "reference_rgb.plan.requested="
-              << rendered.raw_development_receipt.requested_plan_identity << '\n'
+              << source.raw_development_receipt.requested_plan_identity << '\n'
               << "reference_rgb.plan.effective="
-              << rendered.raw_development_receipt.effective_plan_identity << '\n'
+              << source.raw_development_receipt.effective_plan_identity << '\n'
               << "reference_rgb.development="
-              << rendered.raw_development_receipt.development_settings_signature << '\n'
+              << source.raw_development_receipt.development_settings_signature << '\n'
+              << "reference_rgb.storage=" << (rendered.scene_linear_f32 ? "scene-linear-f32" : "packed-u16") << '\n'
               << "reference_rgb.pipeline.path="
               << static_cast<unsigned>(source.pipeline_receipt.path) << '\n'
               << "reference_rgb.pipeline.identity="
@@ -295,7 +328,7 @@ void render_warm_preview_reference_rgb(
         warm_preview_edge,
         image::raw_pipeline_policy_from_environment()
     );
-    const image::PixelBuffer& rendered = source.pixels;
+    const ProbeLinearSource rendered = materialize_probe_source(source.source);
     const fs::path output_path = output_directory / "preview-reference-linear-srgb-16bit.ppm";
     write_u16_pnm(output_path, rendered.dimensions, rendered.channels, rendered.samples);
     std::array<long double, 3U> channel_sum{};
@@ -312,9 +345,9 @@ void render_warm_preview_reference_rgb(
               << rendered.dimensions.height << '\n'
               << "preview_reference.samples=" << rendered.samples.size() << '\n'
               << "preview_reference.plan.requested="
-              << rendered.raw_development_receipt.requested_plan_identity << '\n'
+              << source.raw_development_receipt.requested_plan_identity << '\n'
               << "preview_reference.plan.effective="
-              << rendered.raw_development_receipt.effective_plan_identity << '\n'
+              << source.raw_development_receipt.effective_plan_identity << '\n'
               << "preview_reference.pipeline.path="
               << static_cast<unsigned>(source.pipeline_receipt.path) << '\n'
               << "preview_reference.pipeline.identity="

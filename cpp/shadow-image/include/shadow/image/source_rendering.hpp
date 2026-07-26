@@ -95,6 +95,15 @@ struct SourceRenderingReceipt final {
     const SourceProfileCatalog& catalog
 );
 
+// Owned RawFrame development retains this fp32 source rather than first quantizing it to the
+// provider-RGB compatibility buffer. The resulting receipt is identical in meaning to the
+// PixelBuffer overload, but percentile normalization observes real super-white samples.
+[[nodiscard]] SourceRenderingReceipt resolve_source_rendering(
+    const SceneLinearRgbFrame& source,
+    const AssetMetadata& metadata,
+    const RawPipelineReceipt& pipeline
+);
+
 // Applies a previously resolved receipt to a linear working image. Calling it
 // with a receipt resolved for a different source-rendering schema is an error;
 // silently interpreting future profile data would poison preview caches.

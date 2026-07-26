@@ -128,6 +128,112 @@ inline constexpr std::uintmax_t maximum_private_decoder_link_bytes = 8U * 1024U;
     return "private-decoder-module:" + utf8_path_text(effective_path);
 }
 
+// LibRaw can often still extract a camera's embedded JPEG even when it cannot
+// develop the underlying RAW compression. Keep that browse-only capability
+// beside a private RawFrame session, without allowing the JPEG to become an
+// editable source or to affect the private decoder's metadata/RAW plan.
+class PrivateRawWithPublicPreviewSession final : public DecodeSession {
+public:
+    PrivateRawWithPublicPreviewSession(
+        std::unique_ptr<DecodeSession> raw_session,
+        std::unique_ptr<DecodeSession> preview_session
+    )
+        : preview_session_(std::move(preview_session)), raw_session_(std::move(raw_session)) {
+        if (raw_session_ == nullptr || preview_session_ == nullptr) {
+            throw DecodeError(
+                DecodeErrorCode::internal,
+                0,
+                "private RAW preview composition received an empty source session"
+            );
+        }
+        const auto source_previews = preview_session_->previews();
+        previews_.assign(source_previews.begin(), source_previews.end());
+        if (!select_best_preview(previews_).has_value()) {
+            throw DecodeError(
+                DecodeErrorCode::internal,
+                0,
+                "private RAW preview composition received no decodable public preview"
+            );
+        }
+        capabilities_ = raw_session_->capabilities();
+        capabilities_.embedded_previews = true;
+    }
+
+    [[nodiscard]] const AssetMetadata& metadata() const noexcept override {
+        return raw_session_->metadata();
+    }
+
+    [[nodiscard]] const DecodeCapabilities& capabilities() const noexcept override {
+        return capabilities_;
+    }
+
+    [[nodiscard]] std::span<const PreviewDescriptor> previews() const noexcept override {
+        return previews_;
+    }
+
+    [[nodiscard]] const RawDevelopmentCapabilities& raw_development_capabilities() const noexcept override {
+        return raw_session_->raw_development_capabilities();
+    }
+
+    [[nodiscard]] RawDevelopmentPlanNegotiation negotiate_raw_development_plan(
+        const RawDevelopmentPlan& plan
+    ) const noexcept override {
+        return raw_session_->negotiate_raw_development_plan(plan);
+    }
+
+    [[nodiscard]] PreviewPayload decode_preview(const std::size_t id) override {
+        const auto preview = std::ranges::find(
+            previews_,
+            id,
+            &PreviewDescriptor::id
+        );
+        if (preview == previews_.end()) {
+            throw DecodeError(
+                DecodeErrorCode::no_preview,
+                0,
+                "requested preview does not belong to the public embedded-preview source"
+            );
+        }
+        return preview_session_->decode_preview(id);
+    }
+
+    [[nodiscard]] RawFrame decode_raw_frame() override {
+        return raw_session_->decode_raw_frame();
+    }
+
+    [[nodiscard]] PixelBuffer render_reference_rgb() const override {
+        return raw_session_->render_reference_rgb();
+    }
+
+    [[nodiscard]] PixelBuffer render_reference_rgb(
+        const RawDevelopmentPlan& plan
+    ) const override {
+        return raw_session_->render_reference_rgb(plan);
+    }
+
+    [[nodiscard]] PixelBuffer render_reference_rgb_for_preview(
+        const std::uint32_t max_edge
+    ) const override {
+        return raw_session_->render_reference_rgb_for_preview(max_edge);
+    }
+
+    [[nodiscard]] PixelBuffer render_reference_rgb_for_preview(
+        const std::uint32_t max_edge,
+        const RawDevelopmentPlan& plan
+    ) const override {
+        return raw_session_->render_reference_rgb_for_preview(max_edge, plan);
+    }
+
+private:
+    // Both children are already session-isolated by their original providers.
+    // Reverse destruction releases the private RAW session first, before its
+    // public LibRaw browse-only companion.
+    std::unique_ptr<DecodeSession> preview_session_;
+    std::unique_ptr<DecodeSession> raw_session_;
+    DecodeCapabilities capabilities_;
+    std::vector<PreviewDescriptor> previews_;
+};
+
 [[nodiscard]] std::string lowercase_extension(const std::filesystem::path& path) {
     const std::u8string extension = path.extension().u8string();
     if (extension.size() <= 1U) {
@@ -386,11 +492,15 @@ public:
         // final: the private-module contract remains able to support source
         // formats LibRaw does not recognise at all.
         std::unique_ptr<DecodeSession> public_raw_session;
+        bool retain_public_embedded_preview = false;
         try {
             public_raw_session = raw_->open(path);
             if (public_raw_session->capabilities().reference_rgb) {
                 return detail::isolate_decode_session(std::move(public_raw_session));
             }
+            retain_public_embedded_preview = select_best_preview(
+                public_raw_session->previews()
+            ).has_value();
         } catch (const DecodeError&) {
             // A private provider can legitimately handle a source LibRaw
             // cannot even open, so keep probing below.  If none claims it we
@@ -399,7 +509,14 @@ public:
 
         for (const auto& module : private_raw_) {
             try {
-                return module.open(path);
+                auto private_session = module.open(path);
+                if (!retain_public_embedded_preview) {
+                    return private_session;
+                }
+                return std::make_unique<PrivateRawWithPublicPreviewSession>(
+                    std::move(private_session),
+                    detail::isolate_decode_session(std::move(public_raw_session))
+                );
             } catch (const DecodeError& error) {
                 // A private provider must explicitly say it does not recognise a source before
                 // the router tries another local module or falls back. Corrupt data, a malformed

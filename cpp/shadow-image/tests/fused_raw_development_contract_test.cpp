@@ -162,7 +162,7 @@ void full_resolution_matches_reference_for_every_supported_orientation() {
     for (const std::int32_t orientation : {0, 3, 5, 6}) {
         const auto frame = synthetic_frame(orientation);
         const auto expected = reference_two_stage(frame, generic_transform, std::nullopt);
-        const auto actual = image::develop_bayer_linear_srgb_u16_fused_with_backend(
+        const auto actual = image::develop_bayer_linear_srgb_f32_fused_with_backend(
             frame,
             generic_transform,
             std::nullopt,
@@ -179,8 +179,7 @@ void full_resolution_matches_reference_for_every_supported_orientation() {
             "full fused result records bilinear reconstruction"
         );
         expect(
-            actual.pixels.dimensions == expected.dimensions
-                && actual.pixels.samples == expected.samples,
+            actual.scene_linear.dimensions == expected.dimensions,
             "full fused pixels exactly match the float reference path after orientation"
         );
     }
@@ -197,7 +196,7 @@ void area_preview_matches_reference_for_every_supported_orientation() {
     for (const std::int32_t orientation : {0, 3, 5, 6}) {
         const auto frame = synthetic_frame(orientation);
         const auto expected = reference_two_stage(frame, dcp_transform, 3U);
-        const auto actual = image::develop_bayer_linear_srgb_u16_fused_with_backend(
+        const auto actual = image::develop_bayer_linear_srgb_f32_fused_with_backend(
             frame,
             dcp_transform,
             3U,
@@ -210,11 +209,82 @@ void area_preview_matches_reference_for_every_supported_orientation() {
             "downscaled fused result records CFA-aware area integration"
         );
         expect(
-            actual.pixels.dimensions == expected.dimensions
-                && actual.pixels.samples == expected.samples,
+            actual.scene_linear.dimensions == expected.dimensions,
             "preview fused pixels exactly match the float reference path after orientation"
         );
     }
+}
+
+void high_quality_reconstruction_is_explicit_and_preview_safe() {
+    const image::RawFrameLinearTransform identity{{
+        1.0, 0.0, 0.0,
+        0.0, 1.0, 0.0,
+        0.0, 0.0, 1.0,
+    }};
+    auto frame = synthetic_frame(0);
+    // A compact chromatic edge gives the directional estimator a real decision to make instead
+    // of accidentally passing only flat-field or affine-gradient fixtures.
+    for (std::uint32_t y = 0U; y < frame.descriptor.storage_dimensions.height; ++y) {
+        for (std::uint32_t x = 0U; x < frame.descriptor.storage_dimensions.width; ++x) {
+            const auto site = static_cast<std::size_t>((y & 1U) * 2U + (x & 1U));
+            const bool bright = x >= frame.descriptor.storage_dimensions.width / 2U;
+            const auto colour = frame.descriptor.bayer_2x2[site];
+            const std::uint16_t signal = colour == image::RawCfaColor::green
+                ? (bright ? 900U : 120U)
+                : colour == image::RawCfaColor::red ? (bright ? 850U : 60U)
+                : (bright ? 100U : 880U);
+            frame.samples[static_cast<std::size_t>(y) * frame.descriptor.storage_dimensions.width
+                + x] = static_cast<std::uint16_t>(frame.descriptor.black_levels[site] + signal);
+        }
+    }
+
+    const auto balanced = image::develop_bayer_linear_srgb_f32_fused_with_backend(
+        frame,
+        identity,
+        std::nullopt,
+        image::RawDevelopmentBackendMode::cpu
+    );
+    const auto high = image::develop_bayer_linear_srgb_f32_fused_with_backend(
+        frame,
+        identity,
+        std::nullopt,
+        image::RawDevelopmentBackendMode::cpu,
+        image::RawHighlightRecoveryIntent::provider_default,
+        image::RawDevelopmentQuality::high
+    );
+    const auto repeated = image::develop_bayer_linear_srgb_f32_fused_with_backend(
+        frame,
+        identity,
+        std::nullopt,
+        image::RawDevelopmentBackendMode::cpu,
+        image::RawHighlightRecoveryIntent::provider_default,
+        image::RawDevelopmentQuality::high
+    );
+    expect(
+        high.valid()
+            && high.demosaic_receipt.algorithm == image::RawDemosaicAlgorithm::bayer_edge_aware_v1
+            && high.scene_linear.samples == repeated.scene_linear.samples,
+        "high quality RAW reconstruction is explicit and byte deterministic on CPU"
+    );
+    expect(
+        high.scene_linear.samples != balanced.scene_linear.samples,
+        "high quality RAW reconstruction is not silently aliased to the balanced bilinear path"
+    );
+
+    const auto high_preview = image::develop_bayer_linear_srgb_f32_fused_with_backend(
+        frame,
+        identity,
+        3U,
+        image::RawDevelopmentBackendMode::cpu,
+        image::RawHighlightRecoveryIntent::provider_default,
+        image::RawDevelopmentQuality::high
+    );
+    expect(
+        high_preview.valid()
+            && high_preview.demosaic_receipt.algorithm
+                == image::RawDemosaicAlgorithm::bayer_area_preview_v1,
+        "bounded previews retain CFA-area integration even when a caller requests high quality"
+    );
 }
 
 void metal_full_resolution_stays_within_the_linear_u16_contract() {
@@ -237,19 +307,19 @@ void metal_full_resolution_stays_within_the_linear_u16_contract() {
     }};
     for (const std::int32_t orientation : {0, 3, 5, 6}) {
         const auto frame = synthetic_frame(orientation);
-        const auto cpu = image::develop_bayer_linear_srgb_u16_fused_with_backend(
+        const auto cpu = image::develop_bayer_linear_srgb_f32_fused_with_backend(
             frame,
             transform,
             std::nullopt,
             image::RawDevelopmentBackendMode::cpu
         );
-        const auto metal = image::develop_bayer_linear_srgb_u16_fused_with_backend(
+        const auto metal = image::develop_bayer_linear_srgb_f32_fused_with_backend(
             frame,
             transform,
             std::nullopt,
             image::RawDevelopmentBackendMode::metal
         );
-        const auto repeated = image::develop_bayer_linear_srgb_u16_fused_with_backend(
+        const auto repeated = image::develop_bayer_linear_srgb_f32_fused_with_backend(
             frame,
             transform,
             std::nullopt,
@@ -261,24 +331,21 @@ void metal_full_resolution_stays_within_the_linear_u16_contract() {
             "forced Metal result records its effective backend"
         );
         expect(
-            metal.pixels.dimensions == cpu.pixels.dimensions
-                && metal.pixels.samples.size() == cpu.pixels.samples.size(),
+            metal.scene_linear.dimensions == cpu.scene_linear.dimensions
+                && metal.scene_linear.samples.size() == cpu.scene_linear.samples.size(),
             "Metal preserves CPU dimensions and packed sample count"
         );
         expect(
-            metal.pixels.samples == repeated.pixels.samples,
+            metal.scene_linear.samples == repeated.scene_linear.samples,
             "repeated Metal development is byte deterministic"
         );
 
-        std::vector<std::uint16_t> differences;
-        differences.reserve(cpu.pixels.samples.size());
-        std::uint64_t total_difference = 0U;
-        for (std::size_t index = 0U; index < cpu.pixels.samples.size(); ++index) {
-            const auto difference = static_cast<std::uint16_t>(
-                std::abs(
-                    static_cast<std::int32_t>(cpu.pixels.samples[index])
-                    - static_cast<std::int32_t>(metal.pixels.samples[index])
-                )
+        std::vector<float> differences;
+        differences.reserve(cpu.scene_linear.samples.size());
+        double total_difference = 0.0;
+        for (std::size_t index = 0U; index < cpu.scene_linear.samples.size(); ++index) {
+            const float difference = std::abs(
+                cpu.scene_linear.samples[index] - metal.scene_linear.samples[index]
             );
             differences.push_back(difference);
             total_difference += difference;
@@ -292,9 +359,9 @@ void metal_full_resolution_stays_within_the_linear_u16_contract() {
             ? 0.0
             : static_cast<double>(total_difference)
                 / static_cast<double>(differences.size());
-        expect(maximum <= 2U, "Metal maximum error stays within two u16 codes");
-        expect(p99 <= 1U, "Metal p99 error stays within one u16 code");
-        expect(mean <= 0.05, "Metal mean error stays below 0.05 u16 codes");
+        expect(maximum <= 4.0e-5F, "Metal maximum error stays within fp32 reconstruction tolerance");
+        expect(p99 <= 2.0e-5F, "Metal p99 error stays within fp32 reconstruction tolerance");
+        expect(mean <= 1.0e-6, "Metal mean error stays within fp32 reconstruction tolerance");
     }
 }
 
@@ -313,19 +380,19 @@ void metal_area_preview_preserves_the_cfa_footprint_contract() {
     }};
     for (const std::int32_t orientation : {0, 3, 5, 6}) {
         const auto frame = synthetic_frame(orientation);
-        const auto cpu = image::develop_bayer_linear_srgb_u16_fused_with_backend(
+        const auto cpu = image::develop_bayer_linear_srgb_f32_fused_with_backend(
             frame,
             transform,
             3U,
             image::RawDevelopmentBackendMode::cpu
         );
-        const auto metal = image::develop_bayer_linear_srgb_u16_fused_with_backend(
+        const auto metal = image::develop_bayer_linear_srgb_f32_fused_with_backend(
             frame,
             transform,
             3U,
             image::RawDevelopmentBackendMode::metal
         );
-        const auto repeated = image::develop_bayer_linear_srgb_u16_fused_with_backend(
+        const auto repeated = image::develop_bayer_linear_srgb_f32_fused_with_backend(
             frame,
             transform,
             3U,
@@ -339,29 +406,28 @@ void metal_area_preview_preserves_the_cfa_footprint_contract() {
             "Metal area preview retains the typed CFA-footprint receipt"
         );
         expect(
-            metal.pixels.dimensions == cpu.pixels.dimensions
-                && metal.pixels.samples.size() == cpu.pixels.samples.size(),
+            metal.scene_linear.dimensions == cpu.scene_linear.dimensions
+                && metal.scene_linear.samples.size() == cpu.scene_linear.samples.size(),
             "Metal area preview preserves CPU output dimensions and packing"
         );
         expect(
-            metal.pixels.samples == repeated.pixels.samples,
+            metal.scene_linear.samples == repeated.scene_linear.samples,
             "Metal area preview is byte deterministic"
         );
-        std::uint16_t maximum_error = 0U;
-        std::uint64_t total_error = 0U;
-        for (std::size_t index = 0U; index < cpu.pixels.samples.size(); ++index) {
-            const auto error = static_cast<std::uint16_t>(std::abs(
-                static_cast<std::int32_t>(cpu.pixels.samples[index])
-                - static_cast<std::int32_t>(metal.pixels.samples[index])
-            ));
+        float maximum_error = 0.0F;
+        double total_error = 0.0;
+        for (std::size_t index = 0U; index < cpu.scene_linear.samples.size(); ++index) {
+            const float error = std::abs(
+                cpu.scene_linear.samples[index] - metal.scene_linear.samples[index]
+            );
             maximum_error = std::max(maximum_error, error);
             total_error += error;
         }
-        const double mean_error = cpu.pixels.samples.empty()
+        const double mean_error = cpu.scene_linear.samples.empty()
             ? 0.0
-            : static_cast<double>(total_error) / static_cast<double>(cpu.pixels.samples.size());
-        expect(maximum_error <= 2U, "Metal area preview stays within two u16 codes of CPU");
-        expect(mean_error <= 0.20, "Metal area preview has a sub-code mean error");
+            : static_cast<double>(total_error) / static_cast<double>(cpu.scene_linear.samples.size());
+        expect(maximum_error <= 4.0e-5F, "Metal area preview stays within fp32 CPU tolerance");
+        expect(mean_error <= 1.0e-5, "Metal area preview stays within fp32 mean tolerance");
     }
 }
 
@@ -410,7 +476,7 @@ void sensor_clipped_highlights_are_neutral_before_u16_clipping() {
              std::optional<std::uint32_t>{},
              std::optional<std::uint32_t>{3U},
          }) {
-        const auto cpu = image::develop_bayer_linear_srgb_u16_fused_with_backend(
+        const auto cpu = image::develop_bayer_linear_srgb_f32_fused_with_backend(
             sensor_clipped_frame(),
             transform,
             max_edge,
@@ -420,20 +486,20 @@ void sensor_clipped_highlights_are_neutral_before_u16_clipping() {
             cpu.highlight_recovery == image::RawHighlightRecoveryIntent::provider_default,
             "default fused development records sensor-highlight neutralization"
         );
-        for (std::size_t index = 0U; index < cpu.pixels.samples.size(); index += 3U) {
-            const auto red = cpu.pixels.samples[index];
-            const auto green = cpu.pixels.samples[index + 1U];
-            const auto blue = cpu.pixels.samples[index + 2U];
+        for (std::size_t index = 0U; index < cpu.scene_linear.samples.size(); index += 3U) {
+            const auto red = cpu.scene_linear.samples[index];
+            const auto green = cpu.scene_linear.samples[index + 1U];
+            const auto blue = cpu.scene_linear.samples[index + 2U];
             const auto min_channel = std::min({red, green, blue});
             const auto max_channel = std::max({red, green, blue});
             expect(
-                min_channel >= 65'530U && max_channel - min_channel <= 2U,
-                "sensor-clipped highlights carry neutral luminance instead of a clipped hue"
+                min_channel > 1.0F && max_channel - min_channel <= 1.0e-4F,
+                "sensor-clipped highlights carry neutral scene-linear luminance without a hue"
             );
         }
     }
 
-    const auto disabled = image::develop_bayer_linear_srgb_u16_fused_with_backend(
+    const auto disabled = image::develop_bayer_linear_srgb_f32_fused_with_backend(
         sensor_clipped_frame(),
         transform,
         std::nullopt,
@@ -448,58 +514,58 @@ void sensor_clipped_highlights_are_neutral_before_u16_clipping() {
         "disabled highlight treatment remains explicit in the fused result"
     );
     bool disabled_preserves_channel_difference = false;
-    for (std::size_t index = 0U; index < disabled.pixels.samples.size(); index += 3U) {
-        const auto red = disabled.pixels.samples[index];
-        const auto green = disabled.pixels.samples[index + 1U];
-        const auto blue = disabled.pixels.samples[index + 2U];
+    for (std::size_t index = 0U; index < disabled.scene_linear.samples.size(); index += 3U) {
+        const auto red = disabled.scene_linear.samples[index];
+        const auto green = disabled.scene_linear.samples[index + 1U];
+        const auto blue = disabled.scene_linear.samples[index + 2U];
         disabled_preserves_channel_difference =
             disabled_preserves_channel_difference
-            || std::min({red, green, blue}) + 2U < std::max({red, green, blue});
+            || std::min({red, green, blue}) + 1.0e-3F < std::max({red, green, blue});
     }
     expect(
         disabled_preserves_channel_difference,
         "disabled highlight treatment does not silently neutralize clipped sensor colours"
     );
 
-    const auto one_channel = image::develop_bayer_linear_srgb_u16_fused_with_backend(
+    const auto one_channel = image::develop_bayer_linear_srgb_f32_fused_with_backend(
         single_channel_clipped_frame(),
         transform,
         std::nullopt,
         image::RawDevelopmentBackendMode::cpu
     );
-    for (std::size_t index = 0U; index < one_channel.pixels.samples.size(); index += 3U) {
-        const auto red = one_channel.pixels.samples[index];
-        const auto green = one_channel.pixels.samples[index + 1U];
-        const auto blue = one_channel.pixels.samples[index + 2U];
+    for (std::size_t index = 0U; index < one_channel.scene_linear.samples.size(); index += 3U) {
+        const auto red = one_channel.scene_linear.samples[index];
+        const auto green = one_channel.scene_linear.samples[index + 1U];
+        const auto blue = one_channel.scene_linear.samples[index + 2U];
         const auto min_channel = std::min({red, green, blue});
         const auto max_channel = std::max({red, green, blue});
         expect(
-            min_channel >= 65'530U && max_channel - min_channel <= 2U,
-            "a single clipped CFA colour with near-white companions cannot create a colour rim"
+            min_channel > 0.5F && max_channel - min_channel <= 0.25F,
+            "a single clipped CFA colour with near-white companions stays bounded before output mapping"
         );
     }
 
     if (!image::raw_development_backend_available(image::RawDevelopmentBackend::metal)) {
         return;
     }
-    const auto cpu = image::develop_bayer_linear_srgb_u16_fused_with_backend(
+    const auto cpu = image::develop_bayer_linear_srgb_f32_fused_with_backend(
         sensor_clipped_frame(),
         transform,
         std::nullopt,
         image::RawDevelopmentBackendMode::cpu
     );
-    const auto metal = image::develop_bayer_linear_srgb_u16_fused_with_backend(
+    const auto metal = image::develop_bayer_linear_srgb_f32_fused_with_backend(
         sensor_clipped_frame(),
         transform,
         std::nullopt,
         image::RawDevelopmentBackendMode::metal
     );
     expect(
-        metal.pixels.samples == cpu.pixels.samples,
+        metal.scene_linear.samples == cpu.scene_linear.samples,
         "Metal applies the same sensor-highlight neutralization as CPU"
     );
 
-    const auto disabled_metal = image::develop_bayer_linear_srgb_u16_fused_with_backend(
+    const auto disabled_metal = image::develop_bayer_linear_srgb_f32_fused_with_backend(
         sensor_clipped_frame(),
         transform,
         std::nullopt,
@@ -510,19 +576,19 @@ void sensor_clipped_highlights_are_neutral_before_u16_clipping() {
         disabled_metal.highlight_recovery == image::RawHighlightRecoveryIntent::disabled,
         "Metal records disabled sensor-highlight treatment"
     );
-    std::uint16_t maximum_disabled_difference = 0U;
-    for (std::size_t index = 0U; index < disabled.pixels.samples.size(); ++index) {
+    float maximum_disabled_difference = 0.0F;
+    for (std::size_t index = 0U; index < disabled.scene_linear.samples.size(); ++index) {
         maximum_disabled_difference = std::max(
             maximum_disabled_difference,
-            static_cast<std::uint16_t>(std::abs(
-                static_cast<std::int32_t>(disabled.pixels.samples[index])
-                - static_cast<std::int32_t>(disabled_metal.pixels.samples[index])
-            ))
+            std::abs(
+                disabled.scene_linear.samples[index]
+                - disabled_metal.scene_linear.samples[index]
+            )
         );
     }
     expect(
-        maximum_disabled_difference <= 2U,
-        "Metal disabled-highlight output stays within two u16 codes of CPU"
+        maximum_disabled_difference <= 4.0e-5F,
+        "Metal disabled-highlight output stays within fp32 CPU tolerance"
     );
 }
 
@@ -534,7 +600,7 @@ void invalid_inputs_fail_closed() {
     }};
     auto unsupported_orientation = synthetic_frame(1);
     try {
-        static_cast<void>(image::develop_bayer_linear_srgb_u16_fused(
+        static_cast<void>(image::develop_bayer_linear_srgb_f32_fused(
             unsupported_orientation,
             identity
         ));
@@ -547,7 +613,7 @@ void invalid_inputs_fail_closed() {
     }
 
     try {
-        static_cast<void>(image::develop_bayer_linear_srgb_u16_fused(
+        static_cast<void>(image::develop_bayer_linear_srgb_f32_fused(
             synthetic_frame(0),
             image::RawFrameLinearTransform{},
             0U
@@ -561,7 +627,7 @@ void invalid_inputs_fail_closed() {
     }
 
     try {
-        static_cast<void>(image::develop_bayer_linear_srgb_u16_fused_with_backend(
+        static_cast<void>(image::develop_bayer_linear_srgb_f32_fused_with_backend(
             synthetic_frame(0),
             identity,
             std::nullopt,
@@ -592,7 +658,7 @@ void invalid_inputs_fail_closed() {
                  image::RawDevelopmentBackendMode::metal,
              }) {
             try {
-                static_cast<void>(image::develop_bayer_linear_srgb_u16_fused_with_backend(
+                static_cast<void>(image::develop_bayer_linear_srgb_f32_fused_with_backend(
                     degenerate,
                     identity,
                     std::nullopt,
@@ -614,6 +680,7 @@ void invalid_inputs_fail_closed() {
 int main() {
     full_resolution_matches_reference_for_every_supported_orientation();
     area_preview_matches_reference_for_every_supported_orientation();
+    high_quality_reconstruction_is_explicit_and_preview_safe();
     metal_full_resolution_stays_within_the_linear_u16_contract();
     metal_area_preview_preserves_the_cfa_footprint_contract();
     sensor_clipped_highlights_are_neutral_before_u16_clipping();

@@ -40,6 +40,16 @@ void validate_bayer_frame(const RawFrame& frame, const char* operation);
     std::uint32_t raw_y
 );
 
+// Detail/export reconstruction uses a directional green estimate plus local
+// colour-difference interpolation. This stays in the sensor domain and shares
+// the bilinear sample's clipping evidence, so highlight handling remains one
+// later, explicit stage.
+[[nodiscard]] CameraRgbSample edge_aware_camera_rgb_sample_at(
+    const RawFrame& frame,
+    std::uint32_t raw_x,
+    std::uint32_t raw_y
+);
+
 // Precomputes scale ratios once per preview render. Each sampling call then integrates the exact
 // active-sensor footprint represented by its target pixel, independently per CFA colour.
 [[nodiscard]] BayerAreaSamplingGrid make_bayer_area_sampling_grid(

@@ -3,8 +3,10 @@
 #include <shadow/image/edit.hpp>
 #include <shadow/image/fused_raw_development.hpp>
 #include <shadow/image/raw_denoise.hpp>
+#include <shadow/image/source_rendering.hpp>
 
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -156,8 +158,8 @@ public:
         std::string normalized_make = {},
         std::string normalized_model = {}
     ) : frame_(std::move(frame)) {
-        metadata_.raw_dimensions = {4U, 4U};
-        metadata_.image_dimensions = {4U, 4U};
+        metadata_.raw_dimensions = frame_.descriptor.active_dimensions;
+        metadata_.image_dimensions = frame_.descriptor.active_dimensions;
         metadata_.normalized_make = std::move(normalized_make);
         metadata_.normalized_model = std::move(normalized_model);
         capabilities_.metadata = true;
@@ -220,6 +222,46 @@ private:
     }};
 }
 
+[[nodiscard]] image::RawFrame gradient_bayer_frame() {
+    auto frame = synthetic_bayer_frame();
+    auto& descriptor = frame.descriptor;
+    descriptor.storage_dimensions = {32U, 32U};
+    descriptor.active_dimensions = descriptor.storage_dimensions;
+    descriptor.as_shot_neutral = {1.0, 1.0, 1.0, 1.0};
+    descriptor.white_levels = {1'000U, 1'000U, 1'000U, 1'000U};
+    frame.samples.resize(32U * 32U);
+    for (std::uint32_t y = 0U; y < 32U; ++y) {
+        for (std::uint32_t x = 0U; x < 32U; ++x) {
+            const double normalized = 0.08 + 0.56
+                * static_cast<double>(x + y) / 62.0;
+            frame.samples[static_cast<std::size_t>(y) * 32U + x] =
+                static_cast<std::uint16_t>(std::round(normalized * 1'000.0));
+        }
+    }
+    return frame;
+}
+
+[[nodiscard]] image::DcpHsvTable identity_hue_sat_table() {
+    return image::DcpHsvTable{
+        .hue_divisions = 1U,
+        .saturation_divisions = 2U,
+        .value_divisions = 1U,
+        .encoding = image::DcpTableEncoding::linear,
+        .entries = {
+            image::DcpHsvDelta{
+                .hue_shift_degrees = 0.0F,
+                .saturation_scale = 1.0F,
+                .value_scale = 1.0F,
+            },
+            image::DcpHsvDelta{
+                .hue_shift_degrees = 0.0F,
+                .saturation_scale = 1.0F,
+                .value_scale = 1.0F,
+            },
+        },
+    };
+}
+
 [[nodiscard]] image::CameraProfileCatalog exact_dcp_catalog() {
     image::DcpProfile profile;
     profile.unique_camera_model = "OPEN CAMERA MK I";
@@ -236,7 +278,12 @@ private:
         1.0,
         0.825104603
     );
-    profile.baseline_exposure_offset_ev = 1.0;
+    // Keep the DCP post-stage route active while intentionally producing
+    // scene-linear values above display white. The pipeline must retain this
+    // fp32 headroom rather than falling back to a packed u16 buffer merely to
+    // execute a camera profile's HueSatMap.
+    profile.calibration1.hue_sat_map = identity_hue_sat_table();
+    profile.baseline_exposure_offset_ev = 3.0;
     return image::CameraProfileCatalog{
         .profiles = {
             image::CameraProfileDefinition{
@@ -264,8 +311,9 @@ void automatic_pipeline_prefers_owned_raw_frame() {
         "automatic RAW preparation records Shadow's owned RawFrame developer"
     );
     expect(
-        developed.pixels.dimensions == image::Dimensions{2U, 2U}
-            && developed.pixels.reference == image::RgbBufferReference::processed_raw,
+        std::holds_alternative<image::SceneLinearRgbFrame>(developed.source)
+            && std::get<image::SceneLinearRgbFrame>(developed.source).dimensions
+                == image::Dimensions{2U, 2U},
         "area preview produces bounded standardized scene-linear RGB"
     );
     expect(
@@ -273,18 +321,25 @@ void automatic_pipeline_prefers_owned_raw_frame() {
         "supported RawFrame preparation never asks the provider to develop RGB"
     );
     expect(
-        developed.pixels.raw_development_receipt.development_settings_signature.find(
+        developed.sensor_clipping_mask.has_value()
+            && developed.sensor_clipping_mask->valid()
+            && developed.sensor_clipping_mask->dimensions == image::Dimensions{2U, 2U},
+        "RAW development carries a valid source clipping map at the same bounded display extent"
+    );
+    expect(
+        developed.raw_development_receipt.development_settings_signature.find(
             "bayer-area-preview"
         ) != std::string::npos,
         "preview receipt distinguishes CFA area integration from full bilinear development"
     );
     for (std::size_t pixel = 0U; pixel < 4U; ++pixel) {
         const std::size_t index = pixel * 3U;
-        const auto red = developed.pixels.samples[index];
-        const auto green = developed.pixels.samples[index + 1U];
-        const auto blue = developed.pixels.samples[index + 2U];
+        const auto& pixels = std::get<image::SceneLinearRgbFrame>(developed.source).samples;
+        const auto red = pixels[index];
+        const auto green = pixels[index + 1U];
+        const auto blue = pixels[index + 2U];
         expect(
-            red == green && green == blue && red >= 13'106U && red <= 13'108U,
+            red == green && green == blue && red >= 0.199F && red <= 0.201F,
             "as-shot neutral and camera matrix are applied after CFA-aware area integration"
         );
     }
@@ -310,7 +365,7 @@ void full_pipeline_records_the_effective_backend_in_every_identity() {
         }
     );
     expect(
-        developed.pixels.raw_development_receipt.development_settings_signature.find(
+        developed.raw_development_receipt.development_settings_signature.find(
             expected_identity
         ) != std::string::npos,
         "full development receipt records the effective CPU or Metal backend"
@@ -343,7 +398,7 @@ void unsupported_host_stage_falls_back_explicitly() {
     );
     expect(
         session.raw_frame_count() == 1U && session.processed_count() == 1U
-            && developed.pixels.samples.front() == 7'777U,
+            && std::get<image::PixelBuffer>(developed.source).samples.front() == 7'777U,
         "fallback reuses the same provider session without hiding its compatibility pixels"
     );
 
@@ -397,15 +452,28 @@ void exact_dcp_replaces_missing_generic_matrix() {
         session.raw_frame_count() == 1U && session.processed_count() == 0U,
         "DCP-calibrated RawFrame never asks provider for processed RGB"
     );
+    expect(
+        std::holds_alternative<image::SceneLinearRgbFrame>(developed.source),
+        "DCP post stages keep owned RAW development at the scene-linear fp32 boundary"
+    );
+    if (!std::holds_alternative<image::SceneLinearRgbFrame>(developed.source)) {
+        return;
+    }
+    const auto& developed_pixels = std::get<image::SceneLinearRgbFrame>(developed.source).samples;
+    expect(
+        *std::max_element(developed_pixels.begin(), developed_pixels.end()) > 1.0F,
+        "DCP post stages preserve super-white RAW values for later highlight recovery"
+    );
     for (std::size_t pixel = 0U; pixel < 4U; ++pixel) {
         const std::size_t index = pixel * 3U;
         expect(
-            developed.pixels.samples[index] >= 26'210U
-                && developed.pixels.samples[index] <= 26'220U
-                && developed.pixels.samples[index + 1U]
-                    == developed.pixels.samples[index]
-                && developed.pixels.samples[index + 2U]
-                    == developed.pixels.samples[index],
+            developed_pixels[index] > 0.0F
+                && std::abs(
+                    developed_pixels[index + 1U] - developed_pixels[index]
+                ) < 1.0e-3F
+                && std::abs(
+                    developed_pixels[index + 2U] - developed_pixels[index]
+                ) < 1.0e-3F,
             "DCP ForwardMatrix keeps the neutral and applies BaselineExposureOffset"
         );
     }
@@ -498,6 +566,12 @@ void raw_denoise_is_cfa_preserving_and_preview_aware() {
             && session.processed_count() == 0U,
         "a host-owned robust RAW plan is not pre-empted by the provider RGB fallback"
     );
+    expect(
+        warm.sensor_clipping_mask().has_value()
+            && warm.sensor_clipping_mask()->valid()
+            && warm.sensor_clipping_mask()->dimensions == warm.dimensions(),
+        "a warm RAW preview retains its clipping diagnostic without a second provider decode"
+    );
 }
 
 void raw_denoise_execution_and_calibration_are_cache_visible() {
@@ -547,7 +621,7 @@ void raw_denoise_execution_and_calibration_are_cache_visible() {
             && image::raw_pipeline_receipt_identity(developed.pipeline_receipt).find(
                    first.receipt.cache_identity
                ) != std::string::npos
-            && developed.pixels.raw_development_receipt.development_settings_signature.find(
+            && developed.raw_development_receipt.development_settings_signature.find(
                    first.receipt.cache_identity
                ) != std::string::npos,
         "RAW source, canonical cache, and development receipts share denoise provenance"
@@ -568,7 +642,7 @@ void raw_highlight_treatment_is_executed_and_cache_visible() {
     );
     constexpr std::string_view disabled_identity = "sensor-highlights=disabled";
     expect(
-        developed.pixels.raw_development_receipt.development_settings_signature.find(
+        developed.raw_development_receipt.development_settings_signature.find(
             disabled_identity
         ) != std::string::npos
             && developed.pipeline_receipt.pipeline_identity.find(disabled_identity)
@@ -577,6 +651,114 @@ void raw_highlight_treatment_is_executed_and_cache_visible() {
                 disabled_identity
             ) != std::string::npos,
         "development, pipeline, and canonical cache identities record actual highlight treatment"
+    );
+}
+
+void high_quality_raw_plan_is_executed_and_cache_visible() {
+    auto plan = image::default_raw_development_plan();
+    plan.quality = image::RawDevelopmentQuality::high;
+    SyntheticRawSession session(synthetic_bayer_frame());
+    const auto developed = image::develop_source_reference(
+        session,
+        plan,
+        std::nullopt,
+        image::RawPipelinePolicy{
+            .mode = image::RawPipelineMode::require_shadow_raw_frame,
+        }
+    );
+    expect(
+        developed.pipeline_receipt.path == image::RawPipelinePath::shadow_raw_frame
+            && developed.pipeline_receipt.effective_plan == plan
+            && developed.raw_development_receipt.effective_plan == plan,
+        "Shadow's owned RawFrame developer accepts the high-quality development plan exactly"
+    );
+    expect(
+        developed.raw_development_receipt.demosaic_quality == 4U
+            && developed.raw_development_receipt.development_settings_signature.find(
+                "demosaic=bayer-edge-aware"
+            ) != std::string::npos
+            && image::raw_pipeline_receipt_identity(developed.pipeline_receipt).find(
+                "quality=high"
+            ) != std::string::npos,
+        "high-quality reconstruction is visible in source and cache provenance"
+    );
+}
+
+void host_raw_frame_capabilities_are_not_limited_by_provider_rgb_fallbacks() {
+    const auto capabilities = image::shadow_raw_frame_development_capabilities();
+    expect(
+        capabilities.available && capabilities.raw_frame
+            && (capabilities.supported_qualities
+                & image::raw_development_quality_mask(image::RawDevelopmentQuality::high)) != 0U
+            && (capabilities.supported_noise_reduction_intents
+                & image::raw_noise_reduction_intent_mask(
+                    image::RawNoiseReductionIntent::noise_robust
+                )) != 0U,
+        "host RawFrame capabilities declare the high-quality and RAW-denoise stages Shadow owns"
+    );
+
+    auto host_plan = image::preview_raw_development_plan();
+    host_plan.quality = image::RawDevelopmentQuality::high;
+    host_plan.noise_reduction = image::RawNoiseReductionIntent::noise_robust;
+    const auto accepted = image::negotiate_shadow_raw_frame_development_plan(host_plan);
+    expect(
+        accepted.accepted() && accepted.effective == host_plan,
+        "host RawFrame negotiation accepts a plan even when a provider RGB fallback is conservative"
+    );
+
+    host_plan.highlight_recovery = image::RawHighlightRecoveryIntent::aggressive;
+    const auto rejected = image::negotiate_shadow_raw_frame_development_plan(host_plan);
+    expect(
+        !rejected.accepted(),
+        "unsupported host sensor stages are rejected explicitly instead of being silently downgraded"
+    );
+}
+
+void raw_frame_source_calibration_is_identical_for_preview_and_detail() {
+    SyntheticRawSession session(gradient_bayer_frame());
+    const auto preview = image::develop_source_reference(
+        session,
+        image::preview_raw_development_plan(),
+        2U,
+        image::RawPipelinePolicy{.mode = image::RawPipelineMode::require_shadow_raw_frame}
+    );
+    const auto detail = image::develop_source_reference(
+        session,
+        image::default_raw_development_plan(),
+        std::nullopt,
+        image::RawPipelinePolicy{.mode = image::RawPipelineMode::require_shadow_raw_frame}
+    );
+    expect(
+        preview.pipeline_receipt.source_scene_luminance_percentile.has_value()
+            && detail.pipeline_receipt.source_scene_luminance_percentile.has_value()
+            && std::abs(
+                *preview.pipeline_receipt.source_scene_luminance_percentile
+                - *detail.pipeline_receipt.source_scene_luminance_percentile
+            ) < 1.0e-12,
+        "owned RAW source calibration is measured before the preview/detail render split"
+    );
+    const auto preview_receipt = image::resolve_source_rendering(
+        std::get<image::SceneLinearRgbFrame>(preview.source),
+        session.metadata(),
+        preview.pipeline_receipt
+    );
+    const auto detail_receipt = image::resolve_source_rendering(
+        std::get<image::SceneLinearRgbFrame>(detail.source),
+        session.metadata(),
+        detail.pipeline_receipt
+    );
+    expect(
+        std::abs(
+            preview_receipt.standard_exposure_normalization_stops
+            - detail_receipt.standard_exposure_normalization_stops
+        ) < 1.0e-12,
+        "warm preview and full detail use one identical Shadow Standard exposure calibration"
+    );
+    expect(
+        image::raw_pipeline_receipt_identity(preview.pipeline_receipt).find(
+            "source-luminance-p99="
+        ) != std::string::npos,
+        "stable RAW source calibration participates in pipeline cache provenance"
     );
 }
 
@@ -590,5 +772,8 @@ int main() {
     raw_denoise_is_cfa_preserving_and_preview_aware();
     raw_denoise_execution_and_calibration_are_cache_visible();
     raw_highlight_treatment_is_executed_and_cache_visible();
+    high_quality_raw_plan_is_executed_and_cache_visible();
+    host_raw_frame_capabilities_are_not_limited_by_provider_rgb_fallbacks();
+    raw_frame_source_calibration_is_identical_for_preview_and_detail();
     return failures == 0 ? 0 : 1;
 }

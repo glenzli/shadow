@@ -36,12 +36,13 @@ struct MetalRawDenoiseAttempt final {
 );
 
 // Metal Bayer reconstruction, CFA-aware area previews, camera transform and orientation into the
-// common linear-sRGB u16 boundary. A typed unavailable result preserves CPU fallback semantics.
-[[nodiscard]] MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_u16_metal(
+// common fp32 scene-linear sRGB boundary. A typed unavailable result preserves CPU fallback semantics.
+[[nodiscard]] MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
     const RawFrame& frame,
     const RawFrameLinearTransform& transform,
     std::optional<std::uint32_t> preview_max_edge,
-    RawHighlightRecoveryIntent highlight_recovery
+    RawHighlightRecoveryIntent highlight_recovery,
+    RawDevelopmentQuality quality
 );
 
 } // namespace shadow::image::detail

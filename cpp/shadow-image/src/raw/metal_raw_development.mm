@@ -158,11 +158,6 @@ inline float3 neutralize_sensor_clipped_highlight(
     return mix(scene_linear, float3(max(0.0f, peak)), blend);
 }
 
-inline ushort quantize_linear(float value) {
-    const float scaled = floor(clamp(value, 0.0f, 1.0f) * 65535.0f + 0.5f);
-    return ushort(scaled);
-}
-
 // Keep this stencil in the sensor domain: every neighbour is two samples away in both axes, so
 // red, green and blue measurements can never be averaged together before demosaic. Its arithmetic
 // mirrors raw_denoise.cpp; this implementation difference is intentionally only the executor.
@@ -264,7 +259,7 @@ kernel void denoise_bayer_same_cfa(
 
 kernel void develop_bayer_full(
     device const ushort* samples [[buffer(0)]],
-    device ushort* output [[buffer(1)]],
+    device float* output [[buffer(1)]],
     constant RawDevelopmentParameters& parameters [[buffer(2)]],
     uint2 position [[thread_position_in_grid]]
 ) {
@@ -318,9 +313,9 @@ kernel void develop_bayer_full(
     }
     const uint output_index =
         (position.y * parameters.output_width + output_x) * 3u;
-    output[output_index] = quantize_linear(scene_linear.x);
-    output[output_index + 1u] = quantize_linear(scene_linear.y);
-    output[output_index + 2u] = quantize_linear(scene_linear.z);
+    output[output_index] = scene_linear.x;
+    output[output_index + 1u] = scene_linear.y;
+    output[output_index + 2u] = scene_linear.z;
 }
 
 // Preview pixels integrate their complete active-sensor footprint per CFA colour before the
@@ -329,7 +324,7 @@ kernel void develop_bayer_full(
 // definition with double accumulation; Metal keeps the interactive path in f32.
 kernel void develop_bayer_area_preview(
     device const ushort* samples [[buffer(0)]],
-    device ushort* output [[buffer(1)]],
+    device float* output [[buffer(1)]],
     constant RawDevelopmentParameters& parameters [[buffer(2)]],
     uint2 position [[thread_position_in_grid]]
 ) {
@@ -441,9 +436,9 @@ kernel void develop_bayer_area_preview(
         scene_linear = neutralize_sensor_clipped_highlight(scene_linear, camera);
     }
     const uint output_index = (position.y * parameters.output_width + output_x) * 3u;
-    output[output_index] = quantize_linear(scene_linear.x);
-    output[output_index + 1u] = quantize_linear(scene_linear.y);
-    output[output_index + 2u] = quantize_linear(scene_linear.z);
+    output[output_index] = scene_linear.x;
+    output[output_index + 1u] = scene_linear.y;
+    output[output_index + 2u] = scene_linear.z;
 }
 )METAL";
 
@@ -749,7 +744,7 @@ private:
     );
 }
 
-[[nodiscard]] PixelBuffer allocate_output(const Dimensions dimensions) {
+[[nodiscard]] SceneLinearRgbFrame allocate_output(const Dimensions dimensions) {
     std::size_t pixel_count = 0U;
     std::size_t sample_count = 0U;
     if (!checked_multiply(
@@ -765,15 +760,10 @@ private:
         );
     }
 
-    PixelBuffer output;
+    SceneLinearRgbFrame output;
     output.dimensions = dimensions;
-    output.bits_per_channel = 16U;
-    output.channels = 3U;
     output.row_stride_bytes =
-        static_cast<std::size_t>(dimensions.width) * 3U * sizeof(std::uint16_t);
-    output.primaries = RgbPrimaries::srgb_rec709_d65;
-    output.transfer_function = RgbTransferFunction::linear;
-    output.reference = RgbBufferReference::processed_raw;
+        static_cast<std::size_t>(dimensions.width) * 3U * sizeof(float);
     output.samples.resize(sample_count);
     return output;
 }
@@ -1012,12 +1002,19 @@ MetalRawDenoiseAttempt try_denoise_bayer_raw_frame_metal(
     };
 }
 
-MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_u16_metal(
+MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
     const RawFrame& frame,
     const RawFrameLinearTransform& transform,
     const std::optional<std::uint32_t> preview_max_edge,
-    const RawHighlightRecoveryIntent highlight_recovery
+    const RawHighlightRecoveryIntent highlight_recovery,
+    const RawDevelopmentQuality quality
 ) {
+    if (!preview_max_edge.has_value() && quality == RawDevelopmentQuality::high) {
+        return MetalRawDevelopmentAttempt{
+            .development = std::nullopt,
+            .diagnostic = "Metal high-quality Bayer reconstruction is not implemented yet",
+        };
+    }
     const Dimensions reconstruction_dimensions = preview_max_edge.has_value()
         ? proxy_dimensions(frame.descriptor.active_dimensions, *preview_max_edge)
         : frame.descriptor.active_dimensions;
@@ -1058,7 +1055,7 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_u16_metal(
     std::size_t output_row_bytes = 0U;
     if (!checked_multiply(
             static_cast<std::size_t>(output_dimensions.width),
-            3U * sizeof(std::uint16_t),
+            3U * sizeof(float),
             output_row_bytes
         )
         || output_row_bytes == 0U) {
@@ -1124,7 +1121,7 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_u16_metal(
     // allocation. Concurrent full-resolution requests then cannot multiply peak output memory
     // while waiting for the single shared command queue.
     std::lock_guard execution_lock(metal_execution_mutex());
-    PixelBuffer output = allocate_output(output_dimensions);
+    SceneLinearRgbFrame output = allocate_output(output_dimensions);
     @autoreleasepool {
         OwnedObjectiveCObject input_buffer(
             [context.device()
@@ -1231,7 +1228,7 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_u16_metal(
     }
 
     FusedRawFrameDevelopment development{
-        .pixels = std::move(output),
+        .scene_linear = std::move(output),
         .demosaic_receipt = make_receipt(
             frame,
             area_preview

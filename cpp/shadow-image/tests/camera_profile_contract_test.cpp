@@ -380,6 +380,18 @@ void dual_illuminant_interpolation_is_deterministic() {
     return pixel;
 }
 
+[[nodiscard]] image::SceneLinearRgbFrame one_scene_linear_srgb_pixel(
+    const float red,
+    const float green,
+    const float blue
+) {
+    return image::SceneLinearRgbFrame{
+        .dimensions = image::Dimensions{1U, 1U},
+        .row_stride_bytes = 3U * sizeof(float),
+        .samples = {red, green, blue},
+    };
+}
+
 void standard_dcp_rendering_stages_compile_and_apply() {
     auto definition = profile_definition(true);
     definition.profile.calibration1.hue_sat_map = value_scale_table(0.8F);
@@ -412,6 +424,63 @@ void standard_dcp_rendering_stages_compile_and_apply() {
     );
 }
 
+void scene_linear_dcp_stages_preserve_highlight_headroom() {
+    auto definition = profile_definition(true);
+    definition.profile.calibration1.hue_sat_map = value_scale_table(1.0F);
+    const auto transform = image::compile_dcp_color_transform(definition, raw_descriptor());
+    auto pixel = one_scene_linear_srgb_pixel(1.5F, 1.0F, 0.5F);
+    image::apply_dcp_color_rendering_stages(pixel, transform);
+    expect(
+        pixel.valid() && pixel.samples[0] > 1.35F,
+        "scene-linear DCP rendering keeps super-white RAW headroom"
+    );
+    expect_close(
+        static_cast<double>(pixel.samples[1] / pixel.samples[0]),
+        2.0 / 3.0,
+        2.0e-3,
+        "identity DCP HueSatMap preserves the normalized HDR colour ratio"
+    );
+}
+
+void large_scene_linear_dcp_stage_matches_the_single_pixel_reference() {
+    auto definition = profile_definition(true);
+    definition.profile.calibration1.hue_sat_map = value_scale_table(0.8F);
+    definition.profile.look_table = value_scale_table(0.7F);
+    definition.profile.tone_curve = {
+        image::DcpToneCurvePoint{0.0F, 0.0F},
+        image::DcpToneCurvePoint{0.5F, 0.35F},
+        image::DcpToneCurvePoint{1.0F, 1.0F},
+    };
+    const auto transform = image::compile_dcp_color_transform(definition, raw_descriptor());
+    auto expected = one_scene_linear_srgb_pixel(0.91F, 0.37F, 0.08F);
+    image::apply_dcp_color_rendering_stages(expected, transform);
+
+    // This exceeds the DCP work partitioning threshold. Every pixel begins
+    // with exactly the same data, so any split/exception ordering issue would
+    // be visible as a result that differs from the known single-pixel oracle.
+    image::SceneLinearRgbFrame frame{
+        .dimensions = image::Dimensions{256U, 192U},
+        .row_stride_bytes = 256U * 3U * sizeof(float),
+    };
+    frame.samples.reserve(static_cast<std::size_t>(frame.dimensions.width)
+        * frame.dimensions.height * 3U);
+    for (std::size_t pixel = 0U;
+         pixel < static_cast<std::size_t>(frame.dimensions.width) * frame.dimensions.height;
+         ++pixel) {
+        frame.samples.insert(frame.samples.end(), {0.91F, 0.37F, 0.08F});
+    }
+    image::apply_dcp_color_rendering_stages(frame, transform);
+    expect(frame.valid(), "large scene-linear DCP result retains the frame contract");
+    for (std::size_t index = 0U; index < frame.samples.size(); ++index) {
+        expect_close(
+            frame.samples[index],
+            expected.samples[index % 3U],
+            1.0e-6,
+            "parallel DCP post stages preserve the serial per-pixel result"
+        );
+    }
+}
+
 void configured_public_rawtherapee_profile_parses_when_available() {
     const auto* configured = std::getenv("SHADOW_TEST_RAWTHERAPEE_DCP_PROFILE");
     if (configured == nullptr || *configured == '\0') {
@@ -433,6 +502,8 @@ int main() {
     color_matrix_is_inverted_and_adapted();
     dual_illuminant_interpolation_is_deterministic();
     standard_dcp_rendering_stages_compile_and_apply();
+    scene_linear_dcp_stages_preserve_highlight_headroom();
+    large_scene_linear_dcp_stage_matches_the_single_pixel_reference();
     configured_public_rawtherapee_profile_parses_when_available();
     std::cout << "shadow image camera profile contract tests passed\n";
 }

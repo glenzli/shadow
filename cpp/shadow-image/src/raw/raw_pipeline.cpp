@@ -4,6 +4,8 @@
 #include <shadow/image/fused_raw_development.hpp>
 #include <shadow/image/raw_denoise.hpp>
 
+#include "bayer_sampling.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -16,6 +18,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace shadow::image {
 
@@ -24,7 +27,9 @@ namespace {
 inline constexpr std::string_view raw_pipeline_environment = "SHADOW_RAW_PIPELINE";
 inline constexpr std::string_view raw_frame_pipeline_identity =
     "shadow-raw-frame-developer-v1:bayer-area-preview+bayer-bilinear:"
-    "raw-denoise-cfa-bilateral-v1:as-shot-neutral:camera-matrix:linear-srgb-u16";
+    "raw-denoise-cfa-bilateral-v1:as-shot-neutral:camera-matrix:scene-linear-f32";
+inline constexpr std::uint32_t source_luminance_sample_edge = 256U;
+inline constexpr double source_luminance_percentile = 0.990;
 
 [[nodiscard]] const char* path_name(const RawPipelinePath path) noexcept {
     switch (path) {
@@ -220,6 +225,89 @@ using Matrix3 = std::array<double, 9U>;
     return RawFrameLinearTransform{camera_to_srgb};
 }
 
+[[nodiscard]] double sampled_scene_linear_luminance_percentile(
+    const RawFrame& frame,
+    const RawFrameLinearTransform& transform,
+    const DcpColorTransform* camera_profile
+) {
+    detail::validate_bayer_frame(frame, "RAW source luminance sampling");
+    if (!transform.valid()) {
+        throw DecodeError(
+            DecodeErrorCode::invalid_request,
+            0,
+            "RAW source luminance sampling requires a finite camera transform"
+        );
+    }
+
+    const Dimensions active = frame.descriptor.active_dimensions;
+    const std::uint32_t sample_columns = std::min(active.width, source_luminance_sample_edge);
+    const std::uint32_t sample_rows = std::min(active.height, source_luminance_sample_edge);
+    SceneLinearRgbFrame samples;
+    samples.dimensions = {sample_columns, sample_rows};
+    samples.row_stride_bytes = static_cast<std::size_t>(sample_columns) * 3U * sizeof(float);
+    samples.samples.resize(
+        static_cast<std::size_t>(sample_columns) * sample_rows * 3U
+    );
+    const auto source_coordinate = [](const std::uint32_t index,
+                                      const std::uint32_t sample_count,
+                                      const std::uint32_t full_count) noexcept {
+        if (sample_count <= 1U) {
+            return full_count / 2U;
+        }
+        return static_cast<std::uint32_t>(
+            static_cast<std::uint64_t>(index) * (full_count - 1U) / (sample_count - 1U)
+        );
+    };
+    for (std::uint32_t y = 0U; y < sample_rows; ++y) {
+        const std::uint32_t raw_y = frame.descriptor.active_margins.top
+            + source_coordinate(y, sample_rows, active.height);
+        for (std::uint32_t x = 0U; x < sample_columns; ++x) {
+            const std::uint32_t raw_x = frame.descriptor.active_margins.left
+                + source_coordinate(x, sample_columns, active.width);
+            const auto camera = detail::bilinear_camera_rgb_at(frame, raw_x, raw_y);
+            const std::size_t index =
+                (static_cast<std::size_t>(y) * sample_columns + x) * 3U;
+            for (std::size_t output = 0U; output < 3U; ++output) {
+                double linear_srgb = 0.0;
+                for (std::size_t input = 0U; input < 3U; ++input) {
+                    linear_srgb += transform.camera_to_linear_srgb_d65[output * 3U + input]
+                        * static_cast<double>(camera[input]);
+                }
+                samples.samples[index + output] = static_cast<float>(linear_srgb);
+            }
+        }
+    }
+    if (camera_profile != nullptr && camera_profile->has_post_matrix_stages()) {
+        apply_dcp_color_rendering_stages(samples, *camera_profile);
+    }
+
+    std::vector<double> luminances;
+    luminances.reserve(samples.dimensions.pixel_count());
+    for (std::size_t index = 0U; index < samples.samples.size(); index += 3U) {
+        const double luminance = static_cast<double>(samples.samples[index]) * 0.2126
+            + static_cast<double>(samples.samples[index + 1U]) * 0.7152
+            + static_cast<double>(samples.samples[index + 2U]) * 0.0722;
+        if (std::isfinite(luminance) && luminance >= 0.0) {
+            luminances.push_back(luminance);
+        }
+    }
+    if (luminances.empty()) {
+        return 0.0;
+    }
+    const std::size_t percentile_index = std::min(
+        luminances.size() - 1U,
+        static_cast<std::size_t>(std::floor(
+            static_cast<double>(luminances.size() - 1U) * source_luminance_percentile
+        ))
+    );
+    std::nth_element(
+        luminances.begin(),
+        luminances.begin() + static_cast<std::ptrdiff_t>(percentile_index),
+        luminances.end()
+    );
+    return luminances[percentile_index];
+}
+
 [[nodiscard]] RawDevelopmentReceipt raw_frame_development_receipt(
     const RawFrameDescriptor& descriptor,
     const RawDevelopmentPlan& plan,
@@ -235,10 +323,17 @@ using Matrix3 = std::array<double, 9U>;
         ? "provider-neutral-raw-frame" : descriptor.provider_id;
     receipt.provider_version = descriptor.provider_version.empty()
         ? "unrecorded" : descriptor.provider_version;
-    receipt.development_settings_signature =
-        demosaic.algorithm == RawDemosaicAlgorithm::bayer_area_preview_v1
-        ? "shadow-raw-v1;demosaic=bayer-area-preview"
-        : "shadow-raw-v1;demosaic=bayer-bilinear";
+    switch (demosaic.algorithm) {
+    case RawDemosaicAlgorithm::bayer_area_preview_v1:
+        receipt.development_settings_signature = "shadow-raw-v1;demosaic=bayer-area-preview";
+        break;
+    case RawDemosaicAlgorithm::bayer_edge_aware_v1:
+        receipt.development_settings_signature = "shadow-raw-v1;demosaic=bayer-edge-aware";
+        break;
+    case RawDemosaicAlgorithm::bayer_bilinear_v1:
+        receipt.development_settings_signature = "shadow-raw-v1;demosaic=bayer-bilinear";
+        break;
+    }
     receipt.development_settings_signature += ";backend="
         + std::string(raw_development_backend_identity(backend));
     receipt.development_settings_signature += ";"
@@ -270,9 +365,9 @@ using Matrix3 = std::array<double, 9U>;
     receipt.use_exposure_correction = false;
     receipt.brightness = 1.0F;
     receipt.maximum_adjustment_threshold = 0.0F;
-    receipt.output_bits_per_channel = 16U;
-    receipt.demosaic_quality = demosaic.algorithm
-        == RawDemosaicAlgorithm::bayer_area_preview_v1 ? 1 : 3;
+    receipt.output_bits_per_channel = 32U;
+    receipt.demosaic_quality = demosaic.algorithm == RawDemosaicAlgorithm::bayer_area_preview_v1
+        ? 1 : demosaic.algorithm == RawDemosaicAlgorithm::bayer_edge_aware_v1 ? 4 : 3;
     receipt.output_color = 1;
     receipt.gamma_inverse_power = 1.0;
     receipt.gamma_linear_toe_slope = 1.0;
@@ -287,11 +382,14 @@ using Matrix3 = std::array<double, 9U>;
 }
 
 struct DevelopedRawFrame final {
-    PixelBuffer pixels;
+    DevelopedSourcePixels source;
+    RawDevelopmentReceipt raw_development_receipt;
+    SensorClippingMask sensor_clipping_mask;
     RawDevelopmentBackend backend = RawDevelopmentBackend::cpu;
     RawHighlightRecoveryIntent highlight_recovery =
         RawHighlightRecoveryIntent::provider_default;
     std::string raw_denoise_cache_identity;
+    double source_scene_luminance_percentile = 0.0;
 };
 
 [[nodiscard]] DevelopedRawFrame develop_raw_frame(
@@ -337,6 +435,28 @@ struct DevelopedRawFrame final {
     const RawFrameLinearTransform transform = camera_profile == nullptr
         ? generic_raw_frame_transform(frame.descriptor)
         : RawFrameLinearTransform{camera_profile->camera_to_linear_srgb_d65};
+    // Measure the source once before preview downsampling, CFA denoise, and the detail branch.
+    // This is deliberately a calibration statistic, not a user auto-exposure operation.
+    const double source_scene_luminance = sampled_scene_linear_luminance_percentile(
+        frame,
+        transform,
+        camera_profile
+    );
+    // This is deliberately sampled before RAW-domain denoise. Zebra diagnostics describe
+    // irreversible sensor clipping in the source CFA, not the values left after an optional
+    // reconstruction aid. Keep this dimension calculation aligned with the fused developer's
+    // preview and orientation policy without making a second source-frame copy.
+    const Dimensions reconstruction_dimensions = preview_max_edge.has_value()
+        ? proxy_dimensions(frame.descriptor.active_dimensions, *preview_max_edge)
+        : frame.descriptor.active_dimensions;
+    const Dimensions diagnostic_dimensions =
+        frame.descriptor.orientation == 5 || frame.descriptor.orientation == 6
+        ? Dimensions{reconstruction_dimensions.height, reconstruction_dimensions.width}
+        : reconstruction_dimensions;
+    SensorClippingMask sensor_clipping_mask = project_sensor_clipping_mask(
+        frame,
+        diagnostic_dimensions
+    );
     RawBayerDenoiseResult denoised = denoise_bayer_raw_frame(
         std::move(frame),
         RawBayerDenoiseRequest{
@@ -345,34 +465,41 @@ struct DevelopedRawFrame final {
             .preview = preview_max_edge.has_value(),
         }
     );
-    FusedRawFrameDevelopment developed = develop_bayer_linear_srgb_u16_fused(
+    FusedRawFrameDevelopment developed = develop_bayer_linear_srgb_f32_fused(
         denoised.frame,
         transform,
         preview_max_edge,
-        plan.highlight_recovery
+        plan.highlight_recovery,
+        plan.quality
     );
-    PixelBuffer output = std::move(developed.pixels);
-    if (camera_profile != nullptr && camera_profile->has_post_matrix_stages()) {
-        // DCP's HueSatMap/LookTable/ProfileToneCurve define input rendering.
-        // They intentionally run before the Recipe graph and are recorded in
-        // the DCP receipt, rather than leaking camera-specific style into a
-        // node the user might accidentally share across photos.
-        apply_dcp_color_rendering_stages(output, *camera_profile);
-    }
-    output.raw_development_receipt = raw_frame_development_receipt(
+    RawDevelopmentReceipt receipt = raw_frame_development_receipt(
         denoised.frame.descriptor,
         plan,
-        output.dimensions,
+        developed.scene_linear.dimensions,
         developed.demosaic_receipt,
         developed.backend,
         camera_profile,
         denoised.receipt
     );
+    DevelopedSourcePixels output = std::move(developed.scene_linear);
+    if (camera_profile != nullptr && camera_profile->has_post_matrix_stages()) {
+        // DCP's HueSatMap/LookTable/ProfileToneCurve define input rendering.
+        // They intentionally run before the Recipe graph and are recorded in
+        // the DCP receipt, rather than leaking camera-specific style into a
+        // node the user might accidentally share across photos.
+        apply_dcp_color_rendering_stages(
+            std::get<SceneLinearRgbFrame>(output),
+            *camera_profile
+        );
+    }
     return DevelopedRawFrame{
-        .pixels = std::move(output),
+        .source = std::move(output),
+        .raw_development_receipt = std::move(receipt),
+        .sensor_clipping_mask = std::move(sensor_clipping_mask),
         .backend = developed.backend,
         .highlight_recovery = developed.highlight_recovery,
         .raw_denoise_cache_identity = denoised.receipt.cache_identity,
+        .source_scene_luminance_percentile = source_scene_luminance,
     };
 }
 
@@ -403,8 +530,10 @@ struct DevelopedRawFrame final {
             "provider processed source produced an invalid RAW pipeline receipt"
         );
     }
+    RawDevelopmentReceipt raw_development_receipt = pixels.raw_development_receipt;
     return DevelopedSourceReference{
-        .pixels = std::move(pixels),
+        .source = std::move(pixels),
+        .raw_development_receipt = std::move(raw_development_receipt),
         .pipeline_receipt = std::move(pipeline),
     };
 }
@@ -414,9 +543,9 @@ struct DevelopedRawFrame final {
         || error.code() == DecodeErrorCode::unsupported_layout;
 }
 
-[[nodiscard]] RawDevelopmentPlanNegotiation negotiate_shadow_raw_frame_plan(
-    const RawDevelopmentPlan& requested
-) noexcept {
+} // namespace
+
+RawDevelopmentCapabilities shadow_raw_frame_development_capabilities() noexcept {
     RawDevelopmentCapabilities capabilities;
     capabilities.available = true;
     capabilities.raw_frame = true;
@@ -425,7 +554,8 @@ struct DevelopedRawFrame final {
         | raw_development_intent_mask(RawDevelopmentIntent::detail)
         | raw_development_intent_mask(RawDevelopmentIntent::export_image);
     capabilities.supported_qualities =
-        raw_development_quality_mask(RawDevelopmentQuality::balanced);
+        raw_development_quality_mask(RawDevelopmentQuality::balanced)
+        | raw_development_quality_mask(RawDevelopmentQuality::high);
     capabilities.supported_dng_opcode_policies =
         dng_opcode_policy_mask(DngOpcodePolicy::provider_default);
     capabilities.supported_noise_reduction_intents =
@@ -436,31 +566,17 @@ struct DevelopedRawFrame final {
     capabilities.supported_highlight_recovery_intents =
         raw_highlight_recovery_intent_mask(RawHighlightRecoveryIntent::provider_default)
         | raw_highlight_recovery_intent_mask(RawHighlightRecoveryIntent::disabled);
-
-    auto negotiation = shadow::image::negotiate_raw_development_plan(
-        requested,
-        capabilities
-    );
-    // The first owned developer has one full-quality bilinear/area baseline. A caller asking for
-    // the future high-quality tier can still proceed, but the downgrade must be visible in both
-    // source and pipeline receipts so it cannot alias a later high-quality implementation.
-    if (
-        !negotiation.accepted()
-        && negotiation.unresolved == RawDevelopmentPlanAspect::quality
-        && requested.quality == RawDevelopmentQuality::high
-    ) {
-        auto effective = requested;
-        effective.quality = RawDevelopmentQuality::balanced;
-        if (capabilities.supports(effective)) {
-            negotiation.effective = effective;
-            negotiation.status = RawDevelopmentPlanNegotiationStatus::adjusted;
-            negotiation.unresolved = RawDevelopmentPlanAspect::none;
-        }
-    }
-    return negotiation;
+    return capabilities;
 }
 
-} // namespace
+RawDevelopmentPlanNegotiation negotiate_shadow_raw_frame_development_plan(
+    const RawDevelopmentPlan& requested
+) noexcept {
+    return shadow::image::negotiate_raw_development_plan(
+        requested,
+        shadow_raw_frame_development_capabilities()
+    );
+}
 
 bool RawPipelineReceipt::valid() const noexcept {
     if (
@@ -474,7 +590,9 @@ bool RawPipelineReceipt::valid() const noexcept {
         const bool raw_frame_is_valid =
             raw_frame_schema_version == shadow::image::raw_frame_schema_version
             && raw_developer_version == shadow_raw_frame_developer_version
-            && fallback_reason.empty();
+            && fallback_reason.empty() && source_scene_luminance_percentile.has_value()
+            && std::isfinite(*source_scene_luminance_percentile)
+            && *source_scene_luminance_percentile >= 0.0;
         if (!raw_frame_is_valid) {
             return false;
         }
@@ -500,6 +618,7 @@ bool RawPipelineReceipt::valid() const noexcept {
         return false;
     }
     return raw_frame_schema_version == 0U && raw_developer_version == 0U
+        && !source_scene_luminance_percentile.has_value()
         && camera_profile_status == RawCameraProfileStatus::not_considered
         && camera_profile_catalog_identity.empty() && camera_profile_identity.empty()
         && camera_profile_name.empty() && camera_profile_diagnostic.empty()
@@ -549,6 +668,10 @@ std::string raw_pipeline_receipt_identity(const RawPipelineReceipt& receipt) {
              << ";frame=" << receipt.raw_frame_schema_version
              << ";developer=" << receipt.raw_developer_version
              << ";effective=" << raw_development_plan_identity(receipt.effective_plan);
+    if (receipt.source_scene_luminance_percentile.has_value()) {
+        identity << ";source-luminance-p99=" << std::fixed << std::setprecision(8)
+                 << *receipt.source_scene_luminance_percentile;
+    }
     if (receipt.camera_profile_status != RawCameraProfileStatus::not_considered) {
         identity << ";camera-profile-status="
                  << camera_profile_status_name(receipt.camera_profile_status)
@@ -642,7 +765,7 @@ DevelopedSourceReference develop_source_reference(
     }
 
     try {
-        const auto negotiation = negotiate_shadow_raw_frame_plan(plan);
+        const auto negotiation = negotiate_shadow_raw_frame_development_plan(plan);
         if (!negotiation.accepted()) {
             throw DecodeError(
                 DecodeErrorCode::unsupported,
@@ -682,14 +805,16 @@ DevelopedSourceReference develop_source_reference(
             dcp_transform.has_value() ? &*dcp_transform : nullptr,
             session.metadata().iso_speed
         );
-        PixelBuffer pixels = std::move(developed.pixels);
-        pixels.raw_development_receipt.requested_plan = plan;
-        pixels.raw_development_receipt.requested_plan_identity =
+        RawDevelopmentReceipt raw_development_receipt = std::move(
+            developed.raw_development_receipt
+        );
+        raw_development_receipt.requested_plan = plan;
+        raw_development_receipt.requested_plan_identity =
             raw_development_plan_identity(plan);
-        pixels.raw_development_receipt.effective_plan = negotiation.effective;
-        pixels.raw_development_receipt.effective_plan_identity =
+        raw_development_receipt.effective_plan = negotiation.effective;
+        raw_development_receipt.effective_plan_identity =
             raw_development_plan_identity(negotiation.effective);
-        pixels.raw_development_receipt.plan_negotiation_status = negotiation.status;
+        raw_development_receipt.plan_negotiation_status = negotiation.status;
         RawPipelineReceipt pipeline;
         pipeline.path = RawPipelinePath::shadow_raw_frame;
         pipeline.pipeline_identity = std::string(raw_frame_pipeline_identity);
@@ -702,6 +827,8 @@ DevelopedSourceReference develop_source_reference(
         pipeline.source_provider_version = source_provider_version;
         pipeline.raw_frame_schema_version = raw_frame_schema_version;
         pipeline.raw_developer_version = shadow_raw_frame_developer_version;
+        pipeline.source_scene_luminance_percentile =
+            developed.source_scene_luminance_percentile;
         pipeline.requested_plan = plan;
         pipeline.effective_plan = negotiation.effective;
         pipeline.camera_profile_status = camera_profile_status;
@@ -725,8 +852,10 @@ DevelopedSourceReference develop_source_reference(
             );
         }
         return DevelopedSourceReference{
-            .pixels = std::move(pixels),
+            .source = std::move(developed.source),
+            .raw_development_receipt = std::move(raw_development_receipt),
             .pipeline_receipt = std::move(pipeline),
+            .sensor_clipping_mask = std::move(developed.sensor_clipping_mask),
         };
     } catch (const DecodeError& error) {
         if (

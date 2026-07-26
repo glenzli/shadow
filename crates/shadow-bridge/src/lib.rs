@@ -556,11 +556,6 @@ mod ffi {
             self: &DecodeHandle,
             request: &FfiAdjustmentRenderRequest,
         ) -> Result<FfiEncodedProxy>;
-        fn sensor_clipping_mask(
-            self: &DecodeHandle,
-            target_width: u32,
-            target_height: u32,
-        ) -> Result<FfiSensorClippingMask>;
         #[allow(dead_code)]
         fn prepare_edit_preview(
             self: &DecodeHandle,
@@ -582,6 +577,7 @@ mod ffi {
         fn optics_receipt(self: &EditPreviewHandle) -> FfiOpticsReceipt;
         fn raw_development_receipt(self: &EditPreviewHandle) -> Result<FfiRawDevelopmentReceipt>;
         fn raw_pipeline_receipt(self: &EditPreviewHandle) -> Result<FfiRawPipelineReceipt>;
+        fn sensor_clipping_mask(self: &EditPreviewHandle) -> FfiSensorClippingMask;
         fn render_adjustment_plan(
             self: &EditPreviewHandle,
             request: &FfiAdjustmentRenderRequest,
@@ -1416,8 +1412,17 @@ fn preflight_photo_edit_development(
         ));
     }
 
+    // A provider-owned RawFrame crosses the decoder boundary before development. From there,
+    // Shadow's generic RAW developer owns plan negotiation, including high-quality demosaic and
+    // RAW-domain denoise. Provider RAW-development capabilities describe only its already
+    // processed-RGB compatibility route, so consulting them here would incorrectly reject a
+    // valid host RawFrame request (for example a private Nikon CFA provider that deliberately
+    // exposes only a conservative compatibility RGB plan).
+    //
+    // Keep the provider negotiation gate for sources without RawFrame: then the provider is the
+    // actual developer and must explicitly accept the requested plan before an edit session starts.
     let raw_capabilities = raw_development_capabilities(handle.raw_development_capabilities());
-    if raw_capabilities.available {
+    if raw_capabilities.available && !capabilities.raw_frame {
         let negotiation = raw_development_plan_negotiation(
             handle.negotiate_raw_development_plan(&ffi_raw_development_plan(plan))?,
         )?;
@@ -3587,21 +3592,15 @@ impl LibRawEditPreviewSession {
         let prepared = handle.as_ref().ok_or(BridgeError::NullHandle)?;
         let prepared_dimensions = dimensions(&prepared.dimensions());
         let prepared_max_edge = prepared.max_edge();
-        // This is optional inspection data. It must never make a photo uneditable: a source may
-        // be a JPEG/HEIF, a RAW provider may deliberately omit RawFrame, or an experimental
-        // provider may decline this diagnostic while still developing a valid display proxy.
-        let sensor_clipping_mask = match decode_handle
-            .sensor_clipping_mask(prepared_dimensions.width, prepared_dimensions.height)
-        {
-            Ok(mask) => match validate_sensor_clipping_mask(mask, prepared_dimensions) {
-                Ok(mask) => mask,
-                Err(error) => {
-                    eprintln!("Shadow: ignoring invalid RAW clipping diagnostic: {error}");
-                    SensorClippingMask::unavailable()
-                }
-            },
+        // This is optional inspection data prepared alongside the immutable source raster. It
+        // must never reopen or unpack a RAW file merely to drive a zebra overlay.
+        let sensor_clipping_mask = match validate_sensor_clipping_mask(
+            prepared.sensor_clipping_mask(),
+            prepared_dimensions,
+        ) {
+            Ok(mask) => mask,
             Err(error) => {
-                eprintln!("Shadow: RAW clipping diagnostic unavailable: {error}");
+                eprintln!("Shadow: ignoring invalid RAW clipping diagnostic: {error}");
                 SensorClippingMask::unavailable()
             }
         };
@@ -6594,11 +6593,10 @@ mod tests {
         let mut failures = Vec::new();
         let mut passed = 0_usize;
         let mut preview_only = 0_usize;
+        let mut processed_rgb_compatibility = 0_usize;
         for path in paths {
-            let result = (|| -> Result<(String, bool), String> {
+            let result = (|| -> Result<(String, RawSmokePath), String> {
                 const FULL_DECODE_UNAVAILABLE: &str = "RAW frame/reference RGB unavailable";
-                const CAPABILITY_MISMATCH: &str =
-                    "RAW frame and reference RGB capabilities disagree";
                 let snapshot =
                     inspect_libraw(&path).map_err(|error| format!("inspect: {error}"))?;
                 if snapshot.provider.id != "libraw" {
@@ -6625,9 +6623,6 @@ mod tests {
 
                 let raw_frame_available = snapshot.capabilities.raw_frame.is_available();
                 let reference_rgb_available = snapshot.capabilities.reference_rgb.is_available();
-                if raw_frame_available != reference_rgb_available {
-                    return Err(CAPABILITY_MISMATCH.to_owned());
-                }
 
                 let profile_count = query_libraw_optics_profiles(&path)
                     .map_err(|error| format!("query Lensfun profiles: {error}"))?
@@ -6639,11 +6634,14 @@ mod tests {
                     snapshot.metadata.raw_dimensions.width,
                     snapshot.metadata.raw_dimensions.height,
                 );
-                if !raw_frame_available {
+                if !reference_rgb_available {
                     if preview.is_none() {
                         return Err(format!("{FULL_DECODE_UNAVAILABLE}; no embedded preview"));
                     }
-                    return Ok((format!("{summary} · embedded-preview fallback"), true));
+                    return Ok((
+                        format!("{summary} · embedded-preview fallback"),
+                        RawSmokePath::EmbeddedPreview,
+                    ));
                 }
 
                 let proxy = render_libraw_reference_proxy(&path, 1_024, 82)
@@ -6658,17 +6656,32 @@ mod tests {
                     return Err("invalid bounded reference proxy".to_owned());
                 }
 
-                Ok((summary, false))
+                let path = if raw_frame_available {
+                    RawSmokePath::RawFrame
+                } else {
+                    RawSmokePath::ProcessedRgbCompatibility
+                };
+                Ok((summary, path))
             })();
 
             match result {
-                Ok((summary, used_preview_only)) => {
+                Ok((summary, path_kind)) => {
                     passed += 1;
-                    if used_preview_only {
-                        preview_only += 1;
-                        eprintln!("RAW smoke preview-only: {} · {summary}", path.display());
-                    } else {
-                        eprintln!("RAW smoke ok: {} · {summary}", path.display());
+                    match path_kind {
+                        RawSmokePath::RawFrame => {
+                            eprintln!("RAW smoke ok: {} · {summary}", path.display());
+                        }
+                        RawSmokePath::ProcessedRgbCompatibility => {
+                            processed_rgb_compatibility += 1;
+                            eprintln!(
+                                "RAW smoke processed-RGB compatibility: {} · {summary}",
+                                path.display()
+                            );
+                        }
+                        RawSmokePath::EmbeddedPreview => {
+                            preview_only += 1;
+                            eprintln!("RAW smoke preview-only: {} · {summary}", path.display());
+                        }
                     }
                 }
                 Err(error) => {
@@ -6685,7 +6698,89 @@ mod tests {
             failures.join("\n")
         );
         eprintln!(
-            "RAW smoke matrix passed: {passed} files · {preview_only} preview-only fallbacks"
+            "RAW smoke matrix passed: {passed} files · {processed_rgb_compatibility} processed-RGB compatibility · {preview_only} preview-only fallbacks"
+        );
+    }
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    enum RawSmokePath {
+        RawFrame,
+        ProcessedRgbCompatibility,
+        EmbeddedPreview,
+    }
+
+    #[test]
+    #[ignore = "requires SHADOW_TEST_PRIVATE_HE_RAW and a configured local private decoder provider"]
+    fn private_he_raw_provider_takes_over_after_public_browse_only_probe() {
+        let path = PathBuf::from(
+            std::env::var_os("SHADOW_TEST_PRIVATE_HE_RAW")
+                .expect("SHADOW_TEST_PRIVATE_HE_RAW must identify a locally decodable HE/HE* RAW"),
+        );
+        let public = inspect_libraw(&path).expect("inspect HE/HE* through public LibRaw");
+        assert!(public.capabilities.metadata.is_available());
+        assert!(public.capabilities.embedded_previews.is_available());
+        assert!(
+            !public.capabilities.reference_rgb.is_available(),
+            "fixture must require the local private provider rather than public LibRaw development"
+        );
+
+        let routed = inspect_photo(&path).expect("open HE/HE* through Shadow photo router");
+        assert_eq!(routed.provider.id, "shadow-photo-router");
+        assert!(routed.capabilities.metadata.is_available());
+        assert!(
+            routed.capabilities.reference_rgb.is_available(),
+            "private provider must restore an editable reference-RGB source"
+        );
+        assert!(
+            routed.capabilities.raw_frame.is_available(),
+            "private provider must expose its validated CFA frame to Shadow's host RAW developer"
+        );
+        let high_quality_plan = RawDevelopmentPlan {
+            quality: RawDevelopmentQuality::High,
+            ..RawDevelopmentPlan::preview()
+        };
+        let high_quality_negotiation =
+            negotiate_photo_raw_development_plan(&path, high_quality_plan)
+                .expect("negotiate the host RAW plan through the public bridge");
+        assert!(
+            high_quality_negotiation.accepted()
+                && high_quality_negotiation.effective == high_quality_plan,
+            "the public bridge must advertise host RawFrame capabilities rather than provider RGB fallback limits"
+        );
+
+        let proxy = render_photo_reference_proxy(&path, 1_024, 82)
+            .expect("render a bounded HE/HE* preview through the routed private provider");
+        assert_eq!(proxy.codec, PreviewCodec::Jpeg);
+        assert!(proxy.dimensions.width.max(proxy.dimensions.height) <= 1_024);
+        assert!(!proxy.bytes.is_empty());
+
+        let preview = PhotoEditPreviewSession::open(&path, 1_024)
+            .expect("prepare a bounded HE/HE* edit preview through Shadow's RAW developer");
+        assert!(preview.raw_development_receipt().recorded());
+        assert_eq!(
+            preview.raw_pipeline_receipt().path,
+            RawPipelinePath::ShadowRawFrame,
+            "private CFA must enter the same host RAW developer as public RawFrame sources"
+        );
+        assert!(
+            preview.sensor_clipping_mask().available
+                && preview.sensor_clipping_mask().dimensions == preview.dimensions(),
+            "the prepared private HE/HE* preview carries the same-pass source clipping diagnostic"
+        );
+
+        let high_quality = PhotoEditPreviewSession::open_with_raw_development_plan(
+            &path,
+            1_024,
+            high_quality_plan,
+        )
+        .expect("host RawFrame development must not be limited by provider RGB plan capabilities");
+        assert_eq!(
+            high_quality.raw_pipeline_receipt().path,
+            RawPipelinePath::ShadowRawFrame
+        );
+        assert_eq!(
+            high_quality.raw_pipeline_receipt().effective_plan.quality,
+            RawDevelopmentQuality::High
         );
     }
 

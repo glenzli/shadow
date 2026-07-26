@@ -21,11 +21,12 @@ MetalRawDenoiseAttempt try_denoise_bayer_raw_frame_metal(
     };
 }
 
-MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_u16_metal(
+MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
     const RawFrame&,
     const RawFrameLinearTransform&,
     const std::optional<std::uint32_t>,
-    const RawHighlightRecoveryIntent
+    const RawHighlightRecoveryIntent,
+    const RawDevelopmentQuality
 ) {
     return MetalRawDevelopmentAttempt{
         .development = std::nullopt,

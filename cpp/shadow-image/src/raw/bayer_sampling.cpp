@@ -5,7 +5,9 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
+#include <utility>
 
 namespace shadow::image::detail {
 
@@ -60,6 +62,87 @@ namespace {
     // Preserve a small shoulder below the declared white level: some camera encoders reserve
     // one or two codes below that level, but the ratio is already not trustworthy there.
     return std::clamp((normalized - 0.98F) * 50.0F, 0.0F, 1.0F);
+}
+
+[[nodiscard]] bool in_sensor_bounds(
+    const RawFrameDescriptor& descriptor,
+    const std::int64_t raw_x,
+    const std::int64_t raw_y
+) noexcept {
+    return raw_x >= 0 && raw_y >= 0
+        && raw_x < static_cast<std::int64_t>(descriptor.storage_dimensions.width)
+        && raw_y < static_cast<std::int64_t>(descriptor.storage_dimensions.height);
+}
+
+[[nodiscard]] std::optional<float> directional_green_estimate(
+    const RawFrame& frame,
+    const std::uint32_t raw_x,
+    const std::uint32_t raw_y
+) noexcept {
+    const auto& descriptor = frame.descriptor;
+    const auto center_colour = cfa_color_at(descriptor, raw_x, raw_y);
+    if (center_colour == RawCfaColor::green) {
+        return normalized_sample(frame, raw_x, raw_y);
+    }
+    if (center_colour != RawCfaColor::red && center_colour != RawCfaColor::blue) {
+        return std::nullopt;
+    }
+
+    const auto try_direction = [&](const std::int64_t dx, const std::int64_t dy)
+        -> std::optional<std::pair<float, float>> {
+        const auto left_x = static_cast<std::int64_t>(raw_x) - dx;
+        const auto left_y = static_cast<std::int64_t>(raw_y) - dy;
+        const auto right_x = static_cast<std::int64_t>(raw_x) + dx;
+        const auto right_y = static_cast<std::int64_t>(raw_y) + dy;
+        const auto far_left_x = static_cast<std::int64_t>(raw_x) - 2 * dx;
+        const auto far_left_y = static_cast<std::int64_t>(raw_y) - 2 * dy;
+        const auto far_right_x = static_cast<std::int64_t>(raw_x) + 2 * dx;
+        const auto far_right_y = static_cast<std::int64_t>(raw_y) + 2 * dy;
+        if (!in_sensor_bounds(descriptor, left_x, left_y)
+            || !in_sensor_bounds(descriptor, right_x, right_y)
+            || !in_sensor_bounds(descriptor, far_left_x, far_left_y)
+            || !in_sensor_bounds(descriptor, far_right_x, far_right_y)) {
+            return std::nullopt;
+        }
+        const auto as_u32 = [](const std::int64_t coordinate) noexcept {
+            return static_cast<std::uint32_t>(coordinate);
+        };
+        if (cfa_color_at(descriptor, as_u32(left_x), as_u32(left_y)) != RawCfaColor::green
+            || cfa_color_at(descriptor, as_u32(right_x), as_u32(right_y))
+                != RawCfaColor::green
+            || cfa_color_at(descriptor, as_u32(far_left_x), as_u32(far_left_y))
+                != center_colour
+            || cfa_color_at(descriptor, as_u32(far_right_x), as_u32(far_right_y))
+                != center_colour) {
+            return std::nullopt;
+        }
+        const float left = normalized_sample(frame, as_u32(left_x), as_u32(left_y));
+        const float right = normalized_sample(frame, as_u32(right_x), as_u32(right_y));
+        const float far_left = normalized_sample(frame, as_u32(far_left_x), as_u32(far_left_y));
+        const float far_right = normalized_sample(frame, as_u32(far_right_x), as_u32(far_right_y));
+        const float center = normalized_sample(frame, raw_x, raw_y);
+        const float chroma_laplacian = 2.0F * center - far_left - far_right;
+        const float estimate = 0.5F * (left + right) + 0.25F * chroma_laplacian;
+        const float gradient = std::abs(left - right) + std::abs(chroma_laplacian);
+        return std::pair<float, float>{estimate, gradient};
+    };
+
+    const auto horizontal = try_direction(1, 0);
+    const auto vertical = try_direction(0, 1);
+    if (horizontal.has_value() && vertical.has_value()) {
+        constexpr float epsilon = 1.0e-5F;
+        const float horizontal_weight = 1.0F / (epsilon + horizontal->second);
+        const float vertical_weight = 1.0F / (epsilon + vertical->second);
+        return (horizontal->first * horizontal_weight + vertical->first * vertical_weight)
+            / (horizontal_weight + vertical_weight);
+    }
+    if (horizontal.has_value()) {
+        return horizontal->first;
+    }
+    if (vertical.has_value()) {
+        return vertical->first;
+    }
+    return std::nullopt;
 }
 
 } // namespace
@@ -150,6 +233,72 @@ CameraRgb bilinear_camera_rgb_at(
     const std::uint32_t raw_y
 ) {
     return bilinear_camera_rgb_sample_at(frame, raw_x, raw_y).values;
+}
+
+CameraRgbSample edge_aware_camera_rgb_sample_at(
+    const RawFrame& frame,
+    const std::uint32_t raw_x,
+    const std::uint32_t raw_y
+) {
+    const CameraRgbSample bilinear = bilinear_camera_rgb_sample_at(frame, raw_x, raw_y);
+    const auto& descriptor = frame.descriptor;
+    const auto center_colour = cfa_color_at(descriptor, raw_x, raw_y);
+    const int center_channel = rgb_channel(center_colour);
+    const auto green = directional_green_estimate(frame, raw_x, raw_y);
+    if (center_channel < 0 || !green.has_value()) {
+        return bilinear;
+    }
+
+    CameraRgbSample result = bilinear;
+    result.values[1U] = *green;
+    const auto reconstruct_colour_difference = [&](const RawCfaColor target_colour,
+                                                    const std::size_t target_channel) {
+        if (center_colour == target_colour) {
+            result.values[target_channel] = normalized_sample(frame, raw_x, raw_y);
+            return;
+        }
+        double weighted_sum = 0.0;
+        double total_weight = 0.0;
+        for (std::int32_t dy = -1; dy <= 1; ++dy) {
+            const auto candidate_y = static_cast<std::int64_t>(raw_y) + dy;
+            if (candidate_y < 0
+                || candidate_y >= static_cast<std::int64_t>(descriptor.storage_dimensions.height)) {
+                continue;
+            }
+            for (std::int32_t dx = -1; dx <= 1; ++dx) {
+                if (dx == 0 && dy == 0) {
+                    continue;
+                }
+                const auto candidate_x = static_cast<std::int64_t>(raw_x) + dx;
+                if (candidate_x < 0
+                    || candidate_x
+                        >= static_cast<std::int64_t>(descriptor.storage_dimensions.width)) {
+                    continue;
+                }
+                const auto x = static_cast<std::uint32_t>(candidate_x);
+                const auto y = static_cast<std::uint32_t>(candidate_y);
+                if (cfa_color_at(descriptor, x, y) != target_colour) {
+                    continue;
+                }
+                const auto neighbour_green = directional_green_estimate(frame, x, y);
+                if (!neighbour_green.has_value()) {
+                    continue;
+                }
+                const double weight = dx == 0 || dy == 0 ? 1.0 : 0.7071067811865476;
+                weighted_sum += weight * (
+                    static_cast<double>(normalized_sample(frame, x, y))
+                    + static_cast<double>(*green) - static_cast<double>(*neighbour_green)
+                );
+                total_weight += weight;
+            }
+        }
+        if (total_weight > 0.0) {
+            result.values[target_channel] = static_cast<float>(weighted_sum / total_weight);
+        }
+    };
+    reconstruct_colour_difference(RawCfaColor::red, 0U);
+    reconstruct_colour_difference(RawCfaColor::blue, 2U);
+    return result;
 }
 
 BayerAreaSamplingGrid make_bayer_area_sampling_grid(

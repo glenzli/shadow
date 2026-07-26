@@ -27,6 +27,12 @@ inline constexpr double normalization_target_luminance = 0.70;
 inline constexpr double normalization_floor_luminance = 0.015;
 inline constexpr double maximum_standard_lift_stops = 1.0;
 inline constexpr double curve_epsilon = 1.0e-12;
+// Public source-profile curves are normalized to [0, 1], while Shadow keeps
+// owned RAW development scene-linear.  Make the small handoff above the
+// profile domain smooth, then return to identity so a camera look never
+// becomes an accidental highlight clip.
+inline constexpr double source_curve_hdr_handoff_width = 0.25;
+inline constexpr double maximum_source_curve_terminal_slope = 2.0;
 
 [[nodiscard]] bool is_standardized_linear_rgb(const PixelBuffer& source) noexcept {
     return source.bits_per_channel == 16U && (source.channels == 1U || source.channels == 3U)
@@ -100,8 +106,7 @@ inline constexpr double curve_epsilon = 1.0e-12;
     return luminances[percentile_index];
 }
 
-[[nodiscard]] double standard_exposure_normalization_stops(const PixelBuffer& source) {
-    const double high_luminance = raw_luminance_percentile(source);
+[[nodiscard]] double standard_exposure_normalization_stops(const double high_luminance) {
     if (!(high_luminance >= normalization_floor_luminance)
         || high_luminance >= normalization_target_luminance) {
         return 0.0;
@@ -111,6 +116,52 @@ inline constexpr double curve_epsilon = 1.0e-12;
         0.0,
         maximum_standard_lift_stops
     );
+}
+
+[[nodiscard]] double standard_exposure_normalization_stops(const PixelBuffer& source) {
+    return standard_exposure_normalization_stops(raw_luminance_percentile(source));
+}
+
+[[nodiscard]] double raw_luminance_percentile(const SceneLinearRgbFrame& source) {
+    if (!source.valid()) {
+        throw std::invalid_argument("source rendering received an invalid scene-linear RAW frame");
+    }
+    const std::size_t row_stride = source.row_stride_bytes / sizeof(float);
+    const std::size_t pixel_count = static_cast<std::size_t>(source.dimensions.pixel_count());
+    const std::size_t sample_count = std::min(pixel_count, maximum_luminance_samples);
+    const std::size_t step = std::max<std::size_t>(1U, pixel_count / sample_count);
+    std::vector<double> luminances;
+    luminances.reserve(sample_count + 1U);
+    for (std::size_t linear_index = 0U; linear_index < pixel_count; linear_index += step) {
+        const std::size_t row = linear_index / source.dimensions.width;
+        const std::size_t column = linear_index % source.dimensions.width;
+        const std::size_t index = row * row_stride + column * 3U;
+        const double luminance = static_cast<double>(source.samples[index]) * 0.2126
+            + static_cast<double>(source.samples[index + 1U]) * 0.7152
+            + static_cast<double>(source.samples[index + 2U]) * 0.0722;
+        if (std::isfinite(luminance) && luminance >= 0.0) {
+            luminances.push_back(luminance);
+        }
+    }
+    if (luminances.empty()) {
+        return 0.0;
+    }
+    const std::size_t percentile_index = std::min(
+        luminances.size() - 1U,
+        static_cast<std::size_t>(
+            std::floor(static_cast<double>(luminances.size() - 1U) * normalization_percentile)
+        )
+    );
+    std::nth_element(
+        luminances.begin(),
+        luminances.begin() + static_cast<std::ptrdiff_t>(percentile_index),
+        luminances.end()
+    );
+    return luminances[percentile_index];
+}
+
+[[nodiscard]] double standard_exposure_normalization_stops(const SceneLinearRgbFrame& source) {
+    return standard_exposure_normalization_stops(raw_luminance_percentile(source));
 }
 
 [[nodiscard]] std::size_t validated_float_row_stride(const FloatRgbImage& image) {
@@ -221,6 +272,62 @@ inline constexpr double curve_epsilon = 1.0e-12;
     return std::clamp(result, y0, y1);
 }
 
+[[nodiscard]] double source_curve_terminal_slope(
+    const std::vector<SourceToneCurvePoint>& curve
+) noexcept {
+    const std::size_t last = curve.size() - 1U;
+    const double input_span = curve[last].input - curve[last - 1U].input;
+    if (!(input_span > 0.0)) {
+        return 0.0;
+    }
+    const double slope = (curve[last].output - curve[last - 1U].output) / input_span;
+    if (!std::isfinite(slope)) {
+        return 0.0;
+    }
+    return std::clamp(slope, 0.0, maximum_source_curve_terminal_slope);
+}
+
+[[nodiscard]] double source_curve_value_with_hdr_handoff(
+    const std::vector<SourceToneCurvePoint>& curve,
+    const double input
+) {
+    if (input <= 1.0) {
+        return monotone_curve_value(curve, input);
+    }
+
+    const double handoff_end = 1.0 + source_curve_hdr_handoff_width;
+    if (input >= handoff_end) {
+        return input;
+    }
+
+    // Cubic Hermite interpolation joins the curve's terminal sample to the
+    // scene-linear identity line.  The normalized endpoint derivatives are
+    // bounded to a monotone interval, so this cannot overshoot or turn a
+    // retained RAW highlight into a local inversion.
+    const double y0 = curve.back().output;
+    const double y1 = handoff_end;
+    const double span = y1 - y0;
+    const double t = (input - 1.0) / source_curve_hdr_handoff_width;
+    const double t2 = t * t;
+    const double t3 = t2 * t;
+    const double h00 = 2.0 * t3 - 3.0 * t2 + 1.0;
+    const double h10 = t3 - 2.0 * t2 + t;
+    const double h01 = -2.0 * t3 + 3.0 * t2;
+    const double h11 = t3 - t2;
+    const double terminal_slope = source_curve_terminal_slope(curve);
+    const double normalized_start_slope = std::min(
+        terminal_slope * source_curve_hdr_handoff_width / span,
+        2.0
+    );
+    const double normalized_end_slope = std::min(
+        source_curve_hdr_handoff_width / span,
+        1.0
+    );
+    const double result = h00 * y0 + h10 * span * normalized_start_slope
+        + h01 * y1 + h11 * span * normalized_end_slope;
+    return std::clamp(result, y0, y1);
+}
+
 void apply_luminance_tone_curve(
     FloatRgbImage& image,
     const std::vector<SourceToneCurvePoint>& curve,
@@ -237,13 +344,10 @@ void apply_luminance_tone_curve(
             const double green = std::max(0.0, static_cast<double>(image.samples[index + 1U]));
             const double blue = std::max(0.0, static_cast<double>(image.samples[index + 2U]));
             const double luminance = red * 0.2126 + green * 0.7152 + blue * 0.0722;
-            // A profile curve is defined on the normalized RAW proxy domain.
-            // Preserve super-white values rather than turning an exposure
-            // lift into an unexpected highlight clip.
-            if (luminance <= curve_epsilon || luminance >= 1.0) {
+            if (luminance <= curve_epsilon) {
                 continue;
             }
-            const double mapped_luminance = monotone_curve_value(curve, luminance);
+            const double mapped_luminance = source_curve_value_with_hdr_handoff(curve, luminance);
             const double gain = mapped_luminance / luminance;
             for (std::size_t channel = 0U; channel < 3U; ++channel) {
                 image.samples[index + channel] = static_cast<float>(
@@ -267,6 +371,35 @@ SourceRenderingReceipt resolve_source_rendering(
     const AssetMetadata& metadata
 ) {
     return resolve_source_rendering(source, metadata, load_local_source_profile_catalog());
+}
+
+SourceRenderingReceipt resolve_source_rendering(
+    const SceneLinearRgbFrame& source,
+    const AssetMetadata& metadata,
+    const RawPipelineReceipt& pipeline
+) {
+    if (!source.valid() || !pipeline.valid()) {
+        throw std::invalid_argument(
+            "source rendering received an invalid scene-linear RAW source or pipeline receipt"
+        );
+    }
+    SourceRenderingReceipt receipt;
+    receipt.profile_id = pipeline.camera_profile_status == RawCameraProfileStatus::applied
+        ? std::string(dcp_shadow_standard_profile_id)
+        : std::string(shadow_standard_profile_id);
+    receipt.profile_identity = pipeline.camera_profile_status == RawCameraProfileStatus::applied
+        ? std::string(shadow_standard_profile_identity) + ";dcp=" + pipeline.camera_profile_identity
+        : std::string(shadow_standard_profile_identity);
+    receipt.kind = SourceRenderingKind::shadow_standard;
+    if (has_valid_dng_baseline_exposure(metadata)) {
+        receipt.camera_baseline_exposure_stops = metadata.baseline_exposure;
+    } else {
+        receipt.standard_exposure_normalization_stops =
+            pipeline.source_scene_luminance_percentile.has_value()
+            ? standard_exposure_normalization_stops(*pipeline.source_scene_luminance_percentile)
+            : standard_exposure_normalization_stops(source);
+    }
+    return receipt;
 }
 
 SourceRenderingReceipt resolve_source_rendering(

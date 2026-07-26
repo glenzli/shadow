@@ -526,6 +526,10 @@ inline constexpr std::uint32_t maximum_warm_edit_preview_edge = 4'096;
 // more than 512 MiB. The metadata preflight assumes worst-case RGB even when a provider may
 // ultimately return one-channel grayscale data.
 inline constexpr std::uint64_t maximum_full_edit_detail_retained_bytes = 512ULL * 1'024ULL * 1'024ULL;
+// Owned RawFrame development keeps scene-linear fp32 values so it can retain highlight headroom.
+// A full-detail session therefore receives a larger, separate cap than packed RGB sources.
+inline constexpr std::uint64_t maximum_full_edit_scene_linear_retained_bytes =
+    1ULL * 1'024ULL * 1'024ULL * 1'024ULL;
 // Detail work stays tile-local so one request cannot accidentally materialize another full-size
 // float image while the immutable 16-bit source is resident.
 inline constexpr std::uint32_t maximum_edit_detail_tile_side = 1'024;
@@ -860,6 +864,9 @@ public:
     [[nodiscard]] const RawDevelopmentReceipt& raw_development_receipt() const noexcept;
     [[nodiscard]] const RawPipelineReceipt& raw_pipeline_receipt() const noexcept;
     [[nodiscard]] const OpticsProfileReceipt& optics_receipt() const noexcept;
+    // Optional source-domain clip classification retained from the same RawFrame development.
+    // It never asks a provider to decode the source again merely to drive an optional zebra.
+    [[nodiscard]] const std::optional<SensorClippingMask>& sensor_clipping_mask() const noexcept;
     // Runtime-only observability for tests and future diagnostics. These counters never enter
     // Recipe, catalog, or cache identities.
     [[nodiscard]] WarmEditPreviewGpuStats gpu_stats() const noexcept;
@@ -903,7 +910,8 @@ private:
         std::uint32_t max_edge,
         RawDevelopmentReceipt raw_development_receipt,
         RawPipelineReceipt raw_pipeline_receipt,
-        OpticsProfileReceipt optics_receipt
+        OpticsProfileReceipt optics_receipt,
+        std::optional<SensorClippingMask> sensor_clipping_mask
     );
 
     FloatRgbImage working_proxy_;
@@ -911,6 +919,7 @@ private:
     RawDevelopmentReceipt raw_development_receipt_;
     RawPipelineReceipt raw_pipeline_receipt_;
     OpticsProfileReceipt optics_receipt_;
+    std::optional<SensorClippingMask> sensor_clipping_mask_;
     std::shared_ptr<detail::WarmEditGpuSession> warm_gpu_session_;
     std::string warm_gpu_diagnostic_;
 
@@ -948,9 +957,9 @@ struct RenderedDetailTile final {
     std::vector<std::uint8_t> bytes;
 };
 
-// An immutable complete processed-linear 16-bit image in sRGB primaries, used only for 1:1
-// detail requests. No decoder survives preparation; each const render allocates and edits only
-// the requested tile, which makes concurrent renders independent after construction.
+// An immutable complete linear source for 1:1 detail requests. Raster/provider-compatibility
+// sources retain packed u16 RGB; Shadow's owned RawFrame route retains scene-linear fp32 so
+// highlight headroom survives until the requested tile reaches the edit graph.
 class FullEditDetailSession final {
 public:
     FullEditDetailSession(const FullEditDetailSession&) = delete;
@@ -977,7 +986,7 @@ public:
 
 private:
     FullEditDetailSession(
-        PixelBuffer reference_rgb,
+        DevelopedSourcePixels reference_source,
         std::uint64_t retained_bytes,
         RawDevelopmentReceipt raw_development_receipt,
         RawPipelineReceipt raw_pipeline_receipt,
@@ -985,7 +994,7 @@ private:
         SourceRenderingReceipt source_rendering
     );
 
-    PixelBuffer reference_rgb_;
+    DevelopedSourcePixels reference_source_;
     std::uint64_t retained_bytes_ = 0;
     // Kept separately from the post-optics raster: an independently implemented OpticsProvider
     // is allowed to allocate a new PixelBuffer and must not be able to erase decoder provenance.

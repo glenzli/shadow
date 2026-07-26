@@ -60,10 +60,11 @@ struct RawFrameLinearTransform final {
     [[nodiscard]] bool valid() const noexcept;
 };
 
-// The fused renderer returns the same public PixelBuffer boundary and demosaic provenance as the
-// reference two-stage path, but never allocates a full-resolution float Camera-RGB image.
+// The fused renderer returns scene-linear fp32 working RGB and demosaic provenance. It never
+// allocates a full-resolution float Camera-RGB image, but intentionally retains the transformed
+// result above 1.0 so later highlight controls operate on measured RAW headroom.
 struct FusedRawFrameDevelopment final {
-    PixelBuffer pixels;
+    SceneLinearRgbFrame scene_linear;
     RawDemosaicReceipt demosaic_receipt;
     RawDevelopmentBackend backend = RawDevelopmentBackend::cpu;
     RawHighlightRecoveryIntent highlight_recovery =
@@ -73,29 +74,32 @@ struct FusedRawFrameDevelopment final {
 };
 
 // Reconstructs Bayer samples, applies the precompiled camera transform, maps the provider's
-// orientation, clamps only at the current u16 scene-linear boundary, and writes the final
-// PixelBuffer in one bounded parallel row pass.
+// orientation, and writes scene-linear fp32 samples in one bounded parallel row pass. `balanced` selects the fast bilinear detail
+// baseline, while `high` selects host-owned edge-aware reconstruction for native-size detail
+// and export. Bounded previews always retain CFA-area integration.
 //
 // A missing preview edge selects full-resolution 3x3 bilinear reconstruction. A non-zero preview
 // edge selects the same CFA-aware sensor-footprint integration as demosaic_bayer_preview().
 // Existing standalone demosaic functions remain the correctness/reference API.
-[[nodiscard]] FusedRawFrameDevelopment develop_bayer_linear_srgb_u16_fused(
+[[nodiscard]] FusedRawFrameDevelopment develop_bayer_linear_srgb_f32_fused(
     const RawFrame& frame,
     const RawFrameLinearTransform& transform,
     std::optional<std::uint32_t> preview_max_edge = std::nullopt,
     RawHighlightRecoveryIntent highlight_recovery =
-        RawHighlightRecoveryIntent::provider_default
+        RawHighlightRecoveryIntent::provider_default,
+    RawDevelopmentQuality quality = RawDevelopmentQuality::balanced
 );
 
 // Deterministic selector used by parity tests and diagnostics. Production callers normally use
 // the environment-aware overload above.
-[[nodiscard]] FusedRawFrameDevelopment develop_bayer_linear_srgb_u16_fused_with_backend(
+[[nodiscard]] FusedRawFrameDevelopment develop_bayer_linear_srgb_f32_fused_with_backend(
     const RawFrame& frame,
     const RawFrameLinearTransform& transform,
     std::optional<std::uint32_t> preview_max_edge,
     RawDevelopmentBackendMode backend_mode,
     RawHighlightRecoveryIntent highlight_recovery =
-        RawHighlightRecoveryIntent::provider_default
+        RawHighlightRecoveryIntent::provider_default,
+    RawDevelopmentQuality quality = RawDevelopmentQuality::balanced
 );
 
 } // namespace shadow::image

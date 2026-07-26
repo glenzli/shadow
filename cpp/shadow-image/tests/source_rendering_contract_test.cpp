@@ -72,6 +72,14 @@ void expect_close(
     };
 }
 
+[[nodiscard]] image::SceneLinearRgbFrame scene_linear_rgb(const float value) {
+    return image::SceneLinearRgbFrame{
+        .dimensions = {2U, 1U},
+        .row_stride_bytes = 6U * sizeof(float),
+        .samples = {value, value, value, value, value, value},
+    };
+}
+
 [[nodiscard]] image::SourceProfileCatalog empty_catalog() {
     return image::SourceProfileCatalog{.identity = "test-empty-catalog"};
 }
@@ -84,6 +92,7 @@ void expect_close(
     receipt.source_provider_version = "1";
     receipt.raw_frame_schema_version = image::raw_frame_schema_version;
     receipt.raw_developer_version = image::shadow_raw_frame_developer_version;
+    receipt.source_scene_luminance_percentile = 1.5;
     receipt.requested_plan = image::default_raw_development_plan();
     receipt.effective_plan = receipt.requested_plan;
     receipt.camera_profile_status = image::RawCameraProfileStatus::applied;
@@ -336,6 +345,78 @@ void test_applied_dcp_suppresses_generic_camera_look_but_keeps_dng_baseline() {
     );
 }
 
+void test_scene_linear_raw_keeps_super_white_samples_before_output_mapping() {
+    const auto pipeline = applied_dcp_pipeline();
+    const auto source = scene_linear_rgb(1.5F);
+    const image::SourceRenderingReceipt receipt = image::resolve_source_rendering(
+        source,
+        {},
+        pipeline
+    );
+    expect_close(
+        receipt.standard_exposure_normalization_stops,
+        0.0,
+        1.0e-12,
+        "scene-linear normalization observes super-white RAW samples instead of a clipped proxy"
+    );
+    auto working = working_rgb(1.5F);
+    image::apply_source_rendering(working, receipt);
+    expect_close(
+        working.samples.front(),
+        1.5,
+        1.0e-6,
+        "source rendering does not clip headroom before the edit/output graph"
+    );
+}
+
+void test_source_profile_curve_handoffs_smoothly_to_scene_linear_highlights() {
+    image::SourceRenderingReceipt receipt;
+    receipt.profile_id = "test-hdr-handoff";
+    receipt.profile_identity = "test-hdr-handoff-v1";
+    receipt.kind = image::SourceRenderingKind::public_profile;
+    receipt.luminance_tone_curve = {
+        {0.0, 0.0}, {0.5, 0.72}, {1.0, 1.0},
+    };
+
+    auto just_below_white = working_rgb(0.999F);
+    auto just_above_white = working_rgb(1.001F);
+    auto handoff_end = working_rgb(1.25F);
+    auto retained_highlight = working_rgb(1.75F, 0.875F, 0.4375F);
+    image::apply_source_rendering(just_below_white, receipt);
+    image::apply_source_rendering(just_above_white, receipt);
+    image::apply_source_rendering(handoff_end, receipt);
+    image::apply_source_rendering(retained_highlight, receipt);
+
+    expect(
+        std::isfinite(just_above_white.samples.front())
+            && just_above_white.samples.front() > 1.0F,
+        "a profile curve keeps immediately super-white scene-linear detail finite and recoverable"
+    );
+    expect(
+        just_above_white.samples.front() >= just_below_white.samples.front()
+            && just_above_white.samples.front() - just_below_white.samples.front() < 0.01F,
+        "profile curve hands off continuously around display white instead of introducing a highlight seam"
+    );
+    expect_close(
+        handoff_end.samples.front(),
+        1.25,
+        1.0e-6,
+        "profile curve returns to identity after its bounded HDR handoff"
+    );
+    expect_close(
+        static_cast<double>(retained_highlight.samples[0]) / retained_highlight.samples[1],
+        2.0,
+        1.0e-6,
+        "profile HDR handoff preserves red-to-green scene-linear chroma"
+    );
+    expect_close(
+        static_cast<double>(retained_highlight.samples[1]) / retained_highlight.samples[2],
+        2.0,
+        1.0e-6,
+        "profile HDR handoff preserves green-to-blue scene-linear chroma"
+    );
+}
+
 } // namespace
 
 int main() {
@@ -345,5 +426,7 @@ int main() {
     test_public_profile_document_matches_exact_camera_without_vendor_data();
     test_bundled_darktable_camera_looks_match_make_and_preserve_chroma();
     test_applied_dcp_suppresses_generic_camera_look_but_keeps_dng_baseline();
+    test_scene_linear_raw_keeps_super_white_samples_before_output_mapping();
+    test_source_profile_curve_handoffs_smoothly_to_scene_linear_highlights();
     return failures == 0 ? 0 : 1;
 }

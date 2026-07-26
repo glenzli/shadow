@@ -67,6 +67,27 @@ bool LinearCameraRgbFrame::valid() const noexcept {
     return true;
 }
 
+bool SceneLinearRgbFrame::valid() const noexcept {
+    const auto width = static_cast<std::uint64_t>(dimensions.width);
+    const auto height = static_cast<std::uint64_t>(dimensions.height);
+    if (width == 0U || height == 0U || row_stride_bytes != width * 3U * sizeof(float)) {
+        return false;
+    }
+    const auto sample_count = width * height * 3U;
+    if (
+        sample_count > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())
+        || samples.size() != static_cast<std::size_t>(sample_count)
+    ) {
+        return false;
+    }
+    for (const auto sample : samples) {
+        if (!std::isfinite(sample)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 LinearCameraRgbFrame demosaic_bayer_bilinear(const RawFrame& frame) {
     detail::validate_bayer_frame(frame, "Bayer demosaic");
 
@@ -108,6 +129,52 @@ LinearCameraRgbFrame demosaic_bayer_bilinear(const RawFrame& frame) {
             DecodeErrorCode::internal,
             0,
             "Bayer demosaic produced an invalid camera-linear frame"
+        );
+    }
+    return output;
+}
+
+LinearCameraRgbFrame demosaic_bayer_edge_aware(const RawFrame& frame) {
+    detail::validate_bayer_frame(frame, "edge-aware Bayer demosaic");
+
+    const auto& descriptor = frame.descriptor;
+    const auto active_width = descriptor.active_dimensions.width;
+    const auto active_height = descriptor.active_dimensions.height;
+    const auto left = descriptor.active_margins.left;
+    const auto top = descriptor.active_margins.top;
+    LinearCameraRgbFrame output = allocate_camera_rgb(
+        descriptor.active_dimensions,
+        descriptor.schema_version,
+        RawDemosaicAlgorithm::bayer_edge_aware_v1
+    );
+
+    detail::parallel_for_rows(
+        active_height,
+        16U,
+        [&frame, &output, active_width, left, top](
+            const std::uint32_t first_row,
+            const std::uint32_t last_row
+        ) {
+            for (std::uint32_t output_y = first_row; output_y < last_row; ++output_y) {
+                const auto raw_y = top + output_y;
+                for (std::uint32_t output_x = 0U; output_x < active_width; ++output_x) {
+                    const auto raw_x = left + output_x;
+                    const auto rgb = detail::edge_aware_camera_rgb_sample_at(frame, raw_x, raw_y);
+                    const auto output_index =
+                        (static_cast<std::size_t>(output_y) * active_width + output_x) * 3U;
+                    output.samples[output_index] = rgb.values[0U];
+                    output.samples[output_index + 1U] = rgb.values[1U];
+                    output.samples[output_index + 2U] = rgb.values[2U];
+                }
+            }
+        }
+    );
+
+    if (!output.valid()) {
+        throw DecodeError(
+            DecodeErrorCode::internal,
+            0,
+            "edge-aware Bayer demosaic produced an invalid camera-linear frame"
         );
     }
     return output;

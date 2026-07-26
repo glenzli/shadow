@@ -92,18 +92,23 @@ struct DcpColorTransform final {
 // they establish the photo's camera rendering before all user adjustments.
 //
 // The resulting double-precision transform never clips negative or super-white values. Shadow's
-// current u16 source boundary may quantize later, but the camera-profile developer itself keeps
-// highlight headroom available for a future float RawFrame source cache.
+// owned RawFrame route applies the optional post-matrix stages directly to its fp32 scene-linear
+// buffer, so camera-profile rendering does not discard highlight headroom before the edit graph.
 [[nodiscard]] DcpColorTransform compile_dcp_color_transform(
     const CameraProfileDefinition& definition,
     const RawFrameDescriptor& descriptor
 );
 
-// Applies the compiled DCP HSV/LUT/tone stages to Shadow's current linear-sRGB u16 RAW output.
-// This is intentionally a separate stage from the fused Bayer developer: it keeps the hot
-// provider-neutral demosaic path focused on sensor reconstruction while preserving a single,
-// explicit DCP working-space boundary. The function accepts only the canonical tightly packed
-// three-channel linear-sRGB RAW buffer produced by that developer.
+// Applies the compiled DCP HSV/LUT/tone stages to a canonical linear-sRGB RAW output.  This is
+// intentionally separate from the fused Bayer developer: it keeps the hot provider-neutral
+// demosaic path focused on sensor reconstruction while preserving one explicit DCP working-space
+// boundary.  The fp32 overload is the owned RAW route and preserves scene-linear headroom; the
+// packed u16 overload exists only for compatibility providers that already have a bounded source.
+void apply_dcp_color_rendering_stages(
+    SceneLinearRgbFrame& pixels,
+    const DcpColorTransform& transform
+);
+
 void apply_dcp_color_rendering_stages(
     PixelBuffer& pixels,
     const DcpColorTransform& transform

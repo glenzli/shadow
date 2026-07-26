@@ -1,5 +1,7 @@
 #include <shadow/image/sensor_clipping.hpp>
 
+#include "../concurrency/row_scheduler.hpp"
+
 #include <limits>
 #include <stdexcept>
 #include <utility>
@@ -7,8 +9,6 @@
 namespace shadow::image {
 
 namespace {
-
-inline constexpr std::uint8_t observed_source_sample = 1U << 7U;
 
 [[nodiscard]] bool transpose_orientation(const std::int32_t orientation) noexcept {
     return orientation == 5 || orientation == 6;
@@ -24,7 +24,37 @@ inline constexpr std::uint8_t observed_source_sample = 1U << 7U;
     return dimensions;
 }
 
-[[nodiscard]] Dimensions coordinate_in_display_orientation(
+// `project_sensor_clipping_mask()` needs one exact reduction per displayed
+// pixel: any sensor sample at white marks a highlight, while every sample at
+// black marks a shadow.  Iterate target bins, rather than source pixels, so
+// each worker owns one disjoint output row and can update its flags without
+// locks.  These are the inverse ranges of
+// `floor(source * target_extent / source_extent)`.
+[[nodiscard]] std::uint32_t target_bin_begin(
+    const std::uint32_t target_coordinate,
+    const std::uint32_t source_extent,
+    const std::uint32_t target_extent
+) noexcept {
+    const std::uint64_t numerator = static_cast<std::uint64_t>(target_coordinate)
+        * source_extent;
+    const std::uint64_t quotient = numerator / target_extent;
+    const std::uint64_t remainder = numerator % target_extent;
+    return static_cast<std::uint32_t>(quotient + (remainder == 0U ? 0U : 1U));
+}
+
+[[nodiscard]] std::uint32_t target_bin_end(
+    const std::uint32_t target_coordinate,
+    const std::uint32_t source_extent,
+    const std::uint32_t target_extent
+) noexcept {
+    const std::uint64_t numerator = (static_cast<std::uint64_t>(target_coordinate) + 1U)
+        * source_extent;
+    const std::uint64_t quotient = numerator / target_extent;
+    const std::uint64_t remainder = numerator % target_extent;
+    return static_cast<std::uint32_t>(quotient + (remainder == 0U ? 0U : 1U));
+}
+
+[[nodiscard]] Dimensions coordinate_from_display_orientation(
     const Dimensions active_dimensions,
     const std::int32_t orientation,
     const std::uint32_t x,
@@ -37,9 +67,9 @@ inline constexpr std::uint8_t observed_source_sample = 1U << 7U;
             active_dimensions.height - 1U - y,
         };
     case 5: // LibRaw: 90° counterclockwise.
-        return {y, active_dimensions.width - 1U - x};
+        return {active_dimensions.width - 1U - y, x};
     case 6: // LibRaw: 90° clockwise.
-        return {active_dimensions.height - 1U - y, x};
+        return {y, active_dimensions.height - 1U - x};
     case 0:
     case 1:
     default:
@@ -117,50 +147,85 @@ SensorClippingMask project_sensor_clipping_mask(
     output.samples.resize(target_count);
 
     const auto storage_width = static_cast<std::size_t>(descriptor.storage_dimensions.width);
-    for (std::uint32_t active_y = 0U; active_y < descriptor.active_dimensions.height; ++active_y) {
-        const std::uint32_t raw_y = descriptor.active_margins.top + active_y;
-        for (std::uint32_t active_x = 0U; active_x < descriptor.active_dimensions.width; ++active_x) {
-            const std::uint32_t raw_x = descriptor.active_margins.left + active_x;
-            const Dimensions oriented = coordinate_in_display_orientation(
-                descriptor.active_dimensions,
-                descriptor.orientation,
-                active_x,
-                active_y
-            );
-            const auto target_x = static_cast<std::uint32_t>(
-                static_cast<std::uint64_t>(oriented.width) * target_dimensions.width
-                / oriented_active.width
-            );
-            const auto target_y = static_cast<std::uint32_t>(
-                static_cast<std::uint64_t>(oriented.height) * target_dimensions.height
-                / oriented_active.height
-            );
-            const auto target_index = static_cast<std::size_t>(target_y) * target_dimensions.width
-                + target_x;
-            auto& flags = output.samples[target_index];
-            const auto site = cfa_site(raw_x, raw_y);
-            const auto sample = frame.samples[static_cast<std::size_t>(raw_y) * storage_width + raw_x];
-            const auto black = descriptor.black_levels[site];
-            const auto white = descriptor.white_levels[site];
+    detail::parallel_for_rows(
+        target_dimensions.height,
+        8U,
+        [&frame,
+         &output,
+         &descriptor,
+         target_dimensions,
+         oriented_active,
+         storage_width](const std::uint32_t first_target_y, const std::uint32_t last_target_y) {
+            for (std::uint32_t target_y = first_target_y;
+                 target_y < last_target_y;
+                 ++target_y) {
+                const auto oriented_y_begin = target_bin_begin(
+                    target_y,
+                    oriented_active.height,
+                    target_dimensions.height
+                );
+                const auto oriented_y_end = target_bin_end(
+                    target_y,
+                    oriented_active.height,
+                    target_dimensions.height
+                );
+                for (std::uint32_t target_x = 0U;
+                     target_x < target_dimensions.width;
+                     ++target_x) {
+                    const auto oriented_x_begin = target_bin_begin(
+                        target_x,
+                        oriented_active.width,
+                        target_dimensions.width
+                    );
+                    const auto oriented_x_end = target_bin_end(
+                        target_x,
+                        oriented_active.width,
+                        target_dimensions.width
+                    );
+                    bool observed = false;
+                    bool all_shadow = true;
+                    bool any_highlight = false;
+                    for (std::uint32_t oriented_y = oriented_y_begin;
+                         oriented_y < oriented_y_end;
+                         ++oriented_y) {
+                        for (std::uint32_t oriented_x = oriented_x_begin;
+                             oriented_x < oriented_x_end;
+                             ++oriented_x) {
+                            const Dimensions active = coordinate_from_display_orientation(
+                                descriptor.active_dimensions,
+                                descriptor.orientation,
+                                oriented_x,
+                                oriented_y
+                            );
+                            const std::uint32_t raw_x = descriptor.active_margins.left + active.width;
+                            const std::uint32_t raw_y = descriptor.active_margins.top + active.height;
+                            const auto site = cfa_site(raw_x, raw_y);
+                            const auto sample = frame.samples[
+                                static_cast<std::size_t>(raw_y) * storage_width + raw_x
+                            ];
+                            observed = true;
+                            all_shadow = all_shadow && sample <= descriptor.black_levels[site];
+                            any_highlight = any_highlight
+                                || sample >= descriptor.white_levels[site];
+                        }
+                    }
 
-            if ((flags & observed_source_sample) == 0U) {
-                flags = static_cast<std::uint8_t>(sensor_shadow_clipped | observed_source_sample);
-            }
-            if (sample > black) {
-                flags = static_cast<std::uint8_t>(flags & ~sensor_shadow_clipped);
-            }
-            if (sample >= white) {
-                flags = static_cast<std::uint8_t>(flags | sensor_highlight_clipped);
+                    std::uint8_t flags = 0U;
+                    if (observed && all_shadow) {
+                        flags = static_cast<std::uint8_t>(flags | sensor_shadow_clipped);
+                    }
+                    if (any_highlight) {
+                        flags = static_cast<std::uint8_t>(flags | sensor_highlight_clipped);
+                    }
+                    output.samples[
+                        static_cast<std::size_t>(target_y) * target_dimensions.width + target_x
+                    ] = flags;
+                }
             }
         }
-    }
+    );
 
-    for (auto& flags : output.samples) {
-        if ((flags & observed_source_sample) == 0U) {
-            flags = 0U;
-            continue;
-        }
-        flags = static_cast<std::uint8_t>(flags & ~observed_source_sample);
+    for (const auto flags : output.samples) {
         output.highlight_pixel_count += (flags & sensor_highlight_clipped) != 0U ? 1U : 0U;
         output.shadow_pixel_count += (flags & sensor_shadow_clipped) != 0U ? 1U : 0U;
     }

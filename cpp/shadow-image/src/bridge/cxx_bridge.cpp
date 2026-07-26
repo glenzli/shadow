@@ -1446,14 +1446,18 @@ FfiCapabilitySnapshot DecodeHandle::capabilities() const {
     snapshot.dng_opcode_list_2_bytes = opcode_bytes[1];
     snapshot.dng_opcode_list_3_bytes = opcode_bytes[2];
     snapshot.raw_development = shadow::bridge::raw_development_capabilities(
-        capabilities.raw_development
+        capabilities.raw_frame
+            ? image::shadow_raw_frame_development_capabilities()
+            : capabilities.raw_development
     );
     return snapshot;
 }
 
 FfiRawDevelopmentCapabilities DecodeHandle::raw_development_capabilities() const {
     return shadow::bridge::raw_development_capabilities(
-        session_->raw_development_capabilities()
+        session_->capabilities().raw_frame
+            ? image::shadow_raw_frame_development_capabilities()
+            : session_->raw_development_capabilities()
     );
 }
 
@@ -1461,7 +1465,9 @@ FfiRawDevelopmentPlanNegotiation DecodeHandle::negotiate_raw_development_plan(
     const FfiRawDevelopmentPlan& plan
 ) const {
     return raw_development_plan_negotiation(
-        session_->negotiate_raw_development_plan(raw_development_plan(plan))
+        session_->capabilities().raw_frame
+            ? image::negotiate_shadow_raw_frame_development_plan(raw_development_plan(plan))
+            : session_->negotiate_raw_development_plan(raw_development_plan(plan))
     );
 }
 
@@ -1529,26 +1535,6 @@ FfiEncodedProxy DecodeHandle::render_adjustment_plan(
     return encoded_proxy(proxy);
 }
 
-FfiSensorClippingMask DecodeHandle::sensor_clipping_mask(
-    const std::uint32_t target_width,
-    const std::uint32_t target_height
-) const {
-    if (target_width == 0U || target_height == 0U) {
-        throw image::DecodeError(
-            image::DecodeErrorCode::invalid_request,
-            0,
-            "sensor clipping mask dimensions must be non-zero"
-        );
-    }
-    if (!session_->capabilities().raw_frame) {
-        return {};
-    }
-    return ffi_sensor_clipping_mask(image::project_sensor_clipping_mask(
-        session_->decode_raw_frame(),
-        image::Dimensions{target_width, target_height}
-    ));
-}
-
 std::unique_ptr<EditPreviewHandle> DecodeHandle::prepare_edit_preview(
     const std::uint32_t max_edge
 ) const {
@@ -1602,6 +1588,11 @@ FfiRawDevelopmentReceipt EditPreviewHandle::raw_development_receipt() const {
 
 FfiRawPipelineReceipt EditPreviewHandle::raw_pipeline_receipt() const {
     return shadow::bridge::raw_pipeline_receipt(session_.raw_pipeline_receipt());
+}
+
+FfiSensorClippingMask EditPreviewHandle::sensor_clipping_mask() const {
+    const auto& mask = session_.sensor_clipping_mask();
+    return mask.has_value() ? ffi_sensor_clipping_mask(*mask) : FfiSensorClippingMask{};
 }
 
 bool EditPreviewCancellationHandle::cancel() const noexcept {
