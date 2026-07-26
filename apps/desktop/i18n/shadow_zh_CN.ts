@@ -650,6 +650,11 @@
         <source>Open a photo from Review to begin editing</source>
         <translation type="vanished">请从选片中打开一张照片开始编辑</translation>
     </message>
+    <message>
+        <location filename="../src/edit_controller.cpp" line="2221"/>
+        <source>Repair supports at most 64 strokes</source>
+        <translation>修复最多支持 64 笔</translation>
+    </message>
 </context>
 <context>
     <name>EditHistogram</name>
@@ -1069,6 +1074,46 @@ R %2 · G %3 · B %4</translation>
         <source>Full-size PNG</source>
         <translation type="vanished">全尺寸 PNG</translation>
     </message>
+    <message>
+        <location filename="../src/export_controller.cpp" line="375"/>
+        <source>Checking unfinished exports…</source>
+        <translation>正在检查未完成的导出…</translation>
+    </message>
+    <message>
+        <location filename="../src/export_controller.cpp" line="647"/>
+        <source>Exported %1 photos · %2 need attention</source>
+        <translation>已导出 %1 张照片 · %2 张需要处理</translation>
+    </message>
+    <message>
+        <location filename="../src/export_controller.cpp" line="629"/>
+        <source>No unfinished exports</source>
+        <translation>没有未完成的导出</translation>
+    </message>
+    <message>
+        <location filename="../src/export_controller.cpp" line="502"/>
+        <source>Queueing %1 photos…</source>
+        <translation>正在将 %1 张照片加入队列…</translation>
+    </message>
+    <message>
+        <location filename="../src/export_controller.cpp" line="637"/>
+        <source>Resumed %1 exports</source>
+        <translation>已恢复 %1 个导出任务</translation>
+    </message>
+    <message>
+        <location filename="../src/export_controller.cpp" line="639"/>
+        <source>Resumed %1 exports · %2 failed</source>
+        <translation>已恢复 %1 个导出任务 · %2 个失败</translation>
+    </message>
+    <message>
+        <location filename="../src/export_controller.cpp" line="633"/>
+        <source>Resumed %1 photos · %2 need attention</source>
+        <translation>已恢复 %1 张照片 · %2 张需要处理</translation>
+    </message>
+    <message>
+        <location filename="../src/export_controller.cpp" line="631"/>
+        <source>Resuming exports paused</source>
+        <translation>正在恢复已暂停的导出</translation>
+    </message>
 </context>
 <context>
     <name>ExportDialog</name>
@@ -1273,6 +1318,91 @@ R %2 · G %3 · B %4</translation>
     <message>
         <source>Shadow keeps catalog decisions, previews and edit history in its local Library while source photos stay untouched.</source>
         <translation type="vanished">Shadow 将选片决策、预览和编辑历史保存在本地图库中，同时保持源照片不被改动。</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryWorkspace.qml" line="168"/>
+        <source>%L1 locations were not seen in this scan.</source>
+        <translation>本次扫描未发现 %L1 个位置。</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryWorkspace.qml" line="155"/>
+        <source>ACTIVE</source>
+        <translation>正在使用</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryWorkspace.qml" line="267"/>
+        <source>CLOSE LOCATION REVIEW</source>
+        <translation>关闭位置检查</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryWorkspace.qml" line="182"/>
+        <source>KNOWN  %L1</source>
+        <translation>已知  %L1</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryWorkspace.qml" line="325"/>
+        <source>LOAD MORE LOCATIONS</source>
+        <translation>加载更多位置</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryWorkspace.qml" line="250"/>
+        <source>NOT-SEEN LOCATIONS</source>
+        <translation>未发现的位置</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryWorkspace.qml" line="165"/>
+        <source>No completed scan has been recorded yet.</source>
+        <translation>尚未有已完成的扫描记录。</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryWorkspace.qml" line="277"/>
+        <source>No locations are available for this completed scan.</source>
+        <translation>此已完成扫描没有可用的位置。</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryWorkspace.qml" line="348"/>
+        <source>No source scans yet. Import a folder to establish one.</source>
+        <translation>尚无来源扫描。请导入文件夹以建立扫描记录。</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryWorkspace.qml" line="155"/>
+        <source>PAUSED</source>
+        <translation>已暂停</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryWorkspace.qml" line="103"/>
+        <source>REFRESH SOURCE HEALTH</source>
+        <translation>刷新来源状态</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryWorkspace.qml" line="220"/>
+        <source>REVIEW NOT-SEEN LOCATIONS</source>
+        <translation>查看未发现的位置</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryWorkspace.qml" line="333"/>
+        <source>Review only. A moved file must still pass full identity verification before a separate confirmation can attach it.</source>
+        <translation>仅供查看。移动后的文件仍须通过完整身份验证，才能在单独确认后重新关联。</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryWorkspace.qml" line="189"/>
+        <source>SEEN  %L1</source>
+        <translation>已发现  %L1</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryWorkspace.qml" line="83"/>
+        <source>SOURCE HEALTH</source>
+        <translation>来源状态</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryWorkspace.qml" line="167"/>
+        <source>The latest scan accounted for all known locations.</source>
+        <translation>最近一次扫描已覆盖所有已知位置。</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryWorkspace.qml" line="202"/>
+        <source>This is scan evidence for this source only; photos may remain available elsewhere.</source>
+        <translation>这只是该来源的扫描记录；照片仍可能在其他位置可用。</translation>
     </message>
 </context>
 <context>
@@ -3178,6 +3308,36 @@ R %2 · G %3 · B %4</translation>
         <source>Drag the linked source region on the image.</source>
         <translation>在图像上拖动关联的源区域。</translation>
     </message>
+    <message>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="107"/>
+        <source>Empty corners are cropped automatically after rotation.</source>
+        <translation>旋转后会自动裁掉空白角。</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionInspector.qml" line="1101"/>
+        <source>Lightness lock</source>
+        <translation>明度锁定</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionInspector.qml" line="690"/>
+        <source>Microcontrast</source>
+        <translation>局部对比</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionInspector.qml" line="780"/>
+        <source>Perceptual global opponent balance after basic color and before hue-keyed color corrections.</source>
+        <translation>在基础颜色之后、按色相校正之前，调整感知全局对立色平衡。</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionGeometryTools.qml" line="83"/>
+        <source>Rotates the photo and automatically crops empty corners while preserving the current aspect ratio.</source>
+        <translation>旋转照片，并自动裁掉空白角，保留当前纵横比。</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionInspector.qml" line="724"/>
+        <source>Scale</source>
+        <translation>尺度</translation>
+    </message>
 </context>
 <context>
     <name>PrecisionTechnicalTools</name>
@@ -3568,6 +3728,86 @@ Technical detail: %1</source>
     <message>
         <source>Flags and stars are explicit local library decisions</source>
         <translation type="vanished">标记和星级都是本地图库中的明确决定</translation>
+    </message>
+    <message>
+        <location filename="../src/review_controller.cpp" line="1832"/>
+        <source>%1 photos added to the album</source>
+        <translation>已将 %1 张照片添加到相册</translation>
+    </message>
+    <message>
+        <location filename="../src/review_controller.cpp" line="1840"/>
+        <source>%1 photos removed from the album</source>
+        <translation>已从相册移除 %1 张照片</translation>
+    </message>
+    <message>
+        <location filename="../src/review_controller.cpp" line="1733"/>
+        <source>Could not count Library photos · %1</source>
+        <translation>无法统计资料库照片 · %1</translation>
+    </message>
+    <message>
+        <location filename="../src/review_controller.cpp" line="1869"/>
+        <source>Could not load Library source health · %1</source>
+        <translation>无法加载资料库来源状态 · %1</translation>
+    </message>
+    <message>
+        <location filename="../src/review_controller.cpp" line="1903"/>
+        <source>Could not load source scan review · %1</source>
+        <translation>无法加载来源扫描检查 · %1</translation>
+    </message>
+    <message>
+        <location filename="../src/review_controller.cpp" line="1849"/>
+        <source>Could not update Library albums · %1</source>
+        <translation>无法更新资料库相册 · %1</translation>
+    </message>
+    <message>
+        <location filename="../src/review_controller.cpp" line="1753"/>
+        <source>Could not update Library state · %1</source>
+        <translation>无法更新资料库状态 · %1</translation>
+    </message>
+    <message>
+        <location filename="../src/review_controller.cpp" line="1816"/>
+        <source>Library album created</source>
+        <translation>已创建资料库相册</translation>
+    </message>
+    <message>
+        <location filename="../src/review_controller.cpp" line="1826"/>
+        <source>Library album deleted</source>
+        <translation>已删除资料库相册</translation>
+    </message>
+    <message>
+        <location filename="../src/review_controller.cpp" line="1821"/>
+        <source>Library album renamed</source>
+        <translation>已重命名资料库相册</translation>
+    </message>
+    <message>
+        <location filename="../src/review_controller.cpp" line="1774"/>
+        <source>Library organization updated</source>
+        <translation>资料库整理已更新</translation>
+    </message>
+    <message>
+        <location filename="../src/review_controller.cpp" line="1630"/>
+        <source>Library refresh failed · visible photos retained · %1</source>
+        <translation>资料库刷新失败 · 保留当前可见照片 · %1</translation>
+    </message>
+    <message>
+        <location filename="../src/review_controller.cpp" line="1761"/>
+        <source>Library state receipt was invalid</source>
+        <translation>资料库状态回执无效</translation>
+    </message>
+    <message>
+        <location filename="../src/review_controller.cpp" line="1132"/>
+        <source>Select a loaded photo before changing its Like state</source>
+        <translation>请选择已加载的照片后再更改喜欢状态</translation>
+    </message>
+    <message>
+        <location filename="../src/review_controller.cpp" line="1114"/>
+        <source>Select a loaded photo before changing its color label</source>
+        <translation>请选择已加载的照片后再更改颜色标记</translation>
+    </message>
+    <message>
+        <location filename="../src/review_controller.cpp" line="2141"/>
+        <source>Updating Library organization…</source>
+        <translation>正在更新资料库整理…</translation>
     </message>
 </context>
 <context>
@@ -4084,6 +4324,126 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
     <message>
         <source>A display visual is required for comparison.</source>
         <translation type="vanished">比较需要可显示的图像。</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="181"/>
+        <source>A Manual Album holds only the photos you add to it.</source>
+        <translation>手动相册仅包含你添加的照片。</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="180"/>
+        <source>A Smart Album keeps the current library filters as a reusable view.</source>
+        <translation>智能相册会将当前资料库筛选条件保存为可重复使用的视图。</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="1218"/>
+        <source>ALBUMS</source>
+        <translation>相册</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="278"/>
+        <source>Add %L1 selected photos to an album.</source>
+        <translation>将所选的 %L1 张照片添加到相册。</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="1637"/>
+        <source>Add selected photos to a Manual Album</source>
+        <translation>将所选照片添加到手动相册</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="270"/>
+        <source>Add to Manual Album</source>
+        <translation>添加到手动相册</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="211"/>
+        <source>Album name</source>
+        <translation>相册名称</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="224"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="324"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="404"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="473"/>
+        <source>Cancel</source>
+        <translation>取消</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="232"/>
+        <source>Create</source>
+        <translation>创建</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="312"/>
+        <source>Create a Manual Album first, then add photos here.</source>
+        <translation>请先创建一个手动相册，再在此添加照片。</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="171"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1236"/>
+        <source>Create album</source>
+        <translation>创建相册</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="390"/>
+        <source>Delete</source>
+        <translation>删除</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="480"/>
+        <source>Delete album</source>
+        <translation>删除相册</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="450"/>
+        <source>Delete album?</source>
+        <translation>删除相册？</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="458"/>
+        <source>Delete “%1”? Photos and their edits stay in the Library.</source>
+        <translation>删除“%1”？照片及其编辑仍会保留在资料库中。</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="362"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="1314"/>
+        <source>Manage album</source>
+        <translation>管理相册</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="194"/>
+        <source>Manual</source>
+        <translation>手动</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="371"/>
+        <source>Manual Album</source>
+        <translation>手动相册</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="1651"/>
+        <source>Remove selected photos from this Manual Album</source>
+        <translation>从此手动相册移除所选照片</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="412"/>
+        <source>Rename</source>
+        <translation>重命名</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="1302"/>
+        <source>SMART</source>
+        <translation>智能</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="202"/>
+        <source>Smart</source>
+        <translation>智能</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="371"/>
+        <source>Smart Album</source>
+        <translation>智能相册</translation>
     </message>
 </context>
 <context>

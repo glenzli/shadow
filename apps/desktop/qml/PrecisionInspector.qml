@@ -656,7 +656,10 @@ Rectangle {
                                         },
                                         {
                                             "key": "local_contrast",
-                                            "name": qsTr("Local Contrast"),
+                                            // This is the photographic microcontrast control.
+                                            // The compact term fits the fixed slider-label column;
+                                            // its tooltip retains the full, distinct behavior.
+                                            "name": qsTr("Microcontrast"),
                                             "tip": qsTr("Adjust broad edge-aware lightness contrast independently from Clarity and Texture.")
                                         }
                                     ]
@@ -688,7 +691,9 @@ Rectangle {
                                     Layout.fillWidth: true
                                     Layout.leftMargin: 14
                                     Layout.rightMargin: 14
-                                    label: qsTr("Local Contrast Scale")
+                                    // The control immediately follows Microcontrast, so a short
+                                    // label is unambiguous and avoids truncation in narrow panes.
+                                    label: qsTr("Scale")
                                     toolTipText: qsTr("Choose the spatial scale used by Local Contrast, from medium to broad structure.")
                                     from: 0.0
                                     to: 1.0
@@ -1065,7 +1070,7 @@ Rectangle {
                                     Layout.leftMargin: 14
                                     Layout.rightMargin: 14
                                     Layout.topMargin: 2
-                                    label: qsTr("Lightness protection")
+                                    label: qsTr("Lightness lock")
                                     toolTipText: qsTr("Preserve the source Oklab lightness after CMYK correction. 0% follows Selective Color; 100% changes hue and chroma only.")
                                     from: 0.0
                                     to: 1.0
