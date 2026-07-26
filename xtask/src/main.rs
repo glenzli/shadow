@@ -1,7 +1,12 @@
 mod coordination_health;
 mod daily_use_smoke;
+mod local_workspace_guard;
 
-use std::{env, io, path::PathBuf, process::Command};
+use std::{
+    env, io,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 fn main() -> io::Result<()> {
     let command = env::args().nth(1).unwrap_or_else(|| "help".to_owned());
@@ -21,32 +26,30 @@ fn main() -> io::Result<()> {
             )
         }
         "test" => run("cargo", &["test", "--workspace"]),
-        "native-configure" => run("cmake", &["--preset", "native-dev"]),
-        "native-build" => run("cmake", &["--build", "--preset", "native-dev"]),
+        "native-configure" => configure_preset("native-dev").map(|_| ()),
+        "native-build" => build_preset("native-dev"),
         "desktop-build" => {
-            run("cmake", &["--preset", "desktop-dev"])?;
-            run("cmake", &["--build", "--preset", "desktop-dev"])
+            let build_directory = configure_preset("desktop-dev")?;
+            build_directory_contents(&build_directory)
         }
         "desktop-check" => {
-            run("cmake", &["--preset", "desktop-dev"])?;
-            run("cmake", &["--build", "--preset", "desktop-dev"])?;
-            run(
-                "ctest",
-                &["--test-dir", "build/desktop-dev", "--output-on-failure"],
-            )
+            let build_directory = configure_preset("desktop-dev")?;
+            build_directory_contents(&build_directory)?;
+            run_ctest(&build_directory)
         }
         "desktop-release" => {
-            run("cmake", &["--preset", "desktop-release"])?;
-            run("cmake", &["--build", "--preset", "desktop-release"])
+            let build_directory = configure_preset("desktop-release")?;
+            build_directory_contents(&build_directory)
         }
         "native-check" => {
-            run("cmake", &["--preset", "native-dev"])?;
-            run("cmake", &["--build", "--preset", "native-dev"])?;
-            run("ctest", &["--preset", "native-dev"])
+            let build_directory = configure_preset("native-dev")?;
+            build_directory_contents(&build_directory)?;
+            run_ctest(&build_directory)
         }
         "raw-smoke" => raw_smoke(env::args_os().nth(2)),
         "daily-use-smoke" => daily_use_smoke::run(env::args_os().nth(2)),
         "coordination-health" => coordination_health::run(env::args_os().skip(2)),
+        "local-workspace-guard" => local_workspace_guard::run(env::args_os().skip(2)),
         "doctor" => {
             doctor("rustc", &["--version"]);
             doctor("cargo", &["--version"]);
@@ -59,7 +62,7 @@ fn main() -> io::Result<()> {
         }
         _ => {
             println!(
-                "cargo xtask <check|test|native-configure|native-build|native-check|desktop-build|desktop-check|desktop-release|raw-smoke [fixture-directory]|daily-use-smoke [fixture-directory]|coordination-health [--root PATH] [--stale-after-minutes N] [--fail-on-stale] [--strict] [--commit-gate] [--bulk-stage-gate]|doctor>"
+                "cargo xtask <check|test|native-configure|native-build|native-check|desktop-build|desktop-check|desktop-release|raw-smoke [fixture-directory]|daily-use-smoke [fixture-directory]|coordination-health [--root PATH] [--stale-after-minutes N] [--fail-on-stale] [--strict] [--commit-gate] [--bulk-stage-gate]|local-workspace-guard [--root PATH]|doctor>"
             );
             Ok(())
         }
@@ -121,6 +124,85 @@ fn run(program: &str, arguments: &[&str]) -> io::Result<()> {
             "{program} exited with status {status}"
         )))
     }
+}
+
+fn configure_preset(preset: &str) -> io::Result<PathBuf> {
+    let build_directory = preset_build_directory(preset)?;
+    let status = Command::new("cmake")
+        .args(["--preset", preset, "-B"])
+        .arg(&build_directory)
+        .status()?;
+    if status.success() {
+        Ok(build_directory)
+    } else {
+        Err(io::Error::other(format!(
+            "cmake configure preset {preset} exited with status {status}"
+        )))
+    }
+}
+
+fn build_preset(preset: &str) -> io::Result<()> {
+    let build_directory = preset_build_directory(preset)?;
+    build_directory_contents(&build_directory)
+}
+
+fn build_directory_contents(build_directory: &Path) -> io::Result<()> {
+    let status = Command::new("cmake")
+        .args(["--build"])
+        .arg(build_directory)
+        .status()?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(io::Error::other(format!(
+            "cmake build {} exited with status {status}",
+            build_directory.display()
+        )))
+    }
+}
+
+fn run_ctest(build_directory: &Path) -> io::Result<()> {
+    let status = Command::new("ctest")
+        .args(["--test-dir"])
+        .arg(build_directory)
+        .arg("--output-on-failure")
+        .status()?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(io::Error::other(format!(
+            "ctest for {} exited with status {status}",
+            build_directory.display()
+        )))
+    }
+}
+
+fn preset_build_directory(preset: &str) -> io::Result<PathBuf> {
+    let repository_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("xtask lives directly below the repository root")
+        .canonicalize()?;
+    let build_directory = env::var_os("SHADOW_BUILD_DIR").map_or_else(
+        || {
+            repository_root
+                .parent()
+                .expect("repository root has a parent directory")
+                .join(".shadow-local-build")
+                .join(preset)
+        },
+        PathBuf::from,
+    );
+    if !build_directory.is_absolute() || build_directory.starts_with(&repository_root) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "SHADOW_BUILD_DIR must be an absolute path outside {}; received {}",
+                repository_root.display(),
+                build_directory.display()
+            ),
+        ));
+    }
+    Ok(build_directory)
 }
 
 fn doctor(program: &str, arguments: &[&str]) {

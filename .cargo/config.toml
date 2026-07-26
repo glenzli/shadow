@@ -3,4 +3,7 @@ xtask = "run --package xtask --"
 
 [build]
 incremental = true
-
+# This repository is a same-machine shared workspace. Keep Cargo artifacts one
+# directory above the sync-sensitive source root by default. A task may still
+# override this with an absolute, task-private CARGO_TARGET_DIR outside it.
+target-dir = "../.shadow-local-target"

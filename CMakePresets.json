@@ -10,7 +10,7 @@
       "name": "native-dev",
       "displayName": "Shadow native development",
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/native-dev",
+      "binaryDir": "${sourceParentDir}/.shadow-local-build/${presetName}",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",

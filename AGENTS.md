@@ -36,6 +36,44 @@ Prefer the helper for concurrent claim, acknowledgement, and release mutations b
 those writes atomic. Direct records remain valid for recovery, interoperability, or a genuinely
 simpler one-off note; preserve the documented fields so other agents can still understand them.
 
+## Local shared-workspace transport boundary
+
+This repository currently uses the **`local-shared-workspace`** topology: all
+participating agents work on the same machine and the same live worktree.
+Claims, handoffs, and messages coordinate authority over that worktree; they
+are not a request to copy it to another agent. Source edits become visible
+through the shared filesystem, and a handoff carries only intent, paths,
+contracts, and validation evidence.
+
+- Treat the repository root as sync-sensitive. Never create, attach, archive,
+  or hand off a worktree snapshot, build artifact, RAW/DNG, rendered analysis
+  image, cache, catalog, or other binary payload merely to collaborate. Pass a
+  path, stable identity, digest, dimensions, or bounded diagnostic summary
+  instead.
+- A source image enters model context only through an explicit, bounded action
+  such as rendering one display-sized preview. Do not read, attach, encode, or
+  paste RAW files or bulk fixtures into a conversation. Use metadata and local
+  paths by default; a visual inspection must name one file and its purpose.
+- Build output, Cargo targets, generated previews, downloaded models, caches,
+  and fixture corpora must live **outside** this worktree. The guarded payload
+  paths are `target/`, `build/`, `local-reference/sample-assets/`, and
+  `local-reference/experiment-output/`. Small local coordination records and
+  the checked local skill references are not binary handoff channels.
+- Before a write-heavy validation command, run
+  `sh scripts/local_shared_workspace_guard.sh`. A failure is a transport
+  blocker: do not begin another build in the source root. Report the remaining
+  local payload to the user or release integrator and use an external build
+  directory instead.
+- Use an absolute task-private `CARGO_TARGET_DIR` and `SHADOW_BUILD_DIR` outside
+  the worktree for concurrent checks. The tracked defaults deliberately resolve
+  to sibling `.shadow-local-*` directories, not paths beneath this repository.
+  A shared external default is suitable only for one local developer; concurrent
+  agents must choose separate directories.
+- A change to distributed, cross-machine collaboration requires an explicit
+  user-approved topology change. Define a small transfer manifest first; it
+  may contain source patches and named, size-bounded artifacts, never an
+  implicit workspace snapshot.
+
 ## Identity and continuity
 
 - Use a stable task/scope id and an owner id that distinguishes the current task/thread and agent;
@@ -247,12 +285,14 @@ directory and a Cargo target directory can race while they regenerate files or
 link artifacts, producing misleading compile errors or a corrupted incremental
 state.
 
-- Treat the canonical `build/desktop-dev` and `build/desktop-release`
-  directories as integration resources. Only the release integrator runs a
-  full configure/build there, after the relevant source claims are released.
-- While a source lease is active, use a lease-specific CMake build directory or
-  `CARGO_TARGET_DIR` for focused checks. Do not concurrently reconfigure or
-  link the canonical desktop build just to test a private module.
+- The CMake presets and Cargo configuration default to sibling
+  `.shadow-local-build/` and `.shadow-local-target/` directories outside the
+  repository. `target/` and `build/` beneath the worktree are quarantined
+  legacy payloads, not canonical integration resources; do not recreate them.
+- While a source lease is active, use a lease-specific external CMake build
+  directory and `CARGO_TARGET_DIR` for focused checks. Do not concurrently
+  reconfigure or link another task's external directory just to test a private
+  module.
 - A full build has a short, explicit **validation lease**: record the source
   scopes it validates, the command, and the result. It owns no source file and
   ends immediately after the check, so it cannot block productive work.
