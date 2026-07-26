@@ -40,6 +40,7 @@ add_library(
     src/decoder/decode_session_isolation.cpp
     src/decoder/photo_decoder_router.cpp
     src/color/lcms_color_management.cpp
+    src/color/neutral_balance.cpp
     src/color/source_profile_catalog.cpp
     src/color/source_rendering.cpp
     src/concurrency/row_scheduler.cpp
@@ -226,6 +227,17 @@ if(BUILD_TESTING)
     target_link_libraries(shadow-image-edit-tests PRIVATE Shadow::Image)
     shadow_image_enable_warnings(shadow-image-edit-tests)
     add_test(NAME shadow-image-edit-contract COMMAND shadow-image-edit-tests)
+
+    add_executable(
+        shadow-image-neutral-balance-tests
+        tests/neutral_balance_contract_test.cpp
+    )
+    target_link_libraries(shadow-image-neutral-balance-tests PRIVATE Shadow::Image)
+    shadow_image_enable_warnings(shadow-image-neutral-balance-tests)
+    add_test(
+        NAME shadow-image-neutral-balance-contract
+        COMMAND shadow-image-neutral-balance-tests
+    )
 
     add_executable(
         shadow-image-adjustment-execution-tests

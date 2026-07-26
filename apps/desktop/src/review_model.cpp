@@ -28,11 +28,10 @@ namespace {
     QSet<QString> keys;
     keys.reserve(items.size());
     for (const auto& item : items) {
-        if (item.representation_id.isEmpty()
-            || keys.contains(item.representation_id)) {
+        if (item.photo_id.isEmpty() || keys.contains(item.photo_id)) {
             return false;
         }
-        keys.insert(item.representation_id);
+        keys.insert(item.photo_id);
     }
     return true;
 }
@@ -50,6 +49,9 @@ void append_role(QList<int>& roles, const int role) {
     QList<int> roles;
     if (current.photo_id != replacement.photo_id) {
         append_role(roles, ReviewModel::PhotoIdRole);
+    }
+    if (current.representation_id != replacement.representation_id) {
+        append_role(roles, ReviewModel::RepresentationIdRole);
     }
     if (current.visual_handle != replacement.visual_handle) {
         append_role(roles, ReviewModel::VisualHandleRole);
@@ -140,6 +142,16 @@ void append_role(QList<int>& roles, const int role) {
     }
     if (current.decision_rating != replacement.decision_rating) {
         append_role(roles, ReviewModel::DecisionRatingRole);
+    }
+    if (current.liked != replacement.liked) {
+        append_role(roles, ReviewModel::LikedRole);
+    }
+    if (current.color_label != replacement.color_label) {
+        append_role(roles, ReviewModel::ColorLabelRole);
+    }
+    if (current.library_state_updated_at_ms
+        != replacement.library_state_updated_at_ms) {
+        append_role(roles, ReviewModel::LibraryStateUpdatedAtMsRole);
     }
     if (current.has_development_edits != replacement.has_development_edits) {
         append_role(roles, ReviewModel::HasDevelopmentEditsRole);
@@ -235,8 +247,12 @@ QVariant ReviewModel::data(const QModelIndex& index, const int role) const {
         return item.decision_flag;
     case DecisionRatingRole:
         return item.decision_rating;
+    case LikedRole:
+        return item.liked;
     case ColorLabelRole:
-        return color_labels_.value(item.photo_id, QStringLiteral("none"));
+        return item.color_label;
+    case LibraryStateUpdatedAtMsRole:
+        return QVariant::fromValue(item.library_state_updated_at_ms);
     case HasDevelopmentEditsRole:
         return item.has_development_edits;
     default:
@@ -288,7 +304,9 @@ QHash<int, QByteArray> ReviewModel::roleNames() const {
         {DecisionHeadSequenceRole, "decisionHeadSequence"},
         {DecisionFlagRole, "decisionFlag"},
         {DecisionRatingRole, "decisionRating"},
+        {LikedRole, "liked"},
         {ColorLabelRole, "colorLabel"},
+        {LibraryStateUpdatedAtMsRole, "libraryStateUpdatedAtMs"},
         {HasDevelopmentEditsRole, "hasDevelopmentEdits"},
     };
 }
@@ -298,6 +316,10 @@ void ReviewModel::replace(QVector<ReviewItem> items, const quint64 generation) {
     items_ = std::move(items);
     generation_.store(generation, std::memory_order_release);
     endResetModel();
+}
+
+void ReviewModel::setGeneration(const quint64 generation) noexcept {
+    generation_.store(generation, std::memory_order_release);
 }
 
 void ReviewModel::append(QVector<ReviewItem> items) {
@@ -323,10 +345,10 @@ bool ReviewModel::appendSnapshot(
     QSet<QString> existing_keys;
     existing_keys.reserve(items_.size());
     for (const auto& item : items_) {
-        existing_keys.insert(item.representation_id);
+        existing_keys.insert(item.photo_id);
     }
     for (const auto& item : items) {
-        if (existing_keys.contains(item.representation_id)) {
+        if (existing_keys.contains(item.photo_id)) {
             return false;
         }
     }
@@ -346,19 +368,19 @@ bool ReviewModel::reconcileSnapshot(
     QSet<QString> desired_keys;
     desired_keys.reserve(items.size());
     for (const auto& item : items) {
-        desired_keys.insert(item.representation_id);
+        desired_keys.insert(item.photo_id);
     }
 
     qsizetype row = items_.size();
     while (row > 0) {
         --row;
-        if (desired_keys.contains(items_.at(row).representation_id)) {
+        if (desired_keys.contains(items_.at(row).photo_id)) {
             continue;
         }
 
         const qsizetype last = row;
         while (row > 0
-               && !desired_keys.contains(items_.at(row - 1).representation_id)) {
+               && !desired_keys.contains(items_.at(row - 1).photo_id)) {
             --row;
         }
         const qsizetype first = row;
@@ -370,13 +392,12 @@ bool ReviewModel::reconcileSnapshot(
     for (qsizetype target_row = 0; target_row < items.size(); ++target_row) {
         const auto& desired = items.at(target_row);
         if (target_row >= items_.size()
-            || items_.at(target_row).representation_id
-                != desired.representation_id) {
+            || items_.at(target_row).photo_id != desired.photo_id) {
             const auto existing = std::find_if(
                 items_.cbegin() + std::min(target_row, items_.size()),
                 items_.cend(),
                 [&desired](const ReviewItem& candidate) {
-                    return candidate.representation_id == desired.representation_id;
+                    return candidate.photo_id == desired.photo_id;
                 }
             );
             if (existing == items_.cend()) {
@@ -425,25 +446,16 @@ bool ReviewModel::reconcilePrefixSnapshot(
     QSet<QString> prefix_keys;
     prefix_keys.reserve(items.size());
     for (const auto& item : items) {
-        prefix_keys.insert(item.representation_id);
+        prefix_keys.insert(item.photo_id);
     }
 
     items.reserve(items.size() + items_.size());
     for (const auto& existing : items_) {
-        if (!prefix_keys.contains(existing.representation_id)) {
+        if (!prefix_keys.contains(existing.photo_id)) {
             items.push_back(existing);
         }
     }
     return reconcileSnapshot(std::move(items), generation);
-}
-
-QVector<QString> ReviewModel::representationIds() const {
-    QVector<QString> ids;
-    ids.reserve(items_.size());
-    for (const auto& item : items_) {
-        ids.push_back(item.representation_id);
-    }
-    return ids;
 }
 
 bool ReviewModel::isGenerationCurrent(const quint64 generation) const noexcept {
@@ -487,6 +499,26 @@ std::optional<ReviewDecisionValue> ReviewModel::decisionFor(
     };
 }
 
+std::optional<ReviewLibraryStateValue> ReviewModel::libraryStateFor(
+    const QString& photo_id
+) const {
+    const auto item = std::find_if(
+        items_.cbegin(),
+        items_.cend(),
+        [&photo_id](const ReviewItem& candidate) {
+            return candidate.photo_id == photo_id;
+        }
+    );
+    if (item == items_.cend()) {
+        return std::nullopt;
+    }
+    return ReviewLibraryStateValue{
+        .liked = item->liked,
+        .color_label = item->color_label,
+        .updated_at_ms = item->library_state_updated_at_ms,
+    };
+}
+
 bool ReviewModel::updateDecision(
     const QString& photo_id,
     const quint64 head_sequence,
@@ -520,59 +552,37 @@ bool ReviewModel::updateDecision(
     return found;
 }
 
-bool ReviewModel::setColorLabel(
+bool ReviewModel::updateLibraryState(
     const QString& photo_id,
-    const QString& color_label
+    const bool liked,
+    const QString& color_label,
+    const std::int64_t updated_at_ms
 ) {
     if (photo_id.isEmpty() || !is_color_label(color_label)) {
         return false;
     }
-    const QString current = color_labels_.value(photo_id, QStringLiteral("none"));
-    if (current == color_label) {
-        return false;
-    }
-    if (color_label == QStringLiteral("none")) {
-        color_labels_.remove(photo_id);
-    } else {
-        color_labels_.insert(photo_id, color_label);
-    }
+    bool any_changed = false;
     for (qsizetype row = 0; row < items_.size(); ++row) {
-        if (items_.at(row).photo_id != photo_id) {
+        auto& item = items_[row];
+        if (item.photo_id != photo_id) {
             continue;
         }
-        const QModelIndex changed = index(static_cast<int>(row), 0);
-        emit dataChanged(changed, changed, {ColorLabelRole});
-    }
-    return true;
-}
-
-void ReviewModel::restoreColorLabels(const QVariantMap& labels) {
-    QHash<QString, QString> restored;
-    restored.reserve(labels.size());
-    for (auto it = labels.cbegin(); it != labels.cend(); ++it) {
-        const QString label = it.value().toString().trimmed().toLower();
-        if (!it.key().isEmpty() && label != QStringLiteral("none")
-            && is_color_label(label)) {
-            restored.insert(it.key(), label);
+        const bool state_changed = item.liked != liked
+            || item.color_label != color_label
+            || item.library_state_updated_at_ms != updated_at_ms;
+        if (!state_changed) {
+            continue;
         }
-    }
-    if (restored == color_labels_) {
-        return;
-    }
-    color_labels_ = std::move(restored);
-    if (!items_.isEmpty()) {
+        item.liked = liked;
+        item.color_label = color_label;
+        item.library_state_updated_at_ms = updated_at_ms;
+        const QModelIndex changed_index = index(static_cast<int>(row), 0);
         emit dataChanged(
-            index(0, 0),
-            index(static_cast<int>(items_.size() - 1), 0),
-            {ColorLabelRole}
+            changed_index,
+            changed_index,
+            {LikedRole, ColorLabelRole, LibraryStateUpdatedAtMsRole}
         );
+        any_changed = true;
     }
-}
-
-QVariantMap ReviewModel::colorLabels() const {
-    QVariantMap labels;
-    for (auto it = color_labels_.cbegin(); it != color_labels_.cend(); ++it) {
-        labels.insert(it.key(), it.value());
-    }
-    return labels;
+    return any_changed;
 }

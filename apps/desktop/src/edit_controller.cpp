@@ -782,8 +782,63 @@ QVariantList EditController::pointColors() const {
     return result;
 }
 
+QVariantList EditController::colorWarperControlPoints() const {
+    QVariantList result;
+    const auto* const grade_node = selectedGradeNode();
+    const BackendFineEditParameters neutral;
+    const auto& points = grade_node == nullptr
+        ? neutral.oklab_color_warper_control_points
+        : grade_node->fine.oklab_color_warper_control_points;
+    result.reserve(static_cast<qsizetype>(points.size()));
+    for (std::size_t index = 0U; index < points.size(); ++index) {
+        const auto& point = points[index];
+        result.push_back(QVariantMap{
+            {QStringLiteral("index"), static_cast<int>(index)},
+            {QStringLiteral("row"), static_cast<int>(
+                index / BACKEND_OKLAB_COLOR_WARPER_GRID_SIDE)},
+            {QStringLiteral("column"), static_cast<int>(
+                index % BACKEND_OKLAB_COLOR_WARPER_GRID_SIDE)},
+            {QStringLiteral("aOffset"), point.a_offset},
+            {QStringLiteral("bOffset"), point.b_offset},
+        });
+    }
+    return result;
+}
+
 int EditController::selectedPointColorIndex() const noexcept {
     return selected_point_color_index_;
+}
+
+std::optional<PreviewScopeHueQualifier> EditController::selectedPointColorScopeQualifier() const {
+    const auto* const grade_node = selectedGradeNode();
+    if (grade_node == nullptr || selected_point_color_index_ < 0
+        || selected_point_color_index_ >= point_color_count(grade_node->fine)) {
+        return std::nullopt;
+    }
+    const BackendPointColorRange range = point_color_at(
+        grade_node->fine,
+        selected_point_color_index_
+    );
+    if (!range.enabled || !std::isfinite(range.center_degrees)
+        || range.center_degrees < 0.0 || range.center_degrees > 360.0
+        || !std::isfinite(range.width_degrees) || range.width_degrees < 1.0
+        || range.width_degrees > 180.0 || !std::isfinite(range.softness)
+        || range.softness < 0.0 || range.softness > 1.0) {
+        return std::nullopt;
+    }
+    return PreviewScopeHueQualifier{
+        .center_degrees = range.center_degrees,
+        .width_degrees = range.width_degrees,
+        .softness = range.softness,
+    };
+}
+
+bool EditController::pointColorScopeActive() const noexcept {
+    return point_color_scope_active_;
+}
+
+bool EditController::pointColorScopeAvailable() const noexcept {
+    return selectedPointColorScopeQualifier().has_value();
 }
 
 bool EditController::pointColorPickerActive() const noexcept {
@@ -820,8 +875,17 @@ double EditController::parameterValue(const QString& parameter_key) const {
     if (parameter_key == QStringLiteral("blacks")) {
         return fine.blacks;
     }
+    if (parameter_key == QStringLiteral("global_a_balance")) {
+        return fine.global_a_balance;
+    }
+    if (parameter_key == QStringLiteral("global_b_balance")) {
+        return fine.global_b_balance;
+    }
     if (parameter_key == QStringLiteral("vibrance")) {
         return fine.vibrance;
+    }
+    if (parameter_key == QStringLiteral("color_warper_strength")) {
+        return fine.oklab_color_warper_strength;
     }
     if (parameter_key == QStringLiteral("lut_intensity")) {
         return fine.lut_intensity;
@@ -840,6 +904,10 @@ double EditController::parameterValue(const QString& parameter_key) const {
     }
     if (parameter_key == QStringLiteral("clarity")) return fine.clarity;
     if (parameter_key == QStringLiteral("texture")) return fine.texture;
+    if (parameter_key == QStringLiteral("local_contrast")) return fine.local_contrast;
+    if (parameter_key == QStringLiteral("local_contrast_scale")) {
+        return fine.local_contrast_scale;
+    }
     if (parameter_key == QStringLiteral("selective_color_lightness_protection")) {
         return fine.selective_color_lightness_protection;
     }
@@ -1032,10 +1100,30 @@ void EditController::setLutIntensity(const double value) {
 }
 
 void EditController::setOpticsEnabled(const bool enabled) {
-    if (!active_ || interactionLocked() || grade_stack_.optics.enabled == enabled) return;
+    // A Lensfun profile is one coherent correction, not four unrelated
+    // user-facing filters.  When a profile is enabled, ask it for every
+    // calibrated correction it can supply; unavailable records remain a
+    // harmless no-op and are reported through the receipt.  The individual
+    // fields stay in the recipe ABI for now so v1 readers remain stable, but
+    // they are no longer an editing choice in the desktop product.
+    const bool profile_already_complete = !enabled
+        || (grade_stack_.optics.correct_distortion
+            && grade_stack_.optics.correct_tca
+            && grade_stack_.optics.correct_vignetting
+            && grade_stack_.optics.automatic_scale);
+    if (!active_ || interactionLocked()
+        || (grade_stack_.optics.enabled == enabled && profile_already_complete)) {
+        return;
+    }
     const BackendGradeStack before = grade_stack_;
     grade_stack_.optics.enabled = enabled;
-    opticsEdited(QStringLiteral("enabled"), before);
+    if (enabled) {
+        grade_stack_.optics.correct_distortion = true;
+        grade_stack_.optics.correct_tca = true;
+        grade_stack_.optics.correct_vignetting = true;
+        grade_stack_.optics.automatic_scale = true;
+    }
+    opticsEdited(QStringLiteral("profile"), before);
 }
 
 void EditController::setOpticsDistortionEnabled(const bool enabled) {
@@ -1203,6 +1291,14 @@ void EditController::setManualOpticsProfile(
     if (!active_ || interactionLocked() || camera_model.trimmed().isEmpty()
         || lens_model.trimmed().isEmpty()) return;
     const BackendGradeStack before = grade_stack_;
+    // A user-selected profile follows the same all-calibrated-corrections
+    // policy as automatic matching.  Manual controls below the profile tab
+    // are deliberately additive residual corrections instead.
+    grade_stack_.optics.enabled = true;
+    grade_stack_.optics.correct_distortion = true;
+    grade_stack_.optics.correct_tca = true;
+    grade_stack_.optics.correct_vignetting = true;
+    grade_stack_.optics.automatic_scale = true;
     grade_stack_.optics.camera_profile_maker = camera_maker.trimmed();
     grade_stack_.optics.camera_profile_model = camera_model.trimmed();
     grade_stack_.optics.lens_profile_maker = lens_maker.trimmed();
@@ -1415,9 +1511,20 @@ void EditController::setParameterValue(
     } else if (parameter_key == QStringLiteral("blacks")) {
         target = &fine.blacks;
         label = QT_TRANSLATE_NOOP("EditController", "Blacks");
+    } else if (parameter_key == QStringLiteral("global_a_balance")) {
+        target = &fine.global_a_balance;
+        label = QT_TRANSLATE_NOOP("EditController", "Green to red balance");
+    } else if (parameter_key == QStringLiteral("global_b_balance")) {
+        target = &fine.global_b_balance;
+        label = QT_TRANSLATE_NOOP("EditController", "Blue to yellow balance");
     } else if (parameter_key == QStringLiteral("vibrance")) {
         target = &fine.vibrance;
         label = QT_TRANSLATE_NOOP("EditController", "Vibrance");
+    } else if (parameter_key == QStringLiteral("color_warper_strength")) {
+        target = &fine.oklab_color_warper_strength;
+        minimum = 0.0;
+        maximum = 1.0;
+        label = QT_TRANSLATE_NOOP("EditController", "Color Warper strength");
     } else if (parameter_key == QStringLiteral("lut_intensity")) {
         target = &fine.lut_intensity;
         minimum = 0.0;
@@ -1449,6 +1556,14 @@ void EditController::setParameterValue(
     } else if (parameter_key == QStringLiteral("texture")) {
         target = &fine.texture;
         label = QT_TRANSLATE_NOOP("EditController", "Perceptual texture");
+    } else if (parameter_key == QStringLiteral("local_contrast")) {
+        target = &fine.local_contrast;
+        label = QT_TRANSLATE_NOOP("EditController", "Local contrast");
+    } else if (parameter_key == QStringLiteral("local_contrast_scale")) {
+        target = &fine.local_contrast_scale;
+        minimum = 0.0;
+        maximum = 1.0;
+        label = QT_TRANSLATE_NOOP("EditController", "Local contrast scale");
     } else if (parameter_key == QStringLiteral("selective_color_lightness_protection")) {
         target = &fine.selective_color_lightness_protection;
         minimum = 0.0;
@@ -1621,6 +1736,58 @@ void EditController::setColorMixerValue(
     );
 }
 
+void EditController::setColorWarperControlPoint(
+    const int index,
+    const double a_offset,
+    const double b_offset
+) {
+    const auto* const selected = selectedGradeNode();
+    if (!active_ || interactionLocked() || selected == nullptr || !selected->enabled
+        || index < 0
+        || static_cast<std::size_t>(index) >= BACKEND_OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT
+        || !std::isfinite(a_offset)
+        || !std::isfinite(b_offset)
+        || a_offset < -BACKEND_OKLAB_COLOR_WARPER_MAXIMUM_OFFSET
+        || a_offset > BACKEND_OKLAB_COLOR_WARPER_MAXIMUM_OFFSET
+        || b_offset < -BACKEND_OKLAB_COLOR_WARPER_MAXIMUM_OFFSET
+        || b_offset > BACKEND_OKLAB_COLOR_WARPER_MAXIMUM_OFFSET
+        || !acceptParameter(
+            a_offset,
+            -BACKEND_OKLAB_COLOR_WARPER_MAXIMUM_OFFSET,
+            BACKEND_OKLAB_COLOR_WARPER_MAXIMUM_OFFSET,
+            QT_TRANSLATE_NOOP("EditController", "Color Warper control point")
+        )) {
+        return;
+    }
+    auto& point = grade_stack_.grade_nodes[selected_grade_node_index_]
+                      .fine
+                      .oklab_color_warper_control_points[static_cast<std::size_t>(index)];
+    if (point.a_offset == a_offset && point.b_offset == b_offset) {
+        return;
+    }
+    const BackendGradeStack before = grade_stack_;
+    point = {.a_offset = a_offset, .b_offset = b_offset};
+    parameterEdited(QStringLiteral("color_warper/point/%1").arg(index), before);
+}
+
+void EditController::resetColorWarper() {
+    const auto* const selected = selectedGradeNode();
+    if (!active_ || interactionLocked() || selected == nullptr || !selected->enabled) {
+        return;
+    }
+    auto& fine = grade_stack_.grade_nodes[selected_grade_node_index_].fine;
+    const auto neutral_points = decltype(fine.oklab_color_warper_control_points){};
+    if (fine.oklab_color_warper_control_points == neutral_points
+        && fine.oklab_color_warper_strength == 1.0) {
+        return;
+    }
+    finishActiveGesture();
+    const BackendGradeStack before = grade_stack_;
+    fine.oklab_color_warper_control_points = neutral_points;
+    fine.oklab_color_warper_strength = 1.0;
+    parameterEdited(QStringLiteral("color_warper/reset"), before);
+}
+
 double EditController::selectiveColorValue(
     const int target_index,
     const int component_index
@@ -1696,6 +1863,16 @@ void EditController::selectPointColor(const int index) {
     finishActiveGesture();
     selected_point_color_index_ = index;
     notifyParametersChanged();
+}
+
+void EditController::setPointColorScopeActive(const bool active) {
+    const bool next = active && pointColorScopeAvailable();
+    if (point_color_scope_active_ == next) {
+        return;
+    }
+    point_color_scope_active_ = next;
+    refreshCurrentDisplayScope();
+    emit pointColorScopeChanged();
 }
 
 void EditController::removeSelectedPointColor() {
@@ -3393,6 +3570,17 @@ void EditController::opticsEdited(
 }
 
 void EditController::notifyParametersChanged() {
+    if (point_color_scope_active_ && !pointColorScopeAvailable()) {
+        point_color_scope_active_ = false;
+        refreshCurrentDisplayScope();
+        emit pointColorScopeChanged();
+    } else if (point_color_scope_active_) {
+        // Selecting another Point Color or changing its hue interval should
+        // update the diagnostic immediately. The rendered preview stays
+        // untouched; its normal async replacement is still scheduled by the
+        // edit mutation that reached this notification.
+        refreshCurrentDisplayScope();
+    }
     ++parameter_revision_;
     emit parametersChanged();
 }

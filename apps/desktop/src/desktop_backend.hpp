@@ -13,6 +13,7 @@
 #include <compare>
 #include <cstdint>
 #include <memory>
+#include <optional>
 
 struct BackendScanReport final {
     QString folder_path;
@@ -73,6 +74,11 @@ struct BackendReviewItem final {
     std::uint64_t decision_head_sequence = 0;
     BackendReviewDecisionFlag decision_flag = BackendReviewDecisionFlag::Unflagged;
     std::uint8_t decision_rating = 0;
+    /// Mutable Catalog Library organization state. It is independent from
+    /// picked/rejected and stars, which remain append-only Review decisions.
+    bool liked = false;
+    QString color_label = QStringLiteral("none");
+    std::int64_t library_state_updated_at_ms = 0;
     bool has_development_edits = false;
     QString title;
     QString source_path;
@@ -117,6 +123,61 @@ struct BackendReviewPage final {
     QString next_cursor_representation_id;
     std::uint64_t total_items = 0;
     bool has_more = false;
+};
+
+/// Explicit, photo-first Library facets. Empty text fields mean "any";
+/// `has_*` booleans make a genuine zero/false constraint distinguishable from
+/// an absent one. This DTO intentionally contains no directory/path cursor.
+enum class BackendLibraryFlagFilter : std::uint8_t {
+    Any,
+    Unflagged,
+    Picked,
+    Rejected,
+};
+
+struct BackendLibraryPhotoFilter final {
+    bool has_capture_start = false;
+    std::int64_t capture_start_unix_seconds = 0;
+    bool has_capture_end = false;
+    std::int64_t capture_end_unix_seconds = 0;
+    QString camera_key;
+    QString lens_key;
+    bool has_aperture_minimum = false;
+    std::uint32_t aperture_minimum_milli = 0;
+    bool has_aperture_maximum = false;
+    std::uint32_t aperture_maximum_milli = 0;
+    bool has_liked = false;
+    bool liked = false;
+    QString color_label;
+    BackendLibraryFlagFilter flag = BackendLibraryFlagFilter::Any;
+    bool has_minimum_rating = false;
+    std::uint8_t minimum_rating = 0;
+    bool has_development_edits = false;
+    bool development_edits = false;
+    QString album_id;
+};
+
+/// Keyset cursor for capture-time-descending Library pages. `photo_id` is the
+/// stable tie-breaker, so relinking/renaming a source never invalidates it.
+struct BackendLibraryPhotoCursor final {
+    QString photo_id;
+    bool has_capture_time = false;
+    std::int64_t captured_at_unix_seconds = 0;
+};
+
+/// A bounded photo-first Library result. Exact count is deliberately separate
+/// so virtualized scrolling never pays for an unbounded count query.
+struct BackendLibraryPhotoPage final {
+    QVector<BackendReviewItem> items;
+    bool has_more = false;
+    BackendLibraryPhotoCursor next_cursor;
+};
+
+struct BackendPhotoLibraryState final {
+    QString photo_id;
+    bool liked = false;
+    QString color_label = QStringLiteral("none");
+    std::int64_t updated_at_ms = 0;
 };
 
 struct BackendReviewVisual final {
@@ -183,6 +244,10 @@ inline constexpr std::size_t BACKEND_SELECTIVE_COLOR_TARGET_COUNT = 9U;
 inline constexpr std::size_t BACKEND_SELECTIVE_COLOR_COMPONENT_COUNT = 4U;
 inline constexpr std::size_t BACKEND_SELECTIVE_COLOR_VALUE_COUNT =
     BACKEND_SELECTIVE_COLOR_TARGET_COUNT * BACKEND_SELECTIVE_COLOR_COMPONENT_COUNT;
+inline constexpr std::size_t BACKEND_OKLAB_COLOR_WARPER_GRID_SIDE = 5U;
+inline constexpr std::size_t BACKEND_OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT =
+    BACKEND_OKLAB_COLOR_WARPER_GRID_SIDE * BACKEND_OKLAB_COLOR_WARPER_GRID_SIDE;
+inline constexpr double BACKEND_OKLAB_COLOR_WARPER_MAXIMUM_OFFSET = 0.32;
 
 struct BackendPointColorRange final {
     bool enabled = true;
@@ -196,11 +261,20 @@ struct BackendPointColorRange final {
     auto operator<=>(const BackendPointColorRange&) const = default;
 };
 
+struct BackendOklabColorWarperControlPoint final {
+    double a_offset = 0.0;
+    double b_offset = 0.0;
+
+    auto operator<=>(const BackendOklabColorWarperControlPoint&) const = default;
+};
+
 struct BackendFineEditParameters final {
     double highlights = 0.0;
     double shadows = 0.0;
     double whites = 0.0;
     double blacks = 0.0;
+    double global_a_balance = 0.0;
+    double global_b_balance = 0.0;
     double vibrance = 0.0;
     std::array<double, BACKEND_COLOR_MIXER_BAND_COUNT> mixer_hue{};
     std::array<double, BACKEND_COLOR_MIXER_BAND_COUNT> mixer_saturation{};
@@ -218,6 +292,14 @@ struct BackendFineEditParameters final {
     std::array<double, BACKEND_SELECTIVE_COLOR_VALUE_COUNT> selective_color_cmyk{};
     /// Flattened authored Oklab-L x/y pairs. Empty means no perceptual curve.
     QVector<double> oklab_lightness_curve_points;
+    /// A fixed 5×5 Oklab a/b displacement lattice. It remains distinct from
+    /// hue-keyed Color Mixer and Point Color values, so one Grade Node can
+    /// carry the complete connected chroma field (and its local mask).
+    std::array<
+        BackendOklabColorWarperControlPoint,
+        BACKEND_OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT
+    > oklab_color_warper_control_points{};
+    double oklab_color_warper_strength = 1.0;
     QString lut_resource_id;
     QString lut_title;
     QString lut_managed_path;
@@ -228,6 +310,8 @@ struct BackendFineEditParameters final {
     double sharpen_masking = 0.0;
     double clarity = 0.0;
     double texture = 0.0;
+    double local_contrast = 0.0;
+    double local_contrast_scale = 0.5;
     double denoise_luminance = 0.0;
     double denoise_detail = 0.5;
     double denoise_color = 0.0;
@@ -444,6 +528,76 @@ struct BackendExportReceipt final {
     std::uint32_t width = 0;
     std::uint32_t height = 0;
     std::uint64_t byte_length = 0;
+    QString output_format;
+    QString receipt_json;
+};
+
+/// A validated request before the bridge freezes its immutable job snapshot.
+struct BackendDurableExportTarget final {
+    QString photo_id;
+    QString source_path;
+    QString output_path;
+};
+
+/// One immutable work item claimed from the catalog-backed export queue. The
+/// desktop shell may encode it, but cannot change its Recipe/source/output
+/// snapshot.
+struct BackendDurableExportItem final {
+    QString item_id;
+    QString job_id;
+    QString photo_id;
+    QString source_path;
+    QString output_path;
+    QString settings_json;
+};
+
+struct BackendDurableExportJob final {
+    QString job_id;
+    std::uint32_t item_count = 0;
+};
+
+struct BackendDurableExportRecovery final {
+    std::uint32_t interrupted_items = 0;
+    std::uint32_t requeued_items = 0;
+    std::uint32_t queued_items = 0;
+};
+
+struct BackendDurableExportProgress final {
+    std::uint32_t queued = 0;
+    std::uint32_t active = 0;
+    std::uint32_t completed = 0;
+    std::uint32_t failed = 0;
+    std::uint32_t cancelled = 0;
+    std::uint32_t paused_conflict = 0;
+    std::uint32_t total = 0;
+};
+
+/// Read-only cache footprint and Catalog reachability. Unknown cache entries
+/// and unsupported future digest algorithms are deliberately reported instead
+/// of treated as garbage.
+struct BackendCacheMaintenanceInventory final {
+    std::uint64_t catalog_live_blob_count = 0;
+    std::uint64_t cache_blob_count = 0;
+    std::uint64_t cache_blob_byte_length = 0;
+    std::uint64_t unknown_entry_count = 0;
+    std::uint32_t unsupported_algorithm_count = 0;
+};
+
+/// Result of an explicit cache maintenance plan or confirmed sweep. When
+/// `dry_run` is true, `reclaimed_*` names candidates only and no filesystem
+/// mutation has occurred.
+struct BackendCacheMaintenanceSweep final {
+    bool dry_run = true;
+    std::uint64_t catalog_live_blob_count = 0;
+    std::uint64_t cache_blob_count = 0;
+    std::uint64_t cache_blob_byte_length = 0;
+    std::uint64_t unknown_entry_count = 0;
+    std::uint32_t unsupported_algorithm_count = 0;
+    std::uint64_t retained_blob_count = 0;
+    std::uint64_t recently_protected_blob_count = 0;
+    std::uint64_t recently_protected_byte_length = 0;
+    std::uint64_t reclaimed_blob_count = 0;
+    std::uint64_t reclaimed_byte_length = 0;
 };
 
 struct BackendEditPreviewAnalysis final {
@@ -510,6 +664,19 @@ public:
         const QString& cursor_representation_id,
         std::uint32_t limit
     ) const;
+    [[nodiscard]] BackendLibraryPhotoPage libraryPhotoPage(
+        const BackendLibraryPhotoFilter& filter,
+        const BackendLibraryPhotoCursor& cursor,
+        std::uint32_t limit
+    ) const;
+    [[nodiscard]] std::uint64_t libraryPhotoCount(
+        const BackendLibraryPhotoFilter& filter
+    ) const;
+    [[nodiscard]] BackendPhotoLibraryState setPhotoLibraryState(
+        const QString& photo_id,
+        bool liked,
+        const QString& color_label
+    ) const;
     [[nodiscard]] BackendReviewVisual loadReviewVisual(const QString& ticket) const;
     [[nodiscard]] BackendReviewComparisonPresentation prepareReviewComparison(
         const QString& left_visual_handle,
@@ -574,6 +741,34 @@ public:
         const QString& destination_path,
         const BackendExportOptions& options
     ) const;
+    [[nodiscard]] BackendDurableExportJob enqueueDurableExportJob(
+        const QVector<BackendDurableExportTarget>& targets,
+        const QString& settings_json
+    ) const;
+    [[nodiscard]] BackendDurableExportRecovery recoverDurableExportQueue() const;
+    [[nodiscard]] std::optional<BackendDurableExportItem> claimNextDurableExportItem() const;
+    [[nodiscard]] BackendExportReceipt executeDurableExportItem(
+        const BackendDurableExportItem& item
+    ) const;
+    void failDurableExportItem(
+        const BackendDurableExportItem& item,
+        std::uint8_t stage,
+        const QString& code,
+        const QString& message,
+        bool retryable
+    ) const;
+    void cancelDurableExportJob(const QString& job_id) const;
+    [[nodiscard]] BackendDurableExportProgress durableExportProgress(
+        const QString& job_id
+    ) const;
+    /// Reads cache state without deleting anything.
+    [[nodiscard]] BackendCacheMaintenanceInventory cacheMaintenanceInventory() const;
+    /// Calculates the conservative sweep candidates. Call this before asking
+    /// the user to confirm a real maintenance action.
+    [[nodiscard]] BackendCacheMaintenanceSweep planCacheMaintenanceSweep() const;
+    /// Executes only the already user-confirmed conservative sweep. It never
+    /// deletes unknown entries, live Catalog blobs, or recent writes.
+    [[nodiscard]] BackendCacheMaintenanceSweep runCacheMaintenanceSweep() const;
     [[nodiscard]] BackendEditedPreview renderEditPreview(
         const QString& photo_id,
         const QString& source_path,

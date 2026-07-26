@@ -800,7 +800,7 @@ void require_parameter_count(
         }
         const std::size_t additional_count = source.parameter_group_lengths[0];
         if (additional_count + 1U > image::maximum_point_color_ranges
-            || source.parameters.size() != 70U + additional_count * 7U) {
+            || source.parameters.size() != 72U + additional_count * 7U) {
             throw_invalid_adjustment_plan(
                 "perceptual color has an invalid ordered range payload"
             );
@@ -842,9 +842,11 @@ void require_parameter_count(
                                       + component];
             }
         }
+        parameters.global_a_balance = source.parameters[70];
+        parameters.global_b_balance = source.parameters[71];
         parameters.additional_color_ranges.reserve(additional_count);
         for (std::size_t range_index = 0U; range_index < additional_count; ++range_index) {
-            const std::size_t offset = 70U + range_index * 7U;
+            const std::size_t offset = 72U + range_index * 7U;
             if (source.parameters[offset] != 0.0 && source.parameters[offset] != 1.0) {
                 throw_invalid_adjustment_plan(
                     "perceptual color range enabled flag must be zero or one"
@@ -861,6 +863,31 @@ void require_parameter_count(
             });
         }
         result.parameters = parameters;
+        break;
+    }
+    case FfiAdjustmentOperation::OklabColorWarper: {
+        if (source.parameter_schema_version
+                != image::oklab_color_warper_parameter_schema_version
+            || source.implementation_version
+                != image::oklab_color_warper_implementation_version) {
+            throw_invalid_adjustment_plan(
+                "Oklab Color Warper requires the current fixed lattice contract"
+            );
+        }
+        constexpr std::size_t parameter_count =
+            1U + image::oklab_color_warper_control_point_count * 2U;
+        require_parameter_count(source, parameter_count, "Oklab Color Warper");
+        image::OklabColorWarperAdjustment parameters;
+        parameters.strength = source.parameters[0];
+        for (std::size_t index = 0U;
+             index < image::oklab_color_warper_control_point_count;
+             ++index) {
+            parameters.control_points[index] = image::OklabColorWarperControlPoint{
+                .a_offset = source.parameters[1U + index * 2U],
+                .b_offset = source.parameters[2U + index * 2U],
+            };
+        }
+        result.parameters = std::move(parameters);
         break;
     }
     case FfiAdjustmentOperation::Lut3D: {
@@ -897,7 +924,7 @@ void require_parameter_count(
             execution_pass = image::DetailEffectsExecutionPass::finishing_effects;
             break;
         }
-        require_parameter_count(source, 35U, "detail and effects");
+        require_parameter_count(source, 37U, "detail and effects");
         image::SharpenAdjustment parameters{
             .execution_pass = execution_pass,
             .amount = source.parameters[0],
@@ -908,35 +935,37 @@ void require_parameter_count(
         {
             parameters.clarity = source.parameters[4];
             parameters.texture = source.parameters[5];
-            parameters.denoise_luminance = source.parameters[6];
-            parameters.denoise_detail = source.parameters[7];
-            parameters.denoise_color = source.parameters[8];
-            parameters.dehaze = source.parameters[9];
-            parameters.defringe_purple_amount = source.parameters[10];
-            parameters.defringe_purple_hue_low = source.parameters[11];
-            parameters.defringe_purple_hue_high = source.parameters[12];
-            parameters.defringe_green_amount = source.parameters[13];
-            parameters.defringe_green_hue_low = source.parameters[14];
-            parameters.defringe_green_hue_high = source.parameters[15];
-            parameters.shadows_hue = source.parameters[16];
-            parameters.shadows_saturation = source.parameters[17];
-            parameters.shadows_luminance = source.parameters[18];
-            parameters.midtones_hue = source.parameters[19];
-            parameters.midtones_saturation = source.parameters[20];
-            parameters.midtones_luminance = source.parameters[21];
-            parameters.highlights_hue = source.parameters[22];
-            parameters.highlights_saturation = source.parameters[23];
-            parameters.highlights_luminance = source.parameters[24];
-            parameters.grading_blending = source.parameters[25];
-            parameters.grading_balance = source.parameters[26];
-            parameters.grain_amount = source.parameters[27];
-            parameters.grain_size = source.parameters[28];
-            parameters.grain_roughness = source.parameters[29];
-            parameters.vignette_amount = source.parameters[30];
-            parameters.vignette_midpoint = source.parameters[31];
-            parameters.vignette_roundness = source.parameters[32];
-            parameters.vignette_feather = source.parameters[33];
-            parameters.vignette_highlights = source.parameters[34];
+            parameters.local_contrast = source.parameters[6];
+            parameters.local_contrast_scale = source.parameters[7];
+            parameters.denoise_luminance = source.parameters[8];
+            parameters.denoise_detail = source.parameters[9];
+            parameters.denoise_color = source.parameters[10];
+            parameters.dehaze = source.parameters[11];
+            parameters.defringe_purple_amount = source.parameters[12];
+            parameters.defringe_purple_hue_low = source.parameters[13];
+            parameters.defringe_purple_hue_high = source.parameters[14];
+            parameters.defringe_green_amount = source.parameters[15];
+            parameters.defringe_green_hue_low = source.parameters[16];
+            parameters.defringe_green_hue_high = source.parameters[17];
+            parameters.shadows_hue = source.parameters[18];
+            parameters.shadows_saturation = source.parameters[19];
+            parameters.shadows_luminance = source.parameters[20];
+            parameters.midtones_hue = source.parameters[21];
+            parameters.midtones_saturation = source.parameters[22];
+            parameters.midtones_luminance = source.parameters[23];
+            parameters.highlights_hue = source.parameters[24];
+            parameters.highlights_saturation = source.parameters[25];
+            parameters.highlights_luminance = source.parameters[26];
+            parameters.grading_blending = source.parameters[27];
+            parameters.grading_balance = source.parameters[28];
+            parameters.grain_amount = source.parameters[29];
+            parameters.grain_size = source.parameters[30];
+            parameters.grain_roughness = source.parameters[31];
+            parameters.vignette_amount = source.parameters[32];
+            parameters.vignette_midpoint = source.parameters[33];
+            parameters.vignette_roundness = source.parameters[34];
+            parameters.vignette_feather = source.parameters[35];
+            parameters.vignette_highlights = source.parameters[36];
         }
         result.parameters = parameters;
         break;

@@ -44,6 +44,7 @@ Rectangle {
     property int mixerViewMode: 0
     property int selectedMixerBand: 0
     property int selectedSelectiveColorTarget: 0
+    property bool lutBrowserExpanded: false
     readonly property var colorMixerBands: [
         { "name": qsTr("Red"), "color": "#f04b4b", "hueLow": "#d94881", "hueHigh": "#f28a39", "oklchHue": 29.2339 },
         { "name": qsTr("Orange"), "color": "#f28a39", "hueLow": "#ef4c42", "hueHigh": "#e8c63c", "oklchHue": 52.9847 },
@@ -65,6 +66,48 @@ Rectangle {
         { "name": qsTr("Neutral"), "color": "#8d98a5" },
         { "name": qsTr("Black"), "color": "#27313b" }
     ]
+    readonly property var lutBrowserGroups: buildLutBrowserGroups(
+        lutLibrary ? lutLibrary.availableEntries : [])
+
+    function lutPathSegment(path) {
+        const parts = String(path || "").split("/")
+        return parts.length > 0 ? parts[parts.length - 1] : String(path || "")
+    }
+
+    function lutRelativeDirectory(entry) {
+        const sourceRoot = String(entry.directory || "")
+        const absolutePath = String(entry.path || "")
+        const prefix = sourceRoot.length > 0 ? sourceRoot + "/" : ""
+        const relativePath = absolutePath.indexOf(prefix) === 0
+            ? absolutePath.slice(prefix.length) : String(entry.fileName || "")
+        const slash = relativePath.lastIndexOf("/")
+        return slash > 0 ? relativePath.slice(0, slash) : ""
+    }
+
+    function buildLutBrowserGroups(entries) {
+        const groupsByPath = ({})
+        for (let index = 0; index < entries.length; ++index) {
+            const entry = entries[index]
+            const sourceRoot = String(entry.directory || "")
+            const relativePath = lutRelativeDirectory(entry)
+            const key = sourceRoot + "\u001f" + relativePath
+            if (!groupsByPath[key]) {
+                groupsByPath[key] = {
+                    title: relativePath.length > 0
+                        ? lutPathSegment(sourceRoot) + " / " + relativePath
+                        : lutPathSegment(sourceRoot),
+                    entries: []
+                }
+            }
+            groupsByPath[key].entries.push(entry)
+        }
+
+        const groups = []
+        for (const key in groupsByPath)
+            groups.push(groupsByPath[key])
+        groups.sort((left, right) => left.title.localeCompare(right.title))
+        return groups
+    }
 
     function joinedIdentity(make, model) {
         const parts = []
@@ -105,31 +148,6 @@ Rectangle {
             ? qsTr("%1 mm").arg(Number(captureMetadata.focalLengthMm)
                 .toLocaleString(Qt.locale(), "f", 1)) : "—")
         return values.join("   ·   ")
-    }
-
-    // A switch expresses the requested setting; this label expresses the result Lensfun actually
-    // supplied for the currently rendered image. Keeping the two separate makes missing or
-    // uncalibrated profile data immediately visible instead of making an enabled switch look
-    // like proof that correction happened.
-    function opticsEffectState(key) {
-        const receipt = editor.opticsReceipt
-        if (!receipt.valid || receipt.status !== "matched")
-            return ""
-        if (key === "master") {
-            return receipt.appliedDistortion || receipt.appliedTca || receipt.appliedVignetting
-                ? qsTr("Applied") : qsTr("No calibrated correction")
-        }
-        if (key === "distortion")
-            return receipt.appliedDistortion ? qsTr("Applied") : qsTr("No data")
-        if (key === "tca")
-            return receipt.appliedTca ? qsTr("Applied") : qsTr("No data")
-        if (key === "vignetting") {
-            if (!receipt.appliedVignetting)
-                return qsTr("No data")
-            return receipt.vignettingUsedDistanceFallback
-                ? qsTr("Applied · far focus") : qsTr("Applied")
-        }
-        return receipt.appliedScaling ? qsTr("Applied") : qsTr("Not needed")
     }
 
     function manualOpticsActive() {
@@ -227,9 +245,11 @@ Rectangle {
         spacing: 0
 
         EditHistogram {
+            id: analysisScope
             Layout.fillWidth: true
-            Layout.preferredHeight: 158
+            Layout.preferredHeight: implicitHeight
             analysis: inspector.displayedHistogram
+            editor: inspector.editor
             beforeView: inspector.displayingBefore
             displayGeneration: inspector.readyPreviewGeneration
             panelColor: inspector.panel
@@ -466,7 +486,7 @@ Rectangle {
                         spacing: 7
                         enabled: inspector.editor.active && !inspector.editor.stateBusy
 
-                        Item { Layout.preferredHeight: 4 }
+                        Item { Layout.preferredHeight: 8 }
 
                         ColumnLayout {
                             objectName: "gradeNodeInspector"
@@ -614,6 +634,79 @@ Rectangle {
                             ShadowAdjustmentSection {
                                 Layout.fillWidth: true
                                 visible: inspectorTabStrip.currentIndex === 0
+                                title: qsTr("PRESENCE")
+                                toolTipText: qsTr("Foundational atmosphere and frequency controls evaluated before creative color grading.")
+
+                                Repeater {
+                                    model: [
+                                        {
+                                            "key": "dehaze",
+                                            "name": qsTr("Dehaze"),
+                                            "tip": qsTr("Restore atmospheric separation before creative grading.")
+                                        },
+                                        {
+                                            "key": "clarity",
+                                            "name": qsTr("Clarity"),
+                                            "tip": qsTr("Adjust protected mid-frequency structure without changing color.")
+                                        },
+                                        {
+                                            "key": "texture",
+                                            "name": qsTr("Texture"),
+                                            "tip": qsTr("Adjust fine lightness detail without sharpening edges or color noise.")
+                                        },
+                                        {
+                                            "key": "local_contrast",
+                                            "name": qsTr("Local Contrast"),
+                                            "tip": qsTr("Adjust broad edge-aware lightness contrast independently from Clarity and Texture.")
+                                        }
+                                    ]
+                                    delegate: ShadowSlider {
+                                        required property var modelData
+                                        Layout.fillWidth: true
+                                        Layout.leftMargin: 14
+                                        Layout.rightMargin: 14
+                                        label: modelData.name
+                                        toolTipText: modelData.tip
+                                        from: -1.0
+                                        to: 1.0
+                                        neutralValue: 0.0
+                                        stepSize: 0.01
+                                        decimals: 0
+                                        displayMultiplier: 100
+                                        suffix: "%"
+                                        value: inspector.fineValue(modelData.key)
+                                        onGestureStarted: inspector.editor.beginParameterEdit(
+                                            modelData.key)
+                                        onEdited: value => inspector.editor.setParameterValue(
+                                            modelData.key, value)
+                                        onGestureFinished: inspector.editor.endParameterEdit(
+                                            modelData.key)
+                                    }
+                                }
+
+                                ShadowSlider {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: 14
+                                    Layout.rightMargin: 14
+                                    label: qsTr("Local Contrast Scale")
+                                    toolTipText: qsTr("Choose the spatial scale used by Local Contrast, from medium to broad structure.")
+                                    from: 0.0
+                                    to: 1.0
+                                    neutralValue: 0.5
+                                    stepSize: 0.01
+                                    decimals: 0
+                                    displayMultiplier: 100
+                                    suffix: "%"
+                                    value: inspector.fineValue("local_contrast_scale")
+                                    onGestureStarted: inspector.editor.beginParameterEdit("local_contrast_scale")
+                                    onEdited: value => inspector.editor.setParameterValue("local_contrast_scale", value)
+                                    onGestureFinished: inspector.editor.endParameterEdit("local_contrast_scale")
+                                }
+                            }
+
+                            ShadowAdjustmentSection {
+                                Layout.fillWidth: true
+                                visible: inspectorTabStrip.currentIndex === 0
                                 title: qsTr("COLOR")
                                 expanded: true
 
@@ -649,6 +742,49 @@ Rectangle {
                                     onGestureStarted: inspector.editor.beginParameterEdit("vibrance")
                                     onEdited: value => inspector.editor.setParameterValue("vibrance", value)
                                     onGestureFinished: inspector.editor.endParameterEdit("vibrance")
+                                }
+                            }
+
+                            ShadowAdjustmentSection {
+                                Layout.fillWidth: true
+                                visible: inspectorTabStrip.currentIndex === 0
+                                title: qsTr("COLOR BALANCE")
+                                toolTipText: qsTr("Perceptual global opponent balance after basic color and before hue-keyed color corrections.")
+
+                                ShadowSlider {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: 14
+                                    Layout.rightMargin: 14
+                                    label: qsTr("Green ↔ Red")
+                                    from: -1.0
+                                    to: 1.0
+                                    neutralValue: 0.0
+                                    stepSize: 0.01
+                                    decimals: 0
+                                    displayMultiplier: 100
+                                    suffix: "%"
+                                    value: inspector.fineValue("global_a_balance")
+                                    onGestureStarted: inspector.editor.beginParameterEdit("global_a_balance")
+                                    onEdited: value => inspector.editor.setParameterValue("global_a_balance", value)
+                                    onGestureFinished: inspector.editor.endParameterEdit("global_a_balance")
+                                }
+
+                                ShadowSlider {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: 14
+                                    Layout.rightMargin: 14
+                                    label: qsTr("Blue ↔ Yellow")
+                                    from: -1.0
+                                    to: 1.0
+                                    neutralValue: 0.0
+                                    stepSize: 0.01
+                                    decimals: 0
+                                    displayMultiplier: 100
+                                    suffix: "%"
+                                    value: inspector.fineValue("global_b_balance")
+                                    onGestureStarted: inspector.editor.beginParameterEdit("global_b_balance")
+                                    onEdited: value => inspector.editor.setParameterValue("global_b_balance", value)
+                                    onGestureFinished: inspector.editor.endParameterEdit("global_b_balance")
                                 }
                             }
 
@@ -694,6 +830,7 @@ Rectangle {
                                     onCurrentIndexChanged: inspector.mixerViewMode = currentIndex
                                     ShadowTabButton { text: qsTr("OKLCH"); compact: true }
                                     ShadowTabButton { text: qsTr("COLOR"); compact: true }
+                                    ShadowTabButton { text: qsTr("HUE CURVE"); compact: true }
                                 }
 
                                 TabBar {
@@ -834,6 +971,24 @@ Rectangle {
                                             "color_mixer/" + modelData.component
                                                 + "/" + bandIndex)
                                     }
+                                }
+
+                                HueCurveEditor {
+                                    visible: inspector.mixerViewMode === 2
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: 14
+                                    Layout.rightMargin: 14
+                                    Layout.topMargin: visible ? 5 : 0
+                                    Layout.bottomMargin: visible ? 6 : 0
+                                    Layout.preferredHeight: visible ? implicitHeight : 0
+                                    controller: inspector.editor
+                                    bands: inspector.colorMixerBands
+                                    panelColor: inspector.panelRaised
+                                    plotColor: Theme.chrome
+                                    borderColor: inspector.panelBorder
+                                    textColor: inspector.textPrimary
+                                    mutedTextColor: inspector.textMuted
+                                    accentColor: inspector.accent
                                 }
                             }
 
@@ -1112,6 +1267,27 @@ Rectangle {
 
                             ShadowAdjustmentSection {
                                 Layout.fillWidth: true
+                                visible: inspectorTabStrip.currentIndex === 0
+                                title: qsTr("COLOR MAP")
+                                summary: qsTr("OKLAB 5×5")
+                                toolTipText: qsTr("Move a smooth connected Oklab mesh after Color Mixer and Point Color. This is a separate chroma-field correction, not a hue-keyed slider.")
+
+                                ColorWarperEditor {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: 14
+                                    Layout.rightMargin: 14
+                                    Layout.bottomMargin: 3
+                                    controller: inspector.editor
+                                }
+                            }
+
+                            Loader {
+                                Layout.fillWidth: true
+                                sourceComponent: lutSectionComponent
+                            }
+
+                            ShadowAdjustmentSection {
+                                Layout.fillWidth: true
                                 visible: inspectorTabStrip.currentIndex === 1
                                 title: qsTr("COLOR GRADING")
                                 toolTipText: qsTr("Tint shadows, midtones, and highlights independently with perceptual color wheels.")
@@ -1176,7 +1352,10 @@ Rectangle {
                                 }
                             }
 
-                            ShadowAdjustmentSection {
+                            Component {
+                                id: lutSectionComponent
+
+                                ShadowAdjustmentSection {
                                 id: lutSection
                                 Layout.fillWidth: true
                                 visible: inspectorTabStrip.currentIndex === 1
@@ -1251,7 +1430,7 @@ Rectangle {
                                                 size: 14
                                                 source: "qrc:/icons/chevron-down.svg"
                                                 color: inspector.textSecondary
-                                                rotation: lutPicker.opened ? 180 : 0
+                                                rotation: inspector.lutBrowserExpanded ? 180 : 0
                                             }
                                         }
 
@@ -1262,183 +1441,10 @@ Rectangle {
                                             cursorShape: Qt.PointingHandCursor
                                             enabled: inspector.editor.active
                                                 && !inspector.editor.stateBusy
-                                            onClicked: lutPicker.open()
+                                            onClicked: inspector.lutBrowserExpanded
+                                                = !inspector.lutBrowserExpanded
                                         }
 
-                                        Popup {
-                                            id: lutPicker
-                                            parent: lutSelector
-                                            x: 0
-                                            y: lutSelector.height + 5
-                                            width: Math.max(lutSelector.width, 270)
-                                            height: Math.min(360,
-                                                68 + Math.max(1,
-                                                    inspector.lutLibrary.availableEntries.length) * 62)
-                                            padding: 5
-                                            modal: false
-                                            closePolicy: Popup.CloseOnEscape
-                                                | Popup.CloseOnPressOutside
-
-                                            background: Rectangle {
-                                                radius: Theme.controlRadius
-                                                color: Theme.panelRaised
-                                                border.width: 1
-                                                border.color: Theme.borderStrong
-                                            }
-
-                                            contentItem: ListView {
-                                                id: lutPickerList
-                                                clip: true
-                                                spacing: 2
-                                                model: inspector.lutLibrary.availableEntries
-
-                                                header: Rectangle {
-                                                    width: lutPickerList.width
-                                                    height: 60
-                                                    radius: Theme.compactControlRadius
-                                                    color: noneLutMouse.containsMouse
-                                                        ? Theme.buttonGhostHover
-                                                        : Theme.transparent
-
-                                                    RowLayout {
-                                                        anchors.fill: parent
-                                                        anchors.leftMargin: 7
-                                                        anchors.rightMargin: 9
-                                                        spacing: 9
-
-                                                        Rectangle {
-                                                            Layout.preferredWidth: 68
-                                                            Layout.preferredHeight: 44
-                                                            radius: Theme.compactControlRadius
-                                                            clip: true
-                                                            color: Theme.photoCanvas
-                                                            border.color: Theme.border
-
-                                                            Image {
-                                                                anchors.fill: parent
-                                                                source: "image://shadow-lut/original"
-                                                                sourceSize.width: 136
-                                                                sourceSize.height: 88
-                                                                asynchronous: true
-                                                                cache: true
-                                                                fillMode: Image.PreserveAspectCrop
-                                                            }
-                                                        }
-
-                                                        Label {
-                                                            Layout.fillWidth: true
-                                                            text: qsTr("No LUT")
-                                                            color: inspector.editor.hasLut
-                                                                ? inspector.textSecondary
-                                                                : inspector.accent
-                                                            font.pixelSize: 10
-                                                            font.weight: inspector.editor.hasLut
-                                                                ? Font.Normal : Font.DemiBold
-                                                        }
-                                                    }
-
-                                                    MouseArea {
-                                                        id: noneLutMouse
-                                                        anchors.fill: parent
-                                                        hoverEnabled: true
-                                                        cursorShape: Qt.PointingHandCursor
-                                                        onClicked: {
-                                                            inspector.editor.clearLut()
-                                                            lutPicker.close()
-                                                        }
-                                                    }
-                                                }
-
-                                                delegate: Rectangle {
-                                                    id: lutOptionRow
-                                                    required property var modelData
-                                                    width: lutPickerList.width
-                                                    height: 60
-                                                    radius: Theme.compactControlRadius
-                                                    readonly property bool current:
-                                                        inspector.editor.lutResourceId
-                                                            === modelData.id
-                                                    color: current
-                                                        ? Theme.accentSurfaceQuiet
-                                                        : lutEntryMouse.containsMouse
-                                                            ? Theme.buttonGhostHover
-                                                            : Theme.transparent
-
-                                                    RowLayout {
-                                                        anchors.fill: parent
-                                                        anchors.leftMargin: 10
-                                                        anchors.rightMargin: 8
-                                                        spacing: 8
-
-                                                        Rectangle {
-                                                            Layout.preferredWidth: 68
-                                                            Layout.preferredHeight: 44
-                                                            radius: Theme.compactControlRadius
-                                                            clip: true
-                                                            color: Theme.photoCanvas
-                                                            border.color: lutOptionRow.current
-                                                                ? Theme.accentBorder : Theme.border
-
-                                                            Image {
-                                                                anchors.fill: parent
-                                                                source: "image://shadow-lut/"
-                                                                    + lutOptionRow.modelData.id
-                                                                sourceSize.width: 136
-                                                                sourceSize.height: 88
-                                                                asynchronous: true
-                                                                cache: true
-                                                                fillMode: Image.PreserveAspectCrop
-                                                            }
-                                                        }
-
-                                                        ColumnLayout {
-                                                            Layout.fillWidth: true
-                                                            spacing: 1
-
-                                                            Label {
-                                                                Layout.fillWidth: true
-                                                                text: lutOptionRow.modelData.title
-                                                                color: lutOptionRow.current
-                                                                    ? inspector.accent
-                                                                    : inspector.textPrimary
-                                                                font.pixelSize: 10
-                                                                font.weight: lutOptionRow.current
-                                                                    ? Font.DemiBold : Font.Normal
-                                                                elide: Text.ElideRight
-                                                            }
-                                                            Label {
-                                                                text: qsTr("%1³").arg(
-                                                                    lutOptionRow.modelData.size)
-                                                                color: inspector.textMuted
-                                                                font.pixelSize: 9
-                                                            }
-                                                        }
-                                                    }
-
-                                                    MouseArea {
-                                                        id: lutEntryMouse
-                                                        anchors.fill: parent
-                                                        hoverEnabled: true
-                                                        cursorShape: Qt.PointingHandCursor
-                                                        onClicked: {
-                                                            inspector.editor.setLutResource(
-                                                                lutOptionRow.modelData.id,
-                                                                lutOptionRow.modelData.title,
-                                                                lutOptionRow.modelData.managedPath)
-                                                            lutPicker.close()
-                                                        }
-                                                    }
-                                                }
-
-                                                Label {
-                                                    anchors.centerIn: parent
-                                                    visible: inspector.lutLibrary.availableEntries.length === 0
-                                                    text: qsTr("No LUTs in the Library")
-                                                    color: inspector.textMuted
-                                                    font.pixelSize: 10
-                                                }
-                                            }
-                                        }
                                     }
 
                                     ShadowIconButton {
@@ -1466,6 +1472,180 @@ Rectangle {
                                     }
                                 }
 
+                                ColumnLayout {
+                                    visible: inspector.lutBrowserExpanded
+                                        && inspector.lutBrowserGroups.length > 0
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: 14
+                                    Layout.rightMargin: 14
+                                    Layout.preferredHeight: visible ? implicitHeight : 0
+                                    spacing: 10
+
+                                    Repeater {
+                                        model: inspector.lutBrowserGroups
+
+                                        delegate: ColumnLayout {
+                                            id: lutGroup
+
+                                            required property var modelData
+                                            property bool expanded: false
+
+                                            Layout.fillWidth: true
+                                            spacing: 6
+
+                                            Rectangle {
+                                                Layout.fillWidth: true
+                                                Layout.preferredHeight: 28
+                                                radius: Theme.compactControlRadius
+                                                color: lutGroupHeaderMouse.containsMouse
+                                                    ? Theme.buttonGhostHover
+                                                    : Theme.surfaceSubtle
+                                                border.color: Theme.border
+
+                                                RowLayout {
+                                                    anchors.fill: parent
+                                                    anchors.leftMargin: 8
+                                                    anchors.rightMargin: 8
+                                                    spacing: 6
+
+                                                    Label {
+                                                        Layout.fillWidth: true
+                                                        text: lutGroup.modelData.title
+                                                        color: inspector.textSecondary
+                                                        font.pixelSize: 9
+                                                        font.weight: Font.DemiBold
+                                                        elide: Text.ElideRight
+                                                    }
+
+                                                    Label {
+                                                        text: String(lutGroup.modelData.entries.length)
+                                                        color: inspector.textMuted
+                                                        font.pixelSize: 9
+                                                    }
+
+                                                    ShadowIcon {
+                                                        size: 12
+                                                        source: "qrc:/icons/chevron-down.svg"
+                                                        color: inspector.textMuted
+                                                        rotation: lutGroup.expanded ? 180 : 0
+                                                    }
+                                                }
+
+                                                MouseArea {
+                                                    id: lutGroupHeaderMouse
+                                                    anchors.fill: parent
+                                                    hoverEnabled: true
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: lutGroup.expanded = !lutGroup.expanded
+                                                }
+                                            }
+
+                                            GridLayout {
+                                                visible: lutGroup.expanded
+                                                Layout.fillWidth: true
+                                                Layout.preferredHeight: visible
+                                                    ? implicitHeight : 0
+                                                columns: width >= 296 ? 2 : 1
+                                                columnSpacing: 6
+                                                rowSpacing: 6
+
+                                                Repeater {
+                                                    model: lutGroup.expanded
+                                                        ? lutGroup.modelData.entries : []
+
+                                                    delegate: Rectangle {
+                                                        id: lutCard
+
+                                                        required property var modelData
+                                                        readonly property bool current:
+                                                            inspector.editor.lutResourceId
+                                                                === modelData.id
+
+                                                        Layout.fillWidth: true
+                                                        Layout.preferredHeight: 86
+                                                        radius: Theme.compactControlRadius
+                                                        color: current
+                                                            ? Theme.accentSurfaceQuiet
+                                                            : lutCardMouse.containsMouse
+                                                                ? Theme.buttonHoverSurface
+                                                                : Theme.buttonSurface
+                                                        border.color: current
+                                                            ? Theme.accentBorder
+                                                            : Theme.buttonBorder
+
+                                                        RowLayout {
+                                                            anchors.fill: parent
+                                                            anchors.margins: 6
+                                                            spacing: 7
+
+                                                            Rectangle {
+                                                                Layout.preferredWidth: 64
+                                                                Layout.preferredHeight: 72
+                                                                radius: Theme.compactControlRadius
+                                                                clip: true
+                                                                color: Theme.photoCanvas
+                                                                border.color: lutCard.current
+                                                                    ? Theme.accentBorder
+                                                                    : Theme.border
+
+                                                                Image {
+                                                                    anchors.fill: parent
+                                                                    source: "image://shadow-lut/"
+                                                                        + lutCard.modelData.id
+                                                                    sourceSize.width: 128
+                                                                    sourceSize.height: 144
+                                                                    asynchronous: true
+                                                                    cache: true
+                                                                    fillMode: Image.PreserveAspectCrop
+                                                                }
+                                                            }
+
+                                                            ColumnLayout {
+                                                                Layout.fillWidth: true
+                                                                spacing: 2
+
+                                                                Label {
+                                                                    Layout.fillWidth: true
+                                                                    text: lutCard.modelData.title
+                                                                    color: lutCard.current
+                                                                        ? inspector.accent
+                                                                        : inspector.textPrimary
+                                                                    font.pixelSize: 10
+                                                                    font.weight: lutCard.current
+                                                                        ? Font.DemiBold : Font.Medium
+                                                                    elide: Text.ElideRight
+                                                                }
+
+                                                                Label {
+                                                                    Layout.fillWidth: true
+                                                                    text: qsTr("%1³").arg(
+                                                                        lutCard.modelData.size)
+                                                                    color: inspector.textMuted
+                                                                    font.pixelSize: 9
+                                                                }
+                                                            }
+                                                        }
+
+                                                        MouseArea {
+                                                            id: lutCardMouse
+                                                            anchors.fill: parent
+                                                            hoverEnabled: true
+                                                            cursorShape: Qt.PointingHandCursor
+                                                            onClicked: {
+                                                                inspector.editor.setLutResource(
+                                                                    lutCard.modelData.id,
+                                                                    lutCard.modelData.title,
+                                                                    lutCard.modelData.managedPath)
+                                                                inspector.lutBrowserExpanded = false
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
                                 ShadowSlider {
                                     visible: inspector.editor.hasLut
                                     Layout.fillWidth: true
@@ -1487,26 +1667,6 @@ Rectangle {
                                         "lut_intensity")
                                 }
 
-                                RowLayout {
-                                    visible: inspector.lutLibrary.availableEntries.length === 0
-                                    Layout.fillWidth: true
-                                    Layout.leftMargin: 14
-                                    Layout.rightMargin: 14
-
-                                    Label {
-                                        Layout.fillWidth: true
-                                        text: qsTr("No LUTs in Library")
-                                        color: inspector.textMuted
-                                        font.pixelSize: 9
-                                    }
-                                    ShadowIconButton {
-                                        buttonSize: 24
-                                        iconSize: 16
-                                        source: "qrc:/icons/library-manage.svg"
-                                        toolTipText: qsTr("Manage LUT Library")
-                                        accessibleName: toolTipText
-                                        onClicked: inspector.openLutLibraryRequested()
-                                    }
                                 }
                             }
 

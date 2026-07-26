@@ -22,6 +22,8 @@ pub(crate) const RECIPE_V1_SELECTIVE_TONE_RENDER_OP_ID_DOMAIN: &[u8] =
     b"shadow.desktop.selective-tone-slot-id.v1\0";
 pub(crate) const RECIPE_V1_PERCEPTUAL_COLOR_RENDER_OP_ID_DOMAIN: &[u8] =
     b"shadow.desktop.perceptual-color-slot-id.v1\0";
+pub(crate) const RECIPE_V1_OKLAB_COLOR_WARPER_RENDER_OP_ID_DOMAIN: &[u8] =
+    b"shadow.desktop.oklab-color-warper-slot-id.v1\0";
 pub(crate) const RECIPE_V1_LUT_RENDER_OP_ID_DOMAIN: &[u8] = b"shadow.desktop.lut-slot-id.v1\0";
 /// A local spatial mask belongs to the *instance* of a Grade Node. Its
 /// generated identity incorporates the shape payload, so two immutable recipe
@@ -77,6 +79,13 @@ pub(crate) fn recipe_v1_selective_tone_render_op_id(grade_node_id: LayerInstance
 pub(crate) fn recipe_v1_perceptual_color_render_op_id(grade_node_id: LayerInstanceId) -> NodeId {
     recipe_v1_derived_render_op_id(
         RECIPE_V1_PERCEPTUAL_COLOR_RENDER_OP_ID_DOMAIN,
+        grade_node_id,
+    )
+}
+
+pub(crate) fn recipe_v1_oklab_color_warper_render_op_id(grade_node_id: LayerInstanceId) -> NodeId {
+    recipe_v1_derived_render_op_id(
+        RECIPE_V1_OKLAB_COLOR_WARPER_RENDER_OP_ID_DOMAIN,
         grade_node_id,
     )
 }
@@ -137,6 +146,7 @@ pub(crate) struct GradeNodeRecipeV1Identity {
     pub(crate) white_balance_render_op_id: NodeId,
     pub(crate) saturation_render_op_id: NodeId,
     pub(crate) perceptual_color_render_op_id: NodeId,
+    pub(crate) oklab_color_warper_render_op_id: NodeId,
     pub(crate) lut_render_op_id: NodeId,
     pub(crate) color_grading_render_op_id: NodeId,
     pub(crate) sharpen_render_op_id: NodeId,
@@ -157,6 +167,9 @@ impl GradeNodeRecipeV1Identity {
             white_balance_render_op_id: NodeId::new_v7(),
             saturation_render_op_id: NodeId::new_v7(),
             perceptual_color_render_op_id: recipe_v1_perceptual_color_render_op_id(grade_node_id),
+            oklab_color_warper_render_op_id: recipe_v1_oklab_color_warper_render_op_id(
+                grade_node_id,
+            ),
             lut_render_op_id: recipe_v1_lut_render_op_id(grade_node_id),
             sharpen_render_op_id: recipe_v1_sharpen_render_op_id(grade_node_id),
             color_grading_render_op_id: recipe_color_grading_render_op_id(grade_node_id),
@@ -167,7 +180,7 @@ impl GradeNodeRecipeV1Identity {
     /// Recipe v1 stores the controls inside one Grade Node as atomic
     /// `AdjustmentNode`s. These are compiler/adapter identities, not Grade
     /// Nodes exposed to the product surface.
-    fn recipe_v1_render_op_ids(&self) -> [(&'static str, NodeId); 11] {
+    fn recipe_v1_render_op_ids(&self) -> [(&'static str, NodeId); 12] {
         [
             ("exposure", self.exposure_render_op_id),
             ("contrast", self.contrast_render_op_id),
@@ -179,6 +192,7 @@ impl GradeNodeRecipeV1Identity {
             ("rgb_white_balance", self.white_balance_render_op_id),
             ("saturation", self.saturation_render_op_id),
             ("perceptual_color", self.perceptual_color_render_op_id),
+            ("oklab_color_warper", self.oklab_color_warper_render_op_id),
             ("color_grading", self.color_grading_render_op_id),
             ("lut", self.lut_render_op_id),
             ("technical_detail", self.sharpen_render_op_id),
@@ -187,7 +201,7 @@ impl GradeNodeRecipeV1Identity {
     }
 
     #[cfg(test)]
-    pub(crate) fn recipe_v1_render_op_id_values(&self) -> [NodeId; 11] {
+    pub(crate) fn recipe_v1_render_op_id_values(&self) -> [NodeId; 12] {
         self.recipe_v1_render_op_ids()
             .map(|(_, render_op_id)| render_op_id)
     }
@@ -216,6 +230,7 @@ pub(crate) struct SharedGradeNodeReference {
 pub(crate) struct FineEditParameters {
     pub(crate) selective_tone: SelectiveToneParameters,
     pub(crate) perceptual_color: PerceptualColorParameters,
+    pub(crate) oklab_color_warper: OklabColorWarperParameters,
     pub(crate) oklab_lightness_curve: Option<OklabLightnessToneCurve>,
     pub(crate) lut: LutEditParameters,
     pub(crate) sharpen: SharpenParameters,
@@ -723,6 +738,9 @@ pub(crate) fn decode_grade_node_draft_recipe_v1(
                 "perceptual color",
                 &grade_node.perceptual_color_render_op_id,
             )?,
+            oklab_color_warper_render_op_id: recipe_v1_oklab_color_warper_render_op_id(
+                grade_node_id,
+            ),
             lut_render_op_id: parse_render_op_id("LUT", &grade_node.lut_render_op_id)?,
             sharpen_render_op_id: parse_render_op_id("sharpen", &grade_node.sharpen_render_op_id)?,
             color_grading_render_op_id: recipe_color_grading_render_op_id(grade_node_id),
@@ -756,6 +774,38 @@ pub(crate) fn fixed_selective_color(
     })
 }
 
+pub(crate) fn oklab_color_warper_from_ffi(
+    values: &[f64],
+    strength: f64,
+) -> AnyResult<OklabColorWarperParameters> {
+    if values.len() != OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT * 2 {
+        bail!(
+            "oklab_color_warper_control_points must contain exactly {} a/b values",
+            OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT * 2
+        );
+    }
+    let mut control_points = [OklabColorWarperControlPoint {
+        a_offset: 0.0,
+        b_offset: 0.0,
+    }; OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT];
+    for (index, point) in control_points.iter_mut().enumerate() {
+        point.a_offset = values[index * 2];
+        point.b_offset = values[index * 2 + 1];
+    }
+    Ok(OklabColorWarperParameters {
+        control_points,
+        strength,
+    })
+}
+
+pub(crate) fn oklab_color_warper_ffi_values(parameters: &OklabColorWarperParameters) -> Vec<f64> {
+    parameters
+        .control_points
+        .iter()
+        .flat_map(|point| [point.a_offset, point.b_offset])
+        .collect()
+}
+
 pub(crate) fn fine_parameters(
     parameters: &ffi::FfiFineEditParameters,
 ) -> AnyResult<FineEditParameters> {
@@ -767,6 +817,8 @@ pub(crate) fn fine_parameters(
             blacks: parameters.blacks,
         },
         perceptual_color: PerceptualColorParameters {
+            global_a_balance: parameters.global_a_balance,
+            global_b_balance: parameters.global_b_balance,
             vibrance: parameters.vibrance,
             hue_shifts: fixed_color_mixer(&parameters.mixer_hue, "mixer_hue")?,
             saturation: fixed_color_mixer(&parameters.mixer_saturation, "mixer_saturation")?,
@@ -787,6 +839,10 @@ pub(crate) fn fine_parameters(
             selective_color_lightness_protection: parameters.selective_color_lightness_protection,
             selective_color_cmyk: fixed_selective_color(&parameters.selective_color_cmyk)?,
         },
+        oklab_color_warper: oklab_color_warper_from_ffi(
+            &parameters.oklab_color_warper_control_points,
+            parameters.oklab_color_warper_strength,
+        )?,
         oklab_lightness_curve: if parameters.oklab_lightness_curve_points.is_empty() {
             None
         } else {
@@ -807,6 +863,8 @@ pub(crate) fn fine_parameters(
             masking: parameters.sharpen_masking,
             clarity: parameters.clarity,
             texture: parameters.texture,
+            local_contrast: parameters.local_contrast,
+            local_contrast_scale: parameters.local_contrast_scale,
             denoise_luminance: parameters.denoise_luminance,
             denoise_detail: parameters.denoise_detail,
             denoise_color: parameters.denoise_color,
@@ -1054,6 +1112,8 @@ pub(crate) fn validate_fine_parameters(parameters: &FineEditParameters) -> AnyRe
         validate_range(value, -1.0, 1.0, name)?;
     }
     let color = &parameters.perceptual_color;
+    validate_range(color.global_a_balance, -1.0, 1.0, "global Oklab a balance")?;
+    validate_range(color.global_b_balance, -1.0, 1.0, "global Oklab b balance")?;
     validate_range(color.vibrance, -1.0, 1.0, "vibrance")?;
     for (name, values) in [
         ("Color Mixer hue", color.hue_shifts),
@@ -1078,6 +1138,27 @@ pub(crate) fn validate_fine_parameters(parameters: &FineEditParameters) -> AnyRe
     for value in color.selective_color_cmyk {
         validate_range(value, -1.0, 1.0, "Selective Color CMYK")?;
     }
+    let color_warper = &parameters.oklab_color_warper;
+    validate_range(
+        color_warper.strength,
+        0.0,
+        1.0,
+        "Oklab Color Warper strength",
+    )?;
+    for point in color_warper.control_points {
+        validate_range(
+            point.a_offset,
+            -OKLAB_COLOR_WARPER_MAXIMUM_OFFSET,
+            OKLAB_COLOR_WARPER_MAXIMUM_OFFSET,
+            "Oklab Color Warper a offset",
+        )?;
+        validate_range(
+            point.b_offset,
+            -OKLAB_COLOR_WARPER_MAXIMUM_OFFSET,
+            OKLAB_COLOR_WARPER_MAXIMUM_OFFSET,
+            "Oklab Color Warper b offset",
+        )?;
+    }
     if let Some(curve) = &parameters.oklab_lightness_curve {
         validate_tone_curve(&curve.lightness).context("validate Oklab lightness curve")?;
     }
@@ -1087,6 +1168,13 @@ pub(crate) fn validate_fine_parameters(parameters: &FineEditParameters) -> AnyRe
     validate_range(sharpen.radius, 0.1, 5.0, "sharpen radius")?;
     validate_range(sharpen.threshold, 0.0, 1.0, "sharpen threshold")?;
     validate_range(sharpen.masking, 0.0, 1.0, "sharpen masking")?;
+    validate_range(sharpen.local_contrast, -1.0, 1.0, "local contrast")?;
+    validate_range(
+        sharpen.local_contrast_scale,
+        0.0,
+        1.0,
+        "local contrast scale",
+    )?;
     for (name, value) in [
         ("luminance noise reduction", sharpen.denoise_luminance),
         ("noise reduction detail", sharpen.denoise_detail),
@@ -1170,6 +1258,8 @@ pub(crate) fn ffi_fine_parameters(parameters: &FineEditParameters) -> ffi::FfiFi
         shadows: tone.shadows,
         whites: tone.whites,
         blacks: tone.blacks,
+        global_a_balance: color.global_a_balance,
+        global_b_balance: color.global_b_balance,
         vibrance: color.vibrance,
         mixer_hue: color.hue_shifts.to_vec(),
         mixer_saturation: color.saturation.to_vec(),
@@ -1210,6 +1300,10 @@ pub(crate) fn ffi_fine_parameters(parameters: &FineEditParameters) -> ffi::FfiFi
                     .collect()
             })
             .unwrap_or_default(),
+        oklab_color_warper_control_points: oklab_color_warper_ffi_values(
+            &parameters.oklab_color_warper,
+        ),
+        oklab_color_warper_strength: parameters.oklab_color_warper.strength,
         lut_resource_id: parameters.lut.resource_id.clone(),
         lut_title: parameters.lut.title.clone(),
         lut_managed_path: parameters.lut.managed_path.clone(),
@@ -1220,6 +1314,8 @@ pub(crate) fn ffi_fine_parameters(parameters: &FineEditParameters) -> ffi::FfiFi
         sharpen_masking: parameters.sharpen.masking,
         clarity: parameters.sharpen.clarity,
         texture: parameters.sharpen.texture,
+        local_contrast: parameters.sharpen.local_contrast,
+        local_contrast_scale: parameters.sharpen.local_contrast_scale,
         denoise_luminance: parameters.sharpen.denoise_luminance,
         denoise_detail: parameters.sharpen.denoise_detail,
         denoise_color: parameters.sharpen.denoise_color,
@@ -1620,6 +1716,10 @@ pub(crate) fn compile_recipe_node(
         == PERCEPTUAL_COLOR_OPERATION_ID
         && descriptor.parameter_schema_version() == PERCEPTUAL_COLOR_PARAMETER_SCHEMA_VERSION
         && descriptor.implementation_version() == PERCEPTUAL_COLOR_IMPLEMENTATION_VERSION;
+    let is_current_oklab_color_warper = descriptor.operation_id().as_str()
+        == OKLAB_COLOR_WARPER_OPERATION_ID
+        && descriptor.parameter_schema_version() == OKLAB_COLOR_WARPER_PARAMETER_SCHEMA_VERSION
+        && descriptor.implementation_version() == OKLAB_COLOR_WARPER_IMPLEMENTATION_VERSION;
     let is_current_technical_detail = descriptor.operation_id().as_str()
         == TECHNICAL_DETAIL_OPERATION_ID
         && descriptor.parameter_schema_version() == TECHNICAL_DETAIL_PARAMETER_SCHEMA_VERSION
@@ -1635,6 +1735,7 @@ pub(crate) fn compile_recipe_node(
         && !is_current_oklab_lightness_tone_curve
         && !is_current_selective_tone
         && !is_current_perceptual_color
+        && !is_current_oklab_color_warper
         && !is_current_technical_detail
         && !is_current_color_grading
         && !is_current_finishing_effects)
@@ -1714,9 +1815,19 @@ pub(crate) fn compile_recipe_node(
             if !is_current_perceptual_color {
                 bail!("Recipe Color Mixer uses a discarded contract");
             }
-            let expected_len = 15;
+            let expected_len = 17;
             AdjustmentRenderOperation::PerceptualColor {
                 parameters: Box::new(PerceptualColorParameters {
+                    global_a_balance: required_float(
+                        node.parameters(),
+                        GLOBAL_A_BALANCE_PARAMETER_KEY,
+                        expected_len,
+                    )?,
+                    global_b_balance: required_float(
+                        node.parameters(),
+                        GLOBAL_B_BALANCE_PARAMETER_KEY,
+                        expected_len,
+                    )?,
                     vibrance: required_float(
                         node.parameters(),
                         VIBRANCE_PARAMETER_KEY,
@@ -1806,6 +1917,27 @@ pub(crate) fn compile_recipe_node(
                         expected_len,
                     )?)?,
                 }),
+            }
+        }
+        OKLAB_COLOR_WARPER_OPERATION_ID => {
+            require_stage(node, ProcessingStage::ToneAndLocalContrast)?;
+            if !is_current_oklab_color_warper {
+                bail!("Recipe Oklab Color Warper uses a discarded contract");
+            }
+            let expected_len = 2;
+            AdjustmentRenderOperation::OklabColorWarper {
+                parameters: Box::new(oklab_color_warper_from_ffi(
+                    &required_float_vector(
+                        node.parameters(),
+                        OKLAB_COLOR_WARPER_CONTROL_POINTS_PARAMETER_KEY,
+                        expected_len,
+                    )?,
+                    required_float(
+                        node.parameters(),
+                        OKLAB_COLOR_WARPER_STRENGTH_PARAMETER_KEY,
+                        expected_len,
+                    )?,
+                )?),
             }
         }
         LUT_3D_OPERATION_ID => {
@@ -2025,6 +2157,7 @@ pub(crate) fn encode_grade_node_as_recipe_v1_layer(
     let white_balance_id = identity.white_balance_render_op_id;
     let saturation_id = identity.saturation_render_op_id;
     let perceptual_color_id = identity.perceptual_color_render_op_id;
+    let oklab_color_warper_id = identity.oklab_color_warper_render_op_id;
     let oklab_lightness_curve_id = identity.oklab_lightness_curve_render_op_id;
     let lut_id = identity.lut_render_op_id;
     let technical_detail_id = identity.sharpen_render_op_id;
@@ -2111,20 +2244,34 @@ pub(crate) fn encode_grade_node_as_recipe_v1_layer(
             &fine.perceptual_color,
         )?,
     ];
-    // Perceptual L belongs after OKLCH/Selective Color controls (so hue-keyed
-    // corrections use their authored source hue), before technical recovery
-    // and creative LUTs.
+    // The connected Color Warper mesh comes after the hue-keyed controls: the
+    // Color Mixer and Point Color therefore retain their authored source-hue
+    // semantics, while the mesh is a separate chroma-field correction.
+    let color_warper_input = if is_neutral_oklab_color_warper(&fine.oklab_color_warper) {
+        perceptual_color_id
+    } else {
+        nodes.push(recipe_oklab_color_warper_render_op(
+            oklab_color_warper_id,
+            NodeInput::Node {
+                node_id: perceptual_color_id,
+            },
+            &fine.oklab_color_warper,
+        )?);
+        oklab_color_warper_id
+    };
+    // Perceptual L belongs after the hue/chroma controls, before technical
+    // recovery and creative LUTs.
     let perceptual_tone_input = if let Some(curve) = fine.oklab_lightness_curve.as_ref() {
         nodes.push(recipe_oklab_lightness_tone_curve_render_op(
             oklab_lightness_curve_id,
             NodeInput::Node {
-                node_id: perceptual_color_id,
+                node_id: color_warper_input,
             },
             curve,
         )?);
         oklab_lightness_curve_id
     } else {
-        perceptual_color_id
+        color_warper_input
     };
     // The former monolithic Detail & Effects node is deliberately expanded
     // here, not in the UI: foundational color and the user curve run before
@@ -2378,6 +2525,14 @@ pub(crate) fn perceptual_color_parameter_block(
     let range = parameters.color_range;
     let mut entries = vec![
         (
+            GLOBAL_A_BALANCE_PARAMETER_KEY,
+            ParameterValue::Float(FiniteF64::new(parameters.global_a_balance)?),
+        ),
+        (
+            GLOBAL_B_BALANCE_PARAMETER_KEY,
+            ParameterValue::Float(FiniteF64::new(parameters.global_b_balance)?),
+        ),
+        (
             VIBRANCE_PARAMETER_KEY,
             ParameterValue::Float(FiniteF64::new(parameters.vibrance)?),
         ),
@@ -2512,6 +2667,52 @@ pub(crate) fn recipe_perceptual_color_render_op(
     .map_err(Into::into)
 }
 
+pub(crate) fn recipe_oklab_color_warper_render_op(
+    id: NodeId,
+    input: NodeInput,
+    parameters: &OklabColorWarperParameters,
+) -> AnyResult<AdjustmentNode> {
+    let rgb = PortType::Image(ImageDomain::WorkingRgb);
+    let operation = OperationDescriptor::new(
+        OperationId::new(OKLAB_COLOR_WARPER_OPERATION_ID)?,
+        OKLAB_COLOR_WARPER_PARAMETER_SCHEMA_VERSION,
+        OKLAB_COLOR_WARPER_IMPLEMENTATION_VERSION,
+        ProcessingStage::ToneAndLocalContrast,
+        vec![rgb],
+        rgb,
+        None,
+    )?;
+    AdjustmentNode::new(
+        id,
+        operation,
+        vec![input],
+        parameter_block([
+            (
+                OKLAB_COLOR_WARPER_CONTROL_POINTS_PARAMETER_KEY,
+                ParameterValue::FloatVector(
+                    oklab_color_warper_ffi_values(parameters)
+                        .into_iter()
+                        .map(FiniteF64::new)
+                        .collect::<Result<Vec<_>, _>>()?,
+                ),
+            ),
+            (
+                OKLAB_COLOR_WARPER_STRENGTH_PARAMETER_KEY,
+                ParameterValue::Float(FiniteF64::new(parameters.strength)?),
+            ),
+        ])?,
+        None,
+    )
+    .map_err(Into::into)
+}
+
+fn is_neutral_oklab_color_warper(parameters: &OklabColorWarperParameters) -> bool {
+    parameters
+        .control_points
+        .iter()
+        .all(|point| point.a_offset == 0.0 && point.b_offset == 0.0)
+}
+
 pub(crate) fn recipe_lut_render_op(
     id: NodeId,
     input: NodeInput,
@@ -2554,10 +2755,12 @@ pub(crate) fn recipe_lut_render_op(
     .map_err(Into::into)
 }
 
-pub(crate) fn detail_effect_values(parameters: &SharpenParameters) -> [f64; 31] {
+pub(crate) fn detail_effect_values(parameters: &SharpenParameters) -> [f64; 33] {
     [
         parameters.clarity,
         parameters.texture,
+        parameters.local_contrast,
+        parameters.local_contrast_scale,
         parameters.denoise_luminance,
         parameters.denoise_detail,
         parameters.denoise_color,
@@ -2597,6 +2800,8 @@ pub(crate) fn apply_detail_effect_values(
     let [
         clarity,
         texture,
+        local_contrast,
+        local_contrast_scale,
         denoise_luminance,
         denoise_detail,
         denoise_color,
@@ -2628,10 +2833,12 @@ pub(crate) fn apply_detail_effect_values(
         vignette_highlights,
     ] = values
     else {
-        bail!("Detail & Effects storage must contain exactly 31 values");
+        bail!("Detail & Effects storage must contain exactly 33 values");
     };
     parameters.clarity = *clarity;
     parameters.texture = *texture;
+    parameters.local_contrast = *local_contrast;
+    parameters.local_contrast_scale = *local_contrast_scale;
     parameters.denoise_luminance = *denoise_luminance;
     parameters.denoise_detail = *denoise_detail;
     parameters.denoise_color = *denoise_color;
@@ -2744,6 +2951,7 @@ pub(crate) struct GradeNodeRecipeV1RenderOps<'a> {
     pub(crate) white_balance: &'a AdjustmentNode,
     pub(crate) saturation: &'a AdjustmentNode,
     pub(crate) perceptual_color: &'a AdjustmentNode,
+    pub(crate) oklab_color_warper: Option<&'a AdjustmentNode>,
     pub(crate) technical_detail: &'a AdjustmentNode,
     pub(crate) color_grading: &'a AdjustmentNode,
     pub(crate) lut: &'a AdjustmentNode,
@@ -2760,6 +2968,9 @@ impl GradeNodeRecipeV1RenderOps<'_> {
             self.saturation,
             self.perceptual_color,
         ];
+        if let Some(oklab_color_warper) = self.oklab_color_warper {
+            nodes.push(oklab_color_warper);
+        }
         if let Some(oklab_lightness_curve) = self.oklab_lightness_curve {
             nodes.push(oklab_lightness_curve);
         }
@@ -2788,7 +2999,7 @@ pub(crate) fn grade_node_recipe_v1_render_ops(
     layer: &LayerInstance,
 ) -> AnyResult<GradeNodeRecipeV1RenderOps<'_>> {
     let ordered = ordered_layer_nodes(layer)?;
-    if !(10..=11).contains(&ordered.len()) {
+    if !(10..=12).contains(&ordered.len()) {
         bail!("working Recipe is not the current complete Grade Node shape");
     }
     let white_balance = ordered[0];
@@ -2798,6 +3009,13 @@ pub(crate) fn grade_node_recipe_v1_render_ops(
     let saturation = ordered[4];
     let perceptual_color = ordered[5];
     let mut cursor = 6_usize;
+    let mut oklab_color_warper = None;
+    if ordered.get(cursor).is_some_and(|node| {
+        node.operation().operation_id().as_str() == OKLAB_COLOR_WARPER_OPERATION_ID
+    }) {
+        oklab_color_warper = Some(ordered[cursor]);
+        cursor += 1;
+    }
     let mut oklab_lightness_curve = None;
     if ordered.get(cursor).is_some_and(|node| {
         node.operation().operation_id().as_str() == OKLAB_LIGHTNESS_TONE_CURVE_OPERATION_ID
@@ -2855,6 +3073,15 @@ pub(crate) fn grade_node_recipe_v1_render_ops(
         },
     )?;
     let mut technical_input = perceptual_color.id();
+    if let Some(oklab_color_warper) = oklab_color_warper {
+        validate_recipe_oklab_color_warper_render_op(
+            oklab_color_warper,
+            NodeInput::Node {
+                node_id: technical_input,
+            },
+        )?;
+        technical_input = oklab_color_warper.id();
+    }
     if let Some(oklab_lightness_curve) = oklab_lightness_curve {
         validate_recipe_oklab_lightness_tone_curve_render_op(
             oklab_lightness_curve,
@@ -2907,6 +3134,7 @@ pub(crate) fn grade_node_recipe_v1_render_ops(
         white_balance,
         saturation,
         perceptual_color,
+        oklab_color_warper,
         technical_detail,
         color_grading,
         lut,
@@ -2976,8 +3204,18 @@ pub(crate) fn fine_parameters_from_nodes(
     };
     let perceptual_color = {
         let node = nodes.perceptual_color;
-        let expected_len = 15;
+        let expected_len = 17;
         PerceptualColorParameters {
+            global_a_balance: required_float(
+                node.parameters(),
+                GLOBAL_A_BALANCE_PARAMETER_KEY,
+                expected_len,
+            )?,
+            global_b_balance: required_float(
+                node.parameters(),
+                GLOBAL_B_BALANCE_PARAMETER_KEY,
+                expected_len,
+            )?,
             vibrance: required_float(node.parameters(), VIBRANCE_PARAMETER_KEY, expected_len)?,
             hue_shifts: fixed_color_mixer(
                 &required_float_vector(
@@ -3062,6 +3300,24 @@ pub(crate) fn fine_parameters_from_nodes(
             )?)?,
         }
     };
+    let oklab_color_warper = nodes
+        .oklab_color_warper
+        .map(|node| {
+            oklab_color_warper_from_ffi(
+                &required_float_vector(
+                    node.parameters(),
+                    OKLAB_COLOR_WARPER_CONTROL_POINTS_PARAMETER_KEY,
+                    2,
+                )?,
+                required_float(
+                    node.parameters(),
+                    OKLAB_COLOR_WARPER_STRENGTH_PARAMETER_KEY,
+                    2,
+                )?,
+            )
+        })
+        .transpose()?
+        .unwrap_or_default();
     let oklab_lightness_curve = nodes
         .oklab_lightness_curve
         .map(|node| -> AnyResult<OklabLightnessToneCurve> {
@@ -3143,6 +3399,7 @@ pub(crate) fn fine_parameters_from_nodes(
     let parameters = FineEditParameters {
         selective_tone,
         perceptual_color,
+        oklab_color_warper,
         oklab_lightness_curve,
         lut,
         sharpen,
@@ -3194,6 +3451,9 @@ pub(crate) fn decode_grade_node_draft_from_recipe_v1_layer(
         || nodes.oklab_lightness_curve.is_some_and(|node| {
             node.id() != recipe_v1_oklab_lightness_tone_curve_render_op_id(layer.id())
         })
+        || nodes
+            .oklab_color_warper
+            .is_some_and(|node| node.id() != recipe_v1_oklab_color_warper_render_op_id(layer.id()))
     {
         bail!("working Recipe uses non-canonical internal Detail & Effects pass identities");
     }
@@ -3212,6 +3472,7 @@ pub(crate) fn decode_grade_node_draft_from_recipe_v1_layer(
             white_balance_render_op_id: nodes.white_balance.id(),
             saturation_render_op_id: nodes.saturation.id(),
             perceptual_color_render_op_id: nodes.perceptual_color.id(),
+            oklab_color_warper_render_op_id: recipe_v1_oklab_color_warper_render_op_id(layer.id()),
             lut_render_op_id: nodes.lut.id(),
             color_grading_render_op_id: nodes.color_grading.id(),
             sharpen_render_op_id: nodes.technical_detail.id(),
@@ -3409,6 +3670,48 @@ pub(crate) fn validate_recipe_perceptual_color_render_op(
     {
         bail!("working Recipe Point Color has an unsupported contract");
     }
+    Ok(())
+}
+
+pub(crate) fn validate_recipe_oklab_color_warper_render_op(
+    node: &AdjustmentNode,
+    input: NodeInput,
+) -> AnyResult<()> {
+    let operation = node.operation();
+    let rgb = PortType::Image(ImageDomain::WorkingRgb);
+    let contract_is_supported = operation.parameter_schema_version()
+        == OKLAB_COLOR_WARPER_PARAMETER_SCHEMA_VERSION
+        && operation.implementation_version() == OKLAB_COLOR_WARPER_IMPLEMENTATION_VERSION;
+    if operation.operation_id().as_str() != OKLAB_COLOR_WARPER_OPERATION_ID
+        || !contract_is_supported
+        || operation.stage() != ProcessingStage::ToneAndLocalContrast
+        || operation.input_types() != [rgb]
+        || operation.output_type() != rgb
+        || operation.seed().is_some()
+        || node.inputs() != [input]
+        || node.mask_reference().is_some()
+    {
+        bail!("working Recipe Oklab Color Warper has an unsupported contract");
+    }
+    let parameters = oklab_color_warper_from_ffi(
+        &required_float_vector(
+            node.parameters(),
+            OKLAB_COLOR_WARPER_CONTROL_POINTS_PARAMETER_KEY,
+            2,
+        )?,
+        required_float(
+            node.parameters(),
+            OKLAB_COLOR_WARPER_STRENGTH_PARAMETER_KEY,
+            2,
+        )?,
+    )?;
+    if is_neutral_oklab_color_warper(&parameters) {
+        bail!("working Recipe must elide a neutral Oklab Color Warper");
+    }
+    validate_fine_parameters(&FineEditParameters {
+        oklab_color_warper: parameters,
+        ..FineEditParameters::default()
+    })?;
     Ok(())
 }
 

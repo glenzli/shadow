@@ -52,6 +52,11 @@ pub const WHITES_PARAMETER_KEY: &str = "whites";
 pub const BLACKS_PARAMETER_KEY: &str = "blacks";
 
 pub const PERCEPTUAL_COLOR_OPERATION_ID: &str = "shadow.perceptual_color";
+/// Broad Oklab opponent-axis balance. Positive `a` moves toward red and
+/// positive `b` moves toward yellow; sensor-domain white balance remains an
+/// earlier operation in the development plan.
+pub const GLOBAL_A_BALANCE_PARAMETER_KEY: &str = "global_a_balance";
+pub const GLOBAL_B_BALANCE_PARAMETER_KEY: &str = "global_b_balance";
 pub const VIBRANCE_PARAMETER_KEY: &str = "vibrance";
 pub const COLOR_MIXER_HUE_PARAMETER_KEY: &str = "mixer_hue";
 pub const COLOR_MIXER_SATURATION_PARAMETER_KEY: &str = "mixer_saturation";
@@ -76,6 +81,17 @@ pub const SELECTIVE_COLOR_LIGHTNESS_PROTECTION_PARAMETER_KEY: &str =
     "selective_color_lightness_protection";
 pub const SELECTIVE_COLOR_CMYK_PARAMETER_KEY: &str = "selective_color_cmyk";
 pub const PERCEPTUAL_COLOR_IMPLEMENTATION_VERSION: &str = "shadow-cpu-perceptual-color-v1";
+
+/// A fixed 5×5 Oklab a/b displacement lattice. This is intentionally a
+/// separate operation from Color Mixer, Point Color, and Selective Color: it
+/// moves a connected two-dimensional hue/chroma field.
+pub const OKLAB_COLOR_WARPER_OPERATION_ID: &str = "shadow.oklab_color_warper";
+/// Flattened row-major `(a_offset, b_offset)` pairs for the fixed 25 points.
+pub const OKLAB_COLOR_WARPER_CONTROL_POINTS_PARAMETER_KEY: &str = "control_points";
+/// Global blend of the authored lattice, where zero is a neutral bypass.
+pub const OKLAB_COLOR_WARPER_STRENGTH_PARAMETER_KEY: &str = "strength";
+pub const OKLAB_COLOR_WARPER_PARAMETER_SCHEMA_VERSION: u32 = 1;
+pub const OKLAB_COLOR_WARPER_IMPLEMENTATION_VERSION: &str = "shadow-cpu-oklab-color-warper-v1";
 
 pub const LUT_3D_OPERATION_ID: &str = "shadow.lut_3d";
 pub const LUT_RESOURCE_ID_PARAMETER_KEY: &str = "resource_id";
@@ -132,6 +148,7 @@ mod tests {
             SATURATION_OPERATION_ID,
             SELECTIVE_TONE_OPERATION_ID,
             PERCEPTUAL_COLOR_OPERATION_ID,
+            OKLAB_COLOR_WARPER_OPERATION_ID,
             LUT_3D_OPERATION_ID,
             SHARPEN_OPERATION_ID,
             TECHNICAL_DETAIL_OPERATION_ID,
@@ -167,6 +184,8 @@ mod tests {
             SELECTIVE_COLOR_RELATIVE_PARAMETER_KEY,
             SELECTIVE_COLOR_LIGHTNESS_PROTECTION_PARAMETER_KEY,
             SELECTIVE_COLOR_CMYK_PARAMETER_KEY,
+            OKLAB_COLOR_WARPER_CONTROL_POINTS_PARAMETER_KEY,
+            OKLAB_COLOR_WARPER_STRENGTH_PARAMETER_KEY,
             LUT_RESOURCE_ID_PARAMETER_KEY,
             LUT_TITLE_PARAMETER_KEY,
             LUT_MANAGED_PATH_PARAMETER_KEY,
@@ -188,6 +207,7 @@ mod tests {
         assert_eq!(CPU_REFERENCE_IMPLEMENTATION_REVISION, 1);
         assert_eq!(OKLAB_LIGHTNESS_TONE_CURVE_PARAMETER_SCHEMA_VERSION, 1);
         assert_eq!(SELECTIVE_TONE_PARAMETER_SCHEMA_VERSION, 1);
+        assert_eq!(OKLAB_COLOR_WARPER_PARAMETER_SCHEMA_VERSION, 1);
         assert_eq!(TECHNICAL_DETAIL_PARAMETER_SCHEMA_VERSION, 1);
         assert_eq!(COLOR_GRADING_PARAMETER_SCHEMA_VERSION, 1);
         assert_eq!(FINISHING_EFFECTS_PARAMETER_SCHEMA_VERSION, 1);
@@ -198,6 +218,7 @@ mod tests {
             OKLAB_LIGHTNESS_TONE_CURVE_IMPLEMENTATION_VERSION,
             SELECTIVE_TONE_IMPLEMENTATION_VERSION,
             PERCEPTUAL_COLOR_IMPLEMENTATION_VERSION,
+            OKLAB_COLOR_WARPER_IMPLEMENTATION_VERSION,
             TECHNICAL_DETAIL_IMPLEMENTATION_VERSION,
             COLOR_GRADING_IMPLEMENTATION_VERSION,
             FINISHING_EFFECTS_IMPLEMENTATION_VERSION,

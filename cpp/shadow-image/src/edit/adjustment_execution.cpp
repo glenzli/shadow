@@ -36,9 +36,19 @@ inline constexpr std::string_view image_acceleration_environment =
             case AdjustmentOperation::contrast:
             case AdjustmentOperation::saturation:
             case AdjustmentOperation::oklab_lightness_tone_curve:
-            case AdjustmentOperation::perceptual_color:
+            case AdjustmentOperation::oklab_opponent_tone_curves:
+            case AdjustmentOperation::oklab_color_warper:
             case AdjustmentOperation::lut_3d:
                 break;
+            case AdjustmentOperation::perceptual_color: {
+                const auto* parameters = std::get_if<PerceptualColorAdjustment>(
+                    &nodes[step.node_index].parameters
+                );
+                if (parameters == nullptr) {
+                    return "Metal adjustment plan has an invalid perceptual color node";
+                }
+                break;
+            }
             case AdjustmentOperation::sharpen: {
                 const auto* parameters = std::get_if<SharpenAdjustment>(
                     &nodes[step.node_index].parameters
@@ -46,7 +56,8 @@ inline constexpr std::string_view image_acceleration_environment =
                 if (parameters == nullptr
                     || parameters->execution_pass
                         != DetailEffectsExecutionPass::color_grading
-                    || parameters->clarity != 0.0 || parameters->texture != 0.0) {
+                    || parameters->clarity != 0.0 || parameters->texture != 0.0
+                    || parameters->local_contrast != 0.0) {
                     return "Metal adjustment supports only pixel-local color grading "
                         "from the Detail & Effects node";
                 }
@@ -101,8 +112,8 @@ std::string_view adjustment_backend_identity(const AdjustmentBackend backend) no
         return "shadow-adjustment-cpu-v1;math=f64";
     case AdjustmentBackend::metal:
         return "shadow-adjustment-metal-v1;abi=1;math=f32-safe;"
-            "ops=wb,exposure,contrast,saturation,perceptual,selective-color,"
-            "curve,grading,lut";
+            "ops=wb,exposure,contrast,saturation,perceptual,opponent-balance,selective-color,"
+            "curve,opponent-curves,grading,lut";
     }
     return "shadow-adjustment-unknown";
 }

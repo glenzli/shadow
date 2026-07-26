@@ -29,6 +29,7 @@ use shadow_core::{CachedArtifactLoader, technical_analysis_preprocessing_version
 use shadow_domain::{
     ImageDimensions, MAX_PHOTO_RATING, NewPhotoDecisionEvent, PhotoDecisionEvent,
     PhotoDecisionOrigin, PhotoDecisionState, PhotoFlag, PhotoId, PreviewByteOrder, PreviewCodec,
+    RepresentationId,
 };
 use uuid::Uuid;
 
@@ -60,6 +61,18 @@ const REVIEW_FEEDBACK_FORGET_REASON: &str =
 pub(crate) struct ReviewVisualSelection {
     pub(crate) photo_id: PhotoId,
     pub(crate) record: CachedArtifactRecord,
+}
+
+/// Opaque grid visual contract shared by Review and the photo-first Library.
+///
+/// The signed handle and transient embedded-preview fallback deliberately stay
+/// owned by [`ReviewService`]. Library owns durable query projection, but it
+/// must not duplicate the loader's authorization or session-preview policy.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct GridVisualPresentation {
+    pub(crate) handle: String,
+    pub(crate) role: String,
+    pub(crate) dimensions: ImageDimensions,
 }
 
 /// Session-local review state.  Every durable mutation still goes through the
@@ -115,6 +128,52 @@ impl ReviewService {
     #[cfg(test)]
     pub(crate) fn feedback_session_id(&self) -> &str {
         &self.feedback_session_id
+    }
+
+    /// Converts one current Catalog artifact into the exact short-lived grid
+    /// presentation that Qt may request. This is intentionally shared by
+    /// Review and Library so an embedded camera preview never bypasses the
+    /// same invalidation and session-local fallback policy in one surface.
+    pub(crate) fn grid_visual(
+        &self,
+        photo_id: PhotoId,
+        representation_id: RepresentationId,
+        source: RepresentationFingerprint,
+        visual: Option<&CachedArtifactRecord>,
+    ) -> AnyResult<Option<GridVisualPresentation>> {
+        let current_visual = visual.filter(|visual| {
+            visual.representation_id == representation_id && visual.source == source
+        });
+        if let Some(visual) = current_visual
+            .filter(|visual| visual.artifact.role == CachedArtifactRole::EmbeddedPreview)
+        {
+            // Older development builds persisted embedded camera previews. They
+            // are not a valid Shadow rendering contract and can be visibly stale
+            // after decoder/color-pipeline changes, so retire the exact obsolete
+            // Catalog row opportunistically. The blob is content-addressed and
+            // may be reclaimed by normal cache garbage collection later.
+            let _ = self.catalog.invalidate_cached_artifact(visual);
+        }
+        if let Some(visual) = current_visual
+            .filter(|visual| visual.artifact.role != CachedArtifactRole::EmbeddedPreview)
+        {
+            return Ok(Some(GridVisualPresentation {
+                handle: self.encode_grid_visual_handle(&ReviewVisualSelection {
+                    photo_id,
+                    record: visual.clone(),
+                })?,
+                role: role_name(visual.artifact.role).to_owned(),
+                dimensions: visual.artifact.dimensions,
+            }));
+        }
+        let Some(descriptor) = self.session_previews.lookup(representation_id, source) else {
+            return Ok(None);
+        };
+        Ok(Some(GridVisualPresentation {
+            handle: self.encode_session_grid_visual_handle(descriptor)?,
+            role: "embedded".to_owned(),
+            dimensions: descriptor.dimensions,
+        }))
     }
 
     pub(crate) fn load_visual(&self, ticket: &str) -> AnyResult<ffi::FfiVisualPayload> {
@@ -222,56 +281,25 @@ impl ReviewService {
     // Adding one EXIF field then touches precisely this service and the CXX ABI.
     #[allow(clippy::too_many_lines)]
     fn review_item(&self, record: ReviewItemRecord) -> AnyResult<ffi::FfiReviewItem> {
-        // Older development builds persisted embedded camera previews. They
-        // are not a valid Shadow rendering contract and can be visibly stale
-        // after decoder/color-pipeline changes, so retire the exact obsolete
-        // Catalog row opportunistically. The blob is content-addressed and
-        // may be reclaimed by normal cache garbage collection later.
-        if let Some(visual) = record
-            .visual
-            .as_ref()
-            .filter(|visual| visual.artifact.role == CachedArtifactRole::EmbeddedPreview)
-        {
-            let _ = self.catalog.invalidate_cached_artifact(visual);
-        }
-        let durable_visual = record
-            .visual
-            .as_ref()
-            .filter(|visual| visual.artifact.role != CachedArtifactRole::EmbeddedPreview);
-        let session_preview = record
-            .visual
-            .as_ref()
-            .map_or(true, |visual| {
-                visual.artifact.role == CachedArtifactRole::EmbeddedPreview
-            })
-            .then(|| {
-                self.session_previews
-                    .lookup(record.representation_id, record.source)
-            })
-            .flatten();
-        let (visual_handle, visual_role, visual_width, visual_height, has_visual) =
-            if let Some(visual) = durable_visual {
-                (
-                    self.encode_grid_visual_handle(&ReviewVisualSelection {
-                        photo_id: record.photo_id,
-                        record: visual.clone(),
-                    })?,
-                    role_name(visual.artifact.role).to_owned(),
-                    visual.artifact.dimensions.width,
-                    visual.artifact.dimensions.height,
-                    true,
-                )
-            } else if let Some(descriptor) = session_preview {
-                (
-                    self.encode_session_grid_visual_handle(descriptor)?,
-                    "embedded".to_owned(),
-                    descriptor.dimensions.width,
-                    descriptor.dimensions.height,
-                    true,
-                )
-            } else {
-                (String::new(), String::new(), 0, 0, false)
-            };
+        let (visual_handle, visual_role, visual_width, visual_height, has_visual) = self
+            .grid_visual(
+                record.photo_id,
+                record.representation_id,
+                record.source,
+                record.visual.as_ref(),
+            )?
+            .map_or_else(
+                || (String::new(), String::new(), 0, 0, false),
+                |visual| {
+                    (
+                        visual.handle,
+                        visual.role,
+                        visual.dimensions.width,
+                        visual.dimensions.height,
+                        true,
+                    )
+                },
+            );
         let technical = record.technical;
         let metadata = record.metadata;
         let has_metadata = metadata.is_some();

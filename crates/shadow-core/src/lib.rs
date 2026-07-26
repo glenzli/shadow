@@ -26,12 +26,16 @@ pub use decode_inspection::{
     recommended_decode_inspection_worker_count,
 };
 pub use import::{
-    ProfiledScanReport, ScanCancellation, ScanCompletion, ScanIssue, ScanPhase, ScanProgress,
-    ScanReport, resume_scan, resume_scan_controlled, resume_scan_with_inspection,
+    CatalogRelinkConfirmation, ConfirmedRelink, PendingStrongRelink, ProfiledScanReport,
+    RelinkApplyError, RelinkCandidate, RelinkIdentityLookup, RelinkSource, RelinkVerificationError,
+    ScanCancellation, ScanCompletion, ScanIssue, ScanPhase, ScanProgress, ScanReport,
+    SourceRelinkResolution, StrongRelinkVerification, UnsupportedRelinkSource, VerifiedRelink,
+    WeakRelinkEvidence, WeakRelinkMetadata, apply_confirmed_relink, confirm_verified_relink,
+    discover_source_relink, resume_scan, resume_scan_controlled, resume_scan_with_inspection,
     resume_scan_with_inspection_controlled, scan_folder, scan_folder_controlled,
     scan_folder_profiled, scan_folder_profiled_controlled, scan_folder_with_inspection,
     scan_folder_with_inspection_controlled, scan_folder_with_inspection_profiled,
-    scan_folder_with_inspection_profiled_controlled,
+    scan_folder_with_inspection_profiled_controlled, verify_pending_relink,
 };
 pub use native_path::{NativePathError, native_location};
 pub use performance::{

@@ -40,6 +40,7 @@ public:
     [[nodiscard]] int minimumRating() const noexcept;
     [[nodiscard]] QString colorFilter() const;
     [[nodiscard]] QString editFilter() const;
+    [[nodiscard]] bool hasActiveServerFilter() const;
 
     void setFlagFilter(const QString& filter);
     void setMinimumRating(int rating);

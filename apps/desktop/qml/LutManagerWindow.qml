@@ -28,6 +28,56 @@ ApplicationWindow {
     palette.highlight: Theme.accent
     palette.highlightedText: Theme.selectionForeground
 
+    readonly property var browserGroups: buildBrowserGroups(lutLibrary.entries)
+
+    function lastPathSegment(path) {
+        const parts = String(path).split("/")
+        return parts.length > 0 ? parts[parts.length - 1] : String(path)
+    }
+
+    function relativeDirectory(entry) {
+        const sourceRoot = String(entry.directory || "")
+        const absolutePath = String(entry.path || "")
+        const prefix = sourceRoot.length > 0 ? sourceRoot + "/" : ""
+        const relativePath = absolutePath.indexOf(prefix) === 0
+            ? absolutePath.slice(prefix.length) : String(entry.fileName || "")
+        const slash = relativePath.lastIndexOf("/")
+        return slash > 0 ? relativePath.slice(0, slash) : ""
+    }
+
+    function buildBrowserGroups(entries) {
+        const groupsByPath = ({})
+        const invalidEntries = []
+        for (let index = 0; index < entries.length; ++index) {
+            const entry = entries[index]
+            if (!entry.valid) {
+                invalidEntries.push(entry)
+                continue
+            }
+
+            const sourceRoot = String(entry.directory || "")
+            const relativePath = relativeDirectory(entry)
+            const key = sourceRoot + "\u001f" + relativePath
+            if (!groupsByPath[key]) {
+                groupsByPath[key] = {
+                    title: relativePath.length > 0
+                        ? lastPathSegment(sourceRoot) + " / " + relativePath
+                        : lastPathSegment(sourceRoot),
+                    entries: []
+                }
+            }
+            groupsByPath[key].entries.push(entry)
+        }
+
+        const groups = []
+        for (const key in groupsByPath)
+            groups.push(groupsByPath[key])
+        groups.sort((left, right) => left.title.localeCompare(right.title))
+        if (invalidEntries.length > 0)
+            groups.push({ title: qsTr("Needs attention"), entries: invalidEntries, invalid: true })
+        return groups
+    }
+
     function openManager() {
         lutLibrary.rescan()
         show()
@@ -178,101 +228,119 @@ ApplicationWindow {
                 anchors.fill: parent
                 anchors.margins: 14
                 clip: true
-                spacing: 7
-                model: root.lutLibrary.entries
-                delegate: Rectangle {
-                    id: lutEntry
+                spacing: 16
+                model: root.browserGroups
+                delegate: ColumnLayout {
+                    id: lutGroup
                     required property var modelData
                     width: ListView.view.width
-                    height: modelData.valid ? 88 : 76
-                    radius: Theme.controlRadius
-                    color: modelData.valid ? Theme.panel : Theme.warningSurface
-                    border.color: modelData.valid ? Theme.border : Theme.warningBorder
+                    spacing: 8
 
                     RowLayout {
-                        anchors.fill: parent
-                        anchors.leftMargin: 12
-                        anchors.rightMargin: 12
-                        spacing: 10
+                        Layout.fillWidth: true
+                        spacing: 8
 
-                        Rectangle {
-                            Layout.preferredWidth: lutEntry.modelData.valid ? 112 : 40
-                            Layout.preferredHeight: lutEntry.modelData.valid ? 64 : 40
-                            radius: Theme.controlRadius
-                            clip: true
-                            color: lutEntry.modelData.valid
-                                ? Theme.photoCanvas : Theme.warningSurface
-                            border.color: lutEntry.modelData.valid
-                                ? Theme.border : Theme.warningBorder
-
-                            Image {
-                                anchors.fill: parent
-                                visible: lutEntry.modelData.valid
-                                source: visible
-                                    ? "image://shadow-lut/" + lutEntry.modelData.id : ""
-                                sourceSize.width: 224
-                                sourceSize.height: 128
-                                asynchronous: true
-                                cache: true
-                                fillMode: Image.PreserveAspectCrop
-                            }
-
-                            Label {
-                                anchors.centerIn: parent
-                                visible: !lutEntry.modelData.valid
-                                text: "!"
-                                color: Theme.warningText
-                                font.pixelSize: 12
-                                font.weight: Font.Bold
-                            }
+                        Label {
+                            Layout.fillWidth: true
+                            text: lutGroup.modelData.title
+                            color: lutGroup.modelData.invalid
+                                ? Theme.warningText : Theme.textSecondary
+                            font.pixelSize: 10
+                            font.weight: Font.DemiBold
+                            font.letterSpacing: 0.55
+                            elide: Text.ElideRight
                         }
 
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: 2
-                            Label {
+                        Label {
+                            text: qsTr("%1 LUTs").arg(lutGroup.modelData.entries.length)
+                            color: Theme.textMuted
+                            font.pixelSize: 9
+                        }
+                    }
+
+                    GridLayout {
+                        Layout.fillWidth: true
+                        columns: width >= 520 ? 3 : 2
+                        columnSpacing: 8
+                        rowSpacing: 8
+
+                        Repeater {
+                            model: lutGroup.modelData.entries
+                            delegate: Rectangle {
+                                id: lutEntry
+                                required property var modelData
                                 Layout.fillWidth: true
-                                text: lutEntry.modelData.valid
-                                    ? lutEntry.modelData.title : lutEntry.modelData.fileName
-                                color: Theme.textPrimary
-                                font.pixelSize: 12
-                                font.weight: Font.Medium
-                                elide: Text.ElideRight
-                            }
-                            Label {
-                                Layout.fillWidth: true
-                                text: lutEntry.modelData.valid
-                                    ? qsTr("%1³ · %2").arg(lutEntry.modelData.size)
-                                        .arg(lutEntry.modelData.fileName)
-                                    : lutEntry.modelData.error
+                                Layout.preferredHeight: lutEntry.modelData.valid ? 148 : 74
+                                radius: Theme.controlRadius
                                 color: lutEntry.modelData.valid
-                                    ? Theme.textMuted : Theme.warningText
-                                font.pixelSize: 10
-                                elide: Text.ElideRight
-                            }
-                            Label {
-                                Layout.fillWidth: true
-                                visible: !lutEntry.modelData.valid
-                                text: lutEntry.modelData.path
-                                color: Theme.textFaint
-                                font.pixelSize: 9
-                                elide: Text.ElideMiddle
+                                    ? Theme.panel : Theme.warningSurface
+                                border.color: lutEntry.modelData.valid
+                                    ? Theme.border : Theme.warningBorder
+
+                                ColumnLayout {
+                                    anchors.fill: parent
+                                    anchors.margins: 8
+                                    spacing: 6
+
+                                    Rectangle {
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: lutEntry.modelData.valid ? 88 : 0
+                                        visible: lutEntry.modelData.valid
+                                        radius: Theme.compactControlRadius
+                                        clip: true
+                                        color: Theme.photoCanvas
+                                        border.color: Theme.border
+
+                                        Image {
+                                            anchors.fill: parent
+                                            source: "image://shadow-lut/" + lutEntry.modelData.id
+                                            sourceSize.width: 300
+                                            sourceSize.height: 176
+                                            asynchronous: true
+                                            cache: true
+                                            fillMode: Image.PreserveAspectCrop
+                                        }
+                                    }
+
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 6
+
+                                        Label {
+                                            Layout.fillWidth: true
+                                            text: lutEntry.modelData.valid
+                                                ? lutEntry.modelData.title
+                                                : lutEntry.modelData.fileName
+                                            color: Theme.textPrimary
+                                            font.pixelSize: 11
+                                            font.weight: Font.Medium
+                                            elide: Text.ElideRight
+                                        }
+
+                                        Label {
+                                            visible: !lutEntry.modelData.valid
+                                            text: "!"
+                                            color: Theme.warningText
+                                            font.pixelSize: 11
+                                            font.weight: Font.Bold
+                                        }
+                                    }
+
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: lutEntry.modelData.valid
+                                            ? qsTr("%1³ · %2").arg(lutEntry.modelData.size)
+                                                .arg(lutEntry.modelData.fileName)
+                                            : lutEntry.modelData.error
+                                        color: lutEntry.modelData.valid
+                                            ? Theme.textMuted : Theme.warningText
+                                        font.pixelSize: 9
+                                        elide: Text.ElideRight
+                                    }
+                                }
                             }
                         }
                     }
-                }
-
-                Label {
-                    anchors.centerIn: parent
-                    visible: parent.count === 0
-                    width: parent.width - 48
-                    text: root.lutLibrary.directories.length === 0
-                        ? qsTr("Your LUT Library is empty")
-                        : qsTr("No .cube LUTs were found in the configured folders")
-                    color: Theme.textMuted
-                    font.pixelSize: 12
-                    horizontalAlignment: Text.AlignHCenter
-                    wrapMode: Text.WordWrap
                 }
             }
         }

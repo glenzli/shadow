@@ -22,40 +22,7 @@ ColumnLayout {
         Layout.fillWidth: true
         visible: technical.currentTabIndex === 0
         title: qsTr("DETAIL")
-        toolTipText: qsTr("Control perceptual frequency detail, capture sharpening, and conventional noise reduction.")
-
-        ShadowSubsectionLabel {
-            text: qsTr("FREQUENCY DETAIL")
-            toolTipText: qsTr("Clarity changes protected mid-frequency structure; Texture changes the smaller residual. Both operate only on Oklab L.")
-        }
-
-        Repeater {
-            model: [
-                { "key": "clarity", "name": qsTr("Clarity") },
-                { "key": "texture", "name": qsTr("Texture") }
-            ]
-            delegate: ShadowSlider {
-                required property var modelData
-                Layout.fillWidth: true
-                Layout.leftMargin: 14
-                Layout.rightMargin: 14
-                label: modelData.name
-                from: -1.0
-                to: 1.0
-                neutralValue: 0.0
-                stepSize: 0.01
-                decimals: 0
-                displayMultiplier: 100
-                suffix: "%"
-                value: inspector.fineValue(modelData.key)
-                onGestureStarted: inspector.editor.beginParameterEdit(
-                    modelData.key)
-                onEdited: value => inspector.editor.setParameterValue(
-                    modelData.key, value)
-                onGestureFinished: inspector.editor.endParameterEdit(
-                    modelData.key)
-            }
-        }
+        toolTipText: qsTr("Control capture sharpening and conventional noise reduction.")
 
         ShadowSubsectionLabel {
             Layout.topMargin: 6
@@ -93,12 +60,7 @@ ColumnLayout {
         ShadowSubsectionLabel {
             Layout.topMargin: 6
             text: qsTr("DENOISE")
-            toolTipText: qsTr("The controls below denoise the current RGB preview immediately with separate luminance and color passes. RAW files can additionally use a conservative sensor-domain pass for full-size processing and export.")
-        }
-
-        ShadowSubsectionLabel {
-            text: qsTr("RAW BASE DENOISE · FULL SIZE & EXPORT")
-            toolTipText: qsTr("RAW files can use an additional sensor-domain pass when full-size data is prepared. JPEG and HEIF only use the immediate RGB controls below, so dragging remains responsive.")
+            toolTipText: qsTr("The controls below denoise the current RGB preview immediately with separate luminance and color passes. RAW files can additionally use a conservative sensor-domain pass for full-size processing and export; JPEG and HEIF retain the same responsive RGB controls.")
         }
 
         Repeater {
@@ -133,25 +95,23 @@ ColumnLayout {
             id: opticsTabs
 
             Layout.fillWidth: true
-            Layout.leftMargin: 14
-            Layout.rightMargin: 14
-            Layout.preferredHeight: 28
+            Layout.leftMargin: 18
+            Layout.rightMargin: 18
+            Layout.preferredHeight: 32
             currentIndex: technical.opticsTabIndex
-            background: Rectangle {
-                radius: Theme.controlRadius
-                color: Theme.surfaceSubtle
-                border.color: inspector.panelBorder
-            }
+            background: Item {}
             onCurrentIndexChanged: technical.opticsTabIndex = currentIndex
 
             ShadowTabButton {
                 text: qsTr("PROFILE")
                 compact: true
+                underlineInset: 20
                 toolTipText: qsTr("Automatic lens-profile correction with an optional profile override")
             }
             ShadowTabButton {
                 text: qsTr("MANUAL")
                 compact: true
+                underlineInset: 20
                 toolTipText: qsTr("Residual geometry, vignetting, and color-fringe correction")
             }
         }
@@ -161,6 +121,7 @@ ColumnLayout {
             Layout.preferredHeight: visible ? implicitHeight : 0
             Layout.leftMargin: 14
             Layout.rightMargin: 14
+            Layout.topMargin: 4
             visible: technical.opticsTabIndex === 0
             spacing: 8
 
@@ -200,11 +161,14 @@ ColumnLayout {
                             spacing: 1
 
                             Label {
-                                text: inspector.editor.opticsManualProfile
-                                    ? qsTr("PROFILE OVERRIDE")
-                                    : qsTr("AUTOMATIC PROFILE")
-                                color: inspector.editor.opticsManualProfile
-                                    ? inspector.accent : Theme.textSecondary
+                                text: !inspector.editor.opticsEnabled
+                                    ? qsTr("NO PROFILE")
+                                    : inspector.editor.opticsManualProfile
+                                        ? qsTr("PROFILE OVERRIDE")
+                                        : qsTr("AUTOMATIC PROFILE")
+                                color: !inspector.editor.opticsEnabled
+                                    ? Theme.textMuted : inspector.editor.opticsManualProfile
+                                        ? inspector.accent : Theme.textSecondary
                                 font.pixelSize: 8
                                 font.weight: Font.DemiBold
                                 font.letterSpacing: 0.45
@@ -215,6 +179,8 @@ ColumnLayout {
                                 Layout.fillWidth: true
                                 text: {
                                     const receipt = inspector.editor.opticsReceipt
+                                    if (!inspector.editor.opticsEnabled)
+                                        return qsTr("No profile correction")
                                     if (!receipt.valid)
                                         return qsTr("Preparing lens profile…")
                                     if (receipt.status === "matched")
@@ -231,8 +197,8 @@ ColumnLayout {
                                         return qsTr("Lens not found")
                                     return qsTr("Lens metadata unavailable")
                                 }
-                                color: inspector.editor.opticsReceipt.status
-                                    === "matched"
+                                color: inspector.editor.opticsEnabled
+                                    && inspector.editor.opticsReceipt.status === "matched"
                                     ? Theme.textPrimary : Theme.textMuted
                                 font.pixelSize: 10
                                 font.weight: Font.Medium
@@ -246,42 +212,6 @@ ColumnLayout {
                             }
                         }
 
-                        Switch {
-                            id: opticsMasterSwitch
-                            Layout.preferredWidth: 34
-                            Layout.preferredHeight: 20
-                            checked: inspector.editor.opticsEnabled
-                            enabled: inspector.editor.active
-                                && !inspector.editor.stateBusy
-                            Accessible.name: qsTr("Profile correction")
-                            onToggled:
-                                inspector.editor.opticsEnabled = checked
-                            indicator: Rectangle {
-                                implicitWidth: 32
-                                implicitHeight: 16
-                                x: (opticsMasterSwitch.width - width) / 2
-                                y: (opticsMasterSwitch.height - height) / 2
-                                radius: height / 2
-                                color: opticsMasterSwitch.checked
-                                    ? Theme.switchOnSurface
-                                    : Theme.switchOffSurface
-                                border.color: opticsMasterSwitch.checked
-                                    ? Theme.switchOnBorder
-                                    : Theme.switchOffBorder
-                                opacity: opticsMasterSwitch.enabled ? 1 : 0.42
-                                Rectangle {
-                                    width: 10
-                                    height: 10
-                                    y: 3
-                                    x: opticsMasterSwitch.checked
-                                        ? parent.width - width - 3 : 3
-                                    radius: width / 2
-                                    color: opticsMasterSwitch.checked
-                                        ? inspector.accent : inspector.textMuted
-                                }
-                            }
-                            contentItem: Item {}
-                        }
                     }
 
                     Rectangle {
@@ -318,7 +248,8 @@ ColumnLayout {
                         }
 
                         ShadowIconButton {
-                            visible: inspector.editor.opticsManualProfile
+                            visible: inspector.editor.opticsEnabled
+                                && inspector.editor.opticsManualProfile
                             source: "qrc:/icons/clear.svg"
                             buttonSize: 26
                             toolTipText: qsTr("Return to automatic matching")
@@ -330,111 +261,32 @@ ColumnLayout {
                 }
             }
 
-            ColumnLayout {
+            Label {
                 Layout.fillWidth: true
-                spacing: 1
-                enabled: inspector.editor.opticsEnabled
-                opacity: enabled ? 1 : 0.42
-
-                Repeater {
-                    model: [
-                        { "key": "distortion", "name": qsTr("Distortion") },
-                        { "key": "tca", "name": qsTr("Chromatic aberration") },
-                        { "key": "vignetting", "name": qsTr("Lens vignetting") },
-                        { "key": "scale", "name": qsTr("Automatic crop") }
-                    ]
-                    delegate: RowLayout {
-                        required property var modelData
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 26
-                        spacing: 8
-
-                        readonly property bool optionChecked:
-                            modelData.key === "distortion"
-                                ? inspector.editor.opticsDistortionEnabled
-                            : modelData.key === "tca"
-                                ? inspector.editor.opticsTcaEnabled
-                            : modelData.key === "vignetting"
-                                ? inspector.editor.opticsVignettingEnabled
-                            : inspector.editor.opticsAutomaticScale
-
-                        Rectangle {
-                            Layout.preferredWidth: 5
-                            Layout.preferredHeight: 5
-                            radius: 3
-                            color: inspector.opticsEffectState(
-                                parent.modelData.key).startsWith(qsTr("Applied"))
-                                ? Theme.successText : Theme.textMuted
-                        }
-
-                        Label {
-                            Layout.fillWidth: true
-                            text: parent.modelData.name
-                            color: Theme.textSecondary
-                            font.pixelSize: 10
-                        }
-
-                        Label {
-                            text: inspector.opticsEffectState(
-                                parent.modelData.key)
-                            color: text.startsWith(qsTr("Applied"))
-                                ? Theme.successText : Theme.textMuted
-                            font.pixelSize: 8
-                            elide: Text.ElideRight
-                            visible: text.length > 0
-                        }
-
-                        Switch {
-                            id: opticsSwitch
-                            Layout.preferredWidth: 34
-                            Layout.preferredHeight: 20
-                            checked: parent.optionChecked
-                            enabled: inspector.editor.active
-                                && !inspector.editor.stateBusy
-                            onToggled: {
-                                if (parent.modelData.key === "distortion")
-                                    inspector.editor.opticsDistortionEnabled = checked
-                                else if (parent.modelData.key === "tca")
-                                    inspector.editor.opticsTcaEnabled = checked
-                                else if (parent.modelData.key === "vignetting")
-                                    inspector.editor.opticsVignettingEnabled = checked
-                                else
-                                    inspector.editor.opticsAutomaticScale = checked
-                            }
-                            indicator: Rectangle {
-                                implicitWidth: 32
-                                implicitHeight: 16
-                                x: (opticsSwitch.width - width) / 2
-                                y: (opticsSwitch.height - height) / 2
-                                radius: height / 2
-                                color: opticsSwitch.checked
-                                    ? Theme.switchOnSurface
-                                    : Theme.switchOffSurface
-                                border.color: opticsSwitch.checked
-                                    ? Theme.switchOnBorder
-                                    : Theme.switchOffBorder
-                                opacity: opticsSwitch.enabled ? 1 : 0.42
-                                Rectangle {
-                                    width: 10
-                                    height: 10
-                                    y: 3
-                                    x: opticsSwitch.checked
-                                        ? parent.width - width - 3 : 3
-                                    radius: width / 2
-                                    color: opticsSwitch.checked
-                                        ? inspector.accent : inspector.textMuted
-                                }
-                            }
-                            contentItem: Item {}
-                        }
-                    }
+                text: {
+                    const receipt = inspector.editor.opticsReceipt
+                    if (!inspector.editor.opticsEnabled)
+                        return qsTr("No profile correction is applied.")
+                    if (receipt.status === "matched")
+                        return qsTr("All calibrated corrections from this profile are applied together.")
+                    return qsTr("No matching profile correction is available for this photo.")
                 }
+                color: inspector.editor.opticsEnabled
+                    && inspector.editor.opticsReceipt.status === "matched"
+                    ? Theme.textSecondary : Theme.textMuted
+                font.pixelSize: 9
+                wrapMode: Text.WordWrap
+                ToolTip.visible: opticsProfileSummaryHover.hovered
+                ToolTip.delay: 500
+                ToolTip.text: qsTr("A profile is one coherent correction. Distortion, lateral chromatic aberration, lens shading, and automatic crop use every calibrated record that Lensfun provides; residual adjustments live in Manual.")
+                HoverHandler { id: opticsProfileSummaryHover }
             }
         }
 
         ColumnLayout {
             Layout.fillWidth: true
             Layout.preferredHeight: visible ? implicitHeight : 0
+            Layout.topMargin: 4
             visible: technical.opticsTabIndex === 1
             spacing: 0
 
@@ -594,23 +446,8 @@ ColumnLayout {
         visible: technical.currentTabIndex === 1
         title: qsTr("EFFECTS")
 
-        ShadowSlider {
-            Layout.fillWidth: true
-            Layout.leftMargin: 14
-            Layout.rightMargin: 14
-            label: qsTr("Dehaze")
-            from: -1; to: 1; neutralValue: 0
-            stepSize: 0.01; decimals: 0
-            displayMultiplier: 100; suffix: "%"
-            value: inspector.fineValue("dehaze")
-            onGestureStarted: inspector.editor.beginParameterEdit("dehaze")
-            onEdited: value => inspector.editor.setParameterValue(
-                "dehaze", value)
-            onGestureFinished: inspector.editor.endParameterEdit("dehaze")
-        }
-
         ShadowSubsectionLabel {
-            Layout.topMargin: 6
+            Layout.topMargin: 0
             text: qsTr("GRAIN")
             toolTipText: qsTr("Add a controlled photographic grain after the main color and tone adjustments.")
         }

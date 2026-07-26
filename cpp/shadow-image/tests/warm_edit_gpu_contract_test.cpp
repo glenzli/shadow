@@ -310,6 +310,30 @@ private:
     };
 }
 
+[[nodiscard]] std::array<image::AdjustmentNode, 1U> color_warper_nodes() {
+    image::OklabColorWarperAdjustment parameters;
+    for (std::size_t row = 0U; row < image::oklab_color_warper_grid_side; ++row) {
+        for (std::size_t column = 0U;
+             column < image::oklab_color_warper_grid_side;
+             ++column) {
+            auto& point = parameters.control_points[
+                row * image::oklab_color_warper_grid_side + column
+            ];
+            point.a_offset = 0.008 * static_cast<double>(column) - 0.016;
+            point.b_offset = 0.007 * static_cast<double>(row) - 0.014;
+        }
+    }
+    parameters.strength = 0.73;
+    return {
+        image::AdjustmentNode{
+            .node_id = "warm-oklab-color-warper",
+            .parameter_schema_version = image::oklab_color_warper_parameter_schema_version,
+            .implementation_version = image::oklab_color_warper_implementation_version,
+            .parameters = std::move(parameters),
+        },
+    };
+}
+
 [[nodiscard]] bool linear_close(
     const image::FloatRgbImage& actual,
     const image::FloatRgbImage& expected,
@@ -865,6 +889,98 @@ void resident_gpu_clarity_is_complete_or_declines() {
     }
 }
 
+void resident_gpu_local_contrast_is_complete_or_declines() {
+    auto source = make_random_image(193U, 113U, true);
+    // The broad guided support is admitted only at preview scale. A full-size
+    // image retains the complete CPU oracle rather than silently shrinking the
+    // requested photographic radius.
+    source.level_zero_to_raster_scale_x = 0.25;
+    source.level_zero_to_raster_scale_y = 0.25;
+    auto preparation = image::detail::prepare_warm_edit_gpu_session(source);
+    if (!preparation.session) {
+        expect(
+            std::getenv("SHADOW_TEST_REQUIRE_WARM_METAL") == nullptr,
+            "GPU Local Contrast was required but no resident Metal session could be prepared"
+        );
+        return;
+    }
+
+    std::array<image::AdjustmentNode, 3U> nodes{
+        image::AdjustmentNode{
+            .node_id = "before-local-contrast-exposure",
+            .parameters = image::ExposureAdjustment{.stops = -0.12},
+        },
+        image::AdjustmentNode{
+            .node_id = "edge-aware-local-contrast",
+            .parameter_schema_version = image::detail_effects_parameter_schema_version,
+            .implementation_version = image::color_grading_implementation_version,
+            .parameters = image::SharpenAdjustment{
+                .execution_pass = image::DetailEffectsExecutionPass::color_grading,
+                .local_contrast = 0.62,
+                .local_contrast_scale = 0.50,
+                .shadows_hue = 38.0,
+                .shadows_saturation = 0.14,
+                .midtones_hue = 154.0,
+                .midtones_saturation = 0.10,
+                .highlights_hue = 236.0,
+                .highlights_saturation = 0.19,
+                .grading_blending = 0.64,
+                .grading_balance = 0.15,
+            },
+        },
+        image::AdjustmentNode{
+            .node_id = "after-local-contrast-saturation",
+            .parameters = image::SaturationAdjustment{.factor = 1.08},
+        },
+    };
+    const auto plan = image::compile_edit_execution_plan(nodes);
+    const auto gpu = preparation.session->render(nodes, plan, true);
+    expect(
+        gpu.status == image::detail::WarmEditGpuSession::RenderStatus::completed
+            && gpu.output.has_value()
+            && gpu.output->analyzed_linear.has_value()
+            && std::ranges::all_of(
+                gpu.output->analyzed_linear->samples,
+                [](const float value) { return std::isfinite(value); }
+            ),
+        "a preview-scale guided Local Contrast stage completes on the resident GPU"
+    );
+    if (gpu.output && gpu.output->analyzed_linear) {
+        const auto cpu = image::execute_adjustment_nodes_with_backend(
+            source,
+            nodes,
+            {.full_dimensions = source.dimensions},
+            image::AdjustmentBackendMode::cpu
+        );
+        double maximum_error = 0.0;
+        const bool linear_parity = linear_close(
+            *gpu.output->analyzed_linear,
+            cpu.pixels,
+            maximum_error,
+            5.0e-4
+        );
+        if (!linear_parity) {
+            std::cerr << "Local Contrast warm linear parity max="
+                      << maximum_error << '\n';
+        }
+        expect(
+            linear_parity,
+            "the resident guided Local Contrast path tracks the CPU Oklab-L reference"
+        );
+    }
+
+    std::get<image::SharpenAdjustment>(nodes[1U].parameters).clarity = 0.25;
+    const auto unsupported_plan = image::compile_edit_execution_plan(nodes);
+    const auto unsupported = preparation.session->render(nodes, unsupported_plan, false);
+    expect(
+        unsupported.status
+                == image::detail::WarmEditGpuSession::RenderStatus::unavailable_or_failed
+            && !unsupported.output.has_value()
+            && !unsupported.diagnostic.empty(),
+        "Local Contrast plus another neighbourhood band declines as one coherent CPU fallback"
+    );
+}
+
 void resident_gpu_dehaze_and_defringe_is_complete_or_declines() {
     const auto source = make_random_image(193U, 113U, true);
     auto preparation = image::detail::prepare_warm_edit_gpu_session(source);
@@ -1254,6 +1370,86 @@ void perceptual_resources_match_cpu_and_have_independent_caches() {
     );
 }
 
+void color_warper_matches_cpu_and_reuses_its_resident_table() {
+    const auto source = make_random_image(143U, 89U, true);
+    auto preparation = image::detail::prepare_warm_edit_gpu_session(source);
+    if (!preparation.session) {
+        expect(
+            std::getenv("SHADOW_TEST_REQUIRE_WARM_METAL") == nullptr,
+            "Color Warper resident Metal was required but could not be prepared"
+        );
+        return;
+    }
+
+    const auto render_and_compare = [&source, &preparation](
+        const std::span<const image::AdjustmentNode> nodes,
+        const std::string_view description
+    ) {
+        const auto plan = image::compile_edit_execution_plan(nodes);
+        const auto cpu = image::execute_adjustment_nodes_with_backend(
+            source,
+            nodes,
+            {.full_dimensions = source.dimensions},
+            image::AdjustmentBackendMode::cpu
+        );
+        const auto gpu = preparation.session->render(nodes, plan, true);
+        if (!gpu.output.has_value() || !gpu.output->analyzed_linear.has_value()) {
+            std::cerr << "Color Warper warm render failed: "
+                      << gpu.diagnostic << '\n';
+            expect(false, description);
+            return;
+        }
+        double maximum_error = 0.0;
+        const bool linear_parity = linear_close(
+            *gpu.output->analyzed_linear,
+            cpu.pixels,
+            maximum_error,
+            2.0e-4
+        );
+        if (!linear_parity) {
+            std::cerr << "Color Warper warm parity: linear max="
+                      << maximum_error << '\n';
+        }
+        expect(linear_parity, description);
+    };
+
+    auto nodes = color_warper_nodes();
+    const auto initial = preparation.session->stats();
+    render_and_compare(nodes, "resident Color Warper matches the CPU lattice oracle");
+    const auto after_first = preparation.session->stats();
+    expect(
+        after_first.perceptual_mixer_resource_upload_count
+                == initial.perceptual_mixer_resource_upload_count + 1U
+            && after_first.gpu_buffer_allocation_count
+                == initial.gpu_buffer_allocation_count + 1U,
+        "Color Warper publishes one immutable control lattice in the existing pixel-local table"
+    );
+
+    render_and_compare(nodes, "an identical Color Warper reuses its resident lattice");
+    const auto after_identical = preparation.session->stats();
+    expect(
+        after_identical.perceptual_mixer_resource_upload_count
+                == after_first.perceptual_mixer_resource_upload_count
+            && after_identical.resource_cache_hit_count
+                == after_first.resource_cache_hit_count + 1U
+            && after_identical.gpu_buffer_allocation_count
+                == after_first.gpu_buffer_allocation_count,
+        "an unchanged Color Warper control lattice hits its resident resource cache"
+    );
+
+    auto& parameters = std::get<image::OklabColorWarperAdjustment>(nodes[0U].parameters);
+    parameters.control_points[12U].a_offset += 0.011;
+    render_and_compare(nodes, "a changed Color Warper lattice remains CPU-equivalent");
+    const auto after_changed = preparation.session->stats();
+    expect(
+        after_changed.perceptual_mixer_resource_upload_count
+                == after_identical.perceptual_mixer_resource_upload_count + 1U
+            && after_changed.gpu_buffer_allocation_count
+                == after_identical.gpu_buffer_allocation_count + 1U,
+        "changing Color Warper geometry uploads only its replacement lattice"
+    );
+}
+
 void cancellation_is_terminal_without_diagnostic() {
     const auto source = make_random_image(64U, 48U, false);
     auto preparation = image::detail::prepare_warm_edit_gpu_session(source);
@@ -1403,9 +1599,11 @@ int main() {
     resident_gpu_technical_detail_is_complete_or_declines();
     resident_gpu_texture_is_complete_or_declines();
     resident_gpu_clarity_is_complete_or_declines();
+    resident_gpu_local_contrast_is_complete_or_declines();
     resident_gpu_dehaze_and_defringe_is_complete_or_declines();
     advanced_resources_match_cpu_and_reuse_side_table_uploads();
     perceptual_resources_match_cpu_and_have_independent_caches();
+    color_warper_matches_cpu_and_reuses_its_resident_table();
     cancellation_is_terminal_without_diagnostic();
     benchmark_resident_backend_when_requested();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;

@@ -1,7 +1,8 @@
-use shadow_domain::{AssetLocation, ImportSessionId};
+use shadow_domain::{AssetLocation, ImportSessionId, RepresentationId};
 
 use crate::{
-    Catalog, CatalogError, ImportSession, ImportSessionState, RegisterAsset, RegisteredAsset,
+    Catalog, CatalogError, ContentIdentity, ImportSession, ImportSessionState, RegisterAsset,
+    RegisteredAsset,
 };
 
 /// Minimal persistence boundary required by the import scanner.
@@ -51,6 +52,26 @@ pub trait CatalogStore {
         &mut self,
         session_id: ImportSessionId,
         request: &RegisterAsset,
+    ) -> Result<RegisteredAsset, CatalogError>;
+
+    /// Atomically attaches a newly discovered path to a representation only
+    /// after an external full-content verifier established the exact identity.
+    ///
+    /// The caller must have recorded the discovery entry first. Implementors
+    /// reject a pre-existing target path or an identity that does not still
+    /// belong to `expected_representation_id`; they never turn weak matching
+    /// metadata into an implicit merge.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] when verification no longer proves the attach,
+    /// the import entry is absent, or the transaction cannot commit.
+    fn register_import_verified_relocation(
+        &mut self,
+        session_id: ImportSessionId,
+        request: &RegisterAsset,
+        expected_representation_id: RepresentationId,
+        identity: &ContentIdentity,
     ) -> Result<RegisteredAsset, CatalogError>;
 
     /// Journals a recoverable filesystem or metadata issue.
@@ -111,6 +132,22 @@ impl CatalogStore for Catalog {
         request: &RegisterAsset,
     ) -> Result<RegisteredAsset, CatalogError> {
         Self::register_import_asset(self, session_id, request)
+    }
+
+    fn register_import_verified_relocation(
+        &mut self,
+        session_id: ImportSessionId,
+        request: &RegisterAsset,
+        expected_representation_id: RepresentationId,
+        identity: &ContentIdentity,
+    ) -> Result<RegisteredAsset, CatalogError> {
+        Self::register_import_verified_relocation(
+            self,
+            session_id,
+            request,
+            expected_representation_id,
+            identity,
+        )
     }
 
     fn record_import_issue(

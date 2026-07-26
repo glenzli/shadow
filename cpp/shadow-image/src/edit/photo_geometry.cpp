@@ -66,6 +66,54 @@ void validate_image(const FloatRgbImage& image, const std::string_view role) {
     ));
 }
 
+[[nodiscard]] bool is_transposed(const PhotoQuarterTurn quarter_turn) noexcept {
+    return quarter_turn == PhotoQuarterTurn::clockwise_90
+        || quarter_turn == PhotoQuarterTurn::clockwise_270;
+}
+
+[[nodiscard]] Dimensions oriented_crop_dimensions(
+    const GeometryPixelRect crop,
+    const PhotoGeometry& geometry
+) noexcept {
+    return Dimensions{
+        .width = is_transposed(geometry.quarter_turn) ? crop.height : crop.width,
+        .height = is_transposed(geometry.quarter_turn) ? crop.width : crop.height,
+    };
+}
+
+[[nodiscard]] Dimensions auto_crop_dimensions(
+    const GeometryPixelRect crop,
+    const PhotoGeometry& geometry
+) {
+    const Dimensions oriented = oriented_crop_dimensions(crop, geometry);
+    if (geometry.straighten_degrees == 0.0) {
+        return oriented;
+    }
+
+    // Fine rotation is centered on the original crop. Preserve that crop's
+    // aspect ratio while shrinking the final canvas until each of its corners
+    // inverse-maps into source pixels. This is the familiar crop-tool
+    // auto-crop: it removes the empty triangles without creating another
+    // persistent rectangle or changing the user's chosen aspect.
+    const double width = static_cast<double>(oriented.width);
+    const double height = static_cast<double>(oriented.height);
+    const double angle = geometry.straighten_degrees
+        * 3.141592653589793238462643383279502884 / 180.0;
+    const double cosine = std::abs(std::cos(angle));
+    const double sine = std::abs(std::sin(angle));
+    const double scale = std::min(
+        width / (cosine * width + sine * height),
+        height / (sine * width + cosine * height)
+    );
+    const auto retained_extent = [](const double value) {
+        return static_cast<std::uint32_t>(std::max(1.0, std::floor(value)));
+    };
+    return Dimensions{
+        .width = retained_extent(width * scale),
+        .height = retained_extent(height * scale),
+    };
+}
+
 void validate_output_rect(
     const GeometryPixelRect rect,
     const Dimensions dimensions
@@ -94,6 +142,9 @@ struct ContinuousCoordinate final {
     const std::uint32_t crop_height = layout.source_crop.height;
     const double output_width = static_cast<double>(layout.output_dimensions.width);
     const double output_height = static_cast<double>(layout.output_dimensions.height);
+    const Dimensions full_oriented = oriented_crop_dimensions(layout.source_crop, geometry);
+    const double full_oriented_width = static_cast<double>(full_oriented.width);
+    const double full_oriented_height = static_cast<double>(full_oriented.height);
     const double angle = geometry.straighten_degrees
         * 3.141592653589793238462643383279502884 / 180.0;
     const double cosine = std::cos(angle);
@@ -103,9 +154,9 @@ struct ContinuousCoordinate final {
     // Inverse-map the clockwise display rotation so every output pixel samples
     // the immutable source raster exactly once.
     const double oriented_x =
-        std::fma(cosine, output_dx, sine * output_dy) + output_width * 0.5;
+        std::fma(cosine, output_dx, sine * output_dy) + full_oriented_width * 0.5;
     const double oriented_y =
-        std::fma(-sine, output_dx, cosine * output_dy) + output_height * 0.5;
+        std::fma(-sine, output_dx, cosine * output_dy) + full_oriented_height * 0.5;
 
     double crop_x = 0.0;
     double crop_y = 0.0;
@@ -190,14 +241,9 @@ PhotoGeometryLayout photo_geometry_layout(
         .width = right - left,
         .height = bottom - top,
     };
-    const bool transpose = geometry.quarter_turn == PhotoQuarterTurn::clockwise_90
-        || geometry.quarter_turn == PhotoQuarterTurn::clockwise_270;
     return PhotoGeometryLayout{
         .source_crop = crop,
-        .output_dimensions = Dimensions{
-            .width = transpose ? crop.height : crop.width,
-            .height = transpose ? crop.width : crop.height,
-        },
+        .output_dimensions = auto_crop_dimensions(crop, geometry),
     };
 }
 
@@ -308,8 +354,7 @@ FloatRgbImage apply_photo_geometry_tile(
     output.transfer_function = source_tile.transfer_function;
     output.reference = source_tile.reference;
     output.working_space = source_tile.working_space;
-    const bool transpose = geometry.quarter_turn == PhotoQuarterTurn::clockwise_90
-        || geometry.quarter_turn == PhotoQuarterTurn::clockwise_270;
+    const bool transpose = is_transposed(geometry.quarter_turn);
     output.level_zero_to_raster_scale_x = transpose
         ? source_tile.level_zero_to_raster_scale_y
         : source_tile.level_zero_to_raster_scale_x;
@@ -349,16 +394,23 @@ FloatRgbImage apply_photo_geometry_tile(
                 static_cast<std::uint32_t>(std::floor(source.x));
             const std::uint32_t source_y0 =
                 static_cast<std::uint32_t>(std::floor(source.y));
+            // A tile boundary can land exactly on a source-pixel centre. In
+            // that case bilinear interpolation has no right/bottom weight,
+            // and requesting either neighbour would both be unnecessary and
+            // fall outside a minimally sized detail tile. Keep the sampling
+            // footprint aligned with photo_geometry_source_rect_for_output:
+            // it includes a second pixel only when a fractional coordinate
+            // actually needs it.
+            const double fraction_x = source.x - static_cast<double>(source_x0);
+            const double fraction_y = source.y - static_cast<double>(source_y0);
             const std::uint32_t source_x1 = std::min(
-                source_x0 + 1U,
+                fraction_x == 0.0 ? source_x0 : source_x0 + 1U,
                 layout.source_crop.x + layout.source_crop.width - 1U
             );
             const std::uint32_t source_y1 = std::min(
-                source_y0 + 1U,
+                fraction_y == 0.0 ? source_y0 : source_y0 + 1U,
                 layout.source_crop.y + layout.source_crop.height - 1U
             );
-            const double fraction_x = source.x - static_cast<double>(source_x0);
-            const double fraction_y = source.y - static_cast<double>(source_y0);
             const auto source_index = [&](const std::uint32_t source_x,
                                           const std::uint32_t source_y) {
                 const std::uint32_t local_x = source_x - source_tile_rect.x;

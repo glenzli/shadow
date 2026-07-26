@@ -148,25 +148,15 @@ Item {
         )
     }
 
-    function appendBrushPath(context) {
-        let pathOpen = false
+    function fillBrushCoverage(context, radius) {
         for (let index = 0; index < brushPoints.length; ++index) {
             const point = brushPoints[index]
             const x = Number(point.x) * width
             const y = Number(point.y) * height
-            if (!pathOpen || Boolean(point.beginsStroke)) {
-                if (pathOpen)
-                    context.stroke()
-                context.beginPath()
-                context.moveTo(x, y)
-                context.lineTo(x + 0.01, y)
-                pathOpen = true
-            } else {
-                context.lineTo(x, y)
-            }
+            context.beginPath()
+            context.arc(x, y, radius, 0, Math.PI * 2)
+            context.fill()
         }
-        if (pathOpen)
-            context.stroke()
     }
 
     Canvas {
@@ -186,22 +176,35 @@ Item {
             context.lineJoin = "round"
 
             if (overlay.kind === 3) {
-                const brushDiameter = Math.max(
-                    2,
+                const brushRadius = Math.max(
+                    1,
                     overlay.maskNumber("radiusX", 0.035)
-                        * Math.min(width, height) * 2
+                        * Math.min(width, height)
                 )
-                context.strokeStyle = Qt.rgba(
+                // Paint coverage as an overlapping union of filled brush
+                // stamps. The renderer already records dense samples, so the
+                // discs form a continuous affected area without exposing the
+                // raw centerline/path used to author it.
+                context.fillStyle = Qt.rgba(
                     Theme.accent.r,
                     Theme.accent.g,
                     Theme.accent.b,
-                    0.22
+                    0.13
                 )
-                context.lineWidth = brushDiameter
-                overlay.appendBrushPath(context)
-                context.strokeStyle = Theme.previewCompareDivider
-                context.lineWidth = 2
-                overlay.appendBrushPath(context)
+                overlay.fillBrushCoverage(context, brushRadius)
+                const coreRadius = brushRadius * Math.max(
+                    0,
+                    1 - overlay.maskNumber("feather", 0.6)
+                )
+                if (coreRadius >= 1) {
+                    context.fillStyle = Qt.rgba(
+                        Theme.accent.r,
+                        Theme.accent.g,
+                        Theme.accent.b,
+                        0.12
+                    )
+                    overlay.fillBrushCoverage(context, coreRadius)
+                }
                 return
             }
 

@@ -19,6 +19,16 @@ use crate::native_path::{NativePathError, decode_location, encode_location};
 use crate::performance::{ScanPerformance, measure_if};
 use crate::{DecodeInspectionError, DecodeInspectionHandle, DecodeInspectionRequest};
 
+mod source_relink;
+
+pub use source_relink::{
+    CatalogRelinkConfirmation, ConfirmedRelink, PendingStrongRelink, RelinkApplyError,
+    RelinkCandidate, RelinkIdentityLookup, RelinkSource, RelinkVerificationError,
+    SourceRelinkResolution, StrongRelinkVerification, UnsupportedRelinkSource, VerifiedRelink,
+    WeakRelinkEvidence, WeakRelinkMetadata, apply_confirmed_relink, confirm_verified_relink,
+    discover_source_relink, verify_pending_relink,
+};
+
 #[derive(Debug, Error)]
 pub enum ScanError {
     #[error("cannot resolve the current directory: {0}")]

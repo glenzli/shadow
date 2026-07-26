@@ -7,6 +7,7 @@
 #include "edit_task_runner.hpp"
 #include "edit_version_model.hpp"
 #include "localized_ui_message.hpp"
+#include "preview_diagnostics.hpp"
 #include "tone_curve_point_model.hpp"
 
 #include <QAbstractItemModel>
@@ -224,7 +225,23 @@ class EditController final : public QObject {
     )
     Q_PROPERTY(QAbstractItemModel* toneCurvePoints READ toneCurvePoints CONSTANT)
     Q_PROPERTY(QVariantList pointColors READ pointColors NOTIFY parametersChanged)
+    Q_PROPERTY(
+        QVariantList colorWarperControlPoints
+        READ colorWarperControlPoints
+        NOTIFY parametersChanged
+    )
     Q_PROPERTY(int selectedPointColorIndex READ selectedPointColorIndex NOTIFY parametersChanged)
+    Q_PROPERTY(
+        bool pointColorScopeActive
+        READ pointColorScopeActive
+        WRITE setPointColorScopeActive
+        NOTIFY pointColorScopeChanged
+    )
+    Q_PROPERTY(
+        bool pointColorScopeAvailable
+        READ pointColorScopeAvailable
+        NOTIFY parametersChanged
+    )
     Q_PROPERTY(bool pointColorPickerActive READ pointColorPickerActive NOTIFY pointColorPickerActiveChanged)
     Q_PROPERTY(bool retouchPickerActive READ retouchPickerActive NOTIFY retouchPickerActiveChanged)
     Q_PROPERTY(
@@ -325,7 +342,10 @@ public:
     [[nodiscard]] quint64 parameterRevision() const noexcept;
     [[nodiscard]] QAbstractItemModel* toneCurvePoints() noexcept;
     [[nodiscard]] QVariantList pointColors() const;
+    [[nodiscard]] QVariantList colorWarperControlPoints() const;
     [[nodiscard]] int selectedPointColorIndex() const noexcept;
+    [[nodiscard]] bool pointColorScopeActive() const noexcept;
+    [[nodiscard]] bool pointColorScopeAvailable() const noexcept;
     [[nodiscard]] bool pointColorPickerActive() const noexcept;
     [[nodiscard]] bool retouchPickerActive() const noexcept;
     [[nodiscard]] int retouchCreationMode() const noexcept;
@@ -444,6 +464,12 @@ public:
         const QString& component,
         double value
     );
+    Q_INVOKABLE void setColorWarperControlPoint(
+        int index,
+        double a_offset,
+        double b_offset
+    );
+    Q_INVOKABLE void resetColorWarper();
     Q_INVOKABLE double selectiveColorValue(int target_index, int component_index) const;
     Q_INVOKABLE void setSelectiveColorValue(
         int target_index,
@@ -468,6 +494,7 @@ public:
     );
     Q_INVOKABLE void clearManualOpticsProfile();
     Q_INVOKABLE void selectPointColor(int index);
+    void setPointColorScopeActive(bool active);
     Q_INVOKABLE void removeSelectedPointColor();
     Q_INVOKABLE void setPointColorPickerActive(bool active);
     Q_INVOKABLE void setWhiteBalancePickerActive(bool active);
@@ -556,6 +583,7 @@ signals:
     void gradeNodeEnabledChanged();
     void parametersChanged();
     void toneCurveChanged();
+    void pointColorScopeChanged();
     void pointColorPickerActiveChanged();
     void retouchPickerActiveChanged();
     void retouchCreationModeChanged();
@@ -613,10 +641,13 @@ private:
     [[nodiscard]] bool openPendingPhoto();
     void maybeFinishDeferredApplicationClose();
     void setPreviewRunning(EditPreviewKind kind, bool running);
+    [[nodiscard]] std::optional<PreviewScopeHueQualifier> selectedPointColorScopeQualifier() const;
+    void refreshCurrentDisplayScope();
     void markHistogramUpdating(EditPreviewKind kind);
     void publishHistogram(
         EditPreviewKind kind,
         const BackendEditPreviewAnalysis& analysis,
+        const PreviewDisplayScopeAnalysis& display_scope,
         quint64 generation
     );
     void markHistogramFailed(EditPreviewKind kind);
@@ -728,6 +759,7 @@ private:
     bool first_interactive_frame_presented_ = false;
     int selected_grade_node_index_ = -1;
     int selected_point_color_index_ = -1;
+    bool point_color_scope_active_ = false;
     bool point_color_picker_active_ = false;
     bool retouch_picker_active_ = false;
     int retouch_creation_mode_ = 0;

@@ -352,6 +352,13 @@ struct DevelopedRawFrame final {
         plan.highlight_recovery
     );
     PixelBuffer output = std::move(developed.pixels);
+    if (camera_profile != nullptr && camera_profile->has_post_matrix_stages()) {
+        // DCP's HueSatMap/LookTable/ProfileToneCurve define input rendering.
+        // They intentionally run before the Recipe graph and are recorded in
+        // the DCP receipt, rather than leaking camera-specific style into a
+        // node the user might accidentally share across photos.
+        apply_dcp_color_rendering_stages(output, *camera_profile);
+    }
     output.raw_development_receipt = raw_frame_development_receipt(
         denoised.frame.descriptor,
         plan,
@@ -662,8 +669,8 @@ DevelopedSourceReference develop_source_reference(
                 camera_profile_status = RawCameraProfileStatus::applied;
             } catch (const DcpColorDevelopmentError& profile_error) {
                 // Optional local profiles are an enhancement, not a prerequisite for decoding.
-                // Reject the complete profile visibly and retain the generic provider matrix;
-                // never apply only a matrix while silently dropping its creative tables.
+                // Keep the generic provider matrix and record the full diagnostic rather than
+                // silently claiming camera rendering that the local DCP could not compile.
                 camera_profile_status = RawCameraProfileStatus::matched_not_applied;
                 camera_profile_diagnostic = profile_error.what();
             }

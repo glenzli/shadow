@@ -19,6 +19,7 @@ Popup {
     property real watermarkScale: 0.18
     property real watermarkInset: 0.02
     property string watermarkAnchor: "bottom-right"
+    property var presetPendingRemoval: null
 
     parent: Overlay.overlay
     x: Math.round((parent.width - width) / 2)
@@ -33,8 +34,10 @@ Popup {
 
     function present(exportTargets) {
         targets = exportTargets || [];
-        if (exportController.presets.length > 0)
+        if (exportController.presets.length > 0) {
+            presetBox.currentIndex = 0;
             applyPreset(exportController.presets[0]);
+        }
         open();
     }
 
@@ -52,6 +55,51 @@ Popup {
         watermarkAnchor = String(preset.watermarkAnchor || "bottom-right");
         sizeField.text = maxEdge > 0 ? String(maxEdge) : "";
         suffixField.text = filenameSuffix;
+    }
+
+    function presetAt(index) {
+        const presets = exportController.presets || [];
+        return index >= 0 && index < presets.length ? presets[index] : null;
+    }
+
+    function selectedPreset() {
+        return presetAt(presetBox.currentIndex);
+    }
+
+    function selectedPresetIsCustom() {
+        const preset = selectedPreset();
+        return preset !== null && !String(preset.id || "").startsWith("builtin-");
+    }
+
+    function selectPresetId(presetId) {
+        const presets = exportController.presets || [];
+        for (let index = 0; index < presets.length; ++index) {
+            if (String(presets[index].id || "") !== String(presetId))
+                continue;
+            presetBox.currentIndex = index;
+            applyPreset(presets[index]);
+            return;
+        }
+        presetBox.currentIndex = presets.length > 0 ? 0 : -1;
+        applyPreset(presetAt(presetBox.currentIndex));
+    }
+
+    function requestPresetRemoval() {
+        const preset = selectedPreset();
+        if (preset === null || !selectedPresetIsCustom())
+            return;
+        presetPendingRemoval = preset;
+        presetRemovalPopup.open();
+    }
+
+    function removePendingPreset() {
+        const preset = presetPendingRemoval;
+        presetRemovalPopup.close();
+        presetPendingRemoval = null;
+        if (preset === null || String(preset.id || "").startsWith("builtin-"))
+            return;
+        exportController.removePreset(String(preset.id));
+        selectPresetId("");
     }
 
     function options() {
@@ -148,9 +196,77 @@ Popup {
                     variant: ShadowButton.Primary
                     enabled: presetNameField.text.trim().length > 0
                     onClicked: {
-                        dialog.exportController.savePreset(presetNameField.text, dialog.options());
+                        const presetId = dialog.exportController.savePreset(
+                            presetNameField.text, dialog.options());
                         presetNamePopup.close();
+                        dialog.selectPresetId(presetId);
                     }
+                }
+            }
+        }
+    }
+
+    Popup {
+        id: presetRemovalPopup
+        parent: Overlay.overlay
+        x: Math.round((parent.width - width) / 2)
+        y: Math.round((parent.height - height) / 2)
+        width: Math.min(390, parent.width - 40)
+        padding: 16
+        modal: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+        background: Rectangle {
+            color: Theme.panelRaised
+            radius: Theme.controlRadius
+            border.width: 1
+            border.color: Theme.borderStrong
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 10
+
+            Label {
+                text: qsTr("REMOVE PRESET")
+                color: Theme.textPrimary
+                font.pixelSize: 11
+                font.weight: Font.DemiBold
+                font.letterSpacing: 0.8
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("Remove “%1”?").arg(
+                          String(dialog.presetPendingRemoval
+                                 ? dialog.presetPendingRemoval.name : ""))
+                color: Theme.textPrimary
+                font.pixelSize: 13
+                font.weight: Font.Medium
+                wrapMode: Text.WordWrap
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("Only this local preset will be removed. Exported files and other presets are unchanged.")
+                color: Theme.textMuted
+                font.pixelSize: 10
+                wrapMode: Text.WordWrap
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.topMargin: 4
+                Item { Layout.fillWidth: true }
+                ShadowButton {
+                    text: qsTr("CANCEL")
+                    variant: ShadowButton.Ghost
+                    onClicked: presetRemovalPopup.close()
+                }
+                ShadowButton {
+                    text: qsTr("REMOVE")
+                    variant: ShadowButton.Danger
+                    onClicked: dialog.removePendingPreset()
                 }
             }
         }
@@ -182,6 +298,13 @@ Popup {
                     color: Theme.textMuted
                     font.pixelSize: 10
                 }
+                Label {
+                    text: qsTr("Saved locally · unfinished exports resume automatically")
+                    color: Theme.textMuted
+                    font.pixelSize: 9
+                    elide: Text.ElideRight
+                    Layout.fillWidth: true
+                }
             }
 
             ShadowIconButton {
@@ -203,6 +326,7 @@ Popup {
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
+            enabled: !dialog.exportController.busy
 
             Item {
                 width: parent.width
@@ -236,7 +360,7 @@ Popup {
                                 textRole: "name"
                                 valueRole: "id"
                                 implicitHeight: Theme.controlHeight
-                                onActivated: dialog.applyPreset(dialog.exportController.presets[currentIndex])
+                                onActivated: dialog.applyPreset(dialog.presetAt(currentIndex))
                                 contentItem: Label {
                                     leftPadding: 10
                                     rightPadding: 28
@@ -263,6 +387,15 @@ Popup {
                                     presetNamePopup.open();
                                     presetNameField.forceActiveFocus();
                                 }
+                            }
+
+                            ShadowIconButton {
+                                visible: dialog.selectedPresetIsCustom()
+                                source: "qrc:/icons/trash.svg"
+                                toolTipText: qsTr("Remove selected export preset")
+                                accessibleName: toolTipText
+                                variant: ShadowIconButton.Ghost
+                                onClicked: dialog.requestPresetRemoval()
                             }
                         }
                     }
@@ -496,6 +629,57 @@ Popup {
 
         Rectangle {
             Layout.fillWidth: true
+            Layout.leftMargin: 16
+            Layout.rightMargin: 16
+            Layout.topMargin: 10
+            Layout.bottomMargin: 10
+            Layout.preferredHeight: Math.min(
+                                      132,
+                                      80 + Math.max(0, dialog.exportController.errors.length - 1) * 26
+                                  )
+            visible: !dialog.exportController.busy
+                     && dialog.exportController.errors.length > 0
+            radius: Theme.compactControlRadius
+            color: Theme.dangerSurface
+            border.width: 1
+            border.color: Theme.errorBorder
+
+            ColumnLayout {
+                id: errorDetails
+                anchors.fill: parent
+                anchors.margins: 10
+                spacing: 6
+
+                Label {
+                    text: qsTr("FAILED ITEMS · %1").arg(dialog.exportController.errors.length)
+                    color: Theme.dangerText
+                    font.pixelSize: 10
+                    font.weight: Font.DemiBold
+                    font.letterSpacing: 0.55
+                }
+
+                ListView {
+                    id: errorList
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    Layout.minimumHeight: 42
+                    clip: true
+                    spacing: 4
+                    model: dialog.exportController.errors
+                    delegate: Label {
+                        required property string modelData
+                        width: errorList.width
+                        text: modelData
+                        color: Theme.textSecondary
+                        font.pixelSize: 10
+                        wrapMode: Text.Wrap
+                    }
+                }
+            }
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
             Layout.preferredHeight: 1
             color: Theme.border
         }
@@ -508,26 +692,69 @@ Popup {
             Layout.bottomMargin: 12
             spacing: 8
 
-            BusyIndicator {
-                Layout.preferredWidth: 18
-                Layout.preferredHeight: 18
-                visible: dialog.exportController.busy
-                running: visible
-            }
-
-            Label {
+            ColumnLayout {
                 Layout.fillWidth: true
-                text: dialog.exportController.statusText
-                color: Theme.textMuted
-                font.pixelSize: 10
-                elide: Text.ElideRight
+                spacing: 5
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 6
+
+                    BusyIndicator {
+                        Layout.preferredWidth: 18
+                        Layout.preferredHeight: 18
+                        visible: dialog.exportController.busy
+                        running: visible
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: dialog.exportController.statusText
+                        color: dialog.exportController.errors.length > 0
+                               && !dialog.exportController.busy
+                               ? Theme.errorText : Theme.textMuted
+                        font.pixelSize: 10
+                        elide: Text.ElideRight
+                    }
+                }
+
+                ProgressBar {
+                    id: exportProgress
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 4
+                    visible: dialog.exportController.busy
+                    from: 0
+                    to: Math.max(1, dialog.exportController.totalCount)
+                    value: Math.min(
+                               dialog.exportController.currentCount,
+                               dialog.exportController.totalCount
+                           )
+                    background: Rectangle {
+                        radius: height / 2
+                        color: Theme.controlQuiet
+                    }
+                    contentItem: Item {
+                        Rectangle {
+                            width: parent.width * exportProgress.visualPosition
+                            height: parent.height
+                            radius: height / 2
+                            color: dialog.exportController.cancellationRequested
+                                   ? Theme.textMuted : Theme.accent
+                        }
+                    }
+                }
             }
 
             ShadowButton {
                 text: qsTr("CANCEL")
                 variant: ShadowButton.Ghost
-                enabled: !dialog.exportController.busy
-                onClicked: dialog.close()
+                enabled: !dialog.exportController.cancellationRequested
+                onClicked: {
+                    if (dialog.exportController.busy)
+                        dialog.exportController.cancelExport();
+                    else
+                        dialog.close();
+                }
             }
 
             ShadowButton {
@@ -541,8 +768,8 @@ Popup {
 
     Connections {
         target: dialog.exportController
-        function onExportFinished(completed, failed, paths) {
-            if (failed === 0 && completed > 0)
+        function onExportFinished(completed, failed, cancelled, paths, errors) {
+            if (!cancelled && failed === 0 && completed > 0)
                 dialog.close();
         }
     }

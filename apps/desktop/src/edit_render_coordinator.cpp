@@ -1,9 +1,11 @@
 #include "edit_controller.hpp"
+#include "preview_diagnostics.hpp"
 
 #include <QtConcurrent>
 
 #include <QImage>
 #include <QSize>
+#include <QVector>
 #include <QVariantMap>
 
 #include <algorithm>
@@ -49,6 +51,59 @@ edit_message(const char *const source,
     return result;
 }
 
+[[nodiscard]] QVariantList scope_counts(
+    const QVector<std::uint32_t>& counts
+) {
+    QVariantList result;
+    result.reserve(counts.size());
+    for (const auto count : counts) {
+        result.push_back(static_cast<unsigned int>(count));
+    }
+    return result;
+}
+
+[[nodiscard]] QVariantMap display_scope_snapshot(
+    const PreviewDisplayScopeAnalysis& scope
+) {
+    const qsizetype expected_count = static_cast<qsizetype>(preview_scope_grid_size)
+        * preview_scope_grid_size;
+    if (!scope.available || scope.source_dimensions.isEmpty()
+        || scope.waveform.size() != expected_count
+        || scope.parade_red.size() != expected_count
+        || scope.parade_green.size() != expected_count
+        || scope.parade_blue.size() != expected_count
+        || scope.vectorscope.size() != expected_count) {
+        return {{QStringLiteral("displayScopeAvailable"), false}};
+    }
+    return {
+        {QStringLiteral("displayScopeAvailable"), true},
+        {QStringLiteral("displayScopeGridSize"), preview_scope_grid_size},
+        {QStringLiteral("displayScopeWidth"), scope.source_dimensions.width()},
+        {QStringLiteral("displayScopeHeight"), scope.source_dimensions.height()},
+        {
+            QStringLiteral("displayScopeSampledPixels"),
+            QVariant::fromValue<qulonglong>(scope.sampled_pixels)
+        },
+        {
+            QStringLiteral("displayScopeMatchedPixels"),
+            QVariant::fromValue<qulonglong>(scope.matched_pixels)
+        },
+        {QStringLiteral("displayScopePointColorQualified"), scope.point_color_qualified},
+        {QStringLiteral("displayScopeCentroidAvailable"), scope.has_vectorscope_centroid},
+        {QStringLiteral("displayScopeCentroidCb"), scope.vectorscope_centroid_cb},
+        {QStringLiteral("displayScopeCentroidCr"), scope.vectorscope_centroid_cr},
+        {
+            QStringLiteral("displayScopeSkinGuideDeviationDegrees"),
+            scope.skin_guide_deviation_degrees
+        },
+        {QStringLiteral("displayWaveform"), scope_counts(scope.waveform)},
+        {QStringLiteral("displayParadeRed"), scope_counts(scope.parade_red)},
+        {QStringLiteral("displayParadeGreen"), scope_counts(scope.parade_green)},
+        {QStringLiteral("displayParadeBlue"), scope_counts(scope.parade_blue)},
+        {QStringLiteral("displayVectorscope"), scope_counts(scope.vectorscope)},
+    };
+}
+
 [[nodiscard]] QVariantMap empty_histogram() {
     return {
         {QStringLiteral("valid"), false},
@@ -81,6 +136,7 @@ edit_message(const char *const source,
 
 [[nodiscard]] QVariantMap histogram_snapshot(
     const BackendEditPreviewAnalysis& analysis,
+    const PreviewDisplayScopeAnalysis& display_scope,
     const quint64 generation
 ) {
     if (analysis.width == 0 || analysis.height == 0 || analysis.pixel_count == 0
@@ -94,7 +150,7 @@ edit_message(const char *const source,
         throw std::runtime_error("edit preview analysis violated the desktop contract");
     }
     const double pixel_count = static_cast<double>(analysis.pixel_count);
-    return {
+    QVariantMap snapshot{
         {QStringLiteral("valid"), true},
         {QStringLiteral("updating"), false},
         {QStringLiteral("stale"), false},
@@ -133,6 +189,11 @@ edit_message(const char *const source,
         {QStringLiteral("scope"), QStringLiteral("complete-warm-proxy")},
         {QStringLiteral("clippingRule"), QStringLiteral("strict-pre-clamp")},
     };
+    const QVariantMap scope_snapshot = display_scope_snapshot(display_scope);
+    for (auto iterator = scope_snapshot.cbegin(); iterator != scope_snapshot.cend(); ++iterator) {
+        snapshot.insert(iterator.key(), iterator.value());
+    }
+    return snapshot;
 }
 
 } // namespace
@@ -264,6 +325,12 @@ void EditController::finishPreviewTask() {
                 }
             }
         } else {
+            const std::optional<PreviewScopeHueQualifier> point_color_qualifier =
+                point_color_scope_active_ ? selectedPointColorScopeQualifier() : std::nullopt;
+            const PreviewDisplayScopeAnalysis display_scope = accepted
+                    && result.preview.analysis.available
+                ? analyze_display_scope(result.preview.bytes, point_color_qualifier)
+                : PreviewDisplayScopeAnalysis{};
             if (result.generation.policy == EditPreviewPolicy::Interactive
                 && !active_parameter_gestures_.isEmpty()) {
                 first_interactive_frame_presented_ = true;
@@ -302,6 +369,7 @@ void EditController::finishPreviewTask() {
                     publishHistogram(
                         EditPreviewKind::Current,
                         result.preview.analysis,
+                        display_scope,
                         result.generation.current_revision
                     );
                 }
@@ -330,6 +398,9 @@ void EditController::finishPreviewTask() {
           {result.error});
             emit beforeErrorTextChanged();
         } else {
+            const PreviewDisplayScopeAnalysis display_scope = result.preview.analysis.available
+                ? analyze_display_scope(result.preview.bytes)
+                : PreviewDisplayScopeAnalysis{};
             const QSize dimensions(
                 static_cast<int>(result.preview.width),
                 static_cast<int>(result.preview.height)
@@ -344,6 +415,7 @@ void EditController::finishPreviewTask() {
             publishHistogram(
                 EditPreviewKind::NeutralBefore,
                 result.preview.analysis,
+                display_scope,
                 result.generation.photo
             );
             before_preview_source_ = QStringLiteral(
@@ -843,9 +915,10 @@ void EditController::markHistogramUpdating(const EditPreviewKind kind) {
 void EditController::publishHistogram(
     const EditPreviewKind kind,
     const BackendEditPreviewAnalysis& analysis,
+    const PreviewDisplayScopeAnalysis& display_scope,
     const quint64 generation
 ) {
-    QVariantMap snapshot = histogram_snapshot(analysis, generation);
+    QVariantMap snapshot = histogram_snapshot(analysis, display_scope, generation);
     if (kind == EditPreviewKind::Current) {
         histogram_ = std::move(snapshot);
         emit histogramChanged();
@@ -853,6 +926,37 @@ void EditController::publishHistogram(
         before_histogram_ = std::move(snapshot);
         emit beforeHistogramChanged();
     }
+}
+
+void EditController::refreshCurrentDisplayScope() {
+    if (!histogram_.value(QStringLiteral("valid")).toBool()) {
+        return;
+    }
+    bool valid_generation = false;
+    const quint64 generation = histogram_.value(QStringLiteral("generation")).toULongLong(
+        &valid_generation
+    );
+    if (!valid_generation) {
+        return;
+    }
+    const auto snapshot = preview_store_->snapshot(EditPreviewSlot::Current, generation);
+    if (snapshot.bytes.isEmpty()) {
+        return;
+    }
+    const std::optional<PreviewScopeHueQualifier> point_color_qualifier =
+        point_color_scope_active_ ? selectedPointColorScopeQualifier() : std::nullopt;
+    if (point_color_scope_active_ && !point_color_qualifier.has_value()) {
+        return;
+    }
+    const PreviewDisplayScopeAnalysis display_scope = analyze_display_scope(
+        snapshot.bytes,
+        point_color_qualifier
+    );
+    const QVariantMap scope_snapshot = display_scope_snapshot(display_scope);
+    for (auto iterator = scope_snapshot.cbegin(); iterator != scope_snapshot.cend(); ++iterator) {
+        histogram_.insert(iterator.key(), iterator.value());
+    }
+    emit histogramChanged();
 }
 
 void EditController::markHistogramFailed(const EditPreviewKind kind) {

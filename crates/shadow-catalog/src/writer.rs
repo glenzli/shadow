@@ -19,14 +19,19 @@ use crate::{
     CatalogError, CatalogStats, CatalogStore, CommitEditRepository, CommitRecipe,
     CommitRecipeAndEditRepository, CommitRecipeAndEditRepositoryResult, ContentIdentity,
     DecodeSnapshotRecord, EditObjectPackWrite, EditObjectRecord, EditRepositoryCommitRecord,
-    EditRepositoryRefRecord, FeedbackPage, ImportSession, ImportSessionState, ImportSessionSummary,
-    InvalidateCachedArtifactStatus, LibraryPhotoCursor, LibraryPhotoFacts, LibraryPhotoFilter,
-    LibraryPhotoPage, LibrarySourceRecord, PhotoDecisionPage, PhotoLibraryState,
+    EditRepositoryRefRecord, EnqueueExportJob, ExportItemId, ExportItemRecord, ExportJobId,
+    ExportJobProgress, ExportJobRecord, ExportOutputReceiptRecord, ExportPresetId,
+    ExportPresetRecord, ExportPresetRevisionRecord, ExportQueueRecovery, FeedbackPage,
+    ImportSession, ImportSessionState, ImportSessionSummary, InvalidateCachedArtifactStatus,
+    LibraryPhotoCursor, LibraryPhotoFacts, LibraryPhotoFilter, LibraryPhotoPage,
+    LibrarySourceRecord, LiveCachedArtifactBlob, PhotoDecisionPage, PhotoLibraryState,
     RecipeCommitRecord, RecipeRefRecord, RecordCachedArtifact, RecordCachedArtifactStatus,
-    RecordDecodeSnapshot, RecordDecodeSnapshotStatus, RecordTechnicalObservation,
-    RecordTechnicalObservationStatus, RegisterAsset, RegisteredAsset, RepresentationFingerprint,
-    ReviewCursor, ReviewItemRecord, ReviewPageRecord, SetPhotoLibraryState, SetRecipeRef,
-    StoreEditObjectPackResult, TechnicalObservationRecord, TechnicalObservationRevision,
+    RecordDecodeSnapshot, RecordDecodeSnapshotStatus, RecordRepresentationContentIdentity,
+    RecordRepresentationContentIdentityStatus, RecordTechnicalObservation,
+    RecordTechnicalObservationStatus, RegisterAsset, RegisteredAsset, RelinkMatch,
+    RepresentationFingerprint, ReviewCursor, ReviewItemRecord, ReviewPageRecord,
+    SetPhotoLibraryState, SetRecipeRef, StoreEditObjectPackResult, TechnicalObservationRecord,
+    TechnicalObservationRevision,
 };
 
 #[derive(Debug)]
@@ -53,10 +58,12 @@ enum Message {
         SyncSender<Result<RegisteredAsset, CatalogError>>,
     ),
     RecordRepresentationContentIdentity(
-        RepresentationId,
+        Box<RecordRepresentationContentIdentity>,
+        SyncSender<Result<RecordRepresentationContentIdentityStatus, CatalogError>>,
+    ),
+    RelinkMatch(
         ContentIdentity,
-        i64,
-        SyncSender<Result<(), CatalogError>>,
+        SyncSender<Result<Option<RelinkMatch>, CatalogError>>,
     ),
     UpsertPhotoLibraryFacts(Box<LibraryPhotoFacts>, SyncSender<Result<(), CatalogError>>),
     PhotoLibraryFacts(
@@ -131,6 +138,11 @@ enum Message {
         RepresentationId,
         SyncSender<Result<Option<CachedArtifactRecord>, CatalogError>>,
     ),
+    PreferredCachedArtifacts(
+        Vec<RepresentationId>,
+        SyncSender<Result<Vec<Option<CachedArtifactRecord>>, CatalogError>>,
+    ),
+    LiveCachedArtifactBlobs(SyncSender<Result<Vec<LiveCachedArtifactBlob>, CatalogError>>),
     InvalidateCachedArtifact(
         Box<CachedArtifactRecord>,
         SyncSender<Result<InvalidateCachedArtifactStatus, CatalogError>>,
@@ -206,6 +218,69 @@ enum Message {
         String,
         SyncSender<Result<Option<EditRepositoryRefRecord>, CatalogError>>,
     ),
+    CreateExportPreset(
+        String,
+        String,
+        i64,
+        SyncSender<Result<ExportPresetRevisionRecord, CatalogError>>,
+    ),
+    ReviseExportPreset(
+        ExportPresetId,
+        String,
+        i64,
+        SyncSender<Result<ExportPresetRevisionRecord, CatalogError>>,
+    ),
+    ExportPresets(SyncSender<Result<Vec<ExportPresetRecord>, CatalogError>>),
+    ExportPresetRevisions(
+        ExportPresetId,
+        SyncSender<Result<Vec<ExportPresetRevisionRecord>, CatalogError>>,
+    ),
+    EnqueueExportJob(
+        Box<EnqueueExportJob>,
+        SyncSender<Result<ExportJobRecord, CatalogError>>,
+    ),
+    ExportJob(
+        ExportJobId,
+        SyncSender<Result<Option<ExportJobRecord>, CatalogError>>,
+    ),
+    ExportJobs(
+        usize,
+        SyncSender<Result<Vec<ExportJobRecord>, CatalogError>>,
+    ),
+    ExportJobItems(
+        ExportJobId,
+        SyncSender<Result<Vec<ExportItemRecord>, CatalogError>>,
+    ),
+    ExportItem(
+        ExportItemId,
+        SyncSender<Result<Option<ExportItemRecord>, CatalogError>>,
+    ),
+    ExportJobProgress(
+        ExportJobId,
+        SyncSender<Result<ExportJobProgress, CatalogError>>,
+    ),
+    ClaimNextExportItem(
+        i64,
+        SyncSender<Result<Option<ExportItemRecord>, CatalogError>>,
+    ),
+    AdvanceExportItem(
+        Box<crate::AdvanceExportItem>,
+        SyncSender<Result<ExportItemRecord, CatalogError>>,
+    ),
+    ExportOutputReceipt(
+        ExportItemId,
+        SyncSender<Result<Option<ExportOutputReceiptRecord>, CatalogError>>,
+    ),
+    CancelExportJob(
+        ExportJobId,
+        i64,
+        SyncSender<Result<ExportJobRecord, CatalogError>>,
+    ),
+    RecoverInterruptedExportJobs(i64, SyncSender<Result<usize, CatalogError>>),
+    RecoverAndRequeueInterruptedExportItems(
+        i64,
+        SyncSender<Result<ExportQueueRecovery, CatalogError>>,
+    ),
     Decision(DecisionMessage),
     Feedback(FeedbackMessage),
     BeginImportSession(
@@ -226,6 +301,13 @@ enum Message {
     RegisterImportAsset(
         ImportSessionId,
         RegisterAsset,
+        SyncSender<Result<RegisteredAsset, CatalogError>>,
+    ),
+    RegisterImportVerifiedRelocation(
+        ImportSessionId,
+        RegisterAsset,
+        RepresentationId,
+        ContentIdentity,
         SyncSender<Result<RegisteredAsset, CatalogError>>,
     ),
     RecordImportIssue(
@@ -423,15 +505,51 @@ impl CatalogHandle {
     /// actor; the actor only validates and persists its result.
     pub fn record_representation_content_identity(
         &self,
-        representation_id: RepresentationId,
-        identity: &ContentIdentity,
-        observed_at_ms: i64,
-    ) -> Result<(), CatalogError> {
+        request: &RecordRepresentationContentIdentity,
+    ) -> Result<RecordRepresentationContentIdentityStatus, CatalogError> {
         self.request(|response| {
-            Message::RecordRepresentationContentIdentity(
-                representation_id,
+            Message::RecordRepresentationContentIdentity(Box::new(request.clone()), response)
+        })
+    }
+
+    /// Finds the representation that owns one separately verified exact
+    /// content identity through the Catalog actor.
+    ///
+    /// This is a read-only proof step for source relocation. It deliberately
+    /// does not attach a path: import journaling must perform that state change
+    /// atomically in a subsequent, explicit operation.
+    pub fn relink_match(
+        &self,
+        identity: &ContentIdentity,
+    ) -> Result<Option<RelinkMatch>, CatalogError> {
+        self.request(|response| Message::RelinkMatch(identity.clone(), response))
+    }
+
+    /// Atomically binds a freshly discovered location to an already verified
+    /// representation identity and records the import-journal result through
+    /// the single catalog writer.
+    ///
+    /// This is intentionally an explicit relocation operation: a normal scan
+    /// may never infer a merge from names, timestamps, or file sizes alone.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] if the discovered entry is absent, the target
+    /// path already exists, or the exact identity does not still belong to the
+    /// declared representation.
+    pub fn register_import_verified_relocation(
+        &self,
+        session_id: ImportSessionId,
+        request: &RegisterAsset,
+        expected_representation_id: RepresentationId,
+        identity: &ContentIdentity,
+    ) -> Result<RegisteredAsset, CatalogError> {
+        self.request(|response| {
+            Message::RegisterImportVerifiedRelocation(
+                session_id,
+                request.clone(),
+                expected_representation_id,
                 identity.clone(),
-                observed_at_ms,
                 response,
             )
         })
@@ -643,6 +761,35 @@ impl CatalogHandle {
         representation_id: RepresentationId,
     ) -> Result<Option<CachedArtifactRecord>, CatalogError> {
         self.request(|response| Message::PreferredCachedArtifact(representation_id, response))
+    }
+
+    /// Selects current cache artifacts for one bounded Library page through
+    /// the single Catalog writer. The returned slots preserve request order,
+    /// so callers can attach visuals without a per-thumbnail actor round-trip.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] if the writer is unavailable, a requested
+    /// representation is absent, or persisted artifact metadata is invalid.
+    pub fn preferred_cached_artifacts(
+        &self,
+        representation_ids: &[RepresentationId],
+    ) -> Result<Vec<Option<CachedArtifactRecord>>, CatalogError> {
+        self.request(|response| {
+            Message::PreferredCachedArtifacts(representation_ids.to_vec(), response)
+        })
+    }
+
+    /// Lists every cache blob that is still reachable from a current Catalog
+    /// source/Recipe snapshot. Cache maintenance uses this with its own
+    /// filesystem inventory to perform a conservative sweep.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] if the writer is unavailable or Catalog finds
+    /// malformed persisted cache metadata.
+    pub fn live_cached_artifact_blobs(&self) -> Result<Vec<LiveCachedArtifactBlob>, CatalogError> {
+        self.request(Message::LiveCachedArtifactBlobs)
     }
 
     /// Invalidates an exact cache reference through the single Catalog writer.
@@ -954,6 +1101,206 @@ impl CatalogHandle {
         self.request(|response| Message::EditRepositoryRef(name.to_owned(), response))
     }
 
+    /// Creates a named export preset and its first immutable settings revision
+    /// through the single catalog writer.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] when the actor is unavailable or the preset is invalid.
+    pub fn create_export_preset(
+        &self,
+        name: &str,
+        settings_json: &str,
+        now_ms: i64,
+    ) -> Result<ExportPresetRevisionRecord, CatalogError> {
+        self.request(|response| {
+            Message::CreateExportPreset(name.to_owned(), settings_json.to_owned(), now_ms, response)
+        })
+    }
+
+    /// Appends one immutable revision to an existing export preset.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] when the actor is unavailable or the revision is invalid.
+    pub fn revise_export_preset(
+        &self,
+        preset_id: ExportPresetId,
+        settings_json: &str,
+        now_ms: i64,
+    ) -> Result<ExportPresetRevisionRecord, CatalogError> {
+        self.request(|response| {
+            Message::ReviseExportPreset(preset_id, settings_json.to_owned(), now_ms, response)
+        })
+    }
+
+    /// Lists named export presets through the catalog actor.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] when the actor is unavailable or the query fails.
+    pub fn export_presets(&self) -> Result<Vec<ExportPresetRecord>, CatalogError> {
+        self.request(Message::ExportPresets)
+    }
+
+    /// Lists all immutable revisions for one export preset.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] when the actor is unavailable or the preset is absent.
+    pub fn export_preset_revisions(
+        &self,
+        preset_id: ExportPresetId,
+    ) -> Result<Vec<ExportPresetRevisionRecord>, CatalogError> {
+        self.request(|response| Message::ExportPresetRevisions(preset_id, response))
+    }
+
+    /// Atomically freezes one durable export job and all of its item snapshots.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] when the actor is unavailable or snapshots are invalid.
+    pub fn enqueue_export_job(
+        &self,
+        request: &EnqueueExportJob,
+    ) -> Result<ExportJobRecord, CatalogError> {
+        self.request(|response| Message::EnqueueExportJob(Box::new(request.clone()), response))
+    }
+
+    /// Resolves one durable export job.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] when the actor is unavailable or persisted data is invalid.
+    pub fn export_job(&self, job_id: ExportJobId) -> Result<Option<ExportJobRecord>, CatalogError> {
+        self.request(|response| Message::ExportJob(job_id, response))
+    }
+
+    /// Lists a bounded task-center page of export jobs.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] for an unavailable actor or invalid page bound.
+    pub fn export_jobs(&self, limit: usize) -> Result<Vec<ExportJobRecord>, CatalogError> {
+        self.request(|response| Message::ExportJobs(limit, response))
+    }
+
+    /// Lists the individual immutable item snapshots for one export job.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] when the actor is unavailable or the job is absent.
+    pub fn export_job_items(
+        &self,
+        job_id: ExportJobId,
+    ) -> Result<Vec<ExportItemRecord>, CatalogError> {
+        self.request(|response| Message::ExportJobItems(job_id, response))
+    }
+
+    /// Reads one export item by its primary-key identity without materializing
+    /// the rest of its job. Workers use this on retry/completion paths so a
+    /// huge batch remains O(1) per item.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] when the actor is unavailable or stored item
+    /// data is malformed.
+    pub fn export_item(
+        &self,
+        item_id: ExportItemId,
+    ) -> Result<Option<ExportItemRecord>, CatalogError> {
+        self.request(|response| Message::ExportItem(item_id, response))
+    }
+
+    /// Aggregates durable worker state for one job inside SQLite, without
+    /// moving the job's individual item records through the actor.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] if the actor is unavailable, the job is
+    /// absent, or its stored item state is malformed.
+    pub fn export_job_progress(
+        &self,
+        job_id: ExportJobId,
+    ) -> Result<ExportJobProgress, CatalogError> {
+        self.request(|response| Message::ExportJobProgress(job_id, response))
+    }
+
+    /// Claims the next queued export item, atomically moving it to preparing.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] when the actor is unavailable or claiming fails.
+    pub fn claim_next_export_item(
+        &self,
+        now_ms: i64,
+    ) -> Result<Option<ExportItemRecord>, CatalogError> {
+        self.request(|response| Message::ClaimNextExportItem(now_ms, response))
+    }
+
+    /// Advances one export item with a compare-and-swap state transition.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] for an unavailable actor or stale transition.
+    pub fn advance_export_item(
+        &self,
+        request: &crate::AdvanceExportItem,
+    ) -> Result<ExportItemRecord, CatalogError> {
+        self.request(|response| Message::AdvanceExportItem(Box::new(request.clone()), response))
+    }
+
+    /// Returns the immutable receipt for a completed output item.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] when the actor is unavailable or receipt data is invalid.
+    pub fn export_output_receipt(
+        &self,
+        item_id: ExportItemId,
+    ) -> Result<Option<ExportOutputReceiptRecord>, CatalogError> {
+        self.request(|response| Message::ExportOutputReceipt(item_id, response))
+    }
+
+    /// Cancels unfinished items in one job without deleting completed outputs.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] when the actor is unavailable or the job is absent.
+    pub fn cancel_export_job(
+        &self,
+        job_id: ExportJobId,
+        now_ms: i64,
+    ) -> Result<ExportJobRecord, CatalogError> {
+        self.request(|response| Message::CancelExportJob(job_id, now_ms, response))
+    }
+
+    /// Marks in-progress export work interrupted after a process restart.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] when the actor is unavailable or recovery fails.
+    pub fn recover_interrupted_export_jobs(&self, now_ms: i64) -> Result<usize, CatalogError> {
+        self.request(|response| Message::RecoverInterruptedExportJobs(now_ms, response))
+    }
+
+    /// Atomically makes every retryable interrupted item available at startup.
+    ///
+    /// The returned report uses global aggregate counts rather than task-center
+    /// pages, so recovery stays complete for very large libraries and export
+    /// batches.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] when the actor is unavailable or recovery
+    /// cannot commit.
+    pub fn recover_and_requeue_interrupted_export_items(
+        &self,
+        now_ms: i64,
+    ) -> Result<ExportQueueRecovery, CatalogError> {
+        self.request(|response| Message::RecoverAndRequeueInterruptedExportItems(now_ms, response))
+    }
+
     /// Returns one photo's current authoritative culling/rating decision.
     ///
     /// # Errors
@@ -1146,6 +1493,22 @@ impl CatalogStore for CatalogHandle {
         self.request(|response| Message::RegisterImportAsset(session_id, request.clone(), response))
     }
 
+    fn register_import_verified_relocation(
+        &mut self,
+        session_id: ImportSessionId,
+        request: &RegisterAsset,
+        expected_representation_id: RepresentationId,
+        identity: &ContentIdentity,
+    ) -> Result<RegisteredAsset, CatalogError> {
+        Self::register_import_verified_relocation(
+            self,
+            session_id,
+            request,
+            expected_representation_id,
+            identity,
+        )
+    }
+
     fn record_import_issue(
         &mut self,
         session_id: ImportSessionId,
@@ -1190,17 +1553,11 @@ fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
                 let _ = response
                     .send(catalog.register_asset_with_content_identity(&request, &identity));
             }
-            Message::RecordRepresentationContentIdentity(
-                representation_id,
-                identity,
-                observed_at_ms,
-                response,
-            ) => {
-                let _ = response.send(catalog.record_representation_content_identity(
-                    representation_id,
-                    &identity,
-                    observed_at_ms,
-                ));
+            Message::RecordRepresentationContentIdentity(request, response) => {
+                let _ = response.send(catalog.record_representation_content_identity(&request));
+            }
+            Message::RelinkMatch(identity, response) => {
+                let _ = response.send(catalog.relink_match(&identity));
             }
             Message::UpsertPhotoLibraryFacts(facts, response) => {
                 let _ = response.send(catalog.upsert_photo_library_facts(facts.as_ref()));
@@ -1285,6 +1642,12 @@ fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
             }
             Message::PreferredCachedArtifact(representation_id, response) => {
                 let _ = response.send(catalog.preferred_cached_artifact(representation_id));
+            }
+            Message::PreferredCachedArtifacts(representation_ids, response) => {
+                let _ = response.send(catalog.preferred_cached_artifacts(&representation_ids));
+            }
+            Message::LiveCachedArtifactBlobs(response) => {
+                let _ = response.send(catalog.live_cached_artifact_blobs());
             }
             Message::InvalidateCachedArtifact(record, response) => {
                 let _ = response.send(catalog.invalidate_cached_artifact(record.as_ref()));
@@ -1371,6 +1734,55 @@ fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
             Message::EditRepositoryRef(name, response) => {
                 let _ = response.send(catalog.edit_repository_ref(&name));
             }
+            Message::CreateExportPreset(name, settings_json, now_ms, response) => {
+                let _ = response.send(catalog.create_export_preset(&name, &settings_json, now_ms));
+            }
+            Message::ReviseExportPreset(preset_id, settings_json, now_ms, response) => {
+                let _ =
+                    response.send(catalog.revise_export_preset(preset_id, &settings_json, now_ms));
+            }
+            Message::ExportPresets(response) => {
+                let _ = response.send(catalog.export_presets());
+            }
+            Message::ExportPresetRevisions(preset_id, response) => {
+                let _ = response.send(catalog.export_preset_revisions(preset_id));
+            }
+            Message::EnqueueExportJob(request, response) => {
+                let _ = response.send(catalog.enqueue_export_job(request.as_ref()));
+            }
+            Message::ExportJob(job_id, response) => {
+                respond(&response, catalog.export_job(job_id));
+            }
+            Message::ExportJobs(limit, response) => {
+                let _ = response.send(catalog.export_jobs(limit));
+            }
+            Message::ExportJobItems(job_id, response) => {
+                let _ = response.send(catalog.export_job_items(job_id));
+            }
+            Message::ExportItem(item_id, response) => {
+                respond(&response, catalog.export_item(item_id));
+            }
+            Message::ExportJobProgress(job_id, response) => {
+                respond(&response, catalog.export_job_progress(job_id));
+            }
+            Message::ClaimNextExportItem(now_ms, response) => {
+                let _ = response.send(catalog.claim_next_export_item(now_ms));
+            }
+            Message::AdvanceExportItem(request, response) => {
+                let _ = response.send(catalog.advance_export_item(request.as_ref()));
+            }
+            Message::ExportOutputReceipt(item_id, response) => {
+                respond(&response, catalog.export_output_receipt(item_id));
+            }
+            Message::CancelExportJob(job_id, now_ms, response) => {
+                let _ = response.send(catalog.cancel_export_job(job_id, now_ms));
+            }
+            Message::RecoverInterruptedExportJobs(now_ms, response) => {
+                let _ = response.send(catalog.recover_interrupted_export_jobs(now_ms));
+            }
+            Message::RecoverAndRequeueInterruptedExportItems(now_ms, response) => {
+                let _ = response.send(catalog.recover_and_requeue_interrupted_export_items(now_ms));
+            }
             Message::Decision(message) => run_decision_message(&mut catalog, message),
             Message::Feedback(message) => run_feedback_message(&mut catalog, message),
             Message::BeginImportSession(root, now_ms, response) => {
@@ -1384,6 +1796,20 @@ fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
             }
             Message::RegisterImportAsset(id, request, response) => {
                 let _ = response.send(catalog.register_import_asset(id, &request));
+            }
+            Message::RegisterImportVerifiedRelocation(
+                id,
+                request,
+                expected_representation_id,
+                identity,
+                response,
+            ) => {
+                let _ = response.send(catalog.register_import_verified_relocation(
+                    id,
+                    &request,
+                    expected_representation_id,
+                    &identity,
+                ));
             }
             Message::RecordImportIssue(id, location, message, now_ms, response) => {
                 let _ = response.send(catalog.record_import_issue(id, &location, &message, now_ms));
@@ -1496,6 +1922,170 @@ mod tests {
     }
 
     #[test]
+    fn actor_reads_exact_relink_matches_without_attaching_a_location() {
+        let actor = CatalogActor::spawn_in_memory().expect("spawn catalog actor");
+        let handle = actor.handle();
+        let registered = handle
+            .register_asset(&RegisterAsset {
+                kind: RepresentationKind::OriginalRaw,
+                location: AssetLocation::new(
+                    Platform::MacOs,
+                    b"/photos/moved-source.nef".to_vec(),
+                    "/photos/moved-source.nef",
+                ),
+                byte_len: 42,
+                modified_at_ms: Some(100),
+                now_ms: 1,
+            })
+            .expect("register original source");
+        let identity = ContentIdentity::whole_file_blake3([7; 32]);
+        handle
+            .record_representation_content_identity(&RecordRepresentationContentIdentity {
+                representation_id: registered.representation_id,
+                expected_source: RepresentationFingerprint {
+                    byte_len: 42,
+                    modified_at_ms: Some(100),
+                },
+                identity: identity.clone(),
+                observed_at_ms: 2,
+            })
+            .expect("record exact identity");
+
+        assert_eq!(
+            handle.relink_match(&identity).expect("read actor match"),
+            Some(RelinkMatch {
+                photo_id: registered.photo_id,
+                representation_id: registered.representation_id,
+            })
+        );
+        actor.shutdown().expect("shutdown actor");
+    }
+
+    #[test]
+    fn actor_rejects_a_late_content_identity_after_the_source_changes() {
+        let actor = CatalogActor::spawn_in_memory().expect("spawn catalog actor");
+        let handle = actor.handle();
+        let original = handle
+            .register_asset(&RegisterAsset {
+                kind: RepresentationKind::OriginalRaw,
+                location: AssetLocation::new(
+                    Platform::MacOs,
+                    b"/photos/replaced-in-place.nef".to_vec(),
+                    "/photos/replaced-in-place.nef",
+                ),
+                byte_len: 42,
+                modified_at_ms: Some(100),
+                now_ms: 1,
+            })
+            .expect("register original source");
+        let identity = ContentIdentity::whole_file_blake3([63; 32]);
+        let old_record = RecordRepresentationContentIdentity {
+            representation_id: original.representation_id,
+            expected_source: RepresentationFingerprint {
+                byte_len: 42,
+                modified_at_ms: Some(100),
+            },
+            identity: identity.clone(),
+            observed_at_ms: 2,
+        };
+        assert_eq!(
+            handle
+                .record_representation_content_identity(&old_record)
+                .expect("record current identity"),
+            RecordRepresentationContentIdentityStatus::Recorded
+        );
+        handle
+            .register_asset(&RegisterAsset {
+                kind: RepresentationKind::OriginalRaw,
+                location: AssetLocation::new(
+                    Platform::MacOs,
+                    b"/photos/replaced-in-place.nef".to_vec(),
+                    "/photos/replaced-in-place.nef",
+                ),
+                byte_len: 43,
+                modified_at_ms: Some(101),
+                now_ms: 3,
+            })
+            .expect("observe replacement");
+        assert_eq!(
+            handle
+                .record_representation_content_identity(&old_record)
+                .expect("late result is rejected"),
+            RecordRepresentationContentIdentityStatus::StaleSource
+        );
+        assert_eq!(
+            handle.relink_match(&identity).expect("lookup stale hash"),
+            None
+        );
+        actor.shutdown().expect("shutdown actor");
+    }
+
+    #[test]
+    fn actor_attaches_a_confirmed_relocation_only_through_the_journal() {
+        let actor = CatalogActor::spawn_in_memory().expect("spawn catalog actor");
+        let mut handle = actor.handle();
+        let original = handle
+            .register_asset(&RegisterAsset {
+                kind: RepresentationKind::OriginalRaw,
+                location: AssetLocation::new(
+                    Platform::MacOs,
+                    b"/photos/original.nef".to_vec(),
+                    "/photos/original.nef",
+                ),
+                byte_len: 42,
+                modified_at_ms: Some(100),
+                now_ms: 1,
+            })
+            .expect("register original");
+        let identity = ContentIdentity::whole_file_blake3([41; 32]);
+        handle
+            .record_representation_content_identity(&RecordRepresentationContentIdentity {
+                representation_id: original.representation_id,
+                expected_source: RepresentationFingerprint {
+                    byte_len: 42,
+                    modified_at_ms: Some(100),
+                },
+                identity: identity.clone(),
+                observed_at_ms: 2,
+            })
+            .expect("record identity");
+
+        let session = handle
+            .begin_import_session(
+                &AssetLocation::new(Platform::MacOs, b"/consolidated".to_vec(), "/consolidated"),
+                3,
+            )
+            .expect("begin import session");
+        let moved_request = RegisterAsset {
+            kind: RepresentationKind::OriginalRaw,
+            location: AssetLocation::new(
+                Platform::MacOs,
+                b"/consolidated/renamed.nef".to_vec(),
+                "/consolidated/renamed.nef",
+            ),
+            byte_len: 42,
+            modified_at_ms: Some(200),
+            now_ms: 4,
+        };
+        handle
+            .record_import_discovered(session, &moved_request)
+            .expect("journal discovery");
+
+        let moved = handle
+            .register_import_verified_relocation(
+                session,
+                &moved_request,
+                original.representation_id,
+                &identity,
+            )
+            .expect("attach through actor");
+        assert_eq!(moved.photo_id, original.photo_id);
+        assert_eq!(moved.representation_id, original.representation_id);
+        assert_eq!(handle.stats().expect("stats").locations, 2);
+        actor.shutdown().expect("shutdown actor");
+    }
+
+    #[test]
     fn actor_pages_photo_first_library_rows() {
         let actor = CatalogActor::spawn_in_memory().expect("spawn catalog actor");
         let handle = actor.handle();
@@ -1525,6 +2115,26 @@ mod tests {
         assert_eq!(
             page.items[0].location.display_path,
             "/photos/library-page.dng"
+        );
+        actor.shutdown().expect("shutdown actor");
+    }
+
+    #[test]
+    fn actor_persists_immutable_export_preset_revisions() {
+        let actor = CatalogActor::spawn_in_memory().expect("spawn catalog actor");
+        let handle = actor.handle();
+        let first = handle
+            .create_export_preset("Actor JPEG", r#"{"format":"jpeg","quality":80}"#, 1)
+            .expect("create preset through actor");
+        let second = handle
+            .revise_export_preset(first.preset_id, r#"{"format":"jpeg","quality":90}"#, 2)
+            .expect("revise preset through actor");
+
+        assert_eq!(
+            handle
+                .export_preset_revisions(first.preset_id)
+                .expect("read revisions through actor"),
+            vec![second, first]
         );
         actor.shutdown().expect("shutdown actor");
     }

@@ -141,10 +141,10 @@ Rectangle {
         return match && match.length > 1 ? decodeURIComponent(match[1]) : ""
     }
 
-    function pickPreviewColor(sourceItem, sourceX, sourceY) {
+    function previewNormalizedPoint(sourceItem, sourceX, sourceY) {
         if (!previewFrameReadyState || readyPreviewGenerationState.length === 0
                 || editedPreview.status !== Image.Ready)
-            return
+            return null
         const mapped = editedPreview.mapFromItem(sourceItem, sourceX, sourceY)
         const paintedWidth = Math.max(1, editedPreview.paintedWidth)
         const paintedHeight = Math.max(1, editedPreview.paintedHeight)
@@ -153,19 +153,26 @@ Rectangle {
         if (mapped.x < paintedX || mapped.y < paintedY
                 || mapped.x > paintedX + paintedWidth
                 || mapped.y > paintedY + paintedHeight)
-            return
+            return null
         const normalizedX = Math.max(0, Math.min(
             1, (mapped.x - paintedX) / paintedWidth))
         const normalizedY = Math.max(0, Math.min(
             1, (mapped.y - paintedY) / paintedHeight))
+        return Qt.point(normalizedX, normalizedY)
+    }
+
+    function pickPreviewColor(sourceItem, sourceX, sourceY) {
+        const normalized = previewNormalizedPoint(sourceItem, sourceX, sourceY)
+        if (normalized === null)
+            return
         if (editor.retouchPickerActive)
-            editor.addRetouchSpotFromPreview(normalizedX, normalizedY)
+            editor.addRetouchSpotFromPreview(normalized.x, normalized.y)
         else if (editor.whiteBalancePickerActive)
             editor.setWhiteBalanceFromPreview(
-                normalizedX, normalizedY, readyPreviewGenerationState)
+                normalized.x, normalized.y, readyPreviewGenerationState)
         else
             editor.addPointColorFromPreview(
-                normalizedX, normalizedY, readyPreviewGenerationState)
+                normalized.x, normalized.y, readyPreviewGenerationState)
     }
 
     function comparisonModeName(mode) {
@@ -1021,14 +1028,72 @@ Rectangle {
                                 && canvas.readyPreviewGeneration.length > 0
                             hoverEnabled: true
                             cursorShape: enabled ? Qt.BlankCursor : Qt.ArrowCursor
+                            // Painting is a direct-manipulation gesture. Do
+                            // not let the zoomable preview Flickable convert
+                            // it into a pan after the first brush stamp.
+                            preventStealing: true
                             property real pointerX: width / 2
                             property real pointerY: height / 2
+                            property bool retouchBrushActive: false
+                            property real lastRetouchStampX: -1
+                            property real lastRetouchStampY: -1
+
+                            function retouchBrushDiameter() {
+                                // The persisted repair target has an 18px
+                                // level-zero radius. Match its visible
+                                // diameter rather than creating a second
+                                // brush-size contract in the canvas.
+                                return Math.max(18, 36 * canvas.displayScale)
+                            }
+
+                            function appendRetouchStamp(mouse, beginsStroke) {
+                                const normalized = canvas.previewNormalizedPoint(
+                                    pointColorPickArea, mouse.x, mouse.y)
+                                if (normalized === null)
+                                    return
+                                const minimumSpacing = retouchBrushDiameter() * 0.45
+                                if (!beginsStroke
+                                        && Math.hypot(
+                                            mouse.x - lastRetouchStampX,
+                                            mouse.y - lastRetouchStampY
+                                        ) < minimumSpacing) {
+                                    return
+                                }
+                                canvas.editor.addRetouchSpotFromPreview(
+                                    normalized.x, normalized.y)
+                                lastRetouchStampX = mouse.x
+                                lastRetouchStampY = mouse.y
+                            }
                             onPositionChanged: mouse => {
                                 pointerX = mouse.x
                                 pointerY = mouse.y
+                                if (pressed && retouchBrushActive)
+                                    appendRetouchStamp(mouse, false)
                             }
-                            onClicked: mouse => canvas.pickPreviewColor(
-                                pointColorPickArea, mouse.x, mouse.y)
+                            onPressed: mouse => {
+                                pointerX = mouse.x
+                                pointerY = mouse.y
+                                if (!canvas.editor.retouchPickerActive)
+                                    return
+                                retouchBrushActive = true
+                                appendRetouchStamp(mouse, true)
+                            }
+                            onReleased: {
+                                retouchBrushActive = false
+                                lastRetouchStampX = -1
+                                lastRetouchStampY = -1
+                            }
+                            onCanceled: {
+                                retouchBrushActive = false
+                                lastRetouchStampX = -1
+                                lastRetouchStampY = -1
+                            }
+                            onClicked: mouse => {
+                                if (!canvas.editor.retouchPickerActive) {
+                                    canvas.pickPreviewColor(
+                                        pointColorPickArea, mouse.x, mouse.y)
+                                }
+                            }
                         }
 
                         Item {

@@ -3,13 +3,16 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QJsonDocument>
+#include <QMetaObject>
 #include <QRegularExpression>
 #include <QSet>
 #include <QSettings>
+#include <QTimer>
 #include <QUuid>
 #include <QtConcurrentRun>
 
 #include <algorithm>
+#include <functional>
 #include <limits>
 #include <stdexcept>
 #include <utility>
@@ -31,6 +34,14 @@ struct ExportPhoto final {
     QString title;
 };
 
+using ExportProgressReporter = std::function<void(
+    int completed,
+    int failed,
+    int current,
+    int total,
+    const QString& current_title
+)>;
+
 [[nodiscard]] QString safe_stem(const QString& requested, const QString& source_path) {
     QString stem = requested.trimmed();
     if (stem.isEmpty()) {
@@ -48,15 +59,19 @@ struct ExportPhoto final {
     const QDir& folder,
     const QString& stem,
     const QString& suffix,
-    const QString& extension
+    const QString& extension,
+    QSet<QString>& reserved_destinations
 ) {
     const QString base = stem + suffix;
     QString candidate = folder.filePath(base + QStringLiteral(".") + extension);
-    for (int copy = 2; QFileInfo::exists(candidate); ++copy) {
+    for (int copy = 2;
+         QFileInfo::exists(candidate) || reserved_destinations.contains(candidate);
+         ++copy) {
         candidate = folder.filePath(
             QStringLiteral("%1-%2.%3").arg(base).arg(copy).arg(extension)
         );
     }
+    reserved_destinations.insert(candidate);
     return candidate;
 }
 
@@ -96,46 +111,179 @@ struct ExportPhoto final {
             QStringLiteral("watermarkAnchor"),
             QStringLiteral("bottom-right")
         ).toString();
+    if (options.format != QStringLiteral("jpeg")
+        && options.format != QStringLiteral("png")) {
+        throw std::invalid_argument("export format must be jpeg or png");
+    }
     return options;
 }
 
-[[nodiscard]] ExportTaskResult run_export(
+[[nodiscard]] int checked_export_count(const std::uint32_t count) {
+    if (count > static_cast<std::uint32_t>(std::numeric_limits<int>::max())) {
+        throw std::length_error("durable export count exceeds the desktop count limit");
+    }
+    return static_cast<int>(count);
+}
+
+[[nodiscard]] QString source_title(const BackendDurableExportItem& item) {
+    const QString title = QFileInfo(item.source_path).fileName();
+    return title.isEmpty() ? item.photo_id : title;
+}
+
+void apply_durable_progress(
+    ExportTaskResult& result,
+    const BackendDurableExportProgress& progress
+) {
+    result.completed = checked_export_count(progress.completed);
+    result.failed = checked_export_count(
+        progress.failed + progress.paused_conflict
+    );
+    result.paused_conflicts = checked_export_count(progress.paused_conflict);
+    result.cancelled_items = checked_export_count(progress.cancelled);
+    result.requested = checked_export_count(progress.total);
+}
+
+[[nodiscard]] int durable_current_count(
+    const ExportTaskResult& result,
+    const BackendDurableExportProgress& progress
+) {
+    const int active = progress.active > 0 ? 1 : 0;
+    return std::min(
+        result.requested,
+        result.completed + result.failed + result.cancelled_items + active
+    );
+}
+
+[[nodiscard]] ExportTaskResult run_durable_export(
     const std::shared_ptr<DesktopBackend>& backend,
-    const QVector<ExportPhoto>& photos,
-    const QString& destination_folder,
-    const QVariantMap& values
+    const QVector<BackendDurableExportTarget>& targets,
+    const QString& settings_json,
+    const bool recover_existing,
+    const std::shared_ptr<std::atomic_bool>& cancellation_token,
+    const ExportProgressReporter& report_progress
 ) {
     ExportTaskResult result;
-    result.requested = checked_export_count(photos.size());
-    const QDir folder(destination_folder);
-    const BackendExportOptions options = backend_options(values);
-    const QString extension =
-        options.format == QStringLiteral("png")
-            ? QStringLiteral("png") : QStringLiteral("jpg");
-    const QString suffix = values.value(QStringLiteral("filenameSuffix")).toString();
-    for (const auto& photo : photos) {
-        try {
-            const QString destination = unique_destination(
-                folder,
-                safe_stem(photo.title, photo.source_path),
-                suffix,
-                extension
-            );
-            const auto receipt = backend->exportPhoto(
-                photo.photo_id,
-                photo.source_path,
-                destination,
-                options
-            );
-            result.destination_paths.push_back(receipt.destination_path);
-            ++result.completed;
-        } catch (const std::exception& error) {
-            result.errors.push_back(
-                QStringLiteral("%1 · %2")
-                    .arg(photo.title, QString::fromUtf8(error.what()))
-            );
-            ++result.failed;
+    result.recovered_on_startup = recover_existing;
+    QString selected_job_id;
+    try {
+        if (recover_existing) {
+            const BackendDurableExportRecovery recovery =
+                backend->recoverDurableExportQueue();
+            result.requested = checked_export_count(recovery.queued_items);
+            if (result.requested == 0) {
+                return result;
+            }
+        } else {
+            result.requested = checked_export_count(targets.size());
+            if (cancellation_token->load(std::memory_order_relaxed)) {
+                result.cancelled = true;
+                return result;
+            }
+            const BackendDurableExportJob job =
+                backend->enqueueDurableExportJob(targets, settings_json);
+            selected_job_id = job.job_id;
+            result.job_id = job.job_id;
+            result.requested = checked_export_count(job.item_count);
         }
+
+        for (;;) {
+            if (cancellation_token->load(std::memory_order_relaxed)) {
+                if (!selected_job_id.isEmpty()) {
+                    backend->cancelDurableExportJob(selected_job_id);
+                    const auto progress = backend->durableExportProgress(selected_job_id);
+                    apply_durable_progress(result, progress);
+                }
+                result.cancelled = true;
+                break;
+            }
+
+            if (!selected_job_id.isEmpty()) {
+                const auto progress = backend->durableExportProgress(selected_job_id);
+                apply_durable_progress(result, progress);
+                if (progress.queued == 0 && progress.active == 0) {
+                    break;
+                }
+            }
+
+            const auto item = backend->claimNextDurableExportItem();
+            if (!item.has_value()) {
+                break;
+            }
+            const QString title = source_title(*item);
+            if (selected_job_id.isEmpty()) {
+                report_progress(
+                    result.completed,
+                    result.failed,
+                    std::min(result.requested, result.completed + result.failed + 1),
+                    result.requested,
+                    title
+                );
+            } else {
+                const auto progress = backend->durableExportProgress(selected_job_id);
+                apply_durable_progress(result, progress);
+                report_progress(
+                    result.completed,
+                    result.failed,
+                    std::max(1, durable_current_count(result, progress)),
+                    result.requested,
+                    title
+                );
+            }
+
+            bool item_succeeded = false;
+            try {
+                const auto receipt = backend->executeDurableExportItem(*item);
+                item_succeeded = true;
+                if (selected_job_id.isEmpty() || item->job_id == selected_job_id) {
+                    result.destination_paths.push_back(receipt.destination_path);
+                }
+            } catch (const std::exception& error) {
+                result.errors.push_back(
+                    QStringLiteral("%1 · %2")
+                        .arg(title, QString::fromUtf8(error.what()))
+                );
+            }
+
+            if (selected_job_id.isEmpty()) {
+                // Startup recovery deliberately has no selected job. Its
+                // count is a practical task-center estimate; durable per-job
+                // state remains the source of truth.
+                if (item_succeeded) {
+                    ++result.completed;
+                } else {
+                    ++result.failed;
+                }
+                report_progress(
+                    result.completed,
+                    result.failed,
+                    std::min(result.requested, result.completed + result.failed),
+                    result.requested,
+                    title
+                );
+            } else {
+                const auto progress = backend->durableExportProgress(selected_job_id);
+                apply_durable_progress(result, progress);
+                report_progress(
+                    result.completed,
+                    result.failed,
+                    std::max(1, durable_current_count(result, progress)),
+                    result.requested,
+                    title
+                );
+            }
+        }
+
+        if (!selected_job_id.isEmpty()) {
+            const auto progress = backend->durableExportProgress(selected_job_id);
+            apply_durable_progress(result, progress);
+            result.cancelled = result.cancelled || progress.cancelled > 0;
+        }
+    } catch (const std::exception& error) {
+        result.errors.push_back(QString::fromUtf8(error.what()));
+        if (result.requested == 0) {
+            result.requested = 1;
+        }
+        result.failed = std::max(1, result.failed);
     }
     return result;
 }
@@ -165,9 +313,15 @@ ExportController::ExportController(
         this,
         &ExportController::finishExport
     );
+    // Recovery only touches the catalog from the background worker. It does
+    // not make the first Library frame wait on SQLite or a source decode.
+    QTimer::singleShot(0, this, &ExportController::startRecoveryDrain);
 }
 
 ExportController::~ExportController() {
+    if (cancellation_token_) {
+        cancellation_token_->store(true, std::memory_order_relaxed);
+    }
     watcher_.waitForFinished();
 }
 
@@ -183,12 +337,79 @@ int ExportController::completedCount() const noexcept {
     return completed_count_;
 }
 
+int ExportController::failedCount() const noexcept {
+    return failed_count_;
+}
+
+int ExportController::currentCount() const noexcept {
+    return current_count_;
+}
+
 int ExportController::totalCount() const noexcept {
     return total_count_;
 }
 
+bool ExportController::cancellationRequested() const noexcept {
+    return cancellation_requested_;
+}
+
+QStringList ExportController::errors() const {
+    return errors_;
+}
+
 QVariantList ExportController::presets() const {
     return presets_;
+}
+
+void ExportController::startRecoveryDrain() {
+    if (busy()) {
+        return;
+    }
+    completed_count_ = 0;
+    failed_count_ = 0;
+    current_count_ = 0;
+    total_count_ = 0;
+    cancellation_requested_ = false;
+    errors_.clear();
+    cancellation_token_ = std::make_shared<std::atomic_bool>(false);
+    status_text_ = tr("Checking unfinished exports…");
+    emit progressChanged();
+    emit statusTextChanged();
+    emit cancellationRequestedChanged();
+    emit errorsChanged();
+    emit busyChanged();
+    const auto generation = ++export_generation_;
+    const auto report_progress = [this, generation](
+                                     const int completed,
+                                     const int failed,
+                                     const int current,
+                                     const int total,
+                                     const QString& current_title
+                                 ) {
+        QMetaObject::invokeMethod(
+            this,
+            [this, generation, completed, failed, current, total, current_title] {
+                applyProgress(
+                    generation,
+                    completed,
+                    failed,
+                    current,
+                    total,
+                    current_title
+                );
+            },
+            Qt::QueuedConnection
+        );
+    };
+    watcher_.setFuture(QtConcurrent::run(
+        run_durable_export,
+        backend_,
+        QVector<BackendDurableExportTarget>{},
+        QString{},
+        true,
+        cancellation_token_,
+        report_progress
+    ));
 }
 
 void ExportController::startExport(
@@ -228,19 +449,108 @@ void ExportController::startExport(
         emit statusTextChanged();
         return;
     }
+    BackendExportOptions export_options;
+    try {
+        export_options = backend_options(options);
+    } catch (const std::exception& error) {
+        status_text_ = QString::fromUtf8(error.what());
+        emit statusTextChanged();
+        return;
+    }
+    const QString extension = export_options.format == QStringLiteral("png")
+        ? QStringLiteral("png")
+        : QStringLiteral("jpg");
+    const QString suffix = options.value(QStringLiteral("filenameSuffix")).toString();
+    const QDir folder(QDir(folder_path).absolutePath());
+    QSet<QString> reserved_destinations;
+    QVector<BackendDurableExportTarget> durable_targets;
+    durable_targets.reserve(photos.size());
+    for (const auto& photo : photos) {
+        durable_targets.push_back({
+            .photo_id = photo.photo_id,
+            .source_path = photo.source_path,
+            .output_path = unique_destination(
+                folder,
+                safe_stem(photo.title, photo.source_path),
+                suffix,
+                extension,
+                reserved_destinations
+            ),
+        });
+    }
+    const QVariantMap frozen_options{
+        {QStringLiteral("schema"), 1},
+        {QStringLiteral("format"), export_options.format},
+        {QStringLiteral("maxEdge"), static_cast<int>(export_options.max_edge)},
+        {QStringLiteral("quality"), static_cast<int>(export_options.jpeg_quality)},
+        {QStringLiteral("watermarkPath"), export_options.watermark_path},
+        {QStringLiteral("watermarkOpacity"), export_options.watermark_opacity},
+        {QStringLiteral("watermarkScale"), export_options.watermark_scale},
+        {QStringLiteral("watermarkInset"), export_options.watermark_inset},
+        {QStringLiteral("watermarkAnchor"), export_options.watermark_anchor},
+    };
+    const QString settings_json = QString::fromUtf8(
+        QJsonDocument::fromVariant(frozen_options).toJson(QJsonDocument::Compact)
+    );
     completed_count_ = 0;
+    failed_count_ = 0;
+    current_count_ = 0;
     total_count_ = checked_export_count(photos.size());
-    status_text_ = tr("Preparing %1 photos…").arg(total_count_);
+    cancellation_requested_ = false;
+    errors_.clear();
+    cancellation_token_ = std::make_shared<std::atomic_bool>(false);
+    status_text_ = tr("Queueing %1 photos…").arg(total_count_);
     emit progressChanged();
     emit statusTextChanged();
+    emit cancellationRequestedChanged();
+    emit errorsChanged();
     emit busyChanged();
+    const auto generation = ++export_generation_;
+    // The controller waits for its future in the destructor, so queued updates
+    // cannot outlive this receiver. A generation still protects a new export
+    // from late updates posted by a previous run.
+    const auto report_progress = [this, generation](
+                                     const int completed,
+                                     const int failed,
+                                     const int current,
+                                     const int total,
+                                     const QString& current_title
+                                 ) {
+        QMetaObject::invokeMethod(
+            this,
+            [this, generation, completed, failed, current, total, current_title] {
+                applyProgress(
+                    generation,
+                    completed,
+                    failed,
+                    current,
+                    total,
+                    current_title
+                );
+            },
+            Qt::QueuedConnection
+        );
+    };
     watcher_.setFuture(QtConcurrent::run(
-        run_export,
+        run_durable_export,
         backend_,
-        photos,
-        folder_path,
-        options
+        durable_targets,
+        settings_json,
+        false,
+        cancellation_token_,
+        report_progress
     ));
+}
+
+void ExportController::cancelExport() {
+    if (!busy() || cancellation_requested_ || !cancellation_token_) {
+        return;
+    }
+    cancellation_requested_ = true;
+    cancellation_token_->store(true, std::memory_order_relaxed);
+    status_text_ = tr("Cancelling after the current photo…");
+    emit cancellationRequestedChanged();
+    emit statusTextChanged();
 }
 
 QString ExportController::savePreset(
@@ -305,20 +615,86 @@ void ExportController::removePreset(const QString& preset_id) {
 void ExportController::finishExport() {
     const ExportTaskResult result = watcher_.result();
     completed_count_ = result.completed;
+    failed_count_ = result.failed;
+    current_count_ = std::min(
+        result.requested,
+        result.completed + result.failed + result.cancelled_items
+    );
     total_count_ = result.requested;
-    status_text_ = result.failed == 0
-        ? tr("Exported %1 photos").arg(result.completed)
-        : tr("Exported %1 photos · %2 failed")
-              .arg(result.completed)
-              .arg(result.failed);
+    errors_ = result.errors;
+    const bool was_cancelling = cancellation_requested_;
+    cancellation_requested_ = false;
+    cancellation_token_.reset();
+    if (result.recovered_on_startup && result.requested == 0) {
+        status_text_ = tr("No unfinished exports");
+    } else if (result.recovered_on_startup && result.cancelled) {
+        status_text_ = tr("Resuming exports paused");
+    } else if (result.recovered_on_startup && result.paused_conflicts > 0) {
+        status_text_ = tr("Resumed %1 photos · %2 need attention")
+                           .arg(result.completed)
+                           .arg(result.paused_conflicts);
+    } else if (result.recovered_on_startup && result.failed == 0) {
+        status_text_ = tr("Resumed %1 exports").arg(result.completed);
+    } else if (result.recovered_on_startup) {
+        status_text_ = tr("Resumed %1 exports · %2 failed")
+                           .arg(result.completed)
+                           .arg(result.failed);
+    } else if (result.cancelled) {
+        status_text_ = tr("Export cancelled · %1 exported · %2 failed")
+                           .arg(result.completed)
+                           .arg(result.failed);
+    } else if (result.paused_conflicts > 0) {
+        status_text_ = tr("Exported %1 photos · %2 need attention")
+                           .arg(result.completed)
+                           .arg(result.paused_conflicts);
+    } else if (result.failed == 0) {
+        status_text_ = tr("Exported %1 photos").arg(result.completed);
+    } else {
+        status_text_ = tr("Exported %1 photos · %2 failed")
+                           .arg(result.completed)
+                           .arg(result.failed);
+    }
     emit progressChanged();
     emit statusTextChanged();
+    if (was_cancelling) {
+        emit cancellationRequestedChanged();
+    }
+    emit errorsChanged();
     emit busyChanged();
-    emit exportFinished(
-        result.completed,
-        result.failed,
-        result.destination_paths
-    );
+    if (!result.recovered_on_startup) {
+        emit exportFinished(
+            result.completed,
+            result.failed,
+            result.cancelled,
+            result.destination_paths,
+            result.errors
+        );
+    }
+}
+
+void ExportController::applyProgress(
+    const quint64 generation,
+    const int completed,
+    const int failed,
+    const int current,
+    const int total,
+    const QString& current_title
+) {
+    if (!busy() || generation != export_generation_) {
+        return;
+    }
+    completed_count_ = completed;
+    failed_count_ = failed;
+    current_count_ = current;
+    total_count_ = total;
+    if (!cancellation_requested_) {
+        status_text_ = tr("Exporting %1 of %2 · %3")
+                           .arg(current)
+                           .arg(total)
+                           .arg(current_title);
+        emit statusTextChanged();
+    }
+    emit progressChanged();
 }
 
 void ExportController::persistPresets() {

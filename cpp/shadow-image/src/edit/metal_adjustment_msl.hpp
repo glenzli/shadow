@@ -23,6 +23,9 @@ constant uint opcode_color_grading = 6u;
 constant uint opcode_lut_3d = 7u;
 constant uint opcode_perceptual_mapping = 8u;
 constant uint opcode_selective_color = 9u;
+constant uint opcode_oklab_opponent_balance = 10u;
+constant uint opcode_oklab_opponent_tone_curves = 11u;
+constant uint opcode_oklab_color_warper = 12u;
 constant uint status_non_finite = 1u;
 constant uint status_bad_abi = 2u;
 constant uint status_bad_opcode = 4u;
@@ -231,6 +234,34 @@ inline float evaluate_oklab_lightness_curve(
     const uint segment_index = min(lower, operation.resource_count - 1u);
     return evaluate_curve_segment(
         curve_segments[operation.resource_offset + segment_index],
+        value
+    );
+}
+
+inline float evaluate_unit_domain_curve(
+    device const MetalCurveSegment* curve_segments,
+    uint resource_offset,
+    uint resource_count,
+    float value
+) {
+    // Opponent curves are validated on the host to begin at 0 and end at 1.
+    // Their caller clamps the photographic Oklab-L key into that authored
+    // domain, so no extrapolation endpoints need to occupy operation fields.
+    uint lower = 0u;
+    uint upper = resource_count;
+    while (lower < upper) {
+        const uint middle = lower + (upper - lower) / 2u;
+        const MetalCurveSegment candidate =
+            curve_segments[resource_offset + middle];
+        if (value < candidate.right.x) {
+            upper = middle;
+        } else {
+            lower = middle + 1u;
+        }
+    }
+    const uint segment_index = min(lower, resource_count - 1u);
+    return evaluate_curve_segment(
+        curve_segments[resource_offset + segment_index],
         value
     );
 }
@@ -492,6 +523,112 @@ inline float3 apply_perceptual_mapping(
     return changed ? oklab_to_working_rgb(lab, invocation) : rgb;
 }
 
+inline float3 apply_global_oklab_opponent_balance(
+    float3 rgb,
+    const MetalAdjustmentOp operation,
+    constant MetalAdjustmentInvocation& invocation
+) {
+    float3 lab = working_rgb_to_oklab(rgb, invocation);
+    // Preserve the CPU oracle's protected Oklab toe: global cast corrections
+    // should neutralize shadows, not tint the black point or amplify dark noise.
+    const float low_light_protection = adjustment_smoothstep(
+        0.015f,
+        0.090f,
+        max(0.0f, lab.x)
+    );
+    lab.y += operation.parameter_0.x * 0.075f * low_light_protection;
+    lab.z += operation.parameter_0.y * 0.075f * low_light_protection;
+    return oklab_to_working_rgb(lab, invocation);
+}
+
+inline float3 apply_oklab_opponent_tone_curves(
+    float3 rgb,
+    const MetalAdjustmentOp operation,
+    device const MetalCurveSegment* curve_segments,
+    constant MetalAdjustmentInvocation& invocation
+) {
+    float3 lab = working_rgb_to_oklab(rgb, invocation);
+    const float key = clamp(lab.x, 0.0f, 1.0f);
+    lab.y += clamp(
+        evaluate_unit_domain_curve(
+            curve_segments,
+            operation.resource_offset,
+            operation.resource_count,
+            key
+        ),
+        -0.12f,
+        0.12f
+    );
+    lab.z += clamp(
+        evaluate_unit_domain_curve(
+            curve_segments,
+            operation.secondary_resource_offset,
+            operation.secondary_resource_count,
+            key
+        ),
+        -0.12f,
+        0.12f
+    );
+    return oklab_to_working_rgb(lab, invocation);
+}
+
+inline float3 apply_oklab_color_warper(
+    float3 rgb,
+    const MetalAdjustmentOp operation,
+    // Color Warper uses the existing float4 perceptual table buffer. Its records are simply
+    // (a-offset, b-offset, 0, 0), which keeps this new pixel-local node ABI-compatible with
+    // ordinary and resident-preview dispatch without a second side-buffer binding.
+    device const float4* control_points,
+    constant MetalAdjustmentInvocation& invocation
+) {
+    constant uint grid_side = 5u;
+    const float strength = operation.parameter_0.x;
+    const float half_extent = operation.parameter_0.y;
+    const float feather = operation.parameter_0.z;
+    float3 lab = working_rgb_to_oklab(rgb, invocation);
+    const float a_distance = half_extent - abs(lab.y);
+    const float b_distance = half_extent - abs(lab.z);
+    const float coverage = adjustment_smoothstep(0.0f, feather, a_distance)
+        * adjustment_smoothstep(0.0f, feather, b_distance);
+    if (coverage == 0.0f || strength == 0.0f) {
+        return rgb;
+    }
+
+    const float coordinate_scale = float(grid_side - 1u);
+    const float grid_a = clamp(
+        (lab.y + half_extent) / (2.0f * half_extent) * coordinate_scale,
+        0.0f,
+        coordinate_scale
+    );
+    const float grid_b = clamp(
+        (lab.z + half_extent) / (2.0f * half_extent) * coordinate_scale,
+        0.0f,
+        coordinate_scale
+    );
+    const uint left = uint(floor(grid_a));
+    const uint top = uint(floor(grid_b));
+    const uint right = min(left + 1u, grid_side - 1u);
+    const uint bottom = min(top + 1u, grid_side - 1u);
+    const float horizontal = grid_a - float(left);
+    const float vertical = grid_b - float(top);
+    const uint offset = operation.resource_offset;
+    const float2 top_value = mix(
+        control_points[offset + top * grid_side + left].xy,
+        control_points[offset + top * grid_side + right].xy,
+        horizontal
+    );
+    const float2 bottom_value = mix(
+        control_points[offset + bottom * grid_side + left].xy,
+        control_points[offset + bottom * grid_side + right].xy,
+        horizontal
+    );
+    const float2 displacement = mix(top_value, bottom_value, vertical);
+    const float amount = coverage * strength;
+    lab.y += amount * displacement.x;
+    lab.z += amount * displacement.y;
+    return oklab_to_working_rgb(lab, invocation);
+}
+
 inline float3 apply_selective_color(
     float3 rgb,
     const MetalAdjustmentOp operation,
@@ -713,6 +850,51 @@ inline bool execute_adjustment_program(
                 operation,
                 mixer_entries,
                 range_entries,
+                invocation
+            );
+            break;
+        case opcode_oklab_opponent_balance:
+            rgb = apply_global_oklab_opponent_balance(rgb, operation, invocation);
+            break;
+        case opcode_oklab_opponent_tone_curves:
+            if (operation.resource_count == 0u || operation.secondary_resource_count == 0u
+                || !resource_range_is_valid(
+                    operation.resource_offset,
+                    operation.resource_count,
+                    invocation.curve_segment_count
+                )
+                || !resource_range_is_valid(
+                    operation.secondary_resource_offset,
+                    operation.secondary_resource_count,
+                    invocation.curve_segment_count
+                )) {
+                report_adjustment_failure(status, status_bad_resource, step);
+                return false;
+            }
+            rgb = apply_oklab_opponent_tone_curves(
+                rgb,
+                operation,
+                curve_segments,
+                invocation
+            );
+            break;
+        case opcode_oklab_color_warper:
+            if (operation.resource_count != 25u
+                || !resource_range_is_valid(
+                    operation.resource_offset,
+                    operation.resource_count,
+                    invocation.perceptual_mixer_entry_count
+                )
+                || !all(isfinite(operation.parameter_0.xyz))
+                || operation.parameter_0.x < 0.0f || operation.parameter_0.x > 1.0f
+                || operation.parameter_0.y <= 0.0f || operation.parameter_0.z <= 0.0f) {
+                report_adjustment_failure(status, status_bad_resource, step);
+                return false;
+            }
+            rgb = apply_oklab_color_warper(
+                rgb,
+                operation,
+                mixer_entries,
                 invocation
             );
             break;

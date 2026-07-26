@@ -19,8 +19,6 @@
 #include <cstdint>
 #include <memory>
 
-class QSettings;
-
 struct ScanTaskResult final {
     BackendScanReport report;
     QString error;
@@ -30,16 +28,28 @@ struct ScanTaskResult final {
 enum class PageTaskKind : std::uint8_t {
     InitialReset,
     StreamingPrefix,
-    FinalReset,
     Append,
 };
 
 struct PageTaskResult final {
-    BackendReviewPage page;
+    BackendLibraryPhotoPage page;
     QString error;
     quint64 library_generation = 0;
     quint64 request_id = 0;
     PageTaskKind kind = PageTaskKind::InitialReset;
+};
+
+struct CountTaskResult final {
+    quint64 count = 0;
+    QString error;
+    quint64 library_generation = 0;
+    quint64 request_id = 0;
+};
+
+struct LibraryStateTaskResult final {
+    BackendPhotoLibraryState state;
+    QString error;
+    QString requested_photo_id;
 };
 
 enum class ReviewEvidenceTaskKind : std::uint8_t {
@@ -200,6 +210,7 @@ public:
         const QString& photo_id,
         const QString& color_label
     );
+    Q_INVOKABLE void setPhotoLiked(const QString& photo_id, bool liked);
     Q_INVOKABLE void clearFilters();
     Q_INVOKABLE void refreshVisibleLibrary();
     Q_INVOKABLE void refreshSharedGradeNodes();
@@ -240,11 +251,22 @@ signals:
 private:
     void finishScan();
     void finishPage();
+    void finishCount();
+    void finishLibraryStateTask();
     void pollScanProgress();
     void finishEvidenceTask();
     void finishDecisionTask();
     void startPage(PageTaskKind kind);
-    void requestFinalPageRefresh();
+    void requestLibraryReset();
+    void scheduleFilterQuery();
+    void beginFilteredLibraryQuery();
+    void startCountQuery();
+    [[nodiscard]] BackendLibraryPhotoFilter currentLibraryFilter() const;
+    void startLibraryStateMutation(
+        const QString& photo_id,
+        bool liked,
+        const QString& color_label
+    );
     void startDecisionMutation(const ReviewDecisionMutationRequest& request);
     void emitWorkStateChanges(
         bool old_busy,
@@ -259,7 +281,6 @@ private:
     void setComparisonStatusMessage(LocalizedUiMessage status);
     void setDecisionStatusMessage(LocalizedUiMessage status);
     void applyDecisionState(const BackendReviewDecisionState& state);
-    void persistColorLabels();
 
     std::shared_ptr<DesktopBackend> backend_;
     QString folder_path_;
@@ -280,12 +301,13 @@ private:
                         "Flags and stars are explicit local library decisions"
     ),
   };
-    QString next_cursor_path_;
-    QString next_cursor_representation_id_;
+    BackendLibraryPhotoCursor next_cursor_;
     quint64 library_generation_ = 1;
     quint64 scan_generation_ = 0;
     quint64 page_request_id_ = 0;
     quint64 active_page_request_id_ = 0;
+    quint64 count_request_id_ = 0;
+    quint64 active_count_request_id_ = 0;
     quint64 scan_update_sequence_ = 0;
     quint64 total_items_ = 0;
     quint64 files_seen_ = 0;
@@ -309,20 +331,25 @@ private:
     bool scan_running_ = false;
     bool page_running_ = false;
     bool page_reset_running_ = false;
-    bool final_page_refresh_pending_ = false;
+    bool library_reset_pending_ = false;
+    bool count_running_ = false;
+    bool count_query_pending_ = false;
     bool terminal_refresh_active_ = false;
     bool scan_terminal_cancelled_ = false;
     bool has_more_ = false;
+    bool library_state_mutation_running_ = false;
     QElapsedTimer scan_clock_;
     QTimer scan_progress_timer_;
+    QTimer filter_debounce_timer_;
     ReviewModel model_;
     ReviewFilterModel filtered_model_;
-    std::unique_ptr<QSettings> settings_;
     ReviewEvidenceSession evidence_session_;
     ReviewDecisionSession decision_session_;
     QVector<BackendSharedGradeNode> shared_grade_nodes_;
     QFutureWatcher<ScanTaskResult> scan_watcher_;
     QFutureWatcher<PageTaskResult> page_watcher_;
+    QFutureWatcher<CountTaskResult> count_watcher_;
+    QFutureWatcher<LibraryStateTaskResult> library_state_watcher_;
     QFutureWatcher<ReviewEvidenceTaskResult> evidence_watcher_;
     QFutureWatcher<ReviewDecisionTaskResult> decision_watcher_;
 };

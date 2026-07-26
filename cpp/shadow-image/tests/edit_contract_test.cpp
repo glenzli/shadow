@@ -1434,6 +1434,27 @@ void photo_geometry_is_lossless_and_maps_detail_tiles_to_source_space() {
     expect_close(output_tile.samples[0], 4.0F, "geometry detail tile retains its first mapped pixel");
     expect_close(output_tile.samples[3], 1.0F, "geometry detail tile retains its second mapped pixel");
 
+    // A minimally fetched detail tile on an integer source-pixel boundary has
+    // no bilinear neighbour to provide. It must still render safely: the
+    // zero-weight neighbour must not be dereferenced past the tile buffer.
+    const image::PhotoGeometry identity_geometry{};
+    const auto identity_layout = image::photo_geometry_layout(
+        image::Dimensions{2U, 2U},
+        identity_geometry
+    );
+    const auto boundary_tile = image::apply_photo_geometry_tile(
+        rgb_raster(1U, 1U, {9.0F, 9.0F, 9.0F}),
+        image::GeometryPixelRect{.x = 1U, .y = 1U, .width = 1U, .height = 1U},
+        identity_layout,
+        identity_geometry,
+        image::GeometryPixelRect{.x = 1U, .y = 1U, .width = 1U, .height = 1U}
+    );
+    expect_close(
+        boundary_tile.samples[0],
+        9.0F,
+        "integer-aligned minimal detail tiles never dereference a zero-weight neighbour"
+    );
+
     const image::PhotoGeometry centered_crop{
         .crop_left = 1.0 / 3.0,
         .crop_top = 0.0,
@@ -1461,19 +1482,39 @@ void photo_geometry_is_lossless_and_maps_detail_tiles_to_source_space() {
         straighten
     );
     expect(
-        straightened.dimensions == image::Dimensions{5U, 5U},
-        "fine straighten preserves the crop canvas dimensions"
+        straightened.dimensions == image::Dimensions{3U, 3U},
+        "fine straighten auto-crops a centered interior canvas"
     );
     expect_close(
-        straightened.samples[straighten_center],
+        straightened.samples[(1U * 3U + 1U) * 3U],
         1.0F,
-        "fine straighten keeps the exact rotation centre stable"
+        "fine straighten keeps the exact rotation centre stable after auto-crop"
     );
-    expect_close(
-        straightened.samples[0],
-        0.0F,
-        "fine straighten marks samples outside the crop as empty canvas"
+
+    std::vector<float> filled_samples(64U * 48U * 3U, 0.8F);
+    const image::PhotoGeometry auto_crop_straighten{
+        .straighten_degrees = 15.0,
+    };
+    const auto auto_crop_layout = image::photo_geometry_layout(
+        image::Dimensions{64U, 48U},
+        auto_crop_straighten
     );
+    expect(
+        auto_crop_layout.output_dimensions.width < 64U
+            && auto_crop_layout.output_dimensions.height < 48U,
+        "fine straighten reduces both axes enough to remove empty corners"
+    );
+    const auto auto_cropped = image::apply_photo_geometry(
+        rgb_raster(64U, 48U, filled_samples),
+        auto_crop_straighten
+    );
+    for (const float sample : auto_cropped.samples) {
+        expect_close(
+            sample,
+            0.8F,
+            "fine straighten auto-crop never leaves an empty output corner"
+        );
+    }
 }
 
 void exposure_preserves_unclipped_scene_range_and_padding() {

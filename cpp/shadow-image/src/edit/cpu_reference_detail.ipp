@@ -177,20 +177,61 @@ void parallel_for_rows(const std::size_t height, Work&& work) {
     return result;
 }
 
-// The perceptual detail section deliberately separates two bands rather than
+// The guided filter utilities are shared by RAW-domain denoise and the creative
+// Local Contrast band below. Keep this declaration near the first consumer so
+// the perceptual operation can stay together with the other Oklab-L bands;
+// their implementations remain close to the denoise pipeline further down.
+struct GuidedDenoiseGuide final {
+    std::vector<float> mean;
+    std::vector<float> variance;
+};
+
+[[nodiscard]] std::vector<float> box_mean_scalar(
+    const std::vector<float>& source,
+    std::size_t width,
+    std::size_t height,
+    std::uint32_t radius
+);
+
+[[nodiscard]] GuidedDenoiseGuide prepare_guided_denoise_guide(
+    const std::vector<float>& guide,
+    std::size_t width,
+    std::size_t height,
+    std::uint32_t radius
+);
+
+[[nodiscard]] std::vector<float> guided_self_filter(
+    const std::vector<float>& guide,
+    const GuidedDenoiseGuide& statistics,
+    std::size_t width,
+    std::size_t height,
+    std::uint32_t radius,
+    double epsilon
+);
+
+[[nodiscard]] double local_contrast_radius_level_zero(
+    const SharpenAdjustment& parameters
+) noexcept {
+    // This is intentionally well below the global tone-mapping scale but well
+    // above Clarity's 12 px band. The user-facing scale controls *where* the
+    // broad separation happens without secretly changing its signed strength.
+    return 20.0 + 60.0 * parameters.local_contrast_scale;
+}
+
+// The perceptual detail section deliberately separates three bands rather than
 // reusing capture sharpening: Texture is the compact high-frequency residual,
-// while Clarity is a protected mid-frequency residual. Both alter Oklab L only
-// so their visible effect is lightness/structure, not a channel-wise RGB
-// contrast shift. A high-frequency edge guard suppresses large-scale Gaussian
-// haloing at hard edges; the final output is still handled by the common gamut
-// mapper, after every creative node has run.
+// Clarity is a protected mid-frequency residual, and Local Contrast is an
+// edge-aware broad residual. All alter Oklab L only so their visible effect is
+// lightness/structure, not a channel-wise RGB contrast shift. The final output
+// is still handled by the common gamut mapper, after every creative node runs.
 void apply_perceptual_detail(
     FloatRgbImage& image,
     const AdjustmentNode& node,
     const std::size_t node_index,
     const SharpenAdjustment& parameters
 ) {
-    if (parameters.clarity == 0.0 && parameters.texture == 0.0) {
+    if (parameters.clarity == 0.0 && parameters.texture == 0.0
+        && parameters.local_contrast == 0.0) {
         return;
     }
     const std::size_t width = image.dimensions.width;
@@ -245,10 +286,26 @@ void apply_perceptual_detail(
         * image.level_zero_to_raster_scale_x;
     const double clarity_large_sigma_y = clarity_large_sigma_level_zero
         * image.level_zero_to_raster_scale_y;
+    const double effective_raster_scale = std::sqrt(std::max(
+        0.0,
+        image.level_zero_to_raster_scale_x * image.level_zero_to_raster_scale_y
+    ));
+    const auto local_contrast_radius = static_cast<std::uint32_t>(std::max(
+        1.0,
+        std::ceil(local_contrast_radius_level_zero(parameters) * effective_raster_scale)
+    ));
+    const auto local_contrast_small_radius = std::max(
+        1U,
+        static_cast<std::uint32_t>(std::ceil(
+            static_cast<double>(local_contrast_radius) * 0.32
+        ))
+    );
 
     std::vector<double> texture_base;
     std::vector<double> clarity_small;
     std::vector<double> clarity_large;
+    std::vector<float> local_contrast_small;
+    std::vector<float> local_contrast_large;
     if (parameters.texture != 0.0) {
         texture_base = gaussian_blur_scalar(
             lightness, width, height, texture_sigma_x, texture_sigma_y
@@ -260,6 +317,49 @@ void apply_perceptual_detail(
         );
         clarity_large = gaussian_blur_scalar(
             lightness, width, height, clarity_large_sigma_x, clarity_large_sigma_y
+        );
+    }
+    if (parameters.local_contrast != 0.0) {
+        std::vector<float> guide(pixels);
+        parallel_for_rows(height, [&](const std::uint32_t first_row,
+                                      const std::uint32_t past_last_row) {
+            for (std::size_t y = first_row; y < past_last_row; ++y) {
+                const std::size_t row = y * width;
+                for (std::size_t x = 0U; x < width; ++x) {
+                    guide[row + x] = static_cast<float>(lightness[row + x]);
+                }
+            }
+        });
+        const GuidedDenoiseGuide small_statistics = prepare_guided_denoise_guide(
+            guide,
+            width,
+            height,
+            local_contrast_small_radius
+        );
+        const GuidedDenoiseGuide large_statistics = prepare_guided_denoise_guide(
+            guide,
+            width,
+            height,
+            local_contrast_radius
+        );
+        // Self-guidance preserves a strong luminance boundary instead of
+        // averaging across it. This makes Local Contrast structurally
+        // different from a broad unsharp mask and avoids its bright/dark halo.
+        local_contrast_small = guided_self_filter(
+            guide,
+            small_statistics,
+            width,
+            height,
+            local_contrast_small_radius,
+            8.0e-4
+        );
+        local_contrast_large = guided_self_filter(
+            guide,
+            large_statistics,
+            width,
+            height,
+            local_contrast_radius,
+            1.6e-3
         );
     }
 
@@ -294,6 +394,26 @@ void apply_perceptual_detail(
                 );
                 output_lab[0] += parameters.clarity * 1.15
                     * compress_detail(mid_frequency, 0.090)
+                    * edge_protection * shadow_protection;
+            }
+            if (parameters.local_contrast != 0.0) {
+                const double broad_residual = static_cast<double>(
+                    local_contrast_small[pixel]
+                ) - static_cast<double>(local_contrast_large[pixel]);
+                const double edge_residual = output_lab[0] - static_cast<double>(
+                    local_contrast_small[pixel]
+                );
+                // The guided separation already respects an edge; this second
+                // guard gracefully fades the remaining response at a very hard
+                // boundary, which is where even an edge-aware local operator
+                // otherwise risks looking like a halo at 100% inspection.
+                const double edge_protection = 1.0 - smoothstep(
+                    0.030,
+                    0.120,
+                    std::abs(edge_residual)
+                );
+                output_lab[0] += parameters.local_contrast * 1.20
+                    * compress_detail(broad_residual, 0.115)
                     * edge_protection * shadow_protection;
             }
             const Vector3 output = multiply(color_transform.xyz_to_rgb, oklab_to_xyz(output_lab));
@@ -512,11 +632,6 @@ void apply_sharpen(
     });
     return result;
 }
-
-struct GuidedDenoiseGuide final {
-    std::vector<float> mean;
-    std::vector<float> variance;
-};
 
 [[nodiscard]] GuidedDenoiseGuide prepare_guided_denoise_guide(
     const std::vector<float>& guide,

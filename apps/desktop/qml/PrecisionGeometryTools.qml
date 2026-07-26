@@ -80,6 +80,7 @@ ColumnLayout {
             Layout.rightMargin: 14
             Layout.topMargin: 6
             label: qsTr("Straighten")
+            toolTipText: qsTr("Rotates the photo and automatically crops empty corners while preserving the current aspect ratio.")
             from: -45
             to: 45
             neutralValue: 0
@@ -96,6 +97,17 @@ ColumnLayout {
                 geometry.inspector.editor.setPhotoStraightenDegrees(value)
             onGestureFinished: geometry.inspector.editor.endParameterEdit(
                 "geometry/straighten")
+        }
+
+        Label {
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            Layout.topMargin: 2
+            text: qsTr("Empty corners are cropped automatically after rotation.")
+            color: Theme.textMuted
+            font.pixelSize: 9
+            wrapMode: Text.WordWrap
         }
 
         ShadowSubsectionLabel {

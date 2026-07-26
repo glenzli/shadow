@@ -6,8 +6,10 @@
 #include <array>
 #include <compare>
 #include <cstdint>
+#include <optional>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace shadow::image {
 
@@ -51,6 +53,12 @@ struct DcpColorDevelopmentReceipt final {
     double estimated_white_y = 0.0;
     double estimated_correlated_color_temperature = 0.0;
     double baseline_exposure_offset_ev = 0.0;
+    // These stages are part of input rendering, not a creative node.  Keeping
+    // them in the receipt makes a camera-profile result auditable and prevents
+    // a cache key from claiming a look that the renderer did not apply.
+    bool hue_sat_map_applied = false;
+    bool look_table_applied = false;
+    bool tone_curve_applied = false;
 
     [[nodiscard]] bool valid() const noexcept;
     auto operator<=>(const DcpColorDevelopmentReceipt&) const = default;
@@ -61,17 +69,27 @@ struct DcpColorTransform final {
     // black-subtracted, white-level-normalized output of Shadow's demosaic stage. White balance,
     // D50/D65 adaptation, and BaselineExposureOffset are already folded into this matrix.
     std::array<double, 9U> camera_to_linear_srgb_d65{};
+    // DCP's optional non-matrix rendering stages run after this primary
+    // transform in the DNG-defined linear ProPhoto working space.  They are
+    // compiled with the profile rather than represented as user-editable
+    // Recipe operations, because they describe the camera input rendering.
+    std::optional<DcpHsvTable> hue_sat_map;
+    std::optional<DcpHsvTable> look_table;
+    std::vector<DcpToneCurvePoint> tone_curve;
+    std::vector<double> tone_curve_second_derivatives;
     DcpColorDevelopmentReceipt receipt;
 
     [[nodiscard]] bool valid() const noexcept;
     [[nodiscard]] std::array<double, 3U> apply(
         const std::array<double, 3U>& camera_rgb
     ) const noexcept;
+
+    [[nodiscard]] bool has_post_matrix_stages() const noexcept;
 };
 
-// Compiles one exact local DCP into an immutable pixel transform. HueSatMap, LookTable, and
-// ProfileToneCurve are intentionally all-or-nothing: until their working-space semantics are
-// implemented, a profile carrying any of them is rejected rather than partially applied.
+// Compiles one local DCP into an immutable input-rendering transform. The camera matrix,
+// HueSatMap, LookTable, and ProfileToneCurve are deliberately separate from Recipe nodes:
+// they establish the photo's camera rendering before all user adjustments.
 //
 // The resulting double-precision transform never clips negative or super-white values. Shadow's
 // current u16 source boundary may quantize later, but the camera-profile developer itself keeps
@@ -79,6 +97,16 @@ struct DcpColorTransform final {
 [[nodiscard]] DcpColorTransform compile_dcp_color_transform(
     const CameraProfileDefinition& definition,
     const RawFrameDescriptor& descriptor
+);
+
+// Applies the compiled DCP HSV/LUT/tone stages to Shadow's current linear-sRGB u16 RAW output.
+// This is intentionally a separate stage from the fused Bayer developer: it keeps the hot
+// provider-neutral demosaic path focused on sensor reconstruction while preserving a single,
+// explicit DCP working-space boundary. The function accepts only the canonical tightly packed
+// three-channel linear-sRGB RAW buffer produced by that developer.
+void apply_dcp_color_rendering_stages(
+    PixelBuffer& pixels,
+    const DcpColorTransform& transform
 );
 
 [[nodiscard]] std::string dcp_color_receipt_identity(

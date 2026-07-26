@@ -4,11 +4,15 @@
 #include "shadow-desktop-bridge/src/lib.rs.h"
 
 #include <QColorSpace>
+#include <QFileInfo>
 #include <QImage>
 #include <QImageReader>
 #include <QImageWriter>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QPainter>
 #include <QSaveFile>
+#include <QUrl>
 
 #include <algorithm>
 #include <cmath>
@@ -135,6 +139,8 @@ template <std::size_t Size>
     result.shadows = source.shadows;
     result.whites = source.whites;
     result.blacks = source.blacks;
+    result.global_a_balance = source.global_a_balance;
+    result.global_b_balance = source.global_b_balance;
     result.vibrance = source.vibrance;
     result.mixer_hue = ffi_values(source.mixer_hue);
     result.mixer_saturation = ffi_values(source.mixer_saturation);
@@ -171,6 +177,14 @@ template <std::size_t Size>
     for (const double value : source.oklab_lightness_curve_points) {
         result.oklab_lightness_curve_points.push_back(value);
     }
+    result.oklab_color_warper_control_points.reserve(
+        source.oklab_color_warper_control_points.size() * 2U
+    );
+    for (const auto& point : source.oklab_color_warper_control_points) {
+        result.oklab_color_warper_control_points.push_back(point.a_offset);
+        result.oklab_color_warper_control_points.push_back(point.b_offset);
+    }
+    result.oklab_color_warper_strength = source.oklab_color_warper_strength;
     result.lut_resource_id = source.lut_resource_id.toStdString();
     result.lut_title = source.lut_title.toStdString();
     result.lut_managed_path = source.lut_managed_path.toStdString();
@@ -181,6 +195,8 @@ template <std::size_t Size>
     result.sharpen_masking = source.sharpen_masking;
     result.clarity = source.clarity;
     result.texture = source.texture;
+    result.local_contrast = source.local_contrast;
+    result.local_contrast_scale = source.local_contrast_scale;
     result.denoise_luminance = source.denoise_luminance;
     result.denoise_detail = source.denoise_detail;
     result.denoise_color = source.denoise_color;
@@ -246,11 +262,29 @@ template <std::size_t Size>
     for (const double value : source.oklab_lightness_curve_points) {
         oklab_lightness_curve_points.push_back(value);
     }
+    if (source.oklab_color_warper_control_points.size()
+        != BACKEND_OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT * 2U) {
+        throw std::length_error("Oklab Color Warper lattice has invalid size");
+    }
+    std::array<
+        BackendOklabColorWarperControlPoint,
+        BACKEND_OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT
+    > oklab_color_warper_control_points{};
+    for (std::size_t index = 0U;
+         index < BACKEND_OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT;
+         ++index) {
+        oklab_color_warper_control_points[index] = {
+            .a_offset = source.oklab_color_warper_control_points[index * 2U],
+            .b_offset = source.oklab_color_warper_control_points[index * 2U + 1U],
+        };
+    }
     return {
         .highlights = source.highlights,
         .shadows = source.shadows,
         .whites = source.whites,
         .blacks = source.blacks,
+        .global_a_balance = source.global_a_balance,
+        .global_b_balance = source.global_b_balance,
         .vibrance = source.vibrance,
         .mixer_hue = edit_values<BACKEND_COLOR_MIXER_BAND_COUNT>(
             source.mixer_hue,
@@ -279,6 +313,8 @@ template <std::size_t Size>
             "selective_color_cmyk"
         ),
         .oklab_lightness_curve_points = std::move(oklab_lightness_curve_points),
+        .oklab_color_warper_control_points = oklab_color_warper_control_points,
+        .oklab_color_warper_strength = source.oklab_color_warper_strength,
         .lut_resource_id = qstring(source.lut_resource_id),
         .lut_title = qstring(source.lut_title),
         .lut_managed_path = qstring(source.lut_managed_path),
@@ -289,6 +325,8 @@ template <std::size_t Size>
         .sharpen_masking = source.sharpen_masking,
         .clarity = source.clarity,
         .texture = source.texture,
+        .local_contrast = source.local_contrast,
+        .local_contrast_scale = source.local_contrast_scale,
         .denoise_luminance = source.denoise_luminance,
         .denoise_detail = source.denoise_detail,
         .denoise_color = source.denoise_color,
@@ -633,6 +671,348 @@ template <std::size_t Size>
     throw std::invalid_argument("unknown Review decision flag");
 }
 
+[[nodiscard]] shadow::desktop::FfiLibraryFlagFilter ffi_library_flag(
+    const BackendLibraryFlagFilter flag
+) {
+    switch (flag) {
+    case BackendLibraryFlagFilter::Any:
+        return shadow::desktop::FfiLibraryFlagFilter::Any;
+    case BackendLibraryFlagFilter::Unflagged:
+        return shadow::desktop::FfiLibraryFlagFilter::Unflagged;
+    case BackendLibraryFlagFilter::Picked:
+        return shadow::desktop::FfiLibraryFlagFilter::Picked;
+    case BackendLibraryFlagFilter::Rejected:
+        return shadow::desktop::FfiLibraryFlagFilter::Rejected;
+    }
+    throw std::invalid_argument("unknown Library flag filter");
+}
+
+[[nodiscard]] shadow::desktop::FfiLibraryPhotoFilter ffi_library_filter(
+    const BackendLibraryPhotoFilter& source
+) {
+    shadow::desktop::FfiLibraryPhotoFilter filter;
+    filter.has_capture_start = source.has_capture_start;
+    filter.capture_start_unix_seconds = source.capture_start_unix_seconds;
+    filter.has_capture_end = source.has_capture_end;
+    filter.capture_end_unix_seconds = source.capture_end_unix_seconds;
+    filter.camera_key = source.camera_key.toStdString();
+    filter.lens_key = source.lens_key.toStdString();
+    filter.has_aperture_minimum = source.has_aperture_minimum;
+    filter.aperture_minimum_milli = source.aperture_minimum_milli;
+    filter.has_aperture_maximum = source.has_aperture_maximum;
+    filter.aperture_maximum_milli = source.aperture_maximum_milli;
+    filter.has_liked = source.has_liked;
+    filter.liked = source.liked;
+    filter.color_label = source.color_label.toStdString();
+    filter.flag = ffi_library_flag(source.flag);
+    filter.has_minimum_rating = source.has_minimum_rating;
+    filter.minimum_rating = source.minimum_rating;
+    filter.has_development_edits = source.has_development_edits;
+    filter.development_edits = source.development_edits;
+    filter.album_id = source.album_id.toStdString();
+    return filter;
+}
+
+[[nodiscard]] shadow::desktop::FfiLibraryPhotoCursor ffi_library_cursor(
+    const BackendLibraryPhotoCursor& source
+) {
+    shadow::desktop::FfiLibraryPhotoCursor cursor;
+    cursor.photo_id = source.photo_id.toStdString();
+    cursor.has_capture_time = source.has_capture_time;
+    cursor.captured_at_unix_seconds = source.captured_at_unix_seconds;
+    return cursor;
+}
+
+[[nodiscard]] BackendLibraryPhotoCursor library_cursor(
+    const shadow::desktop::FfiLibraryPhotoCursor& source
+) {
+    return {
+        .photo_id = qstring(source.photo_id),
+        .has_capture_time = source.has_capture_time,
+        .captured_at_unix_seconds = source.captured_at_unix_seconds,
+    };
+}
+
+/// Converts the intentionally compact photo-first Catalog projection into the
+/// existing grid DTO. Low-frequency technical inspection fields remain empty:
+/// the virtualized grid must not make a per-thumbnail technical query.
+[[nodiscard]] BackendReviewItem library_review_item(
+    const shadow::desktop::FfiLibraryPhotoItem& source
+) {
+    return {
+        .photo_id = qstring(source.photo_id),
+        .representation_id = qstring(source.representation_id),
+        .visual_handle = qstring(source.visual_handle),
+        .decision_head_sequence = source.decision_head_sequence,
+        .decision_flag = decision_flag(source.decision_flag),
+        .decision_rating = source.decision_rating,
+        .liked = source.liked,
+        .color_label = qstring(source.color_label),
+        .library_state_updated_at_ms = source.library_state_updated_at_ms,
+        .has_development_edits = source.has_development_edits,
+        .title = qstring(source.title),
+        .source_path = qstring(source.source_path),
+        .visual_role = qstring(source.visual_role),
+        .visual_width = source.visual_width,
+        .visual_height = source.visual_height,
+        .has_visual = source.has_visual,
+        .has_metadata = source.has_metadata,
+        .camera_make = qstring(source.camera_make),
+        .camera_model = qstring(source.camera_model),
+        .lens_make = qstring(source.lens_make),
+        .lens_model = qstring(source.lens_model),
+        .captured_at_unix_seconds = source.has_captured_at
+            ? source.captured_at_unix_seconds
+            : 0,
+        .iso_speed = source.has_iso_speed ? source.iso_speed : 0.0,
+        .aperture_f_number = source.has_aperture
+            ? static_cast<double>(source.aperture_milli) / 1000.0
+            : 0.0,
+        .focal_length_mm = source.has_focal_length
+            ? static_cast<double>(source.focal_length_tenth_mm) / 10.0
+            : 0.0,
+    };
+}
+
+class ExportOutputConflict final : public std::runtime_error {
+public:
+    explicit ExportOutputConflict(const QString& destination_path)
+        : std::runtime_error(
+              std::string("export destination already exists: ")
+              + destination_path.toStdString()
+          ) {}
+};
+
+void validate_export_options(const BackendExportOptions& options) {
+    if (options.format != QStringLiteral("jpeg")
+        && options.format != QStringLiteral("png")) {
+        throw std::invalid_argument("export format must be jpeg or png");
+    }
+    if (options.jpeg_quality < 1 || options.jpeg_quality > 100) {
+        throw std::invalid_argument("JPEG export quality must be in 1..=100");
+    }
+}
+
+[[nodiscard]] BackendExportOptions export_options_from_json(
+    const QString& settings_json
+) {
+    QJsonParseError parse_error;
+    const QJsonDocument document = QJsonDocument::fromJson(
+        settings_json.toUtf8(),
+        &parse_error
+    );
+    if (parse_error.error != QJsonParseError::NoError || !document.isObject()) {
+        throw std::invalid_argument(
+            std::string("durable export settings must be one JSON object: ")
+            + parse_error.errorString().toStdString()
+        );
+    }
+    const QVariantMap values = document.object().toVariantMap();
+    BackendExportOptions options;
+    options.format = values.value(QStringLiteral("format"), QStringLiteral("jpeg"))
+                         .toString()
+                         .toLower();
+    options.max_edge = static_cast<std::uint32_t>(
+        std::clamp(values.value(QStringLiteral("maxEdge"), 0).toInt(), 0, 16'384)
+    );
+    options.jpeg_quality = static_cast<std::uint8_t>(
+        std::clamp(values.value(QStringLiteral("quality"), 90).toInt(), 1, 100)
+    );
+    options.watermark_path = values.value(QStringLiteral("watermarkPath")).toString();
+    if (options.watermark_path.startsWith(QStringLiteral("file:"))) {
+        options.watermark_path = QUrl(options.watermark_path).toLocalFile();
+    }
+    options.watermark_opacity = std::clamp(
+        values.value(QStringLiteral("watermarkOpacity"), 0.72).toDouble(),
+        0.0,
+        1.0
+    );
+    options.watermark_scale = std::clamp(
+        values.value(QStringLiteral("watermarkScale"), 0.18).toDouble(),
+        0.01,
+        1.0
+    );
+    options.watermark_inset = std::clamp(
+        values.value(QStringLiteral("watermarkInset"), 0.02).toDouble(),
+        0.0,
+        0.25
+    );
+    options.watermark_anchor = values.value(
+        QStringLiteral("watermarkAnchor"),
+        QStringLiteral("bottom-right")
+    ).toString();
+    validate_export_options(options);
+    return options;
+}
+
+[[nodiscard]] shadow::desktop::FfiDurableExportItemState ffi_durable_export_stage(
+    const std::uint8_t stage
+) {
+    switch (stage) {
+    case 0:
+        return shadow::desktop::FfiDurableExportItemState::Preparing;
+    case 1:
+        return shadow::desktop::FfiDurableExportItemState::Rendering;
+    case 2:
+        return shadow::desktop::FfiDurableExportItemState::Encoding;
+    case 3:
+        return shadow::desktop::FfiDurableExportItemState::WritingTemp;
+    }
+    throw std::invalid_argument("unknown durable export stage");
+}
+
+[[nodiscard]] QString export_receipt_json(
+    const BackendExportOptions& options,
+    const QImage& image
+) {
+    return QString::fromUtf8(QJsonDocument(QJsonObject{
+        {QStringLiteral("schema"), 1},
+        {QStringLiteral("format"), options.format},
+        {QStringLiteral("width"), image.width()},
+        {QStringLiteral("height"), image.height()},
+        {QStringLiteral("max_edge"), static_cast<qint64>(options.max_edge)},
+        {QStringLiteral("jpeg_quality"), static_cast<int>(options.jpeg_quality)},
+        {QStringLiteral("watermark_applied"), !options.watermark_path.isEmpty()},
+    }).toJson(QJsonDocument::Compact));
+}
+
+[[nodiscard]] BackendExportReceipt encode_export_raster(
+    const shadow::desktop::FfiEditedExportRaster& raster,
+    const QString& destination_path,
+    const BackendExportOptions& options,
+    const bool reject_existing_destination
+) {
+    if (destination_path.isEmpty()) {
+        throw std::invalid_argument("export destination path is empty");
+    }
+    validate_export_options(options);
+    const std::uint64_t expected_row_stride =
+        static_cast<std::uint64_t>(raster.width) * 3U;
+    const std::uint64_t required_byte_count =
+        static_cast<std::uint64_t>(raster.row_stride_bytes) * raster.height;
+    if (raster.width == 0 || raster.height == 0
+        || expected_row_stride > std::numeric_limits<std::uint32_t>::max()
+        || raster.row_stride_bytes != expected_row_stride
+        || raster.width > static_cast<std::uint32_t>(std::numeric_limits<int>::max())
+        || raster.height > static_cast<std::uint32_t>(std::numeric_limits<int>::max())
+        || required_byte_count > static_cast<std::uint64_t>(raster.bytes.size())) {
+        throw std::runtime_error("export renderer returned an invalid RGB8 raster");
+    }
+    const qsizetype byte_count =
+        checked_qt_vector_size(raster.bytes.size(), "export_raster");
+    QImage image(
+        raster.bytes.data(),
+        static_cast<int>(raster.width),
+        static_cast<int>(raster.height),
+        static_cast<qsizetype>(raster.row_stride_bytes),
+        QImage::Format_RGB888
+    );
+    image = image.copy();
+    if (image.isNull() || image.sizeInBytes() > byte_count) {
+        throw std::runtime_error("could not materialize the rendered export raster");
+    }
+    image.setColorSpace(QColorSpace::SRgb);
+    if (options.max_edge > 0
+        && static_cast<std::uint32_t>(
+            std::max(image.width(), image.height())
+        ) > options.max_edge) {
+        image = image.scaled(
+            QSize(
+                static_cast<int>(options.max_edge),
+                static_cast<int>(options.max_edge)
+            ),
+            Qt::KeepAspectRatio,
+            Qt::SmoothTransformation
+        );
+    }
+    if (!options.watermark_path.isEmpty()) {
+        QImageReader watermark_reader(options.watermark_path);
+        watermark_reader.setAutoTransform(true);
+        QImage watermark = watermark_reader.read();
+        if (watermark.isNull()) {
+            throw std::runtime_error(
+                std::string("could not read PNG watermark: ")
+                + watermark_reader.errorString().toStdString()
+            );
+        }
+        const int watermark_width = std::clamp(
+            qRound(static_cast<double>(image.width())
+                   * std::clamp(options.watermark_scale, 0.01, 1.0)),
+            1,
+            image.width()
+        );
+        watermark = watermark.scaledToWidth(
+            watermark_width,
+            Qt::SmoothTransformation
+        );
+        const int inset = qRound(
+            static_cast<double>(std::min(image.width(), image.height()))
+            * std::clamp(options.watermark_inset, 0.0, 0.25)
+        );
+        const bool left = options.watermark_anchor.endsWith(QStringLiteral("left"));
+        const bool right = options.watermark_anchor.endsWith(QStringLiteral("right"));
+        const bool top = options.watermark_anchor.startsWith(QStringLiteral("top"));
+        const bool bottom =
+            options.watermark_anchor.startsWith(QStringLiteral("bottom"));
+        const int x = left ? inset
+            : right ? image.width() - watermark.width() - inset
+                    : (image.width() - watermark.width()) / 2;
+        const int y = top ? inset
+            : bottom ? image.height() - watermark.height() - inset
+                     : (image.height() - watermark.height()) / 2;
+        QPainter painter(&image);
+        painter.setOpacity(std::clamp(options.watermark_opacity, 0.0, 1.0));
+        painter.drawImage(QPoint(std::max(0, x), std::max(0, y)), watermark);
+        painter.end();
+    }
+    if (reject_existing_destination && QFileInfo::exists(destination_path)) {
+        throw ExportOutputConflict(destination_path);
+    }
+    QSaveFile destination(destination_path);
+    // A durable queue records completion only after atomic publication. Never
+    // silently fall back to an in-place write if the filesystem cannot stage
+    // and rename the temporary output alongside its destination.
+    destination.setDirectWriteFallback(false);
+    if (!destination.open(QIODevice::WriteOnly)) {
+        throw std::runtime_error(
+            std::string("could not open export destination: ")
+            + destination.errorString().toStdString()
+        );
+    }
+    QImageWriter writer(
+        &destination,
+        options.format == QStringLiteral("png")
+            ? QByteArrayLiteral("png") : QByteArrayLiteral("jpg")
+    );
+    if (options.format == QStringLiteral("jpeg")) {
+        writer.setQuality(options.jpeg_quality);
+        writer.setOptimizedWrite(true);
+    }
+    if (!writer.write(image)) {
+        destination.cancelWriting();
+        throw std::runtime_error(
+            std::string("could not encode export: ")
+            + writer.errorString().toStdString()
+        );
+    }
+    const std::uint64_t byte_length =
+        static_cast<std::uint64_t>(destination.size());
+    if (!destination.commit()) {
+        throw std::runtime_error(
+            std::string("could not publish export atomically: ")
+            + destination.errorString().toStdString()
+        );
+    }
+    return {
+        .destination_path = destination_path,
+        .width = static_cast<std::uint32_t>(image.width()),
+        .height = static_cast<std::uint32_t>(image.height()),
+        .byte_length = byte_length,
+        .output_format = options.format,
+        .receipt_json = export_receipt_json(options, image),
+    };
+}
+
 } // namespace
 
 struct DesktopBackend::Impl final {
@@ -770,6 +1150,50 @@ BackendReviewPage DesktopBackend::reviewPage(
         });
     }
     return page;
+}
+
+BackendLibraryPhotoPage DesktopBackend::libraryPhotoPage(
+    const BackendLibraryPhotoFilter& filter,
+    const BackendLibraryPhotoCursor& cursor,
+    const std::uint32_t limit
+) const {
+    const auto source = impl_->session->library_photo_page(
+        ffi_library_filter(filter),
+        ffi_library_cursor(cursor),
+        limit
+    );
+    BackendLibraryPhotoPage page;
+    page.has_more = source.has_more;
+    page.next_cursor = library_cursor(source.next_cursor);
+    page.items.reserve(checked_qt_vector_size(source.items.size(), "library_page_items"));
+    for (const auto& item : source.items) {
+        page.items.push_back(library_review_item(item));
+    }
+    return page;
+}
+
+std::uint64_t DesktopBackend::libraryPhotoCount(
+    const BackendLibraryPhotoFilter& filter
+) const {
+    return impl_->session->library_photo_count(ffi_library_filter(filter));
+}
+
+BackendPhotoLibraryState DesktopBackend::setPhotoLibraryState(
+    const QString& photo_id,
+    const bool liked,
+    const QString& color_label
+) const {
+    const auto state = impl_->session->set_photo_library_state(
+        photo_id.toStdString(),
+        liked,
+        color_label.toStdString()
+    );
+    return {
+        .photo_id = qstring(state.photo_id),
+        .liked = state.liked,
+        .color_label = qstring(state.color_label),
+        .updated_at_ms = state.updated_at_ms,
+    };
 }
 
 BackendReviewVisual DesktopBackend::loadReviewVisual(const QString& ticket) const {
@@ -1002,16 +1426,6 @@ BackendExportReceipt DesktopBackend::exportPhoto(
     const QString& destination_path,
     const BackendExportOptions& options
 ) const {
-    if (destination_path.isEmpty()) {
-        throw std::invalid_argument("export destination path is empty");
-    }
-    if (options.format != QStringLiteral("jpeg")
-        && options.format != QStringLiteral("png")) {
-        throw std::invalid_argument("export format must be jpeg or png");
-    }
-    if (options.jpeg_quality < 1 || options.jpeg_quality > 100) {
-        throw std::invalid_argument("JPEG export quality must be in 1..=100");
-    }
     const auto state = photoEditState(photo_id, source_path);
     shadow::desktop::FfiEditExportRequest request;
     request.base_commit_id = state.base_commit_id.toStdString();
@@ -1020,113 +1434,203 @@ BackendExportReceipt DesktopBackend::exportPhoto(
     const auto raster = impl_->session->render_basic_edit_export(
         photo_id.toStdString(), source_path.toStdString(), request
     );
-    if (raster.width == 0 || raster.height == 0
-        || raster.row_stride_bytes != raster.width * 3U) {
-        throw std::runtime_error("export renderer returned an invalid RGB8 raster");
+    return encode_export_raster(raster, destination_path, options, false);
+}
+
+BackendDurableExportJob DesktopBackend::enqueueDurableExportJob(
+    const QVector<BackendDurableExportTarget>& targets,
+    const QString& settings_json
+) const {
+    rust::Vec<shadow::desktop::FfiDurableExportTarget> ffi_targets;
+    ffi_targets.reserve(static_cast<std::size_t>(targets.size()));
+    for (const auto& target : targets) {
+        shadow::desktop::FfiDurableExportTarget ffi_target;
+        ffi_target.photo_id = target.photo_id.toStdString();
+        ffi_target.source_path = target.source_path.toStdString();
+        ffi_target.output_path = target.output_path.toStdString();
+        ffi_targets.push_back(std::move(ffi_target));
     }
-    const qsizetype byte_count =
-        checked_qt_vector_size(raster.bytes.size(), "export_raster");
-    QImage image(
-        raster.bytes.data(),
-        static_cast<int>(raster.width),
-        static_cast<int>(raster.height),
-        static_cast<qsizetype>(raster.row_stride_bytes),
-        QImage::Format_RGB888
+    const auto job = impl_->session->enqueue_durable_export_job(
+        std::move(ffi_targets),
+        settings_json.toStdString()
     );
-    image = image.copy();
-    if (image.isNull() || image.sizeInBytes() > byte_count) {
-        throw std::runtime_error("could not materialize the rendered export raster");
-    }
-    image.setColorSpace(QColorSpace::SRgb);
-    if (options.max_edge > 0
-        && static_cast<std::uint32_t>(
-            std::max(image.width(), image.height())
-        ) > options.max_edge) {
-        image = image.scaled(
-            QSize(
-                static_cast<int>(options.max_edge),
-                static_cast<int>(options.max_edge)
-            ),
-            Qt::KeepAspectRatio,
-            Qt::SmoothTransformation
-        );
-    }
-    if (!options.watermark_path.isEmpty()) {
-        QImageReader watermark_reader(options.watermark_path);
-        watermark_reader.setAutoTransform(true);
-        QImage watermark = watermark_reader.read();
-        if (watermark.isNull()) {
-            throw std::runtime_error(
-                std::string("could not read PNG watermark: ")
-                + watermark_reader.errorString().toStdString()
-            );
-        }
-        const int watermark_width = std::clamp(
-            qRound(static_cast<double>(image.width())
-                   * std::clamp(options.watermark_scale, 0.01, 1.0)),
-            1,
-            image.width()
-        );
-        watermark = watermark.scaledToWidth(
-            watermark_width,
-            Qt::SmoothTransformation
-        );
-        const int inset = qRound(
-            static_cast<double>(std::min(image.width(), image.height()))
-            * std::clamp(options.watermark_inset, 0.0, 0.25)
-        );
-        const bool left = options.watermark_anchor.endsWith(QStringLiteral("left"));
-        const bool right = options.watermark_anchor.endsWith(QStringLiteral("right"));
-        const bool top = options.watermark_anchor.startsWith(QStringLiteral("top"));
-        const bool bottom =
-            options.watermark_anchor.startsWith(QStringLiteral("bottom"));
-        const int x = left ? inset
-            : right ? image.width() - watermark.width() - inset
-                    : (image.width() - watermark.width()) / 2;
-        const int y = top ? inset
-            : bottom ? image.height() - watermark.height() - inset
-                     : (image.height() - watermark.height()) / 2;
-        QPainter painter(&image);
-        painter.setOpacity(std::clamp(options.watermark_opacity, 0.0, 1.0));
-        painter.drawImage(QPoint(std::max(0, x), std::max(0, y)), watermark);
-        painter.end();
-    }
-    QSaveFile destination(destination_path);
-    if (!destination.open(QIODevice::WriteOnly)) {
-        throw std::runtime_error(
-            std::string("could not open export destination: ")
-            + destination.errorString().toStdString()
-        );
-    }
-    QImageWriter writer(
-        &destination,
-        options.format == QStringLiteral("png")
-            ? QByteArrayLiteral("png") : QByteArrayLiteral("jpg")
-    );
-    if (options.format == QStringLiteral("jpeg")) {
-        writer.setQuality(options.jpeg_quality);
-        writer.setOptimizedWrite(true);
-    }
-    if (!writer.write(image)) {
-        destination.cancelWriting();
-        throw std::runtime_error(
-            std::string("could not encode export: ")
-            + writer.errorString().toStdString()
-        );
-    }
-    const std::uint64_t byte_length =
-        static_cast<std::uint64_t>(destination.size());
-    if (!destination.commit()) {
-        throw std::runtime_error(
-            std::string("could not publish export atomically: ")
-            + destination.errorString().toStdString()
-        );
-    }
     return {
-        .destination_path = destination_path,
-        .width = static_cast<std::uint32_t>(image.width()),
-        .height = static_cast<std::uint32_t>(image.height()),
-        .byte_length = byte_length,
+        .job_id = qstring(job.job_id),
+        .item_count = job.item_count,
+    };
+}
+
+BackendDurableExportRecovery DesktopBackend::recoverDurableExportQueue() const {
+    const auto recovery = impl_->session->recover_durable_export_queue();
+    return {
+        .interrupted_items = recovery.interrupted_items,
+        .requeued_items = recovery.requeued_items,
+        .queued_items = recovery.queued_items,
+    };
+}
+
+std::optional<BackendDurableExportItem> DesktopBackend::claimNextDurableExportItem() const {
+    const auto item = impl_->session->claim_next_durable_export_item();
+    if (!item.has_item) {
+        return std::nullopt;
+    }
+    return BackendDurableExportItem{
+        .item_id = qstring(item.item_id),
+        .job_id = qstring(item.job_id),
+        .photo_id = qstring(item.photo_id),
+        .source_path = qstring(item.source_path),
+        .output_path = qstring(item.output_path),
+        .settings_json = qstring(item.settings_json),
+    };
+}
+
+BackendExportReceipt DesktopBackend::executeDurableExportItem(
+    const BackendDurableExportItem& item
+) const {
+    std::uint8_t stage = 0;
+    try {
+        // Decode the persisted settings before spending time on RAW render.
+        // A malformed snapshot is a terminal item error, not a reason to
+        // repeatedly render an image on every retry.
+        const BackendExportOptions options = export_options_from_json(item.settings_json);
+        impl_->session->begin_durable_export_render(item.item_id.toStdString());
+        stage = 1;
+        shadow::desktop::FfiDurableExportItem ffi_item;
+        ffi_item.has_item = true;
+        ffi_item.item_id = item.item_id.toStdString();
+        ffi_item.job_id = item.job_id.toStdString();
+        ffi_item.photo_id = item.photo_id.toStdString();
+        ffi_item.source_path = item.source_path.toStdString();
+        ffi_item.output_path = item.output_path.toStdString();
+        ffi_item.settings_json = item.settings_json.toStdString();
+        const auto raster = impl_->session->render_durable_export_item(ffi_item);
+
+        impl_->session->begin_durable_export_encoding(item.item_id.toStdString());
+        stage = 2;
+
+        impl_->session->begin_durable_export_write(item.item_id.toStdString());
+        stage = 3;
+        const BackendExportReceipt receipt = encode_export_raster(
+            raster,
+            item.output_path,
+            options,
+            true
+        );
+        impl_->session->complete_durable_export_item(
+            item.item_id.toStdString(),
+            item.job_id.toStdString(),
+            receipt.output_format.toStdString(),
+            receipt.byte_length,
+            receipt.receipt_json.toStdString()
+        );
+        return receipt;
+    } catch (const ExportOutputConflict&) {
+        // We do not overwrite a path that appeared after the immutable job
+        // was created. Preserve the queue item so a future conflict UI can
+        // offer rename, replace, or skip without rerendering by accident.
+        try {
+            impl_->session->pause_durable_export_conflict(item.item_id.toStdString());
+        } catch (...) {
+            // Leave the item in WritingTemp if the catalog itself is
+            // temporarily unavailable; startup recovery will make it safe to
+            // retry rather than losing the write conflict.
+        }
+        throw;
+    } catch (const std::exception& error) {
+        try {
+            impl_->session->fail_durable_export_item(
+                item.item_id.toStdString(),
+                ffi_durable_export_stage(stage),
+                "desktop_export_failed",
+                error.what(),
+                true
+            );
+        } catch (...) {
+            // The original renderer/encoder error remains more useful to the
+            // caller. Recovery will convert any in-flight state to queued on
+            // the next startup if recording the failure also failed.
+        }
+        throw;
+    }
+}
+
+void DesktopBackend::failDurableExportItem(
+    const BackendDurableExportItem& item,
+    const std::uint8_t stage,
+    const QString& code,
+    const QString& message,
+    const bool retryable
+) const {
+    impl_->session->fail_durable_export_item(
+        item.item_id.toStdString(),
+        ffi_durable_export_stage(stage),
+        code.toStdString(),
+        message.toStdString(),
+        retryable
+    );
+}
+
+void DesktopBackend::cancelDurableExportJob(const QString& job_id) const {
+    impl_->session->cancel_durable_export_job(job_id.toStdString());
+}
+
+BackendDurableExportProgress DesktopBackend::durableExportProgress(
+    const QString& job_id
+) const {
+    const auto progress = impl_->session->durable_export_progress(job_id.toStdString());
+    return {
+        .queued = progress.queued,
+        .active = progress.active,
+        .completed = progress.completed,
+        .failed = progress.failed,
+        .cancelled = progress.cancelled,
+        .paused_conflict = progress.paused_conflict,
+        .total = progress.total,
+    };
+}
+
+BackendCacheMaintenanceInventory DesktopBackend::cacheMaintenanceInventory() const {
+    const auto inventory = impl_->session->cache_maintenance_inventory();
+    return {
+        .catalog_live_blob_count = inventory.catalog_live_blob_count,
+        .cache_blob_count = inventory.cache_blob_count,
+        .cache_blob_byte_length = inventory.cache_blob_byte_len,
+        .unknown_entry_count = inventory.unknown_entry_count,
+        .unsupported_algorithm_count = inventory.unsupported_algorithm_count,
+    };
+}
+
+BackendCacheMaintenanceSweep DesktopBackend::planCacheMaintenanceSweep() const {
+    const auto sweep = impl_->session->cache_maintenance_sweep(true);
+    return {
+        .dry_run = sweep.dry_run,
+        .catalog_live_blob_count = sweep.catalog_live_blob_count,
+        .cache_blob_count = sweep.cache_blob_count,
+        .cache_blob_byte_length = sweep.cache_blob_byte_len,
+        .unknown_entry_count = sweep.unknown_entry_count,
+        .unsupported_algorithm_count = sweep.unsupported_algorithm_count,
+        .retained_blob_count = sweep.retained_blob_count,
+        .recently_protected_blob_count = sweep.recently_protected_blob_count,
+        .recently_protected_byte_length = sweep.recently_protected_byte_len,
+        .reclaimed_blob_count = sweep.reclaimed_blob_count,
+        .reclaimed_byte_length = sweep.reclaimed_byte_len,
+    };
+}
+
+BackendCacheMaintenanceSweep DesktopBackend::runCacheMaintenanceSweep() const {
+    const auto sweep = impl_->session->cache_maintenance_sweep(false);
+    return {
+        .dry_run = sweep.dry_run,
+        .catalog_live_blob_count = sweep.catalog_live_blob_count,
+        .cache_blob_count = sweep.cache_blob_count,
+        .cache_blob_byte_length = sweep.cache_blob_byte_len,
+        .unknown_entry_count = sweep.unknown_entry_count,
+        .unsupported_algorithm_count = sweep.unsupported_algorithm_count,
+        .retained_blob_count = sweep.retained_blob_count,
+        .recently_protected_blob_count = sweep.recently_protected_blob_count,
+        .recently_protected_byte_length = sweep.recently_protected_byte_len,
+        .reclaimed_blob_count = sweep.reclaimed_blob_count,
+        .reclaimed_byte_length = sweep.reclaimed_byte_len,
     };
 }
 

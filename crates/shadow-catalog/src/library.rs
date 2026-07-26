@@ -17,7 +17,9 @@ use uuid::Uuid;
 
 use crate::{
     Catalog, CatalogError, RegisterAsset, RegisteredAsset, RepresentationFingerprint,
-    decision::photo_decision_state_from_columns, find_existing_asset, insert_asset, read_id,
+    decision::photo_decision_state_from_columns,
+    decode_snapshot::representation_fingerprint_in_transaction, find_existing_asset, insert_asset,
+    read_id,
 };
 
 /// The largest page the catalog will materialize for one Library request.
@@ -76,7 +78,7 @@ impl ContentIdentity {
         }
     }
 
-    fn validate(&self) -> Result<(), CatalogError> {
+    pub(crate) fn validate(&self) -> Result<(), CatalogError> {
         let valid_text = |value: &str, maximum: usize| {
             !value.is_empty()
                 && value.len() <= maximum
@@ -110,6 +112,27 @@ impl ContentIdentity {
         }
         Ok(())
     }
+}
+
+/// A content identity whose digest was calculated for one observed source
+/// revision.
+///
+/// Background hashing is intentionally outside the catalog writer. The
+/// expected fingerprint makes its eventual write a compare-and-swap: a late
+/// result never becomes an identity for a newer file at the same path.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RecordRepresentationContentIdentity {
+    pub representation_id: RepresentationId,
+    pub expected_source: RepresentationFingerprint,
+    pub identity: ContentIdentity,
+    pub observed_at_ms: i64,
+}
+
+/// Result of conditionally recording a representation content identity.
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum RecordRepresentationContentIdentityStatus {
+    Recorded,
+    StaleSource,
 }
 
 /// The exact existing representation selected by a path-independent identity.
@@ -188,6 +211,10 @@ pub struct LibraryPhotoFilter {
     /// Matches ratings greater than or equal to this value, as photographers
     /// normally expect from a star filter.
     pub minimum_rating: Option<u8>,
+    /// Filters on the existence of the photo's current working Recipe ref.
+    /// This is independent of preview-cache readiness: a photo remains edited
+    /// while a fresh rendered thumbnail is pending.
+    pub has_development_edits: Option<bool>,
     /// Restricts the page to one manual album membership.
     pub album_id: Option<CollectionId>,
 }
@@ -212,6 +239,10 @@ pub struct LibraryPhotoRecord {
     pub facts: Option<LibraryPhotoFacts>,
     pub state: PhotoLibraryState,
     pub decision: PhotoDecisionState,
+    /// Whether a durable working development recipe exists for this photo.
+    /// It is projected with the hot row, so the grid never scans cached
+    /// previews or recipe JSON merely to implement its edited filter.
+    pub has_development_edits: bool,
 }
 
 /// A bounded Library page plus a stable cursor for the next request.
@@ -296,25 +327,15 @@ impl Catalog {
     /// been strongly verified.
     pub fn record_representation_content_identity(
         &mut self,
-        representation_id: RepresentationId,
-        identity: &ContentIdentity,
-        observed_at_ms: i64,
-    ) -> Result<(), CatalogError> {
-        identity.validate()?;
+        request: &RecordRepresentationContentIdentity,
+    ) -> Result<RecordRepresentationContentIdentityStatus, CatalogError> {
         let transaction = self.connection.transaction()?;
-        let exists: Option<i64> = transaction
-            .query_row(
-                "SELECT 1 FROM representations WHERE id = ?1",
-                [representation_id.as_bytes().as_slice()],
-                |row| row.get(0),
-            )
-            .optional()?;
-        if exists.is_none() {
-            return Err(CatalogError::RepresentationNotFound(representation_id));
+        let status = record_content_identity_if_current_in_transaction(&transaction, request)?;
+        if status == RecordRepresentationContentIdentityStatus::StaleSource {
+            return Ok(status);
         }
-        upsert_content_identity(&transaction, representation_id, identity, observed_at_ms)?;
         transaction.commit()?;
-        Ok(())
+        Ok(status)
     }
 
     /// Finds the one representation that owns an exact identity.
@@ -329,7 +350,9 @@ impl Catalog {
                  FROM representation_content_identities i
                  JOIN representations r ON r.id = i.representation_id
                  WHERE i.scope = ?1 AND i.algorithm = ?2
-                   AND i.provider_id = ?3 AND i.provider_version = ?4 AND i.digest = ?5",
+                   AND i.provider_id = ?3 AND i.provider_version = ?4 AND i.digest = ?5
+                   AND i.source_byte_len = r.byte_len
+                   AND i.source_modified_at_ms IS r.modified_at_ms",
                 params![
                     identity.scope.as_str(),
                     identity.algorithm,
@@ -366,21 +389,24 @@ impl Catalog {
         } else if let Some(existing) = find_identity_match(&transaction, identity)? {
             attach_location_to_identity_match(&transaction, request, existing)?
         } else {
-            let registered = insert_asset(&transaction, request)?;
-            upsert_content_identity(
-                &transaction,
-                registered.representation_id,
-                identity,
-                request.now_ms,
-            )?;
-            registered
+            insert_asset(&transaction, request)?
         };
-        upsert_content_identity(
-            &transaction,
-            result.representation_id,
-            identity,
-            request.now_ms,
-        )?;
+        let record = RecordRepresentationContentIdentity {
+            representation_id: result.representation_id,
+            expected_source: RepresentationFingerprint {
+                byte_len: request.byte_len,
+                modified_at_ms: request.modified_at_ms,
+            },
+            identity: identity.clone(),
+            observed_at_ms: request.now_ms,
+        };
+        if record_content_identity_if_current_in_transaction(&transaction, &record)?
+            == RecordRepresentationContentIdentityStatus::StaleSource
+        {
+            return Err(CatalogError::ContentIdentitySourceChanged {
+                representation_id: result.representation_id,
+            });
+        }
         transaction.commit()?;
         Ok(result)
     }
@@ -621,7 +647,12 @@ impl Catalog {
                     f.indexed_source_modified_at_ms, f.indexed_at_ms,
                     COALESCE(s.liked, 0), COALESCE(s.color_label, 'none'),
                     COALESCE(s.updated_at_ms, 0),
-                    dc.head_sequence, de.after_flag, de.after_rating
+                    dc.head_sequence, de.after_flag, de.after_rating,
+                    EXISTS (
+                        SELECT 1 FROM recipe_refs edit_ref
+                        WHERE edit_ref.photo_id = p.id
+                          AND edit_ref.name = 'working'
+                    )
              {from_sql} WHERE {where_sql}"
         );
         let mut page_values = filter_values;
@@ -769,6 +800,18 @@ fn library_photo_query_parts(filter: &LibraryPhotoFilter) -> (String, String, Ve
         clauses.push("COALESCE(de.after_rating, 0) >= ?".to_owned());
         values.push(Value::Integer(i64::from(minimum_rating)));
     }
+    if let Some(has_development_edits) = filter.has_development_edits {
+        let exists_working_recipe = "EXISTS (
+             SELECT 1 FROM recipe_refs edit_ref
+             WHERE edit_ref.photo_id = p.id
+               AND edit_ref.name = 'working'
+         )";
+        clauses.push(if has_development_edits {
+            exists_working_recipe.to_owned()
+        } else {
+            format!("NOT {exists_working_recipe}")
+        });
+    }
     if let Some(album_id) = filter.album_id {
         clauses.push(
             "EXISTS (
@@ -850,6 +893,7 @@ fn read_library_photo(row: &rusqlite::Row<'_>) -> rusqlite::Result<LibraryPhotoR
             updated_at_ms: row.get(26)?,
         },
         decision,
+        has_development_edits: row.get::<_, i64>(30)? != 0,
     })
 }
 
@@ -986,9 +1030,9 @@ pub(crate) fn upsert_library_source_in_transaction(
         .optional()?;
     if let Some(id) = existing {
         transaction.execute(
-            "UPDATE library_sources SET display_path = ?2, enabled = 1, last_scanned_at_ms = ?3
+            "UPDATE library_sources SET display_path = ?2, enabled = 1
              WHERE id = ?1",
-            params![id.as_bytes().as_slice(), root.display_path, now_ms],
+            params![id.as_bytes().as_slice(), root.display_path],
         )?;
         return Ok(id);
     }
@@ -997,7 +1041,7 @@ pub(crate) fn upsert_library_source_in_transaction(
     transaction.execute(
         "INSERT INTO library_sources(
              id, platform, native_path, display_path, enabled, created_at_ms, last_scanned_at_ms
-         ) VALUES (?1, ?2, ?3, ?4, 1, ?5, ?5)",
+         ) VALUES (?1, ?2, ?3, ?4, 1, ?5, NULL)",
         params![
             id.as_bytes().as_slice(),
             root.platform.as_str(),
@@ -1028,18 +1072,46 @@ pub(crate) fn attach_location_to_library_source(
     Ok(())
 }
 
-fn upsert_content_identity(
+pub(crate) fn record_content_identity_if_current_in_transaction(
+    transaction: &Transaction<'_>,
+    request: &RecordRepresentationContentIdentity,
+) -> Result<RecordRepresentationContentIdentityStatus, CatalogError> {
+    request.identity.validate()?;
+    let current =
+        representation_fingerprint_in_transaction(transaction, request.representation_id)?;
+    if current != request.expected_source {
+        return Ok(RecordRepresentationContentIdentityStatus::StaleSource);
+    }
+
+    upsert_content_identity(
+        transaction,
+        request.representation_id,
+        current,
+        &request.identity,
+        request.observed_at_ms,
+    )?;
+    Ok(RecordRepresentationContentIdentityStatus::Recorded)
+}
+
+pub(crate) fn upsert_content_identity(
     transaction: &Transaction<'_>,
     representation_id: RepresentationId,
+    source: RepresentationFingerprint,
     identity: &ContentIdentity,
     observed_at_ms: i64,
 ) -> rusqlite::Result<()> {
+    let source_byte_len = i64::try_from(source.byte_len)
+        .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
     transaction.execute(
         "INSERT INTO representation_content_identities(
-             representation_id, scope, algorithm, provider_id, provider_version, digest, observed_at_ms
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             representation_id, scope, algorithm, provider_id, provider_version, digest,
+             source_byte_len, source_modified_at_ms, observed_at_ms
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
          ON CONFLICT(representation_id, scope, algorithm, provider_id, provider_version)
-         DO UPDATE SET digest = excluded.digest, observed_at_ms = excluded.observed_at_ms",
+         DO UPDATE SET digest = excluded.digest,
+                       source_byte_len = excluded.source_byte_len,
+                       source_modified_at_ms = excluded.source_modified_at_ms,
+                       observed_at_ms = excluded.observed_at_ms",
         params![
             representation_id.as_bytes().as_slice(),
             identity.scope.as_str(),
@@ -1047,13 +1119,15 @@ fn upsert_content_identity(
             identity.provider_id,
             identity.provider_version,
             identity.digest.as_slice(),
+            source_byte_len,
+            source.modified_at_ms,
             observed_at_ms,
         ],
     )?;
     Ok(())
 }
 
-fn find_identity_match(
+pub(crate) fn find_identity_match(
     transaction: &Transaction<'_>,
     identity: &ContentIdentity,
 ) -> rusqlite::Result<Option<RelinkMatch>> {
@@ -1063,7 +1137,9 @@ fn find_identity_match(
              FROM representation_content_identities i
              JOIN representations r ON r.id = i.representation_id
              WHERE i.scope = ?1 AND i.algorithm = ?2
-               AND i.provider_id = ?3 AND i.provider_version = ?4 AND i.digest = ?5",
+               AND i.provider_id = ?3 AND i.provider_version = ?4 AND i.digest = ?5
+               AND i.source_byte_len = r.byte_len
+               AND i.source_modified_at_ms IS r.modified_at_ms",
             params![
                 identity.scope.as_str(),
                 identity.algorithm,
@@ -1081,7 +1157,7 @@ fn find_identity_match(
         .optional()
 }
 
-fn attach_location_to_identity_match(
+pub(crate) fn attach_location_to_identity_match(
     transaction: &Transaction<'_>,
     request: &RegisterAsset,
     existing: RelinkMatch,
@@ -1410,7 +1486,11 @@ fn invalid_data(index: usize, message: String) -> rusqlite::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shadow_domain::{NewPhotoDecisionEvent, PhotoDecisionOrigin, Platform, RepresentationKind};
+    use crate::{CommitRecipe, RecipeRefKind, RecipeRefTarget};
+    use shadow_domain::{
+        NewPhotoDecisionEvent, PhotoDecisionOrigin, Platform, RecipeCommit, RecipeCommitId,
+        RecipeId, RecipeSnapshot, RepresentationKind,
+    };
 
     fn register(catalog: &mut Catalog, path: &str) -> RegisteredAsset {
         register_kind(catalog, path, RepresentationKind::OriginalRaw)
@@ -1467,7 +1547,15 @@ mod tests {
         let original = register(&mut catalog, "/archive/DSC_0001.NEF");
         let identity = ContentIdentity::whole_file_blake3([7; 32]);
         catalog
-            .record_representation_content_identity(original.representation_id, &identity, 30)
+            .record_representation_content_identity(&RecordRepresentationContentIdentity {
+                representation_id: original.representation_id,
+                expected_source: RepresentationFingerprint {
+                    byte_len: 100,
+                    modified_at_ms: Some(10),
+                },
+                identity: identity.clone(),
+                observed_at_ms: 30,
+            })
             .expect("record identity");
 
         let moved = catalog
@@ -1498,6 +1586,76 @@ mod tests {
                 photo_id: original.photo_id,
                 representation_id: original.representation_id,
             })
+        );
+    }
+
+    #[test]
+    fn source_mutation_invalidates_identity_and_rejects_a_late_hash_result() {
+        let mut catalog = Catalog::open_in_memory().expect("open catalog");
+        let original = register(&mut catalog, "/archive/rewritten.nef");
+        let identity = ContentIdentity::whole_file_blake3([42; 32]);
+        let original_source = RepresentationFingerprint {
+            byte_len: 100,
+            modified_at_ms: Some(10),
+        };
+        assert_eq!(
+            catalog
+                .record_representation_content_identity(&RecordRepresentationContentIdentity {
+                    representation_id: original.representation_id,
+                    expected_source: original_source,
+                    identity: identity.clone(),
+                    observed_at_ms: 30,
+                })
+                .expect("record original identity"),
+            RecordRepresentationContentIdentityStatus::Recorded
+        );
+
+        let changed = catalog
+            .register_asset(&RegisterAsset {
+                kind: RepresentationKind::OriginalRaw,
+                location: AssetLocation::new(
+                    Platform::MacOs,
+                    b"/archive/rewritten.nef".to_vec(),
+                    "/archive/rewritten.nef",
+                ),
+                byte_len: 101,
+                modified_at_ms: Some(11),
+                now_ms: 40,
+            })
+            .expect("observe rewritten source");
+        assert_eq!(changed.status, crate::RegistrationStatus::NeedsRevalidation);
+        assert_eq!(
+            catalog
+                .representation_fingerprint(original.representation_id)
+                .expect("read current source"),
+            RepresentationFingerprint {
+                byte_len: 101,
+                modified_at_ms: Some(11),
+            }
+        );
+        assert_eq!(
+            catalog
+                .relink_match(&identity)
+                .expect("lookup old identity"),
+            None
+        );
+
+        assert_eq!(
+            catalog
+                .record_representation_content_identity(&RecordRepresentationContentIdentity {
+                    representation_id: original.representation_id,
+                    expected_source: original_source,
+                    identity: identity.clone(),
+                    observed_at_ms: 41,
+                })
+                .expect("late write is a normal stale result"),
+            RecordRepresentationContentIdentityStatus::StaleSource
+        );
+        assert_eq!(
+            catalog
+                .relink_match(&identity)
+                .expect("old identity stays absent"),
+            None
         );
     }
 
@@ -1668,6 +1826,26 @@ mod tests {
         catalog
             .add_photo_to_album(album.id, newest.photo_id, 0, 203)
             .expect("membership");
+        let working_recipe = RecipeCommit::new(
+            RecipeCommitId::new_v7(),
+            RecipeId::new_v7(),
+            Vec::new(),
+            RecipeSnapshot::empty(),
+            Some("Library filter fixture".into()),
+            204,
+        )
+        .expect("create working Recipe");
+        catalog
+            .commit_recipe(&CommitRecipe {
+                photo_id: middle.photo_id,
+                commit: working_recipe,
+                update_refs: vec![RecipeRefTarget {
+                    name: "working".into(),
+                    kind: RecipeRefKind::Working,
+                    expectation: None,
+                }],
+            })
+            .expect("persist working Recipe");
 
         let exact = catalog
             .library_photo_page(
@@ -1716,6 +1894,47 @@ mod tests {
         );
         assert!(exact.items[0].state.liked);
         assert_eq!(exact.items[0].decision.flag, PhotoFlag::Picked);
+
+        let edited = catalog
+            .library_photo_page(
+                &LibraryPhotoFilter {
+                    has_development_edits: Some(true),
+                    ..LibraryPhotoFilter::default()
+                },
+                None,
+                16,
+            )
+            .expect("read edited Library page");
+        assert_eq!(edited.items.len(), 1);
+        assert_eq!(edited.items[0].photo_id, middle.photo_id);
+        assert!(edited.items[0].has_development_edits);
+        assert_eq!(
+            catalog
+                .library_photo_count(&LibraryPhotoFilter {
+                    has_development_edits: Some(true),
+                    ..LibraryPhotoFilter::default()
+                })
+                .expect("count edited Library photos"),
+            1
+        );
+
+        let unedited = catalog
+            .library_photo_page(
+                &LibraryPhotoFilter {
+                    has_development_edits: Some(false),
+                    ..LibraryPhotoFilter::default()
+                },
+                None,
+                16,
+            )
+            .expect("read unedited Library page");
+        assert_eq!(unedited.items.len(), 2);
+        assert!(
+            unedited
+                .items
+                .iter()
+                .all(|item| !item.has_development_edits)
+        );
 
         let first_page = catalog
             .library_photo_page(&LibraryPhotoFilter::default(), None, 2)

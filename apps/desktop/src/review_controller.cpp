@@ -3,7 +3,6 @@
 #include <QCoreApplication>
 #include <QEvent>
 #include <QSet>
-#include <QSettings>
 #include <QtConcurrentRun>
 
 #include <algorithm>
@@ -19,7 +18,7 @@ constexpr int SCAN_PROGRESS_POLL_MS = 150;
 constexpr quint64 STREAM_REFRESH_STRIDE = 16;
 constexpr qint64 STREAM_REFRESH_MIN_INTERVAL_MS = 400;
 constexpr qint64 STREAM_VISUAL_REFRESH_MIN_INTERVAL_MS = 150;
-constexpr auto color_labels_settings_key = "review/color_labels";
+constexpr int FILTER_QUERY_DEBOUNCE_MS = 120;
 
 [[nodiscard]] LocalizedUiMessage review_message(
     const char *const source,
@@ -44,84 +43,55 @@ constexpr auto color_labels_settings_key = "review/color_labels";
 
 [[nodiscard]] PageTaskResult run_page(
     const std::shared_ptr<DesktopBackend>& backend,
-    const QString& cursor_path,
-    const QString& cursor_representation_id,
+    const BackendLibraryPhotoFilter& filter,
+    const BackendLibraryPhotoCursor& cursor,
     const quint64 library_generation,
     const quint64 request_id,
-    const PageTaskKind kind,
-    const QVector<QString>& required_representation_ids
+    const PageTaskKind kind
 ) {
     PageTaskResult result;
     result.library_generation = library_generation;
     result.request_id = request_id;
     result.kind = kind;
     try {
-        if (kind != PageTaskKind::FinalReset) {
-            result.page = backend->reviewPage(
-                cursor_path,
-                cursor_representation_id,
-                REVIEW_PAGE_SIZE
-            );
-            return result;
-        }
+        result.page = backend->libraryPhotoPage(filter, cursor, REVIEW_PAGE_SIZE);
+    } catch (const std::exception& error) {
+        result.error = QString::fromUtf8(error.what());
+    }
+    return result;
+}
 
-        QSet<QString> required_keys;
-        required_keys.reserve(required_representation_ids.size());
-        for (const auto& representation_id : required_representation_ids) {
-            required_keys.insert(representation_id);
-        }
-        QSet<QString> seen_keys;
-        QString next_path;
-        QString next_representation_id;
-        bool first_page = true;
-        while (true) {
-            BackendReviewPage page = backend->reviewPage(
-                next_path,
-                next_representation_id,
-                REVIEW_PAGE_SIZE
-            );
-            const bool page_is_empty = page.items.isEmpty();
-            if (!first_page && page.total_items != result.page.total_items) {
-                throw std::runtime_error(
-                    "Catalog changed while rebuilding the stable Library prefix"
-                );
-            }
-            if (first_page) {
-                result.page.total_items = page.total_items;
-                first_page = false;
-            }
-            for (auto& item : page.items) {
-                if (item.representation_id.isEmpty()
-                    || seen_keys.contains(item.representation_id)) {
-                    throw std::runtime_error(
-                        "Library refresh returned an invalid or duplicate stable key"
-                    );
-                }
-                seen_keys.insert(item.representation_id);
-                required_keys.remove(item.representation_id);
-                result.page.items.push_back(std::move(item));
-            }
-            result.page.has_more = page.has_more;
-            result.page.next_cursor_path = std::move(page.next_cursor_path);
-            result.page.next_cursor_representation_id =
-                std::move(page.next_cursor_representation_id);
-            if (result.page.has_more
-                && (page_is_empty
-                || result.page.next_cursor_path.isEmpty()
-                || result.page.next_cursor_representation_id.isEmpty()
-                || (result.page.next_cursor_path == next_path
-                    && result.page.next_cursor_representation_id
-                        == next_representation_id))) {
-                throw std::runtime_error(
-                    "Library refresh did not advance its stable pagination cursor"
-                );
-            }
-            if (required_keys.isEmpty() || !result.page.has_more) {
-                break;
-            }
-            next_path = result.page.next_cursor_path;
-            next_representation_id = result.page.next_cursor_representation_id;
-        }
+[[nodiscard]] CountTaskResult run_count(
+    const std::shared_ptr<DesktopBackend>& backend,
+    const BackendLibraryPhotoFilter& filter,
+    const quint64 library_generation,
+    const quint64 request_id
+) {
+    CountTaskResult result;
+    result.library_generation = library_generation;
+    result.request_id = request_id;
+    try {
+        result.count = backend->libraryPhotoCount(filter);
+    } catch (const std::exception& error) {
+        result.error = QString::fromUtf8(error.what());
+    }
+    return result;
+}
+
+[[nodiscard]] LibraryStateTaskResult run_library_state_mutation(
+    const std::shared_ptr<DesktopBackend>& backend,
+    const QString& photo_id,
+    const bool liked,
+    const QString& color_label
+) {
+    LibraryStateTaskResult result;
+    result.requested_photo_id = photo_id;
+    try {
+        result.state = backend->setPhotoLibraryState(
+            photo_id,
+            liked,
+            color_label
+        );
     } catch (const std::exception& error) {
         result.error = QString::fromUtf8(error.what());
     }
@@ -151,6 +121,9 @@ constexpr auto color_labels_settings_key = "review/color_labels";
             .decision_head_sequence = item.decision_head_sequence,
             .decision_flag = decision_flag_name(item.decision_flag),
             .decision_rating = static_cast<int>(item.decision_rating),
+            .liked = item.liked,
+            .color_label = std::move(item.color_label),
+            .library_state_updated_at_ms = item.library_state_updated_at_ms,
             .has_development_edits = item.has_development_edits,
             .title = std::move(item.title),
             .source_path = std::move(item.source_path),
@@ -321,22 +294,20 @@ ReviewController::ReviewController(
     : QObject(parent),
       backend_(std::move(backend)),
       model_(this),
-      filtered_model_(this),
-      settings_(isolated_settings_file.isEmpty()
-              ? std::make_unique<QSettings>()
-              : std::make_unique<QSettings>(
-                    isolated_settings_file,
-                    QSettings::IniFormat
-                )) {
-    model_.restoreColorLabels(
-        settings_->value(QString::fromLatin1(color_labels_settings_key)).toMap()
-    );
+      filtered_model_(this) {
+    // Keep the constructor shape for existing test/application call sites.
+    // Library state is Catalog-backed now, so the former desktop-local
+    // settings file is deliberately not consulted.
+    (void)isolated_settings_file;
     filtered_model_.setSourceModel(&model_);
     connect(
         &filtered_model_,
         &ReviewFilterModel::filtersChanged,
         this,
-        &ReviewController::filtersChanged
+        [this]() {
+            scheduleFilterQuery();
+            emit filtersChanged();
+        }
     );
     const auto notify_filtered_count = [this]() { emit filtersChanged(); };
     connect(&filtered_model_, &QAbstractItemModel::modelReset,
@@ -352,6 +323,9 @@ ReviewController::ReviewController(
     model_.replace({}, library_generation_);
     scan_progress_timer_.setInterval(SCAN_PROGRESS_POLL_MS);
     scan_progress_timer_.setTimerType(Qt::CoarseTimer);
+    filter_debounce_timer_.setInterval(FILTER_QUERY_DEBOUNCE_MS);
+    filter_debounce_timer_.setSingleShot(true);
+    filter_debounce_timer_.setTimerType(Qt::CoarseTimer);
     connect(
         &scan_watcher_,
         &QFutureWatcher<ScanTaskResult>::finished,
@@ -363,6 +337,18 @@ ReviewController::ReviewController(
         &QFutureWatcher<PageTaskResult>::finished,
         this,
         &ReviewController::finishPage
+    );
+    connect(
+        &count_watcher_,
+        &QFutureWatcher<CountTaskResult>::finished,
+        this,
+        &ReviewController::finishCount
+    );
+    connect(
+        &library_state_watcher_,
+        &QFutureWatcher<LibraryStateTaskResult>::finished,
+        this,
+        &ReviewController::finishLibraryStateTask
     );
     connect(
         &evidence_watcher_,
@@ -382,20 +368,24 @@ ReviewController::ReviewController(
         this,
         &ReviewController::pollScanProgress
     );
+    connect(
+        &filter_debounce_timer_,
+        &QTimer::timeout,
+        this,
+        &ReviewController::beginFilteredLibraryQuery
+    );
   if (auto *const application = QCoreApplication::instance()) {
     application->installEventFilter(this);
   }
     QTimer::singleShot(0, this, [this]() {
         refreshSharedGradeNodes();
-        startPage(
-            scan_running_ ? PageTaskKind::StreamingPrefix
-                          : PageTaskKind::InitialReset
-        );
+        beginFilteredLibraryQuery();
     });
 }
 
 ReviewController::~ReviewController() {
     scan_progress_timer_.stop();
+    filter_debounce_timer_.stop();
     if (scan_running_) {
         try {
             static_cast<void>(backend_->cancelFolderScan(scan_generation_));
@@ -404,6 +394,8 @@ ReviewController::~ReviewController() {
     }
     scan_watcher_.waitForFinished();
     page_watcher_.waitForFinished();
+    count_watcher_.waitForFinished();
+    library_state_watcher_.waitForFinished();
     evidence_watcher_.waitForFinished();
     decision_watcher_.waitForFinished();
 }
@@ -537,7 +529,7 @@ QString ReviewController::filterEditState() const {
 }
 
 int ReviewController::filteredItemCount() const noexcept {
-    return filtered_model_.rowCount();
+    return bounded_count(total_items_);
 }
 
 QVariantList ReviewController::sharedGradeNodes() const {
@@ -610,7 +602,7 @@ void ReviewController::scanFolder(const QUrl& folder_url) {
     scan_phase_ = BackendScanPhase::Discovering;
     scan_terminal_error_.clear();
     scan_terminal_cancelled_ = false;
-    final_page_refresh_pending_ = false;
+    library_reset_pending_ = false;
     terminal_refresh_active_ = false;
     setHasMore(false);
     folder_path_ = path;
@@ -899,18 +891,40 @@ void ReviewController::setPhotoColorLabel(
     const QString& photo_id,
     const QString& color_label
 ) {
-    if (scan_running_ || refreshing() || page_running_ || evidence_session_.busy()
+    if (library_state_mutation_running_ || evidence_session_.busy()
         || decision_session_.busy()) {
         return;
     }
     const QString normalized = color_label.trimmed().toLower();
-    if (!model_.setColorLabel(photo_id, normalized)) {
+    const auto current = model_.libraryStateFor(photo_id);
+    if (!current) {
+        setDecisionStatusMessage(review_message(QT_TRANSLATE_NOOP(
+            "ReviewController", "Select a loaded photo before changing its color label"
+        )));
         return;
     }
-    persistColorLabels();
-    setDecisionStatusMessage(review_message(QT_TRANSLATE_NOOP(
-        "ReviewController", "Updated the local color label")));
-    emit colorLabelChanged(photo_id, normalized);
+    if (current->color_label == normalized) {
+        return;
+    }
+    startLibraryStateMutation(photo_id, current->liked, normalized);
+}
+
+void ReviewController::setPhotoLiked(const QString& photo_id, const bool liked) {
+    if (library_state_mutation_running_ || evidence_session_.busy()
+        || decision_session_.busy()) {
+        return;
+    }
+    const auto current = model_.libraryStateFor(photo_id);
+    if (!current) {
+        setDecisionStatusMessage(review_message(QT_TRANSLATE_NOOP(
+            "ReviewController", "Select a loaded photo before changing its Like state"
+        )));
+        return;
+    }
+    if (current->liked == liked) {
+        return;
+    }
+    startLibraryStateMutation(photo_id, liked, current->color_label);
 }
 
 void ReviewController::clearFilters() {
@@ -921,7 +935,7 @@ void ReviewController::refreshVisibleLibrary() {
     if (scan_running_ || decision_session_.busy()) {
         return;
     }
-    requestFinalPageRefresh();
+    requestLibraryReset();
 }
 
 void ReviewController::refreshSharedGradeNodes() {
@@ -1093,7 +1107,7 @@ void ReviewController::finishScan() {
     const bool old_loading_more = loadingMore();
     const bool old_refreshing = refreshing();
     terminal_refresh_active_ = true;
-    final_page_refresh_pending_ = true;
+    library_reset_pending_ = true;
     if (!result.error.isEmpty()) {
         scan_phase_ = BackendScanPhase::Failed;
         scan_terminal_error_ = result.error;
@@ -1120,7 +1134,7 @@ void ReviewController::finishScan() {
     emit scanningChanged();
     emit scanProgressChanged();
     emitWorkStateChanges(old_busy, old_loading_more, old_refreshing);
-    requestFinalPageRefresh();
+    requestLibraryReset();
 }
 
 void ReviewController::pollScanProgress() {
@@ -1183,14 +1197,43 @@ void ReviewController::pollScanProgress() {
     }
 }
 
-void ReviewController::requestFinalPageRefresh() {
+void ReviewController::requestLibraryReset() {
+    // An explicit refresh must supersede, rather than be followed by, a stale
+    // debounced filter reset. Otherwise a manual refresh can issue two full
+    // server queries back-to-back for the same filter state.
+    filter_debounce_timer_.stop();
     terminal_refresh_active_ = true;
-    final_page_refresh_pending_ = true;
-    if (page_running_) {
+    library_reset_pending_ = true;
+    if (page_running_ || decision_session_.busy()) {
         return;
     }
-    final_page_refresh_pending_ = false;
-    startPage(PageTaskKind::FinalReset);
+    beginFilteredLibraryQuery();
+}
+
+void ReviewController::scheduleFilterQuery() {
+    library_reset_pending_ = true;
+    filter_debounce_timer_.start();
+}
+
+void ReviewController::beginFilteredLibraryQuery() {
+    if (page_running_ || decision_session_.busy()) {
+        library_reset_pending_ = true;
+        return;
+    }
+
+    library_reset_pending_ = false;
+    ++library_generation_;
+    if (library_generation_ == 0) {
+        ++library_generation_;
+    }
+    model_.setGeneration(library_generation_);
+    next_cursor_ = {};
+    setHasMore(false);
+    if (!scan_running_) {
+        terminal_refresh_active_ = true;
+    }
+    startCountQuery();
+    startPage(PageTaskKind::InitialReset);
 }
 
 void ReviewController::finishPage() {
@@ -1203,51 +1246,38 @@ void ReviewController::finishPage() {
     if (result.library_generation != library_generation_
         || result.request_id != active_page_request_id_) {
         emitWorkStateChanges(old_busy, old_loading_more, old_refreshing);
+        if (library_reset_pending_ && !filter_debounce_timer_.isActive()) {
+            beginFilteredLibraryQuery();
+        }
         return;
     }
 
     const auto finish_failure = [this, &result, old_busy, old_loading_more,
-                                 old_refreshing](QString error) {
-        if (result.kind != PageTaskKind::FinalReset
-            && final_page_refresh_pending_ && !scan_running_) {
-      setStatusMessage(review_message(
-          QT_TRANSLATE_NOOP("ReviewController",
-                            "Live Library refresh failed · rebuilding one "
-                            "stable final view · %1"),
-          {std::move(error)})
-            );
-            emitWorkStateChanges(old_busy, old_loading_more, old_refreshing);
-            final_page_refresh_pending_ = false;
-            startPage(PageTaskKind::FinalReset);
-            return;
-        }
-        if (result.kind == PageTaskKind::FinalReset) {
-            final_page_refresh_pending_ = false;
+                                 old_refreshing](const QString& error) {
+        if (result.kind == PageTaskKind::InitialReset && !scan_running_) {
             terminal_refresh_active_ = false;
-            setHasMore(false);
-      setStatusMessage(review_message(
-          QT_TRANSLATE_NOOP(
-              "ReviewController",
-              "Final Library refresh failed · visible photos retained · add "
-              "the folder again or reopen Shadow to retry · %1"),
-          {std::move(error)})
-            );
-        } else if (scan_running_) {
-      setStatusMessage(review_message(
-          QT_TRANSLATE_NOOP("ReviewController",
-                            "Live Library refresh delayed · import is still "
-                            "safe and continuing · %1"),
-          {std::move(error)})
-            );
+        }
+        if (scan_running_) {
+            setStatusMessage(review_message(
+                QT_TRANSLATE_NOOP(
+                    "ReviewController",
+                    "Live Library refresh delayed · import is still safe and continuing · %1"
+                ),
+                {error}
+            ));
         } else {
-      setStatusMessage(review_message(
-          QT_TRANSLATE_NOOP(
-              "ReviewController",
-              "Library refresh failed · existing photos retained · %1"),
-          {std::move(error)})
-            );
+            setStatusMessage(review_message(
+                QT_TRANSLATE_NOOP(
+                    "ReviewController",
+                    "Library refresh failed · visible photos retained · %1"
+                ),
+                {error}
+            ));
         }
         emitWorkStateChanges(old_busy, old_loading_more, old_refreshing);
+        if (library_reset_pending_ && !filter_debounce_timer_.isActive()) {
+            beginFilteredLibraryQuery();
+        }
     };
 
     if (!result.error.isEmpty()) {
@@ -1255,8 +1285,9 @@ void ReviewController::finishPage() {
         return;
     }
     if (result.page.has_more
-        && (result.page.items.isEmpty() || result.page.next_cursor_path.isEmpty()
-            || result.page.next_cursor_representation_id.isEmpty())) {
+        && (result.page.items.isEmpty()
+            || !result.page.next_cursor.has_capture_time
+            || result.page.next_cursor.photo_id.isEmpty())) {
         finish_failure(QStringLiteral("the page exposed an invalid continuation cursor"));
         return;
     }
@@ -1279,10 +1310,10 @@ void ReviewController::finishPage() {
         finish_failure(QString::fromUtf8(error.what()));
         return;
     }
+
     bool accepted = false;
     switch (result.kind) {
     case PageTaskKind::InitialReset:
-    case PageTaskKind::FinalReset:
         accepted = model_.reconcileSnapshot(std::move(items), library_generation_);
         break;
     case PageTaskKind::StreamingPrefix:
@@ -1296,42 +1327,95 @@ void ReviewController::finishPage() {
         break;
     }
     if (!accepted) {
-        finish_failure(QStringLiteral("the page contained invalid or duplicate stable keys"));
+        finish_failure(QStringLiteral("the page contained invalid or duplicate photo ids"));
         return;
     }
 
     for (auto& state : decision_states) {
         decision_session_.reconcile(std::move(state));
     }
-    total_items_ = result.page.total_items;
     if (result.kind == PageTaskKind::StreamingPrefix) {
         setHasMore(false);
     } else {
-        next_cursor_path_ = std::move(result.page.next_cursor_path);
-        next_cursor_representation_id_ =
-            std::move(result.page.next_cursor_representation_id);
+        next_cursor_ = std::move(result.page.next_cursor);
         setHasMore(result.page.has_more);
     }
-    if (result.kind == PageTaskKind::FinalReset) {
-        final_page_refresh_pending_ = false;
+    if (result.kind == PageTaskKind::InitialReset && !scan_running_) {
         terminal_refresh_active_ = false;
     }
-    emit itemCountChanged();
     emit decisionStateChanged();
-    if (result.kind != PageTaskKind::FinalReset
-        && final_page_refresh_pending_ && !scan_running_) {
+    if (library_reset_pending_ && !filter_debounce_timer_.isActive()) {
         emitWorkStateChanges(old_busy, old_loading_more, old_refreshing);
-        final_page_refresh_pending_ = false;
-        startPage(PageTaskKind::FinalReset);
+        beginFilteredLibraryQuery();
         return;
     }
     if (scan_running_) {
         updateScanStatus();
-        emitWorkStateChanges(old_busy, old_loading_more, old_refreshing);
+    } else {
+        updateReadyStatus();
+    }
+    emitWorkStateChanges(old_busy, old_loading_more, old_refreshing);
+}
+
+void ReviewController::finishCount() {
+    const CountTaskResult result = count_watcher_.result();
+    count_running_ = false;
+    const bool accepted = result.library_generation == library_generation_
+        && result.request_id == active_count_request_id_;
+    if (accepted && result.error.isEmpty()) {
+        if (total_items_ != result.count) {
+            total_items_ = result.count;
+            emit itemCountChanged();
+            emit filtersChanged();
+        }
+    } else if (accepted && !result.error.isEmpty()) {
+        setStatusMessage(review_message(
+            QT_TRANSLATE_NOOP("ReviewController", "Could not count Library photos · %1"),
+            {result.error}
+        ));
+    }
+
+    if (count_query_pending_ || !accepted) {
+        count_query_pending_ = false;
+        startCountQuery();
         return;
     }
-    updateReadyStatus();
-    emitWorkStateChanges(old_busy, old_loading_more, old_refreshing);
+    if (!scan_running_ && !page_running_) {
+        updateReadyStatus();
+    }
+}
+
+void ReviewController::finishLibraryStateTask() {
+    const LibraryStateTaskResult result = library_state_watcher_.result();
+    library_state_mutation_running_ = false;
+    if (!result.error.isEmpty()) {
+        setDecisionStatusMessage(review_message(
+            QT_TRANSLATE_NOOP("ReviewController", "Could not update Library state · %1"),
+            {result.error}
+        ));
+        return;
+    }
+    if (result.state.photo_id.isEmpty()
+        || result.state.photo_id != result.requested_photo_id) {
+        setDecisionStatusMessage(review_message(
+            QT_TRANSLATE_NOOP("ReviewController", "Library state receipt was invalid")
+        ));
+        return;
+    }
+    const bool projected = model_.updateLibraryState(
+        result.state.photo_id,
+        result.state.liked,
+        result.state.color_label,
+        result.state.updated_at_ms
+    );
+    (void)projected;
+    emit colorLabelChanged(result.state.photo_id, result.state.color_label);
+    setDecisionStatusMessage(review_message(
+        QT_TRANSLATE_NOOP("ReviewController", "Library organization updated")
+    ));
+    if (filtered_model_.hasActiveServerFilter()) {
+        scheduleFilterQuery();
+    }
 }
 
 void ReviewController::finishEvidenceTask() {
@@ -1469,10 +1553,6 @@ void ReviewController::startPage(const PageTaskKind kind) {
       setStatusMessage(review_message(QT_TRANSLATE_NOOP(
           "ReviewController",
           "Refreshing photos retained before import was cancelled…")));
-        } else if (kind == PageTaskKind::FinalReset) {
-      setStatusMessage(review_message(QT_TRANSLATE_NOOP(
-          "ReviewController",
-          "Rebuilding one stable Library view before paging…")));
         } else {
       setStatusMessage(review_message(
           QT_TRANSLATE_NOOP("ReviewController", "Loading the local Library…")));
@@ -1480,28 +1560,93 @@ void ReviewController::startPage(const PageTaskKind kind) {
     } else {
         updateReadyStatus();
     }
-    const QVector<QString> required_representation_ids =
-        kind == PageTaskKind::FinalReset ? model_.representationIds()
-                                         : QVector<QString>{};
     page_watcher_.setFuture(QtConcurrent::run([
         backend = backend_,
-        cursor_path = reset ? QString{} : next_cursor_path_,
-        cursor_id = reset ? QString{} : next_cursor_representation_id_,
+        filter = currentLibraryFilter(),
+        cursor = reset ? BackendLibraryPhotoCursor{} : next_cursor_,
         library_generation = library_generation_,
         request_id = active_page_request_id_,
-        kind,
-        required_representation_ids
+        kind
     ]() {
         return run_page(
             backend,
-            cursor_path,
-            cursor_id,
+            filter,
+            cursor,
             library_generation,
             request_id,
-            kind,
-            required_representation_ids
+            kind
         );
     }));
+}
+
+BackendLibraryPhotoFilter ReviewController::currentLibraryFilter() const {
+    BackendLibraryPhotoFilter filter;
+    const QString flag = filtered_model_.flagFilter();
+    if (flag == QStringLiteral("unflagged")) {
+        filter.flag = BackendLibraryFlagFilter::Unflagged;
+    } else if (flag == QStringLiteral("picked")) {
+        filter.flag = BackendLibraryFlagFilter::Picked;
+    } else if (flag == QStringLiteral("rejected")) {
+        filter.flag = BackendLibraryFlagFilter::Rejected;
+    }
+
+    const int minimum_rating = filtered_model_.minimumRating();
+    if (minimum_rating > 0) {
+        filter.has_minimum_rating = true;
+        filter.minimum_rating = static_cast<std::uint8_t>(minimum_rating);
+    }
+
+    const QString color = filtered_model_.colorFilter();
+    if (color != QStringLiteral("all")) {
+        filter.color_label = color;
+    }
+
+    const QString edit = filtered_model_.editFilter();
+    if (edit == QStringLiteral("edited")) {
+        filter.has_development_edits = true;
+        filter.development_edits = true;
+    } else if (edit == QStringLiteral("unedited")) {
+        filter.has_development_edits = true;
+        filter.development_edits = false;
+    }
+    return filter;
+}
+
+void ReviewController::startCountQuery() {
+    if (count_running_) {
+        count_query_pending_ = true;
+        return;
+    }
+    count_running_ = true;
+    active_count_request_id_ = ++count_request_id_;
+    count_watcher_.setFuture(QtConcurrent::run(
+        run_count,
+        backend_,
+        currentLibraryFilter(),
+        library_generation_,
+        active_count_request_id_
+    ));
+}
+
+void ReviewController::startLibraryStateMutation(
+    const QString& photo_id,
+    const bool liked,
+    const QString& color_label
+) {
+    if (photo_id.isEmpty() || library_state_mutation_running_) {
+        return;
+    }
+    library_state_mutation_running_ = true;
+    setDecisionStatusMessage(review_message(QT_TRANSLATE_NOOP(
+        "ReviewController", "Updating Library organization…"
+    )));
+    library_state_watcher_.setFuture(QtConcurrent::run(
+        run_library_state_mutation,
+        backend_,
+        photo_id,
+        liked,
+        color_label
+    ));
 }
 
 void ReviewController::emitWorkStateChanges(
@@ -1679,12 +1824,7 @@ void ReviewController::applyDecisionState(
     );
     (void)projected;
     emit decisionChanged(state.photo_id, state.head_sequence, flag, rating);
-}
-
-void ReviewController::persistColorLabels() {
-    settings_->setValue(
-        QString::fromLatin1(color_labels_settings_key),
-        model_.colorLabels()
-    );
-    settings_->sync();
+    if (filtered_model_.hasActiveServerFilter()) {
+        scheduleFilterQuery();
+    }
 }

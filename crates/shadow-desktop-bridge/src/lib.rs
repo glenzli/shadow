@@ -1,10 +1,13 @@
 //! Coarse-grained, long-lived Rust services consumed by the Qt desktop shell.
 
+mod cache_maintenance_service;
 mod detail_tile_cache;
 mod detail_viewport;
 mod edit_version_diff;
+mod export_queue_service;
 mod export_service;
 mod isolated_proxy;
+mod library_service;
 mod photo_provider;
 mod preview_cache_identity;
 mod preview_render_registry;
@@ -35,10 +38,12 @@ use shadow_bridge::{
     DetailTileRequest, EditPreviewExecutionReceipt,
     FINISHING_EFFECTS_IMPLEMENTATION_VERSION as FINISHING_EFFECTS_IMPLEMENTATION_REVISION,
     MAX_ADJUSTMENT_RENDER_NODES, MAX_EDIT_DETAIL_TILE_SIDE, MAX_LUT_DOCUMENT_BYTES,
-    MAX_POINT_COLOR_RANGES, MAX_TONE_CURVE_POINTS,
+    MAX_POINT_COLOR_RANGES, MAX_TONE_CURVE_POINTS, OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT,
+    OKLAB_COLOR_WARPER_MAXIMUM_OFFSET,
     OKLAB_LIGHTNESS_TONE_CURVE_IMPLEMENTATION_VERSION as OKLAB_LIGHTNESS_TONE_CURVE_IMPLEMENTATION_REVISION,
     OKLAB_LIGHTNESS_TONE_CURVE_PARAMETER_SCHEMA_VERSION as OKLAB_LIGHTNESS_TONE_CURVE_PARAMETER_SCHEMA_REVISION,
-    OklabLightnessToneCurve, OpticsSettings,
+    OklabColorWarperControlPoint, OklabColorWarperParameters, OklabLightnessToneCurve,
+    OpticsSettings,
     PERCEPTUAL_COLOR_IMPLEMENTATION_VERSION as PERCEPTUAL_COLOR_IMPLEMENTATION_REVISION,
     PERCEPTUAL_COLOR_PARAMETER_SCHEMA_VERSION, PerceptualColorParameters, PhotoEditDetailSession,
     PhotoEditPreviewSession, RawDevelopmentPlan, RawPipelineReceipt, SELECTIVE_COLOR_VALUE_COUNT,
@@ -50,6 +55,7 @@ use shadow_bridge::{
     query_optics_profiles_from_metadata, query_photo_optics_profiles,
     raw_development_plan_identity,
 };
+use shadow_cache::ContentAddressedStore;
 use shadow_catalog::{
     CachedArtifact, CachedArtifactRole, CatalogActor, CatalogError, CatalogHandle,
     CommitEditRepository, CommitRecipe, CommitRecipeAndEditRepository, EditObjectPackWrite,
@@ -71,9 +77,12 @@ use shadow_domain::operation::{
     CPU_REFERENCE_IMPLEMENTATION_REVISION, CPU_REFERENCE_IMPLEMENTATION_VERSION,
     CPU_REFERENCE_PARAMETER_SCHEMA_VERSION, DETAIL_EFFECTS_PARAMETERS_KEY, EXPOSURE_OPERATION_ID,
     EXPOSURE_STOPS_PARAMETER_KEY, FINISHING_EFFECTS_IMPLEMENTATION_VERSION,
-    FINISHING_EFFECTS_OPERATION_ID, HIGHLIGHTS_PARAMETER_KEY, LUT_3D_OPERATION_ID,
-    LUT_INTENSITY_PARAMETER_KEY, LUT_MANAGED_PATH_PARAMETER_KEY, LUT_RESOURCE_ID_PARAMETER_KEY,
-    LUT_TITLE_PARAMETER_KEY, OKLAB_LIGHTNESS_TONE_CURVE_IMPLEMENTATION_VERSION,
+    FINISHING_EFFECTS_OPERATION_ID, GLOBAL_A_BALANCE_PARAMETER_KEY, GLOBAL_B_BALANCE_PARAMETER_KEY,
+    HIGHLIGHTS_PARAMETER_KEY, LUT_3D_OPERATION_ID, LUT_INTENSITY_PARAMETER_KEY,
+    LUT_MANAGED_PATH_PARAMETER_KEY, LUT_RESOURCE_ID_PARAMETER_KEY, LUT_TITLE_PARAMETER_KEY,
+    OKLAB_COLOR_WARPER_CONTROL_POINTS_PARAMETER_KEY, OKLAB_COLOR_WARPER_IMPLEMENTATION_VERSION,
+    OKLAB_COLOR_WARPER_OPERATION_ID, OKLAB_COLOR_WARPER_PARAMETER_SCHEMA_VERSION,
+    OKLAB_COLOR_WARPER_STRENGTH_PARAMETER_KEY, OKLAB_LIGHTNESS_TONE_CURVE_IMPLEMENTATION_VERSION,
     OKLAB_LIGHTNESS_TONE_CURVE_OPERATION_ID, OKLAB_LIGHTNESS_TONE_CURVE_PARAMETER_SCHEMA_VERSION,
     OKLAB_LIGHTNESS_TONE_CURVE_POINTS_PARAMETER_KEY, PERCEPTUAL_COLOR_IMPLEMENTATION_VERSION,
     PERCEPTUAL_COLOR_OPERATION_ID, POINT_COLOR_RANGES_PARAMETER_KEY,
@@ -108,6 +117,12 @@ use crate::photo_provider::isolated_edit_raster;
 use crate::review_service::ReviewService;
 use crate::scan_service::ScanService;
 use crate::session_preview_store::SessionPreviewStore;
+use crate::{
+    cache_maintenance_service::{
+        CacheMaintenanceInventory, CacheMaintenanceService, CacheMaintenanceSweep,
+    },
+    library_service::LibraryService,
+};
 use detail_tile_cache::{CachedDetailSource, EditDetailSessionCache, cached_detail_tile};
 use detail_viewport::{
     MAX_DETAIL_VIEWPORT_SIDE, detail_viewport_rects, validate_detail_viewport_request,
@@ -301,6 +316,149 @@ mod ffi {
         next_cursor_representation_id: String,
     }
 
+    /// Filter for one photo-first Library query. Empty text means that facet
+    /// is not constrained; explicit booleans keep a real zero / false value
+    /// distinguishable from an absent filter.
+    #[derive(Debug)]
+    struct FfiLibraryPhotoFilter {
+        has_capture_start: bool,
+        capture_start_unix_seconds: i64,
+        has_capture_end: bool,
+        capture_end_unix_seconds: i64,
+        camera_key: String,
+        lens_key: String,
+        has_aperture_minimum: bool,
+        aperture_minimum_milli: u32,
+        has_aperture_maximum: bool,
+        aperture_maximum_milli: u32,
+        has_liked: bool,
+        liked: bool,
+        color_label: String,
+        flag: FfiLibraryFlagFilter,
+        has_minimum_rating: bool,
+        minimum_rating: u8,
+        has_development_edits: bool,
+        development_edits: bool,
+        album_id: String,
+    }
+
+    /// `Any` avoids overloading `Unflagged`: users can deliberately filter
+    /// for unflagged photos just as they can filter for picked or rejected.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum FfiLibraryFlagFilter {
+        Any,
+        Unflagged,
+        Picked,
+        Rejected,
+    }
+
+    /// Stable cursor for capture-time-descending Library pages. An empty
+    /// photo id is the first page; it must not carry a capture time.
+    #[derive(Debug)]
+    struct FfiLibraryPhotoCursor {
+        photo_id: String,
+        has_capture_time: bool,
+        captured_at_unix_seconds: i64,
+    }
+
+    /// One logical photo selected by Catalog, independent of which directory
+    /// first discovered it. Grid visuals are selected in one Catalog batch and
+    /// encoded by the shared Review handle service, so a virtualized page does
+    /// not perform one cache query per thumbnail.
+    #[derive(Debug)]
+    struct FfiLibraryPhotoItem {
+        photo_id: String,
+        representation_id: String,
+        title: String,
+        source_path: String,
+        source_byte_len: u64,
+        has_source_modified_at: bool,
+        source_modified_at_ms: i64,
+        visual_handle: String,
+        visual_role: String,
+        visual_width: u32,
+        visual_height: u32,
+        has_visual: bool,
+        has_metadata: bool,
+        has_captured_at: bool,
+        captured_at_unix_seconds: i64,
+        capture_day: String,
+        camera_make: String,
+        camera_model: String,
+        lens_make: String,
+        lens_model: String,
+        has_aperture: bool,
+        aperture_milli: u32,
+        has_focal_length: bool,
+        focal_length_tenth_mm: u32,
+        has_iso_speed: bool,
+        iso_speed: f64,
+        has_coordinates: bool,
+        latitude_e7: i32,
+        longitude_e7: i32,
+        place_name: String,
+        metadata_indexed_at_ms: i64,
+        liked: bool,
+        color_label: String,
+        library_state_updated_at_ms: i64,
+        decision_head_sequence: u64,
+        decision_flag: FfiDecisionFlag,
+        decision_rating: u8,
+        has_development_edits: bool,
+    }
+
+    /// Bounded, keyset-paginated Library result. Exact count belongs to the
+    /// separate debounced `library_photo_count` request.
+    #[derive(Debug)]
+    struct FfiLibraryPhotoPage {
+        items: Vec<FfiLibraryPhotoItem>,
+        has_more: bool,
+        next_cursor: FfiLibraryPhotoCursor,
+    }
+
+    /// Catalog-authoritative affinity state for one logical photo. This is
+    /// intentionally separate from the append-only Review decision stream:
+    /// a heart and a colour label are mutable Library organization state.
+    #[derive(Debug)]
+    struct FfiPhotoLibraryState {
+        photo_id: String,
+        liked: bool,
+        color_label: String,
+        updated_at_ms: i64,
+    }
+
+    /// Read-only cache reachability and footprint. The Catalog decides which
+    /// artifacts are live; the local content-addressed store reports only its
+    /// own canonical blobs. Unknown future-format files are counted but are
+    /// never candidates for maintenance deletion.
+    #[derive(Debug)]
+    struct FfiCacheMaintenanceInventory {
+        catalog_live_blob_count: u64,
+        cache_blob_count: u64,
+        cache_blob_byte_len: u64,
+        unknown_entry_count: u64,
+        unsupported_algorithm_count: u32,
+    }
+
+    /// One explicit cache-maintenance calculation or sweep. `dry_run` means
+    /// `reclaimed_*` describes safe candidates only; false means those blobs
+    /// were removed after Catalog reachability and the recent-write grace
+    /// period were checked.
+    #[derive(Debug)]
+    struct FfiCacheMaintenanceSweep {
+        dry_run: bool,
+        catalog_live_blob_count: u64,
+        cache_blob_count: u64,
+        cache_blob_byte_len: u64,
+        unknown_entry_count: u64,
+        unsupported_algorithm_count: u32,
+        retained_blob_count: u64,
+        recently_protected_blob_count: u64,
+        recently_protected_byte_len: u64,
+        reclaimed_blob_count: u64,
+        reclaimed_byte_len: u64,
+    }
+
     #[derive(Debug)]
     struct FfiVisualPayload {
         bytes: Vec<u8>,
@@ -337,6 +495,8 @@ mod ffi {
         shadows: f64,
         whites: f64,
         blacks: f64,
+        global_a_balance: f64,
+        global_b_balance: f64,
         vibrance: f64,
         mixer_hue: Vec<f64>,
         mixer_saturation: Vec<f64>,
@@ -359,6 +519,11 @@ mod ffi {
         /// Optional Oklab-L perceptual curve, flattened as x/y pairs. An empty
         /// vector is the canonical neutral/no-node representation.
         oklab_lightness_curve_points: Vec<f64>,
+        /// Fixed 5×5 Oklab Color Warper lattice, flattened row-major as
+        /// `(a_offset, b_offset)` pairs. The desktop boundary always carries
+        /// all 25 points; Recipe v1 elides the all-zero lattice.
+        oklab_color_warper_control_points: Vec<f64>,
+        oklab_color_warper_strength: f64,
         lut_resource_id: String,
         lut_title: String,
         lut_managed_path: String,
@@ -369,6 +534,8 @@ mod ffi {
         sharpen_masking: f64,
         clarity: f64,
         texture: f64,
+        local_contrast: f64,
+        local_contrast_scale: f64,
         denoise_luminance: f64,
         denoise_detail: f64,
         denoise_color: f64,
@@ -711,6 +878,70 @@ mod ffi {
         bytes: Vec<u8>,
     }
 
+    /// A user-selected photo plus its already-resolved output destination.
+    /// The bridge validates that source ownership is still current before it
+    /// freezes a durable catalog item.
+    #[derive(Debug)]
+    struct FfiDurableExportTarget {
+        photo_id: String,
+        source_path: String,
+        output_path: String,
+    }
+
+    /// Opaque durable job identity returned immediately after its immutable
+    /// settings/Recipe/source snapshots have been committed.
+    #[derive(Debug)]
+    struct FfiDurableExportJob {
+        job_id: String,
+        item_count: u32,
+    }
+
+    /// One globally claimed export item. The output and settings payload are
+    /// persisted snapshots, not values read from mutable desktop preferences.
+    #[derive(Debug)]
+    struct FfiDurableExportItem {
+        has_item: bool,
+        item_id: String,
+        job_id: String,
+        photo_id: String,
+        source_path: String,
+        output_path: String,
+        settings_json: String,
+    }
+
+    /// The only nonterminal item states that the desktop encoder may own.
+    /// Terminal and queue states stay catalog-internal so C++ cannot skip the
+    /// CAS lifecycle by accident.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum FfiDurableExportItemState {
+        Preparing,
+        Rendering,
+        Encoding,
+        WritingTemp,
+    }
+
+    /// Startup recovery is explicit so the desktop can surface a useful task
+    /// status while immediately draining safe, incomplete work.
+    #[derive(Debug)]
+    struct FfiDurableExportRecovery {
+        interrupted_items: u32,
+        requeued_items: u32,
+        queued_items: u32,
+    }
+
+    /// A job-local task-center projection. It is safe to refresh while a
+    /// background worker advances other jobs through the same catalog actor.
+    #[derive(Debug)]
+    struct FfiDurableExportProgress {
+        queued: u32,
+        active: u32,
+        completed: u32,
+        failed: u32,
+        cancelled: u32,
+        paused_conflict: u32,
+        total: u32,
+    }
+
     extern "Rust" {
         type DesktopSession;
 
@@ -734,6 +965,29 @@ mod ffi {
             cursor_representation_id: &str,
             limit: u32,
         ) -> Result<FfiReviewPage>;
+        fn library_photo_page(
+            self: &DesktopSession,
+            filter: &FfiLibraryPhotoFilter,
+            cursor: &FfiLibraryPhotoCursor,
+            limit: u32,
+        ) -> Result<FfiLibraryPhotoPage>;
+        fn library_photo_count(
+            self: &DesktopSession,
+            filter: &FfiLibraryPhotoFilter,
+        ) -> Result<u64>;
+        fn set_photo_library_state(
+            self: &DesktopSession,
+            photo_id: &str,
+            liked: bool,
+            color_label: &str,
+        ) -> Result<FfiPhotoLibraryState>;
+        fn cache_maintenance_inventory(
+            self: &DesktopSession,
+        ) -> Result<FfiCacheMaintenanceInventory>;
+        fn cache_maintenance_sweep(
+            self: &DesktopSession,
+            dry_run: bool,
+        ) -> Result<FfiCacheMaintenanceSweep>;
         fn load_review_visual(self: &DesktopSession, ticket: &str) -> Result<FfiVisualPayload>;
         fn prepare_review_comparison(
             self: &DesktopSession,
@@ -837,6 +1091,42 @@ mod ffi {
             source_path: &str,
             request: &FfiEditExportRequest,
         ) -> Result<FfiEditedExportRaster>;
+        fn enqueue_durable_export_job(
+            self: &DesktopSession,
+            targets: Vec<FfiDurableExportTarget>,
+            settings_json: &str,
+        ) -> Result<FfiDurableExportJob>;
+        fn recover_durable_export_queue(self: &DesktopSession) -> Result<FfiDurableExportRecovery>;
+        fn claim_next_durable_export_item(self: &DesktopSession) -> Result<FfiDurableExportItem>;
+        fn begin_durable_export_render(self: &DesktopSession, item_id: &str) -> Result<()>;
+        fn render_durable_export_item(
+            self: &DesktopSession,
+            item: &FfiDurableExportItem,
+        ) -> Result<FfiEditedExportRaster>;
+        fn begin_durable_export_encoding(self: &DesktopSession, item_id: &str) -> Result<()>;
+        fn begin_durable_export_write(self: &DesktopSession, item_id: &str) -> Result<()>;
+        fn pause_durable_export_conflict(self: &DesktopSession, item_id: &str) -> Result<()>;
+        fn complete_durable_export_item(
+            self: &DesktopSession,
+            item_id: &str,
+            job_id: &str,
+            output_format: &str,
+            byte_len: u64,
+            receipt_json: &str,
+        ) -> Result<()>;
+        fn fail_durable_export_item(
+            self: &DesktopSession,
+            item_id: &str,
+            stage: FfiDurableExportItemState,
+            code: &str,
+            message: &str,
+            retryable: bool,
+        ) -> Result<()>;
+        fn cancel_durable_export_job(self: &DesktopSession, job_id: &str) -> Result<()>;
+        fn durable_export_progress(
+            self: &DesktopSession,
+            job_id: &str,
+        ) -> Result<FfiDurableExportProgress>;
         /// Saves the draft against `base_commit_id` while independently
         /// compare-and-swapping the durable Catalog working ref against
         /// `expected_working_commit_id`.
@@ -900,7 +1190,52 @@ struct DesktopSession {
     edit_preview_render_tokens: PreviewRenderRegistry,
     edit_detail_sessions: Mutex<EditDetailSessionCache>,
     edit_detail_render_token: AtomicU64,
+    library: LibraryService,
+    cache_maintenance: CacheMaintenanceService,
     review: ReviewService,
+    export_queue: export_queue_service::ExportQueueService,
+}
+
+fn ffi_cache_maintenance_inventory(
+    source: CacheMaintenanceInventory,
+) -> ffi::FfiCacheMaintenanceInventory {
+    let CacheMaintenanceInventory {
+        cache,
+        catalog_live_blob_count,
+        unsupported_algorithms,
+    } = source;
+    ffi::FfiCacheMaintenanceInventory {
+        catalog_live_blob_count: u64::try_from(catalog_live_blob_count).unwrap_or(u64::MAX),
+        cache_blob_count: u64::try_from(cache.blobs.len()).unwrap_or(u64::MAX),
+        cache_blob_byte_len: cache.total_byte_len,
+        unknown_entry_count: u64::try_from(cache.unknown_relative_paths.len()).unwrap_or(u64::MAX),
+        unsupported_algorithm_count: u32::try_from(unsupported_algorithms.len())
+            .unwrap_or(u32::MAX),
+    }
+}
+
+fn ffi_cache_maintenance_sweep(source: CacheMaintenanceSweep) -> ffi::FfiCacheMaintenanceSweep {
+    let CacheMaintenanceSweep {
+        cache,
+        catalog_live_blob_count,
+        unsupported_algorithms,
+    } = source;
+    let inventory = cache.inventory;
+    ffi::FfiCacheMaintenanceSweep {
+        dry_run: cache.dry_run,
+        catalog_live_blob_count: u64::try_from(catalog_live_blob_count).unwrap_or(u64::MAX),
+        cache_blob_count: u64::try_from(inventory.blobs.len()).unwrap_or(u64::MAX),
+        cache_blob_byte_len: inventory.total_byte_len,
+        unknown_entry_count: u64::try_from(inventory.unknown_relative_paths.len())
+            .unwrap_or(u64::MAX),
+        unsupported_algorithm_count: u32::try_from(unsupported_algorithms.len())
+            .unwrap_or(u32::MAX),
+        retained_blob_count: cache.retained_blob_count,
+        recently_protected_blob_count: cache.recently_protected_blob_count,
+        recently_protected_byte_len: cache.recently_protected_byte_len,
+        reclaimed_blob_count: u64::try_from(cache.reclaimed.len()).unwrap_or(u64::MAX),
+        reclaimed_byte_len: cache.reclaimed_byte_len,
+    }
 }
 
 #[derive(Debug)]
@@ -1076,6 +1411,88 @@ impl DesktopSession {
         self.scanner.cancel(scan_id)
     }
 
+    fn enqueue_durable_export_job(
+        &self,
+        targets: Vec<ffi::FfiDurableExportTarget>,
+        settings_json: &str,
+    ) -> AnyResult<ffi::FfiDurableExportJob> {
+        self.export_queue.enqueue(self, targets, settings_json)
+    }
+
+    fn recover_durable_export_queue(&self) -> AnyResult<ffi::FfiDurableExportRecovery> {
+        self.export_queue.recover_for_startup()
+    }
+
+    fn claim_next_durable_export_item(&self) -> AnyResult<ffi::FfiDurableExportItem> {
+        Ok(self
+            .export_queue
+            .claim_next()?
+            .unwrap_or_else(|| ffi::FfiDurableExportItem {
+                has_item: false,
+                item_id: String::new(),
+                job_id: String::new(),
+                photo_id: String::new(),
+                source_path: String::new(),
+                output_path: String::new(),
+                settings_json: String::new(),
+            }))
+    }
+
+    fn begin_durable_export_render(&self, item_id: &str) -> AnyResult<()> {
+        self.export_queue.begin_render(item_id)
+    }
+
+    fn render_durable_export_item(
+        &self,
+        item: &ffi::FfiDurableExportItem,
+    ) -> AnyResult<ffi::FfiEditedExportRaster> {
+        self.export_queue.render(self, item)
+    }
+
+    fn begin_durable_export_encoding(&self, item_id: &str) -> AnyResult<()> {
+        self.export_queue.begin_encoding(item_id)
+    }
+
+    fn begin_durable_export_write(&self, item_id: &str) -> AnyResult<()> {
+        self.export_queue.begin_writing(item_id)
+    }
+
+    fn pause_durable_export_conflict(&self, item_id: &str) -> AnyResult<()> {
+        self.export_queue.pause_for_conflict(item_id)
+    }
+
+    fn complete_durable_export_item(
+        &self,
+        item_id: &str,
+        job_id: &str,
+        output_format: &str,
+        byte_len: u64,
+        receipt_json: &str,
+    ) -> AnyResult<()> {
+        self.export_queue
+            .complete(item_id, job_id, output_format, byte_len, receipt_json)
+    }
+
+    fn fail_durable_export_item(
+        &self,
+        item_id: &str,
+        stage: ffi::FfiDurableExportItemState,
+        code: &str,
+        message: &str,
+        retryable: bool,
+    ) -> AnyResult<()> {
+        self.export_queue
+            .fail_from_ffi(item_id, stage, code, message, retryable)
+    }
+
+    fn cancel_durable_export_job(&self, job_id: &str) -> AnyResult<()> {
+        self.export_queue.cancel_job(job_id)
+    }
+
+    fn durable_export_progress(&self, job_id: &str) -> AnyResult<ffi::FfiDurableExportProgress> {
+        self.export_queue.progress(job_id)
+    }
+
     fn begin_folder_scan(&self, scan_id: u64) -> AnyResult<()> {
         self.scanner.begin(scan_id)
     }
@@ -1120,6 +1537,47 @@ impl DesktopSession {
     ) -> AnyResult<ffi::FfiReviewPage> {
         self.review
             .review_page(cursor_path, cursor_representation_id, limit)
+    }
+
+    fn library_photo_page(
+        &self,
+        filter: &ffi::FfiLibraryPhotoFilter,
+        cursor: &ffi::FfiLibraryPhotoCursor,
+        limit: u32,
+    ) -> AnyResult<ffi::FfiLibraryPhotoPage> {
+        self.library.photo_page(&self.review, filter, cursor, limit)
+    }
+
+    fn library_photo_count(&self, filter: &ffi::FfiLibraryPhotoFilter) -> AnyResult<u64> {
+        self.library.photo_count(filter)
+    }
+
+    fn set_photo_library_state(
+        &self,
+        photo_id: &str,
+        liked: bool,
+        color_label: &str,
+    ) -> AnyResult<ffi::FfiPhotoLibraryState> {
+        self.library
+            .set_photo_library_state(photo_id, liked, color_label, current_time_ms()?)
+    }
+
+    /// Reads cache reachability without deleting anything. The desktop must
+    /// call `cache_maintenance_sweep(true)` before it presents a confirmation
+    /// for a destructive sweep.
+    fn cache_maintenance_inventory(&self) -> AnyResult<ffi::FfiCacheMaintenanceInventory> {
+        Ok(ffi_cache_maintenance_inventory(
+            self.cache_maintenance.inventory()?,
+        ))
+    }
+
+    /// Performs the explicitly selected conservative maintenance action. A
+    /// false `dry_run` remains safe against current Recipe/source references,
+    /// unknown formats, and blobs inside the short publication grace period.
+    fn cache_maintenance_sweep(&self, dry_run: bool) -> AnyResult<ffi::FfiCacheMaintenanceSweep> {
+        Ok(ffi_cache_maintenance_sweep(
+            self.cache_maintenance.sweep(dry_run)?,
+        ))
     }
 
     fn load_review_visual(&self, ticket: &str) -> AnyResult<ffi::FfiVisualPayload> {
@@ -2541,15 +2999,22 @@ fn open_desktop_session(catalog_path: &str, cache_root: &str) -> AnyResult<Box<D
         .map_err(|error| anyhow!("open catalog {}: {error}", catalog_path.display()))?;
     let catalog = actor.handle();
     let loader = CachedArtifactLoader::open(catalog.clone(), &cache_root)?;
+    let cache_maintenance = CacheMaintenanceService::new(
+        catalog.clone(),
+        ContentAddressedStore::open(&cache_root).context("open cache maintenance store")?,
+    );
     let session_previews = Arc::new(SessionPreviewStore::default());
     Ok(Box::new(DesktopSession {
         _actor: actor,
+        library: LibraryService::new(catalog.clone()),
+        cache_maintenance,
         review: ReviewService::new_with_session_previews(
             catalog.clone(),
             loader.clone(),
             Arc::clone(&session_previews),
         ),
         scanner: ScanService::new(catalog.clone(), cache_root.clone(), session_previews),
+        export_queue: export_queue_service::ExportQueueService::new(catalog.clone()),
         catalog,
         loader,
         cache_root,
@@ -2593,8 +3058,8 @@ mod tests {
     };
     use shadow_cache::ContentAddressedStore;
     use shadow_catalog::{
-        CachedArtifact, CachedArtifactRecord, RecordCachedArtifact, RecordDecodeSnapshot,
-        RegisterAsset, RepresentationFingerprint,
+        CachedArtifact, CachedArtifactRecord, LibraryPhotoFacts, RecordCachedArtifact,
+        RecordDecodeSnapshot, RegisterAsset, RepresentationFingerprint,
     };
     use shadow_core::DecodeInspector;
     use shadow_domain::{
@@ -2660,6 +3125,241 @@ mod tests {
     fn partial_review_cursor_is_rejected() {
         assert!(parse_cursor("/photos/a.dng", "").is_err());
         assert!(parse_cursor("", &RepresentationId::new_v7().to_string()).is_err());
+    }
+
+    #[test]
+    fn library_page_is_photo_first_keyset_paginated_and_filterable() {
+        let root = std::env::temp_dir().join(format!(
+            "shadow-desktop-library-page-{}-{}",
+            std::process::id(),
+            RepresentationId::new_v7()
+        ));
+        std::fs::create_dir_all(&root).expect("create Library fixture");
+        let session = open_desktop_session(
+            root.join("catalog.sqlite").to_str().expect("catalog path"),
+            root.join("cache").to_str().expect("cache path"),
+        )
+        .expect("open desktop session");
+
+        let newest_path = root.join("renamed/newest.nef");
+        let older_path = root.join("older.nef");
+        let newest =
+            register_library_fixture(&session, &newest_path, 20_000, Some(200), 1_700_000_200);
+        let older =
+            register_library_fixture(&session, &older_path, 10_000, Some(100), 1_700_000_100);
+        let library_state = session
+            .set_photo_library_state(&newest.photo_id.to_string(), true, "blue")
+            .expect("persist newest Library state through the bridge");
+        assert_eq!(library_state.photo_id, newest.photo_id.to_string());
+        assert!(library_state.liked);
+        assert_eq!(library_state.color_label, "blue");
+        assert!(library_state.updated_at_ms > 0);
+        let decision = session
+            .set_review_photo_decision(
+                &newest.photo_id.to_string(),
+                0,
+                ffi::FfiDecisionFlag::Picked,
+                4,
+            )
+            .expect("pick and rate newest photo");
+
+        let filtered = ffi_library_filter();
+        let filtered_page = session
+            .library_photo_page(&filtered, &ffi_library_start_cursor(), 16)
+            .expect("query filtered Library page");
+        assert_eq!(
+            session
+                .library_photo_count(&filtered)
+                .expect("count filter"),
+            1
+        );
+        assert!(!filtered_page.has_more);
+        assert_eq!(filtered_page.items.len(), 1);
+        let item = &filtered_page.items[0];
+        assert_eq!(item.photo_id, newest.photo_id.to_string());
+        assert_eq!(item.representation_id, newest.representation_id.to_string());
+        assert_eq!(item.title, "newest.nef");
+        assert_eq!(item.source_path, newest_path.to_string_lossy());
+        assert_eq!(item.source_byte_len, 20_000);
+        assert!(item.has_source_modified_at);
+        assert_eq!(item.source_modified_at_ms, 200);
+        assert!(!item.has_visual);
+        assert!(item.visual_handle.is_empty());
+        assert!(item.has_metadata);
+        assert!(item.has_captured_at);
+        assert_eq!(item.captured_at_unix_seconds, 1_700_000_200);
+        assert_eq!(item.camera_model, "Nikon Z 8");
+        assert!(item.liked);
+        assert_eq!(item.color_label, "blue");
+        assert_eq!(item.decision_head_sequence, decision.sequence);
+        assert_eq!(item.decision_flag, ffi::FfiDecisionFlag::Picked);
+        assert_eq!(item.decision_rating, 4);
+
+        let first = session
+            .library_photo_page(
+                &ffi_library_neutral_filter(),
+                &ffi_library_start_cursor(),
+                1,
+            )
+            .expect("read first Library page");
+        assert!(first.has_more);
+        assert_eq!(first.items.len(), 1);
+        assert_eq!(first.items[0].photo_id, newest.photo_id.to_string());
+        let second = session
+            .library_photo_page(&ffi_library_neutral_filter(), &first.next_cursor, 1)
+            .expect("read second Library page");
+        assert!(!second.has_more);
+        assert_eq!(second.items.len(), 1);
+        assert_eq!(second.items[0].photo_id, older.photo_id.to_string());
+
+        drop(session);
+        std::fs::remove_dir_all(root).expect("remove Library fixture");
+    }
+
+    #[test]
+    fn cache_maintenance_requires_an_explicit_sweep_and_preserves_unknown_entries() {
+        let root = std::env::temp_dir().join(format!(
+            "shadow-desktop-cache-maintenance-{}-{}",
+            std::process::id(),
+            RepresentationId::new_v7()
+        ));
+        std::fs::create_dir_all(&root).expect("create cache-maintenance fixture");
+        let cache_root = root.join("cache");
+        let session = open_desktop_session(
+            root.join("catalog.sqlite").to_str().expect("catalog path"),
+            cache_root.to_str().expect("cache path"),
+        )
+        .expect("open desktop session");
+
+        let unknown = cache_root.join("blobs/b3/not-a-prefix/diagnostic");
+        std::fs::create_dir_all(unknown.parent().expect("unknown parent"))
+            .expect("create unknown cache directory");
+        std::fs::write(&unknown, b"future cache format").expect("write unknown cache entry");
+
+        let inventory = session
+            .cache_maintenance_inventory()
+            .expect("read cache-maintenance inventory");
+        assert_eq!(inventory.catalog_live_blob_count, 0);
+        assert_eq!(inventory.cache_blob_count, 0);
+        assert_eq!(inventory.unknown_entry_count, 1);
+
+        let planned = session
+            .cache_maintenance_sweep(true)
+            .expect("plan cache maintenance");
+        assert!(planned.dry_run);
+        assert_eq!(planned.unknown_entry_count, 1);
+        assert_eq!(planned.reclaimed_blob_count, 0);
+        assert!(unknown.exists());
+
+        let applied = session
+            .cache_maintenance_sweep(false)
+            .expect("run explicit cache maintenance");
+        assert!(!applied.dry_run);
+        assert_eq!(applied.unknown_entry_count, 1);
+        assert_eq!(applied.reclaimed_blob_count, 0);
+        assert!(unknown.exists());
+
+        drop(session);
+        std::fs::remove_dir_all(root).expect("remove cache-maintenance fixture");
+    }
+
+    fn ffi_library_neutral_filter() -> ffi::FfiLibraryPhotoFilter {
+        ffi::FfiLibraryPhotoFilter {
+            has_capture_start: false,
+            capture_start_unix_seconds: 0,
+            has_capture_end: false,
+            capture_end_unix_seconds: 0,
+            camera_key: String::new(),
+            lens_key: String::new(),
+            has_aperture_minimum: false,
+            aperture_minimum_milli: 0,
+            has_aperture_maximum: false,
+            aperture_maximum_milli: 0,
+            has_liked: false,
+            liked: false,
+            color_label: String::new(),
+            flag: ffi::FfiLibraryFlagFilter::Any,
+            has_minimum_rating: false,
+            minimum_rating: 0,
+            has_development_edits: false,
+            development_edits: false,
+            album_id: String::new(),
+        }
+    }
+
+    fn ffi_library_filter() -> ffi::FfiLibraryPhotoFilter {
+        ffi::FfiLibraryPhotoFilter {
+            camera_key: shadow_catalog::library_equipment_key("Nikon Corporation", "Nikon Z 8"),
+            lens_key: shadow_catalog::library_equipment_key("Nikon", "NIKKOR Z 24-120mm f/4 S"),
+            has_aperture_minimum: true,
+            aperture_minimum_milli: 4_000,
+            has_aperture_maximum: true,
+            aperture_maximum_milli: 4_000,
+            has_liked: true,
+            liked: true,
+            color_label: "blue".into(),
+            flag: ffi::FfiLibraryFlagFilter::Picked,
+            has_minimum_rating: true,
+            minimum_rating: 4,
+            ..ffi_library_neutral_filter()
+        }
+    }
+
+    fn ffi_library_start_cursor() -> ffi::FfiLibraryPhotoCursor {
+        ffi::FfiLibraryPhotoCursor {
+            photo_id: String::new(),
+            has_capture_time: false,
+            captured_at_unix_seconds: 0,
+        }
+    }
+
+    fn register_library_fixture(
+        session: &DesktopSession,
+        path: &std::path::Path,
+        byte_len: u64,
+        modified_at_ms: Option<i64>,
+        captured_at_unix_seconds: i64,
+    ) -> shadow_catalog::RegisteredAsset {
+        let display_path = path.to_string_lossy().into_owned();
+        let registered = session
+            .catalog
+            .register_asset(&RegisterAsset {
+                kind: RepresentationKind::OriginalRaw,
+                location: AssetLocation::new(
+                    Platform::MacOs,
+                    display_path.as_bytes().to_vec(),
+                    display_path,
+                ),
+                byte_len,
+                modified_at_ms,
+                now_ms: captured_at_unix_seconds,
+            })
+            .expect("register Library fixture source");
+        session
+            .catalog
+            .upsert_photo_library_facts(&LibraryPhotoFacts {
+                photo_id: registered.photo_id,
+                captured_at_unix_seconds: Some(captured_at_unix_seconds),
+                capture_day: "2023-11-14".into(),
+                camera_make: "Nikon Corporation".into(),
+                camera_model: "Nikon Z 8".into(),
+                lens_make: "Nikon".into(),
+                lens_model: "NIKKOR Z 24-120mm f/4 S".into(),
+                aperture_milli: Some(4_000),
+                focal_length_tenth_mm: Some(240),
+                iso_speed: Some(800.0),
+                latitude_e7: Some(399_000_000),
+                longitude_e7: Some(1_164_000_000),
+                place_name: "Beijing".into(),
+                indexed_representation_id: Some(registered.representation_id),
+                indexed_source: Some(RepresentationFingerprint {
+                    byte_len,
+                    modified_at_ms,
+                }),
+                indexed_at_ms: captured_at_unix_seconds + 1,
+            })
+            .expect("index Library fixture metadata");
+        registered
     }
 
     #[test]
@@ -4596,6 +5296,8 @@ mod tests {
                 blacks: -0.2,
             },
             perceptual_color: PerceptualColorParameters {
+                global_a_balance: -0.28,
+                global_b_balance: 0.19,
                 vibrance: 0.3,
                 hue_shifts: [-0.4, -0.3, -0.2, -0.1, 0.1, 0.2, 0.3, 0.4],
                 saturation: [0.45, 0.35, 0.25, 0.15, -0.15, -0.25, -0.35, -0.45],
@@ -4622,6 +5324,13 @@ mod tests {
                 selective_color_lightness_protection: 0.35,
                 selective_color_cmyk: [0.2; SELECTIVE_COLOR_VALUE_COUNT],
             },
+            oklab_color_warper: OklabColorWarperParameters {
+                control_points: [OklabColorWarperControlPoint {
+                    a_offset: 0.06,
+                    b_offset: -0.04,
+                }; OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT],
+                strength: 0.72,
+            },
             oklab_lightness_curve: Some(OklabLightnessToneCurve {
                 lightness: vec![
                     ToneCurvePoint { x: 0.0, y: 0.0 },
@@ -4635,6 +5344,8 @@ mod tests {
                 radius: 2.4,
                 threshold: 0.18,
                 masking: 0.72,
+                local_contrast: -0.52,
+                local_contrast_scale: 0.70,
                 denoise_luminance: 0.3,
                 dehaze: 0.2,
                 shadows_hue: 220.0,
@@ -4667,7 +5378,7 @@ mod tests {
         assert_eq!(persisted.fine, expected);
 
         let plan = compile_recipe_render_plan(&snapshot).expect("compile fine controls");
-        assert_eq!(plan.nodes.len(), 11);
+        assert_eq!(plan.nodes.len(), 12);
         assert!(matches!(
             plan.nodes[3].operation,
             AdjustmentRenderOperation::SelectiveTone { parameters }
@@ -4680,13 +5391,13 @@ mod tests {
         ));
         assert!(matches!(
             &plan.nodes[6].operation,
-            AdjustmentRenderOperation::OklabLightnessToneCurve { curve }
-                if curve.as_ref() == expected.oklab_lightness_curve.as_ref().unwrap()
+            AdjustmentRenderOperation::OklabColorWarper { parameters }
+                if parameters.as_ref() == &expected.oklab_color_warper
         ));
         assert!(matches!(
             &plan.nodes[7].operation,
-            AdjustmentRenderOperation::Sharpen { parameters, .. }
-                if parameters.as_ref() == &expected.sharpen
+            AdjustmentRenderOperation::OklabLightnessToneCurve { curve }
+                if curve.as_ref() == expected.oklab_lightness_curve.as_ref().unwrap()
         ));
         assert!(matches!(
             &plan.nodes[8].operation,
@@ -4694,10 +5405,96 @@ mod tests {
                 if parameters.as_ref() == &expected.sharpen
         ));
         assert!(matches!(
-            &plan.nodes[10].operation,
+            &plan.nodes[9].operation,
             AdjustmentRenderOperation::Sharpen { parameters, .. }
                 if parameters.as_ref() == &expected.sharpen
         ));
+        assert!(matches!(
+            &plan.nodes[11].operation,
+            AdjustmentRenderOperation::Sharpen { parameters, .. }
+                if parameters.as_ref() == &expected.sharpen
+        ));
+    }
+
+    #[test]
+    fn oklab_color_warper_elides_neutral_lattice_and_preserves_fixed_mapping() {
+        let neutral = GradeStackDraft::default();
+        let neutral_snapshot =
+            grade_stack_recipe_v1_snapshot(&neutral, None).expect("persist neutral Grade Node");
+        assert!(
+            single_grade_node_recipe_v1_render_ops(&neutral_snapshot)
+                .expect("read neutral Grade Node")
+                .oklab_color_warper
+                .is_none()
+        );
+
+        let mut authored = neutral;
+        authored.fine.oklab_color_warper.control_points[0] = OklabColorWarperControlPoint {
+            a_offset: -0.12,
+            b_offset: 0.08,
+        };
+        authored.fine.oklab_color_warper.control_points
+            [OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT - 1] = OklabColorWarperControlPoint {
+            a_offset: 0.11,
+            b_offset: -0.09,
+        };
+        authored.fine.oklab_color_warper.strength = 0.63;
+        let identity = authored.recipe_v1_identity.oklab_color_warper_render_op_id;
+
+        let ffi = encode_grade_stack_draft_recipe_v1(authored.clone());
+        assert_eq!(
+            ffi.grade_nodes[0]
+                .fine
+                .oklab_color_warper_control_points
+                .len(),
+            50
+        );
+        assert_eq!(
+            ffi.grade_nodes[0].fine.oklab_color_warper_control_points[0..4],
+            [-0.12, 0.08, 0.0, 0.0]
+        );
+        assert_eq!(
+            ffi.grade_nodes[0].fine.oklab_color_warper_control_points[48..],
+            [0.11, -0.09]
+        );
+        assert_eq!(ffi.grade_nodes[0].fine.oklab_color_warper_strength, 0.63);
+        assert_eq!(
+            decode_grade_stack_draft_recipe_v1(&ffi)
+                .expect("decode Color Warper desktop DTO")
+                .fine
+                .oklab_color_warper,
+            authored.fine.oklab_color_warper
+        );
+
+        let snapshot = grade_stack_recipe_v1_snapshot(&authored, Some(&neutral_snapshot))
+            .expect("persist authored Color Warper");
+        let recipe_nodes =
+            single_grade_node_recipe_v1_render_ops(&snapshot).expect("read authored Grade Node");
+        assert_eq!(
+            recipe_nodes
+                .oklab_color_warper
+                .expect("Color Warper render operation")
+                .id(),
+            identity
+        );
+        let plan = compile_recipe_render_plan(&snapshot).expect("compile Color Warper");
+        assert!(matches!(
+            &plan.nodes[6].operation,
+            AdjustmentRenderOperation::OklabColorWarper { parameters }
+                if parameters.as_ref() == &authored.fine.oklab_color_warper
+        ));
+
+        let mut malformed = ffi;
+        malformed.grade_nodes[0]
+            .fine
+            .oklab_color_warper_control_points
+            .pop();
+        assert!(
+            decode_grade_stack_draft_recipe_v1(&malformed)
+                .expect_err("a Color Warper DTO must contain exactly 25 a/b pairs")
+                .to_string()
+                .contains("oklab_color_warper_control_points")
+        );
     }
 
     #[test]
@@ -4837,6 +5634,15 @@ mod tests {
                 .contains("highlights")
         );
 
+        let mut invalid_global_balance = ffi_parameters(0.0, 1.0, [0.0; 2], 1.0);
+        invalid_global_balance.fine.global_b_balance = f64::NAN;
+        assert!(
+            decode_grade_stack_draft_recipe_v1(&invalid_global_balance)
+                .expect_err("non-finite global Oklab balance must fail closed")
+                .to_string()
+                .contains("global Oklab b balance")
+        );
+
         let mut invalid_range = ffi_parameters(0.0, 1.0, [0.0; 2], 1.0);
         invalid_range.fine.color_range_enabled = false;
         invalid_range.fine.color_range_width = f64::NAN;
@@ -4854,6 +5660,15 @@ mod tests {
                 .expect_err("zero sharpen radius must fail closed")
                 .to_string()
                 .contains("sharpen radius")
+        );
+
+        let mut invalid_local_contrast = ffi_parameters(0.0, 1.0, [0.0; 2], 1.0);
+        invalid_local_contrast.fine.local_contrast_scale = 1.01;
+        assert!(
+            decode_grade_stack_draft_recipe_v1(&invalid_local_contrast)
+                .expect_err("Local Contrast scale must fail closed outside its unit interval")
+                .to_string()
+                .contains("local contrast scale")
         );
     }
 
@@ -5836,12 +6651,18 @@ mod tests {
         after.fine.perceptual_color.color_range.center_hue_degrees = 220.0;
         after.fine.perceptual_color.selective_color_relative = false;
         after.fine.perceptual_color.selective_color_cmyk[0] = 0.2;
+        after.fine.oklab_color_warper.control_points[12] = OklabColorWarperControlPoint {
+            a_offset: 0.08,
+            b_offset: -0.06,
+        };
+        after.fine.oklab_color_warper.strength = 0.72;
         after.fine.sharpen.amount = 1.1;
         after.fine.sharpen.radius = 1.8;
 
         assert_eq!(
             changed_grade_parameters_recipe_v1(&before, &after),
             [
+                "color_warper",
                 "highlights",
                 "blacks",
                 "vibrance",
@@ -6234,6 +7055,9 @@ mod tests {
         fine.selective_color_relative = false;
         fine.selective_color_cmyk[0] = 0.22;
         fine.selective_color_cmyk[19] = -0.17;
+        fine.oklab_color_warper_control_points[6] = 0.09;
+        fine.oklab_color_warper_control_points[7] = -0.04;
+        fine.oklab_color_warper_strength = 0.68;
         fine.oklab_lightness_curve_points = vec![0.0, 0.0, 0.38, 0.49, 0.72, 0.79, 1.0, 1.0];
 
         session
@@ -6265,6 +7089,16 @@ mod tests {
         assert_eq!(
             restored_fine.selective_color_cmyk,
             settings.grade_nodes[0].fine.selective_color_cmyk
+        );
+        assert_eq!(
+            restored_fine.oklab_color_warper_control_points,
+            settings.grade_nodes[0]
+                .fine
+                .oklab_color_warper_control_points
+        );
+        assert_close(
+            restored_fine.oklab_color_warper_strength,
+            settings.grade_nodes[0].fine.oklab_color_warper_strength,
         );
         assert_eq!(
             restored_fine.oklab_lightness_curve_points,

@@ -52,6 +52,12 @@ QString ReviewFilterModel::editFilter() const {
     return edit_filter_;
 }
 
+bool ReviewFilterModel::hasActiveServerFilter() const {
+    return flag_filter_ != QStringLiteral("all") || minimum_rating_ > 0
+        || color_filter_ != QStringLiteral("all")
+        || edit_filter_ != QStringLiteral("all");
+}
+
 void ReviewFilterModel::setFlagFilter(const QString& filter) {
     const QString normalized = normalizeFlagFilter(filter);
     if (flag_filter_ == normalized) {

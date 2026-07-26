@@ -72,9 +72,11 @@ ApplicationWindow {
                 }
                 Label {
                     readonly property var receipt: root.editor.opticsReceipt
-                    text: (root.editor.opticsManualProfile
-                        ? qsTr("Override · %1").arg(root.editor.opticsLensProfile)
-                        : qsTr("Automatic profile matching"))
+                    text: (!root.editor.opticsEnabled
+                        ? qsTr("No profile correction")
+                        : root.editor.opticsManualProfile
+                            ? qsTr("Override · %1").arg(root.editor.opticsLensProfile)
+                            : qsTr("Automatic profile matching"))
                         + (receipt.valid && receipt.providerVersion.length > 0
                             ? " · " + receipt.providerVersion : "")
                     color: Theme.textMuted
@@ -85,9 +87,19 @@ ApplicationWindow {
             ShadowButton {
                 visible: root.sourceIndex === 0
                 text: qsTr("Use Automatic")
-                enabled: root.editor.opticsManualProfile
+                enabled: root.editor.opticsManualProfile || !root.editor.opticsEnabled
                 variant: ShadowButton.Secondary
-                onClicked: root.editor.clearManualOpticsProfile()
+                onClicked: {
+                    root.editor.opticsEnabled = true
+                    root.editor.clearManualOpticsProfile()
+                }
+            }
+            ShadowButton {
+                visible: root.sourceIndex === 0
+                text: qsTr("No Profile")
+                enabled: root.editor.opticsEnabled
+                variant: ShadowButton.Secondary
+                onClicked: root.editor.opticsEnabled = false
             }
             ShadowIconButton {
                 visible: root.sourceIndex === 0

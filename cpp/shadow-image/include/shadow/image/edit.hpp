@@ -101,6 +101,9 @@ struct PhotoGeometry final {
     double crop_right = 1.0;
     double crop_bottom = 1.0;
     PhotoQuarterTurn quarter_turn = PhotoQuarterTurn::zero;
+    // Fine rotation automatically narrows the final canvas to remove the
+    // empty corners it would otherwise create, while retaining this crop's
+    // aspect ratio.
     double straighten_degrees = 0.0;
     bool flip_horizontal = false;
     bool flip_vertical = false;
@@ -216,6 +219,13 @@ inline constexpr std::size_t selective_color_value_count =
     selective_color_target_count * selective_color_component_count;
 inline constexpr std::uint32_t perceptual_color_parameter_schema_version = 1;
 inline constexpr std::uint32_t perceptual_color_implementation_version = 1;
+inline constexpr std::size_t oklab_color_warper_grid_side = 5U;
+inline constexpr std::size_t oklab_color_warper_control_point_count =
+    oklab_color_warper_grid_side * oklab_color_warper_grid_side;
+inline constexpr double oklab_color_warper_half_extent = 0.32;
+inline constexpr double oklab_color_warper_maximum_offset = 0.32;
+inline constexpr std::uint32_t oklab_color_warper_parameter_schema_version = 1;
+inline constexpr std::uint32_t oklab_color_warper_implementation_version = 1;
 
 // Optional circular hue selection evaluated against the source Oklch hue. width_degrees is the
 // half-width of the selected range; softness is the fraction of that half-width used as a smooth
@@ -238,6 +248,13 @@ struct PerceptualColorRange final {
 // normalized amounts in [-1, 1]. Achromatic pixels are deliberately left unchanged because
 // hue is undefined at low chroma.
 struct PerceptualColorAdjustment final {
+    // Broad Oklab opponent-axis balancing, applied after the hue-keyed
+    // controls. Positive a moves toward red (negative toward green); positive
+    // b moves toward yellow (negative toward blue). These are deliberately
+    // bounded user intents rather than an alternate camera white balance: RAW
+    // input rendering and white balance stay earlier in the pipeline.
+    double global_a_balance = 0.0;
+    double global_b_balance = 0.0;
     double vibrance = 0.0;
     std::array<double, perceptual_hue_band_count> hue{};
     std::array<double, perceptual_hue_band_count> saturation{};
@@ -256,6 +273,30 @@ struct PerceptualColorAdjustment final {
     double selective_color_lightness_protection = 0.0;
     std::array<std::array<double, selective_color_component_count>,
                selective_color_target_count> selective_color_cmyk{};
+};
+
+// A Color Warper is a fixed 5×5 lattice over the Oklab a/b plane. Points are
+// stored as target displacements, row-major from negative to positive b and
+// then negative to positive a. The source lattice is immutable, so a recipe
+// remains compact and a UI can draw a stable mesh without serializing a second
+// copy of every source coordinate. Bilinear interpolation makes adjacent point
+// moves continuous; colors outside the declared Oklab extent fade to no warp.
+//
+// It is intentionally a separate node operation rather than another Point
+// Color range. Point Color selects one sampled circular hue range. Color
+// Warper moves a connected two-dimensional hue/chroma field, which makes it
+// useful for coordinated palette reshaping and for a masked grade node.
+struct OklabColorWarperControlPoint final {
+    double a_offset = 0.0;
+    double b_offset = 0.0;
+};
+
+struct OklabColorWarperAdjustment final {
+    std::array<OklabColorWarperControlPoint, oklab_color_warper_control_point_count>
+        control_points{};
+    // Strength intentionally scales a complete authored lattice. It allows a
+    // stable recipe to be blended without changing its geometry.
+    double strength = 1.0;
 };
 
 // Immutable 3D `.cube` resource applied in processed working RGB. Intensity
@@ -291,6 +332,12 @@ struct SharpenAdjustment final {
     // rotate hue or change chroma.
     double clarity = 0.0;
     double texture = 0.0;
+    // Edge-aware broad local-contrast band in Oklab L. `local_contrast_scale`
+    // blends its native support from a medium to a large photographic radius;
+    // it remains separate from clarity (mid-frequency) and texture (fine
+    // residual) so the three controls retain distinct spatial meanings.
+    double local_contrast = 0.0;
+    double local_contrast_scale = 0.5;
     double denoise_luminance = 0.0;
     double denoise_detail = 0.5;
     double denoise_color = 0.0;
@@ -322,7 +369,7 @@ struct SharpenAdjustment final {
     double vignette_highlights = 0.0;
 };
 
-// The 35-scalar Detail & Effects wire shape is divided into three ordered
+// The 37-scalar Detail & Effects wire shape is divided into three ordered
 // execution passes. During pre-release development these all remain v1; old
 // local Recipes are discarded when the shape or behavior changes.
 inline constexpr std::uint32_t detail_effects_parameter_schema_version = 1;
@@ -332,6 +379,8 @@ inline constexpr std::uint32_t finishing_effects_implementation_version = 1;
 
 inline constexpr std::uint32_t oklab_lightness_tone_curve_parameter_schema_version = 1;
 inline constexpr std::uint32_t oklab_lightness_tone_curve_implementation_version = 1;
+inline constexpr std::uint32_t oklab_opponent_tone_curve_parameter_schema_version = 1;
+inline constexpr std::uint32_t oklab_opponent_tone_curve_implementation_version = 1;
 // The perceptual L curve has at most this many authored knots.
 inline constexpr std::size_t maximum_tone_curve_points = 256U;
 inline constexpr std::size_t maximum_tone_curve_preview_samples = 4'097U;
@@ -360,6 +409,18 @@ struct OklabLightnessToneCurve final {
     ToneCurveSet lightness;
 };
 
+// Two optional, lightness-keyed Oklab opponent offsets. Unlike RGB channel
+// curves, these remain in a perceptual color space: the `a` curve moves from
+// green to red and the `b` curve moves from blue to yellow at each lightness.
+// They are deliberately a separate advanced operation, so a normal tone curve
+// never starts changing hue merely because it shares curve-editor affordances.
+struct OklabOpponentToneCurves final {
+    std::uint32_t parameter_schema_version = oklab_opponent_tone_curve_parameter_schema_version;
+    std::uint32_t implementation_version = oklab_opponent_tone_curve_implementation_version;
+    ToneCurveSet a{.points = {{0.0, 0.0}, {1.0, 0.0}}};
+    ToneCurveSet b{.points = {{0.0, 0.0}, {1.0, 0.0}}};
+};
+
 // One small non-generative repair. Coordinates are normalized to the full
 // original-oriented image; the radius remains in level-zero pixels so warm
 // proxies and full detail apply the same physical selection.
@@ -386,10 +447,12 @@ using AdjustmentParameters = std::variant<
     ExposureAdjustment,
     ContrastAdjustment,
     OklabLightnessToneCurve,
+    OklabOpponentToneCurves,
     RgbWhiteBalanceAdjustment,
     SaturationAdjustment,
     SelectiveToneAdjustment,
     PerceptualColorAdjustment,
+    OklabColorWarperAdjustment,
     CubeLutAdjustment,
     SharpenAdjustment,
     SpotHealAdjustment>;
@@ -398,10 +461,12 @@ enum class AdjustmentOperation : std::uint8_t {
     exposure,
     contrast,
     oklab_lightness_tone_curve,
+    oklab_opponent_tone_curves,
     rgb_white_balance,
     saturation,
     selective_tone,
     perceptual_color,
+    oklab_color_warper,
     lut_3d,
     sharpen,
     spot_heal,
@@ -598,7 +663,7 @@ struct AdjustmentLayer final {
 
 // Executes an intentionally compact subset of the future typed edit graph. The recommended
 // default pipeline order is RgbWhiteBalance -> Exposure -> Contrast -> SelectiveTone ->
-// Saturation -> PerceptualColor -> OklabLightnessToneCurve, but that is a recipe
+// Saturation -> PerceptualColor -> OklabLightnessToneCurve -> OklabOpponentToneCurves, but that is a recipe
 // convention: this executor always applies nodes in the supplied span order.
 // Disabled nodes are skipped and the input is never mutated. The executor does not clamp
 // negative or >1 values and rejects NaN/Inf rather than silently contaminating caches.

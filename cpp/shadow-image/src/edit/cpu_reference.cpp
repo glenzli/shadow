@@ -70,7 +70,19 @@ struct PreparedSmoothToneCurve final {
     bool identity = false;
 };
 
-using PreparedCurveAdjustment = std::variant<std::monostate, PreparedSmoothToneCurve>;
+struct PreparedOklabOpponentToneCurves final {
+    PreparedSmoothToneCurve a;
+    PreparedSmoothToneCurve b;
+
+    [[nodiscard]] bool identity() const noexcept {
+        return a.identity && b.identity;
+    }
+};
+
+using PreparedCurveAdjustment = std::variant<
+    std::monostate,
+    PreparedSmoothToneCurve,
+    PreparedOklabOpponentToneCurves>;
 
 [[nodiscard]] std::string node_prefix(
     const std::size_t index,
@@ -539,24 +551,34 @@ void validate_image(const FloatRgbImage& image) {
     const bool oklab_lightness_tone_curve = std::holds_alternative<OklabLightnessToneCurve>(
         node.parameters
     );
+    const bool oklab_opponent_tone_curves = std::holds_alternative<OklabOpponentToneCurves>(
+        node.parameters
+    );
     const bool selective_tone = std::holds_alternative<SelectiveToneAdjustment>(
         node.parameters
     );
     const bool perceptual_color = std::holds_alternative<PerceptualColorAdjustment>(
         node.parameters
     );
+    const bool oklab_color_warper = std::holds_alternative<OklabColorWarperAdjustment>(
+        node.parameters
+    );
     const bool detail_effects = std::holds_alternative<SharpenAdjustment>(node.parameters);
     const std::uint32_t expected_parameter_schema = oklab_lightness_tone_curve
         ? oklab_lightness_tone_curve_parameter_schema_version
+        : oklab_opponent_tone_curves ? oklab_opponent_tone_curve_parameter_schema_version
         : selective_tone ? selective_tone_parameter_schema_version
         : perceptual_color ? perceptual_color_parameter_schema_version
+        : oklab_color_warper ? oklab_color_warper_parameter_schema_version
         : detail_effects ? detail_effects_parameter_schema_version
                          : adjustment_parameter_schema_version;
     const std::uint32_t expected_implementation = oklab_lightness_tone_curve
         ? oklab_lightness_tone_curve_implementation_version
+        : oklab_opponent_tone_curves ? oklab_opponent_tone_curve_implementation_version
         : selective_tone ? selective_tone_implementation_version
         : perceptual_color ? perceptual_color_implementation_version
-                         : adjustment_implementation_version;
+        : oklab_color_warper ? oklab_color_warper_implementation_version
+        : adjustment_implementation_version;
     const bool supported_detail_pass = detail_effects
         && ((std::get<SharpenAdjustment>(node.parameters).execution_pass
                 == DetailEffectsExecutionPass::technical_detail
@@ -579,10 +601,14 @@ void validate_image(const FloatRgbImage& image) {
             node,
             oklab_lightness_tone_curve
                 ? "Oklab lightness curve requires parameter schema 1 and implementation 1"
+                : oklab_opponent_tone_curves
+                    ? "Oklab opponent curves require parameter schema 1 and implementation 1"
                 : selective_tone
                     ? "selective tone requires the current guided-mask contract"
                 : perceptual_color
                     ? "perceptual color requires the current complete contract"
+                : oklab_color_warper
+                    ? "Oklab Color Warper requires parameter schema 1 and implementation 1"
                 : detail_effects
                     ? "Detail & Effects requires the current split-pass contract"
                     : "only parameter schema 1 and implementation 1 are supported"
@@ -620,6 +646,8 @@ void validate_image(const FloatRgbImage& image) {
                 }
             } else if constexpr (std::is_same_v<Parameters, OklabLightnessToneCurve>) {
                 prepared_curve = prepare_oklab_lightness_tone_curve_node(parameters, node, index);
+            } else if constexpr (std::is_same_v<Parameters, OklabOpponentToneCurves>) {
+                prepared_curve = prepare_oklab_opponent_tone_curves_node(parameters, node, index);
             } else if constexpr (std::is_same_v<Parameters, RgbWhiteBalanceAdjustment>) {
                 if (!normalized_amount(parameters.temperature)
                     || !normalized_amount(parameters.tint)) {
@@ -682,7 +710,9 @@ void validate_image(const FloatRgbImage& image) {
                     && parameters.additional_color_ranges.size() + 1U
                         <= maximum_point_color_ranges
                     && std::ranges::all_of(parameters.additional_color_ranges, valid_range);
-                if (!normalized_amount(parameters.vibrance) || !valid_bands || !valid_ranges
+                if (!normalized_amount(parameters.global_a_balance)
+                    || !normalized_amount(parameters.global_b_balance)
+                    || !normalized_amount(parameters.vibrance) || !valid_bands || !valid_ranges
                     || !valid_selective_color
                     || !std::isfinite(parameters.selective_color_lightness_protection)
                     || parameters.selective_color_lightness_protection < 0.0
@@ -692,6 +722,25 @@ void validate_image(const FloatRgbImage& image) {
                         index,
                         node,
                         "perceptual color parameters are outside their finite declared bounds"
+                    );
+                }
+            } else if constexpr (std::is_same_v<Parameters, OklabColorWarperAdjustment>) {
+                const bool valid_control_points = std::ranges::all_of(
+                    parameters.control_points,
+                    [](const OklabColorWarperControlPoint& point) {
+                        return std::isfinite(point.a_offset)
+                            && std::abs(point.a_offset) <= oklab_color_warper_maximum_offset
+                            && std::isfinite(point.b_offset)
+                            && std::abs(point.b_offset) <= oklab_color_warper_maximum_offset;
+                    }
+                );
+                if (!std::isfinite(parameters.strength) || parameters.strength < 0.0
+                    || parameters.strength > 1.0 || !valid_control_points) {
+                    throw_node_error(
+                        EditErrorCode::invalid_parameter,
+                        index,
+                        node,
+                        "Oklab Color Warper controls must be finite and within their declared bounds"
                     );
                 }
             } else if constexpr (std::is_same_v<Parameters, CubeLutAdjustment>) {
@@ -751,6 +800,8 @@ void validate_image(const FloatRgbImage& image) {
                     || parameters.masking > 1.0
                     || !signed_unit(parameters.clarity)
                     || !signed_unit(parameters.texture)
+                    || !signed_unit(parameters.local_contrast)
+                    || !unit(parameters.local_contrast_scale)
                     || !unit(parameters.denoise_luminance)
                     || !unit(parameters.denoise_detail)
                     || !unit(parameters.denoise_color)
@@ -834,6 +885,8 @@ void validate_image(const FloatRgbImage& image) {
                 return value.factor == 1.0;
             } else if constexpr (std::is_same_v<Parameters, OklabLightnessToneCurve>) {
                 return std::get<PreparedSmoothToneCurve>(prepared_curve).identity;
+            } else if constexpr (std::is_same_v<Parameters, OklabOpponentToneCurves>) {
+                return std::get<PreparedOklabOpponentToneCurves>(prepared_curve).identity();
             } else if constexpr (std::is_same_v<Parameters, RgbWhiteBalanceAdjustment>) {
                 return value.temperature == 0.0 && value.tint == 0.0;
             } else if constexpr (std::is_same_v<Parameters, SaturationAdjustment>) {
@@ -843,6 +896,8 @@ void validate_image(const FloatRgbImage& image) {
             } else if constexpr (std::is_same_v<Parameters, PerceptualColorAdjustment>) {
                 return perceptual_color_mapping_is_neutral(value)
                     && selective_color_is_neutral(value);
+            } else if constexpr (std::is_same_v<Parameters, OklabColorWarperAdjustment>) {
+                return color_warper_is_neutral(value);
             } else if constexpr (std::is_same_v<Parameters, CubeLutAdjustment>) {
                 return value.intensity == 0.0;
             } else if constexpr (std::is_same_v<Parameters, SpotHealAdjustment>) {
@@ -860,6 +915,7 @@ void validate_image(const FloatRgbImage& image) {
                 case DetailEffectsExecutionPass::color_grading:
                     return value.clarity == 0.0
                         && value.texture == 0.0
+                        && value.local_contrast == 0.0
                         && value.shadows_saturation == 0.0
                         && value.shadows_luminance == 0.0
                         && value.midtones_saturation == 0.0
@@ -935,6 +991,28 @@ void apply_node(
                     color_transform,
                     [&node, index](const double value) {
                         return checked_float(value, index, node);
+                    }
+                );
+            } else if constexpr (std::is_same_v<Parameters, OklabOpponentToneCurves>) {
+                const WorkingSpaceTransform color_transform =
+                    prepare_working_space_transform(image.working_space, node, index);
+                apply_prepared_oklab_opponent_tone_curves(
+                    image,
+                    std::get<PreparedOklabOpponentToneCurves>(prepared_curve),
+                    color_transform,
+                    [&node, index](const double value) {
+                        return checked_float(value, index, node);
+                    }
+                );
+            } else if constexpr (std::is_same_v<Parameters, OklabColorWarperAdjustment>) {
+                const WorkingSpaceTransform color_transform =
+                    prepare_working_space_transform(image.working_space, node, index);
+                transform_rgb_pixels(
+                    image,
+                    index,
+                    node,
+                    [&parameters, &color_transform](const Vector3& input) {
+                        return apply_oklab_color_warper(input, parameters, color_transform);
                     }
                 );
             } else if constexpr (std::is_same_v<Parameters, RgbWhiteBalanceAdjustment>) {
@@ -1019,6 +1097,7 @@ void apply_node(
                         const double relative_chroma = chroma
                             / std::max(1.0e-6, std::abs(lab[0]));
                         Vector3 adjusted = input;
+                        bool changed = false;
                         if (relative_chroma > perceptual_low_chroma_ratio_epsilon) {
                             const double source_hue = wrap_degrees(
                                 std::atan2(lab[2], lab[1]) * 180.0 / pi
@@ -1057,7 +1136,7 @@ void apply_node(
                             const double lightness_delta = 0.15
                                 * (band_lightness
                                    + range_weight * parameters.color_range.lightness);
-                            bool changed = chroma_factor != 1.0 || hue_delta != 0.0
+                            changed = chroma_factor != 1.0 || hue_delta != 0.0
                                 || lightness_delta != 0.0;
                             if (changed) {
                                 const double adjusted_hue =
@@ -1070,12 +1149,13 @@ void apply_node(
                             for (const auto& range : parameters.additional_color_ranges) {
                                 changed = apply_ordered_color_range(lab, range) || changed;
                             }
-                            if (changed) {
-                                adjusted = multiply(
-                                    color_transform.xyz_to_rgb,
-                                    oklab_to_xyz(lab)
-                                );
-                            }
+                        }
+                        changed = apply_global_oklab_opponent_balance(lab, parameters) || changed;
+                        if (changed) {
+                            adjusted = multiply(
+                                color_transform.xyz_to_rgb,
+                                oklab_to_xyz(lab)
+                            );
                         }
                         return selective_is_neutral
                             ? adjusted
@@ -1162,6 +1242,8 @@ AdjustmentOperation operation(const AdjustmentParameters& parameters) noexcept {
                 return AdjustmentOperation::contrast;
             } else if constexpr (std::is_same_v<Parameters, OklabLightnessToneCurve>) {
                 return AdjustmentOperation::oklab_lightness_tone_curve;
+            } else if constexpr (std::is_same_v<Parameters, OklabOpponentToneCurves>) {
+                return AdjustmentOperation::oklab_opponent_tone_curves;
             } else if constexpr (std::is_same_v<Parameters, RgbWhiteBalanceAdjustment>) {
                 return AdjustmentOperation::rgb_white_balance;
             } else if constexpr (std::is_same_v<Parameters, SaturationAdjustment>) {
@@ -1170,6 +1252,8 @@ AdjustmentOperation operation(const AdjustmentParameters& parameters) noexcept {
                 return AdjustmentOperation::selective_tone;
             } else if constexpr (std::is_same_v<Parameters, PerceptualColorAdjustment>) {
                 return AdjustmentOperation::perceptual_color;
+            } else if constexpr (std::is_same_v<Parameters, OklabColorWarperAdjustment>) {
+                return AdjustmentOperation::oklab_color_warper;
             } else if constexpr (std::is_same_v<Parameters, CubeLutAdjustment>) {
                 return AdjustmentOperation::lut_3d;
             } else if constexpr (std::is_same_v<Parameters, SpotHealAdjustment>) {
@@ -1191,6 +1275,8 @@ std::string_view operation_id(const AdjustmentOperation operation) noexcept {
         return "shadow.contrast";
     case AdjustmentOperation::oklab_lightness_tone_curve:
         return "shadow.oklab_lightness_tone_curve";
+    case AdjustmentOperation::oklab_opponent_tone_curves:
+        return "shadow.oklab_opponent_tone_curves";
     case AdjustmentOperation::rgb_white_balance:
         return "shadow.rgb_white_balance";
     case AdjustmentOperation::saturation:
@@ -1199,6 +1285,8 @@ std::string_view operation_id(const AdjustmentOperation operation) noexcept {
         return "shadow.selective_tone";
     case AdjustmentOperation::perceptual_color:
         return "shadow.perceptual_color";
+    case AdjustmentOperation::oklab_color_warper:
+        return "shadow.oklab_color_warper";
     case AdjustmentOperation::lut_3d:
         return "shadow.lut_3d";
     case AdjustmentOperation::sharpen:
@@ -1214,9 +1302,11 @@ AdjustmentLocality locality(const AdjustmentOperation operation) noexcept {
     case AdjustmentOperation::exposure:
     case AdjustmentOperation::contrast:
     case AdjustmentOperation::oklab_lightness_tone_curve:
+    case AdjustmentOperation::oklab_opponent_tone_curves:
     case AdjustmentOperation::rgb_white_balance:
     case AdjustmentOperation::saturation:
     case AdjustmentOperation::perceptual_color:
+    case AdjustmentOperation::oklab_color_warper:
     case AdjustmentOperation::lut_3d:
         return AdjustmentLocality::pixel_local;
     case AdjustmentOperation::selective_tone:
@@ -1238,7 +1328,8 @@ AdjustmentLocality locality(const AdjustmentParameters& parameters) noexcept {
             } else if constexpr (std::is_same_v<Parameters, SharpenAdjustment>) {
                 return value.execution_pass == DetailEffectsExecutionPass::technical_detail
                         || (value.execution_pass == DetailEffectsExecutionPass::color_grading
-                            && (value.clarity != 0.0 || value.texture != 0.0))
+                            && (value.clarity != 0.0 || value.texture != 0.0
+                                || value.local_contrast != 0.0))
                     ? AdjustmentLocality::neighborhood
                     : AdjustmentLocality::pixel_local;
             } else {
@@ -1330,24 +1421,35 @@ AdjustmentFootprint footprint(
                 if (value.execution_pass != DetailEffectsExecutionPass::technical_detail) {
                     if (value.execution_pass == DetailEffectsExecutionPass::color_grading) {
                         if (!normalized_amount(value.clarity)
-                            || !normalized_amount(value.texture)) {
+                            || !normalized_amount(value.texture)
+                            || !normalized_amount(value.local_contrast)
+                            || !std::isfinite(value.local_contrast_scale)
+                            || value.local_contrast_scale < 0.0
+                            || value.local_contrast_scale > 1.0) {
                             throw EditError(
                                 EditErrorCode::invalid_parameter,
                                 std::nullopt,
                                 "cannot calculate a footprint for malformed perceptual detail parameters"
                             );
                         }
-                        if (value.clarity == 0.0 && value.texture == 0.0) {
+                        if (value.clarity == 0.0 && value.texture == 0.0
+                            && value.local_contrast == 0.0) {
                             return AdjustmentFootprint{};
                         }
                         constexpr double texture_support_level_zero = 3.0 * 1.4;
                         constexpr double clarity_support_level_zero = 3.0 * 12.0;
-                        const double support_level_zero = value.clarity == 0.0
-                            ? texture_support_level_zero
-                            : std::max(
-                                clarity_support_level_zero,
-                                value.texture == 0.0 ? 0.0 : texture_support_level_zero
-                            );
+                        // `guided_self_filter` contains two box means at the
+                        // selected radius. Its guaranteed apron is therefore
+                        // twice the radius rather than a Gaussian's 3 sigma.
+                        const double local_contrast_support_level_zero =
+                            2.0 * local_contrast_radius_level_zero(value);
+                        const double support_level_zero = std::max({
+                            value.texture == 0.0 ? 0.0 : texture_support_level_zero,
+                            value.clarity == 0.0 ? 0.0 : clarity_support_level_zero,
+                            value.local_contrast == 0.0
+                                ? 0.0
+                                : local_contrast_support_level_zero,
+                        });
                         const double horizontal = std::ceil(
                             support_level_zero * level_zero_to_raster_scale_x
                         );
@@ -1578,7 +1680,24 @@ MetalAdjustmentPreparation prepare_metal_adjustment(
                     return MetalAdjustmentPreparation{
                         .program = std::nullopt,
                         .diagnostic =
-                            "Metal curve segment table exceeds its uint32 ABI",
+                        "Metal curve segment table exceeds its uint32 ABI",
+                    };
+                }
+            } else if (step.operation == AdjustmentOperation::oklab_opponent_tone_curves) {
+                const auto& parameters = std::get<OklabOpponentToneCurves>(node.parameters);
+                if (parameters.a.points.size() < 2U || parameters.b.points.size() < 2U
+                    || !checked_resource_add(
+                        curve_segment_count,
+                        parameters.a.points.size() - 1U
+                    )
+                    || !checked_resource_add(
+                        curve_segment_count,
+                        parameters.b.points.size() - 1U
+                    )) {
+                    return MetalAdjustmentPreparation{
+                        .program = std::nullopt,
+                        .diagnostic =
+                            "Metal opponent-curve segment table exceeds its uint32 ABI",
                     };
                 }
             } else if (step.operation == AdjustmentOperation::lut_3d) {
@@ -1592,15 +1711,31 @@ MetalAdjustmentPreparation prepare_metal_adjustment(
                         .diagnostic = "Metal LUT entry table exceeds its uint32 ABI",
                     };
                 }
+            } else if (step.operation == AdjustmentOperation::oklab_color_warper) {
+                const auto& parameters =
+                    std::get<OklabColorWarperAdjustment>(node.parameters);
+                if (!checked_resource_add(
+                        perceptual_mixer_entry_count,
+                        parameters.control_points.size()
+                    )) {
+                    return MetalAdjustmentPreparation{
+                        .program = std::nullopt,
+                        .diagnostic =
+                            "Metal Color Warper control table exceeds its uint32 ABI",
+                    };
+                }
             } else if (step.operation == AdjustmentOperation::perceptual_color) {
                 const auto& parameters =
                     std::get<PerceptualColorAdjustment>(node.parameters);
-                const bool mapping_is_neutral =
-                    perceptual_color_mapping_is_neutral(parameters);
+                const bool hue_mapping_is_neutral =
+                    perceptual_hue_mapping_is_neutral(parameters);
+                const bool global_opponent_balance_is_neutral =
+                    parameters.global_a_balance == 0.0 && parameters.global_b_balance == 0.0;
                 const bool selective_is_neutral =
                     selective_color_is_neutral(parameters);
                 emitted_operation_count =
-                    (mapping_is_neutral ? 0U : 1U)
+                    (hue_mapping_is_neutral ? 0U : 1U)
+                    + (global_opponent_balance_is_neutral ? 0U : 1U)
                     + (selective_is_neutral ? 0U : 1U);
                 if (emitted_operation_count == 0U) {
                     return MetalAdjustmentPreparation{
@@ -1609,7 +1744,7 @@ MetalAdjustmentPreparation prepare_metal_adjustment(
                             "Metal perceptual-color plan contains no active sub-operation",
                     };
                 }
-                if (!mapping_is_neutral
+                if (!hue_mapping_is_neutral
                     && (!checked_resource_add(
                             perceptual_mixer_entry_count,
                             perceptual_hue_band_count
@@ -2007,6 +2142,175 @@ MetalAdjustmentPreparation prepare_metal_adjustment(
                 }
                 break;
             }
+            case AdjustmentOperation::oklab_opponent_tone_curves: {
+                operation_record.opcode = static_cast<std::uint32_t>(
+                    MetalAdjustmentOpcode::oklab_opponent_tone_curves
+                );
+                const auto& parameters = std::get<OklabOpponentToneCurves>(node.parameters);
+                const PreparedOklabOpponentToneCurves curves =
+                    prepare_oklab_opponent_tone_curves_node(
+                        parameters,
+                        node,
+                        step.node_index
+                    );
+                const std::array axes{
+                    std::pair{&parameters.a, &curves.a},
+                    std::pair{&parameters.b, &curves.b},
+                };
+                for (std::size_t axis = 0U; axis < axes.size(); ++axis) {
+                    const ToneCurveSet& source = *axes[axis].first;
+                    const PreparedSmoothToneCurve& prepared_curve = *axes[axis].second;
+                    const std::size_t segment_count = source.points.size() - 1U;
+                    if (segment_count == 0U
+                        || prepared.curve_segments.size()
+                            > std::numeric_limits<std::uint32_t>::max()
+                        || segment_count > std::numeric_limits<std::uint32_t>::max()
+                        || prepared.curve_segments.size()
+                            > std::numeric_limits<std::uint32_t>::max() - segment_count) {
+                        return MetalAdjustmentPreparation{
+                            .program = std::nullopt,
+                            .diagnostic =
+                                "Metal opponent-curve resource range is inconsistent "
+                                "with its active plan",
+                        };
+                    }
+                    const std::uint32_t resource_offset = static_cast<std::uint32_t>(
+                        prepared.curve_segments.size()
+                    );
+                    const std::uint32_t resource_count = static_cast<std::uint32_t>(segment_count);
+                    if (axis == 0U) {
+                        operation_record.resource_offset = resource_offset;
+                        operation_record.resource_count = resource_count;
+                    } else {
+                        operation_record.secondary_resource_offset = resource_offset;
+                        operation_record.secondary_resource_count = resource_count;
+                    }
+                    for (std::size_t index = 0U; index < segment_count; ++index) {
+                        const ToneCurvePoint left = source.points[index];
+                        const ToneCurvePoint right = source.points[index + 1U];
+                        const auto metal_interval = checked_normalized_interval(
+                            left.x,
+                            right.x,
+                            128.0 * static_cast<double>(
+                                std::numeric_limits<float>::epsilon()
+                            )
+                        );
+                        if (!metal_interval.has_value()) {
+                            return MetalAdjustmentPreparation{
+                                .program = std::nullopt,
+                                .diagnostic =
+                                    "Metal opponent-curve knots cannot preserve their "
+                                    "interval in fp32",
+                            };
+                        }
+                        MetalCurveSegment segment_record;
+                        if (!fill_vector(
+                                {
+                                    static_cast<double>((*metal_interval)[0]),
+                                    left.y,
+                                    prepared_curve.knot_derivatives[index],
+                                    0.0,
+                                },
+                                segment_record.left
+                            )
+                            || !fill_vector(
+                                {
+                                    static_cast<double>((*metal_interval)[1]),
+                                    right.y,
+                                    prepared_curve.knot_derivatives[index + 1U],
+                                    0.0,
+                                },
+                                segment_record.right
+                            )) {
+                            return MetalAdjustmentPreparation{
+                                .program = std::nullopt,
+                                .diagnostic =
+                                    "Metal opponent-curve segment exceeds finite fp32 range",
+                            };
+                        }
+                        prepared.curve_segments.push_back(segment_record);
+                    }
+                }
+                if (!working_transform.has_value()) {
+                    working_transform = prepare_working_space_transform(
+                        input.working_space,
+                        node,
+                        step.node_index
+                    );
+                }
+                break;
+            }
+            case AdjustmentOperation::oklab_color_warper: {
+                operation_record.opcode = static_cast<std::uint32_t>(
+                    MetalAdjustmentOpcode::oklab_color_warper
+                );
+                const auto& parameters =
+                    std::get<OklabColorWarperAdjustment>(node.parameters);
+                if (parameters.control_points.size()
+                        != oklab_color_warper_control_point_count
+                    || prepared.perceptual_mixer_entries.size()
+                        > std::numeric_limits<std::uint32_t>::max()
+                    || parameters.control_points.size()
+                        > std::numeric_limits<std::uint32_t>::max()
+                            - prepared.perceptual_mixer_entries.size()) {
+                    return MetalAdjustmentPreparation{
+                        .program = std::nullopt,
+                        .diagnostic =
+                            "Metal Color Warper resource range is inconsistent with its active plan",
+                    };
+                }
+                const auto strength = checked_semantic_float(parameters.strength);
+                const auto half_extent = checked_semantic_float(
+                    oklab_color_warper_half_extent
+                );
+                // Keep the feather an authored part of the transient program. It is not a
+                // Recipe control, but putting it beside the strength makes the CPU/Metal
+                // boundary fade explicit and keeps the shader independent of a magic value.
+                constexpr double edge_feather = 0.04;
+                const auto feather = checked_semantic_float(edge_feather);
+                if (!strength.has_value() || !half_extent.has_value()
+                    || !feather.has_value()) {
+                    return MetalAdjustmentPreparation{
+                        .program = std::nullopt,
+                        .diagnostic =
+                            "Metal Color Warper parameters cannot preserve their fp32 semantics",
+                    };
+                }
+                operation_record.resource_offset = static_cast<std::uint32_t>(
+                    prepared.perceptual_mixer_entries.size()
+                );
+                operation_record.resource_count = static_cast<std::uint32_t>(
+                    parameters.control_points.size()
+                );
+                operation_record.parameter_0 = {
+                    *strength,
+                    *half_extent,
+                    *feather,
+                    0.0F,
+                };
+                for (const auto& point : parameters.control_points) {
+                    MetalPerceptualMixerEntry entry;
+                    if (!fill_semantic_vector(
+                            {point.a_offset, point.b_offset, 0.0, 0.0},
+                            entry.value
+                        )) {
+                        return MetalAdjustmentPreparation{
+                            .program = std::nullopt,
+                            .diagnostic =
+                                "Metal Color Warper controls cannot preserve their fp32 semantics",
+                        };
+                    }
+                    prepared.perceptual_mixer_entries.push_back(entry);
+                }
+                if (!working_transform.has_value()) {
+                    working_transform = prepare_working_space_transform(
+                        input.working_space,
+                        node,
+                        step.node_index
+                    );
+                }
+                break;
+            }
             case AdjustmentOperation::lut_3d: {
                 operation_record.opcode = static_cast<std::uint32_t>(
                     MetalAdjustmentOpcode::lut_3d
@@ -2099,7 +2403,8 @@ MetalAdjustmentPreparation prepare_metal_adjustment(
             case AdjustmentOperation::sharpen: {
                 const auto& parameters = std::get<SharpenAdjustment>(node.parameters);
                 if (parameters.execution_pass != DetailEffectsExecutionPass::color_grading
-                    || parameters.clarity != 0.0 || parameters.texture != 0.0) {
+                    || parameters.clarity != 0.0 || parameters.texture != 0.0
+                    || parameters.local_contrast != 0.0) {
                     return MetalAdjustmentPreparation{
                         .program = std::nullopt,
                         .diagnostic =
@@ -2155,11 +2460,14 @@ MetalAdjustmentPreparation prepare_metal_adjustment(
             case AdjustmentOperation::perceptual_color: {
                 const auto& parameters =
                     std::get<PerceptualColorAdjustment>(node.parameters);
-                const bool mapping_is_neutral =
-                    perceptual_color_mapping_is_neutral(parameters);
+                const bool hue_mapping_is_neutral =
+                    perceptual_hue_mapping_is_neutral(parameters);
+                const bool global_opponent_balance_is_neutral =
+                    parameters.global_a_balance == 0.0 && parameters.global_b_balance == 0.0;
                 const bool selective_is_neutral =
                     selective_color_is_neutral(parameters);
-                if (mapping_is_neutral && selective_is_neutral) {
+                if (hue_mapping_is_neutral && global_opponent_balance_is_neutral
+                    && selective_is_neutral) {
                     return MetalAdjustmentPreparation{
                         .program = std::nullopt,
                         .diagnostic =
@@ -2167,7 +2475,7 @@ MetalAdjustmentPreparation prepare_metal_adjustment(
                     };
                 }
 
-                if (!mapping_is_neutral) {
+                if (!hue_mapping_is_neutral) {
                     MetalAdjustmentOp mapping_record{
                         .opcode = static_cast<std::uint32_t>(
                             MetalAdjustmentOpcode::perceptual_mapping
@@ -2282,14 +2590,37 @@ MetalAdjustmentPreparation prepare_metal_adjustment(
                         prepared.perceptual_range_entries.push_back(entry);
                     }
 
-                    if (selective_is_neutral) {
-                        operation_record = mapping_record;
-                    } else {
-                        // CPU applies the mapping and Selective Color sub-stages in this exact
-                        // order inside one source node. Emit two adjacent transient operations
-                        // without changing the durable execution plan or Recipe schema.
-                        prepared.operations.push_back(mapping_record);
+                    // CPU applies the hue/range mapping, global opponent balance, and
+                    // Selective Color stages in this exact order inside one source node.
+                    // The transient operations preserve that sequence without changing the
+                    // durable execution plan or Recipe schema.
+                    prepared.operations.push_back(mapping_record);
+                }
+
+                if (!global_opponent_balance_is_neutral) {
+                    MetalAdjustmentOp balance_record{
+                        .opcode = static_cast<std::uint32_t>(
+                            MetalAdjustmentOpcode::oklab_opponent_balance
+                        ),
+                        .source_node_index =
+                            static_cast<std::uint32_t>(step.node_index),
+                    };
+                    if (!fill_semantic_vector(
+                            {
+                                parameters.global_a_balance,
+                                parameters.global_b_balance,
+                                0.0,
+                                0.0,
+                            },
+                            balance_record.parameter_0
+                        )) {
+                        return MetalAdjustmentPreparation{
+                            .program = std::nullopt,
+                            .diagnostic =
+                                "Metal global Oklab balance cannot preserve its fp32 semantics",
+                        };
                     }
+                    prepared.operations.push_back(balance_record);
                 }
 
                 if (!selective_is_neutral) {
@@ -2352,7 +2683,10 @@ MetalAdjustmentPreparation prepare_metal_adjustment(
                         step.node_index
                     );
                 }
-                break;
+                // PerceptualColor can lower to multiple adjacent Metal operations; they have
+                // all been appended above, so skip the one-record epilogue used by simpler
+                // adjustment kinds.
+                continue;
             }
             case AdjustmentOperation::selective_tone:
             case AdjustmentOperation::spot_heal:

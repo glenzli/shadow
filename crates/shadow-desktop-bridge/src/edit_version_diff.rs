@@ -302,6 +302,9 @@ fn changed_fine_parameters(before: &FineEditParameters, after: &FineEditParamete
     if before.oklab_lightness_curve != after.oklab_lightness_curve {
         changed.push("oklab_lightness_curve".to_owned());
     }
+    if before.oklab_color_warper != after.oklab_color_warper {
+        changed.push("color_warper".to_owned());
+    }
     if before.lut != after.lut {
         changed.push("lut".to_owned());
     }
@@ -357,6 +360,7 @@ pub(super) fn changed_grade_parameters_recipe_v1(
         "saturation_factor",
         "grade_node_enabled",
         "oklab_lightness_curve",
+        "color_warper",
         "highlights",
         "shadows",
         "whites",
@@ -460,6 +464,13 @@ fn canonical_grade_stack_recipe_v1_identity_is_preserved(
                 && match (
                     before_nodes.oklab_lightness_curve,
                     after_nodes.oklab_lightness_curve,
+                ) {
+                    (Some(before), Some(after)) => before.id() == after.id(),
+                    _ => true,
+                }
+                && match (
+                    before_nodes.oklab_color_warper,
+                    after_nodes.oklab_color_warper,
                 ) {
                     (Some(before), Some(after)) => before.id() == after.id(),
                     _ => true,

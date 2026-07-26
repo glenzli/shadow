@@ -6,8 +6,10 @@ import QtQuick.Controls
 import QtQuick.Layouts
 
 // Photo-local deterministic repair. Heal reconstructs from a surrounding
-// ring; Clone copies a same-shaped nearby source. The canvas owns direct
-// manipulation while the inspector exposes compact, precise controls.
+// ring; Clone copies a same-shaped nearby source. Painting creates an
+// overlapping sequence of the existing bounded repair targets, so the
+// rendered/persisted behavior remains deterministic while the UI reads as a
+// continuous repair region.
 ColumnLayout {
     id: retouch
 
@@ -21,7 +23,7 @@ ColumnLayout {
         visible: retouch.currentTabIndex === 0
         title: qsTr("REPAIR")
         summary: retouch.inspector.editor.retouchSpots.length > 0
-            ? qsTr("%1 spots").arg(retouch.inspector.editor.retouchSpots.length)
+            ? qsTr("Painted")
             : qsTr("None")
         toolTipText: qsTr("Remove small distractions with a feathered heal or a nearby clone source.")
         sectionEnabled: retouch.inspector.editor.active
@@ -61,8 +63,8 @@ ColumnLayout {
                 source: "qrc:/icons/retouch.svg"
                 selected: retouch.inspector.editor.retouchPickerActive
                 toolTipText: retouch.inspector.editor.retouchPickerActive
-                    ? qsTr("Stop adding repair spots")
-                    : qsTr("Add repair spots")
+                    ? qsTr("Stop painting")
+                    : qsTr("Start painting")
                 accessibleName: toolTipText
                 onClicked: retouch.inspector.editor.setRetouchPickerActive(
                     !retouch.inspector.editor.retouchPickerActive)
@@ -74,8 +76,8 @@ ColumnLayout {
             Layout.leftMargin: 14
             Layout.rightMargin: 14
             text: retouch.inspector.editor.retouchPickerActive
-                ? qsTr("Click the image to add. Drag circles to refine.")
-                : qsTr("Select a circle on the image to refine it.")
+                ? qsTr("Drag across the image to paint repair regions.")
+                : qsTr("Select a repair region on the image to refine it.")
             color: retouch.inspector.editor.retouchPickerActive
                 ? Theme.accentTextMuted : Theme.textMuted
             font.pixelSize: 10
@@ -99,7 +101,7 @@ ColumnLayout {
 
                     Label {
                         Layout.fillWidth: true
-                        text: qsTr("Spot %1").arg(modelData.index + 1)
+                        text: qsTr("Region %1").arg(modelData.index + 1)
                         color: Theme.textSecondary
                         font.pixelSize: 10
                         font.weight: Font.DemiBold
@@ -127,7 +129,7 @@ ColumnLayout {
                         buttonSize: 24
                         iconSize: 15
                         source: "qrc:/icons/trash.svg"
-                        toolTipText: qsTr("Remove spot %1").arg(
+                        toolTipText: qsTr("Remove region %1").arg(
                             modelData.index + 1)
                         accessibleName: toolTipText
                         onClicked: retouch.inspector.editor.removeRetouchSpot(
@@ -177,7 +179,7 @@ ColumnLayout {
                 Label {
                     Layout.fillWidth: true
                     visible: Number(modelData.mode) === 1
-                    text: qsTr("Drag the linked source circle on the image.")
+                    text: qsTr("Drag the linked source region on the image.")
                     color: Theme.textMuted
                     font.pixelSize: 9
                 }

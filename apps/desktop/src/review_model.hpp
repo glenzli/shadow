@@ -3,7 +3,6 @@
 #include <QAbstractListModel>
 #include <QHash>
 #include <QString>
-#include <QVariantMap>
 #include <QVector>
 
 #include <atomic>
@@ -18,6 +17,14 @@ struct ReviewDecisionValue final {
     bool operator==(const ReviewDecisionValue&) const = default;
 };
 
+struct ReviewLibraryStateValue final {
+    bool liked = false;
+    QString color_label = QStringLiteral("none");
+    std::int64_t updated_at_ms = 0;
+
+    bool operator==(const ReviewLibraryStateValue&) const = default;
+};
+
 struct ReviewItem final {
     QString photo_id;
     QString representation_id;
@@ -25,6 +32,10 @@ struct ReviewItem final {
     quint64 decision_head_sequence = 0;
     QString decision_flag = QStringLiteral("unflagged");
     int decision_rating = 0;
+    /// Durable Library state lives in the Catalog, not in desktop settings.
+    bool liked = false;
+    QString color_label = QStringLiteral("none");
+    std::int64_t library_state_updated_at_ms = 0;
     bool has_development_edits = false;
     QString title;
     QString source_path;
@@ -110,7 +121,9 @@ public:
         DecisionHeadSequenceRole,
         DecisionFlagRole,
         DecisionRatingRole,
+        LikedRole,
         ColorLabelRole,
+        LibraryStateUpdatedAtMsRole,
         HasDevelopmentEditsRole,
     };
     Q_ENUM(Role)
@@ -122,6 +135,9 @@ public:
     [[nodiscard]] QHash<int, QByteArray> roleNames() const override;
 
     void replace(QVector<ReviewItem> items, quint64 generation);
+    /// Advances the request generation while retaining the current visible
+    /// rows until the next photo-first page reconciles them.
+    void setGeneration(quint64 generation) noexcept;
     void append(QVector<ReviewItem> items);
     // Appends only a current-generation page whose stable keys are unique both
     // within the page and across the already presented rows.
@@ -142,10 +158,12 @@ public:
         QVector<ReviewItem> items,
         quint64 generation
     );
-    [[nodiscard]] QVector<QString> representationIds() const;
     [[nodiscard]] bool isGenerationCurrent(quint64 generation) const noexcept;
     [[nodiscard]] QString visualSourceFor(const QString& ticket) const;
     [[nodiscard]] std::optional<ReviewDecisionValue> decisionFor(
+        const QString& photo_id
+    ) const;
+    [[nodiscard]] std::optional<ReviewLibraryStateValue> libraryStateFor(
         const QString& photo_id
     ) const;
     [[nodiscard]] bool updateDecision(
@@ -154,15 +172,17 @@ public:
         const QString& flag,
         int rating
     );
-    [[nodiscard]] bool setColorLabel(
+    /// Applies the Catalog-authoritative durable Library state for a loaded
+    /// photo. The stable model key is photo_id; representation_id may change
+    /// when a source is relinked without creating a second logical photo.
+    [[nodiscard]] bool updateLibraryState(
         const QString& photo_id,
-        const QString& color_label
+        bool liked,
+        const QString& color_label,
+        std::int64_t updated_at_ms
     );
-    void restoreColorLabels(const QVariantMap& labels);
-    [[nodiscard]] QVariantMap colorLabels() const;
 
 private:
     QVector<ReviewItem> items_;
-    QHash<QString, QString> color_labels_;
     std::atomic<quint64> generation_ = 0;
 };

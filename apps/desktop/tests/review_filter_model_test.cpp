@@ -41,12 +41,19 @@ void combined_lightroom_filters_intersect() {
         1
     );
     require(
-        source.setColorLabel(QStringLiteral("photo-a"), QStringLiteral("blue"))
-            && source.setColorLabel(
+        source.updateLibraryState(
+            QStringLiteral("photo-a"),
+            false,
+            QStringLiteral("blue"),
+            1
+        )
+            && source.updateLibraryState(
                 QStringLiteral("photo-b"),
-                QStringLiteral("red")
+                false,
+                QStringLiteral("red"),
+                2
             ),
-        "the source model must accept valid local color labels"
+        "the source model must accept Catalog-authoritative color-label receipts"
     );
 
     ReviewFilterModel filtered;
@@ -54,6 +61,7 @@ void combined_lightroom_filters_intersect() {
     require(filtered.rowCount() == 3, "the default filter must include all photos");
 
     filtered.setFlagFilter(QStringLiteral("picked"));
+    require(filtered.hasActiveServerFilter(), "a selected facet must require a server query");
     require(filtered.rowCount() == 1, "flag filtering must narrow the grid");
     filtered.setMinimumRating(4);
     require(
@@ -71,6 +79,7 @@ void combined_lightroom_filters_intersect() {
         "all enabled Lightroom-style filter facets must intersect"
     );
     filtered.clearFilters();
+    require(!filtered.hasActiveServerFilter(), "clearing facets must restore the all-photos query");
     filtered.setEditFilter(QStringLiteral("edited"));
     require(
         filtered.rowCount() == 1,

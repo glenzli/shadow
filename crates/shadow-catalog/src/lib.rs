@@ -8,6 +8,7 @@ mod cache_artifact;
 mod decision;
 mod decode_snapshot;
 mod edit_repository;
+mod export_queue;
 mod feedback;
 mod import_journal;
 mod library;
@@ -34,7 +35,8 @@ pub use backup::{
 };
 pub use cache_artifact::{
     CachedArtifact, CachedArtifactGeneratorIdentity, CachedArtifactRecord, CachedArtifactRole,
-    InvalidateCachedArtifactStatus, RecordCachedArtifact, RecordCachedArtifactStatus,
+    InvalidateCachedArtifactStatus, LiveCachedArtifactBlob, RecordCachedArtifact,
+    RecordCachedArtifactStatus,
 };
 pub use decision::{MAX_PHOTO_DECISION_PAGE_SIZE, PhotoDecisionPage};
 pub use decode_snapshot::{
@@ -46,12 +48,22 @@ pub use edit_repository::{
     EditObjectPackWrite, EditObjectRecord, EditRepositoryCommitRecord, EditRepositoryRefRecord,
     EditRepositoryRefUpdate, StoreEditObjectPackResult,
 };
+pub use export_queue::{
+    AdvanceExportItem, EnqueueExportJob, ExportFailure, ExportItemId, ExportItemRecord,
+    ExportItemState, ExportJobId, ExportJobProgress, ExportJobRecord, ExportJobState,
+    ExportOutputReceiptId, ExportOutputReceiptRecord, ExportPresetId, ExportPresetRecord,
+    ExportPresetRevisionId, ExportPresetRevisionRecord, ExportQueueRecovery, ExportSettingsSource,
+    MAX_EXPORT_JOB_PAGE_SIZE, NewExportItem, NewExportOutputReceipt,
+};
 pub use feedback::{FeedbackPage, MAX_FEEDBACK_PAGE_SIZE};
-pub use import_journal::{ImportSession, ImportSessionState, ImportSessionSummary};
+pub use import_journal::{
+    ImportSession, ImportSessionState, ImportSessionSummary, SourceScanReconciliation,
+};
 pub use library::{
     AlbumKind, AlbumRecord, ContentIdentity, ContentIdentityScope, LibraryApertureRange,
     LibraryDateRange, LibraryPhotoCursor, LibraryPhotoFacts, LibraryPhotoFilter, LibraryPhotoPage,
-    LibraryPhotoRecord, LibrarySourceRecord, MAX_LIBRARY_PAGE_SIZE, PhotoLibraryState, RelinkMatch,
+    LibraryPhotoRecord, LibrarySourceRecord, MAX_LIBRARY_PAGE_SIZE, PhotoLibraryState,
+    RecordRepresentationContentIdentity, RecordRepresentationContentIdentityStatus, RelinkMatch,
     SetPhotoLibraryState, library_equipment_key,
 };
 pub use recipe::{
@@ -576,6 +588,8 @@ CREATE TABLE representation_content_identities (
     provider_id       TEXT NOT NULL DEFAULT '',
     provider_version  TEXT NOT NULL DEFAULT '',
     digest            BLOB NOT NULL CHECK (length(digest) = 32),
+    source_byte_len   INTEGER NOT NULL CHECK (source_byte_len >= 0),
+    source_modified_at_ms INTEGER,
     observed_at_ms    INTEGER NOT NULL,
     PRIMARY KEY (representation_id, scope, algorithm, provider_id, provider_version),
     UNIQUE (scope, algorithm, provider_id, provider_version, digest),
@@ -675,7 +689,7 @@ CREATE INDEX locations_representation_status_current_idx
 const SCHEMA_V1_STATE: &str = r"
 CREATE TABLE catalog_schema (
     version       INTEGER PRIMARY KEY NOT NULL CHECK (version = 1),
-    identity      TEXT NOT NULL CHECK (identity = 'shadow-catalog-v1-r24-preview-provenance'),
+    identity      TEXT NOT NULL CHECK (identity = 'shadow-catalog-v1-r26-identity-fingerprint-guard'),
     created_at_ms INTEGER NOT NULL
 ) STRICT;
 ";
@@ -693,6 +707,7 @@ const SCHEMA_V1_COMPONENTS: &[&str] = &[
     SCHEMA_V1_TECHNICAL_OBSERVATION,
     SCHEMA_V1_DECISION,
     SCHEMA_V1_EDIT_REPOSITORY,
+    export_queue::SCHEMA_V1_EXPORT_QUEUE,
     SCHEMA_V1_LIBRARY,
     SCHEMA_V1_LIBRARY_INDEXES,
 ];
@@ -717,6 +732,27 @@ pub enum CatalogError {
         session_id: shadow_domain::ImportSessionId,
         display_path: String,
     },
+    #[error(
+        "cannot attach verified relocation because the target location is already registered: {display_path}"
+    )]
+    RelinkTargetLocationAlreadyRegistered { display_path: String },
+    #[error(
+        "cannot attach verified relocation because its exact identity is not recorded for expected representation {expected_representation_id}"
+    )]
+    RelinkIdentityNotRecorded {
+        expected_representation_id: RepresentationId,
+    },
+    #[error(
+        "cannot attach verified relocation because its exact identity belongs to representation {actual_representation_id}, not expected representation {expected_representation_id}"
+    )]
+    RelinkIdentityOwnerMismatch {
+        expected_representation_id: RepresentationId,
+        actual_representation_id: RepresentationId,
+    },
+    #[error(
+        "representation {representation_id} changed while its content identity was being bound"
+    )]
+    ContentIdentitySourceChanged { representation_id: RepresentationId },
     #[error("cannot start catalog writer actor: {0}")]
     ActorStart(#[source] std::io::Error),
     #[error("catalog writer actor is unavailable")]
@@ -739,6 +775,39 @@ pub enum CatalogError {
     InvalidAlbum(String),
     #[error("invalid Library query: {0}")]
     InvalidLibraryQuery(String),
+    #[error("invalid export queue data: {0}")]
+    InvalidExport(String),
+    #[error("export preset {0} does not exist")]
+    ExportPresetNotFound(export_queue::ExportPresetId),
+    #[error("export preset revision {0} does not exist")]
+    ExportPresetRevisionNotFound(export_queue::ExportPresetRevisionId),
+    #[error("export job {0} does not exist")]
+    ExportJobNotFound(export_queue::ExportJobId),
+    #[error("export item {0} does not exist")]
+    ExportItemNotFound(export_queue::ExportItemId),
+    #[error(
+        "export item {item_id} state did not match expected {expected:?}; actual state is {actual:?}"
+    )]
+    ExportItemStateMismatch {
+        item_id: export_queue::ExportItemId,
+        expected: export_queue::ExportItemState,
+        actual: export_queue::ExportItemState,
+    },
+    #[error("export item {item_id} cannot transition from {from:?} to {to:?}")]
+    InvalidExportTransition {
+        item_id: export_queue::ExportItemId,
+        from: export_queue::ExportItemState,
+        to: export_queue::ExportItemState,
+    },
+    #[error("representation {representation_id} is not owned by export photo {photo_id}")]
+    ExportRepresentationOwnerMismatch {
+        photo_id: PhotoId,
+        representation_id: RepresentationId,
+    },
+    #[error("export recipe snapshot digest does not match immutable commit {commit_id}")]
+    ExportRecipeSnapshotMismatch {
+        commit_id: shadow_domain::RecipeCommitId,
+    },
     #[error("invalid decode snapshot: {0}")]
     InvalidDecodeSnapshot(&'static str),
     #[error("decode snapshot field {field} is outside SQLite's integer range")]
@@ -1009,6 +1078,25 @@ fn register_asset_in_transaction(
             && existing.modified_at_ms == request.modified_at_ms;
 
         if !unchanged {
+            let byte_len = i64::try_from(request.byte_len)
+                .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
+            // A location may be overwritten in place. Its representation
+            // keeps the logical photo identity, but every byte-derived proof
+            // belongs to the old revision and must be discarded atomically.
+            // Updating the representation fingerprint also naturally
+            // invalidates decoder snapshots and cache artifacts keyed by it.
+            transaction.execute(
+                "UPDATE representations SET byte_len = ?2, modified_at_ms = ?3 WHERE id = ?1",
+                params![
+                    existing.representation_id.as_bytes().as_slice(),
+                    byte_len,
+                    request.modified_at_ms,
+                ],
+            )?;
+            transaction.execute(
+                "DELETE FROM representation_content_identities WHERE representation_id = ?1",
+                [existing.representation_id.as_bytes().as_slice()],
+            )?;
             transaction.execute(
                 "UPDATE locations SET status = ?1 WHERE id = ?2",
                 params![
@@ -1059,7 +1147,7 @@ fn initialize_schema_v1(connection: &mut Connection) -> Result<(), CatalogError>
                 |row| row.get(0),
             )
             .optional()?;
-        if identity.as_deref() == Some("shadow-catalog-v1-r24-preview-provenance")
+        if identity.as_deref() == Some("shadow-catalog-v1-r26-identity-fingerprint-guard")
             && current_schema_version(connection)? == SCHEMA_VERSION
         {
             return Ok(());
@@ -1086,7 +1174,7 @@ fn initialize_schema_v1(connection: &mut Connection) -> Result<(), CatalogError>
     }
     transaction.execute(
         "INSERT INTO catalog_schema(version, identity, created_at_ms)
-         VALUES (?1, 'shadow-catalog-v1-r24-preview-provenance', unixepoch('subsec') * 1000)",
+         VALUES (?1, 'shadow-catalog-v1-r26-identity-fingerprint-guard', unixepoch('subsec') * 1000)",
         [SCHEMA_VERSION],
     )?;
     transaction.commit()?;
@@ -1121,7 +1209,7 @@ fn catalog_tables_exist(connection: &Connection) -> rusqlite::Result<bool> {
 fn current_schema_version(connection: &Connection) -> rusqlite::Result<i64> {
     connection.query_row(
         "SELECT version FROM catalog_schema
-         WHERE identity = 'shadow-catalog-v1-r24-preview-provenance'",
+         WHERE identity = 'shadow-catalog-v1-r26-identity-fingerprint-guard'",
         [],
         |row| row.get(0),
     )
@@ -1272,6 +1360,50 @@ mod tests {
             )
             .expect("read v1 RawFrame capability column");
         assert_eq!(raw_frame_column, 1);
+        let identity_source_columns: i64 = catalog
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('representation_content_identities')
+                 WHERE name IN ('source_byte_len', 'source_modified_at_ms')",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read identity source provenance columns");
+        assert_eq!(identity_source_columns, 2);
+        let export_queue_table: i64 = catalog
+            .connection
+            .query_row(
+                "SELECT EXISTS(
+                     SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'export_jobs'
+                 )",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read v1 durable export queue table");
+        assert_eq!(export_queue_table, 1);
+    }
+
+    #[test]
+    fn prior_v1_identity_is_rejected_for_a_development_reset() {
+        let mut connection = Connection::open_in_memory().expect("open prior v1 fixture");
+        configure_connection(&connection, false).expect("configure prior v1 fixture");
+        connection
+            .execute_batch(
+                "CREATE TABLE catalog_schema (
+                     version INTEGER PRIMARY KEY NOT NULL CHECK (version = 1),
+                     identity TEXT NOT NULL,
+                     created_at_ms INTEGER NOT NULL
+                 ) STRICT;
+                 INSERT INTO catalog_schema(version, identity, created_at_ms)
+                 VALUES (1, 'shadow-catalog-v1-r24-preview-provenance', 1);",
+            )
+            .expect("seed prior v1 identity");
+
+        assert!(matches!(
+            initialize_schema_v1(&mut connection),
+            Err(CatalogError::DevelopmentCatalogResetRequired { found: None })
+        ));
+        assert!(table_exists(&connection, "catalog_schema").expect("preserve reset marker"));
     }
 
     #[test]

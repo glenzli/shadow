@@ -350,22 +350,66 @@ void dual_illuminant_interpolation_is_deterministic() {
     );
 }
 
-void unimplemented_creative_stages_fail_as_one_profile() {
+[[nodiscard]] image::DcpHsvTable value_scale_table(const float saturated_value_scale) {
+    return image::DcpHsvTable{
+        .hue_divisions = 1U,
+        .saturation_divisions = 2U,
+        .value_divisions = 1U,
+        .encoding = image::DcpTableEncoding::linear,
+        .entries = {
+            image::DcpHsvDelta{.hue_shift_degrees = 0.0F, .saturation_scale = 1.0F, .value_scale = 1.0F},
+            image::DcpHsvDelta{.hue_shift_degrees = 0.0F, .saturation_scale = 1.0F, .value_scale = saturated_value_scale},
+        },
+    };
+}
+
+[[nodiscard]] image::PixelBuffer one_linear_srgb_pixel(
+    const std::uint16_t red,
+    const std::uint16_t green,
+    const std::uint16_t blue
+) {
+    image::PixelBuffer pixel;
+    pixel.dimensions = image::Dimensions{1U, 1U};
+    pixel.bits_per_channel = 16U;
+    pixel.channels = 3U;
+    pixel.row_stride_bytes = 3U * sizeof(std::uint16_t);
+    pixel.primaries = image::RgbPrimaries::srgb_rec709_d65;
+    pixel.transfer_function = image::RgbTransferFunction::linear;
+    pixel.reference = image::RgbBufferReference::processed_raw;
+    pixel.samples = {red, green, blue};
+    return pixel;
+}
+
+void standard_dcp_rendering_stages_compile_and_apply() {
     auto definition = profile_definition(true);
+    definition.profile.calibration1.hue_sat_map = value_scale_table(0.8F);
+    definition.profile.look_table = value_scale_table(0.7F);
     definition.profile.tone_curve = {
         image::DcpToneCurvePoint{0.0F, 0.0F},
+        image::DcpToneCurvePoint{0.5F, 0.35F},
         image::DcpToneCurvePoint{1.0F, 1.0F},
     };
-    try {
-        static_cast<void>(image::compile_dcp_color_transform(definition, raw_descriptor()));
-        expect(false, "DCP with unimplemented rendering stage must not be partially applied");
-    } catch (const image::DcpColorDevelopmentError& error) {
-        expect(
-            error.code()
-                == image::DcpColorDevelopmentErrorCode::unsupported_rendering_feature,
-            "unimplemented rendering stage has a typed fail-closed diagnostic"
-        );
-    }
+    const auto transform = image::compile_dcp_color_transform(definition, raw_descriptor());
+    expect(
+        transform.valid() && transform.has_post_matrix_stages()
+            && transform.receipt.hue_sat_map_applied
+            && transform.receipt.look_table_applied
+            && transform.receipt.tone_curve_applied,
+        "standard DCP input-rendering stages compile into one valid camera transform"
+    );
+    auto pixel = one_linear_srgb_pixel(60'000U, 20'000U, 2'000U);
+    image::apply_dcp_color_rendering_stages(pixel, transform);
+    expect(
+        pixel.samples[0] < 60'000U && pixel.samples[1] < 20'000U,
+        "HueSatMap, LookTable, and ToneCurve affect camera rendering before the edit graph"
+    );
+    const std::string receipt_identity = image::dcp_color_receipt_identity(transform.receipt);
+    expect(
+        receipt_identity.find("huesat=applied") != std::string::npos
+            && receipt_identity.find("look=applied") != std::string::npos
+            && receipt_identity.find("tone=applied") != std::string::npos,
+        "camera-rendering cache identity records every applied DCP stage"
+    );
 }
 
 void configured_public_rawtherapee_profile_parses_when_available() {
@@ -388,7 +432,7 @@ int main() {
     forward_matrix_is_preferred_and_superwhite_is_preserved();
     color_matrix_is_inverted_and_adapted();
     dual_illuminant_interpolation_is_deterministic();
-    unimplemented_creative_stages_fail_as_one_profile();
+    standard_dcp_rendering_stages_compile_and_apply();
     configured_public_rawtherapee_profile_parses_when_available();
     std::cout << "shadow image camera profile contract tests passed\n";
 }

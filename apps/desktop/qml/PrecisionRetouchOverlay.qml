@@ -3,7 +3,9 @@ pragma Translator: "PrecisionWorkspace"
 
 import QtQuick
 
-// Direct manipulation for photo-local deterministic repair. Target and clone
+// Direct manipulation for photo-local deterministic repair. Each persisted
+// target remains a bounded circular operation, but its soft fill makes
+// adjacent brush stamps read as one affected repair region. Target and clone
 // source coordinates stay in the recipe/controller; this overlay only maps
 // level-zero geometry to the visible photo surface.
 Item {
@@ -102,7 +104,12 @@ Item {
                 width: repairHandle.radiusPixels * 2
                 height: width
                 radius: width / 2
-                color: Theme.transparent
+                color: Qt.rgba(
+                    Theme.accent.r,
+                    Theme.accent.g,
+                    Theme.accent.b,
+                    0.16
+                )
                 border.width: 2
                 border.color: Theme.accent
 
@@ -116,24 +123,6 @@ Item {
                     color: Theme.transparent
                     border.width: 1
                     border.color: Theme.previewCompareDivider
-                }
-
-                Rectangle {
-                    anchors.centerIn: parent
-                    width: 18
-                    height: 18
-                    radius: 9
-                    color: Theme.previewHudStrongOverlay
-                    border.width: 1
-                    border.color: Theme.previewHudBorder
-
-                    Text {
-                        anchors.centerIn: parent
-                        text: String(Number(repairHandle.modelData.index) + 1)
-                        color: Theme.previewCompareDivider
-                        font.pixelSize: 9
-                        font.bold: true
-                    }
                 }
 
                 MouseArea {
@@ -176,7 +165,12 @@ Item {
                 width: repairHandle.radiusPixels * 2
                 height: width
                 radius: width / 2
-                color: Theme.transparent
+                color: Qt.rgba(
+                    Theme.accent.r,
+                    Theme.accent.g,
+                    Theme.accent.b,
+                    0.12
+                )
                 border.width: 1
                 border.color: Theme.previewCompareDivider
 

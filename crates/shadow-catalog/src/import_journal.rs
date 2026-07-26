@@ -1,11 +1,18 @@
 use rusqlite::{OptionalExtension, params, types::Type};
-use shadow_domain::{AssetLocation, EntityId, ImportSessionId, LibrarySourceId, Platform};
+use shadow_domain::{
+    AssetLocation, EntityId, ImportSessionId, LibrarySourceId, Platform, RepresentationId,
+};
 use uuid::Uuid;
 
-use crate::library::{attach_location_to_library_source, upsert_library_source_in_transaction};
+use crate::library::{
+    attach_location_to_identity_match, attach_location_to_library_source, find_identity_match,
+    record_content_identity_if_current_in_transaction, upsert_library_source_in_transaction,
+};
 use crate::{
-    Catalog, CatalogError, RegisterAsset, RegisteredAsset, RegistrationStatus, non_negative_count,
-    read_id, register_asset_in_transaction,
+    Catalog, CatalogError, ContentIdentity, RecordRepresentationContentIdentity,
+    RecordRepresentationContentIdentityStatus, RegisterAsset, RegisteredAsset, RegistrationStatus,
+    RepresentationFingerprint, find_existing_asset, non_negative_count, read_id,
+    register_asset_in_transaction,
 };
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -54,6 +61,24 @@ pub struct ImportSessionSummary {
     pub needs_revalidation: u64,
     pub failed_entries: u64,
     pub issues: u64,
+}
+
+/// A non-destructive view of what one completed scan observed for one Library
+/// source.
+///
+/// `not_seen_locations` deliberately does **not** mean a location is globally
+/// offline. Sources can overlap, a nested folder can be temporarily
+/// unreadable, and the same representation may be available elsewhere. The
+/// result is therefore suitable for an explicit relink/review workflow, not a
+/// background status mutation.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct SourceScanReconciliation {
+    pub session_id: ImportSessionId,
+    pub source_id: LibrarySourceId,
+    pub completed_at_ms: i64,
+    pub known_locations: u64,
+    pub seen_locations: u64,
+    pub not_seen_locations: u64,
 }
 
 impl Catalog {
@@ -218,44 +243,76 @@ impl Catalog {
     ) -> Result<RegisteredAsset, CatalogError> {
         let transaction = self.connection.transaction()?;
         let result = register_asset_in_transaction(&transaction, request)?;
-        let source_id: Option<LibrarySourceId> = transaction
-            .query_row(
-                "SELECT source_id FROM import_sessions WHERE id = ?1",
-                [session_id.as_bytes().as_slice()],
-                |row| optional_id(row, 0),
-            )
-            .optional()?
-            .flatten();
-        if let Some(source_id) = source_id {
-            attach_location_to_library_source(
-                &transaction,
-                result.location_id,
-                source_id,
-                request.now_ms,
-            )?;
-        }
-        let updated = transaction.execute(
-            "UPDATE import_entries
-             SET state = ?3, photo_id = ?4, representation_id = ?5,
-                 location_id = ?6, error = NULL, updated_at_ms = ?7
-             WHERE session_id = ?1 AND native_path = ?2",
-            params![
-                session_id.as_bytes().as_slice(),
-                request.location.native_path.as_slice(),
-                registration_state(result.status),
-                result.photo_id.as_bytes().as_slice(),
-                result.representation_id.as_bytes().as_slice(),
-                result.location_id.as_bytes().as_slice(),
-                request.now_ms
-            ],
-        )?;
-        if updated != 1 {
-            return Err(CatalogError::ImportEntryNotFound {
-                session_id,
+        finish_import_registration(&transaction, session_id, request, result)?;
+        transaction.commit()?;
+        Ok(result)
+    }
+
+    /// Attaches one newly discovered location to an already verified,
+    /// path-independent representation identity and journals that attachment
+    /// in the same transaction.
+    ///
+    /// This is intentionally stricter than ordinary import registration:
+    /// callers must first journal discovery, verify an exact identity outside
+    /// the writer, and retain the representation id selected by that proof.
+    /// A path that already exists, an absent identity, or an identity owned by
+    /// another representation are all rejected without mutating the catalog.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] if the prior discovery is absent, the target
+    /// is not new, or the exact identity no longer proves the expected owner.
+    pub fn register_import_verified_relocation(
+        &mut self,
+        session_id: ImportSessionId,
+        request: &RegisterAsset,
+        expected_representation_id: RepresentationId,
+        identity: &ContentIdentity,
+    ) -> Result<RegisteredAsset, CatalogError> {
+        identity.validate()?;
+        let transaction = self.connection.transaction()?;
+
+        if find_existing_asset(&transaction, &request.location)?.is_some() {
+            return Err(CatalogError::RelinkTargetLocationAlreadyRegistered {
                 display_path: request.location.display_path.clone(),
             });
         }
-        touch_session(&transaction, session_id, request.now_ms)?;
+
+        let actual = find_identity_match(&transaction, identity)?.ok_or(
+            CatalogError::RelinkIdentityNotRecorded {
+                expected_representation_id,
+            },
+        )?;
+        if actual.representation_id != expected_representation_id {
+            return Err(CatalogError::RelinkIdentityOwnerMismatch {
+                expected_representation_id,
+                actual_representation_id: actual.representation_id,
+            });
+        }
+
+        let result = attach_location_to_identity_match(&transaction, request, actual)?;
+        // The lookup above proves the digest has not changed; this only refreshes
+        // the observation time and binds it to the newly attached physical
+        // source. `attach_location_to_identity_match` changed the
+        // representation fingerprint, so persisting the old source stamp here
+        // would intentionally be rejected as stale.
+        let record = RecordRepresentationContentIdentity {
+            representation_id: result.representation_id,
+            expected_source: RepresentationFingerprint {
+                byte_len: request.byte_len,
+                modified_at_ms: request.modified_at_ms,
+            },
+            identity: identity.clone(),
+            observed_at_ms: request.now_ms,
+        };
+        if record_content_identity_if_current_in_transaction(&transaction, &record)?
+            == RecordRepresentationContentIdentityStatus::StaleSource
+        {
+            return Err(CatalogError::ContentIdentitySourceChanged {
+                representation_id: result.representation_id,
+            });
+        }
+        finish_import_registration(&transaction, session_id, request, result)?;
         transaction.commit()?;
         Ok(result)
     }
@@ -309,13 +366,23 @@ impl Catalog {
                 state: state.as_str(),
             });
         }
-        let updated = self.connection.execute(
+        let transaction = self.connection.transaction()?;
+        let source_id: Option<LibrarySourceId> = transaction
+            .query_row(
+                "SELECT source_id FROM import_sessions WHERE id = ?1",
+                [id.as_bytes().as_slice()],
+                |row| optional_id(row, 0),
+            )
+            .optional()?
+            .flatten();
+        let updated = transaction.execute(
             "UPDATE import_sessions
              SET state = ?2, updated_at_ms = ?3, finished_at_ms = ?3, last_error = ?4
              WHERE id = ?1 AND state = 'running'",
             params![id.as_bytes().as_slice(), state.as_str(), now_ms, last_error],
         )?;
         if updated != 1 {
+            drop(transaction);
             let session = self
                 .import_session(id)?
                 .ok_or(CatalogError::ImportSessionNotFound(id))?;
@@ -324,6 +391,20 @@ impl Catalog {
                 state: session.state.as_str(),
             });
         }
+        if state == ImportSessionState::Completed
+            && let Some(source_id) = source_id
+        {
+            transaction.execute(
+                "UPDATE library_sources
+                 SET last_scanned_at_ms = CASE
+                     WHEN last_scanned_at_ms IS NULL OR last_scanned_at_ms < ?2 THEN ?2
+                     ELSE last_scanned_at_ms
+                 END
+                 WHERE id = ?1",
+                params![source_id.as_bytes().as_slice(), now_ms],
+            )?;
+        }
+        transaction.commit()?;
         Ok(())
     }
 
@@ -375,6 +456,63 @@ impl Catalog {
             issues: non_negative_count(issues)?,
         })
     }
+
+    /// Reports which known locations were observed by one completed source
+    /// scan without changing any location's global availability state.
+    ///
+    /// The join uses the journaled `location_id`, rather than timestamp
+    /// comparisons, so two scans that begin within the same clock tick remain
+    /// distinct. A legacy session without a durable Library source has no
+    /// reconciliation report.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError::InvalidImportSessionState`] unless the session
+    /// completed successfully, or a catalog read error when its durable scan
+    /// entries cannot be queried.
+    pub fn source_scan_reconciliation(
+        &self,
+        id: ImportSessionId,
+    ) -> Result<Option<SourceScanReconciliation>, CatalogError> {
+        let session = self
+            .import_session(id)?
+            .ok_or(CatalogError::ImportSessionNotFound(id))?;
+        if session.state != ImportSessionState::Completed {
+            return Err(CatalogError::InvalidImportSessionState {
+                id,
+                state: session.state.as_str(),
+            });
+        }
+        let Some(source_id) = session.source_id else {
+            return Ok(None);
+        };
+
+        let (known_locations, seen_locations): (i64, i64) = self.connection.query_row(
+            "SELECT COUNT(*), COUNT(seen.location_id)
+             FROM location_sources source_locations
+             LEFT JOIN (
+                 SELECT DISTINCT location_id
+                 FROM import_entries
+                 WHERE session_id = ?1
+                   AND location_id IS NOT NULL
+                   AND state IN ('inserted', 'unchanged', 'needs_revalidation')
+             ) seen ON seen.location_id = source_locations.location_id
+             WHERE source_locations.source_id = ?2",
+            params![id.as_bytes().as_slice(), source_id.as_bytes().as_slice()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        let known_locations = non_negative_count(known_locations)?;
+        let seen_locations = non_negative_count(seen_locations)?;
+
+        Ok(Some(SourceScanReconciliation {
+            session_id: id,
+            source_id,
+            completed_at_ms: session.finished_at_ms.unwrap_or(session.updated_at_ms),
+            known_locations,
+            seen_locations,
+            not_seen_locations: known_locations.saturating_sub(seen_locations),
+        }))
+    }
 }
 
 fn registration_state(status: RegistrationStatus) -> &'static str {
@@ -383,6 +521,57 @@ fn registration_state(status: RegistrationStatus) -> &'static str {
         RegistrationStatus::Unchanged => "unchanged",
         RegistrationStatus::NeedsRevalidation => "needs_revalidation",
     }
+}
+
+/// Finishes any successful registration by binding its physical location to
+/// the import source and replacing the one discovered journal entry. Keeping
+/// this beside the journal state machine makes ordinary imports and verified
+/// relocations share exactly the same durable completion behavior.
+fn finish_import_registration(
+    transaction: &rusqlite::Transaction<'_>,
+    session_id: ImportSessionId,
+    request: &RegisterAsset,
+    result: RegisteredAsset,
+) -> Result<(), CatalogError> {
+    let source_id: Option<LibrarySourceId> = transaction
+        .query_row(
+            "SELECT source_id FROM import_sessions WHERE id = ?1",
+            [session_id.as_bytes().as_slice()],
+            |row| optional_id(row, 0),
+        )
+        .optional()?
+        .flatten();
+    if let Some(source_id) = source_id {
+        attach_location_to_library_source(
+            transaction,
+            result.location_id,
+            source_id,
+            request.now_ms,
+        )?;
+    }
+
+    let updated = transaction.execute(
+        "UPDATE import_entries
+         SET state = ?3, photo_id = ?4, representation_id = ?5,
+             location_id = ?6, error = NULL, updated_at_ms = ?7
+         WHERE session_id = ?1 AND native_path = ?2",
+        params![
+            session_id.as_bytes().as_slice(),
+            request.location.native_path.as_slice(),
+            registration_state(result.status),
+            result.photo_id.as_bytes().as_slice(),
+            result.representation_id.as_bytes().as_slice(),
+            result.location_id.as_bytes().as_slice(),
+            request.now_ms
+        ],
+    )?;
+    if updated != 1 {
+        return Err(CatalogError::ImportEntryNotFound {
+            session_id,
+            display_path: request.location.display_path.clone(),
+        });
+    }
+    touch_session(transaction, session_id, request.now_ms)
 }
 
 fn touch_session(
@@ -474,16 +663,35 @@ mod tests {
     }
 
     fn request() -> RegisterAsset {
+        request_at("/photos/one.nef", 42, Some(100), 1_700_000_000_000)
+    }
+
+    fn request_at(
+        path: &str,
+        byte_len: u64,
+        modified_at_ms: Option<i64>,
+        now_ms: i64,
+    ) -> RegisterAsset {
+        RegisterAsset {
+            kind: RepresentationKind::OriginalRaw,
+            location: AssetLocation::new(Platform::MacOs, path.as_bytes().to_vec(), path),
+            byte_len,
+            modified_at_ms,
+            now_ms,
+        }
+    }
+
+    fn relocated_request() -> RegisterAsset {
         RegisterAsset {
             kind: RepresentationKind::OriginalRaw,
             location: AssetLocation::new(
                 Platform::MacOs,
-                b"/photos/one.nef".to_vec(),
-                "/photos/one.nef",
+                b"/consolidated/2026/one-renamed.nef".to_vec(),
+                "/consolidated/2026/one-renamed.nef",
             ),
             byte_len: 42,
-            modified_at_ms: Some(100),
-            now_ms: 1_700_000_000_000,
+            modified_at_ms: Some(200),
+            now_ms: 1_700_000_000_200,
         }
     }
 
@@ -521,12 +729,155 @@ mod tests {
         assert_eq!(sources.len(), 1);
         assert_eq!(sources[0].id, source_id);
         assert_eq!(sources[0].root, root());
+        assert_eq!(sources[0].last_scanned_at_ms, Some(20));
         assert!(
             catalog
                 .unfinished_import_sessions()
                 .expect("unfinished sessions")
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn source_freshness_is_recorded_only_after_completed_scan() {
+        let mut catalog = Catalog::open_in_memory().expect("open catalog");
+        let cancelled = catalog
+            .begin_import_session(&root(), 10)
+            .expect("begin cancelled scan");
+        let source_id = catalog
+            .import_session(cancelled)
+            .expect("read cancelled session")
+            .expect("cancelled session exists")
+            .source_id
+            .expect("source attached");
+        assert_eq!(
+            catalog.library_sources().expect("sources")[0].last_scanned_at_ms,
+            None
+        );
+
+        catalog
+            .finish_import_session(cancelled, ImportSessionState::Cancelled, None, 20)
+            .expect("cancel scan");
+        assert_eq!(
+            catalog.library_sources().expect("sources")[0].last_scanned_at_ms,
+            None
+        );
+
+        let failed = catalog
+            .begin_import_session(&root(), 30)
+            .expect("begin failed scan");
+        catalog
+            .finish_import_session(failed, ImportSessionState::Failed, Some("unavailable"), 40)
+            .expect("fail scan");
+        assert_eq!(
+            catalog.library_sources().expect("sources")[0].last_scanned_at_ms,
+            None
+        );
+
+        let completed = catalog
+            .begin_import_session(&root(), 50)
+            .expect("begin completed scan");
+        let observed = request_at("/photos/one.nef", 42, Some(100), 51);
+        catalog
+            .record_import_discovered(completed, &observed)
+            .expect("record observed file");
+        catalog
+            .register_import_asset(completed, &observed)
+            .expect("register observed file");
+        catalog
+            .finish_import_session(completed, ImportSessionState::Completed, None, 60)
+            .expect("complete scan");
+
+        let source = catalog
+            .library_sources()
+            .expect("sources")
+            .into_iter()
+            .find(|source| source.id == source_id)
+            .expect("same source");
+        assert_eq!(source.last_scanned_at_ms, Some(60));
+    }
+
+    #[test]
+    fn completed_scan_reports_source_locations_not_seen_without_marking_them_offline() {
+        let mut catalog = Catalog::open_in_memory().expect("open catalog");
+        let first = catalog
+            .begin_import_session(&root(), 10)
+            .expect("begin initial scan");
+        for observed in [
+            request_at("/photos/one.nef", 42, Some(100), 11),
+            request_at("/photos/two.nef", 84, Some(101), 12),
+        ] {
+            catalog
+                .record_import_discovered(first, &observed)
+                .expect("record initial source file");
+            catalog
+                .register_import_asset(first, &observed)
+                .expect("register initial source file");
+        }
+        catalog
+            .finish_import_session(first, ImportSessionState::Completed, None, 20)
+            .expect("complete initial scan");
+        assert_eq!(
+            catalog
+                .source_scan_reconciliation(first)
+                .expect("reconcile initial scan"),
+            Some(SourceScanReconciliation {
+                session_id: first,
+                source_id: catalog
+                    .import_session(first)
+                    .expect("read initial session")
+                    .expect("initial session exists")
+                    .source_id
+                    .expect("source attached"),
+                completed_at_ms: 20,
+                known_locations: 2,
+                seen_locations: 2,
+                not_seen_locations: 0,
+            })
+        );
+
+        let second = catalog
+            .begin_import_session(&root(), 30)
+            .expect("begin follow-up scan");
+        let observed = request_at("/photos/one.nef", 42, Some(100), 31);
+        catalog
+            .record_import_discovered(second, &observed)
+            .expect("record remaining source file");
+        catalog
+            .register_import_asset(second, &observed)
+            .expect("register remaining source file");
+        catalog
+            .finish_import_session(second, ImportSessionState::Completed, None, 40)
+            .expect("complete follow-up scan");
+
+        let reconciliation = catalog
+            .source_scan_reconciliation(second)
+            .expect("reconcile completed scan")
+            .expect("source-backed session");
+        assert_eq!(reconciliation.known_locations, 2);
+        assert_eq!(reconciliation.seen_locations, 1);
+        assert_eq!(reconciliation.not_seen_locations, 1);
+        assert_eq!(
+            catalog
+                .library_photo_count(&crate::LibraryPhotoFilter::default())
+                .expect("unseen source location remains visible"),
+            2
+        );
+    }
+
+    #[test]
+    fn source_reconciliation_requires_a_completed_session() {
+        let mut catalog = Catalog::open_in_memory().expect("open catalog");
+        let running = catalog
+            .begin_import_session(&root(), 10)
+            .expect("begin scan");
+        assert!(matches!(
+            catalog.source_scan_reconciliation(running),
+            Err(CatalogError::InvalidImportSessionState {
+                id,
+                state: "running"
+            }) if id == running
+        ));
     }
 
     #[test]
@@ -590,5 +941,194 @@ mod tests {
                 .state,
             ImportSessionState::Completed
         );
+    }
+
+    #[test]
+    fn verified_relocation_attaches_the_existing_representation_and_journals_once() {
+        let mut catalog = Catalog::open_in_memory().expect("open catalog");
+        let original = catalog
+            .register_asset(&request())
+            .expect("register original");
+        let identity = ContentIdentity::whole_file_blake3([23; 32]);
+        catalog
+            .record_representation_content_identity(&RecordRepresentationContentIdentity {
+                representation_id: original.representation_id,
+                expected_source: RepresentationFingerprint {
+                    byte_len: 42,
+                    modified_at_ms: Some(100),
+                },
+                identity: identity.clone(),
+                observed_at_ms: 10,
+            })
+            .expect("record exact identity");
+
+        let session_id = catalog
+            .begin_import_session(&root(), 20)
+            .expect("begin relocation session");
+        let moved_request = relocated_request();
+        catalog
+            .record_import_discovered(session_id, &moved_request)
+            .expect("journal relocated discovery");
+
+        let moved = catalog
+            .register_import_verified_relocation(
+                session_id,
+                &moved_request,
+                original.representation_id,
+                &identity,
+            )
+            .expect("attach verified relocation");
+
+        assert_eq!(moved.photo_id, original.photo_id);
+        assert_eq!(moved.representation_id, original.representation_id);
+        assert_ne!(moved.location_id, original.location_id);
+        assert_eq!(moved.status, RegistrationStatus::NeedsRevalidation);
+        assert_eq!(catalog.stats().expect("stats").photos, 1);
+        assert_eq!(catalog.stats().expect("stats").representations, 1);
+        assert_eq!(catalog.stats().expect("stats").locations, 2);
+        assert_eq!(
+            catalog
+                .relink_match(&identity)
+                .expect("identity stays current after move"),
+            Some(crate::RelinkMatch {
+                photo_id: original.photo_id,
+                representation_id: original.representation_id,
+            })
+        );
+        assert_eq!(
+            catalog
+                .import_session_summary(session_id)
+                .expect("journal summary")
+                .needs_revalidation,
+            1
+        );
+    }
+
+    #[test]
+    fn verified_relocation_rejects_stale_identity_or_registered_target_without_side_effects() {
+        let mut catalog = Catalog::open_in_memory().expect("open catalog");
+        let original = catalog
+            .register_asset(&request())
+            .expect("register original");
+        let identity = ContentIdentity::whole_file_blake3([29; 32]);
+        catalog
+            .record_representation_content_identity(&RecordRepresentationContentIdentity {
+                representation_id: original.representation_id,
+                expected_source: RepresentationFingerprint {
+                    byte_len: 42,
+                    modified_at_ms: Some(100),
+                },
+                identity: identity.clone(),
+                observed_at_ms: 10,
+            })
+            .expect("record exact identity");
+
+        let session_id = catalog
+            .begin_import_session(&root(), 20)
+            .expect("begin relocation session");
+        let moved_request = relocated_request();
+        catalog
+            .record_import_discovered(session_id, &moved_request)
+            .expect("journal relocated discovery");
+
+        let wrong_representation = catalog
+            .register_asset(&RegisterAsset {
+                kind: RepresentationKind::OriginalRaw,
+                location: AssetLocation::new(
+                    Platform::MacOs,
+                    b"/photos/unrelated.nef".to_vec(),
+                    "/photos/unrelated.nef",
+                ),
+                byte_len: 7,
+                modified_at_ms: Some(11),
+                now_ms: 21,
+            })
+            .expect("register unrelated asset");
+        let mismatch = catalog
+            .register_import_verified_relocation(
+                session_id,
+                &moved_request,
+                wrong_representation.representation_id,
+                &identity,
+            )
+            .expect_err("another representation must not acquire identity owner location");
+        assert!(matches!(
+            mismatch,
+            CatalogError::RelinkIdentityOwnerMismatch {
+                expected_representation_id,
+                actual_representation_id,
+            } if expected_representation_id == wrong_representation.representation_id
+                && actual_representation_id == original.representation_id
+        ));
+        assert_eq!(catalog.stats().expect("stats").locations, 2);
+
+        let existing_target = catalog
+            .register_import_asset(session_id, &moved_request)
+            .expect("ordinary registration occupies target");
+        let conflict = catalog
+            .register_import_verified_relocation(
+                session_id,
+                &moved_request,
+                original.representation_id,
+                &identity,
+            )
+            .expect_err("pre-existing target must not be merged by relocation");
+        assert!(matches!(
+            conflict,
+            CatalogError::RelinkTargetLocationAlreadyRegistered { .. }
+        ));
+        assert_eq!(catalog.stats().expect("stats").locations, 3);
+        assert_ne!(
+            existing_target.representation_id,
+            original.representation_id
+        );
+    }
+
+    #[test]
+    fn verified_relocation_rejects_a_confirmation_after_its_original_source_changes() {
+        let mut catalog = Catalog::open_in_memory().expect("open catalog");
+        let original_request = request();
+        let original = catalog
+            .register_asset(&original_request)
+            .expect("register original");
+        let identity = ContentIdentity::whole_file_blake3([37; 32]);
+        catalog
+            .record_representation_content_identity(&RecordRepresentationContentIdentity {
+                representation_id: original.representation_id,
+                expected_source: RepresentationFingerprint {
+                    byte_len: original_request.byte_len,
+                    modified_at_ms: original_request.modified_at_ms,
+                },
+                identity: identity.clone(),
+                observed_at_ms: 10,
+            })
+            .expect("record original identity");
+
+        let session_id = catalog
+            .begin_import_session(&root(), 20)
+            .expect("begin relocation session");
+        let moved_request = relocated_request();
+        catalog
+            .record_import_discovered(session_id, &moved_request)
+            .expect("journal relocation discovery");
+
+        catalog
+            .register_asset(&request_at("/photos/one.nef", 43, Some(101), 21))
+            .expect("observe original source replacement");
+        let error = catalog
+            .register_import_verified_relocation(
+                session_id,
+                &moved_request,
+                original.representation_id,
+                &identity,
+            )
+            .expect_err("invalidated identity cannot attach the confirmed move");
+        assert!(matches!(
+            error,
+            CatalogError::RelinkIdentityNotRecorded {
+                expected_representation_id
+            } if expected_representation_id == original.representation_id
+        ));
+        assert_eq!(catalog.stats().expect("stats").locations, 1);
     }
 }

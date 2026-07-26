@@ -12,6 +12,12 @@
         && curve.points[1] == ToneCurvePoint{1.0, 1.0};
 }
 
+[[nodiscard]] bool zero_curve_set(const ToneCurveSet& curve) noexcept {
+    return std::ranges::all_of(curve.points, [](const ToneCurvePoint point) {
+        return point.y == 0.0;
+    });
+}
+
 [[nodiscard]] double pchip_endpoint_derivative(
     const double first_width,
     const double second_width,
@@ -248,6 +254,101 @@ void apply_prepared_oklab_lightness_tone_curve(
 ) {
     try {
         return prepare_oklab_lightness_tone_curve(curve);
+    } catch (const EditError& error) {
+        throw_node_error(error.code(), index, node, error.what());
+    }
+}
+
+inline constexpr double maximum_oklab_opponent_curve_offset = 0.12;
+
+[[nodiscard]] PreparedOklabOpponentToneCurves prepare_oklab_opponent_tone_curves(
+    const OklabOpponentToneCurves& curves
+) {
+    if (curves.parameter_schema_version != oklab_opponent_tone_curve_parameter_schema_version
+        || curves.implementation_version != oklab_opponent_tone_curve_implementation_version) {
+        throw EditError(
+            EditErrorCode::unsupported_version,
+            std::nullopt,
+            "Oklab opponent curves support only parameter schema 1 and implementation 1"
+        );
+    }
+    const auto prepare_axis = [](const ToneCurveSet& curve, const std::string_view axis) {
+        if (!std::ranges::all_of(curve.points, [](const ToneCurvePoint point) {
+                return point.y >= -maximum_oklab_opponent_curve_offset
+                    && point.y <= maximum_oklab_opponent_curve_offset;
+            })) {
+            throw EditError(
+                EditErrorCode::invalid_parameter,
+                std::nullopt,
+                "Oklab opponent " + std::string(axis)
+                    + " curve offsets must remain within the declared perceptual range"
+            );
+        }
+        PreparedSmoothToneCurve prepared = prepare_smooth_tone_curve(curve);
+        // Oklab opponent curves are offset curves, so their neutral form is
+        // y=0 rather than the usual y=x tone-curve identity.
+        prepared.identity = zero_curve_set(curve);
+        return prepared;
+    };
+    return PreparedOklabOpponentToneCurves{
+        .a = prepare_axis(curves.a, "a"),
+        .b = prepare_axis(curves.b, "b"),
+    };
+}
+
+template <typename CheckedConversion>
+void apply_prepared_oklab_opponent_tone_curves(
+    FloatRgbImage& image,
+    const PreparedOklabOpponentToneCurves& prepared,
+    const WorkingSpaceTransform& color_transform,
+    CheckedConversion&& checked_conversion
+) {
+    if (prepared.identity()) {
+        return;
+    }
+    const std::size_t stride = image.row_stride_bytes / sizeof(float);
+    parallel_for_rows(image.dimensions.height, [&](const std::uint32_t first_row,
+                                                   const std::uint32_t past_last_row) {
+        for (std::size_t y = first_row; y < past_last_row; ++y) {
+            const std::size_t row = y * stride;
+            for (std::size_t x = 0U; x < image.dimensions.width; ++x) {
+                const std::size_t sample = row + x * rgb_channels;
+                const Vector3 input{
+                    static_cast<double>(image.samples[sample]),
+                    static_cast<double>(image.samples[sample + 1U]),
+                    static_cast<double>(image.samples[sample + 2U]),
+                };
+                Vector3 lab = xyz_to_oklab(multiply(color_transform.rgb_to_xyz, input));
+                // The authored control domain is photographic Oklab L. HDR
+                // headroom should not extrapolate into an arbitrary cast, so
+                // highlights beyond that domain use the endpoint color shift.
+                const double key = std::clamp(lab[0], 0.0, 1.0);
+                lab[1] += std::clamp(
+                    evaluate_smooth_tone_curve(prepared.a, key),
+                    -maximum_oklab_opponent_curve_offset,
+                    maximum_oklab_opponent_curve_offset
+                );
+                lab[2] += std::clamp(
+                    evaluate_smooth_tone_curve(prepared.b, key),
+                    -maximum_oklab_opponent_curve_offset,
+                    maximum_oklab_opponent_curve_offset
+                );
+                const Vector3 output = multiply(color_transform.xyz_to_rgb, oklab_to_xyz(lab));
+                for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
+                    image.samples[sample + channel] = checked_conversion(output[channel]);
+                }
+            }
+        }
+    });
+}
+
+[[nodiscard]] PreparedOklabOpponentToneCurves prepare_oklab_opponent_tone_curves_node(
+    const OklabOpponentToneCurves& curves,
+    const AdjustmentNode& node,
+    const std::size_t index
+) {
+    try {
+        return prepare_oklab_opponent_tone_curves(curves);
     } catch (const EditError& error) {
         throw_node_error(error.code(), index, node, error.what());
     }

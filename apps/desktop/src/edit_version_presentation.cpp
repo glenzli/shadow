@@ -24,6 +24,9 @@ namespace {
             QT_TRANSLATE_NOOP("EditVersionModel", "Perceptual Lightness Curve")
         );
     }
+    if (key == QStringLiteral("color_warper")) {
+        return translated(QT_TRANSLATE_NOOP("EditVersionModel", "Color Map"));
+    }
     if (key == QStringLiteral("grade_node_enabled")) {
         return translated(QT_TRANSLATE_NOOP("EditVersionModel", "Grade Node bypass"));
     }

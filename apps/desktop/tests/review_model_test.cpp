@@ -101,6 +101,9 @@ void role_names_and_types_are_stable() {
     item.decision_head_sequence = 42;
     item.decision_flag = QStringLiteral("picked");
     item.decision_rating = 4;
+    item.liked = true;
+    item.color_label = QStringLiteral("blue");
+    item.library_state_updated_at_ms = 1'724'000'000'123;
     item.has_technical_observation = true;
     item.technical_input_width = 512;
     item.technical_input_height = 341;
@@ -127,7 +130,9 @@ void role_names_and_types_are_stable() {
         ExpectedRole{ReviewModel::DecisionHeadSequenceRole, "decisionHeadSequence"},
         ExpectedRole{ReviewModel::DecisionFlagRole, "decisionFlag"},
         ExpectedRole{ReviewModel::DecisionRatingRole, "decisionRating"},
+        ExpectedRole{ReviewModel::LikedRole, "liked"},
         ExpectedRole{ReviewModel::ColorLabelRole, "colorLabel"},
+        ExpectedRole{ReviewModel::LibraryStateUpdatedAtMsRole, "libraryStateUpdatedAtMs"},
         ExpectedRole{ReviewModel::HasTechnicalObservationRole, "hasTechnicalObservation"},
         ExpectedRole{ReviewModel::TechnicalInputWidthRole, "technicalInputWidth"},
         ExpectedRole{ReviewModel::TechnicalInputHeightRole, "technicalInputHeight"},
@@ -181,6 +186,15 @@ void role_names_and_types_are_stable() {
         "manual flag and rating must expose stable QML types"
     );
     require(
+        value(model, 0, ReviewModel::LikedRole).typeId() == QMetaType::Bool
+            && value(model, 0, ReviewModel::LikedRole).toBool()
+            && value(model, 0, ReviewModel::ColorLabelRole).toString()
+                == QStringLiteral("blue")
+            && value(model, 0, ReviewModel::LibraryStateUpdatedAtMsRole).toLongLong()
+                == 1'724'000'000'123,
+        "Catalog-backed Library organization state must retain its QML types"
+    );
+    require(
         value(model, 0, ReviewModel::HasTechnicalObservationRole).typeId()
             == QMetaType::Bool,
         "observation presence must be a QML boolean"
@@ -223,57 +237,69 @@ void role_names_and_types_are_stable() {
     }
 }
 
-void color_labels_are_local_and_survive_page_refreshes() {
+void library_state_is_catalog_authoritative_and_photo_scoped() {
     ReviewItem first = keyed_item("a", "A");
-    ReviewItem second = first;
-    second.representation_id = QStringLiteral("a-secondary");
     ReviewItem other = keyed_item("b", "B");
 
     ReviewModel model;
-    model.replace({first, second, other}, 1);
+    model.replace({first, other}, 1);
     require(
-        model.setColorLabel(QStringLiteral("a-photo"), QStringLiteral("blue")),
-        "a valid color label must update every loaded representation"
+        model.updateLibraryState(
+            QStringLiteral("a-photo"),
+            true,
+            QStringLiteral("blue"),
+            17
+        ),
+        "a Catalog Library-state receipt must update its loaded photo"
     );
     require(
         value(model, 0, ReviewModel::ColorLabelRole).toString()
                 == QStringLiteral("blue")
+            && value(model, 0, ReviewModel::LikedRole).toBool()
+            && value(model, 0, ReviewModel::LibraryStateUpdatedAtMsRole).toLongLong()
+                == 17
             && value(model, 1, ReviewModel::ColorLabelRole).toString()
-                == QStringLiteral("blue")
-            && value(model, 2, ReviewModel::ColorLabelRole).toString()
                 == QStringLiteral("none"),
-        "color labels must be photo-local and never leak to another photo"
+        "Library state must be photo-local and never leak to another photo"
     );
-    require(
-        model.colorLabels().value(QStringLiteral("a-photo")).toString()
-            == QStringLiteral("blue"),
-        "the color-label persistence projection must retain the semantic value"
-    );
+    const auto projected = model.libraryStateFor(QStringLiteral("a-photo"));
+    require(projected && projected->liked
+                && projected->color_label == QStringLiteral("blue")
+                && projected->updated_at_ms == 17,
+        "controller lookup must expose the Catalog-authoritative Library state");
 
     ReviewItem refreshed = first;
     refreshed.title = QStringLiteral("A refreshed");
+    refreshed.liked = false;
+    refreshed.color_label = QStringLiteral("red");
+    refreshed.library_state_updated_at_ms = 18;
     require(
         model.reconcileSnapshot({refreshed, other}, 1),
-        "a current review refresh must reconcile after a local color label"
+        "a current Library page must reconcile after a durable state update"
     );
     require(
         value(model, 0, ReviewModel::ColorLabelRole).toString()
-                == QStringLiteral("blue"),
-        "a catalog refresh must preserve locally persisted color labels"
+                == QStringLiteral("red")
+            && !value(model, 0, ReviewModel::LikedRole).toBool()
+            && value(model, 0, ReviewModel::LibraryStateUpdatedAtMsRole).toLongLong()
+                == 18,
+        "a refreshed Catalog row must replace stale local state rather than retain settings"
     );
     require(
-        !model.setColorLabel(QStringLiteral("a-photo"), QStringLiteral("orange")),
-        "unsupported color labels must fail closed"
+        !model.updateLibraryState(
+            QStringLiteral("a-photo"),
+            true,
+            QStringLiteral("orange"),
+            19
+        ),
+        "unsupported Catalog color labels must fail closed"
     );
 }
 
-void decision_updates_project_to_every_representation_of_a_photo() {
+void decision_updates_project_to_the_single_photo_row() {
     ReviewItem first;
     first.photo_id = QStringLiteral("photo-a");
     first.representation_id = QStringLiteral("representation-a1");
-
-    ReviewItem second = first;
-    second.representation_id = QStringLiteral("representation-a2");
 
     ReviewItem other;
     other.photo_id = QStringLiteral("photo-b");
@@ -283,25 +309,23 @@ void decision_updates_project_to_every_representation_of_a_photo() {
     other.decision_rating = 1;
 
     ReviewModel model;
-    model.replace({first, second, other}, 1);
+    model.replace({first, other}, 1);
     require(
         model.updateDecision(QStringLiteral("photo-a"), 9, QStringLiteral("picked"), 5),
         "a loaded photo decision must update"
     );
-    for (const int row : {0, 1}) {
-        require(
-            value(model, row, ReviewModel::DecisionHeadSequenceRole).toULongLong() == 9
-                && value(model, row, ReviewModel::DecisionFlagRole).toString()
-                    == QStringLiteral("picked")
-                && value(model, row, ReviewModel::DecisionRatingRole).toInt() == 5,
-            "all rows for one photo must share the materialized decision"
-        );
-    }
     require(
-        value(model, 2, ReviewModel::DecisionHeadSequenceRole).toULongLong() == 2
-            && value(model, 2, ReviewModel::DecisionFlagRole).toString()
+        value(model, 0, ReviewModel::DecisionHeadSequenceRole).toULongLong() == 9
+            && value(model, 0, ReviewModel::DecisionFlagRole).toString()
+                == QStringLiteral("picked")
+            && value(model, 0, ReviewModel::DecisionRatingRole).toInt() == 5,
+        "the one visible row for a logical photo must project its decision"
+    );
+    require(
+        value(model, 1, ReviewModel::DecisionHeadSequenceRole).toULongLong() == 2
+            && value(model, 1, ReviewModel::DecisionFlagRole).toString()
                 == QStringLiteral("rejected")
-            && value(model, 2, ReviewModel::DecisionRatingRole).toInt() == 1,
+            && value(model, 1, ReviewModel::DecisionRatingRole).toInt() == 1,
         "updating one photo must not change another photo"
     );
     const auto projected = model.decisionFor(QStringLiteral("photo-a"));
@@ -534,6 +558,48 @@ void snapshot_reconciliation_updates_visual_and_technical_roles_in_place() {
     );
 }
 
+void photo_identity_survives_representation_relink() {
+    ReviewItem original = keyed_item("a", "Original");
+    original.source_path = QStringLiteral("/old/location/a.raw");
+    original.visual_handle = QStringLiteral("visual-old");
+    ReviewModel model;
+    model.replace({original}, 22);
+    const QPersistentModelIndex selected(model.index(0, 0));
+
+    ReviewItem relinked = original;
+    relinked.representation_id = QStringLiteral("a-relinked-representation");
+    relinked.source_path = QStringLiteral("/new/location/a.raw");
+    relinked.visual_handle = QStringLiteral("visual-relinked");
+
+    ModelSignalCounts observed;
+    observe_model(model, observed);
+    require(
+        model.reconcileSnapshot({relinked}, 22),
+        "a relinked representation must reconcile under the original photo id"
+    );
+    require(
+        model.rowCount() == 1 && selected.isValid() && selected.row() == 0
+            && observed.resets == 0 && observed.inserted == 0
+            && observed.removed == 0 && observed.moved == 0
+            && observed.changed == 1,
+        "a relink must update the existing logical photo instead of duplicating it"
+    );
+    require(
+        value(model, 0, ReviewModel::PhotoIdRole).toString()
+                == QStringLiteral("a-photo")
+            && value(model, 0, ReviewModel::RepresentationIdRole).toString()
+                == QStringLiteral("a-relinked-representation")
+            && value(model, 0, ReviewModel::SourcePathRole).toString()
+                == QStringLiteral("/new/location/a.raw")
+            && value(model, 0, ReviewModel::VisualHandleRole).toString()
+                == QStringLiteral("visual-relinked")
+            && observed.last_changed_roles.contains(ReviewModel::RepresentationIdRole)
+            && observed.last_changed_roles.contains(ReviewModel::SourcePathRole)
+            && observed.last_changed_roles.contains(ReviewModel::VisualHandleRole),
+        "photo-first reconciliation must project the replacement representation fields"
+    );
+}
+
 void snapshot_reconciliation_moves_rows_without_losing_persistent_identity() {
     const ReviewItem first = keyed_item("a", "A");
     const ReviewItem second = keyed_item("b", "B");
@@ -624,24 +690,29 @@ void prefix_reconciliation_updates_the_front_without_dropping_loaded_tail() {
     const std::array expected_keys{"x", "c", "a", "b", "d"};
     for (int row = 0; row < static_cast<int>(expected_keys.size()); ++row) {
         require(
-            value(model, row, ReviewModel::RepresentationIdRole).toString()
-                == QString::fromLatin1(expected_keys.at(static_cast<std::size_t>(row))),
+            value(model, row, ReviewModel::PhotoIdRole).toString()
+                == QString::fromLatin1(expected_keys.at(static_cast<std::size_t>(row)))
+                    + QStringLiteral("-photo"),
             "the refreshed prefix and retained tail must have deterministic order"
         );
     }
     require(
         retained_tail.isValid() && retained_tail.row() == 4
-            && model.data(retained_tail, ReviewModel::RepresentationIdRole).toString()
-                == QStringLiteral("d")
+            && model.data(retained_tail, ReviewModel::PhotoIdRole).toString()
+                == QStringLiteral("d-photo")
             && value(model, 1, ReviewModel::TitleRole).toString()
                 == QStringLiteral("C updated"),
         "retained persistent identity and refreshed fields must both survive"
     );
 
-    const QVector<QString> ids = model.representationIds();
+    QVector<QString> ids;
+    ids.reserve(model.rowCount());
+    for (int row = 0; row < model.rowCount(); ++row) {
+        ids.push_back(value(model, row, ReviewModel::PhotoIdRole).toString());
+    }
     require(
         ids.size() == 5 && QSet<QString>(ids.cbegin(), ids.cend()).size() == 5,
-        "the final presented prefix and tail must contain no duplicate stable key"
+        "the final presented prefix and tail must contain no duplicate photo id"
     );
 }
 
@@ -658,10 +729,12 @@ void prefix_and_append_reject_duplicates_without_mutating_the_model() {
     );
     ModelSignalCounts observed;
     observe_model(model, observed);
+    ReviewItem relinked_duplicate = first;
+    relinked_duplicate.representation_id = QStringLiteral("a-relinked");
     require(
         !model.appendSnapshot({third, keyed_item("d", "D")}, 31)
             && !model.appendSnapshot({keyed_item("e", "E")}, 30)
-            && !model.reconcilePrefixSnapshot({first, first}, 31),
+            && !model.reconcilePrefixSnapshot({first, relinked_duplicate}, 31),
         "duplicate or stale page operations must fail closed"
     );
     require(
@@ -720,12 +793,13 @@ void identical_snapshot_reconciliation_is_a_signal_free_no_op() {
 
 int main() {
     role_names_and_types_are_stable();
-    color_labels_are_local_and_survive_page_refreshes();
-    decision_updates_project_to_every_representation_of_a_photo();
+    library_state_is_catalog_authoritative_and_photo_scoped();
+    decision_updates_project_to_the_single_photo_row();
     visual_sources_use_encoded_tickets_and_current_generation();
     absence_and_legitimate_zero_are_distinct();
     replace_and_append_keep_their_items_intact();
     snapshot_reconciliation_updates_visual_and_technical_roles_in_place();
+    photo_identity_survives_representation_relink();
     snapshot_reconciliation_moves_rows_without_losing_persistent_identity();
     snapshot_reconciliation_inserts_and_removes_keyed_rows();
     prefix_reconciliation_updates_the_front_without_dropping_loaded_tail();

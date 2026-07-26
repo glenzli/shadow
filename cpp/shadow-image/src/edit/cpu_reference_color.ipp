@@ -156,7 +156,7 @@ template <std::size_t Size>
         && parameters.whites == 0.0 && parameters.blacks == 0.0;
 }
 
-[[nodiscard]] bool perceptual_color_mapping_is_neutral(
+[[nodiscard]] bool perceptual_hue_mapping_is_neutral(
     const PerceptualColorAdjustment& parameters
 ) noexcept {
     const bool bands_are_neutral = std::ranges::all_of(parameters.hue, [](const double value) {
@@ -174,6 +174,110 @@ template <std::size_t Size>
     const bool ranges_are_neutral = range_is_neutral(parameters.color_range)
         && std::ranges::all_of(parameters.additional_color_ranges, range_is_neutral);
     return parameters.vibrance == 0.0 && bands_are_neutral && ranges_are_neutral;
+}
+
+[[nodiscard]] bool perceptual_color_mapping_is_neutral(
+    const PerceptualColorAdjustment& parameters
+) noexcept {
+    return parameters.global_a_balance == 0.0 && parameters.global_b_balance == 0.0
+        && perceptual_hue_mapping_is_neutral(parameters);
+}
+
+[[nodiscard]] bool color_warper_is_neutral(
+    const OklabColorWarperAdjustment& parameters
+) noexcept {
+    return parameters.strength == 0.0 || std::ranges::all_of(
+        parameters.control_points,
+        [](const OklabColorWarperControlPoint& point) {
+            return point.a_offset == 0.0 && point.b_offset == 0.0;
+        }
+    );
+}
+
+[[nodiscard]] double color_warper_displacement(
+    const OklabColorWarperAdjustment& parameters,
+    const std::size_t row,
+    const std::size_t column,
+    const bool a_axis
+) noexcept {
+    const OklabColorWarperControlPoint& point = parameters.control_points.at(
+        row * oklab_color_warper_grid_side + column
+    );
+    return a_axis ? point.a_offset : point.b_offset;
+}
+
+[[nodiscard]] Vector3 apply_oklab_color_warper(
+    const Vector3& input,
+    const OklabColorWarperAdjustment& parameters,
+    const WorkingSpaceTransform& color_transform
+) noexcept {
+    Vector3 lab = xyz_to_oklab(multiply(color_transform.rgb_to_xyz, input));
+    const double half_extent = oklab_color_warper_half_extent;
+    const double a_distance = half_extent - std::abs(lab[1]);
+    const double b_distance = half_extent - std::abs(lab[2]);
+    // Do not pull colors arbitrarily far outside the mesh toward an edge
+    // control point. A short feather preserves a continuous boundary while
+    // keeping the lattice's declared Oklab domain honest.
+    constexpr double edge_feather = 0.04;
+    const double coverage = smoothstep(0.0, edge_feather, a_distance)
+        * smoothstep(0.0, edge_feather, b_distance);
+    if (coverage == 0.0 || parameters.strength == 0.0) {
+        return input;
+    }
+
+    const double coordinate_scale = static_cast<double>(oklab_color_warper_grid_side - 1U);
+    const double grid_a = std::clamp(
+        (lab[1] + half_extent) / (2.0 * half_extent) * coordinate_scale,
+        0.0,
+        coordinate_scale
+    );
+    const double grid_b = std::clamp(
+        (lab[2] + half_extent) / (2.0 * half_extent) * coordinate_scale,
+        0.0,
+        coordinate_scale
+    );
+    const std::size_t left = static_cast<std::size_t>(std::floor(grid_a));
+    const std::size_t top = static_cast<std::size_t>(std::floor(grid_b));
+    const std::size_t right = std::min(left + 1U, oklab_color_warper_grid_side - 1U);
+    const std::size_t bottom = std::min(top + 1U, oklab_color_warper_grid_side - 1U);
+    const double horizontal = grid_a - static_cast<double>(left);
+    const double vertical = grid_b - static_cast<double>(top);
+    const auto bilinear = [=, &parameters](const bool a_axis) {
+        const double top_value = std::lerp(
+            color_warper_displacement(parameters, top, left, a_axis),
+            color_warper_displacement(parameters, top, right, a_axis),
+            horizontal
+        );
+        const double bottom_value = std::lerp(
+            color_warper_displacement(parameters, bottom, left, a_axis),
+            color_warper_displacement(parameters, bottom, right, a_axis),
+            horizontal
+        );
+        return std::lerp(top_value, bottom_value, vertical);
+    };
+    const double amount = coverage * parameters.strength;
+    lab[1] += amount * bilinear(true);
+    lab[2] += amount * bilinear(false);
+    return multiply(color_transform.xyz_to_rgb, oklab_to_xyz(lab));
+}
+
+// The Oklab axes are perceptually opponent: a is green/red and b is
+// blue/yellow.  A broad balance must still leave the absolute black point
+// neutral, otherwise minor color adjustments turn the toe into colored noise.
+// The smooth low-light protection avoids that instability while keeping white
+// and mid-tone balance available for neutralizing a cast.
+[[nodiscard]] bool apply_global_oklab_opponent_balance(
+    Vector3& lab,
+    const PerceptualColorAdjustment& parameters
+) noexcept {
+    if (parameters.global_a_balance == 0.0 && parameters.global_b_balance == 0.0) {
+        return false;
+    }
+    constexpr double maximum_axis_offset = 0.075;
+    const double low_light_protection = smoothstep(0.015, 0.090, std::max(0.0, lab[0]));
+    lab[1] += parameters.global_a_balance * maximum_axis_offset * low_light_protection;
+    lab[2] += parameters.global_b_balance * maximum_axis_offset * low_light_protection;
+    return true;
 }
 
 [[nodiscard]] bool selective_color_is_neutral(

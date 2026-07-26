@@ -424,6 +424,7 @@ mod ffi {
         Saturation,
         SelectiveTone,
         PerceptualColor,
+        OklabColorWarper,
         Lut3D,
         Sharpen,
         SpotHeal,
@@ -1828,7 +1829,16 @@ pub const SELECTIVE_COLOR_VALUE_COUNT: usize =
     SELECTIVE_COLOR_TARGET_COUNT * SELECTIVE_COLOR_COMPONENT_COUNT;
 pub const PERCEPTUAL_COLOR_PARAMETER_SCHEMA_VERSION: u32 = 1;
 pub const PERCEPTUAL_COLOR_IMPLEMENTATION_VERSION: u32 = 1;
-/// The visible Detail & Effects payload is one 35-value FFI record,
+/// Fixed Color Warper mesh dimensions. The typed bridge deliberately mirrors
+/// the native 5×5 Oklab a/b lattice rather than exposing a second UI-specific
+/// mesh shape.
+pub const OKLAB_COLOR_WARPER_GRID_SIDE: usize = 5;
+pub const OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT: usize =
+    OKLAB_COLOR_WARPER_GRID_SIDE * OKLAB_COLOR_WARPER_GRID_SIDE;
+pub const OKLAB_COLOR_WARPER_MAXIMUM_OFFSET: f64 = 0.32;
+pub const OKLAB_COLOR_WARPER_PARAMETER_SCHEMA_VERSION: u32 = 1;
+pub const OKLAB_COLOR_WARPER_IMPLEMENTATION_VERSION: u32 = 1;
+/// The visible Detail & Effects payload is one 37-value FFI record,
 /// compiled into three ordered v1 internal passes.
 pub const TECHNICAL_DETAIL_PARAMETER_SCHEMA_VERSION: u32 = 1;
 pub const TECHNICAL_DETAIL_IMPLEMENTATION_VERSION: u32 = 1;
@@ -1914,6 +1924,11 @@ impl Default for ColorRangeParameters {
 /// once per pixel instead of once per UI slider.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PerceptualColorParameters {
+    /// Global green↔red Oklab opponent balance, independent of RAW white
+    /// balance and intentionally applied in the perceptual color operation.
+    pub global_a_balance: f64,
+    /// Global blue↔yellow Oklab opponent balance.
+    pub global_b_balance: f64,
     pub vibrance: f64,
     pub hue_shifts: [f64; COLOR_MIXER_BAND_COUNT],
     pub saturation: [f64; COLOR_MIXER_BAND_COUNT],
@@ -1934,6 +1949,8 @@ pub struct PerceptualColorParameters {
 impl Default for PerceptualColorParameters {
     fn default() -> Self {
         Self {
+            global_a_balance: 0.0,
+            global_b_balance: 0.0,
             vibrance: 0.0,
             hue_shifts: [0.0; COLOR_MIXER_BAND_COUNT],
             saturation: [0.0; COLOR_MIXER_BAND_COUNT],
@@ -1943,6 +1960,36 @@ impl Default for PerceptualColorParameters {
             selective_color_relative: true,
             selective_color_lightness_protection: 0.0,
             selective_color_cmyk: [0.0; SELECTIVE_COLOR_VALUE_COUNT],
+        }
+    }
+}
+
+/// One row-major target displacement in the immutable Oklab Color Warper
+/// lattice. The source lattice positions are implicit and stable, which keeps
+/// Recipes compact and makes a later mesh editor deterministic.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct OklabColorWarperControlPoint {
+    pub a_offset: f64,
+    pub b_offset: f64,
+}
+
+/// A fixed 5×5 Oklab a/b displacement lattice. Unlike the hue-keyed Color
+/// Mixer and sampled Point Color ranges, this is one connected chroma field
+/// that can be attached to a single masked Grade Node.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OklabColorWarperParameters {
+    pub control_points: [OklabColorWarperControlPoint; OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT],
+    pub strength: f64,
+}
+
+impl Default for OklabColorWarperParameters {
+    fn default() -> Self {
+        Self {
+            control_points: [OklabColorWarperControlPoint {
+                a_offset: 0.0,
+                b_offset: 0.0,
+            }; OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT],
+            strength: 1.0,
         }
     }
 }
@@ -1960,6 +2007,11 @@ pub struct SharpenParameters {
     /// edge-protected middle residual; Texture operates on the finer residual.
     pub clarity: f64,
     pub texture: f64,
+    /// Broad edge-aware Oklab-L contrast, intentionally distinct from the
+    /// smaller-frequency Clarity and Texture bands.
+    pub local_contrast: f64,
+    /// Normalized native support scale for `local_contrast`.
+    pub local_contrast_scale: f64,
     pub denoise_luminance: f64,
     pub denoise_detail: f64,
     pub denoise_color: f64,
@@ -2000,6 +2052,8 @@ impl Default for SharpenParameters {
             masking: 0.0,
             clarity: 0.0,
             texture: 0.0,
+            local_contrast: 0.0,
+            local_contrast_scale: 0.5,
             denoise_luminance: 0.0,
             denoise_detail: 0.5,
             denoise_color: 0.0,
@@ -2070,6 +2124,9 @@ pub enum AdjustmentRenderOperation {
     },
     PerceptualColor {
         parameters: Box<PerceptualColorParameters>,
+    },
+    OklabColorWarper {
+        parameters: Box<OklabColorWarperParameters>,
     },
     Lut3D {
         document: Vec<u8>,
@@ -2350,6 +2407,12 @@ impl AdjustmentRenderPlan {
                         PERCEPTUAL_COLOR_IMPLEMENTATION_VERSION,
                     ) == (node.parameter_schema_version, node.implementation_version)
                 }
+                AdjustmentRenderOperation::OklabColorWarper { .. } => {
+                    (
+                        OKLAB_COLOR_WARPER_PARAMETER_SCHEMA_VERSION,
+                        OKLAB_COLOR_WARPER_IMPLEMENTATION_VERSION,
+                    ) == (node.parameter_schema_version, node.implementation_version)
+                }
                 AdjustmentRenderOperation::Sharpen { .. } => {
                     node.parameter_schema_version == TECHNICAL_DETAIL_PARAMETER_SCHEMA_VERSION
                         && node.implementation_version == TECHNICAL_DETAIL_IMPLEMENTATION_VERSION
@@ -2445,6 +2508,9 @@ fn validate_render_operation(operation: &AdjustmentRenderOperation) -> Result<()
         }
         AdjustmentRenderOperation::PerceptualColor { parameters } => {
             validate_perceptual_color(parameters)
+        }
+        AdjustmentRenderOperation::OklabColorWarper { parameters } => {
+            validate_oklab_color_warper(parameters)
         }
         AdjustmentRenderOperation::Lut3D {
             document,
@@ -2649,12 +2715,39 @@ fn validate_selective_tone(parameters: SelectiveToneParameters) -> Result<(), Br
     Ok(())
 }
 
-fn validate_perceptual_color(parameters: &PerceptualColorParameters) -> Result<(), BridgeError> {
-    validate_finite_render_parameter(parameters.vibrance)?;
-    if !(-1.0..=1.0).contains(&parameters.vibrance) {
+fn validate_oklab_color_warper(parameters: &OklabColorWarperParameters) -> Result<(), BridgeError> {
+    validate_finite_render_parameter(parameters.strength)?;
+    if !(0.0..=1.0).contains(&parameters.strength) {
         return Err(BridgeError::InvalidEditRequest(
-            "vibrance must be in -1..=1",
+            "Oklab Color Warper strength must be normalized to 0..=1",
         ));
+    }
+    for point in &parameters.control_points {
+        for value in [point.a_offset, point.b_offset] {
+            validate_finite_render_parameter(value)?;
+            if value.abs() > OKLAB_COLOR_WARPER_MAXIMUM_OFFSET {
+                return Err(BridgeError::InvalidEditRequest(
+                    "Oklab Color Warper control offsets exceed the declared mesh extent",
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_perceptual_color(parameters: &PerceptualColorParameters) -> Result<(), BridgeError> {
+    for (value, name) in [
+        (parameters.global_a_balance, "global Oklab a balance"),
+        (parameters.global_b_balance, "global Oklab b balance"),
+        (parameters.vibrance, "vibrance"),
+    ] {
+        validate_finite_render_parameter(value)?;
+        if !(-1.0..=1.0).contains(&value) {
+            return Err(BridgeError::InvalidEditRequest(match name {
+                "vibrance" => "vibrance must be in -1..=1",
+                _ => "global Oklab balance must be in -1..=1",
+            }));
+        }
     }
     for values in [
         &parameters.hue_shifts,
@@ -2717,6 +2810,8 @@ fn validate_sharpen(parameters: &SharpenParameters) -> Result<(), BridgeError> {
         parameters.masking,
         parameters.clarity,
         parameters.texture,
+        parameters.local_contrast,
+        parameters.local_contrast_scale,
         parameters.denoise_luminance,
         parameters.denoise_detail,
         parameters.denoise_color,
@@ -2791,6 +2886,8 @@ fn validate_sharpen(parameters: &SharpenParameters) -> Result<(), BridgeError> {
         || !(0.0..=1.0).contains(&parameters.masking)
         || !(-1.0..=1.0).contains(&parameters.clarity)
         || !(-1.0..=1.0).contains(&parameters.texture)
+        || !(-1.0..=1.0).contains(&parameters.local_contrast)
+        || !(0.0..=1.0).contains(&parameters.local_contrast_scale)
         || [
             parameters.denoise_luminance,
             parameters.denoise_detail,
@@ -4149,7 +4246,7 @@ fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustmentNode {
         ),
         AdjustmentRenderOperation::PerceptualColor { parameters } => {
             let mut flattened =
-                Vec::with_capacity(70 + parameters.additional_color_ranges.len() * 7);
+                Vec::with_capacity(72 + parameters.additional_color_ranges.len() * 7);
             flattened.push(parameters.vibrance);
             flattened.extend(parameters.hue_shifts);
             flattened.extend(parameters.saturation);
@@ -4174,6 +4271,9 @@ fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustmentNode {
             });
             flattened.push(parameters.selective_color_lightness_protection);
             flattened.extend(parameters.selective_color_cmyk);
+            // Preserve the original v1 Color Mixer / Point Color order and
+            // add global opponent controls before the variable range tail.
+            flattened.extend([parameters.global_a_balance, parameters.global_b_balance]);
             for range in &parameters.additional_color_ranges {
                 flattened.extend([
                     if range.enabled { 1.0 } else { 0.0 },
@@ -4192,6 +4292,22 @@ fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustmentNode {
                     u32::try_from(parameters.additional_color_ranges.len())
                         .expect("validated Point Color range count fits u32"),
                 ],
+                vec![],
+            )
+        }
+        AdjustmentRenderOperation::OklabColorWarper { parameters } => {
+            // The wire order is strength followed by row-major `(a, b)` pairs.
+            // It is deliberately fixed-size: a Recipe and the native lattice
+            // can never disagree about topology.
+            let mut flattened = Vec::with_capacity(1 + OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT * 2);
+            flattened.push(parameters.strength);
+            for point in &parameters.control_points {
+                flattened.extend([point.a_offset, point.b_offset]);
+            }
+            (
+                ffi::FfiAdjustmentOperation::OklabColorWarper,
+                flattened,
+                vec![],
                 vec![],
             )
         }
@@ -4214,6 +4330,8 @@ fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustmentNode {
             flattened.extend([
                 parameters.clarity,
                 parameters.texture,
+                parameters.local_contrast,
+                parameters.local_contrast_scale,
                 parameters.denoise_luminance,
                 parameters.denoise_detail,
                 parameters.denoise_color,
@@ -5504,6 +5622,8 @@ mod tests {
     #[allow(clippy::float_cmp)] // FFI flattening is an exact in-memory contract.
     fn extended_plan_validates_and_flattens_the_stable_ffi_contract() {
         let perceptual = PerceptualColorParameters {
+            global_a_balance: -0.25,
+            global_b_balance: 0.4,
             vibrance: 0.2,
             hue_shifts: [0.1; COLOR_MIXER_BAND_COUNT],
             saturation: [-0.2; COLOR_MIXER_BAND_COUNT],
@@ -5559,6 +5679,8 @@ mod tests {
                             radius: 2.5,
                             threshold: 0.15,
                             masking: 0.75,
+                            local_contrast: 0.6,
+                            local_contrast_scale: 0.7,
                             ..SharpenParameters::default()
                         }),
                     },
@@ -5580,7 +5702,7 @@ mod tests {
             perceptual_ffi.operation,
             ffi::FfiAdjustmentOperation::PerceptualColor
         ));
-        assert_eq!(perceptual_ffi.parameters.len(), 70);
+        assert_eq!(perceptual_ffi.parameters.len(), 72);
         assert_eq!(perceptual_ffi.parameter_group_lengths, [0]);
         assert_eq!(perceptual_ffi.parameters[0], 0.2);
         assert_eq!(&perceptual_ffi.parameters[1..9], &[0.1; 8]);
@@ -5593,24 +5715,102 @@ mod tests {
         assert_eq!(perceptual_ffi.parameters[32], 0.0);
         assert_eq!(perceptual_ffi.parameters[33], 0.35);
         assert_eq!(
-            &perceptual_ffi.parameters[34..],
+            &perceptual_ffi.parameters[34..70],
             &[0.25; SELECTIVE_COLOR_VALUE_COUNT]
         );
+        assert_eq!(&perceptual_ffi.parameters[70..], &[-0.25, 0.4]);
 
         let sharpen_ffi = ffi_render_node(&plan.nodes[2]);
         assert!(matches!(
             sharpen_ffi.operation,
             ffi::FfiAdjustmentOperation::Sharpen
         ));
-        assert_eq!(sharpen_ffi.parameters.len(), 35);
+        assert_eq!(sharpen_ffi.parameters.len(), 37);
         assert_eq!(&sharpen_ffi.parameters[..4], &[1.25, 2.5, 0.15, 0.75]);
+        assert_eq!(&sharpen_ffi.parameters[4..8], &[0.0, 0.0, 0.6, 0.7]);
         assert_eq!(
-            &sharpen_ffi.parameters[4..],
+            &sharpen_ffi.parameters[8..],
             &[
-                0.0, 0.0, 0.0, 0.5, 0.0, 0.0, 0.0, 270.0, 340.0, 0.0, 100.0, 165.0, 0.0, 0.0, 0.0,
-                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5, 0.0, 0.0, 0.5, 0.5, 0.0, 0.5, 0.0, 0.5, 0.0,
+                0.0, 0.5, 0.0, 0.0, 0.0, 270.0, 340.0, 0.0, 100.0, 165.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                0.0, 0.0, 0.0, 0.0, 0.5, 0.0, 0.0, 0.5, 0.5, 0.0, 0.5, 0.0, 0.5, 0.0,
             ]
         );
+    }
+
+    #[test]
+    #[allow(clippy::float_cmp)] // FFI flattening is an exact in-memory contract.
+    fn color_warper_plan_validates_and_flattens_fixed_lattice() {
+        let mut parameters = OklabColorWarperParameters {
+            strength: 0.65,
+            ..OklabColorWarperParameters::default()
+        };
+        parameters.control_points[0] = OklabColorWarperControlPoint {
+            a_offset: -0.12,
+            b_offset: 0.08,
+        };
+        parameters.control_points[OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT - 1] =
+            OklabColorWarperControlPoint {
+                a_offset: 0.15,
+                b_offset: -0.06,
+            };
+        let plan = AdjustmentRenderPlan {
+            nodes: vec![AdjustmentRenderNode {
+                node_id: "oklab-color-warper".to_owned(),
+                parameter_schema_version: OKLAB_COLOR_WARPER_PARAMETER_SCHEMA_VERSION,
+                implementation_version: OKLAB_COLOR_WARPER_IMPLEMENTATION_VERSION,
+                enabled: true,
+                operation: AdjustmentRenderOperation::OklabColorWarper {
+                    parameters: Box::new(parameters),
+                },
+            }],
+            geometry: AdjustmentGeometry::identity(),
+        };
+
+        plan.validate().expect("Color Warper lattice is valid");
+        let flattened = ffi_render_node(&plan.nodes[0]);
+        assert!(matches!(
+            flattened.operation,
+            ffi::FfiAdjustmentOperation::OklabColorWarper
+        ));
+        assert_eq!(
+            flattened.parameters.len(),
+            1 + OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT * 2
+        );
+        assert!(flattened.parameter_group_lengths.is_empty());
+        assert!(flattened.payload.is_empty());
+        assert_eq!(flattened.parameters[0], 0.65);
+        assert_eq!(&flattened.parameters[1..5], &[-0.12, 0.08, 0.0, 0.0]);
+        assert_eq!(&flattened.parameters[49..], &[0.15, -0.06]);
+    }
+
+    #[test]
+    fn color_warper_rejects_invalid_strength_and_control_offsets() {
+        let plan = |parameters| AdjustmentRenderPlan {
+            nodes: vec![AdjustmentRenderNode {
+                node_id: "invalid-oklab-color-warper".to_owned(),
+                parameter_schema_version: OKLAB_COLOR_WARPER_PARAMETER_SCHEMA_VERSION,
+                implementation_version: OKLAB_COLOR_WARPER_IMPLEMENTATION_VERSION,
+                enabled: true,
+                operation: AdjustmentRenderOperation::OklabColorWarper {
+                    parameters: Box::new(parameters),
+                },
+            }],
+            geometry: AdjustmentGeometry::identity(),
+        };
+        let invalid_strength = OklabColorWarperParameters {
+            strength: 1.01,
+            ..OklabColorWarperParameters::default()
+        };
+        let mut invalid_offset = OklabColorWarperParameters::default();
+        invalid_offset.control_points[7].b_offset = OKLAB_COLOR_WARPER_MAXIMUM_OFFSET + 0.001;
+        let mut non_finite_offset = OklabColorWarperParameters::default();
+        non_finite_offset.control_points[11].a_offset = f64::NAN;
+        for parameters in [invalid_strength, invalid_offset, non_finite_offset] {
+            assert!(matches!(
+                plan(parameters).validate(),
+                Err(BridgeError::InvalidEditRequest(_))
+            ));
+        }
     }
 
     #[test]
@@ -5644,10 +5844,16 @@ mod tests {
 
         let mut invalid_mixer = PerceptualColorParameters::default();
         invalid_mixer.hue_shifts[3] = -1.01;
+        let mut invalid_global_balance = PerceptualColorParameters::default();
+        invalid_global_balance.global_a_balance = 1.01;
         let mut invalid_disabled_range = PerceptualColorParameters::default();
         invalid_disabled_range.color_range.enabled = false;
         invalid_disabled_range.color_range.width_degrees = 0.0;
-        for parameters in [invalid_mixer, invalid_disabled_range] {
+        for parameters in [
+            invalid_mixer,
+            invalid_global_balance,
+            invalid_disabled_range,
+        ] {
             assert!(matches!(
                 node(AdjustmentRenderOperation::PerceptualColor {
                     parameters: Box::new(parameters),
@@ -5672,6 +5878,14 @@ mod tests {
             },
             SharpenParameters {
                 masking: f64::NAN,
+                ..SharpenParameters::default()
+            },
+            SharpenParameters {
+                local_contrast: 1.01,
+                ..SharpenParameters::default()
+            },
+            SharpenParameters {
+                local_contrast_scale: -0.01,
                 ..SharpenParameters::default()
             },
         ] {

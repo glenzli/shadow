@@ -240,6 +240,8 @@ qt_add_qml_module(
         qml/PreferencesMenu.qml
         qml/PrecisionCanvas.qml
         qml/PrecisionInspector.qml
+        qml/ColorWarperEditor.qml
+        qml/HueCurveEditor.qml
         qml/PrecisionGeometryTools.qml
         qml/PrecisionLocalMaskOverlay.qml
         qml/PrecisionCropOverlay.qml
@@ -391,6 +393,28 @@ if(BUILD_TESTING)
         )
     endif()
     add_test(NAME shadow-desktop-ui-preferences COMMAND shadow-ui-preferences-test)
+
+    add_executable(
+        shadow-preview-diagnostics-test
+        tests/preview_diagnostics_test.cpp
+        src/preview_diagnostics.cpp
+        src/preview_diagnostics.hpp
+    )
+    target_compile_features(shadow-preview-diagnostics-test PRIVATE cxx_std_20)
+    target_include_directories(
+        shadow-preview-diagnostics-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(shadow-preview-diagnostics-test PRIVATE Qt6::Gui)
+    if(MSVC)
+        target_compile_options(shadow-preview-diagnostics-test PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(
+            shadow-preview-diagnostics-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(NAME shadow-desktop-preview-diagnostics COMMAND shadow-preview-diagnostics-test)
 
     add_executable(shadow-edit-history-test tests/edit_history_test.cpp)
     target_compile_features(shadow-edit-history-test PRIVATE cxx_std_20)
