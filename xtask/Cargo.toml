@@ -12,3 +12,5 @@ workspace = true
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
+shadow-catalog.workspace = true
+shadow-domain.workspace = true

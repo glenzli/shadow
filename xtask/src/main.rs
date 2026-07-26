@@ -1,5 +1,6 @@
 mod coordination_health;
 mod daily_use_smoke;
+mod library_scale_smoke;
 mod local_workspace_guard;
 
 use std::{
@@ -48,6 +49,7 @@ fn main() -> io::Result<()> {
         }
         "raw-smoke" => raw_smoke(env::args_os().nth(2)),
         "daily-use-smoke" => daily_use_smoke::run(env::args_os().nth(2)),
+        "library-scale-smoke" => library_scale_smoke::run(env::args_os().skip(2)),
         "coordination-health" => coordination_health::run(env::args_os().skip(2)),
         "local-workspace-guard" => local_workspace_guard::run(env::args_os().skip(2)),
         "doctor" => {
@@ -62,7 +64,7 @@ fn main() -> io::Result<()> {
         }
         _ => {
             println!(
-                "cargo xtask <check|test|native-configure|native-build|native-check|desktop-build|desktop-check|desktop-release|raw-smoke [fixture-directory]|daily-use-smoke [fixture-directory]|coordination-health [--root PATH] [--stale-after-minutes N] [--fail-on-stale] [--strict] [--commit-gate] [--bulk-stage-gate]|local-workspace-guard [--root PATH]|doctor>"
+                "cargo xtask <check|test|native-configure|native-build|native-check|desktop-build|desktop-check|desktop-release|raw-smoke [fixture-directory]|daily-use-smoke [fixture-directory]|library-scale-smoke [--photos N] [--page-size N]|coordination-health [--root PATH] [--stale-after-minutes N] [--fail-on-stale] [--strict] [--commit-gate] [--bulk-stage-gate]|local-workspace-guard [--root PATH]|doctor>"
             );
             Ok(())
         }
