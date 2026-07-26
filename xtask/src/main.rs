@@ -1,3 +1,4 @@
+mod coordination_health;
 mod daily_use_smoke;
 
 use std::{env, io, path::PathBuf, process::Command};
@@ -45,6 +46,7 @@ fn main() -> io::Result<()> {
         }
         "raw-smoke" => raw_smoke(env::args_os().nth(2)),
         "daily-use-smoke" => daily_use_smoke::run(env::args_os().nth(2)),
+        "coordination-health" => coordination_health::run(env::args_os().skip(2)),
         "doctor" => {
             doctor("rustc", &["--version"]);
             doctor("cargo", &["--version"]);
@@ -57,7 +59,7 @@ fn main() -> io::Result<()> {
         }
         _ => {
             println!(
-                "cargo xtask <check|test|native-configure|native-build|native-check|desktop-build|desktop-check|desktop-release|raw-smoke [fixture-directory]|daily-use-smoke [fixture-directory]|doctor>"
+                "cargo xtask <check|test|native-configure|native-build|native-check|desktop-build|desktop-check|desktop-release|raw-smoke [fixture-directory]|daily-use-smoke [fixture-directory]|coordination-health [--root PATH] [--stale-after-minutes N] [--fail-on-stale] [--strict] [--commit-gate] [--bulk-stage-gate]|doctor>"
             );
             Ok(())
         }
