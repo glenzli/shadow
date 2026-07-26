@@ -134,6 +134,7 @@ qt_add_executable(
     src/edit_retouch_controller.cpp
     src/edit_task_runner.cpp
     src/edit_task_runner.hpp
+    src/edit_tone_curve_controller.cpp
     src/edit_history.hpp
     src/edit_preview_contract.hpp
     src/edit_preview_provider.cpp

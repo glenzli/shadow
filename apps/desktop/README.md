@@ -39,6 +39,8 @@ QML never opens SQLite, calls LibRaw, or interprets blob paths. The global local
   automatic and manual profiles, residual controls, validation, history, and preview scheduling.
 - [`src/edit_retouch_controller.cpp`](src/edit_retouch_controller.cpp) owns photo-level repair and
   clone picker state, continuous strokes, legacy spots, and source-offset editing.
+- [`src/edit_tone_curve_controller.cpp`](src/edit_tone_curve_controller.cpp) owns Tone Curve
+  presentation, point normalization and editing, gesture integration, history, and preview timing.
 - [`src/edit_persistence_coordinator.cpp`](src/edit_persistence_coordinator.cpp) owns photo
   open/close, autosave, version operations, and durable state transitions.
 - [`src/edit_render_coordinator.cpp`](src/edit_render_coordinator.cpp) owns preview/detail
