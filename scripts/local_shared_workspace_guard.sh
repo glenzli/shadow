@@ -9,6 +9,33 @@ blocked=0
 
 for relative_path in target build local-reference/sample-assets local-reference/experiment-output; do
     candidate="$repository_root/$relative_path"
+    if [ -L "$candidate" ]; then
+        configured_target=$(readlink "$candidate")
+        case "$configured_target" in
+            /*) ;;
+            *)
+                printf '%s\n' "local workspace guard: guarded payload link $relative_path must use an absolute external target" >&2
+                blocked=1
+                continue
+                ;;
+        esac
+        if [ ! -d "$configured_target" ]; then
+            printf '%s\n' "local workspace guard: guarded payload link $relative_path must resolve to an existing external directory" >&2
+            blocked=1
+            continue
+        fi
+        canonical_target=$(CDPATH= cd -- "$configured_target" && pwd -P)
+        case "$canonical_target" in
+            "$repository_root"|"$repository_root"/*)
+                printf '%s\n' "local workspace guard: guarded payload link $relative_path must point outside $repository_root" >&2
+                blocked=1
+                ;;
+            *)
+                printf '%s\n' "local workspace guard: accepting external local payload link $relative_path -> $canonical_target"
+                ;;
+        esac
+        continue
+    fi
     if [ -e "$candidate" ]; then
         size_kib=$(du -sk "$candidate" 2>/dev/null | awk 'NR == 1 { print $1 }')
         if [ "${size_kib:-0}" -gt 0 ]; then

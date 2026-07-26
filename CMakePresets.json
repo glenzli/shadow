@@ -30,7 +30,7 @@
       "name": "desktop-release",
       "inherits": "desktop-dev",
       "displayName": "Shadow macOS desktop optimized",
-      "binaryDir": "${sourceDir}/build/desktop-release",
+      "binaryDir": "${sourceParentDir}/.shadow-local-build/${presetName}",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
       }

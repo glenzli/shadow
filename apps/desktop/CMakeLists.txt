@@ -58,6 +58,10 @@ set(
     SHADOW_DESKTOP_RUST_LIBRARY
     "${SHADOW_CARGO_TARGET_DIRECTORY}/${SHADOW_CARGO_PROFILE}/libshadow_desktop_bridge.a"
 )
+set(
+    SHADOW_CXXBRIDGE_INCLUDE_DIRECTORY
+    "${SHADOW_CARGO_TARGET_DIRECTORY}/cxxbridge"
+)
 if(UNIX)
     # `cmake -E env` closes GNU Make's jobserver descriptors before launching Cargo. Use the
     # system `env` executable on Unix so JOB_SERVER_AWARE can preserve bounded parallelism.
@@ -81,11 +85,19 @@ else()
 endif()
 add_custom_command(
     OUTPUT "${SHADOW_DESKTOP_RUST_LIBRARY}"
+    BYPRODUCTS
+        "${SHADOW_CXXBRIDGE_INCLUDE_DIRECTORY}/shadow-desktop-bridge/src/lib.rs.h"
     COMMAND
         ${SHADOW_CARGO_ENV} "${SHADOW_CARGO_EXECUTABLE}" build
         --package shadow-desktop-bridge
         ${SHADOW_CARGO_PROFILE_ARGUMENT}
         --target-dir "${SHADOW_CARGO_TARGET_DIRECTORY}"
+    COMMAND
+        "${CMAKE_COMMAND}"
+        "-DSHADOW_CARGO_TARGET_DIRECTORY=${SHADOW_CARGO_TARGET_DIRECTORY}"
+        "-DSHADOW_CARGO_PROFILE=${SHADOW_CARGO_PROFILE}"
+        "-DSHADOW_CXXBRIDGE_INCLUDE_DIRECTORY=${SHADOW_CXXBRIDGE_INCLUDE_DIRECTORY}"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/sync_cxxbridge_headers.cmake"
     DEPENDS ${SHADOW_RUST_BRIDGE_INPUTS}
     WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
     COMMENT "Building the Rust desktop snapshot bridge"
@@ -299,7 +311,7 @@ endif()
 target_include_directories(
     shadow-desktop
     PRIVATE
-        "${SHADOW_CARGO_TARGET_DIRECTORY}/cxxbridge"
+        "${SHADOW_CXXBRIDGE_INCLUDE_DIRECTORY}"
         "${PROJECT_SOURCE_DIR}/cpp/shadow-image/include"
 )
 target_link_libraries(

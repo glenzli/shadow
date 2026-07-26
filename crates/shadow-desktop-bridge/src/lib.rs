@@ -114,6 +114,9 @@ use uuid::Uuid;
 #[cfg(test)]
 use crate::photo_provider::PhotoInspector;
 use crate::photo_provider::isolated_edit_raster;
+use crate::isolated_proxy::{
+    NativeDecodeAdmission, configured_helper_path, native_decode_admission_after_isolated_stages,
+};
 use crate::review_service::ReviewService;
 use crate::scan_service::ScanService;
 use crate::session_preview_store::SessionPreviewStore;
@@ -2214,6 +2217,7 @@ impl DesktopSession {
         }
 
         let native_path = catalog_native_path(source)?;
+        ensure_native_decode_is_admitted(&self.cache_root, &native_path)?;
         let prepared = match PhotoEditPreviewSession::open_with_raw_development_plan_and_optics(
             &native_path,
             max_edge,
@@ -2373,6 +2377,7 @@ impl DesktopSession {
         ) {
             return Ok(session);
         }
+        ensure_native_decode_is_admitted(&self.cache_root, &native_path)?;
         let prepared_session =
             match PhotoEditDetailSession::open_with_raw_development_plan_and_optics(
                 &native_path,
@@ -2984,6 +2989,35 @@ fn catalog_native_path(source: &ReviewItemRecord) -> AnyResult<PathBuf> {
 #[cfg(not(unix))]
 fn catalog_native_path(_source: &ReviewItemRecord) -> AnyResult<PathBuf> {
     bail!("the first desktop edit service currently decodes native paths only on macOS")
+}
+
+/// A child crash or timeout is durable negative evidence for this exact source
+/// and helper revision. Preserve warm sessions, but do not reopen the native
+/// source in the desktop process until that evidence no longer applies.
+fn ensure_native_decode_is_admitted(runtime_cache_root: &Path, native_path: &Path) -> AnyResult<()> {
+    let Some(helper_path) = configured_helper_path() else {
+        return Ok(());
+    };
+    let admission = native_decode_admission_after_isolated_stages(
+        runtime_cache_root,
+        native_path,
+        &helper_path,
+    )?;
+    reject_quarantined_native_decode(admission, native_path)
+}
+
+fn reject_quarantined_native_decode(
+    admission: NativeDecodeAdmission,
+    native_path: &Path,
+) -> AnyResult<()> {
+    match admission {
+        NativeDecodeAdmission::NotQuarantined => Ok(()),
+        NativeDecodeAdmission::Quarantined { observation } => bail!(
+            "native edit decode remains disabled for {}: {}. This photo is temporarily preview-only until its source or decoder helper changes",
+            native_path.display(),
+            observation.diagnostic_label(),
+        ),
+    }
 }
 
 fn open_desktop_session(catalog_path: &str, cache_root: &str) -> AnyResult<Box<DesktopSession>> {
@@ -3681,6 +3715,22 @@ mod tests {
         let error = validate_detail_viewport_request(&request)
             .expect_err("a pathological grid must fail before source lookup or decode");
         assert!(error.to_string().contains("pre-decode admission"));
+    }
+
+    #[test]
+    fn quarantined_native_decode_is_rejected_before_source_opening() {
+        let source = Path::new("/photos/unsafe.raw");
+        let error = reject_quarantined_native_decode(
+            NativeDecodeAdmission::Quarantined {
+                observation: crate::isolated_proxy::IsolatedDecodeObservation::ChildCrashed,
+            },
+            source,
+        )
+        .expect_err("a child decoder crash must block the direct native opener");
+        assert!(error.to_string().contains("preview-only"));
+        assert!(error.to_string().contains("child decoder crashed"));
+        assert!(reject_quarantined_native_decode(NativeDecodeAdmission::NotQuarantined, source)
+            .is_ok());
     }
 
     #[test]

@@ -16,8 +16,7 @@ use std::{
 
 const DEFAULT_FIXTURE_DIRECTORY: &str = "local-reference/sample-assets/dng";
 const DEFAULT_RAW_FIXTURE_DIRECTORY: &str = "local-reference/sample-assets/raw";
-const DESKTOP_EXECUTABLE: &str =
-    "build/desktop-release/apps/desktop/Shadow.app/Contents/MacOS/Shadow";
+const DESKTOP_APP_EXECUTABLE: &str = "apps/desktop/Shadow.app/Contents/MacOS/Shadow";
 
 pub fn run(fixture_argument: Option<OsString>) -> io::Result<()> {
     let repository_root = repository_root();
@@ -25,7 +24,7 @@ pub fn run(fixture_argument: Option<OsString>) -> io::Result<()> {
     let extended = extended_baselines_enabled();
 
     build_release_desktop(&repository_root)?;
-    let executable = repository_root.join(DESKTOP_EXECUTABLE);
+    let executable = release_desktop_executable(&repository_root)?;
     if !executable.is_file() {
         return Err(io::Error::new(
             io::ErrorKind::NotFound,
@@ -515,6 +514,18 @@ fn repository_root() -> PathBuf {
         .to_path_buf()
 }
 
+fn release_desktop_executable(repository_root: &Path) -> io::Result<PathBuf> {
+    let parent = repository_root.parent().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "Shadow repository has no parent directory for local build artifacts",
+        )
+    })?;
+    Ok(parent
+        .join(".shadow-local-build/desktop-release")
+        .join(DESKTOP_APP_EXECUTABLE))
+}
+
 fn run_checked(command: &mut Command, context: &str) -> io::Result<()> {
     let output = command.output()?;
     if output.status.success() {
@@ -577,5 +588,16 @@ mod tests {
     #[test]
     fn utf8_tail_starts_at_a_character_boundary() {
         assert_eq!(utf8_tail("ab中文", 4), "文");
+    }
+
+    #[test]
+    fn optimized_desktop_bundle_is_outside_the_shared_source_root() {
+        let root = Path::new("/tmp/shadow-workspace");
+        assert_eq!(
+            release_desktop_executable(root).expect("derive desktop app path"),
+            PathBuf::from(
+                "/tmp/.shadow-local-build/desktop-release/apps/desktop/Shadow.app/Contents/MacOS/Shadow"
+            )
+        );
     }
 }

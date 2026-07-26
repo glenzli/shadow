@@ -60,9 +60,18 @@ pub fn run(arguments: impl IntoIterator<Item = OsString>) -> io::Result<()> {
 
     for relative_path in GUARDED_PATHS {
         let path = root.join(relative_path);
-        let bytes = directory_size(&path)?;
-        if bytes > 0 {
-            violations.push(format!("{} ({})", path.display(), format_bytes(bytes)));
+        match guarded_path_size(&root, &path)? {
+            GuardedPathSize::Bytes(bytes) if bytes > 0 => {
+                violations.push(format!("{} ({})", path.display(), format_bytes(bytes)));
+            }
+            GuardedPathSize::ExternalDirectoryLink(target) => {
+                println!(
+                    "local workspace guard: accepting external local payload link {} -> {}",
+                    path.display(),
+                    target.display()
+                );
+            }
+            GuardedPathSize::Bytes(_) => {}
         }
     }
     for variable in ["CARGO_TARGET_DIR", "SHADOW_BUILD_DIR"] {
@@ -104,13 +113,47 @@ fn repository_root() -> PathBuf {
         .to_path_buf()
 }
 
-fn directory_size(path: &Path) -> io::Result<u64> {
-    if !path.exists() {
-        return Ok(0);
+enum GuardedPathSize {
+    Bytes(u64),
+    ExternalDirectoryLink(PathBuf),
+}
+
+fn guarded_path_size(root: &Path, path: &Path) -> io::Result<GuardedPathSize> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return Ok(GuardedPathSize::Bytes(0));
+        }
+        Err(error) => return Err(error),
+    };
+    if metadata.file_type().is_symlink() {
+        let configured_target = fs::read_link(path)?;
+        if !configured_target.is_absolute() {
+            return Err(io::Error::other(format!(
+                "guarded payload link {} must use an absolute external target",
+                path.display()
+            )));
+        }
+        let canonical_target = fs::canonicalize(path).map_err(|error| {
+            io::Error::new(
+                error.kind(),
+                format!(
+                    "guarded payload link {} must resolve to an existing external directory: {error}",
+                    path.display()
+                ),
+            )
+        })?;
+        if !canonical_target.is_dir() || canonical_target.starts_with(root) {
+            return Err(io::Error::other(format!(
+                "guarded payload link {} must resolve to a directory outside {}",
+                path.display(),
+                root.display()
+            )));
+        }
+        return Ok(GuardedPathSize::ExternalDirectoryLink(canonical_target));
     }
-    let metadata = fs::symlink_metadata(path)?;
     if !metadata.is_dir() {
-        return Ok(metadata.len());
+        return Ok(GuardedPathSize::Bytes(metadata.len()));
     }
 
     let mut total = 0_u64;
@@ -126,7 +169,7 @@ fn directory_size(path: &Path) -> io::Result<u64> {
             }
         }
     }
-    Ok(total)
+    Ok(GuardedPathSize::Bytes(total))
 }
 
 fn format_bytes(bytes: u64) -> String {
