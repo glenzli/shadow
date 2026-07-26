@@ -80,6 +80,282 @@ Item {
                 Layout.fillWidth: true
 
                 Label {
+                    text: qsTr("SOURCE HEALTH")
+                    color: Theme.textMuted
+                    font.pixelSize: Theme.fontMeta
+                    font.weight: Font.DemiBold
+                    font.letterSpacing: 0.5
+                }
+
+                Item { Layout.fillWidth: true }
+
+                BusyIndicator {
+                    Layout.preferredWidth: 16
+                    Layout.preferredHeight: 16
+                    visible: library.controller.librarySourceHealthBusy
+                    running: visible
+                }
+
+                ShadowIconButton {
+                    visible: !library.controller.librarySourceHealthBusy
+                    source: "qrc:/icons/history.svg"
+                    variant: ShadowIconButton.Quiet
+                    toolTipText: qsTr("REFRESH SOURCE HEALTH")
+                    accessibleName: toolTipText
+                    onClicked: library.controller.refreshLibrarySourceHealth()
+                }
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                Repeater {
+                    model: library.controller.librarySourceHealth
+
+                    delegate: Rectangle {
+                        required property var modelData
+                        readonly property var sourceHealth: modelData
+
+                        Layout.fillWidth: true
+                        implicitHeight: sourceHealthContent.implicitHeight + 28
+                        radius: 8
+                        color: Theme.panelRaised
+                        border.color: Theme.border
+
+                        ColumnLayout {
+                            id: sourceHealthContent
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.leftMargin: 16
+                            anchors.rightMargin: 16
+                            spacing: 8
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 10
+
+                                ShadowIcon {
+                                    source: "qrc:/icons/add-folder.svg"
+                                    color: modelData.enabled ? Theme.textMuted : Theme.textSubtle
+                                    size: 16
+                                }
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: modelData.sourcePath
+                                    color: modelData.enabled ? Theme.textPrimary : Theme.textMuted
+                                    font.pixelSize: Theme.fontSection
+                                    font.weight: Font.DemiBold
+                                    elide: Text.ElideMiddle
+                                }
+
+                                Label {
+                                    text: modelData.enabled ? qsTr("ACTIVE") : qsTr("PAUSED")
+                                    color: modelData.enabled ? Theme.accent : Theme.textSubtle
+                                    font.pixelSize: Theme.fontMeta
+                                    font.weight: Font.DemiBold
+                                }
+                            }
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: !modelData.hasLatestCompletedScan
+                                    ? qsTr("No completed scan has been recorded yet.")
+                                    : Number(modelData.notSeenLocations) === 0
+                                        ? qsTr("The latest scan accounted for all known locations.")
+                                        : qsTr("%L1 locations were not seen in this scan.")
+                                            .arg(Number(modelData.notSeenLocations).toLocaleString())
+                                color: Number(modelData.notSeenLocations) > 0
+                                    ? Theme.textSecondary : Theme.textMuted
+                                font.pixelSize: Theme.fontMeta
+                                wrapMode: Text.WordWrap
+                            }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                visible: modelData.hasLatestCompletedScan
+                                spacing: 18
+
+                                Label {
+                                    text: qsTr("KNOWN  %L1")
+                                        .arg(Number(modelData.knownLocations).toLocaleString())
+                                    color: Theme.textMuted
+                                    font.pixelSize: Theme.fontMeta
+                                }
+
+                                Label {
+                                    text: qsTr("SEEN  %L1")
+                                        .arg(Number(modelData.seenLocations).toLocaleString())
+                                    color: Theme.textMuted
+                                    font.pixelSize: Theme.fontMeta
+                                }
+
+                                Item { Layout.fillWidth: true }
+                            }
+
+                            Label {
+                                Layout.fillWidth: true
+                                visible: modelData.hasLatestCompletedScan
+                                    && Number(modelData.notSeenLocations) > 0
+                                text: qsTr("This is scan evidence for this source only; photos may remain available elsewhere.")
+                                color: Theme.textSubtle
+                                font.pixelSize: Theme.fontMeta
+                                wrapMode: Text.WordWrap
+                            }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                visible: modelData.hasLatestCompletedScan
+                                    && Number(modelData.notSeenLocations) > 0
+
+                                Item { Layout.fillWidth: true }
+
+                                ShadowIconButton {
+                                    visible: library.controller.missingSourceLocationScanId
+                                        !== sourceHealth.scanSessionId
+                                    source: "qrc:/icons/metadata.svg"
+                                    variant: ShadowIconButton.Quiet
+                                    toolTipText: qsTr("REVIEW NOT-SEEN LOCATIONS")
+                                    accessibleName: toolTipText
+                                    onClicked: library.controller.openMissingSourceLocationReview(
+                                        sourceHealth.scanSessionId
+                                    )
+                                }
+                            }
+
+                            Rectangle {
+                                Layout.fillWidth: true
+                                visible: library.controller.missingSourceLocationScanId
+                                    === sourceHealth.scanSessionId
+                                implicitHeight: missingLocationContent.implicitHeight + 20
+                                radius: Theme.controlRadius
+                                color: Theme.surfaceSubtle
+
+                                ColumnLayout {
+                                    id: missingLocationContent
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    anchors.leftMargin: 12
+                                    anchors.rightMargin: 12
+                                    spacing: 8
+
+                                    RowLayout {
+                                        Layout.fillWidth: true
+
+                                        Label {
+                                            Layout.fillWidth: true
+                                            text: qsTr("NOT-SEEN LOCATIONS")
+                                            color: Theme.textSecondary
+                                            font.pixelSize: Theme.fontMeta
+                                            font.weight: Font.DemiBold
+                                            font.letterSpacing: 0.4
+                                        }
+
+                                        BusyIndicator {
+                                            Layout.preferredWidth: 16
+                                            Layout.preferredHeight: 16
+                                            visible: library.controller.missingSourceLocationsBusy
+                                            running: visible
+                                        }
+
+                                        ShadowIconButton {
+                                            source: "qrc:/icons/clear.svg"
+                                            variant: ShadowIconButton.Quiet
+                                            toolTipText: qsTr("CLOSE LOCATION REVIEW")
+                                            accessibleName: toolTipText
+                                            onClicked: library.controller.closeMissingSourceLocationReview()
+                                        }
+                                    }
+
+                                    Label {
+                                        Layout.fillWidth: true
+                                        visible: library.controller.missingSourceLocations.length === 0
+                                            && !library.controller.missingSourceLocationsBusy
+                                        text: qsTr("No locations are available for this completed scan.")
+                                        color: Theme.textMuted
+                                        font.pixelSize: Theme.fontMeta
+                                        wrapMode: Text.WordWrap
+                                    }
+
+                                    Repeater {
+                                        model: library.controller.missingSourceLocations
+
+                                        delegate: ColumnLayout {
+                                            required property var modelData
+
+                                            Layout.fillWidth: true
+                                            spacing: 2
+
+                                            Label {
+                                                Layout.fillWidth: true
+                                                text: modelData.title
+                                                color: Theme.textPrimary
+                                                font.pixelSize: Theme.fontMeta
+                                                font.weight: Font.DemiBold
+                                                elide: Text.ElideMiddle
+                                            }
+
+                                            Label {
+                                                Layout.fillWidth: true
+                                                text: modelData.sourcePath
+                                                color: Theme.textSubtle
+                                                font.pixelSize: Theme.fontMeta
+                                                elide: Text.ElideMiddle
+                                            }
+
+                                            Label {
+                                                Layout.fillWidth: true
+                                                visible: modelData.cameraKey.length > 0
+                                                text: modelData.cameraKey
+                                                color: Theme.textSubtle
+                                                font.pixelSize: Theme.fontMeta
+                                                elide: Text.ElideRight
+                                            }
+                                        }
+                                    }
+
+                                    ShadowIconButton {
+                                        Layout.alignment: Qt.AlignLeft
+                                        visible: library.controller.missingSourceLocationsHasMore
+                                        source: "qrc:/icons/redo.svg"
+                                        variant: ShadowIconButton.Secondary
+                                        toolTipText: qsTr("LOAD MORE LOCATIONS")
+                                        accessibleName: toolTipText
+                                        enabled: !library.controller.missingSourceLocationsBusy
+                                        onClicked: library.controller.loadMoreMissingSourceLocations()
+                                    }
+
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: qsTr("Review only. A moved file must still pass full identity verification before a separate confirmation can attach it.")
+                                        color: Theme.textSubtle
+                                        font.pixelSize: Theme.fontMeta
+                                        wrapMode: Text.WordWrap
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    visible: library.controller.librarySourceHealth.length === 0
+                        && !library.controller.librarySourceHealthBusy
+                    text: qsTr("No source scans yet. Import a folder to establish one.")
+                    color: Theme.textSubtle
+                    font.pixelSize: Theme.fontMeta
+                    wrapMode: Text.WordWrap
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+
+                Label {
                     text: qsTr("CATALOG")
                     color: Theme.textMuted
                     font.pixelSize: Theme.fontMeta

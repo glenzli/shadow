@@ -140,6 +140,7 @@ struct BackendLibraryPhotoFilter final {
     std::int64_t capture_start_unix_seconds = 0;
     bool has_capture_end = false;
     std::int64_t capture_end_unix_seconds = 0;
+    QString capture_month;
     QString camera_key;
     QString lens_key;
     bool has_aperture_minimum = false;
@@ -155,6 +156,82 @@ struct BackendLibraryPhotoFilter final {
     bool has_development_edits = false;
     bool development_edits = false;
     QString album_id;
+};
+
+/// Indexed, photo-first Library aggregation dimensions. A source directory is
+/// deliberately absent: folders discover photos but never own the Library.
+enum class BackendLibraryFacetKind : std::uint8_t {
+    CaptureMonth,
+    Camera,
+    Lens,
+};
+
+struct BackendLibraryFacetCursor final {
+    std::uint64_t photo_count = 0;
+    QString key;
+};
+
+struct BackendLibraryFacet final {
+    QString key;
+    QString label;
+    std::uint64_t photo_count = 0;
+};
+
+struct BackendLibraryFacetPage final {
+    QVector<BackendLibraryFacet> items;
+    bool has_more = false;
+    BackendLibraryFacetCursor next_cursor;
+};
+
+/// Durable user organization in the local Library. Manual albums carry
+/// explicit memberships; smart albums replay a frozen photo-first filter.
+enum class BackendLibraryAlbumKind : std::uint8_t {
+    Manual,
+    Smart,
+};
+
+struct BackendLibraryAlbum final {
+    QString id;
+    BackendLibraryAlbumKind kind = BackendLibraryAlbumKind::Manual;
+    QString name;
+    BackendLibraryPhotoFilter query_filter;
+    std::int64_t created_at_ms = 0;
+    std::int64_t updated_at_ms = 0;
+};
+
+/// Read-only evidence from the most recent completed scan of a configured
+/// Library source. It must never be interpreted as a global offline verdict
+/// or an instruction to reattach a source automatically.
+struct BackendLibrarySourceHealth final {
+    QString source_id;
+    QString source_display_path;
+    bool source_enabled = false;
+    bool has_latest_completed_scan = false;
+    QString scan_session_id;
+    std::int64_t scan_completed_at_ms = 0;
+    std::uint64_t known_locations = 0;
+    std::uint64_t seen_locations = 0;
+    std::uint64_t not_seen_locations = 0;
+};
+
+/// One original location absent from a particular completed source scan. It is
+/// scan-scoped review evidence only and never grants a caller reattach rights.
+struct BackendMissingSourceLocation final {
+    QString location_id;
+    QString photo_id;
+    QString title;
+    QString source_display_path;
+    bool has_captured_at = false;
+    std::int64_t captured_at_unix_seconds = 0;
+    QString camera_key;
+    std::int64_t last_seen_at_ms = 0;
+};
+
+struct BackendMissingSourceLocationPage final {
+    bool has_scan = false;
+    QVector<BackendMissingSourceLocation> items;
+    bool has_more = false;
+    QString next_location_id;
 };
 
 /// Keyset cursor for capture-time-descending Library pages. `photo_id` is the
@@ -693,6 +770,39 @@ public:
     ) const;
     [[nodiscard]] std::uint64_t libraryPhotoCount(
         const BackendLibraryPhotoFilter& filter
+    ) const;
+    [[nodiscard]] BackendLibraryFacetPage libraryFacetPage(
+        const BackendLibraryPhotoFilter& filter,
+        BackendLibraryFacetKind kind,
+        const BackendLibraryFacetCursor& cursor,
+        std::uint32_t limit
+    ) const;
+    [[nodiscard]] QVector<BackendLibraryAlbum> libraryAlbums() const;
+    [[nodiscard]] QVector<BackendLibrarySourceHealth> librarySourceHealth() const;
+    [[nodiscard]] BackendMissingSourceLocationPage missingSourceLocationPage(
+        const QString& scan_session_id,
+        const QString& after_location_id,
+        std::uint32_t limit
+    ) const;
+    [[nodiscard]] BackendLibraryAlbum createManualLibraryAlbum(
+        const QString& name
+    ) const;
+    [[nodiscard]] BackendLibraryAlbum createSmartLibraryAlbum(
+        const QString& name,
+        const BackendLibraryPhotoFilter& query_filter
+    ) const;
+    [[nodiscard]] BackendLibraryAlbum renameLibraryAlbum(
+        const QString& album_id,
+        const QString& name
+    ) const;
+    [[nodiscard]] bool deleteLibraryAlbum(const QString& album_id) const;
+    void addPhotoToManualLibraryAlbum(
+        const QString& album_id,
+        const QString& photo_id
+    ) const;
+    [[nodiscard]] bool removePhotoFromManualLibraryAlbum(
+        const QString& album_id,
+        const QString& photo_id
     ) const;
     [[nodiscard]] BackendPhotoLibraryState setPhotoLibraryState(
         const QString& photo_id,

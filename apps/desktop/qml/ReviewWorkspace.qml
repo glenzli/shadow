@@ -90,6 +90,33 @@ Item {
         && !controller.comparisonBusy && !controller.decisionBusy
     readonly property int selectedPhotoCount:
         Object.keys(selectedPhotoTargets).length
+    readonly property var currentLibraryAlbum: {
+        const albums = controller.libraryAlbums
+        const selectedId = String(controller.libraryAlbumId)
+        for (let index = 0; index < albums.length; ++index) {
+            if (String(albums[index].id) === selectedId)
+                return albums[index]
+        }
+        return null
+    }
+    readonly property string currentLibraryAlbumName:
+        currentLibraryAlbum === null ? "" : String(currentLibraryAlbum.name)
+    readonly property bool currentLibraryAlbumIsManual:
+        currentLibraryAlbum !== null
+            && String(currentLibraryAlbum.kind) === "manual"
+    readonly property bool hasLibraryFacetFilter:
+        controller.filterCaptureMonth.length > 0
+        || controller.filterCameraKey.length > 0
+        || controller.filterLensKey.length > 0
+    readonly property var manualLibraryAlbums: {
+        const albums = controller.libraryAlbums
+        const manualAlbums = []
+        for (let index = 0; index < albums.length; ++index) {
+            if (String(albums[index].kind) === "manual")
+                manualAlbums.push(albums[index])
+        }
+        return manualAlbums
+    }
     readonly property string localComparisonStatus: {
         if (localComparisonStatusKey === "photo-in-both-slots")
             return qsTr("A photo cannot occupy both comparison slots.")
@@ -115,6 +142,359 @@ Item {
         hasMetadata: review.selectedHasMetadata
         metadataPending: review.controller.scanning || review.controller.refreshing
         fields: review.metadataFields()
+    }
+
+    LibraryFacetPopup {
+        id: libraryFacetPopup
+        controller: review.controller
+    }
+    Popup {
+        id: albumCreatePopup
+        parent: Overlay.overlay
+        modal: true
+        focus: true
+        width: Math.min(330, review.width - 40)
+        x: Math.round((parent.width - width) / 2)
+        y: Math.round((parent.height - height) / 2)
+        padding: 16
+        property bool createSmartAlbum: false
+
+        onOpened: {
+            albumNameInput.text = ""
+            albumNameInput.forceActiveFocus()
+        }
+
+        background: Rectangle {
+            radius: Theme.controlRadius
+            color: Theme.panelRaised
+            border.width: 1
+            border.color: Theme.borderStrong
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 12
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("Create album")
+                color: Theme.textPrimary
+                font.pixelSize: Theme.fontSection
+                font.weight: Font.DemiBold
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: albumCreatePopup.createSmartAlbum
+                    ? qsTr("A Smart Album keeps the current library filters as a reusable view.")
+                    : qsTr("A Manual Album holds only the photos you add to it.")
+                color: Theme.textMuted
+                font.pixelSize: Theme.fontMeta
+                wrapMode: Text.WordWrap
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 6
+
+                ShadowButton {
+                    Layout.fillWidth: true
+                    compact: true
+                    text: qsTr("Manual")
+                    selected: !albumCreatePopup.createSmartAlbum
+                    onClicked: albumCreatePopup.createSmartAlbum = false
+                }
+
+                ShadowButton {
+                    Layout.fillWidth: true
+                    compact: true
+                    text: qsTr("Smart")
+                    selected: albumCreatePopup.createSmartAlbum
+                    onClicked: albumCreatePopup.createSmartAlbum = true
+                }
+            }
+
+            TextField {
+                id: albumNameInput
+                Layout.fillWidth: true
+                placeholderText: qsTr("Album name")
+                selectByMouse: true
+                onAccepted: createAlbumButton.clicked()
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                Item { Layout.fillWidth: true }
+
+                ShadowButton {
+                    compact: true
+                    text: qsTr("Cancel")
+                    onClicked: albumCreatePopup.close()
+                }
+
+                ShadowButton {
+                    id: createAlbumButton
+                    compact: true
+                    variant: ShadowButton.Primary
+                    text: qsTr("Create")
+                    enabled: albumNameInput.text.trim().length > 0
+                        && !review.controller.libraryAlbumsBusy
+                    onClicked: {
+                        if (albumCreatePopup.createSmartAlbum)
+                            review.controller.createSmartLibraryAlbum(albumNameInput.text)
+                        else
+                            review.controller.createManualLibraryAlbum(albumNameInput.text)
+                        albumCreatePopup.close()
+                    }
+                }
+            }
+        }
+    }
+
+    Popup {
+        id: albumMembershipPopup
+        parent: Overlay.overlay
+        modal: true
+        focus: true
+        width: Math.min(336, review.width - 40)
+        x: Math.round((parent.width - width) / 2)
+        y: Math.round((parent.height - height) / 2)
+        padding: 16
+        property var targets: []
+
+        background: Rectangle {
+            radius: Theme.controlRadius
+            color: Theme.panelRaised
+            border.width: 1
+            border.color: Theme.borderStrong
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 12
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("Add to Manual Album")
+                color: Theme.textPrimary
+                font.pixelSize: Theme.fontSection
+                font.weight: Font.DemiBold
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("Add %L1 selected photos to an album.").arg(
+                    albumMembershipPopup.targets.length)
+                color: Theme.textMuted
+                font.pixelSize: Theme.fontMeta
+                wrapMode: Text.WordWrap
+            }
+
+            ListView {
+                id: manualAlbumPicker
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.min(contentHeight, 192)
+                visible: count > 0
+                clip: true
+                spacing: 4
+                model: review.manualLibraryAlbums
+
+                delegate: ShadowButton {
+                    required property var modelData
+                    width: manualAlbumPicker.width
+                    compact: true
+                    text: String(modelData.name)
+                    enabled: !review.controller.libraryAlbumsBusy
+                    onClicked: {
+                        review.controller.addPhotosToManualLibraryAlbum(
+                            String(modelData.id),
+                            albumMembershipPopup.targets)
+                        albumMembershipPopup.close()
+                    }
+                }
+            }
+
+            Label {
+                Layout.fillWidth: true
+                visible: review.manualLibraryAlbums.length === 0
+                text: qsTr("Create a Manual Album first, then add photos here.")
+                color: Theme.textMuted
+                font.pixelSize: Theme.fontMeta
+                wrapMode: Text.WordWrap
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Item { Layout.fillWidth: true }
+
+                ShadowButton {
+                    compact: true
+                    text: qsTr("Cancel")
+                    onClicked: albumMembershipPopup.close()
+                }
+            }
+        }
+    }
+
+    Popup {
+        id: albumManagePopup
+        parent: Overlay.overlay
+        modal: true
+        focus: true
+        width: Math.min(342, review.width - 40)
+        x: Math.round((parent.width - width) / 2)
+        y: Math.round((parent.height - height) / 2)
+        padding: 16
+        property string albumId: ""
+        property string albumName: ""
+        property string albumKind: "manual"
+
+        onOpened: {
+            albumRenameInput.text = albumName
+            albumRenameInput.selectAll()
+            albumRenameInput.forceActiveFocus()
+        }
+
+        background: Rectangle {
+            radius: Theme.controlRadius
+            color: Theme.panelRaised
+            border.width: 1
+            border.color: Theme.borderStrong
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 12
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("Manage album")
+                color: Theme.textPrimary
+                font.pixelSize: Theme.fontSection
+                font.weight: Font.DemiBold
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: albumManagePopup.albumKind === "smart"
+                    ? qsTr("Smart Album") : qsTr("Manual Album")
+                color: Theme.textMuted
+                font.pixelSize: Theme.fontMeta
+            }
+
+            TextField {
+                id: albumRenameInput
+                Layout.fillWidth: true
+                selectByMouse: true
+                onAccepted: renameAlbumButton.clicked()
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                ShadowButton {
+                    compact: true
+                    variant: ShadowButton.Danger
+                    text: qsTr("Delete")
+                    enabled: !review.controller.libraryAlbumsBusy
+                    onClicked: {
+                        albumDeletePopup.albumId = albumManagePopup.albumId
+                        albumDeletePopup.albumName = albumManagePopup.albumName
+                        albumManagePopup.close()
+                        albumDeletePopup.open()
+                    }
+                }
+
+                Item { Layout.fillWidth: true }
+
+                ShadowButton {
+                    compact: true
+                    text: qsTr("Cancel")
+                    onClicked: albumManagePopup.close()
+                }
+
+                ShadowButton {
+                    id: renameAlbumButton
+                    compact: true
+                    variant: ShadowButton.Primary
+                    text: qsTr("Rename")
+                    enabled: albumRenameInput.text.trim().length > 0
+                        && !review.controller.libraryAlbumsBusy
+                    onClicked: {
+                        review.controller.renameLibraryAlbum(
+                            albumManagePopup.albumId,
+                            albumRenameInput.text)
+                        albumManagePopup.close()
+                    }
+                }
+            }
+        }
+    }
+
+    Popup {
+        id: albumDeletePopup
+        parent: Overlay.overlay
+        modal: true
+        focus: true
+        width: Math.min(342, review.width - 40)
+        x: Math.round((parent.width - width) / 2)
+        y: Math.round((parent.height - height) / 2)
+        padding: 16
+        property string albumId: ""
+        property string albumName: ""
+
+        background: Rectangle {
+            radius: Theme.controlRadius
+            color: Theme.panelRaised
+            border.width: 1
+            border.color: Theme.dangerBorder
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 12
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("Delete album?")
+                color: Theme.textPrimary
+                font.pixelSize: Theme.fontSection
+                font.weight: Font.DemiBold
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("Delete \u201c%1\u201d? Photos and their edits stay in the Library.").arg(
+                    albumDeletePopup.albumName)
+                color: Theme.textMuted
+                font.pixelSize: Theme.fontMeta
+                wrapMode: Text.WordWrap
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                Item { Layout.fillWidth: true }
+
+                ShadowButton {
+                    compact: true
+                    text: qsTr("Cancel")
+                    onClicked: albumDeletePopup.close()
+                }
+
+                ShadowButton {
+                    compact: true
+                    variant: ShadowButton.Danger
+                    text: qsTr("Delete album")
+                    enabled: !review.controller.libraryAlbumsBusy
+                    onClicked: {
+                        review.controller.deleteLibraryAlbum(
+                            albumDeletePopup.albumId)
+                        albumDeletePopup.close()
+                    }
+                }
+            }
+        }
     }
 
     Popup {
@@ -800,7 +1180,8 @@ Item {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 34
                     radius: 7
-                    color: Theme.accentSurface
+                    color: review.controller.libraryAlbumId.length === 0
+                        ? Theme.accentSurface : Theme.transparent
 
                     Rectangle {
                         anchors.left: parent.left
@@ -809,7 +1190,8 @@ Item {
                         width: 3
                         height: 18
                         radius: 1.5
-                        color: review.accent
+                        color: review.controller.libraryAlbumId.length === 0
+                            ? review.accent : Theme.transparent
                     }
 
                     RowLayout {
@@ -822,6 +1204,142 @@ Item {
                             text: qsTr("%L1").arg(review.controller.itemCount)
                             color: review.textMuted
                             horizontalAlignment: Text.AlignRight
+                        }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: review.controller.libraryAlbumId = ""
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.topMargin: 12
+                    Layout.bottomMargin: 2
+                    spacing: 6
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: qsTr("ALBUMS")
+                        color: review.textMuted
+                        font.pixelSize: 9
+                        font.weight: Font.DemiBold
+                        font.letterSpacing: 1.1
+                    }
+
+                    BusyIndicator {
+                        Layout.preferredWidth: 14
+                        Layout.preferredHeight: 14
+                        visible: review.controller.libraryAlbumsBusy
+                        running: visible
+                    }
+
+                    ShadowIconButton {
+                        source: "qrc:/icons/node-add.svg"
+                        buttonSize: 24
+                        iconSize: 15
+                        toolTipText: qsTr("Create album")
+                        accessibleName: toolTipText
+                        enabled: !review.controller.libraryAlbumsBusy
+                        onClicked: albumCreatePopup.open()
+                    }
+                }
+
+                ListView {
+                    id: albumList
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Math.min(contentHeight, 188)
+                    visible: count > 0
+                    clip: true
+                    spacing: 2
+                    model: review.controller.libraryAlbums
+
+                    delegate: Rectangle {
+                        id: albumRow
+                        required property var modelData
+                        readonly property string albumId: String(modelData.id)
+                        readonly property bool selected:
+                            review.controller.libraryAlbumId === albumId
+                        width: albumList.width
+                        height: 32
+                        radius: Theme.compactControlRadius
+                        color: selected ? Theme.accentSurface
+                            : albumMouse.containsMouse
+                                ? Theme.buttonGhostHover : Theme.transparent
+
+                        Rectangle {
+                            anchors.left: parent.left
+                            anchors.leftMargin: 3
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 2
+                            height: 16
+                            radius: 1
+                            color: albumRow.selected ? review.accent : Theme.transparent
+                        }
+
+                        RowLayout {
+                            z: 1
+                            anchors.fill: parent
+                            anchors.leftMargin: 11
+                            anchors.rightMargin: 8
+                            spacing: 7
+
+                            ShadowIcon {
+                                source: String(albumRow.modelData.kind) === "smart"
+                                    ? "qrc:/icons/filter.svg"
+                                    : "qrc:/icons/library-manage.svg"
+                                color: albumRow.selected ? review.accent
+                                    : review.textMuted
+                                size: 14
+                            }
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: String(albumRow.modelData.name)
+                                color: albumRow.selected
+                                    ? review.textPrimary : review.textSecondary
+                                font.pixelSize: 11
+                                elide: Text.ElideRight
+                            }
+
+                            Label {
+                                visible: String(albumRow.modelData.kind) === "smart"
+                                text: qsTr("SMART")
+                                color: albumRow.selected ? review.accent : review.textMuted
+                                font.pixelSize: 8
+                                font.weight: Font.DemiBold
+                                font.letterSpacing: 0.55
+                            }
+
+                            ShadowIconButton {
+                                visible: albumRow.selected || albumMouse.containsMouse
+                                source: "qrc:/icons/settings.svg"
+                                buttonSize: 22
+                                iconSize: 13
+                                toolTipText: qsTr("Manage album")
+                                accessibleName: toolTipText
+                                enabled: !review.controller.libraryAlbumsBusy
+                                onClicked: {
+                                    albumManagePopup.albumId = albumRow.albumId
+                                    albumManagePopup.albumName = String(
+                                        albumRow.modelData.name)
+                                    albumManagePopup.albumKind = String(
+                                        albumRow.modelData.kind)
+                                    albumManagePopup.open()
+                                }
+                            }
+                        }
+
+                        MouseArea {
+                            id: albumMouse
+                            anchors.fill: parent
+                            z: 0
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: review.controller.libraryAlbumId = albumRow.albumId
                         }
                     }
                 }
@@ -1013,7 +1531,9 @@ Item {
                     spacing: 8
 
                     Label {
-                        text: qsTr("ALL PHOTOS")
+                        text: review.currentLibraryAlbumName.length > 0
+                            ? review.currentLibraryAlbumName.toUpperCase()
+                            : qsTr("ALL PHOTOS")
                         color: review.textMuted
                         font.pixelSize: 9
                         font.weight: Font.DemiBold
@@ -1032,6 +1552,15 @@ Item {
                         toolTipText: qsTr("Manage photo sources")
                         accessibleName: toolTipText
                         onClicked: review.openLibraryManagementRequested()
+                    }
+
+                    ShadowIconButton {
+                        checkable: true
+                        checked: review.hasLibraryFacetFilter
+                        source: "qrc:/icons/filter.svg"
+                        toolTipText: qsTr("Browse Library facets")
+                        accessibleName: toolTipText
+                        onClicked: libraryFacetPopup.open()
                     }
 
                     Item { Layout.fillWidth: true }
@@ -1117,6 +1646,32 @@ Item {
                                     review.height - sharedBatchPopup.height - 8))
                             sharedBatchPopup.open()
                         }
+                    }
+
+                    ShadowIconButton {
+                        id: addToManualAlbumButton
+                        source: "qrc:/icons/add-folder.svg"
+                        toolTipText: qsTr("Add selected photos to a Manual Album")
+                        accessibleName: toolTipText
+                        enabled: review.selectedPhotoCount > 0
+                            && review.manualLibraryAlbums.length > 0
+                            && !review.controller.libraryAlbumsBusy
+                        onClicked: {
+                            albumMembershipPopup.targets = review.batchSelectionTargets()
+                            albumMembershipPopup.open()
+                        }
+                    }
+
+                    ShadowIconButton {
+                        visible: review.currentLibraryAlbumIsManual
+                        source: "qrc:/icons/clear.svg"
+                        toolTipText: qsTr("Remove selected photos from this Manual Album")
+                        accessibleName: toolTipText
+                        enabled: review.selectedPhotoCount > 0
+                            && !review.controller.libraryAlbumsBusy
+                        onClicked: review.controller.removePhotosFromManualLibraryAlbum(
+                            String(review.currentLibraryAlbum.id),
+                            review.batchSelectionTargets())
                     }
 
                     ShadowIconButton {

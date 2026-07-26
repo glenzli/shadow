@@ -94,9 +94,40 @@ void combined_lightroom_filters_intersect() {
     require(filtered.rowCount() == 3, "clearing filters must restore the grid");
 }
 
+void catalog_metadata_facets_remain_typed_server_filters() {
+    ReviewFilterModel filtered;
+    require(!filtered.hasActiveServerFilter(), "empty metadata facets must be absent");
+
+    filtered.setCaptureMonth(QStringLiteral("2026-07"));
+    filtered.setCameraKey(QStringLiteral("Canon EOS R"));
+    filtered.setLensKey(QStringLiteral("RF24-105MM F4 L IS USM"));
+    require(
+        filtered.captureMonth() == QStringLiteral("2026-07"),
+        "capture months must retain the canonical YYYY-MM key"
+    );
+    require(
+        filtered.cameraKey() == QStringLiteral("canon eos r"),
+        "camera facet keys must use catalog-compatible normalization"
+    );
+    require(
+        filtered.lensKey() == QStringLiteral("rf24-105mm f4 l is usm"),
+        "lens facet keys must use catalog-compatible normalization"
+    );
+    require(filtered.hasActiveServerFilter(), "metadata facets must request a fresh page");
+
+    filtered.setCaptureMonth(QStringLiteral("2026-13"));
+    require(
+        filtered.captureMonth().isEmpty(),
+        "invalid capture months must fail closed instead of widening a query"
+    );
+    filtered.clearFilters();
+    require(!filtered.hasActiveServerFilter(), "clearing must include metadata facets");
+}
+
 } // namespace
 
 int main() {
     combined_lightroom_filters_intersect();
+    catalog_metadata_facets_remain_typed_server_filters();
     return EXIT_SUCCESS;
 }

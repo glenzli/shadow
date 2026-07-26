@@ -9,15 +9,16 @@ use rusqlite::{
     OptionalExtension, Transaction, params, params_from_iter,
     types::{Type, Value},
 };
+use serde::{Deserialize, Serialize};
 use shadow_domain::{
-    AssetLocation, CollectionId, EntityId, LibrarySourceId, LocationId, PhotoDecisionState,
-    PhotoFlag, PhotoId, RepresentationId,
+    AssetLocation, CollectionId, EntityId, ImportSessionId, LibrarySourceId, LocationId,
+    PhotoDecisionState, PhotoFlag, PhotoId, RepresentationId, RepresentationKind,
 };
 use uuid::Uuid;
 
 use crate::{
     Catalog, CatalogError, RegisterAsset, RegisteredAsset, RepresentationFingerprint,
-    decision::photo_decision_state_from_columns,
+    SourceScanReconciliation, decision::photo_decision_state_from_columns,
     decode_snapshot::representation_fingerprint_in_transaction, find_existing_asset, insert_asset,
     read_id,
 };
@@ -28,6 +29,11 @@ use crate::{
 /// a large library must never turn one scroll event into an unbounded SQLite
 /// allocation.
 pub const MAX_LIBRARY_PAGE_SIZE: usize = 512;
+
+/// The largest number of one Library facet's values materialized by one
+/// request. Facets are discovery aids, not an invitation to load every lens
+/// or every month in a multi-million-photo catalog into the desktop shell.
+pub const MAX_LIBRARY_FACET_PAGE_SIZE: usize = 48;
 
 /// The semantic domain represented by a source identity digest.
 ///
@@ -154,6 +160,55 @@ pub struct LibrarySourceRecord {
     pub last_scanned_at_ms: Option<i64>,
 }
 
+/// The latest completed scan evidence for one configured Library source.
+///
+/// A nonzero `not_seen_locations` count means only that those locations were
+/// not registered by this particular completed scan. It is deliberately not a
+/// global offline verdict: sources may overlap, a drive may be temporarily
+/// unavailable, and the same representation can remain reachable elsewhere.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct LibrarySourceHealth {
+    pub source: LibrarySourceRecord,
+    pub latest_completed_scan: Option<SourceScanReconciliation>,
+}
+
+/// Stable keyset cursor for source-specific locations absent from one
+/// completed scan. It deliberately uses the immutable location id rather
+/// than `last_seen_at_ms`: a later scan can update the latter while a review
+/// of an earlier session is still open.
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub struct MissingSourceLocationCursor {
+    pub location_id: LocationId,
+}
+
+/// A location that belongs to a configured source but was not observed in one
+/// completed scan of that source.
+///
+/// This is review/relink input, not a claim that the path is globally absent.
+/// The metadata fields are intentionally only weak matching evidence; a
+/// content hash is still required before attaching a moved file.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct MissingSourceLocationRecord {
+    pub photo_id: PhotoId,
+    pub representation_id: RepresentationId,
+    pub location_id: LocationId,
+    pub kind: RepresentationKind,
+    pub location: AssetLocation,
+    pub source: RepresentationFingerprint,
+    pub captured_at_unix_seconds: Option<i64>,
+    pub camera_key: String,
+    pub last_seen_at_ms: i64,
+}
+
+/// One bounded page of locations that were absent from a single completed
+/// source scan.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct MissingSourceLocationPage {
+    pub reconciliation: SourceScanReconciliation,
+    pub items: Vec<MissingSourceLocationRecord>,
+    pub next_cursor: Option<MissingSourceLocationCursor>,
+}
+
 /// Indexed metadata used by the hot Library filter path. Low-frequency EXIF
 /// continues to live in the decoder snapshot JSON rather than an EAV table.
 #[derive(Debug, Clone, PartialEq)]
@@ -179,7 +234,8 @@ pub struct LibraryPhotoFacts {
 
 /// Inclusive capture-time bounds in Unix seconds. An absent bound leaves that
 /// side of the range open.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LibraryDateRange {
     pub start_inclusive: Option<i64>,
     pub end_inclusive: Option<i64>,
@@ -187,7 +243,8 @@ pub struct LibraryDateRange {
 
 /// Inclusive aperture bounds expressed as f-number × 1000, matching the
 /// indexed `aperture_milli` representation.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LibraryApertureRange {
     pub minimum_milli: Option<u32>,
     pub maximum_milli: Option<u32>,
@@ -199,9 +256,15 @@ pub struct LibraryApertureRange {
 /// `camera_key` and `lens_key` use the normalized key stored in
 /// [`LibraryPhotoFacts`]. Use [`library_equipment_key`] when constructing a
 /// key from a make/model pair.
-#[derive(Debug, Clone, Eq, PartialEq, Default)]
+#[derive(Debug, Clone, Eq, PartialEq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LibraryPhotoFilter {
     pub capture_time: Option<LibraryDateRange>,
+    /// A canonical UTC month (`YYYY-MM`) selected from the Library timeline.
+    /// It intentionally composes with an optional raw capture-time range so a
+    /// saved Smart Album can keep both a broad programmatic range and a human
+    /// calendar bucket without inventing a second date representation.
+    pub capture_month: Option<String>,
     pub camera_key: Option<String>,
     pub lens_key: Option<String>,
     pub aperture: Option<LibraryApertureRange>,
@@ -217,6 +280,81 @@ pub struct LibraryPhotoFilter {
     pub has_development_edits: Option<bool>,
     /// Restricts the page to one manual album membership.
     pub album_id: Option<CollectionId>,
+}
+
+/// The first persisted smart-album contract.
+///
+/// A smart album is deliberately just a named, typed snapshot of the existing
+/// photo-first Library facets. Every populated field is conjunctive, exactly
+/// like [`LibraryPhotoFilter`]. Album membership is intentionally excluded:
+/// recursive or membership-derived smart albums would make both correctness
+/// and million-photo query costs needlessly surprising.
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SmartAlbumQueryV1 {
+    schema_version: u32,
+    #[serde(default)]
+    filter: LibraryPhotoFilter,
+}
+
+impl SmartAlbumQueryV1 {
+    pub const SCHEMA_VERSION: u32 = 1;
+
+    /// Builds a query that can be stored by a smart album.
+    pub fn new(filter: LibraryPhotoFilter) -> Result<Self, CatalogError> {
+        let query = Self {
+            schema_version: Self::SCHEMA_VERSION,
+            filter,
+        };
+        query.validate()?;
+        Ok(query)
+    }
+
+    /// Decodes and validates a stored smart-album query.
+    pub fn from_json(query_json: &str) -> Result<Self, CatalogError> {
+        let query = serde_json::from_str::<Self>(query_json).map_err(|error| {
+            CatalogError::InvalidAlbum(format!("smart album query is not valid v1 JSON: {error}"))
+        })?;
+        query.validate()?;
+        Ok(query)
+    }
+
+    /// Returns a deterministic JSON representation suitable for the catalog.
+    pub fn to_json(&self) -> Result<String, CatalogError> {
+        self.validate()?;
+        serde_json::to_string(self).map_err(|error| {
+            CatalogError::InvalidAlbum(format!("could not serialize smart album query: {error}"))
+        })
+    }
+
+    #[must_use]
+    pub const fn schema_version(&self) -> u32 {
+        self.schema_version
+    }
+
+    /// Returns the executable photo-first Library filter.
+    pub fn library_filter(&self) -> Result<LibraryPhotoFilter, CatalogError> {
+        self.validate()?;
+        Ok(self.filter.clone())
+    }
+
+    fn validate(&self) -> Result<(), CatalogError> {
+        if self.schema_version != Self::SCHEMA_VERSION {
+            return Err(CatalogError::InvalidAlbum(format!(
+                "smart album query schema must be v{}, found v{}",
+                Self::SCHEMA_VERSION,
+                self.schema_version
+            )));
+        }
+        if self.filter.album_id.is_some() {
+            return Err(CatalogError::InvalidAlbum(
+                "smart album queries cannot depend on album membership".into(),
+            ));
+        }
+        validate_library_photo_filter(&self.filter).map_err(|error| {
+            CatalogError::InvalidAlbum(format!("invalid smart album filter: {error}"))
+        })
+    }
 }
 
 /// Stable cursor for capture-time descending Library pages. Photos without
@@ -254,6 +392,43 @@ pub struct LibraryPhotoRecord {
 pub struct LibraryPhotoPage {
     pub items: Vec<LibraryPhotoRecord>,
     pub next_cursor: Option<LibraryPhotoCursor>,
+}
+
+/// One dimension that can be grouped from the indexed, photo-first Library
+/// projection. These dimensions never expose source folders as an ownership
+/// hierarchy: a folder remains only a discovery root.
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum LibraryFacetKind {
+    CaptureMonth,
+    Camera,
+    Lens,
+}
+
+/// Stable continuation for a descending-by-use facet page. The key breaks
+/// ties so a lens or camera cannot disappear between page requests merely
+/// because another facet has the same photo count.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct LibraryFacetCursor {
+    pub photo_count: u64,
+    pub key: String,
+}
+
+/// A compact, immediately displayable facet row. `key` is the exact typed
+/// filter value; `label` is the preserved human-facing metadata text.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct LibraryFacetValue {
+    pub key: String,
+    pub label: String,
+    pub photo_count: u64,
+}
+
+/// A bounded page of one facet's most-used values. The Catalog only evaluates
+/// this explicitly requested aggregate in a worker; ordinary grid scrolling
+/// continues to use [`LibraryPhotoPage`] keyset pagination.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct LibraryFacetPage {
+    pub items: Vec<LibraryFacetValue>,
+    pub next_cursor: Option<LibraryFacetCursor>,
 }
 
 /// Builds the normalized identity key used by the camera and lens facets.
@@ -512,7 +687,7 @@ impl Catalog {
         query_json: Option<&str>,
         now_ms: i64,
     ) -> Result<AlbumRecord, CatalogError> {
-        let name = validate_album(kind, name, query_json)?;
+        let (name, query_json) = validate_album(kind, name, query_json)?;
         let id = CollectionId::new_v7();
         self.connection.execute(
             "INSERT INTO library_albums(id, kind, name, query_json, created_at_ms, updated_at_ms)
@@ -521,7 +696,7 @@ impl Catalog {
                 id.as_bytes().as_slice(),
                 kind.as_str(),
                 name,
-                query_json,
+                query_json.as_deref(),
                 now_ms,
             ],
         )?;
@@ -529,10 +704,21 @@ impl Catalog {
             id,
             kind,
             name,
-            query_json: query_json.map(str::to_owned),
+            query_json,
             created_at_ms: now_ms,
             updated_at_ms: now_ms,
         })
+    }
+
+    /// Creates a smart album from the current, strict v1 query contract.
+    pub fn create_smart_library_album(
+        &mut self,
+        name: &str,
+        query: &SmartAlbumQueryV1,
+        now_ms: i64,
+    ) -> Result<AlbumRecord, CatalogError> {
+        let query_json = query.to_json()?;
+        self.create_library_album(AlbumKind::Smart, name, Some(&query_json), now_ms)
     }
 
     /// Lists albums in stable case-insensitive name order.
@@ -544,6 +730,127 @@ impl Catalog {
         let rows = statement.query_map([], read_album)?;
         rows.collect::<rusqlite::Result<Vec<_>>>()
             .map_err(Into::into)
+    }
+
+    /// Renames one manual or smart album without changing its membership or
+    /// query. Smart queries are re-canonicalized while validating the update.
+    pub fn rename_library_album(
+        &mut self,
+        album_id: CollectionId,
+        name: &str,
+        now_ms: i64,
+    ) -> Result<AlbumRecord, CatalogError> {
+        let existing = self.library_album_by_id(album_id)?;
+        let (name, query_json) =
+            validate_album(existing.kind, name, existing.query_json.as_deref())?;
+        self.connection.execute(
+            "UPDATE library_albums
+             SET name = ?2, query_json = ?3, updated_at_ms = ?4
+             WHERE id = ?1",
+            params![
+                album_id.as_bytes().as_slice(),
+                name,
+                query_json.as_deref(),
+                now_ms,
+            ],
+        )?;
+        Ok(AlbumRecord {
+            id: album_id,
+            kind: existing.kind,
+            name,
+            query_json,
+            created_at_ms: existing.created_at_ms,
+            updated_at_ms: now_ms,
+        })
+    }
+
+    /// Replaces the query of a smart album. Manual albums cannot acquire a
+    /// query later: that keeps explicit membership and computed membership
+    /// unambiguous in both the UI and the catalog.
+    pub fn replace_smart_album_query(
+        &mut self,
+        album_id: CollectionId,
+        query: &SmartAlbumQueryV1,
+        now_ms: i64,
+    ) -> Result<AlbumRecord, CatalogError> {
+        let existing = self.library_album_by_id(album_id)?;
+        if existing.kind != AlbumKind::Smart {
+            return Err(CatalogError::InvalidAlbum(
+                "manual albums cannot be given a smart query".into(),
+            ));
+        }
+        let query_json = query.to_json()?;
+        self.connection.execute(
+            "UPDATE library_albums SET query_json = ?2, updated_at_ms = ?3 WHERE id = ?1",
+            params![album_id.as_bytes().as_slice(), query_json.as_str(), now_ms],
+        )?;
+        Ok(AlbumRecord {
+            id: album_id,
+            kind: AlbumKind::Smart,
+            name: existing.name,
+            query_json: Some(query_json),
+            created_at_ms: existing.created_at_ms,
+            updated_at_ms: now_ms,
+        })
+    }
+
+    /// Deletes one album. SQLite cascades only that album's explicit manual
+    /// memberships; it never deletes a photo, source, or another album.
+    pub fn delete_library_album(&mut self, album_id: CollectionId) -> Result<bool, CatalogError> {
+        let deleted = self.connection.execute(
+            "DELETE FROM library_albums WHERE id = ?1",
+            [album_id.as_bytes().as_slice()],
+        )?;
+        Ok(deleted != 0)
+    }
+
+    /// Resolves the query behind one smart album. Manual albums deliberately
+    /// remain membership-backed and must be queried with `album_id` instead.
+    pub fn smart_album_filter(
+        &self,
+        album_id: CollectionId,
+    ) -> Result<LibraryPhotoFilter, CatalogError> {
+        let album = self.library_album_by_id(album_id)?;
+        match (album.kind, album.query_json.as_deref()) {
+            (AlbumKind::Smart, Some(query_json)) => {
+                SmartAlbumQueryV1::from_json(query_json)?.library_filter()
+            }
+            (AlbumKind::Smart, None) => Err(CatalogError::InvalidAlbum(
+                "persisted smart album is missing its query".into(),
+            )),
+            (AlbumKind::Manual, _) => Err(CatalogError::InvalidAlbum(
+                "manual albums do not have a smart query".into(),
+            )),
+        }
+    }
+
+    fn library_album_by_id(&self, album_id: CollectionId) -> Result<AlbumRecord, CatalogError> {
+        self.connection
+            .query_row(
+                "SELECT id, kind, name, query_json, created_at_ms, updated_at_ms
+                 FROM library_albums WHERE id = ?1",
+                [album_id.as_bytes().as_slice()],
+                read_album,
+            )
+            .optional()?
+            .ok_or(CatalogError::AlbumNotFound(album_id))
+    }
+
+    /// Pages one smart album through the normal keyset grid implementation.
+    pub fn smart_album_photo_page(
+        &self,
+        album_id: CollectionId,
+        after: Option<&LibraryPhotoCursor>,
+        requested_limit: usize,
+    ) -> Result<LibraryPhotoPage, CatalogError> {
+        let filter = self.smart_album_filter(album_id)?;
+        self.library_photo_page(&filter, after, requested_limit)
+    }
+
+    /// Counts one settled smart album through the normal indexed filter path.
+    pub fn smart_album_photo_count(&self, album_id: CollectionId) -> Result<u64, CatalogError> {
+        let filter = self.smart_album_filter(album_id)?;
+        self.library_photo_count(&filter)
     }
 
     /// Adds a photo to a manual album. Repeating the same operation is
@@ -589,7 +896,10 @@ impl Catalog {
         Ok(removed != 0)
     }
 
-    /// Lists manual and smart albums that contain the photo.
+    /// Lists the explicit manual-album memberships for one photo.
+    ///
+    /// Smart albums are computed from their query at browse time, so they do
+    /// not create mutable membership rows and are intentionally absent here.
     pub fn albums_for_photo(&self, photo_id: PhotoId) -> Result<Vec<AlbumRecord>, CatalogError> {
         let mut statement = self.connection.prepare(
             "SELECT a.id, a.kind, a.name, a.query_json, a.created_at_ms, a.updated_at_ms
@@ -613,6 +923,116 @@ impl Catalog {
         let rows = statement.query_map([], read_library_source)?;
         rows.collect::<rusqlite::Result<Vec<_>>>()
             .map_err(Into::into)
+    }
+
+    /// Lists configured sources together with their latest completed-scan
+    /// evidence. Source health is intentionally observational: it never flips
+    /// a location's global availability state.
+    pub fn library_source_health(&self) -> Result<Vec<LibrarySourceHealth>, CatalogError> {
+        let mut statement = self.connection.prepare(
+            "SELECT s.id, s.platform, s.native_path, s.display_path,
+                    s.enabled, s.created_at_ms, s.last_scanned_at_ms,
+                    latest.id, latest.finished_at_ms,
+                    (
+                        SELECT COUNT(*) FROM location_sources source_locations
+                        WHERE source_locations.source_id = s.id
+                    ),
+                    (
+                        SELECT COUNT(*)
+                        FROM location_sources source_locations
+                        JOIN import_entries seen
+                          ON seen.location_id = source_locations.location_id
+                         AND seen.session_id = latest.id
+                         AND seen.state IN ('inserted', 'unchanged', 'needs_revalidation')
+                        WHERE source_locations.source_id = s.id
+                    )
+             FROM library_sources s
+             LEFT JOIN import_sessions latest ON latest.id = (
+                 SELECT candidate.id
+                 FROM import_sessions candidate
+                 WHERE candidate.source_id = s.id
+                   AND candidate.state = 'completed'
+                 ORDER BY candidate.finished_at_ms DESC, candidate.id DESC
+                 LIMIT 1
+             )
+             ORDER BY s.enabled DESC, s.display_path COLLATE NOCASE, s.id",
+        )?;
+        let rows = statement.query_map([], read_library_source_health)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
+    }
+
+    /// Pages the locations that a specific completed scan did not observe.
+    ///
+    /// The completed `scan_session_id` is an explicit consistency boundary.
+    /// Callers should obtain it from [`LibrarySourceHealth`], retain it while a
+    /// review is open, and start a new review after choosing a later scan.
+    /// A legacy import session without a Library source returns `None`.
+    pub fn missing_source_location_page(
+        &self,
+        scan_session_id: ImportSessionId,
+        after: Option<&MissingSourceLocationCursor>,
+        requested_limit: usize,
+    ) -> Result<Option<MissingSourceLocationPage>, CatalogError> {
+        let Some(reconciliation) = self.source_scan_reconciliation(scan_session_id)? else {
+            return Ok(None);
+        };
+        let page_size = requested_limit.clamp(1, MAX_LIBRARY_PAGE_SIZE);
+        let mut sql = String::from(
+            "SELECT p.id, r.id, l.id, l.platform, l.native_path, l.display_path,
+                    r.kind, r.byte_len, r.modified_at_ms,
+                    f.captured_at_unix_seconds, f.camera_key,
+                    source_locations.last_seen_at_ms
+             FROM location_sources source_locations
+             JOIN locations l ON l.id = source_locations.location_id
+             JOIN representations r ON r.id = l.representation_id
+             JOIN photos p ON p.id = r.photo_id
+             LEFT JOIN photo_library_facts f ON f.photo_id = p.id
+             WHERE source_locations.source_id = ?1
+               AND NOT EXISTS (
+                   SELECT 1 FROM import_entries seen
+                   WHERE seen.session_id = ?2
+                     AND seen.location_id = source_locations.location_id
+                     AND seen.state IN ('inserted', 'unchanged', 'needs_revalidation')
+               )",
+        );
+        let mut values = vec![
+            Value::Blob(reconciliation.source_id.as_bytes().to_vec()),
+            Value::Blob(scan_session_id.as_bytes().to_vec()),
+        ];
+        if let Some(cursor) = after {
+            sql.push_str(" AND source_locations.location_id < ?");
+            values.push(Value::Blob(cursor.location_id.as_bytes().to_vec()));
+        }
+        sql.push_str(
+            " ORDER BY source_locations.location_id DESC
+              LIMIT ?",
+        );
+        values.push(Value::Integer(
+            i64::try_from(page_size + 1).unwrap_or(i64::MAX),
+        ));
+
+        let mut statement = self.connection.prepare(&sql)?;
+        let rows = statement.query_map(
+            params_from_iter(values.iter()),
+            read_missing_source_location,
+        )?;
+        let mut items = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+        let has_more = items.len() > page_size;
+        items.truncate(page_size);
+        let next_cursor = has_more.then(|| {
+            let last = items
+                .last()
+                .expect("a page with a successor contains one item");
+            MissingSourceLocationCursor {
+                location_id: last.location_id,
+            }
+        });
+        Ok(Some(MissingSourceLocationPage {
+            reconciliation,
+            items,
+            next_cursor,
+        }))
     }
 
     /// Returns one bounded, photo-first Library grid page.
@@ -719,6 +1139,119 @@ impl Catalog {
         )?;
         u64::try_from(total).map_err(|error| CatalogError::InvalidLibraryQuery(error.to_string()))
     }
+
+    /// Returns a bounded page of one dynamically composed Library facet.
+    ///
+    /// The selected dimension is intentionally removed from the incoming
+    /// filter before grouping. This is the useful Lightroom-style behaviour:
+    /// after selecting one camera, the Camera section still shows meaningful
+    /// alternatives while all other active constraints remain in force.
+    ///
+    /// Facets are ordered by matching photo count, then a stable key. The
+    /// aggregate runs only when the desktop explicitly opens or refreshes the
+    /// facet browser; it is not part of the hot scroll path.
+    pub fn library_facet_page(
+        &self,
+        filter: &LibraryPhotoFilter,
+        kind: LibraryFacetKind,
+        after: Option<&LibraryFacetCursor>,
+        requested_limit: usize,
+    ) -> Result<LibraryFacetPage, CatalogError> {
+        validate_library_photo_filter(filter)?;
+        if let Some(cursor) = after
+            && (cursor.key.trim().is_empty() || cursor.key.len() > 512)
+        {
+            return Err(CatalogError::InvalidLibraryQuery(
+                "facet cursor key must contain 1 through 512 characters".into(),
+            ));
+        }
+
+        let page_size = requested_limit.clamp(1, MAX_LIBRARY_FACET_PAGE_SIZE);
+        let facet_filter = filter_without_facet(filter, kind);
+        let (from_sql, where_sql, mut values) = library_photo_query_parts(&facet_filter);
+        let spec = library_facet_sql(kind);
+
+        let mut sql = format!(
+            "SELECT {key_sql}, {label_sql}, COUNT(*)\n             {from_sql}\n             WHERE {where_sql} AND {present_sql}\n             GROUP BY {key_sql}",
+            key_sql = spec.key_sql,
+            label_sql = spec.label_sql,
+            present_sql = spec.present_sql,
+        );
+        if let Some(cursor) = after {
+            sql.push_str(&format!(
+                " HAVING COUNT(*) < ? OR (COUNT(*) = ? AND {key_sql} > ?)",
+                key_sql = spec.key_sql,
+            ));
+            let count = i64::try_from(cursor.photo_count).map_err(|error| {
+                CatalogError::InvalidLibraryQuery(format!("facet cursor count is invalid: {error}"))
+            })?;
+            values.push(Value::Integer(count));
+            values.push(Value::Integer(count));
+            values.push(Value::Text(cursor.key.clone()));
+        }
+        sql.push_str(&format!(
+            " ORDER BY COUNT(*) DESC, {key_sql} ASC LIMIT ?",
+            key_sql = spec.key_sql,
+        ));
+        values.push(Value::Integer(
+            i64::try_from(page_size + 1).unwrap_or(i64::MAX),
+        ));
+
+        let mut statement = self.connection.prepare(&sql)?;
+        let rows = statement.query_map(params_from_iter(values.iter()), read_library_facet)?;
+        let mut items = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+        let has_more = items.len() > page_size;
+        items.truncate(page_size);
+        let next_cursor = has_more.then(|| {
+            let last = items
+                .last()
+                .expect("a facet page with a successor contains one item");
+            LibraryFacetCursor {
+                photo_count: last.photo_count,
+                key: last.key.clone(),
+            }
+        });
+        Ok(LibraryFacetPage { items, next_cursor })
+    }
+}
+
+struct LibraryFacetSql {
+    key_sql: &'static str,
+    label_sql: &'static str,
+    present_sql: &'static str,
+}
+
+fn library_facet_sql(kind: LibraryFacetKind) -> LibraryFacetSql {
+    match kind {
+        LibraryFacetKind::CaptureMonth => LibraryFacetSql {
+            key_sql: "substr(f.capture_day, 1, 7)",
+            label_sql: "substr(f.capture_day, 1, 7)",
+            present_sql: "f.capture_day <> ''",
+        },
+        LibraryFacetKind::Camera => LibraryFacetSql {
+            key_sql: "f.camera_key",
+            label_sql: "MIN(COALESCE(NULLIF(trim(f.camera_make || ' ' || f.camera_model), ''), f.camera_key))",
+            present_sql: "f.camera_key <> ''",
+        },
+        LibraryFacetKind::Lens => LibraryFacetSql {
+            key_sql: "f.lens_key",
+            label_sql: "MIN(COALESCE(NULLIF(trim(f.lens_make || ' ' || f.lens_model), ''), f.lens_key))",
+            present_sql: "f.lens_key <> ''",
+        },
+    }
+}
+
+fn filter_without_facet(
+    filter: &LibraryPhotoFilter,
+    kind: LibraryFacetKind,
+) -> LibraryPhotoFilter {
+    let mut result = filter.clone();
+    match kind {
+        LibraryFacetKind::CaptureMonth => result.capture_month = None,
+        LibraryFacetKind::Camera => result.camera_key = None,
+        LibraryFacetKind::Lens => result.lens_key = None,
+    }
+    result
 }
 
 fn library_photo_query_parts(filter: &LibraryPhotoFilter) -> (String, String, Vec<Value>) {
@@ -765,6 +1298,16 @@ fn library_photo_query_parts(filter: &LibraryPhotoFilter) -> (String, String, Ve
             clauses.push("f.captured_at_unix_seconds <= ?".to_owned());
             values.push(Value::Integer(end));
         }
+    }
+    if let Some(capture_month) = filter.capture_month.as_deref() {
+        // Every public query entry validates the filter before reaching this
+        // hot SQL-fragment builder, so an invalid month here would be an
+        // internal call-order bug rather than user input.
+        let (first_day, next_first_day) = capture_month_bounds(capture_month)
+            .expect("validated Library capture month must have bounds");
+        clauses.push("f.capture_day >= ? AND f.capture_day < ?".to_owned());
+        values.push(Value::Text(first_day));
+        values.push(Value::Text(next_first_day));
     }
     if let Some(camera_key) = filter.camera_key.as_deref() {
         clauses.push("f.camera_key = ?".to_owned());
@@ -847,6 +1390,13 @@ fn validate_library_photo_filter(filter: &LibraryPhotoFilter) -> Result<(), Cata
             "minimum rating must be in the inclusive 0 through 5 range".into(),
         ));
     }
+    if let Some(capture_month) = filter.capture_month.as_deref()
+        && capture_month_bounds(capture_month).is_none()
+    {
+        return Err(CatalogError::InvalidLibraryQuery(
+            "capture month must use the canonical YYYY-MM form".into(),
+        ));
+    }
     for (name, value, maximum) in [
         ("camera key", filter.camera_key.as_deref(), 512),
         ("lens key", filter.lens_key.as_deref(), 512),
@@ -861,6 +1411,30 @@ fn validate_library_photo_filter(filter: &LibraryPhotoFilter) -> Result<(), Cata
         }
     }
     Ok(())
+}
+
+fn capture_month_bounds(capture_month: &str) -> Option<(String, String)> {
+    let bytes = capture_month.as_bytes();
+    if bytes.len() != 7 || bytes[4] != b'-'
+        || !bytes[..4].iter().all(u8::is_ascii_digit)
+        || !bytes[5..].iter().all(u8::is_ascii_digit)
+    {
+        return None;
+    }
+    let year = capture_month[..4].parse::<u16>().ok()?;
+    let month = capture_month[5..].parse::<u8>().ok()?;
+    if !(1..=12).contains(&month) {
+        return None;
+    }
+    let (next_year, next_month) = if month == 12 {
+        (year.checked_add(1)?, 1)
+    } else {
+        (year, month + 1)
+    };
+    Some((
+        format!("{year:04}-{month:02}-01"),
+        format!("{next_year:04}-{next_month:02}-01"),
+    ))
 }
 
 fn normalize_query_key(value: &str) -> String {
@@ -894,6 +1468,17 @@ fn read_library_photo(row: &rusqlite::Row<'_>) -> rusqlite::Result<LibraryPhotoR
         },
         decision,
         has_development_edits: row.get::<_, i64>(30)? != 0,
+    })
+}
+
+fn read_library_facet(row: &rusqlite::Row<'_>) -> rusqlite::Result<LibraryFacetValue> {
+    let photo_count: i64 = row.get(2)?;
+    Ok(LibraryFacetValue {
+        key: row.get(0)?,
+        label: row.get(1)?,
+        photo_count: u64::try_from(photo_count).map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(2, Type::Integer, Box::new(error))
+        })?,
     })
 }
 
@@ -1333,7 +1918,7 @@ fn validate_album(
     kind: AlbumKind,
     name: &str,
     query_json: Option<&str>,
-) -> Result<String, CatalogError> {
+) -> Result<(String, Option<String>), CatalogError> {
     let name = name.trim();
     if name.is_empty() || name.len() > 256 {
         return Err(CatalogError::InvalidAlbum(
@@ -1341,21 +1926,18 @@ fn validate_album(
         ));
     }
     match (kind, query_json) {
-        (AlbumKind::Manual, None) => {}
-        (AlbumKind::Manual, Some(_)) => {
-            return Err(CatalogError::InvalidAlbum(
-                "manual albums must not carry a smart query".into(),
-            ));
-        }
-        (AlbumKind::Smart, Some(query))
-            if serde_json::from_str::<serde_json::Value>(query).is_ok() => {}
-        (AlbumKind::Smart, _) => {
-            return Err(CatalogError::InvalidAlbum(
-                "smart albums require a valid JSON query".into(),
-            ));
-        }
+        (AlbumKind::Manual, None) => Ok((name.to_owned(), None)),
+        (AlbumKind::Manual, Some(_)) => Err(CatalogError::InvalidAlbum(
+            "manual albums must not carry a smart query".into(),
+        )),
+        (AlbumKind::Smart, Some(query)) => Ok((
+            name.to_owned(),
+            Some(SmartAlbumQueryV1::from_json(query)?.to_json()?),
+        )),
+        (AlbumKind::Smart, _) => Err(CatalogError::InvalidAlbum(
+            "smart albums require a valid JSON query".into(),
+        )),
     }
-    Ok(name.to_owned())
 }
 
 fn normalized_equipment_key(make: &str, model: &str) -> String {
@@ -1425,6 +2007,77 @@ fn read_library_source(row: &rusqlite::Row<'_>) -> rusqlite::Result<LibrarySourc
     })
 }
 
+fn read_library_source_health(row: &rusqlite::Row<'_>) -> rusqlite::Result<LibrarySourceHealth> {
+    let source = read_library_source(row)?;
+    let latest_session_id: Option<ImportSessionId> = optional_entity_id(row, 7)?;
+    let latest_completed_scan = latest_session_id
+        .map(|session_id| -> rusqlite::Result<SourceScanReconciliation> {
+            let known_locations: i64 = row.get(9)?;
+            let seen_locations: i64 = row.get(10)?;
+            let known_locations = u64::try_from(known_locations).map_err(|error| {
+                rusqlite::Error::FromSqlConversionFailure(9, Type::Integer, Box::new(error))
+            })?;
+            let seen_locations = u64::try_from(seen_locations).map_err(|error| {
+                rusqlite::Error::FromSqlConversionFailure(10, Type::Integer, Box::new(error))
+            })?;
+            Ok(SourceScanReconciliation {
+                session_id,
+                source_id: source.id,
+                completed_at_ms: row.get(8)?,
+                known_locations,
+                seen_locations,
+                not_seen_locations: known_locations.saturating_sub(seen_locations),
+            })
+        })
+        .transpose()?;
+    Ok(LibrarySourceHealth {
+        source,
+        latest_completed_scan,
+    })
+}
+
+fn read_missing_source_location(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<MissingSourceLocationRecord> {
+    let platform: String = row.get(3)?;
+    let platform = platform_from_text(&platform, 3)?;
+    let kind: String = row.get(6)?;
+    let byte_len: i64 = row.get(7)?;
+    let byte_len = u64::try_from(byte_len).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(7, Type::Integer, Box::new(error))
+    })?;
+    Ok(MissingSourceLocationRecord {
+        photo_id: read_id(row, 0)?,
+        representation_id: read_id(row, 1)?,
+        location_id: read_id(row, 2)?,
+        kind: representation_kind_from_text(&kind, 6)?,
+        location: AssetLocation::new(platform, row.get(4)?, row.get::<_, String>(5)?),
+        source: RepresentationFingerprint {
+            byte_len,
+            modified_at_ms: row.get(8)?,
+        },
+        captured_at_unix_seconds: row.get(9)?,
+        camera_key: row.get::<_, Option<String>>(10)?.unwrap_or_default(),
+        last_seen_at_ms: row.get(11)?,
+    })
+}
+
+fn representation_kind_from_text(kind: &str, index: usize) -> rusqlite::Result<RepresentationKind> {
+    match kind {
+        "original_raw" => Ok(RepresentationKind::OriginalRaw),
+        "original_raster" => Ok(RepresentationKind::OriginalRaster),
+        "derived_dng" => Ok(RepresentationKind::DerivedDng),
+        "embedded_preview" => Ok(RepresentationKind::EmbeddedPreview),
+        "scene_linear_rgb" => Ok(RepresentationKind::SceneLinearRgb),
+        "vendor_rendered_rgb" => Ok(RepresentationKind::VendorRenderedRgb),
+        "proxy" => Ok(RepresentationKind::Proxy),
+        _ => Err(invalid_data(
+            index,
+            format!("unknown persisted representation kind {kind:?}"),
+        )),
+    }
+}
+
 fn platform_from_text(platform: &str, index: usize) -> rusqlite::Result<shadow_domain::Platform> {
     match platform {
         "macos" => Ok(shadow_domain::Platform::MacOs),
@@ -1486,7 +2139,7 @@ fn invalid_data(index: usize, message: String) -> rusqlite::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{CommitRecipe, RecipeRefKind, RecipeRefTarget};
+    use crate::{CommitRecipe, ImportSessionState, RecipeRefKind, RecipeRefTarget};
     use shadow_domain::{
         NewPhotoDecisionEvent, PhotoDecisionOrigin, Platform, RecipeCommit, RecipeCommitId,
         RecipeId, RecipeSnapshot, RepresentationKind,
@@ -1510,6 +2163,27 @@ mod tests {
                 now_ms: 20,
             })
             .expect("register source")
+    }
+
+    fn register_scan_entry(
+        catalog: &mut Catalog,
+        session_id: ImportSessionId,
+        path: &str,
+        now_ms: i64,
+    ) -> RegisteredAsset {
+        let request = RegisterAsset {
+            kind: RepresentationKind::OriginalRaw,
+            location: AssetLocation::new(Platform::MacOs, path.as_bytes().to_vec(), path),
+            byte_len: 100,
+            modified_at_ms: Some(10),
+            now_ms,
+        };
+        catalog
+            .record_import_discovered(session_id, &request)
+            .expect("record scan discovery");
+        catalog
+            .register_import_asset(session_id, &request)
+            .expect("register scan entry")
     }
 
     #[test]
@@ -1713,6 +2387,151 @@ mod tests {
         );
         let albums = catalog.albums_for_photo(photo).expect("remaining album");
         assert_eq!(albums, vec![second]);
+    }
+
+    #[test]
+    fn smart_album_query_v1_is_canonical_validated_and_uses_the_indexed_grid() {
+        let mut catalog = Catalog::open_in_memory().expect("open catalog");
+        let matching = register(&mut catalog, "/archive/smart-match.nef");
+        let excluded = register(&mut catalog, "/archive/smart-excluded.nef");
+        catalog
+            .upsert_photo_library_facts(&facts_for(
+                matching,
+                Some(1_700_000_200),
+                "Nikon Corporation",
+                "Nikon Z 8",
+            ))
+            .expect("index matching facts");
+        catalog
+            .upsert_photo_library_facts(&facts_for(excluded, Some(1_700_000_100), "Pentax", "K10D"))
+            .expect("index excluded facts");
+        catalog
+            .set_photo_library_state(&SetPhotoLibraryState {
+                photo_id: matching.photo_id,
+                liked: true,
+                color_label: "none".into(),
+                updated_at_ms: 30,
+            })
+            .expect("like matching photo");
+
+        let query = SmartAlbumQueryV1::new(LibraryPhotoFilter {
+            camera_key: Some(library_equipment_key("Nikon Corporation", "Nikon Z 8")),
+            liked: Some(true),
+            ..LibraryPhotoFilter::default()
+        })
+        .expect("build smart query");
+        let query_json = query.to_json().expect("serialize smart query");
+        assert_eq!(query.schema_version(), SmartAlbumQueryV1::SCHEMA_VERSION);
+        assert_eq!(
+            SmartAlbumQueryV1::from_json(&query_json)
+                .expect("read canonical query")
+                .library_filter()
+                .expect("get executable filter"),
+            query.library_filter().expect("get original filter")
+        );
+
+        let album = catalog
+            .create_smart_library_album("Nikon favorites", &query, 40)
+            .expect("create smart album");
+        assert_eq!(album.query_json.as_deref(), Some(query_json.as_str()));
+        let page = catalog
+            .smart_album_photo_page(album.id, None, 16)
+            .expect("page smart album");
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(page.items[0].photo_id, matching.photo_id);
+        assert_eq!(
+            catalog
+                .smart_album_photo_count(album.id)
+                .expect("count smart album"),
+            1
+        );
+
+        assert!(
+            catalog
+                .create_library_album(AlbumKind::Smart, "Invalid", Some("{}"), 41)
+                .is_err()
+        );
+        assert!(SmartAlbumQueryV1::from_json(r#"{"schema_version":2,"filter":{}}"#).is_err());
+        assert!(
+            SmartAlbumQueryV1::from_json(r#"{"schema_version":1,"filter":{},"typo":true}"#)
+                .is_err()
+        );
+        let membership_query = format!(
+            r#"{{"schema_version":1,"filter":{{"album_id":"{}"}}}}"#,
+            CollectionId::new_v7()
+        );
+        assert!(SmartAlbumQueryV1::from_json(&membership_query).is_err());
+    }
+
+    #[test]
+    fn album_management_renames_replaces_queries_and_deletes_only_the_album() {
+        let mut catalog = Catalog::open_in_memory().expect("open catalog");
+        let photo = register(&mut catalog, "/archive/album-management.nef");
+        let manual = catalog
+            .create_library_album(AlbumKind::Manual, "Before", None, 10)
+            .expect("create manual album");
+        catalog
+            .add_photo_to_album(manual.id, photo.photo_id, 0, 11)
+            .expect("add manual membership");
+        let renamed = catalog
+            .rename_library_album(manual.id, "After", 12)
+            .expect("rename manual album");
+        assert_eq!(renamed.name, "After");
+        assert_eq!(renamed.updated_at_ms, 12);
+
+        let initial_query = SmartAlbumQueryV1::new(LibraryPhotoFilter::default())
+            .expect("create initial smart query");
+        let smart = catalog
+            .create_smart_library_album("All photos", &initial_query, 20)
+            .expect("create smart album");
+        let refined_query = SmartAlbumQueryV1::new(LibraryPhotoFilter {
+            liked: Some(true),
+            ..LibraryPhotoFilter::default()
+        })
+        .expect("create refined smart query");
+        let updated = catalog
+            .replace_smart_album_query(smart.id, &refined_query, 21)
+            .expect("replace smart query");
+        assert_eq!(
+            updated.query_json,
+            Some(refined_query.to_json().expect("serialize query"))
+        );
+        assert_eq!(
+            catalog
+                .smart_album_filter(smart.id)
+                .expect("read replaced smart query"),
+            refined_query
+                .library_filter()
+                .expect("read expected filter")
+        );
+        assert!(
+            catalog
+                .replace_smart_album_query(manual.id, &initial_query, 22)
+                .is_err()
+        );
+
+        assert!(
+            catalog
+                .delete_library_album(manual.id)
+                .expect("delete manual album")
+        );
+        assert!(
+            catalog
+                .albums_for_photo(photo.photo_id)
+                .expect("read memberships after deletion")
+                .is_empty()
+        );
+        assert_eq!(
+            catalog
+                .library_photo_count(&LibraryPhotoFilter::default())
+                .expect("photo remains in Library"),
+            1
+        );
+        assert!(
+            !catalog
+                .delete_library_album(manual.id)
+                .expect("deleting absent album is idempotent")
+        );
     }
 
     #[test]
@@ -1969,5 +2788,198 @@ mod tests {
             vec![unindexed.photo_id]
         );
         assert!(second_page.next_cursor.is_none());
+    }
+
+    #[test]
+    fn bounded_library_facets_compose_without_directory_ownership() {
+        let mut catalog = Catalog::open_in_memory().expect("open catalog");
+        let nikon_one = register(&mut catalog, "/roots/a/nikon-one.nef");
+        let nikon_two = register(&mut catalog, "/roots/b/nikon-two.nef");
+        let nikon_three = register(&mut catalog, "/roots/c/nikon-three.nef");
+        let canon = register(&mut catalog, "/roots/d/canon.cr3");
+
+        let mut facts = facts_for(
+            nikon_one,
+            Some(1_700_000_000),
+            "Nikon Corporation",
+            "Nikon Z 8",
+        );
+        facts.capture_day = "2024-03-18".into();
+        catalog.upsert_photo_library_facts(&facts).expect("first nikon facts");
+
+        let mut facts = facts_for(
+            nikon_two,
+            Some(1_700_000_100),
+            "Nikon Corporation",
+            "Nikon Z 8",
+        );
+        facts.capture_day = "2024-03-03".into();
+        catalog.upsert_photo_library_facts(&facts).expect("second nikon facts");
+
+        let mut facts = facts_for(
+            nikon_three,
+            Some(1_700_000_200),
+            "Nikon Corporation",
+            "Nikon Z 8",
+        );
+        facts.capture_day = "2024-02-16".into();
+        facts.lens_model = "NIKKOR Z 50mm f/1.8 S".into();
+        catalog.upsert_photo_library_facts(&facts).expect("third nikon facts");
+
+        let mut facts = facts_for(canon, Some(1_700_000_300), "Canon", "EOS R5");
+        facts.capture_day = "2024-01-07".into();
+        facts.lens_make = "Canon".into();
+        facts.lens_model = "RF 24-105mm F4 L IS USM".into();
+        catalog.upsert_photo_library_facts(&facts).expect("canon facts");
+
+        let cameras = catalog
+            .library_facet_page(&LibraryPhotoFilter::default(), LibraryFacetKind::Camera, None, 1)
+            .expect("first camera facet page");
+        assert_eq!(cameras.items.len(), 1);
+        assert_eq!(cameras.items[0].label, "Nikon Corporation Nikon Z 8");
+        assert_eq!(cameras.items[0].photo_count, 3);
+        let remaining_cameras = catalog
+            .library_facet_page(
+                &LibraryPhotoFilter::default(),
+                LibraryFacetKind::Camera,
+                cameras.next_cursor.as_ref(),
+                1,
+            )
+            .expect("second camera facet page");
+        assert_eq!(remaining_cameras.items.len(), 1);
+        assert_eq!(remaining_cameras.items[0].label, "Canon EOS R5");
+
+        let months = catalog
+            .library_facet_page(
+                &LibraryPhotoFilter::default(),
+                LibraryFacetKind::CaptureMonth,
+                None,
+                16,
+            )
+            .expect("month facets");
+        assert_eq!(months.items[0], LibraryFacetValue {
+            key: "2024-03".into(),
+            label: "2024-03".into(),
+            photo_count: 2,
+        });
+        assert_eq!(months.items.len(), 3);
+
+        let march = LibraryPhotoFilter {
+            capture_month: Some("2024-03".into()),
+            ..LibraryPhotoFilter::default()
+        };
+        assert_eq!(catalog.library_photo_count(&march).expect("march count"), 2);
+        let lenses = catalog
+            .library_facet_page(&march, LibraryFacetKind::Lens, None, 16)
+            .expect("month-constrained lens facets");
+        assert_eq!(lenses.items.len(), 1);
+        assert_eq!(lenses.items[0].photo_count, 2);
+        assert_eq!(lenses.items[0].label, "Nikon NIKKOR Z 24-120mm f/4 S");
+
+        assert!(catalog
+            .library_photo_count(&LibraryPhotoFilter {
+                capture_month: Some("2024-13".into()),
+                ..LibraryPhotoFilter::default()
+            })
+            .is_err());
+    }
+
+    #[test]
+    fn source_health_pages_scan_absences_without_marking_locations_offline() {
+        let mut catalog = Catalog::open_in_memory().expect("open catalog");
+        let root = AssetLocation::new(Platform::MacOs, b"/archive".to_vec(), "/archive");
+        let first_scan = catalog
+            .begin_import_session(&root, 1)
+            .expect("begin first source scan");
+        let first = register_scan_entry(&mut catalog, first_scan, "/archive/first.nef", 2);
+        let second = register_scan_entry(&mut catalog, first_scan, "/archive/second.nef", 3);
+        let third = register_scan_entry(&mut catalog, first_scan, "/archive/third.nef", 4);
+        catalog
+            .finish_import_session(first_scan, ImportSessionState::Completed, None, 5)
+            .expect("finish first source scan");
+
+        let second_scan = catalog
+            .begin_import_session(&root, 10)
+            .expect("begin second source scan");
+        let observed = register_scan_entry(&mut catalog, second_scan, "/archive/first.nef", 11);
+        assert_eq!(observed.representation_id, first.representation_id);
+        catalog
+            .finish_import_session(second_scan, ImportSessionState::Completed, None, 12)
+            .expect("finish second source scan");
+
+        let health = catalog.library_source_health().expect("read source health");
+        assert_eq!(health.len(), 1);
+        let scan = health[0]
+            .latest_completed_scan
+            .as_ref()
+            .expect("completed scan evidence");
+        assert_eq!(scan.session_id, second_scan);
+        assert_eq!(scan.known_locations, 3);
+        assert_eq!(scan.seen_locations, 1);
+        assert_eq!(scan.not_seen_locations, 2);
+
+        let first_page = catalog
+            .missing_source_location_page(second_scan, None, 1)
+            .expect("page missing locations")
+            .expect("durable source page");
+        assert_eq!(first_page.reconciliation, *scan);
+        assert_eq!(first_page.items.len(), 1);
+
+        // Refresh the *other* missing location in a later scan. The review
+        // must still page the old completed session without skipping it just
+        // because mutable `last_seen_at_ms` changed in the meantime.
+        let refreshed_representation =
+            if first_page.items[0].representation_id == second.representation_id {
+                third.representation_id
+            } else {
+                second.representation_id
+            };
+        let refreshed_path = if refreshed_representation == second.representation_id {
+            "/archive/second.nef"
+        } else {
+            "/archive/third.nef"
+        };
+        let later_scan = catalog
+            .begin_import_session(&root, 20)
+            .expect("begin later source scan");
+        let refreshed = register_scan_entry(&mut catalog, later_scan, refreshed_path, 21);
+        assert_eq!(refreshed.representation_id, refreshed_representation);
+        catalog
+            .finish_import_session(later_scan, ImportSessionState::Completed, None, 22)
+            .expect("finish later source scan");
+
+        let second_page = catalog
+            .missing_source_location_page(second_scan, first_page.next_cursor.as_ref(), 1)
+            .expect("page remaining missing locations")
+            .expect("durable source page");
+        assert_eq!(second_page.items.len(), 1);
+        assert!(second_page.next_cursor.is_none());
+
+        let missing = first_page
+            .items
+            .iter()
+            .chain(second_page.items.iter())
+            .map(|item| item.representation_id)
+            .collect::<Vec<_>>();
+        assert_eq!(missing.len(), 2);
+        assert!(missing.contains(&second.representation_id));
+        assert!(missing.contains(&third.representation_id));
+        assert_ne!(missing[0], missing[1]);
+        assert!(
+            first_page
+                .items
+                .iter()
+                .chain(second_page.items.iter())
+                .all(|item| item.location.display_path.starts_with("/archive/"))
+        );
+
+        // A source-specific absence does not make the source unavailable to
+        // the normal photo-first Library query.
+        assert_eq!(
+            catalog
+                .library_photo_count(&LibraryPhotoFilter::default())
+                .expect("count online Library originals"),
+            3
+        );
     }
 }

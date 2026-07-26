@@ -19,6 +19,8 @@ constexpr quint64 STREAM_REFRESH_STRIDE = 16;
 constexpr qint64 STREAM_REFRESH_MIN_INTERVAL_MS = 400;
 constexpr qint64 STREAM_VISUAL_REFRESH_MIN_INTERVAL_MS = 150;
 constexpr int FILTER_QUERY_DEBOUNCE_MS = 120;
+constexpr std::uint32_t MISSING_SOURCE_LOCATION_PAGE_SIZE = 24;
+constexpr std::uint32_t LIBRARY_FACET_PAGE_SIZE = 24;
 
 [[nodiscard]] LocalizedUiMessage review_message(
     const char *const source,
@@ -78,6 +80,58 @@ constexpr int FILTER_QUERY_DEBOUNCE_MS = 120;
     return result;
 }
 
+[[nodiscard]] LibraryFacetTaskResult run_library_facets(
+    const std::shared_ptr<DesktopBackend>& backend,
+    const BackendLibraryPhotoFilter& filter,
+    const quint64 library_generation,
+    const quint64 request_id
+) {
+    LibraryFacetTaskResult result;
+    result.library_generation = library_generation;
+    result.request_id = request_id;
+    try {
+        result.capture_months = backend->libraryFacetPage(
+            filter,
+            BackendLibraryFacetKind::CaptureMonth,
+            {},
+            LIBRARY_FACET_PAGE_SIZE
+        );
+        result.cameras = backend->libraryFacetPage(
+            filter,
+            BackendLibraryFacetKind::Camera,
+            {},
+            LIBRARY_FACET_PAGE_SIZE
+        );
+        result.lenses = backend->libraryFacetPage(
+            filter,
+            BackendLibraryFacetKind::Lens,
+            {},
+            LIBRARY_FACET_PAGE_SIZE
+        );
+    } catch (const std::exception& error) {
+        result.error = QString::fromUtf8(error.what());
+    }
+    return result;
+}
+
+[[nodiscard]] QVariantList library_facet_variants(
+    const BackendLibraryFacetPage& page
+) {
+    QVariantList values;
+    values.reserve(page.items.size());
+    for (const auto& item : page.items) {
+        values.push_back(QVariantMap{
+            {QStringLiteral("key"), item.key},
+            {QStringLiteral("label"), item.label},
+            {
+                QStringLiteral("photoCount"),
+                QVariant::fromValue(static_cast<qulonglong>(item.photo_count)),
+            },
+        });
+    }
+    return values;
+}
+
 [[nodiscard]] LibraryStateTaskResult run_library_state_mutation(
     const std::shared_ptr<DesktopBackend>& backend,
     const QString& photo_id,
@@ -96,6 +150,117 @@ constexpr int FILTER_QUERY_DEBOUNCE_MS = 120;
         result.error = QString::fromUtf8(error.what());
     }
     return result;
+}
+
+[[nodiscard]] LibraryAlbumTaskResult run_library_albums_task(
+    const std::shared_ptr<DesktopBackend>& backend,
+    const LibraryAlbumTaskAction action,
+    const QString& name,
+    const QString& album_id,
+    const QStringList& photo_ids,
+    const BackendLibraryPhotoFilter& smart_query,
+    const quint64 request_id
+) {
+    LibraryAlbumTaskResult result;
+    result.request_id = request_id;
+    result.action = action;
+    result.album_id = album_id;
+    result.affected_photo_count = static_cast<int>(photo_ids.size());
+    try {
+        switch (action) {
+        case LibraryAlbumTaskAction::Refresh:
+            break;
+        case LibraryAlbumTaskAction::CreateManual:
+            static_cast<void>(backend->createManualLibraryAlbum(name));
+            break;
+        case LibraryAlbumTaskAction::CreateSmart:
+            static_cast<void>(backend->createSmartLibraryAlbum(name, smart_query));
+            break;
+        case LibraryAlbumTaskAction::Rename:
+            static_cast<void>(backend->renameLibraryAlbum(album_id, name));
+            break;
+        case LibraryAlbumTaskAction::Delete:
+            static_cast<void>(backend->deleteLibraryAlbum(album_id));
+            break;
+        case LibraryAlbumTaskAction::AddPhotos:
+            for (const QString& photo_id : photo_ids) {
+                backend->addPhotoToManualLibraryAlbum(album_id, photo_id);
+            }
+            break;
+        case LibraryAlbumTaskAction::RemovePhotos:
+            for (const QString& photo_id : photo_ids) {
+                static_cast<void>(backend->removePhotoFromManualLibraryAlbum(
+                    album_id,
+                    photo_id
+                ));
+            }
+            break;
+        }
+        result.albums = backend->libraryAlbums();
+        result.has_album_snapshot = true;
+    } catch (const std::exception& error) {
+        result.error = QString::fromUtf8(error.what());
+        try {
+            result.albums = backend->libraryAlbums();
+            result.has_album_snapshot = true;
+        } catch (const std::exception&) {
+            // Keep the primary mutation error: a follow-up refresh is best effort.
+        }
+    }
+    return result;
+}
+
+[[nodiscard]] LibrarySourceHealthTaskResult run_library_source_health_task(
+    const std::shared_ptr<DesktopBackend>& backend,
+    const quint64 request_id
+) {
+    LibrarySourceHealthTaskResult result;
+    result.request_id = request_id;
+    try {
+        result.sources = backend->librarySourceHealth();
+    } catch (const std::exception& error) {
+        result.error = QString::fromUtf8(error.what());
+    }
+    return result;
+}
+
+[[nodiscard]] MissingSourceLocationTaskResult run_missing_source_location_task(
+    const std::shared_ptr<DesktopBackend>& backend,
+    const QString& scan_session_id,
+    const QString& after_location_id,
+    const quint64 request_id,
+    const bool append
+) {
+    MissingSourceLocationTaskResult result;
+    result.scan_session_id = scan_session_id;
+    result.request_id = request_id;
+    result.append = append;
+    try {
+        result.page = backend->missingSourceLocationPage(
+            scan_session_id,
+            after_location_id,
+            MISSING_SOURCE_LOCATION_PAGE_SIZE
+        );
+    } catch (const std::exception& error) {
+        result.error = QString::fromUtf8(error.what());
+    }
+    return result;
+}
+
+[[nodiscard]] QStringList photo_ids_from_targets(const QVariantList& targets) {
+    QStringList photo_ids;
+    QSet<QString> seen;
+    for (const QVariant& value : targets) {
+        const QString photo_id = value.toMap()
+            .value(QStringLiteral("photoId"))
+            .toString()
+            .trimmed();
+        if (!photo_id.isEmpty() && !seen.contains(photo_id)) {
+            seen.insert(photo_id);
+            photo_ids.push_back(photo_id);
+        }
+    }
+    return photo_ids;
 }
 
 [[nodiscard]] QString decision_flag_name(const BackendReviewDecisionFlag flag) {
@@ -345,10 +510,34 @@ ReviewController::ReviewController(
         &ReviewController::finishCount
     );
     connect(
+        &library_facets_watcher_,
+        &QFutureWatcher<LibraryFacetTaskResult>::finished,
+        this,
+        &ReviewController::finishLibraryFacetsTask
+    );
+    connect(
         &library_state_watcher_,
         &QFutureWatcher<LibraryStateTaskResult>::finished,
         this,
         &ReviewController::finishLibraryStateTask
+    );
+    connect(
+        &library_albums_watcher_,
+        &QFutureWatcher<LibraryAlbumTaskResult>::finished,
+        this,
+        &ReviewController::finishLibraryAlbumsTask
+    );
+    connect(
+        &library_source_health_watcher_,
+        &QFutureWatcher<LibrarySourceHealthTaskResult>::finished,
+        this,
+        &ReviewController::finishLibrarySourceHealthTask
+    );
+    connect(
+        &missing_source_locations_watcher_,
+        &QFutureWatcher<MissingSourceLocationTaskResult>::finished,
+        this,
+        &ReviewController::finishMissingSourceLocationTask
     );
     connect(
         &evidence_watcher_,
@@ -379,6 +568,8 @@ ReviewController::ReviewController(
   }
     QTimer::singleShot(0, this, [this]() {
         refreshSharedGradeNodes();
+        refreshLibraryAlbums();
+        refreshLibrarySourceHealth();
         beginFilteredLibraryQuery();
     });
 }
@@ -395,7 +586,11 @@ ReviewController::~ReviewController() {
     scan_watcher_.waitForFinished();
     page_watcher_.waitForFinished();
     count_watcher_.waitForFinished();
+    library_facets_watcher_.waitForFinished();
     library_state_watcher_.waitForFinished();
+    library_albums_watcher_.waitForFinished();
+    library_source_health_watcher_.waitForFinished();
+    missing_source_locations_watcher_.waitForFinished();
     evidence_watcher_.waitForFinished();
     decision_watcher_.waitForFinished();
 }
@@ -526,6 +721,112 @@ QString ReviewController::filterColorLabel() const {
 
 QString ReviewController::filterEditState() const {
     return filtered_model_.editFilter();
+}
+
+QString ReviewController::filterCaptureMonth() const {
+    return filtered_model_.captureMonth();
+}
+
+QString ReviewController::filterCameraKey() const {
+    return filtered_model_.cameraKey();
+}
+
+QString ReviewController::filterLensKey() const {
+    return filtered_model_.lensKey();
+}
+
+QVariantList ReviewController::libraryCaptureMonthFacets() const {
+    return library_facet_variants(library_capture_month_facets_);
+}
+
+QVariantList ReviewController::libraryCameraFacets() const {
+    return library_facet_variants(library_camera_facets_);
+}
+
+QVariantList ReviewController::libraryLensFacets() const {
+    return library_facet_variants(library_lens_facets_);
+}
+
+bool ReviewController::libraryFacetsBusy() const noexcept {
+    return library_facets_task_running_;
+}
+
+QString ReviewController::libraryAlbumId() const {
+    return library_album_id_;
+}
+
+QVariantList ReviewController::libraryAlbums() const {
+    QVariantList result;
+    result.reserve(library_albums_.size());
+    for (const auto& album : library_albums_) {
+        result.push_back(QVariantMap{
+            {QStringLiteral("id"), album.id},
+            {QStringLiteral("name"), album.name},
+            {
+                QStringLiteral("kind"),
+                album.kind == BackendLibraryAlbumKind::Smart
+                    ? QStringLiteral("smart") : QStringLiteral("manual"),
+            },
+        });
+    }
+    return result;
+}
+
+bool ReviewController::libraryAlbumsBusy() const noexcept {
+    return library_albums_task_running_;
+}
+
+QVariantList ReviewController::librarySourceHealth() const {
+    QVariantList result;
+    result.reserve(library_source_health_.size());
+    for (const auto& source : library_source_health_) {
+        result.push_back(QVariantMap{
+            {QStringLiteral("sourceId"), source.source_id},
+            {QStringLiteral("sourcePath"), source.source_display_path},
+            {QStringLiteral("enabled"), source.source_enabled},
+            {QStringLiteral("hasLatestCompletedScan"), source.has_latest_completed_scan},
+            {QStringLiteral("scanSessionId"), source.scan_session_id},
+            {QStringLiteral("scanCompletedAtMs"), source.scan_completed_at_ms},
+            {QStringLiteral("knownLocations"), source.known_locations},
+            {QStringLiteral("seenLocations"), source.seen_locations},
+            {QStringLiteral("notSeenLocations"), source.not_seen_locations},
+        });
+    }
+    return result;
+}
+
+bool ReviewController::librarySourceHealthBusy() const noexcept {
+    return library_source_health_task_running_;
+}
+
+QVariantList ReviewController::missingSourceLocations() const {
+    QVariantList result;
+    result.reserve(missing_source_locations_.size());
+    for (const auto& location : missing_source_locations_) {
+        result.push_back(QVariantMap{
+            {QStringLiteral("locationId"), location.location_id},
+            {QStringLiteral("photoId"), location.photo_id},
+            {QStringLiteral("title"), location.title},
+            {QStringLiteral("sourcePath"), location.source_display_path},
+            {QStringLiteral("hasCapturedAt"), location.has_captured_at},
+            {QStringLiteral("capturedAtUnixSeconds"), location.captured_at_unix_seconds},
+            {QStringLiteral("cameraKey"), location.camera_key},
+            {QStringLiteral("lastSeenAtMs"), location.last_seen_at_ms},
+        });
+    }
+    return result;
+}
+
+QString ReviewController::missingSourceLocationScanId() const {
+    return missing_source_location_scan_id_;
+}
+
+bool ReviewController::missingSourceLocationsBusy() const noexcept {
+    return missing_source_locations_task_running_;
+}
+
+bool ReviewController::missingSourceLocationsHasMore() const noexcept {
+    return missing_source_locations_has_more_;
 }
 
 int ReviewController::filteredItemCount() const noexcept {
@@ -929,6 +1230,11 @@ void ReviewController::setPhotoLiked(const QString& photo_id, const bool liked) 
 
 void ReviewController::clearFilters() {
     filtered_model_.clearFilters();
+    if (!library_album_id_.isEmpty()) {
+        library_album_id_.clear();
+        emit libraryAlbumChanged();
+        scheduleFilterQuery();
+    }
 }
 
 void ReviewController::refreshVisibleLibrary() {
@@ -936,6 +1242,158 @@ void ReviewController::refreshVisibleLibrary() {
         return;
     }
     requestLibraryReset();
+}
+
+void ReviewController::refreshLibraryFacets() {
+    if (!scan_running_) {
+        startLibraryFacetsTask();
+    }
+}
+
+void ReviewController::setLibraryFacet(const QString& kind, const QString& key) {
+    const QString normalized_kind = kind.trimmed().toLower();
+    if (normalized_kind == QStringLiteral("month")) {
+        setFilterCaptureMonth(key);
+    } else if (normalized_kind == QStringLiteral("camera")) {
+        setFilterCameraKey(key);
+    } else if (normalized_kind == QStringLiteral("lens")) {
+        setFilterLensKey(key);
+    }
+}
+
+void ReviewController::clearLibraryFacet(const QString& kind) {
+    setLibraryFacet(kind, {});
+}
+
+void ReviewController::refreshLibraryAlbums() {
+    if (library_albums_task_running_) {
+        library_albums_refresh_pending_ = true;
+        return;
+    }
+    startLibraryAlbumsTask(LibraryAlbumTaskAction::Refresh);
+}
+
+void ReviewController::refreshLibrarySourceHealth() {
+    if (library_source_health_task_running_) {
+        library_source_health_refresh_pending_ = true;
+        return;
+    }
+    startLibrarySourceHealthTask();
+}
+
+void ReviewController::openMissingSourceLocationReview(const QString& scan_session_id) {
+    const QString normalized_scan_id = scan_session_id.trimmed();
+    if (normalized_scan_id.isEmpty()) {
+        return;
+    }
+    missing_source_location_scan_id_ = normalized_scan_id;
+    missing_source_location_next_cursor_.clear();
+    missing_source_locations_.clear();
+    missing_source_locations_has_more_ = false;
+    if (missing_source_locations_task_running_) {
+        active_missing_source_locations_request_id_ = ++missing_source_locations_request_id_;
+        missing_source_locations_refresh_pending_ = true;
+        emit missingSourceLocationReviewChanged();
+        return;
+    }
+    startMissingSourceLocationTask(false);
+}
+
+void ReviewController::closeMissingSourceLocationReview() {
+    active_missing_source_locations_request_id_ = ++missing_source_locations_request_id_;
+    missing_source_locations_refresh_pending_ = false;
+    missing_source_location_scan_id_.clear();
+    missing_source_location_next_cursor_.clear();
+    missing_source_locations_.clear();
+    missing_source_locations_has_more_ = false;
+    emit missingSourceLocationReviewChanged();
+}
+
+void ReviewController::loadMoreMissingSourceLocations() {
+    if (missing_source_locations_task_running_ || !missing_source_locations_has_more_
+        || missing_source_location_scan_id_.isEmpty()) {
+        return;
+    }
+    startMissingSourceLocationTask(true);
+}
+
+void ReviewController::createManualLibraryAlbum(const QString& name) {
+    if (library_albums_task_running_ || name.trimmed().isEmpty()) {
+        return;
+    }
+    startLibraryAlbumsTask(LibraryAlbumTaskAction::CreateManual, name.trimmed());
+}
+
+void ReviewController::createSmartLibraryAlbum(const QString& name) {
+    if (library_albums_task_running_ || name.trimmed().isEmpty()) {
+        return;
+    }
+    startLibraryAlbumsTask(LibraryAlbumTaskAction::CreateSmart, name.trimmed());
+}
+
+void ReviewController::renameLibraryAlbum(
+    const QString& album_id,
+    const QString& name
+) {
+    const QString normalized_album_id = album_id.trimmed();
+    const QString normalized_name = name.trimmed();
+    if (library_albums_task_running_ || normalized_album_id.isEmpty()
+        || normalized_name.isEmpty()) {
+        return;
+    }
+    startLibraryAlbumsTask(
+        LibraryAlbumTaskAction::Rename,
+        normalized_name,
+        normalized_album_id
+    );
+}
+
+void ReviewController::deleteLibraryAlbum(const QString& album_id) {
+    const QString normalized_album_id = album_id.trimmed();
+    if (library_albums_task_running_ || normalized_album_id.isEmpty()) {
+        return;
+    }
+    startLibraryAlbumsTask(
+        LibraryAlbumTaskAction::Delete,
+        {},
+        normalized_album_id
+    );
+}
+
+void ReviewController::addPhotosToManualLibraryAlbum(
+    const QString& album_id,
+    const QVariantList& targets
+) {
+    const QString normalized_album_id = album_id.trimmed();
+    const QStringList photo_ids = photo_ids_from_targets(targets);
+    if (library_albums_task_running_ || normalized_album_id.isEmpty()
+        || photo_ids.isEmpty()) {
+        return;
+    }
+    startLibraryAlbumsTask(
+        LibraryAlbumTaskAction::AddPhotos,
+        {},
+        normalized_album_id,
+        photo_ids
+    );
+}
+
+void ReviewController::removePhotosFromManualLibraryAlbum(
+    const QString& album_id,
+    const QVariantList& targets
+) {
+    const QString normalized_album_id = album_id.trimmed();
+    const QStringList photo_ids = photo_ids_from_targets(targets);
+    if (library_albums_task_running_ || normalized_album_id.isEmpty()
+        || photo_ids.isEmpty()) {
+        return;
+    }
+    startLibraryAlbumsTask(
+        LibraryAlbumTaskAction::RemovePhotos,
+        {},
+        normalized_album_id,
+        photo_ids
+    );
 }
 
 void ReviewController::refreshSharedGradeNodes() {
@@ -1061,6 +1519,28 @@ void ReviewController::setFilterEditState(const QString& edit_state) {
     filtered_model_.setEditFilter(edit_state);
 }
 
+void ReviewController::setFilterCaptureMonth(const QString& capture_month) {
+    filtered_model_.setCaptureMonth(capture_month);
+}
+
+void ReviewController::setFilterCameraKey(const QString& camera_key) {
+    filtered_model_.setCameraKey(camera_key);
+}
+
+void ReviewController::setFilterLensKey(const QString& lens_key) {
+    filtered_model_.setLensKey(lens_key);
+}
+
+void ReviewController::setLibraryAlbumId(const QString& album_id) {
+    const QString normalized = album_id.trimmed();
+    if (library_album_id_ == normalized) {
+        return;
+    }
+    library_album_id_ = normalized;
+    emit libraryAlbumChanged();
+    scheduleFilterQuery();
+}
+
 void ReviewController::undoLastDecision() {
     if (scan_running_ || refreshing() || page_running_ || evidence_session_.busy()
         || decision_session_.busy()) {
@@ -1134,6 +1614,7 @@ void ReviewController::finishScan() {
     emit scanningChanged();
     emit scanProgressChanged();
     emitWorkStateChanges(old_busy, old_loading_more, old_refreshing);
+    refreshLibrarySourceHealth();
     requestLibraryReset();
 }
 
@@ -1232,6 +1713,7 @@ void ReviewController::beginFilteredLibraryQuery() {
     if (!scan_running_) {
         terminal_refresh_active_ = true;
     }
+    startLibraryFacetsTask();
     startCountQuery();
     startPage(PageTaskKind::InitialReset);
 }
@@ -1385,6 +1867,30 @@ void ReviewController::finishCount() {
     }
 }
 
+void ReviewController::finishLibraryFacetsTask() {
+    const LibraryFacetTaskResult result = library_facets_watcher_.result();
+    library_facets_task_running_ = false;
+    const bool accepted = result.library_generation == library_generation_
+        && result.request_id == active_library_facets_request_id_;
+    if (accepted && result.error.isEmpty()) {
+        library_capture_month_facets_ = result.capture_months;
+        library_camera_facets_ = result.cameras;
+        library_lens_facets_ = result.lenses;
+    } else if (accepted && !result.error.isEmpty()) {
+        setStatusMessage(review_message(
+            QT_TRANSLATE_NOOP("ReviewController", "Could not update Library facets · %1"),
+            {result.error}
+        ));
+    }
+
+    if (library_facets_refresh_pending_ || !accepted) {
+        library_facets_refresh_pending_ = false;
+        startLibraryFacetsTask();
+        return;
+    }
+    emit libraryFacetsChanged();
+}
+
 void ReviewController::finishLibraryStateTask() {
     const LibraryStateTaskResult result = library_state_watcher_.result();
     library_state_mutation_running_ = false;
@@ -1415,6 +1921,146 @@ void ReviewController::finishLibraryStateTask() {
     ));
     if (filtered_model_.hasActiveServerFilter()) {
         scheduleFilterQuery();
+    }
+}
+
+void ReviewController::finishLibraryAlbumsTask() {
+    const LibraryAlbumTaskResult result = library_albums_watcher_.result();
+    library_albums_task_running_ = false;
+    const bool accepted = result.request_id == active_library_albums_request_id_;
+    if (accepted && result.has_album_snapshot) {
+        library_albums_ = result.albums;
+        if (!library_album_id_.isEmpty()) {
+            const auto selected = std::find_if(
+                library_albums_.cbegin(),
+                library_albums_.cend(),
+                [this](const BackendLibraryAlbum& album) {
+                    return album.id == library_album_id_;
+                }
+            );
+            if (selected == library_albums_.cend()) {
+                library_album_id_.clear();
+                emit libraryAlbumChanged();
+                scheduleFilterQuery();
+            }
+        }
+        emit libraryAlbumsChanged();
+    }
+
+    if (accepted && result.error.isEmpty()) {
+        if ((result.action == LibraryAlbumTaskAction::AddPhotos
+                || result.action == LibraryAlbumTaskAction::RemovePhotos)
+            && result.album_id == library_album_id_) {
+            scheduleFilterQuery();
+        }
+
+        switch (result.action) {
+        case LibraryAlbumTaskAction::Refresh:
+            break;
+        case LibraryAlbumTaskAction::CreateManual:
+        case LibraryAlbumTaskAction::CreateSmart:
+            setDecisionStatusMessage(review_message(QT_TRANSLATE_NOOP(
+                "ReviewController", "Library album created"
+            )));
+            break;
+        case LibraryAlbumTaskAction::Rename:
+            setDecisionStatusMessage(review_message(QT_TRANSLATE_NOOP(
+                "ReviewController", "Library album renamed"
+            )));
+            break;
+        case LibraryAlbumTaskAction::Delete:
+            setDecisionStatusMessage(review_message(QT_TRANSLATE_NOOP(
+                "ReviewController", "Library album deleted"
+            )));
+            break;
+        case LibraryAlbumTaskAction::AddPhotos:
+            setDecisionStatusMessage(review_message(
+                QT_TRANSLATE_NOOP(
+                    "ReviewController", "%1 photos added to the album"
+                ),
+                {QString::number(result.affected_photo_count)}
+            ));
+            break;
+        case LibraryAlbumTaskAction::RemovePhotos:
+            setDecisionStatusMessage(review_message(
+                QT_TRANSLATE_NOOP(
+                    "ReviewController", "%1 photos removed from the album"
+                ),
+                {QString::number(result.affected_photo_count)}
+            ));
+            break;
+        }
+    } else if (accepted) {
+        setStatusMessage(review_message(
+            QT_TRANSLATE_NOOP("ReviewController", "Could not update Library albums · %1"),
+            {result.error}
+        ));
+    }
+
+    if (library_albums_refresh_pending_ || !accepted) {
+        library_albums_refresh_pending_ = false;
+        startLibraryAlbumsTask(LibraryAlbumTaskAction::Refresh);
+    }
+}
+
+void ReviewController::finishLibrarySourceHealthTask() {
+    const LibrarySourceHealthTaskResult result = library_source_health_watcher_.result();
+    library_source_health_task_running_ = false;
+    const bool accepted = result.request_id == active_library_source_health_request_id_;
+    if (accepted && result.error.isEmpty()) {
+        library_source_health_ = result.sources;
+        emit librarySourceHealthChanged();
+    } else if (accepted) {
+        setStatusMessage(review_message(
+            QT_TRANSLATE_NOOP("ReviewController", "Could not load Library source health · %1"),
+            {result.error}
+        ));
+        emit librarySourceHealthChanged();
+    }
+
+    if (library_source_health_refresh_pending_ || !accepted) {
+        library_source_health_refresh_pending_ = false;
+        startLibrarySourceHealthTask();
+    }
+}
+
+void ReviewController::finishMissingSourceLocationTask() {
+    const MissingSourceLocationTaskResult result = missing_source_locations_watcher_.result();
+    missing_source_locations_task_running_ = false;
+    const bool accepted = result.request_id == active_missing_source_locations_request_id_
+        && result.scan_session_id == missing_source_location_scan_id_;
+    if (accepted && result.error.isEmpty()) {
+        if (result.page.has_scan) {
+            if (result.append) {
+                missing_source_locations_ += result.page.items;
+            } else {
+                missing_source_locations_ = result.page.items;
+            }
+            missing_source_location_next_cursor_ = result.page.next_location_id;
+            missing_source_locations_has_more_ = result.page.has_more;
+        } else {
+            missing_source_locations_.clear();
+            missing_source_location_next_cursor_.clear();
+            missing_source_locations_has_more_ = false;
+        }
+        emit missingSourceLocationReviewChanged();
+    } else if (accepted) {
+        setStatusMessage(review_message(
+            QT_TRANSLATE_NOOP("ReviewController", "Could not load source scan review · %1"),
+            {result.error}
+        ));
+        emit missingSourceLocationReviewChanged();
+    } else {
+        // The user switched or closed review while this worker was in flight.
+        // Publish the cleared busy state even though its page is intentionally
+        // stale and therefore discarded.
+        emit missingSourceLocationReviewChanged();
+    }
+
+    if (missing_source_locations_refresh_pending_
+        && !missing_source_location_scan_id_.isEmpty()) {
+        missing_source_locations_refresh_pending_ = false;
+        startMissingSourceLocationTask(false);
     }
 }
 
@@ -1609,6 +2255,10 @@ BackendLibraryPhotoFilter ReviewController::currentLibraryFilter() const {
         filter.has_development_edits = true;
         filter.development_edits = false;
     }
+    filter.capture_month = filtered_model_.captureMonth();
+    filter.camera_key = filtered_model_.cameraKey();
+    filter.lens_key = filtered_model_.lensKey();
+    filter.album_id = library_album_id_;
     return filter;
 }
 
@@ -1625,6 +2275,23 @@ void ReviewController::startCountQuery() {
         currentLibraryFilter(),
         library_generation_,
         active_count_request_id_
+    ));
+}
+
+void ReviewController::startLibraryFacetsTask() {
+    if (library_facets_task_running_) {
+        library_facets_refresh_pending_ = true;
+        return;
+    }
+    library_facets_task_running_ = true;
+    active_library_facets_request_id_ = ++library_facets_request_id_;
+    emit libraryFacetsChanged();
+    library_facets_watcher_.setFuture(QtConcurrent::run(
+        run_library_facets,
+        backend_,
+        currentLibraryFilter(),
+        library_generation_,
+        active_library_facets_request_id_
     ));
 }
 
@@ -1646,6 +2313,73 @@ void ReviewController::startLibraryStateMutation(
         photo_id,
         liked,
         color_label
+    ));
+}
+
+void ReviewController::startLibraryAlbumsTask(
+    const LibraryAlbumTaskAction action,
+    const QString& name,
+    const QString& album_id,
+    const QStringList& photo_ids
+) {
+    if (library_albums_task_running_) {
+        library_albums_refresh_pending_ = true;
+        return;
+    }
+    library_albums_task_running_ = true;
+    active_library_albums_request_id_ = ++library_albums_request_id_;
+    BackendLibraryPhotoFilter smart_query;
+    if (action == LibraryAlbumTaskAction::CreateSmart) {
+        smart_query = currentLibraryFilter();
+        // Smart albums are a stable query, never a nested membership lookup.
+        smart_query.album_id.clear();
+    }
+    emit libraryAlbumsChanged();
+    library_albums_watcher_.setFuture(QtConcurrent::run(
+        run_library_albums_task,
+        backend_,
+        action,
+        name,
+        album_id,
+        photo_ids,
+        smart_query,
+        active_library_albums_request_id_
+    ));
+}
+
+void ReviewController::startLibrarySourceHealthTask() {
+    if (library_source_health_task_running_) {
+        library_source_health_refresh_pending_ = true;
+        return;
+    }
+    library_source_health_task_running_ = true;
+    active_library_source_health_request_id_ = ++library_source_health_request_id_;
+    emit librarySourceHealthChanged();
+    library_source_health_watcher_.setFuture(QtConcurrent::run(
+        run_library_source_health_task,
+        backend_,
+        active_library_source_health_request_id_
+    ));
+}
+
+void ReviewController::startMissingSourceLocationTask(const bool append) {
+    if (missing_source_locations_task_running_) {
+        missing_source_locations_refresh_pending_ = true;
+        return;
+    }
+    if (missing_source_location_scan_id_.isEmpty()) {
+        return;
+    }
+    missing_source_locations_task_running_ = true;
+    active_missing_source_locations_request_id_ = ++missing_source_locations_request_id_;
+    emit missingSourceLocationReviewChanged();
+    missing_source_locations_watcher_.setFuture(QtConcurrent::run(
+        run_missing_source_location_task,
+        backend_,
+        missing_source_location_scan_id_,
+        append ? missing_source_location_next_cursor_ : QString{},
+        active_missing_source_locations_request_id_,
+        append
     ));
 }
 

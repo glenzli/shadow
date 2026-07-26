@@ -19,8 +19,13 @@ use crate::native_path::{NativePathError, decode_location, encode_location};
 use crate::performance::{ScanPerformance, measure_if};
 use crate::{DecodeInspectionError, DecodeInspectionHandle, DecodeInspectionRequest};
 
+mod source_health;
 mod source_relink;
 
+pub use source_health::{
+    SafeReattachPlan, SafeReattachPlanningError, plan_safe_reattach,
+    relink_candidate_from_missing_location,
+};
 pub use source_relink::{
     CatalogRelinkConfirmation, ConfirmedRelink, PendingStrongRelink, RelinkApplyError,
     RelinkCandidate, RelinkIdentityLookup, RelinkSource, RelinkVerificationError,

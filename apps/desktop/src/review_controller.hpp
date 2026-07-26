@@ -11,6 +11,7 @@
 #include <QFutureWatcher>
 #include <QObject>
 #include <QString>
+#include <QStringList>
 #include <QTimer>
 #include <QUrl>
 #include <QVariantList>
@@ -46,10 +47,55 @@ struct CountTaskResult final {
     quint64 request_id = 0;
 };
 
+/// Three independently bounded, catalog-side metadata facets fetched as one
+/// worker result. The grid never waits on these aggregates to paginate.
+struct LibraryFacetTaskResult final {
+    BackendLibraryFacetPage capture_months;
+    BackendLibraryFacetPage cameras;
+    BackendLibraryFacetPage lenses;
+    QString error;
+    quint64 library_generation = 0;
+    quint64 request_id = 0;
+};
+
 struct LibraryStateTaskResult final {
     BackendPhotoLibraryState state;
     QString error;
     QString requested_photo_id;
+};
+
+enum class LibraryAlbumTaskAction : std::uint8_t {
+    Refresh,
+    CreateManual,
+    CreateSmart,
+    Rename,
+    Delete,
+    AddPhotos,
+    RemovePhotos,
+};
+
+struct LibraryAlbumTaskResult final {
+    QVector<BackendLibraryAlbum> albums;
+    QString error;
+    quint64 request_id = 0;
+    LibraryAlbumTaskAction action = LibraryAlbumTaskAction::Refresh;
+    QString album_id;
+    int affected_photo_count = 0;
+    bool has_album_snapshot = false;
+};
+
+struct LibrarySourceHealthTaskResult final {
+    QVector<BackendLibrarySourceHealth> sources;
+    QString error;
+    quint64 request_id = 0;
+};
+
+struct MissingSourceLocationTaskResult final {
+    BackendMissingSourceLocationPage page;
+    QString error;
+    QString scan_session_id;
+    quint64 request_id = 0;
+    bool append = false;
 };
 
 enum class ReviewEvidenceTaskKind : std::uint8_t {
@@ -140,6 +186,90 @@ class ReviewController final : public QObject {
         NOTIFY filtersChanged
     )
     Q_PROPERTY(
+        QString filterCaptureMonth
+        READ filterCaptureMonth
+        WRITE setFilterCaptureMonth
+        NOTIFY filtersChanged
+    )
+    Q_PROPERTY(
+        QString filterCameraKey
+        READ filterCameraKey
+        WRITE setFilterCameraKey
+        NOTIFY filtersChanged
+    )
+    Q_PROPERTY(
+        QString filterLensKey
+        READ filterLensKey
+        WRITE setFilterLensKey
+        NOTIFY filtersChanged
+    )
+    Q_PROPERTY(
+        QVariantList libraryCaptureMonthFacets
+        READ libraryCaptureMonthFacets
+        NOTIFY libraryFacetsChanged
+    )
+    Q_PROPERTY(
+        QVariantList libraryCameraFacets
+        READ libraryCameraFacets
+        NOTIFY libraryFacetsChanged
+    )
+    Q_PROPERTY(
+        QVariantList libraryLensFacets
+        READ libraryLensFacets
+        NOTIFY libraryFacetsChanged
+    )
+    Q_PROPERTY(
+        bool libraryFacetsBusy
+        READ libraryFacetsBusy
+        NOTIFY libraryFacetsChanged
+    )
+    Q_PROPERTY(
+        QString libraryAlbumId
+        READ libraryAlbumId
+        WRITE setLibraryAlbumId
+        NOTIFY libraryAlbumChanged
+    )
+    Q_PROPERTY(
+        QVariantList libraryAlbums
+        READ libraryAlbums
+        NOTIFY libraryAlbumsChanged
+    )
+    Q_PROPERTY(
+        bool libraryAlbumsBusy
+        READ libraryAlbumsBusy
+        NOTIFY libraryAlbumsChanged
+    )
+    Q_PROPERTY(
+        QVariantList librarySourceHealth
+        READ librarySourceHealth
+        NOTIFY librarySourceHealthChanged
+    )
+    Q_PROPERTY(
+        bool librarySourceHealthBusy
+        READ librarySourceHealthBusy
+        NOTIFY librarySourceHealthChanged
+    )
+    Q_PROPERTY(
+        QVariantList missingSourceLocations
+        READ missingSourceLocations
+        NOTIFY missingSourceLocationReviewChanged
+    )
+    Q_PROPERTY(
+        QString missingSourceLocationScanId
+        READ missingSourceLocationScanId
+        NOTIFY missingSourceLocationReviewChanged
+    )
+    Q_PROPERTY(
+        bool missingSourceLocationsBusy
+        READ missingSourceLocationsBusy
+        NOTIFY missingSourceLocationReviewChanged
+    )
+    Q_PROPERTY(
+        bool missingSourceLocationsHasMore
+        READ missingSourceLocationsHasMore
+        NOTIFY missingSourceLocationReviewChanged
+    )
+    Q_PROPERTY(
         int filteredItemCount
         READ filteredItemCount
         NOTIFY filtersChanged
@@ -179,6 +309,22 @@ public:
     [[nodiscard]] int filterMinimumRating() const noexcept;
     [[nodiscard]] QString filterColorLabel() const;
     [[nodiscard]] QString filterEditState() const;
+    [[nodiscard]] QString filterCaptureMonth() const;
+    [[nodiscard]] QString filterCameraKey() const;
+    [[nodiscard]] QString filterLensKey() const;
+    [[nodiscard]] QVariantList libraryCaptureMonthFacets() const;
+    [[nodiscard]] QVariantList libraryCameraFacets() const;
+    [[nodiscard]] QVariantList libraryLensFacets() const;
+    [[nodiscard]] bool libraryFacetsBusy() const noexcept;
+    [[nodiscard]] QString libraryAlbumId() const;
+    [[nodiscard]] QVariantList libraryAlbums() const;
+    [[nodiscard]] bool libraryAlbumsBusy() const noexcept;
+    [[nodiscard]] QVariantList librarySourceHealth() const;
+    [[nodiscard]] bool librarySourceHealthBusy() const noexcept;
+    [[nodiscard]] QVariantList missingSourceLocations() const;
+    [[nodiscard]] QString missingSourceLocationScanId() const;
+    [[nodiscard]] bool missingSourceLocationsBusy() const noexcept;
+    [[nodiscard]] bool missingSourceLocationsHasMore() const noexcept;
     [[nodiscard]] int filteredItemCount() const noexcept;
     [[nodiscard]] QVariantList sharedGradeNodes() const;
     [[nodiscard]] QAbstractItemModel* model() noexcept;
@@ -188,6 +334,10 @@ public:
     void setFilterMinimumRating(int rating);
     void setFilterColorLabel(const QString& color_label);
     void setFilterEditState(const QString& edit_state);
+    void setFilterCaptureMonth(const QString& capture_month);
+    void setFilterCameraKey(const QString& camera_key);
+    void setFilterLensKey(const QString& lens_key);
+    void setLibraryAlbumId(const QString& album_id);
 
     Q_INVOKABLE void scanFolder(const QUrl& folder_url);
     Q_INVOKABLE void cancelScan();
@@ -213,6 +363,29 @@ public:
     Q_INVOKABLE void setPhotoLiked(const QString& photo_id, bool liked);
     Q_INVOKABLE void clearFilters();
     Q_INVOKABLE void refreshVisibleLibrary();
+    Q_INVOKABLE void refreshLibraryFacets();
+    Q_INVOKABLE void setLibraryFacet(const QString& kind, const QString& key);
+    Q_INVOKABLE void clearLibraryFacet(const QString& kind);
+    Q_INVOKABLE void refreshLibraryAlbums();
+    Q_INVOKABLE void refreshLibrarySourceHealth();
+    Q_INVOKABLE void openMissingSourceLocationReview(const QString& scan_session_id);
+    Q_INVOKABLE void closeMissingSourceLocationReview();
+    Q_INVOKABLE void loadMoreMissingSourceLocations();
+    Q_INVOKABLE void createManualLibraryAlbum(const QString& name);
+    Q_INVOKABLE void createSmartLibraryAlbum(const QString& name);
+    Q_INVOKABLE void renameLibraryAlbum(
+        const QString& album_id,
+        const QString& name
+    );
+    Q_INVOKABLE void deleteLibraryAlbum(const QString& album_id);
+    Q_INVOKABLE void addPhotosToManualLibraryAlbum(
+        const QString& album_id,
+        const QVariantList& targets
+    );
+    Q_INVOKABLE void removePhotosFromManualLibraryAlbum(
+        const QString& album_id,
+        const QVariantList& targets
+    );
     Q_INVOKABLE void refreshSharedGradeNodes();
     Q_INVOKABLE QVariantMap applySharedGradeNode(
         const QString& layer_id,
@@ -245,6 +418,11 @@ signals:
     );
     void colorLabelChanged(const QString& photoId, const QString& colorLabel);
     void filtersChanged();
+    void libraryAlbumChanged();
+    void libraryAlbumsChanged();
+    void libraryFacetsChanged();
+    void librarySourceHealthChanged();
+    void missingSourceLocationReviewChanged();
     void sharedGradeNodesChanged();
     void decisionUndone();
 
@@ -252,7 +430,11 @@ private:
     void finishScan();
     void finishPage();
     void finishCount();
+    void finishLibraryFacetsTask();
     void finishLibraryStateTask();
+    void finishLibraryAlbumsTask();
+    void finishLibrarySourceHealthTask();
+    void finishMissingSourceLocationTask();
     void pollScanProgress();
     void finishEvidenceTask();
     void finishDecisionTask();
@@ -261,12 +443,21 @@ private:
     void scheduleFilterQuery();
     void beginFilteredLibraryQuery();
     void startCountQuery();
+    void startLibraryFacetsTask();
     [[nodiscard]] BackendLibraryPhotoFilter currentLibraryFilter() const;
     void startLibraryStateMutation(
         const QString& photo_id,
         bool liked,
         const QString& color_label
     );
+    void startLibraryAlbumsTask(
+        LibraryAlbumTaskAction action,
+        const QString& name = {},
+        const QString& album_id = {},
+        const QStringList& photo_ids = {}
+    );
+    void startLibrarySourceHealthTask();
+    void startMissingSourceLocationTask(bool append);
     void startDecisionMutation(const ReviewDecisionMutationRequest& request);
     void emitWorkStateChanges(
         bool old_busy,
@@ -338,6 +529,32 @@ private:
     bool scan_terminal_cancelled_ = false;
     bool has_more_ = false;
     bool library_state_mutation_running_ = false;
+    bool library_albums_task_running_ = false;
+    bool library_albums_refresh_pending_ = false;
+    quint64 library_albums_request_id_ = 0;
+    quint64 active_library_albums_request_id_ = 0;
+    QString library_album_id_;
+    QVector<BackendLibraryAlbum> library_albums_;
+    bool library_facets_task_running_ = false;
+    bool library_facets_refresh_pending_ = false;
+    quint64 library_facets_request_id_ = 0;
+    quint64 active_library_facets_request_id_ = 0;
+    BackendLibraryFacetPage library_capture_month_facets_;
+    BackendLibraryFacetPage library_camera_facets_;
+    BackendLibraryFacetPage library_lens_facets_;
+    bool library_source_health_task_running_ = false;
+    bool library_source_health_refresh_pending_ = false;
+    quint64 library_source_health_request_id_ = 0;
+    quint64 active_library_source_health_request_id_ = 0;
+    QVector<BackendLibrarySourceHealth> library_source_health_;
+    bool missing_source_locations_task_running_ = false;
+    bool missing_source_locations_refresh_pending_ = false;
+    quint64 missing_source_locations_request_id_ = 0;
+    quint64 active_missing_source_locations_request_id_ = 0;
+    QString missing_source_location_scan_id_;
+    QString missing_source_location_next_cursor_;
+    QVector<BackendMissingSourceLocation> missing_source_locations_;
+    bool missing_source_locations_has_more_ = false;
     QElapsedTimer scan_clock_;
     QTimer scan_progress_timer_;
     QTimer filter_debounce_timer_;
@@ -349,7 +566,11 @@ private:
     QFutureWatcher<ScanTaskResult> scan_watcher_;
     QFutureWatcher<PageTaskResult> page_watcher_;
     QFutureWatcher<CountTaskResult> count_watcher_;
+    QFutureWatcher<LibraryFacetTaskResult> library_facets_watcher_;
     QFutureWatcher<LibraryStateTaskResult> library_state_watcher_;
+    QFutureWatcher<LibraryAlbumTaskResult> library_albums_watcher_;
+    QFutureWatcher<LibrarySourceHealthTaskResult> library_source_health_watcher_;
+    QFutureWatcher<MissingSourceLocationTaskResult> missing_source_locations_watcher_;
     QFutureWatcher<ReviewEvidenceTaskResult> evidence_watcher_;
     QFutureWatcher<ReviewDecisionTaskResult> decision_watcher_;
 };

@@ -244,6 +244,7 @@ qt_add_qml_module(
     QML_FILES
         qml/EditHistogram.qml
         qml/ExportDialog.qml
+        qml/LibraryFacetPopup.qml
         qml/LibraryWorkspace.qml
         qml/LutManagerWindow.qml
         qml/Main.qml

@@ -2,6 +2,8 @@
 
 #include "review_model.hpp"
 
+#include <QRegularExpression>
+
 #include <algorithm>
 
 namespace {
@@ -52,10 +54,23 @@ QString ReviewFilterModel::editFilter() const {
     return edit_filter_;
 }
 
+QString ReviewFilterModel::captureMonth() const {
+    return capture_month_;
+}
+
+QString ReviewFilterModel::cameraKey() const {
+    return camera_key_;
+}
+
+QString ReviewFilterModel::lensKey() const {
+    return lens_key_;
+}
+
 bool ReviewFilterModel::hasActiveServerFilter() const {
     return flag_filter_ != QStringLiteral("all") || minimum_rating_ > 0
         || color_filter_ != QStringLiteral("all")
-        || edit_filter_ != QStringLiteral("all");
+        || edit_filter_ != QStringLiteral("all") || !capture_month_.isEmpty()
+        || !camera_key_.isEmpty() || !lens_key_.isEmpty();
 }
 
 void ReviewFilterModel::setFlagFilter(const QString& filter) {
@@ -98,14 +113,45 @@ void ReviewFilterModel::setEditFilter(const QString& filter) {
     emit filtersChanged();
 }
 
+void ReviewFilterModel::setCaptureMonth(const QString& capture_month) {
+    const QString normalized = normalizeCaptureMonth(capture_month);
+    if (capture_month_ == normalized) {
+        return;
+    }
+    capture_month_ = normalized;
+    emit filtersChanged();
+}
+
+void ReviewFilterModel::setCameraKey(const QString& camera_key) {
+    const QString normalized = normalizeFacetKey(camera_key);
+    if (camera_key_ == normalized) {
+        return;
+    }
+    camera_key_ = normalized;
+    emit filtersChanged();
+}
+
+void ReviewFilterModel::setLensKey(const QString& lens_key) {
+    const QString normalized = normalizeFacetKey(lens_key);
+    if (lens_key_ == normalized) {
+        return;
+    }
+    lens_key_ = normalized;
+    emit filtersChanged();
+}
+
 void ReviewFilterModel::clearFilters() {
     const bool changed = flag_filter_ != QStringLiteral("all")
         || minimum_rating_ != 0 || color_filter_ != QStringLiteral("all")
-        || edit_filter_ != QStringLiteral("all");
+        || edit_filter_ != QStringLiteral("all") || !capture_month_.isEmpty()
+        || !camera_key_.isEmpty() || !lens_key_.isEmpty();
     flag_filter_ = QStringLiteral("all");
     minimum_rating_ = 0;
     color_filter_ = QStringLiteral("all");
     edit_filter_ = QStringLiteral("all");
+    capture_month_.clear();
+    camera_key_.clear();
+    lens_key_.clear();
     if (!changed) {
         return;
     }
@@ -164,6 +210,25 @@ QString ReviewFilterModel::normalizeColorFilter(const QString& filter) {
 QString ReviewFilterModel::normalizeEditFilter(const QString& filter) {
     const QString normalized = filter.trimmed().toLower();
     return is_edit_filter(normalized) ? normalized : QStringLiteral("all");
+}
+
+QString ReviewFilterModel::normalizeCaptureMonth(const QString& value) {
+    const QString normalized = value.trimmed();
+    if (normalized.isEmpty()) {
+        return {};
+    }
+    const bool valid = normalized.size() == 7 && normalized.at(4) == u'-'
+        && normalized.left(4).toInt() >= 0
+        && normalized.mid(5, 2).toInt() >= 1
+        && normalized.mid(5, 2).toInt() <= 12
+        && normalized.left(4).contains(QRegularExpression(QStringLiteral("^[0-9]{4}$")))
+        && normalized.mid(5, 2).contains(QRegularExpression(QStringLiteral("^[0-9]{2}$")));
+    return valid ? normalized : QString{};
+}
+
+QString ReviewFilterModel::normalizeFacetKey(const QString& value) {
+    const QString normalized = value.trimmed().toLower();
+    return normalized.size() <= 512 ? normalized : QString{};
 }
 
 void ReviewFilterModel::refreshRowsFilter() {

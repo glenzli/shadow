@@ -324,12 +324,13 @@ mod ffi {
     /// Filter for one photo-first Library query. Empty text means that facet
     /// is not constrained; explicit booleans keep a real zero / false value
     /// distinguishable from an absent filter.
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     struct FfiLibraryPhotoFilter {
         has_capture_start: bool,
         capture_start_unix_seconds: i64,
         has_capture_end: bool,
         capture_end_unix_seconds: i64,
+        capture_month: String,
         camera_key: String,
         lens_key: String,
         has_aperture_minimum: bool,
@@ -355,6 +356,101 @@ mod ffi {
         Unflagged,
         Picked,
         Rejected,
+    }
+
+    /// A bounded Library aggregation dimension. These are photo metadata
+    /// facets, never source-folder groups.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum FfiLibraryFacetKind {
+        CaptureMonth,
+        Camera,
+        Lens,
+    }
+
+    /// Stable continuation for the count-descending facet page. The key is a
+    /// deterministic tie-breaker, so a later page never repeats a value.
+    #[derive(Debug)]
+    struct FfiLibraryFacetCursor {
+        photo_count: u64,
+        key: String,
+    }
+
+    /// One compact Library facet value ready for the desktop to display.
+    /// `key` remains the only value used for a follow-up typed filter.
+    #[derive(Debug)]
+    struct FfiLibraryFacet {
+        key: String,
+        label: String,
+        photo_count: u64,
+    }
+
+    /// Bounded aggregation page. It is deliberately separate from the
+    /// virtualized photo page, which never triggers a group aggregate.
+    #[derive(Debug)]
+    struct FfiLibraryFacetPage {
+        items: Vec<FfiLibraryFacet>,
+        has_more: bool,
+        next_cursor: FfiLibraryFacetCursor,
+    }
+
+    /// Album ownership is explicit: manual albums hold user-selected photo
+    /// memberships, while smart albums execute their frozen v1 Library filter.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum FfiLibraryAlbumKind {
+        Manual,
+        Smart,
+    }
+
+    /// One durable Library album. Smart queries use the same public filter
+    /// DTO as the grid, but the service rejects recursive album membership.
+    #[derive(Debug)]
+    struct FfiLibraryAlbum {
+        id: String,
+        kind: FfiLibraryAlbumKind,
+        name: String,
+        query_filter: FfiLibraryPhotoFilter,
+        created_at_ms: i64,
+        updated_at_ms: i64,
+    }
+
+    /// Read-only reconciliation evidence for one configured Library source.
+    /// A nonzero not-seen count is scoped to the listed completed scan; it is
+    /// deliberately not a global offline verdict or an automatic relink.
+    #[derive(Debug)]
+    struct FfiLibrarySourceHealth {
+        source_id: String,
+        source_display_path: String,
+        source_enabled: bool,
+        has_latest_completed_scan: bool,
+        scan_session_id: String,
+        scan_completed_at_ms: i64,
+        known_locations: u64,
+        seen_locations: u64,
+        not_seen_locations: u64,
+    }
+
+    /// One historical source location absent from a particular completed
+    /// scan. The record is evidence for review only, not an offline claim.
+    #[derive(Debug)]
+    struct FfiMissingSourceLocation {
+        location_id: String,
+        photo_id: String,
+        title: String,
+        source_display_path: String,
+        has_captured_at: bool,
+        captured_at_unix_seconds: i64,
+        camera_key: String,
+        last_seen_at_ms: i64,
+    }
+
+    /// Bounded, scan-pinned review page. A later scan cannot change this
+    /// page's cursor semantics, and the page offers no reattach mutation.
+    #[derive(Debug)]
+    struct FfiMissingSourceLocationPage {
+        has_scan: bool,
+        items: Vec<FfiMissingSourceLocation>,
+        has_more: bool,
+        next_location_id: String,
     }
 
     /// Stable cursor for capture-time-descending Library pages. An empty
@@ -1004,6 +1100,62 @@ mod ffi {
             self: &DesktopSession,
             filter: &FfiLibraryPhotoFilter,
         ) -> Result<u64>;
+        fn library_facet_page(
+            self: &DesktopSession,
+            filter: &FfiLibraryPhotoFilter,
+            kind: FfiLibraryFacetKind,
+            cursor: &FfiLibraryFacetCursor,
+            limit: u32,
+        ) -> Result<FfiLibraryFacetPage>;
+        fn library_albums(self: &DesktopSession) -> Result<Vec<FfiLibraryAlbum>>;
+        fn library_source_health(self: &DesktopSession) -> Result<Vec<FfiLibrarySourceHealth>>;
+        fn missing_source_location_page(
+            self: &DesktopSession,
+            scan_session_id: &str,
+            after_location_id: &str,
+            limit: u32,
+        ) -> Result<FfiMissingSourceLocationPage>;
+        fn create_manual_library_album(
+            self: &DesktopSession,
+            name: &str,
+        ) -> Result<FfiLibraryAlbum>;
+        fn create_smart_library_album(
+            self: &DesktopSession,
+            name: &str,
+            query_filter: &FfiLibraryPhotoFilter,
+        ) -> Result<FfiLibraryAlbum>;
+        fn rename_library_album(
+            self: &DesktopSession,
+            album_id: &str,
+            name: &str,
+        ) -> Result<FfiLibraryAlbum>;
+        fn replace_smart_library_album_filter(
+            self: &DesktopSession,
+            album_id: &str,
+            query_filter: &FfiLibraryPhotoFilter,
+        ) -> Result<FfiLibraryAlbum>;
+        fn delete_library_album(self: &DesktopSession, album_id: &str) -> Result<bool>;
+        fn add_photo_to_manual_library_album(
+            self: &DesktopSession,
+            album_id: &str,
+            photo_id: &str,
+        ) -> Result<()>;
+        fn remove_photo_from_manual_library_album(
+            self: &DesktopSession,
+            album_id: &str,
+            photo_id: &str,
+        ) -> Result<bool>;
+        fn library_albums_for_photo(
+            self: &DesktopSession,
+            photo_id: &str,
+        ) -> Result<Vec<FfiLibraryAlbum>>;
+        fn smart_library_photo_page(
+            self: &DesktopSession,
+            album_id: &str,
+            cursor: &FfiLibraryPhotoCursor,
+            limit: u32,
+        ) -> Result<FfiLibraryPhotoPage>;
+        fn smart_library_photo_count(self: &DesktopSession, album_id: &str) -> Result<u64>;
         fn set_photo_library_state(
             self: &DesktopSession,
             photo_id: &str,
@@ -1579,6 +1731,110 @@ impl DesktopSession {
 
     fn library_photo_count(&self, filter: &ffi::FfiLibraryPhotoFilter) -> AnyResult<u64> {
         self.library.photo_count(filter)
+    }
+
+    fn library_facet_page(
+        &self,
+        filter: &ffi::FfiLibraryPhotoFilter,
+        kind: ffi::FfiLibraryFacetKind,
+        cursor: &ffi::FfiLibraryFacetCursor,
+        limit: u32,
+    ) -> AnyResult<ffi::FfiLibraryFacetPage> {
+        self.library.facet_page(filter, kind, cursor, limit)
+    }
+
+    fn library_albums(&self) -> AnyResult<Vec<ffi::FfiLibraryAlbum>> {
+        self.library.ffi_albums()
+    }
+
+    fn library_source_health(&self) -> AnyResult<Vec<ffi::FfiLibrarySourceHealth>> {
+        self.library.ffi_source_health()
+    }
+
+    fn missing_source_location_page(
+        &self,
+        scan_session_id: &str,
+        after_location_id: &str,
+        limit: u32,
+    ) -> AnyResult<ffi::FfiMissingSourceLocationPage> {
+        self.library
+            .ffi_missing_source_location_page(scan_session_id, after_location_id, limit)
+    }
+
+    fn create_manual_library_album(&self, name: &str) -> AnyResult<ffi::FfiLibraryAlbum> {
+        self.library
+            .create_manual_album_ffi(name, current_time_ms()?)
+    }
+
+    fn create_smart_library_album(
+        &self,
+        name: &str,
+        query_filter: &ffi::FfiLibraryPhotoFilter,
+    ) -> AnyResult<ffi::FfiLibraryAlbum> {
+        self.library
+            .create_smart_album_ffi(name, query_filter, current_time_ms()?)
+    }
+
+    fn rename_library_album(
+        &self,
+        album_id: &str,
+        name: &str,
+    ) -> AnyResult<ffi::FfiLibraryAlbum> {
+        self.library
+            .rename_album_ffi(album_id, name, current_time_ms()?)
+    }
+
+    fn replace_smart_library_album_filter(
+        &self,
+        album_id: &str,
+        query_filter: &ffi::FfiLibraryPhotoFilter,
+    ) -> AnyResult<ffi::FfiLibraryAlbum> {
+        self.library.replace_smart_album_query_ffi(
+            album_id,
+            query_filter,
+            current_time_ms()?,
+        )
+    }
+
+    fn delete_library_album(&self, album_id: &str) -> AnyResult<bool> {
+        self.library.delete_album(album_id)
+    }
+
+    fn add_photo_to_manual_library_album(
+        &self,
+        album_id: &str,
+        photo_id: &str,
+    ) -> AnyResult<()> {
+        let now_ms = current_time_ms()?;
+        self.library
+            .add_photo_to_manual_album(album_id, photo_id, now_ms, now_ms)
+    }
+
+    fn remove_photo_from_manual_library_album(
+        &self,
+        album_id: &str,
+        photo_id: &str,
+    ) -> AnyResult<bool> {
+        self.library
+            .remove_photo_from_manual_album(album_id, photo_id)
+    }
+
+    fn library_albums_for_photo(&self, photo_id: &str) -> AnyResult<Vec<ffi::FfiLibraryAlbum>> {
+        self.library.ffi_albums_for_photo(photo_id)
+    }
+
+    fn smart_library_photo_page(
+        &self,
+        album_id: &str,
+        cursor: &ffi::FfiLibraryPhotoCursor,
+        limit: u32,
+    ) -> AnyResult<ffi::FfiLibraryPhotoPage> {
+        self.library
+            .smart_album_photo_page(&self.review, album_id, cursor, limit)
+    }
+
+    fn smart_library_photo_count(&self, album_id: &str) -> AnyResult<u64> {
+        self.library.smart_album_photo_count(album_id)
     }
 
     fn set_photo_library_state(
@@ -3272,6 +3528,67 @@ mod tests {
         assert_eq!(second.items.len(), 1);
         assert_eq!(second.items[0].photo_id, older.photo_id.to_string());
 
+        // Manual albums retain explicit membership while smart albums execute
+        // their frozen Library filter through the same photo-first page path.
+        let manual = session
+            .create_manual_library_album("Trip selects")
+            .expect("create manual Library album");
+        assert_eq!(manual.kind, ffi::FfiLibraryAlbumKind::Manual);
+        assert!(manual.query_filter.album_id.is_empty());
+        session
+            .add_photo_to_manual_library_album(&manual.id, &newest.photo_id.to_string())
+            .expect("add selected photo to manual album");
+        let memberships = session
+            .library_albums_for_photo(&newest.photo_id.to_string())
+            .expect("list manual album memberships");
+        assert_eq!(memberships.len(), 1);
+        assert_eq!(memberships[0].id, manual.id);
+
+        let smart = session
+            .create_smart_library_album("Nikon picks", &filtered)
+            .expect("create smart Library album");
+        assert_eq!(smart.kind, ffi::FfiLibraryAlbumKind::Smart);
+        assert_eq!(smart.query_filter.camera_key, filtered.camera_key);
+        assert_eq!(
+            session
+                .smart_library_photo_count(&smart.id)
+                .expect("count filtered smart album"),
+            1
+        );
+        let smart_page = session
+            .smart_library_photo_page(&smart.id, &ffi_library_start_cursor(), 16)
+            .expect("page filtered smart album");
+        assert_eq!(smart_page.items.len(), 1);
+        assert_eq!(smart_page.items[0].photo_id, newest.photo_id.to_string());
+
+        let renamed = session
+            .rename_library_album(&manual.id, "Trip picks 2026")
+            .expect("rename manual Library album");
+        assert_eq!(renamed.name, "Trip picks 2026");
+        let broadened = session
+            .replace_smart_library_album_filter(&smart.id, &ffi_library_neutral_filter())
+            .expect("replace smart Library filter");
+        assert_eq!(broadened.kind, ffi::FfiLibraryAlbumKind::Smart);
+        assert_eq!(
+            session
+                .smart_library_photo_count(&smart.id)
+                .expect("count broadened smart album"),
+            2
+        );
+        assert!(
+            session
+                .remove_photo_from_manual_library_album(&manual.id, &newest.photo_id.to_string())
+                .expect("remove manual album membership")
+        );
+        assert!(
+            session
+                .delete_library_album(&manual.id)
+                .expect("delete manual Library album")
+        );
+        let albums = session.library_albums().expect("list remaining Library albums");
+        assert_eq!(albums.len(), 1);
+        assert_eq!(albums[0].id, smart.id);
+
         drop(session);
         std::fs::remove_dir_all(root).expect("remove Library fixture");
     }
@@ -3329,6 +3646,7 @@ mod tests {
             capture_start_unix_seconds: 0,
             has_capture_end: false,
             capture_end_unix_seconds: 0,
+            capture_month: String::new(),
             camera_key: String::new(),
             lens_key: String::new(),
             has_aperture_minimum: false,

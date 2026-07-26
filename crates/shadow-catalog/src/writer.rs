@@ -23,15 +23,17 @@ use crate::{
     ExportJobProgress, ExportJobRecord, ExportOutputReceiptRecord, ExportPresetId,
     ExportPresetRecord, ExportPresetRevisionRecord, ExportQueueRecovery, FeedbackPage,
     ImportSession, ImportSessionState, ImportSessionSummary, InvalidateCachedArtifactStatus,
-    LibraryPhotoCursor, LibraryPhotoFacts, LibraryPhotoFilter, LibraryPhotoPage,
-    LibrarySourceRecord, LiveCachedArtifactBlob, PhotoDecisionPage, PhotoLibraryState,
-    RecipeCommitRecord, RecipeRefRecord, RecordCachedArtifact, RecordCachedArtifactStatus,
-    RecordDecodeSnapshot, RecordDecodeSnapshotStatus, RecordRepresentationContentIdentity,
+    LibraryFacetCursor, LibraryFacetKind, LibraryFacetPage, LibraryPhotoCursor,
+    LibraryPhotoFacts, LibraryPhotoFilter, LibraryPhotoPage,
+    LibrarySourceHealth, LibrarySourceRecord, LiveCachedArtifactBlob, MissingSourceLocationCursor,
+    MissingSourceLocationPage, PhotoDecisionPage, PhotoLibraryState, RecipeCommitRecord,
+    RecipeRefRecord, RecordCachedArtifact, RecordCachedArtifactStatus, RecordDecodeSnapshot,
+    RecordDecodeSnapshotStatus, RecordRepresentationContentIdentity,
     RecordRepresentationContentIdentityStatus, RecordTechnicalObservation,
     RecordTechnicalObservationStatus, RegisterAsset, RegisteredAsset, RelinkMatch,
     RepresentationFingerprint, ReviewCursor, ReviewItemRecord, ReviewPageRecord,
-    SetPhotoLibraryState, SetRecipeRef, StoreEditObjectPackResult, TechnicalObservationRecord,
-    TechnicalObservationRevision,
+    SetPhotoLibraryState, SetRecipeRef, SmartAlbumQueryV1, StoreEditObjectPackResult,
+    TechnicalObservationRecord, TechnicalObservationRevision,
 };
 
 #[derive(Debug)]
@@ -82,6 +84,25 @@ enum Message {
         i64,
         SyncSender<Result<AlbumRecord, CatalogError>>,
     ),
+    CreateSmartLibraryAlbum(
+        String,
+        SmartAlbumQueryV1,
+        i64,
+        SyncSender<Result<AlbumRecord, CatalogError>>,
+    ),
+    RenameLibraryAlbum(
+        CollectionId,
+        String,
+        i64,
+        SyncSender<Result<AlbumRecord, CatalogError>>,
+    ),
+    ReplaceSmartAlbumQuery(
+        CollectionId,
+        SmartAlbumQueryV1,
+        i64,
+        SyncSender<Result<AlbumRecord, CatalogError>>,
+    ),
+    DeleteLibraryAlbum(CollectionId, SyncSender<Result<bool, CatalogError>>),
     LibraryAlbums(SyncSender<Result<Vec<AlbumRecord>, CatalogError>>),
     AddPhotoToAlbum(
         CollectionId,
@@ -97,13 +118,38 @@ enum Message {
     ),
     AlbumsForPhoto(PhotoId, SyncSender<Result<Vec<AlbumRecord>, CatalogError>>),
     LibrarySources(SyncSender<Result<Vec<LibrarySourceRecord>, CatalogError>>),
+    LibrarySourceHealth(SyncSender<Result<Vec<LibrarySourceHealth>, CatalogError>>),
+    MissingSourceLocationPage(
+        ImportSessionId,
+        Option<MissingSourceLocationCursor>,
+        usize,
+        SyncSender<Result<Option<MissingSourceLocationPage>, CatalogError>>,
+    ),
     LibraryPhotoPage(
         LibraryPhotoFilter,
         Option<LibraryPhotoCursor>,
         usize,
         SyncSender<Result<LibraryPhotoPage, CatalogError>>,
     ),
+    LibraryFacetPage(
+        LibraryPhotoFilter,
+        LibraryFacetKind,
+        Option<LibraryFacetCursor>,
+        usize,
+        SyncSender<Result<LibraryFacetPage, CatalogError>>,
+    ),
     LibraryPhotoCount(LibraryPhotoFilter, SyncSender<Result<u64, CatalogError>>),
+    SmartAlbumFilter(
+        CollectionId,
+        SyncSender<Result<LibraryPhotoFilter, CatalogError>>,
+    ),
+    SmartAlbumPhotoPage(
+        CollectionId,
+        Option<LibraryPhotoCursor>,
+        usize,
+        SyncSender<Result<LibraryPhotoPage, CatalogError>>,
+    ),
+    SmartAlbumPhotoCount(CollectionId, SyncSender<Result<u64, CatalogError>>),
     RepresentationFingerprint(
         RepresentationId,
         SyncSender<Result<RepresentationFingerprint, CatalogError>>,
@@ -604,6 +650,47 @@ impl CatalogHandle {
         })
     }
 
+    /// Creates a smart album from the strict, version-one query contract.
+    pub fn create_smart_library_album(
+        &self,
+        name: &str,
+        query: &SmartAlbumQueryV1,
+        now_ms: i64,
+    ) -> Result<AlbumRecord, CatalogError> {
+        self.request(|response| {
+            Message::CreateSmartLibraryAlbum(name.to_owned(), query.clone(), now_ms, response)
+        })
+    }
+
+    /// Renames a manual or smart album without changing its membership or query.
+    pub fn rename_library_album(
+        &self,
+        album_id: CollectionId,
+        name: &str,
+        now_ms: i64,
+    ) -> Result<AlbumRecord, CatalogError> {
+        self.request(|response| {
+            Message::RenameLibraryAlbum(album_id, name.to_owned(), now_ms, response)
+        })
+    }
+
+    /// Replaces the executable query of one existing smart album.
+    pub fn replace_smart_album_query(
+        &self,
+        album_id: CollectionId,
+        query: &SmartAlbumQueryV1,
+        now_ms: i64,
+    ) -> Result<AlbumRecord, CatalogError> {
+        self.request(|response| {
+            Message::ReplaceSmartAlbumQuery(album_id, query.clone(), now_ms, response)
+        })
+    }
+
+    /// Deletes one album and only that album's explicit memberships.
+    pub fn delete_library_album(&self, album_id: CollectionId) -> Result<bool, CatalogError> {
+        self.request(|response| Message::DeleteLibraryAlbum(album_id, response))
+    }
+
     pub fn library_albums(&self) -> Result<Vec<AlbumRecord>, CatalogError> {
         self.request(Message::LibraryAlbums)
     }
@@ -636,6 +723,30 @@ impl CatalogHandle {
         self.request(Message::LibrarySources)
     }
 
+    /// Lists source-level scan evidence without mutating location status.
+    pub fn library_source_health(&self) -> Result<Vec<LibrarySourceHealth>, CatalogError> {
+        self.request(Message::LibrarySourceHealth)
+    }
+
+    /// Reads a bounded review page of locations not observed by one completed
+    /// source scan. A `None` page means that the requested legacy import
+    /// session had no durable Library source.
+    pub fn missing_source_location_page(
+        &self,
+        scan_session_id: ImportSessionId,
+        after: Option<&MissingSourceLocationCursor>,
+        requested_limit: usize,
+    ) -> Result<Option<MissingSourceLocationPage>, CatalogError> {
+        self.request(|response| {
+            Message::MissingSourceLocationPage(
+                scan_session_id,
+                after.copied(),
+                requested_limit,
+                response,
+            )
+        })
+    }
+
     /// Reads a bounded photo-first Library page through the single catalog
     /// actor. The cursor is stable across folders being renamed or reorganized.
     pub fn library_photo_page(
@@ -649,10 +760,57 @@ impl CatalogHandle {
         })
     }
 
+    /// Reads one bounded, photo-first aggregation page for a single Library
+    /// facet. Callers should schedule this only when the facet browser is
+    /// visible or needs an explicit refresh; grid scrolling remains a page
+    /// query and never triggers aggregate work.
+    pub fn library_facet_page(
+        &self,
+        filter: &LibraryPhotoFilter,
+        kind: LibraryFacetKind,
+        after: Option<&LibraryFacetCursor>,
+        requested_limit: usize,
+    ) -> Result<LibraryFacetPage, CatalogError> {
+        self.request(|response| {
+            Message::LibraryFacetPage(
+                filter.clone(),
+                kind,
+                after.cloned(),
+                requested_limit,
+                response,
+            )
+        })
+    }
+
     /// Counts a settled Library filter through the actor. Grid scrolling uses
     /// `library_photo_page`; this explicit aggregate can be debounced.
     pub fn library_photo_count(&self, filter: &LibraryPhotoFilter) -> Result<u64, CatalogError> {
         self.request(|response| Message::LibraryPhotoCount(filter.clone(), response))
+    }
+
+    /// Resolves the executable, indexed filter behind one smart album.
+    pub fn smart_album_filter(
+        &self,
+        album_id: CollectionId,
+    ) -> Result<LibraryPhotoFilter, CatalogError> {
+        self.request(|response| Message::SmartAlbumFilter(album_id, response))
+    }
+
+    /// Reads one bounded keyset page from a smart album.
+    pub fn smart_album_photo_page(
+        &self,
+        album_id: CollectionId,
+        after: Option<&LibraryPhotoCursor>,
+        requested_limit: usize,
+    ) -> Result<LibraryPhotoPage, CatalogError> {
+        self.request(|response| {
+            Message::SmartAlbumPhotoPage(album_id, after.cloned(), requested_limit, response)
+        })
+    }
+
+    /// Counts one settled smart album through the actor.
+    pub fn smart_album_photo_count(&self, album_id: CollectionId) -> Result<u64, CatalogError> {
+        self.request(|response| Message::SmartAlbumPhotoCount(album_id, response))
     }
 
     /// Returns the current source fingerprint for a representation.
@@ -1579,6 +1737,18 @@ fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
                     now_ms,
                 ));
             }
+            Message::CreateSmartLibraryAlbum(name, query, now_ms, response) => {
+                let _ = response.send(catalog.create_smart_library_album(&name, &query, now_ms));
+            }
+            Message::RenameLibraryAlbum(album_id, name, now_ms, response) => {
+                let _ = response.send(catalog.rename_library_album(album_id, &name, now_ms));
+            }
+            Message::ReplaceSmartAlbumQuery(album_id, query, now_ms, response) => {
+                let _ = response.send(catalog.replace_smart_album_query(album_id, &query, now_ms));
+            }
+            Message::DeleteLibraryAlbum(album_id, response) => {
+                let _ = response.send(catalog.delete_library_album(album_id));
+            }
             Message::LibraryAlbums(response) => {
                 let _ = response.send(catalog.library_albums());
             }
@@ -1595,6 +1765,21 @@ fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
             Message::LibrarySources(response) => {
                 let _ = response.send(catalog.library_sources());
             }
+            Message::LibrarySourceHealth(response) => {
+                let _ = response.send(catalog.library_source_health());
+            }
+            Message::MissingSourceLocationPage(
+                scan_session_id,
+                after,
+                requested_limit,
+                response,
+            ) => {
+                let _ = response.send(catalog.missing_source_location_page(
+                    scan_session_id,
+                    after.as_ref(),
+                    requested_limit,
+                ));
+            }
             Message::LibraryPhotoPage(filter, after, requested_limit, response) => {
                 let _ = response.send(catalog.library_photo_page(
                     &filter,
@@ -1602,8 +1787,29 @@ fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
                     requested_limit,
                 ));
             }
+            Message::LibraryFacetPage(filter, kind, after, requested_limit, response) => {
+                let _ = response.send(catalog.library_facet_page(
+                    &filter,
+                    kind,
+                    after.as_ref(),
+                    requested_limit,
+                ));
+            }
             Message::LibraryPhotoCount(filter, response) => {
                 let _ = response.send(catalog.library_photo_count(&filter));
+            }
+            Message::SmartAlbumFilter(album_id, response) => {
+                let _ = response.send(catalog.smart_album_filter(album_id));
+            }
+            Message::SmartAlbumPhotoPage(album_id, after, requested_limit, response) => {
+                let _ = response.send(catalog.smart_album_photo_page(
+                    album_id,
+                    after.as_ref(),
+                    requested_limit,
+                ));
+            }
+            Message::SmartAlbumPhotoCount(album_id, response) => {
+                let _ = response.send(catalog.smart_album_photo_count(album_id));
             }
             Message::RepresentationFingerprint(representation_id, response) => {
                 let _ = response.send(catalog.representation_fingerprint(representation_id));
@@ -2115,6 +2321,75 @@ mod tests {
         assert_eq!(
             page.items[0].location.display_path,
             "/photos/library-page.dng"
+        );
+        actor.shutdown().expect("shutdown actor");
+    }
+
+    #[test]
+    fn actor_creates_and_pages_a_v1_smart_album() {
+        let actor = CatalogActor::spawn_in_memory().expect("spawn catalog actor");
+        let handle = actor.handle();
+        let registered = handle
+            .register_asset(&RegisterAsset {
+                kind: RepresentationKind::OriginalRaw,
+                location: AssetLocation::new(
+                    Platform::MacOs,
+                    b"/photos/smart-album.dng".to_vec(),
+                    "/photos/smart-album.dng",
+                ),
+                byte_len: 42,
+                modified_at_ms: Some(100),
+                now_ms: 1_700_000_000_000,
+            })
+            .expect("register Library photo");
+        let query = SmartAlbumQueryV1::new(LibraryPhotoFilter::default())
+            .expect("build all-photos smart query");
+        let album = handle
+            .create_smart_library_album("Everything", &query, 1_700_000_000_100)
+            .expect("create smart album through actor");
+
+        assert_eq!(
+            handle
+                .smart_album_filter(album.id)
+                .expect("read smart filter through actor"),
+            LibraryPhotoFilter::default()
+        );
+        let page = handle
+            .smart_album_photo_page(album.id, None, 16)
+            .expect("page smart album through actor");
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(page.items[0].photo_id, registered.photo_id);
+        assert_eq!(
+            handle
+                .smart_album_photo_count(album.id)
+                .expect("count smart album through actor"),
+            1
+        );
+        let renamed = handle
+            .rename_library_album(album.id, "Everything renamed", 1_700_000_000_101)
+            .expect("rename smart album through actor");
+        assert_eq!(renamed.name, "Everything renamed");
+        let refined_query = SmartAlbumQueryV1::new(LibraryPhotoFilter {
+            liked: Some(true),
+            ..LibraryPhotoFilter::default()
+        })
+        .expect("build refined smart query");
+        let replaced = handle
+            .replace_smart_album_query(album.id, &refined_query, 1_700_000_000_102)
+            .expect("replace smart query through actor");
+        assert_eq!(
+            replaced.query_json,
+            Some(refined_query.to_json().expect("serialize refined query"))
+        );
+        assert!(
+            handle
+                .delete_library_album(album.id)
+                .expect("delete smart album through actor")
+        );
+        assert!(
+            !handle
+                .delete_library_album(album.id)
+                .expect("idempotent deleted smart album through actor")
         );
         actor.shutdown().expect("shutdown actor");
     }

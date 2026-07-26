@@ -40,12 +40,21 @@ public:
     [[nodiscard]] int minimumRating() const noexcept;
     [[nodiscard]] QString colorFilter() const;
     [[nodiscard]] QString editFilter() const;
+    [[nodiscard]] QString captureMonth() const;
+    [[nodiscard]] QString cameraKey() const;
+    [[nodiscard]] QString lensKey() const;
     [[nodiscard]] bool hasActiveServerFilter() const;
 
     void setFlagFilter(const QString& filter);
     void setMinimumRating(int rating);
     void setColorFilter(const QString& filter);
     void setEditFilter(const QString& filter);
+    /// Metadata facets are catalog-side values. They intentionally do not
+    /// attempt a lossy make/model comparison over the currently retained grid
+    /// page; the next photo-first page is the authoritative result.
+    void setCaptureMonth(const QString& capture_month);
+    void setCameraKey(const QString& camera_key);
+    void setLensKey(const QString& lens_key);
     Q_INVOKABLE void clearFilters();
 
 signals:
@@ -61,10 +70,15 @@ private:
     [[nodiscard]] static QString normalizeFlagFilter(const QString& filter);
     [[nodiscard]] static QString normalizeColorFilter(const QString& filter);
     [[nodiscard]] static QString normalizeEditFilter(const QString& filter);
+    [[nodiscard]] static QString normalizeCaptureMonth(const QString& value);
+    [[nodiscard]] static QString normalizeFacetKey(const QString& value);
     void refreshRowsFilter();
 
     QString flag_filter_ = QStringLiteral("all");
     int minimum_rating_ = 0;
     QString color_filter_ = QStringLiteral("all");
     QString edit_filter_ = QStringLiteral("all");
+    QString capture_month_;
+    QString camera_key_;
+    QString lens_key_;
 };

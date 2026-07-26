@@ -61,10 +61,14 @@ pub use import_journal::{
 };
 pub use library::{
     AlbumKind, AlbumRecord, ContentIdentity, ContentIdentityScope, LibraryApertureRange,
-    LibraryDateRange, LibraryPhotoCursor, LibraryPhotoFacts, LibraryPhotoFilter, LibraryPhotoPage,
-    LibraryPhotoRecord, LibrarySourceRecord, MAX_LIBRARY_PAGE_SIZE, PhotoLibraryState,
-    RecordRepresentationContentIdentity, RecordRepresentationContentIdentityStatus, RelinkMatch,
-    SetPhotoLibraryState, library_equipment_key,
+    LibraryDateRange, LibraryFacetCursor, LibraryFacetKind, LibraryFacetPage, LibraryFacetValue,
+    LibraryPhotoCursor, LibraryPhotoFacts, LibraryPhotoFilter, LibraryPhotoPage,
+    LibraryPhotoRecord, LibrarySourceHealth, LibrarySourceRecord, MAX_LIBRARY_FACET_PAGE_SIZE,
+    MAX_LIBRARY_PAGE_SIZE,
+    MissingSourceLocationCursor, MissingSourceLocationPage, MissingSourceLocationRecord,
+    PhotoLibraryState, RecordRepresentationContentIdentity,
+    RecordRepresentationContentIdentityStatus, RelinkMatch, SetPhotoLibraryState,
+    SmartAlbumQueryV1, library_equipment_key,
 };
 pub use recipe::{
     CommitRecipe, RecipeCommitRecord, RecipeRefExpectation, RecipeRefKind, RecipeRefRecord,
