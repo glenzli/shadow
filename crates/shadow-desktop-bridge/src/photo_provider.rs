@@ -16,8 +16,9 @@ use shadow_core::DecodeInspector;
 use shadow_domain::{DecoderSnapshot, PreviewPayload, ProxyPayload};
 
 use crate::isolated_proxy::{
-    configured_helper_path, render_isolated_photo_reference_proxy,
-    render_isolated_photo_reference_proxy_to_file,
+    configured_helper_path, isolated_helper_implementation_identity,
+    render_isolated_photo_reference_proxy, render_isolated_photo_reference_proxy_to_file,
+    snapshot_isolated_photo_decoder,
 };
 
 #[derive(Debug, Clone)]
@@ -35,6 +36,12 @@ pub(crate) const PHOTO_GRID_PROXY_MAX_EDGE: u32 = 2_048;
 pub(crate) const PHOTO_GRID_PROXY_JPEG_QUALITY: u8 = 90;
 const ISOLATED_EDIT_JPEG_QUALITY: u8 = 96;
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+enum InspectionRoute {
+    Direct,
+    IsolatedRaw,
+}
+
 impl PhotoInspector {
     #[cfg(test)]
     pub(crate) fn new() -> AnyResult<Self> {
@@ -47,16 +54,36 @@ impl PhotoInspector {
         let raw_development_plan_identity =
             raw_development_plan_identity(RawDevelopmentPlan::preview())
                 .context("build grid-proxy RAW-development cache identity")?;
+        // A helper/private-provider replacement must invalidate the catalog's
+        // inspection and generated-proxy version even though the outer public
+        // router's ABI version did not change. The digest carries no private
+        // path, only the configured helper graph identity.
+        let isolated_implementation_identity = runtime_cache_root
+            .is_some()
+            .then(|| isolated_helper_implementation_identity(configured_helper_path().as_deref()))
+            .transpose()?;
+        let version = match &isolated_implementation_identity {
+            Some(identity) => format!(
+                "{};isolated-helper-graph={identity}",
+                photo_provider_version()
+            ),
+            None => photo_provider_version(),
+        };
+        let proxy_variant_key = format!(
+            "shadow-photo-router:grid-jpeg-2048-q90-444-v1;\
+             source=provider-neutral-raw-plan;{raw_development_plan_identity}"
+        );
+        let proxy_variant_key = match isolated_implementation_identity {
+            Some(identity) => format!("{proxy_variant_key};isolated-graph={identity}"),
+            None => proxy_variant_key,
+        };
         Ok(Self {
-            version: photo_provider_version(),
+            version,
             original_raster_extensions: photo_supported_raster_extensions(),
             // The source provider version identifies implementation releases; this exact plan
             // identity distinguishes two renders through the same provider with different
             // source-development intent or policy.
-            proxy_variant_key: format!(
-                "shadow-photo-router:grid-jpeg-2048-q90-444-v1;\
-                 source=provider-neutral-raw-plan;{raw_development_plan_identity}"
-            ),
+            proxy_variant_key,
             isolated_proxy_runtime_cache: runtime_cache_root,
         })
     }
@@ -76,11 +103,40 @@ impl DecodeInspector for PhotoInspector {
     }
 
     fn inspect(&mut self, path: &Path) -> Result<DecoderSnapshot, String> {
-        inspect_photo(path).map_err(|error| error.to_string())
+        match self.inspection_route(path) {
+            InspectionRoute::Direct => inspect_photo(path).map_err(|error| error.to_string()),
+            InspectionRoute::IsolatedRaw => {
+                let runtime_cache_root = self
+                    .isolated_proxy_runtime_cache
+                    .as_deref()
+                    .ok_or_else(|| "isolated RAW inspection cache is unavailable".to_owned())?;
+                let helper_path = configured_helper_path().ok_or_else(|| {
+                    "isolated RAW decode helper is unavailable; Shadow will not run a native decoder inside the desktop process".to_owned()
+                })?;
+                snapshot_isolated_photo_decoder(&helper_path, runtime_cache_root, path)
+                    .map(|snapshot| {
+                        // The child may route through a private provider whose
+                        // identity the desktop intentionally cannot load. The
+                        // catalog's stable inspector contract therefore remains
+                        // the public outer router; helper identity stays in the
+                        // local isolated snapshot cache only.
+                        snapshot.into_catalog_snapshot(self.provider_id(), self.provider_version())
+                    })
+                    .map_err(|error| error.to_string())
+            }
+        }
     }
 
     fn extract_best_preview(&mut self, path: &Path) -> Result<Option<PreviewPayload>, String> {
-        extract_best_photo_preview(path).map_err(|error| error.to_string())
+        match self.inspection_route(path) {
+            // The catalog worker will immediately ask render_proxy after this
+            // legitimate None. Never reopen a helper-enabled RAW merely to
+            // decode embedded preview bytes in the desktop process.
+            InspectionRoute::IsolatedRaw => Ok(None),
+            InspectionRoute::Direct => {
+                extract_best_photo_preview(path).map_err(|error| error.to_string())
+            }
+        }
     }
 
     fn render_proxy(&mut self, path: &Path) -> Result<Option<ProxyPayload>, String> {
@@ -109,6 +165,67 @@ impl DecodeInspector for PhotoInspector {
 
     fn proxy_variant_key(&self) -> &str {
         &self.proxy_variant_key
+    }
+}
+
+impl PhotoInspector {
+    fn is_supported_original_raster(&self, path: &Path) -> bool {
+        let Some(extension) = path.extension().and_then(|extension| extension.to_str()) else {
+            return false;
+        };
+        self.original_raster_extensions
+            .iter()
+            .any(|supported| supported.eq_ignore_ascii_case(extension))
+    }
+
+    fn inspection_route(&self, path: &Path) -> InspectionRoute {
+        if self.isolated_proxy_runtime_cache.is_some() && !self.is_supported_original_raster(path) {
+            InspectionRoute::IsolatedRaw
+        } else {
+            InspectionRoute::Direct
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn inspector_with_route_cache(runtime_cache_root: Option<PathBuf>) -> PhotoInspector {
+        PhotoInspector {
+            version: "test-router-version".to_owned(),
+            original_raster_extensions: vec!["jpg".to_owned(), "heif".to_owned()],
+            proxy_variant_key: "test-proxy".to_owned(),
+            isolated_proxy_runtime_cache: runtime_cache_root,
+        }
+    }
+
+    #[test]
+    fn helper_enabled_raw_inspection_never_chooses_the_direct_route() {
+        let inspector = inspector_with_route_cache(Some(PathBuf::from("/tmp/shadow-test-cache")));
+        assert_eq!(
+            inspector.inspection_route(Path::new("source.CR3")),
+            InspectionRoute::IsolatedRaw
+        );
+        assert_eq!(
+            inspector.inspection_route(Path::new("source.nef")),
+            InspectionRoute::IsolatedRaw
+        );
+    }
+
+    #[test]
+    fn original_rasters_and_no_helper_cache_keep_the_direct_route() {
+        let helper_enabled =
+            inspector_with_route_cache(Some(PathBuf::from("/tmp/shadow-test-cache")));
+        assert_eq!(
+            helper_enabled.inspection_route(Path::new("source.JPG")),
+            InspectionRoute::Direct
+        );
+        let direct = inspector_with_route_cache(None);
+        assert_eq!(
+            direct.inspection_route(Path::new("source.cr3")),
+            InspectionRoute::Direct
+        );
     }
 }
 

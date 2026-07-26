@@ -6,6 +6,9 @@
 //! returns one tightly packed display-sRGB RGB8 raster.
 
 use super::*;
+use crate::isolated_proxy::{
+    NativeDecodeAdmission, configured_helper_path, native_decode_admission_after_isolated_stages,
+};
 
 impl DesktopSession {
     pub(crate) fn render_basic_edit_export(
@@ -31,6 +34,7 @@ impl DesktopSession {
         )?;
         let raw_plan = RawDevelopmentPlan::export_image();
         let optics = bridge_optics_settings(&request.settings.optics);
+        ensure_known_quarantined_raw_does_not_open_for_export(&self.cache_root, &native_path)?;
         let session = match PhotoEditDetailSession::open_with_raw_development_plan_and_optics(
             &native_path,
             raw_plan,
@@ -132,6 +136,41 @@ impl DesktopSession {
     }
 }
 
+/// A known child-process crash or timeout is evidence that this exact source
+/// revision must not be opened by the desktop's native full-detail exporter.
+///
+/// This is deliberately a circuit breaker, not a positive safety proof:
+/// `NotQuarantined` preserves the existing public-decoder attempt for sources
+/// with no negative observation. Full first-open isolation requires a later
+/// high-bit-depth worker protocol, rather than using an 8-bit proxy as a false
+/// substitute for a RAW export.
+fn ensure_known_quarantined_raw_does_not_open_for_export(
+    cache_root: &std::path::Path,
+    source_path: &std::path::Path,
+) -> AnyResult<()> {
+    let Some(helper_path) = configured_helper_path() else {
+        // Non-desktop tests and public-only deployments retain the existing
+        // public decoder route. The safety cache is meaningful only alongside
+        // the configured helper that produced its observations.
+        return Ok(());
+    };
+    reject_known_quarantined_raw_export(native_decode_admission_after_isolated_stages(
+        cache_root,
+        source_path,
+        &helper_path,
+    )?)
+}
+
+fn reject_known_quarantined_raw_export(admission: NativeDecodeAdmission) -> AnyResult<()> {
+    match admission {
+        NativeDecodeAdmission::NotQuarantined => Ok(()),
+        NativeDecodeAdmission::Quarantined { observation } => bail!(
+            "RAW export is temporarily unavailable: Shadow quarantined this unchanged source after {}. Use its cached preview, or update the source/decoder helper before retrying full-quality export.",
+            observation.diagnostic_label()
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -141,6 +180,17 @@ mod tests {
     use shadow_domain::{RepresentationId, RepresentationKind};
 
     use super::*;
+
+    #[test]
+    fn known_child_crash_blocks_export_before_a_native_session_can_open() {
+        let error = reject_known_quarantined_raw_export(NativeDecodeAdmission::Quarantined {
+            observation: crate::isolated_proxy::IsolatedDecodeObservation::ChildCrashed,
+        })
+        .expect_err("a known child crash must stop the native export opener");
+        assert!(error.to_string().contains("temporarily unavailable"));
+        assert!(error.to_string().contains("child decoder crashed"));
+        assert!(reject_known_quarantined_raw_export(NativeDecodeAdmission::NotQuarantined).is_ok());
+    }
 
     #[test]
     #[ignore = "requires SHADOW_TEST_EXPORT_RAW to name a local RAW fixture"]
