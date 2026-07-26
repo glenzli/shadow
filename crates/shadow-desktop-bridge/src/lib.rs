@@ -5481,6 +5481,85 @@ mod tests {
     }
 
     #[test]
+    fn recipe_v1_rejects_an_operation_level_mask_reference() {
+        let valid = grade_stack_recipe_v1_snapshot(&GradeStackDraft::default(), None)
+            .expect("current Grade Node Recipe");
+        let [valid_layer] = valid.layers() else {
+            panic!("fixture contains one Grade Node")
+        };
+        let LayerContent::Inline { graph: valid_graph } = valid_layer.content() else {
+            panic!("fixture contains an inline Grade Node graph")
+        };
+        let mask = MaskRevision::new(
+            MaskId::new_v7(),
+            1,
+            MaskCoordinateSpace::Original,
+            MaskDefinition::radial_gradient(
+                UnitInterval::new(0.5).expect("center x"),
+                UnitInterval::new(0.5).expect("center y"),
+                UnitInterval::new(0.25).expect("radius x"),
+                UnitInterval::new(0.25).expect("radius y"),
+                UnitInterval::new(0.25).expect("feather"),
+                false,
+            )
+            .expect("mask definition"),
+        )
+        .expect("mask revision");
+        let mask_reference = mask.reference();
+        let nodes = valid_graph
+            .nodes()
+            .iter()
+            .map(|node| {
+                if node.operation().operation_id().as_str() != EXPOSURE_OPERATION_ID {
+                    return node.clone();
+                }
+                AdjustmentNode::new(
+                    node.id(),
+                    node.operation().clone(),
+                    node.inputs().to_vec(),
+                    node.parameters().clone(),
+                    Some(mask_reference),
+                )
+                .expect("a domain node can carry a generic mask reference")
+            })
+            .collect::<Vec<_>>();
+        let graph = EditGraph::new(
+            valid_graph.schema_version(),
+            valid_graph.input_types().to_vec(),
+            nodes,
+            valid_graph.output_node(),
+        )
+        .expect("domain graph remains structurally valid");
+        let operation_masked = RecipeSnapshot::new_with_input_settings_and_masks(
+            valid.schema_version(),
+            valid.input_settings().clone(),
+            vec![mask],
+            vec![
+                LayerInstance::new(
+                    valid_layer.id(),
+                    valid_layer.label(),
+                    AdjustmentScope::Photo,
+                    LayerContent::Inline { graph },
+                    valid_layer.enabled(),
+                    valid_layer.opacity(),
+                    valid_layer.blend_mode(),
+                    None,
+                )
+                .expect("a domain layer may still contain a generic graph"),
+            ],
+        )
+        .expect("domain Recipe remains structurally valid");
+
+        assert!(
+            decode_grade_stack_draft_from_recipe_v1_snapshot(&operation_masked)
+                .expect_err("Desktop Recipe v1 only supports one layer-level node mask")
+                .to_string()
+                .contains("unsupported contract")
+        );
+        assert!(compile_recipe_render_plan(&operation_masked).is_err());
+    }
+
+    #[test]
     fn grade_stack_rejects_cross_grade_node_render_op_identity_reuse() {
         let first = GradeNodeDraft::neutral("First Basic");
         let mut second = GradeNodeDraft::neutral("Second Basic");

@@ -223,7 +223,7 @@ Item {
                 }
             }
             PopupAction {
-                text: qsTr("Use linear mask")
+                text: qsTr("Use linear node mask")
                 enabled: precision.editor.active && !precision.editor.stateBusy
                 onClicked: {
                     gradeNodeContextPopup.close()
@@ -231,7 +231,7 @@ Item {
                 }
             }
             PopupAction {
-                text: qsTr("Use radial mask")
+                text: qsTr("Use radial node mask")
                 enabled: precision.editor.active && !precision.editor.stateBusy
                 onClicked: {
                     gradeNodeContextPopup.close()
@@ -241,7 +241,7 @@ Item {
             PopupAction {
                 visible: gradeNodeContextPopup.targetData
                     && gradeNodeContextPopup.targetData.hasLocalMask
-                text: qsTr("Remove local mask")
+                text: qsTr("Remove node mask")
                 enabled: precision.editor.active && !precision.editor.stateBusy
                 onClicked: {
                     gradeNodeContextPopup.close()
@@ -490,7 +490,7 @@ Item {
                                 }
                                 Label {
                                     Layout.fillWidth: true
-                                    text: gradeNodeRow.modelData.shared
+                                    text: (gradeNodeRow.modelData.shared
                                         ? (gradeNodeRow.modelData.enabled
                                             ? qsTr("SHARED · V%1 · ENABLED")
                                                 .arg(gradeNodeRow.modelData.sharedRevisionNumber)
@@ -498,7 +498,9 @@ Item {
                                                 .arg(gradeNodeRow.modelData.sharedRevisionNumber))
                                         : (gradeNodeRow.modelData.enabled
                                             ? qsTr("LOCAL · ENABLED")
-                                            : qsTr("LOCAL · BYPASSED"))
+                                            : qsTr("LOCAL · BYPASSED")))
+                                        + (gradeNodeRow.modelData.hasLocalMask
+                                            ? qsTr(" · NODE MASK") : "")
                                     color: gradeNodeRow.modelData.enabled
                                         ? (gradeNodeRow.selected
                                             ? Theme.accentTextMuted
@@ -652,7 +654,7 @@ Item {
 
                 Label {
                     Layout.fillWidth: true
-                    text: qsTr("Grade Nodes execute from top to bottom. Each node contains a complete, non-destructive grade.")
+                    text: qsTr("Grade Nodes execute from top to bottom. Each node contains one complete, non-destructive grade and may reference one photo-local mask.")
                     color: Theme.textSubtle
                     wrapMode: Text.WordWrap
                     font.pixelSize: 10
