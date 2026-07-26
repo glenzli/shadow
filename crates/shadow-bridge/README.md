@@ -2,6 +2,25 @@
 
 `shadow-bridge` is the coarse-grained CXX boundary between Rust application state and the C++20 image kernel.
 
+## Source index
+
+The production bridge remains one auditable [`src/lib.rs`](src/lib.rs) while its contract families
+share the generated CXX wire shape and validation chain:
+
+- `ffi` is the private CXX representation.
+- `RawDevelopmentPlan`, negotiation, and receipt types own source-development provenance.
+- `DecodedDisplayLuma` owns bounded display-proxy analysis.
+- `AdjustmentRenderPlan` and its operation types own validated edit execution.
+- `PhotoEditPreviewSession` and `PhotoEditDetailSession` own reusable native preview and detail
+  buffers.
+- Public inspection and render functions form the safe one-shot Rust facade.
+
+The adjacent [`src/tests/mod.rs`](src/tests/mod.rs) routes private bridge-contract tests to RAW
+development, display luma, adjustment plans, preview execution, detail sessions, and opt-in real
+source modules. Test fixtures stay with the contract that consumes them. Do not add another
+multi-domain test block to `lib.rs`, and do not split the production ABI merely to satisfy a line
+count.
+
 The decoder side of the bridge follows this coarse-grained path:
 
 ```text

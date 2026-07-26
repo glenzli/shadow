@@ -2,6 +2,28 @@
 
 Shadow is a local-first, AI-native photo catalog and non-destructive editor. The project is currently in its Mac-first foundation phase; the persistent core and image interfaces are designed to remain portable to Windows.
 
+## Repository map
+
+Use the source tree as the architecture index. Start with the narrowest entry below, then follow
+its module declarations and local README; avoid reconstructing a feature by searching the whole
+workspace.
+
+| Area | Stable entry | Responsibility |
+| --- | --- | --- |
+| Domain contracts | [`shadow-domain`](crates/shadow-domain/src/lib.rs) | Pure identities, edit graphs, Recipes, review state, and persisted contract types |
+| Catalog | [`shadow-catalog`](crates/shadow-catalog/src/lib.rs) | SQLite ownership, repositories, immutable ledgers, and projections |
+| Cache | [`shadow-cache`](crates/shadow-cache/README.md) | Content-addressed storage, verification, quarantine, and cache records |
+| Core workflows | [`shadow-core`](crates/shadow-core/src/lib.rs) | Scanning, source inspection, cache orchestration, and bounded workers |
+| AI evidence | [`shadow-ai`](crates/shadow-ai/README.md) | Technical observations, explicit feedback, admission, and model-independent scoring |
+| Rust image boundary | [`shadow-bridge`](crates/shadow-bridge/README.md) | Safe Rust API over the C++ decoder and render kernel |
+| Desktop services | [`shadow-desktop-bridge`](crates/shadow-desktop-bridge/README.md) | Long-lived Library, Review, Precision, export, and CXX-facing application services |
+| Native image kernel | [`shadow-image`](cpp/shadow-image/README.md) | Decoder providers, RAW development, adjustment execution, and native image buffers |
+| Qt application | [`apps/desktop`](apps/desktop/README.md) | QML presentation, Qt controllers, image providers, and desktop lifecycle |
+| CLI and validation | [`shadow-cli`](apps/shadow-cli/src/main.rs), [`xtask`](xtask/src/main.rs) | Operator commands and repository-level checks |
+
+The nearest code-owned README or module documentation is authoritative for navigation within a
+subsystem. When a responsibility moves, update that local index in the same change.
+
 ## Pre-release contract policy
 
 Until Shadow makes its first compatibility promise, every Shadow-owned persisted

@@ -15,6 +15,29 @@ When multiple agents or threads edit this workspace, use the personal
 The coordination protocol is advisory and should stay lightweight. Agents may write clear
 Markdown or JSON directly when the helper script is unnecessary.
 
+## Repository as the navigation index
+
+Treat the source tree, module declarations, crate READMEs, and module-level documentation as
+Shadow's canonical architecture index. Do not create a separate exhaustive knowledge base that
+duplicates them.
+
+- Start at the root [`README.md`](README.md) to choose a subsystem, then use the nearest crate or
+  application README and its entry module to find the semantic owner.
+- Keep `lib.rs`, `main.rs`, CXX/Qt facades, and top-level QML controllers readable as indexes and
+  composition boundaries. Put new state machines, persistence policies, protocols, and feature
+  behavior in responsibility-named child modules.
+- When adding, extracting, or renaming a responsibility, update the nearest code-owned index in the
+  same change. Describe ownership and the next navigation step; do not duplicate implementation
+  narratives across several documents.
+- Before a substantial edit to a growing hub, apply `$maintain-ai-cohesive-code` and record the
+  keep-or-extract decision. Known review targets include both bridge `lib.rs` files, desktop
+  controllers, and large Precision QML surfaces.
+- Keep small private-invariant tests beside their implementation. Move substantial or multi-domain
+  entry-point tests into responsibility-named test modules; reserve top-level `tests/` for public
+  cross-module behavior. Test fixtures must also obey the local payload boundary below.
+- Refactor only the responsibility exposed by the current change. A legacy hotspot is a review
+  trigger, not permission for unrelated repository-wide cleanup.
+
 ## Risk-scaled freedom
 
 Use the least ceremony that keeps the current work recoverable. The protocol supplies defaults,
