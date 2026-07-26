@@ -863,7 +863,7 @@ Rectangle {
                                     onCurrentIndexChanged: inspector.mixerViewMode = currentIndex
                                     ShadowTabButton { text: qsTr("OKLCH"); compact: true }
                                     ShadowTabButton { text: qsTr("COLOR"); compact: true }
-                                    ShadowTabButton { text: qsTr("HUE CURVE"); compact: true }
+                                    ShadowTabButton { text: qsTr("CURVES"); compact: true }
                                 }
 
                                 TabBar {

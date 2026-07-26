@@ -24,12 +24,16 @@ Item {
                                              && controller.gradeNodeEnabled)
     readonly property real horizontalInset: 18
     readonly property real verticalInset: 17
+    readonly property string curveComponent: curveMode === 0 ? "hue"
+        : curveMode === 1 ? "saturation" : "lightness"
 
+    property int curveMode: 0
     property int selectedAnchor: -1
     property int gestureAnchor: -1
+    property string gestureComponent: ""
 
     implicitWidth: 320
-    implicitHeight: 260
+    implicitHeight: 298
 
     function clamp(value, lower, upper) {
         return Math.max(lower, Math.min(upper, value))
@@ -43,7 +47,59 @@ Item {
     function anchorValue(index) {
         const revision = parameterRevision
         return revision >= 0 && controller && index >= 0 && index < bands.length
-            ? Number(controller.colorMixerValue(index, "hue")) : 0
+            ? Number(controller.colorMixerValue(index, curveComponent)) : 0
+    }
+
+    function formattedValue(value) {
+        const normalized = clamp(Number(value), -1, 1)
+        const magnitude = curveComponent === "hue" ? Math.round(Math.abs(normalized) * 30)
+            : curveComponent === "saturation" ? Math.round(Math.abs(normalized) * 100)
+            : Math.round(Math.abs(normalized) * 15)
+        const sign = normalized > 0 ? "+" : normalized < 0 ? "−" : ""
+        const suffix = curveComponent === "hue" ? "°"
+            : curveComponent === "saturation" ? "%" : " L"
+        return sign + magnitude + suffix
+    }
+
+    function upperScaleLabel() {
+        return curveComponent === "hue" ? qsTr("+30°")
+            : curveComponent === "saturation" ? qsTr("+100%") : qsTr("+15 L")
+    }
+
+    function lowerScaleLabel() {
+        return curveComponent === "hue" ? qsTr("−30°")
+            : curveComponent === "saturation" ? qsTr("−100%") : qsTr("−15 L")
+    }
+
+    function idleInstruction() {
+        return curveComponent === "hue"
+            ? qsTr("Drag a color anchor vertically to shift its hue")
+            : curveComponent === "saturation"
+                ? qsTr("Drag a color anchor vertically to change its chroma")
+                : qsTr("Drag a color anchor vertically to change its lightness")
+    }
+
+    function componentDescription() {
+        return curveComponent === "hue"
+            ? qsTr("Hue → Hue edits Color Mixer hue shifts.")
+            : curveComponent === "saturation"
+                ? qsTr("Hue → Chroma edits Color Mixer chroma amounts.")
+                : qsTr("Hue → Lightness edits Color Mixer Oklab lightness amounts.")
+    }
+
+    function hueGradient(context, left, right) {
+        const gradient = context.createLinearGradient(left, 0, right, 0)
+        if (!bands || bands.length === 0) {
+            gradient.addColorStop(0, accentColor)
+            gradient.addColorStop(1, accentColor)
+            return gradient
+        }
+        gradient.addColorStop(0, bands[0].hueLow)
+        for (let index = 0; index < bands.length; ++index)
+            gradient.addColorStop(clamp(anchorHue(index) / 360, 0, 1),
+                                  bands[index].color)
+        gradient.addColorStop(1, bands[0].hueLow)
+        return gradient
     }
 
     function plotLeft() { return horizontalInset }
@@ -122,25 +178,32 @@ Item {
         finishGesture()
         selectedAnchor = index
         gestureAnchor = index
-        controller.beginParameterEdit("color_mixer/hue/" + index)
+        gestureComponent = curveComponent
+        controller.beginParameterEdit("color_mixer/" + gestureComponent + "/" + index)
     }
 
     function moveGesture(y) {
         if (gestureAnchor < 0)
             return
-        controller.setColorMixerValue(gestureAnchor, "hue", valueForY(y))
+        controller.setColorMixerValue(gestureAnchor, gestureComponent, valueForY(y))
     }
 
     function finishGesture() {
         if (gestureAnchor < 0)
             return
         const index = gestureAnchor
+        const component = gestureComponent
         gestureAnchor = -1
-        controller.endParameterEdit("color_mixer/hue/" + index)
+        gestureComponent = ""
+        controller.endParameterEdit("color_mixer/" + component + "/" + index)
     }
 
     onParameterRevisionChanged: curveCanvas.requestPaint()
     onBandsChanged: curveCanvas.requestPaint()
+    onCurveComponentChanged: {
+        finishGesture()
+        curveCanvas.requestPaint()
+    }
     onSelectedAnchorChanged: curveCanvas.requestPaint()
     onEditableChanged: {
         if (!editable)
@@ -159,6 +222,22 @@ Item {
     ColumnLayout {
         anchors.fill: parent
         spacing: 7
+
+        TabBar {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 28
+            currentIndex: root.curveMode
+            background: Rectangle {
+                radius: Theme.controlRadius
+                color: Theme.surfaceSubtle
+                border.color: root.borderColor
+            }
+            onCurrentIndexChanged: root.curveMode = currentIndex
+
+            ShadowTabButton { text: qsTr("HUE → HUE"); compact: true }
+            ShadowTabButton { text: qsTr("HUE → CHROMA"); compact: true }
+            ShadowTabButton { text: qsTr("HUE → LIGHTNESS"); compact: true }
+        }
 
         Item {
             Layout.fillWidth: true
@@ -193,6 +272,14 @@ Item {
                         const top = root.plotTop()
                         const bottom = root.plotBottom()
                         const zero = root.yForValue(0)
+
+                        const spectrum = root.hueGradient(context, left, right)
+                        context.globalAlpha = 0.11
+                        context.fillStyle = spectrum
+                        context.fillRect(left, top, right - left, bottom - top)
+                        context.globalAlpha = 0.9
+                        context.fillRect(left, bottom - 4, right - left, 4)
+                        context.globalAlpha = 1
 
                         context.lineWidth = 1
                         context.strokeStyle = root.gridColor
@@ -279,7 +366,7 @@ Item {
                     anchors.leftMargin: 5
                     anchors.top: parent.top
                     anchors.topMargin: 3
-                    text: qsTr("+30°")
+                    text: root.upperScaleLabel()
                     color: root.mutedTextColor
                     font.pixelSize: 8
                 }
@@ -289,7 +376,7 @@ Item {
                     anchors.leftMargin: 5
                     anchors.bottom: parent.bottom
                     anchors.bottomMargin: 3
-                    text: qsTr("−30°")
+                    text: root.lowerScaleLabel()
                     color: root.mutedTextColor
                     font.pixelSize: 8
                 }
@@ -304,9 +391,11 @@ Item {
             Label {
                 Layout.fillWidth: true
                 text: root.selectedAnchor >= 0 && root.bands
-                    ? qsTr("%1 anchor · %2°").arg(root.bands[root.selectedAnchor].name)
+                    ? qsTr("%1 · input %2° · output %3")
+                        .arg(root.bands[root.selectedAnchor].name)
                         .arg(Math.round(root.anchorHue(root.selectedAnchor)))
-                    : qsTr("Drag a color anchor vertically to shift its hue")
+                        .arg(root.formattedValue(root.anchorValue(root.selectedAnchor)))
+                    : root.idleInstruction()
                 color: root.mutedTextColor
                 font.pixelSize: 10
             }
@@ -324,7 +413,8 @@ Item {
             Layout.fillWidth: true
             Layout.leftMargin: 14
             Layout.rightMargin: 14
-            text: qsTr("Edits the existing Color Mixer Hue values; it adds no second color transform.")
+            text: root.componentDescription()
+                + " " + qsTr("All three views share the same eight persisted anchors; no second color transform is added.")
             color: root.mutedTextColor
             font.pixelSize: 9
             wrapMode: Text.WordWrap
