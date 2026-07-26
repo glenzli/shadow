@@ -130,6 +130,21 @@ class EditController final : public QObject {
         NOTIFY parametersChanged
     )
     // Retouch belongs to the whole photo, after every Grade Node. Unlike a
+    // This is an in-session geometry clipboard, not a Recipe asset. A paste
+    // creates the selected node's own one-mask attachment on the current photo.
+    Q_PROPERTY(
+        bool hasCopiedNodeMask
+        READ hasCopiedNodeMask
+        NOTIFY nodeMaskClipboardChanged
+    )
+    // Named mask assets are application-local geometry templates. Applying
+    // one copies it into the selected node's sole photo-local mask; a Recipe
+    // never retains a mutable asset reference.
+    Q_PROPERTY(
+        QVariantList nodeMaskAssets
+        READ nodeMaskAssets
+        NOTIFY nodeMaskAssetsChanged
+    )
     // local mask it must remain usable even when the selected node is shared
     // or disabled.
     Q_PROPERTY(QVariantList retouchSpots READ retouchSpots NOTIFY parametersChanged)
@@ -323,6 +338,8 @@ public:
     [[nodiscard]] QVariantMap selectedLocalMask() const;
     [[nodiscard]] QVariantList retouchSpots() const;
     [[nodiscard]] QVariantMap photoGeometry() const;
+    [[nodiscard]] bool hasCopiedNodeMask() const noexcept;
+    [[nodiscard]] QVariantList nodeMaskAssets() const;
     [[nodiscard]] bool cropToolActive() const noexcept;
     [[nodiscard]] QVariantList gradeNodes() const;
     [[nodiscard]] QVariantList sharedGradeNodes() const;
@@ -397,6 +414,11 @@ public:
     Q_INVOKABLE void setSelectedLocalMaskValue(const QString& key, double value);
     Q_INVOKABLE void setSelectedLocalMaskPoint(
         const QString& point,
+    Q_INVOKABLE void copySelectedLocalMask();
+    Q_INVOKABLE void pasteSelectedLocalMask();
+    Q_INVOKABLE void saveSelectedLocalMaskAsset(const QString& name);
+    Q_INVOKABLE void applySelectedLocalMaskAsset(const QString& asset_id);
+    Q_INVOKABLE void removeLocalMaskAsset(const QString& asset_id);
         double normalized_x,
         double normalized_y
     );
@@ -597,6 +619,8 @@ private slots:
     void finishDetailWarmupTask();
     void startPreviewRender();
     void startDetailRender();
+    void nodeMaskClipboardChanged();
+    void nodeMaskAssetsChanged();
     void startDetailWarmup();
 
 private:
@@ -615,6 +639,19 @@ private:
         const QString& key,
         const BackendGradeStack& before
     );
+    struct NodeMaskClipboard final {
+        std::uint8_t kind = 0;
+        double x0 = 0.0;
+        double y0 = 0.0;
+        double x1 = 0.0;
+        double y1 = 0.0;
+        double radius_x = 0.0;
+        double radius_y = 0.0;
+        double feather = 0.0;
+        bool inverted = false;
+        QVector<double> brush_points;
+    };
+
     void schedulePreview(int delay_ms);
     void maybeStartBeforePreview();
     void maybeStartDetailRender();
@@ -623,6 +660,8 @@ private:
     // already visible on screen. Keep that presentation until its replacement
     // arrives; Recipe/source changes still discard it immediately.
     void invalidateDetailPresentation(bool discard_tiles = true);
+    void loadNodeMaskAssets();
+    void persistNodeMaskAssets();
     void resetDetailState();
   bool eventFilter(QObject *watched, QEvent *event) override;
   void setStatusMessage(LocalizedUiMessage status);
@@ -710,6 +749,9 @@ private:
     QVariantMap histogram_;
     QVariantMap before_histogram_;
     QVariantMap optics_receipt_;
+    std::optional<NodeMaskClipboard> node_mask_clipboard_;
+    std::unique_ptr<QSettings> node_mask_asset_settings_;
+    QVariantList node_mask_assets_;
   LocalizedUiMessage before_error_message_;
   LocalizedUiMessage detail_error_message_;
   LocalizedUiMessage autosave_error_message_;

@@ -9,6 +9,8 @@
 #include <QEvent>
 #include <QImage>
 #include <QFileInfo>
+#include <QJsonDocument>
+#include <QUuid>
 
 #include <QSize>
 #include <QVariantMap>
@@ -31,10 +33,116 @@ namespace {
 // texture, edges and colour detail for a useful editing view.
 constexpr int EDIT_PREVIEW_THROTTLE_MS = 16;
 constexpr int MAX_POINT_COLOR_COUNT = 16;
+constexpr auto NODE_MASK_ASSETS_SETTINGS_KEY = "precision/node_mask_assets_v1";
+constexpr int MAX_NODE_MASK_ASSET_COUNT = 128;
+constexpr int MAX_NODE_MASK_ASSET_NAME_LENGTH = 96;
 
 [[nodiscard]] int point_color_count(const BackendFineEditParameters& fine) noexcept {
     return (fine.color_range_enabled || !fine.additional_point_colors.isEmpty() ? 1 : 0)
         + static_cast<int>(fine.additional_point_colors.size());
+}
+
+[[nodiscard]] std::optional<QVariantMap> normalized_node_mask_asset(
+    const QVariantMap& source
+) {
+    const QString id = source.value(QStringLiteral("id")).toString();
+    const QString name = source.value(QStringLiteral("name")).toString().trimmed();
+    if (QUuid(id).isNull() || name.isEmpty()
+        || name.size() > MAX_NODE_MASK_ASSET_NAME_LENGTH) {
+        return std::nullopt;
+    }
+
+    bool kind_ok = false;
+    const int kind = source.value(QStringLiteral("kind")).toInt(&kind_ok);
+    if (!kind_ok || kind < 1 || kind > 3) {
+        return std::nullopt;
+    }
+
+    const auto unit_value = [&source](const QString& key) -> std::optional<double> {
+        bool converted = false;
+        const double value = source.value(key).toDouble(&converted);
+        if (!converted || !std::isfinite(value) || value < 0.0 || value > 1.0) {
+            return std::nullopt;
+        }
+        return value;
+    };
+    const auto x0 = unit_value(QStringLiteral("x0"));
+    const auto y0 = unit_value(QStringLiteral("y0"));
+    const auto x1 = unit_value(QStringLiteral("x1"));
+    const auto y1 = unit_value(QStringLiteral("y1"));
+    const auto radius_x = unit_value(QStringLiteral("radiusX"));
+    const auto radius_y = unit_value(QStringLiteral("radiusY"));
+    const auto feather = unit_value(QStringLiteral("feather"));
+    if (!x0 || !y0 || !x1 || !y1 || !radius_x || !radius_y || !feather) {
+        return std::nullopt;
+    }
+
+    QVariantList brush_points;
+    const QVariantList candidate_points =
+        source.value(QStringLiteral("brushPoints")).toList();
+    constexpr int maximum_values = 3 * 4'096;
+    if (candidate_points.size() > maximum_values || candidate_points.size() % 3 != 0) {
+        return std::nullopt;
+    }
+    brush_points.reserve(candidate_points.size());
+    for (qsizetype index = 0; index < candidate_points.size(); ++index) {
+        bool converted = false;
+        const double value = candidate_points.at(index).toDouble(&converted);
+        const bool is_stroke_marker = index % 3 == 2;
+        if (!converted || !std::isfinite(value)
+            || (!is_stroke_marker && (value < 0.0 || value > 1.0))
+            || (is_stroke_marker && value != 0.0 && value != 1.0)) {
+            return std::nullopt;
+        }
+        brush_points.push_back(value);
+    }
+
+    if ((kind == 1 && std::hypot(*x1 - *x0, *y1 - *y0) <= std::numeric_limits<double>::epsilon())
+        || (kind == 2 && (*radius_x <= 0.0 || *radius_y <= 0.0))
+        || (kind == 3 && *radius_x <= 0.0)) {
+        return std::nullopt;
+    }
+
+    return QVariantMap{
+        {QStringLiteral("id"), id},
+        {QStringLiteral("name"), name},
+        {QStringLiteral("kind"), kind},
+        {QStringLiteral("x0"), *x0},
+        {QStringLiteral("y0"), *y0},
+        {QStringLiteral("x1"), *x1},
+        {QStringLiteral("y1"), *y1},
+        {QStringLiteral("radiusX"), *radius_x},
+        {QStringLiteral("radiusY"), *radius_y},
+        {QStringLiteral("feather"), *feather},
+        {QStringLiteral("inverted"), source.value(QStringLiteral("inverted")).toBool()},
+        {QStringLiteral("brushPoints"), brush_points},
+    };
+}
+
+[[nodiscard]] QVariantMap node_mask_asset_from_node(
+    const QString& id,
+    const QString& name,
+    const BackendGradeNode& node
+) {
+    QVariantList brush_points;
+    brush_points.reserve(node.local_mask_brush_points.size());
+    for (const double value : node.local_mask_brush_points) {
+        brush_points.push_back(value);
+    }
+    return {
+        {QStringLiteral("id"), id},
+        {QStringLiteral("name"), name},
+        {QStringLiteral("kind"), static_cast<int>(node.local_mask_kind)},
+        {QStringLiteral("x0"), node.local_mask_x0},
+        {QStringLiteral("y0"), node.local_mask_y0},
+        {QStringLiteral("x1"), node.local_mask_x1},
+        {QStringLiteral("y1"), node.local_mask_y1},
+        {QStringLiteral("radiusX"), node.local_mask_radius_x},
+        {QStringLiteral("radiusY"), node.local_mask_radius_y},
+        {QStringLiteral("feather"), node.local_mask_feather},
+        {QStringLiteral("inverted"), node.local_mask_invert},
+        {QStringLiteral("brushPoints"), brush_points},
+    };
 }
 
 [[nodiscard]] BackendPointColorRange point_color_at(
@@ -576,6 +684,61 @@ QVariantMap EditController::selectedLocalMask() const {
 
 QVariantList EditController::retouchSpots() const {
     QVariantList result;
+bool EditController::hasCopiedNodeMask() const noexcept {
+    return node_mask_clipboard_.has_value();
+}
+
+QVariantList EditController::nodeMaskAssets() const {
+    return node_mask_assets_;
+}
+
+void EditController::loadNodeMaskAssets() {
+    const QByteArray stored = node_mask_asset_settings_->value(
+        QString::fromLatin1(NODE_MASK_ASSETS_SETTINGS_KEY)
+    ).toByteArray();
+    const QJsonDocument parsed = QJsonDocument::fromJson(stored);
+    if (!parsed.isArray()) {
+        return;
+    }
+
+    QSet<QString> ids;
+    QSet<QString> names;
+    const QVariantList stored_assets = parsed.toVariant().toList();
+    for (const QVariant& value : stored_assets) {
+        const auto asset = normalized_node_mask_asset(value.toMap());
+        if (!asset.has_value() || node_mask_assets_.size() >= MAX_NODE_MASK_ASSET_COUNT) {
+            continue;
+        }
+        const QString id = asset->value(QStringLiteral("id")).toString();
+        const QString name = asset->value(QStringLiteral("name")).toString();
+        const QString name_key = name.toCaseFolded();
+        if (ids.contains(id) || names.contains(name_key)) {
+            continue;
+        }
+        ids.insert(id);
+        names.insert(name_key);
+        node_mask_assets_.push_back(*asset);
+    }
+    std::sort(
+        node_mask_assets_.begin(),
+        node_mask_assets_.end(),
+        [](const QVariant& left, const QVariant& right) {
+            return left.toMap().value(QStringLiteral("name")).toString().compare(
+                right.toMap().value(QStringLiteral("name")).toString(),
+                Qt::CaseInsensitive
+            ) < 0;
+        }
+    );
+}
+
+void EditController::persistNodeMaskAssets() {
+    node_mask_asset_settings_->setValue(
+        QString::fromLatin1(NODE_MASK_ASSETS_SETTINGS_KEY),
+        QJsonDocument::fromVariant(node_mask_assets_).toJson(QJsonDocument::Compact)
+    );
+    node_mask_asset_settings_->sync();
+}
+
     result.reserve(grade_stack_.retouch_spots.size());
     for (qsizetype index = 0; index < grade_stack_.retouch_spots.size(); ++index) {
         const auto& spot = grade_stack_.retouch_spots.at(index);
@@ -2999,6 +3162,232 @@ void EditController::deleteSelectedGradeNode() {
     }
     finishActiveGesture();
     const QString deleted_id = selected->grade_node_id;
+void EditController::copySelectedLocalMask() {
+    const auto* const grade_node = selectedGradeNode();
+    if (!active_ || interactionLocked() || grade_node == nullptr
+        || grade_node->local_mask_kind == 0U) {
+        setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+            "EditController", "Select a node mask to copy"
+        )));
+        return;
+    }
+    finishActiveGesture();
+    node_mask_clipboard_ = NodeMaskClipboard{
+        .kind = grade_node->local_mask_kind,
+        .x0 = grade_node->local_mask_x0,
+        .y0 = grade_node->local_mask_y0,
+        .x1 = grade_node->local_mask_x1,
+        .y1 = grade_node->local_mask_y1,
+        .radius_x = grade_node->local_mask_radius_x,
+        .radius_y = grade_node->local_mask_radius_y,
+        .feather = grade_node->local_mask_feather,
+        .inverted = grade_node->local_mask_invert,
+        .brush_points = grade_node->local_mask_brush_points,
+    };
+    emit nodeMaskClipboardChanged();
+    setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+        "EditController", "Copied node mask"
+    )));
+}
+
+void EditController::pasteSelectedLocalMask() {
+    if (!node_mask_clipboard_.has_value()) {
+        setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+            "EditController", "Copy a node mask before pasting"
+        )));
+        return;
+    }
+    auto* const grade_node = selected_grade_node_index_ < 0
+        ? nullptr : &grade_stack_.grade_nodes[selected_grade_node_index_];
+    if (!active_ || interactionLocked() || grade_node == nullptr || !grade_node->enabled) {
+        setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+            "EditController", "Select an enabled Grade Node to paste the mask"
+        )));
+        return;
+    }
+    finishActiveGesture();
+    const BackendGradeStack before = grade_stack_;
+    BackendGradeNode candidate = *grade_node;
+    const NodeMaskClipboard& source = *node_mask_clipboard_;
+    candidate.local_mask_kind = source.kind;
+    candidate.local_mask_x0 = source.x0;
+    candidate.local_mask_y0 = source.y0;
+    candidate.local_mask_x1 = source.x1;
+    candidate.local_mask_y1 = source.y1;
+    candidate.local_mask_radius_x = source.radius_x;
+    candidate.local_mask_radius_y = source.radius_y;
+    candidate.local_mask_feather = source.feather;
+    candidate.local_mask_invert = source.inverted;
+    candidate.local_mask_brush_points = source.brush_points;
+    if (candidate == *grade_node) {
+        setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+            "EditController", "Selected Grade Node already uses the copied mask"
+        )));
+        return;
+    }
+    *grade_node = std::move(candidate);
+    parameterEdited(QStringLiteral("local_mask/paste"), before);
+    emit gradeNodesChanged();
+    setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+        "EditController", "Pasted node mask"
+    )));
+}
+
+void EditController::saveSelectedLocalMaskAsset(const QString& name) {
+    const QString normalized_name = name.trimmed();
+    const auto* const grade_node = selectedGradeNode();
+    if (!active_ || interactionLocked() || grade_node == nullptr
+        || grade_node->local_mask_kind == 0U) {
+        setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+            "EditController", "Select a node mask to save as an asset"
+        )));
+        return;
+    }
+    if (normalized_name.isEmpty()) {
+        setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+            "EditController", "Enter a mask asset name"
+        )));
+        return;
+    }
+    if (normalized_name.size() > MAX_NODE_MASK_ASSET_NAME_LENGTH) {
+        setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+            "EditController", "Mask asset names can contain at most %1 characters"
+        ), {MAX_NODE_MASK_ASSET_NAME_LENGTH}));
+        return;
+    }
+
+    finishActiveGesture();
+    QString id;
+    qsizetype matching_index = -1;
+    for (qsizetype index = 0; index < node_mask_assets_.size(); ++index) {
+        const QVariantMap existing = node_mask_assets_.at(index).toMap();
+        if (existing.value(QStringLiteral("name")).toString().compare(
+                normalized_name,
+                Qt::CaseInsensitive
+            ) == 0) {
+            id = existing.value(QStringLiteral("id")).toString();
+            matching_index = index;
+            break;
+        }
+    }
+    if (matching_index < 0 && node_mask_assets_.size() >= MAX_NODE_MASK_ASSET_COUNT) {
+        setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+            "EditController", "Mask asset library is full"
+        )));
+        return;
+    }
+    if (id.isEmpty()) {
+        id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    }
+
+    const auto asset = normalized_node_mask_asset(
+        node_mask_asset_from_node(id, normalized_name, *grade_node)
+    );
+    if (!asset.has_value()) {
+        setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+            "EditController", "Current node mask cannot be saved as an asset"
+        )));
+        return;
+    }
+    if (matching_index >= 0) {
+        node_mask_assets_[matching_index] = *asset;
+    } else {
+        node_mask_assets_.push_back(*asset);
+    }
+    std::sort(
+        node_mask_assets_.begin(),
+        node_mask_assets_.end(),
+        [](const QVariant& left, const QVariant& right) {
+            return left.toMap().value(QStringLiteral("name")).toString().compare(
+                right.toMap().value(QStringLiteral("name")).toString(),
+                Qt::CaseInsensitive
+            ) < 0;
+        }
+    );
+    persistNodeMaskAssets();
+    emit nodeMaskAssetsChanged();
+    setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+        "EditController", "Saved node mask asset · %1"
+    ), {normalized_name}));
+}
+
+void EditController::applySelectedLocalMaskAsset(const QString& asset_id) {
+    auto* const grade_node = selected_grade_node_index_ < 0
+        ? nullptr : &grade_stack_.grade_nodes[selected_grade_node_index_];
+    if (!active_ || interactionLocked() || grade_node == nullptr || !grade_node->enabled) {
+        setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+            "EditController", "Select an enabled Grade Node to apply a mask asset"
+        )));
+        return;
+    }
+    const auto found = std::find_if(
+        node_mask_assets_.cbegin(),
+        node_mask_assets_.cend(),
+        [&asset_id](const QVariant& value) {
+            return value.toMap().value(QStringLiteral("id")).toString() == asset_id;
+        }
+    );
+    if (found == node_mask_assets_.cend()) {
+        setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+            "EditController", "Choose a saved mask asset to apply"
+        )));
+        return;
+    }
+    const QVariantMap asset = found->toMap();
+    finishActiveGesture();
+    const BackendGradeStack before = grade_stack_;
+    BackendGradeNode candidate = *grade_node;
+    candidate.local_mask_kind = static_cast<std::uint8_t>(
+        asset.value(QStringLiteral("kind")).toInt()
+    );
+    candidate.local_mask_x0 = asset.value(QStringLiteral("x0")).toDouble();
+    candidate.local_mask_y0 = asset.value(QStringLiteral("y0")).toDouble();
+    candidate.local_mask_x1 = asset.value(QStringLiteral("x1")).toDouble();
+    candidate.local_mask_y1 = asset.value(QStringLiteral("y1")).toDouble();
+    candidate.local_mask_radius_x = asset.value(QStringLiteral("radiusX")).toDouble();
+    candidate.local_mask_radius_y = asset.value(QStringLiteral("radiusY")).toDouble();
+    candidate.local_mask_feather = asset.value(QStringLiteral("feather")).toDouble();
+    candidate.local_mask_invert = asset.value(QStringLiteral("inverted")).toBool();
+    candidate.local_mask_brush_points.clear();
+    const QVariantList brush_points = asset.value(QStringLiteral("brushPoints")).toList();
+    candidate.local_mask_brush_points.reserve(brush_points.size());
+    for (const QVariant& value : brush_points) {
+        candidate.local_mask_brush_points.push_back(value.toDouble());
+    }
+    if (candidate == *grade_node) {
+        setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+            "EditController", "Selected Grade Node already uses this mask asset"
+        )));
+        return;
+    }
+    *grade_node = std::move(candidate);
+    parameterEdited(QStringLiteral("local_mask/apply_asset"), before);
+    emit gradeNodesChanged();
+    setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+        "EditController", "Applied node mask asset · %1"
+    ), {asset.value(QStringLiteral("name")).toString()}));
+}
+
+void EditController::removeLocalMaskAsset(const QString& asset_id) {
+    const auto found = std::find_if(
+        node_mask_assets_.cbegin(),
+        node_mask_assets_.cend(),
+        [&asset_id](const QVariant& value) {
+            return value.toMap().value(QStringLiteral("id")).toString() == asset_id;
+        }
+    );
+    if (found == node_mask_assets_.cend()) {
+        return;
+    }
+    const QString name = found->toMap().value(QStringLiteral("name")).toString();
+    node_mask_assets_.erase(found);
+    persistNodeMaskAssets();
+    emit nodeMaskAssetsChanged();
+    setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+        "EditController", "Removed node mask asset · %1"
+    ), {name}));
+}
+
     const QString deleted_label = selected->label;
     const BackendGradeStack before = grade_stack_;
     BackendGradeStack updated = grade_stack_;
