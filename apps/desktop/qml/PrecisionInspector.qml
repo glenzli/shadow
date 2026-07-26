@@ -44,6 +44,7 @@ Rectangle {
     property int mixerViewMode: 0
     property int selectedMixerBand: 0
     property int selectedSelectiveColorTarget: 0
+    property bool skinCheckPending: false
     property bool lutBrowserExpanded: false
     readonly property var colorMixerBands: [
         { "name": qsTr("Red"), "color": "#f04b4b", "hueLow": "#d94881", "hueHigh": "#f28a39", "oklchHue": 29.2339 },
@@ -227,6 +228,33 @@ Rectangle {
             return Qt.lighter(band.color, 1.18)
         return Qt.lighter(band.color, Theme.effectiveDark ? 1.9 : 1.55)
     }
+
+    Connections {
+        target: inspector.editor
+
+        function onParametersChanged() {
+            if (!inspector.skinCheckPending
+                    || inspector.editor.selectedPointColorIndex < 0)
+                return
+            inspector.skinCheckPending = false
+            analysisScope.scopeMode = analysisScope.vectorscopeScope
+            analysisScope.skinGuideVisible = true
+            inspector.editor.pointColorScopeActive = true
+        }
+
+        function onPointColorPickerActiveChanged() {
+            if (inspector.skinCheckPending
+                    && !inspector.editor.pointColorPickerActive
+                    && inspector.editor.selectedPointColorIndex < 0) {
+                inspector.skinCheckPending = false
+            }
+        }
+
+        function onSelectedGradeNodeChanged() {
+            inspector.skinCheckPending = false
+        }
+    }
+
     Layout.preferredWidth: Math.max(304, Math.min(348, inspector.workspaceWidth * 0.24))
     Layout.fillHeight: true
     color: inspector.panel
@@ -1196,6 +1224,138 @@ Rectangle {
                                         toolTipText: qsTr("Remove selected Point Color sample")
                                         accessibleName: toolTipText
                                         onClicked: inspector.editor.removeSelectedPointColor()
+                                    }
+                                }
+
+                                ShadowButton {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: 14
+                                    Layout.rightMargin: 14
+                                    compact: true
+                                    selected: inspector.editor.pointColorScopeActive
+                                    text: selected
+                                        ? qsTr("SKIN REFERENCE LOCKED")
+                                        : qsTr("SKIN CHECK")
+                                    toolTipText: qsTr("Sample a representative skin midtone, freeze its diagnostic pixels, and inspect shadow, midtone, and highlight alignment in the Vectorscope.")
+                                    onClicked: {
+                                        analysisScope.scopeMode = analysisScope.vectorscopeScope
+                                        analysisScope.skinGuideVisible = true
+                                        if (inspector.editor.pointColorScopeActive) {
+                                            inspector.skinCheckPending = false
+                                            inspector.editor.pointColorScopeActive = false
+                                        } else if (inspector.editor.pointColorScopeAvailable) {
+                                            inspector.skinCheckPending = false
+                                            inspector.editor.pointColorScopeActive = true
+                                        } else {
+                                            inspector.skinCheckPending = true
+                                            inspector.editor.setPointColorPickerActive(true)
+                                        }
+                                    }
+                                }
+
+                                Rectangle {
+                                    id: skinGuideNudge
+                                    // A single Point Color adjustment is appropriate only when the
+                                    // selected skin is both representative and tonally coherent.
+                                    // The guide itself stays diagnostic; these guards prevent a
+                                    // low-sample or split-tone reading from becoming a broad fix.
+                                    readonly property int minimumMatchedPixels: 96
+                                    readonly property real maximumToneDeviationSpread: 15
+                                    readonly property real guideDeviation:
+                                        analysisScope.displayScopeSkinGuideDeviation
+                                    readonly property var shadows:
+                                        analysisScope.skinToneRange("Shadows")
+                                    readonly property var midtones:
+                                        analysisScope.skinToneRange("Midtones")
+                                    readonly property var highlights:
+                                        analysisScope.skinToneRange("Highlights")
+                                    readonly property real toneDeviationSpread: {
+                                        const ranges = [shadows, midtones, highlights]
+                                        let largest = 0
+                                        for (let first = 0; first < ranges.length; ++first) {
+                                            if (!ranges[first].available)
+                                                continue
+                                            for (let second = first + 1; second < ranges.length; ++second) {
+                                                if (!ranges[second].available)
+                                                    continue
+                                                const wrapped = (ranges[first].deviation
+                                                    - ranges[second].deviation + 540) % 360 - 180
+                                                largest = Math.max(largest, Math.abs(wrapped))
+                                            }
+                                        }
+                                        return largest
+                                    }
+                                    readonly property bool hasSufficientSample:
+                                        analysisScope.displayScopeMatchedPixels >= minimumMatchedPixels
+                                    readonly property bool toneSplit:
+                                        toneDeviationSpread > maximumToneDeviationSpread
+                                    readonly property real requestedHueNudge: Math.max(-12, Math.min(
+                                        12, -guideDeviation))
+                                    readonly property int roundedGuideDeviation: Math.round(guideDeviation)
+                                    readonly property int roundedHueNudge: Math.round(requestedHueNudge)
+                                    readonly property bool nudgeAvailable: hasSufficientSample
+                                        && !toneSplit
+                                        && Math.abs(requestedHueNudge) >= 0.5
+                                    visible: inspector.editor.pointColorScopeActive
+                                        && analysisScope.displayScopeCentroidAvailable
+                                        && inspector.editor.selectedPointColorIndex >= 0
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: 14
+                                    Layout.rightMargin: 14
+                                    Layout.bottomMargin: visible ? 5 : 0
+                                    Layout.preferredHeight: visible ? 31 : 0
+                                    radius: 4
+                                    color: Qt.rgba(0.92, 0.55, 0.37, 0.09)
+                                    border.width: 1
+                                    border.color: Qt.rgba(0.92, 0.55, 0.37, 0.35)
+
+                                    RowLayout {
+                                        anchors.fill: parent
+                                        anchors.leftMargin: 8
+                                        anchors.rightMargin: 5
+                                        spacing: 6
+
+                                        Label {
+                                            Layout.fillWidth: true
+                                            text: skinGuideNudge.toneSplit
+                                                ? qsTr("TONE SPLIT · USE SEPARATE NODES")
+                                                : !skinGuideNudge.hasSufficientSample
+                                                    ? qsTr("SAMPLE TOO SMALL · REFINE POINT COLOR")
+                                                    : !skinGuideNudge.nudgeAvailable
+                                                        ? qsTr("ALIGNED · NO NUDGE NEEDED")
+                                                        : qsTr("SKIN GUIDE Δ %1").arg(
+                                                            (skinGuideNudge.roundedGuideDeviation > 0
+                                                                ? "+" : "")
+                                                            + skinGuideNudge.roundedGuideDeviation + "°")
+                                            color: skinGuideNudge.nudgeAvailable
+                                                ? Theme.textSecondary : "#e6a36c"
+                                            font.pixelSize: 10
+                                            font.weight: Font.DemiBold
+                                            elide: Text.ElideRight
+                                        }
+
+                                        ShadowButton {
+                                            visible: skinGuideNudge.nudgeAvailable
+                                            compact: true
+                                            text: qsTr("NUDGE %1").arg(
+                                                (skinGuideNudge.roundedHueNudge > 0 ? "+" : "")
+                                                + skinGuideNudge.roundedHueNudge + "°")
+                                            enabled: !inspector.editor.stateBusy
+                                            toolTipText: qsTr("Apply the guide direction as a limited starting hue correction for this Point Color. It is undoable and does not change the node mask or global color.")
+                                            onClicked: {
+                                                const current = inspector.fineValue("color_range_hue")
+                                                const next = Math.max(-180, Math.min(180,
+                                                    current + skinGuideNudge.requestedHueNudge))
+                                                if (next === current)
+                                                    return
+                                                inspector.editor.beginParameterEdit(
+                                                    "skin_guide/point_color_hue")
+                                                inspector.editor.setParameterValue(
+                                                    "color_range_hue", next)
+                                                inspector.editor.endParameterEdit(
+                                                    "skin_guide/point_color_hue")
+                                            }
+                                        }
                                     }
                                 }
 

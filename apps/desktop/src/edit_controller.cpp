@@ -1862,6 +1862,7 @@ void EditController::selectPointColor(const int index) {
     }
     finishActiveGesture();
     selected_point_color_index_ = index;
+    clearPointColorScopeReference();
     notifyParametersChanged();
 }
 
@@ -1871,8 +1872,13 @@ void EditController::setPointColorScopeActive(const bool active) {
         return;
     }
     point_color_scope_active_ = next;
+    clearPointColorScopeReference();
     refreshCurrentDisplayScope();
     emit pointColorScopeChanged();
+}
+
+void EditController::clearPointColorScopeReference() noexcept {
+    point_color_scope_reference_.reset();
 }
 
 void EditController::removeSelectedPointColor() {
@@ -1907,6 +1913,7 @@ void EditController::removeSelectedPointColor() {
     const int count = point_color_count(fine);
     selected_point_color_index_ = count == 0
         ? -1 : std::min(selected_point_color_index_, count - 1);
+    clearPointColorScopeReference();
     parameterEdited(QStringLiteral("point_color/remove"), before);
 }
 
@@ -2123,6 +2130,7 @@ void EditController::addPointColorFromPreview(
         fine.additional_point_colors.push_back(range);
         selected_point_color_index_ = point_color_count(fine) - 1;
     }
+    clearPointColorScopeReference();
     parameterEdited(QStringLiteral("point_color/add"), before);
     setPointColorPickerActive(false);
 }
@@ -3406,6 +3414,9 @@ void EditController::setGradeStack(
         ? -1
         : selection_changed ? 0
                             : std::clamp(selected_point_color_index_, 0, new_point_color_count - 1);
+    if (selection_changed || new_point_color_count == 0) {
+        clearPointColorScopeReference();
+    }
     if (list_changed) {
         emit gradeNodesChanged();
     }

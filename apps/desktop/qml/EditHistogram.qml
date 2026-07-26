@@ -74,6 +74,8 @@ Item {
     readonly property real displayScopeMatchedPixels: root.mapNumber("displayScopeMatchedPixels", 0)
     readonly property bool pointColorScopeActive: root.mapBoolean(
         "displayScopePointColorQualified", false)
+    readonly property bool referenceSelection: root.mapBoolean(
+        "displayScopeReferenceSelection", false)
     readonly property bool displayScopeCentroidAvailable: root.mapBoolean(
         "displayScopeCentroidAvailable", false)
     readonly property real displayScopeCentroidCb: root.mapNumber("displayScopeCentroidCb", 0)
@@ -389,6 +391,81 @@ Item {
     function skinGuideDeviationText(value) {
         const rounded = Math.round(value)
         return "Δ " + (rounded > 0 ? "+" : "") + rounded + "°"
+    }
+
+    function skinToneRange(name) {
+        const prefix = "displayScopeSkin" + name
+        return {
+            available: root.mapBoolean(prefix + "Available", false),
+            matchedPixels: root.mapNumber(prefix + "MatchedPixels", 0),
+            cb: root.mapNumber(prefix + "CentroidCb", 0),
+            cr: root.mapNumber(prefix + "CentroidCr", 0),
+            deviation: root.mapNumber(prefix + "DeviationDegrees", 0)
+        }
+    }
+
+    function drawSkinGuideCorridor(context, centerX, centerY, radius) {
+        const guideAngle = Math.atan2(-0.62, -0.48)
+        const offsets = [-3, 0, 3]
+        for (let index = 0; index < offsets.length; ++index) {
+            const angle = guideAngle + offsets[index] * Math.PI / 180
+            const boundary = offsets[index] !== 0
+            context.globalAlpha = boundary ? 0.34 : 0.9
+            context.lineWidth = boundary ? 1 : 1.5
+            context.setLineDash(boundary ? [2, 3] : [4, 3])
+            context.strokeStyle = "#e68b68"
+            context.beginPath()
+            context.moveTo(centerX, centerY)
+            context.lineTo(
+                centerX + Math.cos(angle) * radius * 0.79,
+                centerY + Math.sin(angle) * radius * 0.79
+            )
+            context.stroke()
+        }
+        context.setLineDash([])
+        context.globalAlpha = 1
+    }
+
+    function drawSkinToneRangeMarker(context, centerX, centerY, radius,
+                                     range, label, color) {
+        if (!range.available)
+            return
+        let x = centerX + range.cb * radius * 2
+        let y = centerY - range.cr * radius * 2
+        const dx = x - centerX
+        const dy = y - centerY
+        const distance = Math.sqrt(dx * dx + dy * dy)
+        if (distance > radius * 0.94) {
+            x = centerX + dx / distance * radius * 0.94
+            y = centerY + dy / distance * radius * 0.94
+        }
+        context.globalAlpha = 0.95
+        context.fillStyle = color
+        context.beginPath()
+        context.arc(x, y, 3, 0, Math.PI * 2)
+        context.fill()
+        context.strokeStyle = root.plotColor
+        context.lineWidth = 1
+        context.stroke()
+        context.font = "700 7px sans-serif"
+        context.textAlign = "left"
+        context.fillStyle = color
+        context.fillText(label, x + 5, y - 4)
+        context.globalAlpha = 1
+    }
+
+    function drawSkinToneRanges(context, centerX, centerY, radius) {
+        if (!root.pointColorScopeActive)
+            return
+        root.drawSkinToneRangeMarker(
+            context, centerX, centerY, radius,
+            root.skinToneRange("Shadows"), "S", "#83a8e5")
+        root.drawSkinToneRangeMarker(
+            context, centerX, centerY, radius,
+            root.skinToneRange("Midtones"), "M", "#ffd1ad")
+        root.drawSkinToneRangeMarker(
+            context, centerX, centerY, radius,
+            root.skinToneRange("Highlights"), "H", "#f2d56f")
     }
 
     function drawSkinGuideCentroid(context, centerX, centerY, radius) {
@@ -754,19 +831,15 @@ Item {
                                                    centerY, radius, maximum);
                         context.restore();
 
-                        // The skin line is deliberately a guide rather than a target: it makes
+                        // The skin corridor is deliberately a guide rather than a target: it makes
                         // a tint deviation easier to see, while preserving the subject's intended
-                        // complexion and lighting.
+                        // complexion and lighting. S/M/H markers divide the selected skin samples
+                        // by their own relative luminance, not by one complexion-dependent cutoff.
                         if (root.skinGuideVisible) {
-                            context.lineWidth = 1.5;
-                            context.setLineDash([4, 3]);
-                            context.strokeStyle = "#e68b68";
-                            context.beginPath();
-                            context.moveTo(centerX, centerY);
-                            context.lineTo(centerX - radius * 0.48, centerY - radius * 0.62);
-                            context.stroke();
-                            context.setLineDash([]);
+                            root.drawSkinGuideCorridor(
+                                context, centerX, centerY, radius);
                             root.drawSkinGuideCentroid(context, centerX, centerY, radius);
+                            root.drawSkinToneRanges(context, centerX, centerY, radius);
                         }
                     }
                 }
@@ -778,8 +851,10 @@ Item {
                     visible: root.hasActiveScopeData
                     text: root.showingHistogram
                         ? qsTr("LOG")
-                        : (root.pointColorScopeActive ? qsTr("POINT COLOR · DISPLAY")
-                                                       : qsTr("DISPLAY PREVIEW"))
+                        : (root.referenceSelection
+                            ? qsTr("SKIN REFERENCE · LOCKED")
+                            : root.pointColorScopeActive ? qsTr("POINT COLOR · DISPLAY")
+                                                         : qsTr("DISPLAY PREVIEW"))
                     color: Theme.textSubtle
                     font.pixelSize: 6
                     font.weight: Font.Bold

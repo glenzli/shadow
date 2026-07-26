@@ -642,6 +642,11 @@ private:
     void maybeFinishDeferredApplicationClose();
     void setPreviewRunning(EditPreviewKind kind, bool running);
     [[nodiscard]] std::optional<PreviewScopeHueQualifier> selectedPointColorScopeQualifier() const;
+    [[nodiscard]] PreviewDisplayScopeAnalysis analyzeCurrentDisplayScope(
+        const QByteArray& encoded_preview,
+        const std::optional<PreviewScopeHueQualifier>& point_color_qualifier
+    );
+    void clearPointColorScopeReference() noexcept;
     void refreshCurrentDisplayScope();
     void markHistogramUpdating(EditPreviewKind kind);
     void publishHistogram(
@@ -760,6 +765,7 @@ private:
     int selected_grade_node_index_ = -1;
     int selected_point_color_index_ = -1;
     bool point_color_scope_active_ = false;
+    std::optional<PreviewScopeReferenceSelection> point_color_scope_reference_;
     bool point_color_picker_active_ = false;
     bool retouch_picker_active_ = false;
     int retouch_creation_mode_ = 0;

@@ -838,6 +838,11 @@ R %2 · G %3 · B %4</translation>
         <translation>点颜色 · 显示</translation>
     </message>
     <message>
+        <location filename="../qml/EditHistogram.qml" line="855"/>
+        <source>SKIN REFERENCE · LOCKED</source>
+        <translation>肤色参考 · 已锁定</translation>
+    </message>
+    <message>
         <location filename="../qml/EditHistogram.qml" line="730"/>
         <source>DISPLAY PREVIEW</source>
         <translation>显示预览</translation>
@@ -2383,6 +2388,51 @@ R %2 · G %3 · B %4</translation>
         <location filename="../qml/PrecisionInspector.qml" line="1148"/>
         <source>Remove selected Point Color sample</source>
         <translation>移除选中的点颜色取样</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionInspector.qml" line="1238"/>
+        <source>SKIN CHECK</source>
+        <translation>肤色检查</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionInspector.qml" line="1237"/>
+        <source>SKIN REFERENCE LOCKED</source>
+        <translation>肤色参考已锁定</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionInspector.qml" line="1239"/>
+        <source>Sample a representative skin midtone, freeze its diagnostic pixels, and inspect shadow, midtone, and highlight alignment in the Vectorscope.</source>
+        <translation>取样有代表性的肤色中间调，冻结诊断像素，并在矢量示波器中检查阴影、中间调与高光的对齐情况。</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionInspector.qml" line="1321"/>
+        <source>TONE SPLIT · USE SEPARATE NODES</source>
+        <translation>明暗分区偏色 · 请使用独立节点</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionInspector.qml" line="1323"/>
+        <source>SAMPLE TOO SMALL · REFINE POINT COLOR</source>
+        <translation>样本过少 · 请细化点颜色选区</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionInspector.qml" line="1325"/>
+        <source>ALIGNED · NO NUDGE NEEDED</source>
+        <translation>已对齐 · 无需微调</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionInspector.qml" line="1326"/>
+        <source>SKIN GUIDE Δ %1</source>
+        <translation>肤色参考线 Δ %1</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionInspector.qml" line="1340"/>
+        <source>NUDGE %1</source>
+        <translation>微调 %1</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionInspector.qml" line="1344"/>
+        <source>Apply the guide direction as a limited starting hue correction for this Point Color. It is undoable and does not change the node mask or global color.</source>
+        <translation>将参考线方向作为此点颜色的受限色相起始校正。该操作可撤销，且不会改变节点蒙版或全局颜色。</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionInspector.qml" line="1195"/>

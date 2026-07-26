@@ -9,6 +9,7 @@
 #include <QVariantMap>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <exception>
 #include <stdexcept>
@@ -75,7 +76,7 @@ edit_message(const char *const source,
         || scope.vectorscope.size() != expected_count) {
         return {{QStringLiteral("displayScopeAvailable"), false}};
     }
-    return {
+    QVariantMap result{
         {QStringLiteral("displayScopeAvailable"), true},
         {QStringLiteral("displayScopeGridSize"), preview_scope_grid_size},
         {QStringLiteral("displayScopeWidth"), scope.source_dimensions.width()},
@@ -89,6 +90,7 @@ edit_message(const char *const source,
             QVariant::fromValue<qulonglong>(scope.matched_pixels)
         },
         {QStringLiteral("displayScopePointColorQualified"), scope.point_color_qualified},
+        {QStringLiteral("displayScopeReferenceSelection"), scope.reference_selection},
         {QStringLiteral("displayScopeCentroidAvailable"), scope.has_vectorscope_centroid},
         {QStringLiteral("displayScopeCentroidCb"), scope.vectorscope_centroid_cb},
         {QStringLiteral("displayScopeCentroidCr"), scope.vectorscope_centroid_cr},
@@ -102,6 +104,28 @@ edit_message(const char *const source,
         {QStringLiteral("displayParadeBlue"), scope_counts(scope.parade_blue)},
         {QStringLiteral("displayVectorscope"), scope_counts(scope.vectorscope)},
     };
+    constexpr std::array<const char*, preview_skin_tone_range_count> range_names{
+        "Shadows",
+        "Midtones",
+        "Highlights",
+    };
+    for (std::size_t index = 0U; index < preview_skin_tone_range_count; ++index) {
+        const auto& range = scope.skin_tone_ranges[index];
+        const QString prefix = QStringLiteral("displayScopeSkin")
+            + QString::fromLatin1(range_names[index]);
+        result.insert(prefix + QStringLiteral("Available"), range.available);
+        result.insert(
+            prefix + QStringLiteral("MatchedPixels"),
+            QVariant::fromValue<qulonglong>(range.matched_pixels)
+        );
+        result.insert(prefix + QStringLiteral("CentroidCb"), range.vectorscope_centroid_cb);
+        result.insert(prefix + QStringLiteral("CentroidCr"), range.vectorscope_centroid_cr);
+        result.insert(
+            prefix + QStringLiteral("DeviationDegrees"),
+            range.skin_guide_deviation_degrees
+        );
+    }
+    return result;
 }
 
 [[nodiscard]] QVariantMap empty_histogram() {
@@ -329,7 +353,7 @@ void EditController::finishPreviewTask() {
                 point_color_scope_active_ ? selectedPointColorScopeQualifier() : std::nullopt;
             const PreviewDisplayScopeAnalysis display_scope = accepted
                     && result.preview.analysis.available
-                ? analyze_display_scope(result.preview.bytes, point_color_qualifier)
+                ? analyzeCurrentDisplayScope(result.preview.bytes, point_color_qualifier)
                 : PreviewDisplayScopeAnalysis{};
             if (result.generation.policy == EditPreviewPolicy::Interactive
                 && !active_parameter_gestures_.isEmpty()) {
@@ -928,6 +952,46 @@ void EditController::publishHistogram(
     }
 }
 
+PreviewDisplayScopeAnalysis EditController::analyzeCurrentDisplayScope(
+    const QByteArray& encoded_preview,
+    const std::optional<PreviewScopeHueQualifier>& point_color_qualifier
+) {
+    if (!point_color_scope_active_ || !point_color_qualifier.has_value()) {
+        clearPointColorScopeReference();
+        return analyze_display_scope(encoded_preview, point_color_qualifier);
+    }
+
+    const auto same_qualifier = [&point_color_qualifier](
+                                    const PreviewScopeReferenceSelection& reference
+                                ) {
+        return reference.qualifier.center_degrees
+                == point_color_qualifier->center_degrees
+            && reference.qualifier.width_degrees
+                == point_color_qualifier->width_degrees
+            && reference.qualifier.softness == point_color_qualifier->softness;
+    };
+    if (point_color_scope_reference_.has_value()
+        && same_qualifier(*point_color_scope_reference_)) {
+        const PreviewDisplayScopeAnalysis frozen = analyze_display_scope(
+            encoded_preview,
+            *point_color_scope_reference_
+        );
+        if (frozen.available) {
+            return frozen;
+        }
+    }
+
+    point_color_scope_reference_ = capture_display_scope_reference(
+        encoded_preview,
+        *point_color_qualifier
+    );
+    if (point_color_scope_reference_->available) {
+        return analyze_display_scope(encoded_preview, *point_color_scope_reference_);
+    }
+    clearPointColorScopeReference();
+    return analyze_display_scope(encoded_preview, point_color_qualifier);
+}
+
 void EditController::refreshCurrentDisplayScope() {
     if (!histogram_.value(QStringLiteral("valid")).toBool()) {
         return;
@@ -948,7 +1012,7 @@ void EditController::refreshCurrentDisplayScope() {
     if (point_color_scope_active_ && !point_color_qualifier.has_value()) {
         return;
     }
-    const PreviewDisplayScopeAnalysis display_scope = analyze_display_scope(
+    const PreviewDisplayScopeAnalysis display_scope = analyzeCurrentDisplayScope(
         snapshot.bytes,
         point_color_qualifier
     );
@@ -972,6 +1036,7 @@ void EditController::markHistogramFailed(const EditPreviewKind kind) {
 }
 
 void EditController::clearHistograms() {
+    clearPointColorScopeReference();
     const QVariantMap empty = empty_histogram();
     if (histogram_ != empty) {
         histogram_ = empty;

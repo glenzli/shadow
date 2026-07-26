@@ -152,6 +152,262 @@ inline constexpr double minimum_centroid_chroma = 0.015;
     );
 }
 
+[[nodiscard]] qsizetype sampled_lattice_count(
+    const QSize dimensions,
+    const int stride
+) noexcept {
+    if (!dimensions.isValid() || stride <= 0) {
+        return 0;
+    }
+    const auto columns = static_cast<std::uint64_t>(
+        (dimensions.width() + stride - 1) / stride
+    );
+    const auto rows = static_cast<std::uint64_t>(
+        (dimensions.height() + stride - 1) / stride
+    );
+    const std::uint64_t count = columns * rows;
+    if (count > static_cast<std::uint64_t>(std::numeric_limits<qsizetype>::max())) {
+        return 0;
+    }
+    return static_cast<qsizetype>(count);
+}
+
+[[nodiscard]] bool valid_reference_selection(
+    const PreviewScopeReferenceSelection& selection,
+    const QSize current_dimensions
+) noexcept {
+    return selection.available && current_dimensions.isValid()
+        && selection.source_dimensions == current_dimensions
+        && selection.sampling_stride == sampling_stride(current_dimensions)
+        && valid_point_color_qualifier(selection.qualifier)
+        && selection.sampled_pixels
+            == static_cast<std::uint64_t>(selection.sample_weights.size())
+        && selection.sample_weights.size() == sampled_lattice_count(
+            current_dimensions,
+            selection.sampling_stride
+        );
+}
+
+struct WeightedVectorscopeSample final {
+    double luma = 0.0;
+    double cb = 0.0;
+    double cr = 0.0;
+    double weight = 0.0;
+};
+
+struct WeightedCentroidAccumulator final {
+    std::uint64_t matched_pixels = 0;
+    double cb_sum = 0.0;
+    double cr_sum = 0.0;
+    double weight_sum = 0.0;
+
+    void add(const WeightedVectorscopeSample& sample) noexcept {
+        ++matched_pixels;
+        cb_sum += sample.weight * sample.cb;
+        cr_sum += sample.weight * sample.cr;
+        weight_sum += sample.weight;
+    }
+};
+
+[[nodiscard]] double skin_guide_deviation_degrees(
+    const double cb,
+    const double cr
+) noexcept {
+    const double centroid_degrees = std::atan2(cr, cb) * 180.0 / std::numbers::pi;
+    const double guide_degrees = std::atan2(skin_guide_cr, skin_guide_cb)
+        * 180.0 / std::numbers::pi;
+    return std::remainder(centroid_degrees - guide_degrees, 360.0);
+}
+
+[[nodiscard]] PreviewSkinToneRangeAnalysis centroid_analysis(
+    const WeightedCentroidAccumulator& accumulator
+) noexcept {
+    PreviewSkinToneRangeAnalysis result;
+    result.matched_pixels = accumulator.matched_pixels;
+    if (accumulator.weight_sum <= 0.0) {
+        return result;
+    }
+    const double cb = accumulator.cb_sum / accumulator.weight_sum;
+    const double cr = accumulator.cr_sum / accumulator.weight_sum;
+    if (std::hypot(cb, cr) < minimum_centroid_chroma) {
+        return result;
+    }
+    result.available = true;
+    result.vectorscope_centroid_cb = cb;
+    result.vectorscope_centroid_cr = cr;
+    result.skin_guide_deviation_degrees = skin_guide_deviation_degrees(cb, cr);
+    return result;
+}
+
+void populate_relative_skin_tone_ranges(
+    QVector<WeightedVectorscopeSample>& samples,
+    PreviewDisplayScopeAnalysis& analysis
+) {
+    if (!analysis.point_color_qualified || samples.isEmpty()) {
+        return;
+    }
+    std::sort(
+        samples.begin(),
+        samples.end(),
+        [](const WeightedVectorscopeSample& left, const WeightedVectorscopeSample& right) {
+            return left.luma < right.luma;
+        }
+    );
+    double total_weight = 0.0;
+    for (const auto& sample : samples) {
+        total_weight += sample.weight;
+    }
+    if (total_weight <= 0.0) {
+        return;
+    }
+
+    std::array<WeightedCentroidAccumulator, preview_skin_tone_range_count> accumulators{};
+    double cumulative_weight = 0.0;
+    for (const auto& sample : samples) {
+        const double center_fraction = (
+            cumulative_weight + sample.weight * 0.5
+        ) / total_weight;
+        const auto range = std::min<std::size_t>(
+            preview_skin_tone_range_count - 1U,
+            static_cast<std::size_t>(
+                std::floor(center_fraction * preview_skin_tone_range_count)
+            )
+        );
+        accumulators[range].add(sample);
+        cumulative_weight += sample.weight;
+    }
+    for (std::size_t index = 0U; index < preview_skin_tone_range_count; ++index) {
+        analysis.skin_tone_ranges[index] = centroid_analysis(accumulators[index]);
+    }
+}
+
+[[nodiscard]] PreviewDisplayScopeAnalysis analyze_display_scope_impl(
+    const QImage& preview,
+    const std::optional<PreviewScopeHueQualifier>& point_color_qualifier,
+    const PreviewScopeReferenceSelection* const reference_selection
+) {
+    if (preview.isNull() || !preview.size().isValid()) {
+        return {};
+    }
+    if (point_color_qualifier.has_value()
+        && !valid_point_color_qualifier(*point_color_qualifier)) {
+        return {};
+    }
+    const QImage source = preview.convertToFormat(QImage::Format_RGBA8888);
+    if (source.isNull()
+        || (reference_selection != nullptr
+            && !valid_reference_selection(*reference_selection, source.size()))) {
+        return {};
+    }
+
+    PreviewDisplayScopeAnalysis analysis;
+    analysis.point_color_qualified = point_color_qualifier.has_value()
+        || reference_selection != nullptr;
+    analysis.reference_selection = reference_selection != nullptr;
+    analysis.source_dimensions = source.size();
+    const qsizetype count = scope_sample_count();
+    analysis.waveform.fill(0U, count);
+    analysis.parade_red.fill(0U, count);
+    analysis.parade_green.fill(0U, count);
+    analysis.parade_blue.fill(0U, count);
+    analysis.vectorscope.fill(0U, count);
+
+    WeightedCentroidAccumulator overall_centroid;
+    QVector<WeightedVectorscopeSample> selected_samples;
+    if (analysis.point_color_qualified) {
+        const qsizetype reserve_count = reference_selection == nullptr
+            ? sampled_lattice_count(source.size(), sampling_stride(source.size()))
+            : reference_selection->sample_weights.size();
+        selected_samples.reserve(reserve_count);
+    }
+
+    const int stride = reference_selection == nullptr
+        ? sampling_stride(source.size())
+        : reference_selection->sampling_stride;
+    qsizetype sample_index = 0;
+    for (int y = 0; y < source.height(); y += stride) {
+        const auto* const line = source.constScanLine(y);
+        for (int x = 0; x < source.width(); x += stride) {
+            const auto* const pixel = line + x * 4;
+            const double red = static_cast<double>(pixel[0]) / 255.0;
+            const double green = static_cast<double>(pixel[1]) / 255.0;
+            const double blue = static_cast<double>(pixel[2]) / 255.0;
+            double selection_weight = 1.0;
+            std::uint32_t density = 1U;
+            if (reference_selection != nullptr) {
+                density = reference_selection->sample_weights.at(sample_index);
+                selection_weight = static_cast<double>(density)
+                    / static_cast<double>(point_color_density_scale);
+            } else if (point_color_qualifier.has_value()) {
+                selection_weight = point_color_selection_weight(
+                    red,
+                    green,
+                    blue,
+                    *point_color_qualifier
+                );
+                density = selection_weight > 0.0
+                    ? point_color_density(selection_weight) : 0U;
+            }
+            ++sample_index;
+            ++analysis.sampled_pixels;
+            if (selection_weight <= 0.0) {
+                continue;
+            }
+            ++analysis.matched_pixels;
+            const int scope_x = scope_coordinate(x, source.width());
+            const double luma = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+
+            analysis.waveform[scope_index(
+                scope_x,
+                preview_scope_grid_size - 1 - scope_value_coordinate(luma)
+            )] += density;
+            analysis.parade_red[scope_index(
+                scope_x,
+                preview_scope_grid_size - 1 - scope_value_coordinate(red)
+            )] += density;
+            analysis.parade_green[scope_index(
+                scope_x,
+                preview_scope_grid_size - 1 - scope_value_coordinate(green)
+            )] += density;
+            analysis.parade_blue[scope_index(
+                scope_x,
+                preview_scope_grid_size - 1 - scope_value_coordinate(blue)
+            )] += density;
+
+            // Rec.709 Y'CbCr chroma axes provide a familiar vectorscope
+            // projection for the display-referred JPEG. The correction
+            // pipeline remains perceptual/OKLch; this is diagnostics only.
+            const double cb = (blue - luma) / (2.0 * (1.0 - 0.0722));
+            const double cr = (red - luma) / (2.0 * (1.0 - 0.2126));
+            const WeightedVectorscopeSample sample{
+                .luma = luma,
+                .cb = cb,
+                .cr = cr,
+                .weight = selection_weight,
+            };
+            overall_centroid.add(sample);
+            if (analysis.point_color_qualified) {
+                selected_samples.push_back(sample);
+            }
+            analysis.vectorscope[scope_index(
+                scope_value_coordinate(cb + 0.5),
+                scope_value_coordinate(0.5 - cr)
+            )] += density;
+        }
+    }
+
+    const PreviewSkinToneRangeAnalysis overall = centroid_analysis(overall_centroid);
+    if (overall.available) {
+        analysis.has_vectorscope_centroid = true;
+        analysis.vectorscope_centroid_cb = overall.vectorscope_centroid_cb;
+        analysis.vectorscope_centroid_cr = overall.vectorscope_centroid_cr;
+        analysis.skin_guide_deviation_degrees = overall.skin_guide_deviation_degrees;
+    }
+    populate_relative_skin_tone_ranges(selected_samples, analysis);
+    analysis.available = analysis.sampled_pixels > 0;
+    return analysis;
+}
+
 [[nodiscard]] bool matching_sensor_mask(
     const QSize preview_dimensions,
     const PreviewSensorClippingMask& mask
@@ -247,110 +503,90 @@ void paint_stripe(
 
 } // namespace
 
-PreviewDisplayScopeAnalysis analyze_display_scope(
+PreviewScopeReferenceSelection capture_display_scope_reference(
     const QImage& preview,
-    const std::optional<PreviewScopeHueQualifier> point_color_qualifier
+    const PreviewScopeHueQualifier& point_color_qualifier
 ) noexcept {
     try {
-        if (preview.isNull() || !preview.size().isValid()) {
-            return {};
-        }
-        if (point_color_qualifier.has_value()
-            && !valid_point_color_qualifier(*point_color_qualifier)) {
+        if (preview.isNull() || !preview.size().isValid()
+            || !valid_point_color_qualifier(point_color_qualifier)) {
             return {};
         }
         const QImage source = preview.convertToFormat(QImage::Format_RGBA8888);
         if (source.isNull()) {
             return {};
         }
-
-        PreviewDisplayScopeAnalysis analysis;
-        analysis.point_color_qualified = point_color_qualifier.has_value();
-        analysis.source_dimensions = source.size();
-        const qsizetype count = scope_sample_count();
-        analysis.waveform.fill(0U, count);
-        analysis.parade_red.fill(0U, count);
-        analysis.parade_green.fill(0U, count);
-        analysis.parade_blue.fill(0U, count);
-        analysis.vectorscope.fill(0U, count);
-        double centroid_cb_sum = 0.0;
-        double centroid_cr_sum = 0.0;
-        double centroid_weight_sum = 0.0;
-
-        const int stride = sampling_stride(source.size());
-        for (int y = 0; y < source.height(); y += stride) {
+        PreviewScopeReferenceSelection selection;
+        selection.source_dimensions = source.size();
+        selection.sampling_stride = sampling_stride(source.size());
+        selection.qualifier = point_color_qualifier;
+        selection.sample_weights.reserve(sampled_lattice_count(
+            source.size(),
+            selection.sampling_stride
+        ));
+        for (int y = 0; y < source.height(); y += selection.sampling_stride) {
             const auto* const line = source.constScanLine(y);
-            for (int x = 0; x < source.width(); x += stride) {
+            for (int x = 0; x < source.width(); x += selection.sampling_stride) {
                 const auto* const pixel = line + x * 4;
-                const double red = static_cast<double>(pixel[0]) / 255.0;
-                const double green = static_cast<double>(pixel[1]) / 255.0;
-                const double blue = static_cast<double>(pixel[2]) / 255.0;
-                const double selection_weight = point_color_qualifier.has_value()
-                    ? point_color_selection_weight(red, green, blue, *point_color_qualifier)
-                    : 1.0;
-                ++analysis.sampled_pixels;
-                if (selection_weight <= 0.0) {
-                    continue;
-                }
-                ++analysis.matched_pixels;
-                const std::uint32_t density = point_color_qualifier.has_value()
-                    ? point_color_density(selection_weight)
-                    : 1U;
-                const int scope_x = scope_coordinate(x, source.width());
-                const double luma = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
-
-                analysis.waveform[scope_index(
-                    scope_x,
-                    preview_scope_grid_size - 1 - scope_value_coordinate(luma)
-                )] += density;
-                analysis.parade_red[scope_index(
-                    scope_x,
-                    preview_scope_grid_size - 1 - scope_value_coordinate(red)
-                )] += density;
-                analysis.parade_green[scope_index(
-                    scope_x,
-                    preview_scope_grid_size - 1 - scope_value_coordinate(green)
-                )] += density;
-                analysis.parade_blue[scope_index(
-                    scope_x,
-                    preview_scope_grid_size - 1 - scope_value_coordinate(blue)
-                )] += density;
-
-                // Rec.709 Y'CbCr chroma axes provide a familiar vectorscope
-                // projection for the display-referred JPEG. The correction
-                // pipeline remains perceptual/OKLch; this is diagnostics only.
-                const double cb = (blue - luma) / (2.0 * (1.0 - 0.0722));
-                const double cr = (red - luma) / (2.0 * (1.0 - 0.2126));
-                centroid_cb_sum += selection_weight * cb;
-                centroid_cr_sum += selection_weight * cr;
-                centroid_weight_sum += selection_weight;
-                analysis.vectorscope[scope_index(
-                    scope_value_coordinate(cb + 0.5),
-                    scope_value_coordinate(0.5 - cr)
-                )] += density;
-            }
-        }
-        if (centroid_weight_sum > 0.0) {
-            const double centroid_cb = centroid_cb_sum / centroid_weight_sum;
-            const double centroid_cr = centroid_cr_sum / centroid_weight_sum;
-            if (std::hypot(centroid_cb, centroid_cr) >= minimum_centroid_chroma) {
-                analysis.has_vectorscope_centroid = true;
-                analysis.vectorscope_centroid_cb = centroid_cb;
-                analysis.vectorscope_centroid_cr = centroid_cr;
-                const double centroid_degrees = std::atan2(centroid_cr, centroid_cb)
-                    * 180.0 / std::numbers::pi;
-                const double guide_degrees = std::atan2(skin_guide_cr, skin_guide_cb)
-                    * 180.0 / std::numbers::pi;
-                analysis.skin_guide_deviation_degrees = std::remainder(
-                    centroid_degrees - guide_degrees,
-                    360.0
+                const double weight = point_color_selection_weight(
+                    static_cast<double>(pixel[0]) / 255.0,
+                    static_cast<double>(pixel[1]) / 255.0,
+                    static_cast<double>(pixel[2]) / 255.0,
+                    point_color_qualifier
                 );
+                const std::uint16_t encoded_weight = weight > 0.0
+                    ? static_cast<std::uint16_t>(point_color_density(weight))
+                    : 0U;
+                selection.sample_weights.push_back(encoded_weight);
+                if (encoded_weight > 0U) {
+                    ++selection.matched_pixels;
+                }
             }
         }
-        analysis.available = analysis.sampled_pixels > 0;
-        return analysis;
+        selection.sampled_pixels = static_cast<std::uint64_t>(
+            selection.sample_weights.size()
+        );
+        selection.available = selection.sampled_pixels > 0U
+            && selection.matched_pixels > 0U;
+        return selection;
+    } catch (...) {
+        return {};
+    }
+}
+
+PreviewScopeReferenceSelection capture_display_scope_reference(
+    const QByteArray& encoded_preview,
+    const PreviewScopeHueQualifier& point_color_qualifier
+) noexcept {
+    try {
+        return capture_display_scope_reference(
+            QImage::fromData(encoded_preview, "JPEG"),
+            point_color_qualifier
+        );
+    } catch (...) {
+        return {};
+    }
+}
+
+PreviewDisplayScopeAnalysis analyze_display_scope(
+    const QImage& preview,
+    const std::optional<PreviewScopeHueQualifier> point_color_qualifier
+) noexcept {
+    try {
+        return analyze_display_scope_impl(preview, point_color_qualifier, nullptr);
     } catch (...) {
         // Preview diagnostics must never make a valid preview unavailable.
+        return {};
+    }
+}
+
+PreviewDisplayScopeAnalysis analyze_display_scope(
+    const QImage& preview,
+    const PreviewScopeReferenceSelection& reference_selection
+) noexcept {
+    try {
+        return analyze_display_scope_impl(preview, std::nullopt, &reference_selection);
+    } catch (...) {
         return {};
     }
 }
@@ -363,6 +599,20 @@ PreviewDisplayScopeAnalysis analyze_display_scope(
         return analyze_display_scope(
             QImage::fromData(encoded_preview, "JPEG"),
             point_color_qualifier
+        );
+    } catch (...) {
+        return {};
+    }
+}
+
+PreviewDisplayScopeAnalysis analyze_display_scope(
+    const QByteArray& encoded_preview,
+    const PreviewScopeReferenceSelection& reference_selection
+) noexcept {
+    try {
+        return analyze_display_scope(
+            QImage::fromData(encoded_preview, "JPEG"),
+            reference_selection
         );
     } catch (...) {
         return {};

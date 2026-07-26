@@ -5,6 +5,7 @@
 #include <QSize>
 #include <QVector>
 
+#include <array>
 #include <cstdint>
 #include <optional>
 
@@ -34,9 +35,41 @@ struct PreviewScopeHueQualifier final {
     double softness = 0.5;
 };
 
+// A diagnostic selection captured from one ready display preview. The compact
+// weights follow the same deterministic sampling lattice as the scopes. They
+// deliberately remain desktop-session state rather than Recipe data: their
+// purpose is to keep following the same spatial skin samples while the output
+// hue is adjusted.
+struct PreviewScopeReferenceSelection final {
+    bool available = false;
+    QSize source_dimensions;
+    int sampling_stride = 0;
+    PreviewScopeHueQualifier qualifier;
+    std::uint64_t sampled_pixels = 0;
+    std::uint64_t matched_pixels = 0;
+    QVector<std::uint16_t> sample_weights;
+};
+
+inline constexpr std::size_t preview_skin_tone_range_count = 3U;
+
+enum class PreviewSkinToneRange : std::size_t {
+    shadows = 0U,
+    midtones = 1U,
+    highlights = 2U,
+};
+
+struct PreviewSkinToneRangeAnalysis final {
+    bool available = false;
+    std::uint64_t matched_pixels = 0;
+    double vectorscope_centroid_cb = 0.0;
+    double vectorscope_centroid_cr = 0.0;
+    double skin_guide_deviation_degrees = 0.0;
+};
+
 struct PreviewDisplayScopeAnalysis final {
     bool available = false;
     bool point_color_qualified = false;
+    bool reference_selection = false;
     QSize source_dimensions;
     std::uint64_t sampled_pixels = 0;
     std::uint64_t matched_pixels = 0;
@@ -49,7 +82,21 @@ struct PreviewDisplayScopeAnalysis final {
     QVector<std::uint32_t> parade_green;
     QVector<std::uint32_t> parade_blue;
     QVector<std::uint32_t> vectorscope;
+    std::array<
+        PreviewSkinToneRangeAnalysis,
+        preview_skin_tone_range_count
+    > skin_tone_ranges{};
 };
+
+[[nodiscard]] PreviewScopeReferenceSelection capture_display_scope_reference(
+    const QImage& preview,
+    const PreviewScopeHueQualifier& point_color_qualifier
+) noexcept;
+
+[[nodiscard]] PreviewScopeReferenceSelection capture_display_scope_reference(
+    const QByteArray& encoded_preview,
+    const PreviewScopeHueQualifier& point_color_qualifier
+) noexcept;
 
 [[nodiscard]] PreviewDisplayScopeAnalysis analyze_display_scope(
     const QImage& preview,
@@ -57,8 +104,18 @@ struct PreviewDisplayScopeAnalysis final {
 ) noexcept;
 
 [[nodiscard]] PreviewDisplayScopeAnalysis analyze_display_scope(
+    const QImage& preview,
+    const PreviewScopeReferenceSelection& reference_selection
+) noexcept;
+
+[[nodiscard]] PreviewDisplayScopeAnalysis analyze_display_scope(
     const QByteArray& encoded_preview,
     std::optional<PreviewScopeHueQualifier> point_color_qualifier = std::nullopt
+) noexcept;
+
+[[nodiscard]] PreviewDisplayScopeAnalysis analyze_display_scope(
+    const QByteArray& encoded_preview,
+    const PreviewScopeReferenceSelection& reference_selection
 ) noexcept;
 
 // Produces the translucent editor overlay. When a valid sensor mask is supplied it is

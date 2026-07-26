@@ -86,6 +86,8 @@ int main() {
     if (!require(point_color_scope.available, "qualified scope remains available")
         || !require(point_color_scope.point_color_qualified,
                     "qualified scope records its Point Color source")
+        || !require(!point_color_scope.reference_selection,
+                    "live Point Color qualification is not reported as a frozen reference")
         || !require(point_color_scope.sampled_pixels == 3U,
                     "qualified scope still reports all physical preview samples")
         || !require(point_color_scope.matched_pixels == 1U,
@@ -102,6 +104,92 @@ int main() {
                     "qualified scope keeps the selected vectorscope density")
         || !require(total(point_color_scope.vectorscope) < 3U * 256U,
                     "qualified density excludes the nonmatching hue samples")) {
+        return EXIT_FAILURE;
+    }
+
+    const PreviewScopeHueQualifier red_qualifier{
+        .center_degrees = 30.0,
+        .width_degrees = 12.0,
+        .softness = 0.0,
+    };
+    const PreviewScopeReferenceSelection frozen_red =
+        capture_display_scope_reference(qualifier_preview, red_qualifier);
+    QImage shifted_preview = qualifier_preview;
+    shifted_preview.setPixelColor(0, 0, QColor(0, 0, 255));
+    const PreviewDisplayScopeAnalysis live_shifted = analyze_display_scope(
+        shifted_preview,
+        red_qualifier
+    );
+    const PreviewDisplayScopeAnalysis frozen_shifted = analyze_display_scope(
+        shifted_preview,
+        frozen_red
+    );
+    if (!require(frozen_red.available, "Point Color reference capture is available")
+        || !require(frozen_red.sampled_pixels == 3U,
+                    "reference capture records the deterministic sampling lattice")
+        || !require(frozen_red.matched_pixels == 1U,
+                    "reference capture freezes only the originally matching sample")
+        || !require(live_shifted.matched_pixels == 0U,
+                    "live qualification loses a sample after its output hue moves")
+        || !require(frozen_shifted.reference_selection,
+                    "frozen analysis records its stable reference source")
+        || !require(frozen_shifted.matched_pixels == 1U,
+                    "frozen analysis follows the original spatial sample after its hue moves")
+        || !require(frozen_shifted.has_vectorscope_centroid
+                        && frozen_shifted.vectorscope_centroid_cb > 0.4,
+                    "frozen analysis measures the moved sample at its current output color")) {
+        return EXIT_FAILURE;
+    }
+
+    QImage skin_ramp(QSize(9, 1), QImage::Format_RGBA8888);
+    for (int x = 0; x < skin_ramp.width(); ++x) {
+        const int red = 55 + x * 25;
+        skin_ramp.setPixelColor(x, 0, QColor(red, red / 5, red / 8));
+    }
+    const PreviewScopeReferenceSelection skin_reference =
+        capture_display_scope_reference(
+            skin_ramp,
+            PreviewScopeHueQualifier{
+                .center_degrees = 30.0,
+                .width_degrees = 35.0,
+                .softness = 0.25,
+            }
+        );
+    const PreviewDisplayScopeAnalysis skin_scope = analyze_display_scope(
+        skin_ramp,
+        skin_reference
+    );
+    const auto& shadows = skin_scope.skin_tone_ranges.at(
+        static_cast<std::size_t>(PreviewSkinToneRange::shadows)
+    );
+    const auto& midtones = skin_scope.skin_tone_ranges.at(
+        static_cast<std::size_t>(PreviewSkinToneRange::midtones)
+    );
+    const auto& highlights = skin_scope.skin_tone_ranges.at(
+        static_cast<std::size_t>(PreviewSkinToneRange::highlights)
+    );
+    if (!require(skin_reference.available && skin_reference.matched_pixels >= 6U,
+                 "skin ramp produces a useful frozen reference")
+        || !require(shadows.available && midtones.available && highlights.available,
+                    "relative skin analysis exposes shadow, midtone, and highlight centroids")
+        || !require(
+            shadows.matched_pixels + midtones.matched_pixels + highlights.matched_pixels
+                == skin_scope.matched_pixels,
+            "relative skin ranges partition the frozen selection without losing samples"
+        )
+        || !require(
+            std::isfinite(shadows.skin_guide_deviation_degrees)
+                && std::isfinite(midtones.skin_guide_deviation_degrees)
+                && std::isfinite(highlights.skin_guide_deviation_degrees),
+            "each relative skin range reports a finite guide deviation"
+        )) {
+        return EXIT_FAILURE;
+    }
+
+    QImage wrong_size(QSize(2, 2), QImage::Format_RGBA8888);
+    wrong_size.fill(Qt::red);
+    if (!require(!analyze_display_scope(wrong_size, frozen_red).available,
+                 "frozen references fail closed when preview dimensions change")) {
         return EXIT_FAILURE;
     }
 
