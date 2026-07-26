@@ -104,10 +104,20 @@
     // endpoint controls are anchored farther from middle gray and are narrower; the recovery
     // controls deliberately reach into the adjacent midtones.  This separates their useful
     // ranges while avoiding a hard mask boundary that would show as a contour in a gradient.
-    constexpr double endpoint_strength = 0.78;
-    constexpr double endpoint_boundary_ev = 1.75;
-    constexpr double endpoint_softness_ev = 0.62;
-    constexpr double recovery_strength = 0.68;
+    // The original endpoint fields were deliberately defensive, but they made Blacks/Whites
+    // feel like a final one-percent trim on ordinary RAW detail.  A photographic control needs
+    // to have a clear effect before the signal is at its absolute floor/ceiling, while still
+    // rolling smoothly enough that it cannot create a contour.  The endpoint has a narrower
+    // support than the recovery fields below; it contributes stronger toe/shoulder placement
+    // without replacing Shadows/Highlights as the broad recovery tools.
+    constexpr double endpoint_strength = 0.86;
+    constexpr double endpoint_boundary_ev = 1.45;
+    constexpr double endpoint_softness_ev = 0.55;
+    // Keep every stage's derivative strictly positive at its extreme (1-strength), so even a
+    // fully combined Blacks + Shadows or Highlights + Whites edit remains monotonic.  The
+    // slightly wider range gives the recovery controls enough practical latitude for a RAW
+    // file without asking exposure or a curve to do all of the work.
+    constexpr double recovery_strength = 0.76;
     constexpr double shadow_boundary_ev = -0.15;
     constexpr double highlight_boundary_ev = 0.75;
     constexpr double recovery_softness_ev = 0.95;
