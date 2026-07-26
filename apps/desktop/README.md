@@ -23,6 +23,24 @@ Pick / Reject / 0–5 rating command
 
 QML never opens SQLite, calls LibRaw, or interprets blob paths. The global local Library loads its existing first page at startup; Add Folder starts a separate import job and no longer clears already visible photos. The Rust bridge returns bounded Review metadata pages using a stable path/representation cursor and exposes a generation-bound progress snapshot for Qt to poll. While import is changing sort order, each live first-page snapshot is reconciled as a prefix: matching rows move or update, new rows insert, and every already loaded key outside that prefix remains in its existing tail. No pagination cursor is exposed in this phase. At terminal state Qt pages again from the stable origin until the rebuilt sorted prefix contains every still-present loaded representation, then atomically publishes that exact boundary and re-enables pagination. Compressed visuals are not stored in the Qt model: a forced-asynchronous `QQuickImageProvider` requests a verified cache blob only when Qt needs that image and decodes only the requested display size. Every image URL carries the current model generation, so a late result from an obsolete Library presentation is discarded.
 
+## Desktop source index
+
+`EditController` is the stable QObject/QML facade, with implementation grouped by responsibility:
+
+- [`src/edit_controller.cpp`](src/edit_controller.cpp) owns adjustment interaction, Grade Node
+  composition, geometry, and session-local edit history.
+- [`src/edit_local_mask_controller.cpp`](src/edit_local_mask_controller.cpp) owns local-mask
+  presentation, asset persistence, clipboard semantics, geometry validation, and brush strokes.
+- [`src/edit_retouch_controller.cpp`](src/edit_retouch_controller.cpp) owns photo-level repair and
+  clone picker state, continuous strokes, legacy spots, and source-offset editing.
+- [`src/edit_persistence_coordinator.cpp`](src/edit_persistence_coordinator.cpp) owns photo
+  open/close, autosave, version operations, and durable state transitions.
+- [`src/edit_render_coordinator.cpp`](src/edit_render_coordinator.cpp) owns preview/detail
+  scheduling, cancellation, analysis publication, and render presentation state.
+
+Add a new edit workflow to its semantic owner and wire only its stable QML contract through
+`edit_controller.hpp`; do not rebuild a monolithic controller implementation.
+
 Import progress is intentionally absolute rather than a fabricated percentage: the scanner does not perform a separate counting walk. During active scanning the UI reports discovered/catalogued files and queued preview checks; exact completed, decode-failure, preview-failure, and cancelled-job counts are terminal summaries. The first catalogued batch can appear while enumeration and preview checks are still active, and those rows may already be opened in Precision. Manual decisions, Compare writes, Add Folder, and pagination remain disabled through the terminal stable-prefix refresh. Stop Import uses one cooperative token across enumeration and queued decode jobs; already registered assets remain durable, queued jobs skip provider work, and one in-flight provider call may finish. If cancellation reaches enumeration/catalog registration, that journal ends as `cancelled`; if it arrives only during the `PreparingPreviews` tail, enumeration may already be journaled `completed` while the desktop/FFI job still terminates `cancelled` and queued preview work stops.
 
 When the preferred cached visual is JPEG, the core also queues a maximum-512-edge

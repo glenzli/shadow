@@ -1,0 +1,433 @@
+#include "edit_controller.hpp"
+
+#include <cmath>
+#include <initializer_list>
+#include <utility>
+
+namespace {
+
+[[nodiscard]] LocalizedUiMessage retouch_message(
+    const char* const source,
+    const std::initializer_list<LocalizedUiArgument> arguments = {}
+) {
+    return {"EditController", source, arguments};
+}
+
+} // namespace
+
+QVariantList EditController::retouchSpots() const {
+    QVariantList result;
+    result.reserve(grade_stack_.retouch_spots.size());
+    for (qsizetype index = 0; index < grade_stack_.retouch_spots.size(); ++index) {
+        const auto& spot = grade_stack_.retouch_spots.at(index);
+        result.push_back(QVariantMap{
+            {QStringLiteral("index"), static_cast<int>(index)},
+            {QStringLiteral("x"), spot.center_x},
+            {QStringLiteral("y"), spot.center_y},
+            {QStringLiteral("radius"), static_cast<int>(spot.radius_level_zero_pixels)},
+            {QStringLiteral("mode"), static_cast<int>(spot.mode)},
+            {QStringLiteral("sourceOffsetX"), spot.source_offset_x_radii},
+            {QStringLiteral("sourceOffsetY"), spot.source_offset_y_radii},
+            {QStringLiteral("feather"), spot.feather},
+        });
+    }
+    return result;
+}
+
+QVariantList EditController::retouchStrokes() const {
+    QVariantList result;
+    result.reserve(grade_stack_.retouch_strokes.size());
+    for (qsizetype index = 0; index < grade_stack_.retouch_strokes.size(); ++index) {
+        const auto& stroke = grade_stack_.retouch_strokes.at(index);
+        QVariantList points;
+        points.reserve(stroke.points.size());
+        for (const auto& point : stroke.points) {
+            points.push_back(QVariantMap{
+                {QStringLiteral("x"), point.x},
+                {QStringLiteral("y"), point.y},
+            });
+        }
+        result.push_back(QVariantMap{
+            {QStringLiteral("index"), static_cast<int>(index)},
+            {QStringLiteral("points"), points},
+            {QStringLiteral("radius"), static_cast<int>(stroke.radius_level_zero_pixels)},
+            {QStringLiteral("mode"), static_cast<int>(stroke.mode)},
+            {QStringLiteral("sourceOffsetX"), stroke.source_offset_x_radii},
+            {QStringLiteral("sourceOffsetY"), stroke.source_offset_y_radii},
+            {QStringLiteral("feather"), stroke.feather},
+        });
+    }
+    return result;
+}
+
+bool EditController::retouchPickerActive() const noexcept {
+    return retouch_picker_active_;
+}
+
+int EditController::retouchCreationMode() const noexcept {
+    return retouch_creation_mode_;
+}
+
+void EditController::setRetouchPickerActive(const bool active) {
+    if (!active) {
+        endRetouchStroke();
+    }
+    if (retouch_picker_active_ == active) {
+        return;
+    }
+    retouch_picker_active_ = active;
+    emit retouchPickerActiveChanged();
+    if (active && point_color_picker_active_) {
+        point_color_picker_active_ = false;
+        emit pointColorPickerActiveChanged();
+    }
+    if (active && white_balance_picker_active_) {
+        white_balance_picker_active_ = false;
+        emit whiteBalancePickerActiveChanged();
+    }
+}
+
+void EditController::setRetouchCreationMode(const int mode) {
+    constexpr int heal_mode = 0;
+    constexpr int clone_mode = 1;
+    if ((mode != heal_mode && mode != clone_mode)
+        || retouch_creation_mode_ == mode) {
+        return;
+    }
+    retouch_creation_mode_ = mode;
+    emit retouchCreationModeChanged();
+}
+
+void EditController::addRetouchSpotFromPreview(
+    const double normalized_x,
+    const double normalized_y
+) {
+    if (!active_ || interactionLocked() || !retouch_picker_active_
+        || !std::isfinite(normalized_x) || !std::isfinite(normalized_y)
+        || normalized_x < 0.0 || normalized_x > 1.0
+        || normalized_y < 0.0 || normalized_y > 1.0) {
+        return;
+    }
+    constexpr qsizetype maximum_retouch_spots = 64;
+    if (grade_stack_.retouch_spots.size() >= maximum_retouch_spots) {
+        setStatusMessage(retouch_message(QT_TRANSLATE_NOOP(
+            "EditController", "Repair supports at most 64 spots"
+        )));
+        return;
+    }
+    finishActiveGesture();
+    const BackendGradeStack before = grade_stack_;
+    grade_stack_.retouch_spots.push_back(BackendRetouchSpot{
+        .center_x = normalized_x,
+        .center_y = normalized_y,
+        .radius_level_zero_pixels = 18U,
+        .mode = static_cast<std::uint8_t>(retouch_creation_mode_),
+        .source_offset_x_radii = retouch_creation_mode_ == 1 ? 1.5 : 0.0,
+        .source_offset_y_radii = retouch_creation_mode_ == 1 ? -1.0 : 0.0,
+        .feather = 0.28,
+    });
+    parameterEdited(QStringLiteral("retouch/add"), before);
+    setStatusMessage(retouch_message(QT_TRANSLATE_NOOP(
+        "EditController", "Added repair spot"
+    )));
+}
+
+void EditController::beginRetouchStroke(
+    const double normalized_x,
+    const double normalized_y
+) {
+    if (!active_ || interactionLocked() || !retouch_picker_active_
+        || active_retouch_stroke_index_ >= 0
+        || !std::isfinite(normalized_x) || !std::isfinite(normalized_y)
+        || normalized_x < 0.0 || normalized_x > 1.0
+        || normalized_y < 0.0 || normalized_y > 1.0) {
+        return;
+    }
+    constexpr qsizetype maximum_retouch_strokes = 64;
+    if (grade_stack_.retouch_strokes.size() >= maximum_retouch_strokes) {
+        setStatusMessage(retouch_message(QT_TRANSLATE_NOOP(
+            "EditController", "Repair supports at most 64 strokes"
+        )));
+        return;
+    }
+    finishActiveGesture();
+    const BackendGradeStack before = grade_stack_;
+    const QString key = QStringLiteral("retouch/stroke/add");
+    beginParameterEdit(key);
+    grade_stack_.retouch_strokes.push_back(BackendRetouchStroke{
+        .points = {{.x = normalized_x, .y = normalized_y}},
+        .radius_level_zero_pixels = 18U,
+        .mode = static_cast<std::uint8_t>(retouch_creation_mode_),
+        .source_offset_x_radii = retouch_creation_mode_ == 1 ? 1.5 : 0.0,
+        .source_offset_y_radii = retouch_creation_mode_ == 1 ? -1.0 : 0.0,
+        .feather = 0.28,
+    });
+    active_retouch_stroke_index_ = static_cast<int>(
+        grade_stack_.retouch_strokes.size() - 1
+    );
+    parameterEdited(key, before);
+}
+
+void EditController::appendRetouchStrokePoint(
+    const double normalized_x,
+    const double normalized_y
+) {
+    constexpr qsizetype maximum_retouch_stroke_points = 512;
+    if (!active_ || interactionLocked() || active_retouch_stroke_index_ < 0
+        || active_retouch_stroke_index_ >= grade_stack_.retouch_strokes.size()
+        || !std::isfinite(normalized_x) || !std::isfinite(normalized_y)
+        || normalized_x < 0.0 || normalized_x > 1.0
+        || normalized_y < 0.0 || normalized_y > 1.0) {
+        return;
+    }
+    auto& stroke = grade_stack_.retouch_strokes[active_retouch_stroke_index_];
+    if (!stroke.points.isEmpty()
+        && stroke.points.back().x == normalized_x
+        && stroke.points.back().y == normalized_y) {
+        return;
+    }
+    const BackendGradeStack before = grade_stack_;
+    if (stroke.points.size() >= maximum_retouch_stroke_points) {
+        // Keep one gesture continuous even on very long drags. The persistent
+        // contract stays bounded, while downsampling the already-swept path
+        // is preferable to silently dropping the rest of the painted region.
+        QVector<BackendRetouchStrokePoint> compacted;
+        compacted.reserve((stroke.points.size() + 1) / 2);
+        for (qsizetype index = 0; index < stroke.points.size(); index += 2) {
+            compacted.push_back(stroke.points.at(index));
+        }
+        stroke.points = std::move(compacted);
+    }
+    stroke.points.push_back({.x = normalized_x, .y = normalized_y});
+    parameterEdited(QStringLiteral("retouch/stroke/add"), before);
+}
+
+void EditController::endRetouchStroke() {
+    if (active_retouch_stroke_index_ < 0) {
+        return;
+    }
+    active_retouch_stroke_index_ = -1;
+    endParameterEdit(QStringLiteral("retouch/stroke/add"));
+}
+
+void EditController::setRetouchSpotCenter(
+    const int index,
+    const double normalized_x,
+    const double normalized_y
+) {
+    if (!active_ || interactionLocked() || index < 0
+        || index >= grade_stack_.retouch_spots.size()
+        || !std::isfinite(normalized_x) || !std::isfinite(normalized_y)
+        || normalized_x < 0.0 || normalized_x > 1.0
+        || normalized_y < 0.0 || normalized_y > 1.0) {
+        return;
+    }
+    auto& spot = grade_stack_.retouch_spots[index];
+    if (spot.center_x == normalized_x && spot.center_y == normalized_y) {
+        return;
+    }
+    const BackendGradeStack before = grade_stack_;
+    spot.center_x = normalized_x;
+    spot.center_y = normalized_y;
+    parameterEdited(QStringLiteral("retouch/%1/center").arg(index), before);
+}
+
+void EditController::setRetouchSpotRadius(
+    const int index,
+    const int radius_level_zero_pixels
+) {
+    constexpr int minimum_radius = 1;
+    constexpr int maximum_radius = 128;
+    if (!active_ || interactionLocked() || index < 0
+        || index >= grade_stack_.retouch_spots.size()
+        || radius_level_zero_pixels < minimum_radius
+        || radius_level_zero_pixels > maximum_radius) {
+        return;
+    }
+    auto& spot = grade_stack_.retouch_spots[index];
+    const auto radius = static_cast<std::uint16_t>(radius_level_zero_pixels);
+    if (spot.radius_level_zero_pixels == radius) {
+        return;
+    }
+    const BackendGradeStack before = grade_stack_;
+    spot.radius_level_zero_pixels = radius;
+    parameterEdited(QStringLiteral("retouch/%1/radius").arg(index), before);
+}
+
+void EditController::setRetouchSpotMode(const int index, const int mode) {
+    constexpr int heal_mode = 0;
+    constexpr int clone_mode = 1;
+    if (!active_ || interactionLocked() || index < 0
+        || index >= grade_stack_.retouch_spots.size()
+        || (mode != heal_mode && mode != clone_mode)) {
+        return;
+    }
+    auto& spot = grade_stack_.retouch_spots[index];
+    const auto encoded_mode = static_cast<std::uint8_t>(mode);
+    if (spot.mode == encoded_mode) {
+        return;
+    }
+    const BackendGradeStack before = grade_stack_;
+    spot.mode = encoded_mode;
+    if (mode == clone_mode
+        && spot.source_offset_x_radii == 0.0
+        && spot.source_offset_y_radii == 0.0) {
+        spot.source_offset_x_radii = 1.5;
+        spot.source_offset_y_radii = -1.0;
+    }
+    parameterEdited(QStringLiteral("retouch/%1/mode").arg(index), before);
+}
+
+void EditController::setRetouchSpotFeather(const int index, const double feather) {
+    if (!active_ || interactionLocked() || index < 0
+        || index >= grade_stack_.retouch_spots.size()
+        || !std::isfinite(feather) || feather < 0.0 || feather > 1.0) {
+        return;
+    }
+    auto& spot = grade_stack_.retouch_spots[index];
+    if (spot.feather == feather) {
+        return;
+    }
+    const BackendGradeStack before = grade_stack_;
+    spot.feather = feather;
+    parameterEdited(QStringLiteral("retouch/%1/feather").arg(index), before);
+}
+
+void EditController::setRetouchSpotSourceOffset(
+    const int index,
+    const double offset_x_radii,
+    const double offset_y_radii
+) {
+    constexpr double maximum_offset_radii = 2.0;
+    if (!active_ || interactionLocked() || index < 0
+        || index >= grade_stack_.retouch_spots.size()
+        || !std::isfinite(offset_x_radii) || !std::isfinite(offset_y_radii)
+        || offset_x_radii < -maximum_offset_radii
+        || offset_x_radii > maximum_offset_radii
+        || offset_y_radii < -maximum_offset_radii
+        || offset_y_radii > maximum_offset_radii) {
+        return;
+    }
+    auto& spot = grade_stack_.retouch_spots[index];
+    if (spot.source_offset_x_radii == offset_x_radii
+        && spot.source_offset_y_radii == offset_y_radii) {
+        return;
+    }
+    const BackendGradeStack before = grade_stack_;
+    spot.source_offset_x_radii = offset_x_radii;
+    spot.source_offset_y_radii = offset_y_radii;
+    parameterEdited(QStringLiteral("retouch/%1/source").arg(index), before);
+}
+
+void EditController::removeRetouchSpot(const int index) {
+    if (!active_ || interactionLocked() || index < 0
+        || index >= grade_stack_.retouch_spots.size()) {
+        return;
+    }
+    finishActiveGesture();
+    const BackendGradeStack before = grade_stack_;
+    grade_stack_.retouch_spots.removeAt(index);
+    parameterEdited(QStringLiteral("retouch/remove"), before);
+    setStatusMessage(retouch_message(QT_TRANSLATE_NOOP(
+        "EditController", "Removed repair spot"
+    )));
+}
+
+void EditController::setRetouchStrokeRadius(
+    const int index,
+    const int radius_level_zero_pixels
+) {
+    constexpr int minimum_radius = 1;
+    constexpr int maximum_radius = 128;
+    if (!active_ || interactionLocked() || index < 0
+        || index >= grade_stack_.retouch_strokes.size()
+        || radius_level_zero_pixels < minimum_radius
+        || radius_level_zero_pixels > maximum_radius) {
+        return;
+    }
+    auto& stroke = grade_stack_.retouch_strokes[index];
+    const auto radius = static_cast<std::uint16_t>(radius_level_zero_pixels);
+    if (stroke.radius_level_zero_pixels == radius) {
+        return;
+    }
+    const BackendGradeStack before = grade_stack_;
+    stroke.radius_level_zero_pixels = radius;
+    parameterEdited(QStringLiteral("retouch/stroke/%1/radius").arg(index), before);
+}
+
+void EditController::setRetouchStrokeMode(const int index, const int mode) {
+    constexpr int heal_mode = 0;
+    constexpr int clone_mode = 1;
+    if (!active_ || interactionLocked() || index < 0
+        || index >= grade_stack_.retouch_strokes.size()
+        || (mode != heal_mode && mode != clone_mode)) {
+        return;
+    }
+    auto& stroke = grade_stack_.retouch_strokes[index];
+    const auto encoded_mode = static_cast<std::uint8_t>(mode);
+    if (stroke.mode == encoded_mode) {
+        return;
+    }
+    const BackendGradeStack before = grade_stack_;
+    stroke.mode = encoded_mode;
+    if (mode == clone_mode
+        && stroke.source_offset_x_radii == 0.0
+        && stroke.source_offset_y_radii == 0.0) {
+        stroke.source_offset_x_radii = 1.5;
+        stroke.source_offset_y_radii = -1.0;
+    }
+    parameterEdited(QStringLiteral("retouch/stroke/%1/mode").arg(index), before);
+}
+
+void EditController::setRetouchStrokeFeather(const int index, const double feather) {
+    if (!active_ || interactionLocked() || index < 0
+        || index >= grade_stack_.retouch_strokes.size()
+        || !std::isfinite(feather) || feather < 0.0 || feather > 1.0) {
+        return;
+    }
+    auto& stroke = grade_stack_.retouch_strokes[index];
+    if (stroke.feather == feather) {
+        return;
+    }
+    const BackendGradeStack before = grade_stack_;
+    stroke.feather = feather;
+    parameterEdited(QStringLiteral("retouch/stroke/%1/feather").arg(index), before);
+}
+
+void EditController::setRetouchStrokeSourceOffset(
+    const int index,
+    const double offset_x_radii,
+    const double offset_y_radii
+) {
+    constexpr double maximum_offset_radii = 2.0;
+    if (!active_ || interactionLocked() || index < 0
+        || index >= grade_stack_.retouch_strokes.size()
+        || !std::isfinite(offset_x_radii) || !std::isfinite(offset_y_radii)
+        || offset_x_radii < -maximum_offset_radii
+        || offset_x_radii > maximum_offset_radii
+        || offset_y_radii < -maximum_offset_radii
+        || offset_y_radii > maximum_offset_radii) {
+        return;
+    }
+    auto& stroke = grade_stack_.retouch_strokes[index];
+    if (stroke.source_offset_x_radii == offset_x_radii
+        && stroke.source_offset_y_radii == offset_y_radii) {
+        return;
+    }
+    const BackendGradeStack before = grade_stack_;
+    stroke.source_offset_x_radii = offset_x_radii;
+    stroke.source_offset_y_radii = offset_y_radii;
+    parameterEdited(QStringLiteral("retouch/stroke/%1/source").arg(index), before);
+}
+
+void EditController::removeRetouchStroke(const int index) {
+    if (!active_ || interactionLocked() || index < 0
+        || index >= grade_stack_.retouch_strokes.size()) {
+        return;
+    }
+    finishActiveGesture();
+    active_retouch_stroke_index_ = -1;
+    const BackendGradeStack before = grade_stack_;
+    grade_stack_.retouch_strokes.removeAt(index);
+    parameterEdited(QStringLiteral("retouch/stroke/remove"), before);
+}

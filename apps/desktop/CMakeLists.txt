@@ -125,8 +125,10 @@ qt_add_executable(
     src/cache_maintenance_controller.hpp
     src/edit_controller.cpp
     src/edit_controller.hpp
+    src/edit_local_mask_controller.cpp
     src/edit_persistence_coordinator.cpp
     src/edit_render_coordinator.cpp
+    src/edit_retouch_controller.cpp
     src/edit_task_runner.cpp
     src/edit_task_runner.hpp
     src/edit_history.hpp
