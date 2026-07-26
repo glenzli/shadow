@@ -53,8 +53,8 @@ use shadow_bridge::{
     SelectiveToneParameters, SharpenParameters,
     TECHNICAL_DETAIL_IMPLEMENTATION_VERSION as TECHNICAL_DETAIL_IMPLEMENTATION_REVISION,
     ToneCurvePoint, edit_preview_generator_implementation_identity, photo_provider_version,
-    query_optics_profiles_from_metadata, query_photo_optics_profiles,
-    raw_development_plan_identity,
+    photo_supported_raster_extensions, query_optics_profiles_from_metadata,
+    query_photo_optics_profiles, raw_development_plan_identity,
 };
 use shadow_cache::ContentAddressedStore;
 use shadow_catalog::{
@@ -118,6 +118,7 @@ use crate::photo_provider::PhotoInspector;
 use crate::photo_provider::isolated_edit_raster;
 use crate::isolated_proxy::{
     NativeDecodeAdmission, configured_helper_path, native_decode_admission_after_isolated_stages,
+    snapshot_isolated_photo_metadata,
 };
 use crate::review_service::ReviewService;
 use crate::scan_service::ScanService;
@@ -1992,7 +1993,11 @@ impl DesktopSession {
         {
             query_optics_profiles_from_metadata(&metadata)
         } else {
-            query_photo_optics_profiles(&catalog_native_path(&source)?)?
+            query_missing_catalog_optics_profiles(
+                &catalog_native_path(&source)?,
+                &self.cache_root,
+                configured_helper_path().as_deref(),
+            )?
         };
         Ok(candidates
             .into_iter()
@@ -3299,6 +3304,55 @@ fn reject_quarantined_native_decode(
             native_path.display(),
             observation.diagnostic_label(),
         ),
+    }
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum MissingCatalogOpticsRoute<'a> {
+    DirectNative,
+    IsolatedMetadata(&'a Path),
+}
+
+// Keep this source-shape decision alongside the desktop fallback that consumes it. It mirrors the
+// catalog inspector's public-raster exception: a configured helper isolates non-raster sources,
+// while ordinary JPEG/HEIF input retains its established direct metadata route.
+fn missing_catalog_optics_route<'a>(
+    native_path: &Path,
+    helper_path: Option<&'a Path>,
+) -> MissingCatalogOpticsRoute<'a> {
+    let Some(helper_path) = helper_path else {
+        return MissingCatalogOpticsRoute::DirectNative;
+    };
+    let is_supported_raster = native_path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            photo_supported_raster_extensions()
+                .iter()
+                .any(|supported| supported.eq_ignore_ascii_case(extension))
+        });
+    if is_supported_raster {
+        MissingCatalogOpticsRoute::DirectNative
+    } else {
+        MissingCatalogOpticsRoute::IsolatedMetadata(helper_path)
+    }
+}
+
+fn query_missing_catalog_optics_profiles(
+    native_path: &Path,
+    runtime_cache_root: &Path,
+    helper_path: Option<&Path>,
+) -> AnyResult<Vec<shadow_bridge::OpticsProfileCandidate>> {
+    match missing_catalog_optics_route(native_path, helper_path) {
+        MissingCatalogOpticsRoute::DirectNative => Ok(query_photo_optics_profiles(native_path)?),
+        MissingCatalogOpticsRoute::IsolatedMetadata(helper_path) => {
+            let snapshot =
+                snapshot_isolated_photo_metadata(helper_path, runtime_cache_root, native_path)
+                    .context(
+                        "optics profile metadata is unavailable from the isolated RAW helper",
+                    )?;
+            Ok(query_optics_profiles_from_metadata(&snapshot.metadata))
+        }
     }
 }
 
@@ -8732,6 +8786,58 @@ mod tests {
 
         drop(session);
         std::fs::remove_dir_all(root).expect("remove optics metadata fixture");
+    }
+
+    #[test]
+    fn missing_catalog_optics_route_isolates_helper_enabled_raw_but_not_rasters() {
+        let helper = Path::new("/helpers/shadow-decode-helper");
+        assert_eq!(
+            missing_catalog_optics_route(Path::new("/photos/unsafe.NEF"), Some(helper)),
+            MissingCatalogOpticsRoute::IsolatedMetadata(helper),
+        );
+        assert_eq!(
+            missing_catalog_optics_route(Path::new("/photos/already-rendered.JPG"), Some(helper)),
+            MissingCatalogOpticsRoute::DirectNative,
+        );
+        assert_eq!(
+            missing_catalog_optics_route(Path::new("/photos/ordinary.dng"), None),
+            MissingCatalogOpticsRoute::DirectNative,
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn missing_catalog_raw_optics_stops_after_an_isolated_helper_crash() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = std::env::temp_dir().join(format!(
+            "shadow-optics-metadata-crash-{}-{}",
+            std::process::id(),
+            RepresentationId::new_v7()
+        ));
+        std::fs::create_dir_all(&root).expect("create optics crash fixture");
+        let source = root.join("unsafe.nef");
+        // A non-image fixture makes any accidental native fallback immediately invalid. The
+        // helper must crash first and the facade must return that metadata failure instead of
+        // attempting the desktop-process router.
+        std::fs::write(&source, b"intentionally invalid raw fixture")
+            .expect("write optics crash source fixture");
+        let helper = root.join("crashing-helper");
+        std::fs::write(&helper, "#!/bin/sh\nkill -SEGV $$\n")
+            .expect("write crashing helper fixture");
+        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755))
+            .expect("make crashing helper executable");
+
+        let error = query_missing_catalog_optics_profiles(&source, &root, Some(&helper))
+            .expect_err("a child crash must not fall back to native RAW optics discovery");
+        assert!(
+            error
+                .chain()
+                .any(|cause| cause.to_string().contains("isolated RAW metadata snapshot")),
+            "the facade must return the isolated metadata failure before any native source open"
+        );
+
+        std::fs::remove_dir_all(root).expect("remove optics crash fixture");
     }
 
     #[test]
