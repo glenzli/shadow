@@ -124,7 +124,9 @@ qt_add_executable(
     src/cache_maintenance_controller.cpp
     src/cache_maintenance_controller.hpp
     src/edit_controller.cpp
+    src/edit_adjustment_controller.cpp
     src/edit_controller.hpp
+    src/edit_point_color_model.hpp
     src/edit_geometry_controller.cpp
     src/edit_grade_node_controller.cpp
     src/edit_local_mask_controller.cpp
