@@ -708,6 +708,9 @@ struct BackendEditPreviewAnalysis final {
     QVector<std::uint64_t> luma;
     QVector<std::uint64_t> below_zero_samples;
     QVector<std::uint64_t> above_one_samples;
+    QVector<std::uint64_t> hdr_headroom_bins;
+    std::uint64_t hdr_headroom_pixels = 0;
+    double hdr_peak_headroom_ev = 0.0;
     std::uint32_t width = 0;
     std::uint32_t height = 0;
     std::uint64_t pixel_count = 0;

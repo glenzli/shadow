@@ -12,6 +12,7 @@
 #include <array>
 #include <cmath>
 #include <exception>
+#include <limits>
 #include <stdexcept>
 #include <utility>
 
@@ -28,6 +29,7 @@ constexpr std::uint8_t EDIT_INTERACTIVE_PREVIEW_QUALITY = 84;
 constexpr int EDIT_DETAIL_DEBOUNCE_MS = 70;
 constexpr int EDIT_DETAIL_WARMUP_IDLE_MS = 180;
 constexpr qsizetype EDIT_HISTOGRAM_BIN_COUNT = 256;
+constexpr qsizetype EDIT_HDR_HEADROOM_BIN_COUNT = 16;
 
 [[nodiscard]] bool raw_development_unavailable(const QString& error) noexcept {
     return error.startsWith(QStringLiteral("RAW development is unavailable:"));
@@ -170,8 +172,25 @@ edit_message(const char *const source,
         || analysis.blue.size() != EDIT_HISTOGRAM_BIN_COUNT
         || analysis.luma.size() != EDIT_HISTOGRAM_BIN_COUNT
         || analysis.below_zero_samples.size() != 3
-        || analysis.above_one_samples.size() != 3) {
+        || analysis.above_one_samples.size() != 3
+        || analysis.hdr_headroom_bins.size() != EDIT_HDR_HEADROOM_BIN_COUNT
+        || analysis.hdr_headroom_pixels > analysis.pixel_count
+        || !std::isfinite(analysis.hdr_peak_headroom_ev)
+        || analysis.hdr_peak_headroom_ev < 0.0
+        || (analysis.hdr_headroom_pixels == 0 && analysis.hdr_peak_headroom_ev != 0.0)
+        || (analysis.hdr_headroom_pixels > 0 && analysis.hdr_peak_headroom_ev <= 0.0)) {
         throw std::runtime_error("edit preview analysis violated the desktop contract");
+    }
+    std::uint64_t hdr_headroom_sum = 0;
+    for (const auto count : analysis.hdr_headroom_bins) {
+        if (count > analysis.pixel_count
+            || std::numeric_limits<std::uint64_t>::max() - hdr_headroom_sum < count) {
+            throw std::runtime_error("edit preview HDR headroom bins overflow the desktop contract");
+        }
+        hdr_headroom_sum += count;
+    }
+    if (hdr_headroom_sum != analysis.hdr_headroom_pixels) {
+        throw std::runtime_error("edit preview HDR headroom bins do not cover their pixels");
     }
     const double pixel_count = static_cast<double>(analysis.pixel_count);
     QVariantMap snapshot{
@@ -193,6 +212,12 @@ edit_message(const char *const source,
         {QStringLiteral("luma"), histogram_counts(analysis.luma)},
         {QStringLiteral("belowZero"), histogram_counts(analysis.below_zero_samples)},
         {QStringLiteral("aboveOne"), histogram_counts(analysis.above_one_samples)},
+        {QStringLiteral("hdrHeadroomBins"), histogram_counts(analysis.hdr_headroom_bins)},
+        {
+            QStringLiteral("hdrHeadroomPixels"),
+            QVariant::fromValue<qulonglong>(analysis.hdr_headroom_pixels)
+        },
+        {QStringLiteral("hdrPeakHeadroomEv"), analysis.hdr_peak_headroom_ev},
         {
             QStringLiteral("shadowClippedPixels"),
             QVariant::fromValue<qulonglong>(analysis.shadow_clipped_pixels)
@@ -208,6 +233,10 @@ edit_message(const char *const source,
         {
             QStringLiteral("highlightClippedFraction"),
             static_cast<double>(analysis.highlight_clipped_pixels) / pixel_count
+        },
+        {
+            QStringLiteral("hdrHeadroomFraction"),
+            static_cast<double>(analysis.hdr_headroom_pixels) / pixel_count
         },
         {QStringLiteral("approximate"), true},
         {QStringLiteral("scope"), QStringLiteral("complete-warm-proxy")},

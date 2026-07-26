@@ -347,6 +347,9 @@ mod ffi {
         luma: Vec<u64>,
         below_zero_samples: Vec<u64>,
         above_one_samples: Vec<u64>,
+        hdr_headroom_bins: Vec<u64>,
+        hdr_headroom_pixels: u64,
+        hdr_peak_headroom_ev: f64,
         pixel_count: u64,
         shadow_clipped_pixels: u64,
         highlight_clipped_pixels: u64,
@@ -1680,11 +1683,14 @@ pub const EDIT_PREVIEW_HISTOGRAM_BIN_COUNT: usize = 256;
 /// Histograms cover the complete uncompressed display-encoded sRGB RGB8 warm proxy
 /// immediately before JPEG encoding. Clipping counts inspect the edited
 /// processed-linear working-RGB samples before display clamping and use strict `< 0` and `> 1`
-/// comparisons; exact zero and one are not clipped.
+/// comparisons; exact zero and one are not clipped. HDR headroom bins instead use linear
+/// Rec.709 luminance above `1.0` display white and retain the peak positive EV; they are an
+/// output-readiness diagnostic, not sensor dynamic-range evidence.
 pub const EDIT_PREVIEW_ANALYSIS_VERSION: &str = concat!(
-    "shadow.edit-preview-analysis.v1:rgb8-before-jpeg:rec709-encoded-q16:",
-    "pre-clamp-linear-strict-lt-gt-any-channel"
+    "shadow.edit-preview-analysis.v2:rgb8-before-jpeg:rec709-encoded-q16:",
+    "pre-clamp-linear-strict-lt-gt-any-channel:linear-headroom-log2-v1"
 );
+pub const EDIT_PREVIEW_HDR_HEADROOM_BIN_COUNT: usize = 16;
 pub const EDIT_PREVIEW_EXECUTION_RECEIPT_SCHEMA_VERSION: u32 = 1;
 pub const EDIT_PREVIEW_EXECUTION_PLAN_CONTRACT_VERSION: u32 = 1;
 pub const EDIT_PREVIEW_CPU_ADJUSTMENT_BACKEND_VERSION: u32 = 1;
@@ -3297,7 +3303,7 @@ impl SensorClippingMask {
 /// before JPEG encoding. Per-channel and any-channel clipping counts are
 /// derived from the same render's processed-linear working-RGB samples before output clamping;
 /// they are not sensor-domain exposure measurements.
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct EditPreviewAnalysis {
     pub version: String,
     pub sample_dimensions: ImageDimensions,
@@ -3307,6 +3313,9 @@ pub struct EditPreviewAnalysis {
     pub luma: [u64; EDIT_PREVIEW_HISTOGRAM_BIN_COUNT],
     pub below_zero_samples: [u64; 3],
     pub above_one_samples: [u64; 3],
+    pub hdr_headroom_bins: [u64; EDIT_PREVIEW_HDR_HEADROOM_BIN_COUNT],
+    pub hdr_headroom_pixels: u64,
+    pub hdr_peak_headroom_ev: f64,
     pub pixel_count: u64,
     pub shadow_clipped_pixels: u64,
     pub highlight_clipped_pixels: u64,
@@ -3347,7 +3356,7 @@ impl EditPreviewExecutionReceipt {
 }
 
 /// A JPEG preview and its generation-matched transient analysis.
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AnalyzedEditPreview {
     pub proxy: shadow_domain::ProxyPayload,
     pub analysis: EditPreviewAnalysis,
@@ -4723,6 +4732,40 @@ fn validated_channel_counts(values: Vec<u64>) -> Result<[u64; 3], BridgeError> {
     })
 }
 
+fn validated_hdr_headroom(
+    bins: Vec<u64>,
+    headroom_pixels: u64,
+    peak_ev: f64,
+    pixel_count: u64,
+) -> Result<[u64; EDIT_PREVIEW_HDR_HEADROOM_BIN_COUNT], BridgeError> {
+    let bins: [u64; EDIT_PREVIEW_HDR_HEADROOM_BIN_COUNT] = bins.try_into().map_err(|_| {
+        BridgeError::InvalidEditPreviewOutput(
+            "HDR headroom must contain exactly sixteen one-stop bins",
+        )
+    })?;
+    let sum = bins.iter().try_fold(0_u64, |sum, count| {
+        sum.checked_add(*count)
+            .ok_or(BridgeError::InvalidEditPreviewOutput(
+                "HDR headroom sample count overflows u64",
+            ))
+    })?;
+    if headroom_pixels > pixel_count || sum != headroom_pixels {
+        return Err(BridgeError::InvalidEditPreviewOutput(
+            "HDR headroom bins must exactly cover their bounded pixel count",
+        ));
+    }
+    if !peak_ev.is_finite()
+        || peak_ev < 0.0
+        || (headroom_pixels == 0 && peak_ev != 0.0)
+        || (headroom_pixels > 0 && peak_ev <= 0.0)
+    {
+        return Err(BridgeError::InvalidEditPreviewOutput(
+            "HDR headroom peak EV is inconsistent with its sample coverage",
+        ));
+    }
+    Ok(bins)
+}
+
 fn validate_any_channel_clip_count(
     per_channel: &[u64; 3],
     any_channel: u64,
@@ -4778,6 +4821,12 @@ fn validate_edit_preview_analysis(
     let luma = validated_histogram(analysis.luma, analysis.pixel_count)?;
     let below_zero_samples = validated_channel_counts(analysis.below_zero_samples)?;
     let above_one_samples = validated_channel_counts(analysis.above_one_samples)?;
+    let hdr_headroom_bins = validated_hdr_headroom(
+        analysis.hdr_headroom_bins,
+        analysis.hdr_headroom_pixels,
+        analysis.hdr_peak_headroom_ev,
+        analysis.pixel_count,
+    )?;
 
     for channel in 0..3 {
         if below_zero_samples[channel]
@@ -4809,6 +4858,9 @@ fn validate_edit_preview_analysis(
         luma,
         below_zero_samples,
         above_one_samples,
+        hdr_headroom_bins,
+        hdr_headroom_pixels: analysis.hdr_headroom_pixels,
+        hdr_peak_headroom_ev: analysis.hdr_peak_headroom_ev,
         pixel_count: analysis.pixel_count,
         shadow_clipped_pixels: analysis.shadow_clipped_pixels,
         highlight_clipped_pixels: analysis.highlight_clipped_pixels,
@@ -6098,6 +6150,9 @@ mod tests {
             luma: histogram(),
             below_zero_samples: vec![0, 0, 0],
             above_one_samples: vec![1, 0, 0],
+            hdr_headroom_bins: vec![1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            hdr_headroom_pixels: 1,
+            hdr_peak_headroom_ev: 1.0,
             pixel_count: 2,
             shadow_clipped_pixels: 0,
             highlight_clipped_pixels: 1,
@@ -6189,6 +6244,9 @@ mod tests {
         assert_eq!(valid.pixel_count, 2);
         assert_eq!(valid.red.iter().sum::<u64>(), 2);
         assert_eq!(valid.highlight_clipped_pixels, 1);
+        assert_eq!(valid.hdr_headroom_pixels, 1);
+        assert_eq!(valid.hdr_headroom_bins[0], 1);
+        assert_eq!(valid.hdr_peak_headroom_ev, 1.0);
 
         let mut wrong_version = valid_ffi_edit_preview_analysis();
         wrong_version.version.push_str(":future");
@@ -6220,6 +6278,21 @@ mod tests {
         wrong_histogram_sum.blue[0] = 1;
         assert!(matches!(
             validate_edit_preview_analysis(wrong_histogram_sum, proxy_dimensions),
+            Err(BridgeError::InvalidEditPreviewOutput(_))
+        ));
+
+        let mut malformed_hdr_headroom = valid_ffi_edit_preview_analysis();
+        malformed_hdr_headroom.hdr_headroom_bins.pop();
+        assert!(matches!(
+            validate_edit_preview_analysis(malformed_hdr_headroom, proxy_dimensions),
+            Err(BridgeError::InvalidEditPreviewOutput(_))
+        ));
+
+        let mut impossible_hdr_peak = valid_ffi_edit_preview_analysis();
+        impossible_hdr_peak.hdr_headroom_pixels = 0;
+        impossible_hdr_peak.hdr_headroom_bins[0] = 0;
+        assert!(matches!(
+            validate_edit_preview_analysis(impossible_hdr_peak, proxy_dimensions),
             Err(BridgeError::InvalidEditPreviewOutput(_))
         ));
 

@@ -121,6 +121,9 @@ template <std::size_t Size>
     result.luma = sample_counts(analysis.luma);
     result.below_zero_samples = sample_counts(analysis.below_zero_samples);
     result.above_one_samples = sample_counts(analysis.above_one_samples);
+    result.hdr_headroom_bins = sample_counts(analysis.hdr_headroom_bins);
+    result.hdr_headroom_pixels = analysis.hdr_headroom_pixels;
+    result.hdr_peak_headroom_ev = analysis.hdr_peak_headroom_ev;
     result.pixel_count = analysis.pixel_count;
     result.shadow_clipped_pixels = analysis.shadow_clipped_pixels;
     result.highlight_clipped_pixels = analysis.highlight_clipped_pixels;

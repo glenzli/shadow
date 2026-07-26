@@ -739,9 +739,13 @@ struct AdjustmentLayer final {
 // for applying it before full-resolution downsampling. Masked or neighborhood operations must
 // still declare an appropriate preview strategy rather than being silently routed through here.
 inline constexpr std::size_t edit_preview_histogram_bin_count = 256U;
+// Linear headroom is grouped in one-stop intervals above the SDR display-white reference:
+// bin 0 is [1, 2), bin 1 is [2, 4), and the final bin is open-ended.  It is a compact
+// scene/display-linear diagnostic for HDR readiness, not a sensor dynamic-range measurement.
+inline constexpr std::size_t edit_preview_hdr_headroom_bin_count = 16U;
 inline constexpr std::string_view edit_preview_analysis_version =
-    "shadow.edit-preview-analysis.v1:rgb8-before-jpeg:rec709-encoded-q16:"
-    "pre-clamp-linear-strict-lt-gt-any-channel";
+    "shadow.edit-preview-analysis.v2:rgb8-before-jpeg:rec709-encoded-q16:"
+    "pre-clamp-linear-strict-lt-gt-any-channel:linear-headroom-log2-v1";
 // Cache provenance for one completed warm-preview render. Adjustment and same-size display are
 // independent provenance-bearing CPU/Metal stages. This belongs to the render result rather than
 // the immutable session or generic EncodedProxy payload.
@@ -805,6 +809,12 @@ struct EditPreviewAnalysis final {
     std::array<std::uint64_t, edit_preview_histogram_bin_count> luma{};
     std::array<std::uint64_t, 3> below_zero_samples{};
     std::array<std::uint64_t, 3> above_one_samples{};
+    // Values are sampled after the edit graph and before the SDR display transform.  `1.0`
+    // means display white, so positive EV values represent recoverable linear headroom.  The
+    // peak is deliberately reported alongside the bins; it is a peak, not a percentile.
+    std::array<std::uint64_t, edit_preview_hdr_headroom_bin_count> hdr_headroom_bins{};
+    std::uint64_t hdr_headroom_pixels = 0;
+    double hdr_peak_headroom_ev = 0.0;
     std::uint64_t pixel_count = 0;
     std::uint64_t shadow_clipped_pixels = 0;
     std::uint64_t highlight_clipped_pixels = 0;

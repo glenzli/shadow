@@ -68,6 +68,8 @@ Item {
     readonly property real highlightFraction: root.mapNumber("highlightClippedFraction", 0)
     readonly property real shadowPixels: root.mapNumber("shadowClippedPixels", 0)
     readonly property real highlightPixels: root.mapNumber("highlightClippedPixels", 0)
+    readonly property real hdrHeadroomPixels: root.mapNumber("hdrHeadroomPixels", 0)
+    readonly property real hdrPeakHeadroomEv: root.mapNumber("hdrPeakHeadroomEv", 0)
     readonly property int displayScopeWidth: root.mapNumber("displayScopeWidth", 0)
     readonly property int displayScopeHeight: root.mapNumber("displayScopeHeight", 0)
     readonly property real displayScopeSampledPixels: root.mapNumber("displayScopeSampledPixels", 0)
@@ -163,6 +165,18 @@ Item {
         if (!Number.isFinite(count))
             return "0";
         return count.toLocaleString(Qt.locale(), "f", 0);
+    }
+
+    function hdrHeadroomText() {
+        if (root.hdrHeadroomPixels <= 0 || root.hdrPeakHeadroomEv <= 0)
+            return qsTr("HDR —");
+        return qsTr("HDR +%1 EV").arg(
+            root.hdrPeakHeadroomEv.toLocaleString(Qt.locale(), "f", 1));
+    }
+
+    function hdrHeadroomTooltip() {
+        return qsTr("Peak linear luminance before SDR display mapping · %1 proxy pixels above display white\nThis is output headroom, not sensor dynamic range.")
+            .arg(root.pixelCountText(root.hdrHeadroomPixels));
     }
 
     function clipTooltip(name, pixelCount) {
@@ -592,6 +606,35 @@ Item {
                                     ToolTip.text: root.scopeButtonTooltip(parent.modelData.mode)
                                 }
                             }
+                        }
+                    }
+
+                    Rectangle {
+                        visible: root.showingHistogram && root.hasData
+                        Layout.preferredWidth: 61
+                        Layout.preferredHeight: 16
+                        radius: 2
+                        color: root.hdrHeadroomPixels > 0
+                            ? Qt.rgba(0.93, 0.64, 0.25, 0.16) : "transparent"
+                        border.width: root.hdrHeadroomPixels > 0 ? 1 : 0
+                        border.color: "#e5a34d"
+
+                        Label {
+                            anchors.centerIn: parent
+                            text: root.hdrHeadroomText()
+                            color: root.hdrHeadroomPixels > 0 ? "#e5a34d" : root.mutedTextColor
+                            font.pixelSize: 7
+                            font.weight: Font.Bold
+                            font.letterSpacing: 0.2
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            acceptedButtons: Qt.NoButton
+                            ToolTip.visible: containsMouse
+                            ToolTip.delay: 450
+                            ToolTip.text: root.hdrHeadroomTooltip()
                         }
                     }
 

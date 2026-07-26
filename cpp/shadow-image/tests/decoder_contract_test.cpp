@@ -1778,6 +1778,14 @@ void warm_edit_preview_analysis_is_pre_jpeg_and_strictly_pre_clamp() {
             && highlight.highlight_clipped_pixels == 4U,
         "super-white channels and their any-channel pixel union are counted independently"
     );
+    expect(
+        highlight.hdr_headroom_pixels == 2U
+            && sum_counts(highlight.hdr_headroom_bins) == highlight.hdr_headroom_pixels
+            && highlight.hdr_headroom_bins[0] == 1U
+            && highlight.hdr_headroom_bins[1] == 1U
+            && std::abs(highlight.hdr_peak_headroom_ev - 1.0) < 1.0e-6,
+        "HDR headroom measures pre-SDR linear luminance rather than any-channel clipping"
+    );
 
     image::OklabLightnessToneCurve lowered_curve;
     lowered_curve.lightness.points = {{0.0, -0.1}, {1.0, 0.9}};

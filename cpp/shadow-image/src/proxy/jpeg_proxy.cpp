@@ -1339,8 +1339,10 @@ struct PreparedEditPreviewPixels final {
 
             bool shadow_clipped = false;
             bool highlight_clipped = false;
+            std::array<double, 3U> linear_samples{};
             for (std::size_t channel = 0; channel < 3U; ++channel) {
                 const float sample = edited.samples[float_index + channel];
+                linear_samples[channel] = static_cast<double>(sample);
                 if (sample < 0.0F) {
                     ++analysis.below_zero_samples[channel];
                     shadow_clipped = true;
@@ -1352,6 +1354,27 @@ struct PreparedEditPreviewPixels final {
             }
             analysis.shadow_clipped_pixels += shadow_clipped ? 1U : 0U;
             analysis.highlight_clipped_pixels += highlight_clipped ? 1U : 0U;
+
+            // The warm-preview working space is standardized linear sRGB/Rec.709-D65.  Track
+            // only luminance that survives above SDR display white: this establishes a compact
+            // HDR-readiness signal without pretending that the RGB8/JPEG preview itself is HDR.
+            const double linear_luminance = linear_samples[0] * 0.2126
+                + linear_samples[1] * 0.7152
+                + linear_samples[2] * 0.0722;
+            if (std::isfinite(linear_luminance) && linear_luminance > 1.0) {
+                const double headroom_ev = std::log2(linear_luminance);
+                const auto bin = static_cast<std::size_t>(std::clamp(
+                    static_cast<long long>(std::floor(headroom_ev)),
+                    0LL,
+                    static_cast<long long>(edit_preview_hdr_headroom_bin_count - 1U)
+                ));
+                ++analysis.hdr_headroom_bins[bin];
+                ++analysis.hdr_headroom_pixels;
+                analysis.hdr_peak_headroom_ev = std::max(
+                    analysis.hdr_peak_headroom_ev,
+                    headroom_ev
+                );
+            }
         }
     }
     return cancellation.stop_requested()

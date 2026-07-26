@@ -2013,6 +2013,12 @@ BackendEditedPreview DesktopBackend::renderEditPreview(
                 payload.above_one_samples,
                 "above_one_samples"
             ),
+            .hdr_headroom_bins = qcounts(
+                payload.hdr_headroom_bins,
+                "hdr_headroom_bins"
+            ),
+            .hdr_headroom_pixels = payload.hdr_headroom_pixels,
+            .hdr_peak_headroom_ev = payload.hdr_peak_headroom_ev,
             .width = payload.analysis_width,
             .height = payload.analysis_height,
             .pixel_count = payload.pixel_count,

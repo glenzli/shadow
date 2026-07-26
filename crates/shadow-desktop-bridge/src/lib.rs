@@ -949,6 +949,9 @@ mod ffi {
         luma_histogram: Vec<u64>,
         below_zero_samples: Vec<u64>,
         above_one_samples: Vec<u64>,
+        hdr_headroom_bins: Vec<u64>,
+        hdr_headroom_pixels: u64,
+        hdr_peak_headroom_ev: f64,
         pixel_count: u64,
         shadow_clipped_pixels: u64,
         highlight_clipped_pixels: u64,
@@ -1520,6 +1523,9 @@ fn cancelled_edited_preview() -> ffi::FfiEditedPreview {
         luma_histogram: Vec::new(),
         below_zero_samples: Vec::new(),
         above_one_samples: Vec::new(),
+        hdr_headroom_bins: Vec::new(),
+        hdr_headroom_pixels: 0,
+        hdr_peak_headroom_ev: 0.0,
         pixel_count: 0,
         shadow_clipped_pixels: 0,
         highlight_clipped_pixels: 0,
@@ -2300,6 +2306,15 @@ impl DesktopSession {
                 above_one_samples: analysis
                     .as_ref()
                     .map_or_else(Vec::new, |value| value.above_one_samples.to_vec()),
+                hdr_headroom_bins: analysis
+                    .as_ref()
+                    .map_or_else(Vec::new, |value| value.hdr_headroom_bins.to_vec()),
+                hdr_headroom_pixels: analysis
+                    .as_ref()
+                    .map_or(0, |value| value.hdr_headroom_pixels),
+                hdr_peak_headroom_ev: analysis
+                    .as_ref()
+                    .map_or(0.0, |value| value.hdr_peak_headroom_ev),
                 pixel_count: analysis.as_ref().map_or(0, |value| value.pixel_count),
                 shadow_clipped_pixels: analysis
                     .as_ref()

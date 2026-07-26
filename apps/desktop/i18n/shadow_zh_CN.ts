@@ -904,6 +904,23 @@
 <context>
     <name>EditHistogram</name>
     <message>
+        <location filename="../qml/EditHistogram.qml" line="168"/>
+        <source>HDR —</source>
+        <translation>HDR —</translation>
+    </message>
+    <message>
+        <location filename="../qml/EditHistogram.qml" line="169"/>
+        <source>HDR +%1 EV</source>
+        <translation>HDR +%1 EV</translation>
+    </message>
+    <message>
+        <location filename="../qml/EditHistogram.qml" line="175"/>
+        <source>Peak linear luminance before SDR display mapping · %1 proxy pixels above display white
+This is output headroom, not sensor dynamic range.</source>
+        <translation>SDR 显示映射前的峰值线性亮度 · %1 个代理像素高于显示白
+这是输出余量，不是传感器动态范围。</translation>
+    </message>
+    <message>
         <location filename="../qml/EditHistogram.qml" line="154"/>
         <source>0%</source>
         <translation>0%</translation>
