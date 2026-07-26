@@ -22,7 +22,6 @@
       "name": "desktop-dev",
       "inherits": "native-dev",
       "displayName": "Shadow macOS desktop development",
-      "binaryDir": "${sourceDir}/build/desktop-dev",
       "cacheVariables": {
         "SHADOW_BUILD_DESKTOP": "ON"
       }
