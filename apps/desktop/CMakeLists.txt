@@ -126,6 +126,7 @@ qt_add_executable(
     src/edit_controller.cpp
     src/edit_controller.hpp
     src/edit_geometry_controller.cpp
+    src/edit_grade_node_controller.cpp
     src/edit_local_mask_controller.cpp
     src/edit_persistence_coordinator.cpp
     src/edit_render_coordinator.cpp
