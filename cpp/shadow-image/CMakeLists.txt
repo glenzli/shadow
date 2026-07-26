@@ -243,6 +243,20 @@ if(BUILD_TESTING)
     )
 
     add_executable(
+        shadow-image-perceptual-color-tests
+        tests/perceptual_color_contract_test.cpp
+    )
+    target_link_libraries(
+        shadow-image-perceptual-color-tests
+        PRIVATE Shadow::Image
+    )
+    shadow_image_enable_warnings(shadow-image-perceptual-color-tests)
+    add_test(
+        NAME shadow-image-perceptual-color-contract
+        COMMAND shadow-image-perceptual-color-tests
+    )
+
+    add_executable(
         shadow-image-neutral-balance-tests
         tests/neutral_balance_contract_test.cpp
     )

@@ -136,12 +136,13 @@ the one-shot edited-proxy path rejects malformed plans before asking a decoder t
 
 Edit-kernel contract tests follow the same ownership boundaries as the implementation:
 
-- `tests/edit_contract_test.cpp` owns ordered-node, color, tone, detail, and execution-plan
-  contracts.
+- `tests/edit_contract_test.cpp` owns ordered-node, tone, detail, and execution-plan contracts.
 - `tests/spatial_edit_contract_test.cpp` owns global-coordinate effects, local masks,
   repair/clone strokes, and photo geometry.
+- `tests/perceptual_color_contract_test.cpp` owns point color, selective color, perceptual hue
+  routing, vibrance, and extended-gamut behavior.
 - `tests/edit_contract_test_support.hpp` contains only the shared assertions and small image
-  fixtures used by those executables.
+  fixtures used by these executables.
 
 Tone Curve is available both through the standalone `apply_tone_curve` reference operator and as
 a normal ordered executor node. Version 1 uses 2 through 256 finite control points whose
