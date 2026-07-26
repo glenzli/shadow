@@ -14,6 +14,7 @@
 #include <QFutureWatcher>
 #include <QObject>
 #include <QSet>
+#include <QSettings>
 #include <QString>
 #include <QTimer>
 #include <QVariantList>
@@ -129,7 +130,6 @@ class EditController final : public QObject {
         READ selectedLocalMask
         NOTIFY parametersChanged
     )
-    // Retouch belongs to the whole photo, after every Grade Node. Unlike a
     // This is an in-session geometry clipboard, not a Recipe asset. A paste
     // creates the selected node's own one-mask attachment on the current photo.
     Q_PROPERTY(
@@ -145,9 +145,11 @@ class EditController final : public QObject {
         READ nodeMaskAssets
         NOTIFY nodeMaskAssetsChanged
     )
+    // Retouch belongs to the whole photo, after every Grade Node. Unlike a
     // local mask it must remain usable even when the selected node is shared
     // or disabled.
     Q_PROPERTY(QVariantList retouchSpots READ retouchSpots NOTIFY parametersChanged)
+    Q_PROPERTY(QVariantList retouchStrokes READ retouchStrokes NOTIFY parametersChanged)
     // Crop/orientation is photo-local too. It is intentionally not a Grade
     // Node control, because framing must never become a shared style.
     Q_PROPERTY(QVariantMap photoGeometry READ photoGeometry NOTIFY parametersChanged)
@@ -336,10 +338,11 @@ public:
     [[nodiscard]] QString opticsCameraProfile() const;
     [[nodiscard]] QString opticsLensProfile() const;
     [[nodiscard]] QVariantMap selectedLocalMask() const;
-    [[nodiscard]] QVariantList retouchSpots() const;
-    [[nodiscard]] QVariantMap photoGeometry() const;
     [[nodiscard]] bool hasCopiedNodeMask() const noexcept;
     [[nodiscard]] QVariantList nodeMaskAssets() const;
+    [[nodiscard]] QVariantList retouchSpots() const;
+    [[nodiscard]] QVariantList retouchStrokes() const;
+    [[nodiscard]] QVariantMap photoGeometry() const;
     [[nodiscard]] bool cropToolActive() const noexcept;
     [[nodiscard]] QVariantList gradeNodes() const;
     [[nodiscard]] QVariantList sharedGradeNodes() const;
@@ -411,14 +414,14 @@ public:
     Q_INVOKABLE void deleteSelectedGradeNode();
     Q_INVOKABLE void moveSelectedGradeNode(int destination_index);
     Q_INVOKABLE void setSelectedLocalMask(int kind);
-    Q_INVOKABLE void setSelectedLocalMaskValue(const QString& key, double value);
-    Q_INVOKABLE void setSelectedLocalMaskPoint(
-        const QString& point,
     Q_INVOKABLE void copySelectedLocalMask();
     Q_INVOKABLE void pasteSelectedLocalMask();
     Q_INVOKABLE void saveSelectedLocalMaskAsset(const QString& name);
     Q_INVOKABLE void applySelectedLocalMaskAsset(const QString& asset_id);
     Q_INVOKABLE void removeLocalMaskAsset(const QString& asset_id);
+    Q_INVOKABLE void setSelectedLocalMaskValue(const QString& key, double value);
+    Q_INVOKABLE void setSelectedLocalMaskPoint(
+        const QString& point,
         double normalized_x,
         double normalized_y
     );
@@ -432,6 +435,9 @@ public:
     Q_INVOKABLE void setRetouchPickerActive(bool active);
     Q_INVOKABLE void setRetouchCreationMode(int mode);
     Q_INVOKABLE void addRetouchSpotFromPreview(double normalized_x, double normalized_y);
+    Q_INVOKABLE void beginRetouchStroke(double normalized_x, double normalized_y);
+    Q_INVOKABLE void appendRetouchStrokePoint(double normalized_x, double normalized_y);
+    Q_INVOKABLE void endRetouchStroke();
     Q_INVOKABLE void setRetouchSpotCenter(
         int index,
         double normalized_x,
@@ -446,6 +452,15 @@ public:
         double offset_y_radii
     );
     Q_INVOKABLE void removeRetouchSpot(int index);
+    Q_INVOKABLE void setRetouchStrokeRadius(int index, int radius_level_zero_pixels);
+    Q_INVOKABLE void setRetouchStrokeMode(int index, int mode);
+    Q_INVOKABLE void setRetouchStrokeFeather(int index, double feather);
+    Q_INVOKABLE void setRetouchStrokeSourceOffset(
+        int index,
+        double offset_x_radii,
+        double offset_y_radii
+    );
+    Q_INVOKABLE void removeRetouchStroke(int index);
     Q_INVOKABLE void rotatePhotoClockwise();
     Q_INVOKABLE void rotatePhotoCounterClockwise();
     Q_INVOKABLE void flipPhotoHorizontally();
@@ -604,6 +619,8 @@ signals:
     void gradeNodeActionsChanged();
     void gradeNodeEnabledChanged();
     void parametersChanged();
+    void nodeMaskClipboardChanged();
+    void nodeMaskAssetsChanged();
     void toneCurveChanged();
     void pointColorScopeChanged();
     void pointColorPickerActiveChanged();
@@ -619,26 +636,9 @@ private slots:
     void finishDetailWarmupTask();
     void startPreviewRender();
     void startDetailRender();
-    void nodeMaskClipboardChanged();
-    void nodeMaskAssetsChanged();
     void startDetailWarmup();
 
 private:
-    void applyState(BackendPhotoEditState state);
-    void setGradeStack(
-        BackendGradeStack grade_stack,
-        const QString& preferred_grade_node_id = {}
-    );
-    [[nodiscard]] const BackendGradeNode* selectedGradeNode() const noexcept;
-    [[nodiscard]] QString gradeNodeHistoryKey(const QString& key) const;
-    [[nodiscard]] QString uniqueGradeNodeLabel(const QString& base) const;
-    void finishActiveGesture();
-    void cancelActivePreview(bool force);
-    void clearSessionHistory();
-    void recordWorkingTransition(
-        const QString& key,
-        const BackendGradeStack& before
-    );
     struct NodeMaskClipboard final {
         std::uint8_t kind = 0;
         double x0 = 0.0;
@@ -652,6 +652,23 @@ private:
         QVector<double> brush_points;
     };
 
+    void applyState(BackendPhotoEditState state);
+    void setGradeStack(
+        BackendGradeStack grade_stack,
+        const QString& preferred_grade_node_id = {}
+    );
+    [[nodiscard]] const BackendGradeNode* selectedGradeNode() const noexcept;
+    [[nodiscard]] QString gradeNodeHistoryKey(const QString& key) const;
+    [[nodiscard]] QString uniqueGradeNodeLabel(const QString& base) const;
+    void loadNodeMaskAssets();
+    void persistNodeMaskAssets();
+    void finishActiveGesture();
+    void cancelActivePreview(bool force);
+    void clearSessionHistory();
+    void recordWorkingTransition(
+        const QString& key,
+        const BackendGradeStack& before
+    );
     void schedulePreview(int delay_ms);
     void maybeStartBeforePreview();
     void maybeStartDetailRender();
@@ -660,8 +677,6 @@ private:
     // already visible on screen. Keep that presentation until its replacement
     // arrives; Recipe/source changes still discard it immediately.
     void invalidateDetailPresentation(bool discard_tiles = true);
-    void loadNodeMaskAssets();
-    void persistNodeMaskAssets();
     void resetDetailState();
   bool eventFilter(QObject *watched, QEvent *event) override;
   void setStatusMessage(LocalizedUiMessage status);
@@ -734,6 +749,9 @@ private:
     // the controller queues the normal edit preview for the settled recipe.
     QSet<QString> active_parameter_gestures_;
     BackendGradeStack grade_stack_;
+    std::optional<NodeMaskClipboard> node_mask_clipboard_;
+    std::unique_ptr<QSettings> node_mask_asset_settings_;
+    QVariantList node_mask_assets_;
     QVector<BackendSharedGradeNode> shared_grade_nodes_;
     BackendGradeStack committed_grade_stack_;
     QString base_commit_id_;
@@ -749,9 +767,6 @@ private:
     QVariantMap histogram_;
     QVariantMap before_histogram_;
     QVariantMap optics_receipt_;
-    std::optional<NodeMaskClipboard> node_mask_clipboard_;
-    std::unique_ptr<QSettings> node_mask_asset_settings_;
-    QVariantList node_mask_assets_;
   LocalizedUiMessage before_error_message_;
   LocalizedUiMessage detail_error_message_;
   LocalizedUiMessage autosave_error_message_;
@@ -811,6 +826,7 @@ private:
     bool point_color_picker_active_ = false;
     bool retouch_picker_active_ = false;
     int retouch_creation_mode_ = 0;
+    int active_retouch_stroke_index_ = -1;
     bool white_balance_picker_active_ = false;
     bool crop_tool_active_ = false;
     quint64 parameter_revision_ = 0;

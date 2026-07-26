@@ -32,7 +32,8 @@ use anyhow::{Context, Result as AnyResult, anyhow, bail};
 use shadow_bridge::{
     ADJUSTMENT_IMPLEMENTATION_VERSION, ADJUSTMENT_PARAMETER_SCHEMA_VERSION, AdjustmentGeometry,
     AdjustmentLocalMask, AdjustmentQuarterTurn, AdjustmentRenderNode, AdjustmentRenderOperation,
-    AdjustmentRenderPlan, AdjustmentSpotHealTarget, BasicEditParameters,
+    AdjustmentRenderPlan, AdjustmentRetouchStroke, AdjustmentRetouchStrokePoint,
+    AdjustmentSpotHealTarget, BasicEditParameters,
     COLOR_GRADING_IMPLEMENTATION_VERSION as COLOR_GRADING_IMPLEMENTATION_REVISION,
     COLOR_MIXER_BAND_COUNT, CancellableEditPreview, ColorRangeParameters, DetailTileRect,
     DetailTileRequest, EditPreviewExecutionReceipt,
@@ -102,12 +103,13 @@ use shadow_domain::{
     EditRepositoryCommitPayloadV1, EditRepositoryRefExpectation, EditRepositoryRefKind, EntityId,
     FiniteF64, ImageDimensions, ImageDomain, LayerContent, LayerId, LayerInstance, LayerInstanceId,
     LayerRevision, LayerRevisionId, LayerRevisionSelector, LibraryRootV1, MAX_MASK_BRUSH_POINTS,
-    MAX_RETOUCH_SPOTS_PER_RECIPE, MaskBrushPoint, MaskCoordinateSpace, MaskDefinition, MaskId,
-    MaskRevision, NodeId, NodeInput, OperationDescriptor, OperationId, ParameterBlock,
-    ParameterKey, ParameterValue, PhotoGeometry, PhotoId, PhotoQuarterTurn, PortType,
-    PreviewByteOrder, PreviewCodec, ProcessingStage, ProxyPayload, RecipeCommit, RecipeCommitId,
-    RecipeId, RecipeInputSettings, RecipeOpticsSettings, RecipeSnapshot, RepresentationId,
-    RetouchMode, RetouchSpot, UnitInterval, VersionName, diff_recipe_snapshots,
+    MAX_RETOUCH_SPOTS_PER_RECIPE, MAX_RETOUCH_STROKES_PER_RECIPE, MaskBrushPoint,
+    MaskCoordinateSpace, MaskDefinition, MaskId, MaskRevision, NodeId, NodeInput,
+    OperationDescriptor, OperationId, ParameterBlock, ParameterKey, ParameterValue, PhotoGeometry,
+    PhotoId, PhotoQuarterTurn, PortType, PreviewByteOrder, PreviewCodec, ProcessingStage,
+    ProxyPayload, RecipeCommit, RecipeCommitId, RecipeId, RecipeInputSettings,
+    RecipeOpticsSettings, RecipeSnapshot, RepresentationId, RetouchMode, RetouchPoint, RetouchSpot,
+    RetouchStroke, UnitInterval, VersionName, diff_recipe_snapshots,
 };
 use uuid::Uuid;
 
@@ -633,6 +635,29 @@ mod ffi {
         feather: f64,
     }
 
+    /// One normalized centerline point for a photo-local continuous repair
+    /// stroke. One point is a circular dab; two or more points form one
+    /// continuous capsule-union stroke in the renderer.
+    #[derive(Debug, Clone, Copy)]
+    struct FfiRetouchPoint {
+        x: f64,
+        y: f64,
+    }
+
+    /// One deterministic continuous repair/clone stroke. The source offset
+    /// stays fixed across the complete target path, preserving one source
+    /// anchor and one undoable user gesture.
+    #[derive(Debug, Clone)]
+    struct FfiRetouchStroke {
+        points: Vec<FfiRetouchPoint>,
+        radius_level_zero_pixels: u16,
+        /// 0 = heal, 1 = clone.
+        mode: u8,
+        source_offset_x_radii: f64,
+        source_offset_y_radii: f64,
+        feather: f64,
+    }
+
     /// Photo-local final-canvas geometry. The field is intentionally separate
     /// from the Grade Node list because crop/orientation is never shareable.
     #[derive(Debug, Clone, Copy)]
@@ -672,6 +697,7 @@ mod ffi {
         optics: FfiOpticsSettings,
         grade_nodes: Vec<FfiGradeNode>,
         retouch_spots: Vec<FfiRetouchSpot>,
+        retouch_strokes: Vec<FfiRetouchStroke>,
         geometry: FfiPhotoGeometry,
     }
 
@@ -4699,6 +4725,7 @@ mod tests {
             },
             grade_nodes: vec![created.clone()],
             retouch_spots: Vec::new(),
+            retouch_strokes: Vec::new(),
             geometry: ffi::FfiPhotoGeometry {
                 crop_left: 0.0,
                 crop_top: 0.0,
@@ -4747,6 +4774,7 @@ mod tests {
             },
             grade_nodes: vec![created],
             retouch_spots: Vec::new(),
+            retouch_strokes: Vec::new(),
             geometry: ffi::FfiPhotoGeometry {
                 crop_left: 0.0,
                 crop_top: 0.0,
@@ -4785,6 +4813,85 @@ mod tests {
         assert!(outgoing.optics.automatic_scale);
         assert_eq!(outgoing.optics.camera_profile_model, "K10D");
         assert_eq!(outgoing.optics.lens_profile_model, "DA 35mm");
+    }
+
+    #[test]
+    fn continuous_retouch_strokes_round_trip_through_desktop_ffi_and_recipe_v1() {
+        let mut incoming = ffi_parameters(0.0, 1.0, [0.0; 2], 1.0);
+        incoming.retouch_spots = vec![ffi::FfiRetouchSpot {
+            center_x: 0.2,
+            center_y: 0.25,
+            radius_level_zero_pixels: 12,
+            mode: 0,
+            source_offset_x_radii: 0.0,
+            source_offset_y_radii: 0.0,
+            feather: 0.28,
+        }];
+        incoming.retouch_strokes = vec![ffi::FfiRetouchStroke {
+            points: vec![
+                ffi::FfiRetouchPoint { x: 0.3, y: 0.4 },
+                ffi::FfiRetouchPoint { x: 0.55, y: 0.65 },
+            ],
+            radius_level_zero_pixels: 24,
+            mode: 1,
+            source_offset_x_radii: 1.25,
+            source_offset_y_radii: -0.75,
+            feather: 0.4,
+        }];
+
+        let draft = decode_grade_stack_draft_recipe_v1(&incoming)
+            .expect("decode continuous retouch FFI payload");
+        assert_eq!(draft.retouch_spots.len(), 1);
+        assert_eq!(draft.retouch_strokes.len(), 1);
+        let stroke = &draft.retouch_strokes[0];
+        assert_eq!(stroke.points().len(), 2);
+        assert_eq!(stroke.points()[0].x().get(), 0.3);
+        assert_eq!(stroke.points()[1].y().get(), 0.65);
+        assert_eq!(stroke.radius_level_zero_pixels(), 24);
+        assert_eq!(stroke.mode(), RetouchMode::Clone);
+        assert_eq!(stroke.source_offset_x_radii(), 1.25);
+        assert_eq!(stroke.source_offset_y_radii(), -0.75);
+        assert_eq!(stroke.feather().get(), 0.4);
+
+        let snapshot = grade_stack_recipe_v1_snapshot(&draft, None)
+            .expect("persist continuous retouch stroke");
+        assert_eq!(snapshot.retouch_spots().len(), 1);
+        assert_eq!(snapshot.retouch_strokes(), draft.retouch_strokes.as_slice());
+        let from_snapshot = decode_grade_stack_draft_from_recipe_v1_snapshot(&snapshot)
+            .expect("read continuous retouch stroke");
+        assert_eq!(from_snapshot.retouch_strokes, draft.retouch_strokes);
+
+        let plan = compile_recipe_render_plan(&snapshot)
+            .expect("compile continuous retouch stroke into render plan");
+        let (targets, strokes) = plan
+            .nodes
+            .iter()
+            .find_map(|node| match &node.operation {
+                AdjustmentRenderOperation::SpotHeal { targets, strokes } => {
+                    Some((targets, strokes))
+                }
+                _ => None,
+            })
+            .expect("photo-local retouch render node");
+        assert_eq!(targets.len(), 1);
+        assert_eq!(strokes.len(), 1);
+        assert_eq!(strokes[0].points.len(), 2);
+        assert_eq!(strokes[0].points[0].x, 0.3);
+        assert_eq!(strokes[0].points[1].y, 0.65);
+        assert_eq!(strokes[0].mode, 1);
+        assert_eq!(strokes[0].source_offset_x_radii, 1.25);
+
+        let outgoing = encode_grade_stack_draft_recipe_v1(draft);
+        assert_eq!(outgoing.retouch_spots.len(), 1);
+        assert_eq!(outgoing.retouch_strokes.len(), 1);
+        assert_eq!(outgoing.retouch_strokes[0].points.len(), 2);
+        assert_eq!(outgoing.retouch_strokes[0].mode, 1);
+        assert_eq!(outgoing.retouch_strokes[0].source_offset_x_radii, 1.25);
+
+        incoming.retouch_strokes[0].points.clear();
+        let error = decode_grade_stack_draft_recipe_v1(&incoming)
+            .expect_err("empty continuous retouch stroke must fail closed");
+        assert!(error.to_string().contains("retouch stroke 0 is invalid"));
     }
 
     #[test]
@@ -4905,6 +5012,7 @@ mod tests {
                 optics: RecipeOpticsSettings::default(),
                 grade_nodes: vec![grade_node],
                 retouch_spots: Vec::new(),
+                retouch_strokes: Vec::new(),
                 geometry: PhotoGeometry::identity(),
             },
             None,
@@ -4989,6 +5097,7 @@ mod tests {
             optics: RecipeOpticsSettings::default(),
             grade_nodes: vec![grade_node],
             retouch_spots: Vec::new(),
+            retouch_strokes: Vec::new(),
             geometry: PhotoGeometry::identity(),
         };
         let snapshot =
@@ -5063,6 +5172,7 @@ mod tests {
             optics: RecipeOpticsSettings::default(),
             grade_nodes: vec![first.clone(), second.clone()],
             retouch_spots: Vec::new(),
+            retouch_strokes: Vec::new(),
             geometry: PhotoGeometry::identity(),
         };
 
@@ -5187,6 +5297,7 @@ mod tests {
             optics: RecipeOpticsSettings::default(),
             grade_nodes: vec![base_settings.grade_nodes[1].clone(), replacement],
             retouch_spots: Vec::new(),
+            retouch_strokes: Vec::new(),
             geometry: PhotoGeometry::identity(),
         };
         assert!(
@@ -5237,6 +5348,7 @@ mod tests {
                     optics: RecipeOpticsSettings::default(),
                     grade_nodes: Vec::new(),
                     retouch_spots: Vec::new(),
+                    retouch_strokes: Vec::new(),
                     geometry: PhotoGeometry::identity(),
                 },
                 None
@@ -5251,6 +5363,7 @@ mod tests {
                 .map(|index| GradeNodeDraft::neutral(format!("Basic {index}")))
                 .collect(),
             retouch_spots: Vec::new(),
+            retouch_strokes: Vec::new(),
             geometry: PhotoGeometry::identity(),
         };
         let snapshot =
@@ -5412,6 +5525,7 @@ mod tests {
                 ..GradeNodeDraft::neutral(BASIC_LAYER_LABEL)
             }],
             retouch_spots: Vec::new(),
+            retouch_strokes: Vec::new(),
             geometry: PhotoGeometry::identity(),
         };
 
@@ -5644,6 +5758,7 @@ mod tests {
             optics: RecipeOpticsSettings::default(),
             grade_nodes: vec![grade_node],
             retouch_spots: Vec::new(),
+            retouch_strokes: Vec::new(),
             geometry: PhotoGeometry::identity(),
         };
         let snapshot = grade_stack_recipe_v1_snapshot(&grade_stack, None)
@@ -5747,6 +5862,7 @@ mod tests {
                 ..GradeNodeDraft::neutral(BASIC_LAYER_LABEL)
             }],
             retouch_spots: Vec::new(),
+            retouch_strokes: Vec::new(),
             geometry: PhotoGeometry::identity(),
         };
         let with_curve = recipe_without_sharpen(
@@ -8295,6 +8411,7 @@ mod tests {
             optics: ffi_optics_settings(&RecipeOpticsSettings::default()),
             grade_nodes: vec![grade_node],
             retouch_spots: Vec::new(),
+            retouch_strokes: Vec::new(),
             geometry: ffi::FfiPhotoGeometry {
                 crop_left: 0.0,
                 crop_top: 0.0,

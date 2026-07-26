@@ -445,6 +445,9 @@ pub(crate) struct GradeStackDraft {
     /// Photo-local small repairs run after all Grade Nodes. They deliberately
     /// remain outside a reusable Grade Node graph.
     pub(crate) retouch_spots: Vec<RetouchSpot>,
+    /// Photo-local continuous repair/clone brush strokes. These remain
+    /// separate from legacy circular spots so one drag is one durable edit.
+    pub(crate) retouch_strokes: Vec<RetouchStroke>,
     /// Final-canvas crop and orientation. This is photo-local for the same
     /// reason retouch is: a reusable Grade Node cannot decide another photo's
     /// framing.
@@ -578,6 +581,7 @@ impl Default for GradeStackDraft {
             optics: RecipeOpticsSettings::default(),
             grade_nodes: vec![GradeNodeDraft::neutral(BASIC_LAYER_LABEL)],
             retouch_spots: Vec::new(),
+            retouch_strokes: Vec::new(),
             geometry: PhotoGeometry::identity(),
         }
     }
@@ -607,6 +611,7 @@ pub(crate) fn new_basic_grade_node(label: &str) -> AnyResult<ffi::FfiGradeNode> 
         optics: RecipeOpticsSettings::default(),
         grade_nodes: vec![grade_node.clone()],
         retouch_spots: Vec::new(),
+        retouch_strokes: Vec::new(),
         geometry: PhotoGeometry::identity(),
     };
     grade_stack_recipe_v1_snapshot(&grade_stack, None).context("validate new Basic Grade Node")?;
@@ -655,6 +660,47 @@ pub(crate) fn decode_grade_stack_draft_recipe_v1(
                     )
                 })
                 .with_context(|| format!("retouch spot {index} is invalid"))
+            })
+            .collect::<AnyResult<Vec<_>>>()?,
+        retouch_strokes: settings
+            .retouch_strokes
+            .iter()
+            .enumerate()
+            .map(|(index, stroke)| {
+                let mode = match stroke.mode {
+                    0 => RetouchMode::Heal,
+                    1 => RetouchMode::Clone,
+                    other => bail!("retouch stroke {index} has unsupported mode {other}"),
+                };
+                let points = stroke
+                    .points
+                    .iter()
+                    .enumerate()
+                    .map(|(point_index, point)| {
+                        Ok(RetouchPoint::new(
+                            UnitInterval::new(point.x).with_context(|| {
+                                format!(
+                                    "retouch stroke {index} point {point_index} x must be in [0, 1]"
+                                )
+                            })?,
+                            UnitInterval::new(point.y).with_context(|| {
+                                format!(
+                                    "retouch stroke {index} point {point_index} y must be in [0, 1]"
+                                )
+                            })?,
+                        ))
+                    })
+                    .collect::<AnyResult<Vec<_>>>()?;
+                RetouchStroke::new(points, stroke.radius_level_zero_pixels)
+                    .and_then(|value| {
+                        value.with_behavior(
+                            mode,
+                            stroke.source_offset_x_radii,
+                            stroke.source_offset_y_radii,
+                            UnitInterval::new(stroke.feather)?,
+                        )
+                    })
+                    .with_context(|| format!("retouch stroke {index} is invalid"))
             })
             .collect::<AnyResult<Vec<_>>>()?,
         geometry: photo_geometry_from_ffi(&settings.geometry)?,
@@ -951,6 +997,22 @@ pub(crate) fn validate_grade_stack_draft_recipe_v1(grade_stack: &GradeStackDraft
             spot.source_offset_y_radii(),
             spot.feather(),
         )?;
+    }
+    if grade_stack.retouch_strokes.len() > MAX_RETOUCH_STROKES_PER_RECIPE {
+        bail!(
+            "Grade Stack contains {} repair strokes, but at most {} are supported",
+            grade_stack.retouch_strokes.len(),
+            MAX_RETOUCH_STROKES_PER_RECIPE
+        );
+    }
+    for stroke in &grade_stack.retouch_strokes {
+        RetouchStroke::new(stroke.points().to_vec(), stroke.radius_level_zero_pixels())?
+            .with_behavior(
+                stroke.mode(),
+                stroke.source_offset_x_radii(),
+                stroke.source_offset_y_radii(),
+                stroke.feather(),
+            )?;
     }
     let mut grade_node_ids = HashSet::with_capacity(grade_stack.grade_nodes.len());
     let mut render_op_ids = HashSet::with_capacity(grade_stack.grade_nodes.len() * 11);
@@ -1374,6 +1436,28 @@ pub(crate) fn encode_grade_stack_draft_recipe_v1(
                 feather: spot.feather().get(),
             })
             .collect(),
+        retouch_strokes: grade_stack
+            .retouch_strokes
+            .into_iter()
+            .map(|stroke| ffi::FfiRetouchStroke {
+                points: stroke
+                    .points()
+                    .iter()
+                    .map(|point| ffi::FfiRetouchPoint {
+                        x: point.x().get(),
+                        y: point.y().get(),
+                    })
+                    .collect(),
+                radius_level_zero_pixels: stroke.radius_level_zero_pixels(),
+                mode: match stroke.mode() {
+                    RetouchMode::Heal => 0,
+                    RetouchMode::Clone => 1,
+                },
+                source_offset_x_radii: stroke.source_offset_x_radii(),
+                source_offset_y_radii: stroke.source_offset_y_radii(),
+                feather: stroke.feather().get(),
+            })
+            .collect(),
         geometry: ffi_photo_geometry(grade_stack.geometry),
     }
 }
@@ -1449,7 +1533,8 @@ pub(crate) fn compile_recipe_render_plan(
     // A photo-local repair must run after every Grade Node. It uses an
     // unmasked boundary layer so the native executor can keep one ordering
     // grammar for both local Grade Nodes and photo-local spatial operations.
-    let has_retouch = !snapshot.retouch_spots().is_empty();
+    let has_retouch =
+        !snapshot.retouch_spots().is_empty() || !snapshot.retouch_strokes().is_empty();
     let use_layer_boundaries =
         has_retouch || snapshot.layers().iter().any(|layer| layer.mask().is_some());
     let mut compiled = Vec::new();
@@ -1565,6 +1650,28 @@ pub(crate) fn compile_recipe_render_plan(
                         source_offset_x_radii: spot.source_offset_x_radii(),
                         source_offset_y_radii: spot.source_offset_y_radii(),
                         feather: spot.feather().get(),
+                    })
+                    .collect(),
+                strokes: snapshot
+                    .retouch_strokes()
+                    .iter()
+                    .map(|stroke| AdjustmentRetouchStroke {
+                        points: stroke
+                            .points()
+                            .iter()
+                            .map(|point| AdjustmentRetouchStrokePoint {
+                                x: point.x().get(),
+                                y: point.y().get(),
+                            })
+                            .collect(),
+                        radius_level_zero_pixels: stroke.radius_level_zero_pixels(),
+                        mode: match stroke.mode() {
+                            RetouchMode::Heal => 0,
+                            RetouchMode::Clone => 1,
+                        },
+                        source_offset_x_radii: stroke.source_offset_x_radii(),
+                        source_offset_y_radii: stroke.source_offset_y_radii(),
+                        feather: stroke.feather().get(),
                     })
                     .collect(),
             },
@@ -2127,11 +2234,12 @@ pub(crate) fn grade_stack_recipe_v1_snapshot(
             })
         })
         .collect::<AnyResult<Vec<_>>>()?;
-    RecipeSnapshot::new_with_input_settings_masks_retouch_and_geometry(
+    RecipeSnapshot::new_with_input_settings_masks_retouch_strokes_and_geometry(
         CURRENT_RECIPE_SCHEMA_VERSION,
         RecipeInputSettings::new(grade_stack.optics.clone()),
         recipe_v1_masks,
         grade_stack.retouch_spots.clone(),
+        grade_stack.retouch_strokes.clone(),
         grade_stack.geometry,
         recipe_v1_layers,
     )
@@ -3435,6 +3543,7 @@ pub(crate) fn decode_grade_stack_draft_from_recipe_v1_snapshot(
             })
             .collect::<AnyResult<Vec<_>>>()?,
         retouch_spots: snapshot.retouch_spots().to_vec(),
+        retouch_strokes: snapshot.retouch_strokes().to_vec(),
         geometry: snapshot.geometry(),
     };
     validate_grade_stack_draft_recipe_v1(&grade_stack)?;

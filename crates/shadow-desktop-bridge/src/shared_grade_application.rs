@@ -77,6 +77,7 @@ mod tests {
             optics: RecipeOpticsSettings::default(),
             grade_nodes: vec![GradeNodeDraft::neutral("Local"), existing],
             retouch_spots: Vec::new(),
+            retouch_strokes: Vec::new(),
             geometry: PhotoGeometry::identity(),
         };
 
@@ -96,6 +97,7 @@ mod tests {
             optics: RecipeOpticsSettings::default(),
             grade_nodes: vec![shared.clone()],
             retouch_spots: Vec::new(),
+            retouch_strokes: Vec::new(),
             geometry: PhotoGeometry::identity(),
         };
 

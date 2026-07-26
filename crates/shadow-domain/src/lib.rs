@@ -35,12 +35,12 @@ pub use recipe::{
     AdjustmentNode, AdjustmentScope, BlendMode, BranchName, CURRENT_RECIPE_SCHEMA_VERSION,
     EditGraph, FiniteF64, GraphValidationError, ImageDomain, LayerContent, LayerInstance,
     LayerRevision, LayerRevisionSelector, MAX_MASK_BRUSH_POINTS, MAX_RETOUCH_SPOTS_PER_RECIPE,
-    MaskBrushPoint, MaskCoordinateSpace, MaskDefinition, MaskReference, MaskRevision, NamedVersion,
-    NodeInput, OperationDescriptor, OperationId, ParameterBlock, ParameterKey, ParameterValue,
-    PhotoGeometry, PhotoQuarterTurn, PortType, ProcessingStage, RecipeBranch, RecipeCommit,
-    RecipeHistory, RecipeInputSettings, RecipeOpticsSettings, RecipeSnapshot,
-    RecipeValidationError, RetouchMode, RetouchSpot, UnitInterval, VersionName,
-    canonical_recipe_snapshot_digest,
+    MAX_RETOUCH_STROKE_POINTS, MAX_RETOUCH_STROKES_PER_RECIPE, MaskBrushPoint, MaskCoordinateSpace,
+    MaskDefinition, MaskReference, MaskRevision, NamedVersion, NodeInput, OperationDescriptor,
+    OperationId, ParameterBlock, ParameterKey, ParameterValue, PhotoGeometry, PhotoQuarterTurn,
+    PortType, ProcessingStage, RecipeBranch, RecipeCommit, RecipeHistory, RecipeInputSettings,
+    RecipeOpticsSettings, RecipeSnapshot, RecipeValidationError, RetouchMode, RetouchPoint,
+    RetouchSpot, RetouchStroke, UnitInterval, VersionName, canonical_recipe_snapshot_digest,
 };
 pub use recipe_diff::{
     GraphDiff, IndexedLayer, LayerContentDiff, LayerContentKind, LayerInstanceDiff,

@@ -384,7 +384,8 @@ EditController::EditController(
       backend_(std::move(backend)),
       preview_store_(std::move(preview_store)),
       versions_(this),
-      tone_curve_points_(this) {
+      tone_curve_points_(this),
+      node_mask_asset_settings_(std::make_unique<QSettings>()) {
     histogram_ = empty_histogram();
     before_histogram_ = empty_histogram();
     preview_debounce_.setSingleShot(true);
@@ -442,6 +443,7 @@ EditController::EditController(
   if (auto *const application = QCoreApplication::instance()) {
     application->installEventFilter(this);
   }
+  loadNodeMaskAssets();
   refreshSharedGradeNodes();
 }
 
@@ -682,8 +684,6 @@ QVariantMap EditController::selectedLocalMask() const {
     };
 }
 
-QVariantList EditController::retouchSpots() const {
-    QVariantList result;
 bool EditController::hasCopiedNodeMask() const noexcept {
     return node_mask_clipboard_.has_value();
 }
@@ -739,6 +739,8 @@ void EditController::persistNodeMaskAssets() {
     node_mask_asset_settings_->sync();
 }
 
+QVariantList EditController::retouchSpots() const {
+    QVariantList result;
     result.reserve(grade_stack_.retouch_spots.size());
     for (qsizetype index = 0; index < grade_stack_.retouch_spots.size(); ++index) {
         const auto& spot = grade_stack_.retouch_spots.at(index);
@@ -751,6 +753,32 @@ void EditController::persistNodeMaskAssets() {
             {QStringLiteral("sourceOffsetX"), spot.source_offset_x_radii},
             {QStringLiteral("sourceOffsetY"), spot.source_offset_y_radii},
             {QStringLiteral("feather"), spot.feather},
+        });
+    }
+    return result;
+}
+
+QVariantList EditController::retouchStrokes() const {
+    QVariantList result;
+    result.reserve(grade_stack_.retouch_strokes.size());
+    for (qsizetype index = 0; index < grade_stack_.retouch_strokes.size(); ++index) {
+        const auto& stroke = grade_stack_.retouch_strokes.at(index);
+        QVariantList points;
+        points.reserve(stroke.points.size());
+        for (const auto& point : stroke.points) {
+            points.push_back(QVariantMap{
+                {QStringLiteral("x"), point.x},
+                {QStringLiteral("y"), point.y},
+            });
+        }
+        result.push_back(QVariantMap{
+            {QStringLiteral("index"), static_cast<int>(index)},
+            {QStringLiteral("points"), points},
+            {QStringLiteral("radius"), static_cast<int>(stroke.radius_level_zero_pixels)},
+            {QStringLiteral("mode"), static_cast<int>(stroke.mode)},
+            {QStringLiteral("sourceOffsetX"), stroke.source_offset_x_radii},
+            {QStringLiteral("sourceOffsetY"), stroke.source_offset_y_radii},
+            {QStringLiteral("feather"), stroke.feather},
         });
     }
     return result;
@@ -2008,7 +2036,8 @@ bool EditController::selectiveColorRelative() const noexcept {
 }
 
 void EditController::setSelectiveColorRelative(const bool relative) {
-    auto* const grade_node = selectedGradeNode();
+    auto* const grade_node = selected_grade_node_index_ < 0
+        ? nullptr : &grade_stack_.grade_nodes[selected_grade_node_index_];
     if (grade_node == nullptr || grade_node->fine.selective_color_relative == relative) {
         return;
     }
@@ -2091,12 +2120,16 @@ void EditController::setPointColorPickerActive(const bool active) {
         emit whiteBalancePickerActiveChanged();
     }
     if (active && retouch_picker_active_) {
+        endRetouchStroke();
         retouch_picker_active_ = false;
         emit retouchPickerActiveChanged();
     }
 }
 
 void EditController::setRetouchPickerActive(const bool active) {
+    if (!active) {
+        endRetouchStroke();
+    }
     if (retouch_picker_active_ == active) {
         return;
     }
@@ -2134,6 +2167,7 @@ void EditController::setWhiteBalancePickerActive(const bool active) {
         emit pointColorPickerActiveChanged();
     }
     if (active && retouch_picker_active_) {
+        endRetouchStroke();
         retouch_picker_active_ = false;
         emit retouchPickerActiveChanged();
     }
@@ -2332,6 +2366,84 @@ void EditController::addRetouchSpotFromPreview(
     )));
 }
 
+void EditController::beginRetouchStroke(
+    const double normalized_x,
+    const double normalized_y
+) {
+    if (!active_ || interactionLocked() || !retouch_picker_active_
+        || active_retouch_stroke_index_ >= 0
+        || !std::isfinite(normalized_x) || !std::isfinite(normalized_y)
+        || normalized_x < 0.0 || normalized_x > 1.0
+        || normalized_y < 0.0 || normalized_y > 1.0) {
+        return;
+    }
+    constexpr qsizetype maximum_retouch_strokes = 64;
+    if (grade_stack_.retouch_strokes.size() >= maximum_retouch_strokes) {
+        setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+            "EditController", "Repair supports at most 64 strokes"
+        )));
+        return;
+    }
+    finishActiveGesture();
+    const BackendGradeStack before = grade_stack_;
+    const QString key = QStringLiteral("retouch/stroke/add");
+    beginParameterEdit(key);
+    grade_stack_.retouch_strokes.push_back(BackendRetouchStroke{
+        .points = {{.x = normalized_x, .y = normalized_y}},
+        .radius_level_zero_pixels = 18U,
+        .mode = static_cast<std::uint8_t>(retouch_creation_mode_),
+        .source_offset_x_radii = retouch_creation_mode_ == 1 ? 1.5 : 0.0,
+        .source_offset_y_radii = retouch_creation_mode_ == 1 ? -1.0 : 0.0,
+        .feather = 0.28,
+    });
+    active_retouch_stroke_index_ = static_cast<int>(
+        grade_stack_.retouch_strokes.size() - 1
+    );
+    parameterEdited(key, before);
+}
+
+void EditController::appendRetouchStrokePoint(
+    const double normalized_x,
+    const double normalized_y
+) {
+    constexpr qsizetype maximum_retouch_stroke_points = 512;
+    if (!active_ || interactionLocked() || active_retouch_stroke_index_ < 0
+        || active_retouch_stroke_index_ >= grade_stack_.retouch_strokes.size()
+        || !std::isfinite(normalized_x) || !std::isfinite(normalized_y)
+        || normalized_x < 0.0 || normalized_x > 1.0
+        || normalized_y < 0.0 || normalized_y > 1.0) {
+        return;
+    }
+    auto& stroke = grade_stack_.retouch_strokes[active_retouch_stroke_index_];
+    if (!stroke.points.isEmpty()
+        && stroke.points.back().x == normalized_x
+        && stroke.points.back().y == normalized_y) {
+        return;
+    }
+    const BackendGradeStack before = grade_stack_;
+    if (stroke.points.size() >= maximum_retouch_stroke_points) {
+        // Keep one gesture continuous even on very long drags. The persistent
+        // contract stays bounded, while downsampling the already-swept path
+        // is preferable to silently dropping the rest of the painted region.
+        QVector<BackendRetouchStrokePoint> compacted;
+        compacted.reserve((stroke.points.size() + 1) / 2);
+        for (qsizetype index = 0; index < stroke.points.size(); index += 2) {
+            compacted.push_back(stroke.points.at(index));
+        }
+        stroke.points = std::move(compacted);
+    }
+    stroke.points.push_back({.x = normalized_x, .y = normalized_y});
+    parameterEdited(QStringLiteral("retouch/stroke/add"), before);
+}
+
+void EditController::endRetouchStroke() {
+    if (active_retouch_stroke_index_ < 0) {
+        return;
+    }
+    active_retouch_stroke_index_ = -1;
+    endParameterEdit(QStringLiteral("retouch/stroke/add"));
+}
+
 void EditController::setRetouchSpotCenter(
     const int index,
     const double normalized_x,
@@ -2453,6 +2565,105 @@ void EditController::removeRetouchSpot(const int index) {
     setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
         "EditController", "Removed repair spot"
     )));
+}
+
+void EditController::setRetouchStrokeRadius(
+    const int index,
+    const int radius_level_zero_pixels
+) {
+    constexpr int minimum_radius = 1;
+    constexpr int maximum_radius = 128;
+    if (!active_ || interactionLocked() || index < 0
+        || index >= grade_stack_.retouch_strokes.size()
+        || radius_level_zero_pixels < minimum_radius
+        || radius_level_zero_pixels > maximum_radius) {
+        return;
+    }
+    auto& stroke = grade_stack_.retouch_strokes[index];
+    const auto radius = static_cast<std::uint16_t>(radius_level_zero_pixels);
+    if (stroke.radius_level_zero_pixels == radius) {
+        return;
+    }
+    const BackendGradeStack before = grade_stack_;
+    stroke.radius_level_zero_pixels = radius;
+    parameterEdited(QStringLiteral("retouch/stroke/%1/radius").arg(index), before);
+}
+
+void EditController::setRetouchStrokeMode(const int index, const int mode) {
+    constexpr int heal_mode = 0;
+    constexpr int clone_mode = 1;
+    if (!active_ || interactionLocked() || index < 0
+        || index >= grade_stack_.retouch_strokes.size()
+        || (mode != heal_mode && mode != clone_mode)) {
+        return;
+    }
+    auto& stroke = grade_stack_.retouch_strokes[index];
+    const auto encoded_mode = static_cast<std::uint8_t>(mode);
+    if (stroke.mode == encoded_mode) {
+        return;
+    }
+    const BackendGradeStack before = grade_stack_;
+    stroke.mode = encoded_mode;
+    if (mode == clone_mode
+        && stroke.source_offset_x_radii == 0.0
+        && stroke.source_offset_y_radii == 0.0) {
+        stroke.source_offset_x_radii = 1.5;
+        stroke.source_offset_y_radii = -1.0;
+    }
+    parameterEdited(QStringLiteral("retouch/stroke/%1/mode").arg(index), before);
+}
+
+void EditController::setRetouchStrokeFeather(const int index, const double feather) {
+    if (!active_ || interactionLocked() || index < 0
+        || index >= grade_stack_.retouch_strokes.size()
+        || !std::isfinite(feather) || feather < 0.0 || feather > 1.0) {
+        return;
+    }
+    auto& stroke = grade_stack_.retouch_strokes[index];
+    if (stroke.feather == feather) {
+        return;
+    }
+    const BackendGradeStack before = grade_stack_;
+    stroke.feather = feather;
+    parameterEdited(QStringLiteral("retouch/stroke/%1/feather").arg(index), before);
+}
+
+void EditController::setRetouchStrokeSourceOffset(
+    const int index,
+    const double offset_x_radii,
+    const double offset_y_radii
+) {
+    constexpr double maximum_offset_radii = 2.0;
+    if (!active_ || interactionLocked() || index < 0
+        || index >= grade_stack_.retouch_strokes.size()
+        || !std::isfinite(offset_x_radii) || !std::isfinite(offset_y_radii)
+        || offset_x_radii < -maximum_offset_radii
+        || offset_x_radii > maximum_offset_radii
+        || offset_y_radii < -maximum_offset_radii
+        || offset_y_radii > maximum_offset_radii) {
+        return;
+    }
+    auto& stroke = grade_stack_.retouch_strokes[index];
+    if (stroke.source_offset_x_radii == offset_x_radii
+        && stroke.source_offset_y_radii == offset_y_radii) {
+        return;
+    }
+    const BackendGradeStack before = grade_stack_;
+    stroke.source_offset_x_radii = offset_x_radii;
+    stroke.source_offset_y_radii = offset_y_radii;
+    parameterEdited(QStringLiteral("retouch/stroke/%1/source").arg(index), before);
+}
+
+void EditController::removeRetouchStroke(const int index) {
+    if (!active_ || interactionLocked() || index < 0
+        || index >= grade_stack_.retouch_strokes.size()) {
+        return;
+    }
+    finishActiveGesture();
+    active_retouch_stroke_index_ = -1;
+    const BackendGradeStack before = grade_stack_;
+    grade_stack_.retouch_strokes.removeAt(index);
+    parameterEdited(QStringLiteral("retouch/stroke/remove"), before);
 }
 
 void EditController::rotatePhotoClockwise() {
@@ -2951,217 +3162,6 @@ void EditController::setSelectedLocalMask(const int kind) {
     )));
 }
 
-void EditController::setSelectedLocalMaskValue(
-    const QString& key,
-    const double value
-) {
-    auto* const grade_node = selected_grade_node_index_ < 0
-        ? nullptr : &grade_stack_.grade_nodes[selected_grade_node_index_];
-    if (grade_node == nullptr || grade_node->local_mask_kind == 0U
-        || !acceptParameter(
-            value,
-            0.0,
-            1.0,
-            QT_TRANSLATE_NOOP("EditController", "Local mask")
-        )) {
-        return;
-    }
-
-    double* target = nullptr;
-    if (key == QStringLiteral("x0")) target = &grade_node->local_mask_x0;
-    else if (key == QStringLiteral("y0")) target = &grade_node->local_mask_y0;
-    else if (key == QStringLiteral("x1")) target = &grade_node->local_mask_x1;
-    else if (key == QStringLiteral("y1")) target = &grade_node->local_mask_y1;
-    else if (key == QStringLiteral("radiusX")) target = &grade_node->local_mask_radius_x;
-    else if (key == QStringLiteral("radiusY")) target = &grade_node->local_mask_radius_y;
-    else if (key == QStringLiteral("feather")) target = &grade_node->local_mask_feather;
-    if (target == nullptr || *target == value) {
-        return;
-    }
-
-    BackendGradeNode candidate = *grade_node;
-    if (key == QStringLiteral("x0")) candidate.local_mask_x0 = value;
-    else if (key == QStringLiteral("y0")) candidate.local_mask_y0 = value;
-    else if (key == QStringLiteral("x1")) candidate.local_mask_x1 = value;
-    else if (key == QStringLiteral("y1")) candidate.local_mask_y1 = value;
-    else if (key == QStringLiteral("radiusX")) candidate.local_mask_radius_x = value;
-    else if (key == QStringLiteral("radiusY")) candidate.local_mask_radius_y = value;
-    else candidate.local_mask_feather = value;
-    if (candidate.local_mask_kind == 1U
-        && std::hypot(
-            candidate.local_mask_x1 - candidate.local_mask_x0,
-            candidate.local_mask_y1 - candidate.local_mask_y0
-        ) < 0.01) {
-        setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
-            "EditController", "A gradient mask needs two distinct points"
-        )));
-        return;
-    }
-    if (candidate.local_mask_kind == 2U
-        && (candidate.local_mask_radius_x < 0.01
-            || candidate.local_mask_radius_y < 0.01)) {
-        setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
-            "EditController", "A radial mask needs a non-zero radius"
-        )));
-        return;
-    }
-    if (candidate.local_mask_kind == 3U
-        && candidate.local_mask_radius_x < 0.005) {
-        setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
-            "EditController", "A brush mask needs a non-zero size"
-        )));
-        return;
-    }
-
-    const BackendGradeStack before = grade_stack_;
-    *grade_node = std::move(candidate);
-    parameterEdited(QStringLiteral("local_mask/%1").arg(key), before);
-    emit gradeNodesChanged();
-}
-
-void EditController::setSelectedLocalMaskPoint(
-    const QString& point,
-    const double normalized_x,
-    const double normalized_y
-) {
-    auto* const grade_node = selected_grade_node_index_ < 0
-        ? nullptr : &grade_stack_.grade_nodes[selected_grade_node_index_];
-    if (grade_node == nullptr || grade_node->local_mask_kind == 0U
-        || !acceptParameter(
-            normalized_x,
-            0.0,
-            1.0,
-            QT_TRANSLATE_NOOP("EditController", "Local mask")
-        )
-        || !acceptParameter(
-            normalized_y,
-            0.0,
-            1.0,
-            QT_TRANSLATE_NOOP("EditController", "Local mask")
-        )) {
-        return;
-    }
-
-    BackendGradeNode candidate = *grade_node;
-    if (point == QStringLiteral("start") && candidate.local_mask_kind == 1U) {
-        candidate.local_mask_x0 = normalized_x;
-        candidate.local_mask_y0 = normalized_y;
-    } else if (point == QStringLiteral("end")
-               && candidate.local_mask_kind == 1U) {
-        candidate.local_mask_x1 = normalized_x;
-        candidate.local_mask_y1 = normalized_y;
-    } else if (point == QStringLiteral("center")
-               && candidate.local_mask_kind == 2U) {
-        candidate.local_mask_x0 = normalized_x;
-        candidate.local_mask_y0 = normalized_y;
-    } else {
-        return;
-    }
-
-    if (candidate == *grade_node) {
-        return;
-    }
-    if (candidate.local_mask_kind == 1U
-        && std::hypot(
-            candidate.local_mask_x1 - candidate.local_mask_x0,
-            candidate.local_mask_y1 - candidate.local_mask_y0
-        ) < 0.01) {
-        setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
-            "EditController", "A gradient mask needs two distinct points"
-        )));
-        return;
-    }
-
-    const BackendGradeStack before = grade_stack_;
-    *grade_node = std::move(candidate);
-    parameterEdited(QStringLiteral("local_mask/%1").arg(point), before);
-    emit gradeNodesChanged();
-}
-
-void EditController::setSelectedLocalMaskInverted(const bool inverted) {
-    auto* const grade_node = selected_grade_node_index_ < 0
-        ? nullptr : &grade_stack_.grade_nodes[selected_grade_node_index_];
-    if (!active_ || interactionLocked() || grade_node == nullptr || !grade_node->enabled
-        || grade_node->local_mask_kind == 0U
-        || grade_node->local_mask_invert == inverted) {
-        return;
-    }
-    const BackendGradeStack before = grade_stack_;
-    grade_node->local_mask_invert = inverted;
-    parameterEdited(QStringLiteral("local_mask/invert"), before);
-    emit gradeNodesChanged();
-}
-
-void EditController::appendSelectedLocalMaskBrushPoint(
-    const double normalized_x,
-    const double normalized_y,
-    const bool begins_stroke
-) {
-    constexpr qsizetype maximum_brush_points = 4'096;
-    constexpr double minimum_point_distance = 0.0015;
-    auto* const grade_node = selected_grade_node_index_ < 0
-        ? nullptr : &grade_stack_.grade_nodes[selected_grade_node_index_];
-    if (grade_node == nullptr || grade_node->local_mask_kind != 3U
-        || !acceptParameter(
-            normalized_x,
-            0.0,
-            1.0,
-            QT_TRANSLATE_NOOP("EditController", "Brush mask")
-        )
-        || !acceptParameter(
-            normalized_y,
-            0.0,
-            1.0,
-            QT_TRANSLATE_NOOP("EditController", "Brush mask")
-        )) {
-        return;
-    }
-    const qsizetype point_count = grade_node->local_mask_brush_points.size() / 3;
-    if (point_count >= maximum_brush_points) {
-        setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
-            "EditController", "This brush mask has reached its point limit"
-        )));
-        return;
-    }
-    if (!begins_stroke && point_count > 0) {
-        const qsizetype previous = grade_node->local_mask_brush_points.size() - 3;
-        if (std::hypot(
-                normalized_x - grade_node->local_mask_brush_points.at(previous),
-                normalized_y - grade_node->local_mask_brush_points.at(previous + 1)
-            ) < minimum_point_distance) {
-            return;
-        }
-    }
-    const BackendGradeStack before = grade_stack_;
-    grade_node->local_mask_brush_points.push_back(normalized_x);
-    grade_node->local_mask_brush_points.push_back(normalized_y);
-    grade_node->local_mask_brush_points.push_back(begins_stroke ? 1.0 : 0.0);
-    parameterEdited(QStringLiteral("local_mask/brush"), before);
-    emit gradeNodesChanged();
-}
-
-void EditController::clearSelectedLocalMaskBrush() {
-    auto* const grade_node = selected_grade_node_index_ < 0
-        ? nullptr : &grade_stack_.grade_nodes[selected_grade_node_index_];
-    if (!active_ || interactionLocked() || grade_node == nullptr
-        || grade_node->local_mask_kind != 3U
-        || grade_node->local_mask_brush_points.isEmpty()) {
-        return;
-    }
-    finishActiveGesture();
-    const BackendGradeStack before = grade_stack_;
-    grade_node->local_mask_brush_points.clear();
-    parameterEdited(QStringLiteral("local_mask/brush/clear"), before);
-    emit gradeNodesChanged();
-}
-
-void EditController::deleteSelectedGradeNode() {
-    const auto* const selected = selectedGradeNode();
-    if (!canDeleteGradeNode() || selected == nullptr) {
-        return;
-    }
-    finishActiveGesture();
-    const QString deleted_id = selected->grade_node_id;
 void EditController::copySelectedLocalMask() {
     const auto* const grade_node = selectedGradeNode();
     if (!active_ || interactionLocked() || grade_node == nullptr
@@ -3388,6 +3388,217 @@ void EditController::removeLocalMaskAsset(const QString& asset_id) {
     ), {name}));
 }
 
+void EditController::setSelectedLocalMaskValue(
+    const QString& key,
+    const double value
+) {
+    auto* const grade_node = selected_grade_node_index_ < 0
+        ? nullptr : &grade_stack_.grade_nodes[selected_grade_node_index_];
+    if (grade_node == nullptr || grade_node->local_mask_kind == 0U
+        || !acceptParameter(
+            value,
+            0.0,
+            1.0,
+            QT_TRANSLATE_NOOP("EditController", "Local mask")
+        )) {
+        return;
+    }
+
+    double* target = nullptr;
+    if (key == QStringLiteral("x0")) target = &grade_node->local_mask_x0;
+    else if (key == QStringLiteral("y0")) target = &grade_node->local_mask_y0;
+    else if (key == QStringLiteral("x1")) target = &grade_node->local_mask_x1;
+    else if (key == QStringLiteral("y1")) target = &grade_node->local_mask_y1;
+    else if (key == QStringLiteral("radiusX")) target = &grade_node->local_mask_radius_x;
+    else if (key == QStringLiteral("radiusY")) target = &grade_node->local_mask_radius_y;
+    else if (key == QStringLiteral("feather")) target = &grade_node->local_mask_feather;
+    if (target == nullptr || *target == value) {
+        return;
+    }
+
+    BackendGradeNode candidate = *grade_node;
+    if (key == QStringLiteral("x0")) candidate.local_mask_x0 = value;
+    else if (key == QStringLiteral("y0")) candidate.local_mask_y0 = value;
+    else if (key == QStringLiteral("x1")) candidate.local_mask_x1 = value;
+    else if (key == QStringLiteral("y1")) candidate.local_mask_y1 = value;
+    else if (key == QStringLiteral("radiusX")) candidate.local_mask_radius_x = value;
+    else if (key == QStringLiteral("radiusY")) candidate.local_mask_radius_y = value;
+    else candidate.local_mask_feather = value;
+    if (candidate.local_mask_kind == 1U
+        && std::hypot(
+            candidate.local_mask_x1 - candidate.local_mask_x0,
+            candidate.local_mask_y1 - candidate.local_mask_y0
+        ) < 0.01) {
+        setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+            "EditController", "A gradient mask needs two distinct points"
+        )));
+        return;
+    }
+    if (candidate.local_mask_kind == 2U
+        && (candidate.local_mask_radius_x < 0.01
+            || candidate.local_mask_radius_y < 0.01)) {
+        setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+            "EditController", "A radial mask needs a non-zero radius"
+        )));
+        return;
+    }
+    if (candidate.local_mask_kind == 3U
+        && candidate.local_mask_radius_x < 0.005) {
+        setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+            "EditController", "A brush mask needs a non-zero size"
+        )));
+        return;
+    }
+
+    const BackendGradeStack before = grade_stack_;
+    *grade_node = std::move(candidate);
+    parameterEdited(QStringLiteral("local_mask/%1").arg(key), before);
+    emit gradeNodesChanged();
+}
+
+void EditController::setSelectedLocalMaskPoint(
+    const QString& point,
+    const double normalized_x,
+    const double normalized_y
+) {
+    auto* const grade_node = selected_grade_node_index_ < 0
+        ? nullptr : &grade_stack_.grade_nodes[selected_grade_node_index_];
+    if (grade_node == nullptr || grade_node->local_mask_kind == 0U
+        || !acceptParameter(
+            normalized_x,
+            0.0,
+            1.0,
+            QT_TRANSLATE_NOOP("EditController", "Local mask")
+        )
+        || !acceptParameter(
+            normalized_y,
+            0.0,
+            1.0,
+            QT_TRANSLATE_NOOP("EditController", "Local mask")
+        )) {
+        return;
+    }
+
+    BackendGradeNode candidate = *grade_node;
+    if (point == QStringLiteral("start") && candidate.local_mask_kind == 1U) {
+        candidate.local_mask_x0 = normalized_x;
+        candidate.local_mask_y0 = normalized_y;
+    } else if (point == QStringLiteral("end")
+               && candidate.local_mask_kind == 1U) {
+        candidate.local_mask_x1 = normalized_x;
+        candidate.local_mask_y1 = normalized_y;
+    } else if (point == QStringLiteral("center")
+               && candidate.local_mask_kind == 2U) {
+        candidate.local_mask_x0 = normalized_x;
+        candidate.local_mask_y0 = normalized_y;
+    } else {
+        return;
+    }
+
+    if (candidate == *grade_node) {
+        return;
+    }
+    if (candidate.local_mask_kind == 1U
+        && std::hypot(
+            candidate.local_mask_x1 - candidate.local_mask_x0,
+            candidate.local_mask_y1 - candidate.local_mask_y0
+        ) < 0.01) {
+        setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+            "EditController", "A gradient mask needs two distinct points"
+        )));
+        return;
+    }
+
+    const BackendGradeStack before = grade_stack_;
+    *grade_node = std::move(candidate);
+    parameterEdited(QStringLiteral("local_mask/%1").arg(point), before);
+    emit gradeNodesChanged();
+}
+
+void EditController::setSelectedLocalMaskInverted(const bool inverted) {
+    auto* const grade_node = selected_grade_node_index_ < 0
+        ? nullptr : &grade_stack_.grade_nodes[selected_grade_node_index_];
+    if (!active_ || interactionLocked() || grade_node == nullptr || !grade_node->enabled
+        || grade_node->local_mask_kind == 0U
+        || grade_node->local_mask_invert == inverted) {
+        return;
+    }
+    const BackendGradeStack before = grade_stack_;
+    grade_node->local_mask_invert = inverted;
+    parameterEdited(QStringLiteral("local_mask/invert"), before);
+    emit gradeNodesChanged();
+}
+
+void EditController::appendSelectedLocalMaskBrushPoint(
+    const double normalized_x,
+    const double normalized_y,
+    const bool begins_stroke
+) {
+    constexpr qsizetype maximum_brush_points = 4'096;
+    constexpr double minimum_point_distance = 0.0015;
+    auto* const grade_node = selected_grade_node_index_ < 0
+        ? nullptr : &grade_stack_.grade_nodes[selected_grade_node_index_];
+    if (grade_node == nullptr || grade_node->local_mask_kind != 3U
+        || !acceptParameter(
+            normalized_x,
+            0.0,
+            1.0,
+            QT_TRANSLATE_NOOP("EditController", "Brush mask")
+        )
+        || !acceptParameter(
+            normalized_y,
+            0.0,
+            1.0,
+            QT_TRANSLATE_NOOP("EditController", "Brush mask")
+        )) {
+        return;
+    }
+    const qsizetype point_count = grade_node->local_mask_brush_points.size() / 3;
+    if (point_count >= maximum_brush_points) {
+        setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
+            "EditController", "This brush mask has reached its point limit"
+        )));
+        return;
+    }
+    if (!begins_stroke && point_count > 0) {
+        const qsizetype previous = grade_node->local_mask_brush_points.size() - 3;
+        if (std::hypot(
+                normalized_x - grade_node->local_mask_brush_points.at(previous),
+                normalized_y - grade_node->local_mask_brush_points.at(previous + 1)
+            ) < minimum_point_distance) {
+            return;
+        }
+    }
+    const BackendGradeStack before = grade_stack_;
+    grade_node->local_mask_brush_points.push_back(normalized_x);
+    grade_node->local_mask_brush_points.push_back(normalized_y);
+    grade_node->local_mask_brush_points.push_back(begins_stroke ? 1.0 : 0.0);
+    parameterEdited(QStringLiteral("local_mask/brush"), before);
+    emit gradeNodesChanged();
+}
+
+void EditController::clearSelectedLocalMaskBrush() {
+    auto* const grade_node = selected_grade_node_index_ < 0
+        ? nullptr : &grade_stack_.grade_nodes[selected_grade_node_index_];
+    if (!active_ || interactionLocked() || grade_node == nullptr
+        || grade_node->local_mask_kind != 3U
+        || grade_node->local_mask_brush_points.isEmpty()) {
+        return;
+    }
+    finishActiveGesture();
+    const BackendGradeStack before = grade_stack_;
+    grade_node->local_mask_brush_points.clear();
+    parameterEdited(QStringLiteral("local_mask/brush/clear"), before);
+    emit gradeNodesChanged();
+}
+
+void EditController::deleteSelectedGradeNode() {
+    const auto* const selected = selectedGradeNode();
+    if (!canDeleteGradeNode() || selected == nullptr) {
+        return;
+    }
+    finishActiveGesture();
+    const QString deleted_id = selected->grade_node_id;
     const QString deleted_label = selected->label;
     const BackendGradeStack before = grade_stack_;
     BackendGradeStack updated = grade_stack_;
@@ -3781,6 +3992,8 @@ void EditController::setGradeStack(
         || (had_old_selection && has_new_selection
             && (old_selected_value.basic != new_selected->basic
                 || old_selected_value.fine != new_selected->fine));
+    const bool retouch_changed = grade_stack_.retouch_spots != grade_stack.retouch_spots
+        || grade_stack_.retouch_strokes != grade_stack.retouch_strokes;
     const bool curve_changed = selection_changed
         || had_old_selection != has_new_selection
         || (had_old_selection && has_new_selection
@@ -3796,6 +4009,7 @@ void EditController::setGradeStack(
         return;
     }
     grade_stack_ = std::move(grade_stack);
+    active_retouch_stroke_index_ = -1;
     selected_grade_node_index_ = new_selected_index;
     const int new_point_color_count = selectedGradeNode() == nullptr
         ? 0 : point_color_count(selectedGradeNode()->fine);
@@ -3818,7 +4032,7 @@ void EditController::setGradeStack(
     if (grade_node_enabled_changed) {
         emit gradeNodeEnabledChanged();
     }
-    if (basic_changed) {
+    if (basic_changed || retouch_changed) {
         notifyParametersChanged();
     }
     if (curve_changed) {

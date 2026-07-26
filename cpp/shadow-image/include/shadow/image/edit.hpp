@@ -439,8 +439,33 @@ struct SpotHealTarget final {
     double feather = 0.28;
 };
 
+// A single authored point on a continuous Repair/Clone brush stroke. Coordinates
+// use the same full-image normalized space as legacy spots and local masks, so a
+// stroke remains aligned between warm previews and full-detail tiles.
+struct RetouchStrokePoint final {
+    double x = 0.5;
+    double y = 0.5;
+};
+
+// One non-destructive continuous retouch gesture. The renderer sweeps the
+// level-zero radius along adjacent points as a union of round-ended capsules;
+// it is deliberately one adjustment unit rather than a persisted row of spots.
+// Clone offsets remain measured in brush radii and are fixed for the complete
+// stroke, keeping the source region aligned to the target path.
+struct RetouchStroke final {
+    std::vector<RetouchStrokePoint> points;
+    std::uint16_t radius_level_zero_pixels = 1U;
+    SpotRepairMode mode = SpotRepairMode::heal;
+    double source_offset_x_radii = 0.0;
+    double source_offset_y_radii = 0.0;
+    double feather = 0.28;
+};
+
 struct SpotHealAdjustment final {
+    // Legacy single-click repair targets remain first-class so old recipes keep
+    // their exact behavior. New drags are represented by one RetouchStroke.
     std::vector<SpotHealTarget> spots;
+    std::vector<RetouchStroke> strokes;
 };
 
 using AdjustmentParameters = std::variant<

@@ -1034,9 +1034,13 @@ Rectangle {
                             preventStealing: true
                             property real pointerX: width / 2
                             property real pointerY: height / 2
-                            property bool retouchBrushActive: false
-                            property real lastRetouchStampX: -1
-                            property real lastRetouchStampY: -1
+                            property bool retouchGestureActive: false
+                            property bool retouchStrokeActive: false
+                            property real retouchPressX: -1
+                            property real retouchPressY: -1
+                            property real lastRetouchStrokeX: -1
+                            property real lastRetouchStrokeY: -1
+                            property var retouchPressPoint: null
 
                             function retouchBrushDiameter() {
                                 // The persisted repair target has an 18px
@@ -1046,48 +1050,96 @@ Rectangle {
                                 return Math.max(18, 36 * canvas.displayScale)
                             }
 
-                            function appendRetouchStamp(mouse, beginsStroke) {
+                            function normalizedRetouchPoint(mouse) {
+                                return canvas.previewNormalizedPoint(
+                                    pointColorPickArea, mouse.x, mouse.y)
+                            }
+
+                            function appendRetouchStrokePoint(mouse, force) {
                                 const normalized = canvas.previewNormalizedPoint(
                                     pointColorPickArea, mouse.x, mouse.y)
                                 if (normalized === null)
                                     return
-                                const minimumSpacing = retouchBrushDiameter() * 0.45
-                                if (!beginsStroke
+                                // Keep a compact sampled path while leaving
+                                // the renderer responsible for joining every
+                                // adjacent pair into one swept brush region.
+                                const minimumSpacing = Math.max(
+                                    2, retouchBrushDiameter() * 0.18)
+                                if (!force
                                         && Math.hypot(
-                                            mouse.x - lastRetouchStampX,
-                                            mouse.y - lastRetouchStampY
+                                            mouse.x - lastRetouchStrokeX,
+                                            mouse.y - lastRetouchStrokeY
                                         ) < minimumSpacing) {
                                     return
                                 }
-                                canvas.editor.addRetouchSpotFromPreview(
+                                canvas.editor.appendRetouchStrokePoint(
                                     normalized.x, normalized.y)
-                                lastRetouchStampX = mouse.x
-                                lastRetouchStampY = mouse.y
+                                lastRetouchStrokeX = mouse.x
+                                lastRetouchStrokeY = mouse.y
+                            }
+
+                            function finishRetouchGesture(mouse) {
+                                if (!retouchGestureActive)
+                                    return
+                                if (retouchStrokeActive) {
+                                    if (mouse !== undefined && mouse !== null)
+                                        appendRetouchStrokePoint(mouse, true)
+                                    canvas.editor.endRetouchStroke()
+                                } else if (retouchPressPoint !== null) {
+                                    // A click remains a single legacy spot:
+                                    // existing recipes and the precise spot
+                                    // workflow keep their original behavior.
+                                    canvas.editor.addRetouchSpotFromPreview(
+                                        retouchPressPoint.x,
+                                        retouchPressPoint.y)
+                                }
+                                retouchGestureActive = false
+                                retouchStrokeActive = false
+                                retouchPressPoint = null
+                                retouchPressX = -1
+                                retouchPressY = -1
+                                lastRetouchStrokeX = -1
+                                lastRetouchStrokeY = -1
                             }
                             onPositionChanged: mouse => {
                                 pointerX = mouse.x
                                 pointerY = mouse.y
-                                if (pressed && retouchBrushActive)
-                                    appendRetouchStamp(mouse, false)
+                                if (!pressed || !retouchGestureActive)
+                                    return
+                                if (!retouchStrokeActive) {
+                                    const dragThreshold = Math.max(
+                                        3, retouchBrushDiameter() * 0.12)
+                                    if (Math.hypot(
+                                            mouse.x - retouchPressX,
+                                            mouse.y - retouchPressY
+                                        ) < dragThreshold) {
+                                        return
+                                    }
+                                    canvas.editor.beginRetouchStroke(
+                                        retouchPressPoint.x,
+                                        retouchPressPoint.y)
+                                    retouchStrokeActive = true
+                                    lastRetouchStrokeX = retouchPressX
+                                    lastRetouchStrokeY = retouchPressY
+                                }
+                                appendRetouchStrokePoint(mouse, false)
                             }
                             onPressed: mouse => {
                                 pointerX = mouse.x
                                 pointerY = mouse.y
                                 if (!canvas.editor.retouchPickerActive)
                                     return
-                                retouchBrushActive = true
-                                appendRetouchStamp(mouse, true)
+                                const normalized = normalizedRetouchPoint(mouse)
+                                if (normalized === null)
+                                    return
+                                retouchGestureActive = true
+                                retouchStrokeActive = false
+                                retouchPressX = mouse.x
+                                retouchPressY = mouse.y
+                                retouchPressPoint = normalized
                             }
-                            onReleased: {
-                                retouchBrushActive = false
-                                lastRetouchStampX = -1
-                                lastRetouchStampY = -1
-                            }
-                            onCanceled: {
-                                retouchBrushActive = false
-                                lastRetouchStampX = -1
-                                lastRetouchStampY = -1
-                            }
+                            onReleased: mouse => finishRetouchGesture(mouse)
+                            onCanceled: finishRetouchGesture(null)
                             onClicked: mouse => {
                                 if (!canvas.editor.retouchPickerActive) {
                                     canvas.pickPreviewColor(

@@ -901,7 +901,7 @@ void validate_image(const FloatRgbImage& image) {
             } else if constexpr (std::is_same_v<Parameters, CubeLutAdjustment>) {
                 return value.intensity == 0.0;
             } else if constexpr (std::is_same_v<Parameters, SpotHealAdjustment>) {
-                return value.spots.empty();
+                return value.spots.empty() && value.strokes.empty();
             } else {
                 static_assert(std::is_same_v<Parameters, SharpenAdjustment>);
                 switch (value.execution_pass) {
@@ -1384,16 +1384,17 @@ AdjustmentFootprint footprint(
                 };
             } else if constexpr (std::is_same_v<Parameters, SpotHealAdjustment>) {
                 validate_spot_heal(value);
-                const auto maximum = std::ranges::max_element(
-                    value.spots,
-                    {},
-                    [](const SpotHealTarget& target) {
-                        return target.radius_level_zero_pixels;
-                    }
-                );
-                const double radius = static_cast<double>(
-                    maximum->radius_level_zero_pixels
-                );
+                std::uint16_t maximum_radius = 0U;
+                for (const auto& target : value.spots) {
+                    maximum_radius = std::max(maximum_radius, target.radius_level_zero_pixels);
+                }
+                for (const auto& stroke : value.strokes) {
+                    maximum_radius = std::max(
+                        maximum_radius,
+                        stroke.radius_level_zero_pixels
+                    );
+                }
+                const double radius = static_cast<double>(maximum_radius);
                 // Heal samples a ring almost two radii from the target centre
                 // while writing the opposite edge of the selected disc. Clone
                 // can source pixels two radii away and uses bilinear sampling.

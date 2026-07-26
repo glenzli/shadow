@@ -2141,6 +2141,10 @@ pub enum AdjustmentRenderOperation {
     /// ring so preview, detail tile, and export share the exact same intent.
     SpotHeal {
         targets: Vec<AdjustmentSpotHealTarget>,
+        /// A drag is one retained, continuous swept-circle region. Keeping
+        /// this alongside legacy targets makes old click-to-repair recipes
+        /// decode and render exactly as before.
+        strokes: Vec<AdjustmentRetouchStroke>,
     },
 }
 
@@ -2160,6 +2164,28 @@ pub enum AdjustmentDetailEffectsPass {
 pub struct AdjustmentSpotHealTarget {
     pub center_x: f64,
     pub center_y: f64,
+    pub radius_level_zero_pixels: u16,
+    /// 0 = heal, 1 = clone.
+    pub mode: u8,
+    pub source_offset_x_radii: f64,
+    pub source_offset_y_radii: f64,
+    pub feather: f64,
+}
+
+/// One normalized sampled point in a continuous repair/clone stroke.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AdjustmentRetouchStrokePoint {
+    pub x: f64,
+    pub y: f64,
+}
+
+/// A bounded swept brush region for [`AdjustmentRenderOperation::SpotHeal`].
+///
+/// The source offset is measured in brush radii and stays fixed over the
+/// whole stroke, so clone source and target keep the same shape.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AdjustmentRetouchStroke {
+    pub points: Vec<AdjustmentRetouchStrokePoint>,
     pub radius_level_zero_pixels: u16,
     /// 0 = heal, 1 = clone.
     pub mode: u8,
@@ -2539,10 +2565,10 @@ fn validate_render_operation(operation: &AdjustmentRenderOperation) -> Result<()
             }
         }
         AdjustmentRenderOperation::Sharpen { parameters, .. } => validate_sharpen(parameters),
-        AdjustmentRenderOperation::SpotHeal { targets } => {
-            if targets.is_empty() || targets.len() > 64 {
+        AdjustmentRenderOperation::SpotHeal { targets, strokes } => {
+            if (targets.is_empty() && strokes.is_empty()) || targets.len() > 64 {
                 return Err(BridgeError::InvalidEditRequest(
-                    "spot-heal must contain 1 through 64 targets",
+                    "spot-heal must contain a repair target or continuous stroke",
                 ));
             }
             for target in targets {
@@ -2570,6 +2596,44 @@ fn validate_render_operation(operation: &AdjustmentRenderOperation) -> Result<()
                     return Err(BridgeError::InvalidEditRequest(
                         "spot-heal mode, source offset, or radius is outside its supported range",
                     ));
+                }
+            }
+            if strokes.len() > 64 {
+                return Err(BridgeError::InvalidEditRequest(
+                    "spot-heal supports at most 64 continuous strokes",
+                ));
+            }
+            for stroke in strokes {
+                if !(1..=512).contains(&stroke.points.len()) {
+                    return Err(BridgeError::InvalidEditRequest(
+                        "a continuous repair stroke must contain 1 through 512 points",
+                    ));
+                }
+                for value in [
+                    stroke.source_offset_x_radii,
+                    stroke.source_offset_y_radii,
+                    stroke.feather,
+                ] {
+                    validate_finite_render_parameter(value)?;
+                }
+                if stroke.mode > 1
+                    || !(-2.0..=2.0).contains(&stroke.source_offset_x_radii)
+                    || !(-2.0..=2.0).contains(&stroke.source_offset_y_radii)
+                    || !(0.0..=1.0).contains(&stroke.feather)
+                    || !(1..=128).contains(&stroke.radius_level_zero_pixels)
+                {
+                    return Err(BridgeError::InvalidEditRequest(
+                        "continuous spot-heal behavior is outside the supported range",
+                    ));
+                }
+                for point in &stroke.points {
+                    validate_finite_render_parameter(point.x)?;
+                    validate_finite_render_parameter(point.y)?;
+                    if !(0.0..=1.0).contains(&point.x) || !(0.0..=1.0).contains(&point.y) {
+                        return Err(BridgeError::InvalidEditRequest(
+                            "continuous spot-heal points must be normalized to 0..=1",
+                        ));
+                    }
                 }
             }
             Ok(())
@@ -4369,8 +4433,16 @@ fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustmentNode {
                 vec![],
             )
         }
-        AdjustmentRenderOperation::SpotHeal { targets } => {
-            let mut flattened = Vec::with_capacity(targets.len() * 7);
+        AdjustmentRenderOperation::SpotHeal { targets, strokes } => {
+            let stroke_parameters = strokes
+                .iter()
+                .map(|stroke| 5 + stroke.points.len() * 2)
+                .sum::<usize>();
+            let mut flattened = Vec::with_capacity(targets.len() * 7 + stroke_parameters);
+            let mut parameter_group_lengths = vec![
+                u32::try_from(targets.len()).expect("validated spot-heal target count fits u32"),
+                u32::try_from(strokes.len()).expect("validated continuous stroke count fits u32"),
+            ];
             for target in targets {
                 flattened.extend([
                     target.center_x,
@@ -4382,13 +4454,26 @@ fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustmentNode {
                     target.feather,
                 ]);
             }
+            for stroke in strokes {
+                parameter_group_lengths.push(
+                    u32::try_from(stroke.points.len())
+                        .expect("validated continuous stroke point count fits u32"),
+                );
+                flattened.extend([
+                    f64::from(stroke.radius_level_zero_pixels),
+                    f64::from(stroke.mode),
+                    stroke.source_offset_x_radii,
+                    stroke.source_offset_y_radii,
+                    stroke.feather,
+                ]);
+                for point in &stroke.points {
+                    flattened.extend([point.x, point.y]);
+                }
+            }
             (
                 ffi::FfiAdjustmentOperation::SpotHeal,
                 flattened,
-                vec![
-                    u32::try_from(targets.len())
-                        .expect("validated spot-heal target count fits u32"),
-                ],
+                parameter_group_lengths,
                 vec![],
             )
         }
@@ -6635,6 +6720,56 @@ mod tests {
                 "unexpected unsupported-RAW error: {error}"
             );
         }
+    }
+
+    #[test]
+    fn continuous_retouch_strokes_validate_and_flatten_with_their_point_groups() {
+        let node = AdjustmentRenderNode {
+            node_id: "continuous-retouch".to_owned(),
+            parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+            implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
+            enabled: true,
+            operation: AdjustmentRenderOperation::SpotHeal {
+                targets: Vec::new(),
+                strokes: vec![AdjustmentRetouchStroke {
+                    points: vec![
+                        AdjustmentRetouchStrokePoint { x: 0.2, y: 0.3 },
+                        AdjustmentRetouchStrokePoint { x: 0.7, y: 0.6 },
+                    ],
+                    radius_level_zero_pixels: 24,
+                    mode: 1,
+                    source_offset_x_radii: 1.25,
+                    source_offset_y_radii: -0.75,
+                    feather: 0.4,
+                }],
+            },
+        };
+        validate_render_operation(&node.operation)
+            .expect("a bounded continuous clone stroke is valid");
+
+        let flattened = ffi_render_node(&node);
+        assert!(matches!(
+            flattened.operation,
+            ffi::FfiAdjustmentOperation::SpotHeal
+        ));
+        assert_eq!(flattened.parameter_group_lengths, [0, 1, 2]);
+        assert_eq!(
+            flattened.parameters,
+            [24.0, 1.0, 1.25, -0.75, 0.4, 0.2, 0.3, 0.7, 0.6]
+        );
+
+        let invalid = AdjustmentRenderOperation::SpotHeal {
+            targets: Vec::new(),
+            strokes: vec![AdjustmentRetouchStroke {
+                points: Vec::new(),
+                radius_level_zero_pixels: 24,
+                mode: 0,
+                source_offset_x_radii: 0.0,
+                source_offset_y_radii: 0.0,
+                feather: 0.28,
+            }],
+        };
+        assert!(validate_render_operation(&invalid).is_err());
     }
 
     #[test]

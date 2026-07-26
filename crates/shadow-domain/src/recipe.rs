@@ -1106,6 +1106,154 @@ impl RetouchSpot {
 
 pub const MAX_RETOUCH_SPOTS_PER_RECIPE: usize = 64;
 
+/// One normalized centerline sample belonging to a continuous repair stroke.
+///
+/// The renderer sweeps the stroke radius along the ordered samples. A
+/// one-point stroke is intentionally valid and represents a circular dab;
+/// callers that model a drag normally provide two or more points.
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RetouchPoint {
+    x: UnitInterval,
+    y: UnitInterval,
+}
+
+impl RetouchPoint {
+    pub const fn new(x: UnitInterval, y: UnitInterval) -> Self {
+        Self { x, y }
+    }
+
+    pub const fn x(self) -> UnitInterval {
+        self.x
+    }
+
+    pub const fn y(self) -> UnitInterval {
+        self.y
+    }
+}
+
+/// One photo-local continuous repair or clone brush stroke.
+///
+/// A stroke owns one ordered path, one radius, and one source offset. This
+/// preserves the user's single-stroke/one-undo semantic while allowing the
+/// renderer to rasterize the path as a continuous capsule union rather than a
+/// collection of independently editable circular spots.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RetouchStroke {
+    points: Vec<RetouchPoint>,
+    radius_level_zero_pixels: u16,
+    #[serde(default)]
+    mode: RetouchMode,
+    #[serde(default = "default_finite_zero")]
+    source_offset_x_radii: FiniteF64,
+    #[serde(default = "default_finite_zero")]
+    source_offset_y_radii: FiniteF64,
+    #[serde(default = "default_retouch_feather")]
+    feather: UnitInterval,
+}
+
+impl RetouchStroke {
+    pub const MIN_RADIUS_LEVEL_ZERO_PIXELS: u16 = RetouchSpot::MIN_RADIUS_LEVEL_ZERO_PIXELS;
+    pub const MAX_RADIUS_LEVEL_ZERO_PIXELS: u16 = RetouchSpot::MAX_RADIUS_LEVEL_ZERO_PIXELS;
+
+    /// Creates a bounded continuous repair stroke in original-image
+    /// coordinates.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the path is empty, has too many samples, or its
+    /// radius exceeds Shadow's detail-tile apron contract.
+    pub fn new(
+        points: Vec<RetouchPoint>,
+        radius_level_zero_pixels: u16,
+    ) -> Result<Self, RecipeValidationError> {
+        if points.is_empty() {
+            return Err(RecipeValidationError::EmptyRetouchStroke);
+        }
+        if points.len() > MAX_RETOUCH_STROKE_POINTS {
+            return Err(RecipeValidationError::TooManyRetouchStrokePoints(
+                points.len(),
+            ));
+        }
+        if radius_level_zero_pixels < Self::MIN_RADIUS_LEVEL_ZERO_PIXELS
+            || radius_level_zero_pixels > Self::MAX_RADIUS_LEVEL_ZERO_PIXELS
+        {
+            return Err(RecipeValidationError::InvalidRetouchStrokeRadius(
+                radius_level_zero_pixels,
+            ));
+        }
+        Ok(Self {
+            points,
+            radius_level_zero_pixels,
+            mode: RetouchMode::Heal,
+            source_offset_x_radii: default_finite_zero(),
+            source_offset_y_radii: default_finite_zero(),
+            feather: default_retouch_feather(),
+        })
+    }
+
+    pub fn with_behavior(
+        mut self,
+        mode: RetouchMode,
+        source_offset_x_radii: f64,
+        source_offset_y_radii: f64,
+        feather: UnitInterval,
+    ) -> Result<Self, RecipeValidationError> {
+        let source_offset_x_radii = FiniteF64::new(source_offset_x_radii)?;
+        let source_offset_y_radii = FiniteF64::new(source_offset_y_radii)?;
+        if !(-2.0..=2.0).contains(&source_offset_x_radii.get())
+            || !(-2.0..=2.0).contains(&source_offset_y_radii.get())
+        {
+            return Err(RecipeValidationError::InvalidRetouchSourceOffset);
+        }
+        self.mode = mode;
+        self.source_offset_x_radii = source_offset_x_radii;
+        self.source_offset_y_radii = source_offset_y_radii;
+        self.feather = feather;
+        Ok(self)
+    }
+
+    pub fn points(&self) -> &[RetouchPoint] {
+        &self.points
+    }
+
+    pub const fn radius_level_zero_pixels(&self) -> u16 {
+        self.radius_level_zero_pixels
+    }
+
+    pub const fn mode(&self) -> RetouchMode {
+        self.mode
+    }
+
+    pub const fn source_offset_x_radii(&self) -> f64 {
+        self.source_offset_x_radii.get()
+    }
+
+    pub const fn source_offset_y_radii(&self) -> f64 {
+        self.source_offset_y_radii.get()
+    }
+
+    pub const fn feather(&self) -> UnitInterval {
+        self.feather
+    }
+
+    fn validate(&self) -> Result<(), RecipeValidationError> {
+        Self::new(self.points.clone(), self.radius_level_zero_pixels)?
+            .with_behavior(
+                self.mode,
+                self.source_offset_x_radii.get(),
+                self.source_offset_y_radii.get(),
+                self.feather,
+            )
+            .map(|_| ())
+    }
+}
+
+/// A recipe limits the number of independently editable repair strokes just
+/// as it limits legacy circular repair spots.
+pub const MAX_RETOUCH_STROKES_PER_RECIPE: usize = 64;
+/// One drag may retain at most this many normalized centerline samples.
+pub const MAX_RETOUCH_STROKE_POINTS: usize = 512;
+
 /// A lossless 90-degree orientation applied after the photo's local edits.
 ///
 /// Geometry is deliberately photo-local: a reusable Grade Node may describe a
@@ -1781,6 +1929,11 @@ pub struct RecipeSnapshot {
     /// never belong to a reusable Grade Node shared across photographs.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     retouch_spots: Vec<RetouchSpot>,
+    /// Continuous repair/clone brush strokes owned by this photo recipe.
+    /// This is additive to `retouch_spots` so legacy single-click repairs
+    /// remain byte-for-byte compatible and independently editable.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    retouch_strokes: Vec<RetouchStroke>,
     /// Photo-local crop and lossless orientation. This intentionally sits
     /// outside input/decode settings and reusable Grade Nodes: it describes
     /// the final canvas after the common RGB edit graph.
@@ -1872,11 +2025,36 @@ impl RecipeSnapshot {
         geometry: PhotoGeometry,
         layers: Vec<LayerInstance>,
     ) -> Result<Self, RecipeValidationError> {
+        Self::new_with_input_settings_masks_retouch_strokes_and_geometry(
+            schema_version,
+            input_settings,
+            masks,
+            retouch_spots,
+            Vec::new(),
+            geometry,
+            layers,
+        )
+    }
+
+    /// Creates a complete recipe with legacy repair spots, continuous repair
+    /// strokes, and geometry. The two repair collections deliberately remain
+    /// distinct so existing persisted recipes retain their historical
+    /// single-click semantics while new drag gestures are one durable stroke.
+    pub fn new_with_input_settings_masks_retouch_strokes_and_geometry(
+        schema_version: u32,
+        input_settings: RecipeInputSettings,
+        masks: Vec<MaskRevision>,
+        retouch_spots: Vec<RetouchSpot>,
+        retouch_strokes: Vec<RetouchStroke>,
+        geometry: PhotoGeometry,
+        layers: Vec<LayerInstance>,
+    ) -> Result<Self, RecipeValidationError> {
         let recipe = Self {
             schema_version,
             input_settings,
             masks,
             retouch_spots,
+            retouch_strokes,
             geometry,
             layers,
         };
@@ -1890,6 +2068,7 @@ impl RecipeSnapshot {
             input_settings: RecipeInputSettings::default(),
             masks: Vec::new(),
             retouch_spots: Vec::new(),
+            retouch_strokes: Vec::new(),
             geometry: PhotoGeometry::identity(),
             layers: Vec::new(),
         }
@@ -1916,6 +2095,12 @@ impl RecipeSnapshot {
     /// Returns the non-generative repair targets owned by this recipe.
     pub fn retouch_spots(&self) -> &[RetouchSpot] {
         &self.retouch_spots
+    }
+
+    /// Returns the continuous repair/clone brush strokes owned by this
+    /// recipe. These remain photo-local and run after every Grade Node.
+    pub fn retouch_strokes(&self) -> &[RetouchStroke] {
+        &self.retouch_strokes
     }
 
     /// Returns the photo-local final-canvas geometry.
@@ -1961,6 +2146,14 @@ impl RecipeSnapshot {
         }
         for spot in &self.retouch_spots {
             spot.validate()?;
+        }
+        if self.retouch_strokes.len() > MAX_RETOUCH_STROKES_PER_RECIPE {
+            return Err(RecipeValidationError::TooManyRetouchStrokes(
+                self.retouch_strokes.len(),
+            ));
+        }
+        for stroke in &self.retouch_strokes {
+            stroke.validate()?;
         }
         self.geometry.validate()?;
         let mut ids = HashSet::with_capacity(self.layers.len());
@@ -2474,10 +2667,18 @@ pub enum RecipeValidationError {
     DuplicateMaskRevision { mask_id: MaskId, revision: u32 },
     #[error("retouch spot radius {0} must be between 1 and 128 full-resolution pixels")]
     InvalidRetouchSpotRadius(u16),
+    #[error("retouch stroke must contain at least one point")]
+    EmptyRetouchStroke,
+    #[error("retouch stroke contains {0} points, but at most 512 are supported")]
+    TooManyRetouchStrokePoints(usize),
+    #[error("retouch stroke radius {0} must be between 1 and 128 full-resolution pixels")]
+    InvalidRetouchStrokeRadius(u16),
     #[error("retouch clone source offset must stay within two brush radii")]
     InvalidRetouchSourceOffset,
     #[error("Recipe contains {0} retouch spots, but at most 64 are supported")]
     TooManyRetouchSpots(usize),
+    #[error("Recipe contains {0} retouch strokes, but at most 64 are supported")]
+    TooManyRetouchStrokes(usize),
     #[error("photo crop must retain non-zero width and height")]
     DegeneratePhotoCrop,
     #[error("photo straighten angle {0}° is outside the supported -45°..45° range")]
@@ -2839,6 +3040,63 @@ mod tests {
             Err(RecipeValidationError::TooManyRetouchSpots(
                 MAX_RETOUCH_SPOTS_PER_RECIPE + 1
             ))
+        );
+    }
+
+    #[test]
+    fn retouch_strokes_persist_as_one_continuous_photo_local_operation() {
+        let point = |x, y| {
+            RetouchPoint::new(
+                UnitInterval::new(x).expect("normalized x"),
+                UnitInterval::new(y).expect("normalized y"),
+            )
+        };
+        let stroke = RetouchStroke::new(vec![point(0.2, 0.3), point(0.45, 0.55)], 24)
+            .expect("bounded repair stroke")
+            .with_behavior(
+                RetouchMode::Clone,
+                1.25,
+                -0.75,
+                UnitInterval::new(0.35).expect("feather"),
+            )
+            .expect("valid clone behavior");
+        let snapshot = RecipeSnapshot::new_with_input_settings_masks_retouch_strokes_and_geometry(
+            CURRENT_RECIPE_SCHEMA_VERSION,
+            RecipeInputSettings::default(),
+            Vec::new(),
+            Vec::new(),
+            vec![stroke.clone()],
+            PhotoGeometry::identity(),
+            Vec::new(),
+        )
+        .expect("valid continuous repair recipe");
+
+        assert_eq!(snapshot.retouch_spots(), &[]);
+        assert_eq!(snapshot.retouch_strokes(), &[stroke.clone()]);
+        assert_eq!(stroke.points(), &[point(0.2, 0.3), point(0.45, 0.55)]);
+        assert_eq!(stroke.mode(), RetouchMode::Clone);
+        assert_eq!(stroke.source_offset_x_radii(), 1.25);
+        assert_eq!(stroke.source_offset_y_radii(), -0.75);
+        assert_eq!(stroke.feather().get(), 0.35);
+
+        let json = serde_json::to_string(&snapshot).expect("serialize continuous repair");
+        assert!(json.contains("\"retouch_strokes\""));
+        let decoded: RecipeSnapshot = serde_json::from_str(&json).expect("deserialize repair");
+        assert_eq!(decoded.retouch_strokes(), &[stroke]);
+
+        assert_eq!(
+            RetouchStroke::new(Vec::new(), 24),
+            Err(RecipeValidationError::EmptyRetouchStroke)
+        );
+        assert_eq!(
+            RetouchStroke::new(vec![point(0.5, 0.5); MAX_RETOUCH_STROKE_POINTS + 1], 24),
+            Err(RecipeValidationError::TooManyRetouchStrokePoints(
+                MAX_RETOUCH_STROKE_POINTS + 1
+            ))
+        );
+        assert_eq!(
+            RetouchStroke::new(vec![point(0.5, 0.5)], 0),
+            Err(RecipeValidationError::InvalidRetouchStrokeRadius(0))
         );
     }
 

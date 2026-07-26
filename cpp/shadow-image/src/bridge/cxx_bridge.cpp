@@ -971,16 +971,33 @@ void require_parameter_count(
         break;
     }
     case FfiAdjustmentOperation::SpotHeal: {
-        if (source.parameter_group_lengths.size() != 1U) {
+        if (source.parameter_group_lengths.size() < 2U) {
             throw_invalid_adjustment_plan(
-                "spot-heal requires one target-count parameter group"
+                "spot-heal requires target and continuous-stroke count parameter groups"
             );
         }
         const std::size_t target_count = source.parameter_group_lengths[0];
-        if (target_count == 0U || target_count > 64U
-            || source.parameters.size() != target_count * 7U) {
+        const std::size_t stroke_count = source.parameter_group_lengths[1];
+        if ((target_count == 0U && stroke_count == 0U)
+            || target_count > 64U || stroke_count > 64U
+            || source.parameter_group_lengths.size() != 2U + stroke_count) {
             throw_invalid_adjustment_plan(
-                "spot-heal must contain 1 through 64 complete repair targets"
+                "spot-heal must contain bounded complete repair targets or continuous strokes"
+            );
+        }
+        std::size_t expected_parameter_count = target_count * 7U;
+        for (std::size_t stroke_index = 0U; stroke_index < stroke_count; ++stroke_index) {
+            const std::size_t point_count = source.parameter_group_lengths[2U + stroke_index];
+            if (point_count == 0U || point_count > 512U) {
+                throw_invalid_adjustment_plan(
+                    "a continuous repair stroke must contain 1 through 512 points"
+                );
+            }
+            expected_parameter_count += 5U + point_count * 2U;
+        }
+        if (source.parameters.size() != expected_parameter_count) {
+            throw_invalid_adjustment_plan(
+                "spot-heal payload does not match its target and stroke groups"
             );
         }
         image::SpotHealAdjustment parameters;
@@ -1023,6 +1040,55 @@ void require_parameter_count(
                 .source_offset_y_radii = source.parameters[offset + 5U],
                 .feather = source.parameters[offset + 6U],
             });
+        }
+        parameters.strokes.reserve(stroke_count);
+        std::size_t offset = target_count * 7U;
+        for (std::size_t stroke_index = 0U; stroke_index < stroke_count; ++stroke_index) {
+            const std::size_t point_count = source.parameter_group_lengths[2U + stroke_index];
+            const double encoded_radius = source.parameters[offset];
+            const double encoded_mode = source.parameters[offset + 1U];
+            if (!std::isfinite(encoded_radius)
+                || !std::isfinite(encoded_mode)
+                || !std::isfinite(source.parameters[offset + 2U])
+                || !std::isfinite(source.parameters[offset + 3U])
+                || !std::isfinite(source.parameters[offset + 4U])
+                || encoded_radius < 1.0 || encoded_radius > 128.0
+                || std::floor(encoded_radius) != encoded_radius
+                || (encoded_mode != 0.0 && encoded_mode != 1.0)
+                || source.parameters[offset + 2U] < -2.0
+                || source.parameters[offset + 2U] > 2.0
+                || source.parameters[offset + 3U] < -2.0
+                || source.parameters[offset + 3U] > 2.0
+                || source.parameters[offset + 4U] < 0.0
+                || source.parameters[offset + 4U] > 1.0) {
+                throw_invalid_adjustment_plan(
+                    "continuous spot-heal behavior is outside the supported range"
+                );
+            }
+            image::RetouchStroke stroke{
+                .radius_level_zero_pixels = static_cast<std::uint16_t>(encoded_radius),
+                .mode = encoded_mode == 0.0
+                    ? image::SpotRepairMode::heal
+                    : image::SpotRepairMode::clone,
+                .source_offset_x_radii = source.parameters[offset + 2U],
+                .source_offset_y_radii = source.parameters[offset + 3U],
+                .feather = source.parameters[offset + 4U],
+            };
+            stroke.points.reserve(point_count);
+            offset += 5U;
+            for (std::size_t point_index = 0U; point_index < point_count; ++point_index) {
+                const double x = source.parameters[offset + point_index * 2U];
+                const double y = source.parameters[offset + point_index * 2U + 1U];
+                if (!std::isfinite(x) || !std::isfinite(y)
+                    || x < 0.0 || x > 1.0 || y < 0.0 || y > 1.0) {
+                    throw_invalid_adjustment_plan(
+                        "continuous spot-heal points must be normalized to 0..=1"
+                    );
+                }
+                stroke.points.push_back(image::RetouchStrokePoint{.x = x, .y = y});
+            }
+            offset += point_count * 2U;
+            parameters.strokes.push_back(std::move(stroke));
         }
         result.parameters = std::move(parameters);
         break;

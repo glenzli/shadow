@@ -3,11 +3,10 @@ pragma Translator: "PrecisionWorkspace"
 
 import QtQuick
 
-// Direct manipulation for photo-local deterministic repair. Each persisted
-// target remains a bounded circular operation, but its soft fill makes
-// adjacent brush stamps read as one affected repair region. Target and clone
-// source coordinates stay in the recipe/controller; this overlay only maps
-// level-zero geometry to the visible photo surface.
+// Direct manipulation for photo-local deterministic repair. Legacy spots are
+// still shown below, while a dragged repair is displayed as the same swept
+// brush coverage that the renderer applies. This overlay deliberately shows
+// regions, not authored point samples or centerline paths.
 Item {
     id: overlay
 
@@ -36,6 +35,309 @@ Item {
             return
         handle.targetGestureActive = false
         editor.endParameterEdit(key)
+    }
+
+    Repeater {
+        model: overlay.editor.retouchStrokes
+
+        delegate: Item {
+            id: strokeHandle
+
+            required property var modelData
+            property bool sourceGestureActive: false
+            property real sourceStartX: 0
+            property real sourceStartY: 0
+            property real sourceStartOffsetX: 0
+            property real sourceStartOffsetY: 0
+
+            anchors.fill: parent
+            z: 1
+
+            readonly property var points: modelData.points || []
+            readonly property real radiusPixels: Math.max(
+                6,
+                Number(modelData.radius) * overlay.pixelScale
+            )
+            readonly property bool cloneMode: Number(modelData.mode) === 1
+            readonly property real sourceOffsetX:
+                Number(modelData.sourceOffsetX) * radiusPixels
+            readonly property real sourceOffsetY:
+                Number(modelData.sourceOffsetY) * radiusPixels
+
+            function bounds() {
+                let left = Number.POSITIVE_INFINITY
+                let top = Number.POSITIVE_INFINITY
+                let right = Number.NEGATIVE_INFINITY
+                let bottom = Number.NEGATIVE_INFINITY
+                for (let pointIndex = 0;
+                     pointIndex < points.length;
+                     ++pointIndex) {
+                    const point = points[pointIndex]
+                    const pointX = Number(point.x) * width
+                    const pointY = Number(point.y) * height
+                    left = Math.min(left, pointX)
+                    top = Math.min(top, pointY)
+                    right = Math.max(right, pointX)
+                    bottom = Math.max(bottom, pointY)
+                }
+                if (!Number.isFinite(left))
+                    return { left: 0, top: 0, right: 0, bottom: 0 }
+                return { left: left, top: top, right: right, bottom: bottom }
+            }
+
+            Canvas {
+                id: targetCoverage
+                anchors.fill: parent
+                antialiasing: true
+                property real coverageOffsetX: 0
+                property real coverageOffsetY: 0
+                property color coverageColor: Qt.rgba(
+                    Theme.accent.r,
+                    Theme.accent.g,
+                    Theme.accent.b,
+                    0.16
+                )
+
+                function fillDisc(context, x, y, radius) {
+                    context.beginPath()
+                    context.arc(x, y, radius, 0, Math.PI * 2)
+                    context.fill()
+                }
+
+                function fillCapsule(context, x0, y0, x1, y1, radius) {
+                    const deltaX = x1 - x0
+                    const deltaY = y1 - y0
+                    const length = Math.hypot(deltaX, deltaY)
+                    if (length < 0.01) {
+                        fillDisc(context, x0, y0, radius)
+                        return
+                    }
+                    const normalX = -deltaY / length * radius
+                    const normalY = deltaX / length * radius
+                    context.beginPath()
+                    context.moveTo(x0 + normalX, y0 + normalY)
+                    context.lineTo(x1 + normalX, y1 + normalY)
+                    context.lineTo(x1 - normalX, y1 - normalY)
+                    context.lineTo(x0 - normalX, y0 - normalY)
+                    context.closePath()
+                    context.fill()
+                    fillDisc(context, x0, y0, radius)
+                    fillDisc(context, x1, y1, radius)
+                }
+
+                function fillCoverage(context) {
+                    let previous = null
+                    for (let pointIndex = 0;
+                         pointIndex < strokeHandle.points.length;
+                         ++pointIndex) {
+                        const point = strokeHandle.points[pointIndex]
+                        const pointX = Number(point.x) * width + coverageOffsetX
+                        const pointY = Number(point.y) * height + coverageOffsetY
+                        if (previous === null) {
+                            fillDisc(
+                                context,
+                                pointX,
+                                pointY,
+                                strokeHandle.radiusPixels
+                            )
+                        } else {
+                            fillCapsule(
+                                context,
+                                previous.x,
+                                previous.y,
+                                pointX,
+                                pointY,
+                                strokeHandle.radiusPixels
+                            )
+                        }
+                        previous = { x: pointX, y: pointY }
+                    }
+                }
+
+                onPaint: {
+                    const context = getContext("2d")
+                    context.clearRect(0, 0, width, height)
+                    context.fillStyle = coverageColor
+                    fillCoverage(context)
+                }
+
+                Connections {
+                    target: overlay.editor
+                    function onParametersChanged() {
+                        targetCoverage.requestPaint()
+                    }
+                }
+                onWidthChanged: requestPaint()
+                onHeightChanged: requestPaint()
+                onCoverageOffsetXChanged: requestPaint()
+                onCoverageOffsetYChanged: requestPaint()
+                Component.onCompleted: requestPaint()
+            }
+
+            Canvas {
+                id: sourceCoverage
+                anchors.fill: parent
+                visible: strokeHandle.cloneMode
+                antialiasing: true
+                property real coverageOffsetX
+                property real coverageOffsetY
+                property color coverageColor
+                coverageOffsetX: strokeHandle.sourceOffsetX
+                coverageOffsetY: strokeHandle.sourceOffsetY
+                coverageColor: Qt.rgba(
+                    Theme.previewCompareDivider.r,
+                    Theme.previewCompareDivider.g,
+                    Theme.previewCompareDivider.b,
+                    0.13
+                )
+
+                function fillDisc(context, x, y, radius) {
+                    context.beginPath()
+                    context.arc(x, y, radius, 0, Math.PI * 2)
+                    context.fill()
+                }
+
+                function fillCapsule(context, x0, y0, x1, y1, radius) {
+                    const deltaX = x1 - x0
+                    const deltaY = y1 - y0
+                    const length = Math.hypot(deltaX, deltaY)
+                    if (length < 0.01) {
+                        fillDisc(context, x0, y0, radius)
+                        return
+                    }
+                    const normalX = -deltaY / length * radius
+                    const normalY = deltaX / length * radius
+                    context.beginPath()
+                    context.moveTo(x0 + normalX, y0 + normalY)
+                    context.lineTo(x1 + normalX, y1 + normalY)
+                    context.lineTo(x1 - normalX, y1 - normalY)
+                    context.lineTo(x0 - normalX, y0 - normalY)
+                    context.closePath()
+                    context.fill()
+                    fillDisc(context, x0, y0, radius)
+                    fillDisc(context, x1, y1, radius)
+                }
+
+                function fillCoverage(context) {
+                    let previous = null
+                    for (let pointIndex = 0;
+                         pointIndex < strokeHandle.points.length;
+                         ++pointIndex) {
+                        const point = strokeHandle.points[pointIndex]
+                        const pointX = Number(point.x) * width + coverageOffsetX
+                        const pointY = Number(point.y) * height + coverageOffsetY
+                        if (previous === null) {
+                            fillDisc(
+                                context,
+                                pointX,
+                                pointY,
+                                strokeHandle.radiusPixels
+                            )
+                        } else {
+                            fillCapsule(
+                                context,
+                                previous.x,
+                                previous.y,
+                                pointX,
+                                pointY,
+                                strokeHandle.radiusPixels
+                            )
+                        }
+                        previous = { x: pointX, y: pointY }
+                    }
+                }
+
+                onPaint: {
+                    const context = getContext("2d")
+                    context.clearRect(0, 0, width, height)
+                    context.fillStyle = coverageColor
+                    fillCoverage(context)
+                }
+
+                Connections {
+                    target: overlay.editor
+                    function onParametersChanged() {
+                        sourceCoverage.requestPaint()
+                    }
+                }
+                onWidthChanged: requestPaint()
+                onHeightChanged: requestPaint()
+                onCoverageOffsetXChanged: requestPaint()
+                onCoverageOffsetYChanged: requestPaint()
+                Component.onCompleted: requestPaint()
+            }
+
+            Item {
+                id: sourceHitArea
+                visible: strokeHandle.cloneMode && strokeHandle.points.length > 0
+                readonly property var pathBounds: strokeHandle.bounds()
+                x: pathBounds.left + strokeHandle.sourceOffsetX
+                    - strokeHandle.radiusPixels
+                y: pathBounds.top + strokeHandle.sourceOffsetY
+                    - strokeHandle.radiusPixels
+                width: Math.max(
+                    strokeHandle.radiusPixels * 2,
+                    pathBounds.right - pathBounds.left
+                        + strokeHandle.radiusPixels * 2
+                )
+                height: Math.max(
+                    strokeHandle.radiusPixels * 2,
+                    pathBounds.bottom - pathBounds.top
+                        + strokeHandle.radiusPixels * 2
+                )
+                z: 3
+
+                MouseArea {
+                    anchors.fill: parent
+                    acceptedButtons: Qt.LeftButton
+                    hoverEnabled: true
+                    preventStealing: true
+                    cursorShape: Qt.CrossCursor
+
+                    onPressed: mouse => {
+                        const point = sourceHitArea.mapToItem(
+                            overlay, mouse.x, mouse.y)
+                        strokeHandle.sourceGestureActive = true
+                        strokeHandle.sourceStartX = point.x
+                        strokeHandle.sourceStartY = point.y
+                        strokeHandle.sourceStartOffsetX = Number(
+                            strokeHandle.modelData.sourceOffsetX)
+                        strokeHandle.sourceStartOffsetY = Number(
+                            strokeHandle.modelData.sourceOffsetY)
+                        overlay.editor.beginParameterEdit(
+                            "retouch/stroke/" + strokeHandle.modelData.index
+                                + "/source")
+                    }
+                    onPositionChanged: mouse => {
+                        if (!pressed || !strokeHandle.sourceGestureActive)
+                            return
+                        const point = sourceHitArea.mapToItem(
+                            overlay, mouse.x, mouse.y)
+                        const radius = Math.max(1, strokeHandle.radiusPixels)
+                        overlay.editor.setRetouchStrokeSourceOffset(
+                            strokeHandle.modelData.index,
+                            Math.max(-2, Math.min(2,
+                                strokeHandle.sourceStartOffsetX
+                                    + (point.x - strokeHandle.sourceStartX) / radius)),
+                            Math.max(-2, Math.min(2,
+                                strokeHandle.sourceStartOffsetY
+                                    + (point.y - strokeHandle.sourceStartY) / radius))
+                        )
+                    }
+                    onReleased: finishSourceGesture()
+                    onCanceled: finishSourceGesture()
+
+                    function finishSourceGesture() {
+                        if (!strokeHandle.sourceGestureActive)
+                            return
+                        strokeHandle.sourceGestureActive = false
+                        overlay.editor.endParameterEdit(
+                            "retouch/stroke/" + strokeHandle.modelData.index
+                                + "/source")
+                    }
+                }
+            }
+        }
     }
 
     Repeater {

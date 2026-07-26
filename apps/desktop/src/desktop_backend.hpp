@@ -418,6 +418,27 @@ struct BackendRetouchSpot final {
     bool operator==(const BackendRetouchSpot&) const = default;
 };
 
+// One sampled point in a photo-local continuous repair/clone stroke. A
+// stroke remains separate from legacy spots so a click stays a precise circle
+// while a drag can be rendered as one swept brush region.
+struct BackendRetouchStrokePoint final {
+    double x = 0.5;
+    double y = 0.5;
+
+    bool operator==(const BackendRetouchStrokePoint&) const = default;
+};
+
+struct BackendRetouchStroke final {
+    QVector<BackendRetouchStrokePoint> points;
+    std::uint16_t radius_level_zero_pixels = 18;
+    std::uint8_t mode = 0;
+    double source_offset_x_radii = 0.0;
+    double source_offset_y_radii = 0.0;
+    double feather = 0.28;
+
+    bool operator==(const BackendRetouchStroke&) const = default;
+};
+
 // Framing belongs to a photo, not to a reusable Grade Node. Keeping this
 // compact normalized representation at the shell boundary makes every preview,
 // detail tile, and export resolve the same crop/orientation contract.
@@ -455,6 +476,7 @@ struct BackendGradeStack final {
     } optics;
     QVector<BackendGradeNode> grade_nodes;
     QVector<BackendRetouchSpot> retouch_spots;
+    QVector<BackendRetouchStroke> retouch_strokes;
     BackendPhotoGeometry geometry;
 
     bool operator==(const BackendGradeStack&) const = default;

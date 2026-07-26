@@ -483,6 +483,26 @@ template <std::size_t Size>
             .feather = spot.feather,
         });
     }
+    settings.retouch_strokes.reserve(
+        static_cast<std::size_t>(source.retouch_strokes.size())
+    );
+    for (const auto& stroke : source.retouch_strokes) {
+        shadow::desktop::FfiRetouchStroke ffi_stroke{
+            .radius_level_zero_pixels = stroke.radius_level_zero_pixels,
+            .mode = stroke.mode,
+            .source_offset_x_radii = stroke.source_offset_x_radii,
+            .source_offset_y_radii = stroke.source_offset_y_radii,
+            .feather = stroke.feather,
+        };
+        ffi_stroke.points.reserve(static_cast<std::size_t>(stroke.points.size()));
+        for (const auto& point : stroke.points) {
+            ffi_stroke.points.push_back(shadow::desktop::FfiRetouchPoint{
+                .x = point.x,
+                .y = point.y,
+            });
+        }
+        settings.retouch_strokes.push_back(std::move(ffi_stroke));
+    }
     settings.geometry = shadow::desktop::FfiPhotoGeometry{
         .crop_left = source.geometry.crop_left,
         .crop_top = source.geometry.crop_top,
@@ -535,6 +555,25 @@ template <std::size_t Size>
             .source_offset_y_radii = spot.source_offset_y_radii,
             .feather = spot.feather,
         });
+    }
+    grade_stack.retouch_strokes.reserve(
+        checked_qt_vector_size(source.retouch_strokes.size(), "retouch_strokes")
+    );
+    for (const auto& stroke : source.retouch_strokes) {
+        BackendRetouchStroke decoded{
+            .radius_level_zero_pixels = stroke.radius_level_zero_pixels,
+            .mode = stroke.mode,
+            .source_offset_x_radii = stroke.source_offset_x_radii,
+            .source_offset_y_radii = stroke.source_offset_y_radii,
+            .feather = stroke.feather,
+        };
+        decoded.points.reserve(
+            checked_qt_vector_size(stroke.points.size(), "retouch_stroke_points")
+        );
+        for (const auto& point : stroke.points) {
+            decoded.points.push_back({.x = point.x, .y = point.y});
+        }
+        grade_stack.retouch_strokes.push_back(std::move(decoded));
     }
     grade_stack.geometry = {
         .crop_left = source.geometry.crop_left,

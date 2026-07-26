@@ -1378,6 +1378,111 @@ void spot_heal_repairs_small_defects_in_global_coordinates() {
     );
 }
 
+void continuous_retouch_strokes_sweep_one_connected_repair_region() {
+    constexpr std::uint32_t width = 17U;
+    constexpr std::uint32_t height = 9U;
+    std::vector<float> clone_samples(static_cast<std::size_t>(width) * height * 3U, 0.0F);
+    for (std::uint32_t y = 0U; y < height; ++y) {
+        for (std::uint32_t x = 0U; x < width; ++x) {
+            const std::size_t sample = (static_cast<std::size_t>(y) * width + x) * 3U;
+            clone_samples[sample] = static_cast<float>(x) / 20.0F;
+            clone_samples[sample + 1U] = static_cast<float>(y) / 20.0F;
+            clone_samples[sample + 2U] = 0.25F;
+        }
+    }
+    const image::RetouchStroke clone_stroke{
+        .points = {
+            {.x = 4.5 / static_cast<double>(width), .y = 4.5 / static_cast<double>(height)},
+            {.x = 12.5 / static_cast<double>(width), .y = 4.5 / static_cast<double>(height)},
+        },
+        .radius_level_zero_pixels = 1U,
+        .mode = image::SpotRepairMode::clone,
+        .source_offset_x_radii = 2.0,
+        .source_offset_y_radii = 0.0,
+        .feather = 0.0,
+    };
+    const std::array clone_nodes{
+        image::AdjustmentNode{
+            .node_id = "continuous-retouch-clone",
+            .parameters = image::SpotHealAdjustment{.strokes = {clone_stroke}},
+        },
+    };
+    const auto plan = image::compile_edit_execution_plan(clone_nodes);
+    expect(
+        plan.cumulative_footprint == image::AdjustmentFootprint{
+            .horizontal_radius = 4U,
+            .vertical_radius = 4U,
+        },
+        "continuous retouch strokes retain spot-heal detail-tile support"
+    );
+    const auto cloned = image::execute_adjustment_nodes(
+        rgb_raster(width, height, clone_samples),
+        clone_nodes
+    );
+    const std::size_t middle = (4U * width + 8U) * 3U;
+    const std::size_t above_middle = (2U * width + 8U) * 3U;
+    expect_close(
+        cloned.samples[middle],
+        0.5F,
+        "clone stroke applies its fixed source offset through the continuous middle"
+    );
+    expect_close(
+        cloned.samples[middle + 1U],
+        0.2F,
+        "clone stroke copies the corresponding source path vertically"
+    );
+    expect_close(
+        cloned.samples[above_middle],
+        0.4F,
+        "continuous stroke leaves pixels outside its swept capsule unchanged"
+    );
+
+    std::vector<float> heal_samples(static_cast<std::size_t>(width) * height * 3U, 0.2F);
+    for (std::uint32_t x = 4U; x <= 12U; ++x) {
+        const std::size_t sample = (4U * width + x) * 3U;
+        heal_samples[sample] = 1.0F;
+        heal_samples[sample + 1U] = 0.0F;
+        heal_samples[sample + 2U] = 0.0F;
+    }
+    const std::array heal_nodes{
+        image::AdjustmentNode{
+            .node_id = "continuous-retouch-heal",
+            .parameters = image::SpotHealAdjustment{
+                .strokes = {{
+                    .points = clone_stroke.points,
+                    .radius_level_zero_pixels = 1U,
+                    .mode = image::SpotRepairMode::heal,
+                    .feather = 0.0,
+                }},
+            },
+        },
+    };
+    const auto healed = image::execute_adjustment_nodes(
+        rgb_raster(width, height, heal_samples),
+        heal_nodes
+    );
+    expect_close(
+        healed.samples[middle],
+        0.2F,
+        "heal stroke reconstructs the complete swept region from its surrounding ring"
+    );
+    expect_close(
+        healed.samples[middle + 1U],
+        0.2F,
+        "heal stroke removes the channel defect without exposing individual dabs"
+    );
+
+    const image::SpotHealAdjustment invalid{
+        .strokes = {{.points = {}}},
+    };
+    expect_edit_error(
+        [&] { image::validate_spot_heal(invalid); },
+        image::EditErrorCode::invalid_parameter,
+        std::nullopt,
+        "continuous retouch strokes require at least one authored point"
+    );
+}
+
 void photo_geometry_is_lossless_and_maps_detail_tiles_to_source_space() {
     const auto input = rgb_raster(
         3U,
@@ -1876,12 +1981,12 @@ void selective_tone_endpoints_reach_ordinary_detail_without_clipping() {
     const auto output = image::execute_adjustment_nodes(input, node);
 
     expect(
-        output.samples[0] > input.samples[0] * 1.08F,
-        "Blacks visibly lifts ordinary -1 EV shadow detail rather than only near-zero values"
+        output.samples[0] > input.samples[0] * 1.18F,
+        "Blacks has a practical lift at ordinary -1 EV shadow detail, not only near zero"
     );
     expect(
-        output.samples[3] < input.samples[3] * 0.80F && output.samples[3] > 0.0F,
-        "Whites visibly compresses ordinary +2.2 EV highlight detail without clipping"
+        output.samples[3] < input.samples[3] * 0.70F && output.samples[3] > 0.0F,
+        "Whites has a practical shoulder at ordinary +2.2 EV detail without clipping"
     );
 }
 
@@ -4046,6 +4151,7 @@ int main() {
     global_effect_coordinates_are_tile_invariant();
     local_mask_layers_blend_complete_adjustments_in_global_coordinates();
     spot_heal_repairs_small_defects_in_global_coordinates();
+    continuous_retouch_strokes_sweep_one_connected_repair_region();
     photo_geometry_is_lossless_and_maps_detail_tiles_to_source_space();
     exposure_preserves_unclipped_scene_range_and_padding();
     rgb_white_balance_and_saturation_have_numeric_contracts();

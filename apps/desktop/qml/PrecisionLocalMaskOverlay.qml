@@ -148,14 +148,52 @@ Item {
         )
     }
 
+    function fillBrushDisc(context, x, y, radius) {
+        context.beginPath()
+        context.arc(x, y, radius, 0, Math.PI * 2)
+        context.fill()
+    }
+
+    function fillBrushCapsule(context, x0, y0, x1, y1, radius) {
+        const deltaX = x1 - x0
+        const deltaY = y1 - y0
+        const length = Math.hypot(deltaX, deltaY)
+        if (length < 0.01) {
+            fillBrushDisc(context, x0, y0, radius)
+            return
+        }
+        const normalX = -deltaY / length * radius
+        const normalY = deltaX / length * radius
+        context.beginPath()
+        context.moveTo(x0 + normalX, y0 + normalY)
+        context.lineTo(x1 + normalX, y1 + normalY)
+        context.lineTo(x1 - normalX, y1 - normalY)
+        context.lineTo(x0 - normalX, y0 - normalY)
+        context.closePath()
+        context.fill()
+        fillBrushDisc(context, x0, y0, radius)
+        fillBrushDisc(context, x1, y1, radius)
+    }
+
     function fillBrushCoverage(context, radius) {
+        let previous = null
         for (let index = 0; index < brushPoints.length; ++index) {
             const point = brushPoints[index]
             const x = Number(point.x) * width
             const y = Number(point.y) * height
-            context.beginPath()
-            context.arc(x, y, radius, 0, Math.PI * 2)
-            context.fill()
+            if (previous !== null && !Boolean(point.beginsStroke)) {
+                fillBrushCapsule(
+                    context,
+                    Number(previous.x) * width,
+                    Number(previous.y) * height,
+                    x,
+                    y,
+                    radius
+                )
+            } else {
+                fillBrushDisc(context, x, y, radius)
+            }
+            previous = point
         }
     }
 
@@ -181,10 +219,9 @@ Item {
                     overlay.maskNumber("radiusX", 0.035)
                         * Math.min(width, height)
                 )
-                // Paint coverage as an overlapping union of filled brush
-                // stamps. The renderer already records dense samples, so the
-                // discs form a continuous affected area without exposing the
-                // raw centerline/path used to author it.
+                // Match the renderer's swept-circle geometry: segments become
+                // filled capsules with circular caps. This is one continuous
+                // affected area, not visible authored points or a centerline.
                 context.fillStyle = Qt.rgba(
                     Theme.accent.r,
                     Theme.accent.g,
