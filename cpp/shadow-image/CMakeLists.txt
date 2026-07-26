@@ -229,6 +229,20 @@ if(BUILD_TESTING)
     add_test(NAME shadow-image-edit-contract COMMAND shadow-image-edit-tests)
 
     add_executable(
+        shadow-image-spatial-edit-tests
+        tests/spatial_edit_contract_test.cpp
+    )
+    target_link_libraries(
+        shadow-image-spatial-edit-tests
+        PRIVATE Shadow::Image
+    )
+    shadow_image_enable_warnings(shadow-image-spatial-edit-tests)
+    add_test(
+        NAME shadow-image-spatial-edit-contract
+        COMMAND shadow-image-spatial-edit-tests
+    )
+
+    add_executable(
         shadow-image-neutral-balance-tests
         tests/neutral_balance_contract_test.cpp
     )

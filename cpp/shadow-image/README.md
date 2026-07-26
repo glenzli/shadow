@@ -134,6 +134,15 @@ masks, branching, blending, tile scheduling, and GPU implementations remain sepa
 `validate_adjustment_nodes` exposes the same parameter validation without requiring pixels, so
 the one-shot edited-proxy path rejects malformed plans before asking a decoder to render RGB.
 
+Edit-kernel contract tests follow the same ownership boundaries as the implementation:
+
+- `tests/edit_contract_test.cpp` owns ordered-node, color, tone, detail, and execution-plan
+  contracts.
+- `tests/spatial_edit_contract_test.cpp` owns global-coordinate effects, local masks,
+  repair/clone strokes, and photo geometry.
+- `tests/edit_contract_test_support.hpp` contains only the shared assertions and small image
+  fixtures used by those executables.
+
 Tone Curve is available both through the standalone `apply_tone_curve` reference operator and as
 a normal ordered executor node. Version 1 uses 2 through 256 finite control points whose
 strictly increasing x coordinates span exactly 0 through 1. It applies a piecewise-linear curve
