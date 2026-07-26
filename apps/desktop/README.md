@@ -35,6 +35,8 @@ QML never opens SQLite, calls LibRaw, or interprets blob paths. The global local
   presentation, selection, enablement, collection actions, sharing, and node-level resets.
 - [`src/edit_local_mask_controller.cpp`](src/edit_local_mask_controller.cpp) owns local-mask
   presentation, asset persistence, clipboard semantics, geometry validation, and brush strokes.
+- [`src/edit_optics_controller.cpp`](src/edit_optics_controller.cpp) owns optical-correction state,
+  automatic and manual profiles, residual controls, validation, history, and preview scheduling.
 - [`src/edit_retouch_controller.cpp`](src/edit_retouch_controller.cpp) owns photo-level repair and
   clone picker state, continuous strokes, legacy spots, and source-offset editing.
 - [`src/edit_persistence_coordinator.cpp`](src/edit_persistence_coordinator.cpp) owns photo
