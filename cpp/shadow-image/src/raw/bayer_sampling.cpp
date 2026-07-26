@@ -330,18 +330,74 @@ CameraRgbSample area_camera_rgb_sample_at(
     const std::uint32_t target_y
 ) {
     const auto& descriptor = frame.descriptor;
-    const double source_top = static_cast<double>(descriptor.active_margins.top)
+    // This is also reached by the isolated decode helper.  A malformed provider frame or a
+    // rounded last footprint must therefore become a normal DecodeError, never an unchecked
+    // read past the owned sensor plane in a worker thread.
+    if (grid.target_dimensions.width == 0U || grid.target_dimensions.height == 0U
+        || target_x >= grid.target_dimensions.width || target_y >= grid.target_dimensions.height
+        || !std::isfinite(grid.scale_x) || !std::isfinite(grid.scale_y)
+        || grid.scale_x <= 0.0 || grid.scale_y <= 0.0) {
+        throw DecodeError(
+            DecodeErrorCode::invalid_request,
+            0,
+            "Bayer area sampling received an invalid target coordinate or sampling grid"
+        );
+    }
+
+    const double active_left = static_cast<double>(descriptor.active_margins.left);
+    const double active_top = static_cast<double>(descriptor.active_margins.top);
+    const double active_right = active_left
+        + static_cast<double>(descriptor.active_dimensions.width);
+    const double active_bottom = active_top
+        + static_cast<double>(descriptor.active_dimensions.height);
+    const auto active_right_exclusive = static_cast<std::uint32_t>(
+        static_cast<std::uint64_t>(descriptor.active_margins.left)
+        + descriptor.active_dimensions.width
+    );
+    const auto active_bottom_exclusive = static_cast<std::uint32_t>(
+        static_cast<std::uint64_t>(descriptor.active_margins.top)
+        + descriptor.active_dimensions.height
+    );
+    const double unclamped_source_top = active_top
         + static_cast<double>(target_y) * grid.scale_y;
-    const double source_bottom = static_cast<double>(descriptor.active_margins.top)
+    const double unclamped_source_bottom = active_top
         + static_cast<double>(target_y + 1U) * grid.scale_y;
-    const double source_left = static_cast<double>(descriptor.active_margins.left)
+    const double unclamped_source_left = active_left
         + static_cast<double>(target_x) * grid.scale_x;
-    const double source_right = static_cast<double>(descriptor.active_margins.left)
+    const double unclamped_source_right = active_left
         + static_cast<double>(target_x + 1U) * grid.scale_x;
+    const double source_top = std::clamp(unclamped_source_top, active_top, active_bottom);
+    const double source_bottom = std::clamp(
+        unclamped_source_bottom,
+        active_top,
+        active_bottom
+    );
+    const double source_left = std::clamp(unclamped_source_left, active_left, active_right);
+    const double source_right = std::clamp(
+        unclamped_source_right,
+        active_left,
+        active_right
+    );
+    if (source_left >= source_right || source_top >= source_bottom) {
+        throw DecodeError(
+            DecodeErrorCode::invalid_request,
+            0,
+            "Bayer area sampling footprint is outside the active sensor rectangle"
+        );
+    }
+    // Clamp after ceil as well.  Exact rational scale factors can round one ulp above the active
+    // edge, and the previous implementation then dereferenced one sample beyond the final row or
+    // column.  The active rectangle is validated to sit inside storage by RawFrame::valid().
     const auto first_source_y = static_cast<std::uint32_t>(std::floor(source_top));
-    const auto last_source_y = static_cast<std::uint32_t>(std::ceil(source_bottom));
+    const auto last_source_y = std::min(
+        active_bottom_exclusive,
+        static_cast<std::uint32_t>(std::ceil(source_bottom))
+    );
     const auto first_source_x = static_cast<std::uint32_t>(std::floor(source_left));
-    const auto last_source_x = static_cast<std::uint32_t>(std::ceil(source_right));
+    const auto last_source_x = std::min(
+        active_right_exclusive,
+        static_cast<std::uint32_t>(std::ceil(source_right))
+    );
 
     std::array<double, 3U> totals{};
     std::array<double, 3U> weights{};

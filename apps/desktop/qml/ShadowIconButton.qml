@@ -10,6 +10,10 @@ Button {
         Primary,
         Secondary,
         Ghost,
+        // Quiet is kept as a named compatibility/style alias for low-emphasis
+        // toolbar actions. It deliberately renders like Ghost rather than
+        // silently coercing an undefined enum value to Primary.
+        Quiet,
         Tinted,
         Danger
     }
@@ -28,10 +32,12 @@ Button {
     property color selectedPressedSurfaceColor: Theme.accentSurfacePressed
     property color selectedOutlineColor: Theme.transparent
     property color selectedIconColor: Theme.accentSelectionText
+    readonly property bool isGhostStyle: variant === ShadowIconButton.Ghost
+        || variant === ShadowIconButton.Quiet
 
     readonly property color resolvedSurfaceColor: {
         if (!enabled)
-            return variant === ShadowIconButton.Ghost
+            return isGhostStyle
                 ? Theme.buttonDisabledGhostSurface : Theme.buttonDisabledSurface
         if (selected)
             return down ? selectedPressedSurfaceColor
@@ -41,7 +47,7 @@ Button {
                 return Theme.primaryActionPressed
             if (variant === ShadowIconButton.Danger)
                 return Theme.dangerPressedSurface
-            return variant === ShadowIconButton.Ghost
+            return isGhostStyle
                 ? Theme.buttonGhostPressed : Theme.buttonPressedSurface
         }
         if (hovered) {
@@ -49,7 +55,7 @@ Button {
                 return Theme.primaryActionHover
             if (variant === ShadowIconButton.Danger)
                 return Theme.dangerHoverSurface
-            return variant === ShadowIconButton.Ghost
+            return isGhostStyle
                 ? Theme.buttonGhostHover : Theme.buttonHoverSurface
         }
         if (variant === ShadowIconButton.Primary)
@@ -68,7 +74,7 @@ Button {
         if (selected)
             return selectedOutlineColor
         if (variant === ShadowIconButton.Primary
-                || variant === ShadowIconButton.Ghost
+                || isGhostStyle
                 || variant === ShadowIconButton.Tinted)
             return Theme.transparent
         return variant === ShadowIconButton.Danger

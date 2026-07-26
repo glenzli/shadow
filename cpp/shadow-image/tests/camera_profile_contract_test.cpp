@@ -1,5 +1,6 @@
 #include <shadow/image/camera_profile_catalog.hpp>
 #include <shadow/image/dcp_color_development.hpp>
+#include <shadow/image/fused_raw_development.hpp>
 
 #include <array>
 #include <bit>
@@ -11,6 +12,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <ranges>
 #include <string>
 #include <string_view>
@@ -144,6 +146,35 @@ public:
     }
 
     std::filesystem::path path;
+};
+
+class ScopedEnvironment final {
+public:
+    ScopedEnvironment(const char* name, const char* value)
+        : name_(name) {
+        if (const auto* current = std::getenv(name_); current != nullptr) {
+            previous_ = current;
+        }
+        expect(
+            ::setenv(name_, value, 1) == 0,
+            "test execution backend environment is configured"
+        );
+    }
+
+    ~ScopedEnvironment() {
+        if (previous_.has_value()) {
+            static_cast<void>(::setenv(name_, previous_->c_str(), 1));
+        } else {
+            static_cast<void>(::unsetenv(name_));
+        }
+    }
+
+    ScopedEnvironment(const ScopedEnvironment&) = delete;
+    ScopedEnvironment& operator=(const ScopedEnvironment&) = delete;
+
+private:
+    const char* name_;
+    std::optional<std::string> previous_;
 };
 
 void write_file(const std::filesystem::path& path, const std::vector<std::byte>& bytes) {
@@ -410,7 +441,7 @@ void standard_dcp_rendering_stages_compile_and_apply() {
         "standard DCP input-rendering stages compile into one valid camera transform"
     );
     auto pixel = one_linear_srgb_pixel(60'000U, 20'000U, 2'000U);
-    image::apply_dcp_color_rendering_stages(pixel, transform);
+    static_cast<void>(image::apply_dcp_color_rendering_stages(pixel, transform));
     expect(
         pixel.samples[0] < 60'000U && pixel.samples[1] < 20'000U,
         "HueSatMap, LookTable, and ToneCurve affect camera rendering before the edit graph"
@@ -429,7 +460,7 @@ void scene_linear_dcp_stages_preserve_highlight_headroom() {
     definition.profile.calibration1.hue_sat_map = value_scale_table(1.0F);
     const auto transform = image::compile_dcp_color_transform(definition, raw_descriptor());
     auto pixel = one_scene_linear_srgb_pixel(1.5F, 1.0F, 0.5F);
-    image::apply_dcp_color_rendering_stages(pixel, transform);
+    static_cast<void>(image::apply_dcp_color_rendering_stages(pixel, transform));
     expect(
         pixel.valid() && pixel.samples[0] > 1.35F,
         "scene-linear DCP rendering keeps super-white RAW headroom"
@@ -453,7 +484,7 @@ void large_scene_linear_dcp_stage_matches_the_single_pixel_reference() {
     };
     const auto transform = image::compile_dcp_color_transform(definition, raw_descriptor());
     auto expected = one_scene_linear_srgb_pixel(0.91F, 0.37F, 0.08F);
-    image::apply_dcp_color_rendering_stages(expected, transform);
+    static_cast<void>(image::apply_dcp_color_rendering_stages(expected, transform));
 
     // This exceeds the DCP work partitioning threshold. Every pixel begins
     // with exactly the same data, so any split/exception ordering issue would
@@ -469,7 +500,7 @@ void large_scene_linear_dcp_stage_matches_the_single_pixel_reference() {
          ++pixel) {
         frame.samples.insert(frame.samples.end(), {0.91F, 0.37F, 0.08F});
     }
-    image::apply_dcp_color_rendering_stages(frame, transform);
+    static_cast<void>(image::apply_dcp_color_rendering_stages(frame, transform));
     expect(frame.valid(), "large scene-linear DCP result retains the frame contract");
     for (std::size_t index = 0U; index < frame.samples.size(); ++index) {
         expect_close(
@@ -477,6 +508,70 @@ void large_scene_linear_dcp_stage_matches_the_single_pixel_reference() {
             expected.samples[index % 3U],
             1.0e-6,
             "parallel DCP post stages preserve the serial per-pixel result"
+        );
+    }
+}
+
+void scene_linear_dcp_metal_matches_the_cpu_reference_when_available() {
+    expect(
+        image::dcp_color_execution_backend_identity(image::DcpColorExecutionBackend::cpu)
+            == "dcp-executor=cpu-v1;math=f64-reference",
+        "DCP cache identity identifies the CPU numerical reference"
+    );
+    expect(
+        image::dcp_color_execution_backend_identity(image::DcpColorExecutionBackend::metal)
+            == "dcp-executor=metal-v1;math=f32",
+        "DCP cache identity identifies the Metal executor"
+    );
+    if (!image::raw_development_backend_available(image::RawDevelopmentBackend::metal)) {
+        return;
+    }
+
+    auto definition = profile_definition(true);
+    definition.profile.calibration1.hue_sat_map = value_scale_table(0.82F);
+    definition.profile.look_table = value_scale_table(0.73F);
+    definition.profile.tone_curve = {
+        image::DcpToneCurvePoint{0.0F, 0.0F},
+        image::DcpToneCurvePoint{0.5F, 0.31F},
+        image::DcpToneCurvePoint{1.0F, 1.0F},
+    };
+    const auto transform = image::compile_dcp_color_transform(definition, raw_descriptor());
+    image::SceneLinearRgbFrame cpu{
+        .dimensions = image::Dimensions{5U, 1U},
+        .row_stride_bytes = 5U * 3U * sizeof(float),
+        .samples = {
+            0.91F, 0.37F, 0.08F,
+            0.18F, 0.63F, 0.92F,
+            1.50F, 0.70F, 0.30F,
+            -0.12F, 0.30F, 0.70F,
+            1.80F, 1.10F, 0.40F,
+        },
+    };
+    auto metal = cpu;
+    {
+        ScopedEnvironment backend("SHADOW_IMAGE_ACCELERATION", "cpu");
+        expect(
+            image::apply_dcp_color_rendering_stages(cpu, transform)
+                == image::DcpColorExecutionBackend::cpu,
+            "DCP CPU mode stays on the reference executor"
+        );
+    }
+    {
+        ScopedEnvironment backend("SHADOW_IMAGE_ACCELERATION", "metal");
+        expect(
+            image::apply_dcp_color_rendering_stages(metal, transform)
+                == image::DcpColorExecutionBackend::metal,
+            "DCP Metal mode dispatches the scene-linear GPU executor"
+        );
+    }
+    expect(cpu.valid() && metal.valid(), "CPU and Metal DCP frames retain their contracts");
+    expect(cpu.samples.size() == metal.samples.size(), "CPU and Metal DCP output shapes agree");
+    for (std::size_t index = 0U; index < cpu.samples.size(); ++index) {
+        expect_close(
+            metal.samples[index],
+            cpu.samples[index],
+            2.5e-4,
+            "Metal DCP agrees with the CPU reference within fp32 tolerance"
         );
     }
 }
@@ -504,6 +599,7 @@ int main() {
     standard_dcp_rendering_stages_compile_and_apply();
     scene_linear_dcp_stages_preserve_highlight_headroom();
     large_scene_linear_dcp_stage_matches_the_single_pixel_reference();
+    scene_linear_dcp_metal_matches_the_cpu_reference_when_available();
     configured_public_rawtherapee_profile_parses_when_available();
     std::cout << "shadow image camera profile contract tests passed\n";
 }

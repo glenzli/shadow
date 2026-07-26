@@ -1,5 +1,7 @@
 #include <shadow/image/dcp_color_development.hpp>
 
+#include "metal_raw_development.hpp"
+
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -1019,6 +1021,18 @@ DcpColorDevelopmentErrorCode DcpColorDevelopmentError::code() const noexcept {
     return code_;
 }
 
+std::string_view dcp_color_execution_backend_identity(
+    const DcpColorExecutionBackend backend
+) noexcept {
+    switch (backend) {
+    case DcpColorExecutionBackend::cpu:
+        return "dcp-executor=cpu-v1;math=f64-reference";
+    case DcpColorExecutionBackend::metal:
+        return "dcp-executor=metal-v1;math=f32";
+    }
+    return "dcp-executor=unknown";
+}
+
 bool DcpColorDevelopmentReceipt::valid() const noexcept {
     return schema_version == dcp_color_receipt_schema_version
         && developer_version == dcp_color_developer_version
@@ -1123,7 +1137,7 @@ DcpColorTransform compile_dcp_color_transform(
     return result;
 }
 
-void apply_dcp_color_rendering_stages(
+DcpColorExecutionBackend apply_dcp_color_rendering_stages(
     SceneLinearRgbFrame& pixels,
     const DcpColorTransform& transform
 ) {
@@ -1134,7 +1148,7 @@ void apply_dcp_color_rendering_stages(
         );
     }
     if (!transform.has_post_matrix_stages()) {
-        return;
+        return DcpColorExecutionBackend::cpu;
     }
     const std::size_t expected_samples = static_cast<std::size_t>(pixels.dimensions.width)
         * static_cast<std::size_t>(pixels.dimensions.height) * 3U;
@@ -1146,6 +1160,24 @@ void apply_dcp_color_rendering_stages(
             DcpColorDevelopmentErrorCode::invalid_input,
             "DCP input rendering requires Shadow's canonical scene-linear fp32 RAW frame"
         );
+    }
+    const RawDevelopmentBackendMode requested_backend =
+        raw_development_backend_mode_from_environment();
+    if (requested_backend != RawDevelopmentBackendMode::cpu) {
+        const auto attempt = detail::try_apply_dcp_color_rendering_stages_metal(
+            pixels,
+            transform
+        );
+        if (attempt.applied) {
+            return DcpColorExecutionBackend::metal;
+        }
+        if (requested_backend == RawDevelopmentBackendMode::metal) {
+            throw DcpColorDevelopmentError(
+                DcpColorDevelopmentErrorCode::unsupported_rendering_feature,
+                "DCP Metal executor was explicitly requested but unavailable: "
+                    + attempt.diagnostic
+            );
+        }
     }
     apply_dcp_to_pixels(pixels.samples.size() / 3U, [&](const std::size_t index) {
         const Vector3 linear_srgb = apply_dcp_post_matrix_stages(
@@ -1167,9 +1199,10 @@ void apply_dcp_color_rendering_stages(
             pixels.samples[index + channel] = static_cast<float>(linear_srgb[channel]);
         }
     });
+    return DcpColorExecutionBackend::cpu;
 }
 
-void apply_dcp_color_rendering_stages(
+DcpColorExecutionBackend apply_dcp_color_rendering_stages(
     PixelBuffer& pixels,
     const DcpColorTransform& transform
 ) {
@@ -1180,7 +1213,7 @@ void apply_dcp_color_rendering_stages(
         );
     }
     if (!transform.has_post_matrix_stages()) {
-        return;
+        return DcpColorExecutionBackend::cpu;
     }
     const std::size_t expected_samples = static_cast<std::size_t>(pixels.dimensions.width)
         * static_cast<std::size_t>(pixels.dimensions.height) * 3U;
@@ -1211,6 +1244,7 @@ void apply_dcp_color_rendering_stages(
             pixels.samples[index + channel] = static_cast<std::uint16_t>(encoded);
         }
     });
+    return DcpColorExecutionBackend::cpu;
 }
 
 std::string dcp_color_receipt_identity(const DcpColorDevelopmentReceipt& receipt) {

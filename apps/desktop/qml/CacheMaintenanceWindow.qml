@@ -156,12 +156,15 @@ ApplicationWindow {
     ScrollView {
         anchors.fill: parent
         clip: true
+        contentWidth: availableWidth
+        contentHeight: maintenanceContent.implicitHeight + 44
 
         ColumnLayout {
+            id: maintenanceContent
             width: Math.min(620, parent.width - 40)
             anchors.horizontalCenter: parent.horizontalCenter
-            topPadding: 20
-            bottomPadding: 24
+            anchors.top: parent.top
+            anchors.topMargin: 20
             spacing: 14
 
             Rectangle {

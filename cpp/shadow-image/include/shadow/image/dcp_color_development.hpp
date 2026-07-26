@@ -9,12 +9,25 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace shadow::image {
 
 inline constexpr std::uint32_t dcp_color_developer_version = 1U;
 inline constexpr std::uint32_t dcp_color_receipt_schema_version = 1U;
+
+// CPU remains the numerical reference for DCP input rendering.  Metal is an equivalent fp32
+// executor for the scene-linear RAW path; keeping the effective executor visible in the RAW
+// development signature prevents a cached preview from silently changing its rendering backend.
+enum class DcpColorExecutionBackend : std::uint8_t {
+    cpu,
+    metal,
+};
+
+[[nodiscard]] std::string_view dcp_color_execution_backend_identity(
+    DcpColorExecutionBackend backend
+) noexcept;
 
 enum class DcpMatrixRoute : std::uint8_t {
     forward_matrix,
@@ -104,12 +117,12 @@ struct DcpColorTransform final {
 // demosaic path focused on sensor reconstruction while preserving one explicit DCP working-space
 // boundary.  The fp32 overload is the owned RAW route and preserves scene-linear headroom; the
 // packed u16 overload exists only for compatibility providers that already have a bounded source.
-void apply_dcp_color_rendering_stages(
+[[nodiscard]] DcpColorExecutionBackend apply_dcp_color_rendering_stages(
     SceneLinearRgbFrame& pixels,
     const DcpColorTransform& transform
 );
 
-void apply_dcp_color_rendering_stages(
+[[nodiscard]] DcpColorExecutionBackend apply_dcp_color_rendering_stages(
     PixelBuffer& pixels,
     const DcpColorTransform& transform
 );

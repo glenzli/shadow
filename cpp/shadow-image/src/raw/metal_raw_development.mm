@@ -5,11 +5,14 @@
 #import <Metal/Metal.h>
 #undef shadow
 
+#include <shadow/image/dcp_color_development.hpp>
+
 #include "metal_raw_development.hpp"
 
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -19,6 +22,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace shadow::image::detail {
 
@@ -440,6 +444,303 @@ kernel void develop_bayer_area_preview(
     output[output_index + 1u] = scene_linear.y;
     output[output_index + 2u] = scene_linear.z;
 }
+
+// DCP HueSatMap/LookTable/ProfileToneCurve executes after the camera matrix, in DCP's
+// ProPhoto working space.  Tables and curve coefficients are immutable buffers prepared by the
+// host for one image.  This preserves the CPU reference's HDR behaviour: normalize a positive
+// super-white triplet, apply bounded DCP operations, then restore its measured peak.
+struct DcpHsvDelta {
+    float hue_shift_degrees;
+    float saturation_scale;
+    float value_scale;
+};
+
+struct DcpToneCurvePoint {
+    float input;
+    float output;
+    float second_derivative;
+};
+
+struct DcpPostParameters {
+    uint pixel_count;
+    uint hue_hue_divisions;
+    uint hue_saturation_divisions;
+    uint hue_value_divisions;
+    uint hue_encoding_srgb;
+    uint look_hue_divisions;
+    uint look_saturation_divisions;
+    uint look_value_divisions;
+    uint look_encoding_srgb;
+    uint tone_curve_count;
+    float srgb_to_working[9];
+    float working_to_srgb[9];
+};
+
+inline float dcp_unit(const float value) {
+    return clamp(value, 0.0f, 1.0f);
+}
+
+inline float3 dcp_matrix_multiply(constant float* matrix, const float3 value) {
+    return float3(
+        matrix[0] * value.x + matrix[1] * value.y + matrix[2] * value.z,
+        matrix[3] * value.x + matrix[4] * value.y + matrix[5] * value.z,
+        matrix[6] * value.x + matrix[7] * value.y + matrix[8] * value.z
+    );
+}
+
+inline float dcp_srgb_encode(const float linear) {
+    const float value = dcp_unit(linear);
+    return value <= 0.0031308f
+        ? value * 12.92f
+        : 1.055f * pow(value, 1.0f / 2.4f) - 0.055f;
+}
+
+inline float dcp_srgb_decode(const float encoded) {
+    const float value = dcp_unit(encoded);
+    return value <= 0.04045f
+        ? value / 12.92f
+        : pow((value + 0.055f) / 1.055f, 2.4f);
+}
+
+struct DcpHsv {
+    float hue;
+    float saturation;
+    float value;
+};
+
+inline DcpHsv dcp_rgb_to_hsv(const float3 input) {
+    const float3 rgb = clamp(input, 0.0f, 1.0f);
+    const float maximum = max(rgb.x, max(rgb.y, rgb.z));
+    const float minimum = min(rgb.x, min(rgb.y, rgb.z));
+    const float chroma = maximum - minimum;
+    DcpHsv result{0.0f, 0.0f, maximum};
+    if (maximum <= 1.0e-12f || chroma <= 1.0e-12f) {
+        return result;
+    }
+    result.saturation = chroma / maximum;
+    if (maximum == rgb.x) {
+        result.hue = (rgb.y - rgb.z) / chroma;
+    } else if (maximum == rgb.y) {
+        result.hue = 2.0f + (rgb.z - rgb.x) / chroma;
+    } else {
+        result.hue = 4.0f + (rgb.x - rgb.y) / chroma;
+    }
+    result.hue = fmod(result.hue / 6.0f + 1.0f, 1.0f);
+    return result;
+}
+
+inline float3 dcp_hsv_to_rgb(const DcpHsv hsv) {
+    const float hue = fmod(hsv.hue + 1.0f, 1.0f) * 6.0f;
+    const float saturation = dcp_unit(hsv.saturation);
+    const float value = dcp_unit(hsv.value);
+    const float chroma = value * saturation;
+    const float intermediate = chroma * (1.0f - fabs(fmod(hue, 2.0f) - 1.0f));
+    const float match = value - chroma;
+    if (hue < 1.0f) {
+        return float3(chroma + match, intermediate + match, match);
+    }
+    if (hue < 2.0f) {
+        return float3(intermediate + match, chroma + match, match);
+    }
+    if (hue < 3.0f) {
+        return float3(match, chroma + match, intermediate + match);
+    }
+    if (hue < 4.0f) {
+        return float3(match, intermediate + match, chroma + match);
+    }
+    if (hue < 5.0f) {
+        return float3(intermediate + match, match, chroma + match);
+    }
+    return float3(chroma + match, match, intermediate + match);
+}
+
+inline DcpHsvDelta dcp_sample_hsv_table(
+    device const DcpHsvDelta* table,
+    const uint hue_divisions,
+    const uint saturation_divisions,
+    const uint value_divisions,
+    const DcpHsv hsv
+) {
+    const float hue_coordinate = hsv.hue * float(hue_divisions);
+    const uint hue0 = uint(floor(hue_coordinate)) % hue_divisions;
+    const uint hue1 = (hue0 + 1u) % hue_divisions;
+    const float hue_fraction = hue_coordinate - floor(hue_coordinate);
+    const float saturation_coordinate = dcp_unit(hsv.saturation)
+        * float(saturation_divisions - 1u);
+    const uint saturation0 = uint(floor(saturation_coordinate));
+    const uint saturation1 = min(saturation0 + 1u, saturation_divisions - 1u);
+    const float saturation_fraction = saturation_coordinate - floor(saturation_coordinate);
+    const float value_coordinate = dcp_unit(hsv.value) * float(value_divisions - 1u);
+    const uint value0 = uint(floor(value_coordinate));
+    const uint value1 = min(value0 + 1u, value_divisions - 1u);
+    const float value_fraction = value_coordinate - floor(value_coordinate);
+
+    float hue_sine = 0.0f;
+    float hue_cosine = 0.0f;
+    float saturation_scale = 0.0f;
+    float value_scale = 0.0f;
+    for (uint value_choice = 0u; value_choice < 2u; ++value_choice) {
+        const uint value = value_choice == 0u ? value0 : value1;
+        const float value_weight = value_choice == 0u ? 1.0f - value_fraction : value_fraction;
+        for (uint hue_choice = 0u; hue_choice < 2u; ++hue_choice) {
+            const uint hue = hue_choice == 0u ? hue0 : hue1;
+            const float hue_weight = hue_choice == 0u ? 1.0f - hue_fraction : hue_fraction;
+            for (uint saturation_choice = 0u; saturation_choice < 2u; ++saturation_choice) {
+                const uint saturation = saturation_choice == 0u ? saturation0 : saturation1;
+                const float saturation_weight = saturation_choice == 0u
+                    ? 1.0f - saturation_fraction : saturation_fraction;
+                const float weight = value_weight * hue_weight * saturation_weight;
+                const DcpHsvDelta delta = table[
+                    ((value * hue_divisions) + hue) * saturation_divisions + saturation
+                ];
+                const float radians = delta.hue_shift_degrees * 0.01745329251994329577f;
+                hue_sine += sin(radians) * weight;
+                hue_cosine += cos(radians) * weight;
+                saturation_scale += delta.saturation_scale * weight;
+                value_scale += delta.value_scale * weight;
+            }
+        }
+    }
+    return DcpHsvDelta{
+        atan2(hue_sine, hue_cosine) * 57.295779513082320876f,
+        saturation_scale,
+        value_scale,
+    };
+}
+
+inline float3 dcp_apply_hsv_table(
+    const float3 input,
+    device const DcpHsvDelta* table,
+    const uint hue_divisions,
+    const uint saturation_divisions,
+    const uint value_divisions,
+    const uint encoding_srgb
+) {
+    DcpHsv hsv = dcp_rgb_to_hsv(input);
+    if (encoding_srgb != 0u) {
+        hsv.value = dcp_srgb_encode(hsv.value);
+    }
+    const DcpHsvDelta delta = dcp_sample_hsv_table(
+        table,
+        hue_divisions,
+        saturation_divisions,
+        value_divisions,
+        hsv
+    );
+    hsv.hue = fmod(hsv.hue + delta.hue_shift_degrees / 360.0f + 1.0f, 1.0f);
+    hsv.saturation = dcp_unit(hsv.saturation * delta.saturation_scale);
+    hsv.value = dcp_unit(hsv.value * delta.value_scale);
+    if (encoding_srgb != 0u) {
+        hsv.value = dcp_srgb_decode(hsv.value);
+    }
+    return dcp_hsv_to_rgb(hsv);
+}
+
+inline float dcp_sample_tone_curve(
+    device const DcpToneCurvePoint* points,
+    const uint point_count,
+    const float input
+) {
+    const float value = dcp_unit(input);
+    if (point_count == 0u) {
+        return value;
+    }
+    if (value <= points[0].input) {
+        return dcp_unit(points[0].output);
+    }
+    if (value >= points[point_count - 1u].input) {
+        return dcp_unit(points[point_count - 1u].output);
+    }
+    uint left = 0u;
+    uint right = point_count - 1u;
+    while (right - left > 1u) {
+        const uint middle = left + (right - left) / 2u;
+        if (points[middle].input <= value) {
+            left = middle;
+        } else {
+            right = middle;
+        }
+    }
+    const float width = points[right].input - points[left].input;
+    if (width <= 0.0f) {
+        return dcp_unit(points[left].output);
+    }
+    const float a = (points[right].input - value) / width;
+    const float b = (value - points[left].input) / width;
+    const float output = a * points[left].output + b * points[right].output
+        + ((a * a * a - a) * points[left].second_derivative
+            + (b * b * b - b) * points[right].second_derivative)
+            * width * width / 6.0f;
+    return dcp_unit(output);
+}
+
+kernel void develop_dcp_post_matrix(
+    device float* pixels [[buffer(0)]],
+    device const DcpHsvDelta* hue_table [[buffer(1)]],
+    device const DcpHsvDelta* look_table [[buffer(2)]],
+    device const DcpToneCurvePoint* tone_curve [[buffer(3)]],
+    constant DcpPostParameters& parameters [[buffer(4)]],
+    uint pixel_index [[thread_position_in_grid]]
+) {
+    if (pixel_index >= parameters.pixel_count) {
+        return;
+    }
+    const uint index = pixel_index * 3u;
+    const float3 source = float3(pixels[index], pixels[index + 1u], pixels[index + 2u]);
+    if (!all(isfinite(source))) {
+        return;
+    }
+    float3 working = dcp_matrix_multiply(parameters.srgb_to_working, source);
+    if (!all(isfinite(working))) {
+        return;
+    }
+    const bool bounded = all(working >= float3(0.0f)) && all(working <= float3(1.0f));
+    float peak = 1.0f;
+    if (!bounded) {
+        peak = max(working.x, max(working.y, working.z));
+        if (peak <= 0.0f || any(working < float3(0.0f))) {
+            return;
+        }
+        working /= peak;
+    }
+    if (parameters.hue_hue_divisions != 0u) {
+        working = dcp_apply_hsv_table(
+            working,
+            hue_table,
+            parameters.hue_hue_divisions,
+            parameters.hue_saturation_divisions,
+            parameters.hue_value_divisions,
+            parameters.hue_encoding_srgb
+        );
+    }
+    if (parameters.look_hue_divisions != 0u) {
+        working = dcp_apply_hsv_table(
+            working,
+            look_table,
+            parameters.look_hue_divisions,
+            parameters.look_saturation_divisions,
+            parameters.look_value_divisions,
+            parameters.look_encoding_srgb
+        );
+    }
+    if (parameters.tone_curve_count != 0u) {
+        working = float3(
+            dcp_sample_tone_curve(tone_curve, parameters.tone_curve_count, working.x),
+            dcp_sample_tone_curve(tone_curve, parameters.tone_curve_count, working.y),
+            dcp_sample_tone_curve(tone_curve, parameters.tone_curve_count, working.z)
+        );
+    }
+    if (!bounded) {
+        working *= peak;
+    }
+    const float3 result = dcp_matrix_multiply(parameters.working_to_srgb, working);
+    if (!all(isfinite(result))) {
+        return;
+    }
+    pixels[index] = result.x;
+    pixels[index + 1u] = result.y;
+    pixels[index + 2u] = result.z;
+}
 )METAL";
 
 struct RawDevelopmentParameters final {
@@ -497,6 +798,41 @@ static_assert(offsetof(RawDenoiseParameters, black_levels) == 36U);
 static_assert(offsetof(RawDenoiseParameters, white_levels) == 52U);
 static_assert(offsetof(RawDenoiseParameters, read_noise_stddev_dn) == 68U);
 static_assert(offsetof(RawDenoiseParameters, shot_noise_variance_per_dn) == 84U);
+
+struct DcpHsvDeltaGpu final {
+    float hue_shift_degrees = 0.0F;
+    float saturation_scale = 1.0F;
+    float value_scale = 1.0F;
+};
+
+struct DcpToneCurvePointGpu final {
+    float input = 0.0F;
+    float output = 0.0F;
+    float second_derivative = 0.0F;
+};
+
+struct DcpPostParameters final {
+    std::uint32_t pixel_count = 0U;
+    std::uint32_t hue_hue_divisions = 0U;
+    std::uint32_t hue_saturation_divisions = 0U;
+    std::uint32_t hue_value_divisions = 0U;
+    std::uint32_t hue_encoding_srgb = 0U;
+    std::uint32_t look_hue_divisions = 0U;
+    std::uint32_t look_saturation_divisions = 0U;
+    std::uint32_t look_value_divisions = 0U;
+    std::uint32_t look_encoding_srgb = 0U;
+    std::uint32_t tone_curve_count = 0U;
+    float srgb_to_working[9]{};
+    float working_to_srgb[9]{};
+};
+
+static_assert(sizeof(DcpHsvDeltaGpu) == 12U);
+static_assert(sizeof(DcpToneCurvePointGpu) == 12U);
+static_assert(sizeof(DcpPostParameters) == 112U);
+static_assert(offsetof(DcpPostParameters, pixel_count) == 0U);
+static_assert(offsetof(DcpPostParameters, tone_curve_count) == 36U);
+static_assert(offsetof(DcpPostParameters, srgb_to_working) == 40U);
+static_assert(offsetof(DcpPostParameters, working_to_srgb) == 76U);
 
 class OwnedObjectiveCObject final {
 public:
@@ -588,6 +924,23 @@ public:
             }
 
             error = nil;
+            OwnedObjectiveCObject dcp_function(
+                [static_cast<id<MTLLibrary>>(library.get())
+                    newFunctionWithName:@"develop_dcp_post_matrix"]
+            );
+            if (!dcp_function) {
+                dcp_diagnostic_ = "Metal DCP shader entry point is unavailable";
+            } else {
+                dcp_pipeline_ = [device_ newComputePipelineStateWithFunction:
+                    static_cast<id<MTLFunction>>(dcp_function.get())
+                    error:&error];
+                if (dcp_pipeline_ == nil) {
+                    dcp_diagnostic_ = "Metal DCP pipeline creation failed: "
+                        + error_description(error);
+                }
+            }
+
+            error = nil;
             OwnedObjectiveCObject denoise_function(
                 [static_cast<id<MTLLibrary>>(library.get())
                     newFunctionWithName:@"denoise_bayer_same_cfa"]
@@ -608,6 +961,7 @@ public:
 
     ~MetalRawContext() {
         [denoise_pipeline_ release];
+        [dcp_pipeline_ release];
         [preview_pipeline_ release];
         [pipeline_ release];
         [queue_ release];
@@ -629,6 +983,10 @@ public:
         return device_ != nil && queue_ != nil && preview_pipeline_ != nil;
     }
 
+    [[nodiscard]] bool dcp_valid() const noexcept {
+        return device_ != nil && queue_ != nil && dcp_pipeline_ != nil;
+    }
+
     [[nodiscard]] id<MTLDevice> device() const noexcept { return device_; }
     [[nodiscard]] id<MTLCommandQueue> queue() const noexcept { return queue_; }
     [[nodiscard]] id<MTLComputePipelineState> pipeline() const noexcept {
@@ -640,6 +998,9 @@ public:
     [[nodiscard]] id<MTLComputePipelineState> area_preview_pipeline() const noexcept {
         return preview_pipeline_;
     }
+    [[nodiscard]] id<MTLComputePipelineState> dcp_pipeline() const noexcept {
+        return dcp_pipeline_;
+    }
     [[nodiscard]] const std::string& diagnostic() const noexcept { return diagnostic_; }
     [[nodiscard]] const std::string& area_preview_diagnostic() const noexcept {
         return preview_diagnostic_.empty() ? diagnostic_ : preview_diagnostic_;
@@ -647,15 +1008,20 @@ public:
     [[nodiscard]] const std::string& raw_denoise_diagnostic() const noexcept {
         return denoise_diagnostic_.empty() ? diagnostic_ : denoise_diagnostic_;
     }
+    [[nodiscard]] const std::string& dcp_diagnostic() const noexcept {
+        return dcp_diagnostic_.empty() ? diagnostic_ : dcp_diagnostic_;
+    }
 
 private:
     id<MTLDevice> device_ = nil;
     id<MTLCommandQueue> queue_ = nil;
     id<MTLComputePipelineState> pipeline_ = nil;
     id<MTLComputePipelineState> preview_pipeline_ = nil;
+    id<MTLComputePipelineState> dcp_pipeline_ = nil;
     id<MTLComputePipelineState> denoise_pipeline_ = nil;
     std::string diagnostic_;
     std::string preview_diagnostic_;
+    std::string dcp_diagnostic_;
     std::string denoise_diagnostic_;
 };
 
@@ -858,6 +1224,99 @@ private:
     return parameters;
 }
 
+[[nodiscard]] DcpPostParameters make_dcp_post_parameters(
+    const DcpColorTransform& transform
+) {
+    // These are the CPU reference's fixed linear-sRGB <-> DCP ProPhoto working-space matrices,
+    // evaluated from the same Bradford/D50/D65 constants.  They intentionally live at this
+    // executor boundary rather than in a Recipe node or a user-visible LUT.
+    constexpr std::array<float, 9U> srgb_to_working{
+        0.529392975772F, 0.330144038029F, 0.140570187253F,
+        0.0983758859345F, 0.873417686110F, 0.0281631164354F,
+        0.0168802149935F, 0.117659351989F, 0.865332752984F,
+    };
+    constexpr std::array<float, 9U> working_to_srgb{
+        2.03414085953F, -0.727453293930F, -0.306687502239F,
+        -0.228835551726F, 1.23175615200F, -0.00292063759050F,
+        -0.00856559757293F, -0.153291432975F, 1.16185702602F,
+    };
+    DcpPostParameters parameters;
+    const auto apply_table = [](
+        const std::optional<DcpHsvTable>& table,
+        std::uint32_t& hue_divisions,
+        std::uint32_t& saturation_divisions,
+        std::uint32_t& value_divisions,
+        std::uint32_t& encoding_srgb
+    ) {
+        if (!table.has_value()) {
+            return;
+        }
+        hue_divisions = table->hue_divisions;
+        saturation_divisions = table->saturation_divisions;
+        value_divisions = table->value_divisions;
+        encoding_srgb = table->encoding == DcpTableEncoding::srgb ? 1U : 0U;
+    };
+    apply_table(
+        transform.hue_sat_map,
+        parameters.hue_hue_divisions,
+        parameters.hue_saturation_divisions,
+        parameters.hue_value_divisions,
+        parameters.hue_encoding_srgb
+    );
+    apply_table(
+        transform.look_table,
+        parameters.look_hue_divisions,
+        parameters.look_saturation_divisions,
+        parameters.look_value_divisions,
+        parameters.look_encoding_srgb
+    );
+    parameters.tone_curve_count = static_cast<std::uint32_t>(transform.tone_curve.size());
+    std::copy(
+        srgb_to_working.begin(),
+        srgb_to_working.end(),
+        parameters.srgb_to_working
+    );
+    std::copy(
+        working_to_srgb.begin(),
+        working_to_srgb.end(),
+        parameters.working_to_srgb
+    );
+    return parameters;
+}
+
+[[nodiscard]] std::vector<DcpHsvDeltaGpu> pack_dcp_hsv_table(
+    const std::optional<DcpHsvTable>& table
+) {
+    std::vector<DcpHsvDeltaGpu> packed;
+    if (!table.has_value()) {
+        return packed;
+    }
+    packed.reserve(table->entries.size());
+    for (const DcpHsvDelta& entry : table->entries) {
+        packed.push_back(DcpHsvDeltaGpu{
+            .hue_shift_degrees = entry.hue_shift_degrees,
+            .saturation_scale = entry.saturation_scale,
+            .value_scale = entry.value_scale,
+        });
+    }
+    return packed;
+}
+
+[[nodiscard]] std::vector<DcpToneCurvePointGpu> pack_dcp_tone_curve(
+    const DcpColorTransform& transform
+) {
+    std::vector<DcpToneCurvePointGpu> packed;
+    packed.reserve(transform.tone_curve.size());
+    for (std::size_t index = 0U; index < transform.tone_curve.size(); ++index) {
+        packed.push_back(DcpToneCurvePointGpu{
+            .input = transform.tone_curve[index].input,
+            .output = transform.tone_curve[index].output,
+            .second_derivative = static_cast<float>(transform.tone_curve_second_derivatives[index]),
+        });
+    }
+    return packed;
+}
+
 [[nodiscard]] std::string command_buffer_diagnostic(id<MTLCommandBuffer> command_buffer) {
     NSError* error = command_buffer.error;
     std::string detail = error_description(error);
@@ -874,6 +1333,10 @@ bool metal_raw_development_available() noexcept {
 
 bool metal_raw_denoise_available() noexcept {
     return metal_context().raw_denoise_valid();
+}
+
+bool metal_dcp_color_development_available() noexcept {
+    return metal_context().dcp_valid();
 }
 
 MetalRawDenoiseAttempt try_denoise_bayer_raw_frame_metal(
@@ -1246,6 +1709,179 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
     }
     return MetalRawDevelopmentAttempt{
         .development = std::move(development),
+        .diagnostic = {},
+    };
+}
+
+MetalDcpColorDevelopmentAttempt try_apply_dcp_color_rendering_stages_metal(
+    SceneLinearRgbFrame& pixels,
+    const DcpColorTransform& transform
+) {
+    if (!pixels.valid() || !transform.valid() || !transform.has_post_matrix_stages()) {
+        return MetalDcpColorDevelopmentAttempt{
+            .applied = false,
+            .diagnostic = "Metal DCP executor received an invalid scene-linear frame or transform",
+        };
+    }
+    if (pixels.samples.size() % 3U != 0U) {
+        return MetalDcpColorDevelopmentAttempt{
+            .applied = false,
+            .diagnostic = "Metal DCP executor requires packed RGB scene-linear samples",
+        };
+    }
+    for (const float sample : pixels.samples) {
+        if (!std::isfinite(sample)) {
+            // Match the CPU contract, which rejects non-finite source values instead of silently
+            // allowing a GPU kernel to leave one unprocessed pixel behind.
+            return MetalDcpColorDevelopmentAttempt{
+                .applied = false,
+                .diagnostic = "DCP input rendering received non-finite scene-linear samples",
+            };
+        }
+    }
+
+    auto& context = metal_context();
+    if (!context.dcp_valid()) {
+        return MetalDcpColorDevelopmentAttempt{
+            .applied = false,
+            .diagnostic = context.dcp_diagnostic(),
+        };
+    }
+
+    std::size_t pixel_bytes = 0U;
+    if (!checked_multiply(pixels.samples.size(), sizeof(float), pixel_bytes)
+        || pixel_bytes == 0U
+        || pixel_bytes > static_cast<std::size_t>(context.device().maxBufferLength)) {
+        return MetalDcpColorDevelopmentAttempt{
+            .applied = false,
+            .diagnostic = "scene-linear DCP buffer exceeds this Metal device's limit",
+        };
+    }
+    const std::vector<DcpHsvDeltaGpu> hue_table = pack_dcp_hsv_table(transform.hue_sat_map);
+    const std::vector<DcpHsvDeltaGpu> look_table = pack_dcp_hsv_table(transform.look_table);
+    const std::vector<DcpToneCurvePointGpu> tone_curve = pack_dcp_tone_curve(transform);
+    std::size_t hue_bytes = 0U;
+    std::size_t look_bytes = 0U;
+    std::size_t tone_bytes = 0U;
+    if (!checked_multiply(hue_table.size(), sizeof(DcpHsvDeltaGpu), hue_bytes)
+        || !checked_multiply(look_table.size(), sizeof(DcpHsvDeltaGpu), look_bytes)
+        || !checked_multiply(tone_curve.size(), sizeof(DcpToneCurvePointGpu), tone_bytes)) {
+        return MetalDcpColorDevelopmentAttempt{
+            .applied = false,
+            .diagnostic = "DCP table buffer size overflowed",
+        };
+    }
+    std::size_t working_set = 0U;
+    if (!checked_add(pixel_bytes, hue_bytes, working_set)
+        || !checked_add(working_set, look_bytes, working_set)
+        || !checked_add(working_set, tone_bytes, working_set)) {
+        return MetalDcpColorDevelopmentAttempt{
+            .applied = false,
+            .diagnostic = "DCP Metal working-set size overflowed",
+        };
+    }
+    const auto recommended_working_set = static_cast<std::size_t>(
+        context.device().recommendedMaxWorkingSetSize
+    );
+    if (recommended_working_set > 0U && working_set > recommended_working_set / 3U) {
+        return MetalDcpColorDevelopmentAttempt{
+            .applied = false,
+            .diagnostic = "DCP scene-linear frame exceeds Shadow's Metal working-set allowance",
+        };
+    }
+
+    const DcpPostParameters parameters = make_dcp_post_parameters(transform);
+    if (parameters.pixel_count != 0U) {
+        return MetalDcpColorDevelopmentAttempt{
+            .applied = false,
+            .diagnostic = "internal DCP Metal parameter state was not initialized",
+        };
+    }
+    if (pixels.samples.size() / 3U > std::numeric_limits<std::uint32_t>::max()) {
+        return MetalDcpColorDevelopmentAttempt{
+            .applied = false,
+            .diagnostic = "DCP scene-linear pixel count exceeds Metal's dispatch range",
+        };
+    }
+    DcpPostParameters dispatch_parameters = parameters;
+    dispatch_parameters.pixel_count = static_cast<std::uint32_t>(pixels.samples.size() / 3U);
+
+    // Serialize the command queue and input copy with the other large RAW operations.  The DCP
+    // tables are tiny, while a full-resolution fp32 RGB frame is not.
+    std::lock_guard execution_lock(metal_execution_mutex());
+    @autoreleasepool {
+        const DcpHsvDeltaGpu empty_delta{};
+        const DcpToneCurvePointGpu empty_curve{};
+        OwnedObjectiveCObject pixel_buffer(
+            [context.device()
+                newBufferWithBytes:pixels.samples.data()
+                length:pixel_bytes
+                options:MTLResourceStorageModeShared]
+        );
+        OwnedObjectiveCObject hue_buffer(
+            [context.device()
+                newBufferWithBytes:(hue_table.empty() ? &empty_delta : hue_table.data())
+                length:(hue_table.empty() ? sizeof(empty_delta) : hue_bytes)
+                options:MTLResourceStorageModeShared]
+        );
+        OwnedObjectiveCObject look_buffer(
+            [context.device()
+                newBufferWithBytes:(look_table.empty() ? &empty_delta : look_table.data())
+                length:(look_table.empty() ? sizeof(empty_delta) : look_bytes)
+                options:MTLResourceStorageModeShared]
+        );
+        OwnedObjectiveCObject tone_buffer(
+            [context.device()
+                newBufferWithBytes:(tone_curve.empty() ? &empty_curve : tone_curve.data())
+                length:(tone_curve.empty() ? sizeof(empty_curve) : tone_bytes)
+                options:MTLResourceStorageModeShared]
+        );
+        if (!pixel_buffer || !hue_buffer || !look_buffer || !tone_buffer) {
+            return MetalDcpColorDevelopmentAttempt{
+                .applied = false,
+                .diagnostic = "Metal could not allocate one or more DCP input buffers",
+            };
+        }
+        const auto pipeline = context.dcp_pipeline();
+        const NSUInteger threads_per_group = std::min<NSUInteger>(
+            256U,
+            std::max<NSUInteger>(1U, pipeline.maxTotalThreadsPerThreadgroup)
+        );
+        id<MTLCommandBuffer> command_buffer = [context.queue() commandBuffer];
+        id<MTLComputeCommandEncoder> encoder = [command_buffer computeCommandEncoder];
+        if (command_buffer == nil || encoder == nil) {
+            return MetalDcpColorDevelopmentAttempt{
+                .applied = false,
+                .diagnostic = "Metal could not create a DCP compute command",
+            };
+        }
+        [encoder setComputePipelineState:pipeline];
+        [encoder setBuffer:static_cast<id<MTLBuffer>>(pixel_buffer.get()) offset:0U atIndex:0U];
+        [encoder setBuffer:static_cast<id<MTLBuffer>>(hue_buffer.get()) offset:0U atIndex:1U];
+        [encoder setBuffer:static_cast<id<MTLBuffer>>(look_buffer.get()) offset:0U atIndex:2U];
+        [encoder setBuffer:static_cast<id<MTLBuffer>>(tone_buffer.get()) offset:0U atIndex:3U];
+        [encoder setBytes:&dispatch_parameters
+                   length:sizeof(dispatch_parameters)
+                  atIndex:4U];
+        [encoder dispatchThreads:MTLSizeMake(dispatch_parameters.pixel_count, 1U, 1U)
+            threadsPerThreadgroup:MTLSizeMake(threads_per_group, 1U, 1U)];
+        [encoder endEncoding];
+        [command_buffer commit];
+        [command_buffer waitUntilCompleted];
+        if (command_buffer.status != MTLCommandBufferStatusCompleted) {
+            return MetalDcpColorDevelopmentAttempt{
+                .applied = false,
+                .diagnostic = command_buffer_diagnostic(command_buffer),
+            };
+        }
+        std::memcpy(
+            pixels.samples.data(),
+            [static_cast<id<MTLBuffer>>(pixel_buffer.get()) contents],
+            pixel_bytes
+        );
+    }
+    return MetalDcpColorDevelopmentAttempt{
+        .applied = true,
         .diagnostic = {},
     };
 }

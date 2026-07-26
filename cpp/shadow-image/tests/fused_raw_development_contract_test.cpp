@@ -215,6 +215,58 @@ void area_preview_matches_reference_for_every_supported_orientation() {
     }
 }
 
+void fractional_area_preview_stays_inside_the_active_sensor_rectangle() {
+    // A last preview footprint whose scale is fractional is the boundary that previously let a
+    // ceil() rounding error inspect one source row or column beyond the owned RAW plane.  Keep
+    // non-zero margins as well: private decoders commonly expose an active rectangle rather than
+    // a tightly cropped sensor buffer.
+    auto frame = synthetic_frame(0);
+    auto& descriptor = frame.descriptor;
+    descriptor.storage_dimensions = {11U, 9U};
+    descriptor.active_dimensions = {7U, 5U};
+    descriptor.active_margins = {
+        .left = 2U,
+        .top = 2U,
+        .right = 2U,
+        .bottom = 2U,
+    };
+    frame.samples.resize(
+        static_cast<std::size_t>(descriptor.storage_dimensions.width)
+        * descriptor.storage_dimensions.height
+    );
+    for (std::uint32_t y = 0U; y < descriptor.storage_dimensions.height; ++y) {
+        for (std::uint32_t x = 0U; x < descriptor.storage_dimensions.width; ++x) {
+            const std::size_t site = static_cast<std::size_t>((y & 1U) * 2U + (x & 1U));
+            frame.samples[static_cast<std::size_t>(y) * descriptor.storage_dimensions.width + x]
+                = static_cast<std::uint16_t>(descriptor.black_levels[site] + 80U + x + y * 3U);
+        }
+    }
+    const image::RawFrameLinearTransform identity{{
+        1.0, 0.0, 0.0,
+        0.0, 1.0, 0.0,
+        0.0, 0.0, 1.0,
+    }};
+    const auto preview = image::develop_bayer_linear_srgb_f32_fused_with_backend(
+        frame,
+        identity,
+        3U,
+        image::RawDevelopmentBackendMode::cpu
+    );
+    expect(
+        preview.valid()
+            && preview.scene_linear.dimensions == image::Dimensions{3U, 2U}
+            && preview.demosaic_receipt.algorithm
+                == image::RawDemosaicAlgorithm::bayer_area_preview_v1,
+        "fractional CFA-area preview remains bounded within a margined sensor frame"
+    );
+    expect(
+        std::ranges::all_of(preview.scene_linear.samples, [](const float sample) {
+            return std::isfinite(sample);
+        }),
+        "fractional CFA-area preview produces finite scene-linear samples at the sensor edge"
+    );
+}
+
 void high_quality_reconstruction_is_explicit_and_preview_safe() {
     const image::RawFrameLinearTransform identity{{
         1.0, 0.0, 0.0,
@@ -680,6 +732,7 @@ void invalid_inputs_fail_closed() {
 int main() {
     full_resolution_matches_reference_for_every_supported_orientation();
     area_preview_matches_reference_for_every_supported_orientation();
+    fractional_area_preview_stays_inside_the_active_sensor_rectangle();
     high_quality_reconstruction_is_explicit_and_preview_safe();
     metal_full_resolution_stays_within_the_linear_u16_contract();
     metal_area_preview_preserves_the_cfa_footprint_contract();

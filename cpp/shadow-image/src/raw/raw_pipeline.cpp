@@ -278,7 +278,7 @@ using Matrix3 = std::array<double, 9U>;
         }
     }
     if (camera_profile != nullptr && camera_profile->has_post_matrix_stages()) {
-        apply_dcp_color_rendering_stages(samples, *camera_profile);
+        static_cast<void>(apply_dcp_color_rendering_stages(samples, *camera_profile));
     }
 
     std::vector<double> luminances;
@@ -482,15 +482,23 @@ struct DevelopedRawFrame final {
         denoised.receipt
     );
     DevelopedSourcePixels output = std::move(developed.scene_linear);
+    DcpColorExecutionBackend dcp_execution_backend = DcpColorExecutionBackend::cpu;
     if (camera_profile != nullptr && camera_profile->has_post_matrix_stages()) {
         // DCP's HueSatMap/LookTable/ProfileToneCurve define input rendering.
         // They intentionally run before the Recipe graph and are recorded in
         // the DCP receipt, rather than leaking camera-specific style into a
         // node the user might accidentally share across photos.
-        apply_dcp_color_rendering_stages(
+        dcp_execution_backend = apply_dcp_color_rendering_stages(
             std::get<SceneLinearRgbFrame>(output),
             *camera_profile
         );
+    }
+    if (camera_profile != nullptr) {
+        // The CPU reference and Metal fp32 executor are both valid DCP renderers, but their
+        // numerical paths are not assumed bit-identical.  Keep the effective executor in the
+        // development signature so preview/detail/export caches cannot cross that boundary.
+        receipt.development_settings_signature += ";"
+            + std::string(dcp_color_execution_backend_identity(dcp_execution_backend));
     }
     return DevelopedRawFrame{
         .source = std::move(output),

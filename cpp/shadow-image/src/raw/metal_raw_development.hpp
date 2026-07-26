@@ -6,7 +6,11 @@
 #include <optional>
 #include <string>
 
-namespace shadow::image::detail {
+namespace shadow::image {
+
+struct DcpColorTransform;
+
+namespace detail {
 
 struct MetalRawDevelopmentAttempt final {
     std::optional<FusedRawFrameDevelopment> development;
@@ -21,10 +25,21 @@ struct MetalRawDenoiseAttempt final {
     std::string diagnostic;
 };
 
+// DCP input rendering is a separate stage after sensor reconstruction.  Its GPU path is kept
+// behind the same internal Metal boundary as RAW development, so a missing device, an oversized
+// buffer, or a shader failure can always fall back to the CPU reference without changing the
+// public DCP transform contract.
+struct MetalDcpColorDevelopmentAttempt final {
+    bool applied = false;
+    std::string diagnostic;
+};
+
 // Availability is a runtime property: a macOS build may still run without a usable Metal device.
 [[nodiscard]] bool metal_raw_development_available() noexcept;
 
 [[nodiscard]] bool metal_raw_denoise_available() noexcept;
+
+[[nodiscard]] bool metal_dcp_color_development_available() noexcept;
 
 // Runs the already-resolved same-CFA bilateral stage on Metal. `mode` is never skipped here;
 // callers keep the skip policy, fallback, and receipt construction in the common CPU-facing
@@ -45,4 +60,10 @@ struct MetalRawDenoiseAttempt final {
     RawDevelopmentQuality quality
 );
 
-} // namespace shadow::image::detail
+[[nodiscard]] MetalDcpColorDevelopmentAttempt try_apply_dcp_color_rendering_stages_metal(
+    SceneLinearRgbFrame& pixels,
+    const DcpColorTransform& transform
+);
+
+} // namespace detail
+} // namespace shadow::image
