@@ -192,6 +192,7 @@ qt_add_resources(
         icons/flip-horizontal.svg
         icons/flip-vertical.svg
         icons/filter.svg
+        icons/filmstrip.svg
         icons/history.svg
         icons/heart.svg
         icons/heart-filled.svg
@@ -272,8 +273,11 @@ qt_add_qml_module(
         qml/PrecisionWorkspace.qml
         qml/ReviewWorkspace.qml
         qml/ReviewComparisonView.qml
+        qml/ReviewDecisionToolbar.qml
         qml/ReviewPhotoCard.qml
+        qml/ReviewPhotoContextMenu.qml
         qml/ReviewPhotoInspector.qml
+        qml/ReviewSinglePreview.qml
         qml/ShadowButton.qml
         qml/ShadowColorLabelButton.qml
         qml/ShadowColorWheel.qml

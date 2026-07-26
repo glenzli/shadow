@@ -369,6 +369,15 @@ public:
     Q_INVOKABLE void scanFolder(const QUrl& folder_url);
     Q_INVOKABLE void cancelScan();
     Q_INVOKABLE void loadMore();
+    /// Returns the inclusive, currently filtered Library range between two
+    /// presentation identities. This keeps Shift selection stable even when a
+    /// justified grid has virtualized most of its delegates.
+    Q_INVOKABLE QVariantList selectionRangeTargets(
+        const QString& anchor_photo_id,
+        const QString& anchor_representation_id,
+        const QString& photo_id,
+        const QString& representation_id
+    ) const;
     Q_INVOKABLE QVariantMap prepareComparison(
         const QString& left_visual_handle,
         const QString& right_visual_handle

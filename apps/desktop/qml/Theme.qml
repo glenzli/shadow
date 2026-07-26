@@ -126,6 +126,14 @@ QtObject {
     readonly property color labelBlue: effectiveDark ? "#72a9e5" : "#397fca"
     readonly property color labelPurple: effectiveDark ? "#b18ae3" : "#8158bd"
 
+    // A Like is personal curation rather than an error/rejection state. Keep
+    // it recognizably warm, but softer than destructive red and independent
+    // from the blue navigation accent.
+    readonly property color likeAccent: effectiveDark ? "#e58a91" : "#cd5b65"
+    readonly property color likeSurface: effectiveDark ? "#3e292f" : "#f9e7e9"
+    readonly property color likeHoverSurface: effectiveDark ? "#4b3037" : "#f4dadd"
+    readonly property color likePressedSurface: effectiveDark ? "#593941" : "#eccdd1"
+
     function colorLabel(label) {
         switch (String(label).toLowerCase()) {
         case "red": return labelRed

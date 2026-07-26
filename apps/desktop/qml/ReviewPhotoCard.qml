@@ -10,6 +10,7 @@ Item {
     required property var workspace
     required property var entry
     readonly property int captionHeight: 48
+    readonly property int surfaceRadius: 9
 
     readonly property string photoId: String(entry.photoId || "")
     readonly property string representationId: String(entry.representationId || "")
@@ -94,7 +95,7 @@ Item {
         width: parent.width - 10
         height: parent.height - 10
         offset: Qt.vector2d(0, 2)
-        radius: 9
+        radius: card.surfaceRadius
         blur: 12
         spread: -2
         color: Theme.shadowSoft
@@ -110,7 +111,7 @@ Item {
         id: cardSurface
         anchors.fill: parent
         anchors.margins: 0
-        radius: 9
+        radius: card.surfaceRadius
         clip: true
         color: Theme.panelRaised
         border.width: 1
@@ -282,13 +283,31 @@ Item {
             }
         }
 
+        ReviewPhotoContextMenu {
+            id: cardMenu
+            workspace: card.workspace
+            photo: card
+        }
+
         MouseArea {
             id: cardMouse
             anchors.fill: parent
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
-            onClicked: mouse => workspace.selectPhoto(card, mouse.modifiers)
-            onDoubleClicked: {
+            acceptedButtons: Qt.LeftButton | Qt.RightButton
+            onClicked: mouse => {
+                const preserveSelection = mouse.button === Qt.RightButton
+                    && card.selected
+                if (!preserveSelection)
+                    workspace.selectPhoto(card, mouse.modifiers)
+                if (mouse.button === Qt.RightButton) {
+                    workspace.controller.refreshSharedGradeNodes()
+                    cardMenu.openAt(cardMouse, mouse.x, mouse.y)
+                }
+            }
+            onDoubleClicked: mouse => {
+                if (mouse.button !== Qt.LeftButton)
+                    return
                 workspace.selectPhoto(card, 0)
                 workspace.openSelectedPhoto()
             }
@@ -300,7 +319,7 @@ Item {
         anchors.margins: 0
         z: 2
         visible: card.selected
-        radius: 11
+        radius: card.surfaceRadius
         color: Theme.transparent
         border.width: 3
         border.color: Theme.accent

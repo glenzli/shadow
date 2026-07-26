@@ -13,6 +13,11 @@ Item {
     required property var justifiedReviewLayout
     required property var preferences
     property var selectedPhotoTargets: ({})
+    // This is deliberately identity-based rather than a delegate index: the
+    // justified grid virtualizes delegates, while Shift selection must stay
+    // correct across rows that are currently off screen.
+    property string selectionAnchorPhotoId: ""
+    property string selectionAnchorRepresentationId: ""
     property string selectedPhotoId: ""
     property string selectedRepresentationId: ""
     property string selectedVisualHandle: ""
@@ -67,6 +72,14 @@ Item {
     property string leftComparisonSource: ""
     property string rightComparisonSource: ""
     property bool compareMode: false
+    // The grid stays the broad library browser. The single presentation is a
+    // deliberately focused culling surface that still consumes the same
+    // filtered catalogue model.
+    enum GalleryPresentation {
+        JustifiedGrid,
+        SinglePhotoFilmstrip
+    }
+    property int galleryPresentation: ReviewWorkspace.JustifiedGrid
     property string localComparisonStatusKey: ""
     property int localComparisonStatusSlot: -1
     property string precisionOpenStatus: ""
@@ -109,6 +122,13 @@ Item {
         controller.filterCaptureMonth.length > 0
         || controller.filterCameraKey.length > 0
         || controller.filterLensKey.length > 0
+    readonly property bool hasActiveLibraryFilter:
+        controller.filterFlag !== "all"
+        || controller.filterMinimumRating > 0
+        || controller.filterColorLabel !== "all"
+        || controller.filterEditState !== "all"
+        || controller.filterLiked !== "all"
+        || hasLibraryFacetFilter
     readonly property var manualLibraryAlbums: {
         const albums = controller.libraryAlbums
         const manualAlbums = []
@@ -158,9 +178,11 @@ Item {
         x: Math.round((parent.width - width) / 2)
         y: Math.round((parent.height - height) / 2)
         padding: 16
-        property bool createSmartAlbum: false
+        property string creationKind: "manual"
 
         onOpened: {
+            if (!review.hasActiveLibraryFilter)
+                creationKind = "manual"
             albumNameInput.text = ""
             albumNameInput.forceActiveFocus()
         }
@@ -185,9 +207,9 @@ Item {
 
             Label {
                 Layout.fillWidth: true
-                text: albumCreatePopup.createSmartAlbum
-                    ? qsTr("A Smart Album keeps the current library filters as a reusable view.")
-                    : qsTr("A Manual Album holds only the photos you add to it.")
+                text: albumCreatePopup.creationKind === "condition"
+                    ? qsTr("A Condition Album keeps the current Library conditions as a reusable view.")
+                    : qsTr("An Album holds only the photos you add to it.")
                 color: Theme.textMuted
                 font.pixelSize: Theme.fontMeta
                 wrapMode: Text.WordWrap
@@ -200,17 +222,31 @@ Item {
                 ShadowButton {
                     Layout.fillWidth: true
                     compact: true
-                    text: qsTr("Manual")
-                    selected: !albumCreatePopup.createSmartAlbum
-                    onClicked: albumCreatePopup.createSmartAlbum = false
+                    text: qsTr("Album")
+                    selected: albumCreatePopup.creationKind === "manual"
+                    onClicked: albumCreatePopup.creationKind = "manual"
+                }
+
+                ShadowButton {
+                    Layout.fillWidth: true
+                    compact: true
+                    text: qsTr("Condition")
+                    selected: albumCreatePopup.creationKind === "condition"
+                    enabled: review.hasActiveLibraryFilter
+                    toolTipText: enabled
+                        ? qsTr("Save the current Library conditions")
+                        : qsTr("Set at least one Library condition first")
+                    accessibleName: toolTipText
+                    onClicked: albumCreatePopup.creationKind = "condition"
                 }
 
                 ShadowButton {
                     Layout.fillWidth: true
                     compact: true
                     text: qsTr("Smart")
-                    selected: albumCreatePopup.createSmartAlbum
-                    onClicked: albumCreatePopup.createSmartAlbum = true
+                    enabled: false
+                    toolTipText: qsTr("AI-driven Smart Albums are not available yet")
+                    accessibleName: toolTipText
                 }
             }
 
@@ -242,7 +278,7 @@ Item {
                     enabled: albumNameInput.text.trim().length > 0
                         && !review.controller.libraryAlbumsBusy
                     onClicked: {
-                        if (albumCreatePopup.createSmartAlbum)
+                        if (albumCreatePopup.creationKind === "condition")
                             review.controller.createSmartLibraryAlbum(albumNameInput.text)
                         else
                             review.controller.createManualLibraryAlbum(albumNameInput.text)
@@ -377,7 +413,7 @@ Item {
             Label {
                 Layout.fillWidth: true
                 text: albumManagePopup.albumKind === "smart"
-                    ? qsTr("Smart Album") : qsTr("Manual Album")
+                    ? qsTr("Filtered Album") : qsTr("Manual Album")
                 color: Theme.textMuted
                 font.pixelSize: Theme.fontMeta
             }
@@ -541,13 +577,19 @@ Item {
                 font.pixelSize: 10
             }
 
-            Repeater {
+            ListView {
+                id: sharedBatchList
+                width: parent.width
+                height: Math.min(contentHeight, 296)
+                visible: count > 0
+                clip: true
+                spacing: 2
                 model: review.controller.sharedGradeNodes
 
                 delegate: Rectangle {
                     id: sharedBatchRow
                     required property var modelData
-                    width: parent.width
+                    width: sharedBatchList.width
                     height: 38
                     radius: Theme.compactControlRadius
                     color: sharedBatchMouse.containsMouse
@@ -726,6 +768,39 @@ Item {
         return values
     }
 
+    // `revisionId` is UUIDv7-based, so descending lexical order gives a
+    // stable "recently published or revised" quick list today. A later
+    // catalog usage counter can refine this list by frequency without
+    // changing the menu's top-ten + More contract.
+    function sharedNodeQuickList() {
+        const nodes = controller.sharedGradeNodes.slice()
+        nodes.sort((left, right) => String(right.revisionId).localeCompare(
+            String(left.revisionId)))
+        return nodes.slice(0, 10)
+    }
+
+    function hasMoreSharedNodes() {
+        return controller.sharedGradeNodes.length > 10
+    }
+
+    function openSharedNodePicker(x, y) {
+        controller.refreshSharedGradeNodes()
+        sharedBatchPopup.x = Math.max(8, Math.min(Number(x),
+            review.width - sharedBatchPopup.width - 8))
+        sharedBatchPopup.y = Math.max(8, Math.min(Number(y),
+            review.height - sharedBatchPopup.height - 8))
+        sharedBatchPopup.open()
+    }
+
+    function addTargetsToManualAlbum(targets) {
+        if (!targets || targets.length === 0
+                || manualLibraryAlbums.length === 0
+                || controller.libraryAlbumsBusy)
+            return
+        albumMembershipPopup.targets = targets
+        albumMembershipPopup.open()
+    }
+
     function updatePrimaryPhoto(card) {
         if (selectedPhotoId !== card.photoId
                 || selectedRepresentationId !== card.representationId)
@@ -779,8 +854,31 @@ Item {
         const modifierMask = Number(modifiers || 0)
         const additive = (modifierMask & Qt.ControlModifier) !== 0
             || (modifierMask & Qt.MetaModifier) !== 0
+        const rangeSelection = (modifierMask & Qt.ShiftModifier) !== 0
         const key = selectionKey(card.photoId, card.representationId)
-        const updated = ({})
+        let updated = ({})
+        if (rangeSelection && selectionAnchorPhotoId.length > 0
+                && selectionAnchorRepresentationId.length > 0) {
+            const range = controller.selectionRangeTargets(
+                selectionAnchorPhotoId, selectionAnchorRepresentationId,
+                card.photoId, card.representationId)
+            if (range.length > 0) {
+                if (additive) {
+                    const previousKeys = Object.keys(selectedPhotoTargets)
+                    for (let index = 0; index < previousKeys.length; ++index) {
+                        const previousKey = previousKeys[index]
+                        updated[previousKey] = selectedPhotoTargets[previousKey]
+                    }
+                }
+                for (let index = 0; index < range.length; ++index) {
+                    const target = range[index]
+                    updated[selectionKey(target.photoId, target.representationId)] = target
+                }
+                selectedPhotoTargets = updated
+                updatePrimaryPhoto(card)
+                return
+            }
+        }
         if (additive) {
             const previousKeys = Object.keys(selectedPhotoTargets)
             for (let index = 0; index < previousKeys.length; ++index) {
@@ -803,6 +901,8 @@ Item {
             "title": String(card.title)
         }
         selectedPhotoTargets = updated
+        selectionAnchorPhotoId = card.photoId
+        selectionAnchorRepresentationId = card.representationId
         updatePrimaryPhoto(card)
     }
 
@@ -853,8 +953,40 @@ Item {
         selectedEdgeEnergy = 0.0
     }
 
+    function applySystemCollection(kind) {
+        controller.clearFilters()
+        if (kind === "liked")
+            controller.filterLiked = "liked"
+        else if (kind === "five-star")
+            controller.filterMinimumRating = 5
+    }
+
+    function isSystemCollectionActive(kind) {
+        if (controller.libraryAlbumId.length > 0)
+            return false
+        if (kind === "all")
+            return !hasActiveLibraryFilter
+        if (kind === "liked")
+            return controller.filterLiked === "liked"
+                && controller.filterMinimumRating === 0
+                && controller.filterFlag === "all"
+                && controller.filterColorLabel === "all"
+                && controller.filterEditState === "all"
+                && !hasLibraryFacetFilter
+        if (kind === "five-star")
+            return controller.filterMinimumRating === 5
+                && controller.filterLiked === "all"
+                && controller.filterFlag === "all"
+                && controller.filterColorLabel === "all"
+                && controller.filterEditState === "all"
+                && !hasLibraryFacetFilter
+        return false
+    }
+
     function clearSelection() {
         selectedPhotoTargets = ({})
+        selectionAnchorPhotoId = ""
+        selectionAnchorRepresentationId = ""
         clearPrimaryPhoto()
     }
 
@@ -1187,7 +1319,7 @@ Item {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 34
                     radius: 7
-                    color: review.controller.libraryAlbumId.length === 0
+                    color: review.isSystemCollectionActive("all")
                         ? Theme.accentSurface : Theme.transparent
 
                     Rectangle {
@@ -1197,7 +1329,7 @@ Item {
                         width: 3
                         height: 18
                         radius: 1.5
-                        color: review.controller.libraryAlbumId.length === 0
+                        color: review.isSystemCollectionActive("all")
                             ? review.accent : Theme.transparent
                     }
 
@@ -1218,7 +1350,115 @@ Item {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: review.controller.libraryAlbumId = ""
+                        onClicked: review.applySystemCollection("all")
+                    }
+                }
+
+                Repeater {
+                    model: [
+                        {
+                            id: "recent-imports",
+                            title: qsTr("Recent Imports"),
+                            icon: "qrc:/icons/history.svg",
+                            enabled: false,
+                            hint: qsTr("Recent import sessions will appear here when import-time filtering is available.")
+                        },
+                        {
+                            id: "liked",
+                            title: qsTr("Liked"),
+                            icon: "qrc:/icons/heart.svg",
+                            enabled: true,
+                            hint: qsTr("Show photos marked Like")
+                        },
+                        {
+                            id: "five-star",
+                            title: qsTr("5 Stars"),
+                            icon: "qrc:/icons/star.svg",
+                            enabled: true,
+                            hint: qsTr("Show photos rated 5 stars")
+                        }
+                    ]
+
+                    delegate: Rectangle {
+                        id: defaultCollectionRow
+                        required property var modelData
+                        readonly property bool selected:
+                            review.isSystemCollectionActive(String(modelData.id))
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 32
+                        radius: Theme.compactControlRadius
+                        color: selected ? Theme.accentSurface
+                            : defaultCollectionMouse.containsMouse && modelData.enabled
+                                ? Theme.buttonGhostHover : Theme.transparent
+
+                        Rectangle {
+                            anchors.left: parent.left
+                            anchors.leftMargin: 3
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 2
+                            height: 16
+                            radius: 1
+                            color: defaultCollectionRow.selected
+                                ? review.accent : Theme.transparent
+                        }
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: 13
+                            anchors.rightMargin: 9
+                            spacing: 7
+
+                            ShadowIcon {
+                                source: String(defaultCollectionRow.modelData.icon)
+                                color: defaultCollectionRow.modelData.enabled
+                                    ? (defaultCollectionRow.selected
+                                        ? review.accent : review.textMuted)
+                                    : Theme.textDisabled
+                                size: 14
+                            }
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: String(defaultCollectionRow.modelData.title)
+                                color: defaultCollectionRow.modelData.enabled
+                                    ? (defaultCollectionRow.selected
+                                        ? review.textPrimary : review.textSecondary)
+                                    : Theme.textDisabled
+                                font.pixelSize: 11
+                                elide: Text.ElideRight
+                            }
+
+                            Label {
+                                visible: !defaultCollectionRow.modelData.enabled
+                                text: qsTr("SOON")
+                                color: Theme.textDisabled
+                                font.pixelSize: 8
+                                font.weight: Font.DemiBold
+                                font.letterSpacing: 0.5
+                            }
+                        }
+
+                        MouseArea {
+                            id: defaultCollectionMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: defaultCollectionRow.modelData.enabled
+                                ? Qt.PointingHandCursor : Qt.ArrowCursor
+                            onClicked: {
+                                if (defaultCollectionRow.modelData.enabled) {
+                                    review.applySystemCollection(
+                                        String(defaultCollectionRow.modelData.id))
+                                }
+                            }
+                        }
+
+                        ToolTip {
+                            parent: defaultCollectionRow
+                            visible: defaultCollectionMouse.containsMouse
+                                && !defaultCollectionRow.modelData.enabled
+                            delay: 400
+                            text: String(defaultCollectionRow.modelData.hint)
+                        }
                     }
                 }
 
@@ -1314,7 +1554,7 @@ Item {
 
                             Label {
                                 visible: String(albumRow.modelData.kind) === "smart"
-                                text: qsTr("SMART")
+                                text: qsTr("CONDITION")
                                 color: albumRow.selected ? review.accent : review.textMuted
                                 font.pixelSize: 8
                                 font.weight: Font.DemiBold
@@ -1572,13 +1812,29 @@ Item {
 
                     Item { Layout.fillWidth: true }
 
-                    ShadowIcon {
+                    ShadowIconButton {
                         source: "qrc:/icons/review-grid.svg"
-                        color: review.accent
-                        size: 17
+                        selected: review.galleryPresentation
+                            === ReviewWorkspace.JustifiedGrid
+                        toolTipText: qsTr("Browse as a photo grid")
+                        accessibleName: toolTipText
+                        onClicked: review.galleryPresentation
+                            = ReviewWorkspace.JustifiedGrid
+                    }
+
+                    ShadowIconButton {
+                        source: "qrc:/icons/filmstrip.svg"
+                        selected: review.galleryPresentation
+                            === ReviewWorkspace.SinglePhotoFilmstrip
+                        toolTipText: qsTr("Review one photo with a filmstrip")
+                        accessibleName: toolTipText
+                        onClicked: review.galleryPresentation
+                            = ReviewWorkspace.SinglePhotoFilmstrip
                     }
 
                     Label {
+                        visible: review.galleryPresentation
+                            === ReviewWorkspace.JustifiedGrid
                         text: qsTr("SCALE")
                         color: review.textMuted
                         font.pixelSize: 9
@@ -1588,6 +1844,8 @@ Item {
 
                     ShadowInlineSlider {
                         id: galleryScaleSlider
+                        visible: review.galleryPresentation
+                            === ReviewWorkspace.JustifiedGrid
                         Layout.preferredWidth: 138
                         from: 96
                         to: 360
@@ -1603,6 +1861,8 @@ Item {
                     }
 
                     ShadowIconButton {
+                        visible: review.galleryPresentation
+                            === ReviewWorkspace.JustifiedGrid
                         source: "qrc:/icons/fit-view.svg"
                         toolTipText: qsTr("Restore default thumbnail scale")
                         accessibleName: toolTipText
@@ -1656,23 +1916,6 @@ Item {
                     }
 
                     ShadowIconButton {
-                        source: review.selectedLiked
-                            ? "qrc:/icons/heart-filled.svg"
-                            : "qrc:/icons/heart.svg"
-                        selected: review.selectedLiked
-                        foregroundColor: review.selectedLiked
-                            ? review.accent : review.textMuted
-                        toolTipText: review.selectedLiked
-                            ? qsTr("Remove Like from selected photo")
-                            : qsTr("Like selected photo")
-                        accessibleName: toolTipText
-                        enabled: review.selectedPhotoCount === 1
-                            && review.canMutateDecision
-                        onClicked: review.controller.setPhotoLiked(
-                            review.selectedPhotoId, !review.selectedLiked)
-                    }
-
-                    ShadowIconButton {
                         id: addToManualAlbumButton
                         source: "qrc:/icons/add-folder.svg"
                         toolTipText: qsTr("Add selected photos to a Manual Album")
@@ -1680,10 +1923,8 @@ Item {
                         enabled: review.selectedPhotoCount > 0
                             && review.manualLibraryAlbums.length > 0
                             && !review.controller.libraryAlbumsBusy
-                        onClicked: {
-                            albumMembershipPopup.targets = review.batchSelectionTargets()
-                            albumMembershipPopup.open()
-                        }
+                        onClicked: review.addTargetsToManualAlbum(
+                            review.batchSelectionTargets())
                     }
 
                     ShadowIconButton {
@@ -2105,6 +2346,7 @@ Item {
                 anchors.bottomMargin: 18
                 clip: true
                 visible: !review.compareMode
+                    && review.galleryPresentation === ReviewWorkspace.JustifiedGrid
                 enabled: visible
                 focus: visible
                 spacing: review.justifiedReviewLayout.spacing
@@ -2158,10 +2400,24 @@ Item {
                 }
             }
 
+            ReviewSinglePreview {
+                id: singlePhotoPreview
+                anchors.top: reviewToolBar.bottom
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                visible: !review.compareMode
+                    && review.galleryPresentation
+                        === ReviewWorkspace.SinglePhotoFilmstrip
+                review: review
+                model: review.controller.model
+            }
+
             Label {
                 anchors.centerIn: justifiedGrid
                 width: Math.min(420, justifiedGrid.width - 60)
-                visible: justifiedGrid.count === 0 && !review.controller.busy
+                visible: justifiedGrid.visible && justifiedGrid.count === 0
+                    && !review.controller.busy
                 text: review.controller.scanning
                     ? qsTr("Searching the folder for supported photos…\nNew RAW files will appear here as they are catalogued.")
                     : review.controller.scanProgress.phase === "failed"
@@ -2183,6 +2439,21 @@ Item {
                 width: 34
                 height: 34
                 z: 2
+            }
+
+            ReviewDecisionToolbar {
+                id: galleryDecisionToolbar
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.rightMargin: 18
+                anchors.bottomMargin: 18
+                z: 4
+                review: review
+                floating: true
+                includeColorLabels: true
+                visible: !review.compareMode
+                    && review.galleryPresentation === ReviewWorkspace.JustifiedGrid
+                    && review.selectedPhotoId.length > 0
             }
 
             ReviewComparisonView {

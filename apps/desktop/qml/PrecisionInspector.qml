@@ -1227,30 +1227,54 @@ Rectangle {
                                     }
                                 }
 
-                                ShadowButton {
+                                // A skin check is a contextual diagnostic, not a primary action.
+                                // Keep its short label (there is no universally readable "skin" icon),
+                                // but avoid giving it a full inspector-width button treatment.
+                                RowLayout {
                                     Layout.fillWidth: true
                                     Layout.leftMargin: 14
                                     Layout.rightMargin: 14
-                                    compact: true
-                                    selected: inspector.editor.pointColorScopeActive
-                                    text: selected
-                                        ? qsTr("SKIN REFERENCE LOCKED")
-                                        : qsTr("SKIN CHECK")
-                                    toolTipText: qsTr("Sample a representative skin midtone, freeze its diagnostic pixels, and inspect shadow, midtone, and highlight alignment in the Vectorscope.")
-                                    onClicked: {
-                                        analysisScope.scopeMode = analysisScope.vectorscopeScope
-                                        analysisScope.skinGuideVisible = true
-                                        if (inspector.editor.pointColorScopeActive) {
-                                            inspector.skinCheckPending = false
-                                            inspector.editor.pointColorScopeActive = false
-                                        } else if (inspector.editor.pointColorScopeAvailable) {
-                                            inspector.skinCheckPending = false
-                                            inspector.editor.pointColorScopeActive = true
-                                        } else {
-                                            inspector.skinCheckPending = true
-                                            inspector.editor.setPointColorPickerActive(true)
+                                    Layout.topMargin: 2
+                                    Layout.bottomMargin: 2
+                                    spacing: 5
+
+                                    ShadowIconButton {
+                                        buttonSize: 24
+                                        iconSize: 15
+                                        source: "qrc:/icons/scopes.svg"
+                                        selected: inspector.editor.pointColorScopeActive
+                                        toolTipText: qsTr("Sample a representative skin midtone, freeze its diagnostic pixels, and inspect shadow, midtone, and highlight alignment in the Vectorscope.")
+                                        accessibleName: toolTipText
+                                        onClicked: skinCheckAction.clicked()
+                                    }
+
+                                    ShadowButton {
+                                        id: skinCheckAction
+                                        compact: true
+                                        minimumButtonWidth: 0
+                                        variant: selected ? ShadowButton.Tinted : ShadowButton.Ghost
+                                        selected: inspector.editor.pointColorScopeActive
+                                        text: selected
+                                            ? qsTr("SKIN REFERENCE LOCKED")
+                                            : qsTr("SKIN CHECK")
+                                        toolTipText: qsTr("Sample a representative skin midtone, freeze its diagnostic pixels, and inspect shadow, midtone, and highlight alignment in the Vectorscope.")
+                                        onClicked: {
+                                            analysisScope.scopeMode = analysisScope.vectorscopeScope
+                                            analysisScope.skinGuideVisible = true
+                                            if (inspector.editor.pointColorScopeActive) {
+                                                inspector.skinCheckPending = false
+                                                inspector.editor.pointColorScopeActive = false
+                                            } else if (inspector.editor.pointColorScopeAvailable) {
+                                                inspector.skinCheckPending = false
+                                                inspector.editor.pointColorScopeActive = true
+                                            } else {
+                                                inspector.skinCheckPending = true
+                                                inspector.editor.setPointColorPickerActive(true)
+                                            }
                                         }
                                     }
+
+                                    Item { Layout.fillWidth: true }
                                 }
 
                                 Rectangle {
@@ -1334,26 +1358,38 @@ Rectangle {
                                             elide: Text.ElideRight
                                         }
 
-                                        ShadowButton {
+                                        RowLayout {
                                             visible: skinGuideNudge.nudgeAvailable
-                                            compact: true
-                                            text: qsTr("NUDGE %1").arg(
-                                                (skinGuideNudge.roundedHueNudge > 0 ? "+" : "")
-                                                + skinGuideNudge.roundedHueNudge + "°")
-                                            enabled: !inspector.editor.stateBusy
-                                            toolTipText: qsTr("Apply the guide direction as a limited starting hue correction for this Point Color. It is undoable and does not change the node mask or global color.")
-                                            onClicked: {
-                                                const current = inspector.fineValue("color_range_hue")
-                                                const next = Math.max(-180, Math.min(180,
-                                                    current + skinGuideNudge.requestedHueNudge))
-                                                if (next === current)
-                                                    return
-                                                inspector.editor.beginParameterEdit(
-                                                    "skin_guide/point_color_hue")
-                                                inspector.editor.setParameterValue(
-                                                    "color_range_hue", next)
-                                                inspector.editor.endParameterEdit(
-                                                    "skin_guide/point_color_hue")
+                                            spacing: 2
+
+                                            Label {
+                                                text: (skinGuideNudge.roundedHueNudge > 0 ? "+" : "")
+                                                    + skinGuideNudge.roundedHueNudge + "°"
+                                                color: Theme.textSecondary
+                                                font.pixelSize: 10
+                                                font.weight: Font.DemiBold
+                                            }
+
+                                            ShadowIconButton {
+                                                buttonSize: 24
+                                                iconSize: 14
+                                                source: "qrc:/icons/edit.svg"
+                                                enabled: !inspector.editor.stateBusy
+                                                toolTipText: qsTr("Apply the guide direction as a limited starting hue correction for this Point Color. It is undoable and does not change the node mask or global color.")
+                                                accessibleName: toolTipText
+                                                onClicked: {
+                                                    const current = inspector.fineValue("color_range_hue")
+                                                    const next = Math.max(-180, Math.min(180,
+                                                        current + skinGuideNudge.requestedHueNudge))
+                                                    if (next === current)
+                                                        return
+                                                    inspector.editor.beginParameterEdit(
+                                                        "skin_guide/point_color_hue")
+                                                    inspector.editor.setParameterValue(
+                                                        "color_range_hue", next)
+                                                    inspector.editor.endParameterEdit(
+                                                        "skin_guide/point_color_hue")
+                                                }
                                             }
                                         }
                                     }

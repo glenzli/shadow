@@ -12,6 +12,11 @@ Item {
     readonly property int gridSide: 5
     readonly property real maximumOffset: 0.32
     readonly property var controlPoints: controller ? controller.colorWarperControlPoints : []
+    readonly property bool hasCompleteMesh: controlPoints.length === gridSide * gridSide
+    // A 5×5 field needs enough room for a deliberate drag, but it should not
+    // dominate the inspector or reserve a mystery-sized blank canvas.
+    readonly property int meshDisplaySize: hasCompleteMesh
+        ? Math.max(154, Math.min(196, width - 4)) : 0
     readonly property bool editable: Boolean(controller && controller.active
                                               && controller.gradeNodeEnabled)
     readonly property real strength: {
@@ -24,7 +29,7 @@ Item {
     property int gesturePoint: -1
 
     implicitWidth: 320
-    implicitHeight: 294
+    implicitHeight: hasCompleteMesh ? meshDisplaySize + 64 : 0
 
     function clamp(value, lower, upper) {
         return Math.max(lower, Math.min(upper, value))
@@ -136,7 +141,10 @@ Item {
 
         Item {
             Layout.fillWidth: true
-            Layout.preferredHeight: Math.max(192, Math.min(228, root.width - 4))
+            Layout.preferredHeight: root.meshDisplaySize
+            Layout.minimumHeight: root.meshDisplaySize
+            Layout.maximumHeight: root.meshDisplaySize
+            visible: root.hasCompleteMesh
 
             Rectangle {
                 id: warperFrame
@@ -163,6 +171,30 @@ Item {
                 border.color: Theme.borderStrong
                 clip: true
 
+                // Do not make the color field depend on Canvas repaint timing.
+                // The Canvas adds the editable grid and points; these two layers
+                // make the Oklab axes visible even during an asynchronous QML
+                // layout or a delayed Canvas paint.
+                Rectangle {
+                    anchors.fill: parent
+                    gradient: Gradient {
+                        orientation: Gradient.Horizontal
+                        GradientStop { position: 0; color: "#58a976" }
+                        GradientStop { position: 0.5; color: Theme.chrome }
+                        GradientStop { position: 1; color: "#d96969" }
+                    }
+                }
+
+                Rectangle {
+                    anchors.fill: parent
+                    opacity: 0.44
+                    gradient: Gradient {
+                        GradientStop { position: 0; color: "#e6c45c" }
+                        GradientStop { position: 0.5; color: "transparent" }
+                        GradientStop { position: 1; color: "#638bd4" }
+                    }
+                }
+
                 Canvas {
                     id: warperCanvas
 
@@ -172,7 +204,7 @@ Item {
                         const context = getContext("2d")
                         context.reset()
                         context.clearRect(0, 0, width, height)
-                        if (root.controlPoints.length !== root.gridSide * root.gridSide)
+                        if (!root.hasCompleteMesh)
                             return
 
                         const horizontalField = context.createLinearGradient(
@@ -318,6 +350,8 @@ Item {
             Layout.fillWidth: true
             Layout.leftMargin: 14
             Layout.rightMargin: 14
+            Layout.preferredHeight: root.hasCompleteMesh ? implicitHeight : 0
+            visible: root.hasCompleteMesh
 
             Item { Layout.fillWidth: true }
 
@@ -334,9 +368,11 @@ Item {
         }
 
         ShadowSlider {
+            visible: root.hasCompleteMesh
             Layout.fillWidth: true
             Layout.leftMargin: 14
             Layout.rightMargin: 14
+            Layout.preferredHeight: visible ? implicitHeight : 0
             label: qsTr("Strength")
             from: 0.0
             to: 1.0

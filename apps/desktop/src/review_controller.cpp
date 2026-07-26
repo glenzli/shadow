@@ -991,6 +991,59 @@ void ReviewController::loadMore() {
     startPage(PageTaskKind::Append);
 }
 
+QVariantList ReviewController::selectionRangeTargets(
+    const QString& anchor_photo_id,
+    const QString& anchor_representation_id,
+    const QString& photo_id,
+    const QString& representation_id
+) const {
+    if (anchor_photo_id.isEmpty() || anchor_representation_id.isEmpty()
+        || photo_id.isEmpty() || representation_id.isEmpty()) {
+        return {};
+    }
+
+    int anchor_row = -1;
+    int target_row = -1;
+    const int count = filtered_model_.rowCount();
+    for (int row = 0; row < count && (anchor_row < 0 || target_row < 0); ++row) {
+        const QModelIndex index = filtered_model_.index(row, 0);
+        const QString current_photo_id =
+            filtered_model_.data(index, ReviewModel::PhotoIdRole).toString();
+        const QString current_representation_id =
+            filtered_model_.data(index, ReviewModel::RepresentationIdRole).toString();
+        if (current_photo_id == anchor_photo_id
+            && current_representation_id == anchor_representation_id) {
+            anchor_row = row;
+        }
+        if (current_photo_id == photo_id
+            && current_representation_id == representation_id) {
+            target_row = row;
+        }
+    }
+    if (anchor_row < 0 || target_row < 0) {
+        return {};
+    }
+
+    const int first = std::min(anchor_row, target_row);
+    const int last = std::max(anchor_row, target_row);
+    QVariantList targets;
+    targets.reserve(last - first + 1);
+    for (int row = first; row <= last; ++row) {
+        const QModelIndex index = filtered_model_.index(row, 0);
+        targets.push_back(QVariantMap{
+            {QStringLiteral("photoId"),
+             filtered_model_.data(index, ReviewModel::PhotoIdRole).toString()},
+            {QStringLiteral("representationId"),
+             filtered_model_.data(index, ReviewModel::RepresentationIdRole).toString()},
+            {QStringLiteral("sourcePath"),
+             filtered_model_.data(index, ReviewModel::SourcePathRole).toString()},
+            {QStringLiteral("title"),
+             filtered_model_.data(index, ReviewModel::TitleRole).toString()},
+        });
+    }
+    return targets;
+}
+
 QVariantMap ReviewController::prepareComparison(
     const QString& left_visual_handle,
     const QString& right_visual_handle
