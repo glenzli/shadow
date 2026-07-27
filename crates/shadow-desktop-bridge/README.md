@@ -15,7 +15,7 @@ presentation, SQLite schema details, or native image algorithms.
 | Folder import lifecycle | [`src/scan_service.rs`](src/scan_service.rs) |
 | Source relinking | [`src/relink_service.rs`](src/relink_service.rs) |
 | Review presentation, decisions, and comparison evidence | [`src/review_service.rs`](src/review_service.rs) |
-| Photo source admission and raster delivery | [`src/photo_provider.rs`](src/photo_provider.rs), [`src/isolated_proxy.rs`](src/isolated_proxy.rs) |
+| Photo source admission, quarantine, optics discovery, and raster delivery | [`src/session_photo_source.rs`](src/session_photo_source.rs), [`src/photo_provider.rs`](src/photo_provider.rs), [`src/isolated_proxy.rs`](src/isolated_proxy.rs) |
 | Preview identity, cancellation, and session-local reuse | [`src/preview_cache_identity.rs`](src/preview_cache_identity.rs), [`src/preview_render_registry.rs`](src/preview_render_registry.rs), [`src/session_preview_store.rs`](src/session_preview_store.rs) |
 | 1:1 detail tile geometry and reuse | [`src/detail_viewport.rs`](src/detail_viewport.rs), [`src/detail_tile_cache.rs`](src/detail_tile_cache.rs) |
 | Desktop-session interactive preview/detail render lifecycle | [`src/session_edit_render.rs`](src/session_edit_render.rs) |

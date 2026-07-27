@@ -25,6 +25,7 @@ use shadow_domain::{
     RawMetadataSnapshot, RepresentationId, RepresentationKind,
 };
 
+use crate::isolated_proxy::NativeDecodeAdmission;
 use crate::photo_provider::{PHOTO_GRID_PROXY_JPEG_QUALITY, PHOTO_GRID_PROXY_MAX_EDGE};
 use crate::review_service::{
     REVIEW_COMPARE_DECODER_ID, REVIEW_COMPARE_PIXEL_FORMAT, REVIEW_COMPARE_PIXEL_HASH_ALGORITHM,
@@ -33,6 +34,10 @@ use crate::review_service::{
 };
 use crate::session_edit_render::{
     EditPreviewPolicy, admits_recipe_preview_cache, requested_raw_development_plan_cache_matches,
+};
+use crate::session_photo_source::{
+    MissingCatalogOpticsRoute, missing_catalog_optics_route, query_missing_catalog_optics_profiles,
+    reject_quarantined_native_decode,
 };
 
 use super::*;

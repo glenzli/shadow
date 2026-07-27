@@ -5,6 +5,7 @@
 //! development uses `ExportImage` intent and the exact current Recipe, then
 //! returns one tightly packed display-sRGB RGB8 raster.
 
+use super::session_photo_source::catalog_native_path;
 use super::*;
 use crate::isolated_proxy::{
     NativeDecodeAdmission, configured_helper_path, native_decode_admission_after_isolated_stages,

@@ -19,12 +19,12 @@ use shadow_domain::{
 };
 
 use super::{
-    DesktopSession, catalog_native_path, current_time_ms,
+    DesktopSession, current_time_ms,
     detail_tile_cache::{CachedDetailSource, cached_detail_tile},
     detail_viewport::{
         MAX_DETAIL_VIEWPORT_SIDE, detail_viewport_rects, validate_detail_viewport_request,
     },
-    encode_hex, ensure_native_decode_is_admitted, ffi,
+    encode_hex, ffi,
     photo_provider::isolated_edit_raster,
     preview_cache_identity::{
         EDIT_PREVIEW_GENERATOR_ID, current_source_environment_cache_identity,
@@ -36,6 +36,7 @@ use super::{
         bridge_optics_settings, compile_recipe_render_plan, grade_stack_recipe_v1_snapshot,
         preview_grade_stack_draft_recipe_v1,
     },
+    session_photo_source::{catalog_native_path, ensure_native_decode_is_admitted},
 };
 
 #[derive(Debug)]

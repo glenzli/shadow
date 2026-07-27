@@ -12,6 +12,7 @@ use anyhow::{Context, Result as AnyResult, anyhow, bail};
 use shadow_catalog::{
     AdvanceExportItem, EnqueueExportJob, ExportFailure, ExportItemId, ExportItemRecord,
     ExportItemState, ExportJobId, ExportSettingsSource, NewExportItem, NewExportOutputReceipt,
+    ReviewItemRecord,
 };
 use shadow_core::native_location;
 use shadow_domain::{EntityId, RecipeCommitId};

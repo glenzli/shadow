@@ -22,6 +22,7 @@ mod photo_provider;
 mod preview_cache_identity;
 mod preview_render_registry;
 mod session_edit_render;
+mod session_photo_source;
 mod session_preview_store;
 
 // Non-destructive edit contracts and shared Grade Node application.
@@ -67,15 +68,13 @@ use shadow_bridge::{
     SELECTIVE_TONE_PARAMETER_SCHEMA_VERSION as SELECTIVE_TONE_PARAMETER_SCHEMA_REVISION,
     SelectiveToneParameters, SharpenParameters,
     TECHNICAL_DETAIL_IMPLEMENTATION_VERSION as TECHNICAL_DETAIL_IMPLEMENTATION_REVISION,
-    ToneCurvePoint, photo_provider_version, photo_supported_raster_extensions,
-    query_optics_profiles_from_metadata, query_photo_optics_profiles,
-    raw_development_plan_identity,
+    ToneCurvePoint, photo_provider_version, raw_development_plan_identity,
 };
 use shadow_cache::ContentAddressedStore;
 use shadow_catalog::{
     CachedArtifactRole, CatalogActor, CatalogError, CatalogHandle, CommitEditRepository,
     CommitRecipe, CommitRecipeAndEditRepository, EditObjectPackWrite, EditRepositoryRefUpdate,
-    RecipeCommitRecord, RecipeRefExpectation, RecipeRefKind, RecipeRefTarget, ReviewItemRecord,
+    RecipeCommitRecord, RecipeRefExpectation, RecipeRefKind, RecipeRefTarget,
 };
 use shadow_core::{CachedArtifactLoader, fingerprint_source};
 #[cfg(test)]
@@ -126,10 +125,6 @@ use shadow_domain::{
 };
 use uuid::Uuid;
 
-use crate::isolated_proxy::{
-    NativeDecodeAdmission, configured_helper_path, native_decode_admission_after_isolated_stages,
-    snapshot_isolated_photo_metadata,
-};
 #[cfg(test)]
 use crate::photo_provider::PhotoInspector;
 use crate::photo_provider::isolated_edit_raster;
@@ -1461,40 +1456,6 @@ impl DesktopSession {
         self.photo_edit_state_for(photo_id, &source.location.display_path)
     }
 
-    fn optics_profile_candidates(
-        &self,
-        photo_id: &str,
-        source_path: &str,
-    ) -> AnyResult<Vec<ffi::FfiOpticsProfileCandidate>> {
-        let (photo_id, source) = self.validated_photo_source(photo_id, source_path)?;
-        // Profile discovery is a metadata operation, not a RAW-pixel operation. Prefer the
-        // Catalog snapshot so a proprietary compression can still match camera/lens EXIF even
-        // when the active open decoder cannot unpack it. The file path is only a compatibility
-        // fallback for photos imported before metadata snapshots existed.
-        let candidates = if let Some(metadata) = self
-            .catalog
-            .review_source(photo_id)?
-            .and_then(|raw| raw.metadata)
-        {
-            query_optics_profiles_from_metadata(&metadata)
-        } else {
-            query_missing_catalog_optics_profiles(
-                &catalog_native_path(&source)?,
-                &self.cache_root,
-                configured_helper_path().as_deref(),
-            )?
-        };
-        Ok(candidates
-            .into_iter()
-            .map(|candidate| ffi::FfiOpticsProfileCandidate {
-                camera_maker: candidate.camera_maker,
-                camera_model: candidate.camera_model,
-                lens_maker: candidate.lens_maker,
-                lens_model: candidate.lens_model,
-            })
-            .collect())
-    }
-
     fn shared_grade_nodes(&self) -> AnyResult<Vec<ffi::FfiSharedGradeNode>> {
         shared_grade_library::shared_grade_revisions(&self.catalog)?
             .iter()
@@ -1992,27 +1953,6 @@ impl DesktopSession {
         )
     }
 
-    fn validated_photo_source(
-        &self,
-        photo_id: &str,
-        source_path: &str,
-    ) -> AnyResult<(PhotoId, ReviewItemRecord)> {
-        let photo_id: PhotoId = photo_id
-            .parse()
-            .with_context(|| format!("parse photo id {photo_id}"))?;
-        let source = self
-            .catalog
-            .photo_source(photo_id)?
-            .ok_or_else(|| anyhow!("photo {photo_id} has no online original photo source"))?;
-        if source.location.display_path != source_path {
-            bail!(
-                "source path does not belong to photo {photo_id}: expected {}, received {source_path}",
-                source.location.display_path
-            );
-        }
-        Ok((photo_id, source))
-    }
-
     fn photo_edit_state_for(
         &self,
         photo_id: PhotoId,
@@ -2120,106 +2060,6 @@ pub(crate) fn current_time_ms() -> AnyResult<i64> {
         .context("system time is before the Unix epoch")?
         .as_millis();
     i64::try_from(milliseconds).context("current time does not fit in signed milliseconds")
-}
-
-#[cfg(unix)]
-fn catalog_native_path(source: &ReviewItemRecord) -> AnyResult<PathBuf> {
-    use std::{ffi::OsString, os::unix::ffi::OsStringExt};
-
-    match source.location.platform {
-        shadow_domain::Platform::MacOs | shadow_domain::Platform::OtherUnix => Ok(PathBuf::from(
-            OsString::from_vec(source.location.native_path.clone()),
-        )),
-        shadow_domain::Platform::Windows => {
-            bail!("a Windows-native source path cannot be decoded by the Mac desktop service")
-        }
-    }
-}
-
-#[cfg(not(unix))]
-fn catalog_native_path(_source: &ReviewItemRecord) -> AnyResult<PathBuf> {
-    bail!("the first desktop edit service currently decodes native paths only on macOS")
-}
-
-/// A child crash or timeout is durable negative evidence for this exact source
-/// and helper revision. Preserve warm sessions, but do not reopen the native
-/// source in the desktop process until that evidence no longer applies.
-fn ensure_native_decode_is_admitted(
-    runtime_cache_root: &Path,
-    native_path: &Path,
-) -> AnyResult<()> {
-    let Some(helper_path) = configured_helper_path() else {
-        return Ok(());
-    };
-    let admission = native_decode_admission_after_isolated_stages(
-        runtime_cache_root,
-        native_path,
-        &helper_path,
-    )?;
-    reject_quarantined_native_decode(admission, native_path)
-}
-
-fn reject_quarantined_native_decode(
-    admission: NativeDecodeAdmission,
-    native_path: &Path,
-) -> AnyResult<()> {
-    match admission {
-        NativeDecodeAdmission::NotQuarantined => Ok(()),
-        NativeDecodeAdmission::Quarantined { observation } => bail!(
-            "native edit decode remains disabled for {}: {}. This photo is temporarily preview-only until its source or decoder helper changes",
-            native_path.display(),
-            observation.diagnostic_label(),
-        ),
-    }
-}
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-enum MissingCatalogOpticsRoute<'a> {
-    DirectNative,
-    IsolatedMetadata(&'a Path),
-}
-
-// Keep this source-shape decision alongside the desktop fallback that consumes it. It mirrors the
-// catalog inspector's public-raster exception: a configured helper isolates non-raster sources,
-// while ordinary JPEG/HEIF input retains its established direct metadata route.
-fn missing_catalog_optics_route<'a>(
-    native_path: &Path,
-    helper_path: Option<&'a Path>,
-) -> MissingCatalogOpticsRoute<'a> {
-    let Some(helper_path) = helper_path else {
-        return MissingCatalogOpticsRoute::DirectNative;
-    };
-    let is_supported_raster = native_path
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| {
-            photo_supported_raster_extensions()
-                .iter()
-                .any(|supported| supported.eq_ignore_ascii_case(extension))
-        });
-    if is_supported_raster {
-        MissingCatalogOpticsRoute::DirectNative
-    } else {
-        MissingCatalogOpticsRoute::IsolatedMetadata(helper_path)
-    }
-}
-
-fn query_missing_catalog_optics_profiles(
-    native_path: &Path,
-    runtime_cache_root: &Path,
-    helper_path: Option<&Path>,
-) -> AnyResult<Vec<shadow_bridge::OpticsProfileCandidate>> {
-    match missing_catalog_optics_route(native_path, helper_path) {
-        MissingCatalogOpticsRoute::DirectNative => Ok(query_photo_optics_profiles(native_path)?),
-        MissingCatalogOpticsRoute::IsolatedMetadata(helper_path) => {
-            let snapshot =
-                snapshot_isolated_photo_metadata(helper_path, runtime_cache_root, native_path)
-                    .context(
-                        "optics profile metadata is unavailable from the isolated RAW helper",
-                    )?;
-            Ok(query_optics_profiles_from_metadata(&snapshot.metadata))
-        }
-    }
 }
 
 fn open_desktop_session(catalog_path: &str, cache_root: &str) -> AnyResult<Box<DesktopSession>> {
