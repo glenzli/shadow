@@ -10,6 +10,9 @@ mod evidence;
 mod export_preset;
 mod export_queue;
 mod import_journal;
+mod library_browse;
+mod library_collections;
+mod library_facts;
 mod source_health;
 mod source_identity;
 use edit_history::run_edit_history_message;
@@ -17,6 +20,9 @@ use evidence::{run_decision_message, run_feedback_message};
 use export_preset::run_export_preset_message;
 use export_queue::run_export_queue_message;
 use import_journal::run_import_journal_message;
+use library_browse::run_library_browse_message;
+use library_collections::run_library_collections_message;
+use library_facts::run_library_facts_message;
 use source_health::run_source_health_message;
 use source_identity::run_source_identity_message;
 
@@ -28,82 +34,11 @@ pub(super) fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
             Message::Stats(response) => respond(&response, catalog.stats()),
             Message::SourceIdentity(message) => run_source_identity_message(&mut catalog, message),
             Message::SourceHealth(message) => run_source_health_message(&mut catalog, message),
-            Message::UpsertPhotoLibraryFacts(facts, response) => {
-                let _ = response.send(catalog.upsert_photo_library_facts(facts.as_ref()));
+            Message::LibraryFacts(message) => run_library_facts_message(&mut catalog, message),
+            Message::LibraryCollections(message) => {
+                run_library_collections_message(&mut catalog, message);
             }
-            Message::PhotoLibraryFacts(photo_id, response) => {
-                let _ = response.send(catalog.photo_library_facts(photo_id));
-            }
-            Message::SetPhotoLibraryState(state, response) => {
-                let _ = response.send(catalog.set_photo_library_state(state.as_ref()));
-            }
-            Message::PhotoLibraryState(photo_id, response) => {
-                let _ = response.send(catalog.photo_library_state(photo_id));
-            }
-            Message::CreateLibraryAlbum(kind, name, query_json, now_ms, response) => {
-                let _ = response.send(catalog.create_library_album(
-                    kind,
-                    &name,
-                    query_json.as_deref(),
-                    now_ms,
-                ));
-            }
-            Message::CreateSmartLibraryAlbum(name, query, now_ms, response) => {
-                let _ = response.send(catalog.create_smart_library_album(&name, &query, now_ms));
-            }
-            Message::RenameLibraryAlbum(album_id, name, now_ms, response) => {
-                let _ = response.send(catalog.rename_library_album(album_id, &name, now_ms));
-            }
-            Message::ReplaceSmartAlbumQuery(album_id, query, now_ms, response) => {
-                let _ = response.send(catalog.replace_smart_album_query(album_id, &query, now_ms));
-            }
-            Message::DeleteLibraryAlbum(album_id, response) => {
-                let _ = response.send(catalog.delete_library_album(album_id));
-            }
-            Message::LibraryAlbums(response) => {
-                let _ = response.send(catalog.library_albums());
-            }
-            Message::AddPhotoToAlbum(album_id, photo_id, sort_key, now_ms, response) => {
-                let _ =
-                    response.send(catalog.add_photo_to_album(album_id, photo_id, sort_key, now_ms));
-            }
-            Message::RemovePhotoFromAlbum(album_id, photo_id, response) => {
-                let _ = response.send(catalog.remove_photo_from_album(album_id, photo_id));
-            }
-            Message::AlbumsForPhoto(photo_id, response) => {
-                let _ = response.send(catalog.albums_for_photo(photo_id));
-            }
-            Message::LibraryPhotoPage(filter, after, requested_limit, response) => {
-                let _ = response.send(catalog.library_photo_page(
-                    &filter,
-                    after.as_ref(),
-                    requested_limit,
-                ));
-            }
-            Message::LibraryFacetPage(filter, kind, after, requested_limit, response) => {
-                let _ = response.send(catalog.library_facet_page(
-                    &filter,
-                    kind,
-                    after.as_ref(),
-                    requested_limit,
-                ));
-            }
-            Message::LibraryPhotoCount(filter, response) => {
-                let _ = response.send(catalog.library_photo_count(&filter));
-            }
-            Message::SmartAlbumFilter(album_id, response) => {
-                let _ = response.send(catalog.smart_album_filter(album_id));
-            }
-            Message::SmartAlbumPhotoPage(album_id, after, requested_limit, response) => {
-                let _ = response.send(catalog.smart_album_photo_page(
-                    album_id,
-                    after.as_ref(),
-                    requested_limit,
-                ));
-            }
-            Message::SmartAlbumPhotoCount(album_id, response) => {
-                let _ = response.send(catalog.smart_album_photo_count(album_id));
-            }
+            Message::LibraryBrowse(message) => run_library_browse_message(&mut catalog, message),
             Message::RecordDecodeSnapshot(request, response) => {
                 let _ = response.send(catalog.record_decode_snapshot(request.as_ref()));
             }

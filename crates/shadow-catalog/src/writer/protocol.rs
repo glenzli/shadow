@@ -11,6 +11,9 @@ mod evidence;
 mod export_preset;
 mod export_queue;
 mod import_journal;
+mod library_browse;
+mod library_collections;
+mod library_facts;
 mod source_health;
 mod source_identity;
 pub(super) use edit_history::EditHistoryMessage;
@@ -18,6 +21,9 @@ pub(super) use evidence::{DecisionMessage, FeedbackMessage};
 pub(super) use export_preset::ExportPresetMessage;
 pub(super) use export_queue::ExportQueueMessage;
 pub(super) use import_journal::ImportJournalMessage;
+pub(super) use library_browse::LibraryBrowseMessage;
+pub(super) use library_collections::LibraryCollectionsMessage;
+pub(super) use library_facts::LibraryFactsMessage;
 pub(super) use source_health::SourceHealthMessage;
 pub(super) use source_identity::SourceIdentityMessage;
 
@@ -26,81 +32,9 @@ pub(super) enum Message {
     Stats(SyncSender<Result<CatalogStats, CatalogError>>),
     SourceIdentity(SourceIdentityMessage),
     SourceHealth(SourceHealthMessage),
-    UpsertPhotoLibraryFacts(Box<LibraryPhotoFacts>, SyncSender<Result<(), CatalogError>>),
-    PhotoLibraryFacts(
-        PhotoId,
-        SyncSender<Result<Option<LibraryPhotoFacts>, CatalogError>>,
-    ),
-    SetPhotoLibraryState(
-        Box<SetPhotoLibraryState>,
-        SyncSender<Result<(), CatalogError>>,
-    ),
-    PhotoLibraryState(PhotoId, SyncSender<Result<PhotoLibraryState, CatalogError>>),
-    CreateLibraryAlbum(
-        AlbumKind,
-        String,
-        Option<String>,
-        i64,
-        SyncSender<Result<AlbumRecord, CatalogError>>,
-    ),
-    CreateSmartLibraryAlbum(
-        String,
-        SmartAlbumQueryV1,
-        i64,
-        SyncSender<Result<AlbumRecord, CatalogError>>,
-    ),
-    RenameLibraryAlbum(
-        CollectionId,
-        String,
-        i64,
-        SyncSender<Result<AlbumRecord, CatalogError>>,
-    ),
-    ReplaceSmartAlbumQuery(
-        CollectionId,
-        SmartAlbumQueryV1,
-        i64,
-        SyncSender<Result<AlbumRecord, CatalogError>>,
-    ),
-    DeleteLibraryAlbum(CollectionId, SyncSender<Result<bool, CatalogError>>),
-    LibraryAlbums(SyncSender<Result<Vec<AlbumRecord>, CatalogError>>),
-    AddPhotoToAlbum(
-        CollectionId,
-        PhotoId,
-        i64,
-        i64,
-        SyncSender<Result<(), CatalogError>>,
-    ),
-    RemovePhotoFromAlbum(
-        CollectionId,
-        PhotoId,
-        SyncSender<Result<bool, CatalogError>>,
-    ),
-    AlbumsForPhoto(PhotoId, SyncSender<Result<Vec<AlbumRecord>, CatalogError>>),
-    LibraryPhotoPage(
-        LibraryPhotoFilter,
-        Option<LibraryPhotoCursor>,
-        usize,
-        SyncSender<Result<LibraryPhotoPage, CatalogError>>,
-    ),
-    LibraryFacetPage(
-        LibraryPhotoFilter,
-        LibraryFacetKind,
-        Option<LibraryFacetCursor>,
-        usize,
-        SyncSender<Result<LibraryFacetPage, CatalogError>>,
-    ),
-    LibraryPhotoCount(LibraryPhotoFilter, SyncSender<Result<u64, CatalogError>>),
-    SmartAlbumFilter(
-        CollectionId,
-        SyncSender<Result<LibraryPhotoFilter, CatalogError>>,
-    ),
-    SmartAlbumPhotoPage(
-        CollectionId,
-        Option<LibraryPhotoCursor>,
-        usize,
-        SyncSender<Result<LibraryPhotoPage, CatalogError>>,
-    ),
-    SmartAlbumPhotoCount(CollectionId, SyncSender<Result<u64, CatalogError>>),
+    LibraryFacts(LibraryFactsMessage),
+    LibraryCollections(LibraryCollectionsMessage),
+    LibraryBrowse(LibraryBrowseMessage),
     RecordDecodeSnapshot(
         Box<RecordDecodeSnapshot>,
         SyncSender<Result<RecordDecodeSnapshotStatus, CatalogError>>,

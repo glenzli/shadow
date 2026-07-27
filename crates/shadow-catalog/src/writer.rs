@@ -9,7 +9,10 @@
 //! and explicit-relocation transactions; `export_preset` owns named settings
 //! history; `export_queue` owns durable job/item execution and recovery;
 //! `source_identity` owns registration, source fingerprints, and exact identity;
-//! `source_health` owns Library source inventory and missing-location review.
+//! `source_health` owns Library source inventory and missing-location review;
+//! `library_facts` owns filterable metadata and its source provenance;
+//! `library_collections` owns affinity state, albums, and membership;
+//! `library_browse` owns photo-first pages, counts, and bounded facets.
 
 use std::{
     path::Path,
@@ -17,18 +20,15 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-use shadow_domain::{CollectionId, PhotoId, RepresentationId};
+use shadow_domain::{PhotoId, RepresentationId};
 
 use crate::{
-    AlbumKind, AlbumRecord, CachedArtifactGeneratorIdentity, CachedArtifactRecord, Catalog,
-    CatalogError, CatalogStats, DecodeSnapshotRecord, InvalidateCachedArtifactStatus,
-    LibraryFacetCursor, LibraryFacetKind, LibraryFacetPage, LibraryPhotoCursor, LibraryPhotoFacts,
-    LibraryPhotoFilter, LibraryPhotoPage, LiveCachedArtifactBlob, PhotoLibraryState,
+    CachedArtifactGeneratorIdentity, CachedArtifactRecord, Catalog, CatalogError, CatalogStats,
+    DecodeSnapshotRecord, InvalidateCachedArtifactStatus, LiveCachedArtifactBlob,
     RecordCachedArtifact, RecordCachedArtifactStatus, RecordDecodeSnapshot,
     RecordDecodeSnapshotStatus, RecordTechnicalObservation, RecordTechnicalObservationStatus,
     RepresentationFingerprint, ReviewCursor, ReviewItemRecord, ReviewPageRecord,
-    SetPhotoLibraryState, SmartAlbumQueryV1, TechnicalObservationRecord,
-    TechnicalObservationRevision,
+    TechnicalObservationRecord, TechnicalObservationRevision,
 };
 
 mod dispatch;
@@ -43,6 +43,12 @@ mod export_queue_tests;
 mod handle;
 #[cfg(test)]
 mod import_journal_tests;
+#[cfg(test)]
+mod library_browse_tests;
+#[cfg(test)]
+mod library_collections_tests;
+#[cfg(test)]
+mod library_facts_tests;
 mod protocol;
 #[cfg(test)]
 mod source_health_tests;
