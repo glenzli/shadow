@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use anyhow::{Result as AnyResult, bail};
 use shadow_bridge::{
-    BasicEditParameters, ColorRangeParameters, MAX_POINT_COLOR_RANGES, OklabColorWarperParameters,
+    ColorRangeParameters, MAX_POINT_COLOR_RANGES, OklabColorWarperParameters,
     OklabLightnessToneCurve, PERCEPTUAL_COLOR_PARAMETER_SCHEMA_VERSION, PerceptualColorParameters,
     SelectiveToneParameters, SharpenParameters, ToneCurvePoint,
 };
@@ -40,15 +40,13 @@ use shadow_domain::operation::{
 };
 use shadow_domain::{
     AdjustmentNode, AdjustmentScope, BlendMode, CURRENT_RECIPE_SCHEMA_VERSION, EditGraph,
-    FiniteF64, ImageDomain, LayerContent, LayerInstance, LayerInstanceId, LayerRevisionSelector,
-    MaskRevision, NodeId, NodeInput, OperationDescriptor, OperationId, ParameterBlock,
-    ParameterKey, ParameterValue, PortType, ProcessingStage, RecipeInputSettings, RecipeSnapshot,
-    UnitInterval,
+    FiniteF64, ImageDomain, LayerContent, LayerInstance, LayerRevisionSelector, MaskRevision,
+    NodeId, NodeInput, OperationDescriptor, OperationId, ParameterBlock, ParameterKey,
+    ParameterValue, PortType, ProcessingStage, RecipeInputSettings, RecipeSnapshot, UnitInterval,
 };
 
 use super::{
     CONTRAST_PIVOT, GradeNodeDraft, GradeStackDraft, LutEditParameters,
-    basic_parameters_from_snapshot, decode_grade_stack_draft_from_recipe_v1_snapshot,
     oklab_color_warper_ffi_values, ordered_layer_nodes, recipe_v1_local_mask_revision,
     validate_grade_stack_draft_against_recipe_v1_template, validate_grade_stack_draft_recipe_v1,
     validate_recipe_detail_effects_render_op, validate_recipe_oklab_color_warper_render_op,
@@ -56,6 +54,13 @@ use super::{
     validate_recipe_perceptual_color_render_op, validate_recipe_selective_tone_render_op,
     validate_recipe_v1_render_op, validate_tone_curve,
 };
+
+#[cfg(test)]
+use super::{basic_parameters_from_snapshot, decode_grade_stack_draft_from_recipe_v1_snapshot};
+#[cfg(test)]
+use shadow_bridge::BasicEditParameters;
+#[cfg(test)]
+use shadow_domain::LayerInstanceId;
 
 #[cfg(test)]
 pub(crate) fn basic_recipe_snapshot(

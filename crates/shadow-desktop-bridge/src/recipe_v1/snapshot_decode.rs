@@ -49,10 +49,12 @@ use super::{
     grade_node_recipe_v1_render_ops, is_neutral_oklab_color_warper, oklab_color_warper_from_ffi,
     point_color_ranges_from_vector, recipe_color_grading_render_op_id,
     recipe_finishing_effects_render_op_id, recipe_v1_oklab_color_warper_render_op_id,
-    recipe_v1_oklab_lightness_tone_curve_render_op_id, single_grade_node_recipe_v1_render_ops,
-    validate_basic_parameters, validate_fine_parameters, validate_grade_stack_draft_recipe_v1,
-    validate_tone_curve,
+    recipe_v1_oklab_lightness_tone_curve_render_op_id, validate_basic_parameters,
+    validate_fine_parameters, validate_grade_stack_draft_recipe_v1, validate_tone_curve,
 };
+
+#[cfg(test)]
+use super::single_grade_node_recipe_v1_render_ops;
 
 #[cfg(test)]
 pub(crate) fn basic_parameters_from_snapshot(
