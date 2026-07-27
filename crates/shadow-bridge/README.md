@@ -15,7 +15,8 @@ that same private wire representation:
   receipts.
 - [`src/raw_development.rs`](src/raw_development.rs) owns RAW plans, negotiation, and
   source-development provenance receipts.
-- `AdjustmentRenderPlan` and its operation types own validated edit execution.
+- [`src/adjustment.rs`](src/adjustment.rs) owns the typed adjustment graph, geometry, local masks,
+  parameters, and their shared fail-closed validation chain.
 - `PhotoEditPreviewSession` and `PhotoEditDetailSession` own reusable native preview and detail
   buffers.
 - [`src/lib.rs`](src/lib.rs) re-exports the public contract and retains only shared wiring that has
