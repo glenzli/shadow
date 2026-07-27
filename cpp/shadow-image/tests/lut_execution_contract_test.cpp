@@ -1,4 +1,6 @@
-#include <shadow/image/edit.hpp>
+#include <shadow/image/adjustment_graph.hpp>
+#include <shadow/image/cpu_edit_reference.hpp>
+#include <shadow/image/lut.hpp>
 
 #include "edit_contract_test_support.hpp"
 

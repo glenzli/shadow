@@ -5,8 +5,10 @@
 #include <array>
 #include <cmath>
 #include <charconv>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <iostream>

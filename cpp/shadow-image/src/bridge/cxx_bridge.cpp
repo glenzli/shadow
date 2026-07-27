@@ -1,5 +1,8 @@
 #include <shadow/image/cxx_bridge.hpp>
 
+#include <shadow/image/adjustment_graph.hpp>
+#include <shadow/image/adjustment_layers.hpp>
+#include <shadow/image/adjustment_parameters.hpp>
 #include <shadow/image/decoder_error.hpp>
 #include <shadow/image/edit.hpp>
 #include <shadow/image/display_luma.hpp>

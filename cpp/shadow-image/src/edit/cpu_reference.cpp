@@ -1,5 +1,8 @@
-#include <shadow/image/edit.hpp>
+#include <shadow/image/adjustment_graph.hpp>
+#include <shadow/image/adjustment_parameters.hpp>
+#include <shadow/image/cpu_edit_reference.hpp>
 #include <shadow/image/edit_error.hpp>
+#include <shadow/image/edit_execution_plan.hpp>
 #include <shadow/image/working_rgb.hpp>
 
 #include "adjustment_execution_internal.hpp"
@@ -13,10 +16,12 @@
 #include <limits>
 #include <new>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 #include <variant>

@@ -1,5 +1,11 @@
 #include "edit_contract_test_support.hpp"
 
+#include <shadow/image/adjustment_graph.hpp>
+#include <shadow/image/adjustment_layers.hpp>
+#include <shadow/image/cpu_edit_reference.hpp>
+#include <shadow/image/edit_execution_plan.hpp>
+#include <shadow/image/photo_geometry.hpp>
+
 #include <cstdlib>
 
 namespace image = shadow::image;

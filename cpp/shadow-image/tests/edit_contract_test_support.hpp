@@ -1,6 +1,7 @@
 #pragma once
 
-#include <shadow/image/edit.hpp>
+#include <shadow/image/edit_error.hpp>
+#include <shadow/image/working_rgb.hpp>
 
 #include <array>
 #include <cmath>

@@ -165,6 +165,12 @@ New production code should include the narrow semantic owner directly:
 - `photo_geometry.hpp` owns crop/orientation state, the shared integer layout, coordinate mapping,
   and geometry application.
 - `edit_error.hpp` owns edit failure categories and their optional source-node location.
+- `adjustment_parameters.hpp` owns the complete authored parameter registry and its stable variant
+  order; `adjustment_graph.hpp` owns node identity and operation mapping.
+- `edit_execution_plan.hpp` owns locality, footprints, validation, compiled segments, and their
+  source-node index lifetime.
+- `cpu_edit_reference.hpp` owns the deterministic flat-node oracle and tone-curve sampling;
+  `adjustment_layers.hpp` owns masks, layer composition, and masked execution.
 
 The edit path accepts explicitly native interleaved RGB float32, scene-referred, linear-light data
 with named RGB primaries, white point, and luminance coefficients. It is not legal to feed the

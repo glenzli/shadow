@@ -1,8 +1,12 @@
-#include <shadow/image/edit.hpp>
 #include <shadow/image/adjustment_execution.hpp>
+#include <shadow/image/adjustment_graph.hpp>
+#include <shadow/image/adjustment_layers.hpp>
+#include <shadow/image/cpu_edit_reference.hpp>
 #include <shadow/image/decoder_error.hpp>
 #include <shadow/image/display_output.hpp>
+#include <shadow/image/edit.hpp>
 #include <shadow/image/edit_error.hpp>
+#include <shadow/image/edit_execution_plan.hpp>
 #include <shadow/image/photo_geometry.hpp>
 #include <shadow/image/proxy_rendering.hpp>
 #include <shadow/image/working_rgb.hpp>
@@ -24,6 +28,7 @@
 #include <memory>
 #include <numeric>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <stdexcept>
 #include <stop_token>
@@ -31,6 +36,7 @@
 #include <string_view>
 #include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace shadow::image {

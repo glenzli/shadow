@@ -1,7 +1,10 @@
 #include "scoped_environment.hpp"
 
 #include <shadow/image/adjustment_execution.hpp>
+#include <shadow/image/cpu_edit_reference.hpp>
 #include <shadow/image/display_output.hpp>
+#include <shadow/image/edit_error.hpp>
+#include <shadow/image/edit_execution_plan.hpp>
 
 #include <algorithm>
 #include <array>

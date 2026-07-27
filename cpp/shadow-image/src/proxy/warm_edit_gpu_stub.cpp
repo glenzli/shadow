@@ -1,5 +1,7 @@
 #include "warm_edit_gpu.hpp"
 
+#include <shadow/image/edit.hpp>
+
 #include <utility>
 
 namespace shadow::image::detail {

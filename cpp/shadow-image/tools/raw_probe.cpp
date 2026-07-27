@@ -1,3 +1,5 @@
+#include <shadow/image/adjustment_graph.hpp>
+#include <shadow/image/adjustment_parameters.hpp>
 #include <shadow/image/decoder.hpp>
 #include <shadow/image/display_luma.hpp>
 #include <shadow/image/edit.hpp>
@@ -8,15 +10,18 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <variant>
 #include <vector>
 
 namespace {

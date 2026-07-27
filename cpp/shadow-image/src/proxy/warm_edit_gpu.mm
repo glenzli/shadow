@@ -6,25 +6,34 @@
 #undef shadow
 
 #include "warm_edit_gpu.hpp"
+#include "../edit/adjustment_execution_internal.hpp"
 #include "../edit/metal_adjustment_msl.hpp"
+
+#include <shadow/image/adjustment_graph.hpp>
+#include <shadow/image/adjustment_parameters.hpp>
+#include <shadow/image/edit.hpp>
+#include <shadow/image/edit_execution_plan.hpp>
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
-#include <cmath>
 #include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <ranges>
+#include <span>
+#include <stop_token>
 #include <string>
 #include <string_view>
 #include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace shadow::image::detail {
