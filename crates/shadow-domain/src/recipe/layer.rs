@@ -7,10 +7,8 @@ use crate::{
     ShootId,
 };
 
-use super::{
-    EditGraph, MAX_LABEL_BYTES, MaskReference, RecipeValidationError, UnitInterval,
-    display_name_character, validate_text,
-};
+use super::value::{MAX_LABEL_BYTES, UnitInterval, display_name_character, validate_text};
+use super::{EditGraph, MaskReference, RecipeValidationError};
 
 /// The execution and sharing target of a layer. Photo scope is relative to
 /// the recipe owner; broader scopes carry strongly typed persistent IDs.

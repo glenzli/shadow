@@ -7,10 +7,11 @@ use thiserror::Error;
 
 use crate::NodeId;
 
-use super::{
-    FiniteF64, MAX_STABLE_NAME_BYTES, MaskReference, OperationId, ParameterKey,
-    RecipeValidationError, stable_name_character, validate_text,
+use super::value::{
+    FiniteF64, MAX_STABLE_NAME_BYTES, OperationId, ParameterKey, stable_name_character,
+    validate_text,
 };
+use super::{MaskReference, RecipeValidationError};
 
 /// Renderer-neutral parameter values. All integer widths are explicit and
 /// maps use stable ordering so a storage layer can canonicalize snapshots.

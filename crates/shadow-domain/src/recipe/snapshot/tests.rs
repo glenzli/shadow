@@ -1,6 +1,15 @@
-use super::test_support::inline_layer;
 use super::*;
-use crate::{EntityId, LayerId, SelectionId};
+use crate::recipe::test_support::inline_layer;
+use crate::recipe::{
+    AdjustmentNode, AdjustmentScope, BlendMode, EditGraph, FiniteF64, ImageDomain, LayerContent,
+    LayerRevisionSelector, MaskCoordinateSpace, MaskDefinition, NodeInput, OperationDescriptor,
+    OperationId, ParameterKey, ParameterValue, PhotoQuarterTurn, PortType, ProcessingStage,
+    RecipeCommit, RetouchMode, RetouchPoint, UnitInterval,
+};
+use crate::{
+    EntityId, LayerId, LayerInstanceId, LayerRevisionId, MaskId, NodeId, RecipeCommitId, RecipeId,
+    SelectionId,
+};
 
 #[test]
 fn local_mask_revisions_are_validated_and_resolve_by_exact_space() {
@@ -40,29 +49,7 @@ fn local_mask_revisions_are_validated_and_resolve_by_exact_space() {
 }
 
 #[test]
-fn local_masks_reject_degenerate_geometry_and_duplicate_revisions() {
-    assert_eq!(
-        MaskDefinition::linear_gradient(
-            UnitInterval::new(0.5).expect("unit"),
-            UnitInterval::new(0.5).expect("unit"),
-            UnitInterval::new(0.5).expect("unit"),
-            UnitInterval::new(0.5).expect("unit"),
-            false,
-        ),
-        Err(RecipeValidationError::DegenerateLinearMask)
-    );
-    assert_eq!(
-        MaskDefinition::radial_gradient(
-            UnitInterval::new(0.5).expect("unit"),
-            UnitInterval::new(0.5).expect("unit"),
-            UnitInterval::ZERO,
-            UnitInterval::new(0.3).expect("unit"),
-            UnitInterval::new(0.5).expect("unit"),
-            false,
-        ),
-        Err(RecipeValidationError::DegenerateRadialMask)
-    );
-
+fn duplicate_mask_revisions_are_rejected_by_the_snapshot() {
     let mask_id = MaskId::new_v7();
     let mask = MaskRevision::new(
         mask_id,
@@ -90,47 +77,6 @@ fn local_masks_reject_degenerate_geometry_and_duplicate_revisions() {
             mask_id,
             revision: 1,
         })
-    );
-}
-
-#[test]
-fn brush_masks_round_trip_multiple_editable_strokes() {
-    let definition = MaskDefinition::brush(
-        vec![
-            MaskBrushPoint::new(
-                UnitInterval::new(0.2).expect("x"),
-                UnitInterval::new(0.3).expect("y"),
-                true,
-            ),
-            MaskBrushPoint::new(
-                UnitInterval::new(0.4).expect("x"),
-                UnitInterval::new(0.5).expect("y"),
-                false,
-            ),
-            MaskBrushPoint::new(
-                UnitInterval::new(0.7).expect("x"),
-                UnitInterval::new(0.6).expect("y"),
-                true,
-            ),
-        ],
-        UnitInterval::new(0.04).expect("radius"),
-        UnitInterval::new(0.6).expect("feather"),
-        false,
-    )
-    .expect("valid brush");
-    let encoded = serde_json::to_string(&definition).expect("serialize brush");
-    assert!(encoded.contains("\"kind\":\"brush\""));
-    let decoded: MaskDefinition = serde_json::from_str(&encoded).expect("deserialize brush");
-    assert_eq!(decoded, definition);
-
-    assert_eq!(
-        MaskDefinition::brush(
-            Vec::new(),
-            UnitInterval::ZERO,
-            UnitInterval::new(0.5).expect("feather"),
-            false,
-        ),
-        Err(RecipeValidationError::DegenerateBrushMask)
     );
 }
 
@@ -167,29 +113,6 @@ fn retouch_spots_are_bounded_and_persist_with_the_photo_recipe() {
         serde_json::to_string(&snapshot)
             .expect("serialize repair")
             .contains("\"mode\":\"clone\"")
-    );
-    assert_eq!(
-        RetouchSpot::new(
-            UnitInterval::new(0.5).expect("normalized x"),
-            UnitInterval::new(0.5).expect("normalized y"),
-            18,
-        )
-        .expect("valid repair spot")
-        .with_behavior(
-            RetouchMode::Clone,
-            2.01,
-            0.0,
-            UnitInterval::new(0.4).expect("feather"),
-        ),
-        Err(RecipeValidationError::InvalidRetouchSourceOffset)
-    );
-    assert_eq!(
-        RetouchSpot::new(
-            UnitInterval::new(0.5).expect("normalized x"),
-            UnitInterval::new(0.5).expect("normalized y"),
-            0,
-        ),
-        Err(RecipeValidationError::InvalidRetouchSpotRadius(0))
     );
 
     let too_many = vec![spot; MAX_RETOUCH_SPOTS_PER_RECIPE + 1];
@@ -247,25 +170,10 @@ fn retouch_strokes_persist_as_one_continuous_photo_local_operation() {
     assert!(json.contains("\"retouch_strokes\""));
     let decoded: RecipeSnapshot = serde_json::from_str(&json).expect("deserialize repair");
     assert_eq!(decoded.retouch_strokes(), &[stroke]);
-
-    assert_eq!(
-        RetouchStroke::new(Vec::new(), 24),
-        Err(RecipeValidationError::EmptyRetouchStroke)
-    );
-    assert_eq!(
-        RetouchStroke::new(vec![point(0.5, 0.5); MAX_RETOUCH_STROKE_POINTS + 1], 24),
-        Err(RecipeValidationError::TooManyRetouchStrokePoints(
-            MAX_RETOUCH_STROKE_POINTS + 1
-        ))
-    );
-    assert_eq!(
-        RetouchStroke::new(vec![point(0.5, 0.5)], 0),
-        Err(RecipeValidationError::InvalidRetouchStrokeRadius(0))
-    );
 }
 
 #[test]
-fn photo_geometry_is_recipe_local_and_rejects_degenerate_crop() {
+fn photo_geometry_is_recipe_local() {
     let geometry = PhotoGeometry::new(
         UnitInterval::new(0.125).unwrap(),
         UnitInterval::new(0.2).unwrap(),
@@ -293,22 +201,6 @@ fn photo_geometry_is_recipe_local_and_rejects_degenerate_crop() {
         serde_json::to_string(&snapshot)
             .expect("serialize geometry")
             .contains("quarter_turn")
-    );
-    assert_eq!(
-        PhotoGeometry::new(
-            UnitInterval::new(0.5).unwrap(),
-            UnitInterval::ZERO,
-            UnitInterval::new(0.5).unwrap(),
-            UnitInterval::ONE,
-            PhotoQuarterTurn::Zero,
-            false,
-            false,
-        ),
-        Err(RecipeValidationError::DegeneratePhotoCrop)
-    );
-    assert_eq!(
-        PhotoGeometry::identity().with_straighten_degrees(45.1),
-        Err(RecipeValidationError::InvalidPhotoStraightenDegrees(45.1))
     );
 }
 
@@ -438,13 +330,4 @@ fn recipe_v1_json_wire_is_an_exact_golden() {
         serde_json::from_slice(recipe_v1_json.as_bytes()).expect("read Recipe v1 golden");
     decoded.validate().expect("Recipe v1 golden remains valid");
     assert_eq!(decoded, golden);
-}
-
-#[test]
-fn finite_numbers_and_names_reject_non_portable_values_during_deserialization() {
-    assert!(FiniteF64::new(f64::NAN).is_err());
-    assert!(UnitInterval::new(1.01).is_err());
-    assert!(ParameterKey::new("tone exposure").is_err());
-    assert!(BranchName::new(" trailing ").is_err());
-    assert!(serde_json::from_str::<UnitInterval>("2.0").is_err());
 }

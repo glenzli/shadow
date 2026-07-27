@@ -290,3 +290,6 @@ impl MaskRevision {
         .map(|_| ())
     }
 }
+
+#[cfg(test)]
+mod tests;

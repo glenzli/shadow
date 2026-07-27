@@ -2,7 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{FiniteF64, RecipeValidationError, UnitInterval, default_finite_zero};
+use super::RecipeValidationError;
+use super::value::{FiniteF64, UnitInterval, default_finite_zero};
 
 /// Deterministic non-generative repair behavior.
 #[derive(Debug, Copy, Clone, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -281,3 +282,6 @@ impl RetouchStroke {
 pub const MAX_RETOUCH_STROKES_PER_RECIPE: usize = 64;
 /// One drag may retain at most this many normalized centerline samples.
 pub const MAX_RETOUCH_STROKE_POINTS: usize = 512;
+
+#[cfg(test)]
+mod tests;

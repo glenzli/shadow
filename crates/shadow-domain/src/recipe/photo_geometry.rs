@@ -2,7 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{FiniteF64, RecipeValidationError, UnitInterval, default_finite_zero};
+use super::RecipeValidationError;
+use super::value::{FiniteF64, UnitInterval, default_finite_zero};
 
 /// A lossless 90-degree orientation applied after the photo's local edits.
 ///
@@ -161,3 +162,6 @@ impl PhotoGeometry {
             .map(|_| ())
     }
 }
+
+#[cfg(test)]
+mod tests;

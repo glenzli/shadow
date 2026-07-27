@@ -6,10 +6,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{BranchId, RecipeCommitId, RecipeId, VersionId};
 
-use super::{
-    BranchName, MAX_COMMIT_MESSAGE_BYTES, RecipeSnapshot, RecipeValidationError, VersionName,
-    display_name_character, validate_text,
+use super::value::{
+    BranchName, MAX_COMMIT_MESSAGE_BYTES, VersionName, display_name_character, validate_text,
 };
+use super::{RecipeSnapshot, RecipeValidationError};
 
 /// An immutable recipe state. Moving a branch creates a new `RecipeBranch`
 /// value; an existing commit never changes its snapshot or parents.

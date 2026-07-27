@@ -1,4 +1,18 @@
 //! Stable domain types shared by Shadow's UI, catalog, renderer, and workers.
+//!
+//! This crate root is a public API and navigation facade:
+//!
+//! - `asset` owns durable asset locations and representation identity;
+//! - `decision` owns photo rating/flag event contracts;
+//! - `decode` owns provider-neutral RAW capability and preview snapshots;
+//! - `edit_repository` owns content-addressed edit storage contracts;
+//! - `ids` owns strongly typed persistent identifiers;
+//! - `operation` owns stable operation identifiers;
+//! - `recipe` owns non-destructive edits and immutable history;
+//! - `recipe_diff` owns semantic comparisons between Recipe snapshots.
+//!
+//! Follow each entry module for its responsibility map; substantive behavior
+//! belongs there rather than in this facade.
 
 mod asset;
 mod decision;

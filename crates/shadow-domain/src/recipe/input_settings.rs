@@ -2,7 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{MAX_LABEL_BYTES, RecipeValidationError, display_name_character, validate_text};
+use super::RecipeValidationError;
+use super::value::{MAX_LABEL_BYTES, display_name_character, validate_text};
 
 /// Input-stage optical corrections applied before creative Grade Nodes.
 ///
