@@ -1,6 +1,6 @@
 use super::test_support::exposure_graph;
 use super::*;
-use crate::EntityId;
+use crate::{EntityId, LayerId, SelectionId};
 
 fn inline_layer() -> LayerInstance {
     LayerInstance::new(
@@ -147,25 +147,6 @@ fn brush_masks_round_trip_multiple_editable_strokes() {
             false,
         ),
         Err(RecipeValidationError::DegenerateBrushMask)
-    );
-}
-
-#[test]
-fn recipe_rejects_an_incomplete_manual_optics_identity() {
-    let optics = RecipeOpticsSettings {
-        camera_profile_maker: "Pentax".to_owned(),
-        camera_profile_model: "K10D".to_owned(),
-        lens_profile_maker: String::new(),
-        lens_profile_model: String::new(),
-        ..RecipeOpticsSettings::default()
-    };
-    assert_eq!(
-        RecipeSnapshot::new_with_input_settings(
-            CURRENT_RECIPE_SCHEMA_VERSION,
-            RecipeInputSettings::new(optics),
-            Vec::new(),
-        ),
-        Err(RecipeValidationError::IncompleteOpticsProfile)
     );
 }
 
@@ -485,28 +466,6 @@ fn finite_numbers_and_names_reject_non_portable_values_during_deserialization() 
 }
 
 #[test]
-fn only_photo_scoped_layers_can_inline_mutable_content() {
-    let error = LayerInstance::new(
-        LayerInstanceId::new_v7(),
-        "Invalid shared inline layer",
-        AdjustmentScope::Shoot(ShootId::new_v7()),
-        LayerContent::Inline {
-            graph: exposure_graph(),
-        },
-        true,
-        UnitInterval::ONE,
-        BlendMode::Normal,
-        None,
-    )
-    .expect_err("broader scope needs a shared revision");
-
-    assert!(matches!(
-        error,
-        RecipeValidationError::InlineLayerMustBePhotoScoped { .. }
-    ));
-}
-
-#[test]
 fn working_recipe_may_follow_head_but_commit_must_pin_it() {
     let instance_id = LayerInstanceId::new_v7();
     let layer = LayerInstance::new(
@@ -538,49 +497,6 @@ fn working_recipe_may_follow_head_but_commit_must_pin_it() {
     assert_eq!(
         error,
         RecipeValidationError::UnresolvedSharedLayer(instance_id)
-    );
-}
-
-#[test]
-fn layer_revisions_are_immutable_parented_records() {
-    let layer_id = LayerId::new_v7();
-    let first_id = LayerRevisionId::new_v7();
-    let first = LayerRevision::new(
-        first_id,
-        layer_id,
-        1,
-        None,
-        "Warm Editorial r1",
-        exposure_graph(),
-    )
-    .expect("valid first revision");
-    let second = LayerRevision::new(
-        LayerRevisionId::new_v7(),
-        layer_id,
-        2,
-        Some(first_id),
-        "Warm Editorial r2",
-        exposure_graph(),
-    )
-    .expect("valid child revision");
-
-    assert_eq!(first.revision_number(), 1);
-    assert_eq!(second.parent(), Some(first.id()));
-    let encoded = serde_json::to_string(&second).expect("serialize layer revision");
-    let decoded: LayerRevision =
-        serde_json::from_str(&encoded).expect("deserialize layer revision");
-    decoded.validate().expect("valid deserialized revision");
-    assert_eq!(second, decoded);
-    assert!(
-        LayerRevision::new(
-            LayerRevisionId::new_v7(),
-            layer_id,
-            3,
-            None,
-            "Broken r3",
-            exposure_graph(),
-        )
-        .is_err()
     );
 }
 

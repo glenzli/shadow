@@ -4,8 +4,9 @@
 //! database, UI toolkit, model provider, or concrete pixel implementation.
 //!
 //! Responsibility modules under `recipe/` are the navigation index: `edit_graph`
-//! owns the typed adjustment DAG and its validation pipeline; `local_mask`,
-//! `photo_geometry`, and `retouch` own their corresponding photo-edit contracts.
+//! owns the typed adjustment DAG and validation pipeline; `input_settings` owns
+//! input-stage optics; `layer` owns instances, scope/blend policy, and shared
+//! revisions; `local_mask`, `photo_geometry`, and `retouch` own photo-local contracts.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 
@@ -13,11 +14,12 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
-    BranchId, CollectionId, GroupId, LayerId, LayerInstanceId, LayerRevisionId, MaskId, NodeId,
-    OutputTargetId, RecipeCommitId, RecipeId, SelectionId, ShootId, VersionId,
+    BranchId, LayerInstanceId, LayerRevisionId, MaskId, NodeId, RecipeCommitId, RecipeId, VersionId,
 };
 
 mod edit_graph;
+mod input_settings;
+mod layer;
 mod local_mask;
 mod photo_geometry;
 mod retouch;
@@ -27,6 +29,10 @@ mod test_support;
 pub use edit_graph::{
     AdjustmentNode, EditGraph, GraphValidationError, ImageDomain, MaskCoordinateSpace, NodeInput,
     OperationDescriptor, ParameterBlock, ParameterValue, PortType, ProcessingStage,
+};
+pub use input_settings::{RecipeInputSettings, RecipeOpticsSettings};
+pub use layer::{
+    AdjustmentScope, BlendMode, LayerContent, LayerInstance, LayerRevision, LayerRevisionSelector,
 };
 pub use local_mask::{
     MAX_MASK_BRUSH_POINTS, MaskBrushPoint, MaskDefinition, MaskReference, MaskRevision,
@@ -237,509 +243,6 @@ validated_string!(
     "version name",
     display_name_character
 );
-
-/// The execution and sharing target of a layer. Photo scope is relative to
-/// the recipe owner; broader scopes carry strongly typed persistent IDs.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
-#[serde(tag = "kind", content = "target", rename_all = "snake_case")]
-pub enum AdjustmentScope {
-    Photo,
-    Burst(GroupId),
-    LightingGroup(GroupId),
-    Selection(SelectionId),
-    Shoot(ShootId),
-    Collection(CollectionId),
-    Output(OutputTargetId),
-}
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum BlendMode {
-    Normal,
-    Luminosity,
-    Color,
-    Multiply,
-    Screen,
-    SoftLight,
-}
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
-#[serde(tag = "mode", content = "revision_id", rename_all = "snake_case")]
-pub enum LayerRevisionSelector {
-    FollowHead,
-    Pinned(LayerRevisionId),
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum LayerContent {
-    Inline {
-        graph: EditGraph,
-    },
-    Shared {
-        layer_id: LayerId,
-        revision: LayerRevisionSelector,
-        /// The exact immutable graph resolved for this recipe instance.
-        ///
-        /// Shared-library heads may move, but a photo recipe must remain
-        /// independently renderable and a committed recipe must reproduce the
-        /// pixels from the pinned revision without consulting mutable state.
-        graph: EditGraph,
-    },
-}
-
-impl LayerContent {
-    pub const fn follows_head(&self) -> bool {
-        matches!(
-            self,
-            Self::Shared {
-                revision: LayerRevisionSelector::FollowHead,
-                ..
-            }
-        )
-    }
-
-    /// Returns the executable graph materialized in this recipe.
-    pub const fn graph(&self) -> &EditGraph {
-        match self {
-            Self::Inline { graph } | Self::Shared { graph, .. } => graph,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct LayerInstance {
-    id: LayerInstanceId,
-    label: String,
-    scope: AdjustmentScope,
-    content: LayerContent,
-    enabled: bool,
-    opacity: UnitInterval,
-    blend_mode: BlendMode,
-    mask: Option<MaskReference>,
-}
-
-impl LayerInstance {
-    /// Creates one ordered use of an inline or shared adjustment layer.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error for invalid labels, masks, graphs, opacity, or for an
-    /// inline graph claiming a scope broader than the owning photo.
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        id: LayerInstanceId,
-        label: impl Into<String>,
-        scope: AdjustmentScope,
-        content: LayerContent,
-        enabled: bool,
-        opacity: UnitInterval,
-        blend_mode: BlendMode,
-        mask: Option<MaskReference>,
-    ) -> Result<Self, RecipeValidationError> {
-        let label = label.into();
-        validate_text(
-            &label,
-            MAX_LABEL_BYTES,
-            "layer label",
-            display_name_character,
-        )?;
-        let layer = Self {
-            id,
-            label,
-            scope,
-            content,
-            enabled,
-            opacity,
-            blend_mode,
-            mask,
-        };
-        layer.validate()?;
-        Ok(layer)
-    }
-
-    pub const fn id(&self) -> LayerInstanceId {
-        self.id
-    }
-
-    pub fn label(&self) -> &str {
-        &self.label
-    }
-
-    pub const fn scope(&self) -> AdjustmentScope {
-        self.scope
-    }
-
-    pub fn content(&self) -> &LayerContent {
-        &self.content
-    }
-
-    pub const fn enabled(&self) -> bool {
-        self.enabled
-    }
-
-    pub const fn opacity(&self) -> UnitInterval {
-        self.opacity
-    }
-
-    pub const fn blend_mode(&self) -> BlendMode {
-        self.blend_mode
-    }
-
-    pub const fn mask(&self) -> Option<MaskReference> {
-        self.mask
-    }
-
-    fn validate(&self) -> Result<(), RecipeValidationError> {
-        validate_text(
-            &self.label,
-            MAX_LABEL_BYTES,
-            "layer label",
-            display_name_character,
-        )?;
-        UnitInterval::new(self.opacity.get())?;
-        if self.mask.is_some_and(|mask| mask.revision() == 0) {
-            return Err(RecipeValidationError::ZeroMaskRevision);
-        }
-        self.content.graph().validate()?;
-        if let LayerContent::Inline { .. } = &self.content {
-            if self.scope != AdjustmentScope::Photo {
-                return Err(RecipeValidationError::InlineLayerMustBePhotoScoped {
-                    layer_id: self.id,
-                });
-            }
-        }
-        Ok(())
-    }
-}
-
-/// An immutable published definition of a reusable shared adjustment layer.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct LayerRevision {
-    id: LayerRevisionId,
-    layer_id: LayerId,
-    revision_number: u32,
-    parent: Option<LayerRevisionId>,
-    label: String,
-    graph: EditGraph,
-}
-
-impl LayerRevision {
-    /// Publishes an immutable revision of a reusable shared layer.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error for invalid labels or graphs, zero revision numbers,
-    /// self-parenting, or inconsistent root/parent semantics.
-    pub fn new(
-        id: LayerRevisionId,
-        layer_id: LayerId,
-        revision_number: u32,
-        parent: Option<LayerRevisionId>,
-        label: impl Into<String>,
-        graph: EditGraph,
-    ) -> Result<Self, RecipeValidationError> {
-        let label = label.into();
-        validate_text(
-            &label,
-            MAX_LABEL_BYTES,
-            "layer label",
-            display_name_character,
-        )?;
-        if revision_number == 0 {
-            return Err(RecipeValidationError::ZeroLayerRevision);
-        }
-        if parent == Some(id) {
-            return Err(RecipeValidationError::SelfParentLayerRevision(id));
-        }
-        if (revision_number == 1) != parent.is_none() {
-            return Err(RecipeValidationError::InvalidLayerRevisionParent {
-                revision_number,
-                has_parent: parent.is_some(),
-            });
-        }
-        graph.validate()?;
-        Ok(Self {
-            id,
-            layer_id,
-            revision_number,
-            parent,
-            label,
-            graph,
-        })
-    }
-
-    /// Checks a deserialized shared-layer revision.
-    ///
-    /// # Errors
-    ///
-    /// Returns the first layer revision invariant violation found.
-    pub fn validate(&self) -> Result<(), RecipeValidationError> {
-        Self::new(
-            self.id,
-            self.layer_id,
-            self.revision_number,
-            self.parent,
-            self.label.clone(),
-            self.graph.clone(),
-        )
-        .map(|_| ())
-    }
-
-    pub const fn id(&self) -> LayerRevisionId {
-        self.id
-    }
-
-    pub const fn layer_id(&self) -> LayerId {
-        self.layer_id
-    }
-
-    pub const fn revision_number(&self) -> u32 {
-        self.revision_number
-    }
-
-    pub const fn parent(&self) -> Option<LayerRevisionId> {
-        self.parent
-    }
-
-    pub fn label(&self) -> &str {
-        &self.label
-    }
-
-    pub fn graph(&self) -> &EditGraph {
-        &self.graph
-    }
-}
-
-/// Input-stage optical corrections applied before creative Grade Nodes.
-///
-/// These switches belong to the Recipe rather than an individual layer:
-/// changing geometry after a local edit would invalidate every downstream
-/// coordinate and cache identity.
-const fn default_manual_vignetting_midpoint() -> u8 {
-    50
-}
-
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-#[allow(clippy::struct_excessive_bools)] // Each persisted switch controls an independent correction.
-pub struct RecipeOpticsSettings {
-    enabled: bool,
-    correct_distortion: bool,
-    correct_tca: bool,
-    correct_vignetting: bool,
-    automatic_scale: bool,
-    /// Profile-independent residual corrections in integer percent units.
-    /// They are input transforms, so they must remain exactly comparable for
-    /// Recipe identity and must not become floating point Grade-node values.
-    #[serde(default)]
-    manual_distortion: i16,
-    #[serde(default)]
-    manual_tca_red_cyan: i16,
-    #[serde(default)]
-    manual_tca_blue_yellow: i16,
-    #[serde(default)]
-    manual_vignetting_amount: i16,
-    #[serde(default = "default_manual_vignetting_midpoint")]
-    manual_vignetting_midpoint: u8,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    camera_profile_maker: String,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    camera_profile_model: String,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    lens_profile_maker: String,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    lens_profile_model: String,
-}
-
-impl Default for RecipeOpticsSettings {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            correct_distortion: true,
-            correct_tca: true,
-            correct_vignetting: true,
-            automatic_scale: true,
-            manual_distortion: 0,
-            manual_tca_red_cyan: 0,
-            manual_tca_blue_yellow: 0,
-            manual_vignetting_amount: 0,
-            manual_vignetting_midpoint: default_manual_vignetting_midpoint(),
-            camera_profile_maker: String::new(),
-            camera_profile_model: String::new(),
-            lens_profile_maker: String::new(),
-            lens_profile_model: String::new(),
-        }
-    }
-}
-
-impl RecipeOpticsSettings {
-    #[allow(clippy::fn_params_excessive_bools)] // Mirrors the explicit persisted correction switches.
-    pub fn new(
-        enabled: bool,
-        correct_distortion: bool,
-        correct_tca: bool,
-        correct_vignetting: bool,
-        automatic_scale: bool,
-    ) -> Self {
-        Self {
-            enabled,
-            correct_distortion,
-            correct_tca,
-            correct_vignetting,
-            automatic_scale,
-            ..Self::default()
-        }
-    }
-
-    #[must_use]
-    pub fn with_manual_profile(
-        mut self,
-        camera_maker: impl Into<String>,
-        camera_model: impl Into<String>,
-        lens_maker: impl Into<String>,
-        lens_model: impl Into<String>,
-    ) -> Self {
-        self.camera_profile_maker = camera_maker.into();
-        self.camera_profile_model = camera_model.into();
-        self.lens_profile_maker = lens_maker.into();
-        self.lens_profile_model = lens_model.into();
-        self
-    }
-
-    #[must_use]
-    pub const fn with_manual_corrections(
-        mut self,
-        distortion: i16,
-        tca_red_cyan: i16,
-        tca_blue_yellow: i16,
-        vignetting_amount: i16,
-        vignetting_midpoint: u8,
-    ) -> Self {
-        self.manual_distortion = distortion;
-        self.manual_tca_red_cyan = tca_red_cyan;
-        self.manual_tca_blue_yellow = tca_blue_yellow;
-        self.manual_vignetting_amount = vignetting_amount;
-        self.manual_vignetting_midpoint = vignetting_midpoint;
-        self
-    }
-
-    pub const fn enabled(&self) -> bool {
-        self.enabled
-    }
-
-    pub const fn correct_distortion(&self) -> bool {
-        self.correct_distortion
-    }
-
-    pub const fn correct_tca(&self) -> bool {
-        self.correct_tca
-    }
-
-    pub const fn correct_vignetting(&self) -> bool {
-        self.correct_vignetting
-    }
-
-    pub const fn automatic_scale(&self) -> bool {
-        self.automatic_scale
-    }
-
-    pub const fn manual_distortion(&self) -> i16 {
-        self.manual_distortion
-    }
-
-    pub const fn manual_tca_red_cyan(&self) -> i16 {
-        self.manual_tca_red_cyan
-    }
-
-    pub const fn manual_tca_blue_yellow(&self) -> i16 {
-        self.manual_tca_blue_yellow
-    }
-
-    pub const fn manual_vignetting_amount(&self) -> i16 {
-        self.manual_vignetting_amount
-    }
-
-    pub const fn manual_vignetting_midpoint(&self) -> u8 {
-        self.manual_vignetting_midpoint
-    }
-
-    pub fn camera_profile_maker(&self) -> &str {
-        &self.camera_profile_maker
-    }
-    pub fn camera_profile_model(&self) -> &str {
-        &self.camera_profile_model
-    }
-    pub fn lens_profile_maker(&self) -> &str {
-        &self.lens_profile_maker
-    }
-    pub fn lens_profile_model(&self) -> &str {
-        &self.lens_profile_model
-    }
-    pub fn uses_manual_profile(&self) -> bool {
-        !self.camera_profile_model.is_empty() && !self.lens_profile_model.is_empty()
-    }
-
-    fn validate(&self) -> Result<(), RecipeValidationError> {
-        for (kind, value) in [
-            ("manual distortion", self.manual_distortion),
-            (
-                "manual red/cyan chromatic aberration",
-                self.manual_tca_red_cyan,
-            ),
-            (
-                "manual blue/yellow chromatic aberration",
-                self.manual_tca_blue_yellow,
-            ),
-            ("manual optical vignetting", self.manual_vignetting_amount),
-        ] {
-            if !(-100..=100).contains(&value) {
-                return Err(RecipeValidationError::InvalidOpticsManualValue { kind, value });
-            }
-        }
-        if self.manual_vignetting_midpoint > 100 {
-            return Err(RecipeValidationError::InvalidOpticsVignettingMidpoint(
-                self.manual_vignetting_midpoint,
-            ));
-        }
-        for (kind, value) in [
-            ("camera profile maker", self.camera_profile_maker.as_str()),
-            ("camera profile model", self.camera_profile_model.as_str()),
-            ("lens profile maker", self.lens_profile_maker.as_str()),
-            ("lens profile model", self.lens_profile_model.as_str()),
-        ] {
-            if !value.is_empty() {
-                validate_text(value, MAX_LABEL_BYTES, kind, display_name_character)?;
-            }
-        }
-        let has_camera = !self.camera_profile_model.is_empty();
-        let has_lens = !self.lens_profile_model.is_empty();
-        let has_orphan_maker = (!self.camera_profile_maker.is_empty() && !has_camera)
-            || (!self.lens_profile_maker.is_empty() && !has_lens);
-        if has_camera != has_lens || has_orphan_maker {
-            return Err(RecipeValidationError::IncompleteOpticsProfile);
-        }
-        Ok(())
-    }
-}
-
-#[derive(Debug, Clone, Default, Eq, PartialEq, Serialize, Deserialize)]
-pub struct RecipeInputSettings {
-    optics: RecipeOpticsSettings,
-}
-
-impl RecipeInputSettings {
-    pub const fn new(optics: RecipeOpticsSettings) -> Self {
-        Self { optics }
-    }
-
-    pub const fn optics(&self) -> &RecipeOpticsSettings {
-        &self.optics
-    }
-
-    fn is_default(&self) -> bool {
-        *self == Self::default()
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RecipeSnapshot {
@@ -954,7 +457,7 @@ impl RecipeSnapshot {
         if self.schema_version == 0 {
             return Err(RecipeValidationError::ZeroRecipeSchemaVersion);
         }
-        self.input_settings.optics.validate()?;
+        self.input_settings.optics().validate()?;
         let mut mask_revisions = HashSet::with_capacity(self.masks.len());
         for mask in &self.masks {
             mask.validate()?;
@@ -984,8 +487,8 @@ impl RecipeSnapshot {
         self.geometry.validate()?;
         let mut ids = HashSet::with_capacity(self.layers.len());
         for layer in &self.layers {
-            if !ids.insert(layer.id) {
-                return Err(RecipeValidationError::DuplicateLayerInstance(layer.id));
+            if !ids.insert(layer.id()) {
+                return Err(RecipeValidationError::DuplicateLayerInstance(layer.id()));
             }
             layer.validate()?;
         }
@@ -1003,9 +506,9 @@ impl RecipeSnapshot {
         if let Some(layer) = self
             .layers
             .iter()
-            .find(|layer| layer.content.follows_head())
+            .find(|layer| layer.content().follows_head())
         {
-            return Err(RecipeValidationError::UnresolvedSharedLayer(layer.id));
+            return Err(RecipeValidationError::UnresolvedSharedLayer(layer.id()));
         }
         Ok(())
     }
