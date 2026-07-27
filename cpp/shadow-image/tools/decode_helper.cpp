@@ -1,5 +1,6 @@
 #include <shadow/image/decoder.hpp>
-#include <shadow/image/edit.hpp>
+#include <shadow/image/full_edit_detail.hpp>
+#include <shadow/image/proxy_rendering.hpp>
 #include <shadow/image/raw_pipeline.hpp>
 
 #include <array>

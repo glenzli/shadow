@@ -148,6 +148,8 @@ Decoder contract tests follow the production responsibilities instead of one agg
   retention, repeated rendering, geometry-derived radius, bounds, and preflight validation.
 - `tests/edit_preview_execution_contract_test.cpp` owns output analysis, cancellation, backend
   receipts, and execution identity.
+- `tests/detail_tile_contract_test.cpp` owns full-resolution tile bounds, apron scheduling,
+  retained-source limits, geometry, and seam-free output.
 - `tests/libraw_provider_contract_test.cpp` owns LibRaw settings, provider identity, real-fixture
   metadata, and source-development provenance.
 - `tests/source_rendering_contract_test.cpp` owns the consistency of DNG baseline exposure across
@@ -171,6 +173,10 @@ New production code should include the narrow semantic owner directly:
   source-node index lifetime.
 - `cpu_edit_reference.hpp` owns the deterministic flat-node oracle and tone-curve sampling;
   `adjustment_layers.hpp` owns masks, layer composition, and masked execution.
+- `warm_edit_preview.hpp` owns the reusable interactive preview session, analysis, cancellation,
+  and execution provenance; `full_edit_detail.hpp` owns bounded full-resolution tile sessions.
+- `edited_proxy_rendering.hpp` owns one-shot adjusted proxy orchestration, while
+  `proxy_rendering.hpp` remains the unedited encoded-proxy owner.
 
 The edit path accepts explicitly native interleaved RGB float32, scene-referred, linear-light data
 with named RGB primaries, white point, and luminance coefficients. It is not legal to feed the

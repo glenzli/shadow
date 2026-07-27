@@ -13,10 +13,11 @@ class FullEditDetailHandle;
 
 #include <shadow/image/decoder_session.hpp>
 #include <shadow/image/display_luma.hpp>
-#include <shadow/image/edit.hpp>
+#include <shadow/image/full_edit_detail.hpp>
 #include <shadow/image/optics.hpp>
 #include <shadow/image/raw_development_receipt.hpp>
 #include <shadow/image/raw_pipeline.hpp>
+#include <shadow/image/warm_edit_preview.hpp>
 
 #include <cstdint>
 #include <memory>

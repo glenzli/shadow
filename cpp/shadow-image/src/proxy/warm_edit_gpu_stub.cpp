@@ -1,6 +1,6 @@
 #include "warm_edit_gpu.hpp"
 
-#include <shadow/image/edit.hpp>
+#include <shadow/image/warm_edit_preview.hpp>
 
 #include <utility>
 

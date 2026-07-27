@@ -1,6 +1,7 @@
 #include "processed_rgb_session_fixture.hpp"
 
-#include <shadow/image/edit.hpp>
+#include <shadow/image/edited_proxy_rendering.hpp>
+#include <shadow/image/full_edit_detail.hpp>
 #include <shadow/image/proxy_rendering.hpp>
 #include <shadow/image/source_rendering.hpp>
 

@@ -2,8 +2,8 @@
 #include <shadow/image/adjustment_parameters.hpp>
 #include <shadow/image/decoder.hpp>
 #include <shadow/image/display_luma.hpp>
-#include <shadow/image/edit.hpp>
 #include <shadow/image/raw_pipeline.hpp>
+#include <shadow/image/warm_edit_preview.hpp>
 
 #include <algorithm>
 #include <array>

@@ -11,8 +11,8 @@
 
 #include <shadow/image/adjustment_graph.hpp>
 #include <shadow/image/adjustment_parameters.hpp>
-#include <shadow/image/edit.hpp>
 #include <shadow/image/edit_execution_plan.hpp>
+#include <shadow/image/warm_edit_preview.hpp>
 
 #include <algorithm>
 #include <array>

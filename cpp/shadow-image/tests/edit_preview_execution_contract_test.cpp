@@ -5,7 +5,8 @@
 #include <shadow/image/decoder_error.hpp>
 #include <shadow/image/decoder_session.hpp>
 #include <shadow/image/display_output.hpp>
-#include <shadow/image/edit.hpp>
+#include <shadow/image/edit_error.hpp>
+#include <shadow/image/warm_edit_preview.hpp>
 
 #include <array>
 #include <cstddef>

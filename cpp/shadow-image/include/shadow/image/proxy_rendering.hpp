@@ -8,6 +8,7 @@
 namespace shadow::image {
 
 class DecodeSession;
+struct RawDevelopmentPlan;
 
 struct ProxyRequest final {
     std::uint32_t max_edge = 2'048;
@@ -27,6 +28,14 @@ struct EncodedProxy final {
 [[nodiscard]] EncodedProxy render_reference_proxy_jpeg(
     const DecodeSession& session,
     ProxyRequest request = {}
+);
+
+// Explicit source-development form used by cache-aware callers. The convenience overload above
+// selects the canonical preview plan.
+[[nodiscard]] EncodedProxy render_reference_proxy_jpeg(
+    const DecodeSession& session,
+    ProxyRequest request,
+    const RawDevelopmentPlan& raw_development_plan
 );
 
 } // namespace shadow::image

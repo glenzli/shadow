@@ -4,13 +4,14 @@
 #include <shadow/image/adjustment_layers.hpp>
 #include <shadow/image/adjustment_parameters.hpp>
 #include <shadow/image/decoder_error.hpp>
-#include <shadow/image/edit.hpp>
 #include <shadow/image/display_luma.hpp>
+#include <shadow/image/full_edit_detail.hpp>
 #include <shadow/image/photo_geometry.hpp>
 #include <shadow/image/proxy_rendering.hpp>
 #include <shadow/image/sensor_clipping.hpp>
 #include <shadow/image/source_rendering.hpp>
 #include <shadow/image/source_profile_catalog.hpp>
+#include <shadow/image/warm_edit_preview.hpp>
 
 #include <algorithm>
 #include <array>

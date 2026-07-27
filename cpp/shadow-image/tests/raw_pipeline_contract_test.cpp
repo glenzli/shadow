@@ -1,10 +1,10 @@
 #include <shadow/image/raw_pipeline.hpp>
 #include <shadow/image/camera_profile_catalog.hpp>
 #include <shadow/image/decoder_error.hpp>
-#include <shadow/image/edit.hpp>
 #include <shadow/image/fused_raw_development.hpp>
 #include <shadow/image/raw_denoise.hpp>
 #include <shadow/image/source_rendering.hpp>
+#include <shadow/image/warm_edit_preview.hpp>
 
 #include <array>
 #include <cmath>

@@ -2,9 +2,10 @@
 
 #include <shadow/image/decoder_error.hpp>
 #include <shadow/image/decoder_session.hpp>
-#include <shadow/image/edit.hpp>
+#include <shadow/image/edited_proxy_rendering.hpp>
 #include <shadow/image/proxy_rendering.hpp>
 #include <shadow/image/reference_pixels.hpp>
+#include <shadow/image/warm_edit_preview.hpp>
 
 #include <array>
 #include <cstdlib>

@@ -4,11 +4,13 @@
 #include <shadow/image/cpu_edit_reference.hpp>
 #include <shadow/image/decoder_error.hpp>
 #include <shadow/image/display_output.hpp>
-#include <shadow/image/edit.hpp>
 #include <shadow/image/edit_error.hpp>
 #include <shadow/image/edit_execution_plan.hpp>
+#include <shadow/image/edited_proxy_rendering.hpp>
+#include <shadow/image/full_edit_detail.hpp>
 #include <shadow/image/photo_geometry.hpp>
 #include <shadow/image/proxy_rendering.hpp>
+#include <shadow/image/warm_edit_preview.hpp>
 #include <shadow/image/working_rgb.hpp>
 
 #include "display_rgb_math.hpp"

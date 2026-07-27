@@ -1,5 +1,6 @@
-#include <shadow/image/edit.hpp>
 #include <shadow/image/decoder_error.hpp>
+#include <shadow/image/edit_error.hpp>
+#include <shadow/image/full_edit_detail.hpp>
 
 #include <algorithm>
 #include <array>

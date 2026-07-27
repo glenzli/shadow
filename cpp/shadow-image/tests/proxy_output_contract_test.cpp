@@ -1,7 +1,7 @@
 #include "contract_test_assertions.hpp"
 #include "processed_rgb_session_fixture.hpp"
 
-#include <shadow/image/edit.hpp>
+#include <shadow/image/edited_proxy_rendering.hpp>
 #include <shadow/image/proxy_rendering.hpp>
 
 #include <array>

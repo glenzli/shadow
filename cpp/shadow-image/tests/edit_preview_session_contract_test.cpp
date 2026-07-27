@@ -3,9 +3,12 @@
 #include "processed_rgb_session_fixture.hpp"
 
 #include <shadow/image/decoder_error.hpp>
-#include <shadow/image/edit.hpp>
+#include <shadow/image/edit_error.hpp>
+#include <shadow/image/edited_proxy_rendering.hpp>
+#include <shadow/image/full_edit_detail.hpp>
 #include <shadow/image/raw_development_plan.hpp>
 #include <shadow/image/raw_development_receipt.hpp>
+#include <shadow/image/warm_edit_preview.hpp>
 
 #include <array>
 #include <cstdlib>

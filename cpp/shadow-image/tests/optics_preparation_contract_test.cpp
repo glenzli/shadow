@@ -4,8 +4,9 @@
 
 #include <shadow/image/decoder.hpp>
 #include <shadow/image/decoder_error.hpp>
-#include <shadow/image/edit.hpp>
+#include <shadow/image/full_edit_detail.hpp>
 #include <shadow/image/optics.hpp>
+#include <shadow/image/warm_edit_preview.hpp>
 
 #include <algorithm>
 #include <array>
