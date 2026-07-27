@@ -22,6 +22,7 @@ const _: () = assert!(
 );
 
 pub(crate) const MAX_GRADE_NODES: usize = 16;
+pub(crate) const CONTRAST_PIVOT: f64 = 0.18;
 pub(crate) const RECIPE_V1_OKLAB_LIGHTNESS_TONE_CURVE_RENDER_OP_ID_DOMAIN: &[u8] =
     b"shadow.desktop.oklab-lightness-tone-curve-slot-id.v1\0";
 pub(crate) const RECIPE_V1_SELECTIVE_TONE_RENDER_OP_ID_DOMAIN: &[u8] =

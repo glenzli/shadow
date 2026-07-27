@@ -32,6 +32,11 @@ use crate::review_service::{
     REVIEW_COMPARE_SURFACE_ID, REVIEW_COMPARE_SURFACE_REVISION, ReviewVisualSelection, file_name,
     parse_cursor,
 };
+use crate::session_edit_history::{
+    LIBRARY_EDIT_MAIN_REF, NAMED_VERSION_REF_PREFIX, WORKING_RECIPE_REF,
+};
+#[cfg(any())]
+use crate::session_edit_history::{LIBRARY_EDIT_VERSION_REF_PREFIX, LIBRARY_PHOTO_EDIT_KEY_PREFIX};
 use crate::session_edit_render::{
     EditPreviewPolicy, admits_recipe_preview_cache, requested_raw_development_plan_cache_matches,
 };

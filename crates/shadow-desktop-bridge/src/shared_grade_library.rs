@@ -8,7 +8,7 @@ use shadow_domain::{
     LayerId, LayerRevision, LayerRevisionId, LibraryRootV1,
 };
 
-use crate::LIBRARY_EDIT_MAIN_REF;
+use crate::session_edit_history::LIBRARY_EDIT_MAIN_REF;
 
 struct LibraryHead {
     parent: Option<shadow_domain::EditCommitId>,
