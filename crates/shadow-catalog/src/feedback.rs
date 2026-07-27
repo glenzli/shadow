@@ -668,7 +668,7 @@ mod tests {
         let catalog = Catalog::open_in_memory().expect("open catalog");
         assert_eq!(
             catalog.schema_version().expect("schema version"),
-            crate::SCHEMA_VERSION
+            crate::schema_v1::SCHEMA_VERSION
         );
         let tables: i64 = catalog
             .connection

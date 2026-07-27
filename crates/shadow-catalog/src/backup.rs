@@ -9,7 +9,8 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::{
-    CatalogStats, SCHEMA_VERSION, catalog_tables_exist, count_rows, current_schema_version,
+    CatalogStats, count_rows,
+    schema_v1::{SCHEMA_VERSION, catalog_tables_exist, current_version},
 };
 
 const BACKUP_PAGES_PER_STEP: i32 = 256;
@@ -164,7 +165,7 @@ pub fn verify_catalog_backup(path: &Path) -> Result<CatalogBackupVerification, C
     if !catalog_tables_exist(&connection)? {
         return Err(CatalogBackupError::MissingCatalogTables);
     }
-    let schema_version = current_schema_version(&connection)?;
+    let schema_version = current_version(&connection)?;
     if schema_version != SCHEMA_VERSION {
         return Err(CatalogBackupError::SchemaVersionMismatch {
             expected: SCHEMA_VERSION,
