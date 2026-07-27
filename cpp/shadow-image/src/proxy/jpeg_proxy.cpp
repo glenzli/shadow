@@ -28,9 +28,7 @@
 #include <cstdlib>
 #include <limits>
 #include <memory>
-#include <numeric>
 #include <optional>
-#include <ranges>
 #include <span>
 #include <stdexcept>
 #include <stop_token>
@@ -218,185 +216,6 @@ void validate_developed_source(const DevelopedSourcePixels& source) {
 ) {
     const std::size_t source_channel = source.channels == 1U ? 0U : channel;
     return source.samples[(y * row_stride) + (x * source.channels) + source_channel];
-}
-
-using LinearRgb = std::array<double, 3>;
-
-struct OklabColor final {
-    double lightness = 0.0;
-    double a = 0.0;
-    double b = 0.0;
-};
-
-[[nodiscard]] OklabColor linear_srgb_to_oklab(const LinearRgb& rgb) noexcept {
-    const double l = std::cbrt(
-        0.4122214708 * rgb[0] + 0.5363325363 * rgb[1] + 0.0514459929 * rgb[2]
-    );
-    const double m = std::cbrt(
-        0.2119034982 * rgb[0] + 0.6806995451 * rgb[1] + 0.1073969566 * rgb[2]
-    );
-    const double s = std::cbrt(
-        0.0883024619 * rgb[0] + 0.2817188376 * rgb[1] + 0.6299787005 * rgb[2]
-    );
-    return OklabColor{
-        .lightness = 0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
-        .a = 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
-        .b = 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s,
-    };
-}
-
-[[nodiscard]] LinearRgb oklab_to_linear_srgb(const OklabColor& lab) noexcept {
-    const double l_root = lab.lightness + 0.3963377774 * lab.a + 0.2158037573 * lab.b;
-    const double m_root = lab.lightness - 0.1055613458 * lab.a - 0.0638541728 * lab.b;
-    const double s_root = lab.lightness - 0.0894841775 * lab.a - 1.2914855480 * lab.b;
-    const double l = l_root * l_root * l_root;
-    const double m = m_root * m_root * m_root;
-    const double s = s_root * s_root * s_root;
-    return {
-        4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
-        -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
-        -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s,
-    };
-}
-
-[[nodiscard]] bool is_inside_display_srgb(const LinearRgb& rgb) noexcept {
-    return std::ranges::all_of(rgb, [](const double value) {
-        return std::isfinite(value) && value >= 0.0 && value <= 1.0;
-    });
-}
-
-[[nodiscard]] double scene_luminance_to_display_luminance(const double luminance) noexcept {
-    if (!(luminance > 0.0)) {
-        return 0.0;
-    }
-
-    // A compact rational scene-to-display curve with a gentle toe and shoulder.  It is evaluated
-    // on luminance and normalized at its finite asymptote, which gives scene values above 1.0 a
-    // visible shoulder instead of sending every normalized RAW highlight to the same display
-    // white.  This is an independently implemented baseline for Shadow, not a camera look or a
-    // port of another RAW developer's curve.
-    constexpr double maximum_safe_luminance = 1.0e6;
-    constexpr double a = 2.51;
-    constexpr double b = 0.03;
-    constexpr double c = 2.43;
-    constexpr double d = 0.59;
-    constexpr double e = 0.14;
-    const auto curve = [=](const double value) noexcept {
-        return value * (a * value + b) / (value * (c * value + d) + e);
-    };
-    const double scene = std::min(luminance, maximum_safe_luminance);
-    const double normalized = curve(scene) / (a / c);
-    return std::clamp(normalized, 0.0, 1.0);
-}
-
-[[nodiscard]] LinearRgb apply_neutral_scene_display_curve(const LinearRgb& input) noexcept {
-    // Rec.709/sRGB luminance weights are used here because this boundary accepts only that
-    // working space.  Applying one gain to all channels preserves chromatic ratios before the
-    // later perceptual gamut map handles any out-of-gamut result.
-    const double luminance = input[0] * 0.2126 + input[1] * 0.7152 + input[2] * 0.0722;
-    if (!(luminance > 0.0)) {
-        return input;
-    }
-    const double mapped_luminance = scene_luminance_to_display_luminance(luminance);
-    const double gain = mapped_luminance / luminance;
-    return {input[0] * gain, input[1] * gain, input[2] * gain};
-}
-
-[[nodiscard]] LinearRgb map_linear_srgb_to_display_gamut(
-    const LinearRgb& input,
-    const bool apply_scene_curve
-) {
-    if (!std::ranges::all_of(input, [](const double value) { return std::isfinite(value); })) {
-        throw DecodeError(
-            DecodeErrorCode::internal,
-            0,
-            "edited proxy contains a non-finite linear sample"
-        );
-    }
-    const LinearRgb display_linear = apply_scene_curve
-        ? apply_neutral_scene_display_curve(input)
-        : input;
-    if (is_inside_display_srgb(display_linear)) {
-        return display_linear;
-    }
-
-    // The RAW scene curve, when applicable, limits luminance before this final bounded gamut
-    // mapper reduces chroma along the source hue ray. Display-referred raster input deliberately
-    // bypasses that curve, but still gets the same non-hue-skewing output-gamut protection.
-    OklabColor lab = linear_srgb_to_oklab(display_linear);
-    lab.lightness = std::clamp(lab.lightness, 0.0, 1.0);
-    const double chroma = std::hypot(lab.a, lab.b);
-    OklabColor neutral{.lightness = lab.lightness};
-    LinearRgb best = oklab_to_linear_srgb(neutral);
-    if (!std::isfinite(chroma) || chroma <= 1.0e-15) {
-        for (double& channel : best) {
-            channel = std::clamp(channel, 0.0, 1.0);
-        }
-        return best;
-    }
-
-    const double a_direction = lab.a / chroma;
-    const double b_direction = lab.b / chroma;
-    double lower = 0.0;
-    // No display-sRGB hue/lightness slice reaches Oklab chroma 0.5. Limiting the bracket keeps
-    // pathological scene values from expanding the hot-loop cost, while 16 steps yield a
-    // sub-code-value chroma resolution for the final 8-bit target.
-    double upper = std::min(chroma, display_srgb8_maximum_oklab_chroma);
-    for (
-        std::uint32_t iteration = 0U;
-        iteration < display_srgb8_gamut_search_iterations;
-        ++iteration
-    ) {
-        const double candidate_chroma = std::midpoint(lower, upper);
-        const LinearRgb candidate = oklab_to_linear_srgb(OklabColor{
-            .lightness = lab.lightness,
-            .a = a_direction * candidate_chroma,
-            .b = b_direction * candidate_chroma,
-        });
-        if (is_inside_display_srgb(candidate)) {
-            lower = candidate_chroma;
-            best = candidate;
-        } else {
-            upper = candidate_chroma;
-        }
-    }
-    // Only absorb matrix round-off after the hue-preserving search; this is not the mapping.
-    for (double& channel : best) {
-        channel = std::clamp(channel, 0.0, 1.0);
-    }
-    return best;
-}
-
-// A small, deterministic luminance-only dither turns 8-bit quantization contouring into a
-// visually benign texture. It is keyed by image-space coordinates (not tile-local coordinates),
-// so independently requested detail tiles meet exactly at their shared boundary.
-[[nodiscard]] double display_quantization_dither(
-    const std::uint32_t x,
-    const std::uint32_t y
-) noexcept {
-    std::uint32_t state = x * 0x9e3779b9U ^ y * 0x85ebca6bU;
-    state ^= state >> 16U;
-    state *= 0x7feb352dU;
-    state ^= state >> 15U;
-    state *= 0x846ca68bU;
-    state ^= state >> 16U;
-    const double unit = static_cast<double>(state)
-        / static_cast<double>(std::numeric_limits<std::uint32_t>::max());
-    return (unit - 0.5) * 0.90;
-}
-
-[[nodiscard]] std::uint8_t linear_display_sample_to_srgb8(
-    const double linear_sample,
-    const double dither
-) noexcept {
-    const double linear = std::clamp(linear_sample, 0.0, 1.0);
-    constexpr double srgb_linear_threshold = 0.0031308;
-    const double encoded = linear <= srgb_linear_threshold
-        ? 12.92 * linear
-        : 1.055 * std::pow(linear, 1.0 / 2.4) - 0.055;
-    return static_cast<std::uint8_t>(
-        std::clamp(std::floor(encoded * 255.0 + dither + 0.5), 0.0, 255.0)
-    );
 }
 
 [[nodiscard]] WorkingRgbSpace linear_srgb_working_space() {
@@ -871,105 +690,6 @@ void preflight_detail_metadata(const AssetMetadata& metadata) {
             "full edit detail metadata exceeds the 1 GiB worst-case scene-linear RGB limit"
         );
     }
-}
-
-void validate_display_output_source(const FloatRgbImage& source) {
-    constexpr double coordinate_tolerance = 1.0e-9;
-    const auto close = [](const double actual, const double expected) {
-        return std::abs(actual - expected) <= coordinate_tolerance;
-    };
-    const bool is_standardized_linear_srgb =
-        source.pixel_format == FloatPixelFormat::rgb_f32_native_interleaved
-        && source.transfer_function == TransferFunction::linear
-        && (source.reference == ImageReference::scene_referred
-            || source.reference == ImageReference::display_referred)
-        && close(source.working_space.primaries[0].x, 0.6400)
-        && close(source.working_space.primaries[0].y, 0.3300)
-        && close(source.working_space.primaries[1].x, 0.3000)
-        && close(source.working_space.primaries[1].y, 0.6000)
-        && close(source.working_space.primaries[2].x, 0.1500)
-        && close(source.working_space.primaries[2].y, 0.0600)
-        && close(source.working_space.white_point.x, 0.3127)
-        && close(source.working_space.white_point.y, 0.3290);
-    if (!is_standardized_linear_srgb) {
-        throw DecodeError(
-            DecodeErrorCode::unsupported_layout,
-            0,
-            "display output transform requires standardized linear sRGB/Rec.709-D65 working RGB"
-        );
-    }
-}
-
-[[nodiscard]] std::vector<std::uint8_t> resize_working_to_display_srgb8(
-    const FloatRgbImage& source,
-    const Dimensions target,
-    const std::uint32_t output_origin_x = 0U,
-    const std::uint32_t output_origin_y = 0U
-) {
-    validate_display_output_source(source);
-    if (source.dimensions == target) {
-        auto rendered = render_linear_srgb_to_display_srgb8(
-            source,
-            DisplayOutputRequest{
-                .target_dimensions = target,
-                .output_origin_x = output_origin_x,
-                .output_origin_y = output_origin_y,
-            }
-        );
-        return std::move(rendered.bytes);
-    }
-    // Resizing remains the established CPU path. The isolated Metal v1 stage is deliberately
-    // source-sized; it never turns a forced Metal request into a different sampling algorithm.
-    std::vector<std::uint8_t> output(checked_rgb_size(target));
-    const std::size_t row_stride = source.row_stride_bytes / sizeof(float);
-    const double scale_x =
-        static_cast<double>(source.dimensions.width) / static_cast<double>(target.width);
-    const double scale_y =
-        static_cast<double>(source.dimensions.height) / static_cast<double>(target.height);
-
-    for (std::uint32_t output_y = 0; output_y < target.height; ++output_y) {
-        const double source_y =
-            std::max(0.0, (static_cast<double>(output_y) + 0.5) * scale_y - 0.5);
-        const auto y0 = static_cast<std::size_t>(source_y);
-        const auto y1 = std::min(y0 + 1U, static_cast<std::size_t>(source.dimensions.height - 1U));
-        const double fraction_y = source_y - static_cast<double>(y0);
-
-        for (std::uint32_t output_x = 0; output_x < target.width; ++output_x) {
-            const double source_x =
-                std::max(0.0, (static_cast<double>(output_x) + 0.5) * scale_x - 0.5);
-            const auto x0 = static_cast<std::size_t>(source_x);
-            const auto x1 =
-                std::min(x0 + 1U, static_cast<std::size_t>(source.dimensions.width - 1U));
-            const double fraction_x = source_x - static_cast<double>(x0);
-            const std::size_t output_index =
-                (static_cast<std::size_t>(output_y) * target.width + output_x) * 3U;
-
-            LinearRgb linear{};
-            for (std::size_t channel = 0; channel < linear.size(); ++channel) {
-                const auto sample = [&, channel](const std::size_t x, const std::size_t y) {
-                    return static_cast<double>(source.samples[(y * row_stride) + (x * 3U) + channel]);
-                };
-                const double top = sample(x0, y0) * (1.0 - fraction_x)
-                    + sample(x1, y0) * fraction_x;
-                const double bottom = sample(x0, y1) * (1.0 - fraction_x)
-                    + sample(x1, y1) * fraction_x;
-                linear[channel] = top * (1.0 - fraction_y) + bottom * fraction_y;
-            }
-            const LinearRgb mapped = map_linear_srgb_to_display_gamut(
-                linear,
-                source.reference == ImageReference::scene_referred
-            );
-            const double dither = display_quantization_dither(
-                output_origin_x + output_x,
-                output_origin_y + output_y
-            );
-            for (std::size_t channel = 0U; channel < mapped.size(); ++channel) {
-                output[output_index + channel] =
-                    linear_display_sample_to_srgb8(mapped[channel], dither);
-            }
-        }
-    }
-    return output;
 }
 
 struct PreparedEditPreviewPixels final {
@@ -2131,17 +1851,19 @@ RenderedDetailTile FullEditDetailSession::render_rgb8(
         geometry,
         output_rect
     );
-    auto bytes = resize_working_to_display_srgb8(
+    auto rendered = render_linear_srgb_to_display_srgb8(
         edited,
-        edited.dimensions,
-        rect.x,
-        rect.y
+        DisplayOutputRequest{
+            .target_dimensions = edited.dimensions,
+            .output_origin_x = rect.x,
+            .output_origin_y = rect.y,
+        }
     );
     return RenderedDetailTile{
         .rect = rect,
         .full_dimensions = geometry_layout.output_dimensions,
         .row_stride_bytes = rect.width * 3U,
-        .bytes = std::move(bytes),
+        .bytes = std::move(rendered.bytes),
     };
 }
 
@@ -2204,17 +1926,19 @@ RenderedDetailTile FullEditDetailSession::render_rgb8_layers(
         geometry,
         output_rect
     );
-    auto bytes = resize_working_to_display_srgb8(
+    auto rendered = render_linear_srgb_to_display_srgb8(
         edited,
-        edited.dimensions,
-        rect.x,
-        rect.y
+        DisplayOutputRequest{
+            .target_dimensions = edited.dimensions,
+            .output_origin_x = rect.x,
+            .output_origin_y = rect.y,
+        }
     );
     return RenderedDetailTile{
         .rect = rect,
         .full_dimensions = geometry_layout.output_dimensions,
         .row_stride_bytes = rect.width * 3U,
-        .bytes = std::move(bytes),
+        .bytes = std::move(rendered.bytes),
     };
 }
 
@@ -2325,11 +2049,14 @@ EncodedProxy render_reference_proxy_jpeg(
         developed.source
     );
     apply_source_rendering(working, source_rendering);
-    const auto rgb = resize_working_to_display_srgb8(working, target);
+    auto rendered = render_linear_srgb_to_display_srgb8(
+        working,
+        DisplayOutputRequest{.target_dimensions = target}
+    );
 
     EncodedProxy proxy;
     proxy.dimensions = target;
-    proxy.bytes = encode_jpeg(rgb, target, request.jpeg_quality);
+    proxy.bytes = encode_jpeg(rendered.bytes, target, request.jpeg_quality);
     return proxy;
 }
 
