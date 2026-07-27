@@ -192,6 +192,8 @@ the canonical aspect-preserving proxy dimension calculation.
 delegates the retained preview lifecycle to `WarmEditPreviewSession`.
 `src/proxy/warm_edit_preview.cpp` owns that retained interactive lifecycle, including bounded
 source preparation, execution provenance, cancellation, analysis, and JPEG delivery.
+`src/edit/adjustment_graph.cpp` closes the complete parameter-variant to operation/id registry;
+execution backends consume that graph identity instead of redefining it.
 `src/edit/metal_adjustment_program.hpp` owns the transient host-side Metal ABI and program
 preparation contract; `src/edit/metal_adjustment_execution.hpp` owns only backend availability and
 the execution attempt boundary.

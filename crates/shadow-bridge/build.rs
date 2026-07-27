@@ -50,6 +50,7 @@ const EMBEDDED_IMAGE_INPUTS: &[&str] = &[
     "src/color/lcms_color_management.cpp",
     "src/color/source_profile_catalog.cpp",
     "src/color/source_rendering.cpp",
+    "src/edit/adjustment_graph.cpp",
     "src/edit/cube_lut.cpp",
     "src/edit/adjustment_execution.cpp",
     "src/edit/metal_adjustment_execution.hpp",
@@ -237,6 +238,7 @@ fn main() {
         .file(image_root.join("src/color/lcms_color_management.cpp"))
         .file(image_root.join("src/color/source_profile_catalog.cpp"))
         .file(image_root.join("src/color/source_rendering.cpp"))
+        .file(image_root.join("src/edit/adjustment_graph.cpp"))
         .file(image_root.join("src/edit/adjustment_execution.cpp"))
         .file(image_root.join("src/edit/cube_lut.cpp"))
         .file(image_root.join("src/edit/cpu_reference.cpp"))

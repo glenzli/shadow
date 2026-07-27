@@ -44,6 +44,7 @@ add_library(
     src/color/source_profile_catalog.cpp
     src/color/source_rendering.cpp
     src/concurrency/row_scheduler.cpp
+    src/edit/adjustment_graph.cpp
     src/edit/adjustment_execution.cpp
     src/edit/cube_lut.cpp
     src/edit/cpu_reference.cpp
