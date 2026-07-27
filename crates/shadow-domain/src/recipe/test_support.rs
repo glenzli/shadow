@@ -1,10 +1,11 @@
-//! Shared Recipe test builders used by facade and edit-graph contract tests.
+//! Shared Recipe builders used by facade and responsibility contract tests.
 
-use crate::{EntityId, NodeId};
+use crate::{EntityId, LayerInstanceId, NodeId};
 
 use super::{
-    AdjustmentNode, EditGraph, ImageDomain, NodeInput, OperationDescriptor, OperationId,
-    ParameterBlock, PortType, ProcessingStage,
+    AdjustmentNode, AdjustmentScope, BlendMode, EditGraph, ImageDomain, LayerContent,
+    LayerInstance, NodeInput, OperationDescriptor, OperationId, ParameterBlock, PortType,
+    ProcessingStage, UnitInterval,
 };
 
 pub(super) fn operation(
@@ -60,4 +61,20 @@ pub(super) fn exposure_graph() -> EditGraph {
         }],
     );
     EditGraph::new(1, vec![image], vec![curve, exposure], curve_id).expect("valid graph")
+}
+
+pub(super) fn inline_layer() -> LayerInstance {
+    LayerInstance::new(
+        LayerInstanceId::new_v7(),
+        "Tone foundation",
+        AdjustmentScope::Photo,
+        LayerContent::Inline {
+            graph: exposure_graph(),
+        },
+        true,
+        UnitInterval::ONE,
+        BlendMode::Normal,
+        None,
+    )
+    .expect("valid layer")
 }
