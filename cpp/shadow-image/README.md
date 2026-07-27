@@ -207,6 +207,9 @@ are owned by `src/proxy/warm_edit_gpu_pipeline_context.*`.
 Session-resident source buffers, side-table caches, lazy neighborhood rasters, slot leases,
 working-set admission, synchronization, and GPU statistics move together in
 `src/proxy/warm_edit_gpu_resident_resources.*`; the dispatcher only receives leased buffer views.
+Program lowering, stage-specific buffer selection, Metal command encoding, kernel order, status
+interpretation, and readback form one execution pipeline in
+`src/proxy/warm_edit_gpu_dispatcher.*`; `warm_edit_gpu.mm` is the thin session facade.
 
 The edit path accepts explicitly native interleaved RGB float32, scene-referred, linear-light data
 with named RGB primaries, white point, and luminance coefficients. It is not legal to feed the

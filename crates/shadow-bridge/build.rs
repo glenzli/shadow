@@ -98,6 +98,8 @@ const EMBEDDED_IMAGE_INPUTS: &[&str] = &[
     "src/proxy/metal_display_output.mm",
     "src/proxy/metal_display_output_stub.cpp",
     "src/proxy/warm_edit_gpu.hpp",
+    "src/proxy/warm_edit_gpu_dispatcher.hpp",
+    "src/proxy/warm_edit_gpu_dispatcher.mm",
     "src/proxy/warm_edit_gpu_kernel_contract.hpp",
     "src/proxy/warm_edit_gpu_msl.hpp",
     "src/proxy/warm_edit_gpu_pipeline_context.hpp",
@@ -267,6 +269,7 @@ fn main() {
             .file(image_root.join("src/edit/metal_adjustment.mm"))
             .file(image_root.join("src/raw/metal_raw_development.mm"))
             .file(image_root.join("src/proxy/metal_display_output.mm"))
+            .file(image_root.join("src/proxy/warm_edit_gpu_dispatcher.mm"))
             .file(image_root.join("src/proxy/warm_edit_gpu_pipeline_context.mm"))
             .file(image_root.join("src/proxy/warm_edit_gpu_resident_resources.mm"))
             .file(image_root.join("src/proxy/warm_edit_gpu.mm"))
