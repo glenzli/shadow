@@ -62,6 +62,7 @@ add_library(
     src/raw/sensor_clipping.cpp
     src/decoder/private_decoder_plugin.cpp
     src/optics/lensfun_optics.cpp
+    src/proxy/developed_source_raster.cpp
     src/proxy/display_output.cpp
     src/proxy/jpeg_display_luma.cpp
     src/proxy/jpeg_proxy_encoding.cpp
@@ -263,6 +264,16 @@ if(BUILD_TESTING)
         shadow-image-proxy-output-tests
         shadow-image-proxy-output-contract
         tests/proxy_output_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-developed-source-raster-tests
+        shadow-image-developed-source-raster-contract
+        tests/developed_source_raster_contract_test.cpp
+    )
+    target_include_directories(
+        shadow-image-developed-source-raster-tests
+        PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/proxy"
     )
     shadow_image_add_contract(
         shadow-image-edit-preview-session-tests

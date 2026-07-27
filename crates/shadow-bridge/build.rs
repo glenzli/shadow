@@ -79,6 +79,8 @@ const EMBEDDED_IMAGE_INPUTS: &[&str] = &[
     "src/raw/raw_pipeline.cpp",
     "src/raw/sensor_clipping.cpp",
     "src/optics/lensfun_optics.cpp",
+    "src/proxy/developed_source_raster.hpp",
+    "src/proxy/developed_source_raster.cpp",
     "src/proxy/display_output.cpp",
     "src/proxy/display_rgb_math.hpp",
     "src/proxy/jpeg_display_luma.cpp",
@@ -235,6 +237,7 @@ fn main() {
         .file(image_root.join("src/raw/raw_pipeline.cpp"))
         .file(image_root.join("src/raw/sensor_clipping.cpp"))
         .file(image_root.join("src/optics/lensfun_optics.cpp"))
+        .file(image_root.join("src/proxy/developed_source_raster.cpp"))
         .file(image_root.join("src/proxy/display_output.cpp"))
         .file(image_root.join("src/proxy/jpeg_display_luma.cpp"))
         .file(image_root.join("src/proxy/jpeg_proxy_encoding.cpp"))
