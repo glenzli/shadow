@@ -1,6 +1,10 @@
 //! Optical correction settings, profile discovery, and native execution receipts.
 
-use super::*;
+use std::path::Path;
+
+use shadow_domain::RawMetadataSnapshot;
+
+use super::{BridgeError, ffi};
 
 /// Persisted input-transform contract understood by the C++ optics provider.
 pub const OPTICS_SETTINGS_SCHEMA_VERSION: u32 = 1;

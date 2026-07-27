@@ -2,7 +2,10 @@
 //!
 //! This protocol owns decode intent and provenance before photographer-authored RGB adjustments.
 
-use super::*;
+use serde::{Deserialize, Serialize};
+use shadow_domain::ImageDimensions;
+
+use super::{BridgeError, decoder::dimensions, ffi};
 
 /// The source-raster purpose requested from a RAW provider. This is intentionally separate from
 /// photographer-controlled adjustment nodes: it determines decode quality and cache identity

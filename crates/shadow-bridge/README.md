@@ -13,8 +13,8 @@ that same private wire representation:
 - [`src/display_luma.rs`](src/display_luma.rs) owns bounded, versioned display-proxy analysis.
 - [`src/optics.rs`](src/optics.rs) owns optical settings, profile discovery, and execution
   receipts.
-- [`src/raw_development.rs`](src/raw_development.rs) owns RAW plans, negotiation, and
-  source-development provenance receipts.
+- [`src/raw_development.rs`](src/raw_development.rs) owns RAW plan values, wire conversion,
+  negotiation results, and source-development provenance receipts.
 - [`src/adjustment.rs`](src/adjustment.rs) owns the typed adjustment graph, geometry, local masks,
   parameters, and their shared fail-closed validation chain.
 - [`src/preview_analysis.rs`](src/preview_analysis.rs) owns warm-preview histograms, source
@@ -25,8 +25,12 @@ that same private wire representation:
   bounded tile requests, and tightly packed RGB8 output validation.
 - [`src/render_wire.rs`](src/render_wire.rs) is the single auditable adapter from typed
   adjustment, geometry, and tile contracts to the flat private CXX wire.
-- [`src/lib.rs`](src/lib.rs) re-exports the public contract and retains only shared wiring that has
-  not yet gained a responsibility-named owner.
+- [`src/provider.rs`](src/provider.rs) owns provider identities, supported source declarations,
+  and RAW preflight negotiation entry points.
+- [`src/one_shot.rs`](src/one_shot.rs) owns stateless reference-proxy and adjustment-plan renders.
+- [`src/error.rs`](src/error.rs) owns the public failure vocabulary shared by safe bridge modules.
+- [`src/lib.rs`](src/lib.rs) is the public module index and the centralized generated CXX wire
+  declaration.
 
 Sharing the CXX representation is not by itself a reason to share one Rust source file. Extract a
 safe contract when it has its own invariants, failure policy, and consumers; keep the wire
