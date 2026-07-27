@@ -2,6 +2,7 @@
 
 #include <shadow/image/decoder_metadata.hpp>
 #include <shadow/image/decoder_types.hpp>
+#include <shadow/image/libraw_development_settings.hpp>
 #include <shadow/image/raw_development_plan.hpp>
 #include <shadow/image/raw_frame.hpp>
 #include <shadow/image/reference_pixels.hpp>

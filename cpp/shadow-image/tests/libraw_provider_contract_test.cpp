@@ -2,6 +2,7 @@
 
 #include <shadow/image/decoder.hpp>
 #include <shadow/image/edit.hpp>
+#include <shadow/image/libraw_development_settings.hpp>
 #include <shadow/image/raw_development.hpp>
 
 #include <algorithm>

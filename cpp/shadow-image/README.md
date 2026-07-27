@@ -20,6 +20,7 @@ DecoderProvider
 code should include the narrow semantic owner directly:
 
 - `decoder_types.hpp` owns small shared value types; `decoder_error.hpp` owns failure categories.
+- `libraw_development_settings.hpp` owns the concrete LibRaw renderer configuration.
 - `raw_development_plan.hpp` owns requested RAW intent and capability negotiation, while
   `raw_development_receipt.hpp` owns the auditable execution result.
 - `decoder_metadata.hpp` owns source facts and embedded-preview descriptors.
