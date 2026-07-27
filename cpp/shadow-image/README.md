@@ -186,7 +186,8 @@ proxy-size/JPEG-quality boundary and RAW-plan schema/intent checks. Lifecycle-sp
 and rendering stay with the warm-preview, full-detail, and proxy owners rather than with these
 leaf modules. `src/proxy/full_edit_detail.cpp` is the complete retained-source/tile lifecycle
 owner; its memory policy, optical source preparation, apron expansion, and render methods move
-together.
+together. `src/proxy/proxy_rendering.cpp` owns the ordinary one-shot reference-proxy pipeline and
+the canonical aspect-preserving proxy dimension calculation.
 
 The edit path accepts explicitly native interleaved RGB float32, scene-referred, linear-light data
 with named RGB primaries, white point, and luminance coefficients. It is not legal to feed the

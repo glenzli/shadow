@@ -68,6 +68,7 @@ add_library(
     src/proxy/jpeg_display_luma.cpp
     src/proxy/jpeg_proxy_encoding.cpp
     src/proxy/jpeg_proxy.cpp
+    src/proxy/proxy_rendering.cpp
     src/proxy/proxy_render_request_validation.cpp
 )
 if(APPLE AND SHADOW_ENABLE_METAL)
