@@ -62,6 +62,7 @@ const EMBEDDED_IMAGE_INPUTS: &[&str] = &[
     "src/edit/photo_geometry.cpp",
     "src/edit/retouch.cpp",
     "src/edit/metal_adjustment.mm",
+    "src/edit/metal_adjustment_msl.hpp",
     "src/edit/metal_adjustment_stub.cpp",
     "src/concurrency/row_scheduler.hpp",
     "src/concurrency/row_scheduler.cpp",
