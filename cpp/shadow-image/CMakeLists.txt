@@ -68,9 +68,9 @@ add_library(
     src/proxy/full_edit_detail.cpp
     src/proxy/jpeg_display_luma.cpp
     src/proxy/jpeg_proxy_encoding.cpp
-    src/proxy/jpeg_proxy.cpp
     src/proxy/proxy_rendering.cpp
     src/proxy/proxy_render_request_validation.cpp
+    src/proxy/warm_edit_preview.cpp
 )
 if(APPLE AND SHADOW_ENABLE_METAL)
     find_library(SHADOW_METAL_FRAMEWORK Metal REQUIRED)

@@ -190,6 +190,8 @@ together. `src/proxy/proxy_rendering.cpp` owns the ordinary one-shot reference-p
 the canonical aspect-preserving proxy dimension calculation.
 `src/proxy/edited_proxy_rendering.cpp` owns only the one-shot adjusted-proxy entry points and
 delegates the retained preview lifecycle to `WarmEditPreviewSession`.
+`src/proxy/warm_edit_preview.cpp` owns that retained interactive lifecycle, including bounded
+source preparation, execution provenance, cancellation, analysis, and JPEG delivery.
 
 The edit path accepts explicitly native interleaved RGB float32, scene-referred, linear-light data
 with named RGB primaries, white point, and luminance coefficients. It is not legal to feed the
