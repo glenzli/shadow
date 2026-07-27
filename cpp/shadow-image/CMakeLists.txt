@@ -45,6 +45,7 @@ add_library(
     src/color/source_rendering.cpp
     src/concurrency/row_scheduler.cpp
     src/edit/adjustment_graph.cpp
+    src/edit/adjustment_node_diagnostics.cpp
     src/edit/adjustment_execution.cpp
     src/edit/cube_lut.cpp
     src/edit/cpu_reference.cpp
@@ -52,6 +53,7 @@ add_library(
     src/edit/local_mask.cpp
     src/edit/photo_geometry.cpp
     src/edit/retouch.cpp
+    src/edit/working_color_math.cpp
     src/raw/bayer_demosaic.cpp
     src/raw/bayer_sampling.cpp
     src/raw/camera_profile_catalog.cpp

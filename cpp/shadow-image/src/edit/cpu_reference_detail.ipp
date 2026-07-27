@@ -257,11 +257,11 @@ void apply_perceptual_detail(
             for (std::size_t x = 0U; x < width; ++x) {
                 const std::size_t pixel = y * width + x;
                 const std::size_t sample = row + x * rgb_channels;
-                oklab[pixel] = xyz_to_oklab(multiply(color_transform.rgb_to_xyz, Vector3{
+                oklab[pixel] = working_rgb_to_oklab(color_transform, Vector3{
                     static_cast<double>(image.samples[sample]),
                     static_cast<double>(image.samples[sample + 1U]),
                     static_cast<double>(image.samples[sample + 2U]),
-                }));
+                });
                 lightness[pixel] = oklab[pixel][0];
             }
         }
@@ -416,7 +416,7 @@ void apply_perceptual_detail(
                     * compress_detail(broad_residual, 0.115)
                     * edge_protection * shadow_protection;
             }
-            const Vector3 output = multiply(color_transform.xyz_to_rgb, oklab_to_xyz(output_lab));
+            const Vector3 output = oklab_to_working_rgb(color_transform, output_lab);
             const std::size_t sample = row + x * rgb_channels;
             image.samples[sample] = checked_float(output[0], node_index, node);
             image.samples[sample + 1U] = checked_float(output[1], node_index, node);
@@ -1139,7 +1139,7 @@ void apply_dehaze_and_defringe(
                 }
             }
 
-            Vector3 lab = xyz_to_oklab(multiply(color_transform.rgb_to_xyz, input));
+            Vector3 lab = working_rgb_to_oklab(color_transform, input);
             const double chroma = std::hypot(lab[1], lab[2]);
             if ((parameters.defringe_purple_amount > 0.0
                     || parameters.defringe_green_amount > 0.0)
@@ -1163,7 +1163,7 @@ void apply_dehaze_and_defringe(
                 lab[2] *= 1.0 - 0.9 * reduction;
             }
 
-            return multiply(color_transform.xyz_to_rgb, oklab_to_xyz(lab));
+            return oklab_to_working_rgb(color_transform, lab);
         }
     );
 }
@@ -1246,7 +1246,7 @@ void apply_color_grading(
         [&prepared, luma_weights, &color_transform](const Vector3& input) {
             const double luma = input[0] * luma_weights[0]
                 + input[1] * luma_weights[1] + input[2] * luma_weights[2];
-            Vector3 lab = xyz_to_oklab(multiply(color_transform.rgb_to_xyz, input));
+            Vector3 lab = working_rgb_to_oklab(color_transform, input);
             const double normalized = std::max(0.0, luma) / (std::max(0.0, luma) + 0.18);
             double shadow_weight = 1.0 - smoothstep(
                 prepared.center - prepared.width,
@@ -1276,7 +1276,7 @@ void apply_color_grading(
             apply_wheel(prepared.shadows, shadow_weight);
             apply_wheel(prepared.midtones, midtone_weight);
             apply_wheel(prepared.highlights, highlight_weight);
-            return multiply(color_transform.xyz_to_rgb, oklab_to_xyz(lab));
+            return oklab_to_working_rgb(color_transform, lab);
         }
     );
 }

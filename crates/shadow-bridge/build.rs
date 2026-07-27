@@ -53,6 +53,8 @@ const EMBEDDED_IMAGE_INPUTS: &[&str] = &[
     "src/color/source_profile_catalog.cpp",
     "src/color/source_rendering.cpp",
     "src/edit/adjustment_graph.cpp",
+    "src/edit/adjustment_node_diagnostics.hpp",
+    "src/edit/adjustment_node_diagnostics.cpp",
     "src/edit/cube_lut.cpp",
     "src/edit/adjustment_execution.cpp",
     "src/edit/metal_adjustment_execution.hpp",
@@ -65,6 +67,8 @@ const EMBEDDED_IMAGE_INPUTS: &[&str] = &[
     "src/edit/local_mask.cpp",
     "src/edit/photo_geometry.cpp",
     "src/edit/retouch.cpp",
+    "src/edit/working_color_math.hpp",
+    "src/edit/working_color_math.cpp",
     "src/edit/metal_adjustment.mm",
     "src/edit/metal_adjustment_msl.hpp",
     "src/edit/metal_adjustment_stub.cpp",
@@ -241,12 +245,14 @@ fn main() {
         .file(image_root.join("src/color/source_profile_catalog.cpp"))
         .file(image_root.join("src/color/source_rendering.cpp"))
         .file(image_root.join("src/edit/adjustment_graph.cpp"))
+        .file(image_root.join("src/edit/adjustment_node_diagnostics.cpp"))
         .file(image_root.join("src/edit/adjustment_execution.cpp"))
         .file(image_root.join("src/edit/cube_lut.cpp"))
         .file(image_root.join("src/edit/cpu_reference.cpp"))
         .file(image_root.join("src/edit/local_mask.cpp"))
         .file(image_root.join("src/edit/photo_geometry.cpp"))
         .file(image_root.join("src/edit/retouch.cpp"))
+        .file(image_root.join("src/edit/working_color_math.cpp"))
         .file(image_root.join("src/concurrency/row_scheduler.cpp"))
         .file(image_root.join("src/raw/bayer_demosaic.cpp"))
         .file(image_root.join("src/raw/bayer_sampling.cpp"))

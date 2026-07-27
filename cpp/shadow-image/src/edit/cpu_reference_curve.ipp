@@ -234,12 +234,12 @@ void apply_prepared_oklab_lightness_tone_curve(
                 static_cast<double>(image.samples[sample + 1U]),
                 static_cast<double>(image.samples[sample + 2U]),
             };
-            Vector3 lab = xyz_to_oklab(multiply(color_transform.rgb_to_xyz, input));
+            Vector3 lab = working_rgb_to_oklab(color_transform, input);
             // a and b deliberately remain untouched.  This is the key semantic
             // distinction from RGB master/channel curves: it changes perceived
             // lightness without directly rotating hue or scaling chroma.
             lab[0] = evaluate_smooth_tone_curve(prepared, lab[0]);
-            const Vector3 output = multiply(color_transform.xyz_to_rgb, oklab_to_xyz(lab));
+            const Vector3 output = oklab_to_working_rgb(color_transform, lab);
             for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
                 image.samples[sample + channel] = checked_conversion(output[channel]);
             }
@@ -318,7 +318,7 @@ void apply_prepared_oklab_opponent_tone_curves(
                     static_cast<double>(image.samples[sample + 1U]),
                     static_cast<double>(image.samples[sample + 2U]),
                 };
-                Vector3 lab = xyz_to_oklab(multiply(color_transform.rgb_to_xyz, input));
+                Vector3 lab = working_rgb_to_oklab(color_transform, input);
                 // The authored control domain is photographic Oklab L. HDR
                 // headroom should not extrapolate into an arbitrary cast, so
                 // highlights beyond that domain use the endpoint color shift.
@@ -333,7 +333,7 @@ void apply_prepared_oklab_opponent_tone_curves(
                     -maximum_oklab_opponent_curve_offset,
                     maximum_oklab_opponent_curve_offset
                 );
-                const Vector3 output = multiply(color_transform.xyz_to_rgb, oklab_to_xyz(lab));
+                const Vector3 output = oklab_to_working_rgb(color_transform, lab);
                 for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
                     image.samples[sample + channel] = checked_conversion(output[channel]);
                 }

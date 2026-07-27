@@ -61,7 +61,7 @@
         return input;
     }
 
-    Vector3 lab = xyz_to_oklab(multiply(color_transform.rgb_to_xyz, input));
+    Vector3 lab = working_rgb_to_oklab(color_transform, input);
     if (!(lab[0] > 0.0) || !std::isfinite(lab[0])) {
         return input;
     }
@@ -71,7 +71,7 @@
     const double pivot = std::cbrt(std::max(parameters.pivot, 1.0e-9));
     if (parameters.factor == 0.0) {
         lab[0] = pivot;
-        return multiply(color_transform.xyz_to_rgb, oklab_to_xyz(lab));
+        return oklab_to_working_rgb(color_transform, lab);
     }
 
     const double normalized = lab[0] / (lab[0] + pivot);
@@ -88,7 +88,7 @@
         + amount * 2.0 * normalized * (1.0 - normalized) * (2.0 * normalized - 1.0);
     const double bounded = std::clamp(shaped, 1.0e-7, 1.0 - 1.0e-7);
     lab[0] = pivot * bounded / (1.0 - bounded);
-    return multiply(color_transform.xyz_to_rgb, oklab_to_xyz(lab));
+    return oklab_to_working_rgb(color_transform, lab);
 }
 
 [[nodiscard]] double adjusted_selective_tone_ev(
@@ -187,7 +187,7 @@
     const SelectiveToneAdjustment& parameters,
     const double mask_ev
 ) noexcept {
-    Vector3 lab = xyz_to_oklab(multiply(color_transform.rgb_to_xyz, input));
+    Vector3 lab = working_rgb_to_oklab(color_transform, input);
     if (!(lab[0] > 0.0) || !std::isfinite(lab[0])) {
         return input;
     }
@@ -202,7 +202,7 @@
         return input;
     }
     lab[0] *= std::cbrt(gain);
-    return multiply(color_transform.xyz_to_rgb, oklab_to_xyz(lab));
+    return oklab_to_working_rgb(color_transform, lab);
 }
 
 [[nodiscard]] std::uint32_t selective_tone_mask_radius(

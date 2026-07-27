@@ -211,7 +211,7 @@ template <std::size_t Size>
     const OklabColorWarperAdjustment& parameters,
     const WorkingSpaceTransform& color_transform
 ) noexcept {
-    Vector3 lab = xyz_to_oklab(multiply(color_transform.rgb_to_xyz, input));
+    Vector3 lab = working_rgb_to_oklab(color_transform, input);
     const double half_extent = oklab_color_warper_half_extent;
     const double a_distance = half_extent - std::abs(lab[1]);
     const double b_distance = half_extent - std::abs(lab[2]);
@@ -258,7 +258,7 @@ template <std::size_t Size>
     const double amount = coverage * parameters.strength;
     lab[1] += amount * bilinear(true);
     lab[2] += amount * bilinear(false);
-    return multiply(color_transform.xyz_to_rgb, oklab_to_xyz(lab));
+    return oklab_to_working_rgb(color_transform, lab);
 }
 
 // The Oklab axes are perceptually opponent: a is green/red and b is
@@ -323,7 +323,7 @@ selective_color_target_weights(const Vector3& lab) noexcept {
     const PerceptualColorAdjustment& parameters,
     const WorkingSpaceTransform& color_transform
 ) noexcept {
-    const Vector3 lab = xyz_to_oklab(multiply(color_transform.rgb_to_xyz, input));
+    const Vector3 lab = working_rgb_to_oklab(color_transform, input);
     const auto target_weights = selective_color_target_weights(lab);
     std::array<double, selective_color_component_count> adjustment{};
     for (std::size_t target = 0U; target < selective_color_target_count; ++target) {
@@ -376,13 +376,13 @@ selective_color_target_weights(const Vector3& lab) noexcept {
     // perceived exposure chosen earlier in the graph. It deliberately leaves
     // scene-linear values unbounded; output gamut mapping owns clipping.
     if (parameters.selective_color_lightness_protection > 0.0) {
-        Vector3 corrected_lab = xyz_to_oklab(multiply(color_transform.rgb_to_xyz, output));
+        Vector3 corrected_lab = working_rgb_to_oklab(color_transform, output);
         corrected_lab[0] = std::lerp(
             corrected_lab[0],
             lab[0],
             parameters.selective_color_lightness_protection
         );
-        output = multiply(color_transform.xyz_to_rgb, oklab_to_xyz(corrected_lab));
+        output = oklab_to_working_rgb(color_transform, corrected_lab);
     }
     return output;
 }
