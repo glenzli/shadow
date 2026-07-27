@@ -184,7 +184,9 @@ representations. `src/proxy/jpeg_proxy_encoding.*` owns the bounded libjpeg 4:4:
 by reference and edited proxies. `src/proxy/proxy_render_request_validation.*` owns the shared
 proxy-size/JPEG-quality boundary and RAW-plan schema/intent checks. Lifecycle-specific preparation
 and rendering stay with the warm-preview, full-detail, and proxy owners rather than with these
-leaf modules.
+leaf modules. `src/proxy/full_edit_detail.cpp` is the complete retained-source/tile lifecycle
+owner; its memory policy, optical source preparation, apron expansion, and render methods move
+together.
 
 The edit path accepts explicitly native interleaved RGB float32, scene-referred, linear-light data
 with named RGB primaries, white point, and luminance coefficients. It is not legal to feed the
