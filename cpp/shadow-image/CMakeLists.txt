@@ -188,14 +188,14 @@ if(BUILD_TESTING)
     target_link_libraries(shadow-image-libraw-dummy-private-provider PRIVATE Shadow::Image)
     shadow_image_enable_warnings(shadow-image-libraw-dummy-private-provider)
 
-    function(shadow_image_add_decoder_contract target_name test_name source_name)
+    function(shadow_image_add_contract target_name test_name source_name)
         add_executable(${target_name} ${source_name})
         target_link_libraries(${target_name} PRIVATE Shadow::Image)
         shadow_image_enable_warnings(${target_name})
         add_test(NAME ${test_name} COMMAND ${target_name})
     endfunction()
 
-    shadow_image_add_decoder_contract(
+    shadow_image_add_contract(
         shadow-image-raw-source-tests
         shadow-image-raw-source-contract
         tests/raw_source_contract_test.cpp
@@ -206,7 +206,7 @@ if(BUILD_TESTING)
             "SHADOW_TEST_JPEG_PATH=\"${CMAKE_SOURCE_DIR}/apps/desktop/assets/lut-preview-reference.jpg\""
     )
 
-    shadow_image_add_decoder_contract(
+    shadow_image_add_contract(
         shadow-image-private-decoder-tests
         shadow-image-private-decoder-contract
         tests/private_decoder_contract_test.cpp
@@ -225,7 +225,7 @@ if(BUILD_TESTING)
             "SHADOW_TEST_LIBRAW_DUMMY_PRIVATE_DECODER_PLUGIN_PATH=\"$<TARGET_FILE:shadow-image-libraw-dummy-private-provider>\""
     )
 
-    shadow_image_add_decoder_contract(
+    shadow_image_add_contract(
         shadow-image-optics-preparation-tests
         shadow-image-optics-preparation-contract
         tests/optics_preparation_contract_test.cpp
@@ -247,21 +247,37 @@ if(BUILD_TESTING)
         endif()
     endif()
 
-    shadow_image_add_decoder_contract(
+    shadow_image_add_contract(
         shadow-image-preview-session-tests
         shadow-image-preview-session-contract
         tests/preview_session_contract_test.cpp
     )
-    shadow_image_add_decoder_contract(
+    shadow_image_add_contract(
         shadow-image-libraw-provider-tests
         shadow-image-libraw-provider-contract
         tests/libraw_provider_contract_test.cpp
     )
 
-    add_executable(shadow-image-edit-tests tests/edit_contract_test.cpp)
-    target_link_libraries(shadow-image-edit-tests PRIVATE Shadow::Image)
-    shadow_image_enable_warnings(shadow-image-edit-tests)
-    add_test(NAME shadow-image-edit-contract COMMAND shadow-image-edit-tests)
+    shadow_image_add_contract(
+        shadow-image-edit-plan-tests
+        shadow-image-edit-plan-contract
+        tests/edit_plan_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-tone-adjustment-tests
+        shadow-image-tone-adjustment-contract
+        tests/tone_adjustment_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-detail-effects-tests
+        shadow-image-detail-effects-contract
+        tests/detail_effects_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-lut-execution-tests
+        shadow-image-lut-execution-contract
+        tests/lut_execution_contract_test.cpp
+    )
 
     add_executable(
         shadow-image-spatial-edit-tests

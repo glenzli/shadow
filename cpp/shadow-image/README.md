@@ -151,7 +151,14 @@ the one-shot edited-proxy path rejects malformed plans before asking a decoder t
 
 Edit-kernel contract tests follow the same ownership boundaries as the implementation:
 
-- `tests/edit_contract_test.cpp` owns ordered-node, tone, detail, and execution-plan contracts.
+- `tests/edit_plan_contract_test.cpp` owns operation identity, execution-plan segmentation,
+  node order, validation, layout, and the basic pixel contract.
+- `tests/tone_adjustment_contract_test.cpp` owns contrast, selective tone, and Oklab lightness
+  curve behavior.
+- `tests/detail_effects_contract_test.cpp` owns sharpen, denoise, defringe, clarity, and
+  color-grading execution passes.
+- `tests/lut_execution_contract_test.cpp` owns Cube LUT bypass, interpolation, blending, and
+  extreme-scene execution; `tests/lut_contract_test.cpp` remains the resource parser owner.
 - `tests/spatial_edit_contract_test.cpp` owns global-coordinate effects, local masks,
   repair/clone strokes, and photo geometry.
 - `tests/perceptual_color_contract_test.cpp` owns point color, selective color, perceptual hue
