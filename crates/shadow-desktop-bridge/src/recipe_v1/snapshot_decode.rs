@@ -1,6 +1,58 @@
 //! Reverse decoding from immutable Recipe v1 snapshots into editable desktop drafts.
 
-use super::*;
+use anyhow::{Context, Result as AnyResult, anyhow, bail};
+use shadow_bridge::{
+    BasicEditParameters, ColorRangeParameters, OklabLightnessToneCurve,
+    PERCEPTUAL_COLOR_PARAMETER_SCHEMA_VERSION, PerceptualColorParameters, SelectiveToneParameters,
+    SharpenParameters, ToneCurvePoint,
+};
+use shadow_domain::operation::{
+    BLACKS_PARAMETER_KEY, COLOR_MIXER_HUE_PARAMETER_KEY, COLOR_MIXER_LIGHTNESS_PARAMETER_KEY,
+    COLOR_MIXER_SATURATION_PARAMETER_KEY, COLOR_RANGE_CENTER_PARAMETER_KEY,
+    COLOR_RANGE_ENABLED_PARAMETER_KEY, COLOR_RANGE_HUE_PARAMETER_KEY,
+    COLOR_RANGE_LIGHTNESS_PARAMETER_KEY, COLOR_RANGE_SATURATION_PARAMETER_KEY,
+    COLOR_RANGE_SOFTNESS_PARAMETER_KEY, COLOR_RANGE_WIDTH_PARAMETER_KEY,
+    CONTRAST_FACTOR_PARAMETER_KEY, CONTRAST_PIVOT_PARAMETER_KEY,
+    CPU_REFERENCE_IMPLEMENTATION_VERSION, CPU_REFERENCE_PARAMETER_SCHEMA_VERSION,
+    DETAIL_EFFECTS_PARAMETERS_KEY, EXPOSURE_STOPS_PARAMETER_KEY, GLOBAL_A_BALANCE_PARAMETER_KEY,
+    GLOBAL_B_BALANCE_PARAMETER_KEY, HIGHLIGHTS_PARAMETER_KEY, LUT_INTENSITY_PARAMETER_KEY,
+    LUT_MANAGED_PATH_PARAMETER_KEY, LUT_RESOURCE_ID_PARAMETER_KEY, LUT_TITLE_PARAMETER_KEY,
+    OKLAB_COLOR_WARPER_CONTROL_POINTS_PARAMETER_KEY, OKLAB_COLOR_WARPER_IMPLEMENTATION_VERSION,
+    OKLAB_COLOR_WARPER_OPERATION_ID, OKLAB_COLOR_WARPER_PARAMETER_SCHEMA_VERSION,
+    OKLAB_COLOR_WARPER_STRENGTH_PARAMETER_KEY, OKLAB_LIGHTNESS_TONE_CURVE_IMPLEMENTATION_VERSION,
+    OKLAB_LIGHTNESS_TONE_CURVE_OPERATION_ID, OKLAB_LIGHTNESS_TONE_CURVE_PARAMETER_SCHEMA_VERSION,
+    OKLAB_LIGHTNESS_TONE_CURVE_POINTS_PARAMETER_KEY, PERCEPTUAL_COLOR_IMPLEMENTATION_VERSION,
+    PERCEPTUAL_COLOR_OPERATION_ID, POINT_COLOR_RANGES_PARAMETER_KEY,
+    SATURATION_FACTOR_PARAMETER_KEY, SELECTIVE_COLOR_CMYK_PARAMETER_KEY,
+    SELECTIVE_COLOR_LIGHTNESS_PROTECTION_PARAMETER_KEY, SELECTIVE_COLOR_RELATIVE_PARAMETER_KEY,
+    SELECTIVE_TONE_IMPLEMENTATION_VERSION, SELECTIVE_TONE_OPERATION_ID,
+    SELECTIVE_TONE_PARAMETER_SCHEMA_VERSION, SHADOWS_PARAMETER_KEY, SHARPEN_AMOUNT_PARAMETER_KEY,
+    SHARPEN_MASKING_PARAMETER_KEY, SHARPEN_RADIUS_PARAMETER_KEY, SHARPEN_THRESHOLD_PARAMETER_KEY,
+    TECHNICAL_DETAIL_PARAMETER_SCHEMA_VERSION, VIBRANCE_PARAMETER_KEY,
+    WHITE_BALANCE_TEMPERATURE_PARAMETER_KEY, WHITE_BALANCE_TINT_PARAMETER_KEY,
+    WHITES_PARAMETER_KEY,
+};
+use shadow_domain::{
+    AdjustmentNode, AdjustmentScope, BlendMode, CURRENT_RECIPE_SCHEMA_VERSION, EntityId,
+    ImageDomain, LayerContent, LayerInstance, LayerInstanceId, LayerRevision,
+    LayerRevisionSelector, MaskCoordinateSpace, MaskDefinition, NodeInput, ParameterBlock,
+    ParameterKey, ParameterValue, PortType, ProcessingStage, RecipeSnapshot, UnitInterval,
+};
+
+use crate::ffi;
+
+use super::snapshot_encode::GradeNodeRecipeV1RenderOps;
+use super::{
+    CONTRAST_PIVOT, FineEditParameters, GradeNodeDraft, GradeNodeRecipeV1Identity, GradeStackDraft,
+    LutEditParameters, MAX_GRADE_NODES, SharedGradeNodeReference, apply_detail_effect_values,
+    encode_grade_node_draft_recipe_v1, fixed_color_mixer, fixed_selective_color,
+    grade_node_recipe_v1_render_ops, is_neutral_oklab_color_warper, oklab_color_warper_from_ffi,
+    point_color_ranges_from_vector, recipe_color_grading_render_op_id,
+    recipe_finishing_effects_render_op_id, recipe_v1_oklab_color_warper_render_op_id,
+    recipe_v1_oklab_lightness_tone_curve_render_op_id, single_grade_node_recipe_v1_render_ops,
+    validate_basic_parameters, validate_fine_parameters, validate_grade_stack_draft_recipe_v1,
+    validate_tone_curve,
+};
 
 #[cfg(test)]
 pub(crate) fn basic_parameters_from_snapshot(

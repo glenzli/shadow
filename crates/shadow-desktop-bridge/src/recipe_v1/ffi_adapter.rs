@@ -4,7 +4,29 @@
 //! conversion because those values enter and leave through the same atomic
 //! editable Grade Stack contract.
 
-use super::*;
+use anyhow::{Context, Result as AnyResult, anyhow, bail};
+use shadow_bridge::{
+    AdjustmentGeometry, AdjustmentQuarterTurn, BasicEditParameters, COLOR_MIXER_BAND_COUNT,
+    ColorRangeParameters, OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT, OklabColorWarperControlPoint,
+    OklabColorWarperParameters, OklabLightnessToneCurve, OpticsSettings, PerceptualColorParameters,
+    SELECTIVE_COLOR_VALUE_COUNT, SelectiveToneParameters, SharpenParameters,
+};
+use shadow_domain::{
+    LayerId, LayerInstanceId, LayerRevisionId, MAX_MASK_BRUSH_POINTS, MaskBrushPoint,
+    MaskDefinition, NodeId, PhotoGeometry, PhotoQuarterTurn, RecipeOpticsSettings, RetouchMode,
+    RetouchPoint, RetouchSpot, RetouchStroke, UnitInterval,
+};
+
+use crate::ffi;
+
+use super::{
+    FineEditParameters, GradeNodeDraft, GradeNodeRecipeV1Identity, GradeStackDraft,
+    LutEditParameters, MAX_GRADE_NODES, SharedGradeNodeReference, grade_stack_recipe_v1_snapshot,
+    point_color_ranges_from_vector_optional, recipe_color_grading_render_op_id,
+    recipe_finishing_effects_render_op_id, recipe_v1_oklab_color_warper_render_op_id,
+    recipe_v1_oklab_lightness_tone_curve_render_op_id, tone_curve_points_from_vector,
+    validate_basic_parameters, validate_fine_parameters, validate_grade_stack_draft_recipe_v1,
+};
 
 const LOCAL_MASK_NONE: u8 = 0;
 const LOCAL_MASK_LINEAR_GRADIENT: u8 = 1;
