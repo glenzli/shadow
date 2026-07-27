@@ -59,10 +59,10 @@ use shadow_domain::{
 };
 
 use super::{
-    MAX_GRADE_NODES, adjustment_geometry, apply_detail_effect_values, fixed_color_mixer,
-    fixed_selective_color, grade_node_recipe_v1_render_ops, oklab_color_warper_from_ffi,
-    point_color_ranges_from_vector, required_bool, required_float, required_float_vector,
-    required_text, tone_curve_points_from_vector,
+    MAX_GRADE_NODES, apply_detail_effect_values, ffi_adapter::adjustment_geometry,
+    fixed_color_mixer, fixed_selective_color, grade_node_recipe_v1_render_ops,
+    oklab_color_warper_from_ffi, point_color_ranges_from_vector, required_bool, required_float,
+    required_float_vector, required_text, tone_curve_points_from_vector,
 };
 
 // Retouch is photo-local rather than a Grade Node. These fixed, compiler-only
