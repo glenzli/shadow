@@ -8,10 +8,12 @@ use super::*;
 mod edit_history;
 mod evidence;
 mod export_preset;
+mod export_queue;
 mod import_journal;
 use edit_history::run_edit_history_message;
 use evidence::{run_decision_message, run_feedback_message};
 use export_preset::run_export_preset_message;
+use export_queue::run_export_queue_message;
 use import_journal::run_import_journal_message;
 
 #[allow(clippy::too_many_lines)]
@@ -226,42 +228,7 @@ pub(super) fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
             }
             Message::EditHistory(message) => run_edit_history_message(&mut catalog, message),
             Message::ExportPreset(message) => run_export_preset_message(&mut catalog, message),
-            Message::EnqueueExportJob(request, response) => {
-                let _ = response.send(catalog.enqueue_export_job(request.as_ref()));
-            }
-            Message::ExportJob(job_id, response) => {
-                respond(&response, catalog.export_job(job_id));
-            }
-            Message::ExportJobs(limit, response) => {
-                let _ = response.send(catalog.export_jobs(limit));
-            }
-            Message::ExportJobItems(job_id, response) => {
-                let _ = response.send(catalog.export_job_items(job_id));
-            }
-            Message::ExportItem(item_id, response) => {
-                respond(&response, catalog.export_item(item_id));
-            }
-            Message::ExportJobProgress(job_id, response) => {
-                respond(&response, catalog.export_job_progress(job_id));
-            }
-            Message::ClaimNextExportItem(now_ms, response) => {
-                let _ = response.send(catalog.claim_next_export_item(now_ms));
-            }
-            Message::AdvanceExportItem(request, response) => {
-                let _ = response.send(catalog.advance_export_item(request.as_ref()));
-            }
-            Message::ExportOutputReceipt(item_id, response) => {
-                respond(&response, catalog.export_output_receipt(item_id));
-            }
-            Message::CancelExportJob(job_id, now_ms, response) => {
-                let _ = response.send(catalog.cancel_export_job(job_id, now_ms));
-            }
-            Message::RecoverInterruptedExportJobs(now_ms, response) => {
-                let _ = response.send(catalog.recover_interrupted_export_jobs(now_ms));
-            }
-            Message::RecoverAndRequeueInterruptedExportItems(now_ms, response) => {
-                let _ = response.send(catalog.recover_and_requeue_interrupted_export_items(now_ms));
-            }
+            Message::ExportQueue(message) => run_export_queue_message(&mut catalog, message),
             Message::Decision(message) => run_decision_message(&mut catalog, message),
             Message::Feedback(message) => run_feedback_message(&mut catalog, message),
             Message::ImportJournal(message) => run_import_journal_message(&mut catalog, message),

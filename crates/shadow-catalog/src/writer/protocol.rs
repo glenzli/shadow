@@ -9,10 +9,12 @@ use super::*;
 mod edit_history;
 mod evidence;
 mod export_preset;
+mod export_queue;
 mod import_journal;
 pub(super) use edit_history::EditHistoryMessage;
 pub(super) use evidence::{DecisionMessage, FeedbackMessage};
 pub(super) use export_preset::ExportPresetMessage;
+pub(super) use export_queue::ExportQueueMessage;
 pub(super) use import_journal::ImportJournalMessage;
 
 pub(super) enum Message {
@@ -195,52 +197,7 @@ pub(super) enum Message {
     ),
     EditHistory(EditHistoryMessage),
     ExportPreset(ExportPresetMessage),
-    EnqueueExportJob(
-        Box<EnqueueExportJob>,
-        SyncSender<Result<ExportJobRecord, CatalogError>>,
-    ),
-    ExportJob(
-        ExportJobId,
-        SyncSender<Result<Option<ExportJobRecord>, CatalogError>>,
-    ),
-    ExportJobs(
-        usize,
-        SyncSender<Result<Vec<ExportJobRecord>, CatalogError>>,
-    ),
-    ExportJobItems(
-        ExportJobId,
-        SyncSender<Result<Vec<ExportItemRecord>, CatalogError>>,
-    ),
-    ExportItem(
-        ExportItemId,
-        SyncSender<Result<Option<ExportItemRecord>, CatalogError>>,
-    ),
-    ExportJobProgress(
-        ExportJobId,
-        SyncSender<Result<ExportJobProgress, CatalogError>>,
-    ),
-    ClaimNextExportItem(
-        i64,
-        SyncSender<Result<Option<ExportItemRecord>, CatalogError>>,
-    ),
-    AdvanceExportItem(
-        Box<crate::AdvanceExportItem>,
-        SyncSender<Result<ExportItemRecord, CatalogError>>,
-    ),
-    ExportOutputReceipt(
-        ExportItemId,
-        SyncSender<Result<Option<ExportOutputReceiptRecord>, CatalogError>>,
-    ),
-    CancelExportJob(
-        ExportJobId,
-        i64,
-        SyncSender<Result<ExportJobRecord, CatalogError>>,
-    ),
-    RecoverInterruptedExportJobs(i64, SyncSender<Result<usize, CatalogError>>),
-    RecoverAndRequeueInterruptedExportItems(
-        i64,
-        SyncSender<Result<ExportQueueRecovery, CatalogError>>,
-    ),
+    ExportQueue(ExportQueueMessage),
     Decision(DecisionMessage),
     Feedback(FeedbackMessage),
     ImportJournal(ImportJournalMessage),
