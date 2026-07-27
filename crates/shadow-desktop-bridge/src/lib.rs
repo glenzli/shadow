@@ -10,6 +10,8 @@ mod library_service;
 mod relink_service;
 mod review_service;
 mod scan_service;
+mod session_library;
+mod session_scan;
 
 // Photo source admission, preview delivery, and detail viewports.
 mod detail_tile_cache;
@@ -30,6 +32,7 @@ mod shared_grade_library;
 mod cache_maintenance_service;
 mod export_queue_service;
 mod export_service;
+mod session_export;
 
 use std::{
     collections::{BTreeMap, HashMap, HashSet, VecDeque},
@@ -78,7 +81,7 @@ use shadow_catalog::{
 };
 use shadow_core::{CachedArtifactLoader, fingerprint_source};
 #[cfg(test)]
-use shadow_core::{DecodeInspectionSummary, ScanCancellation, ScanCompletion};
+use shadow_core::{DecodeInspectionSummary, ScanCompletion};
 use shadow_domain::operation::{
     BASIC_GRAPH_SCHEMA_VERSION, BASIC_LAYER_LABEL, BLACKS_PARAMETER_KEY,
     COLOR_GRADING_IMPLEMENTATION_VERSION, COLOR_GRADING_OPERATION_ID,
@@ -126,13 +129,13 @@ use shadow_domain::{
 };
 use uuid::Uuid;
 
-#[cfg(test)]
-use crate::photo_provider::PhotoInspector;
-use crate::photo_provider::isolated_edit_raster;
 use crate::isolated_proxy::{
     NativeDecodeAdmission, configured_helper_path, native_decode_admission_after_isolated_stages,
     snapshot_isolated_photo_metadata,
 };
+#[cfg(test)]
+use crate::photo_provider::PhotoInspector;
+use crate::photo_provider::isolated_edit_raster;
 use crate::relink_service::{RelinkService, VerifiedSourceRelinkReceipt};
 use crate::review_service::ReviewService;
 use crate::scan_service::ScanService;
@@ -1629,136 +1632,6 @@ fn validate_decode_inspection_summary(
 }
 
 impl DesktopSession {
-    fn scan_folder(&self, folder_path: &str, scan_id: u64) -> AnyResult<ffi::FfiScanReport> {
-        self.scanner.scan_folder(folder_path, scan_id)
-    }
-
-    fn scan_progress(&self, scan_id: u64) -> AnyResult<ffi::FfiScanProgress> {
-        self.scanner.progress(scan_id)
-    }
-
-    fn cancel_folder_scan(&self, scan_id: u64) -> AnyResult<bool> {
-        self.scanner.cancel(scan_id)
-    }
-
-    fn enqueue_durable_export_job(
-        &self,
-        targets: Vec<ffi::FfiDurableExportTarget>,
-        settings_json: &str,
-    ) -> AnyResult<ffi::FfiDurableExportJob> {
-        self.export_queue.enqueue(self, targets, settings_json)
-    }
-
-    fn recover_durable_export_queue(&self) -> AnyResult<ffi::FfiDurableExportRecovery> {
-        self.export_queue.recover_for_startup()
-    }
-
-    fn claim_next_durable_export_item(&self) -> AnyResult<ffi::FfiDurableExportItem> {
-        Ok(self
-            .export_queue
-            .claim_next()?
-            .unwrap_or_else(|| ffi::FfiDurableExportItem {
-                has_item: false,
-                item_id: String::new(),
-                job_id: String::new(),
-                photo_id: String::new(),
-                source_path: String::new(),
-                output_path: String::new(),
-                settings_json: String::new(),
-            }))
-    }
-
-    fn begin_durable_export_render(&self, item_id: &str) -> AnyResult<()> {
-        self.export_queue.begin_render(item_id)
-    }
-
-    fn render_durable_export_item(
-        &self,
-        item: &ffi::FfiDurableExportItem,
-    ) -> AnyResult<ffi::FfiEditedExportRaster> {
-        self.export_queue.render(self, item)
-    }
-
-    fn begin_durable_export_encoding(&self, item_id: &str) -> AnyResult<()> {
-        self.export_queue.begin_encoding(item_id)
-    }
-
-    fn begin_durable_export_write(&self, item_id: &str) -> AnyResult<()> {
-        self.export_queue.begin_writing(item_id)
-    }
-
-    fn pause_durable_export_conflict(&self, item_id: &str) -> AnyResult<()> {
-        self.export_queue.pause_for_conflict(item_id)
-    }
-
-    fn complete_durable_export_item(
-        &self,
-        item_id: &str,
-        job_id: &str,
-        output_format: &str,
-        byte_len: u64,
-        receipt_json: &str,
-    ) -> AnyResult<()> {
-        self.export_queue
-            .complete(item_id, job_id, output_format, byte_len, receipt_json)
-    }
-
-    fn fail_durable_export_item(
-        &self,
-        item_id: &str,
-        stage: ffi::FfiDurableExportItemState,
-        code: &str,
-        message: &str,
-        retryable: bool,
-    ) -> AnyResult<()> {
-        self.export_queue
-            .fail_from_ffi(item_id, stage, code, message, retryable)
-    }
-
-    fn cancel_durable_export_job(&self, job_id: &str) -> AnyResult<()> {
-        self.export_queue.cancel_job(job_id)
-    }
-
-    fn durable_export_progress(&self, job_id: &str) -> AnyResult<ffi::FfiDurableExportProgress> {
-        self.export_queue.progress(job_id)
-    }
-
-    fn begin_folder_scan(&self, scan_id: u64) -> AnyResult<()> {
-        self.scanner.begin(scan_id)
-    }
-
-    #[cfg(test)]
-    fn folder_scan_cancellation(&self, scan_id: u64) -> AnyResult<ScanCancellation> {
-        self.scanner.cancellation_for_start(scan_id)
-    }
-
-    #[cfg(test)]
-    fn update_folder_scan_report(
-        &self,
-        scan_id: u64,
-        report: &shadow_core::ScanReport,
-        phase: ffi::FfiScanPhase,
-    ) -> AnyResult<()> {
-        self.scanner.update_report(scan_id, report, phase)
-    }
-
-    #[cfg(test)]
-    fn finish_folder_scan(
-        &self,
-        scan_id: u64,
-        report: &shadow_core::ScanReport,
-        summary: &DecodeInspectionSummary,
-    ) -> AnyResult<bool> {
-        self.scanner.finish(
-            scan_id,
-            report,
-            &shadow_core::DecodeInspectionProgress {
-                summary: *summary,
-                visual_artifacts_published: 0,
-            },
-        )
-    }
-
     fn review_page(
         &self,
         cursor_path: &str,
@@ -1767,147 +1640,6 @@ impl DesktopSession {
     ) -> AnyResult<ffi::FfiReviewPage> {
         self.review
             .review_page(cursor_path, cursor_representation_id, limit)
-    }
-
-    fn library_photo_page(
-        &self,
-        filter: &ffi::FfiLibraryPhotoFilter,
-        cursor: &ffi::FfiLibraryPhotoCursor,
-        limit: u32,
-    ) -> AnyResult<ffi::FfiLibraryPhotoPage> {
-        self.library.photo_page(&self.review, filter, cursor, limit)
-    }
-
-    fn library_photo_count(&self, filter: &ffi::FfiLibraryPhotoFilter) -> AnyResult<u64> {
-        self.library.photo_count(filter)
-    }
-
-    fn library_facet_page(
-        &self,
-        filter: &ffi::FfiLibraryPhotoFilter,
-        kind: ffi::FfiLibraryFacetKind,
-        cursor: &ffi::FfiLibraryFacetCursor,
-        limit: u32,
-    ) -> AnyResult<ffi::FfiLibraryFacetPage> {
-        self.library.facet_page(filter, kind, cursor, limit)
-    }
-
-    fn library_albums(&self) -> AnyResult<Vec<ffi::FfiLibraryAlbum>> {
-        self.library.ffi_albums()
-    }
-
-    fn library_source_health(&self) -> AnyResult<Vec<ffi::FfiLibrarySourceHealth>> {
-        self.library.ffi_source_health()
-    }
-
-    fn missing_source_location_page(
-        &self,
-        scan_session_id: &str,
-        after_location_id: &str,
-        limit: u32,
-    ) -> AnyResult<ffi::FfiMissingSourceLocationPage> {
-        self.library
-            .ffi_missing_source_location_page(scan_session_id, after_location_id, limit)
-    }
-
-    fn relink_missing_source_location(
-        &self,
-        scan_session_id: &str,
-        location_id: &str,
-        candidate_path: &str,
-    ) -> AnyResult<ffi::FfiVerifiedSourceRelinkReceipt> {
-        let receipt = self.relink.relink_missing_source_location(
-            scan_session_id,
-            location_id,
-            candidate_path,
-        )?;
-        Ok(ffi_verified_source_relink_receipt(receipt))
-    }
-
-    fn create_manual_library_album(&self, name: &str) -> AnyResult<ffi::FfiLibraryAlbum> {
-        self.library
-            .create_manual_album_ffi(name, current_time_ms()?)
-    }
-
-    fn create_smart_library_album(
-        &self,
-        name: &str,
-        query_filter: &ffi::FfiLibraryPhotoFilter,
-    ) -> AnyResult<ffi::FfiLibraryAlbum> {
-        self.library
-            .create_smart_album_ffi(name, query_filter, current_time_ms()?)
-    }
-
-    fn rename_library_album(
-        &self,
-        album_id: &str,
-        name: &str,
-    ) -> AnyResult<ffi::FfiLibraryAlbum> {
-        self.library
-            .rename_album_ffi(album_id, name, current_time_ms()?)
-    }
-
-    fn replace_smart_library_album_filter(
-        &self,
-        album_id: &str,
-        query_filter: &ffi::FfiLibraryPhotoFilter,
-    ) -> AnyResult<ffi::FfiLibraryAlbum> {
-        self.library.replace_smart_album_query_ffi(
-            album_id,
-            query_filter,
-            current_time_ms()?,
-        )
-    }
-
-    fn delete_library_album(&self, album_id: &str) -> AnyResult<bool> {
-        self.library.delete_album(album_id)
-    }
-
-    fn add_photo_to_manual_library_album(
-        &self,
-        album_id: &str,
-        photo_id: &str,
-    ) -> AnyResult<()> {
-        let now_ms = current_time_ms()?;
-        self.library
-            .add_photo_to_manual_album(album_id, photo_id, now_ms, now_ms)
-    }
-
-    fn remove_photo_from_manual_library_album(
-        &self,
-        album_id: &str,
-        photo_id: &str,
-    ) -> AnyResult<bool> {
-        self.library
-            .remove_photo_from_manual_album(album_id, photo_id)
-    }
-
-    fn library_albums_for_photo(&self, photo_id: &str) -> AnyResult<Vec<ffi::FfiLibraryAlbum>> {
-        self.library.ffi_albums_for_photo(photo_id)
-    }
-
-    fn smart_library_photo_page(
-        &self,
-        album_id: &str,
-        cursor: &ffi::FfiLibraryPhotoCursor,
-        limit: u32,
-    ) -> AnyResult<ffi::FfiLibraryPhotoPage> {
-        self.library
-            .smart_album_photo_page(&self.review, album_id, cursor, limit)
-    }
-
-    fn smart_library_photo_count(&self, album_id: &str) -> AnyResult<u64> {
-        self.library.smart_album_photo_count(album_id)
-    }
-
-    fn set_photo_library_state(
-        &self,
-        photo_id: &str,
-        liked: bool,
-        color_label: &str,
-    ) -> AnyResult<ffi::FfiPhotoLibraryState> {
-        self.library
-            .set_photo_library_state(photo_id, liked, color_label, current_time_ms()?)
     }
 
     /// Reads cache reachability without deleting anything. The desktop must
@@ -3352,7 +3084,10 @@ fn catalog_native_path(_source: &ReviewItemRecord) -> AnyResult<PathBuf> {
 /// A child crash or timeout is durable negative evidence for this exact source
 /// and helper revision. Preserve warm sessions, but do not reopen the native
 /// source in the desktop process until that evidence no longer applies.
-fn ensure_native_decode_is_admitted(runtime_cache_root: &Path, native_path: &Path) -> AnyResult<()> {
+fn ensure_native_decode_is_admitted(
+    runtime_cache_root: &Path,
+    native_path: &Path,
+) -> AnyResult<()> {
     let Some(helper_path) = configured_helper_path() else {
         return Ok(());
     };
