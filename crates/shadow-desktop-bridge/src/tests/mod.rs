@@ -31,6 +31,9 @@ use crate::review_service::{
     REVIEW_COMPARE_SURFACE_ID, REVIEW_COMPARE_SURFACE_REVISION, ReviewVisualSelection, file_name,
     parse_cursor,
 };
+use crate::session_edit_render::{
+    EditPreviewPolicy, admits_recipe_preview_cache, requested_raw_development_plan_cache_matches,
+};
 
 use super::*;
 

@@ -18,6 +18,7 @@ presentation, SQLite schema details, or native image algorithms.
 | Photo source admission and raster delivery | [`src/photo_provider.rs`](src/photo_provider.rs), [`src/isolated_proxy.rs`](src/isolated_proxy.rs) |
 | Preview identity, cancellation, and session-local reuse | [`src/preview_cache_identity.rs`](src/preview_cache_identity.rs), [`src/preview_render_registry.rs`](src/preview_render_registry.rs), [`src/session_preview_store.rs`](src/session_preview_store.rs) |
 | 1:1 detail tile geometry and reuse | [`src/detail_viewport.rs`](src/detail_viewport.rs), [`src/detail_tile_cache.rs`](src/detail_tile_cache.rs) |
+| Desktop-session interactive preview/detail render lifecycle | [`src/session_edit_render.rs`](src/session_edit_render.rs) |
 | Recipe v1 translation and version summaries | [`src/recipe_v1.rs`](src/recipe_v1.rs), [`src/edit_version_diff.rs`](src/edit_version_diff.rs) |
 | Shared Grade Node library and application | [`src/shared_grade_library.rs`](src/shared_grade_library.rs), [`src/shared_grade_application.rs`](src/shared_grade_application.rs) |
 | Export execution and queueing | [`src/export_service.rs`](src/export_service.rs), [`src/export_queue_service.rs`](src/export_queue_service.rs) |

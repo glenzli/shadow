@@ -1,6 +1,21 @@
 //! Bounded, Recipe-aware full-detail tiles layered over one prepared source.
 
-use super::*;
+use std::{
+    collections::{HashMap, VecDeque},
+    sync::{Arc, Mutex},
+};
+
+use anyhow::{Result as AnyResult, anyhow};
+use shadow_bridge::{
+    AdjustmentRenderPlan, DetailTileRect, DetailTileRequest, OpticsSettings, PhotoEditDetailSession,
+};
+use shadow_catalog::RepresentationFingerprint;
+use shadow_domain::RepresentationId;
+
+use super::{
+    ffi,
+    session_edit_render::{CachedEditDetailSession, requested_raw_development_plan_cache_matches},
+};
 
 // Keep the decoded full-resolution source and the processed display tiles as
 // two distinct caches. The source is expensive RAW development state; the
