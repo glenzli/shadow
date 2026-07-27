@@ -11,18 +11,18 @@ use super::{
         validate_jpeg_quality, validate_warm_edit_max_edge,
     },
     decoder::{dimensions, open_photo},
-    ffi, ffi_render_request,
+    ffi,
     optics::{OpticsReceipt, OpticsSettings, ffi_optics_settings, optics_receipt},
     preview_analysis::{
         AnalyzedEditPreview, SensorClippingMask, validate_analyzed_edit_preview,
         validate_sensor_clipping_mask,
     },
-    proxy_payload,
     raw_development::{
         RawDevelopmentIntent, RawDevelopmentPlan, RawDevelopmentReceipt, RawPipelineReceipt,
         ffi_raw_development_plan, preflight_photo_edit_development, raw_development_receipt,
         raw_pipeline_receipt,
     },
+    render_wire::{ffi_render_request, proxy_payload},
 };
 
 // SAFETY: the C++ handle owns a fully prepared, immutable float working proxy. It contains no

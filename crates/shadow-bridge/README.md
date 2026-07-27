@@ -23,6 +23,8 @@ that same private wire representation:
   cancellation, and generation-matched render outcomes.
 - [`src/detail_session.rs`](src/detail_session.rs) owns the retained full-resolution source,
   bounded tile requests, and tightly packed RGB8 output validation.
+- [`src/render_wire.rs`](src/render_wire.rs) is the single auditable adapter from typed
+  adjustment, geometry, and tile contracts to the flat private CXX wire.
 - [`src/lib.rs`](src/lib.rs) re-exports the public contract and retains only shared wiring that has
   not yet gained a responsibility-named owner.
 
