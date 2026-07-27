@@ -4,13 +4,14 @@ use anyhow::{Context, Result as AnyResult};
 use shadow_domain::{EntityId, LayerId};
 
 use super::{
-    DesktopSession, current_time_ms, ffi,
+    DesktopSession, ffi,
     recipe_v1::{
         decode_grade_node_draft_recipe_v1, decode_grade_stack_draft_recipe_v1,
         encode_grade_node_as_recipe_v1_layer, encode_grade_stack_draft_recipe_v1,
         ffi_shared_grade_node, grade_node_draft_from_shared_revision,
     },
     shared_grade_application, shared_grade_library,
+    wall_clock::current_time_ms,
 };
 
 impl DesktopSession {

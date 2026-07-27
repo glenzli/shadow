@@ -1,6 +1,7 @@
 //! Preview cache, cancellation, detail viewport, and decode-admission contracts.
 
 use super::*;
+use crate::scan_service::validate_decode_inspection_summary;
 
 #[test]
 fn desktop_session_can_back_concurrent_qt_image_requests() {

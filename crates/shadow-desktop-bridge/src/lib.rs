@@ -6,6 +6,7 @@
 //! their service.
 
 // Library lifecycle and durable application services.
+mod digest_hex;
 mod library_service;
 mod relink_service;
 mod review_service;
@@ -13,6 +14,7 @@ mod scan_service;
 mod session_library;
 mod session_review;
 mod session_scan;
+mod wall_clock;
 
 // Photo source admission, preview delivery, and detail viewports.
 mod detail_tile_cache;
@@ -44,7 +46,6 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
     sync::{Arc, Mutex, atomic::AtomicU64},
-    time::{SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{Context, Result as AnyResult, anyhow, bail};
@@ -78,8 +79,6 @@ use shadow_catalog::{
     RecipeRefExpectation, RecipeRefKind, RecipeRefTarget,
 };
 use shadow_core::{CachedArtifactLoader, fingerprint_source};
-#[cfg(test)]
-use shadow_core::{DecodeInspectionSummary, ScanCompletion};
 use shadow_domain::operation::{
     BASIC_GRAPH_SCHEMA_VERSION, BASIC_LAYER_LABEL, BLACKS_PARAMETER_KEY,
     COLOR_GRADING_IMPLEMENTATION_VERSION, COLOR_GRADING_OPERATION_ID,
@@ -124,8 +123,6 @@ use shadow_domain::{
 };
 use uuid::Uuid;
 
-#[cfg(test)]
-use crate::photo_provider::PhotoInspector;
 use crate::photo_provider::isolated_edit_raster;
 use crate::relink_service::RelinkService;
 use crate::review_service::ReviewService;
@@ -134,11 +131,6 @@ use crate::session_preview_store::SessionPreviewStore;
 use crate::{cache_maintenance_service::CacheMaintenanceService, library_service::LibraryService};
 use detail_tile_cache::EditDetailSessionCache;
 use detail_viewport::{detail_viewport_rects, validate_detail_viewport_request};
-#[cfg(test)]
-use edit_version_diff::{
-    EditVersionDiffError, changed_grade_parameters_recipe_v1, edit_version_diff,
-    has_other_recipe_changes,
-};
 use preview_render_registry::{PreviewRenderRegistry, PreviewTerminalClaim};
 use recipe_v1::*;
 use session_edit_render::CachedEditPreviewSession;
@@ -1354,26 +1346,6 @@ mod ffi {
     }
 }
 
-#[cfg(test)]
-impl std::ops::Deref for ffi::FfiEditSettings {
-    type Target = ffi::FfiGradeNode;
-
-    fn deref(&self) -> &Self::Target {
-        self.grade_nodes
-            .first()
-            .expect("validated FFI edit settings always contain one Grade Node")
-    }
-}
-
-#[cfg(test)]
-impl std::ops::DerefMut for ffi::FfiEditSettings {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.grade_nodes
-            .first_mut()
-            .expect("validated FFI edit settings always contain one Grade Node")
-    }
-}
-
 #[derive(Debug)]
 struct DesktopSession {
     _actor: CatalogActor,
@@ -1390,44 +1362,6 @@ struct DesktopSession {
     cache_maintenance: CacheMaintenanceService,
     review: ReviewService,
     export_queue: export_queue_service::ExportQueueService,
-}
-
-#[cfg(test)]
-fn validate_decode_inspection_summary(
-    queued: u64,
-    summary: &DecodeInspectionSummary,
-) -> AnyResult<()> {
-    if summary.completed > queued {
-        bail!(
-            "decode worker completed {} jobs after only {queued} were queued",
-            summary.completed
-        );
-    }
-    let diagnostic_jobs = summary
-        .hard_failures
-        .saturating_add(summary.preview_failures)
-        .saturating_add(summary.cancelled);
-    if diagnostic_jobs > summary.completed {
-        bail!(
-            "decode worker reported {diagnostic_jobs} diagnostic jobs after completing only {}",
-            summary.completed
-        );
-    }
-    if summary.completed != queued {
-        bail!(
-            "decode worker completed {} of {queued} queued jobs",
-            summary.completed
-        );
-    }
-    Ok(())
-}
-
-pub(crate) fn current_time_ms() -> AnyResult<i64> {
-    let milliseconds = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .context("system time is before the Unix epoch")?
-        .as_millis();
-    i64::try_from(milliseconds).context("current time does not fit in signed milliseconds")
 }
 
 fn open_desktop_session(catalog_path: &str, cache_root: &str) -> AnyResult<Box<DesktopSession>> {
@@ -1468,16 +1402,6 @@ fn open_desktop_session(catalog_path: &str, cache_root: &str) -> AnyResult<Box<D
         edit_detail_sessions: Mutex::new(EditDetailSessionCache::default()),
         edit_detail_render_token: AtomicU64::new(0),
     }))
-}
-
-fn encode_hex(bytes: &[u8]) -> String {
-    const DIGITS: &[u8; 16] = b"0123456789abcdef";
-    let mut encoded = String::with_capacity(bytes.len().saturating_mul(2));
-    for byte in bytes {
-        encoded.push(char::from(DIGITS[usize::from(byte >> 4)]));
-        encoded.push(char::from(DIGITS[usize::from(byte & 0x0f)]));
-    }
-    encoded
 }
 
 fn ensure_parent(path: &Path) -> AnyResult<()> {

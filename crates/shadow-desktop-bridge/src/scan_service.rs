@@ -532,7 +532,7 @@ fn invalid_progress(scan_id: u64) -> ffi::FfiScanProgress {
     }
 }
 
-fn validate_decode_inspection_summary(
+pub(crate) fn validate_decode_inspection_summary(
     queued: u64,
     summary: &DecodeInspectionSummary,
 ) -> AnyResult<()> {

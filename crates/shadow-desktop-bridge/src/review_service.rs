@@ -34,12 +34,14 @@ use shadow_domain::{
 use uuid::Uuid;
 
 use crate::{
-    current_time_ms, ffi,
+    digest_hex::encode_hex,
+    ffi,
     preview_cache_identity::{
         EDIT_PREVIEW_GENERATOR_ID, current_source_environment_cache_identity,
         edit_preview_generator_version,
     },
     session_preview_store::{SessionPreviewDescriptor, SessionPreviewStore},
+    wall_clock::current_time_ms,
 };
 
 const GRID_VISUAL_HANDLE_PREFIX: &str = "shadow-grid-visual-v1.";
@@ -1252,16 +1254,6 @@ fn new_visual_signing_key() -> [u8; 32] {
     key[..16].copy_from_slice(first.as_bytes());
     key[16..].copy_from_slice(second.as_bytes());
     key
-}
-
-fn encode_hex(bytes: &[u8]) -> String {
-    const DIGITS: &[u8; 16] = b"0123456789abcdef";
-    let mut encoded = String::with_capacity(bytes.len().saturating_mul(2));
-    for byte in bytes {
-        encoded.push(char::from(DIGITS[usize::from(byte >> 4)]));
-        encoded.push(char::from(DIGITS[usize::from(byte & 0x0f)]));
-    }
-    encoded
 }
 
 fn decode_hex(encoded: &str) -> AnyResult<Vec<u8>> {

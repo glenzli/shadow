@@ -16,7 +16,7 @@ use shadow_domain::{
 };
 
 use super::{
-    DesktopSession, current_time_ms,
+    DesktopSession,
     edit_version_diff::{commit_record, ffi_edit_version},
     ffi,
     recipe_v1::{
@@ -24,6 +24,7 @@ use super::{
         decode_grade_stack_draft_recipe_v1, encode_grade_stack_draft_recipe_v1,
         grade_stack_recipe_v1_snapshot,
     },
+    wall_clock::current_time_ms,
 };
 
 impl DesktopSession {

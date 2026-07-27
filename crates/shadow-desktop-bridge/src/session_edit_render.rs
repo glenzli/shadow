@@ -19,12 +19,13 @@ use shadow_domain::{
 };
 
 use super::{
-    DesktopSession, current_time_ms,
+    DesktopSession,
     detail_tile_cache::{CachedDetailSource, cached_detail_tile},
     detail_viewport::{
         MAX_DETAIL_VIEWPORT_SIDE, detail_viewport_rects, validate_detail_viewport_request,
     },
-    encode_hex, ffi,
+    digest_hex::encode_hex,
+    ffi,
     photo_provider::isolated_edit_raster,
     preview_cache_identity::{
         EDIT_PREVIEW_GENERATOR_ID, current_source_environment_cache_identity,
@@ -37,6 +38,7 @@ use super::{
         preview_grade_stack_draft_recipe_v1,
     },
     session_photo_source::{catalog_native_path, ensure_native_decode_is_admitted},
+    wall_clock::current_time_ms,
 };
 
 #[derive(Debug)]

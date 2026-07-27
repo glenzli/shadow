@@ -18,6 +18,8 @@ use shadow_core::native_location;
 use shadow_domain::{EntityId, RecipeCommitId};
 use uuid::Uuid;
 
+use crate::{digest_hex::encode_hex, wall_clock::current_time_ms};
+
 use super::*;
 
 /// Single semantic owner for the durable catalog queue while `DesktopSession`

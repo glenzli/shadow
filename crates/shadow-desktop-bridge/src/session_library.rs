@@ -2,7 +2,9 @@
 
 use anyhow::Result as AnyResult;
 
-use super::{DesktopSession, current_time_ms, ffi, relink_service::VerifiedSourceRelinkReceipt};
+use super::{
+    DesktopSession, ffi, relink_service::VerifiedSourceRelinkReceipt, wall_clock::current_time_ms,
+};
 
 fn ffi_verified_source_relink_receipt(
     source: VerifiedSourceRelinkReceipt,

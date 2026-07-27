@@ -17,7 +17,7 @@ use shadow_catalog::{
     CachedArtifact, CachedArtifactRecord, LibraryPhotoFacts, RecordCachedArtifact,
     RecordDecodeSnapshot, RegisterAsset, RepresentationFingerprint,
 };
-use shadow_core::DecodeInspector;
+use shadow_core::{DecodeInspectionSummary, DecodeInspector, ScanCompletion};
 use shadow_domain::{
     AssetLocation, DecodeCapabilitySnapshot, DecodeProviderSnapshot, DecodeSupport,
     DecoderSnapshot, EntityId, ImageDimensions, ImageMargins, ImportSessionId, MAX_PHOTO_RATING,
@@ -25,8 +25,15 @@ use shadow_domain::{
     RawMetadataSnapshot, RepresentationId, RepresentationKind,
 };
 
+use crate::digest_hex::encode_hex;
+use crate::edit_version_diff::{
+    EditVersionDiffError, changed_grade_parameters_recipe_v1, edit_version_diff,
+    has_other_recipe_changes,
+};
 use crate::isolated_proxy::NativeDecodeAdmission;
-use crate::photo_provider::{PHOTO_GRID_PROXY_JPEG_QUALITY, PHOTO_GRID_PROXY_MAX_EDGE};
+use crate::photo_provider::{
+    PHOTO_GRID_PROXY_JPEG_QUALITY, PHOTO_GRID_PROXY_MAX_EDGE, PhotoInspector,
+};
 use crate::review_service::{
     REVIEW_COMPARE_DECODER_ID, REVIEW_COMPARE_PIXEL_FORMAT, REVIEW_COMPARE_PIXEL_HASH_ALGORITHM,
     REVIEW_COMPARE_SURFACE_ID, REVIEW_COMPARE_SURFACE_REVISION, ReviewVisualSelection, file_name,
@@ -44,8 +51,27 @@ use crate::session_photo_source::{
     MissingCatalogOpticsRoute, missing_catalog_optics_route, query_missing_catalog_optics_profiles,
     reject_quarantined_native_decode,
 };
+use crate::wall_clock::current_time_ms;
 
 use super::*;
+
+impl std::ops::Deref for ffi::FfiEditSettings {
+    type Target = ffi::FfiGradeNode;
+
+    fn deref(&self) -> &Self::Target {
+        self.grade_nodes
+            .first()
+            .expect("validated FFI edit settings always contain one Grade Node")
+    }
+}
+
+impl std::ops::DerefMut for ffi::FfiEditSettings {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.grade_nodes
+            .first_mut()
+            .expect("validated FFI edit settings always contain one Grade Node")
+    }
+}
 
 mod adjustment_contract;
 mod edit_sessions;

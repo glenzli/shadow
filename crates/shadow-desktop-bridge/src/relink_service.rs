@@ -17,7 +17,7 @@ use shadow_core::{
 };
 use shadow_domain::{ImportSessionId, LocationId, RepresentationKind};
 
-use crate::current_time_ms;
+use crate::wall_clock::current_time_ms;
 
 /// A completed exact reattach, intentionally small enough for the CXX bridge.
 #[derive(Debug, Clone, Eq, PartialEq)]
