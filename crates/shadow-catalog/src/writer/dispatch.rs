@@ -5,7 +5,9 @@
 
 use super::*;
 
+mod edit_history;
 mod evidence;
+use edit_history::run_edit_history_message;
 use evidence::{run_decision_message, run_feedback_message};
 
 #[allow(clippy::too_many_lines)]
@@ -218,42 +220,7 @@ pub(super) fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
             Message::PhotoSource(photo_id, response) => {
                 let _ = response.send(catalog.photo_source(photo_id));
             }
-            Message::CommitRecipe(request, response) => {
-                let _ = response.send(catalog.commit_recipe(request.as_ref()));
-            }
-            Message::RecipeCommits(photo_id, response) => {
-                let _ = response.send(catalog.recipe_commits(photo_id));
-            }
-            Message::RecipeCommit(photo_id, commit_id, response) => {
-                respond(&response, catalog.recipe_commit(photo_id, commit_id));
-            }
-            Message::RecipeRef(photo_id, name, response) => {
-                let _ = response.send(catalog.recipe_ref(photo_id, &name));
-            }
-            Message::SetRecipeRef(request, response) => {
-                let _ = response.send(catalog.set_recipe_ref(request.as_ref()));
-            }
-            Message::DiscardRecipeHistory(photo_id, response) => {
-                let _ = response.send(catalog.discard_recipe_history(photo_id));
-            }
-            Message::StoreEditObjectPack(request, response) => {
-                let _ = response.send(catalog.store_edit_object_pack(request.as_ref()));
-            }
-            Message::EditObject(id, response) => {
-                respond(&response, catalog.edit_object(id));
-            }
-            Message::CommitEditRepository(request, response) => {
-                let _ = response.send(catalog.commit_edit_repository(request.as_ref()));
-            }
-            Message::CommitRecipeAndEditRepository(request, response) => {
-                let _ = response.send(catalog.commit_recipe_and_edit_repository(request.as_ref()));
-            }
-            Message::EditRepositoryCommit(id, response) => {
-                respond(&response, catalog.edit_repository_commit(id));
-            }
-            Message::EditRepositoryRef(name, response) => {
-                let _ = response.send(catalog.edit_repository_ref(&name));
-            }
+            Message::EditHistory(message) => run_edit_history_message(&mut catalog, message),
             Message::CreateExportPreset(name, settings_json, now_ms, response) => {
                 let _ = response.send(catalog.create_export_preset(&name, &settings_json, now_ms));
             }

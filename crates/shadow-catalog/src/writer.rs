@@ -3,8 +3,9 @@
 //! [`protocol`] defines the internal command contract, [`handle`] adapts the
 //! public client API to that contract, and [`dispatch`] executes commands on
 //! the connection-owning thread. Responsibility families use matching child
-//! modules across all three layers; start with `evidence` for human decisions
-//! and explicit feedback.
+//! modules across all three layers. `evidence` owns human decisions and
+//! explicit feedback; `edit_history` owns the connected per-photo Recipe and
+//! Library-wide edit repository contracts.
 
 use std::{
     path::Path,
@@ -12,33 +13,29 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-use shadow_domain::{
-    AssetLocation, CollectionId, EditCommitId, EditObjectId, ImportSessionId, PhotoId,
-    RecipeCommitId, RepresentationId,
-};
+use shadow_domain::{AssetLocation, CollectionId, ImportSessionId, PhotoId, RepresentationId};
 
 use crate::{
     AlbumKind, AlbumRecord, CachedArtifactGeneratorIdentity, CachedArtifactRecord, Catalog,
-    CatalogError, CatalogStats, CatalogStore, CommitEditRepository, CommitRecipe,
-    CommitRecipeAndEditRepository, CommitRecipeAndEditRepositoryResult, ContentIdentity,
-    DecodeSnapshotRecord, EditObjectPackWrite, EditObjectRecord, EditRepositoryCommitRecord,
-    EditRepositoryRefRecord, EnqueueExportJob, ExportItemId, ExportItemRecord, ExportJobId,
-    ExportJobProgress, ExportJobRecord, ExportOutputReceiptRecord, ExportPresetId,
-    ExportPresetRecord, ExportPresetRevisionRecord, ExportQueueRecovery, ImportSession,
-    ImportSessionState, ImportSessionSummary, InvalidateCachedArtifactStatus, LibraryFacetCursor,
-    LibraryFacetKind, LibraryFacetPage, LibraryPhotoCursor, LibraryPhotoFacts, LibraryPhotoFilter,
-    LibraryPhotoPage, LibrarySourceHealth, LibrarySourceRecord, LiveCachedArtifactBlob,
-    MissingSourceLocationCursor, MissingSourceLocationPage, MissingSourceRelinkTarget,
-    PhotoLibraryState, RecipeCommitRecord, RecipeRefRecord, RecordCachedArtifact,
+    CatalogError, CatalogStats, CatalogStore, ContentIdentity, DecodeSnapshotRecord,
+    EnqueueExportJob, ExportItemId, ExportItemRecord, ExportJobId, ExportJobProgress,
+    ExportJobRecord, ExportOutputReceiptRecord, ExportPresetId, ExportPresetRecord,
+    ExportPresetRevisionRecord, ExportQueueRecovery, ImportSession, ImportSessionState,
+    ImportSessionSummary, InvalidateCachedArtifactStatus, LibraryFacetCursor, LibraryFacetKind,
+    LibraryFacetPage, LibraryPhotoCursor, LibraryPhotoFacts, LibraryPhotoFilter, LibraryPhotoPage,
+    LibrarySourceHealth, LibrarySourceRecord, LiveCachedArtifactBlob, MissingSourceLocationCursor,
+    MissingSourceLocationPage, MissingSourceRelinkTarget, PhotoLibraryState, RecordCachedArtifact,
     RecordCachedArtifactStatus, RecordDecodeSnapshot, RecordDecodeSnapshotStatus,
     RecordRepresentationContentIdentity, RecordRepresentationContentIdentityStatus,
     RecordTechnicalObservation, RecordTechnicalObservationStatus, RegisterAsset, RegisteredAsset,
     RelinkMatch, RepresentationFingerprint, ReviewCursor, ReviewItemRecord, ReviewPageRecord,
-    SetPhotoLibraryState, SetRecipeRef, SmartAlbumQueryV1, StoreEditObjectPackResult,
-    TechnicalObservationRecord, TechnicalObservationRevision,
+    SetPhotoLibraryState, SmartAlbumQueryV1, TechnicalObservationRecord,
+    TechnicalObservationRevision,
 };
 
 mod dispatch;
+#[cfg(test)]
+mod edit_history_tests;
 #[cfg(test)]
 mod evidence_tests;
 mod handle;
