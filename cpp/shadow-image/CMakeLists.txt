@@ -64,6 +64,7 @@ add_library(
     src/optics/lensfun_optics.cpp
     src/proxy/display_output.cpp
     src/proxy/jpeg_display_luma.cpp
+    src/proxy/jpeg_proxy_encoding.cpp
     src/proxy/jpeg_proxy.cpp
 )
 if(APPLE AND SHADOW_ENABLE_METAL)

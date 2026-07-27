@@ -178,6 +178,10 @@ New production code should include the narrow semantic owner directly:
 - `edited_proxy_rendering.hpp` owns one-shot adjusted proxy orchestration, while
   `proxy_rendering.hpp` remains the unedited encoded-proxy owner.
 
+The implementation follows the same map. `src/proxy/jpeg_proxy_encoding.*` owns the bounded
+libjpeg 4:4:4 encoder shared by reference and edited proxies; lifecycle-specific preparation and
+rendering stay with the warm-preview, full-detail, and proxy owners rather than with the codec.
+
 The edit path accepts explicitly native interleaved RGB float32, scene-referred, linear-light data
 with named RGB primaries, white point, and luminance coefficients. It is not legal to feed the
 decoder's integer `PixelBuffer` directly into this path: the proxy boundary validates its explicit

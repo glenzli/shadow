@@ -82,6 +82,8 @@ const EMBEDDED_IMAGE_INPUTS: &[&str] = &[
     "src/proxy/display_output.cpp",
     "src/proxy/display_rgb_math.hpp",
     "src/proxy/jpeg_display_luma.cpp",
+    "src/proxy/jpeg_proxy_encoding.hpp",
+    "src/proxy/jpeg_proxy_encoding.cpp",
     "src/proxy/jpeg_proxy.cpp",
     "src/proxy/metal_display_output.hpp",
     "src/proxy/metal_display_output.mm",
@@ -235,6 +237,7 @@ fn main() {
         .file(image_root.join("src/optics/lensfun_optics.cpp"))
         .file(image_root.join("src/proxy/display_output.cpp"))
         .file(image_root.join("src/proxy/jpeg_display_luma.cpp"))
+        .file(image_root.join("src/proxy/jpeg_proxy_encoding.cpp"))
         .file(image_root.join("src/proxy/jpeg_proxy.cpp"));
     if metal_enabled {
         build
