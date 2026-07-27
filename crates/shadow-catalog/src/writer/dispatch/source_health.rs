@@ -1,0 +1,32 @@
+//! Actor-side execution for Library source-health queries.
+
+use crate::Catalog;
+
+use super::super::protocol::SourceHealthMessage;
+
+pub(super) fn run_source_health_message(catalog: &mut Catalog, message: SourceHealthMessage) {
+    match message {
+        SourceHealthMessage::LibrarySources(response) => {
+            let _ = response.send(catalog.library_sources());
+        }
+        SourceHealthMessage::LibrarySourceHealth(response) => {
+            let _ = response.send(catalog.library_source_health());
+        }
+        SourceHealthMessage::MissingSourceLocationPage(
+            scan_session_id,
+            after,
+            requested_limit,
+            response,
+        ) => {
+            let _ = response.send(catalog.missing_source_location_page(
+                scan_session_id,
+                after.as_ref(),
+                requested_limit,
+            ));
+        }
+        SourceHealthMessage::MissingSourceRelinkTarget(scan_session_id, location_id, response) => {
+            let _ =
+                response.send(catalog.missing_source_relink_target(scan_session_id, location_id));
+        }
+    }
+}

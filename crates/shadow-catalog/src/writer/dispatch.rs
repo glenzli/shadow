@@ -10,12 +10,14 @@ mod evidence;
 mod export_preset;
 mod export_queue;
 mod import_journal;
+mod source_health;
 mod source_identity;
 use edit_history::run_edit_history_message;
 use evidence::{run_decision_message, run_feedback_message};
 use export_preset::run_export_preset_message;
 use export_queue::run_export_queue_message;
 use import_journal::run_import_journal_message;
+use source_health::run_source_health_message;
 use source_identity::run_source_identity_message;
 
 #[allow(clippy::too_many_lines)]
@@ -25,10 +27,7 @@ pub(super) fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
             Message::SchemaVersion(response) => respond(&response, catalog.schema_version()),
             Message::Stats(response) => respond(&response, catalog.stats()),
             Message::SourceIdentity(message) => run_source_identity_message(&mut catalog, message),
-            Message::MissingSourceRelinkTarget(scan_session_id, location_id, response) => {
-                let _ = response
-                    .send(catalog.missing_source_relink_target(scan_session_id, location_id));
-            }
+            Message::SourceHealth(message) => run_source_health_message(&mut catalog, message),
             Message::UpsertPhotoLibraryFacts(facts, response) => {
                 let _ = response.send(catalog.upsert_photo_library_facts(facts.as_ref()));
             }
@@ -73,24 +72,6 @@ pub(super) fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
             }
             Message::AlbumsForPhoto(photo_id, response) => {
                 let _ = response.send(catalog.albums_for_photo(photo_id));
-            }
-            Message::LibrarySources(response) => {
-                let _ = response.send(catalog.library_sources());
-            }
-            Message::LibrarySourceHealth(response) => {
-                let _ = response.send(catalog.library_source_health());
-            }
-            Message::MissingSourceLocationPage(
-                scan_session_id,
-                after,
-                requested_limit,
-                response,
-            ) => {
-                let _ = response.send(catalog.missing_source_location_page(
-                    scan_session_id,
-                    after.as_ref(),
-                    requested_limit,
-                ));
             }
             Message::LibraryPhotoPage(filter, after, requested_limit, response) => {
                 let _ = response.send(catalog.library_photo_page(

@@ -11,23 +11,21 @@ mod evidence;
 mod export_preset;
 mod export_queue;
 mod import_journal;
+mod source_health;
 mod source_identity;
 pub(super) use edit_history::EditHistoryMessage;
 pub(super) use evidence::{DecisionMessage, FeedbackMessage};
 pub(super) use export_preset::ExportPresetMessage;
 pub(super) use export_queue::ExportQueueMessage;
 pub(super) use import_journal::ImportJournalMessage;
+pub(super) use source_health::SourceHealthMessage;
 pub(super) use source_identity::SourceIdentityMessage;
 
 pub(super) enum Message {
     SchemaVersion(SyncSender<Result<i64, CatalogError>>),
     Stats(SyncSender<Result<CatalogStats, CatalogError>>),
     SourceIdentity(SourceIdentityMessage),
-    MissingSourceRelinkTarget(
-        ImportSessionId,
-        shadow_domain::LocationId,
-        SyncSender<Result<Option<MissingSourceRelinkTarget>, CatalogError>>,
-    ),
+    SourceHealth(SourceHealthMessage),
     UpsertPhotoLibraryFacts(Box<LibraryPhotoFacts>, SyncSender<Result<(), CatalogError>>),
     PhotoLibraryFacts(
         PhotoId,
@@ -78,14 +76,6 @@ pub(super) enum Message {
         SyncSender<Result<bool, CatalogError>>,
     ),
     AlbumsForPhoto(PhotoId, SyncSender<Result<Vec<AlbumRecord>, CatalogError>>),
-    LibrarySources(SyncSender<Result<Vec<LibrarySourceRecord>, CatalogError>>),
-    LibrarySourceHealth(SyncSender<Result<Vec<LibrarySourceHealth>, CatalogError>>),
-    MissingSourceLocationPage(
-        ImportSessionId,
-        Option<MissingSourceLocationCursor>,
-        usize,
-        SyncSender<Result<Option<MissingSourceLocationPage>, CatalogError>>,
-    ),
     LibraryPhotoPage(
         LibraryPhotoFilter,
         Option<LibraryPhotoCursor>,

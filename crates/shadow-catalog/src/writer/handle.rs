@@ -7,6 +7,7 @@ mod evidence;
 mod export_preset;
 mod export_queue;
 mod import_journal;
+mod source_health;
 mod source_identity;
 
 impl CatalogHandle {
@@ -26,18 +27,6 @@ impl CatalogHandle {
     /// Returns [`CatalogError`] if the writer is unavailable or the query fails.
     pub fn stats(&self) -> Result<CatalogStats, CatalogError> {
         self.request(Message::Stats)
-    }
-
-    /// Reads the exact historical location selected from one completed source
-    /// scan before a user-confirmed reattach is allowed to hash a candidate.
-    pub fn missing_source_relink_target(
-        &self,
-        scan_session_id: ImportSessionId,
-        location_id: shadow_domain::LocationId,
-    ) -> Result<Option<MissingSourceRelinkTarget>, CatalogError> {
-        self.request(|response| {
-            Message::MissingSourceRelinkTarget(scan_session_id, location_id, response)
-        })
     }
 
     /// Updates the compact, indexed photo facts projection after metadata
@@ -156,34 +145,6 @@ impl CatalogHandle {
 
     pub fn albums_for_photo(&self, photo_id: PhotoId) -> Result<Vec<AlbumRecord>, CatalogError> {
         self.request(|response| Message::AlbumsForPhoto(photo_id, response))
-    }
-
-    pub fn library_sources(&self) -> Result<Vec<LibrarySourceRecord>, CatalogError> {
-        self.request(Message::LibrarySources)
-    }
-
-    /// Lists source-level scan evidence without mutating location status.
-    pub fn library_source_health(&self) -> Result<Vec<LibrarySourceHealth>, CatalogError> {
-        self.request(Message::LibrarySourceHealth)
-    }
-
-    /// Reads a bounded review page of locations not observed by one completed
-    /// source scan. A `None` page means that the requested legacy import
-    /// session had no durable Library source.
-    pub fn missing_source_location_page(
-        &self,
-        scan_session_id: ImportSessionId,
-        after: Option<&MissingSourceLocationCursor>,
-        requested_limit: usize,
-    ) -> Result<Option<MissingSourceLocationPage>, CatalogError> {
-        self.request(|response| {
-            Message::MissingSourceLocationPage(
-                scan_session_id,
-                after.copied(),
-                requested_limit,
-                response,
-            )
-        })
     }
 
     /// Reads a bounded photo-first Library page through the single catalog

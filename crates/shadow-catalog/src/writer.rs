@@ -8,7 +8,8 @@
 //! Library-wide edit repository contracts; `import_journal` owns durable scan
 //! and explicit-relocation transactions; `export_preset` owns named settings
 //! history; `export_queue` owns durable job/item execution and recovery;
-//! `source_identity` owns registration, source fingerprints, and exact identity.
+//! `source_identity` owns registration, source fingerprints, and exact identity;
+//! `source_health` owns Library source inventory and missing-location review.
 
 use std::{
     path::Path,
@@ -16,18 +17,17 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-use shadow_domain::{CollectionId, ImportSessionId, PhotoId, RepresentationId};
+use shadow_domain::{CollectionId, PhotoId, RepresentationId};
 
 use crate::{
     AlbumKind, AlbumRecord, CachedArtifactGeneratorIdentity, CachedArtifactRecord, Catalog,
     CatalogError, CatalogStats, DecodeSnapshotRecord, InvalidateCachedArtifactStatus,
     LibraryFacetCursor, LibraryFacetKind, LibraryFacetPage, LibraryPhotoCursor, LibraryPhotoFacts,
-    LibraryPhotoFilter, LibraryPhotoPage, LibrarySourceHealth, LibrarySourceRecord,
-    LiveCachedArtifactBlob, MissingSourceLocationCursor, MissingSourceLocationPage,
-    MissingSourceRelinkTarget, PhotoLibraryState, RecordCachedArtifact, RecordCachedArtifactStatus,
-    RecordDecodeSnapshot, RecordDecodeSnapshotStatus, RecordTechnicalObservation,
-    RecordTechnicalObservationStatus, RepresentationFingerprint, ReviewCursor, ReviewItemRecord,
-    ReviewPageRecord, SetPhotoLibraryState, SmartAlbumQueryV1, TechnicalObservationRecord,
+    LibraryPhotoFilter, LibraryPhotoPage, LiveCachedArtifactBlob, PhotoLibraryState,
+    RecordCachedArtifact, RecordCachedArtifactStatus, RecordDecodeSnapshot,
+    RecordDecodeSnapshotStatus, RecordTechnicalObservation, RecordTechnicalObservationStatus,
+    RepresentationFingerprint, ReviewCursor, ReviewItemRecord, ReviewPageRecord,
+    SetPhotoLibraryState, SmartAlbumQueryV1, TechnicalObservationRecord,
     TechnicalObservationRevision,
 };
 
@@ -44,6 +44,8 @@ mod handle;
 #[cfg(test)]
 mod import_journal_tests;
 mod protocol;
+#[cfg(test)]
+mod source_health_tests;
 #[cfg(test)]
 mod source_identity_tests;
 #[cfg(test)]
