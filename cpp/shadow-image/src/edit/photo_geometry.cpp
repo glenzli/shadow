@@ -1,6 +1,6 @@
-#include <shadow/image/edit.hpp>
-
 #include <shadow/image/decoder_error.hpp>
+#include <shadow/image/photo_geometry.hpp>
+#include <shadow/image/working_rgb.hpp>
 
 #include <algorithm>
 #include <array>
@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <string>
 #include <string_view>
 #include <utility>
 

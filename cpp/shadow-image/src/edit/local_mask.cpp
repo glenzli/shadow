@@ -1,9 +1,15 @@
 #include <shadow/image/edit.hpp>
+#include <shadow/image/edit_error.hpp>
+#include <shadow/image/working_rgb.hpp>
 
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <limits>
+#include <optional>
+#include <span>
+#include <string>
+#include <string_view>
 #include <utility>
 
 namespace shadow::image {

@@ -1,12 +1,12 @@
 #pragma once
 
-#include <shadow/image/edit.hpp>
-
 #include <cstddef>
 #include <cstdint>
 #include <vector>
 
 namespace shadow::image {
+
+struct FloatRgbImage;
 
 // A conservative, scene-linear neutral diagnostic. It identifies pixels that
 // are already close to the neutral axis and reports their robust RGB ratios.

@@ -7,6 +7,8 @@
 
 #include "metal_display_output.hpp"
 
+#include <shadow/image/working_rgb.hpp>
+
 #include <algorithm>
 #include <charconv>
 #include <cstddef>
@@ -17,6 +19,7 @@
 #include <mutex>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace shadow::image::detail {
 

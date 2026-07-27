@@ -1,6 +1,7 @@
 #pragma once
 
 #include <shadow/image/adjustment_execution.hpp>
+#include <shadow/image/working_rgb.hpp>
 
 #include <array>
 #include <cstddef>

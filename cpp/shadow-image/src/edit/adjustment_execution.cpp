@@ -1,4 +1,6 @@
 #include <shadow/image/adjustment_execution.hpp>
+#include <shadow/image/edit_error.hpp>
+#include <shadow/image/working_rgb.hpp>
 
 #include "adjustment_execution_internal.hpp"
 

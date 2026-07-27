@@ -47,6 +47,7 @@ add_library(
     src/edit/adjustment_execution.cpp
     src/edit/cube_lut.cpp
     src/edit/cpu_reference.cpp
+    src/edit/edit_error.cpp
     src/edit/local_mask.cpp
     src/edit/photo_geometry.cpp
     src/edit/retouch.cpp

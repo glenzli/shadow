@@ -1,4 +1,5 @@
 #include <shadow/image/neutral_balance.hpp>
+#include <shadow/image/working_rgb.hpp>
 
 #include <algorithm>
 #include <array>

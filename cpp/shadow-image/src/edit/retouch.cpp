@@ -1,10 +1,14 @@
 #include <shadow/image/edit.hpp>
+#include <shadow/image/edit_error.hpp>
+#include <shadow/image/working_rgb.hpp>
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <limits>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>

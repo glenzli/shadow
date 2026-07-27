@@ -1,17 +1,18 @@
 #pragma once
 
-#include <shadow/image/lut.hpp>
-
-#include <shadow/image/optics.hpp>
-
 #include <shadow/image/decoder_session.hpp>
 #include <shadow/image/decoder_types.hpp>
+#include <shadow/image/edit_error.hpp>
+#include <shadow/image/lut.hpp>
+#include <shadow/image/optics.hpp>
+#include <shadow/image/photo_geometry.hpp>
 #include <shadow/image/proxy_rendering.hpp>
 #include <shadow/image/raw_development_plan.hpp>
 #include <shadow/image/raw_development_receipt.hpp>
 #include <shadow/image/raw_pipeline.hpp>
 #include <shadow/image/reference_pixels.hpp>
 #include <shadow/image/source_rendering.hpp>
+#include <shadow/image/working_rgb.hpp>
 
 #include <array>
 #include <cstddef>
@@ -20,142 +21,12 @@
 #include <optional>
 #include <span>
 #include <stop_token>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <variant>
 #include <vector>
 
 namespace shadow::image {
-
-// This is an in-process CPU buffer, not a persistence or public ABI format. Samples are
-// native-endian IEEE-754 binary32 values in interleaved R, G, B order.
-enum class FloatPixelFormat : std::uint8_t {
-    unknown,
-    rgb_f32_native_interleaved,
-};
-
-enum class TransferFunction : std::uint8_t {
-    unknown,
-    linear,
-};
-
-enum class ImageReference : std::uint8_t {
-    unknown,
-    // Relative processed scene-referred RGB: values remain linear-light and no display OETF or
-    // look/tone rendering has been applied, but camera black subtraction, white balance,
-    // demosaic, color-matrix conversion, normalization, and highlight clipping may already have
-    // occurred. This must not be interpreted as sensor-linear mosaic/radiance data.
-    scene_referred,
-    // An ordinary rendered source (JPEG/SDR HEIF) that has been colour-managed and transfer
-    // decoded into linear working RGB. It is linear for the purpose of composable adjustments,
-    // but its original appearance is already display-referred; the output boundary therefore
-    // must apply gamut mapping and the sRGB OETF only, rather than Shadow's RAW scene curve.
-    display_referred,
-};
-
-struct Chromaticity final {
-    double x = 0.0;
-    double y = 0.0;
-
-    auto operator<=>(const Chromaticity&) const = default;
-};
-
-// The luminance coefficients are the Y row of the working-RGB-to-XYZ matrix. Keeping
-// them beside the primaries makes saturation independent of any hard-coded working space.
-struct WorkingRgbSpace final {
-    std::string id;
-    std::array<Chromaticity, 3> primaries{};
-    Chromaticity white_point;
-    std::array<double, 3> luminance_coefficients{};
-
-    auto operator<=>(const WorkingRgbSpace&) const = default;
-};
-
-struct FloatRgbImage final {
-    Dimensions dimensions;
-    std::size_t row_stride_bytes = 0;
-    FloatPixelFormat pixel_format = FloatPixelFormat::unknown;
-    TransferFunction transfer_function = TransferFunction::unknown;
-    ImageReference reference = ImageReference::unknown;
-    WorkingRgbSpace working_space;
-    // The raster's sampling density relative to level-0/full-resolution pixels. A full-detail
-    // image is 1x1; a 1/4-size warm proxy is approximately 0.25x0.25. Spatial operations use
-    // these values to keep their public radius expressed in level-0 pixels.
-    double level_zero_to_raster_scale_x = 1.0;
-    double level_zero_to_raster_scale_y = 1.0;
-    std::vector<float> samples;
-};
-
-/// Lossless right-angle orientation applied to the final photo canvas.
-///
-/// This is intentionally outside the adjustment-node enum: crop and
-/// orientation alter output dimensions, while a node transforms samples in an
-/// already-established raster. The source-coordinate Grade Node graph and
-/// photo-local repair pass therefore execute before this state is applied.
-enum class PhotoQuarterTurn : std::uint8_t {
-    zero = 0U,
-    clockwise_90 = 1U,
-    clockwise_180 = 2U,
-    clockwise_270 = 3U,
-};
-
-struct PhotoGeometry final {
-    double crop_left = 0.0;
-    double crop_top = 0.0;
-    double crop_right = 1.0;
-    double crop_bottom = 1.0;
-    PhotoQuarterTurn quarter_turn = PhotoQuarterTurn::zero;
-    // Fine rotation automatically narrows the final canvas to remove the
-    // empty corners it would otherwise create, while retaining this crop's
-    // aspect ratio.
-    double straighten_degrees = 0.0;
-    bool flip_horizontal = false;
-    bool flip_vertical = false;
-
-    auto operator<=>(const PhotoGeometry&) const = default;
-};
-
-struct GeometryPixelRect final {
-    std::uint32_t x = 0U;
-    std::uint32_t y = 0U;
-    std::uint32_t width = 0U;
-    std::uint32_t height = 0U;
-
-    auto operator<=>(const GeometryPixelRect&) const = default;
-};
-
-/// A validated integer crop and its final output dimensions. This one layout
-/// is shared by complete warm-proxy execution and bounded full-detail tiles,
-/// so their crop edges can never diverge due to independent rounding rules.
-struct PhotoGeometryLayout final {
-    GeometryPixelRect source_crop;
-    Dimensions output_dimensions;
-
-    auto operator<=>(const PhotoGeometryLayout&) const = default;
-};
-
-void validate_photo_geometry(const PhotoGeometry& geometry);
-[[nodiscard]] PhotoGeometryLayout photo_geometry_layout(
-    Dimensions source_dimensions,
-    const PhotoGeometry& geometry
-);
-[[nodiscard]] GeometryPixelRect photo_geometry_source_rect_for_output(
-    const PhotoGeometryLayout& layout,
-    const PhotoGeometry& geometry,
-    GeometryPixelRect output_rect
-);
-[[nodiscard]] FloatRgbImage apply_photo_geometry(
-    const FloatRgbImage& source,
-    const PhotoGeometry& geometry
-);
-[[nodiscard]] FloatRgbImage apply_photo_geometry_tile(
-    const FloatRgbImage& source_tile,
-    GeometryPixelRect source_tile_rect,
-    const PhotoGeometryLayout& layout,
-    const PhotoGeometry& geometry,
-    GeometryPixelRect output_rect
-);
 
 struct ExposureAdjustment final {
     // Linear-light gain is 2^stops. No highlight clipping is performed.
@@ -578,33 +449,6 @@ struct EditExecutionPlan final {
     AdjustmentFootprint cumulative_footprint;
 
     auto operator<=>(const EditExecutionPlan&) const = default;
-};
-
-enum class EditErrorCode : std::uint8_t {
-    invalid_image_layout,
-    incompatible_color_encoding,
-    invalid_working_space,
-    invalid_parameter,
-    unsupported_version,
-    non_finite_value,
-    numeric_overflow,
-    backend_failure,
-};
-
-class EditError final : public std::runtime_error {
-public:
-    EditError(
-        EditErrorCode code,
-        std::optional<std::size_t> node_index,
-        std::string message
-    );
-
-    [[nodiscard]] EditErrorCode code() const noexcept;
-    [[nodiscard]] std::optional<std::size_t> node_index() const noexcept;
-
-private:
-    EditErrorCode code_;
-    std::optional<std::size_t> node_index_;
 };
 
 [[nodiscard]] AdjustmentOperation operation(const AdjustmentParameters& parameters) noexcept;

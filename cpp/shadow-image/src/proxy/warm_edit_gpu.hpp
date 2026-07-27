@@ -2,6 +2,7 @@
 
 #include <shadow/image/decoder_types.hpp>
 #include <shadow/image/edit.hpp>
+#include <shadow/image/working_rgb.hpp>
 
 #include "../edit/adjustment_execution_internal.hpp"
 

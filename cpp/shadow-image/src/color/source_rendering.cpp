@@ -1,6 +1,6 @@
 #include <shadow/image/source_rendering.hpp>
 
-#include <shadow/image/edit.hpp>
+#include <shadow/image/working_rgb.hpp>
 
 #include <algorithm>
 #include <cmath>

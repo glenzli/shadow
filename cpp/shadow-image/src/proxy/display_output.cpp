@@ -1,6 +1,8 @@
 #include <shadow/image/display_output.hpp>
 
 #include <shadow/image/decoder_error.hpp>
+#include <shadow/image/reference_pixels.hpp>
+#include <shadow/image/working_rgb.hpp>
 
 #include "metal_display_output.hpp"
 #include "../concurrency/row_scheduler.hpp"
@@ -32,10 +34,12 @@ struct OklabColor final {
 
 inline constexpr std::string_view image_acceleration_environment =
     "SHADOW_IMAGE_ACCELERATION";
+inline constexpr std::uint64_t maximum_display_rgb8_bytes =
+    512ULL * 1'024ULL * 1'024ULL;
 
 [[nodiscard]] std::size_t checked_output_size(const Dimensions dimensions) {
     const std::uint64_t pixels = dimensions.pixel_count();
-    if (pixels == 0U || pixels > maximum_full_edit_detail_retained_bytes / 3U) {
+    if (pixels == 0U || pixels > maximum_display_rgb8_bytes / 3U) {
         throw DecodeError(
             DecodeErrorCode::resource_limit,
             0,

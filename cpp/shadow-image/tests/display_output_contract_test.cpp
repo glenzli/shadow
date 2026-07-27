@@ -1,4 +1,5 @@
 #include <shadow/image/display_output.hpp>
+#include <shadow/image/working_rgb.hpp>
 #include <shadow/image/decoder_error.hpp>
 
 #include <algorithm>

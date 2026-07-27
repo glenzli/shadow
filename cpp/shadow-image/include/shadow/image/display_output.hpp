@@ -1,7 +1,6 @@
 #pragma once
 
 #include <shadow/image/decoder_types.hpp>
-#include <shadow/image/edit.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -10,6 +9,8 @@
 #include <vector>
 
 namespace shadow::image {
+
+struct FloatRgbImage;
 
 // Display output is a distinct, provenance-bearing production stage. It accepts only Shadow's
 // standardized linear-sRGB FloatRgbImage contract and produces packed, display-encoded RGB8.

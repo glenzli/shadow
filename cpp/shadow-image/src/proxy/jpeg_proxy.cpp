@@ -2,7 +2,10 @@
 #include <shadow/image/adjustment_execution.hpp>
 #include <shadow/image/decoder_error.hpp>
 #include <shadow/image/display_output.hpp>
+#include <shadow/image/edit_error.hpp>
+#include <shadow/image/photo_geometry.hpp>
 #include <shadow/image/proxy_rendering.hpp>
+#include <shadow/image/working_rgb.hpp>
 
 #include "display_rgb_math.hpp"
 #include "warm_edit_gpu.hpp"
@@ -13,12 +16,19 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <csetjmp>
 #include <cstdlib>
 #include <limits>
+#include <memory>
 #include <numeric>
 #include <optional>
+#include <span>
+#include <stdexcept>
+#include <stop_token>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 #include <vector>

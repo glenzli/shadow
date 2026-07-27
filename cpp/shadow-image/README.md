@@ -157,10 +157,18 @@ Decoder contract tests follow the production responsibilities instead of one agg
 
 ## CPU edit reference
 
-`include/shadow/image/edit.hpp` defines the first correctness-oriented edit path. Its input is
-explicitly native interleaved RGB float32, scene-referred, linear-light data with named RGB
-primaries, white point, and luminance coefficients. It is not legal to feed the decoder's
-integer `PixelBuffer` directly into this path: the proxy boundary validates its explicit
+`include/shadow/image/edit.hpp` is the compatibility and navigation entry for the edit kernel.
+New production code should include the narrow semantic owner directly:
+
+- `working_rgb.hpp` owns the in-process float raster, scene/display reference, and named working
+  color-space contract.
+- `photo_geometry.hpp` owns crop/orientation state, the shared integer layout, coordinate mapping,
+  and geometry application.
+- `edit_error.hpp` owns edit failure categories and their optional source-node location.
+
+The edit path accepts explicitly native interleaved RGB float32, scene-referred, linear-light data
+with named RGB primaries, white point, and luminance coefficients. It is not legal to feed the
+decoder's integer `PixelBuffer` directly into this path: the proxy boundary validates its explicit
 processed-linear contract, normalizes it, and establishes the declared float working space.
 
 The ordered node executor currently supports exposure, pivoted contrast, versioned RGB Tone

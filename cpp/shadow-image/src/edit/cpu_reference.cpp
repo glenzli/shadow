@@ -1,16 +1,25 @@
 #include <shadow/image/edit.hpp>
+#include <shadow/image/edit_error.hpp>
+#include <shadow/image/working_rgb.hpp>
 
 #include "adjustment_execution_internal.hpp"
 #include "../concurrency/row_scheduler.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <new>
+#include <optional>
+#include <span>
 #include <sstream>
 #include <stdexcept>
+#include <string>
 #include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace shadow::image {
@@ -1216,21 +1225,6 @@ void apply_node(
 }
 
 } // namespace
-
-EditError::EditError(
-    const EditErrorCode code,
-    const std::optional<std::size_t> node_index,
-    std::string message
-)
-    : std::runtime_error(std::move(message)), code_(code), node_index_(node_index) {}
-
-EditErrorCode EditError::code() const noexcept {
-    return code_;
-}
-
-std::optional<std::size_t> EditError::node_index() const noexcept {
-    return node_index_;
-}
 
 AdjustmentOperation operation(const AdjustmentParameters& parameters) noexcept {
     return std::visit(

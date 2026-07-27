@@ -3,16 +3,23 @@
 #include <shadow/image/decoder_error.hpp>
 #include <shadow/image/edit.hpp>
 #include <shadow/image/display_luma.hpp>
+#include <shadow/image/photo_geometry.hpp>
 #include <shadow/image/proxy_rendering.hpp>
 #include <shadow/image/sensor_clipping.hpp>
 #include <shadow/image/source_rendering.hpp>
 #include <shadow/image/source_profile_catalog.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <limits>
+#include <memory>
 #include <optional>
+#include <span>
+#include <stop_token>
 #include <string>
 #include <string_view>
 #include <utility>
