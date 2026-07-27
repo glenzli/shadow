@@ -19,8 +19,9 @@ that same private wire representation:
   parameters, and their shared fail-closed validation chain.
 - [`src/preview_analysis.rs`](src/preview_analysis.rs) owns warm-preview histograms, source
   clipping masks, execution provenance, and fail-closed analysis validation.
-- `PhotoEditPreviewSession` and `PhotoEditDetailSession` own reusable native preview and detail
-  buffers.
+- [`src/preview_session.rs`](src/preview_session.rs) owns reusable warm-preview state,
+  cancellation, and generation-matched render outcomes.
+- `PhotoEditDetailSession` owns reusable native detail buffers.
 - [`src/lib.rs`](src/lib.rs) re-exports the public contract and retains only shared wiring that has
   not yet gained a responsibility-named owner.
 

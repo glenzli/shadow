@@ -1,0 +1,435 @@
+//! Reusable warm-preview state, cancellation, and session rendering.
+
+use std::path::Path;
+
+use shadow_domain::ImageDimensions;
+
+use super::{
+    BridgeError,
+    adjustment::{
+        AdjustmentRenderPlan, BasicEditParameters, basic_adjustment_render_plan,
+        validate_jpeg_quality, validate_warm_edit_max_edge,
+    },
+    decoder::{dimensions, open_photo},
+    ffi, ffi_render_request,
+    optics::{OpticsReceipt, OpticsSettings, ffi_optics_settings, optics_receipt},
+    preview_analysis::{
+        AnalyzedEditPreview, SensorClippingMask, validate_analyzed_edit_preview,
+        validate_sensor_clipping_mask,
+    },
+    proxy_payload,
+    raw_development::{
+        RawDevelopmentIntent, RawDevelopmentPlan, RawDevelopmentReceipt, RawPipelineReceipt,
+        ffi_raw_development_plan, preflight_photo_edit_development, raw_development_receipt,
+        raw_pipeline_receipt,
+    },
+};
+
+// SAFETY: the C++ handle owns a fully prepared, immutable float working proxy. It contains no
+// decoder or borrowed state, its destructor is thread-independent, and every render allocates
+// its edit buffer and libjpeg state locally. C++ contract tests exercise repeated const renders;
+// the public Rust wrapper exposes no mutable access to the handle.
+unsafe impl Send for ffi::EditPreviewHandle {}
+// SAFETY: see the Send implementation above. Concurrent calls only read the working proxy.
+unsafe impl Sync for ffi::EditPreviewHandle {}
+
+// SAFETY: the native handle owns only std::stop_source. request_stop() and token copies are
+// thread-safe by the C++20 stop-token contract, and Rust receives it only through SharedPtr.
+unsafe impl Send for ffi::EditPreviewCancellationHandle {}
+// SAFETY: see Send above; all shared access is const except stop_source's synchronized
+// request_stop operation.
+unsafe impl Sync for ffi::EditPreviewCancellationHandle {}
+
+/// Cache-key version for the fixed-order basic edited-preview recipe.
+pub const BASIC_EDIT_PREVIEW_RECIPE_VERSION: u32 = 1;
+
+/// Hard memory bound for the reusable float working proxy.
+///
+/// A square proxy at this edge consumes at most 192 MiB for interleaved RGB
+/// float32. The intended UI values are 1600 and 2048.
+pub const MAX_WARM_EDIT_PREVIEW_EDGE: u32 = 4_096;
+
+/// A reusable, bounded processed linear-light RGB working proxy for interactive edits.
+///
+/// [`Self::open`] asks Shadow's source router for processed linear-light sRGB-primary RGB once.
+/// The resulting C++ handle retains only an immutable, max-edge-bounded RGB
+/// float buffer; it does not retain a decoder or borrow the input path. The
+/// handle is both [`Send`] and [`Sync`], and concurrent [`Self::render`] calls
+/// use independent edit and JPEG buffers.
+pub struct LibRawEditPreviewSession {
+    handle: cxx::UniquePtr<ffi::EditPreviewHandle>,
+    dimensions: ImageDimensions,
+    max_edge: u32,
+    sensor_clipping_mask: SensorClippingMask,
+    raw_development_receipt: RawDevelopmentReceipt,
+    raw_pipeline_receipt: RawPipelineReceipt,
+    optics_receipt: OpticsReceipt,
+}
+
+/// Source-neutral name for an immutable interactive photo-editing session.
+///
+/// The legacy `LibRawEditPreviewSession` name remains available for source compatibility, while
+/// the constructor now enters through Shadow's photo router. RAW receipts remain explicit and
+/// absent for a raster source that did not perform RAW development.
+pub type PhotoEditPreviewSession = LibRawEditPreviewSession;
+
+/// One-shot cancellation shared by all clones of this handle.
+///
+/// Cancelling is idempotent: the first call returns `true`, while later calls return `false`.
+/// A cancelled handle stays cancelled and is intentionally not reusable for a later render.
+#[derive(Clone)]
+pub struct EditPreviewCancellation {
+    handle: cxx::SharedPtr<ffi::EditPreviewCancellationHandle>,
+}
+
+impl std::fmt::Debug for EditPreviewCancellation {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("EditPreviewCancellation")
+            .finish_non_exhaustive()
+    }
+}
+
+impl EditPreviewCancellation {
+    /// Creates a new independent cancellation source.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BridgeError::NullHandle`] if the native bridge cannot allocate its shared
+    /// cancellation source.
+    pub fn new() -> Result<Self, BridgeError> {
+        let handle = ffi::new_edit_preview_cancellation()?;
+        if handle.is_null() {
+            return Err(BridgeError::NullHandle);
+        }
+        Ok(Self { handle })
+    }
+
+    /// Requests cancellation. Returns `true` only for the first successful request.
+    pub fn cancel(&self) -> bool {
+        self.handle
+            .as_ref()
+            .is_some_and(ffi::EditPreviewCancellationHandle::cancel)
+    }
+}
+
+/// Terminal native preview outcome. Cancellation is control flow, never a decoder/backend error.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum CancellableEditPreview<T> {
+    Completed(T),
+    Cancelled,
+}
+
+impl std::fmt::Debug for LibRawEditPreviewSession {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("LibRawEditPreviewSession")
+            .field("dimensions", &self.dimensions)
+            .field("max_edge", &self.max_edge)
+            .field(
+                "sensor_clipping_available",
+                &self.sensor_clipping_mask.available,
+            )
+            .field("raw_development_receipt", &self.raw_development_receipt)
+            .field("raw_pipeline_receipt", &self.raw_pipeline_receipt)
+            .field("optics_receipt", &self.optics_receipt)
+            .finish_non_exhaustive()
+    }
+}
+
+impl LibRawEditPreviewSession {
+    /// Opens a supported photo into a reusable processed linear-light float RGB proxy in sRGB
+    /// primaries.
+    ///
+    /// `max_edge` must be in `1..=4096`; 1600 or 2048 are the intended UI
+    /// values. The bound is checked before the input path is opened.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BridgeError::InvalidEditRequest`] before source I/O for an
+    /// invalid bound, or a decoder error if preparation fails.
+    pub fn open(path: &Path, max_edge: u32) -> Result<Self, BridgeError> {
+        Self::open_with_optics(path, max_edge, &OpticsSettings::default())
+    }
+
+    /// Opens a reusable preview session with explicit input-stage optical correction settings.
+    ///
+    /// # Errors
+    ///
+    /// Returns an invalid-request, path, decoder, resource-limit, or bridge-output error when
+    /// validation or preparation fails.
+    pub fn open_with_optics(
+        path: &Path,
+        max_edge: u32,
+        optics: &OpticsSettings,
+    ) -> Result<Self, BridgeError> {
+        Self::open_with_raw_development_plan_and_optics(
+            path,
+            max_edge,
+            RawDevelopmentPlan::preview(),
+            optics,
+        )
+    }
+
+    /// Opens a preview with an explicit RAW source-development request. The plan is validated
+    /// before the source path is opened; `Preview` intent is required because the prepared
+    /// session is a bounded interactive raster rather than a native-detail source.
+    pub fn open_with_raw_development_plan(
+        path: &Path,
+        max_edge: u32,
+        raw_development_plan: RawDevelopmentPlan,
+    ) -> Result<Self, BridgeError> {
+        Self::open_with_raw_development_plan_and_optics(
+            path,
+            max_edge,
+            raw_development_plan,
+            &OpticsSettings::default(),
+        )
+    }
+
+    /// Opens a preview with explicit RAW source-development and optical-correction contracts.
+    /// JPEG/HEIF sources retain their ordinary decoded-raster behavior; they never fabricate a
+    /// RAW receipt merely because a caller supplied the canonical preview plan.
+    pub fn open_with_raw_development_plan_and_optics(
+        path: &Path,
+        max_edge: u32,
+        raw_development_plan: RawDevelopmentPlan,
+        optics: &OpticsSettings,
+    ) -> Result<Self, BridgeError> {
+        validate_warm_edit_max_edge(max_edge)?;
+        raw_development_plan.validate()?;
+        if raw_development_plan.intent != RawDevelopmentIntent::Preview {
+            return Err(BridgeError::InvalidRawDevelopmentPlan(
+                "warm edit previews require preview RAW-development intent",
+            ));
+        }
+        let mut decode_handle = open_photo(path)?;
+        if decode_handle.is_null() {
+            return Err(BridgeError::NullHandle);
+        }
+        {
+            let handle = decode_handle.as_ref().ok_or(BridgeError::NullHandle)?;
+            preflight_photo_edit_development(handle, raw_development_plan)?;
+        }
+        decode_handle
+            .pin_mut()
+            .configure_optics(&ffi_optics_settings(optics))?;
+        let decode_handle = decode_handle.as_ref().ok_or(BridgeError::NullHandle)?;
+        let handle = decode_handle.prepare_edit_preview_with_raw_development_plan(
+            max_edge,
+            &ffi_raw_development_plan(raw_development_plan),
+        )?;
+        let prepared = handle.as_ref().ok_or(BridgeError::NullHandle)?;
+        let prepared_dimensions = dimensions(&prepared.dimensions());
+        let prepared_max_edge = prepared.max_edge();
+        // This is optional inspection data prepared alongside the immutable source raster. It
+        // must never reopen or unpack a RAW file merely to drive a zebra overlay.
+        let sensor_clipping_mask = match validate_sensor_clipping_mask(
+            prepared.sensor_clipping_mask(),
+            prepared_dimensions,
+        ) {
+            Ok(mask) => mask,
+            Err(error) => {
+                eprintln!("Shadow: ignoring invalid RAW clipping diagnostic: {error}");
+                SensorClippingMask::unavailable()
+            }
+        };
+        let raw_development_receipt = raw_development_receipt(prepared.raw_development_receipt()?)?;
+        let raw_pipeline_receipt = raw_pipeline_receipt(prepared.raw_pipeline_receipt()?)?;
+        let optics_receipt = optics_receipt(prepared.optics_receipt());
+
+        Ok(Self {
+            handle,
+            dimensions: prepared_dimensions,
+            max_edge: prepared_max_edge,
+            sensor_clipping_mask,
+            raw_development_receipt,
+            raw_pipeline_receipt,
+            optics_receipt,
+        })
+    }
+
+    /// Returns the fixed pixel dimensions of every preview from this session.
+    #[must_use]
+    pub const fn dimensions(&self) -> ImageDimensions {
+        self.dimensions
+    }
+
+    /// Returns the requested longest-edge bound used during preparation.
+    #[must_use]
+    pub const fn max_edge(&self) -> u32 {
+        self.max_edge
+    }
+
+    /// Returns source-domain clipping information computed once while this immutable preview was
+    /// prepared. Slider renders reuse this data and do not reopen or unpack the RAW file.
+    #[must_use]
+    pub const fn sensor_clipping_mask(&self) -> &SensorClippingMask {
+        &self.sensor_clipping_mask
+    }
+
+    /// Returns immutable provenance for the exact RAW development, if any, retained by this
+    /// preview.
+    #[must_use]
+    pub const fn raw_development_receipt(&self) -> &RawDevelopmentReceipt {
+        &self.raw_development_receipt
+    }
+
+    /// Returns the typed host-side route and canonical cache identity that produced this preview.
+    #[must_use]
+    pub const fn raw_pipeline_receipt(&self) -> &RawPipelineReceipt {
+        &self.raw_pipeline_receipt
+    }
+
+    #[must_use]
+    pub const fn optics_receipt(&self) -> &OpticsReceipt {
+        &self.optics_receipt
+    }
+
+    /// Re-runs only the fixed-order basic nodes and JPEG encoding.
+    ///
+    /// This method never reopens or decodes the source. Since the prepared working
+    /// proxy is immutable, calls may run concurrently from worker threads.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BridgeError::InvalidEditRequest`] before entering C++ for
+    /// invalid edit values or JPEG quality, and [`BridgeError::Decoder`] for
+    /// edit or encoding failures.
+    pub fn render(
+        &self,
+        edits: BasicEditParameters,
+        jpeg_quality: u8,
+    ) -> Result<shadow_domain::ProxyPayload, BridgeError> {
+        let plan = basic_adjustment_render_plan(edits)?;
+        self.render_plan(&plan, jpeg_quality)
+    }
+
+    /// Executes a dependency-ordered typed plan against the prepared proxy.
+    /// This method never reopens or decodes the source.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BridgeError::InvalidEditRequest`] for an invalid plan or JPEG
+    /// quality, and [`BridgeError::Decoder`] for authoritative C++ numeric or
+    /// encoding failures.
+    pub fn render_plan(
+        &self,
+        plan: &AdjustmentRenderPlan,
+        jpeg_quality: u8,
+    ) -> Result<shadow_domain::ProxyPayload, BridgeError> {
+        plan.validate()?;
+        validate_jpeg_quality(jpeg_quality)?;
+        let output_dimensions = plan.geometry.output_dimensions(self.dimensions)?;
+        let handle = self.handle.as_ref().ok_or(BridgeError::NullHandle)?;
+        let request = ffi_render_request(plan, self.max_edge, jpeg_quality);
+        let proxy = handle.render_adjustment_plan(&request)?;
+        let proxy = proxy_payload(proxy);
+        if proxy.dimensions != output_dimensions {
+            return Err(BridgeError::InvalidEditPreviewOutput(
+                "geometry-aware preview dimensions do not match the rendered canvas",
+            ));
+        }
+        Ok(proxy)
+    }
+
+    /// Executes a typed plan with cooperative native cancellation.
+    ///
+    /// A cancelled render returns [`CancellableEditPreview::Cancelled`] and never fabricates a
+    /// backend failure, fallback receipt, histogram, or JPEG. The cancellation handle is
+    /// one-shot; create a fresh handle for each independently cancellable render.
+    pub fn render_plan_cancellable(
+        &self,
+        plan: &AdjustmentRenderPlan,
+        jpeg_quality: u8,
+        cancellation: &EditPreviewCancellation,
+    ) -> Result<CancellableEditPreview<shadow_domain::ProxyPayload>, BridgeError> {
+        plan.validate()?;
+        validate_jpeg_quality(jpeg_quality)?;
+        let output_dimensions = plan.geometry.output_dimensions(self.dimensions)?;
+        let handle = self.handle.as_ref().ok_or(BridgeError::NullHandle)?;
+        let cancellation = cancellation
+            .handle
+            .as_ref()
+            .ok_or(BridgeError::NullHandle)?;
+        let request = ffi_render_request(plan, self.max_edge, jpeg_quality);
+        let rendered = handle.render_adjustment_plan_cancellable(&request, cancellation)?;
+        if rendered.cancelled {
+            return Ok(CancellableEditPreview::Cancelled);
+        }
+        let proxy = proxy_payload(rendered.proxy);
+        if proxy.dimensions != output_dimensions {
+            return Err(BridgeError::InvalidEditPreviewOutput(
+                "geometry-aware preview dimensions do not match the rendered canvas",
+            ));
+        }
+        Ok(CancellableEditPreview::Completed(proxy))
+    }
+
+    /// Executes a typed plan and returns its JPEG plus generation-matched
+    /// display histogram and pre-clamp clipping analysis.
+    ///
+    /// The analysis covers the complete prepared warm proxy, not the current
+    /// viewport. It is computed from uncompressed pixels before JPEG encoding,
+    /// so changing `jpeg_quality` cannot change its values.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BridgeError::InvalidEditRequest`] for an invalid plan or JPEG
+    /// quality, [`BridgeError::Decoder`] for authoritative C++ failures, or
+    /// [`BridgeError::InvalidEditPreviewOutput`] if any returned analysis field
+    /// violates the versioned bridge contract.
+    pub fn render_plan_with_analysis(
+        &self,
+        plan: &AdjustmentRenderPlan,
+        jpeg_quality: u8,
+    ) -> Result<AnalyzedEditPreview, BridgeError> {
+        plan.validate()?;
+        validate_jpeg_quality(jpeg_quality)?;
+        let output_dimensions = plan.geometry.output_dimensions(self.dimensions)?;
+        let handle = self.handle.as_ref().ok_or(BridgeError::NullHandle)?;
+        let request = ffi_render_request(plan, self.max_edge, jpeg_quality);
+        let analyzed = handle.render_adjustment_plan_with_analysis(&request)?;
+        let proxy = proxy_payload(analyzed.proxy);
+        validate_analyzed_edit_preview(
+            proxy,
+            analyzed.analysis,
+            analyzed.execution,
+            output_dimensions,
+        )
+    }
+
+    /// Executes a typed plan with generation-matched analysis and cooperative cancellation.
+    ///
+    /// Cancellation before completion returns no partial pixels, analysis, or execution receipt.
+    pub fn render_plan_with_analysis_cancellable(
+        &self,
+        plan: &AdjustmentRenderPlan,
+        jpeg_quality: u8,
+        cancellation: &EditPreviewCancellation,
+    ) -> Result<CancellableEditPreview<AnalyzedEditPreview>, BridgeError> {
+        plan.validate()?;
+        validate_jpeg_quality(jpeg_quality)?;
+        let output_dimensions = plan.geometry.output_dimensions(self.dimensions)?;
+        let handle = self.handle.as_ref().ok_or(BridgeError::NullHandle)?;
+        let cancellation = cancellation
+            .handle
+            .as_ref()
+            .ok_or(BridgeError::NullHandle)?;
+        let request = ffi_render_request(plan, self.max_edge, jpeg_quality);
+        let rendered =
+            handle.render_adjustment_plan_with_analysis_cancellable(&request, cancellation)?;
+        if rendered.cancelled {
+            return Ok(CancellableEditPreview::Cancelled);
+        }
+        let analyzed = rendered.preview;
+        let proxy = proxy_payload(analyzed.proxy);
+        let completed = validate_analyzed_edit_preview(
+            proxy,
+            analyzed.analysis,
+            analyzed.execution,
+            output_dimensions,
+        )?;
+        Ok(CancellableEditPreview::Completed(completed))
+    }
+}
