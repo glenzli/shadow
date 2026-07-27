@@ -6,7 +6,8 @@
 //! modules across all three layers. `evidence` owns human decisions and
 //! explicit feedback; `edit_history` owns the connected per-photo Recipe and
 //! Library-wide edit repository contracts; `import_journal` owns durable scan
-//! and explicit-relocation transactions.
+//! and explicit-relocation transactions; `export_preset` owns named settings
+//! history independently from export-queue execution.
 
 use std::{
     path::Path,
@@ -20,15 +21,15 @@ use crate::{
     AlbumKind, AlbumRecord, CachedArtifactGeneratorIdentity, CachedArtifactRecord, Catalog,
     CatalogError, CatalogStats, ContentIdentity, DecodeSnapshotRecord, EnqueueExportJob,
     ExportItemId, ExportItemRecord, ExportJobId, ExportJobProgress, ExportJobRecord,
-    ExportOutputReceiptRecord, ExportPresetId, ExportPresetRecord, ExportPresetRevisionRecord,
-    ExportQueueRecovery, InvalidateCachedArtifactStatus, LibraryFacetCursor, LibraryFacetKind,
-    LibraryFacetPage, LibraryPhotoCursor, LibraryPhotoFacts, LibraryPhotoFilter, LibraryPhotoPage,
-    LibrarySourceHealth, LibrarySourceRecord, LiveCachedArtifactBlob, MissingSourceLocationCursor,
-    MissingSourceLocationPage, MissingSourceRelinkTarget, PhotoLibraryState, RecordCachedArtifact,
-    RecordCachedArtifactStatus, RecordDecodeSnapshot, RecordDecodeSnapshotStatus,
-    RecordRepresentationContentIdentity, RecordRepresentationContentIdentityStatus,
-    RecordTechnicalObservation, RecordTechnicalObservationStatus, RegisterAsset, RegisteredAsset,
-    RelinkMatch, RepresentationFingerprint, ReviewCursor, ReviewItemRecord, ReviewPageRecord,
+    ExportOutputReceiptRecord, ExportQueueRecovery, InvalidateCachedArtifactStatus,
+    LibraryFacetCursor, LibraryFacetKind, LibraryFacetPage, LibraryPhotoCursor, LibraryPhotoFacts,
+    LibraryPhotoFilter, LibraryPhotoPage, LibrarySourceHealth, LibrarySourceRecord,
+    LiveCachedArtifactBlob, MissingSourceLocationCursor, MissingSourceLocationPage,
+    MissingSourceRelinkTarget, PhotoLibraryState, RecordCachedArtifact, RecordCachedArtifactStatus,
+    RecordDecodeSnapshot, RecordDecodeSnapshotStatus, RecordRepresentationContentIdentity,
+    RecordRepresentationContentIdentityStatus, RecordTechnicalObservation,
+    RecordTechnicalObservationStatus, RegisterAsset, RegisteredAsset, RelinkMatch,
+    RepresentationFingerprint, ReviewCursor, ReviewItemRecord, ReviewPageRecord,
     SetPhotoLibraryState, SmartAlbumQueryV1, TechnicalObservationRecord,
     TechnicalObservationRevision,
 };
@@ -38,6 +39,8 @@ mod dispatch;
 mod edit_history_tests;
 #[cfg(test)]
 mod evidence_tests;
+#[cfg(test)]
+mod export_preset_tests;
 mod handle;
 #[cfg(test)]
 mod import_journal_tests;

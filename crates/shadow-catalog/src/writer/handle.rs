@@ -4,6 +4,7 @@ use super::*;
 
 mod edit_history;
 mod evidence;
+mod export_preset;
 mod import_journal;
 
 impl CatalogHandle {
@@ -592,60 +593,6 @@ impl CatalogHandle {
         photo_id: PhotoId,
     ) -> Result<Option<ReviewItemRecord>, CatalogError> {
         self.request(|response| Message::PhotoSource(photo_id, response))
-    }
-
-    /// Creates a named export preset and its first immutable settings revision
-    /// through the single catalog writer.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`CatalogError`] when the actor is unavailable or the preset is invalid.
-    pub fn create_export_preset(
-        &self,
-        name: &str,
-        settings_json: &str,
-        now_ms: i64,
-    ) -> Result<ExportPresetRevisionRecord, CatalogError> {
-        self.request(|response| {
-            Message::CreateExportPreset(name.to_owned(), settings_json.to_owned(), now_ms, response)
-        })
-    }
-
-    /// Appends one immutable revision to an existing export preset.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`CatalogError`] when the actor is unavailable or the revision is invalid.
-    pub fn revise_export_preset(
-        &self,
-        preset_id: ExportPresetId,
-        settings_json: &str,
-        now_ms: i64,
-    ) -> Result<ExportPresetRevisionRecord, CatalogError> {
-        self.request(|response| {
-            Message::ReviseExportPreset(preset_id, settings_json.to_owned(), now_ms, response)
-        })
-    }
-
-    /// Lists named export presets through the catalog actor.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`CatalogError`] when the actor is unavailable or the query fails.
-    pub fn export_presets(&self) -> Result<Vec<ExportPresetRecord>, CatalogError> {
-        self.request(Message::ExportPresets)
-    }
-
-    /// Lists all immutable revisions for one export preset.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`CatalogError`] when the actor is unavailable or the preset is absent.
-    pub fn export_preset_revisions(
-        &self,
-        preset_id: ExportPresetId,
-    ) -> Result<Vec<ExportPresetRevisionRecord>, CatalogError> {
-        self.request(|response| Message::ExportPresetRevisions(preset_id, response))
     }
 
     /// Atomically freezes one durable export job and all of its item snapshots.

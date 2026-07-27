@@ -8,9 +8,11 @@ use super::*;
 
 mod edit_history;
 mod evidence;
+mod export_preset;
 mod import_journal;
 pub(super) use edit_history::EditHistoryMessage;
 pub(super) use evidence::{DecisionMessage, FeedbackMessage};
+pub(super) use export_preset::ExportPresetMessage;
 pub(super) use import_journal::ImportJournalMessage;
 
 pub(super) enum Message {
@@ -192,23 +194,7 @@ pub(super) enum Message {
         SyncSender<Result<Option<ReviewItemRecord>, CatalogError>>,
     ),
     EditHistory(EditHistoryMessage),
-    CreateExportPreset(
-        String,
-        String,
-        i64,
-        SyncSender<Result<ExportPresetRevisionRecord, CatalogError>>,
-    ),
-    ReviseExportPreset(
-        ExportPresetId,
-        String,
-        i64,
-        SyncSender<Result<ExportPresetRevisionRecord, CatalogError>>,
-    ),
-    ExportPresets(SyncSender<Result<Vec<ExportPresetRecord>, CatalogError>>),
-    ExportPresetRevisions(
-        ExportPresetId,
-        SyncSender<Result<Vec<ExportPresetRevisionRecord>, CatalogError>>,
-    ),
+    ExportPreset(ExportPresetMessage),
     EnqueueExportJob(
         Box<EnqueueExportJob>,
         SyncSender<Result<ExportJobRecord, CatalogError>>,

@@ -237,26 +237,6 @@ fn actor_creates_and_pages_a_v1_smart_album() {
 }
 
 #[test]
-fn actor_persists_immutable_export_preset_revisions() {
-    let actor = CatalogActor::spawn_in_memory().expect("spawn catalog actor");
-    let handle = actor.handle();
-    let first = handle
-        .create_export_preset("Actor JPEG", r#"{"format":"jpeg","quality":80}"#, 1)
-        .expect("create preset through actor");
-    let second = handle
-        .revise_export_preset(first.preset_id, r#"{"format":"jpeg","quality":90}"#, 2)
-        .expect("revise preset through actor");
-
-    assert_eq!(
-        handle
-            .export_preset_revisions(first.preset_id)
-            .expect("read revisions through actor"),
-        vec![second, first]
-    );
-    actor.shutdown().expect("shutdown actor");
-}
-
-#[test]
 fn actor_resolves_an_original_raster_through_the_source_neutral_query() {
     let actor = CatalogActor::spawn_in_memory().expect("spawn catalog actor");
     let handle = actor.handle();

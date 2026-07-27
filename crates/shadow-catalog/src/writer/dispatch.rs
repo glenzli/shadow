@@ -7,9 +7,11 @@ use super::*;
 
 mod edit_history;
 mod evidence;
+mod export_preset;
 mod import_journal;
 use edit_history::run_edit_history_message;
 use evidence::{run_decision_message, run_feedback_message};
+use export_preset::run_export_preset_message;
 use import_journal::run_import_journal_message;
 
 #[allow(clippy::too_many_lines)]
@@ -223,19 +225,7 @@ pub(super) fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
                 let _ = response.send(catalog.photo_source(photo_id));
             }
             Message::EditHistory(message) => run_edit_history_message(&mut catalog, message),
-            Message::CreateExportPreset(name, settings_json, now_ms, response) => {
-                let _ = response.send(catalog.create_export_preset(&name, &settings_json, now_ms));
-            }
-            Message::ReviseExportPreset(preset_id, settings_json, now_ms, response) => {
-                let _ =
-                    response.send(catalog.revise_export_preset(preset_id, &settings_json, now_ms));
-            }
-            Message::ExportPresets(response) => {
-                let _ = response.send(catalog.export_presets());
-            }
-            Message::ExportPresetRevisions(preset_id, response) => {
-                let _ = response.send(catalog.export_preset_revisions(preset_id));
-            }
+            Message::ExportPreset(message) => run_export_preset_message(&mut catalog, message),
             Message::EnqueueExportJob(request, response) => {
                 let _ = response.send(catalog.enqueue_export_job(request.as_ref()));
             }
