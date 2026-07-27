@@ -4,7 +4,7 @@ use shadow_domain::{
     PhotoFlag, PhotoId,
 };
 
-use crate::{Catalog, CatalogError, cache_artifact::digest, read_id};
+use crate::{Catalog, CatalogError, cache_artifact::digest, row_codec::read_id};
 
 /// Hard upper bound for one photo's immutable decision-history query.
 pub const MAX_PHOTO_DECISION_PAGE_SIZE: usize = 512;

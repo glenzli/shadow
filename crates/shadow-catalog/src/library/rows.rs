@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::{
     RepresentationFingerprint, SourceScanReconciliation,
-    decision::photo_decision_state_from_columns, read_id,
+    decision::photo_decision_state_from_columns, row_codec::read_id,
 };
 
 use super::{

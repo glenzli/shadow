@@ -9,7 +9,8 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::{
-    CatalogStats, count_rows,
+    CatalogStats,
+    row_codec::count_rows,
     schema_v1::{SCHEMA_VERSION, catalog_tables_exist, current_version},
 };
 

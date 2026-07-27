@@ -17,7 +17,7 @@ use uuid::Uuid;
 use crate::{
     Catalog, CatalogError,
     cache_artifact::{digest, non_negative_u64},
-    read_id,
+    row_codec::read_id,
 };
 
 /// Schema-v1 component for durable export work. The numeric catalog schema is

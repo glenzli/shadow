@@ -3,7 +3,7 @@
 use rusqlite::{OptionalExtension, Transaction};
 use shadow_domain::{CollectionId, EntityId, PhotoId, RepresentationId};
 
-use crate::{CatalogError, read_id};
+use crate::{CatalogError, row_codec::read_id};
 
 pub(super) fn ensure_photo_exists(
     transaction: &Transaction<'_>,

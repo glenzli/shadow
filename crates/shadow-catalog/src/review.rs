@@ -12,7 +12,7 @@ use crate::{
         parse_byte_order, parse_codec, parse_role,
     },
     decision::photo_decision_state_from_columns,
-    read_id,
+    row_codec::read_id,
     technical_observation::decode_observation,
 };
 

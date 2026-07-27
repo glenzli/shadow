@@ -10,8 +10,9 @@ use shadow_domain::{
 
 use crate::{
     Catalog, CatalogError, RegisterAsset, RegisteredAsset, RepresentationFingerprint,
-    decode_snapshot::representation_fingerprint_in_transaction, find_existing_asset, insert_asset,
-    read_id,
+    asset_registration::{find_existing_asset, insert_asset, register_asset_in_transaction},
+    decode_snapshot::representation_fingerprint_in_transaction,
+    row_codec::read_id,
 };
 
 use super::{
@@ -88,7 +89,7 @@ impl Catalog {
         identity.validate()?;
         let transaction = self.connection.transaction()?;
         let result = if find_existing_asset(&transaction, &request.location)?.is_some() {
-            crate::register_asset_in_transaction(&transaction, request)?
+            register_asset_in_transaction(&transaction, request)?
         } else if let Some(existing) = find_identity_match(&transaction, identity)? {
             attach_location_to_identity_match(&transaction, request, existing)?
         } else {

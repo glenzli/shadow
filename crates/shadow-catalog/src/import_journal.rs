@@ -11,8 +11,11 @@ use crate::library::{
 use crate::{
     Catalog, CatalogError, ContentIdentity, RecordRepresentationContentIdentity,
     RecordRepresentationContentIdentityStatus, RegisterAsset, RegisteredAsset, RegistrationStatus,
-    RepresentationFingerprint, find_existing_asset, non_negative_count, read_id,
-    register_asset_in_transaction,
+    RepresentationFingerprint,
+};
+use crate::{
+    asset_registration::{find_existing_asset, register_asset_in_transaction},
+    row_codec::{non_negative_count, read_id},
 };
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]

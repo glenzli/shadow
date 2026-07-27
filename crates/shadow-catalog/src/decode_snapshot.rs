@@ -3,7 +3,7 @@ use shadow_domain::{DecoderSnapshot, EntityId, RepresentationId};
 
 use crate::{
     Catalog, CatalogError, TechnicalObservationRevision,
-    library_metadata::project_decoder_metadata_into_library_facts, read_id,
+    library_metadata::project_decoder_metadata_into_library_facts, row_codec::read_id,
 };
 
 const SNAPSHOT_SCHEMA: i64 = 1;

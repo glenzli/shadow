@@ -8,7 +8,7 @@ use rusqlite::{OptionalExtension, Transaction};
 use shadow_domain::{EntityId, PhotoId, RawMetadataSnapshot, RepresentationId};
 
 use crate::library::upsert_photo_library_facts_in_transaction;
-use crate::{CatalogError, LibraryPhotoFacts, RepresentationFingerprint, read_id};
+use crate::{CatalogError, LibraryPhotoFacts, RepresentationFingerprint, row_codec::read_id};
 
 pub(crate) fn project_decoder_metadata_into_library_facts(
     transaction: &Transaction<'_>,

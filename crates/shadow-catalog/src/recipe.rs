@@ -3,7 +3,7 @@ use shadow_domain::{
     EntityId, PhotoId, RecipeCommit, RecipeCommitId, RecipeId, canonical_recipe_snapshot_digest,
 };
 
-use crate::{Catalog, CatalogError, cache_artifact::digest, read_id};
+use crate::{Catalog, CatalogError, cache_artifact::digest, row_codec::read_id};
 
 /// The semantic role of a movable name that points at an immutable commit.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]

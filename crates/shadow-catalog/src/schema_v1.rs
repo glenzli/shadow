@@ -726,7 +726,7 @@ fn legacy_version(connection: &Connection) -> rusqlite::Result<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Catalog, configure_connection};
+    use crate::{Catalog, catalog::configure_connection};
 
     #[test]
     fn creates_current_catalog_shape() {

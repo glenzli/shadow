@@ -8,7 +8,7 @@ use shadow_domain::{EntityId, ImageDimensions, PreviewByteOrder, PreviewCodec, R
 
 use crate::{
     Catalog, CatalogError, RepresentationFingerprint,
-    decode_snapshot::representation_fingerprint_in_transaction, read_id,
+    decode_snapshot::representation_fingerprint_in_transaction, row_codec::read_id,
 };
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
