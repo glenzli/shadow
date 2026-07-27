@@ -1,0 +1,347 @@
+//! Photo-grid paging, counting, and facet queries.
+//!
+//! These reads share one validated filter-to-SQL projection so the grid, counts, and facets cannot
+//! drift into subtly different Library semantics.
+
+use rusqlite::{params_from_iter, types::Value};
+use shadow_domain::EntityId;
+
+use crate::{Catalog, CatalogError};
+
+use super::{
+    LibraryFacetCursor, LibraryFacetKind, LibraryFacetPage, LibraryPhotoCursor, LibraryPhotoFilter,
+    LibraryPhotoPage, MAX_LIBRARY_FACET_PAGE_SIZE, MAX_LIBRARY_PAGE_SIZE,
+    model::{capture_month_bounds, normalize_query_key, validate_library_photo_filter},
+    rows::{read_library_facet, read_library_photo},
+};
+
+impl Catalog {
+    /// Returns one bounded, photo-first Library grid page.
+    ///
+    /// The query deliberately starts with logical photos rather than imported
+    /// folders. It selects an online original source representation (RAW or
+    /// raster) and location only as an opening target, while metadata, likes,
+    /// decisions, and album membership stay attached to the logical photo.
+    /// When a logical photo has both kinds, RAW remains preferred so existing
+    /// edit/development flows keep their source choice.
+    ///
+    /// Pagination is keyset-based: an ordinary scroll does not become slower
+    /// as a catalog grows from thousands to millions of images.
+    pub fn library_photo_page(
+        &self,
+        filter: &LibraryPhotoFilter,
+        after: Option<&LibraryPhotoCursor>,
+        requested_limit: usize,
+    ) -> Result<LibraryPhotoPage, CatalogError> {
+        validate_library_photo_filter(filter)?;
+        let page_size = requested_limit.clamp(1, MAX_LIBRARY_PAGE_SIZE);
+        let (from_sql, where_sql, filter_values) = library_photo_query_parts(filter);
+
+        let mut page_sql = format!(
+            "SELECT p.id, r.id, l.platform, l.native_path, l.display_path,
+                    r.byte_len, r.modified_at_ms,
+                    f.photo_id, f.captured_at_unix_seconds, f.capture_day,
+                    f.camera_make, f.camera_model, f.lens_make, f.lens_model,
+                    f.aperture_milli, f.focal_length_tenth_mm, f.iso_speed,
+                    f.latitude_e7, f.longitude_e7, f.place_name,
+                    f.indexed_representation_id, f.indexed_source_byte_len,
+                    f.indexed_source_modified_at_ms, f.indexed_at_ms,
+                    COALESCE(s.liked, 0), COALESCE(s.color_label, 'none'),
+                    COALESCE(s.updated_at_ms, 0),
+                    dc.head_sequence, de.after_flag, de.after_rating,
+                    EXISTS (
+                        SELECT 1 FROM recipe_refs edit_ref
+                        WHERE edit_ref.photo_id = p.id
+                          AND edit_ref.name = 'working'
+                    )
+             {from_sql} WHERE {where_sql}"
+        );
+        let mut page_values = filter_values;
+        if let Some(cursor) = after {
+            match cursor.captured_at_unix_seconds {
+                Some(captured_at) => {
+                    page_sql.push_str(
+                        " AND (f.captured_at_unix_seconds IS NULL
+                              OR f.captured_at_unix_seconds < ?
+                              OR (f.captured_at_unix_seconds = ? AND p.id < ?))",
+                    );
+                    page_values.push(Value::Integer(captured_at));
+                    page_values.push(Value::Integer(captured_at));
+                    page_values.push(Value::Blob(cursor.photo_id.as_bytes().to_vec()));
+                }
+                None => {
+                    page_sql.push_str(" AND f.captured_at_unix_seconds IS NULL AND p.id < ?");
+                    page_values.push(Value::Blob(cursor.photo_id.as_bytes().to_vec()));
+                }
+            }
+        }
+        page_sql.push_str(
+            " ORDER BY CASE WHEN f.captured_at_unix_seconds IS NULL THEN 1 ELSE 0 END,
+                       f.captured_at_unix_seconds DESC, p.id DESC
+              LIMIT ?",
+        );
+        page_values.push(Value::Integer(
+            i64::try_from(page_size + 1).unwrap_or(i64::MAX),
+        ));
+
+        let mut statement = self.connection.prepare(&page_sql)?;
+        let rows = statement.query_map(params_from_iter(page_values.iter()), read_library_photo)?;
+        let mut items = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+        let has_more = items.len() > page_size;
+        items.truncate(page_size);
+        let next_cursor = has_more.then(|| {
+            let last = items
+                .last()
+                .expect("page has an item when it has a successor");
+            LibraryPhotoCursor {
+                captured_at_unix_seconds: last
+                    .facts
+                    .as_ref()
+                    .and_then(|facts| facts.captured_at_unix_seconds),
+                photo_id: last.photo_id,
+            }
+        });
+        Ok(LibraryPhotoPage { items, next_cursor })
+    }
+
+    /// Calculates an exact photo count for a settled Library filter.
+    ///
+    /// This is intentionally separate from [`Self::library_photo_page`]. A
+    /// virtualized grid should fetch keyset pages immediately and schedule this
+    /// potentially expensive aggregate only after the user stops changing
+    /// facets.
+    pub fn library_photo_count(&self, filter: &LibraryPhotoFilter) -> Result<u64, CatalogError> {
+        validate_library_photo_filter(filter)?;
+        let (from_sql, where_sql, values) = library_photo_query_parts(filter);
+        let total: i64 = self.connection.query_row(
+            &format!("SELECT COUNT(*) {from_sql} WHERE {where_sql}"),
+            params_from_iter(values.iter()),
+            |row| row.get(0),
+        )?;
+        u64::try_from(total).map_err(|error| CatalogError::InvalidLibraryQuery(error.to_string()))
+    }
+
+    /// Returns a bounded page of one dynamically composed Library facet.
+    ///
+    /// The selected dimension is intentionally removed from the incoming
+    /// filter before grouping. This is the useful Lightroom-style behaviour:
+    /// after selecting one camera, the Camera section still shows meaningful
+    /// alternatives while all other active constraints remain in force.
+    ///
+    /// Facets are ordered by matching photo count, then a stable key. The
+    /// aggregate runs only when the desktop explicitly opens or refreshes the
+    /// facet browser; it is not part of the hot scroll path.
+    pub fn library_facet_page(
+        &self,
+        filter: &LibraryPhotoFilter,
+        kind: LibraryFacetKind,
+        after: Option<&LibraryFacetCursor>,
+        requested_limit: usize,
+    ) -> Result<LibraryFacetPage, CatalogError> {
+        validate_library_photo_filter(filter)?;
+        if let Some(cursor) = after
+            && (cursor.key.trim().is_empty() || cursor.key.len() > 512)
+        {
+            return Err(CatalogError::InvalidLibraryQuery(
+                "facet cursor key must contain 1 through 512 characters".into(),
+            ));
+        }
+
+        let page_size = requested_limit.clamp(1, MAX_LIBRARY_FACET_PAGE_SIZE);
+        let facet_filter = filter_without_facet(filter, kind);
+        let (from_sql, where_sql, mut values) = library_photo_query_parts(&facet_filter);
+        let spec = library_facet_sql(kind);
+
+        let mut sql = format!(
+            "SELECT {key_sql}, {label_sql}, COUNT(*)\n             {from_sql}\n             WHERE {where_sql} AND {present_sql}\n             GROUP BY {key_sql}",
+            key_sql = spec.key_sql,
+            label_sql = spec.label_sql,
+            present_sql = spec.present_sql,
+        );
+        if let Some(cursor) = after {
+            sql.push_str(&format!(
+                " HAVING COUNT(*) < ? OR (COUNT(*) = ? AND {key_sql} > ?)",
+                key_sql = spec.key_sql,
+            ));
+            let count = i64::try_from(cursor.photo_count).map_err(|error| {
+                CatalogError::InvalidLibraryQuery(format!("facet cursor count is invalid: {error}"))
+            })?;
+            values.push(Value::Integer(count));
+            values.push(Value::Integer(count));
+            values.push(Value::Text(cursor.key.clone()));
+        }
+        sql.push_str(&format!(
+            " ORDER BY COUNT(*) DESC, {key_sql} ASC LIMIT ?",
+            key_sql = spec.key_sql,
+        ));
+        values.push(Value::Integer(
+            i64::try_from(page_size + 1).unwrap_or(i64::MAX),
+        ));
+
+        let mut statement = self.connection.prepare(&sql)?;
+        let rows = statement.query_map(params_from_iter(values.iter()), read_library_facet)?;
+        let mut items = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+        let has_more = items.len() > page_size;
+        items.truncate(page_size);
+        let next_cursor = has_more.then(|| {
+            let last = items
+                .last()
+                .expect("a facet page with a successor contains one item");
+            LibraryFacetCursor {
+                photo_count: last.photo_count,
+                key: last.key.clone(),
+            }
+        });
+        Ok(LibraryFacetPage { items, next_cursor })
+    }
+}
+
+struct LibraryFacetSql {
+    key_sql: &'static str,
+    label_sql: &'static str,
+    present_sql: &'static str,
+}
+
+fn library_facet_sql(kind: LibraryFacetKind) -> LibraryFacetSql {
+    match kind {
+        LibraryFacetKind::CaptureMonth => LibraryFacetSql {
+            key_sql: "substr(f.capture_day, 1, 7)",
+            label_sql: "substr(f.capture_day, 1, 7)",
+            present_sql: "f.capture_day <> ''",
+        },
+        LibraryFacetKind::Camera => LibraryFacetSql {
+            key_sql: "f.camera_key",
+            label_sql: "MIN(COALESCE(NULLIF(trim(f.camera_make || ' ' || f.camera_model), ''), f.camera_key))",
+            present_sql: "f.camera_key <> ''",
+        },
+        LibraryFacetKind::Lens => LibraryFacetSql {
+            key_sql: "f.lens_key",
+            label_sql: "MIN(COALESCE(NULLIF(trim(f.lens_make || ' ' || f.lens_model), ''), f.lens_key))",
+            present_sql: "f.lens_key <> ''",
+        },
+    }
+}
+
+fn filter_without_facet(filter: &LibraryPhotoFilter, kind: LibraryFacetKind) -> LibraryPhotoFilter {
+    let mut result = filter.clone();
+    match kind {
+        LibraryFacetKind::CaptureMonth => result.capture_month = None,
+        LibraryFacetKind::Camera => result.camera_key = None,
+        LibraryFacetKind::Lens => result.lens_key = None,
+    }
+    result
+}
+
+fn library_photo_query_parts(filter: &LibraryPhotoFilter) -> (String, String, Vec<Value>) {
+    // Both correlated subqueries are backed by the current v1 catalog's
+    // `(photo, kind, created)` and `(representation, status, created)` indexes.
+    // This keeps one logical
+    // row per photo without requiring a directory-derived materialized view.
+    // Original rasters are first-class Library sources; RAW retains a stable
+    // preference only when both are attached to one logical photo.
+    let from_sql = "FROM photos p
+         JOIN representations r ON r.id = (
+             SELECT r2.id FROM representations r2
+             WHERE r2.photo_id = p.id
+               AND r2.kind IN ('original_raw', 'original_raster')
+               AND EXISTS (
+                   SELECT 1 FROM locations l2
+                   WHERE l2.representation_id = r2.id AND l2.status = 'online'
+               )
+             ORDER BY CASE r2.kind WHEN 'original_raw' THEN 0 ELSE 1 END,
+                      r2.created_at_ms DESC, r2.id DESC
+             LIMIT 1
+         )
+         JOIN locations l ON l.id = (
+             SELECT l3.id FROM locations l3
+             WHERE l3.representation_id = r.id AND l3.status = 'online'
+             ORDER BY l3.created_at_ms DESC, l3.id DESC
+             LIMIT 1
+         )
+         LEFT JOIN photo_library_facts f ON f.photo_id = p.id
+         LEFT JOIN photo_library_state s ON s.photo_id = p.id
+         LEFT JOIN photo_decision_current dc ON dc.photo_id = p.id
+         LEFT JOIN photo_decision_events de
+           ON de.sequence = dc.head_sequence AND de.photo_id = p.id"
+        .to_owned();
+    let mut clauses = vec!["p.lifecycle_state = 'active'".to_owned()];
+    let mut values = Vec::new();
+
+    if let Some(range) = filter.capture_time {
+        if let Some(start) = range.start_inclusive {
+            clauses.push("f.captured_at_unix_seconds >= ?".to_owned());
+            values.push(Value::Integer(start));
+        }
+        if let Some(end) = range.end_inclusive {
+            clauses.push("f.captured_at_unix_seconds <= ?".to_owned());
+            values.push(Value::Integer(end));
+        }
+    }
+    if let Some(capture_month) = filter.capture_month.as_deref() {
+        // Every public query entry validates the filter before reaching this
+        // hot SQL-fragment builder, so an invalid month here would be an
+        // internal call-order bug rather than user input.
+        let (first_day, next_first_day) = capture_month_bounds(capture_month)
+            .expect("validated Library capture month must have bounds");
+        clauses.push("f.capture_day >= ? AND f.capture_day < ?".to_owned());
+        values.push(Value::Text(first_day));
+        values.push(Value::Text(next_first_day));
+    }
+    if let Some(camera_key) = filter.camera_key.as_deref() {
+        clauses.push("f.camera_key = ?".to_owned());
+        values.push(Value::Text(normalize_query_key(camera_key)));
+    }
+    if let Some(lens_key) = filter.lens_key.as_deref() {
+        clauses.push("f.lens_key = ?".to_owned());
+        values.push(Value::Text(normalize_query_key(lens_key)));
+    }
+    if let Some(range) = filter.aperture {
+        if let Some(minimum) = range.minimum_milli {
+            clauses.push("f.aperture_milli >= ?".to_owned());
+            values.push(Value::Integer(i64::from(minimum)));
+        }
+        if let Some(maximum) = range.maximum_milli {
+            clauses.push("f.aperture_milli <= ?".to_owned());
+            values.push(Value::Integer(i64::from(maximum)));
+        }
+    }
+    if let Some(liked) = filter.liked {
+        clauses.push("COALESCE(s.liked, 0) = ?".to_owned());
+        values.push(Value::Integer(i64::from(liked)));
+    }
+    if let Some(color_label) = filter.color_label.as_deref() {
+        clauses.push("COALESCE(s.color_label, 'none') = ?".to_owned());
+        values.push(Value::Text(color_label.trim().to_ascii_lowercase()));
+    }
+    if let Some(flag) = filter.flag {
+        clauses.push("COALESCE(de.after_flag, 'unflagged') = ?".to_owned());
+        values.push(Value::Text(flag.as_str().to_owned()));
+    }
+    if let Some(minimum_rating) = filter.minimum_rating {
+        clauses.push("COALESCE(de.after_rating, 0) >= ?".to_owned());
+        values.push(Value::Integer(i64::from(minimum_rating)));
+    }
+    if let Some(has_development_edits) = filter.has_development_edits {
+        let exists_working_recipe = "EXISTS (
+             SELECT 1 FROM recipe_refs edit_ref
+             WHERE edit_ref.photo_id = p.id
+               AND edit_ref.name = 'working'
+         )";
+        clauses.push(if has_development_edits {
+            exists_working_recipe.to_owned()
+        } else {
+            format!("NOT {exists_working_recipe}")
+        });
+    }
+    if let Some(album_id) = filter.album_id {
+        clauses.push(
+            "EXISTS (
+                 SELECT 1 FROM library_album_memberships m
+                 WHERE m.photo_id = p.id AND m.album_id = ?
+             )"
+            .to_owned(),
+        );
+        values.push(Value::Blob(album_id.as_bytes().to_vec()));
+    }
+    (from_sql, clauses.join(" AND "), values)
+}

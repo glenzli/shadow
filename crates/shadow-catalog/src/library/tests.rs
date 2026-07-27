@@ -1,8 +1,8 @@
 use super::*;
 use crate::{CommitRecipe, ImportSessionState, RecipeRefKind, RecipeRefTarget};
 use shadow_domain::{
-    NewPhotoDecisionEvent, PhotoDecisionOrigin, PhotoFlag, Platform, RecipeCommit, RecipeCommitId,
-    RecipeId, RecipeSnapshot, RepresentationKind,
+    EntityId, NewPhotoDecisionEvent, PhotoDecisionOrigin, PhotoFlag, Platform, RecipeCommit,
+    RecipeCommitId, RecipeId, RecipeSnapshot, RepresentationKind,
 };
 
 fn register(catalog: &mut Catalog, path: &str) -> RegisteredAsset {
