@@ -20,7 +20,7 @@ presentation, SQLite schema details, or native image algorithms.
 | 1:1 detail tile geometry and reuse | [`src/detail_viewport.rs`](src/detail_viewport.rs), [`src/detail_tile_cache.rs`](src/detail_tile_cache.rs) |
 | Desktop-session interactive preview/detail render lifecycle | [`src/session_edit_render.rs`](src/session_edit_render.rs) |
 | Recipe v1 translation and version summaries | [`src/recipe_v1.rs`](src/recipe_v1.rs), [`src/edit_version_diff.rs`](src/edit_version_diff.rs) |
-| Shared Grade Node library and application | [`src/shared_grade_library.rs`](src/shared_grade_library.rs), [`src/shared_grade_application.rs`](src/shared_grade_application.rs) |
+| Shared Grade Node library, application, and desktop-session orchestration | [`src/shared_grade_library.rs`](src/shared_grade_library.rs), [`src/shared_grade_application.rs`](src/shared_grade_application.rs), [`src/session_shared_grade.rs`](src/session_shared_grade.rs) |
 | Export execution and queueing | [`src/export_service.rs`](src/export_service.rs), [`src/export_queue_service.rs`](src/export_queue_service.rs) |
 | Cache ownership and explicit maintenance | [`src/cache_maintenance_service.rs`](src/cache_maintenance_service.rs) |
 | Cross-responsibility facade contracts and test support | [`src/tests/mod.rs`](src/tests/mod.rs) |
