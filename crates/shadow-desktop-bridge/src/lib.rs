@@ -51,27 +51,17 @@ use std::{
 use anyhow::{Context, Result as AnyResult, anyhow, bail};
 use shadow_bridge::{
     ADJUSTMENT_IMPLEMENTATION_VERSION, ADJUSTMENT_PARAMETER_SCHEMA_VERSION, AdjustmentGeometry,
-    AdjustmentLocalMask, AdjustmentQuarterTurn, AdjustmentRenderNode, AdjustmentRenderOperation,
-    AdjustmentRenderPlan, AdjustmentRetouchStroke, AdjustmentRetouchStrokePoint,
-    AdjustmentSpotHealTarget, BasicEditParameters,
-    COLOR_GRADING_IMPLEMENTATION_VERSION as COLOR_GRADING_IMPLEMENTATION_REVISION,
-    COLOR_MIXER_BAND_COUNT, ColorRangeParameters, DetailTileRect, DetailTileRequest,
-    FINISHING_EFFECTS_IMPLEMENTATION_VERSION as FINISHING_EFFECTS_IMPLEMENTATION_REVISION,
-    MAX_ADJUSTMENT_RENDER_NODES, MAX_EDIT_DETAIL_TILE_SIDE, MAX_LUT_DOCUMENT_BYTES,
+    AdjustmentQuarterTurn, AdjustmentRenderOperation, BasicEditParameters, COLOR_MIXER_BAND_COUNT,
+    ColorRangeParameters, DetailTileRect, DetailTileRequest, MAX_EDIT_DETAIL_TILE_SIDE,
     MAX_POINT_COLOR_RANGES, MAX_TONE_CURVE_POINTS, OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT,
     OKLAB_COLOR_WARPER_MAXIMUM_OFFSET,
-    OKLAB_LIGHTNESS_TONE_CURVE_IMPLEMENTATION_VERSION as OKLAB_LIGHTNESS_TONE_CURVE_IMPLEMENTATION_REVISION,
     OKLAB_LIGHTNESS_TONE_CURVE_PARAMETER_SCHEMA_VERSION as OKLAB_LIGHTNESS_TONE_CURVE_PARAMETER_SCHEMA_REVISION,
     OklabColorWarperControlPoint, OklabColorWarperParameters, OklabLightnessToneCurve,
-    OpticsSettings,
-    PERCEPTUAL_COLOR_IMPLEMENTATION_VERSION as PERCEPTUAL_COLOR_IMPLEMENTATION_REVISION,
-    PERCEPTUAL_COLOR_PARAMETER_SCHEMA_VERSION, PerceptualColorParameters, PhotoEditDetailSession,
-    RawDevelopmentPlan, SELECTIVE_COLOR_VALUE_COUNT,
-    SELECTIVE_TONE_IMPLEMENTATION_VERSION as SELECTIVE_TONE_IMPLEMENTATION_REVISION,
+    OpticsSettings, PERCEPTUAL_COLOR_PARAMETER_SCHEMA_VERSION, PerceptualColorParameters,
+    PhotoEditDetailSession, RawDevelopmentPlan, SELECTIVE_COLOR_VALUE_COUNT,
     SELECTIVE_TONE_PARAMETER_SCHEMA_VERSION as SELECTIVE_TONE_PARAMETER_SCHEMA_REVISION,
-    SelectiveToneParameters, SharpenParameters,
-    TECHNICAL_DETAIL_IMPLEMENTATION_VERSION as TECHNICAL_DETAIL_IMPLEMENTATION_REVISION,
-    ToneCurvePoint, photo_provider_version, raw_development_plan_identity,
+    SelectiveToneParameters, SharpenParameters, ToneCurvePoint, photo_provider_version,
+    raw_development_plan_identity,
 };
 use shadow_cache::ContentAddressedStore;
 use shadow_catalog::{
