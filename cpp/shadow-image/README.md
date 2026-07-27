@@ -204,6 +204,9 @@ Pure, cross-platform neighborhood-stage recognition and before/after plan rewrit
 the Objective-C++ runtime only consumes that plan.
 Process-wide Metal device, queue, runtime compilation, and the all-or-nothing pipeline registry
 are owned by `src/proxy/warm_edit_gpu_pipeline_context.*`.
+Session-resident source buffers, side-table caches, lazy neighborhood rasters, slot leases,
+working-set admission, synchronization, and GPU statistics move together in
+`src/proxy/warm_edit_gpu_resident_resources.*`; the dispatcher only receives leased buffer views.
 
 The edit path accepts explicitly native interleaved RGB float32, scene-referred, linear-light data
 with named RGB primaries, white point, and luminance coefficients. It is not legal to feed the

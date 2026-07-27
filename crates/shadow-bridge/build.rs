@@ -102,6 +102,8 @@ const EMBEDDED_IMAGE_INPUTS: &[&str] = &[
     "src/proxy/warm_edit_gpu_msl.hpp",
     "src/proxy/warm_edit_gpu_pipeline_context.hpp",
     "src/proxy/warm_edit_gpu_pipeline_context.mm",
+    "src/proxy/warm_edit_gpu_resident_resources.hpp",
+    "src/proxy/warm_edit_gpu_resident_resources.mm",
     "src/proxy/warm_edit_gpu_render_plan.hpp",
     "src/proxy/warm_edit_gpu_render_plan.cpp",
     "src/proxy/warm_edit_gpu.mm",
@@ -266,6 +268,7 @@ fn main() {
             .file(image_root.join("src/raw/metal_raw_development.mm"))
             .file(image_root.join("src/proxy/metal_display_output.mm"))
             .file(image_root.join("src/proxy/warm_edit_gpu_pipeline_context.mm"))
+            .file(image_root.join("src/proxy/warm_edit_gpu_resident_resources.mm"))
             .file(image_root.join("src/proxy/warm_edit_gpu.mm"))
             .define("SHADOW_IMAGE_HAS_METAL", Some("1"));
     } else {

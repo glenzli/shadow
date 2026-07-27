@@ -83,6 +83,7 @@ if(APPLE AND SHADOW_ENABLE_METAL)
             src/raw/metal_raw_development.mm
             src/proxy/metal_display_output.mm
             src/proxy/warm_edit_gpu_pipeline_context.mm
+            src/proxy/warm_edit_gpu_resident_resources.mm
             src/proxy/warm_edit_gpu.mm
     )
     target_compile_definitions(shadow-image PRIVATE SHADOW_IMAGE_HAS_METAL=1)
