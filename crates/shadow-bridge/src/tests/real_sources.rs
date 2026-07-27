@@ -1,6 +1,7 @@
 //! Opt-in local RAW, DNG, JPEG, and HEIF end-to-end bridge contracts.
 
 use super::*;
+use shadow_domain::DecodeSupport;
 
 #[test]
 #[ignore = "requires SHADOW_TEST_RAW_FOLDER to contain local RAW fixtures"]

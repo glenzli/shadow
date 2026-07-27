@@ -4,21 +4,28 @@
 
 ## Source index
 
-The production bridge remains one auditable [`src/lib.rs`](src/lib.rs) while its contract families
-share the generated CXX wire shape and validation chain:
+The generated CXX wire declaration stays centralized and auditable in [`src/lib.rs`](src/lib.rs).
+The safe Rust side is organized by independent contract family even when several families consume
+that same private wire representation:
 
-- `ffi` is the private CXX representation.
+- [`src/decoder.rs`](src/decoder.rs) owns source-neutral inspection, embedded-preview extraction,
+  and shared decoder wire mappings.
+- [`src/display_luma.rs`](src/display_luma.rs) owns bounded, versioned display-proxy analysis.
 - `RawDevelopmentPlan`, negotiation, and receipt types own source-development provenance.
-- `DecodedDisplayLuma` owns bounded display-proxy analysis.
 - `AdjustmentRenderPlan` and its operation types own validated edit execution.
 - `PhotoEditPreviewSession` and `PhotoEditDetailSession` own reusable native preview and detail
   buffers.
-- Public inspection and render functions form the safe one-shot Rust facade.
+- [`src/lib.rs`](src/lib.rs) re-exports the public contract and retains only shared wiring that has
+  not yet gained a responsibility-named owner.
+
+Sharing the CXX representation is not by itself a reason to share one Rust source file. Extract a
+safe contract when it has its own invariants, failure policy, and consumers; keep the wire
+declaration intact unless the generated ABI itself gains a separately versioned boundary.
 
 The adjacent [`src/tests/mod.rs`](src/tests/mod.rs) routes private bridge-contract tests to RAW
 development, display luma, adjustment plans, preview execution, detail sessions, and opt-in real
 source modules. Test fixtures stay with the contract that consumes them. Do not add another
-multi-domain test block to `lib.rs`, and do not split the production ABI merely to satisfy a line
+multi-domain test block to `lib.rs`, and do not split the generated ABI merely to satisfy a line
 count.
 
 The decoder side of the bridge follows this coarse-grained path:
