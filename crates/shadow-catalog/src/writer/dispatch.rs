@@ -10,11 +10,13 @@ mod evidence;
 mod export_preset;
 mod export_queue;
 mod import_journal;
+mod source_identity;
 use edit_history::run_edit_history_message;
 use evidence::{run_decision_message, run_feedback_message};
 use export_preset::run_export_preset_message;
 use export_queue::run_export_queue_message;
 use import_journal::run_import_journal_message;
+use source_identity::run_source_identity_message;
 
 #[allow(clippy::too_many_lines)]
 pub(super) fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
@@ -22,19 +24,7 @@ pub(super) fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
         match message {
             Message::SchemaVersion(response) => respond(&response, catalog.schema_version()),
             Message::Stats(response) => respond(&response, catalog.stats()),
-            Message::RegisterAsset(request, response) => {
-                let _ = response.send(catalog.register_asset(&request));
-            }
-            Message::RegisterAssetWithContentIdentity(request, identity, response) => {
-                let _ = response
-                    .send(catalog.register_asset_with_content_identity(&request, &identity));
-            }
-            Message::RecordRepresentationContentIdentity(request, response) => {
-                let _ = response.send(catalog.record_representation_content_identity(&request));
-            }
-            Message::RelinkMatch(identity, response) => {
-                let _ = response.send(catalog.relink_match(&identity));
-            }
+            Message::SourceIdentity(message) => run_source_identity_message(&mut catalog, message),
             Message::MissingSourceRelinkTarget(scan_session_id, location_id, response) => {
                 let _ = response
                     .send(catalog.missing_source_relink_target(scan_session_id, location_id));
@@ -132,9 +122,6 @@ pub(super) fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
             }
             Message::SmartAlbumPhotoCount(album_id, response) => {
                 let _ = response.send(catalog.smart_album_photo_count(album_id));
-            }
-            Message::RepresentationFingerprint(representation_id, response) => {
-                let _ = response.send(catalog.representation_fingerprint(representation_id));
             }
             Message::RecordDecodeSnapshot(request, response) => {
                 let _ = response.send(catalog.record_decode_snapshot(request.as_ref()));

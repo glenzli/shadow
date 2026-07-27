@@ -11,32 +11,18 @@ mod evidence;
 mod export_preset;
 mod export_queue;
 mod import_journal;
+mod source_identity;
 pub(super) use edit_history::EditHistoryMessage;
 pub(super) use evidence::{DecisionMessage, FeedbackMessage};
 pub(super) use export_preset::ExportPresetMessage;
 pub(super) use export_queue::ExportQueueMessage;
 pub(super) use import_journal::ImportJournalMessage;
+pub(super) use source_identity::SourceIdentityMessage;
 
 pub(super) enum Message {
     SchemaVersion(SyncSender<Result<i64, CatalogError>>),
     Stats(SyncSender<Result<CatalogStats, CatalogError>>),
-    RegisterAsset(
-        RegisterAsset,
-        SyncSender<Result<RegisteredAsset, CatalogError>>,
-    ),
-    RegisterAssetWithContentIdentity(
-        RegisterAsset,
-        ContentIdentity,
-        SyncSender<Result<RegisteredAsset, CatalogError>>,
-    ),
-    RecordRepresentationContentIdentity(
-        Box<RecordRepresentationContentIdentity>,
-        SyncSender<Result<RecordRepresentationContentIdentityStatus, CatalogError>>,
-    ),
-    RelinkMatch(
-        ContentIdentity,
-        SyncSender<Result<Option<RelinkMatch>, CatalogError>>,
-    ),
+    SourceIdentity(SourceIdentityMessage),
     MissingSourceRelinkTarget(
         ImportSessionId,
         shadow_domain::LocationId,
@@ -125,10 +111,6 @@ pub(super) enum Message {
         SyncSender<Result<LibraryPhotoPage, CatalogError>>,
     ),
     SmartAlbumPhotoCount(CollectionId, SyncSender<Result<u64, CatalogError>>),
-    RepresentationFingerprint(
-        RepresentationId,
-        SyncSender<Result<RepresentationFingerprint, CatalogError>>,
-    ),
     RecordDecodeSnapshot(
         Box<RecordDecodeSnapshot>,
         SyncSender<Result<RecordDecodeSnapshotStatus, CatalogError>>,
