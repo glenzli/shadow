@@ -99,6 +99,8 @@ const EMBEDDED_IMAGE_INPUTS: &[&str] = &[
     "src/proxy/warm_edit_gpu.hpp",
     "src/proxy/warm_edit_gpu_kernel_contract.hpp",
     "src/proxy/warm_edit_gpu_msl.hpp",
+    "src/proxy/warm_edit_gpu_render_plan.hpp",
+    "src/proxy/warm_edit_gpu_render_plan.cpp",
     "src/proxy/warm_edit_gpu.mm",
     "src/proxy/warm_edit_gpu_stub.cpp",
 ];
@@ -253,6 +255,7 @@ fn main() {
         .file(image_root.join("src/proxy/jpeg_proxy_encoding.cpp"))
         .file(image_root.join("src/proxy/proxy_rendering.cpp"))
         .file(image_root.join("src/proxy/proxy_render_request_validation.cpp"))
+        .file(image_root.join("src/proxy/warm_edit_gpu_render_plan.cpp"))
         .file(image_root.join("src/proxy/warm_edit_preview.cpp"));
     if metal_enabled {
         build
