@@ -188,24 +188,48 @@ if(BUILD_TESTING)
     target_link_libraries(shadow-image-libraw-dummy-private-provider PRIVATE Shadow::Image)
     shadow_image_enable_warnings(shadow-image-libraw-dummy-private-provider)
 
-    add_executable(shadow-image-contract-tests tests/decoder_contract_test.cpp)
-    target_link_libraries(shadow-image-contract-tests PRIVATE Shadow::Image)
+    function(shadow_image_add_decoder_contract target_name test_name source_name)
+        add_executable(${target_name} ${source_name})
+        target_link_libraries(${target_name} PRIVATE Shadow::Image)
+        shadow_image_enable_warnings(${target_name})
+        add_test(NAME ${test_name} COMMAND ${target_name})
+    endfunction()
+
+    shadow_image_add_decoder_contract(
+        shadow-image-raw-source-tests
+        shadow-image-raw-source-contract
+        tests/raw_source_contract_test.cpp
+    )
+    target_compile_definitions(
+        shadow-image-raw-source-tests
+        PRIVATE
+            "SHADOW_TEST_JPEG_PATH=\"${CMAKE_SOURCE_DIR}/apps/desktop/assets/lut-preview-reference.jpg\""
+    )
+
+    shadow_image_add_decoder_contract(
+        shadow-image-private-decoder-tests
+        shadow-image-private-decoder-contract
+        tests/private_decoder_contract_test.cpp
+    )
     add_dependencies(
-        shadow-image-contract-tests
+        shadow-image-private-decoder-tests
         shadow-image-private-decoder-test-plugin
         shadow-image-stale-private-decoder-test-plugin
         shadow-image-libraw-dummy-private-provider
     )
     target_compile_definitions(
-        shadow-image-contract-tests
+        shadow-image-private-decoder-tests
         PRIVATE
             "SHADOW_TEST_PRIVATE_DECODER_PLUGIN_PATH=\"$<TARGET_FILE:shadow-image-private-decoder-test-plugin>\""
             "SHADOW_TEST_STALE_PRIVATE_DECODER_PLUGIN_PATH=\"$<TARGET_FILE:shadow-image-stale-private-decoder-test-plugin>\""
             "SHADOW_TEST_LIBRAW_DUMMY_PRIVATE_DECODER_PLUGIN_PATH=\"$<TARGET_FILE:shadow-image-libraw-dummy-private-provider>\""
-            "SHADOW_TEST_JPEG_PATH=\"${CMAKE_SOURCE_DIR}/apps/desktop/assets/lut-preview-reference.jpg\""
     )
-    shadow_image_enable_warnings(shadow-image-contract-tests)
-    add_test(NAME shadow-image-contract COMMAND shadow-image-contract-tests)
+
+    shadow_image_add_decoder_contract(
+        shadow-image-optics-preparation-tests
+        shadow-image-optics-preparation-contract
+        tests/optics_preparation_contract_test.cpp
+    )
     if(Lensfun_FOUND)
         file(
             GLOB SHADOW_LENSFUN_DATABASE_DIRECTORIES
@@ -216,12 +240,23 @@ if(BUILD_TESTING)
             list(SORT SHADOW_LENSFUN_DATABASE_DIRECTORIES COMPARE NATURAL ORDER DESCENDING)
             list(GET SHADOW_LENSFUN_DATABASE_DIRECTORIES 0 SHADOW_LENSFUN_TEST_DATABASE)
             set_tests_properties(
-                shadow-image-contract
+                shadow-image-optics-preparation-contract
                 PROPERTIES ENVIRONMENT
                     "SHADOW_TEST_LENSFUN_DB=$<SHELL_PATH:${SHADOW_LENSFUN_TEST_DATABASE}>"
             )
         endif()
     endif()
+
+    shadow_image_add_decoder_contract(
+        shadow-image-preview-session-tests
+        shadow-image-preview-session-contract
+        tests/preview_session_contract_test.cpp
+    )
+    shadow_image_add_decoder_contract(
+        shadow-image-libraw-provider-tests
+        shadow-image-libraw-provider-contract
+        tests/libraw_provider_contract_test.cpp
+    )
 
     add_executable(shadow-image-edit-tests tests/edit_contract_test.cpp)
     target_link_libraries(shadow-image-edit-tests PRIVATE Shadow::Image)

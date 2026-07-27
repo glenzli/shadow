@@ -115,6 +115,21 @@ module invalidates old decode artifacts even if its author accidentally forgets 
 version string. The module is a development fixture, not a public Nikon decoder and does not
 contain vendor code or calibration data.
 
+Decoder contract tests follow the production responsibilities instead of one aggregate executable:
+
+- `tests/raw_source_contract_test.cpp` owns RawFrame, sensor clipping, RAW-plan, ICC, embedded
+  preview selection, and provider-neutral raster-source contracts.
+- `tests/private_decoder_contract_test.cpp` owns the private plugin ABI, loading, stale-module
+  rejection, and router precedence.
+- `tests/optics_preparation_contract_test.cpp` owns manual/Lensfun optics and its position before
+  warm-preview and full-detail preparation.
+- `tests/preview_session_contract_test.cpp` owns immutable warm-preview preparation, repeated
+  rendering, output analysis, cancellation, bounds, and display-backend receipts.
+- `tests/libraw_provider_contract_test.cpp` owns LibRaw settings, provider identity, real-fixture
+  metadata, and source-development provenance.
+- `tests/decoder_contract_test_support.hpp` contains only shared assertions and the small
+  RGB/optics fixtures genuinely reused by more than one executable.
+
 ## CPU edit reference
 
 `include/shadow/image/edit.hpp` defines the first correctness-oriented edit path. Its input is
