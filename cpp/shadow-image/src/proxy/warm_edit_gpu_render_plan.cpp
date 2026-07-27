@@ -28,8 +28,6 @@ namespace {
         && parameters.defringe_green_amount == 0.0;
 }
 
-} // namespace
-
 [[nodiscard]] std::optional<WarmTechnicalDetailStage> prepare_warm_technical_detail_stage(
     const std::span<const AdjustmentNode> nodes,
     const EditExecutionPlan& plan,
@@ -748,6 +746,74 @@ namespace {
         }
     }
     return result;
+}
+
+} // namespace
+
+WarmGpuRenderPlan prepare_warm_gpu_render_plan(
+    const std::span<const AdjustmentNode> nodes,
+    const EditExecutionPlan& plan,
+    const Dimensions dimensions,
+    const WorkingRgbSpace& working_space,
+    const double level_zero_to_raster_scale_x,
+    const double level_zero_to_raster_scale_y
+) {
+    if (auto stage = prepare_warm_technical_detail_stage(
+            nodes,
+            plan,
+            dimensions,
+            working_space,
+            level_zero_to_raster_scale_x,
+            level_zero_to_raster_scale_y
+        );
+        stage.has_value()) {
+        return WarmGpuRenderPlan{.neighbourhood_stage = std::move(*stage)};
+    }
+    if (auto stage = prepare_warm_texture_clarity_stage(
+            nodes,
+            plan,
+            dimensions,
+            level_zero_to_raster_scale_x,
+            level_zero_to_raster_scale_y
+        );
+        stage.has_value()) {
+        return WarmGpuRenderPlan{.neighbourhood_stage = std::move(*stage)};
+    }
+    if (auto stage = prepare_warm_local_contrast_stage(
+            nodes,
+            plan,
+            dimensions,
+            level_zero_to_raster_scale_x,
+            level_zero_to_raster_scale_y
+        );
+        stage.has_value()) {
+        return WarmGpuRenderPlan{.neighbourhood_stage = std::move(*stage)};
+    }
+    if (auto stage = prepare_warm_texture_stage(
+            nodes,
+            plan,
+            dimensions,
+            level_zero_to_raster_scale_x,
+            level_zero_to_raster_scale_y
+        );
+        stage.has_value()) {
+        return WarmGpuRenderPlan{.neighbourhood_stage = std::move(*stage)};
+    }
+    if (auto stage = prepare_warm_clarity_stage(
+            nodes,
+            plan,
+            dimensions,
+            level_zero_to_raster_scale_x,
+            level_zero_to_raster_scale_y
+        );
+        stage.has_value()) {
+        return WarmGpuRenderPlan{.neighbourhood_stage = std::move(*stage)};
+    }
+    if (auto stage = prepare_warm_dehaze_defringe_stage(nodes, plan, working_space);
+        stage.has_value()) {
+        return WarmGpuRenderPlan{.neighbourhood_stage = std::move(*stage)};
+    }
+    return {};
 }
 
 } // namespace shadow::image::detail

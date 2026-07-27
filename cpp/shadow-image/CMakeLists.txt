@@ -301,6 +301,16 @@ if(BUILD_TESTING)
         tests/edit_preview_execution_contract_test.cpp
     )
     shadow_image_add_contract(
+        shadow-image-warm-edit-gpu-render-plan-tests
+        shadow-image-warm-edit-gpu-render-plan-contract
+        tests/warm_edit_gpu_render_plan_contract_test.cpp
+    )
+    target_include_directories(
+        shadow-image-warm-edit-gpu-render-plan-tests
+        PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/proxy"
+    )
+    shadow_image_add_contract(
         shadow-image-libraw-provider-tests
         shadow-image-libraw-provider-contract
         tests/libraw_provider_contract_test.cpp

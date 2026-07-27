@@ -1325,7 +1325,7 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
     const std::uint32_t packed_row_floats = static_cast<std::uint32_t>(
         impl_->adjusted_row_stride_bytes / sizeof(float)
     );
-    const auto technical_detail_stage = prepare_warm_technical_detail_stage(
+    const WarmGpuRenderPlan render_plan = prepare_warm_gpu_render_plan(
         nodes,
         plan,
         impl_->dimensions,
@@ -1333,57 +1333,28 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
         impl_->level_zero_to_raster_scale_x,
         impl_->level_zero_to_raster_scale_y
     );
-    const auto texture_clarity_stage = technical_detail_stage.has_value()
-        ? std::optional<WarmTextureClarityStage>{}
-        : prepare_warm_texture_clarity_stage(
-            nodes,
-            plan,
-            impl_->dimensions,
-            impl_->level_zero_to_raster_scale_x,
-            impl_->level_zero_to_raster_scale_y
-        );
-    const auto local_contrast_stage = technical_detail_stage.has_value()
-            || texture_clarity_stage.has_value()
-        ? std::optional<WarmLocalContrastStage>{}
-        : prepare_warm_local_contrast_stage(
-            nodes,
-            plan,
-            impl_->dimensions,
-            impl_->level_zero_to_raster_scale_x,
-            impl_->level_zero_to_raster_scale_y
-        );
-    const auto texture_stage = technical_detail_stage.has_value() || texture_clarity_stage.has_value()
-            || local_contrast_stage.has_value()
-        ? std::optional<WarmTextureStage>{}
-        : prepare_warm_texture_stage(
-            nodes,
-            plan,
-            impl_->dimensions,
-            impl_->level_zero_to_raster_scale_x,
-            impl_->level_zero_to_raster_scale_y
-        );
-    const auto clarity_stage = technical_detail_stage.has_value() || texture_clarity_stage.has_value()
-            || local_contrast_stage.has_value() || texture_stage.has_value()
-        ? std::optional<WarmClarityStage>{}
-        : prepare_warm_clarity_stage(
-            nodes,
-            plan,
-            impl_->dimensions,
-            impl_->level_zero_to_raster_scale_x,
-            impl_->level_zero_to_raster_scale_y
-        );
-    const auto dehaze_defringe_stage = technical_detail_stage.has_value()
-            || texture_clarity_stage.has_value() || local_contrast_stage.has_value()
-            || texture_stage.has_value() || clarity_stage.has_value()
-        ? std::optional<WarmDehazeDefringeStage>{}
-        : prepare_warm_dehaze_defringe_stage(nodes, plan, impl_->working_space);
-    const bool has_neighbourhood_stage = technical_detail_stage.has_value()
-        || texture_clarity_stage.has_value() || local_contrast_stage.has_value()
-        || texture_stage.has_value() || clarity_stage.has_value()
-        || dehaze_defringe_stage.has_value();
+    const auto* technical_detail_stage = std::get_if<WarmTechnicalDetailStage>(
+        &render_plan.neighbourhood_stage
+    );
+    const auto* texture_clarity_stage = std::get_if<WarmTextureClarityStage>(
+        &render_plan.neighbourhood_stage
+    );
+    const auto* local_contrast_stage = std::get_if<WarmLocalContrastStage>(
+        &render_plan.neighbourhood_stage
+    );
+    const auto* texture_stage = std::get_if<WarmTextureStage>(
+        &render_plan.neighbourhood_stage
+    );
+    const auto* clarity_stage = std::get_if<WarmClarityStage>(
+        &render_plan.neighbourhood_stage
+    );
+    const auto* dehaze_defringe_stage = std::get_if<WarmDehazeDefringeStage>(
+        &render_plan.neighbourhood_stage
+    );
+    const bool has_neighbourhood_stage = render_plan.has_neighbourhood_stage();
     PreparedMetalAdjustment before_program;
     std::optional<PreparedMetalAdjustment> final_program;
-    if (technical_detail_stage.has_value()) {
+    if (technical_detail_stage != nullptr) {
         auto prepared_before = prepare_program(
             nodes,
             technical_detail_stage->before,
@@ -1404,7 +1375,7 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
             };
         }
         before_program = std::move(*prepared_before);
-    } else if (texture_clarity_stage.has_value()) {
+    } else if (texture_clarity_stage != nullptr) {
         auto prepared_before = prepare_program(
             nodes,
             texture_clarity_stage->before,
@@ -1423,7 +1394,7 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
                                  .diagnostic = std::move(preparation_diagnostic)};
         }
         before_program = std::move(*prepared_before);
-    } else if (local_contrast_stage.has_value()) {
+    } else if (local_contrast_stage != nullptr) {
         auto prepared_before = prepare_program(
             nodes,
             local_contrast_stage->before,
@@ -1442,7 +1413,7 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
                                  .diagnostic = std::move(preparation_diagnostic)};
         }
         before_program = std::move(*prepared_before);
-    } else if (texture_stage.has_value()) {
+    } else if (texture_stage != nullptr) {
         auto prepared_before = prepare_program(
             nodes,
             texture_stage->before,
@@ -1463,7 +1434,7 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
             };
         }
         before_program = std::move(*prepared_before);
-    } else if (clarity_stage.has_value()) {
+    } else if (clarity_stage != nullptr) {
         auto prepared_before = prepare_program(
             nodes,
             clarity_stage->before,
@@ -1484,7 +1455,7 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
             };
         }
         before_program = std::move(*prepared_before);
-    } else if (dehaze_defringe_stage.has_value()) {
+    } else if (dehaze_defringe_stage != nullptr) {
         auto prepared_before = prepare_program(
             nodes,
             dehaze_defringe_stage->before,
@@ -1565,7 +1536,7 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
     if (cancellation.stop_requested()) {
         return cancelled();
     }
-    if (technical_detail_stage.has_value()) {
+    if (technical_detail_stage != nullptr) {
         const std::string diagnostic = technical_detail_stage->sharpen.has_value()
             ? impl_->ensure_sharpen_resources(slot_index)
             : impl_->ensure_denoise_resources(slot_index);
@@ -1576,21 +1547,21 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
                 .diagnostic = diagnostic,
             };
         }
-    } else if (texture_clarity_stage.has_value()) {
+    } else if (texture_clarity_stage != nullptr) {
         const std::string diagnostic = impl_->ensure_texture_clarity_resources(slot_index);
         if (!diagnostic.empty()) {
             return RenderAttempt{.status = RenderStatus::unavailable_or_failed,
                                  .output = std::nullopt,
                                  .diagnostic = diagnostic};
         }
-    } else if (local_contrast_stage.has_value()) {
+    } else if (local_contrast_stage != nullptr) {
         const std::string diagnostic = impl_->ensure_local_contrast_resources(slot_index);
         if (!diagnostic.empty()) {
             return RenderAttempt{.status = RenderStatus::unavailable_or_failed,
                                  .output = std::nullopt,
                                  .diagnostic = diagnostic};
         }
-    } else if (texture_stage.has_value()) {
+    } else if (texture_stage != nullptr) {
         const std::string diagnostic = impl_->ensure_sharpen_resources(slot_index);
         if (!diagnostic.empty()) {
             return RenderAttempt{
@@ -1599,7 +1570,7 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
                 .diagnostic = diagnostic,
             };
         }
-    } else if (clarity_stage.has_value()) {
+    } else if (clarity_stage != nullptr) {
         const std::string diagnostic = impl_->ensure_clarity_resources(slot_index);
         if (!diagnostic.empty()) {
             return RenderAttempt{
@@ -1608,7 +1579,7 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
                 .diagnostic = diagnostic,
             };
         }
-    } else if (dehaze_defringe_stage.has_value()) {
+    } else if (dehaze_defringe_stage != nullptr) {
         const std::string diagnostic = impl_->ensure_denoise_resources(slot_index);
         if (!diagnostic.empty()) {
             return RenderAttempt{
@@ -1693,7 +1664,7 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
         };
 
         id<MTLBuffer> neighbourhood_output = impl_->source;
-        if (technical_detail_stage.has_value()) {
+        if (technical_detail_stage != nullptr) {
             [encoder setComputePipelineState:context.adjustment_pipeline()];
             bind_adjustment(
                 impl_->source,
@@ -1747,7 +1718,7 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
                 dispatch(context.sharpen_apply_pipeline());
                 neighbourhood_output = sharpened_output;
             }
-        } else if (texture_clarity_stage.has_value()) {
+        } else if (texture_clarity_stage != nullptr) {
             [encoder setComputePipelineState:context.adjustment_pipeline()];
             bind_adjustment(impl_->source, slot.adjusted, slot.before_operations,
                             before_program, *before_buffers);
@@ -1803,7 +1774,7 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
                       atIndex:6U];
             dispatch(context.texture_clarity_apply_pipeline());
             neighbourhood_output = slot.denoised;
-        } else if (local_contrast_stage.has_value()) {
+        } else if (local_contrast_stage != nullptr) {
             [encoder setComputePipelineState:context.adjustment_pipeline()];
             bind_adjustment(
                 impl_->source,
@@ -1943,7 +1914,7 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
                        length:sizeof(final_program->invocation) atIndex:5U];
             dispatch(context.local_contrast_apply_pipeline());
             neighbourhood_output = slot.denoised;
-        } else if (texture_stage.has_value()) {
+        } else if (texture_stage != nullptr) {
             [encoder setComputePipelineState:context.adjustment_pipeline()];
             bind_adjustment(
                 impl_->source,
@@ -1980,7 +1951,7 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
                       atIndex:4U];
             dispatch(context.texture_apply_pipeline());
             neighbourhood_output = slot.denoised;
-        } else if (clarity_stage.has_value()) {
+        } else if (clarity_stage != nullptr) {
             [encoder setComputePipelineState:context.adjustment_pipeline()];
             bind_adjustment(
                 impl_->source,
@@ -2032,7 +2003,7 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
                       atIndex:5U];
             dispatch(context.clarity_apply_pipeline());
             neighbourhood_output = slot.denoised;
-        } else if (dehaze_defringe_stage.has_value()) {
+        } else if (dehaze_defringe_stage != nullptr) {
             [encoder setComputePipelineState:context.adjustment_pipeline()];
             bind_adjustment(
                 impl_->source,

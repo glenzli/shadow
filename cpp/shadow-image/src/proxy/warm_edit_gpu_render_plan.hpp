@@ -8,6 +8,7 @@
 
 #include <optional>
 #include <span>
+#include <variant>
 #include <vector>
 
 namespace shadow::image::detail {
@@ -66,51 +67,30 @@ struct WarmLocalContrastStage final {
     WarmLocalContrastParameters parameters;
 };
 
-[[nodiscard]] std::optional<WarmTechnicalDetailStage> prepare_warm_technical_detail_stage(
+using WarmGpuNeighbourhoodStage = std::variant<
+    std::monostate,
+    WarmTechnicalDetailStage,
+    WarmTextureClarityStage,
+    WarmLocalContrastStage,
+    WarmTextureStage,
+    WarmClarityStage,
+    WarmDehazeDefringeStage>;
+
+struct WarmGpuRenderPlan final {
+    WarmGpuNeighbourhoodStage neighbourhood_stage;
+
+    [[nodiscard]] bool has_neighbourhood_stage() const noexcept {
+        return !std::holds_alternative<std::monostate>(neighbourhood_stage);
+    }
+};
+
+[[nodiscard]] WarmGpuRenderPlan prepare_warm_gpu_render_plan(
     std::span<const AdjustmentNode> nodes,
     const EditExecutionPlan& plan,
     Dimensions dimensions,
     const WorkingRgbSpace& working_space,
     double level_zero_to_raster_scale_x,
     double level_zero_to_raster_scale_y
-);
-
-[[nodiscard]] std::optional<WarmTextureStage> prepare_warm_texture_stage(
-    std::span<const AdjustmentNode> nodes,
-    const EditExecutionPlan& plan,
-    Dimensions dimensions,
-    double level_zero_to_raster_scale_x,
-    double level_zero_to_raster_scale_y
-);
-
-[[nodiscard]] std::optional<WarmClarityStage> prepare_warm_clarity_stage(
-    std::span<const AdjustmentNode> nodes,
-    const EditExecutionPlan& plan,
-    Dimensions dimensions,
-    double level_zero_to_raster_scale_x,
-    double level_zero_to_raster_scale_y
-);
-
-[[nodiscard]] std::optional<WarmTextureClarityStage> prepare_warm_texture_clarity_stage(
-    std::span<const AdjustmentNode> nodes,
-    const EditExecutionPlan& plan,
-    Dimensions dimensions,
-    double scale_x,
-    double scale_y
-);
-
-[[nodiscard]] std::optional<WarmLocalContrastStage> prepare_warm_local_contrast_stage(
-    std::span<const AdjustmentNode> nodes,
-    const EditExecutionPlan& plan,
-    Dimensions dimensions,
-    double scale_x,
-    double scale_y
-);
-
-[[nodiscard]] std::optional<WarmDehazeDefringeStage> prepare_warm_dehaze_defringe_stage(
-    std::span<const AdjustmentNode> nodes,
-    const EditExecutionPlan& plan,
-    const WorkingRgbSpace& working_space
 );
 
 } // namespace shadow::image::detail

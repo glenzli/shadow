@@ -197,7 +197,8 @@ The embedded Warm Metal program is a separate language owner in
 kernel implementation. Its mirrored host records and checked buffer layout live in
 `src/proxy/warm_edit_gpu_kernel_contract.hpp`.
 Pure, cross-platform neighborhood-stage recognition and before/after plan rewriting live in
-`src/proxy/warm_edit_gpu_render_plan.*`; the Objective-C++ runtime only consumes those plans.
+`src/proxy/warm_edit_gpu_render_plan.*`; one exhaustive variant records the selected route and
+the Objective-C++ runtime only consumes that plan.
 
 The edit path accepts explicitly native interleaved RGB float32, scene-referred, linear-light data
 with named RGB primaries, white point, and luminance coefficients. It is not legal to feed the
