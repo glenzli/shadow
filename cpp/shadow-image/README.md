@@ -181,8 +181,10 @@ New production code should include the narrow semantic owner directly:
 The implementation follows the same map. `src/proxy/developed_source_raster.*` owns validation,
 dimensions, resizing, and bounded rectangular extraction for the decoder's two developed-source
 representations. `src/proxy/jpeg_proxy_encoding.*` owns the bounded libjpeg 4:4:4 encoder shared
-by reference and edited proxies. Lifecycle-specific preparation and rendering stay with the
-warm-preview, full-detail, and proxy owners rather than with either leaf module.
+by reference and edited proxies. `src/proxy/proxy_render_request_validation.*` owns the shared
+proxy-size/JPEG-quality boundary and RAW-plan schema/intent checks. Lifecycle-specific preparation
+and rendering stay with the warm-preview, full-detail, and proxy owners rather than with these
+leaf modules.
 
 The edit path accepts explicitly native interleaved RGB float32, scene-referred, linear-light data
 with named RGB primaries, white point, and luminance coefficients. It is not legal to feed the

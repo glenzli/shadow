@@ -16,6 +16,7 @@
 #include "developed_source_raster.hpp"
 #include "display_rgb_math.hpp"
 #include "jpeg_proxy_encoding.hpp"
+#include "proxy_render_request_validation.hpp"
 #include "warm_edit_gpu.hpp"
 #include "../concurrency/row_scheduler.hpp"
 
@@ -40,18 +41,6 @@ namespace shadow::image {
 
 namespace {
 
-void validate_proxy_request(const ProxyRequest request) {
-    constexpr std::uint32_t maximum_proxy_edge = 16'384;
-    if (request.max_edge == 0U || request.max_edge > maximum_proxy_edge) {
-        throw DecodeError(
-            DecodeErrorCode::invalid_request,
-            0,
-            "proxy max edge must be in 1..=16384"
-        );
-    }
-    proxy_detail::validate_jpeg_quality(request.jpeg_quality);
-}
-
 void validate_warm_edit_max_edge(const std::uint32_t max_edge) {
     if (max_edge == 0U || max_edge > maximum_warm_edit_preview_edge) {
         throw DecodeError(
@@ -60,35 +49,6 @@ void validate_warm_edit_max_edge(const std::uint32_t max_edge) {
             "warm edit preview max edge must be in 1..=4096"
         );
     }
-}
-
-void validate_raw_development_plan_intent(
-    const RawDevelopmentPlan& plan,
-    const RawDevelopmentIntent required_intent,
-    const std::string_view operation
-) {
-    if (plan.schema_version != raw_development_plan_schema_version) {
-        throw DecodeError(
-            DecodeErrorCode::invalid_request,
-            0,
-            std::string(operation)
-                + " requires the current RawDevelopmentPlan schema"
-        );
-    }
-    if (plan.intent != required_intent) {
-        throw DecodeError(
-            DecodeErrorCode::invalid_request,
-            0,
-            std::string(operation)
-                + " received a RawDevelopmentPlan with an incompatible intent"
-        );
-    }
-
-    // Whether a plan is executable is route-dependent. A LibRaw provider can only advertise
-    // its processed-RGB fallback, while Shadow's owned RawFrame route can implement additional
-    // plans (for example robust CFA denoise) before demosaic. Defer capability negotiation to
-    // develop_source_reference(), after the source route has been selected, so the fallback
-    // cannot pre-empt a capable host-owned RAW developer.
 }
 
 // Packed-provider RGB optics stays on its original u16 path. For an interactive preview, reduce
@@ -1328,7 +1288,7 @@ WarmEditPreviewSession prepare_warm_edit_preview(
     const OpticsSettings& optics_settings
 ) {
     validate_warm_edit_max_edge(max_edge);
-    validate_raw_development_plan_intent(
+    proxy_detail::validate_raw_development_plan_intent(
         raw_development_plan,
         RawDevelopmentIntent::preview,
         "warm edit preview"
@@ -1569,7 +1529,7 @@ FullEditDetailSession prepare_full_edit_detail(
             "full-resolution edit source requires detail or export-image intent"
         );
     }
-    validate_raw_development_plan_intent(
+    proxy_detail::validate_raw_development_plan_intent(
         raw_development_plan,
         raw_development_plan.intent,
         raw_development_plan.intent == RawDevelopmentIntent::detail
@@ -1622,8 +1582,8 @@ EncodedProxy render_reference_proxy_jpeg(
     const ProxyRequest request,
     const RawDevelopmentPlan& raw_development_plan
 ) {
-    validate_proxy_request(request);
-    validate_raw_development_plan_intent(
+    proxy_detail::validate_proxy_request(request);
+    proxy_detail::validate_raw_development_plan_intent(
         raw_development_plan,
         RawDevelopmentIntent::preview,
         "reference proxy"
@@ -1685,7 +1645,7 @@ EncodedProxy render_edited_reference_proxy_jpeg(
     const OpticsProvider* optics_provider,
     const OpticsSettings& optics_settings
 ) {
-    validate_proxy_request(request);
+    proxy_detail::validate_proxy_request(request);
     validate_adjustment_nodes(nodes);
     const WarmEditPreviewSession preview = prepare_warm_edit_preview(
         session,
@@ -1722,7 +1682,7 @@ EncodedProxy render_edited_reference_proxy_jpeg_layers(
     const OpticsProvider* optics_provider,
     const OpticsSettings& optics_settings
 ) {
-    validate_proxy_request(request);
+    proxy_detail::validate_proxy_request(request);
     const WarmEditPreviewSession preview = prepare_warm_edit_preview(
         session,
         request.max_edge,

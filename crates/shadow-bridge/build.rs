@@ -87,6 +87,8 @@ const EMBEDDED_IMAGE_INPUTS: &[&str] = &[
     "src/proxy/jpeg_proxy_encoding.hpp",
     "src/proxy/jpeg_proxy_encoding.cpp",
     "src/proxy/jpeg_proxy.cpp",
+    "src/proxy/proxy_render_request_validation.hpp",
+    "src/proxy/proxy_render_request_validation.cpp",
     "src/proxy/metal_display_output.hpp",
     "src/proxy/metal_display_output.mm",
     "src/proxy/metal_display_output_stub.cpp",
@@ -241,7 +243,8 @@ fn main() {
         .file(image_root.join("src/proxy/display_output.cpp"))
         .file(image_root.join("src/proxy/jpeg_display_luma.cpp"))
         .file(image_root.join("src/proxy/jpeg_proxy_encoding.cpp"))
-        .file(image_root.join("src/proxy/jpeg_proxy.cpp"));
+        .file(image_root.join("src/proxy/jpeg_proxy.cpp"))
+        .file(image_root.join("src/proxy/proxy_render_request_validation.cpp"));
     if metal_enabled {
         build
             .file(image_root.join("src/edit/metal_adjustment.mm"))

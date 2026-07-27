@@ -67,6 +67,7 @@ add_library(
     src/proxy/jpeg_display_luma.cpp
     src/proxy/jpeg_proxy_encoding.cpp
     src/proxy/jpeg_proxy.cpp
+    src/proxy/proxy_render_request_validation.cpp
 )
 if(APPLE AND SHADOW_ENABLE_METAL)
     find_library(SHADOW_METAL_FRAMEWORK Metal REQUIRED)
@@ -272,6 +273,16 @@ if(BUILD_TESTING)
     )
     target_include_directories(
         shadow-image-developed-source-raster-tests
+        PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/proxy"
+    )
+    shadow_image_add_contract(
+        shadow-image-proxy-render-request-validation-tests
+        shadow-image-proxy-render-request-validation-contract
+        tests/proxy_render_request_validation_contract_test.cpp
+    )
+    target_include_directories(
+        shadow-image-proxy-render-request-validation-tests
         PRIVATE
             "${CMAKE_CURRENT_SOURCE_DIR}/src/proxy"
     )
