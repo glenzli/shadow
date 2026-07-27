@@ -12,5 +12,6 @@
 #include <shadow/image/full_edit_detail.hpp>
 #include <shadow/image/photo_geometry.hpp>
 #include <shadow/image/proxy_rendering.hpp>
+#include <shadow/image/retouch.hpp>
 #include <shadow/image/warm_edit_preview.hpp>
 #include <shadow/image/working_rgb.hpp>

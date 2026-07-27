@@ -3,6 +3,7 @@
 #include <shadow/image/adjustment_graph.hpp>
 #include <shadow/image/adjustment_parameters.hpp>
 #include <shadow/image/edit_execution_plan.hpp>
+#include <shadow/image/retouch.hpp>
 #include <shadow/image/working_rgb.hpp>
 
 #include <cstddef>
@@ -10,16 +11,6 @@
 #include <vector>
 
 namespace shadow::image {
-
-// Validates and deterministically repairs small spots from a smooth ring of
-// surrounding pixels. This deliberately is not an inpainting/generative API:
-// its result is fully determined by the current raster and stored targets.
-void validate_spot_heal(const SpotHealAdjustment& adjustment);
-void apply_spot_heal(
-    FloatRgbImage& image,
-    const SpotHealAdjustment& adjustment,
-    AdjustmentExecutionContext context = {}
-);
 
 // Executes an intentionally compact subset of the future typed edit graph. The recommended
 // default pipeline order is RgbWhiteBalance -> Exposure -> Contrast -> SelectiveTone ->

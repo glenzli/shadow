@@ -172,7 +172,8 @@ New production code should include the narrow semantic owner directly:
 - `edit_execution_plan.hpp` owns locality, footprints, validation, compiled segments, and their
   source-node index lifetime.
 - `cpu_edit_reference.hpp` owns the deterministic flat-node oracle and tone-curve sampling;
-  `adjustment_layers.hpp` owns masks, layer composition, and masked execution.
+  `retouch.hpp` owns deterministic spot/continuous-brush repair; `adjustment_layers.hpp` owns
+  masks, layer composition, and masked execution.
 - `warm_edit_preview.hpp` owns the reusable interactive preview session, analysis, cancellation,
   and execution provenance; `full_edit_detail.hpp` owns bounded full-resolution tile sessions.
 - `edited_proxy_rendering.hpp` owns one-shot adjusted proxy orchestration, while

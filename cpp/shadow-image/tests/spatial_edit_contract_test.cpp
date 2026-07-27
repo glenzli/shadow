@@ -5,6 +5,7 @@
 #include <shadow/image/cpu_edit_reference.hpp>
 #include <shadow/image/edit_execution_plan.hpp>
 #include <shadow/image/photo_geometry.hpp>
+#include <shadow/image/retouch.hpp>
 
 #include <cstdlib>
 
