@@ -25,6 +25,13 @@ QML never opens SQLite, calls LibRaw, or interprets blob paths. The global local
 
 ## Desktop source index
 
+Application startup is split from environment-driven automation:
+
+- [`src/main.cpp`](src/main.cpp) owns process startup, isolated RAW-helper policy, local Catalog
+  recovery, service composition, QML loading, and the application run loop.
+- [`src/desktop_smoke_harness.cpp`](src/desktop_smoke_harness.cpp) owns documented
+  `SHADOW_DESKTOP_*` automation flags, readiness wiring, timeouts, and smoke-test exit policy.
+
 `EditController` is the stable QObject/QML facade, with implementation grouped by responsibility:
 
 - [`src/edit_controller.cpp`](src/edit_controller.cpp) owns the stable facade, session

@@ -121,6 +121,8 @@ qt_add_executable(
     MACOSX_BUNDLE
     src/desktop_backend.cpp
     src/desktop_backend.hpp
+    src/desktop_smoke_harness.cpp
+    src/desktop_smoke_harness.hpp
     src/cache_maintenance_controller.cpp
     src/cache_maintenance_controller.hpp
     src/edit_controller.cpp
