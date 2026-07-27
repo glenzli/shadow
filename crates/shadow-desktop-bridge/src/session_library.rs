@@ -2,7 +2,18 @@
 
 use anyhow::Result as AnyResult;
 
-use super::{DesktopSession, current_time_ms, ffi, ffi_verified_source_relink_receipt};
+use super::{DesktopSession, current_time_ms, ffi, relink_service::VerifiedSourceRelinkReceipt};
+
+fn ffi_verified_source_relink_receipt(
+    source: VerifiedSourceRelinkReceipt,
+) -> ffi::FfiVerifiedSourceRelinkReceipt {
+    ffi::FfiVerifiedSourceRelinkReceipt {
+        photo_id: source.photo_id,
+        representation_id: source.representation_id,
+        location_id: source.location_id,
+        display_path: source.display_path,
+    }
+}
 
 impl DesktopSession {
     pub(crate) fn library_photo_page(

@@ -11,6 +11,7 @@ mod relink_service;
 mod review_service;
 mod scan_service;
 mod session_library;
+mod session_review;
 mod session_scan;
 
 // Photo source admission, preview delivery, and detail viewports.
@@ -32,6 +33,7 @@ mod shared_grade_library;
 mod cache_maintenance_service;
 mod export_queue_service;
 mod export_service;
+mod session_cache_maintenance;
 mod session_export;
 
 use std::{
@@ -136,16 +138,11 @@ use crate::isolated_proxy::{
 #[cfg(test)]
 use crate::photo_provider::PhotoInspector;
 use crate::photo_provider::isolated_edit_raster;
-use crate::relink_service::{RelinkService, VerifiedSourceRelinkReceipt};
+use crate::relink_service::RelinkService;
 use crate::review_service::ReviewService;
 use crate::scan_service::ScanService;
 use crate::session_preview_store::SessionPreviewStore;
-use crate::{
-    cache_maintenance_service::{
-        CacheMaintenanceInventory, CacheMaintenanceService, CacheMaintenanceSweep,
-    },
-    library_service::LibraryService,
-};
+use crate::{cache_maintenance_service::CacheMaintenanceService, library_service::LibraryService};
 use detail_tile_cache::{CachedDetailSource, EditDetailSessionCache, cached_detail_tile};
 use detail_viewport::{
     MAX_DETAIL_VIEWPORT_SIDE, detail_viewport_rects, validate_detail_viewport_request,
@@ -1415,59 +1412,6 @@ struct DesktopSession {
     export_queue: export_queue_service::ExportQueueService,
 }
 
-fn ffi_cache_maintenance_inventory(
-    source: CacheMaintenanceInventory,
-) -> ffi::FfiCacheMaintenanceInventory {
-    let CacheMaintenanceInventory {
-        cache,
-        catalog_live_blob_count,
-        unsupported_algorithms,
-    } = source;
-    ffi::FfiCacheMaintenanceInventory {
-        catalog_live_blob_count: u64::try_from(catalog_live_blob_count).unwrap_or(u64::MAX),
-        cache_blob_count: u64::try_from(cache.blobs.len()).unwrap_or(u64::MAX),
-        cache_blob_byte_len: cache.total_byte_len,
-        unknown_entry_count: u64::try_from(cache.unknown_relative_paths.len()).unwrap_or(u64::MAX),
-        unsupported_algorithm_count: u32::try_from(unsupported_algorithms.len())
-            .unwrap_or(u32::MAX),
-    }
-}
-
-fn ffi_verified_source_relink_receipt(
-    source: VerifiedSourceRelinkReceipt,
-) -> ffi::FfiVerifiedSourceRelinkReceipt {
-    ffi::FfiVerifiedSourceRelinkReceipt {
-        photo_id: source.photo_id,
-        representation_id: source.representation_id,
-        location_id: source.location_id,
-        display_path: source.display_path,
-    }
-}
-
-fn ffi_cache_maintenance_sweep(source: CacheMaintenanceSweep) -> ffi::FfiCacheMaintenanceSweep {
-    let CacheMaintenanceSweep {
-        cache,
-        catalog_live_blob_count,
-        unsupported_algorithms,
-    } = source;
-    let inventory = cache.inventory;
-    ffi::FfiCacheMaintenanceSweep {
-        dry_run: cache.dry_run,
-        catalog_live_blob_count: u64::try_from(catalog_live_blob_count).unwrap_or(u64::MAX),
-        cache_blob_count: u64::try_from(inventory.blobs.len()).unwrap_or(u64::MAX),
-        cache_blob_byte_len: inventory.total_byte_len,
-        unknown_entry_count: u64::try_from(inventory.unknown_relative_paths.len())
-            .unwrap_or(u64::MAX),
-        unsupported_algorithm_count: u32::try_from(unsupported_algorithms.len())
-            .unwrap_or(u32::MAX),
-        retained_blob_count: cache.retained_blob_count,
-        recently_protected_blob_count: cache.recently_protected_blob_count,
-        recently_protected_byte_len: cache.recently_protected_byte_len,
-        reclaimed_blob_count: u64::try_from(cache.reclaimed.len()).unwrap_or(u64::MAX),
-        reclaimed_byte_len: cache.reclaimed_byte_len,
-    }
-}
-
 #[derive(Debug)]
 struct CachedEditPreviewSession {
     representation_id: RepresentationId,
@@ -1632,113 +1576,6 @@ fn validate_decode_inspection_summary(
 }
 
 impl DesktopSession {
-    fn review_page(
-        &self,
-        cursor_path: &str,
-        cursor_representation_id: &str,
-        limit: u32,
-    ) -> AnyResult<ffi::FfiReviewPage> {
-        self.review
-            .review_page(cursor_path, cursor_representation_id, limit)
-    }
-
-    /// Reads cache reachability without deleting anything. The desktop must
-    /// call `cache_maintenance_sweep(true)` before it presents a confirmation
-    /// for a destructive sweep.
-    fn cache_maintenance_inventory(&self) -> AnyResult<ffi::FfiCacheMaintenanceInventory> {
-        Ok(ffi_cache_maintenance_inventory(
-            self.cache_maintenance.inventory()?,
-        ))
-    }
-
-    /// Performs the explicitly selected conservative maintenance action. A
-    /// false `dry_run` remains safe against current Recipe/source references,
-    /// unknown formats, and blobs inside the short publication grace period.
-    fn cache_maintenance_sweep(&self, dry_run: bool) -> AnyResult<ffi::FfiCacheMaintenanceSweep> {
-        Ok(ffi_cache_maintenance_sweep(
-            self.cache_maintenance.sweep(dry_run)?,
-        ))
-    }
-
-    fn load_review_visual(&self, ticket: &str) -> AnyResult<ffi::FfiVisualPayload> {
-        self.review.load_visual(ticket)
-    }
-
-    fn prepare_review_comparison(
-        &self,
-        left_grid_handle: &str,
-        right_grid_handle: &str,
-    ) -> AnyResult<ffi::FfiReviewComparisonPresentation> {
-        self.review
-            .prepare_comparison(left_grid_handle, right_grid_handle)
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn record_review_visual_frame(
-        &self,
-        request_ticket: &str,
-        decoder_version: &str,
-        requested_width: u32,
-        requested_height: u32,
-        decoded_width: u32,
-        decoded_height: u32,
-        pixel_hash_hex: &str,
-    ) -> AnyResult<()> {
-        self.review.record_visual_frame(
-            request_ticket,
-            decoder_version,
-            requested_width,
-            requested_height,
-            decoded_width,
-            decoded_height,
-            pixel_hash_hex,
-        )
-    }
-
-    fn confirm_review_comparison_ready(
-        &self,
-        presentation_id: &str,
-        left_request_ticket: &str,
-        right_request_ticket: &str,
-    ) -> AnyResult<()> {
-        self.review.confirm_comparison_ready(
-            presentation_id,
-            left_request_ticket,
-            right_request_ticket,
-        )
-    }
-
-    fn cancel_review_comparison(&self, presentation_id: &str) -> AnyResult<()> {
-        self.review.cancel_comparison(presentation_id)
-    }
-
-    fn record_review_comparison(
-        &self,
-        presentation_id: &str,
-        outcome: ffi::FfiPairwiseOutcome,
-    ) -> AnyResult<ffi::FfiFeedbackReceipt> {
-        self.review.record_comparison(presentation_id, outcome)
-    }
-
-    fn forget_review_feedback(&self, event_id: &str) -> AnyResult<ffi::FfiForgetReceipt> {
-        self.review.forget_feedback(event_id)
-    }
-
-    fn review_photo_decision_state(&self, photo_id: &str) -> AnyResult<ffi::FfiPhotoDecisionState> {
-        self.review.photo_decision_state(photo_id)
-    }
-
-    fn set_review_photo_decision(
-        &self,
-        photo_id: &str,
-        expected_head_sequence: u64,
-        flag: ffi::FfiDecisionFlag,
-        rating: u8,
-    ) -> AnyResult<ffi::FfiReviewDecisionMutationReceipt> {
-        self.review
-            .set_photo_decision(photo_id, expected_head_sequence, flag, rating)
-    }
-
     fn photo_edit_state(
         &self,
         photo_id: &str,

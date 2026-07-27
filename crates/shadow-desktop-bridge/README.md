@@ -11,6 +11,7 @@ presentation, SQLite schema details, or native image algorithms.
 | Desktop CXX structs, methods, and session composition | [`src/lib.rs`](src/lib.rs) |
 | Library paging and filters | [`src/library_service.rs`](src/library_service.rs) |
 | Desktop-session Library, relink, scan, and durable-export CXX delegation | [`src/session_library.rs`](src/session_library.rs), [`src/session_scan.rs`](src/session_scan.rs), [`src/session_export.rs`](src/session_export.rs) |
+| Desktop-session Review and cache-maintenance CXX delegation | [`src/session_review.rs`](src/session_review.rs), [`src/session_cache_maintenance.rs`](src/session_cache_maintenance.rs) |
 | Folder import lifecycle | [`src/scan_service.rs`](src/scan_service.rs) |
 | Source relinking | [`src/relink_service.rs`](src/relink_service.rs) |
 | Review presentation, decisions, and comparison evidence | [`src/review_service.rs`](src/review_service.rs) |
