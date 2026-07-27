@@ -9,7 +9,7 @@
 #include "warm_edit_gpu_kernel_contract.hpp"
 #include "warm_edit_gpu_pipeline_context.hpp"
 #include "warm_edit_gpu_render_plan.hpp"
-#include "../edit/adjustment_execution_internal.hpp"
+#include "../edit/metal_adjustment_program.hpp"
 
 #include <shadow/image/adjustment_graph.hpp>
 #include <shadow/image/adjustment_parameters.hpp>

@@ -5,7 +5,7 @@
 #include <shadow/image/edit_execution_plan.hpp>
 #include <shadow/image/working_rgb.hpp>
 
-#include "adjustment_execution_internal.hpp"
+#include "metal_adjustment_program.hpp"
 #include "../concurrency/row_scheduler.hpp"
 
 #include <algorithm>

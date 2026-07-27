@@ -5,7 +5,7 @@
 #import <Metal/Metal.h>
 #undef shadow
 
-#include "adjustment_execution_internal.hpp"
+#include "metal_adjustment_execution.hpp"
 #include "metal_adjustment_msl.hpp"
 
 #include <algorithm>

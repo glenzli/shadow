@@ -6,7 +6,7 @@
 #include <shadow/image/edit_execution_plan.hpp>
 #include <shadow/image/working_rgb.hpp>
 
-#include "adjustment_execution_internal.hpp"
+#include "metal_adjustment_execution.hpp"
 
 #include <cmath>
 #include <cstddef>

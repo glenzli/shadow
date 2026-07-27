@@ -1,4 +1,4 @@
-#include "adjustment_execution_internal.hpp"
+#include "metal_adjustment_execution.hpp"
 
 namespace shadow::image::detail {
 

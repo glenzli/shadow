@@ -143,11 +143,6 @@ struct MetalAdjustmentPreparation final {
     std::string diagnostic;
 };
 
-struct MetalAdjustmentAttempt final {
-    std::optional<FloatRgbImage> output;
-    std::string diagnostic;
-};
-
 // Implemented beside the CPU oracle so Metal parameter preparation reuses its exact working-space
 // and CAT16 math rather than maintaining a second host-side interpretation.
 [[nodiscard]] MetalAdjustmentPreparation prepare_metal_adjustment(
@@ -159,13 +154,6 @@ struct MetalAdjustmentAttempt final {
     // backend may skip the repeated full-raster finiteness/layout scan while retaining all
     // plan, context, color-space, and parameter validation below.
     bool input_already_validated = false
-);
-
-[[nodiscard]] bool metal_adjustment_available() noexcept;
-
-[[nodiscard]] MetalAdjustmentAttempt try_execute_adjustments_metal(
-    const FloatRgbImage& input,
-    const PreparedMetalAdjustment& program
 );
 
 } // namespace shadow::image::detail
