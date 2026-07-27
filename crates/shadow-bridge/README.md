@@ -11,6 +11,8 @@ that same private wire representation:
 - [`src/decoder.rs`](src/decoder.rs) owns source-neutral inspection, embedded-preview extraction,
   and shared decoder wire mappings.
 - [`src/display_luma.rs`](src/display_luma.rs) owns bounded, versioned display-proxy analysis.
+- [`src/optics.rs`](src/optics.rs) owns optical settings, profile discovery, and execution
+  receipts.
 - [`src/raw_development.rs`](src/raw_development.rs) owns RAW plans, negotiation, and
   source-development provenance receipts.
 - `AdjustmentRenderPlan` and its operation types own validated edit execution.
