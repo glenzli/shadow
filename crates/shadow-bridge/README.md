@@ -17,6 +17,8 @@ that same private wire representation:
   source-development provenance receipts.
 - [`src/adjustment.rs`](src/adjustment.rs) owns the typed adjustment graph, geometry, local masks,
   parameters, and their shared fail-closed validation chain.
+- [`src/preview_analysis.rs`](src/preview_analysis.rs) owns warm-preview histograms, source
+  clipping masks, execution provenance, and fail-closed analysis validation.
 - `PhotoEditPreviewSession` and `PhotoEditDetailSession` own reusable native preview and detail
   buffers.
 - [`src/lib.rs`](src/lib.rs) re-exports the public contract and retains only shared wiring that has
