@@ -11,9 +11,10 @@ class FullEditDetailHandle;
 
 #include "shadow-bridge/src/lib.rs.h"
 
-#include <shadow/image/decoder.hpp>
+#include <shadow/image/decoder_session.hpp>
 #include <shadow/image/display_luma.hpp>
 #include <shadow/image/edit.hpp>
+#include <shadow/image/raw_development_receipt.hpp>
 
 #include <memory>
 #include <stop_token>

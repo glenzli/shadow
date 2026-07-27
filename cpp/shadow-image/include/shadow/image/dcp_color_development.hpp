@@ -2,6 +2,8 @@
 
 #include <shadow/image/camera_profile_catalog.hpp>
 #include <shadow/image/raw_development.hpp>
+#include <shadow/image/raw_frame.hpp>
+#include <shadow/image/reference_pixels.hpp>
 
 #include <array>
 #include <compare>

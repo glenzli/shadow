@@ -1,5 +1,7 @@
 #include <shadow/image/private_decoder_plugin.hpp>
 
+#include <shadow/image/decoder_error.hpp>
+
 #include <cctype>
 #include <cstdint>
 #include <iomanip>

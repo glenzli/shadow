@@ -1,5 +1,7 @@
 #include <shadow/image/sensor_clipping.hpp>
 
+#include <shadow/image/decoder_error.hpp>
+
 #include "../concurrency/row_scheduler.hpp"
 
 #include <limits>

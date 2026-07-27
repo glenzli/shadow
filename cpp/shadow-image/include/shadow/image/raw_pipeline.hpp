@@ -1,8 +1,11 @@
 #pragma once
 
-#include <shadow/image/decoder.hpp>
+#include <shadow/image/decoder_session.hpp>
 #include <shadow/image/fused_raw_development.hpp>
 #include <shadow/image/raw_development.hpp>
+#include <shadow/image/raw_development_plan.hpp>
+#include <shadow/image/raw_development_receipt.hpp>
+#include <shadow/image/reference_pixels.hpp>
 #include <shadow/image/sensor_clipping.hpp>
 
 #include <compare>

@@ -1,4 +1,5 @@
 #include <shadow/image/display_luma.hpp>
+#include <shadow/image/decoder_error.hpp>
 
 #include "display_rgb_math.hpp"
 

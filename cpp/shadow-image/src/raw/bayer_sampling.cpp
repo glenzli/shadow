@@ -1,5 +1,7 @@
 #include "bayer_sampling.hpp"
 
+#include <shadow/image/decoder_error.hpp>
+
 #include <algorithm>
 #include <array>
 #include <cmath>

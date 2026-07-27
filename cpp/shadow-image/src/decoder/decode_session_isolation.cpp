@@ -1,5 +1,7 @@
 #include "decode_session_isolation.hpp"
 
+#include <shadow/image/decoder_error.hpp>
+
 #include <exception>
 #include <optional>
 #include <string>

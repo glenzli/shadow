@@ -2,6 +2,8 @@
 
 #include <shadow/image/fused_raw_development.hpp>
 #include <shadow/image/raw_denoise.hpp>
+#include <shadow/image/raw_development_plan.hpp>
+#include <shadow/image/raw_frame.hpp>
 
 #include <optional>
 #include <string>

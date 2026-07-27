@@ -1,5 +1,6 @@
 #pragma once
 
+#include <shadow/image/decoder_types.hpp>
 #include <shadow/image/edit.hpp>
 
 #include "../edit/adjustment_execution_internal.hpp"

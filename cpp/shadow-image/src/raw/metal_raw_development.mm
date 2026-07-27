@@ -6,6 +6,8 @@
 #undef shadow
 
 #include <shadow/image/dcp_color_development.hpp>
+#include <shadow/image/decoder_error.hpp>
+#include <shadow/image/proxy_rendering.hpp>
 
 #include "metal_raw_development.hpp"
 

@@ -1,5 +1,10 @@
 #include <shadow/image/color_management.hpp>
-#include <shadow/image/decoder.hpp>
+#include <shadow/image/decoder_error.hpp>
+#include <shadow/image/decoder_metadata.hpp>
+#include <shadow/image/decoder_session.hpp>
+#include <shadow/image/decoder_types.hpp>
+#include <shadow/image/raw_frame.hpp>
+#include <shadow/image/reference_pixels.hpp>
 
 #include "heif_decoder.hpp"
 #include "raster_exif.hpp"

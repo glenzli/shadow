@@ -1,6 +1,8 @@
 #pragma once
 
+#include <shadow/image/decoder_metadata.hpp>
 #include <shadow/image/raw_development.hpp>
+#include <shadow/image/reference_pixels.hpp>
 
 #include <compare>
 #include <cstdint>

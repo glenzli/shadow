@@ -2,6 +2,7 @@
 #include "raster_exif.hpp"
 
 #include <shadow/image/color_management.hpp>
+#include <shadow/image/decoder_error.hpp>
 
 #include <algorithm>
 #include <cstddef>

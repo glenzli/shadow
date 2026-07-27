@@ -1,6 +1,7 @@
 #include "decoder_contract_test_support.hpp"
 
 #include <shadow/image/decoder.hpp>
+#include <shadow/image/decoder_error.hpp>
 #include <shadow/image/private_decoder_plugin.hpp>
 #include <shadow/image/raw_development.hpp>
 

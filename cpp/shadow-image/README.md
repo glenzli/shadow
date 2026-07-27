@@ -1,6 +1,7 @@
 # shadow-image
 
-`shadow-image` is Shadow's platform-neutral C++20 image kernel. Its first implemented provider uses LibRaw, while callers depend only on the types in `include/shadow/image/decoder.hpp`.
+`shadow-image` is Shadow's platform-neutral C++20 image kernel. Its first implemented provider
+uses LibRaw behind provider-neutral public contracts.
 
 ## Decoder boundary
 
@@ -15,7 +16,22 @@ DecoderProvider
    └─ EncodedProxy (bounded display JPEG fallback)
 ```
 
-The public header does not expose LibRaw objects, enums, pointers, or ownership rules. A provider owns its decoder implementation; returned buffers own their memory and remain valid after subsequent session calls.
+`include/shadow/image/decoder.hpp` is the compatibility and navigation entry point. New production
+code should include the narrow semantic owner directly:
+
+- `decoder_types.hpp` owns small shared value types; `decoder_error.hpp` owns failure categories.
+- `raw_development_plan.hpp` owns requested RAW intent and capability negotiation, while
+  `raw_development_receipt.hpp` owns the auditable execution result.
+- `decoder_metadata.hpp` owns source facts and embedded-preview descriptors.
+- `raw_frame.hpp` owns untouched sensor samples; `reference_pixels.hpp` owns processed reference
+  pixels and their output contracts.
+- `decoder_session.hpp` owns opened-source/provider lifetimes; `proxy_rendering.hpp` owns bounded
+  encoded-proxy requests and results.
+
+These headers form a one-way dependency graph rather than a hidden prelude. The public contracts
+do not expose LibRaw objects, enums, pointers, or ownership rules. A provider owns its decoder
+implementation; returned buffers own their memory and remain valid after subsequent session
+calls.
 
 Rust consumes owned metadata/capability/preview snapshots, the selected embedded preview, and a final compressed proxy through the CXX adapter in `src/bridge/cxx_bridge.cpp`. The bridge is intentionally coarse-grained: full-size mosaic/RGB buffers remain in C++, where the fallback path performs bilinear downscaling and libjpeg-compatible encoding before transferring bytes.
 

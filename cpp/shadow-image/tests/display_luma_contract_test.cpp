@@ -1,3 +1,5 @@
+#include <shadow/image/decoder.hpp>
+#include <shadow/image/decoder_error.hpp>
 #include <shadow/image/display_luma.hpp>
 
 #include <algorithm>

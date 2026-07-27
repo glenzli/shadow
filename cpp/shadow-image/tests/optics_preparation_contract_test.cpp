@@ -1,6 +1,7 @@
 #include "decoder_contract_test_support.hpp"
 
 #include <shadow/image/decoder.hpp>
+#include <shadow/image/decoder_error.hpp>
 #include <shadow/image/edit.hpp>
 #include <shadow/image/optics.hpp>
 

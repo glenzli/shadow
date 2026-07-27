@@ -2,6 +2,7 @@
 
 #include <shadow/image/color_management.hpp>
 #include <shadow/image/decoder.hpp>
+#include <shadow/image/decoder_error.hpp>
 #include <shadow/image/edit.hpp>
 #include <shadow/image/raw_development.hpp>
 #include <shadow/image/sensor_clipping.hpp>

@@ -1,5 +1,7 @@
 #include <shadow/image/raw_denoise.hpp>
 
+#include <shadow/image/decoder_error.hpp>
+
 #include "metal_raw_development.hpp"
 #include "../concurrency/row_scheduler.hpp"
 

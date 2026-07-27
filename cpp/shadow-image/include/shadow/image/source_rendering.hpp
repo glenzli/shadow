@@ -1,7 +1,8 @@
 #pragma once
 
-#include <shadow/image/decoder.hpp>
+#include <shadow/image/decoder_metadata.hpp>
 #include <shadow/image/raw_pipeline.hpp>
+#include <shadow/image/reference_pixels.hpp>
 #include <shadow/image/source_profile_catalog.hpp>
 
 #include <compare>

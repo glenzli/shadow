@@ -1,6 +1,8 @@
 #pragma once
 
 #include <shadow/image/raw_development.hpp>
+#include <shadow/image/raw_development_plan.hpp>
+#include <shadow/image/raw_frame.hpp>
 
 #include <array>
 #include <cstdint>

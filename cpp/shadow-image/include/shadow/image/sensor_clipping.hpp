@@ -1,6 +1,7 @@
 #pragma once
 
-#include <shadow/image/decoder.hpp>
+#include <shadow/image/decoder_types.hpp>
+#include <shadow/image/raw_frame.hpp>
 
 #include <cstdint>
 #include <vector>

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <shadow/image/decoder.hpp>
+#include <shadow/image/decoder_error.hpp>
 #include <shadow/image/optics.hpp>
 
 #include <algorithm>

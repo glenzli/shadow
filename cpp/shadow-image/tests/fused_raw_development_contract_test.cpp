@@ -1,4 +1,5 @@
 #include <shadow/image/fused_raw_development.hpp>
+#include <shadow/image/decoder_error.hpp>
 
 #include <algorithm>
 #include <array>

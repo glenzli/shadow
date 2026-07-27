@@ -1,6 +1,8 @@
 #include <shadow/image/edit.hpp>
 #include <shadow/image/adjustment_execution.hpp>
+#include <shadow/image/decoder_error.hpp>
 #include <shadow/image/display_output.hpp>
+#include <shadow/image/proxy_rendering.hpp>
 
 #include "display_rgb_math.hpp"
 #include "warm_edit_gpu.hpp"

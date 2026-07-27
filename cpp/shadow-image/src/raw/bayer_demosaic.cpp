@@ -1,5 +1,8 @@
 #include <shadow/image/raw_development.hpp>
 
+#include <shadow/image/decoder_error.hpp>
+#include <shadow/image/proxy_rendering.hpp>
+
 #include "bayer_sampling.hpp"
 #include "../concurrency/row_scheduler.hpp"
 

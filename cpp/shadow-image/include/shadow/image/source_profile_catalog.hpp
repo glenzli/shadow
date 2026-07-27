@@ -1,6 +1,6 @@
 #pragma once
 
-#include <shadow/image/decoder.hpp>
+#include <shadow/image/decoder_metadata.hpp>
 
 #include <cstdint>
 #include <filesystem>

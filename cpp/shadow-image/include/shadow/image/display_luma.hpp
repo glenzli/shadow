@@ -1,6 +1,6 @@
 #pragma once
 
-#include <shadow/image/decoder.hpp>
+#include <shadow/image/decoder_types.hpp>
 
 #include <cstddef>
 #include <cstdint>

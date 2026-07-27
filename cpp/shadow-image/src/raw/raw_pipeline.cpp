@@ -1,7 +1,9 @@
 #include <shadow/image/raw_pipeline.hpp>
 #include <shadow/image/camera_profile_catalog.hpp>
+#include <shadow/image/decoder_error.hpp>
 #include <shadow/image/dcp_color_development.hpp>
 #include <shadow/image/fused_raw_development.hpp>
+#include <shadow/image/proxy_rendering.hpp>
 #include <shadow/image/raw_denoise.hpp>
 
 #include "bayer_sampling.hpp"

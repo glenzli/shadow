@@ -4,8 +4,13 @@
 
 #include <shadow/image/optics.hpp>
 
-#include <shadow/image/decoder.hpp>
+#include <shadow/image/decoder_session.hpp>
+#include <shadow/image/decoder_types.hpp>
+#include <shadow/image/proxy_rendering.hpp>
+#include <shadow/image/raw_development_plan.hpp>
+#include <shadow/image/raw_development_receipt.hpp>
 #include <shadow/image/raw_pipeline.hpp>
+#include <shadow/image/reference_pixels.hpp>
 #include <shadow/image/source_rendering.hpp>
 
 #include <array>
