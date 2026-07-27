@@ -188,6 +188,8 @@ leaf modules. `src/proxy/full_edit_detail.cpp` is the complete retained-source/t
 owner; its memory policy, optical source preparation, apron expansion, and render methods move
 together. `src/proxy/proxy_rendering.cpp` owns the ordinary one-shot reference-proxy pipeline and
 the canonical aspect-preserving proxy dimension calculation.
+`src/proxy/edited_proxy_rendering.cpp` owns only the one-shot adjusted-proxy entry points and
+delegates the retained preview lifecycle to `WarmEditPreviewSession`.
 
 The edit path accepts explicitly native interleaved RGB float32, scene-referred, linear-light data
 with named RGB primaries, white point, and luminance coefficients. It is not legal to feed the

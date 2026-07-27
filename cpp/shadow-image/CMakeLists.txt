@@ -64,6 +64,7 @@ add_library(
     src/optics/lensfun_optics.cpp
     src/proxy/developed_source_raster.cpp
     src/proxy/display_output.cpp
+    src/proxy/edited_proxy_rendering.cpp
     src/proxy/full_edit_detail.cpp
     src/proxy/jpeg_display_luma.cpp
     src/proxy/jpeg_proxy_encoding.cpp

@@ -83,6 +83,7 @@ const EMBEDDED_IMAGE_INPUTS: &[&str] = &[
     "src/proxy/developed_source_raster.cpp",
     "src/proxy/display_output.cpp",
     "src/proxy/display_rgb_math.hpp",
+    "src/proxy/edited_proxy_rendering.cpp",
     "src/proxy/full_edit_detail.cpp",
     "src/proxy/jpeg_display_luma.cpp",
     "src/proxy/jpeg_proxy_encoding.hpp",
@@ -243,6 +244,7 @@ fn main() {
         .file(image_root.join("src/optics/lensfun_optics.cpp"))
         .file(image_root.join("src/proxy/developed_source_raster.cpp"))
         .file(image_root.join("src/proxy/display_output.cpp"))
+        .file(image_root.join("src/proxy/edited_proxy_rendering.cpp"))
         .file(image_root.join("src/proxy/full_edit_detail.cpp"))
         .file(image_root.join("src/proxy/jpeg_display_luma.cpp"))
         .file(image_root.join("src/proxy/jpeg_proxy_encoding.cpp"))
