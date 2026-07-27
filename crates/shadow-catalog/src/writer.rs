@@ -12,7 +12,11 @@
 //! `source_health` owns Library source inventory and missing-location review;
 //! `library_facts` owns filterable metadata and its source provenance;
 //! `library_collections` owns affinity state, albums, and membership;
-//! `library_browse` owns photo-first pages, counts, and bounded facets.
+//! `library_browse` owns photo-first pages, counts, and bounded facets;
+//! `decode_snapshot` owns provider observations and output-freshness queries;
+//! `cached_artifact` owns content-addressed visual references and reachability;
+//! `technical_observation` owns exact visual-quality evidence revisions;
+//! `review_projection` owns photo/source/visual Review read models.
 
 use std::{
     path::Path,
@@ -20,17 +24,12 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-use shadow_domain::{PhotoId, RepresentationId};
+use crate::{Catalog, CatalogError, CatalogStats};
 
-use crate::{
-    CachedArtifactGeneratorIdentity, CachedArtifactRecord, Catalog, CatalogError, CatalogStats,
-    DecodeSnapshotRecord, InvalidateCachedArtifactStatus, LiveCachedArtifactBlob,
-    RecordCachedArtifact, RecordCachedArtifactStatus, RecordDecodeSnapshot,
-    RecordDecodeSnapshotStatus, RecordTechnicalObservation, RecordTechnicalObservationStatus,
-    RepresentationFingerprint, ReviewCursor, ReviewItemRecord, ReviewPageRecord,
-    TechnicalObservationRecord, TechnicalObservationRevision,
-};
-
+#[cfg(test)]
+mod cached_artifact_tests;
+#[cfg(test)]
+mod decode_snapshot_tests;
 mod dispatch;
 #[cfg(test)]
 mod edit_history_tests;
@@ -51,9 +50,13 @@ mod library_collections_tests;
 mod library_facts_tests;
 mod protocol;
 #[cfg(test)]
+mod review_projection_tests;
+#[cfg(test)]
 mod source_health_tests;
 #[cfg(test)]
 mod source_identity_tests;
+#[cfg(test)]
+mod technical_observation_tests;
 #[cfg(test)]
 mod tests;
 
