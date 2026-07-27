@@ -1,3 +1,5 @@
+#include "scoped_environment.hpp"
+
 #include <shadow/image/camera_profile_catalog.hpp>
 #include <shadow/image/dcp_color_development.hpp>
 #include <shadow/image/fused_raw_development.hpp>
@@ -21,6 +23,8 @@
 namespace image = shadow::image;
 
 namespace {
+
+using shadow::image::test_support::ScopedEnvironment;
 
 void expect(const bool condition, const std::string_view message) {
     if (!condition) {
@@ -146,35 +150,6 @@ public:
     }
 
     std::filesystem::path path;
-};
-
-class ScopedEnvironment final {
-public:
-    ScopedEnvironment(const char* name, const char* value)
-        : name_(name) {
-        if (const auto* current = std::getenv(name_); current != nullptr) {
-            previous_ = current;
-        }
-        expect(
-            ::setenv(name_, value, 1) == 0,
-            "test execution backend environment is configured"
-        );
-    }
-
-    ~ScopedEnvironment() {
-        if (previous_.has_value()) {
-            static_cast<void>(::setenv(name_, previous_->c_str(), 1));
-        } else {
-            static_cast<void>(::unsetenv(name_));
-        }
-    }
-
-    ScopedEnvironment(const ScopedEnvironment&) = delete;
-    ScopedEnvironment& operator=(const ScopedEnvironment&) = delete;
-
-private:
-    const char* name_;
-    std::optional<std::string> previous_;
 };
 
 void write_file(const std::filesystem::path& path, const std::vector<std::byte>& bytes) {

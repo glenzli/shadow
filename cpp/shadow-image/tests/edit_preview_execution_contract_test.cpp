@@ -1,26 +1,20 @@
-#include "decoder_contract_test_support.hpp"
+#include "contract_test_assertions.hpp"
+#include "scoped_environment.hpp"
 
 #include <shadow/image/adjustment_execution.hpp>
-#include <shadow/image/decoder.hpp>
 #include <shadow/image/decoder_error.hpp>
+#include <shadow/image/decoder_session.hpp>
 #include <shadow/image/display_output.hpp>
 #include <shadow/image/edit.hpp>
-#include <shadow/image/optics.hpp>
-#include <shadow/image/raw_development.hpp>
 
 #include <array>
-#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <future>
-#include <limits>
-#include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
-#include <string_view>
-#include <utility>
 
 namespace image = shadow::image;
 
@@ -28,96 +22,8 @@ namespace {
 
 using shadow::image::test_support::expect;
 using shadow::image::test_support::failures;
-using shadow::image::test_support::FakeOpticsProvider;
-using shadow::image::test_support::FakeRgbSession;
-using shadow::image::test_support::optics_reference_buffer;
-using shadow::image::test_support::RetainedRgbSession;
+using shadow::image::test_support::ScopedEnvironment;
 
-class ScopedEnvironment final {
-public:
-  ScopedEnvironment(const std::string_view name, const std::string_view value)
-      : name_(name) {
-    if (const char *current = std::getenv(name_.c_str()); current != nullptr) {
-      previous_ = current;
-    }
-#if defined(_WIN32)
-    static_cast<void>(_putenv_s(name_.c_str(), std::string(value).c_str()));
-#else
-    static_cast<void>(setenv(name_.c_str(), std::string(value).c_str(), 1));
-#endif
-  }
-
-  ~ScopedEnvironment() {
-#if defined(_WIN32)
-    static_cast<void>(_putenv_s(
-        name_.c_str(), previous_.has_value() ? previous_->c_str() : ""));
-#else
-    if (previous_.has_value()) {
-      static_cast<void>(setenv(name_.c_str(), previous_->c_str(), 1));
-    } else {
-      static_cast<void>(unsetenv(name_.c_str()));
-    }
-#endif
-  }
-
-  ScopedEnvironment(const ScopedEnvironment &) = delete;
-  ScopedEnvironment &operator=(const ScopedEnvironment &) = delete;
-
-private:
-  std::string name_;
-  std::optional<std::string> previous_;
-};
-
-[[nodiscard]] bool
-jpeg_uses_444_chroma_sampling(const std::span<const std::uint8_t> bytes) {
-  if (bytes.size() < 4U || bytes[0] != 0xffU || bytes[1] != 0xd8U) {
-    return false;
-  }
-  std::size_t offset = 2U;
-  while (offset + 4U <= bytes.size()) {
-    if (bytes[offset] != 0xffU) {
-      return false;
-    }
-    while (offset < bytes.size() && bytes[offset] == 0xffU) {
-      ++offset;
-    }
-    if (offset >= bytes.size()) {
-      return false;
-    }
-    const std::uint8_t marker = bytes[offset++];
-    if (marker == 0xd9U || marker == 0xdaU) {
-      return false;
-    }
-    if (marker == 0x01U || (marker >= 0xd0U && marker <= 0xd7U)) {
-      continue;
-    }
-    if (offset + 2U > bytes.size()) {
-      return false;
-    }
-    const std::size_t length =
-        (static_cast<std::size_t>(bytes[offset]) << 8U) | bytes[offset + 1U];
-    if (length < 2U || offset + length > bytes.size()) {
-      return false;
-    }
-    const bool start_of_frame = marker >= 0xc0U && marker <= 0xcfU &&
-                                marker != 0xc4U && marker != 0xc8U &&
-                                marker != 0xccU;
-    if (start_of_frame) {
-      if (length < 11U || bytes[offset + 7U] != 3U) {
-        return false;
-      }
-      for (std::size_t component = 0U; component < 3U; ++component) {
-        const std::size_t sampling = offset + 9U + component * 3U;
-        if (sampling >= offset + length || bytes[sampling] != 0x11U) {
-          return false;
-        }
-      }
-      return true;
-    }
-    offset += length;
-  }
-  return false;
-}
 
 class BoundaryRgbSession final : public image::DecodeSession {
 public:
@@ -186,68 +92,6 @@ private:
   mutable std::size_t reference_render_count_ = 0;
 };
 
-void raw_development_receipt_survives_prepared_edit_sessions() {
-  auto source = optics_reference_buffer(8U, 4U);
-  const auto source_plan = image::default_raw_development_plan();
-  source.raw_development_receipt = image::RawDevelopmentReceipt{
-      .schema_version = image::raw_development_receipt_schema_version,
-      .provider_id = "fixture-provider",
-      .provider_version = "fixture-provider-v1",
-      .library_version = "fixture-library-v1",
-      .development_settings_signature = "fixture-request-v1",
-      .requested_plan_identity =
-          image::raw_development_plan_identity(source_plan),
-      .effective_plan_identity =
-          image::raw_development_plan_identity(source_plan),
-      .requested_plan = source_plan,
-      .effective_plan = source_plan,
-      .plan_negotiation_status =
-          image::RawDevelopmentPlanNegotiationStatus::accepted,
-      .processed_linear_reference_contract_version = 7U,
-      .declared_image_dimensions = {8U, 4U},
-      .rendered_dimensions = {8U, 4U},
-      .orientation = 5,
-      .half_size = true,
-      .use_camera_white_balance = true,
-      .use_camera_matrix = true,
-      .output_bits_per_channel = 16U,
-      .output_color = 1,
-      .gamma_inverse_power = 1.0,
-      .gamma_linear_toe_slope = 1.0,
-      .process_warnings = 0x1024U,
-  };
-  const RetainedRgbSession session(std::move(source));
-
-  const auto warm = image::prepare_warm_edit_preview(session, 8U);
-  expect(warm.raw_development_receipt().recorded() &&
-             warm.raw_development_receipt().provider_id == "fixture-provider" &&
-             warm.raw_development_receipt().half_size &&
-             warm.raw_development_receipt().process_warnings == 0x1024U,
-         "warm preparation retains RAW development provenance after pixel "
-         "conversion");
-
-  const auto detail = image::prepare_full_edit_detail(session);
-  expect(detail.raw_development_receipt().recorded() &&
-             detail.raw_development_receipt().provider_version ==
-                 "fixture-provider-v1" &&
-             detail.raw_development_receipt().orientation == 5 &&
-             detail.raw_development_receipt().rendered_dimensions ==
-                 image::Dimensions{8U, 4U} &&
-             detail.raw_development_receipt().effective_plan == source_plan,
-         "full-detail preparation retains RAW development provenance with its "
-         "source raster");
-
-  const FakeOpticsProvider discarding_optics;
-  const auto detail_after_optics =
-      image::prepare_full_edit_detail(session, &discarding_optics);
-  expect(detail_after_optics.raw_development_receipt().uses_current_schema() &&
-             detail_after_optics.raw_development_receipt().provider_id ==
-                 "fixture-provider" &&
-             detail_after_optics.raw_development_receipt().process_warnings ==
-                 0x1024U,
-         "full-detail preparation retains source provenance when an optics "
-         "provider replaces pixels");
-}
 
 template <std::size_t Size>
 [[nodiscard]] std::uint64_t
@@ -257,233 +101,6 @@ sum_counts(const std::array<std::uint64_t, Size> &values) {
     sum += value;
   }
   return sum;
-}
-
-void reference_proxy_is_bounded_standard_jpeg() {
-  expect(image::proxy_dimensions({4'032, 3'024}, 2'048) ==
-             image::Dimensions{2'048, 1'536},
-         "proxy dimensions preserve aspect ratio and max edge");
-
-  const FakeRgbSession session;
-  const auto proxy = image::render_reference_proxy_jpeg(
-      session, image::ProxyRequest{.max_edge = 4, .jpeg_quality = 88});
-  expect(proxy.dimensions == image::Dimensions{4, 2},
-         "proxy renderer downsizes RGB");
-  expect(proxy.format == image::PreviewFormat::jpeg, "proxy output is JPEG");
-  expect(proxy.bytes.size() > 4U, "proxy JPEG is not empty");
-  expect(proxy.bytes[0] == 0xffU && proxy.bytes[1] == 0xd8U,
-         "proxy output starts with JPEG SOI");
-  expect(proxy.bytes[proxy.bytes.size() - 2U] == 0xffU &&
-             proxy.bytes.back() == 0xd9U,
-         "proxy output ends with JPEG EOI");
-  expect(jpeg_uses_444_chroma_sampling(proxy.bytes),
-         "interactive/reference JPEG proxies preserve 4:4:4 chroma sampling");
-}
-
-void dng_baseline_exposure_is_a_consistent_source_rendering_step() {
-  const image::PixelBuffer source{
-      .dimensions = {2U, 1U},
-      .bits_per_channel = 16U,
-      .channels = 3U,
-      .row_stride_bytes = 2U * 3U * sizeof(std::uint16_t),
-      .primaries = image::RgbPrimaries::srgb_rec709_d65,
-      .transfer_function = image::RgbTransferFunction::linear,
-      .reference = image::RgbBufferReference::processed_raw,
-      .samples =
-          {
-              49'152U,
-              49'152U,
-              49'152U,
-              57'344U,
-              53'248U,
-              49'152U,
-          },
-  };
-  const image::ProxyRequest request{.max_edge = 2U, .jpeg_quality = 100U};
-  const std::array<image::AdjustmentNode, 0U> no_nodes{};
-
-  const RetainedRgbSession no_baseline(source);
-  const auto neutral_proxy =
-      image::render_reference_proxy_jpeg(no_baseline, request);
-
-  image::AssetMetadata dng_metadata;
-  dng_metadata.dng_version = "1.6.0.0";
-  dng_metadata.baseline_exposure = 1.0;
-  const RetainedRgbSession dng_source(source, dng_metadata);
-  const auto dng_proxy =
-      image::render_reference_proxy_jpeg(dng_source, request);
-  expect(dng_proxy.bytes != neutral_proxy.bytes,
-         "a valid DNG BaselineExposure changes the source rendering before "
-         "display encoding");
-  const auto dng_warm_proxy =
-      image::render_edited_reference_proxy_jpeg(dng_source, no_nodes, request);
-  expect(dng_warm_proxy.bytes == dng_proxy.bytes,
-         "warm edit preview and the unedited DNG proxy share the baseline "
-         "source rendering");
-
-  const auto neutral_detail =
-      image::prepare_full_edit_detail(no_baseline)
-          .render_rgb8(no_nodes,
-                       image::DetailTileRect{
-                           .x = 0U, .y = 0U, .width = 2U, .height = 1U});
-  const auto dng_detail =
-      image::prepare_full_edit_detail(dng_source)
-          .render_rgb8(no_nodes,
-                       image::DetailTileRect{
-                           .x = 0U, .y = 0U, .width = 2U, .height = 1U});
-  expect(dng_detail.bytes != neutral_detail.bytes,
-         "full-detail tiles apply the same DNG source baseline before the edit "
-         "graph");
-
-  auto invalid_dng_metadata = dng_metadata;
-  invalid_dng_metadata.baseline_exposure = -999.0;
-  const RetainedRgbSession missing_tag_sentinel(source, invalid_dng_metadata);
-  expect(
-      image::render_reference_proxy_jpeg(missing_tag_sentinel, request).bytes ==
-          neutral_proxy.bytes,
-      "LibRaw's absent-DNG-BaselineExposure sentinel is ignored");
-
-  auto non_dng_metadata = dng_metadata;
-  non_dng_metadata.dng_version.clear();
-  const RetainedRgbSession non_dng_source(source, non_dng_metadata);
-  expect(image::render_reference_proxy_jpeg(non_dng_source, request).bytes ==
-             neutral_proxy.bytes,
-         "non-DNG RAW files never inherit a guessed DNG baseline exposure");
-}
-
-void edited_proxy_applies_one_explicit_display_srgb_boundary() {
-  const FakeRgbSession session;
-  const image::ProxyRequest request{.max_edge = 8, .jpeg_quality = 90};
-  const auto reference = image::render_reference_proxy_jpeg(session, request);
-  const std::array neutral_nodes{
-      image::AdjustmentNode{
-          .node_id = "exposure",
-          .parameters = image::ExposureAdjustment{},
-      },
-      image::AdjustmentNode{
-          .node_id = "contrast",
-          .parameters = image::ContrastAdjustment{},
-      },
-      image::AdjustmentNode{
-          .node_id = "tone-curve",
-          .parameters = image::OklabLightnessToneCurve{},
-      },
-      image::AdjustmentNode{
-          .node_id = "rgb-white-balance",
-          .parameters = image::RgbWhiteBalanceAdjustment{},
-      },
-      image::AdjustmentNode{
-          .node_id = "saturation",
-          .parameters = image::SaturationAdjustment{},
-      },
-  };
-  const auto neutral = image::render_edited_reference_proxy_jpeg(
-      session, neutral_nodes, request);
-  expect(neutral.bytes == reference.bytes,
-         "neutral edits share the one display-sRGB output transform with the "
-         "reference path");
-
-  auto adjusted_nodes = neutral_nodes;
-  adjusted_nodes[0].parameters = image::ExposureAdjustment{1.0};
-  adjusted_nodes[3].parameters = image::RgbWhiteBalanceAdjustment{
-      .temperature = 0.2,
-      .tint = -0.05,
-  };
-  const image::ProxyRequest small_request{.max_edge = 4, .jpeg_quality = 90};
-  const auto neutral_small = image::render_edited_reference_proxy_jpeg(
-      session, neutral_nodes, small_request);
-  const auto adjusted = image::render_edited_reference_proxy_jpeg(
-      session, adjusted_nodes, small_request);
-  expect(adjusted.dimensions == image::Dimensions{4, 2},
-         "edited preview remains bounded");
-  expect(adjusted.bytes != neutral_small.bytes,
-         "ordered edit nodes affect the encoded result");
-  expect(adjusted.bytes.size() > 4U && adjusted.bytes[0] == 0xffU &&
-             adjusted.bytes[1] == 0xd8U &&
-             adjusted.bytes[adjusted.bytes.size() - 2U] == 0xffU &&
-             adjusted.bytes.back() == 0xd9U,
-         "edited preview is a standard JPEG");
-}
-
-void warm_edit_preview_decodes_once_and_renders_repeatedly() {
-  const FakeRgbSession session;
-  const auto warm = image::prepare_warm_edit_preview(session, 4);
-  expect(session.reference_render_count() == 1U,
-         "warm preparation renders the RAW once");
-  expect(warm.dimensions() == image::Dimensions{4, 2},
-         "warm working proxy is max-edge bounded");
-  expect(warm.max_edge() == 4U,
-         "warm working proxy remembers its resource bound");
-
-  const std::array neutral_nodes{
-      image::AdjustmentNode{
-          .node_id = "exposure",
-          .parameters = image::ExposureAdjustment{},
-      },
-  };
-  auto adjusted_nodes = neutral_nodes;
-  adjusted_nodes[0].parameters = image::ExposureAdjustment{1.0};
-
-  const auto neutral = warm.render_jpeg(neutral_nodes, 90);
-  const auto adjusted = warm.render_jpeg(adjusted_nodes, 90);
-  expect(session.reference_render_count() == 1U,
-         "repeated warm renders never ask the decoder for pixels again");
-  expect(neutral.dimensions == image::Dimensions{4, 2},
-         "warm output dimensions stay fixed");
-  expect(adjusted.dimensions == neutral.dimensions,
-         "all warm renders share working dimensions");
-  expect(adjusted.bytes != neutral.bytes,
-         "warm renders apply each requested edit independently");
-
-  const auto one_shot_adjusted = image::render_edited_reference_proxy_jpeg(
-      session, adjusted_nodes,
-      image::ProxyRequest{.max_edge = 4, .jpeg_quality = 90});
-  expect(
-      adjusted.bytes == one_shot_adjusted.bytes,
-      "linear affine edits commute with the warm proxy's linear downsampling");
-  expect(session.reference_render_count() == 2U,
-         "only the one-shot comparison decodes again");
-}
-
-void rotated_raw_preview_preserves_native_effect_radius() {
-  // LibRaw returns its processed raster in output orientation. This fixture
-  // mirrors a camera whose metadata still advertises an 8x4 sensor frame while
-  // the rendered RGB has been transposed to 4x8. A matching already-oriented
-  // metadata fixture must produce exactly the same native-pixel denoise
-  // footprint and therefore the same warm-preview bytes.
-  const auto source = optics_reference_buffer(4U, 8U);
-  image::AssetMetadata rotated_metadata;
-  rotated_metadata.raw_dimensions = {8U, 4U};
-  rotated_metadata.image_dimensions = {8U, 4U};
-  rotated_metadata.orientation = 5;
-  const RetainedRgbSession rotated(source, rotated_metadata);
-
-  image::AssetMetadata canonical_metadata;
-  canonical_metadata.raw_dimensions = {4U, 8U};
-  canonical_metadata.image_dimensions = {4U, 8U};
-  const RetainedRgbSession canonical(source, canonical_metadata);
-
-  const std::array nodes{
-      image::AdjustmentNode{
-          .node_id = "orientation-aware-native-denoise",
-          .parameter_schema_version =
-              image::detail_effects_parameter_schema_version,
-          .implementation_version =
-              image::technical_detail_implementation_version,
-          .parameters =
-              image::SharpenAdjustment{
-                  .denoise_luminance = 0.7,
-                  .denoise_color = 0.3,
-              },
-      },
-  };
-  const auto rotated_proxy =
-      image::prepare_warm_edit_preview(rotated, 8U).render_jpeg(nodes, 100U);
-  const auto canonical_proxy =
-      image::prepare_warm_edit_preview(canonical, 8U).render_jpeg(nodes, 100U);
-  expect(rotated_proxy.bytes == canonical_proxy.bytes,
-         "rotated RAW metadata uses the oriented full raster for native-radius "
-         "effects");
 }
 
 void warm_edit_preview_analysis_is_pre_jpeg_and_strictly_pre_clamp() {
@@ -906,103 +523,12 @@ void edit_preview_execution_identity_excludes_fallback_diagnostics() {
          "a non-fallback receipt cannot carry a fallback diagnostic");
 }
 
-void warm_edit_preview_bounds_fail_before_decode() {
-  const FakeRgbSession session;
-  try {
-    static_cast<void>(image::prepare_warm_edit_preview(session, 0));
-    expect(false, "zero warm edge must fail");
-  } catch (const image::DecodeError &error) {
-    expect(error.code() == image::DecodeErrorCode::invalid_request,
-           "zero warm edge reports an invalid request");
-  }
-  try {
-    static_cast<void>(image::prepare_warm_edit_preview(
-        session, image::maximum_warm_edit_preview_edge + 1U));
-    expect(false, "oversized warm edge must fail");
-  } catch (const image::DecodeError &error) {
-    expect(error.code() == image::DecodeErrorCode::invalid_request,
-           "oversized warm edge reports an invalid request");
-  }
-  expect(session.reference_render_count() == 0U,
-         "invalid warm bounds are rejected before decoder work");
-}
-
-void edited_proxy_rejects_invalid_nodes_before_decode() {
-  const FakeRgbSession session;
-  const image::ProxyRequest request{.max_edge = 4, .jpeg_quality = 90};
-
-  const auto rejects_before_decode =
-      [&](const image::AdjustmentNode &invalid_node,
-          const image::EditErrorCode expected_code,
-          const std::string_view message) {
-        const std::array nodes{invalid_node};
-        try {
-          static_cast<void>(image::render_edited_reference_proxy_jpeg(
-              session, nodes, request));
-          expect(false, message);
-        } catch (const image::EditError &error) {
-          expect(error.code() == expected_code, message);
-          expect(error.node_index() == 0U,
-                 "preflight errors retain node provenance");
-        }
-        expect(session.reference_render_count() == 0U,
-               "adjustment preflight rejects invalid nodes before rendering "
-               "reference RGB");
-      };
-
-  rejects_before_decode(
-      image::AdjustmentNode{
-          .node_id = "non-finite-disabled-exposure",
-          .enabled = false,
-          .parameters =
-              image::ExposureAdjustment{
-                  std::numeric_limits<double>::quiet_NaN(),
-              },
-      },
-      image::EditErrorCode::invalid_parameter,
-      "preflight validates numeric parameters even on disabled nodes");
-
-  rejects_before_decode(
-      image::AdjustmentNode{
-          .node_id = "future-version",
-          .implementation_version =
-              image::adjustment_implementation_version + 1U,
-          .parameters = image::ExposureAdjustment{},
-      },
-      image::EditErrorCode::unsupported_version,
-      "preflight rejects unsupported adjustment implementations");
-
-  image::OklabLightnessToneCurve overflowing_slope;
-  overflowing_slope.lightness.points = {
-      {0.0, 0.0},
-      {
-          std::numeric_limits<double>::min(),
-          std::numeric_limits<double>::max(),
-      },
-      {1.0, 1.0},
-  };
-  rejects_before_decode(
-      image::AdjustmentNode{
-          .node_id = "overflowing-tone-curve-slope",
-          .parameters = std::move(overflowing_slope),
-      },
-      image::EditErrorCode::invalid_parameter,
-      "preflight rejects non-finite Tone Curve segment slopes");
-}
 
 } // namespace
 
 int main() {
-  raw_development_receipt_survives_prepared_edit_sessions();
-  reference_proxy_is_bounded_standard_jpeg();
-  dng_baseline_exposure_is_a_consistent_source_rendering_step();
-  edited_proxy_applies_one_explicit_display_srgb_boundary();
-  warm_edit_preview_decodes_once_and_renders_repeatedly();
-  rotated_raw_preview_preserves_native_effect_radius();
   warm_edit_preview_analysis_is_pre_jpeg_and_strictly_pre_clamp();
   warm_edit_preview_receipt_tracks_the_effective_display_backend();
   edit_preview_execution_identity_excludes_fallback_diagnostics();
-  warm_edit_preview_bounds_fail_before_decode();
-  edited_proxy_rejects_invalid_nodes_before_decode();
   return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

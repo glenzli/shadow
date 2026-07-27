@@ -1,10 +1,13 @@
-#include "decoder_contract_test_support.hpp"
+#include "contract_test_assertions.hpp"
 
-#include <shadow/image/color_management.hpp>
-#include <shadow/image/decoder.hpp>
 #include <shadow/image/decoder_error.hpp>
-#include <shadow/image/edit.hpp>
+#include <shadow/image/decoder_metadata.hpp>
+#include <shadow/image/decoder_types.hpp>
 #include <shadow/image/raw_development.hpp>
+#include <shadow/image/raw_development_plan.hpp>
+#include <shadow/image/raw_development_receipt.hpp>
+#include <shadow/image/raw_frame.hpp>
+#include <shadow/image/reference_pixels.hpp>
 #include <shadow/image/sensor_clipping.hpp>
 
 #include <array>
@@ -12,9 +15,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
-#include <filesystem>
 #include <stdexcept>
-#include <stop_token>
 
 namespace image = shadow::image;
 
@@ -323,121 +324,6 @@ void raw_development_plan_is_canonical_and_capability_negotiated() {
   }
 }
 
-void icc_color_management_is_content_addressed_and_transfer_aware() {
-  const auto linear_srgb = image::make_linear_srgb_icc_profile();
-  const auto another_linear_srgb = image::make_linear_srgb_icc_profile();
-  const auto display_srgb = image::make_display_srgb_icc_profile();
-  const auto display_rec709 = image::make_display_rec709_icc_profile();
-  expect(linear_srgb.info().id == another_linear_srgb.info().id,
-         "equivalent generated ICC profiles have stable content identities");
-  expect(linear_srgb.info().id != display_srgb.info().id,
-         "linear and display sRGB profiles cannot share a cache identity");
-  expect(display_rec709.info().id != display_srgb.info().id,
-         "Rec.709 and sRGB transfers cannot share a cache identity");
-  expect(display_srgb.serialized().size() ==
-             display_srgb.info().serialized_bytes,
-         "ICC profile exposes its complete canonical payload for export "
-         "embedding");
-  const auto round_tripped_display_srgb =
-      image::load_icc_profile(display_srgb.serialized());
-  expect(round_tripped_display_srgb.info().id == display_srgb.info().id,
-         "serializing and reopening an ICC profile preserves its content "
-         "identity");
-
-  const auto identity = image::make_icc_transform(linear_srgb, linear_srgb);
-  std::array<float, 6U> samples{0.18F, 0.5F, 1.2F, 0.0F, 0.25F, 0.75F};
-  const auto before = samples;
-  identity.apply_interleaved_rgb(samples);
-  for (std::size_t index = 0U; index < samples.size(); ++index) {
-    expect(std::abs(samples[index] - before[index]) < 1.0e-5F,
-           "linear sRGB ICC identity transform preserves scene-linear samples");
-  }
-
-  const auto display_transform = image::make_icc_transform(
-      linear_srgb, display_srgb,
-      image::IccRenderingIntent::relative_colorimetric);
-  const auto equivalent_display_transform = image::make_icc_transform(
-      another_linear_srgb, round_tripped_display_srgb,
-      image::IccRenderingIntent::relative_colorimetric);
-  expect(display_transform.info().id == equivalent_display_transform.info().id,
-         "equivalent ICC transforms have a stable cache identity");
-  expect(display_transform.info().source.id == linear_srgb.info().id &&
-             display_transform.info().destination.id == display_srgb.info().id,
-         "ICC transform identity records both profile identities");
-  expect(display_transform.black_point_compensation(),
-         "ICC transform reports its black-point compensation policy");
-  const auto no_bpc_transform = image::make_icc_transform(
-      linear_srgb, display_srgb,
-      image::IccRenderingIntent::relative_colorimetric, false);
-  const auto perceptual_transform = image::make_icc_transform(
-      linear_srgb, display_srgb, image::IccRenderingIntent::perceptual);
-  expect(no_bpc_transform.info().id != display_transform.info().id &&
-             !no_bpc_transform.black_point_compensation(),
-         "black-point compensation participates in the ICC transform cache "
-         "identity");
-  expect(perceptual_transform.info().id != display_transform.info().id,
-         "rendering intent participates in the ICC transform cache identity");
-
-  image::IccTransformCache transform_cache(2U);
-  const auto cached_display_transform =
-      transform_cache.resolve(linear_srgb, display_srgb,
-                              image::IccRenderingIntent::relative_colorimetric);
-  const auto cached_equivalent_transform =
-      transform_cache.resolve(another_linear_srgb, round_tripped_display_srgb,
-                              image::IccRenderingIntent::relative_colorimetric);
-  expect(cached_display_transform.info().id == display_transform.info().id &&
-             cached_equivalent_transform.info().id ==
-                 display_transform.info().id,
-         "ICC transform cache preserves the complete transform contract");
-  expect(transform_cache.capacity() == 2U && transform_cache.size() == 1U,
-         "equivalent source and destination profile content reuse one cache "
-         "entry");
-  static_cast<void>(transform_cache.resolve(
-      linear_srgb, display_srgb,
-      image::IccRenderingIntent::relative_colorimetric, false));
-  static_cast<void>(transform_cache.resolve(
-      display_srgb, linear_srgb,
-      image::IccRenderingIntent::relative_colorimetric));
-  expect(transform_cache.size() == 2U,
-         "ICC transform cache bounds distinct intent and direction entries");
-  transform_cache.clear();
-  expect(transform_cache.size() == 0U,
-         "ICC transform cache can release its retained transforms");
-
-  image::IccTransformCache disabled_transform_cache(0U);
-  const auto uncached_transform =
-      disabled_transform_cache.resolve(linear_srgb, display_srgb);
-  expect(uncached_transform.info().id == display_transform.info().id &&
-             disabled_transform_cache.size() == 0U,
-         "zero-capacity ICC cache keeps the exact contract without retaining "
-         "state");
-  std::array<float, 3U> middle_gray{0.18F, 0.18F, 0.18F};
-  display_transform.apply_interleaved_rgb(middle_gray);
-  for (const auto encoded : middle_gray) {
-    expect(std::abs(encoded - 0.461F) < 0.01F,
-           "linear-to-display ICC transform applies the sRGB transfer curve");
-  }
-
-  const auto rec709_transform = image::make_icc_transform(
-      linear_srgb, display_rec709,
-      image::IccRenderingIntent::relative_colorimetric);
-  std::array<float, 3U> rec709_middle_gray{0.18F, 0.18F, 0.18F};
-  rec709_transform.apply_interleaved_rgb(rec709_middle_gray);
-  for (const auto encoded : rec709_middle_gray) {
-    expect(
-        std::abs(encoded - 0.409F) < 0.01F,
-        "linear-to-display ICC transform applies the Rec.709 transfer curve");
-  }
-
-  try {
-    std::array<float, 2U> malformed{0.0F, 0.0F};
-    identity.apply_interleaved_rgb(malformed);
-    expect(false, "ICC transform rejects non-RGB sample counts");
-  } catch (const std::invalid_argument &) {
-    expect(true, "ICC transform reports malformed RGB sample counts");
-  }
-}
-
 void largest_decodable_preview_wins() {
   const std::array previews{
       image::PreviewDescriptor{
@@ -491,62 +377,6 @@ void no_decodable_preview_is_a_valid_state() {
          "files without an embedded preview must remain importable");
 }
 
-void jpeg_raster_provider_uses_the_common_non_destructive_graph() {
-  // Keep the public JPEG contract hermetic: a developer's installed local
-  // decoder module may intentionally be stale and is covered by the dedicated
-  // fail-closed plugin tests above.
-  const auto provider =
-      image::make_photo_decoder_provider(std::filesystem::path{});
-  const auto session = provider->open(SHADOW_TEST_JPEG_PATH);
-  expect(provider->info().id == "shadow-photo-router",
-         "normal application photo entry point is provider-neutral");
-  expect(session->capabilities().metadata &&
-             session->capabilities().reference_rgb &&
-             !session->capabilities().raw_frame,
-         "JPEG exposes metadata and editable RGB but never pretends to have a "
-         "sensor RAW frame");
-  expect(session->previews().empty(),
-         "JPEG source relies on the colour-managed generated proxy rather than "
-         "an unrotated source byte preview");
-  const image::PixelBuffer decoded =
-      session->render_reference_rgb_for_preview(1'024U);
-  expect(decoded.reference == image::RgbBufferReference::decoded_raster &&
-             decoded.transfer_function == image::RgbTransferFunction::linear &&
-             decoded.primaries == image::RgbPrimaries::srgb_rec709_d65 &&
-             decoded.bits_per_channel == 16U && decoded.channels == 3U,
-         "JPEG is colour-managed into the common linear RGB contract without "
-         "being labeled RAW");
-  expect(!decoded.raw_development_receipt.recorded(),
-         "JPEG never fabricates a RAW development receipt");
-
-  const image::ProxyRequest request{.max_edge = 1'024U, .jpeg_quality = 90U};
-  const auto reference = image::render_reference_proxy_jpeg(*session, request);
-  const std::array neutral_nodes{
-      image::AdjustmentNode{
-          .node_id = "neutral-raster-exposure",
-          .parameters = image::ExposureAdjustment{},
-      },
-  };
-  const auto edited = image::render_edited_reference_proxy_jpeg(
-      *session, neutral_nodes, request);
-  expect(edited.bytes == reference.bytes,
-         "JPEG follows the exact same neutral edit graph and display boundary "
-         "as its reference proxy");
-
-  const auto warm = image::prepare_warm_edit_preview(*session, 1'024U);
-  std::stop_source cancellation;
-  expect(cancellation.request_stop(),
-         "first preview cancellation request succeeds");
-  const auto cancelled = warm.render_jpeg_cancellable(neutral_nodes, 90U,
-                                                      cancellation.get_token());
-  const auto cancelled_analysis = warm.render_jpeg_with_analysis_cancellable(
-      neutral_nodes, 90U, cancellation.get_token());
-  expect(cancelled.cancelled() && cancelled_analysis.cancelled(),
-         "pre-cancelled CPU/Metal warm previews return explicit Cancelled "
-         "without partial output");
-  expect(!warm.render_jpeg(neutral_nodes, 90U).bytes.empty(),
-         "a cancelled request does not poison the immutable warm session");
-}
 
 } // namespace
 
@@ -558,9 +388,7 @@ int main() {
   raw_frame_sensor_noise_calibration_is_explicit_and_fail_closed();
   bayer_bilinear_demosaic_keeps_the_sensor_domain_explicit();
   raw_development_plan_is_canonical_and_capability_negotiated();
-  icc_color_management_is_content_addressed_and_transfer_aware();
   largest_decodable_preview_wins();
   no_decodable_preview_is_a_valid_state();
-  jpeg_raster_provider_uses_the_common_non_destructive_graph();
   return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

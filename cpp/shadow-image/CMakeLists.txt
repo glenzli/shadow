@@ -196,12 +196,22 @@ if(BUILD_TESTING)
     endfunction()
 
     shadow_image_add_contract(
-        shadow-image-raw-source-tests
-        shadow-image-raw-source-contract
-        tests/raw_source_contract_test.cpp
+        shadow-image-decoder-source-tests
+        shadow-image-decoder-source-contract
+        tests/decoder_source_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-color-management-tests
+        shadow-image-color-management-contract
+        tests/color_management_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-raster-provider-tests
+        shadow-image-raster-provider-contract
+        tests/raster_provider_contract_test.cpp
     )
     target_compile_definitions(
-        shadow-image-raw-source-tests
+        shadow-image-raster-provider-tests
         PRIVATE
             "SHADOW_TEST_JPEG_PATH=\"${CMAKE_SOURCE_DIR}/apps/desktop/assets/lut-preview-reference.jpg\""
     )
@@ -248,9 +258,19 @@ if(BUILD_TESTING)
     endif()
 
     shadow_image_add_contract(
-        shadow-image-preview-session-tests
-        shadow-image-preview-session-contract
-        tests/preview_session_contract_test.cpp
+        shadow-image-proxy-output-tests
+        shadow-image-proxy-output-contract
+        tests/proxy_output_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-edit-preview-session-tests
+        shadow-image-edit-preview-session-contract
+        tests/edit_preview_session_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-edit-preview-execution-tests
+        shadow-image-edit-preview-execution-contract
+        tests/edit_preview_execution_contract_test.cpp
     )
     shadow_image_add_contract(
         shadow-image-libraw-provider-tests
@@ -393,6 +413,13 @@ if(BUILD_TESTING)
         COMMAND shadow-image-fused-raw-development-tests
     )
     if(SHADOW_REQUIRE_METAL_TESTS)
+        set_tests_properties(
+            shadow-image-edit-preview-execution-contract
+            PROPERTIES
+                ENVIRONMENT
+                    "SHADOW_IMAGE_ACCELERATION=metal;SHADOW_TEST_REQUIRE_WARM_METAL=1"
+                LABELS "metal-required"
+        )
         set_tests_properties(
             shadow-image-adjustment-execution-contract
             PROPERTIES

@@ -1,4 +1,6 @@
-#include "decoder_contract_test_support.hpp"
+#include "contract_test_assertions.hpp"
+#include "optics_test_fixture.hpp"
+#include "processed_rgb_session_fixture.hpp"
 
 #include <shadow/image/decoder.hpp>
 #include <shadow/image/decoder_error.hpp>
@@ -16,9 +18,9 @@ namespace {
 
 using shadow::image::test_support::expect;
 using shadow::image::test_support::failures;
-using shadow::image::test_support::FakeOpticsProvider;
 using shadow::image::test_support::FakeRgbSession;
-using shadow::image::test_support::optics_reference_buffer;
+using shadow::image::test_support::processed_linear_gradient;
+using shadow::image::test_support::ReplacingOpticsProvider;
 
 void optics_settings_are_explicit_and_provider_safe() {
   const auto defaults = image::default_optics_settings();
@@ -38,7 +40,7 @@ void optics_settings_are_explicit_and_provider_safe() {
   auto disabled = defaults;
   disabled.enabled = false;
   const auto disabled_result = provider->correct_reference_rgb(
-      optics_reference_buffer(), image::AssetMetadata{}, disabled);
+      processed_linear_gradient(), image::AssetMetadata{}, disabled);
   expect(disabled_result.receipt.status == image::OpticsProfileStatus::disabled,
          "disabled optics do not require profile metadata");
   expect(!disabled_result.corrected_reference_rgb.has_value(),
@@ -126,7 +128,7 @@ void lensfun_adapter_applies_a_real_profile_when_a_test_database_is_available() 
   expect(!provider->profile_candidates(pentax_metadata).empty(),
          "Lensfun profile enumeration accepts the Pentax K10D EXIF identity");
 
-  const auto input = optics_reference_buffer();
+  const auto input = processed_linear_gradient();
   const auto result = provider->correct_reference_rgb(
       input, metadata, image::default_optics_settings());
   expect(result.receipt.status == image::OpticsProfileStatus::matched,
@@ -211,7 +213,7 @@ void lensfun_adapter_applies_a_real_profile_when_a_test_database_is_available() 
 
 void optics_runs_before_preview_and_full_detail_preparation() {
   const FakeRgbSession session;
-  const FakeOpticsProvider optics;
+  const ReplacingOpticsProvider optics;
   const auto warm = image::prepare_warm_edit_preview(session, 8U, &optics);
   expect(warm.optics_receipt().status == image::OpticsProfileStatus::matched,
          "warm preview retains the applied optics receipt");
@@ -219,6 +221,8 @@ void optics_runs_before_preview_and_full_detail_preparation() {
          "warm preview receives the provider's optical source");
   expect(optics.correction_count() == 1U,
          "warm preview applies optics once during preparation");
+  expect(optics.last_settings().enabled,
+         "warm preview sends enabled optics settings to its provider");
 
   const auto detail = image::prepare_full_edit_detail(session, &optics);
   expect(detail.optics_receipt().status == image::OpticsProfileStatus::matched,

@@ -1,6 +1,10 @@
+#include "processed_rgb_session_fixture.hpp"
+
 #include <shadow/image/edit.hpp>
+#include <shadow/image/proxy_rendering.hpp>
 #include <shadow/image/source_rendering.hpp>
 
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
@@ -14,6 +18,8 @@
 namespace image = shadow::image;
 
 namespace {
+
+using shadow::image::test_support::RetainedRgbSession;
 
 int failures = 0;
 
@@ -59,6 +65,83 @@ void expect_close(
         .reference = image::ImageReference::scene_referred,
         .samples = {value, value, value, value, value, value},
     };
+}
+
+void test_dng_baseline_exposure_is_consistent_across_source_outputs() {
+    const image::PixelBuffer source{
+        .dimensions = {2U, 1U},
+        .bits_per_channel = 16U,
+        .channels = 3U,
+        .row_stride_bytes = 2U * 3U * sizeof(std::uint16_t),
+        .primaries = image::RgbPrimaries::srgb_rec709_d65,
+        .transfer_function = image::RgbTransferFunction::linear,
+        .reference = image::RgbBufferReference::processed_raw,
+        .samples =
+            {
+                49'152U,
+                49'152U,
+                49'152U,
+                57'344U,
+                53'248U,
+                49'152U,
+            },
+    };
+    const image::ProxyRequest request{.max_edge = 2U, .jpeg_quality = 100U};
+    const std::array<image::AdjustmentNode, 0U> no_nodes{};
+
+    const RetainedRgbSession no_baseline(source);
+    const auto neutral_proxy = image::render_reference_proxy_jpeg(no_baseline, request);
+
+    image::AssetMetadata dng_metadata;
+    dng_metadata.dng_version = "1.6.0.0";
+    dng_metadata.baseline_exposure = 1.0;
+    const RetainedRgbSession dng_source(source, dng_metadata);
+    const auto dng_proxy = image::render_reference_proxy_jpeg(dng_source, request);
+    expect(
+        dng_proxy.bytes != neutral_proxy.bytes,
+        "a valid DNG BaselineExposure changes source rendering before display encoding"
+    );
+    const auto dng_warm_proxy =
+        image::render_edited_reference_proxy_jpeg(dng_source, no_nodes, request);
+    expect(
+        dng_warm_proxy.bytes == dng_proxy.bytes,
+        "warm edit preview and the unedited DNG proxy share baseline source rendering"
+    );
+
+    const auto neutral_detail =
+        image::prepare_full_edit_detail(no_baseline)
+            .render_rgb8(
+                no_nodes,
+                image::DetailTileRect{.x = 0U, .y = 0U, .width = 2U, .height = 1U}
+            );
+    const auto dng_detail =
+        image::prepare_full_edit_detail(dng_source)
+            .render_rgb8(
+                no_nodes,
+                image::DetailTileRect{.x = 0U, .y = 0U, .width = 2U, .height = 1U}
+            );
+    expect(
+        dng_detail.bytes != neutral_detail.bytes,
+        "full-detail tiles apply the same DNG source baseline before the edit graph"
+    );
+
+    auto invalid_dng_metadata = dng_metadata;
+    invalid_dng_metadata.baseline_exposure = -999.0;
+    const RetainedRgbSession missing_tag_sentinel(source, invalid_dng_metadata);
+    expect(
+        image::render_reference_proxy_jpeg(missing_tag_sentinel, request).bytes
+            == neutral_proxy.bytes,
+        "LibRaw's absent-DNG-BaselineExposure sentinel is ignored"
+    );
+
+    auto non_dng_metadata = dng_metadata;
+    non_dng_metadata.dng_version.clear();
+    const RetainedRgbSession non_dng_source(source, non_dng_metadata);
+    expect(
+        image::render_reference_proxy_jpeg(non_dng_source, request).bytes
+            == neutral_proxy.bytes,
+        "non-DNG RAW files never inherit a guessed DNG baseline exposure"
+    );
 }
 
 [[nodiscard]] image::FloatRgbImage working_rgb(const float red, const float green, const float blue) {
@@ -420,6 +503,7 @@ void test_source_profile_curve_handoffs_smoothly_to_scene_linear_highlights() {
 } // namespace
 
 int main() {
+    test_dng_baseline_exposure_is_consistent_across_source_outputs();
     test_standard_normalizes_non_dng_raw();
     test_dng_baseline_wins_over_generic_normalization();
     test_rendered_raster_remains_untouched();

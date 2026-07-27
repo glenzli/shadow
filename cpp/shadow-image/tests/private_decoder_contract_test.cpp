@@ -1,4 +1,4 @@
-#include "decoder_contract_test_support.hpp"
+#include "contract_test_assertions.hpp"
 
 #include <shadow/image/decoder.hpp>
 #include <shadow/image/decoder_error.hpp>

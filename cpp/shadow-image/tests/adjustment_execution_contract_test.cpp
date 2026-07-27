@@ -1,3 +1,5 @@
+#include "scoped_environment.hpp"
+
 #include <shadow/image/adjustment_execution.hpp>
 #include <shadow/image/display_output.hpp>
 
@@ -21,6 +23,8 @@ namespace image = shadow::image;
 
 namespace {
 
+using shadow::image::test_support::ScopedEnvironment;
+
 int failures = 0;
 
 void expect(const bool condition, const std::string_view message) {
@@ -29,45 +33,6 @@ void expect(const bool condition, const std::string_view message) {
         ++failures;
     }
 }
-
-class ScopedEnvironment final {
-public:
-    ScopedEnvironment(const std::string_view name, const std::string_view value)
-        : name_(name) {
-        if (const char* previous = std::getenv(name_.c_str()); previous != nullptr) {
-            previous_ = previous;
-            had_previous_ = true;
-        }
-#if defined(_WIN32)
-        static_cast<void>(_putenv_s(name_.c_str(), std::string(value).c_str()));
-#else
-        static_cast<void>(setenv(name_.c_str(), std::string(value).c_str(), 1));
-#endif
-    }
-
-    ~ScopedEnvironment() {
-#if defined(_WIN32)
-        static_cast<void>(_putenv_s(
-            name_.c_str(),
-            had_previous_ ? previous_.c_str() : ""
-        ));
-#else
-        if (had_previous_) {
-            setenv(name_.c_str(), previous_.c_str(), 1);
-        } else {
-            unsetenv(name_.c_str());
-        }
-#endif
-    }
-
-    ScopedEnvironment(const ScopedEnvironment&) = delete;
-    ScopedEnvironment& operator=(const ScopedEnvironment&) = delete;
-
-private:
-    std::string name_;
-    std::string previous_;
-    bool had_previous_ = false;
-};
 
 [[nodiscard]] image::WorkingRgbSpace linear_srgb() {
     return image::WorkingRgbSpace{

@@ -1,4 +1,5 @@
-#include "decoder_contract_test_support.hpp"
+#include "contract_test_assertions.hpp"
+#include "processed_rgb_session_fixture.hpp"
 
 #include <shadow/image/decoder.hpp>
 #include <shadow/image/edit.hpp>

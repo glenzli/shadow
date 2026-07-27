@@ -134,18 +134,26 @@ contain vendor code or calibration data.
 
 Decoder contract tests follow the production responsibilities instead of one aggregate executable:
 
-- `tests/raw_source_contract_test.cpp` owns RawFrame, sensor clipping, RAW-plan, ICC, embedded
-  preview selection, and provider-neutral raster-source contracts.
+- `tests/decoder_source_contract_test.cpp` owns RawFrame validation, sensor clipping, noise
+  calibration, Bayer demosaic, RAW-plan negotiation, and embedded-preview selection.
+- `tests/color_management_contract_test.cpp` owns decoded-source ICC behavior.
+- `tests/raster_provider_contract_test.cpp` owns provider-neutral raster-source decoding.
 - `tests/private_decoder_contract_test.cpp` owns the private plugin ABI, loading, stale-module
   rejection, and router precedence.
 - `tests/optics_preparation_contract_test.cpp` owns manual/Lensfun optics and its position before
   warm-preview and full-detail preparation.
-- `tests/preview_session_contract_test.cpp` owns immutable warm-preview preparation, repeated
-  rendering, output analysis, cancellation, bounds, and display-backend receipts.
+- `tests/proxy_output_contract_test.cpp` owns encoded proxy limits and the explicit display-sRGB
+  output boundary.
+- `tests/edit_preview_session_contract_test.cpp` owns immutable warm-preview preparation, receipt
+  retention, repeated rendering, geometry-derived radius, bounds, and preflight validation.
+- `tests/edit_preview_execution_contract_test.cpp` owns output analysis, cancellation, backend
+  receipts, and execution identity.
 - `tests/libraw_provider_contract_test.cpp` owns LibRaw settings, provider identity, real-fixture
   metadata, and source-development provenance.
-- `tests/decoder_contract_test_support.hpp` contains only shared assertions and the small
-  RGB/optics fixtures genuinely reused by more than one executable.
+- `tests/source_rendering_contract_test.cpp` owns the consistency of DNG baseline exposure across
+  source-rendering outputs.
+- Test-only support is responsibility-named: shared assertions, processed-RGB sessions, optics
+  observations, and scoped environment overrides live in separate narrow headers.
 
 ## CPU edit reference
 
