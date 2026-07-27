@@ -2,22 +2,19 @@
 //!
 //! [`protocol`] defines the internal command contract, [`handle`] adapts the
 //! public client API to that contract, and [`dispatch`] executes commands on
-//! the connection-owning thread.
+//! the connection-owning thread. Responsibility families use matching child
+//! modules across all three layers; start with `evidence` for human decisions
+//! and explicit feedback.
 
 use std::{
-    collections::BTreeSet,
     path::Path,
     sync::mpsc::{self, Receiver, Sender, SyncSender},
     thread::{self, JoinHandle},
 };
 
-use shadow_ai::{
-    FeedbackEvent, FeedbackForgetFact, LearningScope, NewFeedbackEvent, NewFeedbackForgetFact,
-};
 use shadow_domain::{
-    AssetLocation, CollectionId, EditCommitId, EditObjectId, ImportSessionId,
-    NewPhotoDecisionEvent, PhotoDecisionEvent, PhotoDecisionState, PhotoId, RecipeCommitId,
-    RepresentationId,
+    AssetLocation, CollectionId, EditCommitId, EditObjectId, ImportSessionId, PhotoId,
+    RecipeCommitId, RepresentationId,
 };
 
 use crate::{
@@ -27,29 +24,30 @@ use crate::{
     DecodeSnapshotRecord, EditObjectPackWrite, EditObjectRecord, EditRepositoryCommitRecord,
     EditRepositoryRefRecord, EnqueueExportJob, ExportItemId, ExportItemRecord, ExportJobId,
     ExportJobProgress, ExportJobRecord, ExportOutputReceiptRecord, ExportPresetId,
-    ExportPresetRecord, ExportPresetRevisionRecord, ExportQueueRecovery, FeedbackPage,
-    ImportSession, ImportSessionState, ImportSessionSummary, InvalidateCachedArtifactStatus,
-    LibraryFacetCursor, LibraryFacetKind, LibraryFacetPage, LibraryPhotoCursor, LibraryPhotoFacts,
-    LibraryPhotoFilter, LibraryPhotoPage, LibrarySourceHealth, LibrarySourceRecord,
-    LiveCachedArtifactBlob, MissingSourceLocationCursor, MissingSourceLocationPage,
-    MissingSourceRelinkTarget, PhotoDecisionPage, PhotoLibraryState, RecipeCommitRecord,
-    RecipeRefRecord, RecordCachedArtifact, RecordCachedArtifactStatus, RecordDecodeSnapshot,
-    RecordDecodeSnapshotStatus, RecordRepresentationContentIdentity,
-    RecordRepresentationContentIdentityStatus, RecordTechnicalObservation,
-    RecordTechnicalObservationStatus, RegisterAsset, RegisteredAsset, RelinkMatch,
-    RepresentationFingerprint, ReviewCursor, ReviewItemRecord, ReviewPageRecord,
+    ExportPresetRecord, ExportPresetRevisionRecord, ExportQueueRecovery, ImportSession,
+    ImportSessionState, ImportSessionSummary, InvalidateCachedArtifactStatus, LibraryFacetCursor,
+    LibraryFacetKind, LibraryFacetPage, LibraryPhotoCursor, LibraryPhotoFacts, LibraryPhotoFilter,
+    LibraryPhotoPage, LibrarySourceHealth, LibrarySourceRecord, LiveCachedArtifactBlob,
+    MissingSourceLocationCursor, MissingSourceLocationPage, MissingSourceRelinkTarget,
+    PhotoLibraryState, RecipeCommitRecord, RecipeRefRecord, RecordCachedArtifact,
+    RecordCachedArtifactStatus, RecordDecodeSnapshot, RecordDecodeSnapshotStatus,
+    RecordRepresentationContentIdentity, RecordRepresentationContentIdentityStatus,
+    RecordTechnicalObservation, RecordTechnicalObservationStatus, RegisterAsset, RegisteredAsset,
+    RelinkMatch, RepresentationFingerprint, ReviewCursor, ReviewItemRecord, ReviewPageRecord,
     SetPhotoLibraryState, SetRecipeRef, SmartAlbumQueryV1, StoreEditObjectPackResult,
     TechnicalObservationRecord, TechnicalObservationRevision,
 };
 
 mod dispatch;
+#[cfg(test)]
+mod evidence_tests;
 mod handle;
 mod protocol;
 #[cfg(test)]
 mod tests;
 
 use dispatch::run_actor;
-use protocol::{DecisionMessage, FeedbackMessage, Message};
+use protocol::Message;
 
 #[derive(Debug)]
 pub struct CatalogActor {

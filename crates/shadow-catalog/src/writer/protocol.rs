@@ -6,6 +6,9 @@
 
 use super::*;
 
+mod evidence;
+pub(super) use evidence::{DecisionMessage, FeedbackMessage};
+
 pub(super) enum Message {
     SchemaVersion(SyncSender<Result<i64, CatalogError>>),
     Stats(SyncSender<Result<CatalogStats, CatalogError>>),
@@ -345,42 +348,4 @@ pub(super) enum Message {
     ),
     UnfinishedImportSessions(SyncSender<Result<Vec<ImportSession>, CatalogError>>),
     Shutdown(SyncSender<()>),
-}
-
-pub(super) enum DecisionMessage {
-    State(
-        PhotoId,
-        SyncSender<Result<PhotoDecisionState, CatalogError>>,
-    ),
-    Append(
-        Box<NewPhotoDecisionEvent>,
-        SyncSender<Result<PhotoDecisionEvent, CatalogError>>,
-    ),
-    EventsAfter(
-        PhotoId,
-        u64,
-        usize,
-        SyncSender<Result<PhotoDecisionPage, CatalogError>>,
-    ),
-}
-
-pub(super) enum FeedbackMessage {
-    AppendEvent(
-        Box<NewFeedbackEvent>,
-        SyncSender<Result<FeedbackEvent, CatalogError>>,
-    ),
-    EventsAfter(
-        LearningScope,
-        u64,
-        usize,
-        SyncSender<Result<FeedbackPage, CatalogError>>,
-    ),
-    AppendForgetFact(
-        Box<NewFeedbackForgetFact>,
-        SyncSender<Result<FeedbackForgetFact, CatalogError>>,
-    ),
-    ForgottenEventIds(
-        LearningScope,
-        SyncSender<Result<BTreeSet<String>, CatalogError>>,
-    ),
 }
