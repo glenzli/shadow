@@ -199,6 +199,8 @@ kernel implementation. Its mirrored host records and checked buffer layout live 
 Pure, cross-platform neighborhood-stage recognition and before/after plan rewriting live in
 `src/proxy/warm_edit_gpu_render_plan.*`; one exhaustive variant records the selected route and
 the Objective-C++ runtime only consumes that plan.
+Process-wide Metal device, queue, runtime compilation, and the all-or-nothing pipeline registry
+are owned by `src/proxy/warm_edit_gpu_pipeline_context.*`.
 
 The edit path accepts explicitly native interleaved RGB float32, scene-referred, linear-light data
 with named RGB primaries, white point, and luminance coefficients. It is not legal to feed the
