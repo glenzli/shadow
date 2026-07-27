@@ -194,7 +194,8 @@ delegates the retained preview lifecycle to `WarmEditPreviewSession`.
 source preparation, execution provenance, cancellation, analysis, and JPEG delivery.
 The embedded Warm Metal program is a separate language owner in
 `src/proxy/warm_edit_gpu_msl.hpp`; the Objective-C++ runtime consumes it without owning its
-kernel implementation.
+kernel implementation. Its mirrored host records and checked buffer layout live in
+`src/proxy/warm_edit_gpu_kernel_contract.hpp`.
 
 The edit path accepts explicitly native interleaved RGB float32, scene-referred, linear-light data
 with named RGB primaries, white point, and luminance coefficients. It is not legal to feed the
