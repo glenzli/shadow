@@ -21,7 +21,8 @@ that same private wire representation:
   clipping masks, execution provenance, and fail-closed analysis validation.
 - [`src/preview_session.rs`](src/preview_session.rs) owns reusable warm-preview state,
   cancellation, and generation-matched render outcomes.
-- `PhotoEditDetailSession` owns reusable native detail buffers.
+- [`src/detail_session.rs`](src/detail_session.rs) owns the retained full-resolution source,
+  bounded tile requests, and tightly packed RGB8 output validation.
 - [`src/lib.rs`](src/lib.rs) re-exports the public contract and retains only shared wiring that has
   not yet gained a responsibility-named owner.
 

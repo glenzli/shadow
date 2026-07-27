@@ -1,0 +1,306 @@
+//! Full-resolution detail-tile state, request bounds, and output validation.
+
+use std::path::Path;
+
+use shadow_domain::ImageDimensions;
+
+use super::{
+    BridgeError,
+    adjustment::AdjustmentRenderPlan,
+    decoder::{dimensions, open_photo},
+    detail_tile_rect, ffi, ffi_detail_tile_request,
+    optics::{OpticsReceipt, OpticsSettings, ffi_optics_settings, optics_receipt},
+    raw_development::{
+        RawDevelopmentIntent, RawDevelopmentPlan, RawDevelopmentReceipt, RawPipelineReceipt,
+        ffi_raw_development_plan, preflight_photo_edit_development, raw_development_receipt,
+        raw_pipeline_receipt,
+    },
+};
+
+// SAFETY: the C++ handle owns a fully prepared, immutable u16 reference image. It contains no
+// decoder or borrowed state, and every tile render allocates independent float/RGB8 buffers.
+// The public wrapper exposes no mutable access to the handle.
+unsafe impl Send for ffi::FullEditDetailHandle {}
+// SAFETY: see the Send implementation above. Concurrent calls only read the retained source.
+unsafe impl Sync for ffi::FullEditDetailHandle {}
+
+/// Hard width and height bound for one full-resolution detail tile.
+pub const MAX_EDIT_DETAIL_TILE_SIDE: u32 = 1_024;
+
+/// Hard bound for the complete immutable u16 source retained by one detail session.
+pub const MAX_EDIT_DETAIL_RETAINED_BYTES: u64 = 512 * 1_024 * 1_024;
+
+/// One exact rectangle in the processed full-resolution image coordinate space.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub struct DetailTileRect {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// One bounded, unscaled full-resolution tile request.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub struct DetailTileRequest {
+    pub rect: DetailTileRect,
+}
+
+impl DetailTileRequest {
+    pub(crate) fn validate(self, full_dimensions: ImageDimensions) -> Result<(), BridgeError> {
+        let rect = self.rect;
+        if rect.width == 0
+            || rect.height == 0
+            || rect.width > MAX_EDIT_DETAIL_TILE_SIDE
+            || rect.height > MAX_EDIT_DETAIL_TILE_SIDE
+        {
+            return Err(BridgeError::InvalidEditRequest(
+                "detail tile width and height must be in 1..=1024",
+            ));
+        }
+        if rect.x >= full_dimensions.width
+            || rect.y >= full_dimensions.height
+            || rect.width > full_dimensions.width - rect.x
+            || rect.height > full_dimensions.height - rect.y
+        {
+            return Err(BridgeError::InvalidEditRequest(
+                "detail tile rectangle must be fully inside the retained image",
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Packed display-encoded sRGB RGB8 bytes for one exact full-resolution rectangle.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct RenderedDetailTile {
+    pub rect: DetailTileRect,
+    pub full_dimensions: ImageDimensions,
+    pub row_stride_bytes: u32,
+    pub bytes: Vec<u8>,
+}
+
+/// A reusable immutable full-resolution processed-linear u16 RGB source in sRGB primaries for 1:1 tiles.
+///
+/// Preparation performs one source-router reference render, retains no decoder, and fails when
+/// either the metadata worst-case RGB allocation or the actual retained allocation exceeds
+/// 512 MiB. Repeated tile renders convert and edit only the requested rectangle. The wrapper is
+/// [`Send`] + [`Sync`], and concurrent renders own independent temporary buffers.
+pub struct LibRawEditDetailSession {
+    handle: cxx::UniquePtr<ffi::FullEditDetailHandle>,
+    dimensions: ImageDimensions,
+    retained_bytes: u64,
+    raw_development_receipt: RawDevelopmentReceipt,
+    raw_pipeline_receipt: RawPipelineReceipt,
+    optics_receipt: OpticsReceipt,
+}
+
+/// Source-neutral name for an immutable full-resolution photo-detail session.
+///
+/// See [`PhotoEditPreviewSession`] for the compatibility and RAW-provenance contract.
+pub type PhotoEditDetailSession = LibRawEditDetailSession;
+
+impl std::fmt::Debug for LibRawEditDetailSession {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("LibRawEditDetailSession")
+            .field("dimensions", &self.dimensions)
+            .field("retained_bytes", &self.retained_bytes)
+            .field("raw_development_receipt", &self.raw_development_receipt)
+            .field("raw_pipeline_receipt", &self.raw_pipeline_receipt)
+            .field("optics_receipt", &self.optics_receipt)
+            .finish_non_exhaustive()
+    }
+}
+
+impl LibRawEditDetailSession {
+    /// Opens a supported photo into immutable full-resolution processed-linear u16 RGB pixels in
+    /// sRGB primaries.
+    ///
+    /// Provider metadata is checked against the worst-case RGB retention limit before the
+    /// reference render starts. The returned allocation is checked independently before it is
+    /// retained by the session.
+    ///
+    /// # Errors
+    ///
+    /// Returns a path, decoder, resource-limit, or invalid bridge-output error. Sources whose
+    /// worst-case or actual retained allocation exceeds 512 MiB fail closed.
+    pub fn open(path: &Path) -> Result<Self, BridgeError> {
+        Self::open_with_optics(path, &OpticsSettings::default())
+    }
+
+    /// Opens a full-resolution detail session with explicit input-stage optical settings.
+    ///
+    /// # Errors
+    ///
+    /// Returns a path, decoder, resource-limit, invalid-request, or bridge-output error when
+    /// validation or preparation fails.
+    pub fn open_with_optics(path: &Path, optics: &OpticsSettings) -> Result<Self, BridgeError> {
+        Self::open_with_raw_development_plan_and_optics(path, RawDevelopmentPlan::detail(), optics)
+    }
+
+    /// Opens an immutable full-resolution session with an explicit RAW source-development plan.
+    /// Detail and ExportImage intents are accepted; Preview is rejected so a warm half-size
+    /// source can never enter a full-resolution pipeline.
+    pub fn open_with_raw_development_plan(
+        path: &Path,
+        raw_development_plan: RawDevelopmentPlan,
+    ) -> Result<Self, BridgeError> {
+        Self::open_with_raw_development_plan_and_optics(
+            path,
+            raw_development_plan,
+            &OpticsSettings::default(),
+        )
+    }
+
+    /// Opens a native-detail session with explicit RAW source-development and optical settings.
+    pub fn open_with_raw_development_plan_and_optics(
+        path: &Path,
+        raw_development_plan: RawDevelopmentPlan,
+        optics: &OpticsSettings,
+    ) -> Result<Self, BridgeError> {
+        raw_development_plan.validate()?;
+        if !matches!(
+            raw_development_plan.intent,
+            RawDevelopmentIntent::Detail | RawDevelopmentIntent::ExportImage
+        ) {
+            return Err(BridgeError::InvalidRawDevelopmentPlan(
+                "full-resolution edit requires detail or export-image RAW-development intent",
+            ));
+        }
+        let mut decode_handle = open_photo(path)?;
+        if decode_handle.is_null() {
+            return Err(BridgeError::NullHandle);
+        }
+        {
+            let handle = decode_handle.as_ref().ok_or(BridgeError::NullHandle)?;
+            preflight_photo_edit_development(handle, raw_development_plan)?;
+        }
+        decode_handle
+            .pin_mut()
+            .configure_optics(&ffi_optics_settings(optics))?;
+        let decode_handle = decode_handle.as_ref().ok_or(BridgeError::NullHandle)?;
+        let handle = decode_handle.prepare_edit_detail_with_raw_development_plan(
+            &ffi_raw_development_plan(raw_development_plan),
+        )?;
+        let prepared = handle.as_ref().ok_or(BridgeError::NullHandle)?;
+        let prepared_dimensions = dimensions(&prepared.dimensions());
+        let retained_bytes = prepared.retained_bytes();
+        let raw_development_receipt = raw_development_receipt(prepared.raw_development_receipt()?)?;
+        let raw_pipeline_receipt = raw_pipeline_receipt(prepared.raw_pipeline_receipt()?)?;
+        let optics_receipt = optics_receipt(prepared.optics_receipt());
+        if prepared_dimensions.width == 0 || prepared_dimensions.height == 0 {
+            return Err(BridgeError::InvalidEditDetailOutput(
+                "prepared dimensions must be non-zero",
+            ));
+        }
+        if retained_bytes == 0 || retained_bytes > MAX_EDIT_DETAIL_RETAINED_BYTES {
+            return Err(BridgeError::InvalidEditDetailOutput(
+                "retained bytes must be in 1..=512 MiB",
+            ));
+        }
+        Ok(Self {
+            handle,
+            dimensions: prepared_dimensions,
+            retained_bytes,
+            raw_development_receipt,
+            raw_pipeline_receipt,
+            optics_receipt,
+        })
+    }
+
+    /// Returns the processed full-resolution image dimensions used by tile coordinates.
+    #[must_use]
+    pub const fn dimensions(&self) -> ImageDimensions {
+        self.dimensions
+    }
+
+    /// Returns the actual immutable u16 allocation retained by this session.
+    #[must_use]
+    pub const fn retained_bytes(&self) -> u64 {
+        self.retained_bytes
+    }
+
+    /// Returns immutable provenance for the exact full-resolution RAW development, if any,
+    /// retained by this detail session.
+    #[must_use]
+    pub const fn raw_development_receipt(&self) -> &RawDevelopmentReceipt {
+        &self.raw_development_receipt
+    }
+
+    /// Returns the typed host-side route and canonical cache identity for this retained source.
+    #[must_use]
+    pub const fn raw_pipeline_receipt(&self) -> &RawPipelineReceipt {
+        &self.raw_pipeline_receipt
+    }
+
+    #[must_use]
+    pub const fn optics_receipt(&self) -> &OpticsReceipt {
+        &self.optics_receipt
+    }
+
+    /// Executes a dependency-ordered typed plan against one exact full-resolution rectangle.
+    ///
+    /// Plan and rectangle shape/bounds are rejected in Rust before entering C++. The C++ kernel
+    /// validates them again, normalizes only the processed-linear crop to float, executes the
+    /// typed nodes, expands neighborhood footprints inside the kernel, and
+    /// returns the requested core as tightly packed display-encoded sRGB RGB8
+    /// without compression or scaling.
+    /// No source I/O occurs during this method.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BridgeError::InvalidEditRequest`] for an invalid plan or rectangle,
+    /// [`BridgeError::Decoder`] for authoritative kernel failures, or
+    /// [`BridgeError::InvalidEditDetailOutput`] if bridge output violates its contract.
+    pub fn render_plan_tile(
+        &self,
+        plan: &AdjustmentRenderPlan,
+        request: DetailTileRequest,
+    ) -> Result<RenderedDetailTile, BridgeError> {
+        plan.validate()?;
+        let output_dimensions = plan.geometry.output_dimensions(self.dimensions)?;
+        request.validate(output_dimensions)?;
+        let handle = self.handle.as_ref().ok_or(BridgeError::NullHandle)?;
+        let rendered =
+            handle.render_adjustment_plan_tile(&ffi_detail_tile_request(plan, request))?;
+        let rect = detail_tile_rect(rendered.rect);
+        let full_dimensions = dimensions(&rendered.full_dimensions);
+        if rect != request.rect || full_dimensions != output_dimensions {
+            return Err(BridgeError::InvalidEditDetailOutput(
+                "returned identity does not match the requested tile and prepared source",
+            ));
+        }
+        let expected_stride =
+            rect.width
+                .checked_mul(3)
+                .ok_or(BridgeError::InvalidEditDetailOutput(
+                    "RGB8 row stride overflows",
+                ))?;
+        if rendered.row_stride_bytes != expected_stride {
+            return Err(BridgeError::InvalidEditDetailOutput(
+                "RGB8 row stride must equal width times three",
+            ));
+        }
+        let expected_len = usize::try_from(expected_stride)
+            .ok()
+            .and_then(|stride| {
+                usize::try_from(rect.height)
+                    .ok()
+                    .and_then(|height| stride.checked_mul(height))
+            })
+            .ok_or(BridgeError::InvalidEditDetailOutput(
+                "RGB8 byte length overflows addressable memory",
+            ))?;
+        if rendered.bytes.len() != expected_len {
+            return Err(BridgeError::InvalidEditDetailOutput(
+                "RGB8 byte length must equal row stride times height",
+            ));
+        }
+        Ok(RenderedDetailTile {
+            rect,
+            full_dimensions,
+            row_stride_bytes: rendered.row_stride_bytes,
+            bytes: rendered.bytes,
+        })
+    }
+}
