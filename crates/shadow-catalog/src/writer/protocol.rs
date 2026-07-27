@@ -8,8 +8,10 @@ use super::*;
 
 mod edit_history;
 mod evidence;
+mod import_journal;
 pub(super) use edit_history::EditHistoryMessage;
 pub(super) use evidence::{DecisionMessage, FeedbackMessage};
+pub(super) use import_journal::ImportJournalMessage;
 
 pub(super) enum Message {
     SchemaVersion(SyncSender<Result<i64, CatalogError>>),
@@ -255,56 +257,6 @@ pub(super) enum Message {
     ),
     Decision(DecisionMessage),
     Feedback(FeedbackMessage),
-    BeginImportSession(
-        AssetLocation,
-        i64,
-        SyncSender<Result<ImportSessionId, CatalogError>>,
-    ),
-    BeginRelocationSession(
-        AssetLocation,
-        i64,
-        SyncSender<Result<ImportSessionId, CatalogError>>,
-    ),
-    ResumeImportSession(
-        ImportSessionId,
-        i64,
-        SyncSender<Result<ImportSession, CatalogError>>,
-    ),
-    RecordImportDiscovered(
-        ImportSessionId,
-        RegisterAsset,
-        SyncSender<Result<(), CatalogError>>,
-    ),
-    RegisterImportAsset(
-        ImportSessionId,
-        RegisterAsset,
-        SyncSender<Result<RegisteredAsset, CatalogError>>,
-    ),
-    RegisterImportVerifiedRelocation(
-        ImportSessionId,
-        RegisterAsset,
-        RepresentationId,
-        ContentIdentity,
-        SyncSender<Result<RegisteredAsset, CatalogError>>,
-    ),
-    RecordImportIssue(
-        ImportSessionId,
-        AssetLocation,
-        String,
-        i64,
-        SyncSender<Result<(), CatalogError>>,
-    ),
-    FinishImportSession(
-        ImportSessionId,
-        ImportSessionState,
-        Option<String>,
-        i64,
-        SyncSender<Result<(), CatalogError>>,
-    ),
-    ImportSessionSummary(
-        ImportSessionId,
-        SyncSender<Result<ImportSessionSummary, CatalogError>>,
-    ),
-    UnfinishedImportSessions(SyncSender<Result<Vec<ImportSession>, CatalogError>>),
+    ImportJournal(ImportJournalMessage),
     Shutdown(SyncSender<()>),
 }

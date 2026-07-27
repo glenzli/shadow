@@ -7,8 +7,10 @@ use super::*;
 
 mod edit_history;
 mod evidence;
+mod import_journal;
 use edit_history::run_edit_history_message;
 use evidence::{run_decision_message, run_feedback_message};
+use import_journal::run_import_journal_message;
 
 #[allow(clippy::too_many_lines)]
 pub(super) fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
@@ -272,52 +274,7 @@ pub(super) fn run_actor(mut catalog: Catalog, receiver: &Receiver<Message>) {
             }
             Message::Decision(message) => run_decision_message(&mut catalog, message),
             Message::Feedback(message) => run_feedback_message(&mut catalog, message),
-            Message::BeginImportSession(root, now_ms, response) => {
-                let _ = response.send(catalog.begin_import_session(&root, now_ms));
-            }
-            Message::BeginRelocationSession(root, now_ms, response) => {
-                let _ = response.send(catalog.begin_relocation_session(&root, now_ms));
-            }
-            Message::ResumeImportSession(id, now_ms, response) => {
-                let _ = response.send(catalog.resume_import_session(id, now_ms));
-            }
-            Message::RecordImportDiscovered(id, request, response) => {
-                let _ = response.send(catalog.record_import_discovered(id, &request));
-            }
-            Message::RegisterImportAsset(id, request, response) => {
-                let _ = response.send(catalog.register_import_asset(id, &request));
-            }
-            Message::RegisterImportVerifiedRelocation(
-                id,
-                request,
-                expected_representation_id,
-                identity,
-                response,
-            ) => {
-                let _ = response.send(catalog.register_import_verified_relocation(
-                    id,
-                    &request,
-                    expected_representation_id,
-                    &identity,
-                ));
-            }
-            Message::RecordImportIssue(id, location, message, now_ms, response) => {
-                let _ = response.send(catalog.record_import_issue(id, &location, &message, now_ms));
-            }
-            Message::FinishImportSession(id, state, error, now_ms, response) => {
-                let _ = response.send(catalog.finish_import_session(
-                    id,
-                    state,
-                    error.as_deref(),
-                    now_ms,
-                ));
-            }
-            Message::ImportSessionSummary(id, response) => {
-                let _ = response.send(catalog.import_session_summary(id));
-            }
-            Message::UnfinishedImportSessions(response) => {
-                let _ = response.send(catalog.unfinished_import_sessions());
-            }
+            Message::ImportJournal(message) => run_import_journal_message(&mut catalog, message),
             Message::Shutdown(response) => {
                 let _ = response.send(());
                 break;

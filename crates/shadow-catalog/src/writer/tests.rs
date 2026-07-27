@@ -1,6 +1,6 @@
 use std::thread;
 
-use shadow_domain::{Platform, RepresentationKind};
+use shadow_domain::{AssetLocation, Platform, RepresentationKind};
 
 use super::*;
 
@@ -130,71 +130,6 @@ fn actor_rejects_a_late_content_identity_after_the_source_changes() {
         handle.relink_match(&identity).expect("lookup stale hash"),
         None
     );
-    actor.shutdown().expect("shutdown actor");
-}
-
-#[test]
-fn actor_attaches_a_confirmed_relocation_only_through_the_journal() {
-    let actor = CatalogActor::spawn_in_memory().expect("spawn catalog actor");
-    let mut handle = actor.handle();
-    let original = handle
-        .register_asset(&RegisterAsset {
-            kind: RepresentationKind::OriginalRaw,
-            location: AssetLocation::new(
-                Platform::MacOs,
-                b"/photos/original.nef".to_vec(),
-                "/photos/original.nef",
-            ),
-            byte_len: 42,
-            modified_at_ms: Some(100),
-            now_ms: 1,
-        })
-        .expect("register original");
-    let identity = ContentIdentity::whole_file_blake3([41; 32]);
-    handle
-        .record_representation_content_identity(&RecordRepresentationContentIdentity {
-            representation_id: original.representation_id,
-            expected_source: RepresentationFingerprint {
-                byte_len: 42,
-                modified_at_ms: Some(100),
-            },
-            identity: identity.clone(),
-            observed_at_ms: 2,
-        })
-        .expect("record identity");
-
-    let session = handle
-        .begin_import_session(
-            &AssetLocation::new(Platform::MacOs, b"/consolidated".to_vec(), "/consolidated"),
-            3,
-        )
-        .expect("begin import session");
-    let moved_request = RegisterAsset {
-        kind: RepresentationKind::OriginalRaw,
-        location: AssetLocation::new(
-            Platform::MacOs,
-            b"/consolidated/renamed.nef".to_vec(),
-            "/consolidated/renamed.nef",
-        ),
-        byte_len: 42,
-        modified_at_ms: Some(200),
-        now_ms: 4,
-    };
-    handle
-        .record_import_discovered(session, &moved_request)
-        .expect("journal discovery");
-
-    let moved = handle
-        .register_import_verified_relocation(
-            session,
-            &moved_request,
-            original.representation_id,
-            &identity,
-        )
-        .expect("attach through actor");
-    assert_eq!(moved.photo_id, original.photo_id);
-    assert_eq!(moved.representation_id, original.representation_id);
-    assert_eq!(handle.stats().expect("stats").locations, 2);
     actor.shutdown().expect("shutdown actor");
 }
 

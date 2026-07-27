@@ -5,7 +5,8 @@
 //! the connection-owning thread. Responsibility families use matching child
 //! modules across all three layers. `evidence` owns human decisions and
 //! explicit feedback; `edit_history` owns the connected per-photo Recipe and
-//! Library-wide edit repository contracts.
+//! Library-wide edit repository contracts; `import_journal` owns durable scan
+//! and explicit-relocation transactions.
 
 use std::{
     path::Path,
@@ -13,15 +14,14 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-use shadow_domain::{AssetLocation, CollectionId, ImportSessionId, PhotoId, RepresentationId};
+use shadow_domain::{CollectionId, ImportSessionId, PhotoId, RepresentationId};
 
 use crate::{
     AlbumKind, AlbumRecord, CachedArtifactGeneratorIdentity, CachedArtifactRecord, Catalog,
-    CatalogError, CatalogStats, CatalogStore, ContentIdentity, DecodeSnapshotRecord,
-    EnqueueExportJob, ExportItemId, ExportItemRecord, ExportJobId, ExportJobProgress,
-    ExportJobRecord, ExportOutputReceiptRecord, ExportPresetId, ExportPresetRecord,
-    ExportPresetRevisionRecord, ExportQueueRecovery, ImportSession, ImportSessionState,
-    ImportSessionSummary, InvalidateCachedArtifactStatus, LibraryFacetCursor, LibraryFacetKind,
+    CatalogError, CatalogStats, ContentIdentity, DecodeSnapshotRecord, EnqueueExportJob,
+    ExportItemId, ExportItemRecord, ExportJobId, ExportJobProgress, ExportJobRecord,
+    ExportOutputReceiptRecord, ExportPresetId, ExportPresetRecord, ExportPresetRevisionRecord,
+    ExportQueueRecovery, InvalidateCachedArtifactStatus, LibraryFacetCursor, LibraryFacetKind,
     LibraryFacetPage, LibraryPhotoCursor, LibraryPhotoFacts, LibraryPhotoFilter, LibraryPhotoPage,
     LibrarySourceHealth, LibrarySourceRecord, LiveCachedArtifactBlob, MissingSourceLocationCursor,
     MissingSourceLocationPage, MissingSourceRelinkTarget, PhotoLibraryState, RecordCachedArtifact,
@@ -39,6 +39,8 @@ mod edit_history_tests;
 #[cfg(test)]
 mod evidence_tests;
 mod handle;
+#[cfg(test)]
+mod import_journal_tests;
 mod protocol;
 #[cfg(test)]
 mod tests;
