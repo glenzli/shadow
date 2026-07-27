@@ -97,6 +97,7 @@ const EMBEDDED_IMAGE_INPUTS: &[&str] = &[
     "src/proxy/metal_display_output.mm",
     "src/proxy/metal_display_output_stub.cpp",
     "src/proxy/warm_edit_gpu.hpp",
+    "src/proxy/warm_edit_gpu_msl.hpp",
     "src/proxy/warm_edit_gpu.mm",
     "src/proxy/warm_edit_gpu_stub.cpp",
 ];
