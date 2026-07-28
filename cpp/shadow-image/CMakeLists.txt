@@ -695,15 +695,20 @@ if(BUILD_TESTING)
     shadow_image_enable_warnings(shadow-image-dcp-parser-tests)
     add_test(NAME shadow-image-dcp-parser-contract COMMAND shadow-image-dcp-parser-tests)
 
-    add_executable(
-        shadow-image-camera-profile-tests
-        tests/camera_profile_contract_test.cpp
+    shadow_image_add_contract(
+        shadow-image-camera-profile-catalog-tests
+        shadow-image-camera-profile-catalog-contract
+        tests/camera_profile_catalog_contract_test.cpp
     )
-    target_link_libraries(shadow-image-camera-profile-tests PRIVATE Shadow::Image)
-    shadow_image_enable_warnings(shadow-image-camera-profile-tests)
-    add_test(
-        NAME shadow-image-camera-profile-contract
-        COMMAND shadow-image-camera-profile-tests
+    shadow_image_add_contract(
+        shadow-image-dcp-color-transform-tests
+        shadow-image-dcp-color-transform-contract
+        tests/dcp_color_transform_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-dcp-color-rendering-tests
+        shadow-image-dcp-color-rendering-contract
+        tests/dcp_color_rendering_contract_test.cpp
     )
 
     add_executable(

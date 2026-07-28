@@ -225,6 +225,13 @@ Decoder contract tests follow the production responsibilities instead of one agg
   frame, processed fallback, and synthetic decode session. Routing-only DCP fixtures and
   preparation-only noise/gradient frames live in the adjacent responsibility-named support
   headers rather than in a false-common fixture module.
+- `tests/camera_profile_catalog_contract_test.cpp` owns content-addressed profile discovery,
+  exact camera matching, duplicate admission, and optional public-profile parsing.
+- `tests/dcp_color_transform_contract_test.cpp` owns forward/inverse matrix route selection,
+  exposure headroom, chromatic adaptation, and dual-illuminant interpolation.
+- `tests/dcp_color_rendering_contract_test.cpp` owns post-matrix HueSatMap, LookTable, tone-curve,
+  parallel-frame, and CPU/Metal execution behavior. Its shared transform inputs live in
+  `tests/dcp_color_contract_test_support.hpp`; catalog file fixtures remain with the catalog.
 - Test-only support is responsibility-named: shared assertions, processed-RGB sessions, optics
   observations, and scoped environment overrides live in separate narrow headers.
 
