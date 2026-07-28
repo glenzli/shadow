@@ -672,6 +672,8 @@ private:
     void schedulePreview(int delay_ms);
     void maybeStartBeforePreview();
     void maybeStartDetailRender();
+    void cancelDetailWarmupForRecipeEdit();
+    void scheduleDetailRefreshForRecipeEdit(int delay_ms);
     void scheduleDetailWarmup();
     // A pan changes the requested viewport but not the developed pixels
     // already visible on screen. Keep that presentation until its replacement

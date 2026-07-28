@@ -92,8 +92,11 @@ Application startup is split from environment-driven automation:
   presentation, point normalization and editing, gesture integration, history, and preview timing.
 - [`src/edit_persistence_coordinator.cpp`](src/edit_persistence_coordinator.cpp) owns photo
   open/close, autosave, version operations, and durable state transitions.
-- [`src/edit_render_coordinator.cpp`](src/edit_render_coordinator.cpp) owns preview/detail
-  scheduling, cancellation, and render presentation state.
+- [`src/edit_render_coordinator.cpp`](src/edit_render_coordinator.cpp) owns current and neutral
+  preview scheduling, cancellation, diagnostics, and presentation.
+- [`src/edit_detail_render_controller.cpp`](src/edit_detail_render_controller.cpp) owns
+  full-resolution viewport admission, cancellation, tile validation and publication, idle warmup,
+  memory/readiness state, and Recipe-change invalidation.
 - [`src/edit_analysis_controller.cpp`](src/edit_analysis_controller.cpp) owns histogram and
   display-scope validation/projection, Point Color reference freezing, analysis refresh,
   publication, failure, and clearing.

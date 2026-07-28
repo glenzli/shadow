@@ -197,6 +197,7 @@ qt_add_executable(
     src/edit_controller.cpp
     src/edit_adjustment_controller.cpp
     src/edit_analysis_controller.cpp
+    src/edit_detail_render_controller.cpp
     src/edit_controller.hpp
     src/edit_fine_parameter_registry.cpp
     src/edit_fine_parameter_registry.hpp
