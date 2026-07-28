@@ -25,7 +25,7 @@ presentation, SQLite schema details, or native image algorithms.
 | Bounded persistent grid-proxy identity from the complete RAW plan and optional isolated-helper graph | [`src/photo_provider/grid_proxy_identity.rs`](src/photo_provider/grid_proxy_identity.rs) |
 | Preview identity, cancellation, and session-local reuse | [`src/preview_cache_identity.rs`](src/preview_cache_identity.rs), [`src/preview_render_registry.rs`](src/preview_render_registry.rs), [`src/session_preview_store.rs`](src/session_preview_store.rs), [`src/edit_preview/warm_session_cache.rs`](src/edit_preview/warm_session_cache.rs) |
 | 1:1 detail tile geometry and reuse | [`src/detail_viewport.rs`](src/detail_viewport.rs), [`src/detail_tile_cache.rs`](src/detail_tile_cache.rs) |
-| Interactive preview transaction, terminal linearization, durable-publication call, and FFI response | [`src/edit_preview/service.rs`](src/edit_preview/service.rs), [`src/edit_preview/response.rs`](src/edit_preview/response.rs) |
+| Interactive RGB8 preview transaction, settled JPEG/analysis policy, terminal linearization, durable-publication call, and FFI response | [`src/edit_preview/service.rs`](src/edit_preview/service.rs), [`src/edit_preview/response.rs`](src/edit_preview/response.rs) |
 | Desktop-session full-detail viewport and prepared-source lifecycle | [`src/session_edit_render.rs`](src/session_edit_render.rs) |
 | Settled Recipe-preview identity, blob storage, and Catalog publication | [`src/edit_preview/recipe_preview_store.rs`](src/edit_preview/recipe_preview_store.rs) |
 | Working drafts, named versions, checkout, and edit-reference publication | [`src/session_edit_history.rs`](src/session_edit_history.rs) |

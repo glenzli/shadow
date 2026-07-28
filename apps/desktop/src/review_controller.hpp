@@ -113,6 +113,18 @@ class ReviewController final : public QObject {
         NOTIFY filtersChanged
     )
     Q_PROPERTY(
+        QString filterExcludedFlag
+        READ filterExcludedFlag
+        WRITE setFilterExcludedFlag
+        NOTIFY filtersChanged
+    )
+    Q_PROPERTY(
+        QString filterExcludedColorLabel
+        READ filterExcludedColorLabel
+        WRITE setFilterExcludedColorLabel
+        NOTIFY filtersChanged
+    )
+    Q_PROPERTY(
         QString filterCaptureMonth
         READ filterCaptureMonth
         WRITE setFilterCaptureMonth
@@ -250,6 +262,8 @@ public:
     [[nodiscard]] QString filterColorLabel() const;
     [[nodiscard]] QString filterEditState() const;
     [[nodiscard]] QString filterLiked() const;
+    [[nodiscard]] QString filterExcludedFlag() const;
+    [[nodiscard]] QString filterExcludedColorLabel() const;
     [[nodiscard]] QString filterCaptureMonth() const;
     [[nodiscard]] QString filterCameraKey() const;
     [[nodiscard]] QString filterLensKey() const;
@@ -278,6 +292,8 @@ public:
     void setFilterColorLabel(const QString& color_label);
     void setFilterEditState(const QString& edit_state);
     void setFilterLiked(const QString& liked);
+    void setFilterExcludedFlag(const QString& flag);
+    void setFilterExcludedColorLabel(const QString& color_label);
     void setFilterCaptureMonth(const QString& capture_month);
     void setFilterCameraKey(const QString& camera_key);
     void setFilterLensKey(const QString& lens_key);

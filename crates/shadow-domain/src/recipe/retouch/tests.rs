@@ -12,7 +12,7 @@ fn retouch_spots_reject_invalid_radius_and_clone_offsets() {
         .expect("valid repair spot")
         .with_behavior(
             RetouchMode::Clone,
-            2.01,
+            8.01,
             0.0,
             UnitInterval::new(0.4).expect("feather"),
         ),

@@ -77,6 +77,7 @@ fn completed_response_projects_settled_diagnostics_and_hides_them_interactively(
     );
     assert_eq!(settled.terminal, ffi::FfiEditPreviewTerminal::Completed);
     assert_eq!((settled.width, settled.height), (2, 1));
+    assert_eq!(settled.row_stride_bytes, 0);
     assert_eq!(settled.red_histogram[7], 2);
     assert_eq!(settled.below_zero_samples, [1, 2, 3]);
     assert_eq!(settled.hdr_headroom_bins[3], 1);
@@ -86,7 +87,7 @@ fn completed_response_projects_settled_diagnostics_and_hides_them_interactively(
     assert!(settled.optics_applied_scaling);
 
     let interactive = completed_edited_preview(
-        proxy(dimensions),
+        rgb8_proxy(dimensions),
         None,
         &optics,
         &sensor,
@@ -97,6 +98,17 @@ fn completed_response_projects_settled_diagnostics_and_hides_them_interactively(
     assert!(!interactive.sensor_clipping_available);
     assert!(interactive.sensor_clipping_mask.is_empty());
     assert_eq!(interactive.optics_status, "applied");
+    assert_eq!(interactive.row_stride_bytes, 6);
+}
+
+fn rgb8_proxy(dimensions: ImageDimensions) -> ProxyPayload {
+    ProxyPayload {
+        dimensions,
+        codec: PreviewCodec::Bitmap,
+        bits_per_channel: 8,
+        channels: 3,
+        bytes: vec![0; dimensions.pixel_count() as usize * 3],
+    }
 }
 
 fn proxy(dimensions: ImageDimensions) -> ProxyPayload {

@@ -72,6 +72,7 @@ RAW/DNG → bounded full-size u16 reference session → exact level-zero RGB8 de
 ```sh
 cargo xtask check
 cargo xtask test
+cargo xtask format
 cargo xtask test-layout
 cargo xtask doctor
 cargo xtask native-check
@@ -88,6 +89,13 @@ cargo run --package shadow-cli -- inspect-raw /path/to/input.dng
 cargo run --package shadow-cli -- inspect-store ./catalogs/demo.sqlite ./catalogs/cache /path/to/input.dng
 ./build/native-dev/cpp/shadow-image/shadow-raw-probe /path/to/input.dng ./bench-results/raw-probe
 ```
+
+`cargo xtask format` delegates Rust to the repository `rustfmt.toml` and applies
+the repository `.clang-format` to changed C, C++, Objective-C, and Objective-C++
+sources. Pass explicit native files for a narrower edit, `--check` for a
+non-mutating verification, or `--all` when intentionally normalizing the entire
+tracked native tree. Formatting is therefore deterministic tool work rather
+than a hand-edited or AI-inferred style decision.
 
 `raw-smoke` recursively discovers common camera RAW extensions and exercises metadata,
 embedded-preview extraction, a bounded reference render, and optical-profile discovery for every

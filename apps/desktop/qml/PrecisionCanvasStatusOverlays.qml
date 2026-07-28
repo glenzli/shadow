@@ -35,38 +35,32 @@ Item {
         width: comparisonBadgeLabel.implicitWidth + 18
         height: 25
         radius: 4
-        visible: overlays.editor.active
-            && (overlays.comparisonActive || overlays.showingFullDetail)
+        visible: overlays.editor.active && overlays.comparisonActive
         color: Theme.previewHudOverlay
-        border.color: overlays.comparisonActive
-            ? Theme.accent : Theme.previewHudBorder
+        border.color: Theme.accent
 
         Label {
             id: comparisonBadgeLabel
             anchors.centerIn: parent
-            text: overlays.comparisonActive
-                ? overlays.comparisonMode === overlays.comparisonWhole
+            text: overlays.comparisonMode === overlays.comparisonWhole
+                ? qsTranslate(
+                    "PrecisionWorkspace", "BEFORE · NEUTRAL BASE")
+                : overlays.comparisonMode === overlays.comparisonWipeVertical
                     ? qsTranslate(
-                        "PrecisionWorkspace", "BEFORE · NEUTRAL BASE")
-                    : overlays.comparisonMode === overlays.comparisonWipeVertical
+                        "PrecisionWorkspace",
+                        "BEFORE / AFTER · VERTICAL WIPE")
+                    : overlays.comparisonMode === overlays.comparisonWipeHorizontal
                         ? qsTranslate(
                             "PrecisionWorkspace",
-                            "BEFORE / AFTER · VERTICAL WIPE")
-                        : overlays.comparisonMode === overlays.comparisonWipeHorizontal
+                            "BEFORE / AFTER · HORIZONTAL WIPE")
+                        : overlays.comparisonMode === overlays.comparisonSideBySide
                             ? qsTranslate(
                                 "PrecisionWorkspace",
-                                "BEFORE / AFTER · HORIZONTAL WIPE")
-                            : overlays.comparisonMode === overlays.comparisonSideBySide
-                                ? qsTranslate(
-                                    "PrecisionWorkspace",
-                                    "BEFORE / AFTER · SIDE BY SIDE")
-                                : qsTranslate(
-                                    "PrecisionWorkspace",
-                                    "BEFORE / AFTER · TOP / BOTTOM")
-                : qsTranslate(
-                    "PrecisionWorkspace", "AFTER · FULL-RES RGB DETAIL")
-            color: overlays.comparisonActive
-                ? Theme.accent : Theme.textSecondary
+                                "BEFORE / AFTER · SIDE BY SIDE")
+                            : qsTranslate(
+                                "PrecisionWorkspace",
+                                "BEFORE / AFTER · TOP / BOTTOM")
+            color: Theme.accent
             font.pixelSize: 8
             font.weight: Font.Bold
             font.letterSpacing: 0.7
@@ -74,10 +68,16 @@ Item {
     }
 
     Rectangle {
+        id: detailHint
+
+        readonly property bool failed:
+            overlays.editor.detailErrorText.length > 0
+            || overlays.detailImageLoadFailed
+
         anchors.top: comparisonBadge.bottom
         anchors.right: comparisonBadge.right
         anchors.topMargin: 7
-        width: Math.min(350, detailHintRow.implicitWidth + 20)
+        width: failed ? Math.min(350, detailHintRow.implicitWidth + 20) : 30
         height: 30
         radius: 4
         visible: !overlays.comparisonActive && !overlays.fitView
@@ -85,10 +85,9 @@ Item {
             && ((overlays.editor.detailRendering && !overlays.detailImageReady)
                 || overlays.editor.detailErrorText.length > 0
                 || overlays.detailImageLoadFailed)
-        color: Theme.previewHudStrongOverlay
-        border.color: overlays.editor.detailErrorText.length > 0
-            || overlays.detailImageLoadFailed
-            ? Theme.errorBorder : Theme.border
+        color: failed ? Theme.previewHudStrongOverlay : Theme.transparent
+        border.width: failed ? 1 : 0
+        border.color: Theme.errorBorder
         clip: true
 
         Row {
@@ -106,18 +105,13 @@ Item {
 
             Label {
                 width: Math.min(290, implicitWidth)
+                visible: detailHint.failed
                 text: overlays.editor.detailErrorText.length > 0
                     ? overlays.editor.detailErrorText
-                    : overlays.detailImageLoadFailed
-                        ? qsTranslate(
-                            "PrecisionWorkspace",
-                            "Full-detail viewport unavailable · showing proxy")
-                        : qsTranslate(
-                            "PrecisionWorkspace",
-                            "Preparing exact local full-resolution pixels…")
-                color: overlays.editor.detailErrorText.length > 0
-                    || overlays.detailImageLoadFailed
-                    ? Theme.errorText : Theme.textMuted
+                    : qsTranslate(
+                        "PrecisionWorkspace",
+                        "Full-detail viewport unavailable · showing proxy")
+                color: Theme.errorText
                 font.pixelSize: 9
                 elide: Text.ElideRight
             }

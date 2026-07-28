@@ -8,6 +8,19 @@ Rectangle {
     id: filterBar
 
     required property var controller
+    signal advancedFilterRequested()
+
+    readonly property bool anyFilterActive:
+        filterBar.controller.filterFlag !== "all"
+        || filterBar.controller.filterMinimumRating > 0
+        || filterBar.controller.filterColorLabel !== "all"
+        || filterBar.controller.filterEditState !== "all"
+        || filterBar.controller.filterLiked !== "all"
+        || filterBar.controller.filterExcludedFlag !== "all"
+        || filterBar.controller.filterExcludedColorLabel !== "all"
+        || filterBar.controller.filterCaptureMonth.length > 0
+        || filterBar.controller.filterCameraKey.length > 0
+        || filterBar.controller.filterLensKey.length > 0
 
     function colorLabelName(label) {
         switch (String(label).toLowerCase()) {
@@ -42,11 +55,7 @@ Rectangle {
     implicitWidth: filterControls.implicitWidth + 12
     implicitHeight: 28
     radius: 7
-    color: filterBar.controller.filterFlag !== "all"
-        || filterBar.controller.filterMinimumRating > 0
-        || filterBar.controller.filterColorLabel !== "all"
-        || filterBar.controller.filterEditState !== "all"
-        || filterBar.controller.filterLiked !== "all"
+    color: filterBar.anyFilterActive
         ? Theme.accentSurfaceQuiet : Theme.surfaceSubtle
 
     Row {
@@ -54,11 +63,17 @@ Rectangle {
         anchors.centerIn: parent
         spacing: 2
 
-        ShadowIcon {
+        ShadowIconButton {
             anchors.verticalCenter: parent.verticalCenter
             source: "qrc:/icons/filter.svg"
-            size: 14
-            color: Theme.textMuted
+            buttonSize: 24
+            iconSize: 14
+            variant: ShadowIconButton.Ghost
+            selected: filterBar.controller.filterExcludedFlag !== "all"
+                || filterBar.controller.filterExcludedColorLabel !== "all"
+            toolTipText: qsTranslate("Main", "Open advanced Library filters")
+            accessibleName: toolTipText
+            onClicked: filterBar.advancedFilterRequested()
         }
 
         Label {
@@ -67,17 +82,17 @@ Rectangle {
             color: Theme.textMuted
             font.pixelSize: 9
             font.letterSpacing: 0.7
+
+            TapHandler {
+                onTapped: filterBar.advancedFilterRequested()
+            }
         }
 
         ShadowIconButton {
             buttonSize: 24
             iconSize: 14
             source: "qrc:/icons/clear.svg"
-            selected: filterBar.controller.filterFlag === "all"
-                && filterBar.controller.filterMinimumRating === 0
-                && filterBar.controller.filterColorLabel === "all"
-                && filterBar.controller.filterEditState === "all"
-                && filterBar.controller.filterLiked === "all"
+            selected: !filterBar.anyFilterActive
             toolTipText: qsTranslate("Main", "Clear all Library filters")
             accessibleName: toolTipText
             onClicked: filterBar.controller.clearFilters()

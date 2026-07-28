@@ -38,6 +38,18 @@ class ReviewFilterModel final : public QSortFilterProxyModel {
         WRITE setLikedFilter
         NOTIFY filtersChanged
     )
+    Q_PROPERTY(
+        QString excludedFlagFilter
+        READ excludedFlagFilter
+        WRITE setExcludedFlagFilter
+        NOTIFY filtersChanged
+    )
+    Q_PROPERTY(
+        QString excludedColorFilter
+        READ excludedColorFilter
+        WRITE setExcludedColorFilter
+        NOTIFY filtersChanged
+    )
 
 public:
     explicit ReviewFilterModel(QObject* parent = nullptr);
@@ -47,6 +59,8 @@ public:
     [[nodiscard]] QString colorFilter() const;
     [[nodiscard]] QString editFilter() const;
     [[nodiscard]] QString likedFilter() const;
+    [[nodiscard]] QString excludedFlagFilter() const;
+    [[nodiscard]] QString excludedColorFilter() const;
     [[nodiscard]] QString captureMonth() const;
     [[nodiscard]] QString cameraKey() const;
     [[nodiscard]] QString lensKey() const;
@@ -57,6 +71,8 @@ public:
     void setColorFilter(const QString& filter);
     void setEditFilter(const QString& filter);
     void setLikedFilter(const QString& filter);
+    void setExcludedFlagFilter(const QString& filter);
+    void setExcludedColorFilter(const QString& filter);
     /// Metadata facets are catalog-side values. They intentionally do not
     /// attempt a lossy make/model comparison over the currently retained grid
     /// page; the next photo-first page is the authoritative result.
@@ -88,6 +104,8 @@ private:
     QString color_filter_ = QStringLiteral("all");
     QString edit_filter_ = QStringLiteral("all");
     QString liked_filter_ = QStringLiteral("all");
+    QString excluded_flag_filter_ = QStringLiteral("all");
+    QString excluded_color_filter_ = QStringLiteral("all");
     QString capture_month_;
     QString camera_key_;
     QString lens_key_;

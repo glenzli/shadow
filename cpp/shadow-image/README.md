@@ -283,10 +283,13 @@ New production code should include the narrow semantic owner directly:
   source-node index lifetime.
 - `cpu_edit_reference.hpp` owns the deterministic flat-node oracle; `tone_curve.hpp` owns
   standalone Oklab Lightness application and exact smooth-curve sampling; `retouch.hpp` owns
-  deterministic spot/continuous-brush repair; `adjustment_layers.hpp` owns masks, layer
-  composition, and masked execution.
+  spot/continuous-brush geometry, coverage and donor selection, while
+  `src/edit/retouch_heal_blending.*` owns Heal's boundary tone matching and screened
+  gradient-domain texture blend; `adjustment_layers.hpp` owns masks, layer composition, and
+  masked execution.
 - `warm_edit_preview.hpp` owns the reusable interactive preview session, analysis, cancellation,
-  and execution provenance; `full_edit_detail.hpp` owns bounded full-resolution tile sessions.
+  execution provenance, transient display-sRGB RGB8 presentation and settled JPEG output;
+  `full_edit_detail.hpp` owns bounded full-resolution tile sessions.
 - `edited_proxy_rendering.hpp` owns one-shot adjusted proxy orchestration, while
   `proxy_rendering.hpp` remains the unedited encoded-proxy owner.
 
@@ -305,8 +308,8 @@ delegates the retained preview lifecycle to `WarmEditPreviewSession`.
 `src/proxy/edit_preview_rendering.*` owns stateless flat-node/layer execution, CPU/Metal fallback
 receipts, display projection, and histogram/clipping/HDR analysis.
 `src/proxy/warm_edit_preview.cpp` owns the retained interactive lifecycle: bounded source and
-optics preparation, resident GPU session creation, cancellation result orchestration, analysis/JPEG
-ordering, and source/execution receipt delivery.
+optics preparation, resident GPU session creation, cancellation result orchestration, transient
+RGB8 versus settled analysis/JPEG output policy, and source/execution receipt delivery.
 `src/edit/adjustment_graph.cpp` closes the complete parameter-variant to operation/id registry;
 execution backends consume that graph identity instead of redefining it.
 `src/edit/working_color_math.*` owns D65 working-space validation, RGB↔XYZ matrices, Oklab
@@ -449,8 +452,11 @@ nonlinear, so executing it on the prepared proxy is an interactive approximation
 bit-equivalent full-resolution result; masked and neighborhood nodes require an explicitly
 different preview strategy. The warm edge is capped at 4096 (at most 192 MiB for a
 square interleaved RGB float32 proxy; typical 3:2 images and the UI's 1600/2048 choices use less).
-Each render owns its output/edit/JPEG buffers, so const renders may safely run concurrently; the
+Each render owns its output/edit buffers, so const renders may safely run concurrently; the
 original decoder session is neither retained nor revisited during slider interaction.
+`render_rgb8` returns the tightly packed display-sRGB bytes produced by that render without
+encoding them. The desktop uses this transient path while a gesture is active, then requests a
+settled JPEG plus analysis for durable cache/publication only after interaction stops.
 
 `render_jpeg_with_analysis` freezes a transient sidecar from that same complete warm render.
 R/G/B and encoded Rec.709 luma each use 256 `u64` bins over the uncompressed display-sRGB

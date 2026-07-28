@@ -130,6 +130,8 @@ Item {
         || controller.filterColorLabel !== "all"
         || controller.filterEditState !== "all"
         || controller.filterLiked !== "all"
+        || controller.filterExcludedFlag !== "all"
+        || controller.filterExcludedColorLabel !== "all"
         || hasLibraryFacetFilter
     readonly property var manualLibraryAlbums: {
         const albums = controller.libraryAlbums

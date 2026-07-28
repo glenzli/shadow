@@ -49,6 +49,22 @@ using edit_preview_detail::analyze_edit_preview;
 using edit_preview_detail::prepare_edit_preview_layer_pixels;
 using edit_preview_detail::prepare_edit_preview_pixels;
 
+[[nodiscard]] EncodedProxy rgb8_proxy(PreparedEditPreviewPixels prepared) {
+    const std::uint64_t expected_bytes = prepared.dimensions.pixel_count() * 3U;
+    if (prepared.dimensions.width == 0U || prepared.dimensions.height == 0U ||
+        expected_bytes != prepared.rgb.size()) {
+        throw DecodeError(DecodeErrorCode::internal, 0,
+                          "warm edit preview produced an invalid tightly packed RGB8 layout");
+    }
+    return EncodedProxy{
+        .dimensions = prepared.dimensions,
+        .format = PreviewFormat::bitmap,
+        .bits_per_channel = 8U,
+        .channels = 3U,
+        .bytes = std::move(prepared.rgb),
+    };
+}
+
 void validate_warm_edit_max_edge(const std::uint32_t max_edge) {
     if (max_edge == 0U || max_edge > maximum_warm_edit_preview_edge) {
         throw DecodeError(
@@ -425,6 +441,27 @@ WarmEditPreviewGpuStats WarmEditPreviewSession::gpu_stats() const noexcept {
     return warm_gpu_session_ ? warm_gpu_session_->stats() : WarmEditPreviewGpuStats{};
 }
 
+EncodedProxy WarmEditPreviewSession::render_rgb8(const std::span<const AdjustmentNode> nodes,
+                                                 const PhotoGeometry& geometry) const {
+    auto rendered = render_rgb8_cancellable(nodes, {}, geometry);
+    if (rendered.cancelled()) {
+        throw DecodeError(DecodeErrorCode::internal, 0,
+                          "non-cancellable RGB8 warm preview was unexpectedly cancelled");
+    }
+    return std::move(*rendered.completed);
+}
+
+EncodedProxy
+WarmEditPreviewSession::render_rgb8_layers(const std::span<const AdjustmentLayer> layers,
+                                           const PhotoGeometry& geometry) const {
+    auto rendered = render_rgb8_layers_cancellable(layers, {}, geometry);
+    if (rendered.cancelled()) {
+        throw DecodeError(DecodeErrorCode::internal, 0,
+                          "non-cancellable layered RGB8 warm preview was unexpectedly cancelled");
+    }
+    return std::move(*rendered.completed);
+}
+
 EncodedProxy WarmEditPreviewSession::render_jpeg(
     const std::span<const AdjustmentNode> nodes,
     const std::uint8_t jpeg_quality,
@@ -510,6 +547,34 @@ AnalyzedEditPreview WarmEditPreviewSession::render_jpeg_with_analysis_layers(
         },
         .analysis = std::move(*analysis),
         .execution = std::move(prepared->execution),
+    };
+}
+
+CancellableEditPreviewResult<EncodedProxy>
+WarmEditPreviewSession::render_rgb8_cancellable(const std::span<const AdjustmentNode> nodes,
+                                                const std::stop_token cancellation,
+                                                const PhotoGeometry& geometry) const {
+    auto prepared =
+        prepare_edit_preview_pixels(working_proxy_, warm_gpu_session_, warm_gpu_diagnostic_, nodes,
+                                    geometry, false, cancellation);
+    if (!prepared.has_value()) {
+        return {};
+    }
+    return {
+        .completed = rgb8_proxy(std::move(*prepared)),
+    };
+}
+
+CancellableEditPreviewResult<EncodedProxy> WarmEditPreviewSession::render_rgb8_layers_cancellable(
+    const std::span<const AdjustmentLayer> layers, const std::stop_token cancellation,
+    const PhotoGeometry& geometry) const {
+    auto prepared =
+        prepare_edit_preview_layer_pixels(working_proxy_, layers, geometry, false, cancellation);
+    if (!prepared.has_value()) {
+        return {};
+    }
+    return {
+        .completed = rgb8_proxy(std::move(*prepared)),
     };
 }
 

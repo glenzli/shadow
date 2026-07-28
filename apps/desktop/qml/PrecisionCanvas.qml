@@ -35,6 +35,7 @@ Rectangle {
     // Public viewport state.
     property real zoomFactor: 1.0
     property bool fitView: true
+    property bool zoomToolActive: false
     property bool comparisonActive: false
     property int comparisonMode: comparisonWipeVertical
     property real comparisonPosition: 0.5
@@ -89,7 +90,6 @@ Rectangle {
         && readyPreviewGenerationState.length > 0
         && !showingProvisionalPreview
         && !comparisonActive
-        && !showingFullDetail
     readonly property real deviceScale: Math.max(1.0, Screen.devicePixelRatio)
     readonly property real imagePixelWidth: editor.detailFullWidth > 0
         ? editor.detailFullWidth
@@ -119,6 +119,7 @@ Rectangle {
     signal analysisOverlayStateChanged()
     signal previewFrameStateChanged()
     signal detailFrameStateChanged()
+    signal neutralToolRequested()
 
     onZoomFactorChanged: viewStateChanged()
     onFitViewChanged: viewStateChanged()
@@ -127,6 +128,7 @@ Rectangle {
     onComparisonPositionChanged: comparisonStateChanged()
     onZebraEnabledChanged: analysisOverlayStateChanged()
     onActiveToolModeChanged: {
+        zoomToolActive = false
         comparisonActive = false
         resetView()
     }
@@ -186,6 +188,33 @@ Rectangle {
         ))
     }
 
+    function normalizedAtViewportX(viewportX) {
+        if (photoSurface.width <= 0)
+            return 0.5
+        return Math.max(0, Math.min(1,
+            (previewFlick.contentX + viewportX - photoSurface.x)
+                / photoSurface.width))
+    }
+
+    function normalizedAtViewportY(viewportY) {
+        if (photoSurface.height <= 0)
+            return 0.5
+        return Math.max(0, Math.min(1,
+            (previewFlick.contentY + viewportY - photoSurface.y)
+                / photoSurface.height))
+    }
+
+    function placeNormalizedAtViewport(nx, ny, viewportX, viewportY) {
+        previewFlick.contentX = Math.max(0, Math.min(
+            previewFlick.contentWidth - previewFlick.width,
+            photoSurface.x + nx * photoSurface.width - viewportX
+        ))
+        previewFlick.contentY = Math.max(0, Math.min(
+            previewFlick.contentHeight - previewFlick.height,
+            photoSurface.y + ny * photoSurface.height - viewportY
+        ))
+    }
+
     function requestVisibleDetail() {
         if (fitView || zoomFactor < 1.0 || comparisonActive || !editor.active) {
             editor.leaveDetailMode()
@@ -221,15 +250,64 @@ Rectangle {
     }
 
     function setPixelZoom(value) {
-        const centerX = normalizedCenterX()
-        const centerY = normalizedCenterY()
+        zoomAtViewport(
+            previewFlick.width / 2,
+            previewFlick.height / 2,
+            value,
+            true)
+    }
+
+    function zoomAtViewport(viewportX, viewportY, value, settleDetail) {
+        const anchorX = normalizedAtViewportX(viewportX)
+        const anchorY = normalizedAtViewportY(viewportY)
         fitView = false
         comparisonActive = false
-        zoomFactor = value
+        zoomFactor = Math.max(0.05, Math.min(4.0, value))
         Qt.callLater(function() {
-            canvas.centerOnNormalized(centerX, centerY)
-            canvas.requestVisibleDetail()
+            canvas.placeNormalizedAtViewport(
+                anchorX, anchorY, viewportX, viewportY)
+            if (settleDetail)
+                canvas.requestVisibleDetail()
         })
+    }
+
+    function zoomStepAtViewport(viewportX, viewportY, direction) {
+        if (direction > 0 && fitView) {
+            zoomAtViewport(viewportX, viewportY, 1.0, true)
+            return
+        }
+        const steps = [0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0]
+        if (direction < 0 && zoomFactor <= steps[0] + 0.001) {
+            resetView()
+            return
+        }
+        if (direction > 0) {
+            for (let index = 0; index < steps.length; ++index) {
+                if (steps[index] > zoomFactor + 0.001) {
+                    zoomAtViewport(
+                        viewportX, viewportY, steps[index], true)
+                    return
+                }
+            }
+            return
+        }
+        for (let index = steps.length - 1; index >= 0; --index) {
+            if (steps[index] < zoomFactor - 0.001) {
+                zoomAtViewport(viewportX, viewportY, steps[index], true)
+                return
+            }
+        }
+    }
+
+    function beginContinuousZoom() {
+        directViewportSettle.stop()
+        detailImageReadyState = false
+        detailImageLoadFailedState = false
+        editor.leaveDetailMode()
+    }
+
+    function finishContinuousZoom() {
+        Qt.callLater(canvas.requestVisibleDetail)
     }
 
     Connections {
@@ -297,6 +375,7 @@ Rectangle {
                     comparisonStacked: canvas.comparisonStacked
                     fitView: canvas.fitView
                     zoomFactor: canvas.zoomFactor
+                    zoomToolActive: canvas.zoomToolActive
                     onZebraToggleRequested:
                         canvas.zebraEnabled = !canvas.zebraEnabled
                     onComparisonDisableRequested:
@@ -304,6 +383,10 @@ Rectangle {
                     onComparisonModeRequested: mode =>
                         canvas.activateComparison(mode)
                     onZoomRequested: value => canvas.setPixelZoom(value)
+                    onZoomToolToggleRequested: {
+                        canvas.neutralToolRequested()
+                        canvas.zoomToolActive = !canvas.zoomToolActive
+                    }
                     onFitRequested: canvas.resetView()
                 }
 
@@ -315,7 +398,8 @@ Rectangle {
                     boundsBehavior: Flickable.StopAtBounds
                     contentWidth: Math.max(width, photoSurface.width)
                     contentHeight: Math.max(height, photoSurface.height)
-                    interactive: contentWidth > width || contentHeight > height
+                    interactive: !canvas.zoomToolActive
+                        && (contentWidth > width || contentHeight > height)
                     onMovementStarted: {
                         directViewportSettle.stop()
                     }
@@ -513,6 +597,28 @@ Rectangle {
                         }
                     }
                 }
+            }
+
+            PrecisionCanvasZoomInput {
+                parent: previewFlick
+                anchors.fill: parent
+                z: 150
+                interactionEnabled: canvas.editor.active
+                    && !canvas.comparisonActive
+                    && canvas.activeToolMode === canvas.toolNone
+                toolActive: canvas.zoomToolActive
+                fitView: canvas.fitView
+                zoomFactor: canvas.zoomFactor
+                fitZoomFactor: canvas.fitScale * canvas.deviceScale
+                onZoomStepRequested: (viewportX, viewportY, direction) =>
+                    canvas.zoomStepAtViewport(
+                        viewportX, viewportY, direction)
+                onContinuousZoomStarted: canvas.beginContinuousZoom()
+                onContinuousZoomRequested:
+                    (viewportX, viewportY, requestedZoom) =>
+                        canvas.zoomAtViewport(
+                            viewportX, viewportY, requestedZoom, false)
+                onContinuousZoomFinished: canvas.finishContinuousZoom()
             }
 
             PrecisionCanvasStatusOverlays {

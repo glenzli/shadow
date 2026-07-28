@@ -5,11 +5,10 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
-// Photo-local deterministic repair. Heal reconstructs from a surrounding
-// ring; Clone copies a same-shaped nearby source. Painting creates an
-// overlapping sequence of the existing bounded repair targets, so the
-// rendered/persisted behavior remains deterministic while the UI reads as a
-// continuous repair region.
+// Photo-local deterministic repair. Heal preserves a nearby donor's texture
+// and gradient-blends it into the target; Clone copies the donor directly.
+// Both expose the editable source region, and painting persists one ordered
+// stroke whose radius is swept into continuous coverage.
 ColumnLayout {
     id: retouch
 
@@ -30,37 +29,43 @@ ColumnLayout {
         spacing: 3
 
         function setMode(mode) {
-            if (continuous) {
+            if (regionControls.continuous) {
                 retouch.inspector.editor.setRetouchStrokeMode(
-                    region.index, mode)
+                    regionControls.region.index, mode)
             } else {
                 retouch.inspector.editor.setRetouchSpotMode(
-                    region.index, mode)
+                    regionControls.region.index, mode)
             }
         }
 
         function remove() {
-            if (continuous)
-                retouch.inspector.editor.removeRetouchStroke(region.index)
-            else
-                retouch.inspector.editor.removeRetouchSpot(region.index)
+            if (regionControls.continuous) {
+                retouch.inspector.editor.removeRetouchStroke(
+                    regionControls.region.index)
+            } else {
+                retouch.inspector.editor.removeRetouchSpot(
+                    regionControls.region.index)
+            }
         }
 
         function setRadius(value) {
-            if (continuous) {
+            if (regionControls.continuous) {
                 retouch.inspector.editor.setRetouchStrokeRadius(
-                    region.index, Math.round(value))
+                    regionControls.region.index, Math.round(value))
             } else {
                 retouch.inspector.editor.setRetouchSpotRadius(
-                    region.index, Math.round(value))
+                    regionControls.region.index, Math.round(value))
             }
         }
 
         function setFeather(value) {
-            if (continuous)
-                retouch.inspector.editor.setRetouchStrokeFeather(region.index, value)
-            else
-                retouch.inspector.editor.setRetouchSpotFeather(region.index, value)
+            if (regionControls.continuous) {
+                retouch.inspector.editor.setRetouchStrokeFeather(
+                    regionControls.region.index, value)
+            } else {
+                retouch.inspector.editor.setRetouchSpotFeather(
+                    regionControls.region.index, value)
+            }
         }
 
         RowLayout {
@@ -69,7 +74,8 @@ ColumnLayout {
 
             Label {
                 Layout.fillWidth: true
-                text: qsTr("Region %1").arg(displayIndex + 1)
+                text: qsTr("Region %1").arg(
+                    regionControls.displayIndex + 1)
                 color: Theme.textSecondary
                 font.pixelSize: 10
                 font.weight: Font.DemiBold
@@ -79,7 +85,7 @@ ColumnLayout {
                 compact: true
                 minimumButtonWidth: 42
                 text: qsTr("Heal")
-                selected: Number(region.mode) === 0
+                selected: Number(regionControls.region.mode) === 0
                 onClicked: regionControls.setMode(0)
             }
 
@@ -87,7 +93,7 @@ ColumnLayout {
                 compact: true
                 minimumButtonWidth: 45
                 text: qsTr("Clone")
-                selected: Number(region.mode) === 1
+                selected: Number(regionControls.region.mode) === 1
                 onClicked: regionControls.setMode(1)
             }
 
@@ -95,7 +101,8 @@ ColumnLayout {
                 buttonSize: 24
                 iconSize: 15
                 source: "qrc:/icons/trash.svg"
-                toolTipText: qsTr("Remove region %1").arg(displayIndex + 1)
+                toolTipText: qsTr("Remove region %1").arg(
+                    regionControls.displayIndex + 1)
                 accessibleName: toolTipText
                 onClicked: regionControls.remove()
             }
@@ -110,17 +117,19 @@ ColumnLayout {
             stepSize: 1
             decimals: 0
             suffix: qsTr(" px")
-            value: region.radius
+            value: regionControls.region.radius
             toolTipText: qsTr("Full-resolution repair radius")
             onGestureStarted: retouch.inspector.editor.beginParameterEdit(
-                continuous
-                    ? "retouch/stroke/" + region.index + "/radius"
-                    : "retouch/" + region.index + "/radius")
+                regionControls.continuous
+                    ? "retouch/stroke/" + regionControls.region.index
+                        + "/radius"
+                    : "retouch/" + regionControls.region.index + "/radius")
             onEdited: value => regionControls.setRadius(value)
             onGestureFinished: retouch.inspector.editor.endParameterEdit(
-                continuous
-                    ? "retouch/stroke/" + region.index + "/radius"
-                    : "retouch/" + region.index + "/radius")
+                regionControls.continuous
+                    ? "retouch/stroke/" + regionControls.region.index
+                        + "/radius"
+                    : "retouch/" + regionControls.region.index + "/radius")
         }
 
         ShadowSlider {
@@ -133,22 +142,24 @@ ColumnLayout {
             decimals: 0
             displayMultiplier: 100
             suffix: "%"
-            value: Number(region.feather)
+            value: Number(regionControls.region.feather)
             toolTipText: qsTr("Soften the repair edge")
             onGestureStarted: retouch.inspector.editor.beginParameterEdit(
-                continuous
-                    ? "retouch/stroke/" + region.index + "/feather"
-                    : "retouch/" + region.index + "/feather")
+                regionControls.continuous
+                    ? "retouch/stroke/" + regionControls.region.index
+                        + "/feather"
+                    : "retouch/" + regionControls.region.index + "/feather")
             onEdited: value => regionControls.setFeather(value)
             onGestureFinished: retouch.inspector.editor.endParameterEdit(
-                continuous
-                    ? "retouch/stroke/" + region.index + "/feather"
-                    : "retouch/" + region.index + "/feather")
+                regionControls.continuous
+                    ? "retouch/stroke/" + regionControls.region.index
+                        + "/feather"
+                    : "retouch/" + regionControls.region.index + "/feather")
         }
 
         Label {
             Layout.fillWidth: true
-            visible: Number(region.mode) === 1
+            visible: Number(regionControls.region.mode) === 1
             text: qsTr("Drag the linked source region on the image.")
             color: Theme.textMuted
             font.pixelSize: 9
@@ -226,6 +237,7 @@ ColumnLayout {
             model: retouch.inspector.editor.retouchStrokes
 
             delegate: RetouchRegionControls {
+                required property var modelData
                 region: modelData
                 continuous: true
                 displayIndex: modelData.index
@@ -236,6 +248,7 @@ ColumnLayout {
             model: retouch.inspector.editor.retouchSpots
 
             delegate: RetouchRegionControls {
+                required property var modelData
                 region: modelData
                 continuous: false
                 displayIndex: retouch.inspector.editor.retouchStrokes.length

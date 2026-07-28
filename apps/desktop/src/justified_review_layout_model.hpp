@@ -72,6 +72,16 @@ public:
     [[nodiscard]] int spacing() const noexcept;
     void setSpacing(int spacing);
 
+    /// Resolves spatial keyboard navigation against the virtualized justified
+    /// rows. Horizontal movement follows catalog order; vertical movement
+    /// chooses the nearest photo center in the adjacent visual row.
+    Q_INVOKABLE QVariantMap navigationTarget(
+        const QString& photo_id,
+        const QString& representation_id,
+        int horizontal_delta,
+        int vertical_delta
+    ) const;
+
 signals:
     void sourceModelChanged();
     void layoutChanged();

@@ -21,6 +21,8 @@ Item {
     property color trackStartColor: Theme.track
     property color trackMiddleColor: Theme.track
     property color trackEndColor: Theme.track
+    property string startLabel: ""
+    property string endLabel: ""
     property color textPrimary: Theme.textPrimary
     property color textMuted: Theme.textMuted
     property string toolTipText: ""
@@ -77,8 +79,10 @@ Item {
         Label {
             id: fieldLabel
 
-            Layout.preferredWidth: field.labelWidth
+            Layout.preferredWidth: visible ? field.labelWidth : 0
             Layout.minimumWidth: 0
+            visible: field.startLabel.length === 0
+                && field.endLabel.length === 0
             text: field.label
             color: field.enabled ? field.textPrimary : Theme.textDisabled
             font.pixelSize: 10
@@ -91,6 +95,16 @@ Item {
                 && (fieldLabel.truncated || field.toolTipText.length > 0)
             ToolTip.delay: 500
             ToolTip.text: field.toolTipText.length > 0 ? field.toolTipText : field.label
+        }
+
+        Label {
+            visible: field.startLabel.length > 0
+            text: field.startLabel
+            color: field.enabled ? field.trackStartColor : Theme.textDisabled
+            font.pixelSize: 9
+            font.weight: Font.Medium
+            horizontalAlignment: Text.AlignRight
+            verticalAlignment: Text.AlignVCenter
         }
 
         ShadowInlineSlider {
@@ -124,6 +138,16 @@ Item {
                     field.finishGesture()
                 }
             }
+        }
+
+        Label {
+            visible: field.endLabel.length > 0
+            text: field.endLabel
+            color: field.enabled ? field.trackEndColor : Theme.textDisabled
+            font.pixelSize: 9
+            font.weight: Font.Medium
+            horizontalAlignment: Text.AlignLeft
+            verticalAlignment: Text.AlignVCenter
         }
 
         Label {

@@ -39,6 +39,7 @@ public:
         EditPreviewSlot slot,
         QByteArray bytes,
         QSize dimensions,
+        qsizetype row_stride_bytes,
         QImage display_zebra,
         quint64 generation
     );

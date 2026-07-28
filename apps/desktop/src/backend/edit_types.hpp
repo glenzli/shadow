@@ -339,6 +339,9 @@ struct BackendEditPreviewAnalysis final {
 
 struct BackendEditedPreview final {
     QByteArray bytes;
+    // Zero denotes an encoded JPEG. Interactive previews use tightly packed
+    // display-sRGB RGB8 with `width * 3` bytes per row.
+    std::uint32_t row_stride_bytes = 0;
     BackendEditPreviewAnalysis analysis;
     // RAW sources receive a sensor-domain clipping overlay. Rendered sources retain a clearly
     // weaker display-endpoint fallback because they cannot honestly report lost RAW headroom.

@@ -12,8 +12,30 @@
 
 namespace {
 
-void release_detail_pixels(void* const owner) noexcept {
-    delete static_cast<QByteArray*>(owner);
+void release_rgb8_pixels(void* const owner) noexcept { delete static_cast<QByteArray*>(owner); }
+
+[[nodiscard]] QImage rgb8_image(EditPreviewStore::Snapshot snapshot) {
+    const bool valid_dimensions = snapshot.dimensions.isValid();
+    const quint64 minimum_stride =
+        valid_dimensions ? static_cast<quint64>(snapshot.dimensions.width()) * 3U : 0U;
+    const quint64 expected_bytes = snapshot.row_stride_bytes > 0 && valid_dimensions
+                                       ? static_cast<quint64>(snapshot.row_stride_bytes) *
+                                             static_cast<quint64>(snapshot.dimensions.height())
+                                       : 0U;
+    const bool valid_layout = valid_dimensions &&
+                              static_cast<quint64>(snapshot.row_stride_bytes) == minimum_stride &&
+                              snapshot.row_stride_bytes > 0 &&
+                              expected_bytes == static_cast<quint64>(snapshot.bytes.size());
+    if (snapshot.bytes.isEmpty() || !valid_layout) {
+        return {};
+    }
+    auto* const pixel_owner = new QByteArray(std::move(snapshot.bytes));
+    QImage image(reinterpret_cast<const uchar*>(pixel_owner->constData()),
+                 snapshot.dimensions.width(), snapshot.dimensions.height(),
+                 snapshot.row_stride_bytes, QImage::Format_RGB888, release_rgb8_pixels,
+                 pixel_owner);
+    image.setColorSpace(QColorSpace::SRgb);
+    return image;
 }
 
 } // namespace
@@ -30,17 +52,14 @@ const EditPreviewStore::StoredPreview& EditPreviewStore::slot(
     return slot == EditPreviewSlot::Before ? before_ : current_;
 }
 
-void EditPreviewStore::publish(
-    const EditPreviewSlot target,
-    QByteArray bytes,
-    const QSize dimensions,
-    QImage display_zebra,
-    const quint64 generation
-) {
+void EditPreviewStore::publish(const EditPreviewSlot target, QByteArray bytes,
+                               const QSize dimensions, const qsizetype row_stride_bytes,
+                               QImage display_zebra, const quint64 generation) {
     QWriteLocker lock(&lock_);
     auto& stored = slot(target);
     stored.bytes = std::move(bytes);
     stored.dimensions = dimensions;
+    stored.row_stride_bytes = row_stride_bytes;
     stored.display_zebra = std::move(display_zebra);
     stored.generation = generation;
 }
@@ -211,37 +230,13 @@ QImage EditPreviewProvider::requestImage(
             }
             return {};
         }
-        auto snapshot = store_->detailSnapshot(ticket, generation);
-        const bool valid_dimensions = snapshot.dimensions.isValid();
-        const quint64 minimum_stride = valid_dimensions
-            ? static_cast<quint64>(snapshot.dimensions.width()) * 3U
-            : 0U;
-        const quint64 expected_bytes = snapshot.row_stride_bytes > 0
-            && valid_dimensions
-            ? static_cast<quint64>(snapshot.row_stride_bytes)
-                * static_cast<quint64>(snapshot.dimensions.height())
-            : 0U;
-        const bool valid_layout = valid_dimensions
-            && static_cast<quint64>(snapshot.row_stride_bytes) == minimum_stride
-            && snapshot.row_stride_bytes > 0
-            && expected_bytes == static_cast<quint64>(snapshot.bytes.size());
-        if (snapshot.bytes.isEmpty() || !valid_layout) {
+        QImage image = rgb8_image(store_->detailSnapshot(ticket, generation));
+        if (image.isNull()) {
             if (size != nullptr) {
                 *size = {};
             }
             return {};
         }
-        auto* const pixel_owner = new QByteArray(std::move(snapshot.bytes));
-        QImage image(
-            reinterpret_cast<const uchar*>(pixel_owner->constData()),
-            snapshot.dimensions.width(),
-            snapshot.dimensions.height(),
-            snapshot.row_stride_bytes,
-            QImage::Format_RGB888,
-            release_detail_pixels,
-            pixel_owner
-        );
-        image.setColorSpace(QColorSpace::SRgb);
         if (size != nullptr) {
             *size = image.size();
         }
@@ -268,12 +263,19 @@ QImage EditPreviewProvider::requestImage(
         }
         return {};
     }
-    const auto snapshot = store_->snapshot(slot, generation);
+    auto snapshot = store_->snapshot(slot, generation);
     if (snapshot.bytes.isEmpty()) {
         if (size != nullptr) {
             *size = {};
         }
         return {};
+    }
+    if (snapshot.row_stride_bytes > 0) {
+        QImage image = rgb8_image(std::move(snapshot));
+        if (size != nullptr) {
+            *size = image.size();
+        }
+        return image;
     }
 
     QBuffer buffer;

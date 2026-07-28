@@ -230,11 +230,61 @@ void guided_selective_tone_tiles_match_full_execution_at_edges_and_boundaries() 
     );
 }
 
+void displaced_heal_tiles_include_the_donor_and_match_full_execution() {
+    constexpr image::Dimensions dimensions{96, 64};
+    auto source = reference_rgb(dimensions);
+    SyntheticDecodeSession decoder(metadata(dimensions), std::move(source));
+    const auto session = image::prepare_full_edit_detail(decoder);
+    const std::array plan{
+        image::AdjustmentNode{
+            .node_id = "displaced-texture-heal",
+            .parameters =
+                image::SpotHealAdjustment{
+                    .spots = {{
+                        .center_x = 40.5 / static_cast<double>(dimensions.width),
+                        .center_y = 32.5 / static_cast<double>(dimensions.height),
+                        .radius_level_zero_pixels = 4U,
+                        .mode = image::SpotRepairMode::heal,
+                        .source_offset_x_radii = 4.0,
+                        .source_offset_y_radii = 0.0,
+                        .feather = 0.25,
+                    }},
+                },
+        },
+    };
+    expect(image::footprint(plan[0].parameters).horizontal_radius == 21U,
+           "displaced Heal declares its donor, brush radius and "
+           "gradient-neighbor apron");
+
+    const auto full = session.render_rgb8(plan, {0, 0, dimensions.width, dimensions.height});
+    std::vector<std::uint8_t> stitched(full.bytes.size(), 0U);
+    constexpr std::array tiles{
+        image::DetailTileRect{0U, 0U, 41U, 29U},
+        image::DetailTileRect{41U, 0U, 55U, 29U},
+        image::DetailTileRect{0U, 29U, 41U, 35U},
+        image::DetailTileRect{41U, 29U, 55U, 35U},
+    };
+    for (const image::DetailTileRect rect : tiles) {
+        const auto tile = session.render_rgb8(plan, rect);
+        for (std::uint32_t row = 0U; row < rect.height; ++row) {
+            const auto begin =
+                tile.bytes.cbegin() + static_cast<std::ptrdiff_t>(row * tile.row_stride_bytes);
+            const std::size_t destination =
+                (static_cast<std::size_t>(rect.y + row) * dimensions.width + rect.x) * 3U;
+            std::copy_n(begin, static_cast<std::ptrdiff_t>(tile.row_stride_bytes),
+                        stitched.begin() + static_cast<std::ptrdiff_t>(destination));
+        }
+    }
+    expect(stitched == full.bytes, "gradient-domain Heal produces identical "
+                                   "full-frame and donor-apron tile output");
+}
+
 } // namespace
 
 int main() {
     irregular_tiles_match_one_full_pixel_local_execution_without_seams();
     neighborhood_tiles_accumulate_two_sharpen_footprints_without_seams();
     guided_selective_tone_tiles_match_full_execution_at_edges_and_boundaries();
+    displaced_heal_tiles_include_the_donor_and_match_full_execution();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

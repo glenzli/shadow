@@ -63,6 +63,14 @@ QString ReviewFilterModel::likedFilter() const {
     return liked_filter_;
 }
 
+QString ReviewFilterModel::excludedFlagFilter() const {
+    return excluded_flag_filter_;
+}
+
+QString ReviewFilterModel::excludedColorFilter() const {
+    return excluded_color_filter_;
+}
+
 QString ReviewFilterModel::captureMonth() const {
     return capture_month_;
 }
@@ -133,6 +141,26 @@ void ReviewFilterModel::setLikedFilter(const QString& filter) {
     emit filtersChanged();
 }
 
+void ReviewFilterModel::setExcludedFlagFilter(const QString& filter) {
+    const QString normalized = normalizeFlagFilter(filter);
+    if (excluded_flag_filter_ == normalized) {
+        return;
+    }
+    excluded_flag_filter_ = normalized;
+    refreshRowsFilter();
+    emit filtersChanged();
+}
+
+void ReviewFilterModel::setExcludedColorFilter(const QString& filter) {
+    const QString normalized = normalizeColorFilter(filter);
+    if (excluded_color_filter_ == normalized) {
+        return;
+    }
+    excluded_color_filter_ = normalized;
+    refreshRowsFilter();
+    emit filtersChanged();
+}
+
 void ReviewFilterModel::setCaptureMonth(const QString& capture_month) {
     const QString normalized = normalizeCaptureMonth(capture_month);
     if (capture_month_ == normalized) {
@@ -164,13 +192,18 @@ void ReviewFilterModel::clearFilters() {
     const bool changed = flag_filter_ != QStringLiteral("all")
         || minimum_rating_ != 0 || color_filter_ != QStringLiteral("all")
         || edit_filter_ != QStringLiteral("all")
-        || liked_filter_ != QStringLiteral("all") || !capture_month_.isEmpty()
+        || liked_filter_ != QStringLiteral("all")
+        || excluded_flag_filter_ != QStringLiteral("all")
+        || excluded_color_filter_ != QStringLiteral("all")
+        || !capture_month_.isEmpty()
         || !camera_key_.isEmpty() || !lens_key_.isEmpty();
     flag_filter_ = QStringLiteral("all");
     minimum_rating_ = 0;
     color_filter_ = QStringLiteral("all");
     edit_filter_ = QStringLiteral("all");
     liked_filter_ = QStringLiteral("all");
+    excluded_flag_filter_ = QStringLiteral("all");
+    excluded_color_filter_ = QStringLiteral("all");
     capture_month_.clear();
     camera_key_.clear();
     lens_key_.clear();
@@ -196,6 +229,10 @@ bool ReviewFilterModel::filterAcceptsRow(
     if (flag_filter_ != QStringLiteral("all") && flag != flag_filter_) {
         return false;
     }
+    if (excluded_flag_filter_ != QStringLiteral("all")
+        && flag == excluded_flag_filter_) {
+        return false;
+    }
     const int rating = sourceModel()->data(
         row,
         ReviewModel::DecisionRatingRole
@@ -208,6 +245,10 @@ bool ReviewFilterModel::filterAcceptsRow(
         ReviewModel::ColorLabelRole
     ).toString();
     if (color_filter_ != QStringLiteral("all") && color != color_filter_) {
+        return false;
+    }
+    if (excluded_color_filter_ != QStringLiteral("all")
+        && color == excluded_color_filter_) {
         return false;
     }
     const bool edited = sourceModel()->data(

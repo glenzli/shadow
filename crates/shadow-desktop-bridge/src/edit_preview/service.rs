@@ -130,11 +130,9 @@ impl DesktopSession {
             }
             let rendered = match policy {
                 EditPreviewPolicy::Interactive => {
-                    match session.render_plan_cancellable(
-                        &recipe.plan,
-                        request.jpeg_quality,
-                        &native_cancellation,
-                    )? {
+                    match session
+                        .render_plan_rgb8_cancellable(&recipe.plan, &native_cancellation)?
+                    {
                         CancellableEditPreview::Completed(proxy) => {
                             CancellableEditPreview::Completed((proxy, None, None))
                         }

@@ -87,10 +87,55 @@ void density_changes_the_target_thumbnail_scale() {
     );
 }
 
+void keyboard_navigation_follows_rows_and_nearest_columns() {
+    ReviewModel photos;
+    photos.replace(
+        {
+            photo("a", 1000, 1000),
+            photo("b", 1600, 1000),
+            photo("c", 1000, 1600),
+            photo("d", 1000, 1000),
+            photo("e", 1600, 1000),
+            photo("f", 1000, 1600),
+        },
+        1
+    );
+
+    JustifiedReviewLayoutModel layout;
+    layout.setSourceModel(&photos);
+    layout.setAvailableWidth(300);
+    layout.setTargetRowHeight(96);
+    require(layout.rowCount() >= 2, "the fixture must produce several visual rows");
+
+    const QVariantMap right = layout.navigationTarget(
+        QStringLiteral("a"),
+        QStringLiteral("representation-a"),
+        1,
+        0
+    );
+    require(
+        right.value(QStringLiteral("photoId")).toString() == QStringLiteral("b"),
+        "Right must follow catalog order inside a visual row"
+    );
+
+    const QVariantMap down = layout.navigationTarget(
+        QStringLiteral("b"),
+        QStringLiteral("representation-b"),
+        0,
+        1
+    );
+    require(
+        !down.isEmpty()
+            && down.value(QStringLiteral("layoutRow")).toInt() == 1,
+        "Down must enter the next visual row"
+    );
+}
+
 } // namespace
 
 int main() {
     preserves_aspect_ratio_and_never_crops();
     density_changes_the_target_thumbnail_scale();
+    keyboard_navigation_follows_rows_and_nearest_columns();
     return EXIT_SUCCESS;
 }

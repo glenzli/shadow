@@ -14,7 +14,7 @@
 namespace {
 
 constexpr int EDIT_DETAIL_DEBOUNCE_MS = 70;
-constexpr int EDIT_DETAIL_WARMUP_IDLE_MS = 180;
+constexpr int EDIT_DETAIL_WARMUP_IDLE_MS = 80;
 
 [[nodiscard]] LocalizedUiMessage
 edit_message(const char *const source,

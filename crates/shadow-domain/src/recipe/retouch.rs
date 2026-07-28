@@ -9,7 +9,7 @@ use super::value::{FiniteF64, UnitInterval, default_finite_zero};
 #[derive(Debug, Copy, Clone, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RetouchMode {
-    /// Reconstruct from a smooth ring surrounding the selected defect.
+    /// Preserve nearby donor texture while matching the target boundary.
     #[default]
     Heal,
     /// Copy from a nearby source offset measured in brush radii.
@@ -77,7 +77,7 @@ impl RetouchSpot {
     /// # Errors
     ///
     /// Returns an error when either source displacement is non-finite or
-    /// outside the supported `[-2, 2]` radius range.
+    /// outside the supported `[-8, 8]` radius range.
     pub fn with_behavior(
         mut self,
         mode: RetouchMode,
@@ -87,8 +87,8 @@ impl RetouchSpot {
     ) -> Result<Self, RecipeValidationError> {
         let horizontal_offset = FiniteF64::new(horizontal_source_offset_radii)?;
         let vertical_offset = FiniteF64::new(vertical_source_offset_radii)?;
-        if !(-2.0..=2.0).contains(&horizontal_offset.get())
-            || !(-2.0..=2.0).contains(&vertical_offset.get())
+        if !(-8.0..=8.0).contains(&horizontal_offset.get())
+            || !(-8.0..=8.0).contains(&vertical_offset.get())
         {
             return Err(RecipeValidationError::InvalidRetouchSourceOffset);
         }
@@ -232,7 +232,7 @@ impl RetouchStroke {
     /// # Errors
     ///
     /// Returns an error when either source displacement is non-finite or
-    /// outside the supported `[-2, 2]` radius range.
+    /// outside the supported `[-8, 8]` radius range.
     pub fn with_behavior(
         mut self,
         mode: RetouchMode,
@@ -242,8 +242,8 @@ impl RetouchStroke {
     ) -> Result<Self, RecipeValidationError> {
         let horizontal_offset = FiniteF64::new(horizontal_source_offset_radii)?;
         let vertical_offset = FiniteF64::new(vertical_source_offset_radii)?;
-        if !(-2.0..=2.0).contains(&horizontal_offset.get())
-            || !(-2.0..=2.0).contains(&vertical_offset.get())
+        if !(-8.0..=8.0).contains(&horizontal_offset.get())
+            || !(-8.0..=8.0).contains(&vertical_offset.get())
         {
             return Err(RecipeValidationError::InvalidRetouchSourceOffset);
         }

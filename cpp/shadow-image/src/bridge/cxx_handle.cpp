@@ -369,6 +369,33 @@ FfiCancellableEncodedProxy EditPreviewHandle::render_adjustment_plan_cancellable
     };
 }
 
+FfiCancellableEncodedProxy EditPreviewHandle::render_adjustment_plan_rgb8_cancellable(
+    const FfiAdjustmentRenderRequest& request,
+    const EditPreviewCancellationHandle& cancellation) const {
+    if (request.max_edge != session_.max_edge()) {
+        throw image::DecodeError(image::DecodeErrorCode::invalid_request, 0,
+                                 "warm edit preview request does not match the prepared max edge");
+    }
+    const auto layers = adjustment_render_wire::adjustment_layers(request.nodes);
+    const auto geometry = photo_geometry(request.geometry);
+    auto rendered =
+        layers.has_value()
+            ? session_.render_rgb8_layers_cancellable(*layers, cancellation.token(), geometry)
+            : session_.render_rgb8_cancellable(
+                  adjustment_render_wire::adjustment_nodes(request.nodes), cancellation.token(),
+                  geometry);
+    if (rendered.cancelled()) {
+        return FfiCancellableEncodedProxy{
+            .cancelled = true,
+            .proxy = {},
+        };
+    }
+    return FfiCancellableEncodedProxy{
+        .cancelled = false,
+        .proxy = encoded_proxy(*rendered.completed),
+    };
+}
+
 FfiCancellableAnalyzedEditPreview
 EditPreviewHandle::render_adjustment_plan_with_analysis_cancellable(
     const FfiAdjustmentRenderRequest& request,

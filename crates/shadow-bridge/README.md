@@ -81,7 +81,9 @@ For slider interaction, `LibRawEditPreviewSession::open(path, max_edge)` asks Li
 processed linear-light 16-bit RGB in sRGB/Rec.709-D65 primaries once, normalizes/downsamples it,
 and retains only a bounded linear float working proxy. Repeated
 `render(edits, jpeg_quality)` calls provide the four-node Basic compatibility path;
-`render_plan(plan, jpeg_quality)` executes a validated typed plan. The parallel
+`render_plan(plan, jpeg_quality)` executes a validated typed plan. Interactive desktop callers use
+`render_plan_rgb8_cancellable`, whose validated Bitmap payload is tightly packed display-sRGB
+RGB8 and skips compression; it is transient and not a cache artifact. The parallel
 `render_plan_with_analysis` path returns that JPEG together with four exact 256-bin histograms
 from the uncompressed display-encoded sRGB proxy before JPEG encoding and strict processed-linear working-RGB `< 0` /
 `> 1` per-channel and any-channel clipping counts from before output clamping. Rust validates the

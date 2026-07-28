@@ -178,6 +178,17 @@ BackendEditedPreview DesktopBackend::renderEditPreview(
         static_cast<int>(payload.width),
         static_cast<int>(payload.height)
     );
+    const std::uint64_t expected_rgb8_stride = static_cast<std::uint64_t>(payload.width) * 3U;
+    const std::uint64_t expected_rgb8_bytes =
+        expected_rgb8_stride * static_cast<std::uint64_t>(payload.height);
+    const bool interactive = policy == EditPreviewPolicy::Interactive;
+    if ((interactive &&
+         (payload.row_stride_bytes != expected_rgb8_stride ||
+          expected_rgb8_bytes != static_cast<std::uint64_t>(preview_bytes.size()))) ||
+        (!interactive && payload.row_stride_bytes != 0U)) {
+        throw std::runtime_error("edit preview returned a payload layout "
+                                 "inconsistent with its explicit policy");
+    }
     const PreviewSensorClippingMask sensor_clipping{
         .available = payload.sensor_clipping_available,
         .dimensions = QSize(
@@ -195,6 +206,7 @@ BackendEditedPreview DesktopBackend::renderEditPreview(
     }
     return {
         .bytes = preview_bytes,
+        .row_stride_bytes = payload.row_stride_bytes,
         .analysis = {
             .available = payload.analysis_available,
             .version = qstring(payload.analysis_version),

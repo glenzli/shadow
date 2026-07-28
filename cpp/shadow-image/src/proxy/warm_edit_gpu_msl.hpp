@@ -172,12 +172,12 @@ inline float scene_luminance_to_display_luminance(float luminance) {
     if (!(luminance > 0.0f)) {
         return 0.0f;
     }
-    constexpr float maximum_safe_luminance = 1.0e6f;
-    constexpr float a = 2.51f;
-    constexpr float b = 0.03f;
-    constexpr float c = 2.43f;
-    constexpr float d = 0.59f;
-    constexpr float e = 0.14f;
+    const float maximum_safe_luminance = 1.0e6f;
+    const float a = 2.51f;
+    const float b = 0.03f;
+    const float c = 2.43f;
+    const float d = 0.59f;
+    const float e = 0.14f;
     const float scene = min(luminance, maximum_safe_luminance);
     const float curved =
         scene * (a * scene + b) / (scene * (c * scene + d) + e);

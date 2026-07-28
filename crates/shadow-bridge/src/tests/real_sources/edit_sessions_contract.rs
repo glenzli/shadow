@@ -66,6 +66,22 @@ fn real_dng_warm_edit_session_renders_twice() {
                     .expect("pre-cancelled analyzed render is control flow"),
                 CancellableEditPreview::Cancelled
             ));
+            assert!(matches!(
+                session
+                    .render_plan_rgb8_cancellable(&neutral_plan, &cancelled)
+                    .expect("pre-cancelled RGB8 render is control flow"),
+                CancellableEditPreview::Cancelled
+            ));
+            let active_rgb8 =
+                EditPreviewCancellation::new().expect("allocate RGB8 cancellation source");
+            let rgb8 = session
+                .render_plan_rgb8_cancellable(&neutral_plan, &active_rgb8)
+                .expect("render neutral RGB8 preview");
+            let CancellableEditPreview::Completed(rgb8) = rgb8 else {
+                panic!("active RGB8 render must complete");
+            };
+            assert_eq!(rgb8.codec, shadow_domain::PreviewCodec::Bitmap);
+            assert_eq!(rgb8.bytes.len() as u64, rgb8.dimensions.pixel_count() * 3);
             let neutral_from_plan = session
                 .render_plan(&neutral_plan, 86)
                 .expect("render neutral typed plan");

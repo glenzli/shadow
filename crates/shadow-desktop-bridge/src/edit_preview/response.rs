@@ -1,7 +1,7 @@
 //! Complete projection from a validated native preview into the desktop FFI.
 
 use shadow_bridge::{EditPreviewAnalysis, OpticsReceipt, SensorClippingMask};
-use shadow_domain::ProxyPayload;
+use shadow_domain::{PreviewCodec, ProxyPayload};
 
 use super::EditPreviewPolicy;
 use crate::ffi;
@@ -11,6 +11,7 @@ pub(crate) fn cancelled_edited_preview() -> ffi::FfiEditedPreview {
         terminal: ffi::FfiEditPreviewTerminal::Cancelled,
         width: 0,
         height: 0,
+        row_stride_bytes: 0,
         bytes: Vec::new(),
         sensor_clipping_available: false,
         sensor_clipping_width: 0,
@@ -60,10 +61,20 @@ pub(crate) fn completed_edited_preview(
     let return_sensor_diagnostics = policy.returns_sensor_diagnostics();
     let analysis_available = analysis.is_some();
     debug_assert_eq!(analysis_available, policy.requires_analysis());
+    let row_stride_bytes = match proxy.codec {
+        PreviewCodec::Bitmap => proxy
+            .dimensions
+            .width
+            .checked_mul(3)
+            .expect("validated RGB8 preview row stride must fit u32"),
+        PreviewCodec::Jpeg => 0,
+        _ => unreachable!("validated edit previews are JPEG or display-sRGB RGB8"),
+    };
     ffi::FfiEditedPreview {
         terminal: ffi::FfiEditPreviewTerminal::Completed,
         width: proxy.dimensions.width,
         height: proxy.dimensions.height,
+        row_stride_bytes,
         bytes: proxy.bytes,
         sensor_clipping_available: return_sensor_diagnostics && sensor_clipping.available,
         sensor_clipping_width: if return_sensor_diagnostics {

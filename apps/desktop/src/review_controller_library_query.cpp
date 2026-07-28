@@ -129,6 +129,14 @@ void ReviewController::setFilterLiked(const QString& liked) {
     filtered_model_.setLikedFilter(liked);
 }
 
+void ReviewController::setFilterExcludedFlag(const QString& flag) {
+    filtered_model_.setExcludedFlagFilter(flag);
+}
+
+void ReviewController::setFilterExcludedColorLabel(const QString& color_label) {
+    filtered_model_.setExcludedColorFilter(color_label);
+}
+
 void ReviewController::setFilterCaptureMonth(const QString& capture_month) {
     filtered_model_.setCaptureMonth(capture_month);
 }

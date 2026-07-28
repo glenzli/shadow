@@ -34,8 +34,9 @@ class DecodeSession;
 inline constexpr std::uint32_t maximum_warm_edit_preview_edge = 4'096;
 
 // An immutable, reusable scene-linear working proxy for interactive editing. Preparation is
-// the only operation that asks DecodeSession to render the RAW. render_jpeg() owns all of its
-// temporary edit/JPEG state, so concurrent const calls are safe after construction.
+// the only operation that asks DecodeSession to render the RAW. Each render owns all temporary
+// edit/output state, so concurrent const calls are safe after construction. Interactive callers
+// use the transient RGB8 route; settled analysis and durable proxy callers use JPEG.
 //
 // The version-1 operations are pixel-local transforms in scene-linear RGB. Linear/affine nodes
 // commute with the bilinear downsampling used to prepare this proxy. ToneCurve is nonlinear, so
@@ -184,6 +185,18 @@ public:
     // Runtime-only observability for tests and future diagnostics. These counters never enter
     // Recipe, catalog, or cache identities.
     [[nodiscard]] WarmEditPreviewGpuStats gpu_stats() const noexcept;
+    // Interactive presentation path. The returned Bitmap payload is tightly
+    // packed display-sRGB RGB8 (`width * 3` bytes per row) and deliberately
+    // skips JPEG encoding. It remains transient and is never a durable cache
+    // artifact.
+    [[nodiscard]] EncodedProxy render_rgb8(
+        std::span<const AdjustmentNode> nodes,
+        const PhotoGeometry& geometry = {}
+    ) const;
+    [[nodiscard]] EncodedProxy render_rgb8_layers(
+        std::span<const AdjustmentLayer> layers,
+        const PhotoGeometry& geometry = {}
+    ) const;
     [[nodiscard]] EncodedProxy render_jpeg(
         std::span<const AdjustmentNode> nodes,
         std::uint8_t jpeg_quality = 95,
@@ -207,6 +220,16 @@ public:
     [[nodiscard]] CancellableEditPreviewResult<EncodedProxy> render_jpeg_cancellable(
         std::span<const AdjustmentNode> nodes,
         std::uint8_t jpeg_quality,
+        std::stop_token cancellation,
+        const PhotoGeometry& geometry = {}
+    ) const;
+    [[nodiscard]] CancellableEditPreviewResult<EncodedProxy> render_rgb8_cancellable(
+        std::span<const AdjustmentNode> nodes,
+        std::stop_token cancellation,
+        const PhotoGeometry& geometry = {}
+    ) const;
+    [[nodiscard]] CancellableEditPreviewResult<EncodedProxy> render_rgb8_layers_cancellable(
+        std::span<const AdjustmentLayer> layers,
         std::stop_token cancellation,
         const PhotoGeometry& geometry = {}
     ) const;

@@ -360,6 +360,7 @@ qt_add_resources(
         icons/unflag.svg
         icons/undo.svg
         icons/zebra.svg
+        icons/zoom.svg
 )
 
 qt_add_resources(
@@ -403,6 +404,7 @@ qt_add_qml_module(
         qml/LibraryAlbumDialogs.qml
         qml/LibraryAlbumManageDialog.qml
         qml/LibraryAlbumMembershipDialog.qml
+        qml/LibraryAdvancedFilterPopup.qml
         qml/LibraryFacetPopup.qml
         qml/LibraryImportPane.qml
         qml/LibrarySourceHealthPane.qml
@@ -422,9 +424,11 @@ qt_add_qml_module(
         qml/PrecisionCanvasPickerInput.qml
         qml/PrecisionCanvasStatusOverlays.qml
         qml/PrecisionCanvasToolbar.qml
+        qml/PrecisionCanvasZoomInput.qml
         qml/PrecisionCaptureMetadata.qml
         qml/PrecisionComparisonSurface.qml
         qml/PrecisionInspector.qml
+        qml/PrecisionResetAllDialog.qml
         qml/PrecisionLutSection.qml
         qml/PrecisionPointColorSection.qml
         qml/PrecisionFoundationAdjustments.qml

@@ -151,6 +151,32 @@ fn validate_edit_preview_proxy(
     Ok(())
 }
 
+pub(super) fn validate_rgb8_edit_preview(
+    proxy: shadow_domain::ProxyPayload,
+    expected_dimensions: ImageDimensions,
+) -> Result<shadow_domain::ProxyPayload, BridgeError> {
+    let expected_bytes = expected_dimensions
+        .pixel_count()
+        .checked_mul(3)
+        .and_then(|value| usize::try_from(value).ok())
+        .ok_or(BridgeError::InvalidEditPreviewOutput(
+            "RGB8 preview dimensions exceed the host address space",
+        ))?;
+    if proxy.dimensions != expected_dimensions
+        || proxy.dimensions.width == 0
+        || proxy.dimensions.height == 0
+        || proxy.codec != PreviewCodec::Bitmap
+        || proxy.bits_per_channel != 8
+        || proxy.channels != 3
+        || proxy.bytes.len() != expected_bytes
+    {
+        return Err(BridgeError::InvalidEditPreviewOutput(
+            "interactive preview must be tightly packed display-sRGB RGB8",
+        ));
+    }
+    Ok(proxy)
+}
+
 pub(super) fn validate_analyzed_edit_preview(
     proxy: shadow_domain::ProxyPayload,
     analysis: ffi::FfiEditPreviewAnalysis,

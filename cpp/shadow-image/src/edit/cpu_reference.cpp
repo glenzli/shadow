@@ -644,28 +644,52 @@ AdjustmentFootprint footprint(
                 ).footprint();
             } else if constexpr (std::is_same_v<Parameters, SpotHealAdjustment>) {
                 validate_spot_heal(value);
-                std::uint16_t maximum_radius = 0U;
+                double horizontal = 0.0;
+                double vertical = 0.0;
+                const auto include_region = [&](
+                    const std::uint16_t radius_level_zero_pixels,
+                    const double source_offset_x_radii,
+                    const double source_offset_y_radii
+                ) {
+                    const double radius = static_cast<double>(radius_level_zero_pixels);
+                    const bool automatic_source =
+                        source_offset_x_radii == 0.0 && source_offset_y_radii == 0.0;
+                    // The compact Heal/Clone raster writes one brush radius
+                    // around each target. Its donor may be displaced by the
+                    // authored offset; automatic selection is conservatively
+                    // bounded by three radii on either axis. One final pixel
+                    // covers bilinear donor sampling and the gradient boundary.
+                    const double offset_x =
+                        automatic_source ? 3.0 : std::abs(source_offset_x_radii);
+                    const double offset_y =
+                        automatic_source ? 3.0 : std::abs(source_offset_y_radii);
+                    horizontal = std::max(
+                        horizontal,
+                        std::ceil(
+                            radius * (1.0 + offset_x) * level_zero_to_raster_scale_x
+                        ) + 1.0
+                    );
+                    vertical = std::max(
+                        vertical,
+                        std::ceil(
+                            radius * (1.0 + offset_y) * level_zero_to_raster_scale_y
+                        ) + 1.0
+                    );
+                };
                 for (const auto& target : value.spots) {
-                    maximum_radius = std::max(maximum_radius, target.radius_level_zero_pixels);
-                }
-                for (const auto& stroke : value.strokes) {
-                    maximum_radius = std::max(
-                        maximum_radius,
-                        stroke.radius_level_zero_pixels
+                    include_region(
+                        target.radius_level_zero_pixels,
+                        target.source_offset_x_radii,
+                        target.source_offset_y_radii
                     );
                 }
-                const double radius = static_cast<double>(maximum_radius);
-                // Heal samples a ring almost two radii from the target centre
-                // while writing the opposite edge of the selected disc. Clone
-                // can source pixels two radii away and uses bilinear sampling.
-                // A three-radius apron plus one interpolation pixel safely
-                // covers both contracts at detail-tile boundaries.
-                const double horizontal = std::ceil(
-                    radius * 3.0 * level_zero_to_raster_scale_x
-                ) + 1.0;
-                const double vertical = std::ceil(
-                    radius * 3.0 * level_zero_to_raster_scale_y
-                ) + 1.0;
+                for (const auto& stroke : value.strokes) {
+                    include_region(
+                        stroke.radius_level_zero_pixels,
+                        stroke.source_offset_x_radii,
+                        stroke.source_offset_y_radii
+                    );
+                }
                 if (horizontal > std::numeric_limits<std::uint32_t>::max()
                     || vertical > std::numeric_limits<std::uint32_t>::max()) {
                     throw EditError(

@@ -20,7 +20,24 @@ Rectangle {
     color: Theme.window
 
     function forceGalleryFocus() {
-        justifiedGrid.forceActiveFocus()
+        if (gallery.workspace.galleryPresentation
+                === ReviewWorkspace.SinglePhotoFilmstrip)
+            singlePhotoPreview.forceGalleryFocus()
+        else
+            justifiedGrid.forceActiveFocus()
+    }
+
+    function navigateGrid(horizontalDelta, verticalDelta) {
+        const target = gallery.workspace.justifiedReviewLayout.navigationTarget(
+            gallery.workspace.selectedPhotoId,
+            gallery.workspace.selectedRepresentationId,
+            horizontalDelta,
+            verticalDelta)
+        if (!target || String(target.photoId || "").length === 0)
+            return
+        gallery.workspace.selectPhoto(target, 0)
+        justifiedGrid.positionViewAtIndex(
+            Number(target.layoutRow), ListView.Contain)
     }
 
     ReviewGalleryToolbar {
@@ -78,6 +95,22 @@ Rectangle {
         onContentYChanged: maybeLoadMore()
         onHeightChanged: Qt.callLater(maybeLoadMore)
         onCountChanged: Qt.callLater(maybeLoadMore)
+        Keys.onPressed: event => {
+            let horizontal = 0
+            let vertical = 0
+            if (event.key === Qt.Key_Left)
+                horizontal = -1
+            else if (event.key === Qt.Key_Right)
+                horizontal = 1
+            else if (event.key === Qt.Key_Up)
+                vertical = -1
+            else if (event.key === Qt.Key_Down)
+                vertical = 1
+            else
+                return
+            gallery.navigateGrid(horizontal, vertical)
+            event.accepted = true
+        }
 
         delegate: Item {
             id: justifiedRow

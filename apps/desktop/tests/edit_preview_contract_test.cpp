@@ -4,11 +4,16 @@
 #include <QBuffer>
 #include <QColor>
 #include <QColorSpace>
+#include <QElapsedTimer>
 #include <QImage>
+
+#include <algorithm>
+#include <cstdint>
 
 #include <cstdlib>
 #include <iostream>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -41,20 +46,8 @@ void require(const bool condition, const std::string& message) {
 
 void slots_have_independent_generations() {
     EditPreviewStore store;
-    store.publish(
-        EditPreviewSlot::Current,
-        QByteArrayLiteral("current"),
-        QSize(20, 10),
-        {},
-        7
-    );
-    store.publish(
-        EditPreviewSlot::Before,
-        QByteArrayLiteral("before"),
-        QSize(30, 15),
-        {},
-        3
-    );
+    store.publish(EditPreviewSlot::Current, QByteArrayLiteral("current"), QSize(20, 10), 0, {}, 7);
+    store.publish(EditPreviewSlot::Before, QByteArrayLiteral("before"), QSize(30, 15), 0, {}, 3);
 
     require(
         store.snapshot(EditPreviewSlot::Current, 7).bytes == QByteArrayLiteral("current"),
@@ -83,12 +76,8 @@ void slots_have_independent_generations() {
 
 void provider_routes_only_named_slots() {
     auto store = std::make_shared<EditPreviewStore>();
-    store->publish(
-        EditPreviewSlot::Current, encoded_square(Qt::red), QSize(2, 2), {}, 10
-    );
-    store->publish(
-        EditPreviewSlot::Before, encoded_square(Qt::blue), QSize(2, 2), {}, 20
-    );
+    store->publish(EditPreviewSlot::Current, encoded_square(Qt::red), QSize(2, 2), 0, {}, 10);
+    store->publish(EditPreviewSlot::Before, encoded_square(Qt::blue), QSize(2, 2), 0, {}, 20);
     EditPreviewProvider provider(store);
 
     QSize decoded_size;
@@ -110,10 +99,29 @@ void provider_routes_only_named_slots() {
         provider.requestImage(QStringLiteral("before?generation=10"), nullptr, {}).isNull(),
         "a generation from the other slot must be rejected"
     );
-    require(
-        provider.requestImage(QStringLiteral("raw?generation=20"), nullptr, {}).isNull(),
-        "an unknown semantic slot must be rejected"
-    );
+    require(provider.requestImage(QStringLiteral("raw?generation=20"), nullptr, {}).isNull(),
+            "an unknown semantic slot must be rejected");
+}
+
+void interactive_rgb8_overview_skips_image_decode_and_retains_store_pixels() {
+    auto store = std::make_shared<EditPreviewStore>();
+    store->publish(EditPreviewSlot::Current, rgb_square(Qt::green), QSize(2, 2), 6, {}, 11);
+    const auto stored_pixels = store->snapshot(EditPreviewSlot::Current, 11);
+    const auto* const stored_address =
+        reinterpret_cast<const uchar*>(stored_pixels.bytes.constData());
+    EditPreviewProvider provider(store);
+
+    QSize size;
+    const QImage current =
+        provider.requestImage(QStringLiteral("current?generation=11"), &size, QSize(1, 1));
+    require(!current.isNull() && size == QSize(2, 2) &&
+                current.pixelColor(0, 0) == QColor(Qt::green),
+            "interactive RGB8 overview must bypass encoded-image decoding");
+    require(current.colorSpace() == QColorSpace(QColorSpace::SRgb),
+            "interactive RGB8 overview must carry display-sRGB color identity");
+    require(current.constBits() == stored_address,
+            "interactive RGB8 overview must retain the immutable store bytes "
+            "without a copy");
 }
 
 void detail_tiles_are_atomic_and_generation_guarded() {
@@ -150,10 +158,9 @@ void detail_tiles_are_atomic_and_generation_guarded() {
         current.colorSpace() == QColorSpace(QColorSpace::SRgb),
         "raw detail pixels must carry an explicit display-sRGB contract"
     );
-    require(
-        current.constBits() == stored_address,
-        "detail provider must retain the immutable store bytes without a viewport copy"
-    );
+    require(current.constBits() == stored_address,
+            "detail provider must retain the immutable store bytes without a "
+            "viewport copy");
     require(
         provider
             .requestImage(
@@ -180,10 +187,9 @@ void detail_tiles_are_atomic_and_generation_guarded() {
             .isNull(),
         "advancing the viewport invalidates every prior tile atomically"
     );
-    require(
-        current.pixelColor(0, 0) == QColor(Qt::green),
-        "an image already handed to Qt must retain its pixels after store invalidation"
-    );
+    require(current.pixelColor(0, 0) == QColor(Qt::green),
+            "an image already handed to Qt must retain its pixels after store "
+            "invalidation");
 
     constexpr EditDetailGeneration malformed{
         .photo = 4,
@@ -312,10 +318,9 @@ void first_interactive_frame_is_the_only_sample_protected_from_replacement() {
     );
     auto gesture_end = first;
     gesture_end.force = true;
-    require(
-        should_cancel_edit_preview(gesture_end),
-        "gesture end must replace even a protected first frame with settled output"
-    );
+    require(should_cancel_edit_preview(gesture_end),
+            "gesture end must replace even a protected first frame with settled "
+            "output");
     auto settled = first;
     settled.in_flight_policy = EditPreviewPolicy::Settled;
     require(
@@ -331,14 +336,70 @@ void first_interactive_frame_is_the_only_sample_protected_from_replacement() {
     );
 }
 
+[[nodiscard]] double median_provider_request_ms(EditPreviewProvider& provider, const QString& url) {
+    constexpr std::size_t sample_count = 11U;
+    std::vector<double> samples;
+    samples.reserve(sample_count);
+    std::uint64_t checksum = 0U;
+    for (std::size_t sample = 0U; sample < sample_count; ++sample) {
+        QElapsedTimer timer;
+        timer.start();
+        const QImage image = provider.requestImage(url, nullptr, {});
+        samples.push_back(static_cast<double>(timer.nsecsElapsed()) / 1'000'000.0);
+        require(!image.isNull(), "benchmark preview must load");
+        const auto byte_count = static_cast<std::size_t>(image.sizeInBytes());
+        checksum += image.constBits()[sample % byte_count];
+    }
+    std::ranges::sort(samples);
+    require(checksum > 0U, "benchmark must consume the requested images");
+    return samples[samples.size() / 2U];
+}
+
+void benchmark_transport_when_requested() {
+    if (std::getenv("SHADOW_TEST_EDIT_PREVIEW_TRANSPORT_BENCHMARK") == nullptr) {
+        return;
+    }
+    constexpr int width = 1'536;
+    constexpr int height = 1'024;
+    constexpr int stride = width * 3;
+    QByteArray rgb(stride * height, Qt::Uninitialized);
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            const qsizetype offset = static_cast<qsizetype>(y) * stride + x * 3;
+            rgb[offset] = static_cast<char>((x + y) % 256);
+            rgb[offset + 1] = static_cast<char>((x * 3 + y) % 256);
+            rgb[offset + 2] = static_cast<char>((x + y * 5) % 256);
+        }
+    }
+    const QImage rgb_view(reinterpret_cast<const uchar*>(rgb.constData()), width, height, stride,
+                          QImage::Format_RGB888);
+    QByteArray jpeg;
+    QBuffer buffer(&jpeg);
+    require(buffer.open(QIODevice::WriteOnly), "benchmark JPEG buffer must open");
+    require(rgb_view.save(&buffer, "JPEG", 90), "benchmark preview must encode as JPEG");
+
+    auto store = std::make_shared<EditPreviewStore>();
+    EditPreviewProvider provider(store);
+    store->publish(EditPreviewSlot::Current, rgb, QSize(width, height), stride, {}, 40);
+    const double rgb_ms =
+        median_provider_request_ms(provider, QStringLiteral("current?generation=40"));
+    store->publish(EditPreviewSlot::Current, jpeg, QSize(width, height), 0, {}, 41);
+    const double jpeg_ms =
+        median_provider_request_ms(provider, QStringLiteral("current?generation=41"));
+    std::cout << "BENCH preview-transport " << width << 'x' << height << " rgb8-wrap-ms=" << rgb_ms
+              << " jpeg-decode-ms=" << jpeg_ms << " provider-speedup=" << jpeg_ms / rgb_ms << "x\n";
+}
+
 } // namespace
 
 int main() {
     slots_have_independent_generations();
     provider_routes_only_named_slots();
+    interactive_rgb8_overview_skips_image_decode_and_retains_store_pixels();
     detail_tiles_are_atomic_and_generation_guarded();
     stale_result_rules_are_kind_specific();
     before_waits_for_the_latest_current_preview();
     first_interactive_frame_is_the_only_sample_protected_from_replacement();
+    benchmark_transport_when_requested();
     return EXIT_SUCCESS;
 }

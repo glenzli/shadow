@@ -111,6 +111,10 @@ public:
         const FfiAdjustmentRenderRequest& request,
         const EditPreviewCancellationHandle& cancellation
     ) const;
+    [[nodiscard]] FfiCancellableEncodedProxy render_adjustment_plan_rgb8_cancellable(
+        const FfiAdjustmentRenderRequest& request,
+        const EditPreviewCancellationHandle& cancellation
+    ) const;
     [[nodiscard]] FfiCancellableAnalyzedEditPreview
     render_adjustment_plan_with_analysis_cancellable(
         const FfiAdjustmentRenderRequest& request,

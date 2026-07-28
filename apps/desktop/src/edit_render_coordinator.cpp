@@ -154,6 +154,7 @@ void EditController::finishPreviewTask() {
                 EditPreviewSlot::Current,
                 std::move(result.preview.bytes),
                 dimensions,
+                static_cast<qsizetype>(result.preview.row_stride_bytes),
                 std::move(result.preview.display_zebra),
                 result.generation.current_revision
             );
@@ -216,6 +217,7 @@ void EditController::finishPreviewTask() {
                 EditPreviewSlot::Before,
                 std::move(result.preview.bytes),
                 dimensions,
+                static_cast<qsizetype>(result.preview.row_stride_bytes),
                 std::move(result.preview.display_zebra),
                 result.generation.photo
             );
@@ -241,7 +243,7 @@ void EditController::finishPreviewTask() {
         maybeStartBeforePreview();
         maybeStartDetailRender();
         if (accepted && result.generation.policy == EditPreviewPolicy::Settled
-            && result.error.isEmpty() && result.preview.analysis.available) {
+            && result.error.isEmpty()) {
             scheduleDetailWarmup();
         }
     }

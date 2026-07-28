@@ -2,6 +2,7 @@ mod coordination_health;
 mod daily_use_smoke;
 mod desktop_i18n;
 mod doctor;
+mod format;
 mod library_scale_smoke;
 mod local_workspace_guard;
 mod raw_smoke;
@@ -29,6 +30,7 @@ fn main() -> io::Result<()> {
             )
         }
         "test" => workspace_build::run("cargo", &["test", "--workspace"]),
+        "format" => format::run(env::args_os().skip(2)),
         "native-configure" => workspace_build::configure_preset("native-dev").map(|_| ()),
         "native-build" => workspace_build::build_preset("native-dev"),
         "desktop-build" => {
@@ -65,7 +67,7 @@ fn main() -> io::Result<()> {
         }
         _ => {
             println!(
-                "cargo xtask <check|test|test-layout [--root PATH] [--verbose] [--print-observed]|native-configure|native-build|native-check|desktop-i18n-check|desktop-build|desktop-check|desktop-release|raw-smoke [fixture-directory]|daily-use-smoke [fixture-directory]|library-scale-smoke [--photos N] [--page-size N]|coordination-health [--root PATH] [--stale-after-minutes N] [--fail-on-stale] [--strict] [--commit-gate] [--bulk-stage-gate]|local-workspace-guard [--root PATH]|doctor>"
+                "cargo xtask <check|test|format [--check] [--all] [native-source ...]|test-layout [--root PATH] [--verbose] [--print-observed]|native-configure|native-build|native-check|desktop-i18n-check|desktop-build|desktop-check|desktop-release|raw-smoke [fixture-directory]|daily-use-smoke [fixture-directory]|library-scale-smoke [--photos N] [--page-size N]|coordination-health [--root PATH] [--stale-after-minutes N] [--fail-on-stale] [--strict] [--commit-gate] [--bulk-stage-gate]|local-workspace-guard [--root PATH]|doctor>"
             );
             Ok(())
         }

@@ -382,10 +382,10 @@ void require_parameter_count(
                 || encoded_radius < 1.0 || encoded_radius > 128.0
                 || std::floor(encoded_radius) != encoded_radius
                 || (encoded_mode != 0.0 && encoded_mode != 1.0)
-                || source.parameters[offset + 4U] < -2.0
-                || source.parameters[offset + 4U] > 2.0
-                || source.parameters[offset + 5U] < -2.0
-                || source.parameters[offset + 5U] > 2.0
+                || source.parameters[offset + 4U] < -8.0
+                || source.parameters[offset + 4U] > 8.0
+                || source.parameters[offset + 5U] < -8.0
+                || source.parameters[offset + 5U] > 8.0
                 || source.parameters[offset + 6U] < 0.0
                 || source.parameters[offset + 6U] > 1.0) {
                 throw_invalid_adjustment_plan(
@@ -418,10 +418,10 @@ void require_parameter_count(
                 || encoded_radius < 1.0 || encoded_radius > 128.0
                 || std::floor(encoded_radius) != encoded_radius
                 || (encoded_mode != 0.0 && encoded_mode != 1.0)
-                || source.parameters[offset + 2U] < -2.0
-                || source.parameters[offset + 2U] > 2.0
-                || source.parameters[offset + 3U] < -2.0
-                || source.parameters[offset + 3U] > 2.0
+                || source.parameters[offset + 2U] < -8.0
+                || source.parameters[offset + 2U] > 8.0
+                || source.parameters[offset + 3U] < -8.0
+                || source.parameters[offset + 3U] > 8.0
                 || source.parameters[offset + 4U] < 0.0
                 || source.parameters[offset + 4U] > 1.0) {
                 throw_invalid_adjustment_plan(

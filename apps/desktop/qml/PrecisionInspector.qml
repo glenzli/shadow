@@ -157,18 +157,30 @@ Rectangle {
                 Item { Layout.fillWidth: true }
 
                 Rectangle {
+                    visible: inspector.activeToolMode === inspector.toolNone
                     Layout.preferredWidth: 1
                     Layout.preferredHeight: 20
                     color: inspector.panelBorder
                 }
 
                 ShadowIconButton {
+                    visible: inspector.activeToolMode !== inspector.toolNone
+                    source: "qrc:/icons/check.svg"
+                    variant: ShadowIconButton.Tinted
+                    toolTipText: qsTr("Exit this tool and keep its adjustments")
+                    accessibleName: toolTipText
+                    onClicked: inspector.toolModeRequested(
+                        inspector.activeToolMode)
+                }
+
+                ShadowIconButton {
+                    visible: inspector.activeToolMode === inspector.toolNone
                     source: "qrc:/icons/clear.svg"
                     toolTipText: qsTr("Reset all adjustments · Undo available")
                     accessibleName: toolTipText
                     enabled: inspector.editor.active
                         && !inspector.editor.stateBusy
-                    onClicked: inspector.editor.resetAllAdjustments()
+                    onClicked: resetAllDialog.open()
                 }
             }
         }
@@ -459,5 +471,11 @@ Rectangle {
                 }
             }
         }
+    }
+
+    PrecisionResetAllDialog {
+        id: resetAllDialog
+        editor: inspector.editor
+        hostWidth: inspector.workspaceWidth
     }
 }

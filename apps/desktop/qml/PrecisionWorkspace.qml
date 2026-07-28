@@ -98,6 +98,13 @@ Item {
     }
 
     Shortcut {
+        sequence: "Escape"
+        enabled: precision.visible
+            && precision.activeSpecialTool !== precision.toolNone
+        onActivated: precision.leaveSpecialTool()
+    }
+
+    Shortcut {
         sequence: "Y"
         enabled: precision.visible && precision.editor.active
         onActivated: {
@@ -132,6 +139,7 @@ Item {
             editor: precision.editor
             activeToolMode: precision.activeSpecialTool
             cropAspectRatioLock: precision.cropAspectRatioLock
+            onNeutralToolRequested: precision.leaveSpecialTool()
         }
 
         PrecisionInspector {

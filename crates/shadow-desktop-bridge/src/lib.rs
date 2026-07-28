@@ -911,6 +911,9 @@ mod ffi {
         terminal: FfiEditPreviewTerminal,
         width: u32,
         height: u32,
+        /// Zero for an encoded JPEG; `width * 3` for tightly packed
+        /// display-sRGB RGB8 interactive pixels.
+        row_stride_bytes: u32,
         bytes: Vec<u8>,
         sensor_clipping_available: bool,
         sensor_clipping_width: u32,

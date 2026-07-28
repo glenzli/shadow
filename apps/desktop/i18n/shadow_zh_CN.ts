@@ -2092,6 +2092,10 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>Main</name>
     <message>
+        <source>Open advanced Library filters</source>
+        <translation>打开高级图库筛选</translation>
+    </message>
+    <message>
         <location filename="../qml/Main.qml" line="51"/>
         <source>Shadow · Review</source>
         <translation>Shadow · 选片</translation>
@@ -2652,6 +2656,22 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>PrecisionWorkspace</name>
     <message>
+        <source>Green to red balance</source>
+        <translation>绿色到红色平衡</translation>
+    </message>
+    <message>
+        <source>Blue to yellow balance</source>
+        <translation>蓝色到黄色平衡</translation>
+    </message>
+    <message>
+        <source>Leave magnifier tool</source>
+        <translation>退出放大镜工具</translation>
+    </message>
+    <message>
+        <source>Magnifier tool · click to zoom, Option-click to zoom out</source>
+        <translation>放大镜工具 · 点击放大，按住 Option 点击缩小</translation>
+    </message>
+    <message>
         <location filename="../qml/PrecisionInspector.qml" line="606"/>
         <source>Exposure</source>
         <translation>曝光</translation>
@@ -3032,19 +3052,9 @@ R %2 · G %3 · B %4</translation>
         <translation>原图 / 调整后 · 上下并排</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionCanvas.qml" line="1255"/>
-        <source>AFTER · FULL-RES RGB DETAIL</source>
-        <translation>调整后 · 全分辨率 RGB 细节</translation>
-    </message>
-    <message>
         <location filename="../qml/PrecisionCanvas.qml" line="1298"/>
         <source>Full-detail viewport unavailable · showing proxy</source>
         <translation>全细节视图不可用 · 正在显示代理</translation>
-    </message>
-    <message>
-        <location filename="../qml/PrecisionCanvas.qml" line="1299"/>
-        <source>Preparing exact local full-resolution pixels…</source>
-        <translation>正在准备精确的本地全分辨率像素…</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionCanvas.qml" line="1338"/>
@@ -3131,6 +3141,22 @@ R %2 · G %3 · B %4</translation>
         <location filename="../qml/PrecisionInspector.qml" line="429"/>
         <source>Reset all adjustments · Undo available</source>
         <translation>重置全部调整 · 可撤销</translation>
+    </message>
+    <message>
+        <source>Exit this tool and keep its adjustments</source>
+        <translation>退出此工具并保留调整</translation>
+    </message>
+    <message>
+        <source>Reset all adjustments?</source>
+        <translation>重置全部调整？</translation>
+    </message>
+    <message>
+        <source>This resets every Grade Node, mask, repair region, crop, and photo adjustment. You can undo it during this editing session.</source>
+        <translation>这将重置所有调色节点、蒙版、修复区域、裁剪和照片调整。本次编辑会话中仍可撤销。</translation>
+    </message>
+    <message>
+        <source>Reset all</source>
+        <translation>全部重置</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionInspector.qml" line="546"/>
@@ -3729,16 +3755,6 @@ R %2 · G %3 · B %4</translation>
         <location filename="../qml/PrecisionInspector.qml" line="784"/>
         <source>COLOR BALANCE</source>
         <translation>颜色平衡</translation>
-    </message>
-    <message>
-        <location filename="../qml/PrecisionInspector.qml" line="791"/>
-        <source>Green ↔ Red</source>
-        <translation>绿 ↔ 红</translation>
-    </message>
-    <message>
-        <location filename="../qml/PrecisionInspector.qml" line="809"/>
-        <source>Blue ↔ Yellow</source>
-        <translation>蓝 ↔ 黄</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionInspector.qml" line="848"/>
@@ -5000,6 +5016,150 @@ Technical detail: %1</source>
 </context>
 <context>
     <name>ReviewWorkspace</name>
+    <message>
+        <source>Advanced Library Filters</source>
+        <translation>高级图库筛选</translation>
+    </message>
+    <message>
+        <source>All active conditions must match. “Must not be” adds an explicit exclusion.</source>
+        <translation>所有启用的条件都必须匹配。“不得为”会添加明确的排除条件。</translation>
+    </message>
+    <message>
+        <source>Any</source>
+        <translation>任意</translation>
+    </message>
+    <message>
+        <source>Any rating</source>
+        <translation>任意星级</translation>
+    </message>
+    <message>
+        <source>1 star or more</source>
+        <translation>1 星及以上</translation>
+    </message>
+    <message>
+        <source>2 stars or more</source>
+        <translation>2 星及以上</translation>
+    </message>
+    <message>
+        <source>3 stars or more</source>
+        <translation>3 星及以上</translation>
+    </message>
+    <message>
+        <source>4 stars or more</source>
+        <translation>4 星及以上</translation>
+    </message>
+    <message>
+        <source>5 stars</source>
+        <translation>5 星</translation>
+    </message>
+    <message>
+        <source>Must be</source>
+        <translation>必须为</translation>
+    </message>
+    <message>
+        <source>Must not be</source>
+        <translation>不得为</translation>
+    </message>
+    <message>
+        <source>FLAGS</source>
+        <translation>标记</translation>
+    </message>
+    <message>
+        <source>Flag must be</source>
+        <translation>标记必须为</translation>
+    </message>
+    <message>
+        <source>Flag must not be</source>
+        <translation>标记不得为</translation>
+    </message>
+    <message>
+        <source>Unflagged</source>
+        <translation>未标记</translation>
+    </message>
+    <message>
+        <source>Flagged</source>
+        <translation>已标记</translation>
+    </message>
+    <message>
+        <source>Rejected</source>
+        <translation>已拒绝</translation>
+    </message>
+    <message>
+        <source>COLORS</source>
+        <translation>色标</translation>
+    </message>
+    <message>
+        <source>Color label must be</source>
+        <translation>色标必须为</translation>
+    </message>
+    <message>
+        <source>Color label must not be</source>
+        <translation>色标不得为</translation>
+    </message>
+    <message>
+        <source>No color label</source>
+        <translation>无色标</translation>
+    </message>
+    <message>
+        <source>Red</source>
+        <translation>红色</translation>
+    </message>
+    <message>
+        <source>Yellow</source>
+        <translation>黄色</translation>
+    </message>
+    <message>
+        <source>Green</source>
+        <translation>绿色</translation>
+    </message>
+    <message>
+        <source>Blue</source>
+        <translation>蓝色</translation>
+    </message>
+    <message>
+        <source>Purple</source>
+        <translation>紫色</translation>
+    </message>
+    <message>
+        <source>RATING</source>
+        <translation>星级</translation>
+    </message>
+    <message>
+        <source>LIKE</source>
+        <translation>喜欢状态</translation>
+    </message>
+    <message>
+        <source>Not liked</source>
+        <translation>未喜欢</translation>
+    </message>
+    <message>
+        <source>EDIT</source>
+        <translation>编辑状态</translation>
+    </message>
+    <message>
+        <source>Edited</source>
+        <translation>已编辑</translation>
+    </message>
+    <message>
+        <source>Not edited</source>
+        <translation>未编辑</translation>
+    </message>
+    <message>
+        <source>DATE</source>
+        <translation>日期</translation>
+    </message>
+    <message>
+        <source>Close advanced filters</source>
+        <translation>关闭高级筛选</translation>
+    </message>
+    <message>
+        <source>Clear all</source>
+        <translation>清除全部</translation>
+    </message>
+    <message>
+        <source>Done</source>
+        <translation>完成</translation>
+    </message>
     <message>
         <location filename="../qml/ReviewWorkspace.qml" line="143"/>
         <source>A photo cannot occupy both comparison slots.</source>

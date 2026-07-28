@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace {
 
@@ -159,6 +160,90 @@ void JustifiedReviewLayoutModel::setSpacing(const int spacing) {
     spacing_ = normalized;
     rebuild();
     emit layoutChanged();
+}
+
+QVariantMap JustifiedReviewLayoutModel::navigationTarget(
+    const QString& photo_id,
+    const QString& representation_id,
+    const int horizontal_delta,
+    const int vertical_delta
+) const {
+    if (rows_.isEmpty()) {
+        return {};
+    }
+
+    int current_row = -1;
+    int current_column = -1;
+    for (int row = 0; row < rows_.size() && current_row < 0; ++row) {
+        const QVariantList& items = rows_.at(row).items;
+        for (int column = 0; column < items.size(); ++column) {
+            const QVariantMap item = items.at(column).toMap();
+            if (item.value(QStringLiteral("photoId")).toString() == photo_id
+                && item.value(QStringLiteral("representationId")).toString()
+                    == representation_id) {
+                current_row = row;
+                current_column = column;
+                break;
+            }
+        }
+    }
+    if (current_row < 0) {
+        QVariantMap first = rows_.front().items.front().toMap();
+        first.insert(QStringLiteral("layoutRow"), 0);
+        return first;
+    }
+
+    int target_row = current_row;
+    int target_column = current_column;
+    if (horizontal_delta != 0) {
+        const int direction = horizontal_delta > 0 ? 1 : -1;
+        target_column += direction;
+        if (target_column >= rows_.at(target_row).items.size()
+            && target_row + 1 < rows_.size()) {
+            ++target_row;
+            target_column = 0;
+        } else if (target_column < 0 && target_row > 0) {
+            --target_row;
+            target_column = static_cast<int>(rows_.at(target_row).items.size()) - 1;
+        }
+    } else if (vertical_delta != 0) {
+        const int candidate_row = std::clamp(
+            current_row + (vertical_delta > 0 ? 1 : -1),
+            0,
+            static_cast<int>(rows_.size()) - 1
+        );
+        if (candidate_row != current_row) {
+            const QVariantMap current =
+                rows_.at(current_row).items.at(current_column).toMap();
+            const qreal current_center =
+                current.value(QStringLiteral("layoutX")).toReal()
+                + current.value(QStringLiteral("layoutWidth")).toReal() / 2.0;
+            const QVariantList& candidates = rows_.at(candidate_row).items;
+            qreal nearest_distance = std::numeric_limits<qreal>::max();
+            for (int column = 0; column < candidates.size(); ++column) {
+                const QVariantMap candidate = candidates.at(column).toMap();
+                const qreal candidate_center =
+                    candidate.value(QStringLiteral("layoutX")).toReal()
+                    + candidate.value(QStringLiteral("layoutWidth")).toReal()
+                        / 2.0;
+                const qreal distance = std::abs(candidate_center - current_center);
+                if (distance < nearest_distance) {
+                    nearest_distance = distance;
+                    target_column = column;
+                }
+            }
+            target_row = candidate_row;
+        }
+    }
+
+    if (target_row < 0 || target_row >= rows_.size()
+        || target_column < 0
+        || target_column >= rows_.at(target_row).items.size()) {
+        return {};
+    }
+    QVariantMap result = rows_.at(target_row).items.at(target_column).toMap();
+    result.insert(QStringLiteral("layoutRow"), target_row);
+    return result;
 }
 
 QVariantMap JustifiedReviewLayoutModel::sourceItem(const int row) const {

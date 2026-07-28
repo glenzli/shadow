@@ -15,7 +15,7 @@ use super::{
     optics::{OpticsReceipt, OpticsSettings, ffi_optics_settings, optics_receipt},
     preview_analysis::{
         AnalyzedEditPreview, SensorClippingMask, validate_analyzed_edit_preview,
-        validate_sensor_clipping_mask,
+        validate_rgb8_edit_preview, validate_sensor_clipping_mask,
     },
     raw_development::{
         RawDevelopmentIntent, RawDevelopmentPlan, RawDevelopmentReceipt, RawPipelineReceipt,
@@ -378,6 +378,39 @@ impl LibRawEditPreviewSession {
                 "geometry-aware preview dimensions do not match the rendered canvas",
             ));
         }
+        Ok(CancellableEditPreview::Completed(proxy))
+    }
+
+    /// Executes a typed plan with cooperative native cancellation and returns
+    /// tightly packed display-sRGB RGB8 pixels without JPEG encoding.
+    ///
+    /// This is the transient presentation route used while a control gesture
+    /// is active. It is intentionally separate from cacheable JPEG output.
+    ///
+    /// # Errors
+    ///
+    /// Returns an invalid-request, decoder, null-handle, or invalid-output
+    /// error when a non-cancelled render cannot complete its RGB8 contract.
+    pub fn render_plan_rgb8_cancellable(
+        &self,
+        plan: &AdjustmentRenderPlan,
+        cancellation: &EditPreviewCancellation,
+    ) -> Result<CancellableEditPreview<shadow_domain::ProxyPayload>, BridgeError> {
+        plan.validate()?;
+        let output_dimensions = plan.geometry.output_dimensions(self.dimensions)?;
+        let handle = self.handle.as_ref().ok_or(BridgeError::NullHandle)?;
+        let cancellation = cancellation
+            .handle
+            .as_ref()
+            .ok_or(BridgeError::NullHandle)?;
+        // The wire request still contains the legacy JPEG-quality field, but
+        // the RGB8 native entry point does not inspect it.
+        let request = ffi_render_request(plan, self.max_edge, 95);
+        let rendered = handle.render_adjustment_plan_rgb8_cancellable(&request, cancellation)?;
+        if rendered.cancelled {
+            return Ok(CancellableEditPreview::Cancelled);
+        }
+        let proxy = validate_rgb8_edit_preview(proxy_payload(rendered.proxy), output_dimensions)?;
         Ok(CancellableEditPreview::Completed(proxy))
     }
 

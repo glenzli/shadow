@@ -166,6 +166,14 @@ QString ReviewController::filterLiked() const {
     return filtered_model_.likedFilter();
 }
 
+QString ReviewController::filterExcludedFlag() const {
+    return filtered_model_.excludedFlagFilter();
+}
+
+QString ReviewController::filterExcludedColorLabel() const {
+    return filtered_model_.excludedColorFilter();
+}
+
 QString ReviewController::filterCaptureMonth() const {
     return filtered_model_.captureMonth();
 }

@@ -282,7 +282,9 @@ ColumnLayout {
             Layout.fillWidth: true
             Layout.leftMargin: 14
             Layout.rightMargin: 14
-            label: qsTr("Green ↔ Red")
+            label: qsTr("Green to red balance")
+            startLabel: qsTr("Green")
+            endLabel: qsTr("Red")
             from: -1.0
             to: 1.0
             neutralValue: 0.0
@@ -290,6 +292,10 @@ ColumnLayout {
             decimals: 0
             displayMultiplier: 100
             suffix: "%"
+            semanticTrack: true
+            trackStartColor: "#48a56a"
+            trackMiddleColor: Theme.track
+            trackEndColor: "#d85d66"
             value: foundation.fineValue("global_a_balance")
             onGestureStarted: foundation.editor.beginParameterEdit("global_a_balance")
             onEdited: value => foundation.editor.setParameterValue(
@@ -301,7 +307,9 @@ ColumnLayout {
             Layout.fillWidth: true
             Layout.leftMargin: 14
             Layout.rightMargin: 14
-            label: qsTr("Blue ↔ Yellow")
+            label: qsTr("Blue to yellow balance")
+            startLabel: qsTr("Blue")
+            endLabel: qsTr("Yellow")
             from: -1.0
             to: 1.0
             neutralValue: 0.0
@@ -309,6 +317,10 @@ ColumnLayout {
             decimals: 0
             displayMultiplier: 100
             suffix: "%"
+            semanticTrack: true
+            trackStartColor: "#3979dc"
+            trackMiddleColor: Theme.track
+            trackEndColor: "#d4ad38"
             value: foundation.fineValue("global_b_balance")
             onGestureStarted: foundation.editor.beginParameterEdit("global_b_balance")
             onEdited: value => foundation.editor.setParameterValue(

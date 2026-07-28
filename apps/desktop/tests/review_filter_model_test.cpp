@@ -104,6 +104,22 @@ void combined_lightroom_filters_intersect() {
         "the unliked facet must exclude Catalog-liked photos"
     );
     filtered.clearFilters();
+    filtered.setExcludedFlagFilter(QStringLiteral("rejected"));
+    filtered.setExcludedColorFilter(QStringLiteral("blue"));
+    require(
+        filtered.rowCount() == 1,
+        "advanced exclusions must intersect with positive filter dimensions"
+    );
+    require(
+        !filtered.hasActiveServerFilter(),
+        "client exclusions must not be projected as unsupported catalog predicates"
+    );
+    filtered.setFlagFilter(QStringLiteral("unflagged"));
+    require(
+        filtered.rowCount() == 1,
+        "a positive flag and negative color condition must compose with AND"
+    );
+    filtered.clearFilters();
     require(filtered.rowCount() == 3, "clearing filters must restore the grid");
 }
 

@@ -55,7 +55,7 @@ pub enum RecipeValidationError {
     TooManyRetouchStrokePoints(usize),
     #[error("retouch stroke radius {0} must be between 1 and 128 full-resolution pixels")]
     InvalidRetouchStrokeRadius(u16),
-    #[error("retouch clone source offset must stay within two brush radii")]
+    #[error("retouch donor source offset must stay within eight brush radii")]
     InvalidRetouchSourceOffset,
     #[error("Recipe contains {0} retouch spots, but at most 64 are supported")]
     TooManyRetouchSpots(usize),

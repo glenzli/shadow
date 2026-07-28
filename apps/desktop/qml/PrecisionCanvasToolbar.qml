@@ -26,11 +26,13 @@ Rectangle {
     required property int comparisonStacked
     required property bool fitView
     required property real zoomFactor
+    required property bool zoomToolActive
 
     signal zebraToggleRequested()
     signal comparisonDisableRequested()
     signal comparisonModeRequested(int mode)
     signal zoomRequested(real value)
+    signal zoomToolToggleRequested()
     signal fitRequested()
 
     function comparisonModeName(mode) {
@@ -205,6 +207,20 @@ Rectangle {
             color: Theme.textMuted
             font.family: "Menlo"
             font.pixelSize: 9
+        }
+
+        ShadowIconButton {
+            id: zoomToolButton
+            source: "qrc:/icons/zoom.svg"
+            variant: ShadowIconButton.Secondary
+            selected: toolbar.zoomToolActive
+            toolTipText: selected
+                ? qsTr("Leave magnifier tool")
+                : qsTr("Magnifier tool · click to zoom, Option-click to zoom out")
+            accessibleName: toolTipText
+            Accessible.checked: selected
+            enabled: toolbar.editor.active && !toolbar.editor.stateBusy
+            onClicked: toolbar.zoomToolToggleRequested()
         }
 
         ShadowInlineSlider {

@@ -581,7 +581,7 @@ inline float3 apply_oklab_color_warper(
     device const float4* control_points,
     constant MetalAdjustmentInvocation& invocation
 ) {
-    constant uint grid_side = 5u;
+    const uint grid_side = 5u;
     const float strength = operation.parameter_0.x;
     const float half_extent = operation.parameter_0.y;
     const float feather = operation.parameter_0.z;
@@ -928,9 +928,8 @@ inline bool execute_adjustment_program(
 }
 )METAL";
 
-[[nodiscard]] inline std::string make_metal_adjustment_source(
-    const std::string_view kernel_source
-) {
+[[nodiscard]] inline std::string
+make_metal_adjustment_source(const std::string_view kernel_source) {
     std::string result;
     result.reserve(metal_adjustment_msl_common.size() + kernel_source.size());
     result.append(metal_adjustment_msl_common);

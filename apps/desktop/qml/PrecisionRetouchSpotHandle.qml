@@ -23,8 +23,6 @@ Item {
         + Number(modelData.sourceOffsetX) * radiusPixels
     readonly property real sourceY: targetY
         + Number(modelData.sourceOffsetY) * radiusPixels
-    readonly property bool cloneMode: Number(modelData.mode) === 1
-
     function clamp01(value) {
         return Math.max(0, Math.min(1, value))
     }
@@ -47,7 +45,6 @@ Item {
         id: connector
 
         anchors.fill: parent
-        visible: repairHandle.cloneMode
         antialiasing: true
 
         onPaint: {
@@ -142,7 +139,6 @@ Item {
     Rectangle {
         id: sourceCircle
 
-        visible: repairHandle.cloneMode
         x: repairHandle.sourceX - width / 2
         y: repairHandle.sourceY - height / 2
         width: repairHandle.radiusPixels * 2
@@ -186,10 +182,10 @@ Item {
                 const radius = Math.max(1, repairHandle.radiusPixels)
                 repairHandle.editor.setRetouchSpotSourceOffset(
                     repairHandle.modelData.index,
-                    Math.max(-2, Math.min(
-                        2, (point.x - repairHandle.targetX) / radius)),
-                    Math.max(-2, Math.min(
-                        2, (point.y - repairHandle.targetY) / radius))
+                    Math.max(-8, Math.min(
+                        8, (point.x - repairHandle.targetX) / radius)),
+                    Math.max(-8, Math.min(
+                        8, (point.y - repairHandle.targetY) / radius))
                 )
             }
             onReleased: repairHandle.finishSourceGesture()

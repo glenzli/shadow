@@ -10,11 +10,16 @@
 #include <shadow/image/raw_development_receipt.hpp>
 #include <shadow/image/warm_edit_preview.hpp>
 
+#include <algorithm>
 #include <array>
+#include <chrono>
+#include <cstdint>
 #include <cstdlib>
+#include <iostream>
 #include <limits>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace image = shadow::image;
 
@@ -113,6 +118,8 @@ void warm_edit_preview_decodes_once_and_renders_repeatedly() {
 
   const auto neutral = warm.render_jpeg(neutral_nodes, 90);
   const auto adjusted = warm.render_jpeg(adjusted_nodes, 90);
+  const auto neutral_rgb8 = warm.render_rgb8(neutral_nodes);
+  const auto adjusted_rgb8 = warm.render_rgb8(adjusted_nodes);
   expect(session.reference_render_count() == 1U,
          "repeated warm renders never ask the decoder for pixels again");
   expect(neutral.dimensions == image::Dimensions{4, 2},
@@ -121,6 +128,12 @@ void warm_edit_preview_decodes_once_and_renders_repeatedly() {
          "all warm renders share working dimensions");
   expect(adjusted.bytes != neutral.bytes,
          "warm renders apply each requested edit independently");
+  expect(neutral_rgb8.format == image::PreviewFormat::bitmap &&
+             neutral_rgb8.bits_per_channel == 8U && neutral_rgb8.channels == 3U &&
+             neutral_rgb8.bytes.size() == 4U * 2U * 3U,
+         "interactive warm output is tightly packed display-sRGB RGB8");
+  expect(adjusted_rgb8.bytes != neutral_rgb8.bytes,
+         "RGB8 warm renders apply each requested edit without JPEG encoding");
 
   const auto one_shot_adjusted = image::render_edited_reference_proxy_jpeg(
       session, adjusted_nodes,
@@ -258,6 +271,46 @@ void edited_proxy_rejects_invalid_nodes_before_decode() {
       "preflight rejects non-finite Tone Curve segment slopes");
 }
 
+template <typename Render> [[nodiscard]] double median_render_ms(Render&& render) {
+    constexpr std::size_t sample_count = 9U;
+    std::vector<double> samples;
+    samples.reserve(sample_count);
+    std::uint64_t checksum = 0U;
+    for (std::size_t sample = 0U; sample < sample_count; ++sample) {
+        const auto start = std::chrono::steady_clock::now();
+        const auto output = render();
+        const auto end = std::chrono::steady_clock::now();
+        samples.push_back(std::chrono::duration<double, std::milli>(end - start).count());
+        expect(!output.bytes.empty(), "benchmark render must produce pixels");
+        checksum += output.bytes[sample % output.bytes.size()];
+    }
+    std::ranges::sort(samples);
+    expect(checksum > 0U, "benchmark must consume the rendered output");
+    return samples[samples.size() / 2U];
+}
+
+void benchmark_rgb8_transport_when_requested() {
+    if (std::getenv("SHADOW_TEST_EDIT_PREVIEW_TRANSPORT_BENCHMARK") == nullptr) {
+        return;
+    }
+    constexpr std::uint32_t width = 1'536U;
+    constexpr std::uint32_t height = 1'024U;
+    const RetainedRgbSession session(processed_linear_gradient(width, height));
+    const auto warm = image::prepare_warm_edit_preview(session, width);
+    const std::array plan{
+        image::AdjustmentNode{
+            .node_id = "benchmark-exposure",
+            .parameters = image::ExposureAdjustment{.stops = 0.25},
+        },
+    };
+    static_cast<void>(warm.render_rgb8(plan));
+    static_cast<void>(warm.render_jpeg(plan, 90U));
+    const double rgb_ms = median_render_ms([&] { return warm.render_rgb8(plan); });
+    const double jpeg_ms = median_render_ms([&] { return warm.render_jpeg(plan, 90U); });
+    std::cout << "BENCH preview-render " << width << 'x' << height << " rgb8-render-ms=" << rgb_ms
+              << " jpeg-render-ms=" << jpeg_ms << " render-speedup=" << jpeg_ms / rgb_ms << "x\n";
+}
+
 } // namespace
 
 int main() {
@@ -266,5 +319,6 @@ int main() {
   rotated_raw_preview_preserves_native_effect_radius();
   warm_edit_preview_bounds_fail_before_decode();
   edited_proxy_rejects_invalid_nodes_before_decode();
+  benchmark_rgb8_transport_when_requested();
   return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

@@ -2,7 +2,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 
-// Owns the target/source coverage and clone-source drag lifecycle for one continuous stroke.
+// Owns target/donor coverage and donor drag lifecycle for one continuous repair stroke.
 Item {
     id: strokeHandle
 
@@ -21,7 +21,6 @@ Item {
         6,
         Number(modelData.radius) * pixelScale
     )
-    readonly property bool cloneMode: Number(modelData.mode) === 1
     readonly property real sourceOffsetX:
         Number(modelData.sourceOffsetX) * radiusPixels
     readonly property real sourceOffsetY:
@@ -69,7 +68,6 @@ Item {
 
     PrecisionRetouchStrokeCoverage {
         anchors.fill: parent
-        visible: strokeHandle.cloneMode
         editor: strokeHandle.editor
         points: strokeHandle.points
         radiusPixels: strokeHandle.radiusPixels
@@ -86,7 +84,7 @@ Item {
     Item {
         id: sourceHitArea
 
-        visible: strokeHandle.cloneMode && strokeHandle.points.length > 0
+        visible: strokeHandle.points.length > 0
         readonly property var pathBounds: strokeHandle.bounds()
         x: pathBounds.left + strokeHandle.sourceOffsetX
             - strokeHandle.radiusPixels
@@ -133,13 +131,13 @@ Item {
                 const radius = Math.max(1, strokeHandle.radiusPixels)
                 strokeHandle.editor.setRetouchStrokeSourceOffset(
                     strokeHandle.modelData.index,
-                    Math.max(-2, Math.min(
-                        2,
+                    Math.max(-8, Math.min(
+                        8,
                         strokeHandle.sourceStartOffsetX
                             + (point.x - strokeHandle.sourceStartX) / radius
                     )),
-                    Math.max(-2, Math.min(
-                        2,
+                    Math.max(-8, Math.min(
+                        8,
                         strokeHandle.sourceStartOffsetY
                             + (point.y - strokeHandle.sourceStartY) / radius
                     ))

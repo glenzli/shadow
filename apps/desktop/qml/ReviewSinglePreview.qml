@@ -13,6 +13,21 @@ Item {
     required property var review
     required property var model
 
+    function forceGalleryFocus() {
+        filmstrip.forceActiveFocus()
+    }
+
+    function navigate(direction) {
+        const target = review.justifiedReviewLayout.navigationTarget(
+            review.selectedPhotoId,
+            review.selectedRepresentationId,
+            direction,
+            0)
+        if (!target || String(target.photoId || "").length === 0)
+            return
+        review.selectPhoto(target, 0)
+    }
+
     function selectInitialPhoto() {
         if (review.selectedPhotoId.length > 0 || filmstrip.count === 0)
             return
@@ -89,6 +104,7 @@ Item {
             clip: true
             cacheBuffer: 560
             model: root.model
+            focus: root.visible
             highlightRangeMode: ListView.ApplyRange
             preferredHighlightBegin: Math.max(0, width * 0.4)
             preferredHighlightEnd: Math.max(0, width * 0.6)
@@ -107,6 +123,15 @@ Item {
 
             Component.onCompleted: Qt.callLater(root.selectInitialPhoto)
             onCountChanged: Qt.callLater(root.selectInitialPhoto)
+            Keys.onPressed: event => {
+                if (event.key === Qt.Key_Left)
+                    root.navigate(-1)
+                else if (event.key === Qt.Key_Right)
+                    root.navigate(1)
+                else
+                    return
+                event.accepted = true
+            }
 
             delegate: Rectangle {
                 id: filmCard

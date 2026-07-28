@@ -66,6 +66,7 @@ add_library(
     src/edit/perceptual_contrast.cpp
     src/edit/photo_geometry.cpp
     src/edit/retouch.cpp
+    src/edit/retouch_heal_blending.cpp
     src/edit/scalar_neighborhood_filters.cpp
     src/edit/technical_detail_cpu.cpp
     src/edit/tone_curve.cpp

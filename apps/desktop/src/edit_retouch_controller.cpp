@@ -1,7 +1,10 @@
 #include "edit_controller.hpp"
 
+#include <algorithm>
+
 #include <cmath>
 #include <initializer_list>
+#include <numeric>
 #include <utility>
 
 namespace {
@@ -13,6 +16,45 @@ namespace {
     return {"EditController", source, arguments};
 }
 
+[[nodiscard]] std::pair<double, double> default_retouch_source_offset(const double normalized_x,
+                                                                      const double normalized_y) {
+    return {
+        normalized_x <= 0.5 ? 3.0 : -3.0,
+        normalized_y <= 0.5 ? 1.5 : -1.5,
+    };
+}
+
+[[nodiscard]] std::pair<double, double>
+display_retouch_spot_source_offset(const BackendRetouchSpot& spot) {
+    if (spot.source_offset_x_radii != 0.0 || spot.source_offset_y_radii != 0.0) {
+        return {spot.source_offset_x_radii, spot.source_offset_y_radii};
+    }
+    return default_retouch_source_offset(spot.center_x, spot.center_y);
+}
+
+[[nodiscard]] std::pair<double, double>
+display_retouch_stroke_source_offset(const BackendRetouchStroke& stroke) {
+    if (stroke.source_offset_x_radii != 0.0 || stroke.source_offset_y_radii != 0.0) {
+        return {stroke.source_offset_x_radii, stroke.source_offset_y_radii};
+    }
+    double lower_x = 1.0;
+    double upper_x = 0.0;
+    double lower_y = 1.0;
+    double upper_y = 0.0;
+    for (const auto& point : stroke.points) {
+        lower_x = std::min(lower_x, point.x);
+        upper_x = std::max(upper_x, point.x);
+        lower_y = std::min(lower_y, point.y);
+        upper_y = std::max(upper_y, point.y);
+    }
+    const double center_x = std::midpoint(lower_x, upper_x);
+    const double center_y = std::midpoint(lower_y, upper_y);
+    if (upper_x - lower_x >= upper_y - lower_y) {
+        return {0.0, center_y <= 0.5 ? 3.0 : -3.0};
+    }
+    return {center_x <= 0.5 ? 3.0 : -3.0, 0.0};
+}
+
 } // namespace
 
 QVariantList EditController::retouchSpots() const {
@@ -20,14 +62,15 @@ QVariantList EditController::retouchSpots() const {
     result.reserve(grade_stack_.retouch_spots.size());
     for (qsizetype index = 0; index < grade_stack_.retouch_spots.size(); ++index) {
         const auto& spot = grade_stack_.retouch_spots.at(index);
+        const auto [source_offset_x, source_offset_y] = display_retouch_spot_source_offset(spot);
         result.push_back(QVariantMap{
             {QStringLiteral("index"), static_cast<int>(index)},
             {QStringLiteral("x"), spot.center_x},
             {QStringLiteral("y"), spot.center_y},
             {QStringLiteral("radius"), static_cast<int>(spot.radius_level_zero_pixels)},
             {QStringLiteral("mode"), static_cast<int>(spot.mode)},
-            {QStringLiteral("sourceOffsetX"), spot.source_offset_x_radii},
-            {QStringLiteral("sourceOffsetY"), spot.source_offset_y_radii},
+            {QStringLiteral("sourceOffsetX"), source_offset_x},
+            {QStringLiteral("sourceOffsetY"), source_offset_y},
             {QStringLiteral("feather"), spot.feather},
         });
     }
@@ -47,13 +90,15 @@ QVariantList EditController::retouchStrokes() const {
                 {QStringLiteral("y"), point.y},
             });
         }
+        const auto [source_offset_x, source_offset_y] =
+            display_retouch_stroke_source_offset(stroke);
         result.push_back(QVariantMap{
             {QStringLiteral("index"), static_cast<int>(index)},
             {QStringLiteral("points"), points},
             {QStringLiteral("radius"), static_cast<int>(stroke.radius_level_zero_pixels)},
             {QStringLiteral("mode"), static_cast<int>(stroke.mode)},
-            {QStringLiteral("sourceOffsetX"), stroke.source_offset_x_radii},
-            {QStringLiteral("sourceOffsetY"), stroke.source_offset_y_radii},
+            {QStringLiteral("sourceOffsetX"), source_offset_x},
+            {QStringLiteral("sourceOffsetY"), source_offset_y},
             {QStringLiteral("feather"), stroke.feather},
         });
     }
@@ -117,13 +162,16 @@ void EditController::addRetouchSpotFromPreview(
     }
     finishActiveGesture();
     const BackendGradeStack before = grade_stack_;
+    const auto [source_offset_x, source_offset_y] =
+        retouch_creation_mode_ == 1 ? default_retouch_source_offset(normalized_x, normalized_y)
+                                    : std::pair<double, double>{0.0, 0.0};
     grade_stack_.retouch_spots.push_back(BackendRetouchSpot{
         .center_x = normalized_x,
         .center_y = normalized_y,
         .radius_level_zero_pixels = 18U,
         .mode = static_cast<std::uint8_t>(retouch_creation_mode_),
-        .source_offset_x_radii = retouch_creation_mode_ == 1 ? 1.5 : 0.0,
-        .source_offset_y_radii = retouch_creation_mode_ == 1 ? -1.0 : 0.0,
+        .source_offset_x_radii = source_offset_x,
+        .source_offset_y_radii = source_offset_y,
         .feather = 0.28,
     });
     parameterEdited(QStringLiteral("retouch/add"), before);
@@ -154,12 +202,15 @@ void EditController::beginRetouchStroke(
     const BackendGradeStack before = grade_stack_;
     const QString key = QStringLiteral("retouch/stroke/add");
     beginParameterEdit(key);
+    const auto [source_offset_x, source_offset_y] =
+        retouch_creation_mode_ == 1 ? default_retouch_source_offset(normalized_x, normalized_y)
+                                    : std::pair<double, double>{0.0, 0.0};
     grade_stack_.retouch_strokes.push_back(BackendRetouchStroke{
         .points = {{.x = normalized_x, .y = normalized_y}},
         .radius_level_zero_pixels = 18U,
         .mode = static_cast<std::uint8_t>(retouch_creation_mode_),
-        .source_offset_x_radii = retouch_creation_mode_ == 1 ? 1.5 : 0.0,
-        .source_offset_y_radii = retouch_creation_mode_ == 1 ? -1.0 : 0.0,
+        .source_offset_x_radii = source_offset_x,
+        .source_offset_y_radii = source_offset_y,
         .feather = 0.28,
     });
     active_retouch_stroke_index_ = static_cast<int>(
@@ -272,8 +323,10 @@ void EditController::setRetouchSpotMode(const int index, const int mode) {
     if (mode == clone_mode
         && spot.source_offset_x_radii == 0.0
         && spot.source_offset_y_radii == 0.0) {
-        spot.source_offset_x_radii = 1.5;
-        spot.source_offset_y_radii = -1.0;
+        const auto [source_offset_x, source_offset_y] =
+            default_retouch_source_offset(spot.center_x, spot.center_y);
+        spot.source_offset_x_radii = source_offset_x;
+        spot.source_offset_y_radii = source_offset_y;
     }
     parameterEdited(QStringLiteral("retouch/%1/mode").arg(index), before);
 }
@@ -298,7 +351,7 @@ void EditController::setRetouchSpotSourceOffset(
     const double offset_x_radii,
     const double offset_y_radii
 ) {
-    constexpr double maximum_offset_radii = 2.0;
+    constexpr double maximum_offset_radii = 8.0;
     if (!active_ || interactionLocked() || index < 0
         || index >= grade_stack_.retouch_spots.size()
         || !std::isfinite(offset_x_radii) || !std::isfinite(offset_y_radii)
@@ -373,8 +426,13 @@ void EditController::setRetouchStrokeMode(const int index, const int mode) {
     if (mode == clone_mode
         && stroke.source_offset_x_radii == 0.0
         && stroke.source_offset_y_radii == 0.0) {
-        stroke.source_offset_x_radii = 1.5;
-        stroke.source_offset_y_radii = -1.0;
+        const BackendRetouchStrokePoint source_center =
+            stroke.points.isEmpty() ? BackendRetouchStrokePoint{.x = 0.5, .y = 0.5}
+                                    : stroke.points.front();
+        const auto [source_offset_x, source_offset_y] =
+            default_retouch_source_offset(source_center.x, source_center.y);
+        stroke.source_offset_x_radii = source_offset_x;
+        stroke.source_offset_y_radii = source_offset_y;
     }
     parameterEdited(QStringLiteral("retouch/stroke/%1/mode").arg(index), before);
 }
@@ -399,7 +457,7 @@ void EditController::setRetouchStrokeSourceOffset(
     const double offset_x_radii,
     const double offset_y_radii
 ) {
-    constexpr double maximum_offset_radii = 2.0;
+    constexpr double maximum_offset_radii = 8.0;
     if (!active_ || interactionLocked() || index < 0
         || index >= grade_stack_.retouch_strokes.size()
         || !std::isfinite(offset_x_radii) || !std::isfinite(offset_y_radii)

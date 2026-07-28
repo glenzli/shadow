@@ -122,7 +122,8 @@ Its implementation follows the same navigation:
 - [`src/edit_optics_controller.cpp`](src/edit_optics_controller.cpp) owns optical-correction state,
   automatic and manual profiles, residual controls, validation, history, and preview scheduling.
 - [`src/edit_retouch_controller.cpp`](src/edit_retouch_controller.cpp) owns photo-level repair and
-  clone picker state, continuous strokes, legacy spots, and source-offset editing.
+  clone picker state, continuous strokes, legacy spots, automatic Heal donors, and source-offset
+  editing for both Heal and Clone.
 - [`src/edit_tone_curve_controller.cpp`](src/edit_tone_curve_controller.cpp) owns Tone Curve
   presentation, point normalization and editing, gesture integration, history, and preview timing.
 - [`src/edit_persistence_coordinator.cpp`](src/edit_persistence_coordinator.cpp) owns photo
@@ -130,7 +131,13 @@ Its implementation follows the same navigation:
   requested during a non-blocking autosave is queued behind that exact snapshot and keeps explicit
   state interaction locked; it must never be accepted by the UI and then silently discarded.
 - [`src/edit_render_coordinator.cpp`](src/edit_render_coordinator.cpp) owns current and neutral
-  preview scheduling, cancellation, diagnostics, and presentation.
+  preview scheduling, cancellation, diagnostics, and presentation. During interaction it
+  publishes the bridge's tightly packed RGB8 payload directly; settled and neutral frames retain
+  their encoded proxy contract for analysis and durable publication.
+- [`src/edit_preview_provider.*`](src/edit_preview_provider.hpp) owns immutable preview
+  publications and their Qt image lifetime. Tightly packed interactive RGB8 and detail tiles are
+  wrapped as display-sRGB images without an encoded-image decode or pixel copy; settled JPEGs
+  retain the encoded provider path.
 - [`src/edit_detail_render_controller.cpp`](src/edit_detail_render_controller.cpp) owns
   full-resolution viewport admission, cancellation, tile validation and publication, idle warmup,
   memory/readiness state, and Recipe-change invalidation.
@@ -174,7 +181,11 @@ Precision presentation follows the same responsibility tree:
   visual comparison transaction inside that viewport: original-frame receipt, whole/wipe/dual
   layouts, divider input, and BEFORE/AFTER labels.
 - [`qml/PrecisionInspector.qml`](qml/PrecisionInspector.qml) owns inspector composition, tool
-  routing, analysis presentation, and the stable Adjust/Looks surface.
+  routing, analysis presentation, the icon-only keep-and-exit action, and the stable Adjust/Looks
+  surface.
+- [`qml/PrecisionResetAllDialog.qml`](qml/PrecisionResetAllDialog.qml) owns the explicit
+  destructive reset confirmation; the Inspector requests it and the editor remains the sole
+  Recipe mutation and undo-history authority.
 - [`qml/PrecisionLutSection.qml`](qml/PrecisionLutSection.qml) owns the complete managed-LUT
   browser: recursive directory projection, preview-provider identities, browser expansion,
   selection and clear actions, and the LUT-intensity gesture. An empty library contributes no

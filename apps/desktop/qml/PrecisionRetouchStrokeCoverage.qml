@@ -16,43 +16,43 @@ Canvas {
 
     antialiasing: true
 
-    function fillDisc(context, x, y, radius) {
-        context.beginPath()
+    function appendDisc(context, x, y, radius) {
+        context.moveTo(x + radius, y)
         context.arc(x, y, radius, 0, Math.PI * 2)
-        context.fill()
     }
 
-    function fillCapsule(context, x0, y0, x1, y1, radius) {
+    function appendCapsule(context, x0, y0, x1, y1, radius) {
         const deltaX = x1 - x0
         const deltaY = y1 - y0
         const length = Math.hypot(deltaX, deltaY)
         if (length < 0.01) {
-            fillDisc(context, x0, y0, radius)
+            appendDisc(context, x0, y0, radius)
             return
         }
         const normalX = -deltaY / length * radius
         const normalY = deltaX / length * radius
-        context.beginPath()
         context.moveTo(x0 + normalX, y0 + normalY)
         context.lineTo(x1 + normalX, y1 + normalY)
         context.lineTo(x1 - normalX, y1 - normalY)
         context.lineTo(x0 - normalX, y0 - normalY)
         context.closePath()
-        context.fill()
-        fillDisc(context, x0, y0, radius)
-        fillDisc(context, x1, y1, radius)
+        appendDisc(context, x0, y0, radius)
+        appendDisc(context, x1, y1, radius)
     }
 
     function fillCoverage(context) {
+        // Composite the swept union once so overlapping authored samples do
+        // not appear as darker, independent dabs.
+        context.beginPath()
         let previous = null
         for (let pointIndex = 0; pointIndex < points.length; ++pointIndex) {
             const point = points[pointIndex]
             const pointX = Number(point.x) * width + coverageOffsetX
             const pointY = Number(point.y) * height + coverageOffsetY
             if (previous === null) {
-                fillDisc(context, pointX, pointY, radiusPixels)
+                appendDisc(context, pointX, pointY, radiusPixels)
             } else {
-                fillCapsule(
+                appendCapsule(
                     context,
                     previous.x,
                     previous.y,
@@ -63,6 +63,7 @@ Canvas {
             }
             previous = { x: pointX, y: pointY }
         }
+        context.fill()
     }
 
     onPaint: {

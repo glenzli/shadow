@@ -26,8 +26,8 @@ pub struct AdjustmentRetouchStrokePoint {
 
 /// A bounded swept brush region for a spot-heal operation.
 ///
-/// The source offset is measured in brush radii and stays fixed over the whole stroke, so clone
-/// source and target keep the same shape.
+/// The source offset is measured in brush radii and stays fixed over the whole
+/// stroke, so Heal and Clone donors keep the target shape.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AdjustmentRetouchStroke {
     pub points: Vec<AdjustmentRetouchStrokePoint>,
@@ -66,8 +66,8 @@ pub(super) fn validate_spot_heal(
             }
         }
         if target.mode > 1
-            || !(-2.0..=2.0).contains(&target.source_offset_x_radii)
-            || !(-2.0..=2.0).contains(&target.source_offset_y_radii)
+            || !(-8.0..=8.0).contains(&target.source_offset_x_radii)
+            || !(-8.0..=8.0).contains(&target.source_offset_y_radii)
             || !(1..=128).contains(&target.radius_level_zero_pixels)
         {
             return Err(BridgeError::InvalidEditRequest(
@@ -94,8 +94,8 @@ pub(super) fn validate_spot_heal(
             validate_finite_render_parameter(value)?;
         }
         if stroke.mode > 1
-            || !(-2.0..=2.0).contains(&stroke.source_offset_x_radii)
-            || !(-2.0..=2.0).contains(&stroke.source_offset_y_radii)
+            || !(-8.0..=8.0).contains(&stroke.source_offset_x_radii)
+            || !(-8.0..=8.0).contains(&stroke.source_offset_y_radii)
             || !(0.0..=1.0).contains(&stroke.feather)
             || !(1..=128).contains(&stroke.radius_level_zero_pixels)
         {

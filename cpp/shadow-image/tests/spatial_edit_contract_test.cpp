@@ -157,8 +157,8 @@ void spot_heal_repairs_small_defects_in_global_coordinates() {
     const auto plan = image::compile_edit_execution_plan(nodes);
     expect(
         plan.cumulative_footprint == image::AdjustmentFootprint{
-            .horizontal_radius = 4U,
-            .vertical_radius = 4U,
+            .horizontal_radius = 5U,
+            .vertical_radius = 5U,
         },
         "spot-heal declares enough detail-tile support for its reconstruction ring"
     );
@@ -229,6 +229,59 @@ void spot_heal_repairs_small_defects_in_global_coordinates() {
     );
 }
 
+void heal_preserves_donor_texture_while_matching_the_target_boundary() {
+    constexpr std::uint32_t width = 19U;
+    constexpr std::uint32_t height = 9U;
+    std::vector<float> samples(static_cast<std::size_t>(width) * height * 3U, 0.2F);
+    const auto set_gray = [&](const std::uint32_t x, const std::uint32_t y, const float value) {
+        const std::size_t sample = (static_cast<std::size_t>(y) * width + x) * 3U;
+        samples[sample] = value;
+        samples[sample + 1U] = value;
+        samples[sample + 2U] = value;
+    };
+    // A bright textured donor sits six pixels to the right of the target.
+    // Heal should retain these local differences but adapt its low-frequency
+    // tone to the target's 0.2 boundary.
+    for (std::uint32_t y = 2U; y <= 6U; ++y) {
+        for (std::uint32_t x = 9U; x <= 13U; ++x) {
+            set_gray(x, y, (x + y) % 2U == 0U ? 0.5F : 0.8F);
+        }
+    }
+    for (std::uint32_t y = 3U; y <= 5U; ++y) {
+        for (std::uint32_t x = 4U; x <= 6U; ++x) {
+            set_gray(x, y, 1.0F);
+        }
+    }
+    const std::array nodes{
+        image::AdjustmentNode{
+            .node_id = "texture-preserving-heal",
+            .parameters =
+                image::SpotHealAdjustment{
+                    .spots = {{
+                        .center_x = 5.5 / static_cast<double>(width),
+                        .center_y = 4.5 / static_cast<double>(height),
+                        .radius_level_zero_pixels = 2U,
+                        .mode = image::SpotRepairMode::heal,
+                        .source_offset_x_radii = 3.0,
+                        .source_offset_y_radii = 0.0,
+                        .feather = 0.0,
+                    }},
+                },
+        },
+    };
+    const auto healed = image::execute_adjustment_nodes(rgb_raster(width, height, samples), nodes);
+    const std::size_t center = (4U * width + 5U) * 3U;
+    const std::size_t neighbor = (4U * width + 6U) * 3U;
+    expect(healed.samples[center] < 0.75F && healed.samples[neighbor] < 0.75F,
+           "Heal adapts a bright donor toward the target boundary tone");
+    expect(std::abs(healed.samples[center] - healed.samples[neighbor]) > 0.08F,
+           "Heal preserves coherent donor texture instead of filling one average "
+           "color");
+    const std::size_t donor_center = (4U * width + 11U) * 3U;
+    expect_close(healed.samples[donor_center], samples[donor_center],
+                 "Heal never mutates the donor region");
+}
+
 void continuous_retouch_strokes_sweep_one_connected_repair_region() {
     constexpr std::uint32_t width = 17U;
     constexpr std::uint32_t height = 9U;
@@ -262,7 +315,7 @@ void continuous_retouch_strokes_sweep_one_connected_repair_region() {
     expect(
         plan.cumulative_footprint == image::AdjustmentFootprint{
             .horizontal_radius = 4U,
-            .vertical_radius = 4U,
+            .vertical_radius = 2U,
         },
         "continuous retouch strokes retain spot-heal detail-tile support"
     );
@@ -478,6 +531,7 @@ void photo_geometry_is_lossless_and_maps_detail_tiles_to_source_space() {
 int main() {
     local_mask_layers_blend_complete_adjustments_in_global_coordinates();
     spot_heal_repairs_small_defects_in_global_coordinates();
+    heal_preserves_donor_texture_while_matching_the_target_boundary();
     continuous_retouch_strokes_sweep_one_connected_repair_region();
     photo_geometry_is_lossless_and_maps_detail_tiles_to_source_space();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;

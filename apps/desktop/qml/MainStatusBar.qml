@@ -15,6 +15,11 @@ Rectangle {
     required property var reviewWorkspace
     required property var precisionWorkspace
 
+    LibraryAdvancedFilterPopup {
+        id: advancedFilterPopup
+        controller: statusBar.controller
+    }
+
     function fullResolutionPreparationText() {
         const path = String(editor.sourcePath).toLowerCase()
         return /\.(jpe?g|heic|heif)$/.test(path)
@@ -51,6 +56,7 @@ Rectangle {
             visible: statusBar.workspaceIndex === 0
             Layout.alignment: Qt.AlignVCenter
             controller: statusBar.controller
+            onAdvancedFilterRequested: advancedFilterPopup.open()
         }
 
         Label {

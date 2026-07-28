@@ -620,6 +620,11 @@ mod ffi {
             request: &FfiAdjustmentRenderRequest,
             cancellation: &EditPreviewCancellationHandle,
         ) -> Result<FfiCancellableEncodedProxy>;
+        fn render_adjustment_plan_rgb8_cancellable(
+            self: &EditPreviewHandle,
+            request: &FfiAdjustmentRenderRequest,
+            cancellation: &EditPreviewCancellationHandle,
+        ) -> Result<FfiCancellableEncodedProxy>;
         fn render_adjustment_plan_with_analysis_cancellable(
             self: &EditPreviewHandle,
             request: &FfiAdjustmentRenderRequest,
