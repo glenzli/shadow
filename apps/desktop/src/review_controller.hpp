@@ -12,6 +12,7 @@
 #include "review_library_query_coordinator.hpp"
 #include "review_model.hpp"
 #include "review_photo_inspection_coordinator.hpp"
+#include "review_shared_grade_coordinator.hpp"
 #include "review_source_health_coordinator.hpp"
 
 #include <QObject>
@@ -421,7 +422,7 @@ private:
     ReviewFilterModel filtered_model_;
     ReviewLibraryQueryCoordinator query_coordinator_;
     ReviewLibraryOrganizationCoordinator organization_coordinator_;
+    ReviewSharedGradeCoordinator shared_grade_coordinator_;
     ReviewComparisonCoordinator comparison_coordinator_;
     ReviewDecisionCoordinator decision_coordinator_;
-    QVector<BackendSharedGradeNode> shared_grade_nodes_;
 };

@@ -201,6 +201,13 @@ Review presentation keeps the workspace as the composition and compatibility sur
   decision, status, and work-state boundaries. Its
   [`tests/review_library_query_coordinator/`](tests/review_library_query_coordinator/) contracts
   cover projection, pagination, reset coalescing, stale completion, failures, and lifetime.
+- [`src/review_shared_grade_coordinator.cpp`](src/review_shared_grade_coordinator.cpp) owns the
+  authoritative shared Grade Node snapshot and batch-link boundary: QML target normalization,
+  duplicate-photo rejection, complete mutation receipts, localized status, and visible-Library
+  invalidation only after an actual update. `ReviewController` retains only the stable public Qt
+  routing. Its
+  [`tests/review_shared_grade_coordinator/`](tests/review_shared_grade_coordinator/) contracts
+  cover snapshot projection, normalized apply calls, partial receipts, admission, and failures.
 - [`src/photo_inspection_projection.cpp`](src/photo_inspection_projection.cpp) is the sole
   production mapping from the complete Rust FFI inspection DTO to the desktop DTO.
   [`tests/backend_photo_inspection_contract_test.cpp`](tests/backend_photo_inspection_contract_test.cpp)

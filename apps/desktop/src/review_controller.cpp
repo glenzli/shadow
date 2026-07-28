@@ -2,19 +2,12 @@
 
 #include <QCoreApplication>
 #include <QEvent>
-#include <QSet>
 #include <algorithm>
 #include <optional>
 #include <stdexcept>
 #include <utility>
 
 namespace {
-
-[[nodiscard]] LocalizedUiMessage review_message(
-    const char *const source,
-    const std::initializer_list<LocalizedUiArgument> arguments = {}) {
-  return {"ReviewController", source, arguments};
-}
 
 [[nodiscard]] ReviewImportCoordinator::Operations import_operations(
     const std::shared_ptr<DesktopBackend>& backend
@@ -268,6 +261,28 @@ organization_operations(
     };
 }
 
+[[nodiscard]] ReviewSharedGradeCoordinator::Operations
+shared_grade_operations(const std::shared_ptr<DesktopBackend>& backend) {
+    if (!backend) {
+        throw std::invalid_argument(
+            "Review shared Grade Node backend is required"
+        );
+    }
+    return {
+        .nodes = [backend]() { return backend->sharedGradeNodes(); },
+        .apply =
+            [backend](
+                const QString& layer_id,
+                const QVector<BackendBatchPhotoTarget>& targets
+            ) {
+                return backend->applySharedGradeNodeToPhotos(
+                    layer_id,
+                    targets
+                );
+            },
+    };
+}
+
 [[nodiscard]] ReviewDecisionCoordinator::Operations decision_operations(
     const std::shared_ptr<DesktopBackend>& backend
 ) {
@@ -332,6 +347,7 @@ ReviewController::ReviewController(
       organization_coordinator_(
           organization_operations(backend_, model_)
       ),
+      shared_grade_coordinator_(shared_grade_operations(backend_)),
       comparison_coordinator_(
           comparison_operations(backend_),
           [this](const QString& ticket) {
@@ -658,6 +674,26 @@ ReviewController::ReviewController(
             }
         }
     );
+    connect(
+        &shared_grade_coordinator_,
+        &ReviewSharedGradeCoordinator::nodesChanged,
+        this,
+        &ReviewController::sharedGradeNodesChanged
+    );
+    connect(
+        &shared_grade_coordinator_,
+        &ReviewSharedGradeCoordinator::statusMessageChanged,
+        this,
+        [this]() {
+            setStatusMessage(shared_grade_coordinator_.statusMessage());
+        }
+    );
+    connect(
+        &shared_grade_coordinator_,
+        &ReviewSharedGradeCoordinator::libraryRefreshRequested,
+        this,
+        &ReviewController::refreshVisibleLibrary
+    );
   if (auto *const application = QCoreApplication::instance()) {
     application->installEventFilter(this);
   }
@@ -844,17 +880,7 @@ int ReviewController::filteredItemCount() const noexcept {
 }
 
 QVariantList ReviewController::sharedGradeNodes() const {
-    QVariantList result;
-    result.reserve(shared_grade_nodes_.size());
-    for (const auto& shared : shared_grade_nodes_) {
-        result.push_back(QVariantMap{
-            {QStringLiteral("layerId"), shared.layer_id},
-            {QStringLiteral("revisionId"), shared.revision_id},
-            {QStringLiteral("revisionNumber"), shared.revision_number},
-            {QStringLiteral("label"), shared.label},
-        });
-    }
-    return result;
+    return shared_grade_coordinator_.nodes();
 }
 
 QAbstractItemModel* ReviewController::model() noexcept {
@@ -1157,110 +1183,14 @@ void ReviewController::removePhotosFromManualLibraryAlbum(
 }
 
 void ReviewController::refreshSharedGradeNodes() {
-    try {
-        const auto refreshed = backend_->sharedGradeNodes();
-        if (refreshed != shared_grade_nodes_) {
-            shared_grade_nodes_ = refreshed;
-            emit sharedGradeNodesChanged();
-        }
-    } catch (const std::exception& error) {
-        setStatusMessage(review_message(
-            QT_TRANSLATE_NOOP("ReviewController",
-                              "Could not load shared Grade Nodes · %1"),
-            {QString::fromUtf8(error.what())}
-        ));
-    }
+    shared_grade_coordinator_.refresh();
 }
 
 QVariantMap ReviewController::applySharedGradeNode(
     const QString& layer_id,
     const QVariantList& targets
 ) {
-    QVector<BackendBatchPhotoTarget> batch;
-    batch.reserve(targets.size());
-    QSet<QString> seen_photo_ids;
-    for (const auto& value : targets) {
-        const auto target = value.toMap();
-        const QString photo_id = target.value(QStringLiteral("photoId")).toString();
-        const QString source_path =
-            target.value(QStringLiteral("sourcePath")).toString();
-        if (photo_id.isEmpty() || source_path.isEmpty()
-            || seen_photo_ids.contains(photo_id)) {
-            continue;
-        }
-        seen_photo_ids.insert(photo_id);
-        batch.push_back({
-            .photo_id = photo_id,
-            .source_path = source_path,
-        });
-    }
-    if (layer_id.isEmpty() || batch.isEmpty()) {
-        return {
-            {QStringLiteral("requested"), 0},
-            {QStringLiteral("updated"), 0},
-            {QStringLiteral("unchanged"), 0},
-            {QStringLiteral("failed"), 0},
-            {QStringLiteral("errors"), QStringList{}},
-        };
-    }
-    try {
-        const auto receipt =
-            backend_->applySharedGradeNodeToPhotos(layer_id, batch);
-        QStringList errors;
-        errors.reserve(receipt.errors.size());
-        for (const auto& error : receipt.errors) {
-            errors.push_back(error);
-        }
-        if (receipt.failed == 0) {
-            setStatusMessage(review_message(
-                QT_TRANSLATE_NOOP(
-                    "ReviewController",
-                    "Shared Grade Node linked to %1 photos · %2 already current"
-                ),
-                {
-                    static_cast<qulonglong>(receipt.updated),
-                    static_cast<qulonglong>(receipt.unchanged),
-                }
-            ));
-        } else {
-            setStatusMessage(review_message(
-                QT_TRANSLATE_NOOP(
-                    "ReviewController",
-                    "Shared Grade Node linked to %1 photos · %2 failed"
-                ),
-                {
-                    static_cast<qulonglong>(receipt.updated),
-                    static_cast<qulonglong>(receipt.failed),
-                }
-            ));
-        }
-        if (receipt.updated > 0) {
-            refreshVisibleLibrary();
-        }
-        return {
-            {QStringLiteral("requested"), receipt.requested},
-            {QStringLiteral("updated"), receipt.updated},
-            {QStringLiteral("unchanged"), receipt.unchanged},
-            {QStringLiteral("failed"), receipt.failed},
-            {QStringLiteral("errors"), errors},
-        };
-    } catch (const std::exception& error) {
-        const QString message = QString::fromUtf8(error.what());
-        setStatusMessage(review_message(
-            QT_TRANSLATE_NOOP(
-                "ReviewController",
-                "Could not apply shared Grade Node · %1"
-            ),
-            {message}
-        ));
-        return {
-            {QStringLiteral("requested"), batch.size()},
-            {QStringLiteral("updated"), 0},
-            {QStringLiteral("unchanged"), 0},
-            {QStringLiteral("failed"), batch.size()},
-            {QStringLiteral("errors"), QStringList{message}},
-        };
-    }
+    return shared_grade_coordinator_.apply(layer_id, targets);
 }
 
 void ReviewController::setFilterFlag(const QString& filter) {

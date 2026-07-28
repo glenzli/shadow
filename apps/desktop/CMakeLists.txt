@@ -249,6 +249,8 @@ qt_add_executable(
     src/review_photo_inspection_coordinator.cpp
     src/review_photo_inspection_coordinator.hpp
     src/review_photo_inspection_session.hpp
+    src/review_shared_grade_coordinator.cpp
+    src/review_shared_grade_coordinator.hpp
     src/review_source_health_coordinator.cpp
     src/review_source_health_coordinator.hpp
     src/review_visual_request.cpp
@@ -1577,6 +1579,43 @@ if(BUILD_TESTING)
     add_test(
         NAME shadow-desktop-review-library-query-coordinator
         COMMAND shadow-review-library-query-coordinator-test
+    )
+
+    add_executable(
+        shadow-review-shared-grade-coordinator-test
+        tests/review_shared_grade_coordinator_test.cpp
+        tests/review_shared_grade_coordinator/shared_grade_fixture.hpp
+        tests/review_shared_grade_coordinator/projection_apply_contract.cpp
+        tests/review_shared_grade_coordinator/failure_admission_contract.cpp
+        src/review_shared_grade_coordinator.cpp
+        src/review_shared_grade_coordinator.hpp
+    )
+    target_compile_features(
+        shadow-review-shared-grade-coordinator-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-review-shared-grade-coordinator-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-review-shared-grade-coordinator-test
+        PRIVATE Qt6::Gui
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-review-shared-grade-coordinator-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-review-shared-grade-coordinator-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-review-shared-grade-coordinator
+        COMMAND shadow-review-shared-grade-coordinator-test
     )
 
     add_executable(
