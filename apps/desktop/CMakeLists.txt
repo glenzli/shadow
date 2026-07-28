@@ -346,6 +346,7 @@ qt_add_qml_module(
         qml/PrecisionCanvasPickerInput.qml
         qml/PrecisionInspector.qml
         qml/PrecisionLutSection.qml
+        qml/PrecisionPointColorSection.qml
         qml/PrecisionFoundationAdjustments.qml
         qml/PrecisionColorMixer.qml
         qml/PrecisionSelectiveColor.qml
@@ -1030,6 +1031,42 @@ if(BUILD_TESTING)
     )
     set_tests_properties(
         shadow-desktop-precision-lut-section-contract
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+
+    add_executable(
+        shadow-precision-point-color-section-contract-test
+        tests/precision_point_color_section_contract_test.cpp
+    )
+    target_compile_features(
+        shadow-precision-point-color-section-contract-test
+        PRIVATE cxx_std_20
+    )
+    target_compile_definitions(
+        shadow-precision-point-color-section-contract-test
+        PRIVATE SHADOW_DESKTOP_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+    target_link_libraries(
+        shadow-precision-point-color-section-contract-test
+        PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-precision-point-color-section-contract-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-precision-point-color-section-contract-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-precision-point-color-section-contract
+        COMMAND shadow-precision-point-color-section-contract-test
+    )
+    set_tests_properties(
+        shadow-desktop-precision-point-color-section-contract
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
 

@@ -80,6 +80,10 @@ Precision presentation follows the same responsibility tree:
   browser: recursive directory projection, preview-provider identities, browser expansion,
   selection and clear actions, and the LUT-intensity gesture. An empty library contributes no
   synthetic explanation row; management remains an explicit adjacent action.
+- [`qml/PrecisionPointColorSection.qml`](qml/PrecisionPointColorSection.qml) owns Point Color
+  sampling and selection, Skin Check pending/locked scope transitions, tone-coherence admission,
+  the bounded undoable hue nudge, and all six parameter gestures. The Inspector supplies the
+  analysis surface but does not reopen that interaction lifecycle.
 - [`qml/PrecisionCanvasPickerInput.qml`](qml/PrecisionCanvasPickerInput.qml) owns point-color and
   white-balance sampling plus repair spot/stroke gesture lifecycles without expanding the canvas
   composition surface.
