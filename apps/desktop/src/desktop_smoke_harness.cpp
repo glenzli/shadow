@@ -1,14 +1,14 @@
 #include "desktop_smoke_harness.hpp"
 
+#include "desktop_smoke/edit_preview_session.hpp"
+#include "desktop_smoke/grade_stack_persistence.hpp"
 #include "edit_controller.hpp"
-#include "edit_preview_provider.hpp"
 #include "review_controller.hpp"
 #include "thumbnail_provider.hpp"
 #include "ui_preferences.hpp"
 
 #include <QAbstractItemModel>
 #include <QApplication>
-#include <QColorSpace>
 #include <QDebug>
 #include <QImage>
 #include <QMetaObject>
@@ -17,13 +17,9 @@
 #include <QSize>
 #include <QTimer>
 #include <QUrl>
-#include <QUrlQuery>
 #include <QVariant>
-#include <QVector>
 #include <QWindow>
 
-#include <cmath>
-#include <cstdint>
 #include <functional>
 #include <memory>
 
@@ -43,71 +39,6 @@ namespace {
     return id;
 }
 
-[[nodiscard]] QString preview_generation(const QString& source) {
-    return QUrlQuery(QUrl(source)).queryItemValue(QStringLiteral("generation"));
-}
-
-[[nodiscard]] bool valid_edit_histogram(
-    const QVariantMap& histogram,
-    const QString& source
-) {
-    const QString source_generation = preview_generation(source);
-    if (!histogram.value(QStringLiteral("valid")).toBool()
-        || histogram.value(QStringLiteral("updating")).toBool()
-        || histogram.value(QStringLiteral("stale")).toBool()
-        || histogram.value(QStringLiteral("version")).toString().isEmpty()
-        || source_generation.isEmpty()
-        || histogram.value(QStringLiteral("generation")).toString() != source_generation
-        || histogram.value(QStringLiteral("targetGeneration")).toString()
-            != source_generation) {
-        return false;
-    }
-    const qulonglong pixel_count = histogram.value(QStringLiteral("pixelCount")).toULongLong();
-    const qulonglong dimensions_count =
-        histogram.value(QStringLiteral("width")).toULongLong()
-        * histogram.value(QStringLiteral("height")).toULongLong();
-    if (pixel_count == 0 || pixel_count != dimensions_count) {
-        return false;
-    }
-    for (const auto& key : {
-             QStringLiteral("red"),
-             QStringLiteral("green"),
-             QStringLiteral("blue"),
-             QStringLiteral("luma"),
-         }) {
-        const QVariantList bins = histogram.value(key).toList();
-        if (bins.size() != 256) {
-            return false;
-        }
-        qulonglong sum = 0;
-        for (const QVariant& bin : bins) {
-            const qulonglong count = bin.toULongLong();
-            if (count > pixel_count - sum) {
-                return false;
-            }
-            sum += count;
-        }
-        if (sum != pixel_count) {
-            return false;
-        }
-    }
-    return histogram.value(QStringLiteral("belowZero")).toList().size() == 3
-        && histogram.value(QStringLiteral("aboveOne")).toList().size() == 3
-        && histogram.value(QStringLiteral("shadowClippedPixels")).toULongLong()
-            <= pixel_count
-        && histogram.value(QStringLiteral("highlightClippedPixels")).toULongLong()
-            <= pixel_count;
-}
-
-[[nodiscard]] QObject* precision_workspace(QQmlApplicationEngine& engine) {
-    if (engine.rootObjects().isEmpty()) {
-        return nullptr;
-    }
-    return engine.rootObjects().front()->findChild<QObject*>(
-        QStringLiteral("precisionWorkspace")
-    );
-}
-
 [[nodiscard]] int review_grid_count(QQmlApplicationEngine& engine) {
     if (engine.rootObjects().isEmpty()) {
         return 0;
@@ -117,339 +48,6 @@ namespace {
     );
     return grid == nullptr ? 0 : grid->property("count").toInt();
 }
-
-[[nodiscard]] bool qml_preview_is_ready(
-    QQmlApplicationEngine& engine,
-    const QString& source
-) {
-    const auto* const workspace = precision_workspace(engine);
-    if (workspace == nullptr || preview_generation(source).isEmpty()) {
-        return false;
-    }
-    if (QUrl(source).path().endsWith(QStringLiteral("/before"))) {
-        return workspace->property("beforeFrameReady").toBool();
-    }
-    return workspace->property("readyPreviewGeneration").toString()
-        == preview_generation(source);
-}
-
-void after_qml_preview_ready(
-    QCoreApplication& application,
-    QQmlApplicationEngine& engine,
-    QString source,
-    std::function<void()> action
-) {
-    auto poll = std::make_shared<std::function<void()>>();
-    *poll = [&application, &engine, source = std::move(source),
-             action = std::move(action), poll]() {
-        if (qml_preview_is_ready(engine, source)) {
-            *poll = {};
-            action();
-            return;
-        }
-        QTimer::singleShot(20, &application, *poll);
-    };
-    QTimer::singleShot(0, &application, *poll);
-}
-
-class GradeStackSmoke final
-    : public std::enable_shared_from_this<GradeStackSmoke> {
-public:
-    static void start(
-        QCoreApplication& application,
-        ReviewController& review,
-        EditController& editor
-    ) {
-        const auto smoke = std::shared_ptr<GradeStackSmoke>(
-            new GradeStackSmoke(application, review, editor)
-        );
-        smoke->connectSignals();
-    }
-
-private:
-    enum class Stage : std::uint8_t {
-        AwaitInitialPreview,
-        AwaitAdjustedPreview,
-        Saving,
-        Reopening,
-        Verifying,
-        Finished,
-        Failed,
-    };
-
-    GradeStackSmoke(
-        QCoreApplication& application,
-        ReviewController& review,
-        EditController& editor
-    )
-        : application_(application), review_(review), editor_(editor) {}
-
-    static QString gradeNodeId(
-        const QVariantList& grade_nodes,
-        const qsizetype index
-    ) {
-        return grade_nodes.at(index)
-            .toMap()
-            .value(QStringLiteral("gradeNodeId"))
-            .toString();
-    }
-
-    static bool gradeNodeEnabled(
-        const QVariantList& grade_nodes,
-        const qsizetype index
-    ) {
-        return grade_nodes.at(index)
-            .toMap()
-            .value(QStringLiteral("enabled"))
-            .toBool();
-    }
-
-    void connectSignals() {
-        const auto self = shared_from_this();
-        QObject::connect(
-            &editor_,
-            &EditController::previewSourceChanged,
-            &application_,
-            [self]() { self->previewChanged(); }
-        );
-        QObject::connect(
-            &editor_,
-            &EditController::stateBusyChanged,
-            &application_,
-            [self]() { self->stateBusyChanged(); }
-        );
-        QTimer::singleShot(30'000, &application_, [self]() {
-            if (self->stage_ != Stage::Finished) {
-                self->fail(QStringLiteral("timed out after 30 seconds"));
-            }
-        });
-    }
-
-    void previewChanged() {
-        if (editor_.previewSource().isEmpty()) {
-            return;
-        }
-        if (stage_ == Stage::AwaitInitialPreview) {
-            buildStack();
-        } else if (stage_ == Stage::AwaitAdjustedPreview) {
-            stage_ = Stage::Saving;
-            const auto self = shared_from_this();
-            QTimer::singleShot(0, &editor_, [self]() { self->save(); });
-        } else if (stage_ == Stage::Reopening) {
-            stage_ = Stage::Verifying;
-            const auto self = shared_from_this();
-            QTimer::singleShot(0, &editor_, [self]() { self->verifyReopen(); });
-        }
-    }
-
-    void stateBusyChanged() {
-        if (editor_.stateBusy()) {
-            return;
-        }
-        const auto self = shared_from_this();
-        if (stage_ == Stage::Saving) {
-            QTimer::singleShot(0, &editor_, [self]() { self->finishSave(); });
-        } else if (stage_ == Stage::Reopening) {
-            QTimer::singleShot(0, &editor_, [self]() {
-                if (self->stage_ == Stage::Reopening
-                    && (!self->editor_.active()
-                        || self->editor_.statusText().startsWith(
-                            QStringLiteral("Version operation failed")
-                        ))) {
-                    self->fail(QStringLiteral("the saved photo could not be reloaded"));
-                }
-            });
-        }
-    }
-
-    void buildStack() {
-        auto* const model = review_.reviewModel();
-        if (!expect(model->rowCount() > 0, QStringLiteral("Review item disappeared"))) {
-            return;
-        }
-        const QModelIndex first = model->index(0, 0);
-        photo_id_ = model->data(first, ReviewModel::PhotoIdRole).toString();
-        representation_id_ = model->data(
-            first,
-            ReviewModel::RepresentationIdRole
-        ).toString();
-        source_path_ = model->data(first, ReviewModel::SourcePathRole).toString();
-        title_ = model->data(first, ReviewModel::TitleRole).toString();
-
-        const QVariantList initial_grade_nodes = editor_.gradeNodes();
-        if (!expect(
-                initial_grade_nodes.size() == 1,
-                QStringLiteral("expected one initial Grade Node, found %1")
-                    .arg(initial_grade_nodes.size())
-            )) {
-            return;
-        }
-        const QString initial_id = gradeNodeId(initial_grade_nodes, 0);
-        if (!expect(
-                !initial_id.isEmpty(),
-                QStringLiteral("initial Grade Node has no ID")
-            )) {
-            return;
-        }
-
-        editor_.addGradeNode();
-        if (!expect(
-                editor_.gradeNodes().size() == 2,
-                QStringLiteral("add Grade Node failed")
-            )) {
-            return;
-        }
-        const QString added_id = editor_.selectedGradeNodeId();
-        editor_.setExposureStops(expected_exposure_);
-        editor_.duplicateSelectedGradeNode();
-        if (!expect(
-                editor_.gradeNodes().size() == 3,
-                QStringLiteral("duplicate Grade Node failed")
-            )) {
-            return;
-        }
-        const QString duplicate_id = editor_.selectedGradeNodeId();
-        if (!expect(
-                !added_id.isEmpty() && !duplicate_id.isEmpty()
-                    && added_id != initial_id && duplicate_id != initial_id
-                    && duplicate_id != added_id,
-                QStringLiteral("new Grade Nodes did not receive unique stable IDs")
-            )) {
-            return;
-        }
-
-        editor_.moveSelectedGradeNode(0);
-        editor_.setGradeNodeEnabled(false);
-        expected_grade_node_ids_ = {duplicate_id, initial_id, added_id};
-        const QVariantList adjusted_grade_nodes = editor_.gradeNodes();
-        if (!expect(
-                adjusted_grade_nodes.size() == 3
-                    && gradeNodeId(adjusted_grade_nodes, 0) == duplicate_id
-                    && gradeNodeId(adjusted_grade_nodes, 1) == initial_id
-                    && gradeNodeId(adjusted_grade_nodes, 2) == added_id
-                    && !gradeNodeEnabled(adjusted_grade_nodes, 0),
-                QStringLiteral("reorder or bypass failed")
-            )) {
-            return;
-        }
-        stage_ = Stage::AwaitAdjustedPreview;
-    }
-
-    void save() {
-        if (stage_ != Stage::Saving) {
-            return;
-        }
-        if (!expect(
-                !editor_.rendering() && !editor_.stateBusy(),
-                QStringLiteral("final preview did not settle before save")
-            )) {
-            return;
-        }
-        editor_.saveVersion(QStringLiteral("Grade Stack Smoke"));
-        expect(editor_.stateBusy(), QStringLiteral("version save did not start"));
-    }
-
-    void finishSave() {
-        if (stage_ != Stage::Saving) {
-            return;
-        }
-        if (!expect(
-                !editor_.stateBusy() && !editor_.dirty()
-                    && !editor_.statusText().startsWith(
-                        QStringLiteral("Version operation failed")
-                    ),
-                QStringLiteral("immutable version was not saved")
-            )) {
-            return;
-        }
-        editor_.closePhoto();
-        if (!expect(!editor_.active(), QStringLiteral("saved photo could not close"))) {
-            return;
-        }
-        stage_ = Stage::Reopening;
-        editor_.openPhoto(photo_id_, representation_id_, source_path_, title_);
-        expect(
-            editor_.active() && editor_.stateBusy(),
-            QStringLiteral("saved photo could not reopen")
-        );
-    }
-
-    void verifyReopen() {
-        if (stage_ != Stage::Verifying) {
-            return;
-        }
-        const QVariantList grade_nodes = editor_.gradeNodes();
-        if (!expect(
-                !editor_.stateBusy() && !editor_.rendering() && !editor_.dirty()
-                    && grade_nodes.size() == expected_grade_node_ids_.size(),
-                QStringLiteral("reopened stack was not clean and settled")
-            )) {
-            return;
-        }
-        for (qsizetype index = 0; index < expected_grade_node_ids_.size(); ++index) {
-            if (!expect(
-                    gradeNodeId(grade_nodes, index)
-                        == expected_grade_node_ids_.at(index),
-                    QStringLiteral("stable Grade Node order changed after reopen")
-                )) {
-                return;
-            }
-        }
-        if (!expect(
-                !gradeNodeEnabled(grade_nodes, 0)
-                    && gradeNodeEnabled(grade_nodes, 2),
-                QStringLiteral("bypass state changed after reopen")
-            )) {
-            return;
-        }
-
-        editor_.selectGradeNode(0);
-        const bool duplicate_parameter_ok =
-            editor_.selectedGradeNodeId() == expected_grade_node_ids_.at(0)
-            && std::abs(editor_.exposureStops() - expected_exposure_) < 1.0e-9;
-        editor_.selectGradeNode(2);
-        const bool source_parameter_ok =
-            editor_.selectedGradeNodeId() == expected_grade_node_ids_.at(2)
-            && std::abs(editor_.exposureStops() - expected_exposure_) < 1.0e-9;
-        if (!expect(
-                duplicate_parameter_ok && source_parameter_ok,
-                QStringLiteral("Grade Node parameters changed after reopen")
-            )) {
-            return;
-        }
-
-        stage_ = Stage::Finished;
-        qInfo() << "Grade Stack smoke passed with three persisted Grade Nodes";
-        QTimer::singleShot(50, &application_, &QCoreApplication::quit);
-    }
-
-    bool expect(const bool condition, const QString& reason) {
-        if (!condition) {
-            fail(reason);
-        }
-        return condition;
-    }
-
-    void fail(const QString& reason) {
-        if (stage_ == Stage::Finished || stage_ == Stage::Failed) {
-            return;
-        }
-        stage_ = Stage::Failed;
-        qCritical().noquote() << "Grade Stack smoke failed:" << reason;
-        application_.exit(EXIT_FAILURE);
-    }
-
-    QCoreApplication& application_;
-    ReviewController& review_;
-    EditController& editor_;
-    Stage stage_ = Stage::AwaitInitialPreview;
-    QString photo_id_;
-    QString representation_id_;
-    QString source_path_;
-    QString title_;
-    QVector<QString> expected_grade_node_ids_;
-    const double expected_exposure_ = 0.75;
-};
 
 } // namespace
 
@@ -510,7 +108,13 @@ void installDesktopSmokeHarness(
     const bool dirty_close_smoke = qEnvironmentVariableIsSet(
         "SHADOW_DESKTOP_DIRTY_CLOSE_SMOKE"
     );
-    if (open_first_edit && !record_first_comparison && !set_first_decision) {
+    const bool smoke_test =
+        qEnvironmentVariableIsSet("SHADOW_DESKTOP_SMOKE_TEST");
+    const bool needs_legacy_first_photo_opener =
+        !smoke_test || dirty_close_smoke
+        || (grade_stack_smoke && !full_detail_smoke);
+    if (open_first_edit && !record_first_comparison && !set_first_decision
+        && needs_legacy_first_photo_opener) {
         const auto open_first_available = [&controller, &editor, &engine]() {
             auto* const model = controller.reviewModel();
             if (editor.active() || model->rowCount() == 0) {
@@ -556,60 +160,109 @@ void installDesktopSmokeHarness(
         QTimer::singleShot(50, &application, open_first_available);
     }
     if (record_first_comparison) {
+        auto comparison_requested = std::make_shared<bool>(false);
+        const auto request_first_comparison = [
+            &application,
+            &controller,
+            thumbnail_provider,
+            comparison_requested
+        ]() {
+            auto* const model = controller.reviewModel();
+            if (*comparison_requested || model->rowCount() < 2
+                || controller.scanning() || controller.refreshing()
+                || controller.comparisonBusy()
+                || controller.sessionEvidenceCount() > 0) {
+                return;
+            }
+            const QModelIndex left = model->index(0, 0);
+            const QModelIndex right = model->index(1, 0);
+            const QString left_handle =
+                model->data(left, ReviewModel::VisualHandleRole).toString();
+            const QString right_handle =
+                model->data(right, ReviewModel::VisualHandleRole).toString();
+            if (left_handle.isEmpty() || right_handle.isEmpty()) {
+                return;
+            }
+            *comparison_requested = true;
+            const QVariantMap presentation = controller.prepareComparison(
+                left_handle,
+                right_handle
+            );
+            const QString presentation_id =
+                presentation.value(QStringLiteral("presentationId")).toString();
+            const QString left_ticket =
+                presentation.value(QStringLiteral("leftRequestTicket")).toString();
+            const QString right_ticket =
+                presentation.value(QStringLiteral("rightRequestTicket")).toString();
+            if (presentation_id.isEmpty() || left_ticket.isEmpty()
+                || right_ticket.isEmpty()) {
+                qCritical() << "Comparison smoke could not prepare two visual tickets";
+                application.exit(EXIT_FAILURE);
+                return;
+            }
+            const QSize requested_size(1'280, 960);
+            QSize left_size;
+            QSize right_size;
+            const QImage left_image = thumbnail_provider->requestImage(
+                image_provider_request_id(
+                    presentation.value(QStringLiteral("leftSource")).toString()
+                ),
+                &left_size,
+                requested_size
+            );
+            const QImage right_image = thumbnail_provider->requestImage(
+                image_provider_request_id(
+                    presentation.value(QStringLiteral("rightSource")).toString()
+                ),
+                &right_size,
+                requested_size
+            );
+            if (left_image.isNull() || right_image.isNull()) {
+                qCritical() << "Comparison smoke could not decode both visual tickets"
+                            << "left null" << left_image.isNull() << "right null"
+                            << right_image.isNull();
+                application.exit(EXIT_FAILURE);
+                return;
+            }
+            if (!controller.confirmComparisonReady(
+                    presentation_id,
+                    left_ticket,
+                    right_ticket
+                )) {
+                qCritical() << "Comparison smoke could not verify both decoded frames";
+                application.exit(EXIT_FAILURE);
+                return;
+            }
+            controller.recordComparison(presentation_id, 0);
+        };
         QObject::connect(
             &controller,
             &ReviewController::itemCountChanged,
             &application,
-            [&controller, thumbnail_provider]() {
-                auto* model = controller.reviewModel();
-                if (model->rowCount() < 2 || controller.comparisonBusy()
-                    || controller.sessionEvidenceCount() > 0) {
-                    return;
-                }
-                const QModelIndex left = model->index(0, 0);
-                const QModelIndex right = model->index(1, 0);
-                const QVariantMap presentation = controller.prepareComparison(
-                    model->data(left, ReviewModel::VisualHandleRole).toString(),
-                    model->data(right, ReviewModel::VisualHandleRole).toString()
-                );
-                const QString presentation_id =
-                    presentation.value(QStringLiteral("presentationId")).toString();
-                const QString left_ticket =
-                    presentation.value(QStringLiteral("leftRequestTicket")).toString();
-                const QString right_ticket =
-                    presentation.value(QStringLiteral("rightRequestTicket")).toString();
-                if (presentation_id.isEmpty() || left_ticket.isEmpty()
-                    || right_ticket.isEmpty()) {
-                    return;
-                }
-                const QSize requested_size(1'280, 960);
-                QSize left_size;
-                QSize right_size;
-                const QImage left_image = thumbnail_provider->requestImage(
-                    image_provider_request_id(
-                        presentation.value(QStringLiteral("leftSource")).toString()
-                    ),
-                    &left_size,
-                    requested_size
-                );
-                const QImage right_image = thumbnail_provider->requestImage(
-                    image_provider_request_id(
-                        presentation.value(QStringLiteral("rightSource")).toString()
-                    ),
-                    &right_size,
-                    requested_size
-                );
-                if (left_image.isNull() || right_image.isNull()
-                    || !controller.confirmComparisonReady(
-                        presentation_id,
-                        left_ticket,
-                        right_ticket
-                    )) {
-                    return;
-                }
-                controller.recordComparison(presentation_id, 0);
+            request_first_comparison
+        );
+        QObject::connect(
+            controller.reviewModel(),
+            &QAbstractItemModel::modelReset,
+            &application,
+            request_first_comparison
+        );
+        QObject::connect(
+            controller.reviewModel(),
+            &QAbstractItemModel::rowsInserted,
+            &application,
+            [&application, request_first_comparison](const QModelIndex&, int, int) {
+                QTimer::singleShot(0, &application, request_first_comparison);
             }
         );
+        QObject::connect(
+            &controller,
+            &ReviewController::refreshingChanged,
+            &application,
+            request_first_comparison
+        );
+        QTimer::singleShot(0, &application, request_first_comparison);
+        QTimer::singleShot(50, &application, request_first_comparison);
     }
     if (set_first_decision && !record_first_comparison) {
         auto decision_requested = std::make_shared<bool>(false);
@@ -657,7 +310,7 @@ void installDesktopSmokeHarness(
     if (!initial_folder.isEmpty()) {
         controller.scanFolder(QUrl::fromLocalFile(initial_folder));
     }
-    if (qEnvironmentVariableIsSet("SHADOW_DESKTOP_SMOKE_TEST")) {
+    if (smoke_test) {
         if (dirty_close_smoke) {
             auto close_started = std::make_shared<bool>(false);
             auto attempt_close = std::make_shared<std::function<void()>>();
@@ -1075,7 +728,18 @@ void installDesktopSmokeHarness(
             QTimer::singleShot(
                 30'000,
                 &application,
-                [&application, comparison_succeeded]() {
+                [&application, &controller, comparison_succeeded]() {
+                    if (!*comparison_succeeded) {
+                        qCritical()
+                            << "Comparison smoke timed out"
+                            << "rows" << controller.reviewModel()->rowCount()
+                            << "scanning" << controller.scanning()
+                            << "refreshing" << controller.refreshing()
+                            << "busy" << controller.comparisonBusy()
+                            << "session evidence"
+                            << controller.sessionEvidenceCount()
+                            << "status" << controller.comparisonStatusText();
+                    }
                     application.exit(*comparison_succeeded ? EXIT_SUCCESS : EXIT_FAILURE);
                 }
             );
@@ -1134,188 +798,29 @@ void installDesktopSmokeHarness(
                 }
             );
         } else if (open_first_edit && full_detail_smoke) {
-            auto requested = std::make_shared<bool>(false);
-            auto succeeded = std::make_shared<bool>(false);
-            QObject::connect(
-                &editor,
-                &EditController::previewSourceChanged,
-                &application,
-                [&application, &engine, &editor, requested]() {
-                    const QString source = editor.previewSource();
-                    if (*requested || source.isEmpty()
-                        || !valid_edit_histogram(editor.histogram(), source)) {
-                        return;
-                    }
-                    *requested = true;
-                    after_qml_preview_ready(
-                        application,
-                        engine,
-                        source,
-                        [&editor]() {
-                            editor.requestDetailViewport(0.5, 0.5, 1'280, 960);
-                        }
-                    );
+            DesktopSmoke::startEditPreviewSession(
+                application,
+                engine,
+                controller,
+                editor,
+                edit_preview_provider,
+                {
+                    .request_before = request_before,
+                    .request_full_detail = true,
                 }
             );
-            QObject::connect(
-                &editor,
-                &EditController::detailTilesChanged,
-                &application,
-                [&application, &editor, edit_preview_provider, succeeded]() {
-                    const QVariantList tiles = editor.detailTiles();
-                    if (tiles.isEmpty() || editor.detailFullWidth() == 0
-                        || editor.detailFullHeight() == 0
-                        || editor.detailRetainedBytes() == 0) {
-                        return;
-                    }
-                    const QVariantMap first = tiles.front().toMap();
-                    QSize decoded_size;
-                    const QImage image = edit_preview_provider->requestImage(
-                        image_provider_request_id(
-                            first.value(QStringLiteral("source")).toString()
-                        ),
-                        &decoded_size,
-                        {}
-                    );
-                    const QSize expected(
-                        first.value(QStringLiteral("width")).toInt(),
-                        first.value(QStringLiteral("height")).toInt()
-                    );
-                    if (image.isNull() || decoded_size != expected
-                        || image.colorSpace() != QColorSpace(QColorSpace::SRgb)) {
-                        return;
-                    }
-                    *succeeded = true;
-                    QTimer::singleShot(50, &application, &QCoreApplication::quit);
-                }
-            );
-            QTimer::singleShot(120'000, &application, [&application, succeeded]() {
-                application.exit(*succeeded ? EXIT_SUCCESS : EXIT_FAILURE);
-            });
         } else if (open_first_edit && grade_stack_smoke) {
-            GradeStackSmoke::start(application, controller, editor);
+            DesktopSmoke::startGradeStackPersistence(application, editor);
         } else if (open_first_edit) {
-            auto current_wait_started = std::make_shared<bool>(false);
-            auto before_wait_started = std::make_shared<bool>(false);
-            auto begin_current_wait = std::make_shared<std::function<void()>>();
-            *begin_current_wait = [
-                &application,
-                &engine,
-                &editor,
-                request_before,
-                current_wait_started
-            ]() {
-                const QString source = editor.previewSource();
-                if (*current_wait_started || source.isEmpty()
-                    || !valid_edit_histogram(editor.histogram(), source)) {
-                    return;
-                }
-                *current_wait_started = true;
-                after_qml_preview_ready(
-                    application,
-                    engine,
-                    source,
-                    [&application, &editor, request_before]() {
-                        if (request_before) {
-                            editor.requestBeforePreview();
-                        } else {
-                            QTimer::singleShot(
-                                50,
-                                &application,
-                                &QCoreApplication::quit
-                            );
-                        }
-                    }
-                );
-            };
-            QObject::connect(
-                &editor,
-                &EditController::previewSourceChanged,
-                &application,
-                [begin_current_wait]() { (*begin_current_wait)(); }
-            );
-            QObject::connect(
-                &editor,
-                &EditController::histogramChanged,
-                &application,
-                [begin_current_wait]() { (*begin_current_wait)(); }
-            );
-            if (request_before) {
-                auto begin_before_wait = std::make_shared<std::function<void()>>();
-                *begin_before_wait = [
-                    &application,
-                    &engine,
-                    &editor,
-                    before_wait_started
-                ]() {
-                    const QString source = editor.beforePreviewSource();
-                    if (*before_wait_started || source.isEmpty()
-                        || !valid_edit_histogram(editor.beforeHistogram(), source)) {
-                        return;
-                    }
-                    *before_wait_started = true;
-                    after_qml_preview_ready(
-                        application,
-                        engine,
-                        source,
-                        [&application]() {
-                            QTimer::singleShot(
-                                50,
-                                &application,
-                                &QCoreApplication::quit
-                            );
-                        }
-                    );
-                };
-                QObject::connect(
-                    &editor,
-                    &EditController::beforePreviewSourceChanged,
-                    &application,
-                    [begin_before_wait]() { (*begin_before_wait)(); }
-                );
-                QObject::connect(
-                    &editor,
-                    &EditController::beforeHistogramChanged,
-                    &application,
-                    [begin_before_wait]() { (*begin_before_wait)(); }
-                );
-            }
-            QTimer::singleShot(
-                30'000,
-                &application,
-                [&application, &engine, &editor, request_before]() {
-                    const QString current_source = editor.previewSource();
-                    const QString before_source = editor.beforePreviewSource();
-                    const bool succeeded = !current_source.isEmpty()
-                        && valid_edit_histogram(editor.histogram(), current_source)
-                        && qml_preview_is_ready(engine, current_source)
-                        && (!request_before
-                            || (!before_source.isEmpty()
-                                && valid_edit_histogram(
-                                    editor.beforeHistogram(),
-                                    before_source
-                                )
-                                && qml_preview_is_ready(engine, before_source)));
-                    if (!succeeded) {
-                        const auto* const workspace = precision_workspace(engine);
-                        qCritical()
-                            << "Edit preview smoke failed"
-                            << "active" << editor.active()
-                            << "state busy" << editor.stateBusy()
-                            << "current source" << current_source
-                            << "current histogram valid"
-                            << valid_edit_histogram(editor.histogram(), current_source)
-                            << "before source" << before_source
-                            << "before histogram valid"
-                            << valid_edit_histogram(
-                                   editor.beforeHistogram(), before_source)
-                            << "QML generation"
-                            << (workspace == nullptr
-                                    ? QStringLiteral("<missing workspace>")
-                                    : workspace->property("readyPreviewGeneration").toString())
-                            << "status" << editor.statusText();
-                    }
-                    application.exit(succeeded ? EXIT_SUCCESS : EXIT_FAILURE);
+            DesktopSmoke::startEditPreviewSession(
+                application,
+                engine,
+                controller,
+                editor,
+                edit_preview_provider,
+                {
+                    .request_before = request_before,
+                    .request_full_detail = false,
                 }
             );
         } else {

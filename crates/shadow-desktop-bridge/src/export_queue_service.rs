@@ -9,10 +9,11 @@
 use std::{collections::BTreeSet, path::Path};
 
 use anyhow::{Context, Result as AnyResult, anyhow, bail};
+use shadow_bridge::{RawDevelopmentPlan, raw_development_plan_identity};
 use shadow_catalog::{
-    AdvanceExportItem, EnqueueExportJob, ExportFailure, ExportItemId, ExportItemRecord,
-    ExportItemState, ExportJobId, ExportSettingsSource, NewExportItem, NewExportOutputReceipt,
-    ReviewItemRecord,
+    AdvanceExportItem, CatalogHandle, EnqueueExportJob, ExportFailure, ExportItemId,
+    ExportItemRecord, ExportItemState, ExportJobId, ExportSettingsSource, NewExportItem,
+    NewExportOutputReceipt, RecipeCommitRecord, ReviewItemRecord,
 };
 use shadow_core::native_location;
 use shadow_domain::{EntityId, RecipeCommitId};
@@ -20,7 +21,12 @@ use uuid::Uuid;
 
 use crate::{digest_hex::encode_hex, wall_clock::current_time_ms};
 
-use super::*;
+use crate::{
+    DesktopSession, ffi,
+    recipe_v1::{
+        decode_grade_stack_draft_from_recipe_v1_snapshot, encode_grade_stack_draft_recipe_v1,
+    },
+};
 
 /// Single semantic owner for the durable catalog queue while `DesktopSession`
 /// remains responsible for source validation and rendering.
@@ -463,35 +469,4 @@ fn item_state_from_ffi(value: ffi::FfiDurableExportItemState) -> AnyResult<Expor
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn settings_snapshot_must_be_a_single_json_object() {
-        let normalized = normalized_settings_json(r#"{ "quality": 92, "format": "jpeg" }"#)
-            .expect("object settings are accepted");
-        let value: serde_json::Value =
-            serde_json::from_str(&normalized).expect("normalized settings remain JSON");
-        assert_eq!(value["quality"], 92);
-        assert!(normalized_settings_json("[]").is_err());
-        assert!(normalized_settings_json("not json").is_err());
-    }
-
-    #[test]
-    fn export_target_requires_complete_absolute_identity() {
-        let output_path = std::env::temp_dir().join("shadow-durable-export-test.jpg");
-        let valid = ffi::FfiDurableExportTarget {
-            photo_id: "photo-id".into(),
-            source_path: "/source/raw.nef".into(),
-            output_path: output_path.display().to_string(),
-        };
-        validate_export_target(&valid).expect("absolute target is valid");
-
-        let invalid = ffi::FfiDurableExportTarget {
-            photo_id: "photo-id".into(),
-            source_path: "/source/raw.nef".into(),
-            output_path: "relative.jpg".into(),
-        };
-        assert!(validate_export_target(&invalid).is_err());
-    }
-}
+mod tests;

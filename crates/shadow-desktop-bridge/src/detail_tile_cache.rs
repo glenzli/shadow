@@ -13,8 +13,8 @@ use shadow_catalog::RepresentationFingerprint;
 use shadow_domain::RepresentationId;
 
 use super::{
-    ffi,
-    session_edit_render::{CachedEditDetailSession, requested_raw_development_plan_cache_matches},
+    ffi, preview_cache_identity::requested_raw_development_plan_cache_matches,
+    session_edit_render::CachedEditDetailSession,
 };
 
 // Keep the decoded full-resolution source and the processed display tiles as

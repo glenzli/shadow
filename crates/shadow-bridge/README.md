@@ -15,8 +15,21 @@ that same private wire representation:
   receipts.
 - [`src/raw_development.rs`](src/raw_development.rs) owns RAW plan values, wire conversion,
   negotiation results, and source-development provenance receipts.
-- [`src/adjustment.rs`](src/adjustment.rs) owns the typed adjustment graph, geometry, local masks,
-  parameters, and their shared fail-closed validation chain.
+- [`src/adjustment/mod.rs`](src/adjustment/mod.rs) is the stable public adjustment index and
+  cross-operation plan composition boundary. Its children are the semantic owners:
+  [`geometry.rs`](src/adjustment/geometry.rs) for the final canvas;
+  [`local_mask.rs`](src/adjustment/local_mask.rs) and
+  [`retouch.rs`](src/adjustment/retouch.rs) for spatial intent;
+  [`oklab_lightness_curve.rs`](src/adjustment/oklab_lightness_curve.rs),
+  [`selective_tone.rs`](src/adjustment/selective_tone.rs),
+  [`perceptual_color.rs`](src/adjustment/perceptual_color.rs), and
+  [`oklab_color_warper.rs`](src/adjustment/oklab_color_warper.rs) for tone/color families;
+  [`detail_effects.rs`](src/adjustment/detail_effects.rs) for the shared 37-value payload and its
+  three pass contracts; and [`lut.rs`](src/adjustment/lut.rs) for bounded immutable LUT documents.
+  [`parameter_validation.rs`](src/adjustment/parameter_validation.rs) is the narrow internal
+  finite/range primitive shared by those validators. The index still owns the Basic Edit
+  compatibility-plan builder and its edited-proxy request until those caller-facing adapters are
+  extracted as the next boundary.
 - [`src/preview_analysis.rs`](src/preview_analysis.rs) owns warm-preview histograms, source
   clipping masks, execution provenance, and fail-closed analysis validation.
 - [`src/preview_session.rs`](src/preview_session.rs) owns reusable warm-preview state,
@@ -32,15 +45,25 @@ that same private wire representation:
 - [`src/lib.rs`](src/lib.rs) is the public module index and the centralized generated CXX wire
   declaration.
 
+On the native side, the public ABI remains in
+[`cxx_bridge.hpp`](../../cpp/shadow-image/include/shadow/image/cxx_bridge.hpp) and its composition
+shim. The internal
+[`adjustment_render_wire.cpp`](../../cpp/shadow-image/src/bridge/adjustment_render_wire.cpp)
+owns the complete Rust-to-C++ Adjustment decoder: every operation variant, local-mask layer
+boundary, retouch target/stroke, node limit, and stable invalid-request diagnostic. Cargo compiles
+it only as part of the `shadow-bridge` CXX shim; it is not a `Shadow::Image` source.
+
 Sharing the CXX representation is not by itself a reason to share one Rust source file. Extract a
 safe contract when it has its own invariants, failure policy, and consumers; keep the wire
 declaration intact unless the generated ABI itself gains a separately versioned boundary.
 
 The adjacent [`src/tests/mod.rs`](src/tests/mod.rs) routes private bridge-contract tests to RAW
-development, display luma, adjustment plans, preview execution, detail sessions, and opt-in real
-source modules. Test fixtures stay with the contract that consumes them. Do not add another
-multi-domain test block to `lib.rs`, and do not split the generated ABI merely to satisfy a line
-count.
+development, display luma, aggregate adjustment plans, Perceptual Color, Oklab Color Warper,
+preview execution, detail sessions, and opt-in real-source modules. The two color contract files
+mirror their production owners while `adjustment_plan.rs` owns compatibility and aggregate plan
+behavior spanning registry validation, Tone Curve, Selective Tone/detail, and retouch. Test
+fixtures stay with the contract that consumes them. Do not add another multi-domain test block to
+`lib.rs`, and do not split the generated ABI merely to satisfy a line count.
 
 The decoder side of the bridge follows this coarse-grained path:
 

@@ -1,6 +1,10 @@
 //! Validation and tile geometry for cancellable full-detail edit requests.
 
-use super::*;
+use anyhow::{Result as AnyResult, anyhow, bail};
+use shadow_bridge::{DetailTileRect, MAX_EDIT_DETAIL_TILE_SIDE};
+use shadow_domain::ImageDimensions;
+
+use crate::ffi;
 
 pub(super) const MAX_DETAIL_VIEWPORT_SIDE: u32 = 8_192;
 const MAX_DETAIL_VIEWPORT_TILES: usize = 100;

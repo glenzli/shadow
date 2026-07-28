@@ -41,7 +41,7 @@ use shadow_domain::{
 
 use crate::ffi;
 
-use super::snapshot_encode::GradeNodeRecipeV1RenderOps;
+use super::snapshot_layout::GradeNodeRecipeV1RenderOps;
 use super::{
     CONTRAST_PIVOT, FineEditParameters, GradeNodeDraft, GradeNodeRecipeV1Identity, GradeStackDraft,
     LutEditParameters, MAX_GRADE_NODES, SharedGradeNodeReference, apply_detail_effect_values,

@@ -5,7 +5,8 @@
 //! - `asset` owns durable asset locations and representation identity;
 //! - `decision` owns photo rating/flag event contracts;
 //! - `decode` owns provider-neutral RAW capability and preview snapshots;
-//! - `edit_repository` owns content-addressed edit storage contracts;
+//! - `edit_repository` indexes content identity, verified objects, Library
+//!   state, and repository history contracts;
 //! - `ids` owns strongly typed persistent identifiers;
 //! - `operation` owns stable operation identifiers;
 //! - `recipe` owns non-destructive edits and immutable history;

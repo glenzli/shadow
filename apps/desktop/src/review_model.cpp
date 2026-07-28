@@ -1,8 +1,8 @@
 #include "review_model.hpp"
 
+#include "review_visual_request.hpp"
+
 #include <QSet>
-#include <QUrl>
-#include <QUrlQuery>
 #include <QVariant>
 
 #include <algorithm>
@@ -198,7 +198,11 @@ QVariant ReviewModel::data(const QModelIndex& index, const int role) const {
         if (!item.has_visual) {
             return QString{};
         }
-        return visualSourceFor(item.visual_handle);
+        return reviewVisualSource(
+            item.visual_handle,
+            generation_.load(std::memory_order_acquire),
+            ReviewVisualLifetime::Grid
+        );
     case HasMetadataRole: return item.has_metadata;
     case CameraMakeRole: return item.camera_make;
     case CameraModelRole: return item.camera_model;
@@ -318,8 +322,18 @@ void ReviewModel::replace(QVector<ReviewItem> items, const quint64 generation) {
     endResetModel();
 }
 
-void ReviewModel::setGeneration(const quint64 generation) noexcept {
-    generation_.store(generation, std::memory_order_release);
+void ReviewModel::setGeneration(const quint64 generation) {
+    const quint64 previous =
+        generation_.exchange(generation, std::memory_order_acq_rel);
+    if (previous == generation || items_.isEmpty()) {
+        return;
+    }
+
+    emit dataChanged(
+        index(0, 0),
+        index(static_cast<int>(items_.size() - 1), 0),
+        {VisualSourceRole}
+    );
 }
 
 void ReviewModel::append(QVector<ReviewItem> items) {
@@ -463,20 +477,11 @@ bool ReviewModel::isGenerationCurrent(const quint64 generation) const noexcept {
 }
 
 QString ReviewModel::visualSourceFor(const QString& ticket) const {
-    if (ticket.isEmpty()) {
-        return {};
-    }
-    QUrlQuery query;
-    query.addQueryItem(
-        QStringLiteral("generation"),
-        QString::number(generation_.load(std::memory_order_acquire))
+    return reviewVisualSource(
+        ticket,
+        generation_.load(std::memory_order_acquire),
+        ReviewVisualLifetime::Comparison
     );
-    query.addQueryItem(
-        QStringLiteral("ticket"),
-        QString::fromLatin1(QUrl::toPercentEncoding(ticket))
-    );
-    return QStringLiteral("image://shadow/visual?%1")
-        .arg(query.toString(QUrl::FullyEncoded));
 }
 
 std::optional<ReviewDecisionValue> ReviewModel::decisionFor(

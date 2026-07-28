@@ -1,6 +1,9 @@
 //! Bounded JPEG display-luma decoding and validation contracts.
 
-use super::*;
+use crate::{
+    BridgeError, JPEG_DISPLAY_LUMA_PREPROCESSING_VERSION_PREFIX, MAX_JPEG_DISPLAY_LUMA_EDGE,
+    decode_jpeg_display_luma,
+};
 
 const TINY_GRAYSCALE_JPEG: &[u8] = &[
     0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01,

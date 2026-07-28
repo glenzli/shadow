@@ -76,7 +76,7 @@ pub use recipe::{
     CommitRecipe, RecipeCommitRecord, RecipeRefExpectation, RecipeRefKind, RecipeRefRecord,
     RecipeRefTarget, SetRecipeRef,
 };
-pub use review::{ReviewCursor, ReviewItemRecord, ReviewPageRecord};
+pub use review::{PhotoInspectionRecord, ReviewCursor, ReviewItemRecord, ReviewPageRecord};
 pub use store::CatalogStore;
 pub use technical_observation::{
     RecordTechnicalObservation, RecordTechnicalObservationStatus, TechnicalObservationRecord,

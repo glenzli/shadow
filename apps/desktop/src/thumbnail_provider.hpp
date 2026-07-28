@@ -8,6 +8,7 @@
 
 class DesktopBackend;
 class ReviewModel;
+struct ReviewVisualRequest;
 
 class ThumbnailProvider final : public QQuickImageProvider {
 public:
@@ -21,8 +22,7 @@ public:
 
 private:
     [[nodiscard]] static QString cacheKey(
-        const QString& ticket,
-        quint64 generation,
+        const ReviewVisualRequest& request,
         const QSize& requested_size
     );
     [[nodiscard]] static int imageCacheCost(const QImage& image) noexcept;

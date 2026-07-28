@@ -13,8 +13,4 @@ pub use snapshot_store::{
 };
 
 #[cfg(test)]
-mod output_freshness_tests;
-#[cfg(test)]
-mod snapshot_store_tests;
-#[cfg(test)]
-mod test_support;
+mod tests;

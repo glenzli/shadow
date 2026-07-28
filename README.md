@@ -72,8 +72,10 @@ RAW/DNG → bounded full-size u16 reference session → exact level-zero RGB8 de
 ```sh
 cargo xtask check
 cargo xtask test
+cargo xtask test-layout
 cargo xtask doctor
 cargo xtask native-check
+cargo xtask desktop-i18n-check
 cargo xtask desktop-build
 cargo xtask raw-smoke ./local-reference/sample-assets/raw
 cargo run --package shadow-cli -- init ./catalogs/demo.sqlite

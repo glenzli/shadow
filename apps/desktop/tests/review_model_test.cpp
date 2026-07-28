@@ -41,6 +41,8 @@ struct ModelSignalCounts final {
     int removed_rows = 0;
     int moved = 0;
     int changed = 0;
+    int first_changed_row = -1;
+    int last_changed_row = -1;
     QList<int> last_changed_roles;
 };
 
@@ -78,8 +80,14 @@ void observe_model(ReviewModel& model, ModelSignalCounts& counts) {
     QObject::connect(
         &model,
         &QAbstractItemModel::dataChanged,
-        [&counts](const QModelIndex&, const QModelIndex&, const QList<int>& roles) {
+        [&counts](
+            const QModelIndex& top_left,
+            const QModelIndex& bottom_right,
+            const QList<int>& roles
+        ) {
             ++counts.changed;
+            counts.first_changed_row = top_left.row();
+            counts.last_changed_row = bottom_right.row();
             counts.last_changed_roles = roles;
         }
     );
@@ -376,9 +384,11 @@ void visual_sources_use_encoded_tickets_and_current_generation() {
     require(
         query.queryItemValue(QStringLiteral("generation"), QUrl::FullyDecoded)
                 == QStringLiteral("7")
+            && query.queryItemValue(QStringLiteral("lifetime"), QUrl::FullyDecoded)
+                == QStringLiteral("grid")
             && query.queryItemValue(QStringLiteral("ticket"), QUrl::FullyDecoded)
                 == grid_ticket,
-        "visual source must preserve the exact opaque ticket and generation"
+        "grid source must preserve the exact opaque ticket, generation, and lifetime"
     );
     require(
         !source_text.contains(QStringLiteral("representation-should-not-be-used")),
@@ -395,6 +405,11 @@ void visual_sources_use_encoded_tickets_and_current_generation() {
                    QUrl::FullyDecoded
                )
                 == QStringLiteral("7")
+            && comparison_query.queryItemValue(
+                   QStringLiteral("lifetime"),
+                   QUrl::FullyDecoded
+               )
+                == QStringLiteral("comparison")
             && comparison_query.queryItemValue(
                    QStringLiteral("ticket"),
                    QUrl::FullyDecoded
@@ -420,6 +435,50 @@ void visual_sources_use_encoded_tickets_and_current_generation() {
                 .queryItemValue(QStringLiteral("generation"), QUrl::FullyDecoded)
             == QStringLiteral("8"),
         "comparison sources must always use the current model generation"
+    );
+}
+
+void generation_advance_reissues_retained_visual_sources() {
+    ReviewItem first = keyed_item("a", "A");
+    first.visual_handle = QStringLiteral("visual-a");
+    first.has_visual = true;
+    ReviewItem second = keyed_item("b", "B");
+    second.visual_handle = QStringLiteral("visual-b");
+    second.has_visual = true;
+
+    ReviewModel model;
+    model.replace({first, second}, 2);
+    const QString old_source =
+        value(model, 0, ReviewModel::VisualSourceRole).toString();
+    ModelSignalCounts observed;
+    observe_model(model, observed);
+
+    model.setGeneration(3);
+
+    const QString current_source =
+        value(model, 0, ReviewModel::VisualSourceRole).toString();
+    require(
+        model.isGenerationCurrent(3) && current_source != old_source
+            && QUrlQuery(QUrl(current_source))
+                    .queryItemValue(QStringLiteral("generation"), QUrl::FullyDecoded)
+                == QStringLiteral("3")
+            && QUrlQuery(QUrl(current_source))
+                    .queryItemValue(QStringLiteral("lifetime"), QUrl::FullyDecoded)
+                == QStringLiteral("grid"),
+        "advancing the generation must bind retained visuals to the current provider URL"
+    );
+    require(
+        observed.resets == 0 && observed.inserted == 0 && observed.removed == 0
+            && observed.moved == 0 && observed.changed == 1
+            && observed.first_changed_row == 0 && observed.last_changed_row == 1
+            && observed.last_changed_roles == QList<int>{ReviewModel::VisualSourceRole},
+        "generation advance must reissue every retained visual in one precise role update"
+    );
+
+    model.setGeneration(3);
+    require(
+        observed.changed == 1,
+        "setting the current generation again must be a signal-free no-op"
     );
 }
 
@@ -796,6 +855,7 @@ int main() {
     library_state_is_catalog_authoritative_and_photo_scoped();
     decision_updates_project_to_the_single_photo_row();
     visual_sources_use_encoded_tickets_and_current_generation();
+    generation_advance_reissues_retained_visual_sources();
     absence_and_legitimate_zero_are_distinct();
     replace_and_append_keep_their_items_intact();
     snapshot_reconciliation_updates_visual_and_technical_roles_in_place();

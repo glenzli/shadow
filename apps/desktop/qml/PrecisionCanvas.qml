@@ -141,40 +141,6 @@ Rectangle {
         return match && match.length > 1 ? decodeURIComponent(match[1]) : ""
     }
 
-    function previewNormalizedPoint(sourceItem, sourceX, sourceY) {
-        if (!previewFrameReadyState || readyPreviewGenerationState.length === 0
-                || editedPreview.status !== Image.Ready)
-            return null
-        const mapped = editedPreview.mapFromItem(sourceItem, sourceX, sourceY)
-        const paintedWidth = Math.max(1, editedPreview.paintedWidth)
-        const paintedHeight = Math.max(1, editedPreview.paintedHeight)
-        const paintedX = (editedPreview.width - paintedWidth) / 2
-        const paintedY = (editedPreview.height - paintedHeight) / 2
-        if (mapped.x < paintedX || mapped.y < paintedY
-                || mapped.x > paintedX + paintedWidth
-                || mapped.y > paintedY + paintedHeight)
-            return null
-        const normalizedX = Math.max(0, Math.min(
-            1, (mapped.x - paintedX) / paintedWidth))
-        const normalizedY = Math.max(0, Math.min(
-            1, (mapped.y - paintedY) / paintedHeight))
-        return Qt.point(normalizedX, normalizedY)
-    }
-
-    function pickPreviewColor(sourceItem, sourceX, sourceY) {
-        const normalized = previewNormalizedPoint(sourceItem, sourceX, sourceY)
-        if (normalized === null)
-            return
-        if (editor.retouchPickerActive)
-            editor.addRetouchSpotFromPreview(normalized.x, normalized.y)
-        else if (editor.whiteBalancePickerActive)
-            editor.setWhiteBalanceFromPreview(
-                normalized.x, normalized.y, readyPreviewGenerationState)
-        else
-            editor.addPointColorFromPreview(
-                normalized.x, normalized.y, readyPreviewGenerationState)
-    }
-
     function comparisonModeName(mode) {
         if (mode === comparisonWhole)
             return qsTr("Original only")
@@ -1016,185 +982,22 @@ Rectangle {
                             levelZeroHeight: canvas.imagePixelHeight
                         }
 
-                        MouseArea {
-                            id: pointColorPickArea
+                        PrecisionCanvasPickerInput {
                             anchors.fill: parent
                             z: 100
-                            enabled: (canvas.editor.pointColorPickerActive
+                            editor: canvas.editor
+                            previewImage: editedPreview
+                            previewFrameReady: canvas.previewFrameReady
+                            readyPreviewGeneration:
+                                canvas.readyPreviewGeneration
+                            displayScale: canvas.displayScale
+                            interactionEnabled:
+                                (canvas.editor.pointColorPickerActive
                                     || canvas.editor.whiteBalancePickerActive
                                     || canvas.editor.retouchPickerActive)
                                 && !canvas.comparisonActive
                                 && canvas.previewFrameReady
                                 && canvas.readyPreviewGeneration.length > 0
-                            hoverEnabled: true
-                            cursorShape: enabled ? Qt.BlankCursor : Qt.ArrowCursor
-                            // Painting is a direct-manipulation gesture. Do
-                            // not let the zoomable preview Flickable convert
-                            // it into a pan after the first brush stamp.
-                            preventStealing: true
-                            property real pointerX: width / 2
-                            property real pointerY: height / 2
-                            property bool retouchGestureActive: false
-                            property bool retouchStrokeActive: false
-                            property real retouchPressX: -1
-                            property real retouchPressY: -1
-                            property real lastRetouchStrokeX: -1
-                            property real lastRetouchStrokeY: -1
-                            property var retouchPressPoint: null
-
-                            function retouchBrushDiameter() {
-                                // The persisted repair target has an 18px
-                                // level-zero radius. Match its visible
-                                // diameter rather than creating a second
-                                // brush-size contract in the canvas.
-                                return Math.max(18, 36 * canvas.displayScale)
-                            }
-
-                            function normalizedRetouchPoint(mouse) {
-                                return canvas.previewNormalizedPoint(
-                                    pointColorPickArea, mouse.x, mouse.y)
-                            }
-
-                            function appendRetouchStrokePoint(mouse, force) {
-                                const normalized = canvas.previewNormalizedPoint(
-                                    pointColorPickArea, mouse.x, mouse.y)
-                                if (normalized === null)
-                                    return
-                                // Keep a compact sampled path while leaving
-                                // the renderer responsible for joining every
-                                // adjacent pair into one swept brush region.
-                                const minimumSpacing = Math.max(
-                                    2, retouchBrushDiameter() * 0.18)
-                                if (!force
-                                        && Math.hypot(
-                                            mouse.x - lastRetouchStrokeX,
-                                            mouse.y - lastRetouchStrokeY
-                                        ) < minimumSpacing) {
-                                    return
-                                }
-                                canvas.editor.appendRetouchStrokePoint(
-                                    normalized.x, normalized.y)
-                                lastRetouchStrokeX = mouse.x
-                                lastRetouchStrokeY = mouse.y
-                            }
-
-                            function finishRetouchGesture(mouse) {
-                                if (!retouchGestureActive)
-                                    return
-                                if (retouchStrokeActive) {
-                                    if (mouse !== undefined && mouse !== null)
-                                        appendRetouchStrokePoint(mouse, true)
-                                    canvas.editor.endRetouchStroke()
-                                } else if (retouchPressPoint !== null) {
-                                    // A click remains a single legacy spot:
-                                    // existing recipes and the precise spot
-                                    // workflow keep their original behavior.
-                                    canvas.editor.addRetouchSpotFromPreview(
-                                        retouchPressPoint.x,
-                                        retouchPressPoint.y)
-                                }
-                                retouchGestureActive = false
-                                retouchStrokeActive = false
-                                retouchPressPoint = null
-                                retouchPressX = -1
-                                retouchPressY = -1
-                                lastRetouchStrokeX = -1
-                                lastRetouchStrokeY = -1
-                            }
-                            onPositionChanged: mouse => {
-                                pointerX = mouse.x
-                                pointerY = mouse.y
-                                if (!pressed || !retouchGestureActive)
-                                    return
-                                if (!retouchStrokeActive) {
-                                    const dragThreshold = Math.max(
-                                        3, retouchBrushDiameter() * 0.12)
-                                    if (Math.hypot(
-                                            mouse.x - retouchPressX,
-                                            mouse.y - retouchPressY
-                                        ) < dragThreshold) {
-                                        return
-                                    }
-                                    canvas.editor.beginRetouchStroke(
-                                        retouchPressPoint.x,
-                                        retouchPressPoint.y)
-                                    retouchStrokeActive = true
-                                    lastRetouchStrokeX = retouchPressX
-                                    lastRetouchStrokeY = retouchPressY
-                                }
-                                appendRetouchStrokePoint(mouse, false)
-                            }
-                            onPressed: mouse => {
-                                pointerX = mouse.x
-                                pointerY = mouse.y
-                                if (!canvas.editor.retouchPickerActive)
-                                    return
-                                const normalized = normalizedRetouchPoint(mouse)
-                                if (normalized === null)
-                                    return
-                                retouchGestureActive = true
-                                retouchStrokeActive = false
-                                retouchPressX = mouse.x
-                                retouchPressY = mouse.y
-                                retouchPressPoint = normalized
-                            }
-                            onReleased: mouse => finishRetouchGesture(mouse)
-                            onCanceled: finishRetouchGesture(null)
-                            onClicked: mouse => {
-                                if (!canvas.editor.retouchPickerActive) {
-                                    canvas.pickPreviewColor(
-                                        pointColorPickArea, mouse.x, mouse.y)
-                                }
-                            }
-                        }
-
-                        Item {
-                            z: 101
-                            visible: pointColorPickArea.enabled
-                                && pointColorPickArea.containsMouse
-                            x: pointColorPickArea.pointerX
-                            y: pointColorPickArea.pointerY
-
-                            Rectangle {
-                                visible: canvas.editor.retouchPickerActive
-                                anchors.centerIn: parent
-                                width: Math.max(18, 36 * canvas.displayScale)
-                                height: width
-                                radius: width / 2
-                                color: Theme.transparent
-                                border.width: 1
-                                border.color: Theme.previewCompareDivider
-
-                                Rectangle {
-                                    anchors.fill: parent
-                                    anchors.margins: 1
-                                    radius: width / 2
-                                    color: Theme.transparent
-                                    border.width: 1
-                                    border.color: Theme.accent
-                                }
-                            }
-
-                            Item {
-                                visible: !canvas.editor.retouchPickerActive
-                                x: -6
-                                y: -19
-                                width: 24
-                                height: 24
-
-                                ShadowIcon {
-                                    x: 1
-                                    y: 1
-                                    source: "qrc:/icons/eyedropper.svg"
-                                    color: Theme.previewHudStrongOverlay
-                                    size: 24
-                                }
-                                ShadowIcon {
-                                    source: "qrc:/icons/eyedropper.svg"
-                                    color: Theme.previewCompareDivider
-                                    size: 24
-                                }
-                            }
                         }
                     }
 

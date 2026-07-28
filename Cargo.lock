@@ -750,6 +750,7 @@ dependencies = [
  "serde_json",
  "shadow-catalog",
  "shadow-domain",
+ "syn 2.0.119",
 ]
 
 [[package]]

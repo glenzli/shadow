@@ -477,7 +477,7 @@ fn run_phase(
     for switch in switches {
         command.env(switch, "1");
     }
-    run_checked(&mut command, phase)
+    run_desktop_checked(&mut command, phase)
 }
 
 fn resolve_fixture_directory(
@@ -528,14 +528,75 @@ fn release_desktop_executable(repository_root: &Path) -> io::Result<PathBuf> {
 
 fn run_checked(command: &mut Command, context: &str) -> io::Result<()> {
     let output = command.output()?;
+    emit_process_output(context, &output);
     if output.status.success() {
         return Ok(());
     }
+    Err(process_failure(context, &output))
+}
+
+fn run_desktop_checked(command: &mut Command, context: &str) -> io::Result<()> {
+    let output = command.output()?;
+    emit_process_output(context, &output);
+    if !output.status.success() {
+        return Err(process_failure(context, &output));
+    }
+    let diagnostics = unexpected_desktop_diagnostics(&output);
+    if diagnostics.is_empty() {
+        return Ok(());
+    }
     Err(io::Error::other(format!(
+        "{context} emitted unexpected desktop runtime diagnostics:\n{}",
+        diagnostics.join("\n")
+    )))
+}
+
+fn process_failure(context: &str, output: &Output) -> io::Error {
+    io::Error::other(format!(
         "{context} exited with status {}\n{}",
         output.status,
-        output_summary(&output)
-    )))
+        output_summary(output)
+    ))
+}
+
+fn emit_process_output(context: &str, output: &Output) {
+    if output.stdout.is_empty() && output.stderr.is_empty() {
+        return;
+    }
+    println!("{context} process output:\n{}", output_summary(output));
+}
+
+fn unexpected_desktop_diagnostics(output: &Output) -> Vec<String> {
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    unexpected_desktop_diagnostic_lines(&format!("{stderr}\n{stdout}"))
+}
+
+fn unexpected_desktop_diagnostic_lines(output: &str) -> Vec<String> {
+    output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && is_unexpected_desktop_diagnostic(line))
+        .take(16)
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
+fn is_unexpected_desktop_diagnostic(line: &str) -> bool {
+    [
+        "QQmlApplicationEngine failed",
+        "QQmlComponent: Component is not ready",
+        "Failed to load component",
+        "ReferenceError:",
+        "TypeError:",
+        "Binding loop detected",
+        "Cannot assign",
+        "Unable to assign",
+        "QObject::connect:",
+    ]
+    .iter()
+    .any(|signature| line.contains(signature))
+        || (line.contains("module \"") && line.contains("is not installed"))
 }
 
 fn output_summary(output: &Output) -> String {
@@ -582,22 +643,4 @@ impl AcceptanceSession {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn utf8_tail_starts_at_a_character_boundary() {
-        assert_eq!(utf8_tail("ab中文", 4), "文");
-    }
-
-    #[test]
-    fn optimized_desktop_bundle_is_outside_the_shared_source_root() {
-        let root = Path::new("/tmp/shadow-workspace");
-        assert_eq!(
-            release_desktop_executable(root).expect("derive desktop app path"),
-            PathBuf::from(
-                "/tmp/.shadow-local-build/desktop-release/apps/desktop/Shadow.app/Contents/MacOS/Shadow"
-            )
-        );
-    }
-}
+mod tests;

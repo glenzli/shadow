@@ -12,55 +12,71 @@ Item {
     required property var controller
     required property var justifiedReviewLayout
     required property var preferences
-    property var selectedPhotoTargets: ({})
-    // This is deliberately identity-based rather than a delegate index: the
-    // justified grid virtualizes delegates, while Shift selection must stay
-    // correct across rows that are currently off screen.
-    property string selectionAnchorPhotoId: ""
-    property string selectionAnchorRepresentationId: ""
-    property string selectedPhotoId: ""
-    property string selectedRepresentationId: ""
-    property string selectedVisualHandle: ""
-    property var selectedDecisionHeadSequence: 0
-    property string selectedDecisionFlag: "unflagged"
-    property int selectedDecisionRating: 0
-    property bool selectedLiked: false
-    property string selectedColorLabel: "none"
-    property string selectedTitle: ""
-    property string selectedPath: ""
-    property string selectedRole: ""
-    property string selectedVisualSource: ""
-    property int selectedWidth: 0
-    property int selectedHeight: 0
-    property bool selectedHasMetadata: false
-    property string selectedCameraMake: ""
-    property string selectedCameraModel: ""
-    property string selectedLensMake: ""
-    property string selectedLensModel: ""
-    property var selectedCapturedAtUnixSeconds: 0
-    property real selectedIsoSpeed: 0.0
-    property real selectedExposureTimeSeconds: 0.0
-    property real selectedApertureFNumber: 0.0
-    property real selectedFocalLengthMm: 0.0
-    property real selectedFocalLength35mm: 0.0
-    property int selectedRawWidth: 0
-    property int selectedRawHeight: 0
-    property int selectedSensorBits: 0
-    property string selectedCfaPattern: ""
-    property string selectedDngVersion: ""
-    property bool selectedHasTechnicalObservation: false
-    property int selectedTechnicalInputWidth: 0
-    property int selectedTechnicalInputHeight: 0
-    property string selectedTechnicalPreprocessingVersion: ""
-    property string selectedTechnicalImplementationVersion: ""
-    property real selectedMeanLuma: 0.0
-    property real selectedP01Luma: 0.0
-    property real selectedP50Luma: 0.0
-    property real selectedP99Luma: 0.0
-    property real selectedNearBlackFraction: 0.0
-    property real selectedNearWhiteFraction: 0.0
-    property real selectedLaplacianVariance: 0.0
-    property real selectedEdgeEnergy: 0.0
+
+    ReviewSelectionState {
+        id: selectionState
+        controller: review.controller
+        onPrimaryContextInvalidated: review.precisionOpenStatus = ""
+    }
+
+    readonly property alias selectedPhotoId: selectionState.selectedPhotoId
+    readonly property alias selectedRepresentationId:
+        selectionState.selectedRepresentationId
+    readonly property alias selectedVisualHandle: selectionState.selectedVisualHandle
+    readonly property alias selectedDecisionHeadSequence:
+        selectionState.selectedDecisionHeadSequence
+    readonly property alias selectedDecisionFlag: selectionState.selectedDecisionFlag
+    readonly property alias selectedDecisionRating: selectionState.selectedDecisionRating
+    readonly property alias selectedLiked: selectionState.selectedLiked
+    readonly property alias selectedColorLabel: selectionState.selectedColorLabel
+    readonly property alias selectedTitle: selectionState.selectedTitle
+    readonly property alias selectedPath: selectionState.selectedPath
+    readonly property alias selectedRole: selectionState.selectedRole
+    readonly property alias selectedVisualSource: selectionState.selectedVisualSource
+    readonly property alias selectedWidth: selectionState.selectedWidth
+    readonly property alias selectedHeight: selectionState.selectedHeight
+    readonly property alias selectedHasMetadata: selectionState.selectedHasMetadata
+    readonly property alias selectedCameraMake: selectionState.selectedCameraMake
+    readonly property alias selectedCameraModel: selectionState.selectedCameraModel
+    readonly property alias selectedLensMake: selectionState.selectedLensMake
+    readonly property alias selectedLensModel: selectionState.selectedLensModel
+    readonly property alias selectedCapturedAtUnixSeconds:
+        selectionState.selectedCapturedAtUnixSeconds
+    readonly property alias selectedIsoSpeed: selectionState.selectedIsoSpeed
+    readonly property alias selectedExposureTimeSeconds:
+        selectionState.selectedExposureTimeSeconds
+    readonly property alias selectedApertureFNumber:
+        selectionState.selectedApertureFNumber
+    readonly property alias selectedFocalLengthMm: selectionState.selectedFocalLengthMm
+    readonly property alias selectedFocalLength35mm:
+        selectionState.selectedFocalLength35mm
+    readonly property alias selectedRawWidth: selectionState.selectedRawWidth
+    readonly property alias selectedRawHeight: selectionState.selectedRawHeight
+    readonly property alias selectedSensorBits: selectionState.selectedSensorBits
+    readonly property alias selectedCfaPattern: selectionState.selectedCfaPattern
+    readonly property alias selectedDngVersion: selectionState.selectedDngVersion
+    readonly property alias selectedHasTechnicalObservation:
+        selectionState.selectedHasTechnicalObservation
+    readonly property alias selectedTechnicalInputWidth:
+        selectionState.selectedTechnicalInputWidth
+    readonly property alias selectedTechnicalInputHeight:
+        selectionState.selectedTechnicalInputHeight
+    readonly property alias selectedTechnicalPreprocessingVersion:
+        selectionState.selectedTechnicalPreprocessingVersion
+    readonly property alias selectedTechnicalImplementationVersion:
+        selectionState.selectedTechnicalImplementationVersion
+    readonly property alias selectedMeanLuma: selectionState.selectedMeanLuma
+    readonly property alias selectedP01Luma: selectionState.selectedP01Luma
+    readonly property alias selectedP50Luma: selectionState.selectedP50Luma
+    readonly property alias selectedP99Luma: selectionState.selectedP99Luma
+    readonly property alias selectedNearBlackFraction:
+        selectionState.selectedNearBlackFraction
+    readonly property alias selectedNearWhiteFraction:
+        selectionState.selectedNearWhiteFraction
+    readonly property alias selectedLaplacianVariance:
+        selectionState.selectedLaplacianVariance
+    readonly property alias selectedEdgeEnergy: selectionState.selectedEdgeEnergy
+    readonly property alias selectedPhotoCount: selectionState.selectedPhotoCount
     property var leftComparisonSnapshot: null
     property var rightComparisonSnapshot: null
     property bool leftComparisonVisualReady: false
@@ -102,8 +118,6 @@ Item {
         && !controller.refreshing
         && !controller.busy && !controller.loadingMore
         && !controller.comparisonBusy && !controller.decisionBusy
-    readonly property int selectedPhotoCount:
-        Object.keys(selectedPhotoTargets).length
     readonly property var currentLibraryAlbum: {
         const albums = controller.libraryAlbums
         const selectedId = String(controller.libraryAlbumId)
@@ -161,377 +175,23 @@ Item {
         photoTitle: review.selectedTitle
         sourcePath: review.selectedPath
         hasMetadata: review.selectedHasMetadata
-        metadataPending: review.controller.scanning || review.controller.refreshing
+        metadataPending: review.controller.photoInspectionBusy
+        metadataFailed: review.controller.photoInspectionFailed
         fields: review.metadataFields()
+        onRetryRequested: review.controller.retryPhotoInspection()
     }
 
     LibraryFacetPopup {
         id: libraryFacetPopup
         controller: review.controller
     }
-    Popup {
-        id: albumCreatePopup
-        parent: Overlay.overlay
-        modal: true
-        focus: true
-        width: Math.min(330, review.width - 40)
-        x: Math.round((parent.width - width) / 2)
-        y: Math.round((parent.height - height) / 2)
-        padding: 16
-        property string creationKind: "manual"
 
-        onOpened: {
-            if (!review.hasActiveLibraryFilter)
-                creationKind = "manual"
-            albumNameInput.text = ""
-            albumNameInput.forceActiveFocus()
-        }
-
-        background: Rectangle {
-            radius: Theme.controlRadius
-            color: Theme.panelRaised
-            border.width: 1
-            border.color: Theme.borderStrong
-        }
-
-        contentItem: ColumnLayout {
-            spacing: 12
-
-            Label {
-                Layout.fillWidth: true
-                text: qsTr("Create album")
-                color: Theme.textPrimary
-                font.pixelSize: Theme.fontSection
-                font.weight: Font.DemiBold
-            }
-
-            Label {
-                Layout.fillWidth: true
-                text: albumCreatePopup.creationKind === "condition"
-                    ? qsTr("A Condition Album keeps the current Library conditions as a reusable view.")
-                    : qsTr("An Album holds only the photos you add to it.")
-                color: Theme.textMuted
-                font.pixelSize: Theme.fontMeta
-                wrapMode: Text.WordWrap
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 6
-
-                ShadowButton {
-                    Layout.fillWidth: true
-                    compact: true
-                    text: qsTr("Album")
-                    selected: albumCreatePopup.creationKind === "manual"
-                    onClicked: albumCreatePopup.creationKind = "manual"
-                }
-
-                ShadowButton {
-                    Layout.fillWidth: true
-                    compact: true
-                    text: qsTr("Condition")
-                    selected: albumCreatePopup.creationKind === "condition"
-                    enabled: review.hasActiveLibraryFilter
-                    toolTipText: enabled
-                        ? qsTr("Save the current Library conditions")
-                        : qsTr("Set at least one Library condition first")
-                    accessibleName: toolTipText
-                    onClicked: albumCreatePopup.creationKind = "condition"
-                }
-
-                ShadowButton {
-                    Layout.fillWidth: true
-                    compact: true
-                    text: qsTr("Smart")
-                    enabled: false
-                    toolTipText: qsTr("AI-driven Smart Albums are not available yet")
-                    accessibleName: toolTipText
-                }
-            }
-
-            TextField {
-                id: albumNameInput
-                Layout.fillWidth: true
-                placeholderText: qsTr("Album name")
-                selectByMouse: true
-                onAccepted: createAlbumButton.clicked()
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 8
-
-                Item { Layout.fillWidth: true }
-
-                ShadowButton {
-                    compact: true
-                    text: qsTr("Cancel")
-                    onClicked: albumCreatePopup.close()
-                }
-
-                ShadowButton {
-                    id: createAlbumButton
-                    compact: true
-                    variant: ShadowButton.Primary
-                    text: qsTr("Create")
-                    enabled: albumNameInput.text.trim().length > 0
-                        && !review.controller.libraryAlbumsBusy
-                    onClicked: {
-                        if (albumCreatePopup.creationKind === "condition")
-                            review.controller.createSmartLibraryAlbum(albumNameInput.text)
-                        else
-                            review.controller.createManualLibraryAlbum(albumNameInput.text)
-                        albumCreatePopup.close()
-                    }
-                }
-            }
-        }
-    }
-
-    Popup {
-        id: albumMembershipPopup
-        parent: Overlay.overlay
-        modal: true
-        focus: true
-        width: Math.min(336, review.width - 40)
-        x: Math.round((parent.width - width) / 2)
-        y: Math.round((parent.height - height) / 2)
-        padding: 16
-        property var targets: []
-
-        background: Rectangle {
-            radius: Theme.controlRadius
-            color: Theme.panelRaised
-            border.width: 1
-            border.color: Theme.borderStrong
-        }
-
-        contentItem: ColumnLayout {
-            spacing: 12
-
-            Label {
-                Layout.fillWidth: true
-                text: qsTr("Add to Manual Album")
-                color: Theme.textPrimary
-                font.pixelSize: Theme.fontSection
-                font.weight: Font.DemiBold
-            }
-
-            Label {
-                Layout.fillWidth: true
-                text: qsTr("Add %L1 selected photos to an album.").arg(
-                    albumMembershipPopup.targets.length)
-                color: Theme.textMuted
-                font.pixelSize: Theme.fontMeta
-                wrapMode: Text.WordWrap
-            }
-
-            ListView {
-                id: manualAlbumPicker
-                Layout.fillWidth: true
-                Layout.preferredHeight: Math.min(contentHeight, 192)
-                visible: count > 0
-                clip: true
-                spacing: 4
-                model: review.manualLibraryAlbums
-
-                delegate: ShadowButton {
-                    required property var modelData
-                    width: manualAlbumPicker.width
-                    compact: true
-                    text: String(modelData.name)
-                    enabled: !review.controller.libraryAlbumsBusy
-                    onClicked: {
-                        review.controller.addPhotosToManualLibraryAlbum(
-                            String(modelData.id),
-                            albumMembershipPopup.targets)
-                        albumMembershipPopup.close()
-                    }
-                }
-            }
-
-            Label {
-                Layout.fillWidth: true
-                visible: review.manualLibraryAlbums.length === 0
-                text: qsTr("Create a Manual Album first, then add photos here.")
-                color: Theme.textMuted
-                font.pixelSize: Theme.fontMeta
-                wrapMode: Text.WordWrap
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                Item { Layout.fillWidth: true }
-
-                ShadowButton {
-                    compact: true
-                    text: qsTr("Cancel")
-                    onClicked: albumMembershipPopup.close()
-                }
-            }
-        }
-    }
-
-    Popup {
-        id: albumManagePopup
-        parent: Overlay.overlay
-        modal: true
-        focus: true
-        width: Math.min(342, review.width - 40)
-        x: Math.round((parent.width - width) / 2)
-        y: Math.round((parent.height - height) / 2)
-        padding: 16
-        property string albumId: ""
-        property string albumName: ""
-        property string albumKind: "manual"
-
-        onOpened: {
-            albumRenameInput.text = albumName
-            albumRenameInput.selectAll()
-            albumRenameInput.forceActiveFocus()
-        }
-
-        background: Rectangle {
-            radius: Theme.controlRadius
-            color: Theme.panelRaised
-            border.width: 1
-            border.color: Theme.borderStrong
-        }
-
-        contentItem: ColumnLayout {
-            spacing: 12
-
-            Label {
-                Layout.fillWidth: true
-                text: qsTr("Manage album")
-                color: Theme.textPrimary
-                font.pixelSize: Theme.fontSection
-                font.weight: Font.DemiBold
-            }
-
-            Label {
-                Layout.fillWidth: true
-                text: albumManagePopup.albumKind === "smart"
-                    ? qsTr("Filtered Album") : qsTr("Manual Album")
-                color: Theme.textMuted
-                font.pixelSize: Theme.fontMeta
-            }
-
-            TextField {
-                id: albumRenameInput
-                Layout.fillWidth: true
-                selectByMouse: true
-                onAccepted: renameAlbumButton.clicked()
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 8
-
-                ShadowButton {
-                    compact: true
-                    variant: ShadowButton.Danger
-                    text: qsTr("Delete")
-                    enabled: !review.controller.libraryAlbumsBusy
-                    onClicked: {
-                        albumDeletePopup.albumId = albumManagePopup.albumId
-                        albumDeletePopup.albumName = albumManagePopup.albumName
-                        albumManagePopup.close()
-                        albumDeletePopup.open()
-                    }
-                }
-
-                Item { Layout.fillWidth: true }
-
-                ShadowButton {
-                    compact: true
-                    text: qsTr("Cancel")
-                    onClicked: albumManagePopup.close()
-                }
-
-                ShadowButton {
-                    id: renameAlbumButton
-                    compact: true
-                    variant: ShadowButton.Primary
-                    text: qsTr("Rename")
-                    enabled: albumRenameInput.text.trim().length > 0
-                        && !review.controller.libraryAlbumsBusy
-                    onClicked: {
-                        review.controller.renameLibraryAlbum(
-                            albumManagePopup.albumId,
-                            albumRenameInput.text)
-                        albumManagePopup.close()
-                    }
-                }
-            }
-        }
-    }
-
-    Popup {
-        id: albumDeletePopup
-        parent: Overlay.overlay
-        modal: true
-        focus: true
-        width: Math.min(342, review.width - 40)
-        x: Math.round((parent.width - width) / 2)
-        y: Math.round((parent.height - height) / 2)
-        padding: 16
-        property string albumId: ""
-        property string albumName: ""
-
-        background: Rectangle {
-            radius: Theme.controlRadius
-            color: Theme.panelRaised
-            border.width: 1
-            border.color: Theme.dangerBorder
-        }
-
-        contentItem: ColumnLayout {
-            spacing: 12
-
-            Label {
-                Layout.fillWidth: true
-                text: qsTr("Delete album?")
-                color: Theme.textPrimary
-                font.pixelSize: Theme.fontSection
-                font.weight: Font.DemiBold
-            }
-
-            Label {
-                Layout.fillWidth: true
-                text: qsTr("Delete \u201c%1\u201d? Photos and their edits stay in the Library.").arg(
-                    albumDeletePopup.albumName)
-                color: Theme.textMuted
-                font.pixelSize: Theme.fontMeta
-                wrapMode: Text.WordWrap
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 8
-
-                Item { Layout.fillWidth: true }
-
-                ShadowButton {
-                    compact: true
-                    text: qsTr("Cancel")
-                    onClicked: albumDeletePopup.close()
-                }
-
-                ShadowButton {
-                    compact: true
-                    variant: ShadowButton.Danger
-                    text: qsTr("Delete album")
-                    enabled: !review.controller.libraryAlbumsBusy
-                    onClicked: {
-                        review.controller.deleteLibraryAlbum(
-                            albumDeletePopup.albumId)
-                        albumDeletePopup.close()
-                    }
-                }
-            }
-        }
+    LibraryAlbumDialogs {
+        id: albumDialogs
+        anchors.fill: parent
+        controller: review.controller
+        hasActiveLibraryFilter: review.hasActiveLibraryFilter
+        manualAlbums: review.manualLibraryAlbums
     }
 
     Popup {
@@ -644,6 +304,7 @@ Item {
     readonly property color panelRaised: Theme.panelRaised
     readonly property color border: Theme.border
     readonly property color textPrimary: Theme.textPrimary
+    readonly property color textSecondary: Theme.textSecondary
     readonly property color textMuted: Theme.textMuted
     readonly property color accent: Theme.accent
 
@@ -752,20 +413,15 @@ Item {
     }
 
     function selectionKey(photoId, representationId) {
-        return String(photoId) + "\u0000" + String(representationId)
+        return selectionState.selectionKey(photoId, representationId)
     }
 
     function isPhotoSelected(photoId, representationId) {
-        return selectedPhotoTargets[selectionKey(photoId, representationId)]
-            !== undefined
+        return selectionState.isPhotoSelected(photoId, representationId)
     }
 
     function batchSelectionTargets() {
-        const values = []
-        const keys = Object.keys(selectedPhotoTargets)
-        for (let index = 0; index < keys.length; ++index)
-            values.push(selectedPhotoTargets[keys[index]])
-        return values
+        return selectionState.batchSelectionTargets()
     }
 
     // `revisionId` is UUIDv7-based, so descending lexical order gives a
@@ -793,164 +449,19 @@ Item {
     }
 
     function addTargetsToManualAlbum(targets) {
-        if (!targets || targets.length === 0
-                || manualLibraryAlbums.length === 0
-                || controller.libraryAlbumsBusy)
-            return
-        albumMembershipPopup.targets = targets
-        albumMembershipPopup.open()
+        albumDialogs.openMembership(targets)
     }
 
     function updatePrimaryPhoto(card) {
-        if (selectedPhotoId !== card.photoId
-                || selectedRepresentationId !== card.representationId)
-            precisionOpenStatus = ""
-        selectedPhotoId = card.photoId
-        selectedRepresentationId = card.representationId
-        selectedVisualHandle = card.visualHandle
-        selectedDecisionHeadSequence = card.decisionHeadSequence
-        selectedDecisionFlag = card.decisionFlag
-        selectedDecisionRating = card.decisionRating
-        selectedLiked = card.liked
-        selectedColorLabel = card.colorLabel
-        selectedTitle = card.title
-        selectedPath = card.sourcePath
-        selectedRole = card.visualRole
-        selectedVisualSource = card.visualSource
-        selectedWidth = card.visualWidth
-        selectedHeight = card.visualHeight
-        selectedHasMetadata = card.hasMetadata
-        selectedCameraMake = card.cameraMake
-        selectedCameraModel = card.cameraModel
-        selectedLensMake = card.lensMake
-        selectedLensModel = card.lensModel
-        selectedCapturedAtUnixSeconds = card.capturedAtUnixSeconds
-        selectedIsoSpeed = card.isoSpeed
-        selectedExposureTimeSeconds = card.exposureTimeSeconds
-        selectedApertureFNumber = card.apertureFNumber
-        selectedFocalLengthMm = card.focalLengthMm
-        selectedFocalLength35mm = card.focalLength35mm
-        selectedRawWidth = card.rawWidth
-        selectedRawHeight = card.rawHeight
-        selectedSensorBits = card.sensorBits
-        selectedCfaPattern = card.cfaPattern
-        selectedDngVersion = card.dngVersion
-        selectedHasTechnicalObservation = card.hasTechnicalObservation
-        selectedTechnicalInputWidth = card.technicalInputWidth
-        selectedTechnicalInputHeight = card.technicalInputHeight
-        selectedTechnicalPreprocessingVersion = card.technicalPreprocessingVersion
-        selectedTechnicalImplementationVersion = card.technicalImplementationVersion
-        selectedMeanLuma = card.meanLuma
-        selectedP01Luma = card.p01Luma
-        selectedP50Luma = card.p50Luma
-        selectedP99Luma = card.p99Luma
-        selectedNearBlackFraction = card.nearBlackFraction
-        selectedNearWhiteFraction = card.nearWhiteFraction
-        selectedLaplacianVariance = card.laplacianVariance
-        selectedEdgeEnergy = card.edgeEnergy
+        selectionState.updatePrimaryPhoto(card)
     }
 
     function selectPhoto(card, modifiers) {
-        const modifierMask = Number(modifiers || 0)
-        const additive = (modifierMask & Qt.ControlModifier) !== 0
-            || (modifierMask & Qt.MetaModifier) !== 0
-        const rangeSelection = (modifierMask & Qt.ShiftModifier) !== 0
-        const key = selectionKey(card.photoId, card.representationId)
-        let updated = ({})
-        if (rangeSelection && selectionAnchorPhotoId.length > 0
-                && selectionAnchorRepresentationId.length > 0) {
-            const range = controller.selectionRangeTargets(
-                selectionAnchorPhotoId, selectionAnchorRepresentationId,
-                card.photoId, card.representationId)
-            if (range.length > 0) {
-                if (additive) {
-                    const previousKeys = Object.keys(selectedPhotoTargets)
-                    for (let index = 0; index < previousKeys.length; ++index) {
-                        const previousKey = previousKeys[index]
-                        updated[previousKey] = selectedPhotoTargets[previousKey]
-                    }
-                }
-                for (let index = 0; index < range.length; ++index) {
-                    const target = range[index]
-                    updated[selectionKey(target.photoId, target.representationId)] = target
-                }
-                selectedPhotoTargets = updated
-                updatePrimaryPhoto(card)
-                return
-            }
-        }
-        if (additive) {
-            const previousKeys = Object.keys(selectedPhotoTargets)
-            for (let index = 0; index < previousKeys.length; ++index) {
-                const previousKey = previousKeys[index]
-                updated[previousKey] = selectedPhotoTargets[previousKey]
-            }
-            if (updated[key] !== undefined) {
-                delete updated[key]
-                selectedPhotoTargets = updated
-                if (selectedPhotoId === card.photoId
-                        && selectedRepresentationId === card.representationId)
-                    clearPrimaryPhoto()
-                return
-            }
-        }
-        updated[key] = {
-            "photoId": String(card.photoId),
-            "representationId": String(card.representationId),
-            "sourcePath": String(card.sourcePath),
-            "title": String(card.title)
-        }
-        selectedPhotoTargets = updated
-        selectionAnchorPhotoId = card.photoId
-        selectionAnchorRepresentationId = card.representationId
-        updatePrimaryPhoto(card)
+        selectionState.selectPhoto(card, modifiers)
     }
 
     function clearPrimaryPhoto() {
-        precisionOpenStatus = ""
-        selectedPhotoId = ""
-        selectedRepresentationId = ""
-        selectedVisualHandle = ""
-        selectedDecisionHeadSequence = 0
-        selectedDecisionFlag = "unflagged"
-        selectedDecisionRating = 0
-        selectedLiked = false
-        selectedColorLabel = "none"
-        selectedTitle = ""
-        selectedPath = ""
-        selectedRole = ""
-        selectedVisualSource = ""
-        selectedWidth = 0
-        selectedHeight = 0
-        selectedHasMetadata = false
-        selectedCameraMake = ""
-        selectedCameraModel = ""
-        selectedLensMake = ""
-        selectedLensModel = ""
-        selectedCapturedAtUnixSeconds = 0
-        selectedIsoSpeed = 0
-        selectedExposureTimeSeconds = 0
-        selectedApertureFNumber = 0
-        selectedFocalLengthMm = 0
-        selectedFocalLength35mm = 0
-        selectedRawWidth = 0
-        selectedRawHeight = 0
-        selectedSensorBits = 0
-        selectedCfaPattern = ""
-        selectedDngVersion = ""
-        selectedHasTechnicalObservation = false
-        selectedTechnicalInputWidth = 0
-        selectedTechnicalInputHeight = 0
-        selectedTechnicalPreprocessingVersion = ""
-        selectedTechnicalImplementationVersion = ""
-        selectedMeanLuma = 0.0
-        selectedP01Luma = 0.0
-        selectedP50Luma = 0.0
-        selectedP99Luma = 0.0
-        selectedNearBlackFraction = 0.0
-        selectedNearWhiteFraction = 0.0
-        selectedLaplacianVariance = 0.0
-        selectedEdgeEnergy = 0.0
+        selectionState.clearPrimaryPhoto()
     }
 
     function applySystemCollection(kind) {
@@ -984,10 +495,7 @@ Item {
     }
 
     function clearSelection() {
-        selectedPhotoTargets = ({})
-        selectionAnchorPhotoId = ""
-        selectionAnchorRepresentationId = ""
-        clearPrimaryPhoto()
+        selectionState.clearSelection()
     }
 
     function selectedComparisonSnapshot() {
@@ -1173,19 +681,13 @@ Item {
             review.clearLocalComparisonStatus()
         }
         function onDecisionChanged(photoId, headSequence, flag, rating) {
-            if (review.selectedPhotoId === photoId) {
-                review.selectedDecisionHeadSequence = headSequence
-                review.selectedDecisionFlag = flag
-                review.selectedDecisionRating = rating
-            }
+            selectionState.applyDecisionChanged(photoId, headSequence, flag, rating)
         }
         function onColorLabelChanged(photoId, colorLabel) {
-            if (review.selectedPhotoId === photoId)
-                review.selectedColorLabel = colorLabel
+            selectionState.applyColorLabelChanged(photoId, colorLabel)
         }
         function onLikedChanged(photoId, liked) {
-            if (review.selectedPhotoId === photoId)
-                review.selectedLiked = liked
+            selectionState.applyLikedChanged(photoId, liked)
         }
     }
 
@@ -1491,7 +993,7 @@ Item {
                         toolTipText: qsTr("Create album")
                         accessibleName: toolTipText
                         enabled: !review.controller.libraryAlbumsBusy
-                        onClicked: albumCreatePopup.open()
+                        onClicked: albumDialogs.openCreate()
                     }
                 }
 
@@ -1569,14 +1071,10 @@ Item {
                                 toolTipText: qsTr("Manage album")
                                 accessibleName: toolTipText
                                 enabled: !review.controller.libraryAlbumsBusy
-                                onClicked: {
-                                    albumManagePopup.albumId = albumRow.albumId
-                                    albumManagePopup.albumName = String(
-                                        albumRow.modelData.name)
-                                    albumManagePopup.albumKind = String(
-                                        albumRow.modelData.kind)
-                                    albumManagePopup.open()
-                                }
+                                onClicked: albumDialogs.openManage(
+                                    albumRow.albumId,
+                                    String(albumRow.modelData.name),
+                                    String(albumRow.modelData.kind))
                             }
                         }
 

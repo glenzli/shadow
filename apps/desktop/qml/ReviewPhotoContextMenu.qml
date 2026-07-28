@@ -10,11 +10,19 @@ import QtQuick.Layouts
 Popup {
     id: root
 
-    required property var workspace
-    required property var photo
+    // The Popup is visually reparented into Overlay.overlay. Keep only a
+    // stable workspace reference and scalar photo values while it is open;
+    // retaining bindings through a virtualized card would outlive that
+    // delegate when the Review grid recycles its row.
+    property var workspace: null
+    property string photoId: ""
+    property bool photoLiked: false
+    property string photoDecisionFlag: "unflagged"
     property bool albumsExpanded: false
     property bool ratingsExpanded: false
     property bool nodesExpanded: false
+    readonly property bool hasWorkspace:
+        workspace !== null && workspace !== undefined
 
     width: 258
     padding: 6
@@ -23,13 +31,29 @@ Popup {
     parent: Overlay.overlay
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
-    function openAt(item, localX, localY) {
+    function openAt(item, localX, localY, workspaceValue, photoIdValue,
+                    likedValue, decisionFlagValue) {
+        workspace = workspaceValue
+        photoId = String(photoIdValue)
+        photoLiked = Boolean(likedValue)
+        photoDecisionFlag = String(decisionFlagValue)
         albumsExpanded = false
         nodesExpanded = false
+        parent = Overlay.overlay
         const point = item.mapToItem(Overlay.overlay, localX, localY)
         x = Math.max(8, Math.min(point.x, workspace.width - width - 8))
         y = Math.max(8, Math.min(point.y, workspace.height - implicitHeight - 8))
         open()
+    }
+
+    function releaseOwner(ownerItem) {
+        close()
+        if (ownerItem)
+            parent = ownerItem
+        workspace = null
+        photoId = ""
+        photoLiked = false
+        photoDecisionFlag = "unflagged"
     }
 
     background: Rectangle {
@@ -113,8 +137,11 @@ Popup {
         MenuRow {
             text: qsTr("Open in Precision")
             iconSource: "qrc:/icons/edit.svg"
-            actionEnabled: root.workspace.canOpenSelectedPhoto
+            actionEnabled: root.hasWorkspace
+                && root.workspace.canOpenSelectedPhoto
             onActivated: {
+                if (!root.hasWorkspace)
+                    return
                 root.workspace.openSelectedPhoto()
                 root.close()
             }
@@ -123,37 +150,46 @@ Popup {
         Divider {}
 
         MenuRow {
-            text: root.photo.liked ? qsTr("Remove Like") : qsTr("Like")
-            iconSource: root.photo.liked
+            text: root.photoLiked ? qsTr("Remove Like") : qsTr("Like")
+            iconSource: root.photoLiked
                 ? "qrc:/icons/heart-filled.svg" : "qrc:/icons/heart.svg"
-            actionEnabled: root.workspace.canMutateDecision
+            actionEnabled: root.hasWorkspace
+                && root.workspace.canMutateDecision
             onActivated: {
+                if (!root.hasWorkspace)
+                    return
                 root.workspace.controller.setPhotoLiked(
-                    root.photo.photoId, !root.photo.liked)
+                    root.photoId, !root.photoLiked)
                 root.close()
             }
         }
 
         MenuRow {
-            text: root.photo.decisionFlag === "picked"
+            text: root.photoDecisionFlag === "picked"
                 ? qsTr("Clear pick flag") : qsTr("Pick")
             iconSource: "qrc:/icons/pick.svg"
-            actionEnabled: root.workspace.canMutateDecision
+            actionEnabled: root.hasWorkspace
+                && root.workspace.canMutateDecision
             onActivated: {
+                if (!root.hasWorkspace)
+                    return
                 root.workspace.setSelectedFlag(
-                    root.photo.decisionFlag === "picked" ? "unflagged" : "picked")
+                    root.photoDecisionFlag === "picked" ? "unflagged" : "picked")
                 root.close()
             }
         }
 
         MenuRow {
-            text: root.photo.decisionFlag === "rejected"
+            text: root.photoDecisionFlag === "rejected"
                 ? qsTr("Clear reject flag") : qsTr("Reject")
             iconSource: "qrc:/icons/reject.svg"
-            actionEnabled: root.workspace.canMutateDecision
+            actionEnabled: root.hasWorkspace
+                && root.workspace.canMutateDecision
             onActivated: {
+                if (!root.hasWorkspace)
+                    return
                 root.workspace.setSelectedFlag(
-                    root.photo.decisionFlag === "rejected" ? "unflagged" : "rejected")
+                    root.photoDecisionFlag === "rejected" ? "unflagged" : "rejected")
                 root.close()
             }
         }
@@ -161,7 +197,8 @@ Popup {
         MenuRow {
             text: qsTr("Rating")
             iconSource: "qrc:/icons/star.svg"
-            actionEnabled: root.workspace.canMutateDecision
+            actionEnabled: root.hasWorkspace
+                && root.workspace.canMutateDecision
             expandable: true
             expanded: root.ratingsExpanded
             onActivated: root.ratingsExpanded = !root.ratingsExpanded
@@ -177,12 +214,14 @@ Popup {
 
                 delegate: MenuRow {
                     required property int index
-                    width: parent.width
                     indent: 12
                     text: qsTr("%1 star").arg(index + 1)
                     iconSource: "qrc:/icons/star.svg"
-                    actionEnabled: root.workspace.canMutateDecision
+                    actionEnabled: root.hasWorkspace
+                        && root.workspace.canMutateDecision
                     onActivated: {
+                        if (!root.hasWorkspace)
+                            return
                         root.workspace.setSelectedRating(index + 1)
                         root.close()
                     }
@@ -195,7 +234,8 @@ Popup {
         MenuRow {
             text: qsTr("Add to Album")
             iconSource: "qrc:/icons/add-folder.svg"
-            actionEnabled: root.workspace.manualLibraryAlbums.length > 0
+            actionEnabled: root.hasWorkspace
+                && root.workspace.manualLibraryAlbums.length > 0
                 && !root.workspace.controller.libraryAlbumsBusy
             expandable: true
             expanded: root.albumsExpanded
@@ -208,16 +248,19 @@ Popup {
             spacing: 1
 
             Repeater {
-                model: root.workspace.manualLibraryAlbums
+                model: root.hasWorkspace
+                    ? root.workspace.manualLibraryAlbums : []
 
                 delegate: MenuRow {
                     required property var modelData
-                    width: parent.width
                     indent: 12
                     text: String(modelData.name)
                     iconSource: "qrc:/icons/library-manage.svg"
-                    actionEnabled: !root.workspace.controller.libraryAlbumsBusy
+                    actionEnabled: root.hasWorkspace
+                        && !root.workspace.controller.libraryAlbumsBusy
                     onActivated: {
+                        if (!root.hasWorkspace)
+                            return
                         root.workspace.controller.addPhotosToManualLibraryAlbum(
                             String(modelData.id), root.workspace.batchSelectionTargets())
                         root.close()
@@ -229,7 +272,8 @@ Popup {
         MenuRow {
             text: qsTr("Apply Shared Node")
             iconSource: "qrc:/icons/shared-link.svg"
-            actionEnabled: root.workspace.sharedNodeQuickList().length > 0
+            actionEnabled: root.hasWorkspace
+                && root.workspace.sharedNodeQuickList().length > 0
                 && root.workspace.selectedPhotoCount > 0
             expandable: true
             expanded: root.nodesExpanded
@@ -242,16 +286,19 @@ Popup {
             spacing: 1
 
             Repeater {
-                model: root.workspace.sharedNodeQuickList()
+                model: root.hasWorkspace
+                    ? root.workspace.sharedNodeQuickList() : []
 
                 delegate: MenuRow {
                     required property var modelData
-                    width: parent.width
                     indent: 12
                     text: String(modelData.label)
                     iconSource: "qrc:/icons/shared-link.svg"
-                    actionEnabled: root.workspace.selectedPhotoCount > 0
+                    actionEnabled: root.hasWorkspace
+                        && root.workspace.selectedPhotoCount > 0
                     onActivated: {
+                        if (!root.hasWorkspace)
+                            return
                         root.workspace.controller.applySharedGradeNode(
                             String(modelData.layerId),
                             root.workspace.batchSelectionTargets())
@@ -261,13 +308,16 @@ Popup {
             }
 
             MenuRow {
-                visible: root.workspace.hasMoreSharedNodes()
-                width: parent.width
+                visible: root.hasWorkspace
+                    && root.workspace.hasMoreSharedNodes()
                 indent: 12
                 text: qsTr("More shared nodes…")
                 iconSource: "qrc:/icons/shared-link.svg"
-                actionEnabled: root.workspace.selectedPhotoCount > 0
+                actionEnabled: root.hasWorkspace
+                    && root.workspace.selectedPhotoCount > 0
                 onActivated: {
+                    if (!root.hasWorkspace)
+                        return
                     root.workspace.openSharedNodePicker(root.x, root.y)
                     root.close()
                 }
@@ -279,8 +329,11 @@ Popup {
         MenuRow {
             text: qsTr("Export photo")
             iconSource: "qrc:/icons/export.svg"
-            actionEnabled: root.workspace.selectedPhotoCount > 0
+            actionEnabled: root.hasWorkspace
+                && root.workspace.selectedPhotoCount > 0
             onActivated: {
+                if (!root.hasWorkspace)
+                    return
                 root.workspace.exportRequested(root.workspace.batchSelectionTargets())
                 root.close()
             }

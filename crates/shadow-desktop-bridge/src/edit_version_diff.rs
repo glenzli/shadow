@@ -3,7 +3,26 @@
 //! This stays independent from Catalog persistence: it compares already-loaded
 //! commits and translates the stable v1 Recipe subset into the desktop ABI.
 
-use super::*;
+use std::collections::{HashMap, HashSet};
+
+use anyhow::{Result as AnyResult, anyhow};
+use shadow_bridge::BasicEditParameters;
+use shadow_catalog::RecipeCommitRecord;
+use shadow_domain::operation::{
+    COLOR_GRADING_OPERATION_ID, CONTRAST_OPERATION_ID, EXPOSURE_OPERATION_ID,
+    FINISHING_EFFECTS_OPERATION_ID, OKLAB_LIGHTNESS_TONE_CURVE_OPERATION_ID,
+    PERCEPTUAL_COLOR_OPERATION_ID, RGB_WHITE_BALANCE_OPERATION_ID, SATURATION_OPERATION_ID,
+    SELECTIVE_TONE_OPERATION_ID, TECHNICAL_DETAIL_OPERATION_ID,
+};
+use shadow_domain::{LayerContent, NodeId, RecipeCommitId, RecipeSnapshot, diff_recipe_snapshots};
+
+use crate::{
+    ffi,
+    recipe_v1::{
+        FineEditParameters, GradeStackDraft, decode_grade_stack_draft_from_recipe_v1_snapshot,
+        grade_node_recipe_v1_render_ops,
+    },
+};
 use shadow_domain::{LayerContentDiff, RecipeDiff};
 
 pub(super) fn commit_record(

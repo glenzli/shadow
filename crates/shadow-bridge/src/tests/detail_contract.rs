@@ -1,6 +1,11 @@
 //! Full-resolution detail-session bounds and tile-request contracts.
 
-use super::*;
+use shadow_domain::ImageDimensions;
+
+use crate::{
+    BridgeError, DetailTileRect, DetailTileRequest, LibRawEditDetailSession,
+    MAX_EDIT_DETAIL_RETAINED_BYTES, MAX_EDIT_DETAIL_TILE_SIDE, PhotoEditDetailSession,
+};
 
 #[test]
 fn full_edit_detail_contract_is_send_sync_and_rejects_invalid_rectangles_locally() {

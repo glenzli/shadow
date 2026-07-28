@@ -12,6 +12,7 @@ const BRIDGE_INPUTS: &[&str] = &[
     "include/shadow/image/adjustment_parameters.hpp",
     "include/shadow/image/cpu_edit_reference.hpp",
     "include/shadow/image/edit.hpp",
+    "include/shadow/image/edit_error.hpp",
     "include/shadow/image/edit_execution_plan.hpp",
     "include/shadow/image/edited_proxy_rendering.hpp",
     "include/shadow/image/full_edit_detail.hpp",
@@ -24,6 +25,7 @@ const BRIDGE_INPUTS: &[&str] = &[
     "include/shadow/image/raw_development_receipt.hpp",
     "include/shadow/image/raw_pipeline.hpp",
     "include/shadow/image/retouch.hpp",
+    "include/shadow/image/tone_curve.hpp",
     "include/shadow/image/camera_profile.hpp",
     "include/shadow/image/camera_profile_catalog.hpp",
     "include/shadow/image/dcp_color_development.hpp",
@@ -35,6 +37,8 @@ const BRIDGE_INPUTS: &[&str] = &[
     "include/shadow/image/source_profile_catalog.hpp",
     "include/shadow/image/warm_edit_preview.hpp",
     "include/shadow/image/working_rgb.hpp",
+    "src/bridge/adjustment_render_wire.hpp",
+    "src/bridge/adjustment_render_wire.cpp",
     "src/bridge/cxx_bridge.cpp",
 ];
 
@@ -59,14 +63,33 @@ const EMBEDDED_IMAGE_INPUTS: &[&str] = &[
     "src/edit/adjustment_execution.cpp",
     "src/edit/metal_adjustment_execution.hpp",
     "src/edit/metal_adjustment_program.hpp",
+    "src/edit/metal_adjustment_program.cpp",
     "src/edit/cpu_reference.cpp",
-    "src/edit/cpu_reference_color.ipp",
-    "src/edit/cpu_reference_curve.ipp",
-    "src/edit/cpu_reference_detail.ipp",
-    "src/edit/cpu_reference_tone.ipp",
+    "src/edit/creative_detail_grading.hpp",
+    "src/edit/creative_detail_grading.cpp",
+    "src/edit/edit_error.cpp",
+    "src/edit/edit_execution_validation.hpp",
+    "src/edit/edit_execution_validation.cpp",
+    "src/edit/finishing_effects_cpu.hpp",
+    "src/edit/finishing_effects_cpu.cpp",
+    "src/edit/guided_selective_tone.hpp",
+    "src/edit/guided_selective_tone.cpp",
     "src/edit/local_mask.cpp",
+    "src/edit/oklab_color_warper.hpp",
+    "src/edit/oklab_color_warper.cpp",
+    "src/edit/perceptual_color.hpp",
+    "src/edit/perceptual_color.cpp",
+    "src/edit/perceptual_contrast.hpp",
+    "src/edit/perceptual_contrast.cpp",
     "src/edit/photo_geometry.cpp",
+    "src/edit/rgb_pixel_traversal.hpp",
     "src/edit/retouch.cpp",
+    "src/edit/scalar_neighborhood_filters.hpp",
+    "src/edit/scalar_neighborhood_filters.cpp",
+    "src/edit/technical_detail_cpu.hpp",
+    "src/edit/technical_detail_cpu.cpp",
+    "src/edit/tone_curve_internal.hpp",
+    "src/edit/tone_curve.cpp",
     "src/edit/working_color_math.hpp",
     "src/edit/working_color_math.cpp",
     "src/edit/metal_adjustment.mm",
@@ -182,6 +205,7 @@ fn main() {
 
     let mut build = cxx_build::bridge("src/lib.rs");
     build
+        .file(image_root.join("src/bridge/adjustment_render_wire.cpp"))
         .file(image_root.join("src/bridge/cxx_bridge.cpp"))
         .include(&image_include)
         .std("c++20");
@@ -249,9 +273,21 @@ fn main() {
         .file(image_root.join("src/edit/adjustment_execution.cpp"))
         .file(image_root.join("src/edit/cube_lut.cpp"))
         .file(image_root.join("src/edit/cpu_reference.cpp"))
+        .file(image_root.join("src/edit/creative_detail_grading.cpp"))
+        .file(image_root.join("src/edit/edit_error.cpp"))
+        .file(image_root.join("src/edit/edit_execution_validation.cpp"))
+        .file(image_root.join("src/edit/finishing_effects_cpu.cpp"))
+        .file(image_root.join("src/edit/guided_selective_tone.cpp"))
         .file(image_root.join("src/edit/local_mask.cpp"))
+        .file(image_root.join("src/edit/metal_adjustment_program.cpp"))
+        .file(image_root.join("src/edit/oklab_color_warper.cpp"))
+        .file(image_root.join("src/edit/perceptual_color.cpp"))
+        .file(image_root.join("src/edit/perceptual_contrast.cpp"))
         .file(image_root.join("src/edit/photo_geometry.cpp"))
         .file(image_root.join("src/edit/retouch.cpp"))
+        .file(image_root.join("src/edit/scalar_neighborhood_filters.cpp"))
+        .file(image_root.join("src/edit/technical_detail_cpu.cpp"))
+        .file(image_root.join("src/edit/tone_curve.cpp"))
         .file(image_root.join("src/edit/working_color_math.cpp"))
         .file(image_root.join("src/concurrency/row_scheduler.cpp"))
         .file(image_root.join("src/raw/bayer_demosaic.cpp"))

@@ -143,17 +143,14 @@ struct MetalAdjustmentPreparation final {
     std::string diagnostic;
 };
 
-// Implemented beside the CPU oracle so Metal parameter preparation reuses its exact working-space
-// and CAT16 math rather than maintaining a second host-side interpretation.
+// The portable host compiler owns two-pass resource planning and lowering while reusing the
+// semantic owners' prepared color transforms, curves, grading, and perceptual-stage contracts.
 [[nodiscard]] MetalAdjustmentPreparation prepare_metal_adjustment(
-    const FloatRgbImage& input,
-    std::span<const AdjustmentNode> nodes,
-    const EditExecutionPlan& plan,
-    AdjustmentExecutionContext context,
+    const FloatRgbImage& input, std::span<const AdjustmentNode> nodes,
+    const EditExecutionPlan& plan, AdjustmentExecutionContext context,
     // WarmEditPreviewSession validates and uploads its immutable source once. Its resident Metal
     // backend may skip the repeated full-raster finiteness/layout scan while retaining all
     // plan, context, color-space, and parameter validation below.
-    bool input_already_validated = false
-);
+    bool input_already_validated = false);
 
 } // namespace shadow::image::detail

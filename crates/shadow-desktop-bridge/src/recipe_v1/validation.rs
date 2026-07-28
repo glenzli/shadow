@@ -243,6 +243,12 @@ pub(crate) fn validate_fine_parameters(parameters: &FineEditParameters) -> AnyRe
         validate_range(range.saturation, -1.0, 1.0, "color range saturation")?;
         validate_range(range.lightness, -1.0, 1.0, "color range lightness")?;
     }
+    validate_range(
+        color.selective_color_lightness_protection,
+        0.0,
+        1.0,
+        "Selective Color lightness protection",
+    )?;
     for value in color.selective_color_cmyk {
         validate_range(value, -1.0, 1.0, "Selective Color CMYK")?;
     }

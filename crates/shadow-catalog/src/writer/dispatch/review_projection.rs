@@ -48,5 +48,13 @@ pub(super) fn run_review_projection_message(
         ReviewProjectionMessage::PhotoSource(photo_id, response) => {
             let _ = response.send(catalog.photo_source(photo_id));
         }
+        ReviewProjectionMessage::PhotoInspection {
+            photo_id,
+            representation_id,
+            revision,
+            response,
+        } => {
+            let _ = response.send(catalog.photo_inspection(photo_id, representation_id, &revision));
+        }
     }
 }

@@ -1,11 +1,18 @@
 //! Environment-backed real DNG workflow coverage.
 
-use super::*;
+use std::path::Path;
+
+use shadow_core::technical_analysis_preprocessing_version;
+use shadow_domain::{EntityId, RepresentationId};
+
+use crate::{
+    DesktopSession, ffi, open_desktop_session, recipe_v1::new_basic_grade_node,
+    tests::fixtures::grade_stack::ffi_parameters,
+};
 
 #[test]
-#[ignore = "requires SHADOW_TEST_DNG_FOLDER to contain local RAW fixtures"]
+#[ignore = "set SHADOW_TEST_DNG_FOLDER to a folder with at least two decodable local RAW/DNG fixtures, including one that produces a visual and technical observation"]
 #[allow(clippy::too_many_lines)]
-#[cfg(any())]
 fn real_dng_folder_pages_metadata_and_loads_visuals_lazily() {
     let folder = std::env::var_os("SHADOW_TEST_DNG_FOLDER").expect("SHADOW_TEST_DNG_FOLDER");
     let root = std::env::temp_dir().join(format!(
@@ -84,14 +91,19 @@ fn real_dng_folder_pages_metadata_and_loads_visuals_lazily() {
             .render_basic_edit_preview(
                 &item.photo_id,
                 &item.source_path,
-                &preview_request("", edits, true),
+                &preview_request(session.as_ref(), "", edits, true),
             )
             .expect("prepare and render first edited preview");
         let second_edit = session
             .render_basic_edit_preview(
                 &item.photo_id,
                 &item.source_path,
-                &preview_request("", ffi_parameters(0.5, 1.1, [0.05, 0.0], 1.15), true),
+                &preview_request(
+                    session.as_ref(),
+                    "",
+                    ffi_parameters(0.5, 1.1, [0.05, 0.0], 1.15),
+                    true,
+                ),
             )
             .expect("reuse prepared edit preview session");
         assert!(first_edit.bytes.starts_with(&[0xff, 0xd8]));
@@ -100,20 +112,12 @@ fn real_dng_folder_pages_metadata_and_loads_visuals_lazily() {
         assert_preview_analysis(&second_edit);
         assert_ne!(first_edit.bytes, second_edit.bytes);
         assert_ne!(first_edit.luma_histogram, second_edit.luma_histogram);
-        assert_persisted_tone_recipe_and_neutral_before(
+        assert_persisted_curve_recipe_and_neutral_before(
             session.as_ref(),
             item,
             &ffi_parameters(0.8, 1.25, [0.08, 0.0], 1.2),
         );
         let stack_grade_node_ids = assert_real_dng_grade_stack_round_trip(session.as_ref(), item);
-        assert_eq!(
-            session
-                .edit_preview_sessions
-                .lock()
-                .expect("edit preview cache")
-                .len(),
-            1
-        );
         (
             item.photo_id.clone(),
             decision.sequence,
@@ -155,32 +159,40 @@ fn real_dng_folder_pages_metadata_and_loads_visuals_lazily() {
     std::fs::remove_dir_all(root).expect("remove desktop bridge fixture");
 }
 
-#[cfg(any())]
-fn assert_persisted_tone_recipe_and_neutral_before(
+fn assert_persisted_curve_recipe_and_neutral_before(
     session: &DesktopSession,
     item: &ffi::FfiReviewItem,
     edits: &ffi::FfiEditSettings,
 ) {
-    let photo_id: PhotoId = item.photo_id.parse().expect("photo id");
-    let recipe_id = RecipeId::new_v7();
-    let first_tone_id = persist_test_tone_recipe(session, photo_id, recipe_id, None, 0.72);
-    let mut first_settings = session
-        .photo_edit_state(&item.photo_id, &item.source_path)
-        .expect("read first Tone Curve settings")
-        .settings;
+    let mut first_settings = edits.clone();
+    first_settings.grade_nodes[0]
+        .fine
+        .oklab_lightness_curve_points = vec![0.0, 0.0, 0.5, 0.72, 1.0, 1.0];
+    let first = session
+        .save_basic_edit_version_at(
+            &item.photo_id,
+            &item.source_path,
+            "",
+            &first_settings,
+            "Real RAW first curve",
+            2_000,
+        )
+        .expect("persist first real-RAW curve");
+    let first_curve_id = first.working_commit_id;
+    let mut first_settings = first.settings;
     first_settings.basic = edits.basic.clone();
-    let tone_current = session
+    let curve_current = session
         .render_basic_edit_preview(
             &item.photo_id,
             &item.source_path,
-            &preview_request(&first_tone_id.to_string(), first_settings.clone(), true),
+            &preview_request(session, &first_curve_id, first_settings.clone(), true),
         )
-        .expect("render persisted Tone Curve Recipe");
+        .expect("render persisted Oklab curve Recipe");
     let neutral_before_first = session
         .render_basic_edit_preview(
             &item.photo_id,
             &item.source_path,
-            &preview_request("", first_settings.clone(), false),
+            &preview_request(session, "", first_settings.clone(), false),
         )
         .expect("render neutral Before independently of working Recipe");
     let mut bypassed_settings = first_settings.clone();
@@ -189,41 +201,50 @@ fn assert_persisted_tone_recipe_and_neutral_before(
         .render_basic_edit_preview(
             &item.photo_id,
             &item.source_path,
-            &preview_request(&first_tone_id.to_string(), bypassed_settings, true),
+            &preview_request(session, &first_curve_id, bypassed_settings, true),
         )
         .expect("render the real DNG with its Grade Node bypassed");
-    let second_tone_id =
-        persist_test_tone_recipe(session, photo_id, recipe_id, Some(first_tone_id), 0.28);
-    let mut second_settings = session
-        .photo_edit_state(&item.photo_id, &item.source_path)
-        .expect("read second Tone Curve settings")
-        .settings;
+    let mut second_settings = first_settings.clone();
+    second_settings.grade_nodes[0]
+        .fine
+        .oklab_lightness_curve_points = vec![0.0, 0.0, 0.5, 0.28, 1.0, 1.0];
     second_settings.basic = edits.basic.clone();
+    let second = session
+        .save_basic_edit_version_at(
+            &item.photo_id,
+            &item.source_path,
+            &first_curve_id,
+            &second_settings,
+            "Real RAW second curve",
+            3_000,
+        )
+        .expect("persist second real-RAW curve");
+    let second_curve_id = second.working_commit_id;
     let old_base_after_ref_move = session
         .render_basic_edit_preview(
             &item.photo_id,
             &item.source_path,
-            &preview_request(&first_tone_id.to_string(), first_settings, true),
+            &preview_request(session, &first_curve_id, first_settings, true),
         )
         .expect("render exact old base after working ref moves");
     let new_base_after_ref_move = session
         .render_basic_edit_preview(
             &item.photo_id,
             &item.source_path,
-            &preview_request(&second_tone_id.to_string(), second_settings, true),
+            &preview_request(session, &second_curve_id, second_settings, true),
         )
         .expect("render new working base explicitly");
     let neutral_before_second = session
         .render_basic_edit_preview(
             &item.photo_id,
             &item.source_path,
-            &preview_request("", ffi_parameters(0.0, 1.0, [0.0; 2], 1.0), false),
+            &preview_request(session, "", ffi_parameters(0.0, 1.0, [0.0; 2], 1.0), false),
         )
         .expect("render stable neutral Before after ref move");
 
-    assert_eq!(tone_current.bytes, old_base_after_ref_move.bytes);
-    assert_ne!(tone_current.bytes, new_base_after_ref_move.bytes);
-    assert_ne!(tone_current.bytes, neutral_before_first.bytes);
+    assert_eq!(curve_current.bytes, old_base_after_ref_move.bytes);
+    assert_ne!(curve_current.bytes, new_base_after_ref_move.bytes);
+    assert_ne!(curve_current.bytes, neutral_before_first.bytes);
     assert_eq!(bypassed_current.bytes, neutral_before_first.bytes);
     assert_eq!(
         bypassed_current.luma_histogram,
@@ -236,12 +257,11 @@ fn assert_persisted_tone_recipe_and_neutral_before(
     );
     let state = session
         .photo_edit_state(&item.photo_id, &item.source_path)
-        .expect("open Basic surface over persisted Tone Curve");
-    assert_eq!(state.working_commit_id, second_tone_id.to_string());
+        .expect("open Basic surface over persisted Oklab curve");
+    assert_eq!(state.working_commit_id, second_curve_id);
 }
 
 #[allow(clippy::too_many_lines)]
-#[cfg(any())]
 fn assert_real_dng_grade_stack_round_trip(
     session: &DesktopSession,
     item: &ffi::FfiReviewItem,
@@ -262,7 +282,7 @@ fn assert_real_dng_grade_stack_round_trip(
         .render_basic_edit_preview(
             &item.photo_id,
             &item.source_path,
-            &preview_request(&base.working_commit_id, stacked.clone(), true),
+            &preview_request(session, &base.working_commit_id, stacked.clone(), true),
         )
         .expect("render ordered two-node real-DNG stack");
     let mut reversed = stacked.clone();
@@ -271,7 +291,7 @@ fn assert_real_dng_grade_stack_round_trip(
         .render_basic_edit_preview(
             &item.photo_id,
             &item.source_path,
-            &preview_request(&base.working_commit_id, reversed, true),
+            &preview_request(session, &base.working_commit_id, reversed, true),
         )
         .expect("render reversed two-node real-DNG stack");
     assert_ne!(
@@ -283,7 +303,12 @@ fn assert_real_dng_grade_stack_round_trip(
         .render_basic_edit_preview(
             &item.photo_id,
             &item.source_path,
-            &preview_request(&base.working_commit_id, base.settings.clone(), true),
+            &preview_request(
+                session,
+                &base.working_commit_id,
+                base.settings.clone(),
+                true,
+            ),
         )
         .expect("render single-node real-DNG baseline");
     stacked.grade_nodes[1].enabled = false;
@@ -291,7 +316,7 @@ fn assert_real_dng_grade_stack_round_trip(
         .render_basic_edit_preview(
             &item.photo_id,
             &item.source_path,
-            &preview_request(&base.working_commit_id, stacked.clone(), true),
+            &preview_request(session, &base.working_commit_id, stacked.clone(), true),
         )
         .expect("render real-DNG stack with second Grade Node bypassed");
     assert_eq!(single.bytes, bypassed.bytes);
@@ -364,40 +389,47 @@ fn assert_real_dng_grade_stack_round_trip(
     expected_ids
 }
 
-#[cfg(any())]
-fn persist_test_tone_recipe(
+fn preview_request(
     session: &DesktopSession,
-    photo_id: PhotoId,
-    recipe_id: RecipeId,
-    parent: Option<RecipeCommitId>,
-    midpoint_y: f64,
-) -> RecipeCommitId {
-    let commit_id = RecipeCommitId::new_v7();
-    session
-        .catalog
-        .commit_recipe(&CommitRecipe {
-            photo_id,
-            commit: RecipeCommit::new(
-                commit_id,
-                recipe_id,
-                parent.into_iter().collect(),
-                basic_recipe_with_tone(
-                    BasicEditParameters::default(),
-                    &[[0.0, 0.0], [0.5, midpoint_y], [1.0, 1.0]],
-                    true,
-                ),
-                Some("Typed Tone Curve".to_owned()),
-                2_000,
-            )
-            .expect("build Tone Curve commit"),
-            update_refs: vec![RecipeRefTarget {
-                name: WORKING_RECIPE_REF.to_owned(),
-                kind: RecipeRefKind::Working,
-                expectation: Some(
-                    parent.map_or(RecipeRefExpectation::Missing, RecipeRefExpectation::At),
-                ),
-            }],
-        })
-        .expect("persist Tone Curve working Recipe");
-    commit_id
+    base_commit_id: &str,
+    settings: ffi::FfiEditSettings,
+    use_working_recipe: bool,
+) -> ffi::FfiEditPreviewRequest {
+    ffi::FfiEditPreviewRequest {
+        base_commit_id: base_commit_id.to_owned(),
+        settings,
+        render_token: session.begin_basic_edit_preview(),
+        max_edge: 1_024,
+        jpeg_quality: 86,
+        policy: if use_working_recipe {
+            ffi::FfiEditPreviewPolicy::Settled
+        } else {
+            ffi::FfiEditPreviewPolicy::NeutralBefore
+        },
+        use_working_recipe,
+    }
+}
+
+fn assert_preview_analysis(preview: &ffi::FfiEditedPreview) {
+    assert!(preview.analysis_available);
+    assert!(!preview.analysis_version.is_empty());
+    assert_eq!(preview.analysis_width, preview.width);
+    assert_eq!(preview.analysis_height, preview.height);
+    assert_eq!(
+        preview.pixel_count,
+        u64::from(preview.width) * u64::from(preview.height)
+    );
+    for histogram in [
+        &preview.red_histogram,
+        &preview.green_histogram,
+        &preview.blue_histogram,
+        &preview.luma_histogram,
+    ] {
+        assert_eq!(histogram.len(), 256);
+        assert_eq!(histogram.iter().sum::<u64>(), preview.pixel_count);
+    }
+    assert_eq!(preview.below_zero_samples.len(), 3);
+    assert_eq!(preview.above_one_samples.len(), 3);
+    assert!(preview.shadow_clipped_pixels <= preview.pixel_count);
+    assert!(preview.highlight_clipped_pixels <= preview.pixel_count);
 }

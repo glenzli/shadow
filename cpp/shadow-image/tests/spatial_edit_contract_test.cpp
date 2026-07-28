@@ -14,72 +14,6 @@ using namespace shadow::image::test;
 
 namespace {
 
-void global_effect_coordinates_are_tile_invariant() {
-    std::vector<float> full_samples;
-    full_samples.reserve(4U * 3U * 3U);
-    for (std::size_t index = 0; index < 12U; ++index) {
-        const float value = 0.15F + static_cast<float>(index) * 0.025F;
-        full_samples.insert(full_samples.end(), {value, value * 0.9F, value * 0.8F});
-    }
-    const auto full_input = rgb_raster(4, 3, full_samples);
-    image::SharpenAdjustment parameters;
-    parameters.grain_amount = 0.7;
-    parameters.grain_size = 0.75;
-    parameters.grain_roughness = 0.65;
-    parameters.vignette_amount = -0.6;
-    parameters.vignette_midpoint = 0.35;
-    parameters.vignette_roundness = 0.25;
-    parameters.execution_pass = image::DetailEffectsExecutionPass::finishing_effects;
-    const std::array nodes{
-        image::AdjustmentNode{
-            .node_id = "global-effects",
-            .parameter_schema_version = image::detail_effects_parameter_schema_version,
-            .implementation_version = image::finishing_effects_implementation_version,
-            .parameters = parameters,
-        },
-    };
-    const image::AdjustmentExecutionContext full_context{
-        .full_dimensions = {4, 3},
-    };
-    const auto full_output = image::execute_adjustment_nodes(full_input, nodes, full_context);
-
-    for (std::uint32_t tile_index = 0; tile_index < 2U; ++tile_index) {
-        std::vector<float> tile_samples;
-        tile_samples.reserve(2U * 3U * 3U);
-        for (std::uint32_t y = 0; y < 3U; ++y) {
-            const std::size_t source = (static_cast<std::size_t>(y) * 4U + tile_index * 2U) * 3U;
-            tile_samples.insert(
-                tile_samples.end(),
-                full_samples.begin() + static_cast<std::ptrdiff_t>(source),
-                full_samples.begin() + static_cast<std::ptrdiff_t>(source + 6U)
-            );
-        }
-        const auto tile_input = rgb_raster(2, 3, std::move(tile_samples));
-        const image::AdjustmentExecutionContext tile_context{
-            .origin_x = tile_index * 2U,
-            .origin_y = 0,
-            .full_dimensions = {4, 3},
-        };
-        const auto tile_output = image::execute_adjustment_nodes(tile_input, nodes, tile_context);
-        for (std::uint32_t y = 0; y < 3U; ++y) {
-            for (std::uint32_t x = 0; x < 2U; ++x) {
-                for (std::size_t channel = 0; channel < 3U; ++channel) {
-                    const std::size_t tile_sample =
-                        (static_cast<std::size_t>(y) * 2U + x) * 3U + channel;
-                    const std::size_t full_sample =
-                        (static_cast<std::size_t>(y) * 4U + tile_index * 2U + x) * 3U
-                        + channel;
-                    expect_close(
-                        tile_output.samples[tile_sample],
-                        full_output.samples[full_sample],
-                        "grain and vignette remain identical across independently rendered tiles"
-                    );
-                }
-            }
-        }
-    }
-}
-
 void local_mask_layers_blend_complete_adjustments_in_global_coordinates() {
     const auto input = rgb_raster(
         4U,
@@ -542,7 +476,6 @@ void photo_geometry_is_lossless_and_maps_detail_tiles_to_source_space() {
 } // namespace
 
 int main() {
-    global_effect_coordinates_are_tile_invariant();
     local_mask_layers_blend_complete_adjustments_in_global_coordinates();
     spot_heal_repairs_small_defects_in_global_coordinates();
     continuous_retouch_strokes_sweep_one_connected_repair_region();

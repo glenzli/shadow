@@ -6,37 +6,37 @@
     <message>
         <location filename="../src/cache_maintenance_controller.cpp" line="150"/>
         <source>Inspecting local preview cache…</source>
-        <translation type="unfinished"></translation>
+        <translation>正在检查本地预览缓存…</translation>
     </message>
     <message>
         <location filename="../src/cache_maintenance_controller.cpp" line="153"/>
         <source>Preparing a safe cleanup preview…</source>
-        <translation type="unfinished"></translation>
+        <translation>正在生成安全清理预览…</translation>
     </message>
     <message>
         <location filename="../src/cache_maintenance_controller.cpp" line="156"/>
         <source>Removing only verified unused cache files…</source>
-        <translation type="unfinished"></translation>
+        <translation>正在仅移除经确认未使用的缓存文件…</translation>
     </message>
     <message>
         <location filename="../src/cache_maintenance_controller.cpp" line="170"/>
         <source>Cache maintenance could not finish.</source>
-        <translation type="unfinished"></translation>
+        <translation>缓存维护未能完成。</translation>
     </message>
     <message>
         <location filename="../src/cache_maintenance_controller.cpp" line="181"/>
         <source>Cache usage updated.</source>
-        <translation type="unfinished"></translation>
+        <translation>缓存用量已更新。</translation>
     </message>
     <message>
         <location filename="../src/cache_maintenance_controller.cpp" line="188"/>
         <source>Safe cleanup preview is ready.</source>
-        <translation type="unfinished"></translation>
+        <translation>安全清理预览已就绪。</translation>
     </message>
     <message>
         <location filename="../src/cache_maintenance_controller.cpp" line="197"/>
         <source>Safe cache cleanup finished.</source>
-        <translation type="unfinished"></translation>
+        <translation>安全缓存清理已完成。</translation>
     </message>
 </context>
 <context>
@@ -44,112 +44,112 @@
     <message>
         <location filename="../qml/CacheMaintenanceWindow.qml" line="17"/>
         <source>Cache Maintenance</source>
-        <translation type="unfinished"></translation>
+        <translation>缓存维护</translation>
     </message>
     <message>
         <location filename="../qml/CacheMaintenanceWindow.qml" line="76"/>
         <source>CACHE MAINTENANCE</source>
-        <translation type="unfinished"></translation>
+        <translation>缓存维护</translation>
     </message>
     <message>
         <location filename="../qml/CacheMaintenanceWindow.qml" line="83"/>
         <source>Preview first. Remove only verified unused cache files.</source>
-        <translation type="unfinished"></translation>
+        <translation>先生成预览，只移除经确认未使用的缓存文件。</translation>
     </message>
     <message>
         <location filename="../qml/CacheMaintenanceWindow.qml" line="91"/>
         <source>Refresh cache usage</source>
-        <translation type="unfinished"></translation>
+        <translation>刷新缓存用量</translation>
     </message>
     <message>
         <location filename="../qml/CacheMaintenanceWindow.qml" line="120"/>
         <source>REMOVE UNUSED CACHE FILES?</source>
-        <translation type="unfinished"></translation>
+        <translation>移除未使用的缓存文件？</translation>
     </message>
     <message>
         <location filename="../qml/CacheMaintenanceWindow.qml" line="128"/>
         <source>Shadow will remove only %1 verified unused cache file(s), up to %2. Catalog-live entries, unknown entries, and recently published previews stay protected. Safety is checked once more immediately before removal.</source>
-        <translation type="unfinished"></translation>
+        <translation>Shadow 将仅移除 %1 个经确认未使用的缓存文件，最多可释放 %2。图库仍在使用的条目、未知条目和最近发布的预览都会受到保护。移除前还会再次执行安全检查。</translation>
     </message>
     <message>
         <location filename="../qml/CacheMaintenanceWindow.qml" line="140"/>
         <source>CANCEL</source>
-        <translation type="unfinished">取消</translation>
+        <translation>取消</translation>
     </message>
     <message>
         <location filename="../qml/CacheMaintenanceWindow.qml" line="145"/>
         <source>REMOVE UNUSED</source>
-        <translation type="unfinished"></translation>
+        <translation>移除未使用项</translation>
     </message>
     <message>
         <location filename="../qml/CacheMaintenanceWindow.qml" line="184"/>
         <source>SAFE BY DESIGN</source>
-        <translation type="unfinished"></translation>
+        <translation>内建安全机制</translation>
     </message>
     <message>
         <location filename="../qml/CacheMaintenanceWindow.qml" line="192"/>
         <source>The catalog is the authority. This tool never deletes active previews, unknown entries, or newly published cache files.</source>
-        <translation type="unfinished"></translation>
+        <translation>图库记录是唯一依据。此工具绝不会删除正在使用的预览、未知条目或新近发布的缓存文件。</translation>
     </message>
     <message>
         <location filename="../qml/CacheMaintenanceWindow.qml" line="208"/>
         <source>PREVIEW CACHE</source>
-        <translation type="unfinished"></translation>
+        <translation>预览缓存</translation>
     </message>
     <message>
         <location filename="../qml/CacheMaintenanceWindow.qml" line="208"/>
         <source>%1 cached blob(s)</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 个缓存对象</translation>
     </message>
     <message>
         <location filename="../qml/CacheMaintenanceWindow.qml" line="209"/>
         <source>CATALOG PROTECTED</source>
-        <translation type="unfinished"></translation>
+        <translation>图库保护</translation>
     </message>
     <message>
         <location filename="../qml/CacheMaintenanceWindow.qml" line="209"/>
         <source>live blob reference(s)</source>
-        <translation type="unfinished"></translation>
+        <translation>个有效缓存引用</translation>
     </message>
     <message>
         <location filename="../qml/CacheMaintenanceWindow.qml" line="210"/>
         <source>HELD FOR REVIEW</source>
-        <translation type="unfinished"></translation>
+        <translation>等待检查</translation>
     </message>
     <message>
         <location filename="../qml/CacheMaintenanceWindow.qml" line="210"/>
         <source>%1 unsupported algorithm(s)</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 个不支持的算法</translation>
     </message>
     <message>
         <location filename="../qml/CacheMaintenanceWindow.qml" line="289"/>
         <source>SAFE CLEANUP PREVIEW</source>
-        <translation type="unfinished"></translation>
+        <translation>安全清理预览</translation>
     </message>
     <message>
         <location filename="../qml/CacheMaintenanceWindow.qml" line="306"/>
         <source>%1 unused blob(s) can be removed, reclaiming up to %2. %3 recently published blob(s) remain protected.</source>
-        <translation type="unfinished"></translation>
+        <translation>可移除 %1 个未使用的缓存对象，最多释放 %2；另有 %3 个最近发布的缓存对象继续受到保护。</translation>
     </message>
     <message>
         <location filename="../qml/CacheMaintenanceWindow.qml" line="310"/>
         <source>Create a preview before removing anything. The preview performs no filesystem mutation.</source>
-        <translation type="unfinished"></translation>
+        <translation>移除任何内容前先生成预览。生成预览不会改动文件系统。</translation>
     </message>
     <message>
         <location filename="../qml/CacheMaintenanceWindow.qml" line="320"/>
         <source>PREVIEW CLEANUP</source>
-        <translation type="unfinished"></translation>
+        <translation>预览清理范围</translation>
     </message>
     <message>
         <location filename="../qml/CacheMaintenanceWindow.qml" line="326"/>
         <source>REMOVE UNUSED…</source>
-        <translation type="unfinished"></translation>
+        <translation>移除未使用项…</translation>
     </message>
     <message>
         <location filename="../qml/CacheMaintenanceWindow.qml" line="351"/>
         <source>Removed %1 cache file(s), reclaiming %2.</source>
-        <translation type="unfinished"></translation>
+        <translation>已移除 %1 个缓存文件，释放了 %2。</translation>
     </message>
 </context>
 <context>
@@ -1980,12 +1980,12 @@ R %2 · G %3 · B %4</translation>
     <message>
         <location filename="../qml/LibraryWorkspace.qml" line="411"/>
         <source>LOCATE MOVED ORIGINAL</source>
-        <translation type="unfinished"></translation>
+        <translation>定位已移动的原片</translation>
     </message>
     <message>
         <location filename="../qml/LibraryWorkspace.qml" line="424"/>
         <source>Verifying complete file…</source>
-        <translation type="unfinished"></translation>
+        <translation>正在验证完整文件…</translation>
     </message>
     <message>
         <location filename="../qml/LibraryWorkspace.qml" line="447"/>
@@ -2030,32 +2030,32 @@ R %2 · G %3 · B %4</translation>
     <message>
         <location filename="../qml/LibraryWorkspace.qml" line="22"/>
         <source>Choose the moved original file</source>
-        <translation type="unfinished"></translation>
+        <translation>选择已移动的原片</translation>
     </message>
     <message>
         <location filename="../qml/LibraryWorkspace.qml" line="53"/>
         <source>Verify and link original</source>
-        <translation type="unfinished"></translation>
+        <translation>验证并链接原片</translation>
     </message>
     <message>
         <location filename="../qml/LibraryWorkspace.qml" line="61"/>
         <source>Shadow will read the complete selected file and link it only when its exact content identity belongs to this historical photo. File name, EXIF and size are not used as a match.</source>
-        <translation type="unfinished"></translation>
+        <translation>Shadow 会读取所选文件的完整内容，仅当其精确内容身份属于这张历史照片时才建立链接。文件名、EXIF 和文件大小均不作为匹配依据。</translation>
     </message>
     <message>
         <location filename="../qml/LibraryWorkspace.qml" line="82"/>
         <source>CANCEL</source>
-        <translation type="unfinished">取消</translation>
+        <translation>取消</translation>
     </message>
     <message>
         <location filename="../qml/LibraryWorkspace.qml" line="88"/>
         <source>VERIFY AND LINK</source>
-        <translation type="unfinished"></translation>
+        <translation>验证并链接</translation>
     </message>
     <message>
         <location filename="../qml/LibraryWorkspace.qml" line="455"/>
         <source>Select a moved original to verify it. Shadow creates no new Library source and changes nothing unless the complete file identity matches exactly.</source>
-        <translation type="unfinished"></translation>
+        <translation>选择一份已移动的原片进行验证。只有完整文件身份精确匹配时，Shadow 才会链接；否则不会创建新的图库来源，也不会做任何更改。</translation>
     </message>
     <message>
         <location filename="../qml/LibraryWorkspace.qml" line="555"/>
@@ -2321,7 +2321,7 @@ R %2 · G %3 · B %4</translation>
     <message>
         <location filename="../qml/Main.qml" line="879"/>
         <source>Filter liked photos</source>
-        <translation type="unfinished"></translation>
+        <translation>筛选喜欢的照片</translation>
     </message>
     <message>
         <location filename="../qml/Main.qml" line="897"/>
@@ -2480,6 +2480,16 @@ R %2 · G %3 · B %4</translation>
         <location filename="../qml/MetadataWindow.qml" line="99"/>
         <source>Metadata is being prepared</source>
         <translation>正在准备元数据</translation>
+    </message>
+    <message>
+        <location filename="../qml/MetadataWindow.qml" line="101"/>
+        <source>Could not load metadata for this photo</source>
+        <translation>无法载入这张照片的元数据</translation>
+    </message>
+    <message>
+        <location filename="../qml/MetadataWindow.qml" line="117"/>
+        <source>Retry</source>
+        <translation>重试</translation>
     </message>
     <message>
         <location filename="../qml/MetadataWindow.qml" line="100"/>
@@ -4430,7 +4440,7 @@ R %2 · G %3 · B %4</translation>
     <message>
         <location filename="../qml/PreferencesMenu.qml" line="192"/>
         <source>Library</source>
-        <translation type="unfinished"></translation>
+        <translation>图库</translation>
     </message>
     <message>
         <location filename="../qml/PreferencesMenu.qml" line="199"/>
@@ -4440,7 +4450,7 @@ R %2 · G %3 · B %4</translation>
     <message>
         <location filename="../qml/PreferencesMenu.qml" line="219"/>
         <source>Cache Maintenance…</source>
-        <translation type="unfinished"></translation>
+        <translation>缓存维护…</translation>
     </message>
     <message>
         <location filename="../qml/PreferencesMenu.qml" line="238"/>
@@ -4753,12 +4763,12 @@ Technical detail: %1</source>
     <message>
         <location filename="../src/review_controller.cpp" line="2185"/>
         <source>Verified and linked · %1</source>
-        <translation type="unfinished"></translation>
+        <translation>已验证并链接 · %1</translation>
     </message>
     <message>
         <location filename="../src/review_controller.cpp" line="2195"/>
         <source>Could not link selected source · %1</source>
-        <translation type="unfinished"></translation>
+        <translation>无法链接所选来源 · %1</translation>
     </message>
     <message>
         <location filename="../src/review_controller.cpp" line="2213"/>
@@ -4848,7 +4858,7 @@ Technical detail: %1</source>
     <message>
         <location filename="../src/review_controller.cpp" line="2540"/>
         <source>Verifying selected source…</source>
-        <translation type="unfinished"></translation>
+        <translation>正在验证所选来源…</translation>
     </message>
     <message>
         <location filename="../src/review_controller.cpp" line="2605"/>
@@ -5162,16 +5172,6 @@ Technical detail: %1</source>
         <translation>以胶片带逐张选片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="2194"/>
-        <source>PREVIEW PENDING</source>
-        <translation>预览等待中</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="2194"/>
-        <source>NO VISUAL</source>
-        <translation>无图像</translation>
-    </message>
-    <message>
         <location filename="../qml/ReviewWorkspace.qml" line="712"/>
         <location filename="../qml/ReviewWorkspace.qml" line="715"/>
         <location filename="../qml/ReviewWorkspace.qml" line="2236"/>
@@ -5452,11 +5452,6 @@ Technical detail: %1</source>
         <translation>在精修中打开所选照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="2238"/>
-        <source>awaiting cache</source>
-        <translation>等待缓存</translation>
-    </message>
-    <message>
         <location filename="../qml/ReviewWorkspace.qml" line="2312"/>
         <location filename="../qml/ReviewWorkspace.qml" line="2419"/>
         <source>Searching the folder for supported photos…
@@ -5734,6 +5729,16 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <location filename="../qml/ReviewPhotoInspector.qml" line="155"/>
         <source>Metadata is being prepared</source>
         <translation>正在准备元数据</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewPhotoInspector.qml" line="155"/>
+        <source>Could not load metadata for this photo</source>
+        <translation>无法载入这张照片的元数据</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewPhotoInspector.qml" line="168"/>
+        <source>Retry</source>
+        <translation>重试</translation>
     </message>
     <message>
         <location filename="../qml/ReviewPhotoInspector.qml" line="163"/>

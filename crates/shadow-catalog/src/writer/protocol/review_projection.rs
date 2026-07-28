@@ -2,11 +2,11 @@
 
 use std::sync::mpsc::SyncSender;
 
-use shadow_domain::PhotoId;
+use shadow_domain::{PhotoId, RepresentationId};
 
 use crate::{
-    CachedArtifactGeneratorIdentity, CatalogError, ReviewCursor, ReviewItemRecord,
-    ReviewPageRecord, TechnicalObservationRevision,
+    CachedArtifactGeneratorIdentity, CatalogError, PhotoInspectionRecord, ReviewCursor,
+    ReviewItemRecord, ReviewPageRecord, TechnicalObservationRevision,
 };
 
 pub(in crate::writer) enum ReviewProjectionMessage {
@@ -26,4 +26,10 @@ pub(in crate::writer) enum ReviewProjectionMessage {
         PhotoId,
         SyncSender<Result<Option<ReviewItemRecord>, CatalogError>>,
     ),
+    PhotoInspection {
+        photo_id: PhotoId,
+        representation_id: RepresentationId,
+        revision: TechnicalObservationRevision,
+        response: SyncSender<Result<Option<PhotoInspectionRecord>, CatalogError>>,
+    },
 }

@@ -1,9 +1,6 @@
 //! Compilation of persisted Recipe v1 snapshots into executable render plans.
 
-use std::{
-    collections::{HashMap, HashSet},
-    path::Path,
-};
+use std::{collections::HashSet, path::Path};
 
 use anyhow::{Context, Result as AnyResult, anyhow, bail};
 use shadow_bridge::{
@@ -23,23 +20,25 @@ use shadow_bridge::{
     TECHNICAL_DETAIL_IMPLEMENTATION_VERSION as TECHNICAL_DETAIL_IMPLEMENTATION_REVISION,
 };
 use shadow_domain::operation::{
-    BASIC_GRAPH_SCHEMA_VERSION, BLACKS_PARAMETER_KEY, COLOR_GRADING_IMPLEMENTATION_VERSION,
-    COLOR_GRADING_OPERATION_ID, COLOR_MIXER_HUE_PARAMETER_KEY, COLOR_MIXER_LIGHTNESS_PARAMETER_KEY,
-    COLOR_MIXER_SATURATION_PARAMETER_KEY, COLOR_RANGE_CENTER_PARAMETER_KEY,
-    COLOR_RANGE_ENABLED_PARAMETER_KEY, COLOR_RANGE_HUE_PARAMETER_KEY,
-    COLOR_RANGE_LIGHTNESS_PARAMETER_KEY, COLOR_RANGE_SATURATION_PARAMETER_KEY,
-    COLOR_RANGE_SOFTNESS_PARAMETER_KEY, COLOR_RANGE_WIDTH_PARAMETER_KEY,
-    CONTRAST_FACTOR_PARAMETER_KEY, CONTRAST_OPERATION_ID, CONTRAST_PIVOT_PARAMETER_KEY,
-    CPU_REFERENCE_IMPLEMENTATION_REVISION, CPU_REFERENCE_IMPLEMENTATION_VERSION,
-    CPU_REFERENCE_PARAMETER_SCHEMA_VERSION, DETAIL_EFFECTS_PARAMETERS_KEY, EXPOSURE_OPERATION_ID,
-    EXPOSURE_STOPS_PARAMETER_KEY, FINISHING_EFFECTS_IMPLEMENTATION_VERSION,
-    FINISHING_EFFECTS_OPERATION_ID, GLOBAL_A_BALANCE_PARAMETER_KEY, GLOBAL_B_BALANCE_PARAMETER_KEY,
-    HIGHLIGHTS_PARAMETER_KEY, LUT_3D_OPERATION_ID, LUT_INTENSITY_PARAMETER_KEY,
-    LUT_MANAGED_PATH_PARAMETER_KEY, LUT_RESOURCE_ID_PARAMETER_KEY, LUT_TITLE_PARAMETER_KEY,
-    OKLAB_COLOR_WARPER_CONTROL_POINTS_PARAMETER_KEY, OKLAB_COLOR_WARPER_IMPLEMENTATION_VERSION,
-    OKLAB_COLOR_WARPER_OPERATION_ID, OKLAB_COLOR_WARPER_PARAMETER_SCHEMA_VERSION,
-    OKLAB_COLOR_WARPER_STRENGTH_PARAMETER_KEY, OKLAB_LIGHTNESS_TONE_CURVE_IMPLEMENTATION_VERSION,
-    OKLAB_LIGHTNESS_TONE_CURVE_OPERATION_ID, OKLAB_LIGHTNESS_TONE_CURVE_PARAMETER_SCHEMA_VERSION,
+    BLACKS_PARAMETER_KEY, COLOR_GRADING_IMPLEMENTATION_VERSION, COLOR_GRADING_OPERATION_ID,
+    COLOR_GRADING_PARAMETER_SCHEMA_VERSION, COLOR_MIXER_HUE_PARAMETER_KEY,
+    COLOR_MIXER_LIGHTNESS_PARAMETER_KEY, COLOR_MIXER_SATURATION_PARAMETER_KEY,
+    COLOR_RANGE_CENTER_PARAMETER_KEY, COLOR_RANGE_ENABLED_PARAMETER_KEY,
+    COLOR_RANGE_HUE_PARAMETER_KEY, COLOR_RANGE_LIGHTNESS_PARAMETER_KEY,
+    COLOR_RANGE_SATURATION_PARAMETER_KEY, COLOR_RANGE_SOFTNESS_PARAMETER_KEY,
+    COLOR_RANGE_WIDTH_PARAMETER_KEY, CONTRAST_FACTOR_PARAMETER_KEY, CONTRAST_OPERATION_ID,
+    CONTRAST_PIVOT_PARAMETER_KEY, CPU_REFERENCE_IMPLEMENTATION_REVISION,
+    CPU_REFERENCE_IMPLEMENTATION_VERSION, CPU_REFERENCE_PARAMETER_SCHEMA_VERSION,
+    DETAIL_EFFECTS_PARAMETERS_KEY, EXPOSURE_OPERATION_ID, EXPOSURE_STOPS_PARAMETER_KEY,
+    FINISHING_EFFECTS_IMPLEMENTATION_VERSION, FINISHING_EFFECTS_OPERATION_ID,
+    FINISHING_EFFECTS_PARAMETER_SCHEMA_VERSION, GLOBAL_A_BALANCE_PARAMETER_KEY,
+    GLOBAL_B_BALANCE_PARAMETER_KEY, HIGHLIGHTS_PARAMETER_KEY, LUT_3D_OPERATION_ID,
+    LUT_INTENSITY_PARAMETER_KEY, LUT_MANAGED_PATH_PARAMETER_KEY, LUT_RESOURCE_ID_PARAMETER_KEY,
+    LUT_TITLE_PARAMETER_KEY, OKLAB_COLOR_WARPER_CONTROL_POINTS_PARAMETER_KEY,
+    OKLAB_COLOR_WARPER_IMPLEMENTATION_VERSION, OKLAB_COLOR_WARPER_OPERATION_ID,
+    OKLAB_COLOR_WARPER_PARAMETER_SCHEMA_VERSION, OKLAB_COLOR_WARPER_STRENGTH_PARAMETER_KEY,
+    OKLAB_LIGHTNESS_TONE_CURVE_IMPLEMENTATION_VERSION, OKLAB_LIGHTNESS_TONE_CURVE_OPERATION_ID,
+    OKLAB_LIGHTNESS_TONE_CURVE_PARAMETER_SCHEMA_VERSION,
     OKLAB_LIGHTNESS_TONE_CURVE_POINTS_PARAMETER_KEY, PERCEPTUAL_COLOR_IMPLEMENTATION_VERSION,
     PERCEPTUAL_COLOR_OPERATION_ID, POINT_COLOR_RANGES_PARAMETER_KEY,
     RGB_WHITE_BALANCE_OPERATION_ID, SATURATION_FACTOR_PARAMETER_KEY, SATURATION_OPERATION_ID,
@@ -53,9 +52,8 @@ use shadow_domain::operation::{
     WHITE_BALANCE_TINT_PARAMETER_KEY, WHITES_PARAMETER_KEY,
 };
 use shadow_domain::{
-    AdjustmentNode, AdjustmentScope, BlendMode, CURRENT_RECIPE_SCHEMA_VERSION, ImageDomain,
-    LayerInstance, LayerInstanceId, MaskCoordinateSpace, MaskDefinition, NodeInput, PortType,
-    ProcessingStage, RecipeSnapshot, RetouchMode, UnitInterval,
+    AdjustmentNode, CURRENT_RECIPE_SCHEMA_VERSION, ImageDomain, LayerInstanceId,
+    MaskCoordinateSpace, MaskDefinition, PortType, ProcessingStage, RecipeSnapshot, RetouchMode,
 };
 
 use super::{
@@ -310,58 +308,6 @@ fn adjustment_local_mask(definition: &MaskDefinition) -> AdjustmentLocalMask {
     }
 }
 
-pub(crate) fn ordered_layer_nodes(layer: &LayerInstance) -> AnyResult<Vec<&AdjustmentNode>> {
-    if layer.scope() != AdjustmentScope::Photo
-        || layer.opacity() != UnitInterval::ONE
-        || layer.blend_mode() != BlendMode::Normal
-    {
-        bail!("Recipe render compiler does not support this layer scope, blend, or opacity");
-    }
-    let graph = layer.content().graph();
-    let rgb = PortType::Image(ImageDomain::WorkingRgb);
-    if graph.schema_version() != BASIC_GRAPH_SCHEMA_VERSION
-        || graph.input_types() != [rgb]
-        || graph.output_type() != Some(rgb)
-    {
-        bail!("Recipe render compiler received an unsupported graph contract");
-    }
-    if graph.nodes().is_empty() || graph.nodes().len() > MAX_ADJUSTMENT_RENDER_NODES {
-        bail!("Recipe render compiler supports 1 through 256 executable nodes");
-    }
-
-    let mut reverse = Vec::with_capacity(graph.nodes().len());
-    let mut visited = HashSet::with_capacity(graph.nodes().len());
-    let nodes_by_id = graph
-        .nodes()
-        .iter()
-        .map(|node| (node.id(), node))
-        .collect::<HashMap<_, _>>();
-    let mut current = graph.output_node();
-    loop {
-        if !visited.insert(current) {
-            bail!("Recipe render compiler encountered a dependency cycle at node {current}");
-        }
-        let node = nodes_by_id
-            .get(&current)
-            .copied()
-            .ok_or_else(|| anyhow!("Recipe output path references missing node {current}"))?;
-        reverse.push(node);
-        match node.inputs() {
-            [NodeInput::GraphInput { index: 0 }] => break,
-            [NodeInput::Node { node_id }] => current = *node_id,
-            _ => bail!(
-                "Recipe node {} is not part of the supported single-input linear chain",
-                node.id()
-            ),
-        }
-    }
-    if reverse.len() != graph.nodes().len() {
-        bail!("Recipe render compiler rejects branches or nodes outside the output chain");
-    }
-    reverse.reverse();
-    Ok(reverse)
-}
-
 #[allow(clippy::too_many_lines)] // Keep the exhaustive operation-contract mapping auditable.
 pub(crate) fn compile_recipe_node(
     node: &AdjustmentNode,
@@ -395,11 +341,11 @@ pub(crate) fn compile_recipe_node(
         && descriptor.parameter_schema_version() == TECHNICAL_DETAIL_PARAMETER_SCHEMA_VERSION
         && descriptor.implementation_version() == TECHNICAL_DETAIL_IMPLEMENTATION_VERSION;
     let is_current_color_grading = descriptor.operation_id().as_str() == COLOR_GRADING_OPERATION_ID
-        && descriptor.parameter_schema_version() == TECHNICAL_DETAIL_PARAMETER_SCHEMA_VERSION
+        && descriptor.parameter_schema_version() == COLOR_GRADING_PARAMETER_SCHEMA_VERSION
         && descriptor.implementation_version() == COLOR_GRADING_IMPLEMENTATION_VERSION;
     let is_current_finishing_effects = descriptor.operation_id().as_str()
         == FINISHING_EFFECTS_OPERATION_ID
-        && descriptor.parameter_schema_version() == TECHNICAL_DETAIL_PARAMETER_SCHEMA_VERSION
+        && descriptor.parameter_schema_version() == FINISHING_EFFECTS_PARAMETER_SCHEMA_VERSION
         && descriptor.implementation_version() == FINISHING_EFFECTS_IMPLEMENTATION_VERSION;
     if (!is_base_contract
         && !is_current_oklab_lightness_tone_curve

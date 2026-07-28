@@ -132,6 +132,22 @@ module invalidates old decode artifacts even if its author accidentally forgets 
 version string. The module is a development fixture, not a public Nikon decoder and does not
 contain vendor code or calibration data.
 
+`shadow-image-decode-helper neutral-detail-tile` is a development isolation proof, not the current
+Recipe-aware edit or export route. It proves that a child process can open a source through the
+private-provider boundary, prepare neutral full-detail pixels, bind its receipt to a caller nonce,
+and atomically publish a tightly packed RGB8 tile. The
+`shadow-image-neutral-detail-helper-contract` CTest launches the real helper with the existing
+private-provider fixture and verifies its complete 2-by-1 rectangle/full-dimensions receipt,
+six-byte row layout, pipeline identity, and six-byte artifact. It does not replace that process
+boundary with parsed fixture text.
+
+The desktop does not currently expose this neutral operation as a Precision editing capability.
+A future crate-private `isolated_detail_worker` should own child scheduling and cancellation,
+source/helper/Recipe/geometry identities, receipt validation, and cache publication. That worker
+must introduce a new versioned Recipe-aware operation; it must not overload this neutral proof,
+promote an unowned parser into the public crate facade, or substitute a JPEG proxy for a RAW detail
+tile.
+
 Decoder contract tests follow the production responsibilities instead of one aggregate executable:
 
 - `tests/decoder_source_contract_test.cpp` owns RawFrame validation, sensor clipping, noise
@@ -140,6 +156,8 @@ Decoder contract tests follow the production responsibilities instead of one agg
 - `tests/raster_provider_contract_test.cpp` owns provider-neutral raster-source decoding.
 - `tests/private_decoder_contract_test.cpp` owns the private plugin ABI, loading, stale-module
   rejection, and router precedence.
+- `tests/neutral_detail_helper_contract.cmake` owns the real helper-process/private-provider
+  development proof, including nonce-bound receipt fields and atomic RGB8 artifact publication.
 - `tests/optics_preparation_contract_test.cpp` owns manual/Lensfun optics and its position before
   warm-preview and full-detail preparation.
 - `tests/proxy_output_contract_test.cpp` owns encoded proxy limits and the explicit display-sRGB
@@ -171,9 +189,10 @@ New production code should include the narrow semantic owner directly:
   order; `adjustment_graph.hpp` owns node identity and operation mapping.
 - `edit_execution_plan.hpp` owns locality, footprints, validation, compiled segments, and their
   source-node index lifetime.
-- `cpu_edit_reference.hpp` owns the deterministic flat-node oracle and tone-curve sampling;
-  `retouch.hpp` owns deterministic spot/continuous-brush repair; `adjustment_layers.hpp` owns
-  masks, layer composition, and masked execution.
+- `cpu_edit_reference.hpp` owns the deterministic flat-node oracle; `tone_curve.hpp` owns
+  standalone Oklab Lightness application and exact smooth-curve sampling; `retouch.hpp` owns
+  deterministic spot/continuous-brush repair; `adjustment_layers.hpp` owns masks, layer
+  composition, and masked execution.
 - `warm_edit_preview.hpp` owns the reusable interactive preview session, analysis, cancellation,
   and execution provenance; `full_edit_detail.hpp` owns bounded full-resolution tile sessions.
 - `edited_proxy_rendering.hpp` owns one-shot adjusted proxy orchestration, while
@@ -199,9 +218,56 @@ execution backends consume that graph identity instead of redefining it.
 conversion, and CAT16 white-balance preparation shared by CPU execution and Metal program
 lowering. `src/edit/adjustment_node_diagnostics.*` preserves the common source-node diagnostic
 identity used by those internal semantic owners.
-`src/edit/metal_adjustment_program.hpp` owns the transient host-side Metal ABI and program
-preparation contract; `src/edit/metal_adjustment_execution.hpp` owns only backend availability and
-the execution attempt boundary.
+`src/edit/edit_execution_validation.*` owns the float-image and execution-window admission
+contract. `src/edit/tone_curve.*` owns PCHIP preparation and sampling plus Oklab Lightness and
+Opponent curve execution; its prepared state exposes only the source curve, derivatives,
+segment count, and neutral identity required by Metal lowering.
+`src/edit/perceptual_color.*` owns hue-band and ordered Point Color mapping, global Oklab
+opponent balance, Selective Color, validation, and the shared sub-stage classifier consumed by
+CPU execution and Metal lowering. `src/edit/oklab_color_warper.*` separately owns lattice
+validation, neutral classification, boundary feathering, interpolation, and CPU execution;
+sharing Oklab does not make it part of the Perceptual Color operation.
+`tests/oklab_color_warper_contract_test.cpp` mirrors that owner with row-major interpolation,
+boundary feather, validation-order, backend parity, and host-lowering contracts; resident
+resource-cache behavior remains with the Warm Metal tests.
+Perceptual Color tests follow the same semantic index:
+`tests/point_color_contract_test.cpp` owns hue bands, vibrance, feathering, and ordered ranges;
+`tests/selective_color_contract_test.cpp` owns CMYK target routing and lightness protection; and
+`tests/perceptual_color_contract_test.cpp` owns stage composition, classification, exact bypass,
+and extended-range behavior.
+`src/edit/scalar_neighborhood_filters.*` owns scalar Gaussian convolution, reflect-101
+coordinates, and replicated-border guided filtering. Its prepared guided-filter aggregate keeps
+dimensions, radius, mean, variance, and border policy together so detail stages cannot combine
+incompatible transient fields.
+`src/edit/finishing_effects_cpu.*` owns the final grain/vignette pass, including deterministic
+coordinate noise, full-raster geometry, highlight protection, and the fused RGB write that makes
+whole-image and tiled execution agree.
+`src/edit/technical_detail_cpu.*` owns the ordered denoise, dehaze/defringe, and capture-sharpen
+recovery pass. One internal plan derives its guided-filter radii, bilateral fallback, sharpen
+support, and public footprint so execution cannot drift from tile planning.
+`src/edit/creative_detail_grading.*` owns the shared Oklab field for Texture, Clarity, and Local
+Contrast plus the following grading-wheel pass. It derives creative footprint and execution from
+one plan, while Metal lowering sees only immutable prepared wheel deltas and tonal weights.
+`src/edit/perceptual_contrast.*` owns the validated mapping from the public multiplicative
+contrast factor and scene-linear pivot to one bounded Oklab-lightness curve. CPU execution and
+Metal lowering consume the same immutable prepared contract.
+`src/edit/guided_selective_tone.*` owns the fixed scene-EV zones and complete two-pass guided
+filter. Its prepared plan binds the authored amounts, per-axis mask radii, and scheduler footprint
+so tile planning and execution cannot describe different neighborhoods.
+`tests/creative_detail_grading_contract_test.cpp` mirrors that owner with coupled-band,
+grading-wheel, neutral-axis, and locality contracts; `tests/detail_effects_contract_test.cpp`
+retains only the cross-pass schema and version boundary.
+`src/edit/rgb_pixel_traversal.hpp` owns node-attributed row scheduling, interleaved RGB addressing,
+and checked writes for pixel-local transforms; color and effect owners supply only their
+algorithms.
+`src/edit/metal_adjustment_program.*` owns the transient host-side Metal ABI and the portable
+two-pass compiler that counts side-table resources, lowers the complete operation registry, assigns
+offsets, and verifies the resulting program as one transaction. It consumes prepared semantics from
+the adjustment owners rather than reinterpreting them. `src/edit/metal_adjustment_execution.hpp`
+owns only backend availability and the execution attempt boundary.
+`tests/metal_adjustment_program_contract_test.cpp` validates that compiler without a Metal device:
+operation expansion and order, all side-table ranges, stale-plan rejection, and the resident
+prevalidated-raster contract remain one test-owned transaction.
 The embedded Warm Metal program is a separate language owner in
 `src/proxy/warm_edit_gpu_msl.hpp`; the Objective-C++ runtime consumes it without owning its
 kernel implementation. Its mirrored host records and checked buffer layout live in
@@ -217,6 +283,10 @@ working-set admission, synchronization, and GPU statistics move together in
 Program lowering, stage-specific buffer selection, Metal command encoding, kernel order, status
 interpretation, and readback form one execution pipeline in
 `src/proxy/warm_edit_gpu_dispatcher.*`; `warm_edit_gpu.mm` is the thin session facade.
+`tests/warm_edit_gpu_contract_test.cpp` is the thin runner for the corresponding real-device
+contract. Its responsibility-named children mirror resident session lifecycle, technical and
+creative detail dispatch, and resident side-table caches; their only shared fixture owns
+CPU-oracle parity inputs and comparisons.
 
 The edit path accepts explicitly native interleaved RGB float32, scene-referred, linear-light data
 with named RGB primaries, white point, and luminance coefficients. It is not legal to feed the
@@ -236,28 +306,41 @@ the one-shot edited-proxy path rejects malformed plans before asking a decoder t
 
 Edit-kernel contract tests follow the same ownership boundaries as the implementation:
 
+- `tests/adjustment_execution_contract_test.cpp` is the thin runner for backend dispatch,
+  admission, resource failure, real-Metal parity, operation-order, concurrency, and optional
+  benchmark contracts. Responsibility-named children own those cases; narrow fixtures separately
+  own deterministic parity images, advanced LUT data, and perceptual-color parameters.
 - `tests/edit_plan_contract_test.cpp` owns operation identity, execution-plan segmentation,
   node order, validation, layout, and the basic pixel contract.
-- `tests/tone_adjustment_contract_test.cpp` owns contrast, selective tone, and Oklab lightness
-  curve behavior.
-- `tests/detail_effects_contract_test.cpp` owns sharpen, denoise, defringe, clarity, and
-  color-grading execution passes.
+- `tests/perceptual_contrast_contract_test.cpp` owns the perceptual pivot, factor mapping,
+  identity/collapse endpoints, and shared CPU/Metal lowering contract.
+- `tests/guided_selective_tone_contract_test.cpp` owns fixed EV zones, two-pass radius/footprint
+  binding, smooth monotonic response, chroma preservation, and edge-aware behavior.
+- `tests/tone_curve_contract_test.cpp` owns smooth-curve interpolation, endpoint extrapolation,
+  Oklab-lightness execution, and its graph-node contract.
+- `tests/scalar_neighborhood_filters_contract_test.cpp` owns reflect-101 Gaussian and
+  replicated-border guided-filter invariants.
+- `tests/finishing_effects_contract_test.cpp` owns grain determinism, vignette geometry,
+  neutral bypass, and full-image/tile coordinate equivalence.
+- `tests/technical_detail_contract_test.cpp` owns sharpen, denoise, and independent defringe
+  behavior.
+- `tests/detail_effects_contract_test.cpp` owns the cross-pass schema/version contract and
+  creative color-grading behavior.
 - `tests/lut_execution_contract_test.cpp` owns Cube LUT bypass, interpolation, blending, and
   extreme-scene execution; `tests/lut_contract_test.cpp` remains the resource parser owner.
-- `tests/spatial_edit_contract_test.cpp` owns global-coordinate effects, local masks,
-  repair/clone strokes, and photo geometry.
+- `tests/spatial_edit_contract_test.cpp` owns local masks, repair/clone strokes, and photo
+  geometry.
 - `tests/perceptual_color_contract_test.cpp` owns point color, selective color, perceptual hue
   routing, vibrance, and extended-gamut behavior.
 - `tests/edit_contract_test_support.hpp` contains only the shared assertions and small image
   fixtures used by these executables.
 
-Tone Curve is available both through the standalone `apply_tone_curve` reference operator and as
-a normal ordered executor node. Version 1 uses 2 through 256 finite control points whose
-strictly increasing x coordinates span exactly 0 through 1. It applies a piecewise-linear curve
-to each scene-linear working-RGB channel, interpolates normalized samples, and extrapolates
-negative and super-white samples with the endpoint segment slopes. It never clips. This is a
-transparent baseline for parity tests; it does not claim to be a final
-perceptual, luminance-only, or display-referred tone-curve model.
+Oklab Lightness Tone Curve is available through the standalone
+`apply_oklab_lightness_tone_curve` reference operator and as a normal ordered executor node.
+Version 1 uses 2 through 256 finite control points whose strictly increasing x coordinates span
+exactly 0 through 1. The monotone PCHIP evaluator changes only Oklab L, extrapolates with endpoint
+tangents, and never gamut-clips. Oklab Opponent curves reuse that evaluator as bounded a/b offset
+curves keyed by clamped photographic lightness.
 
 `WarmEditPreviewSession` is the interactive path for this exact version-1 subset. Preparation
 asks the decoder for processed linear RGB once, normalizes the samples, and bilinearly downsamples

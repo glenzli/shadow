@@ -1,6 +1,22 @@
 //! Catalog source identity, RAW isolation, optics lookup, and edit admission contracts.
 
-use super::*;
+use std::path::Path;
+
+use shadow_catalog::{RecordDecodeSnapshot, RegisterAsset, RepresentationFingerprint};
+use shadow_domain::{
+    AssetLocation, DecodeCapabilitySnapshot, DecodeProviderSnapshot, DecodeSupport,
+    DecoderSnapshot, EntityId, ImageDimensions, ImageMargins, PendingCorrectionsSnapshot, Platform,
+    RawMetadataSnapshot, RepresentationId, RepresentationKind,
+};
+
+use crate::{
+    ffi, open_desktop_session,
+    session_photo_source::{
+        MissingCatalogOpticsRoute, missing_catalog_optics_route,
+        query_missing_catalog_optics_profiles,
+    },
+    tests::fixtures::{edit_session::test_edit_session, grade_stack::ffi_parameters},
+};
 
 #[test]
 fn edit_service_accepts_an_original_raster_source_when_no_raw_exists() {

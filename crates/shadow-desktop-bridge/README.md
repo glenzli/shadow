@@ -16,16 +16,20 @@ presentation, SQLite schema details, or native image algorithms.
 | Folder import lifecycle | [`src/scan_service.rs`](src/scan_service.rs) |
 | Source relinking | [`src/relink_service.rs`](src/relink_service.rs) |
 | Review presentation, decisions, and comparison evidence | [`src/review_service.rs`](src/review_service.rs) |
+| Exact selected-photo EXIF and technical inspection, independent from virtualized Review pages | [`src/photo_inspection_service.rs`](src/photo_inspection_service.rs), [`src/session_photo_inspection.rs`](src/session_photo_inspection.rs) |
 | Photo source admission, quarantine, optics discovery, and raster delivery | [`src/session_photo_source.rs`](src/session_photo_source.rs), [`src/photo_provider.rs`](src/photo_provider.rs), [`src/isolated_proxy.rs`](src/isolated_proxy.rs) |
-| Preview identity, cancellation, and session-local reuse | [`src/preview_cache_identity.rs`](src/preview_cache_identity.rs), [`src/preview_render_registry.rs`](src/preview_render_registry.rs), [`src/session_preview_store.rs`](src/session_preview_store.rs) |
+| Bounded persistent grid-proxy identity from the complete RAW plan and optional isolated-helper graph | [`src/photo_provider/grid_proxy_identity.rs`](src/photo_provider/grid_proxy_identity.rs) |
+| Preview identity, cancellation, and session-local reuse | [`src/preview_cache_identity.rs`](src/preview_cache_identity.rs), [`src/preview_render_registry.rs`](src/preview_render_registry.rs), [`src/session_preview_store.rs`](src/session_preview_store.rs), [`src/edit_preview/warm_session_cache.rs`](src/edit_preview/warm_session_cache.rs) |
 | 1:1 detail tile geometry and reuse | [`src/detail_viewport.rs`](src/detail_viewport.rs), [`src/detail_tile_cache.rs`](src/detail_tile_cache.rs) |
-| Desktop-session interactive preview/detail render lifecycle | [`src/session_edit_render.rs`](src/session_edit_render.rs) |
+| Interactive preview transaction, terminal linearization, durable-publication call, and FFI response | [`src/edit_preview/service.rs`](src/edit_preview/service.rs), [`src/edit_preview/response.rs`](src/edit_preview/response.rs) |
+| Desktop-session full-detail viewport and prepared-source lifecycle | [`src/session_edit_render.rs`](src/session_edit_render.rs) |
+| Settled Recipe-preview identity, blob storage, and Catalog publication | [`src/edit_preview/recipe_preview_store.rs`](src/edit_preview/recipe_preview_store.rs) |
 | Working drafts, named versions, checkout, and edit-reference publication | [`src/session_edit_history.rs`](src/session_edit_history.rs) |
-| Recipe v1 draft model and FFI translation, validation, stable identity, snapshot codec, render-plan compilation, and version summaries | [`src/recipe_v1.rs`](src/recipe_v1.rs), [`src/recipe_v1/draft.rs`](src/recipe_v1/draft.rs), [`src/recipe_v1/ffi_adapter.rs`](src/recipe_v1/ffi_adapter.rs), [`src/recipe_v1/validation.rs`](src/recipe_v1/validation.rs), [`src/recipe_v1/identity.rs`](src/recipe_v1/identity.rs), [`src/recipe_v1/snapshot_encode.rs`](src/recipe_v1/snapshot_encode.rs), [`src/recipe_v1/snapshot_decode.rs`](src/recipe_v1/snapshot_decode.rs), [`src/recipe_v1/compiler.rs`](src/recipe_v1/compiler.rs), [`src/edit_version_diff.rs`](src/edit_version_diff.rs) |
+| Recipe v1 draft model and FFI translation, validation, stable identity, snapshot codec and layout, render-plan compilation, and version summaries | [`src/recipe_v1.rs`](src/recipe_v1.rs), [`src/recipe_v1/draft.rs`](src/recipe_v1/draft.rs), [`src/recipe_v1/ffi_adapter.rs`](src/recipe_v1/ffi_adapter.rs), [`src/recipe_v1/validation.rs`](src/recipe_v1/validation.rs), [`src/recipe_v1/identity.rs`](src/recipe_v1/identity.rs), [`src/recipe_v1/snapshot_encode.rs`](src/recipe_v1/snapshot_encode.rs), [`src/recipe_v1/snapshot_decode.rs`](src/recipe_v1/snapshot_decode.rs), [`src/recipe_v1/snapshot_layout.rs`](src/recipe_v1/snapshot_layout.rs), [`src/recipe_v1/compiler.rs`](src/recipe_v1/compiler.rs), [`src/edit_version_diff.rs`](src/edit_version_diff.rs) |
 | Shared Grade Node library, application, and desktop-session orchestration | [`src/shared_grade_library.rs`](src/shared_grade_library.rs), [`src/shared_grade_application.rs`](src/shared_grade_application.rs), [`src/session_shared_grade.rs`](src/session_shared_grade.rs) |
 | Export execution and queueing | [`src/export_service.rs`](src/export_service.rs), [`src/export_queue_service.rs`](src/export_queue_service.rs) |
 | Cache ownership and explicit maintenance | [`src/cache_maintenance_service.rs`](src/cache_maintenance_service.rs) |
-| Cross-responsibility facade contracts and test support | [`src/tests/mod.rs`](src/tests/mod.rs) |
+| Cross-responsibility facade contracts and responsibility-owned fixtures | [`src/tests/mod.rs`](src/tests/mod.rs), [`src/tests/fixtures/mod.rs`](src/tests/fixtures/mod.rs) |
 
 Add behavior to the module that owns its lifecycle and failure policy. Change `lib.rs` only when
 the CXX contract, session composition, or a narrow delegation must change. A new independent
@@ -37,7 +41,16 @@ after its contract is stable.
 Small private-invariant tests remain in their production service. The crate-local `src/tests/`
 tree exercises contracts that need private access across the facade and is indexed by product
 responsibility rather than by numbered test parts. Public behavior that does not need crate-private
-access belongs in the package-level `tests/` directory.
+access belongs in the package-level `tests/` directory. Each suite imports its production contract
+and shared fixture owner directly; `src/tests/mod.rs` supplies no implicit test prelude. Grade Stack,
+edit-session, feedback-evidence, and Review-comparison fixtures are indexed in
+[`src/tests/fixtures/mod.rs`](src/tests/fixtures/mod.rs), with no generic support bucket.
+Perceptual Color DTO validation lives in
+[`src/tests/perceptual_color_contract.rs`](src/tests/perceptual_color_contract.rs), while Oklab
+Color Warper DTO, persistence, and render-plan behavior lives in
+[`src/tests/oklab_color_warper_contract.rs`](src/tests/oklab_color_warper_contract.rs).
+[`src/tests/adjustment_contract.rs`](src/tests/adjustment_contract.rs) retains cross-family
+Fine Edit round trips plus the independent basic, curve, LUT, and non-color validation contracts.
 
 Run focused validation with build output outside the shared source worktree:
 

@@ -621,5 +621,4 @@ fn validate_optional_text(field: &'static str, value: &str) -> Result<(), Feedba
 }
 
 #[cfg(test)]
-#[path = "evidence_tests.rs"]
 mod tests;

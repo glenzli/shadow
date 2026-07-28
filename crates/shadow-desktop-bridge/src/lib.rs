@@ -8,10 +8,12 @@
 // Library lifecycle and durable application services.
 mod digest_hex;
 mod library_service;
+mod photo_inspection_service;
 mod relink_service;
 mod review_service;
 mod scan_service;
 mod session_library;
+mod session_photo_inspection;
 mod session_review;
 mod session_scan;
 mod wall_clock;
@@ -19,6 +21,7 @@ mod wall_clock;
 // Photo source admission, preview delivery, and detail viewports.
 mod detail_tile_cache;
 mod detail_viewport;
+mod edit_preview;
 mod isolated_proxy;
 mod photo_provider;
 mod preview_cache_identity;
@@ -43,56 +46,25 @@ mod session_cache_maintenance;
 mod session_export;
 
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
     sync::{Arc, Mutex, atomic::AtomicU64},
 };
 
-use anyhow::{Context, Result as AnyResult, anyhow, bail};
-use shadow_bridge::{
-    AdjustmentQuarterTurn, AdjustmentRenderOperation, BasicEditParameters, ColorRangeParameters,
-    DetailTileRect, DetailTileRequest, MAX_EDIT_DETAIL_TILE_SIDE,
-    OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT, OklabColorWarperControlPoint,
-    OklabColorWarperParameters, OklabLightnessToneCurve, PerceptualColorParameters,
-    PhotoEditDetailSession, RawDevelopmentPlan, SELECTIVE_COLOR_VALUE_COUNT,
-    SelectiveToneParameters, SharpenParameters, ToneCurvePoint, photo_provider_version,
-    raw_development_plan_identity,
-};
+use anyhow::{Context, Result as AnyResult, anyhow};
 use shadow_cache::ContentAddressedStore;
-use shadow_catalog::{
-    CachedArtifactRole, CatalogActor, CatalogHandle, CommitRecipe, RecipeCommitRecord,
-    RecipeRefExpectation, RecipeRefKind, RecipeRefTarget,
-};
-use shadow_core::{CachedArtifactLoader, fingerprint_source};
-use shadow_domain::operation::{
-    BASIC_GRAPH_SCHEMA_VERSION, BASIC_LAYER_LABEL, COLOR_GRADING_OPERATION_ID,
-    CONTRAST_OPERATION_ID, CPU_REFERENCE_IMPLEMENTATION_VERSION,
-    CPU_REFERENCE_PARAMETER_SCHEMA_VERSION, EXPOSURE_OPERATION_ID, EXPOSURE_STOPS_PARAMETER_KEY,
-    FINISHING_EFFECTS_OPERATION_ID, OKLAB_LIGHTNESS_TONE_CURVE_OPERATION_ID,
-    PERCEPTUAL_COLOR_OPERATION_ID, RGB_WHITE_BALANCE_OPERATION_ID, SATURATION_OPERATION_ID,
-    SELECTIVE_TONE_OPERATION_ID, TECHNICAL_DETAIL_OPERATION_ID,
-};
-use shadow_domain::{
-    AdjustmentNode, AdjustmentScope, BlendMode, CURRENT_RECIPE_SCHEMA_VERSION, EditGraph, EntityId,
-    FiniteF64, ImageDimensions, ImageDomain, LayerContent, LayerId, LayerInstance, LayerInstanceId,
-    MaskCoordinateSpace, MaskDefinition, MaskId, MaskRevision, NodeId, NodeInput,
-    OperationDescriptor, OperationId, ParameterBlock, ParameterValue, PhotoGeometry, PhotoId,
-    PhotoQuarterTurn, PortType, ProcessingStage, RecipeCommit, RecipeCommitId, RecipeId,
-    RecipeOpticsSettings, RecipeSnapshot, RetouchMode, UnitInterval, diff_recipe_snapshots,
-};
-use uuid::Uuid;
+use shadow_catalog::{CatalogActor, CatalogHandle};
+use shadow_core::CachedArtifactLoader;
 
-use crate::photo_provider::isolated_edit_raster;
 use crate::relink_service::RelinkService;
 use crate::review_service::ReviewService;
 use crate::scan_service::ScanService;
 use crate::session_preview_store::SessionPreviewStore;
 use crate::{cache_maintenance_service::CacheMaintenanceService, library_service::LibraryService};
 use detail_tile_cache::EditDetailSessionCache;
-use detail_viewport::{detail_viewport_rects, validate_detail_viewport_request};
-use preview_render_registry::{PreviewRenderRegistry, PreviewTerminalClaim};
-use recipe_v1::*;
-use session_edit_render::CachedEditPreviewSession;
+use edit_preview::WarmEditPreviewSessionCache;
+use photo_inspection_service::PhotoInspectionService;
+use preview_render_registry::PreviewRenderRegistry;
+use recipe_v1::new_basic_grade_node;
 
 #[cxx::bridge(namespace = "shadow::desktop")]
 mod ffi {
@@ -187,6 +159,60 @@ mod ffi {
         focal_length_35mm: f64,
         raw_width: u32,
         raw_height: u32,
+        sensor_bits: u32,
+        cfa_pattern: String,
+        dng_version: String,
+        has_technical_observation: bool,
+        technical_input_width: u32,
+        technical_input_height: u32,
+        technical_preprocessing_version: String,
+        technical_implementation_version: String,
+        mean_luma: f64,
+        p01_luma: f64,
+        p50_luma: f64,
+        p99_luma: f64,
+        near_black_fraction: f64,
+        near_white_fraction: f64,
+        laplacian_variance: f64,
+        edge_energy: f64,
+    }
+
+    /// Low-frequency details for one exact selected `{photo, representation}`.
+    ///
+    /// Gallery visuals and mutable curation state deliberately stay out of
+    /// this DTO. `available` is false when the exact pair is unknown, no
+    /// longer owned by the photo, or offline; the service never substitutes a
+    /// different representation.
+    #[derive(Debug)]
+    struct FfiPhotoInspection {
+        available: bool,
+        photo_id: String,
+        representation_id: String,
+        source_path: String,
+        source_byte_len: u64,
+        has_source_modified_at: bool,
+        source_modified_at_ms: i64,
+        has_metadata: bool,
+        camera_make: String,
+        camera_model: String,
+        lens_make: String,
+        lens_model: String,
+        has_captured_at: bool,
+        captured_at_unix_seconds: i64,
+        has_iso_speed: bool,
+        iso_speed: f64,
+        has_exposure_time: bool,
+        exposure_time_seconds: f64,
+        has_aperture: bool,
+        aperture_f_number: f64,
+        has_focal_length: bool,
+        focal_length_mm: f64,
+        has_focal_length_35mm: bool,
+        focal_length_35mm: f64,
+        has_raw_dimensions: bool,
+        raw_width: u32,
+        raw_height: u32,
+        has_sensor_bits: bool,
         sensor_bits: u32,
         cfa_pattern: String,
         dng_version: String,
@@ -1049,6 +1075,11 @@ mod ffi {
             cursor_representation_id: &str,
             limit: u32,
         ) -> Result<FfiReviewPage>;
+        fn photo_inspection(
+            self: &DesktopSession,
+            photo_id: &str,
+            representation_id: &str,
+        ) -> Result<FfiPhotoInspection>;
         fn library_photo_page(
             self: &DesktopSession,
             filter: &FfiLibraryPhotoFilter,
@@ -1312,13 +1343,14 @@ struct DesktopSession {
     loader: CachedArtifactLoader,
     cache_root: PathBuf,
     scanner: ScanService,
-    edit_preview_sessions: Mutex<VecDeque<CachedEditPreviewSession>>,
+    warm_edit_preview_sessions: WarmEditPreviewSessionCache,
     edit_preview_render_tokens: PreviewRenderRegistry,
     edit_detail_sessions: Mutex<EditDetailSessionCache>,
     edit_detail_render_token: AtomicU64,
     library: LibraryService,
     relink: RelinkService,
     cache_maintenance: CacheMaintenanceService,
+    photo_inspection: PhotoInspectionService,
     review: ReviewService,
     export_queue: export_queue_service::ExportQueueService,
 }
@@ -1346,6 +1378,7 @@ fn open_desktop_session(catalog_path: &str, cache_root: &str) -> AnyResult<Box<D
         library: LibraryService::new(catalog.clone()),
         relink: RelinkService::new(catalog.clone()),
         cache_maintenance,
+        photo_inspection: PhotoInspectionService::new(catalog.clone()),
         review: ReviewService::new_with_session_previews(
             catalog.clone(),
             loader.clone(),
@@ -1356,7 +1389,7 @@ fn open_desktop_session(catalog_path: &str, cache_root: &str) -> AnyResult<Box<D
         catalog,
         loader,
         cache_root,
-        edit_preview_sessions: Mutex::new(VecDeque::new()),
+        warm_edit_preview_sessions: WarmEditPreviewSessionCache::default(),
         edit_preview_render_tokens: PreviewRenderRegistry::default(),
         edit_detail_sessions: Mutex::new(EditDetailSessionCache::default()),
         edit_detail_render_token: AtomicU64::new(0),

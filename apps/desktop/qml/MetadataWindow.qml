@@ -13,7 +13,9 @@ Window {
     property string sourcePath: ""
     property bool hasMetadata: false
     property bool metadataPending: false
+    property bool metadataFailed: false
     property var fields: []
+    signal retryRequested()
 
     title: qsTr("Photo Metadata")
     width: 620
@@ -95,13 +97,24 @@ Window {
             Label {
                 Layout.fillWidth: true
                 visible: !root.hasMetadata
-                text: root.metadataPending
-                    ? qsTr("Metadata is being prepared")
-                    : qsTr("No decoded metadata is available for this photo")
+                text: root.metadataFailed
+                    ? qsTr("Could not load metadata for this photo")
+                    : root.metadataPending
+                        ? qsTr("Metadata is being prepared")
+                        : qsTr("No decoded metadata is available for this photo")
                 color: Theme.textMuted
                 font.pixelSize: 12
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.WordWrap
+            }
+
+            ShadowButton {
+                Layout.alignment: Qt.AlignHCenter
+                visible: !root.hasMetadata && root.metadataFailed
+                text: qsTr("Retry")
+                variant: ShadowButton.Ghost
+                enabled: !root.metadataPending
+                onClicked: root.retryRequested()
             }
 
             ScrollView {

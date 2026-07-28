@@ -1,8 +1,8 @@
 //! Recipe v1 desktop adapter index.
 //!
 //! Follow the responsibility-named children for editable drafts, Qt FFI
-//! translation, validation, stable identity, snapshot serialization, and
-//! executable render-plan compilation.
+//! translation, validation, stable identity, snapshot serialization, canonical
+//! persisted graph layout, and executable render-plan compilation.
 
 use shadow_bridge::{
     ADJUSTMENT_IMPLEMENTATION_VERSION, ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
@@ -18,16 +18,20 @@ mod compiler;
 mod draft;
 mod ffi_adapter;
 mod identity;
+mod render_request;
 mod snapshot_decode;
 mod snapshot_encode;
+mod snapshot_layout;
 mod validation;
 
 pub(crate) use compiler::*;
 pub(crate) use draft::*;
 pub(crate) use ffi_adapter::*;
 pub(crate) use identity::*;
+pub(crate) use render_request::*;
 pub(crate) use snapshot_decode::*;
 pub(crate) use snapshot_encode::*;
+pub(crate) use snapshot_layout::*;
 pub(crate) use validation::*;
 
 const _: () = assert!(

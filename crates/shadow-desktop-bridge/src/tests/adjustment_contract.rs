@@ -1,6 +1,33 @@
-//! Basic, fine-control, curve, LUT, and FFI adjustment contracts.
+//! Basic, cross-family fine-edit, curve, LUT, and non-color FFI contracts.
 
-use super::*;
+use shadow_bridge::{
+    AdjustmentRenderOperation, BasicEditParameters, ColorRangeParameters,
+    OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT, OklabColorWarperControlPoint,
+    OklabColorWarperParameters, OklabLightnessToneCurve, PerceptualColorParameters,
+    SELECTIVE_COLOR_VALUE_COUNT, SelectiveToneParameters, SharpenParameters, ToneCurvePoint,
+};
+use shadow_domain::operation::{
+    BASIC_GRAPH_SCHEMA_VERSION, BASIC_LAYER_LABEL, FINISHING_EFFECTS_OPERATION_ID,
+    LUT_3D_OPERATION_ID,
+};
+use shadow_domain::{
+    AdjustmentScope, BlendMode, CURRENT_RECIPE_SCHEMA_VERSION, EditGraph, ImageDomain,
+    LayerContent, LayerInstance, PhotoGeometry, PortType, RecipeOpticsSettings, RecipeSnapshot,
+    UnitInterval, diff_recipe_snapshots,
+};
+use uuid::Uuid;
+
+use crate::{
+    edit_version_diff::{changed_grade_parameters_recipe_v1, has_other_recipe_changes},
+    recipe_v1::{
+        FineEditParameters, GradeNodeDraft, GradeStackDraft, LutEditParameters,
+        basic_parameters_from_snapshot, basic_recipe_snapshot, compile_recipe_render_plan,
+        decode_grade_stack_draft_from_recipe_v1_snapshot, decode_grade_stack_draft_recipe_v1,
+        encode_grade_stack_draft_recipe_v1, grade_stack_recipe_v1_snapshot,
+        preview_grade_stack_draft_recipe_v1, single_grade_node_recipe_v1_render_ops,
+    },
+    tests::fixtures::grade_stack::ffi_parameters,
+};
 
 #[test]
 fn basic_recipe_round_trip_preserves_renderer_parameters() {
@@ -150,87 +177,6 @@ fn fine_edit_round_trip_preserves_every_parameter_and_execution_slot() {
 }
 
 #[test]
-fn oklab_color_warper_elides_neutral_lattice_and_preserves_fixed_mapping() {
-    let neutral = GradeStackDraft::default();
-    let neutral_snapshot =
-        grade_stack_recipe_v1_snapshot(&neutral, None).expect("persist neutral Grade Node");
-    assert!(
-        single_grade_node_recipe_v1_render_ops(&neutral_snapshot)
-            .expect("read neutral Grade Node")
-            .oklab_color_warper
-            .is_none()
-    );
-
-    let mut authored = neutral;
-    authored.fine.oklab_color_warper.control_points[0] = OklabColorWarperControlPoint {
-        a_offset: -0.12,
-        b_offset: 0.08,
-    };
-    authored.fine.oklab_color_warper.control_points[OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT - 1] =
-        OklabColorWarperControlPoint {
-            a_offset: 0.11,
-            b_offset: -0.09,
-        };
-    authored.fine.oklab_color_warper.strength = 0.63;
-    let identity = authored.recipe_v1_identity.oklab_color_warper_render_op_id;
-
-    let ffi = encode_grade_stack_draft_recipe_v1(authored.clone());
-    assert_eq!(
-        ffi.grade_nodes[0]
-            .fine
-            .oklab_color_warper_control_points
-            .len(),
-        50
-    );
-    assert_eq!(
-        ffi.grade_nodes[0].fine.oklab_color_warper_control_points[0..4],
-        [-0.12, 0.08, 0.0, 0.0]
-    );
-    assert_eq!(
-        ffi.grade_nodes[0].fine.oklab_color_warper_control_points[48..],
-        [0.11, -0.09]
-    );
-    assert_eq!(ffi.grade_nodes[0].fine.oklab_color_warper_strength, 0.63);
-    assert_eq!(
-        decode_grade_stack_draft_recipe_v1(&ffi)
-            .expect("decode Color Warper desktop DTO")
-            .fine
-            .oklab_color_warper,
-        authored.fine.oklab_color_warper
-    );
-
-    let snapshot = grade_stack_recipe_v1_snapshot(&authored, Some(&neutral_snapshot))
-        .expect("persist authored Color Warper");
-    let recipe_nodes =
-        single_grade_node_recipe_v1_render_ops(&snapshot).expect("read authored Grade Node");
-    assert_eq!(
-        recipe_nodes
-            .oklab_color_warper
-            .expect("Color Warper render operation")
-            .id(),
-        identity
-    );
-    let plan = compile_recipe_render_plan(&snapshot).expect("compile Color Warper");
-    assert!(matches!(
-        &plan.nodes[6].operation,
-        AdjustmentRenderOperation::OklabColorWarper { parameters }
-            if parameters.as_ref() == &authored.fine.oklab_color_warper
-    ));
-
-    let mut malformed = ffi;
-    malformed.grade_nodes[0]
-        .fine
-        .oklab_color_warper_control_points
-        .pop();
-    assert!(
-        decode_grade_stack_draft_recipe_v1(&malformed)
-            .expect_err("a Color Warper DTO must contain exactly 25 a/b pairs")
-            .to_string()
-            .contains("oklab_color_warper_control_points")
-    );
-}
-
-#[test]
 fn oklab_lightness_curve_has_one_stable_slot_and_rejects_invalid_geometry() {
     let mut draft = GradeStackDraft::default();
     let curve = OklabLightnessToneCurve {
@@ -349,16 +295,7 @@ fn managed_lut_round_trips_and_compiles_the_exact_document_and_strength() {
 }
 
 #[test]
-fn fine_edit_ffi_validation_rejects_wrong_band_shapes_and_invalid_values() {
-    let mut wrong_shape = ffi_parameters(0.0, 1.0, [0.0; 2], 1.0);
-    wrong_shape.fine.mixer_hue.pop();
-    assert!(
-        decode_grade_stack_draft_recipe_v1(&wrong_shape)
-            .expect_err("seven hue bands must fail closed")
-            .to_string()
-            .contains("exactly 8")
-    );
-
+fn fine_edit_ffi_validation_rejects_non_color_out_of_range_values() {
     let mut invalid_tone = ffi_parameters(0.0, 1.0, [0.0; 2], 1.0);
     invalid_tone.fine.highlights = 1.01;
     assert!(
@@ -366,25 +303,6 @@ fn fine_edit_ffi_validation_rejects_wrong_band_shapes_and_invalid_values() {
             .expect_err("out-of-range highlights must fail closed")
             .to_string()
             .contains("highlights")
-    );
-
-    let mut invalid_global_balance = ffi_parameters(0.0, 1.0, [0.0; 2], 1.0);
-    invalid_global_balance.fine.global_b_balance = f64::NAN;
-    assert!(
-        decode_grade_stack_draft_recipe_v1(&invalid_global_balance)
-            .expect_err("non-finite global Oklab balance must fail closed")
-            .to_string()
-            .contains("global Oklab b balance")
-    );
-
-    let mut invalid_range = ffi_parameters(0.0, 1.0, [0.0; 2], 1.0);
-    invalid_range.fine.color_range_enabled = false;
-    invalid_range.fine.color_range_width = f64::NAN;
-    assert!(
-        decode_grade_stack_draft_recipe_v1(&invalid_range)
-            .expect_err("disabled ranges still require canonical finite storage")
-            .to_string()
-            .contains("color range width")
     );
 
     let mut invalid_sharpen = ffi_parameters(0.0, 1.0, [0.0; 2], 1.0);
@@ -407,243 +325,91 @@ fn fine_edit_ffi_validation_rejects_wrong_band_shapes_and_invalid_values() {
 }
 
 #[test]
-#[cfg(any())]
 fn incomplete_recipe_shapes_are_rejected_instead_of_upgraded() {
-    let without_curve = recipe_without_sharpen(
+    let without_finishing = recipe_without_finishing_effects(
         &grade_stack_recipe_v1_snapshot(&GradeStackDraft::default(), None)
             .expect("new neutral Recipe"),
     );
-    let error = decode_grade_stack_draft_from_recipe_v1_snapshot(&without_curve)
-        .expect_err("a Recipe missing the required Detail node must fail closed");
+    let error = decode_grade_stack_draft_from_recipe_v1_snapshot(&without_finishing)
+        .expect_err("a Recipe missing the required finishing node must fail closed");
     assert!(!format!("{error:#}").is_empty());
 
-    let curved_draft = GradeStackDraft {
-        optics: RecipeOpticsSettings::default(),
-        grade_nodes: vec![GradeNodeDraft {
-            tone_curve: Some(ToneCurveDraft::SmoothRgb(Box::new(SmoothRgbToneCurve {
-                master: vec![
-                    ToneCurvePoint { x: 0.0, y: 0.0 },
-                    ToneCurvePoint { x: 0.5, y: 0.65 },
-                    ToneCurvePoint { x: 1.0, y: 1.0 },
-                ],
-                ..SmoothRgbToneCurve::default()
-            }))),
-            ..GradeNodeDraft::neutral(BASIC_LAYER_LABEL)
-        }],
-        retouch_spots: Vec::new(),
-        retouch_strokes: Vec::new(),
-        geometry: PhotoGeometry::identity(),
-    };
-    let with_curve = recipe_without_sharpen(
+    let mut curved_draft = GradeStackDraft::default();
+    curved_draft.fine.oklab_lightness_curve = Some(OklabLightnessToneCurve {
+        lightness: vec![
+            ToneCurvePoint { x: 0.0, y: 0.0 },
+            ToneCurvePoint { x: 0.5, y: 0.65 },
+            ToneCurvePoint { x: 1.0, y: 1.0 },
+        ],
+    });
+    let curved_without_finishing = recipe_without_finishing_effects(
         &grade_stack_recipe_v1_snapshot(&curved_draft, None).expect("new curved Recipe"),
     );
-    let error = decode_grade_stack_draft_from_recipe_v1_snapshot(&with_curve)
+    let error = decode_grade_stack_draft_from_recipe_v1_snapshot(&curved_without_finishing)
         .expect_err("an ambiguous incomplete Recipe must fail closed");
     assert!(!format!("{error:#}").is_empty());
 }
 
 #[test]
-#[cfg(any())]
-fn ffi_tone_curve_round_trip_preserves_every_control_point() {
-    let incoming = ffi_settings_with_tone(
-        0.4,
-        1.2,
-        [0.05, 0.0],
-        0.9,
-        &[[0.0, -0.1], [0.2, 0.08], [0.7, 0.82], [1.0, 1.2]],
-    );
-    let settings = decode_grade_stack_draft_recipe_v1(&incoming).expect("validate FFI Grade Stack");
-    let snapshot =
-        grade_stack_recipe_v1_snapshot(&settings, None).expect("build Recipe v1 snapshot");
-    let decoded = decode_grade_stack_draft_from_recipe_v1_snapshot(&snapshot)
-        .expect("decode full Grade Stack");
-    let outgoing = encode_grade_stack_draft_recipe_v1(decoded.clone());
-
-    assert_eq!(decoded, settings);
-    assert_eq!(outgoing.tone_curve_kind, ffi::FfiToneCurveKind::SmoothRgb);
-    assert_eq!(ffi_curve_pairs(&outgoing), ffi_curve_pairs(&incoming));
-}
-
-#[test]
-#[cfg(any())]
-fn smooth_rgb_tone_curve_v2_round_trips_ffi_recipe_and_render_contract() {
-    let master = [[0.0, 0.02], [0.45, 0.61], [1.0, 1.0]];
-    let red = [[0.0, 0.0], [0.6, 0.7], [1.0, 1.0]];
-    let green = [[0.0, 0.0], [1.0, 1.0]];
-    let blue = [[0.0, 0.0], [0.3, 0.22], [0.8, 0.9], [1.0, 1.0]];
-    let incoming = ffi_settings_with_smooth_tone(&master, &red, &green, &blue);
-    let settings = decode_grade_stack_draft_recipe_v1(&incoming).expect("decode smooth RGB v2 FFI");
-    let snapshot =
-        grade_stack_recipe_v1_snapshot(&settings, None).expect("persist smooth RGB v2 Recipe");
-    let nodes =
-        single_grade_node_recipe_v1_render_ops(&snapshot).expect("read smooth RGB v2 Recipe nodes");
-    let curve_node = nodes.tone_curve.expect("smooth Tone Curve node");
-    assert_eq!(
-        curve_node.id(),
-        settings.recipe_v1_identity.tone_curve_render_op_id
-    );
-    assert_eq!(
-        curve_node.operation().operation_id().as_str(),
-        TONE_CURVE_OPERATION_ID
-    );
-    assert_eq!(
-        curve_node.operation().parameter_schema_version(),
-        TONE_CURVE_V2_PARAMETER_SCHEMA_VERSION
-    );
-    assert_eq!(
-        curve_node.operation().implementation_version(),
-        TONE_CURVE_V2_IMPLEMENTATION_VERSION
-    );
-
-    let plan = compile_recipe_render_plan(&snapshot).expect("compile smooth RGB v2 Recipe");
-    let rendered = plan
-        .nodes
-        .iter()
-        .find_map(|node| match &node.operation {
-            AdjustmentRenderOperation::SmoothRgbToneCurve { curves } => Some((node, curves)),
-            _ => None,
-        })
-        .expect("compiled smooth RGB v2 operation");
-    assert_eq!(
-        rendered.0.parameter_schema_version,
-        SMOOTH_RGB_TONE_CURVE_PARAMETER_SCHEMA_VERSION
-    );
-    assert_eq!(
-        rendered.0.implementation_version,
-        SMOOTH_RGB_TONE_CURVE_IMPLEMENTATION_VERSION
-    );
-    assert_eq!(
-        rendered.1.master,
-        master
-            .into_iter()
-            .map(|[x, y]| ToneCurvePoint { x, y })
-            .collect::<Vec<_>>()
-    );
-    assert_eq!(
-        rendered.1.blue,
-        blue.into_iter()
-            .map(|[x, y]| ToneCurvePoint { x, y })
-            .collect::<Vec<_>>()
-    );
-
-    let outgoing = encode_grade_stack_draft_recipe_v1(
-        decode_grade_stack_draft_from_recipe_v1_snapshot(&snapshot)
-            .expect("decode persisted smooth RGB v2 Recipe"),
-    );
-    assert_eq!(outgoing.tone_curve_kind, ffi::FfiToneCurveKind::SmoothRgb);
-    assert_eq!(
-        ffi_curve_pairs_from(&outgoing.tone_curve_master_points),
-        master
-    );
-    assert_eq!(ffi_curve_pairs_from(&outgoing.tone_curve_red_points), red);
-    assert_eq!(
-        ffi_curve_pairs_from(&outgoing.tone_curve_green_points),
-        green
-    );
-    assert_eq!(ffi_curve_pairs_from(&outgoing.tone_curve_blue_points), blue);
-}
-
-#[test]
-#[cfg(any())]
-fn current_curve_contract_is_canonical_and_keeps_its_stable_id() {
-    let points = [[0.0, 0.03], [0.5, 0.68], [1.0, 1.0]];
-    let settings = decode_grade_stack_draft_recipe_v1(&ffi_settings_with_tone(
-        0.0, 1.0, [0.0; 2], 1.0, &points,
-    ))
-    .expect("decode current Tone Curve");
-    let snapshot =
-        grade_stack_recipe_v1_snapshot(&settings, None).expect("persist current Tone Curve");
-    let node = single_grade_node_recipe_v1_render_ops(&snapshot)
-        .expect("read current Tone Curve")
-        .tone_curve
-        .expect("current Tone Curve node");
-    assert_eq!(
-        node.operation().parameter_schema_version(),
-        TONE_CURVE_V2_PARAMETER_SCHEMA_VERSION
-    );
-    assert_eq!(
-        node.operation().implementation_version(),
-        TONE_CURVE_V2_IMPLEMENTATION_VERSION
-    );
-    assert!(matches!(
-        compile_recipe_render_plan(&snapshot).unwrap().nodes[6].operation,
-        AdjustmentRenderOperation::SmoothRgbToneCurve { .. }
-    ));
-
-    let rebuilt = grade_stack_recipe_v1_snapshot(
-        &decode_grade_stack_draft_from_recipe_v1_snapshot(&snapshot)
-            .expect("decode current Tone Curve"),
-        Some(&snapshot),
-    )
-    .expect("save unchanged current Tone Curve");
-    let rebuilt_node = single_grade_node_recipe_v1_render_ops(&rebuilt)
-        .unwrap()
-        .tone_curve
-        .unwrap();
-    assert_eq!(rebuilt_node.id(), node.id());
-    assert_eq!(rebuilt_node.parameters(), node.parameters());
-}
-
-#[test]
-#[cfg(any())]
-fn neutral_before_ignores_transient_slider_parameters() {
-    let mut non_neutral = ffi_settings_with_tone(
-        2.0,
-        1.7,
-        [0.2, -0.1],
-        0.6,
-        &[[0.0, 0.1], [0.5, 0.8], [1.0, 1.1]],
-    );
+fn neutral_before_ignores_transient_edit_settings() {
+    let mut non_neutral = ffi_parameters(2.0, 1.7, [0.2, -0.1], 0.6);
+    non_neutral.grade_nodes[0].fine.oklab_lightness_curve_points =
+        vec![0.0, 0.1, 0.5, 0.8, 1.0, 1.0];
     non_neutral.enabled = false;
 
     let before =
         preview_grade_stack_draft_recipe_v1(&non_neutral, false).expect("select neutral Before");
     assert_eq!(before.grade_nodes.len(), 1);
     assert_eq!(before.basic, BasicEditParameters::default());
-    assert!(before.tone_curve.is_none());
+    assert!(before.fine.oklab_lightness_curve.is_none());
     assert!(before.enabled);
     let current =
         preview_grade_stack_draft_recipe_v1(&non_neutral, true).expect("select current parameters");
     assert_ne!(current.basic, BasicEditParameters::default());
+    assert!(current.fine.oklab_lightness_curve.is_some());
     assert!(!current.enabled);
 }
 
-#[test]
-#[cfg(any())]
-fn tone_curve_ffi_validation_rejects_invalid_geometry_without_repair() {
-    assert_invalid_curve(&[[0.0, 0.0]], "2 through 256");
-    assert_invalid_curve(&[[0.1, 0.0], [1.0, 1.0]], "start at zero");
-    assert_invalid_curve(
-        &[[0.0, 0.0], [0.5, 0.4], [0.5, 0.7], [1.0, 1.0]],
-        "strictly increasing",
-    );
-    assert_invalid_curve(&[[0.0, 0.0], [1.0, f64::NAN]], "finite values");
-    let maximum = u32::try_from(MAX_TONE_CURVE_POINTS).expect("Tone Curve bound fits u32");
-    let too_many = (0..=maximum)
-        .map(|index| {
-            let value = f64::from(index) / f64::from(maximum);
-            [value, value]
-        })
+fn recipe_without_finishing_effects(snapshot: &RecipeSnapshot) -> RecipeSnapshot {
+    let [layer] = snapshot.layers() else {
+        panic!("finishing compatibility fixture requires exactly one layer");
+    };
+    let LayerContent::Inline { graph } = layer.content() else {
+        panic!("finishing compatibility fixture requires an inline graph");
+    };
+    let nodes = graph
+        .nodes()
+        .iter()
+        .filter(|node| node.operation().operation_id().as_str() != FINISHING_EFFECTS_OPERATION_ID)
+        .cloned()
         .collect::<Vec<_>>();
-    assert_invalid_curve(&too_many, "2 through 256");
-
-    let mut inconsistent = ffi_parameters(0.0, 1.0, [0.0; 2], 1.0);
-    inconsistent.tone_curve_master_points = vec![
-        ffi::FfiToneCurvePoint { x: 0.0, y: 0.0 },
-        ffi::FfiToneCurvePoint { x: 1.0, y: 1.0 },
-    ];
-    let error = decode_grade_stack_draft_recipe_v1(&inconsistent)
-        .expect_err("presence flag mismatch must fail");
-    assert!(error.to_string().contains("kind is None"));
-
-    let mut smooth_missing_blue = ffi_settings_with_smooth_tone(
-        &[[0.0, 0.0], [1.0, 1.0]],
-        &[[0.0, 0.0], [1.0, 1.0]],
-        &[[0.0, 0.0], [1.0, 1.0]],
-        &[[0.0, 0.0], [1.0, 1.0]],
-    );
-    smooth_missing_blue.tone_curve_blue_points.clear();
-    let error = decode_grade_stack_draft_recipe_v1(&smooth_missing_blue)
-        .expect_err("the current curve requires explicit points for every channel");
-    assert!(format!("{error:#}").contains("blue channel"));
+    let output = nodes
+        .iter()
+        .find(|node| node.operation().operation_id().as_str() == LUT_3D_OPERATION_ID)
+        .expect("complete Recipe contains LUT")
+        .id();
+    let graph = EditGraph::new(
+        BASIC_GRAPH_SCHEMA_VERSION,
+        vec![PortType::Image(ImageDomain::WorkingRgb)],
+        nodes,
+        output,
+    )
+    .expect("build incomplete compatibility graph");
+    RecipeSnapshot::new(
+        CURRENT_RECIPE_SCHEMA_VERSION,
+        vec![
+            LayerInstance::new(
+                layer.id(),
+                layer.label(),
+                AdjustmentScope::Photo,
+                LayerContent::Inline { graph },
+                layer.enabled(),
+                UnitInterval::ONE,
+                BlendMode::Normal,
+                None,
+            )
+            .expect("build incomplete compatibility layer"),
+        ],
+    )
+    .expect("build incomplete compatibility Recipe")
 }

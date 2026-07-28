@@ -1,0 +1,342 @@
+use super::{
+    asset_registration_fixture::{register, register_kind},
+    library_fact_fixture::facts_for,
+};
+use crate::{
+    AlbumKind, Catalog, CommitRecipe, LibraryApertureRange, LibraryFacetKind, LibraryFacetValue,
+    LibraryPhotoFilter, RecipeRefKind, RecipeRefTarget, SetPhotoLibraryState,
+    library_equipment_key,
+};
+use shadow_domain::{
+    EntityId, NewPhotoDecisionEvent, PhotoDecisionOrigin, PhotoFlag, RecipeCommit, RecipeCommitId,
+    RecipeId, RecipeSnapshot, RepresentationKind,
+};
+
+#[test]
+fn photo_first_library_page_includes_original_raster_sources() {
+    let mut catalog = Catalog::open_in_memory().expect("open catalog");
+    let raw = register(&mut catalog, "/archive/original.nef");
+    let raster = register_kind(
+        &mut catalog,
+        "/archive/original.jpg",
+        RepresentationKind::OriginalRaster,
+    );
+
+    let page = catalog
+        .library_photo_page(&LibraryPhotoFilter::default(), None, 16)
+        .expect("read Library page");
+    assert_eq!(
+        catalog
+            .library_photo_count(&LibraryPhotoFilter::default())
+            .expect("count Library photos"),
+        2
+    );
+    assert_eq!(page.items.len(), 2);
+    assert!(page.items.iter().any(|item| {
+        item.photo_id == raw.photo_id && item.location.display_path == "/archive/original.nef"
+    }));
+    assert!(page.items.iter().any(|item| {
+        item.photo_id == raster.photo_id && item.location.display_path == "/archive/original.jpg"
+    }));
+}
+
+#[test]
+fn photo_first_library_page_filters_facets_and_keysets_without_path_ownership() {
+    let mut catalog = Catalog::open_in_memory().expect("open catalog");
+    let newest = register(&mut catalog, "/one/source/first.nef");
+    let middle = register(&mut catalog, "/other/source/second.nef");
+    let unindexed = register(&mut catalog, "/third/source/third.nef");
+    catalog
+        .upsert_photo_library_facts(&facts_for(
+            newest,
+            Some(1_700_000_200),
+            "Nikon Corporation",
+            "Nikon Z 8",
+        ))
+        .expect("newest facts");
+    catalog
+        .upsert_photo_library_facts(&facts_for(middle, Some(1_700_000_100), "Pentax", "K10D"))
+        .expect("middle facts");
+    catalog
+        .set_photo_library_state(&SetPhotoLibraryState {
+            photo_id: newest.photo_id,
+            liked: true,
+            color_label: "blue".into(),
+            updated_at_ms: 200,
+        })
+        .expect("like newest");
+    catalog
+        .append_photo_decision_event(&NewPhotoDecisionEvent {
+            event_id: "library-filter-picked".into(),
+            photo_id: newest.photo_id,
+            occurred_at_unix_ms: 201,
+            origin: PhotoDecisionOrigin::Human,
+            expected_head_sequence: 0,
+            before_flag: PhotoFlag::Unflagged,
+            before_rating: 0,
+            after_flag: PhotoFlag::Picked,
+            after_rating: 5,
+        })
+        .expect("pick newest");
+    let album = catalog
+        .create_library_album(AlbumKind::Manual, "Portfolio", None, 202)
+        .expect("album");
+    catalog
+        .add_photo_to_album(album.id, newest.photo_id, 0, 203)
+        .expect("membership");
+    let working_recipe = RecipeCommit::new(
+        RecipeCommitId::new_v7(),
+        RecipeId::new_v7(),
+        Vec::new(),
+        RecipeSnapshot::empty(),
+        Some("Library filter fixture".into()),
+        204,
+    )
+    .expect("create working Recipe");
+    catalog
+        .commit_recipe(&CommitRecipe {
+            photo_id: middle.photo_id,
+            commit: working_recipe,
+            update_refs: vec![RecipeRefTarget {
+                name: "working".into(),
+                kind: RecipeRefKind::Working,
+                expectation: None,
+            }],
+        })
+        .expect("persist working Recipe");
+
+    let exact = catalog
+        .library_photo_page(
+            &LibraryPhotoFilter {
+                camera_key: Some(library_equipment_key("Nikon Corporation", "Nikon Z 8")),
+                lens_key: Some(library_equipment_key("Nikon", "NIKKOR Z 24-120mm f/4 S")),
+                aperture: Some(LibraryApertureRange {
+                    minimum_milli: Some(4_000),
+                    maximum_milli: Some(4_000),
+                }),
+                liked: Some(true),
+                color_label: Some("blue".into()),
+                flag: Some(PhotoFlag::Picked),
+                minimum_rating: Some(3),
+                album_id: Some(album.id),
+                ..LibraryPhotoFilter::default()
+            },
+            None,
+            16,
+        )
+        .expect("all facets");
+    assert_eq!(
+        catalog
+            .library_photo_count(&LibraryPhotoFilter {
+                camera_key: Some(library_equipment_key("Nikon Corporation", "Nikon Z 8")),
+                lens_key: Some(library_equipment_key("Nikon", "NIKKOR Z 24-120mm f/4 S")),
+                aperture: Some(LibraryApertureRange {
+                    minimum_milli: Some(4_000),
+                    maximum_milli: Some(4_000),
+                }),
+                liked: Some(true),
+                color_label: Some("blue".into()),
+                flag: Some(PhotoFlag::Picked),
+                minimum_rating: Some(3),
+                album_id: Some(album.id),
+                ..LibraryPhotoFilter::default()
+            })
+            .expect("exact count after facets settle"),
+        1
+    );
+    assert_eq!(exact.items.len(), 1);
+    assert_eq!(exact.items[0].photo_id, newest.photo_id);
+    assert_eq!(
+        exact.items[0].location.display_path,
+        "/one/source/first.nef"
+    );
+    assert!(exact.items[0].state.liked);
+    assert_eq!(exact.items[0].decision.flag, PhotoFlag::Picked);
+
+    let edited = catalog
+        .library_photo_page(
+            &LibraryPhotoFilter {
+                has_development_edits: Some(true),
+                ..LibraryPhotoFilter::default()
+            },
+            None,
+            16,
+        )
+        .expect("read edited Library page");
+    assert_eq!(edited.items.len(), 1);
+    assert_eq!(edited.items[0].photo_id, middle.photo_id);
+    assert!(edited.items[0].has_development_edits);
+    assert_eq!(
+        catalog
+            .library_photo_count(&LibraryPhotoFilter {
+                has_development_edits: Some(true),
+                ..LibraryPhotoFilter::default()
+            })
+            .expect("count edited Library photos"),
+        1
+    );
+
+    let unedited = catalog
+        .library_photo_page(
+            &LibraryPhotoFilter {
+                has_development_edits: Some(false),
+                ..LibraryPhotoFilter::default()
+            },
+            None,
+            16,
+        )
+        .expect("read unedited Library page");
+    assert_eq!(unedited.items.len(), 2);
+    assert!(
+        unedited
+            .items
+            .iter()
+            .all(|item| !item.has_development_edits)
+    );
+
+    let first_page = catalog
+        .library_photo_page(&LibraryPhotoFilter::default(), None, 2)
+        .expect("first page");
+    assert_eq!(
+        catalog
+            .library_photo_count(&LibraryPhotoFilter::default())
+            .expect("count all photos"),
+        3
+    );
+    assert_eq!(
+        first_page
+            .items
+            .iter()
+            .map(|item| item.photo_id)
+            .collect::<Vec<_>>(),
+        vec![newest.photo_id, middle.photo_id]
+    );
+    let second_page = catalog
+        .library_photo_page(
+            &LibraryPhotoFilter::default(),
+            first_page.next_cursor.as_ref(),
+            2,
+        )
+        .expect("second page");
+    assert_eq!(
+        second_page
+            .items
+            .iter()
+            .map(|item| item.photo_id)
+            .collect::<Vec<_>>(),
+        vec![unindexed.photo_id]
+    );
+    assert!(second_page.next_cursor.is_none());
+}
+
+#[test]
+fn bounded_library_facets_compose_without_directory_ownership() {
+    let mut catalog = Catalog::open_in_memory().expect("open catalog");
+    let nikon_one = register(&mut catalog, "/roots/a/nikon-one.nef");
+    let nikon_two = register(&mut catalog, "/roots/b/nikon-two.nef");
+    let nikon_three = register(&mut catalog, "/roots/c/nikon-three.nef");
+    let canon = register(&mut catalog, "/roots/d/canon.cr3");
+
+    let mut facts = facts_for(
+        nikon_one,
+        Some(1_700_000_000),
+        "Nikon Corporation",
+        "Nikon Z 8",
+    );
+    facts.capture_day = "2024-03-18".into();
+    catalog
+        .upsert_photo_library_facts(&facts)
+        .expect("first nikon facts");
+
+    let mut facts = facts_for(
+        nikon_two,
+        Some(1_700_000_100),
+        "Nikon Corporation",
+        "Nikon Z 8",
+    );
+    facts.capture_day = "2024-03-03".into();
+    catalog
+        .upsert_photo_library_facts(&facts)
+        .expect("second nikon facts");
+
+    let mut facts = facts_for(
+        nikon_three,
+        Some(1_700_000_200),
+        "Nikon Corporation",
+        "Nikon Z 8",
+    );
+    facts.capture_day = "2024-02-16".into();
+    facts.lens_model = "NIKKOR Z 50mm f/1.8 S".into();
+    catalog
+        .upsert_photo_library_facts(&facts)
+        .expect("third nikon facts");
+
+    let mut facts = facts_for(canon, Some(1_700_000_300), "Canon", "EOS R5");
+    facts.capture_day = "2024-01-07".into();
+    facts.lens_make = "Canon".into();
+    facts.lens_model = "RF 24-105mm F4 L IS USM".into();
+    catalog
+        .upsert_photo_library_facts(&facts)
+        .expect("canon facts");
+
+    let cameras = catalog
+        .library_facet_page(
+            &LibraryPhotoFilter::default(),
+            LibraryFacetKind::Camera,
+            None,
+            1,
+        )
+        .expect("first camera facet page");
+    assert_eq!(cameras.items.len(), 1);
+    assert_eq!(cameras.items[0].label, "Nikon Corporation Nikon Z 8");
+    assert_eq!(cameras.items[0].photo_count, 3);
+    let remaining_cameras = catalog
+        .library_facet_page(
+            &LibraryPhotoFilter::default(),
+            LibraryFacetKind::Camera,
+            cameras.next_cursor.as_ref(),
+            1,
+        )
+        .expect("second camera facet page");
+    assert_eq!(remaining_cameras.items.len(), 1);
+    assert_eq!(remaining_cameras.items[0].label, "Canon EOS R5");
+
+    let months = catalog
+        .library_facet_page(
+            &LibraryPhotoFilter::default(),
+            LibraryFacetKind::CaptureMonth,
+            None,
+            16,
+        )
+        .expect("month facets");
+    assert_eq!(
+        months.items[0],
+        LibraryFacetValue {
+            key: "2024-03".into(),
+            label: "2024-03".into(),
+            photo_count: 2,
+        }
+    );
+    assert_eq!(months.items.len(), 3);
+
+    let march = LibraryPhotoFilter {
+        capture_month: Some("2024-03".into()),
+        ..LibraryPhotoFilter::default()
+    };
+    assert_eq!(catalog.library_photo_count(&march).expect("march count"), 2);
+    let lenses = catalog
+        .library_facet_page(&march, LibraryFacetKind::Lens, None, 16)
+        .expect("month-constrained lens facets");
+    assert_eq!(lenses.items.len(), 1);
+    assert_eq!(lenses.items[0].photo_count, 2);
+    assert_eq!(lenses.items[0].label, "Nikon NIKKOR Z 24-120mm f/4 S");
+
+    assert!(
+        catalog
+            .library_photo_count(&LibraryPhotoFilter {
+                capture_month: Some("2024-13".into()),
+                ..LibraryPhotoFilter::default()
+            })
+            .is_err()
+    );
+}

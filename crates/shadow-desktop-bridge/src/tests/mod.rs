@@ -4,86 +4,16 @@
 //! production service when that service owns the behavior, and reserve this
 //! index for contracts that genuinely cross desktop bridge responsibilities.
 
-use std::{collections::BTreeSet, sync::Arc, thread};
-
-use rusqlite::{Connection, params};
-use shadow_ai::{
-    FeedbackAction, FeedbackIgnored, IncrementalTrainingPolicy, LearningScope, NewFeedbackEvent,
-    PairwiseOutcome, PresentationContext, PresentedFitMode, UnitInterval as AiUnitInterval,
-    build_incremental_preference_batch,
-};
-use shadow_cache::ContentAddressedStore;
-use shadow_catalog::{
-    CachedArtifact, CachedArtifactRecord, LibraryPhotoFacts, RecordCachedArtifact,
-    RecordDecodeSnapshot, RegisterAsset, RepresentationFingerprint,
-};
-use shadow_core::{DecodeInspectionSummary, DecodeInspector, ScanCompletion};
-use shadow_domain::{
-    AssetLocation, DecodeCapabilitySnapshot, DecodeProviderSnapshot, DecodeSupport,
-    DecoderSnapshot, EntityId, ImageDimensions, ImageMargins, ImportSessionId, MAX_PHOTO_RATING,
-    PendingCorrectionsSnapshot, PhotoDecisionOrigin, Platform, PreviewByteOrder, PreviewCodec,
-    RawMetadataSnapshot, RepresentationId, RepresentationKind,
-};
-
-use crate::digest_hex::encode_hex;
-use crate::edit_version_diff::{
-    EditVersionDiffError, changed_grade_parameters_recipe_v1, edit_version_diff,
-    has_other_recipe_changes,
-};
-use crate::isolated_proxy::NativeDecodeAdmission;
-use crate::photo_provider::{
-    PHOTO_GRID_PROXY_JPEG_QUALITY, PHOTO_GRID_PROXY_MAX_EDGE, PhotoInspector,
-};
-use crate::review_service::{
-    REVIEW_COMPARE_DECODER_ID, REVIEW_COMPARE_PIXEL_FORMAT, REVIEW_COMPARE_PIXEL_HASH_ALGORITHM,
-    REVIEW_COMPARE_SURFACE_ID, REVIEW_COMPARE_SURFACE_REVISION, ReviewVisualSelection, file_name,
-    parse_cursor,
-};
-use crate::session_edit_history::{
-    LIBRARY_EDIT_MAIN_REF, NAMED_VERSION_REF_PREFIX, WORKING_RECIPE_REF,
-};
-#[cfg(any())]
-use crate::session_edit_history::{LIBRARY_EDIT_VERSION_REF_PREFIX, LIBRARY_PHOTO_EDIT_KEY_PREFIX};
-use crate::session_edit_render::{
-    EditPreviewPolicy, admits_recipe_preview_cache, requested_raw_development_plan_cache_matches,
-};
-use crate::session_photo_source::{
-    MissingCatalogOpticsRoute, missing_catalog_optics_route, query_missing_catalog_optics_profiles,
-    reject_quarantined_native_decode,
-};
-use crate::wall_clock::current_time_ms;
-
-use super::*;
-
-impl std::ops::Deref for ffi::FfiEditSettings {
-    type Target = ffi::FfiGradeNode;
-
-    fn deref(&self) -> &Self::Target {
-        self.grade_nodes
-            .first()
-            .expect("validated FFI edit settings always contain one Grade Node")
-    }
-}
-
-impl std::ops::DerefMut for ffi::FfiEditSettings {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.grade_nodes
-            .first_mut()
-            .expect("validated FFI edit settings always contain one Grade Node")
-    }
-}
-
 mod adjustment_contract;
 mod edit_sessions;
 mod facade;
+mod fixtures;
 mod library;
+mod oklab_color_warper_contract;
+mod perceptual_color_contract;
 mod preview_and_detail;
-#[cfg(any())]
 mod raw_fixtures;
 mod raw_inspection;
 mod recipe_compiler;
 mod recipe_identity;
 mod review;
-mod support;
-
-use support::*;

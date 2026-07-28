@@ -136,8 +136,9 @@ public:
 
     void replace(QVector<ReviewItem> items, quint64 generation);
     /// Advances the request generation while retaining the current visible
-    /// rows until the next photo-first page reconciles them.
-    void setGeneration(quint64 generation) noexcept;
+    /// rows until the next photo-first page reconciles them. Retained visual
+    /// roles are republished because their provider URLs carry this generation.
+    void setGeneration(quint64 generation);
     void append(QVector<ReviewItem> items);
     // Appends only a current-generation page whose stable keys are unique both
     // within the page and across the already presented rows.
@@ -159,6 +160,8 @@ public:
         quint64 generation
     );
     [[nodiscard]] bool isGenerationCurrent(quint64 generation) const noexcept;
+    /// Builds a generation-bound comparison source. Grid roles use their own
+    /// immutable lifetime contract when projected through data().
     [[nodiscard]] QString visualSourceFor(const QString& ticket) const;
     [[nodiscard]] std::optional<ReviewDecisionValue> decisionFor(
         const QString& photo_id

@@ -1,6 +1,18 @@
-//! Adjustment-plan validation, flattening, color, curve, and retouch contracts.
+//! Aggregate adjustment-plan, basic compatibility, curve, detail, and retouch contracts.
 
-use super::*;
+use crate::{
+    ADJUSTMENT_IMPLEMENTATION_VERSION, ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+    AdjustmentDetailEffectsPass, AdjustmentGeometry, AdjustmentRenderNode,
+    AdjustmentRenderOperation, AdjustmentRenderPlan, AdjustmentRetouchStroke,
+    AdjustmentRetouchStrokePoint, BasicEditParameters, BridgeError, EditedProxyRequest,
+    OKLAB_LIGHTNESS_TONE_CURVE_IMPLEMENTATION_VERSION,
+    OKLAB_LIGHTNESS_TONE_CURVE_PARAMETER_SCHEMA_VERSION, OklabLightnessToneCurve,
+    SELECTIVE_TONE_IMPLEMENTATION_VERSION, SELECTIVE_TONE_PARAMETER_SCHEMA_VERSION,
+    SelectiveToneParameters, SharpenParameters, TECHNICAL_DETAIL_IMPLEMENTATION_VERSION,
+    TECHNICAL_DETAIL_PARAMETER_SCHEMA_VERSION, ToneCurvePoint,
+    adjustment::validate_render_operation, basic_adjustment_render_plan, ffi,
+    render_wire::ffi_render_node,
+};
 
 #[test]
 fn basic_edit_defaults_are_a_bounded_neutral_recipe() {
@@ -124,28 +136,7 @@ fn typed_plan_rejects_duplicate_ids_and_malformed_curves() {
 
 #[test]
 #[allow(clippy::float_cmp)] // FFI flattening is an exact in-memory contract.
-fn extended_plan_validates_and_flattens_the_stable_ffi_contract() {
-    let perceptual = PerceptualColorParameters {
-        global_a_balance: -0.25,
-        global_b_balance: 0.4,
-        vibrance: 0.2,
-        hue_shifts: [0.1; COLOR_MIXER_BAND_COUNT],
-        saturation: [-0.2; COLOR_MIXER_BAND_COUNT],
-        lightness: [0.3; COLOR_MIXER_BAND_COUNT],
-        color_range: ColorRangeParameters {
-            enabled: true,
-            center_hue_degrees: 45.0,
-            width_degrees: 60.0,
-            softness: 0.4,
-            hue_shift_degrees: 15.0,
-            saturation: 0.5,
-            lightness: -0.6,
-        },
-        additional_color_ranges: Vec::new(),
-        selective_color_relative: false,
-        selective_color_lightness_protection: 0.35,
-        selective_color_cmyk: [0.25; SELECTIVE_COLOR_VALUE_COUNT],
-    };
+fn selective_tone_and_detail_flatten_the_stable_ffi_contract() {
     let plan = AdjustmentRenderPlan {
         nodes: vec![
             AdjustmentRenderNode {
@@ -160,15 +151,6 @@ fn extended_plan_validates_and_flattens_the_stable_ffi_contract() {
                         whites: 0.5,
                         blacks: 1.0,
                     },
-                },
-            },
-            AdjustmentRenderNode {
-                node_id: "perceptual-color".to_owned(),
-                parameter_schema_version: PERCEPTUAL_COLOR_PARAMETER_SCHEMA_VERSION,
-                implementation_version: PERCEPTUAL_COLOR_IMPLEMENTATION_VERSION,
-                enabled: true,
-                operation: AdjustmentRenderOperation::PerceptualColor {
-                    parameters: Box::new(perceptual),
                 },
             },
             AdjustmentRenderNode {
@@ -201,30 +183,7 @@ fn extended_plan_validates_and_flattens_the_stable_ffi_contract() {
     ));
     assert_eq!(selective_ffi.parameters, [-1.0, -0.25, 0.5, 1.0]);
 
-    let perceptual_ffi = ffi_render_node(&plan.nodes[1]);
-    assert!(matches!(
-        perceptual_ffi.operation,
-        ffi::FfiAdjustmentOperation::PerceptualColor
-    ));
-    assert_eq!(perceptual_ffi.parameters.len(), 72);
-    assert_eq!(perceptual_ffi.parameter_group_lengths, [0]);
-    assert_eq!(perceptual_ffi.parameters[0], 0.2);
-    assert_eq!(&perceptual_ffi.parameters[1..9], &[0.1; 8]);
-    assert_eq!(&perceptual_ffi.parameters[9..17], &[-0.2; 8]);
-    assert_eq!(&perceptual_ffi.parameters[17..25], &[0.3; 8]);
-    assert_eq!(
-        &perceptual_ffi.parameters[25..32],
-        &[1.0, 45.0, 60.0, 0.4, 15.0, 0.5, -0.6]
-    );
-    assert_eq!(perceptual_ffi.parameters[32], 0.0);
-    assert_eq!(perceptual_ffi.parameters[33], 0.35);
-    assert_eq!(
-        &perceptual_ffi.parameters[34..70],
-        &[0.25; SELECTIVE_COLOR_VALUE_COUNT]
-    );
-    assert_eq!(&perceptual_ffi.parameters[70..], &[-0.25, 0.4]);
-
-    let sharpen_ffi = ffi_render_node(&plan.nodes[2]);
+    let sharpen_ffi = ffi_render_node(&plan.nodes[1]);
     assert!(matches!(
         sharpen_ffi.operation,
         ffi::FfiAdjustmentOperation::Sharpen
@@ -242,83 +201,7 @@ fn extended_plan_validates_and_flattens_the_stable_ffi_contract() {
 }
 
 #[test]
-#[allow(clippy::float_cmp)] // FFI flattening is an exact in-memory contract.
-fn color_warper_plan_validates_and_flattens_fixed_lattice() {
-    let mut parameters = OklabColorWarperParameters {
-        strength: 0.65,
-        ..OklabColorWarperParameters::default()
-    };
-    parameters.control_points[0] = OklabColorWarperControlPoint {
-        a_offset: -0.12,
-        b_offset: 0.08,
-    };
-    parameters.control_points[OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT - 1] =
-        OklabColorWarperControlPoint {
-            a_offset: 0.15,
-            b_offset: -0.06,
-        };
-    let plan = AdjustmentRenderPlan {
-        nodes: vec![AdjustmentRenderNode {
-            node_id: "oklab-color-warper".to_owned(),
-            parameter_schema_version: OKLAB_COLOR_WARPER_PARAMETER_SCHEMA_VERSION,
-            implementation_version: OKLAB_COLOR_WARPER_IMPLEMENTATION_VERSION,
-            enabled: true,
-            operation: AdjustmentRenderOperation::OklabColorWarper {
-                parameters: Box::new(parameters),
-            },
-        }],
-        geometry: AdjustmentGeometry::identity(),
-    };
-
-    plan.validate().expect("Color Warper lattice is valid");
-    let flattened = ffi_render_node(&plan.nodes[0]);
-    assert!(matches!(
-        flattened.operation,
-        ffi::FfiAdjustmentOperation::OklabColorWarper
-    ));
-    assert_eq!(
-        flattened.parameters.len(),
-        1 + OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT * 2
-    );
-    assert!(flattened.parameter_group_lengths.is_empty());
-    assert!(flattened.payload.is_empty());
-    assert_eq!(flattened.parameters[0], 0.65);
-    assert_eq!(&flattened.parameters[1..5], &[-0.12, 0.08, 0.0, 0.0]);
-    assert_eq!(&flattened.parameters[49..], &[0.15, -0.06]);
-}
-
-#[test]
-fn color_warper_rejects_invalid_strength_and_control_offsets() {
-    let plan = |parameters| AdjustmentRenderPlan {
-        nodes: vec![AdjustmentRenderNode {
-            node_id: "invalid-oklab-color-warper".to_owned(),
-            parameter_schema_version: OKLAB_COLOR_WARPER_PARAMETER_SCHEMA_VERSION,
-            implementation_version: OKLAB_COLOR_WARPER_IMPLEMENTATION_VERSION,
-            enabled: true,
-            operation: AdjustmentRenderOperation::OklabColorWarper {
-                parameters: Box::new(parameters),
-            },
-        }],
-        geometry: AdjustmentGeometry::identity(),
-    };
-    let invalid_strength = OklabColorWarperParameters {
-        strength: 1.01,
-        ..OklabColorWarperParameters::default()
-    };
-    let mut invalid_offset = OklabColorWarperParameters::default();
-    invalid_offset.control_points[7].b_offset = OKLAB_COLOR_WARPER_MAXIMUM_OFFSET + 0.001;
-    let mut non_finite_offset = OklabColorWarperParameters::default();
-    non_finite_offset.control_points[11].a_offset = f64::NAN;
-    for parameters in [invalid_strength, invalid_offset, non_finite_offset] {
-        assert!(matches!(
-            plan(parameters).validate(),
-            Err(BridgeError::InvalidEditRequest(_))
-        ));
-    }
-}
-
-#[test]
-fn extended_plan_rejects_non_finite_and_out_of_range_values() {
+fn selective_tone_and_detail_reject_non_finite_and_out_of_range_values() {
     let node = |operation| AdjustmentRenderPlan {
         nodes: vec![AdjustmentRenderNode {
             node_id: "invalid-extended-control".to_owned(),
@@ -342,27 +225,6 @@ fn extended_plan_rejects_non_finite_and_out_of_range_values() {
     ] {
         assert!(matches!(
             node(AdjustmentRenderOperation::SelectiveTone { parameters }).validate(),
-            Err(BridgeError::InvalidEditRequest(_))
-        ));
-    }
-
-    let mut invalid_mixer = PerceptualColorParameters::default();
-    invalid_mixer.hue_shifts[3] = -1.01;
-    let mut invalid_global_balance = PerceptualColorParameters::default();
-    invalid_global_balance.global_a_balance = 1.01;
-    let mut invalid_disabled_range = PerceptualColorParameters::default();
-    invalid_disabled_range.color_range.enabled = false;
-    invalid_disabled_range.color_range.width_degrees = 0.0;
-    for parameters in [
-        invalid_mixer,
-        invalid_global_balance,
-        invalid_disabled_range,
-    ] {
-        assert!(matches!(
-            node(AdjustmentRenderOperation::PerceptualColor {
-                parameters: Box::new(parameters),
-            })
-            .validate(),
             Err(BridgeError::InvalidEditRequest(_))
         ));
     }

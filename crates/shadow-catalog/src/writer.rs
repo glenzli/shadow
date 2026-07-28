@@ -26,37 +26,9 @@ use std::{
 
 use crate::{Catalog, CatalogError, CatalogStats};
 
-#[cfg(test)]
-mod cached_artifact_tests;
-#[cfg(test)]
-mod decode_snapshot_tests;
 mod dispatch;
-#[cfg(test)]
-mod edit_history_tests;
-#[cfg(test)]
-mod evidence_tests;
-#[cfg(test)]
-mod export_preset_tests;
-#[cfg(test)]
-mod export_queue_tests;
 mod handle;
-#[cfg(test)]
-mod import_journal_tests;
-#[cfg(test)]
-mod library_browse_tests;
-#[cfg(test)]
-mod library_collections_tests;
-#[cfg(test)]
-mod library_facts_tests;
 mod protocol;
-#[cfg(test)]
-mod review_projection_tests;
-#[cfg(test)]
-mod source_health_tests;
-#[cfg(test)]
-mod source_identity_tests;
-#[cfg(test)]
-mod technical_observation_tests;
 #[cfg(test)]
 mod tests;
 

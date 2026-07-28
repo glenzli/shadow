@@ -1,9 +1,8 @@
 #pragma once
 
-#include "desktop_backend.hpp"
-
 #include <QFutureWatcher>
 #include <QObject>
+#include <QStringList>
 #include <QUrl>
 #include <QVariantList>
 #include <QVariantMap>
@@ -12,6 +11,8 @@
 #include <memory>
 
 class QSettings;
+class DesktopBackend;
+class ExportBackend;
 
 struct ExportTaskResult final {
     int requested = 0;
@@ -96,13 +97,8 @@ private:
     );
     void persistPresets();
     [[nodiscard]] static QVariantList defaultPresets();
-    [[nodiscard]] static QVariantMap normalizedPreset(
-        const QString& id,
-        const QString& name,
-        const QVariantMap& options
-    );
 
-    std::shared_ptr<DesktopBackend> backend_;
+    std::shared_ptr<ExportBackend> export_backend_;
     std::unique_ptr<QSettings> settings_;
     QVariantList presets_;
     QString status_text_;

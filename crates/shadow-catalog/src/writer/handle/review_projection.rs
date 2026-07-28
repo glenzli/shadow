@@ -1,10 +1,10 @@
 //! Client adapters for photo/source/visual Review read models.
 
-use shadow_domain::PhotoId;
+use shadow_domain::{PhotoId, RepresentationId};
 
 use crate::{
-    CachedArtifactGeneratorIdentity, CatalogError, ReviewCursor, ReviewItemRecord,
-    ReviewPageRecord, TechnicalObservationRevision,
+    CachedArtifactGeneratorIdentity, CatalogError, PhotoInspectionRecord, ReviewCursor,
+    ReviewItemRecord, ReviewPageRecord, TechnicalObservationRevision,
 };
 
 use super::super::{
@@ -105,6 +105,28 @@ impl CatalogHandle {
     ) -> Result<Option<ReviewItemRecord>, CatalogError> {
         self.request(|response| {
             Message::ReviewProjection(ReviewProjectionMessage::PhotoSource(photo_id, response))
+        })
+    }
+
+    /// Returns inspection data for one exact selected photo representation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] when the catalog actor rejects the request or
+    /// the exact persisted inspection projection cannot be decoded.
+    pub fn photo_inspection(
+        &self,
+        photo_id: PhotoId,
+        representation_id: RepresentationId,
+        revision: &TechnicalObservationRevision,
+    ) -> Result<Option<PhotoInspectionRecord>, CatalogError> {
+        self.request(|response| {
+            Message::ReviewProjection(ReviewProjectionMessage::PhotoInspection {
+                photo_id,
+                representation_id,
+                revision: revision.clone(),
+                response,
+            })
         })
     }
 }

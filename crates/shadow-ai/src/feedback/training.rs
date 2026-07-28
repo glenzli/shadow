@@ -201,5 +201,4 @@ fn feature_for(
 }
 
 #[cfg(test)]
-#[path = "training_tests.rs"]
 mod tests;

@@ -36,6 +36,4 @@ pub use source_relink::{
 };
 
 #[cfg(test)]
-mod decode_schedule_tests;
-#[cfg(test)]
-mod scan_session_tests;
+mod tests;

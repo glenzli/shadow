@@ -60,30 +60,7 @@ Item {
     readonly property bool selected:
         workspace.isPhotoSelected(photoId, representationId)
 
-    function refreshSelectedMetadata() {
-        if (!selected || workspace.selectedPhotoId !== photoId
-                || workspace.selectedRepresentationId !== representationId)
-            return
-        Qt.callLater(() => {
-            if (selected && workspace.selectedPhotoId === photoId
-                    && workspace.selectedRepresentationId === representationId)
-                workspace.updatePrimaryPhoto(card)
-        })
-    }
-
-    onSelectedChanged: refreshSelectedMetadata()
-    onHasMetadataChanged: refreshSelectedMetadata()
-    onCameraMakeChanged: refreshSelectedMetadata()
-    onCameraModelChanged: refreshSelectedMetadata()
-    onLensMakeChanged: refreshSelectedMetadata()
-    onLensModelChanged: refreshSelectedMetadata()
-    onIsoSpeedChanged: refreshSelectedMetadata()
-    onExposureTimeSecondsChanged: refreshSelectedMetadata()
-    onApertureFNumberChanged: refreshSelectedMetadata()
-    onFocalLengthMmChanged: refreshSelectedMetadata()
-    onFocalLength35mmChanged: refreshSelectedMetadata()
-    onCapturedAtUnixSecondsChanged: refreshSelectedMetadata()
-    onLikedChanged: refreshSelectedMetadata()
+    Component.onDestruction: cardMenu.releaseOwner(card)
 
     Accessible.role: Accessible.ListItem
     Accessible.name: title
@@ -285,8 +262,6 @@ Item {
 
         ReviewPhotoContextMenu {
             id: cardMenu
-            workspace: card.workspace
-            photo: card
         }
 
         MouseArea {
@@ -302,7 +277,9 @@ Item {
                     workspace.selectPhoto(card, mouse.modifiers)
                 if (mouse.button === Qt.RightButton) {
                     workspace.controller.refreshSharedGradeNodes()
-                    cardMenu.openAt(cardMouse, mouse.x, mouse.y)
+                    cardMenu.openAt(
+                        cardMouse, mouse.x, mouse.y, card.workspace,
+                        card.photoId, card.liked, card.decisionFlag)
                 }
             }
             onDoubleClicked: mouse => {

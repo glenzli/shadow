@@ -49,10 +49,21 @@ add_library(
     src/edit/adjustment_execution.cpp
     src/edit/cube_lut.cpp
     src/edit/cpu_reference.cpp
+    src/edit/creative_detail_grading.cpp
+    src/edit/edit_execution_validation.cpp
     src/edit/edit_error.cpp
+    src/edit/finishing_effects_cpu.cpp
+    src/edit/guided_selective_tone.cpp
     src/edit/local_mask.cpp
+    src/edit/metal_adjustment_program.cpp
+    src/edit/oklab_color_warper.cpp
+    src/edit/perceptual_color.cpp
+    src/edit/perceptual_contrast.cpp
     src/edit/photo_geometry.cpp
     src/edit/retouch.cpp
+    src/edit/scalar_neighborhood_filters.cpp
+    src/edit/technical_detail_cpu.cpp
+    src/edit/tone_curve.cpp
     src/edit/working_color_math.cpp
     src/raw/bayer_demosaic.cpp
     src/raw/bayer_sampling.cpp
@@ -172,6 +183,23 @@ if(BUILD_TESTING)
             "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
     )
     shadow_image_enable_warnings(shadow-image-private-decoder-test-plugin)
+
+    add_test(
+        NAME shadow-image-neutral-detail-helper-contract
+        COMMAND
+            ${CMAKE_COMMAND}
+            "-DDECODE_HELPER=$<TARGET_FILE:shadow-image-decode-helper>"
+            "-DPRIVATE_PROVIDER=$<TARGET_FILE:shadow-image-private-decoder-test-plugin>"
+            "-DTEST_OUTPUT_ROOT=${CMAKE_CURRENT_BINARY_DIR}/contract-output"
+            -P
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/neutral_detail_helper_contract.cmake"
+    )
+    set_tests_properties(
+        shadow-image-neutral-detail-helper-contract
+        PROPERTIES
+            LABELS "decoder-helper;private-provider;detail"
+            TIMEOUT 30
+    )
 
     # Models an old v1-only artifact that predates the exact interface seal. Its factory aborts;
     # the loader contract test must reject it before construction.
@@ -328,9 +356,54 @@ if(BUILD_TESTING)
         tests/edit_plan_contract_test.cpp
     )
     shadow_image_add_contract(
-        shadow-image-tone-adjustment-tests
-        shadow-image-tone-adjustment-contract
-        tests/tone_adjustment_contract_test.cpp
+        shadow-image-guided-selective-tone-tests
+        shadow-image-guided-selective-tone-contract
+        tests/guided_selective_tone_contract_test.cpp
+    )
+    target_include_directories(
+        shadow-image-guided-selective-tone-tests
+        PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/edit"
+    )
+    shadow_image_add_contract(
+        shadow-image-perceptual-contrast-tests
+        shadow-image-perceptual-contrast-contract
+        tests/perceptual_contrast_contract_test.cpp
+    )
+    target_include_directories(
+        shadow-image-perceptual-contrast-tests
+        PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/edit"
+    )
+    shadow_image_add_contract(
+        shadow-image-tone-curve-tests
+        shadow-image-tone-curve-contract
+        tests/tone_curve_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-scalar-neighborhood-filters-tests
+        shadow-image-scalar-neighborhood-filters-contract
+        tests/scalar_neighborhood_filters_contract_test.cpp
+    )
+    target_include_directories(
+        shadow-image-scalar-neighborhood-filters-tests
+        PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/edit"
+    )
+    shadow_image_add_contract(
+        shadow-image-finishing-effects-tests
+        shadow-image-finishing-effects-contract
+        tests/finishing_effects_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-technical-detail-tests
+        shadow-image-technical-detail-contract
+        tests/technical_detail_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-creative-detail-grading-tests
+        shadow-image-creative-detail-grading-contract
+        tests/creative_detail_grading_contract_test.cpp
     )
     shadow_image_add_contract(
         shadow-image-detail-effects-tests
@@ -370,6 +443,42 @@ if(BUILD_TESTING)
         NAME shadow-image-perceptual-color-contract
         COMMAND shadow-image-perceptual-color-tests
     )
+    target_include_directories(
+        shadow-image-perceptual-color-tests
+        PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/edit"
+    )
+    shadow_image_add_contract(
+        shadow-image-point-color-tests
+        shadow-image-point-color-contract
+        tests/point_color_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-selective-color-tests
+        shadow-image-selective-color-contract
+        tests/selective_color_contract_test.cpp
+    )
+
+    shadow_image_add_contract(
+        shadow-image-oklab-color-warper-tests
+        shadow-image-oklab-color-warper-contract
+        tests/oklab_color_warper_contract_test.cpp
+    )
+    target_include_directories(
+        shadow-image-oklab-color-warper-tests
+        PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/edit"
+    )
+    shadow_image_add_contract(
+        shadow-image-metal-adjustment-program-tests
+        shadow-image-metal-adjustment-program-contract
+        tests/metal_adjustment_program_contract_test.cpp
+    )
+    target_include_directories(
+        shadow-image-metal-adjustment-program-tests
+        PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/edit"
+    )
 
     add_executable(
         shadow-image-neutral-balance-tests
@@ -385,6 +494,14 @@ if(BUILD_TESTING)
     add_executable(
         shadow-image-adjustment-execution-tests
         tests/adjustment_execution_contract_test.cpp
+        tests/adjustment_execution_contract/execution_parity_fixture.cpp
+        tests/adjustment_execution_contract/advanced_operation_fixture.cpp
+        tests/adjustment_execution_contract/perceptual_operation_fixture.cpp
+        tests/adjustment_execution_contract/dispatch_fallback_contract_test.cpp
+        tests/adjustment_execution_contract/operation_locality_contract_test.cpp
+        tests/adjustment_execution_contract/backend_resource_contract_test.cpp
+        tests/adjustment_execution_contract/advanced_perceptual_parity_contract_test.cpp
+        tests/adjustment_execution_contract/core_operation_parity_contract_test.cpp
     )
     target_link_libraries(
         shadow-image-adjustment-execution-tests
@@ -399,6 +516,11 @@ if(BUILD_TESTING)
     add_executable(
         shadow-image-warm-edit-gpu-tests
         tests/warm_edit_gpu_contract_test.cpp
+        tests/warm_edit_gpu_contract/warm_edit_gpu_parity_fixture.cpp
+        tests/warm_edit_gpu_contract/resident_session_contract_test.cpp
+        tests/warm_edit_gpu_contract/technical_detail_stage_contract_test.cpp
+        tests/warm_edit_gpu_contract/creative_detail_stage_contract_test.cpp
+        tests/warm_edit_gpu_contract/resident_resource_cache_contract_test.cpp
     )
     target_link_libraries(
         shadow-image-warm-edit-gpu-tests
@@ -459,6 +581,7 @@ if(BUILD_TESTING)
     if(SHADOW_REQUIRE_METAL_TESTS)
         set_tests_properties(
             shadow-image-edit-preview-execution-contract
+            shadow-image-warm-edit-gpu-contract
             PROPERTIES
                 ENVIRONMENT
                     "SHADOW_IMAGE_ACCELERATION=metal;SHADOW_TEST_REQUIRE_WARM_METAL=1"
@@ -490,12 +613,6 @@ if(BUILD_TESTING)
             PROPERTIES
                 ENVIRONMENT
                     "SHADOW_IMAGE_ACCELERATION=metal;SHADOW_TEST_REQUIRE_METAL=1"
-                LABELS "metal-required"
-        )
-        set_tests_properties(
-            shadow-image-raw-pipeline-contract
-            PROPERTIES
-                ENVIRONMENT "SHADOW_IMAGE_ACCELERATION=metal"
                 LABELS "metal-required"
         )
     endif()

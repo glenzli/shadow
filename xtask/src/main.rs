@@ -1,7 +1,9 @@
 mod coordination_health;
 mod daily_use_smoke;
+mod desktop_i18n;
 mod library_scale_smoke;
 mod local_workspace_guard;
+mod test_layout;
 
 use std::{
     env, io,
@@ -13,6 +15,7 @@ fn main() -> io::Result<()> {
     let command = env::args().nth(1).unwrap_or_else(|| "help".to_owned());
     match command.as_str() {
         "check" => {
+            test_layout::run(std::iter::empty())?;
             run("cargo", &["fmt", "--check"])?;
             run(
                 "cargo",
@@ -30,18 +33,22 @@ fn main() -> io::Result<()> {
         "native-configure" => configure_preset("native-dev").map(|_| ()),
         "native-build" => build_preset("native-dev"),
         "desktop-build" => {
+            desktop_i18n::run()?;
             let build_directory = configure_preset("desktop-dev")?;
             build_directory_contents(&build_directory)
         }
         "desktop-check" => {
+            desktop_i18n::run()?;
             let build_directory = configure_preset("desktop-dev")?;
             build_directory_contents(&build_directory)?;
             run_ctest(&build_directory)
         }
         "desktop-release" => {
+            desktop_i18n::run()?;
             let build_directory = configure_preset("desktop-release")?;
             build_directory_contents(&build_directory)
         }
+        "desktop-i18n-check" => desktop_i18n::run(),
         "native-check" => {
             let build_directory = configure_preset("native-dev")?;
             build_directory_contents(&build_directory)?;
@@ -52,6 +59,7 @@ fn main() -> io::Result<()> {
         "library-scale-smoke" => library_scale_smoke::run(env::args_os().skip(2)),
         "coordination-health" => coordination_health::run(env::args_os().skip(2)),
         "local-workspace-guard" => local_workspace_guard::run(env::args_os().skip(2)),
+        "test-layout" => test_layout::run(env::args_os().skip(2)),
         "doctor" => {
             doctor("rustc", &["--version"]);
             doctor("cargo", &["--version"]);
@@ -64,7 +72,7 @@ fn main() -> io::Result<()> {
         }
         _ => {
             println!(
-                "cargo xtask <check|test|native-configure|native-build|native-check|desktop-build|desktop-check|desktop-release|raw-smoke [fixture-directory]|daily-use-smoke [fixture-directory]|library-scale-smoke [--photos N] [--page-size N]|coordination-health [--root PATH] [--stale-after-minutes N] [--fail-on-stale] [--strict] [--commit-gate] [--bulk-stage-gate]|local-workspace-guard [--root PATH]|doctor>"
+                "cargo xtask <check|test|test-layout [--root PATH] [--verbose] [--print-observed]|native-configure|native-build|native-check|desktop-i18n-check|desktop-build|desktop-check|desktop-release|raw-smoke [fixture-directory]|daily-use-smoke [fixture-directory]|library-scale-smoke [--photos N] [--page-size N]|coordination-health [--root PATH] [--stale-after-minutes N] [--fail-on-stale] [--strict] [--commit-gate] [--bulk-stage-gate]|local-workspace-guard [--root PATH]|doctor>"
             );
             Ok(())
         }

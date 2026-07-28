@@ -151,11 +151,22 @@ Rectangle {
                     Label {
                         Layout.fillWidth: true
                         visible: !review.selectedHasMetadata
-                        text: review.controller.scanning || review.controller.refreshing
-                            ? qsTr("Metadata is being prepared")
-                            : qsTr("No metadata is available for this photo")
+                        text: review.controller.photoInspectionFailed
+                            ? qsTr("Could not load metadata for this photo")
+                            : review.controller.photoInspectionBusy
+                                ? qsTr("Metadata is being prepared")
+                                : qsTr("No metadata is available for this photo")
                         color: Theme.textQuiet
                         font.pixelSize: 10
+                    }
+
+                    ShadowButton {
+                        visible: !review.selectedHasMetadata
+                            && review.controller.photoInspectionFailed
+                        text: qsTr("Retry")
+                        variant: ShadowButton.Ghost
+                        enabled: !review.controller.photoInspectionBusy
+                        onClicked: review.controller.retryPhotoInspection()
                     }
 
                     Repeater {

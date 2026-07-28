@@ -2,10 +2,11 @@
 
 #include "desktop_backend.hpp"
 #include "localized_ui_message.hpp"
+#include "review_comparison_coordinator.hpp"
 #include "review_decision_session.hpp"
-#include "review_evidence_session.hpp"
 #include "review_filter_model.hpp"
 #include "review_model.hpp"
+#include "review_photo_inspection_coordinator.hpp"
 
 #include <QElapsedTimer>
 #include <QFutureWatcher>
@@ -105,18 +106,6 @@ struct MissingSourceRelinkTaskResult final {
     quint64 request_id = 0;
 };
 
-enum class ReviewEvidenceTaskKind : std::uint8_t {
-    Record,
-    Forget,
-};
-
-struct ReviewEvidenceTaskResult final {
-    BackendFeedbackReceipt feedback;
-    BackendForgetReceipt forget;
-    QString error;
-    ReviewEvidenceTaskKind kind = ReviewEvidenceTaskKind::Record;
-};
-
 struct ReviewDecisionTaskResult final {
     BackendReviewDecisionMutationReceipt receipt;
     BackendReviewDecisionState authoritative;
@@ -137,6 +126,21 @@ class ReviewController final : public QObject {
     Q_PROPERTY(QString statusText READ statusText NOTIFY statusTextChanged)
     Q_PROPERTY(QVariantMap scanProgress READ scanProgress NOTIFY scanProgressChanged)
     Q_PROPERTY(int itemCount READ itemCount NOTIFY itemCountChanged)
+    Q_PROPERTY(
+        QVariantMap photoInspection
+        READ photoInspection
+        NOTIFY photoInspectionChanged
+    )
+    Q_PROPERTY(
+        bool photoInspectionBusy
+        READ photoInspectionBusy
+        NOTIFY photoInspectionChanged
+    )
+    Q_PROPERTY(
+        bool photoInspectionFailed
+        READ photoInspectionFailed
+        NOTIFY photoInspectionChanged
+    )
     Q_PROPERTY(
         bool comparisonBusy
         READ comparisonBusy
@@ -321,6 +325,9 @@ public:
     [[nodiscard]] QString statusText() const;
     [[nodiscard]] QVariantMap scanProgress() const;
     [[nodiscard]] int itemCount() const;
+    [[nodiscard]] QVariantMap photoInspection() const;
+    [[nodiscard]] bool photoInspectionBusy() const noexcept;
+    [[nodiscard]] bool photoInspectionFailed() const noexcept;
     [[nodiscard]] bool comparisonBusy() const noexcept;
     [[nodiscard]] bool canUndoComparison() const noexcept;
     [[nodiscard]] int sessionEvidenceCount() const noexcept;
@@ -369,6 +376,12 @@ public:
     Q_INVOKABLE void scanFolder(const QUrl& folder_url);
     Q_INVOKABLE void cancelScan();
     Q_INVOKABLE void loadMore();
+    Q_INVOKABLE void requestPhotoInspection(
+        const QString& photo_id,
+        const QString& representation_id
+    );
+    Q_INVOKABLE void retryPhotoInspection();
+    Q_INVOKABLE void clearPhotoInspection();
     /// Returns the inclusive, currently filtered Library range between two
     /// presentation identities. This keeps Shift selection stable even when a
     /// justified grid has virtualized most of its delegates.
@@ -444,6 +457,7 @@ signals:
     void folderPathChanged();
     void statusTextChanged();
     void itemCountChanged();
+    void photoInspectionChanged();
     void comparisonStateChanged();
     void comparisonStatusTextChanged();
     void comparisonRecorded();
@@ -478,7 +492,6 @@ private:
     void finishMissingSourceLocationTask();
     void finishMissingSourceRelinkTask();
     void pollScanProgress();
-    void finishEvidenceTask();
     void finishDecisionTask();
     void startPage(PageTaskKind kind);
     void requestLibraryReset();
@@ -508,26 +521,20 @@ private:
         bool old_refreshing
     );
     void setHasMore(bool has_more);
-  bool eventFilter(QObject *watched, QEvent *event) override;
-  void setStatusMessage(LocalizedUiMessage status);
+    bool eventFilter(QObject *watched, QEvent *event) override;
+    void setStatusMessage(LocalizedUiMessage status);
     void updateScanStatus();
     void updateReadyStatus();
-    void setComparisonStatusMessage(LocalizedUiMessage status);
     void setDecisionStatusMessage(LocalizedUiMessage status);
     void applyDecisionState(const BackendReviewDecisionState& state);
 
     std::shared_ptr<DesktopBackend> backend_;
+    ReviewPhotoInspectionCoordinator photo_inspection_coordinator_;
     QString folder_path_;
   LocalizedUiMessage status_message_{
       "ReviewController",
       QT_TRANSLATE_NOOP("ReviewController",
                         "Choose a folder to build your Review library"),
-  };
-  LocalizedUiMessage comparison_status_message_{
-      "ReviewController",
-      QT_TRANSLATE_NOOP("ReviewController",
-                        "Explicit choices are recorded as evidence; no "
-                        "preference model is active"),
   };
   LocalizedUiMessage decision_status_message_{
       "ReviewController",
@@ -607,7 +614,7 @@ private:
     QTimer filter_debounce_timer_;
     ReviewModel model_;
     ReviewFilterModel filtered_model_;
-    ReviewEvidenceSession evidence_session_;
+    ReviewComparisonCoordinator comparison_coordinator_;
     ReviewDecisionSession decision_session_;
     QVector<BackendSharedGradeNode> shared_grade_nodes_;
     QFutureWatcher<ScanTaskResult> scan_watcher_;
@@ -619,6 +626,5 @@ private:
     QFutureWatcher<LibrarySourceHealthTaskResult> library_source_health_watcher_;
     QFutureWatcher<MissingSourceLocationTaskResult> missing_source_locations_watcher_;
     QFutureWatcher<MissingSourceRelinkTaskResult> source_relink_watcher_;
-    QFutureWatcher<ReviewEvidenceTaskResult> evidence_watcher_;
     QFutureWatcher<ReviewDecisionTaskResult> decision_watcher_;
 };

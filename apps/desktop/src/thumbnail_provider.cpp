@@ -2,6 +2,7 @@
 
 #include "desktop_backend.hpp"
 #include "review_model.hpp"
+#include "review_visual_request.hpp"
 
 #include <QByteArrayView>
 #include <QBuffer>
@@ -9,7 +10,6 @@
 #include <QDebug>
 #include <QImageReader>
 #include <QMutexLocker>
-#include <QUrlQuery>
 
 #include <algorithm>
 #include <cstdint>
@@ -111,11 +111,14 @@ ThumbnailProvider::ThumbnailProvider(
 }
 
 QString ThumbnailProvider::cacheKey(
-    const QString& ticket,
-    const quint64 generation,
+    const ReviewVisualRequest& request,
     const QSize& requested_size
 ) {
-    return ticket + QLatin1Char(':') + QString::number(generation)
+    const QString lifetime_key =
+        request.lifetime == ReviewVisualLifetime::Grid
+        ? QStringLiteral("grid")
+        : QStringLiteral("comparison:") + QString::number(request.generation);
+    return request.ticket + QLatin1Char(':') + lifetime_key
         + QLatin1Char(':') + QString::number(requested_size.width())
         + QLatin1Char('x') + QString::number(requested_size.height());
 }
@@ -135,31 +138,18 @@ QImage ThumbnailProvider::requestImage(
     if (size != nullptr) {
         *size = {};
     }
-    const qsizetype query_start = id.indexOf(QLatin1Char('?'));
-    const QString resource = query_start >= 0 ? id.left(query_start) : id;
-    if (resource != QStringLiteral("visual")) {
+    const auto request = parseReviewVisualRequest(id);
+    if (!request) {
         return {};
     }
-    const QUrlQuery query(query_start >= 0 ? id.mid(query_start + 1) : QString{});
-    const auto generation_values = query.allQueryItemValues(
-        QStringLiteral("generation"),
-        QUrl::FullyDecoded
-    );
-    const auto ticket_values = query.allQueryItemValues(
-        QStringLiteral("ticket"),
-        QUrl::FullyDecoded
-    );
-    if (generation_values.size() != 1 || ticket_values.size() != 1
-        || ticket_values.constFirst().isEmpty()) {
+    const auto generation_is_current = [this, &request]() {
+        return !request->requiresCurrentGeneration()
+            || model_->isGenerationCurrent(request->generation);
+    };
+    if (!generation_is_current()) {
         return {};
     }
-    bool valid_generation = false;
-    const quint64 generation = generation_values.constFirst().toULongLong(&valid_generation);
-    if (!valid_generation || !model_->isGenerationCurrent(generation)) {
-        return {};
-    }
-    const QString& ticket = ticket_values.constFirst();
-    const QString cache_key = cacheKey(ticket, generation, requested_size);
+    const QString cache_key = cacheKey(*request, requested_size);
     {
         const QMutexLocker lock(&decoded_image_cache_mutex_);
         if (const QImage* const cached = decoded_image_cache_.object(cache_key);
@@ -173,12 +163,16 @@ QImage ThumbnailProvider::requestImage(
 
     BackendReviewVisual payload;
     try {
-        payload = backend_->loadReviewVisual(ticket);
+        payload = backend_->loadReviewVisual(request->ticket);
     } catch (const std::exception& error) {
-        qWarning() << "Cannot load Review visual" << ticket << error.what();
+        qWarning() << "Cannot load Review visual" << request->ticket << error.what();
         return {};
     }
-    if (!model_->isGenerationCurrent(generation)) {
+    if (payload.requires_frame_receipt != request->requiresFrameReceipt()) {
+        qWarning() << "Review visual URL lifetime disagrees with its backend ticket";
+        return {};
+    }
+    if (!generation_is_current()) {
         return {};
     }
     if (payload.bytes.isEmpty()) {
@@ -197,7 +191,7 @@ QImage ThumbnailProvider::requestImage(
         reader.setScaledSize(decode_size);
     }
     QImage image = reader.read();
-    if (image.isNull() || !model_->isGenerationCurrent(generation)) {
+    if (image.isNull() || !generation_is_current()) {
         return {};
     }
     // Do the final reduction after decoding. This is deliberately before the
@@ -205,7 +199,7 @@ QImage ThumbnailProvider::requestImage(
     // pixels instead of reintroducing per-frame sampling artifacts.
     const QSize effective_target = thumbnail_target_size(image.size(), requested_size);
     image = antialiased_thumbnail_scale(std::move(image), effective_target);
-    if (image.isNull() || !model_->isGenerationCurrent(generation)) {
+    if (image.isNull() || !generation_is_current()) {
         return {};
     }
 
@@ -216,7 +210,7 @@ QImage ThumbnailProvider::requestImage(
         }
         try {
             backend_->reportReviewVisualFrame(
-                ticket,
+                request->ticket,
                 QString::fromLatin1(qVersion()),
                 unsigned_dimension(requested_size.width()),
                 unsigned_dimension(requested_size.height()),
@@ -225,10 +219,11 @@ QImage ThumbnailProvider::requestImage(
                 rgba8888_hash(image)
             );
         } catch (const std::exception& error) {
-            qWarning() << "Cannot record Review visual frame" << ticket << error.what();
+            qWarning() << "Cannot record Review visual frame" << request->ticket
+                       << error.what();
             return {};
         }
-        if (!model_->isGenerationCurrent(generation)) {
+        if (!generation_is_current()) {
             return {};
         }
     }

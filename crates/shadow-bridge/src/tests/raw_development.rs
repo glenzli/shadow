@@ -1,6 +1,15 @@
 //! RAW development plans, receipts, pipeline provenance, and cache identity contracts.
 
-use super::*;
+use shadow_domain::ImageDimensions;
+
+use crate::{
+    BridgeError, DngOpcodeExecutionStatus, DngOpcodePolicy, RawCameraProfileStatus,
+    RawDevelopmentIntent, RawDevelopmentPlan, RawDevelopmentPlanNegotiationStatus,
+    RawDevelopmentQuality, RawDevelopmentReceipt, RawHighlightRecoveryIntent,
+    RawNoiseReductionIntent, RawPipelinePath, RawPipelineReceipt, ffi,
+    provider::raw_development_plan_identity,
+    raw_development::{raw_development_receipt, raw_pipeline_receipt},
+};
 
 fn ffi_detail_raw_development_plan() -> ffi::FfiRawDevelopmentPlan {
     ffi::FfiRawDevelopmentPlan {

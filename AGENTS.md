@@ -32,11 +32,81 @@ duplicates them.
 - Before a substantial edit to a growing hub, apply `$maintain-ai-cohesive-code` and record the
   keep-or-extract decision. Known review targets include both bridge `lib.rs` files, desktop
   controllers, and large Precision QML surfaces.
-- Keep small private-invariant tests beside their implementation. Move substantial or multi-domain
-  entry-point tests into responsibility-named test modules; reserve top-level `tests/` for public
-  cross-module behavior. Test fixtures must also obey the local payload boundary below.
+- Keep private-invariant tests adjacent to their implementation but outside production source
+  files. Move multi-domain entry-point tests into responsibility-named contract modules; reserve
+  top-level `tests/` for public cross-module behavior. Test fixtures must also obey the local
+  payload boundary below.
 - Refactor only the responsibility exposed by the current change. A legacy hotspot is a review
   trigger, not permission for unrelated repository-wide cleanup.
+
+### Canonical test topology
+
+Shadow deliberately does not keep executable test bodies inline in production source. This removes
+the subjective “still small enough” threshold that allowed large hidden test suites to accumulate.
+API doctests and compile-time assertions may remain with the contract they document; ordinary test
+functions may not.
+
+Rust tests use one owner-controlled topology:
+
+- A production owner may end with `#[cfg(test)] mod tests;`, but its test implementations start in
+  `<owner>/tests.rs`, never inside the production `.rs` file and never in a sibling
+  `<owner>_tests.rs`.
+- When one owner needs several test responsibilities, replace that single file with
+  `<owner>/tests/mod.rs` and responsibility-named children. The directory already says “tests”, so
+  children do not repeat `_test` or `_tests` and may not use generic names such as `test.rs`,
+  `misc.rs`, or numbered parts.
+- `src/tests/` is reserved for private contracts owned by the crate facade and intentionally
+  spanning multiple sibling modules. Its children use `<responsibility>_contract.rs`; owner-local
+  tests must not drift into this central tree merely for convenient private access. The facade
+  registers children but does not inject a wildcard import or cross-domain prelude: every child
+  imports its production contracts and named fixtures directly.
+- A crate-level `tests/` directory is reserved for black-box contracts that consume the real public
+  crate API. These tests may not use `#[path]`, `include!`, or an equivalent source inclusion to
+  compile a private production file a second time.
+- The production owner declares its own private test module. A distant facade must not register
+  sibling `<owner>_tests.rs` files on the owner's behalf.
+- Fixtures and support code live with the narrowest test owner. Promote them only when multiple
+  semantic owners actually reuse them, and name the promoted module by the fixture or harness
+  contract rather than `support` alone.
+
+Native tests follow their build-system idioms while preserving the same semantic levels:
+
+- C++ and Qt test sources live under the subsystem `tests/` tree. Image-kernel cross-translation-
+  unit contracts use `<responsibility>_contract_test.cpp`; focused desktop component tests use
+  `<responsibility>_test.cpp`.
+- A multi-file native suite may use a responsibility-named directory with a thin runner, but may
+  not hide behavior in a generic `test.cpp`. Fixtures, plugins, and reusable support are named and
+  grouped separately from runnable sources.
+- Every runnable native test source maps to exactly one build target and one test-runner
+  registration. Moving a test also moves its compile definitions, dependencies, environment,
+  labels, timeouts, and fixture contract. When a test property is assigned conditionally, inspect
+  the generated CTest registry so a later assignment cannot silently overwrite the earlier gate.
+- A QML source-path load is a focused component test, not proof that the shipped module can reach
+  that component. Each newly registered component family needs at least one test or startup path
+  that resolves it through the packaged module/resource graph; real-window acceptance remains the
+  evidence for geometry, overlap, spacing, focus, pointer input, and runtime language switching.
+
+`cargo xtask test-layout` enforces this Rust topology as an absolute zero-debt gate and runs first
+in `cargo xtask check`. Shadow has no remaining inline executable tests, sibling
+`*_test.rs`/`*_tests.rs` owners, private production source inclusions, permanently disabled test
+code, or implementation-bearing `tests/mod.rs` facades. Do not reintroduce a baseline or numerical
+allowance for those categories; a new finding is a structural error, not newly budgeted legacy.
+
+### Desktop localization contract
+
+English `tr()`/`qsTr()` source text is the canonical desktop message identity. Simplified Chinese
+must remain a complete product presentation, not a best-effort catalog that silently falls back to
+English:
+
+- Route every user-visible desktop message through Qt translation. Technical tokens such as
+  `RGB`, `LUT`, camera formats, numeric patterns, and schema identities may intentionally remain
+  language-neutral; ordinary labels, status, errors, actions, and accessibility text may not.
+- A production message has exactly one finished, non-empty Simplified Chinese entry. Do not commit
+  `unfinished`, stale, duplicate, or placeholder-mismatched messages, even when the XML contains
+  text: `lrelease -nounfinished` would discard them and create a mixed-language UI.
+- Run `cargo xtask desktop-i18n-check` whenever production QML/C++ text or the Chinese catalog
+  changes. The canonical desktop build and release commands run the same exact extraction,
+  message-set, placeholder, and QM-compilation gate before compiling the application.
 
 ## Risk-scaled freedom
 

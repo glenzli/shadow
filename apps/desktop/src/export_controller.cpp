@@ -1,5 +1,9 @@
 #include "export_controller.hpp"
 
+#include "backend/export_backend.hpp"
+#include "backend/export_settings_codec.hpp"
+#include "desktop_backend.hpp"
+
 #include <QDir>
 #include <QFileInfo>
 #include <QJsonDocument>
@@ -15,7 +19,6 @@
 #include <functional>
 #include <limits>
 #include <stdexcept>
-#include <utility>
 
 namespace {
 
@@ -75,47 +78,13 @@ using ExportProgressReporter = std::function<void(
     return candidate;
 }
 
-[[nodiscard]] BackendExportOptions backend_options(const QVariantMap& values) {
-    BackendExportOptions options;
-    options.format = values.value(QStringLiteral("format"), QStringLiteral("jpeg"))
-                         .toString()
-                         .toLower();
-    options.max_edge = static_cast<std::uint32_t>(
-        std::clamp(values.value(QStringLiteral("maxEdge"), 0).toInt(), 0, 16'384)
-    );
-    options.jpeg_quality = static_cast<std::uint8_t>(
-        std::clamp(values.value(QStringLiteral("quality"), 90).toInt(), 1, 100)
-    );
-    options.watermark_path =
-        values.value(QStringLiteral("watermarkPath")).toString();
-    if (options.watermark_path.startsWith(QStringLiteral("file:"))) {
-        options.watermark_path = QUrl(options.watermark_path).toLocalFile();
+[[nodiscard]] std::shared_ptr<ExportBackend> shared_export_backend(
+    const std::shared_ptr<DesktopBackend>& backend
+) {
+    if (!backend) {
+        throw std::invalid_argument("ExportController requires a desktop backend");
     }
-    options.watermark_opacity = std::clamp(
-        values.value(QStringLiteral("watermarkOpacity"), 0.72).toDouble(),
-        0.0,
-        1.0
-    );
-    options.watermark_scale = std::clamp(
-        values.value(QStringLiteral("watermarkScale"), 0.18).toDouble(),
-        0.01,
-        1.0
-    );
-    options.watermark_inset = std::clamp(
-        values.value(QStringLiteral("watermarkInset"), 0.02).toDouble(),
-        0.0,
-        0.25
-    );
-    options.watermark_anchor =
-        values.value(
-            QStringLiteral("watermarkAnchor"),
-            QStringLiteral("bottom-right")
-        ).toString();
-    if (options.format != QStringLiteral("jpeg")
-        && options.format != QStringLiteral("png")) {
-        throw std::invalid_argument("export format must be jpeg or png");
-    }
-    return options;
+    return std::shared_ptr<ExportBackend>(backend, &backend->exportBackend());
 }
 
 [[nodiscard]] int checked_export_count(const std::uint32_t count) {
@@ -155,7 +124,7 @@ void apply_durable_progress(
 }
 
 [[nodiscard]] ExportTaskResult run_durable_export(
-    const std::shared_ptr<DesktopBackend>& backend,
+    const std::shared_ptr<ExportBackend>& backend,
     const QVector<BackendDurableExportTarget>& targets,
     const QString& settings_json,
     const bool recover_existing,
@@ -296,7 +265,7 @@ ExportController::ExportController(
     QObject* parent
 )
     : QObject(parent),
-      backend_(std::move(backend)),
+      export_backend_(shared_export_backend(backend)),
       settings_(isolated_settings_file.isEmpty()
               ? std::make_unique<QSettings>()
               : std::make_unique<QSettings>(
@@ -403,7 +372,7 @@ void ExportController::startRecoveryDrain() {
     };
     watcher_.setFuture(QtConcurrent::run(
         run_durable_export,
-        backend_,
+        export_backend_,
         QVector<BackendDurableExportTarget>{},
         QString{},
         true,
@@ -451,7 +420,7 @@ void ExportController::startExport(
     }
     BackendExportOptions export_options;
     try {
-        export_options = backend_options(options);
+        export_options = ExportSettingsCodec::fromVariantMap(options);
     } catch (const std::exception& error) {
         status_text_ = QString::fromUtf8(error.what());
         emit statusTextChanged();
@@ -460,7 +429,7 @@ void ExportController::startExport(
     const QString extension = export_options.format == QStringLiteral("png")
         ? QStringLiteral("png")
         : QStringLiteral("jpg");
-    const QString suffix = options.value(QStringLiteral("filenameSuffix")).toString();
+    const QString suffix = export_options.filename_suffix;
     const QDir folder(QDir(folder_path).absolutePath());
     QSet<QString> reserved_destinations;
     QVector<BackendDurableExportTarget> durable_targets;
@@ -478,20 +447,8 @@ void ExportController::startExport(
             ),
         });
     }
-    const QVariantMap frozen_options{
-        {QStringLiteral("schema"), 1},
-        {QStringLiteral("format"), export_options.format},
-        {QStringLiteral("maxEdge"), static_cast<int>(export_options.max_edge)},
-        {QStringLiteral("quality"), static_cast<int>(export_options.jpeg_quality)},
-        {QStringLiteral("watermarkPath"), export_options.watermark_path},
-        {QStringLiteral("watermarkOpacity"), export_options.watermark_opacity},
-        {QStringLiteral("watermarkScale"), export_options.watermark_scale},
-        {QStringLiteral("watermarkInset"), export_options.watermark_inset},
-        {QStringLiteral("watermarkAnchor"), export_options.watermark_anchor},
-    };
-    const QString settings_json = QString::fromUtf8(
-        QJsonDocument::fromVariant(frozen_options).toJson(QJsonDocument::Compact)
-    );
+    const QString settings_json =
+        ExportSettingsCodec::toDurableJson(export_options);
     completed_count_ = 0;
     failed_count_ = 0;
     current_count_ = 0;
@@ -533,7 +490,7 @@ void ExportController::startExport(
     };
     watcher_.setFuture(QtConcurrent::run(
         run_durable_export,
-        backend_,
+        export_backend_,
         durable_targets,
         settings_json,
         false,
@@ -575,8 +532,11 @@ QString ExportController::savePreset(
     if (id.isEmpty()) {
         id = QUuid::createUuid().toString(QUuid::WithoutBraces);
     }
-    const QVariantMap normalized =
-        normalizedPreset(id, normalized_name, options);
+    const QVariantMap normalized = ExportSettingsCodec::normalizedPreset(
+        id,
+        normalized_name,
+        options
+    );
     bool replaced = false;
     for (qsizetype index = 0; index < presets_.size(); ++index) {
         if (presets_[index].toMap().value(QStringLiteral("id")).toString() == id) {
@@ -707,7 +667,7 @@ void ExportController::persistPresets() {
 
 QVariantList ExportController::defaultPresets() {
     return {
-        normalizedPreset(
+        ExportSettingsCodec::normalizedPreset(
             QStringLiteral("builtin-full-jpeg"),
             tr("Full-size JPEG"),
             {
@@ -716,7 +676,7 @@ QVariantList ExportController::defaultPresets() {
                 {QStringLiteral("quality"), 92},
             }
         ),
-        normalizedPreset(
+        ExportSettingsCodec::normalizedPreset(
             QStringLiteral("builtin-web-jpeg"),
             tr("Web JPEG"),
             {
@@ -725,7 +685,7 @@ QVariantList ExportController::defaultPresets() {
                 {QStringLiteral("quality"), 86},
             }
         ),
-        normalizedPreset(
+        ExportSettingsCodec::normalizedPreset(
             QStringLiteral("builtin-png"),
             tr("Full-size PNG"),
             {
@@ -734,55 +694,5 @@ QVariantList ExportController::defaultPresets() {
                 {QStringLiteral("quality"), 100},
             }
         ),
-    };
-}
-
-QVariantMap ExportController::normalizedPreset(
-    const QString& id,
-    const QString& name,
-    const QVariantMap& options
-) {
-    return {
-        {QStringLiteral("id"), id},
-        {QStringLiteral("name"), name},
-        {
-            QStringLiteral("format"),
-            options.value(QStringLiteral("format"), QStringLiteral("jpeg"))
-        },
-        {
-            QStringLiteral("maxEdge"),
-            options.value(QStringLiteral("maxEdge"), 0)
-        },
-        {
-            QStringLiteral("quality"),
-            options.value(QStringLiteral("quality"), 90)
-        },
-        {
-            QStringLiteral("filenameSuffix"),
-            options.value(QStringLiteral("filenameSuffix"))
-        },
-        {
-            QStringLiteral("watermarkPath"),
-            options.value(QStringLiteral("watermarkPath"))
-        },
-        {
-            QStringLiteral("watermarkOpacity"),
-            options.value(QStringLiteral("watermarkOpacity"), 0.72)
-        },
-        {
-            QStringLiteral("watermarkScale"),
-            options.value(QStringLiteral("watermarkScale"), 0.18)
-        },
-        {
-            QStringLiteral("watermarkInset"),
-            options.value(QStringLiteral("watermarkInset"), 0.02)
-        },
-        {
-            QStringLiteral("watermarkAnchor"),
-            options.value(
-                QStringLiteral("watermarkAnchor"),
-                QStringLiteral("bottom-right")
-            )
-        },
     };
 }

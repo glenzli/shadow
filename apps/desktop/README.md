@@ -13,7 +13,7 @@ startup Catalog page / Add Folder / QML Review grid
 
 two signed exact-artifact handles / explicit outcome
   → compare-only request tickets → verified cache bytes
-  → Qt decoded RGBA frame receipt → ReviewController evidence write
+  → Qt decoded RGBA frame receipt → ReviewComparisonCoordinator evidence write
   → Catalog v1 append-only Global feedback / forget fact
 
 Pick / Reject / 0–5 rating command
@@ -21,7 +21,7 @@ Pick / Reject / 0–5 rating command
   → forward-only current projection → append-only inverse-event undo
 ```
 
-QML never opens SQLite, calls LibRaw, or interprets blob paths. The global local Library loads its existing first page at startup; Add Folder starts a separate import job and no longer clears already visible photos. The Rust bridge returns bounded Review metadata pages using a stable path/representation cursor and exposes a generation-bound progress snapshot for Qt to poll. While import is changing sort order, each live first-page snapshot is reconciled as a prefix: matching rows move or update, new rows insert, and every already loaded key outside that prefix remains in its existing tail. No pagination cursor is exposed in this phase. At terminal state Qt pages again from the stable origin until the rebuilt sorted prefix contains every still-present loaded representation, then atomically publishes that exact boundary and re-enables pagination. Compressed visuals are not stored in the Qt model: a forced-asynchronous `QQuickImageProvider` requests a verified cache blob only when Qt needs that image and decodes only the requested display size. Every image URL carries the current model generation, so a late result from an obsolete Library presentation is discarded.
+QML never opens SQLite, calls LibRaw, or interprets blob paths. The global local Library loads its existing first page at startup; Add Folder starts a separate import job and no longer clears already visible photos. The Rust bridge returns bounded Review metadata pages using a stable path/representation cursor and exposes a generation-bound progress snapshot for Qt to poll. While import is changing sort order, each live first-page snapshot is reconciled as a prefix: matching rows move or update, new rows insert, and every already loaded key outside that prefix remains in its existing tail. No pagination cursor is exposed in this phase. At terminal state Qt pages again from the stable origin until the rebuilt sorted prefix contains every still-present loaded representation, then atomically publishes that exact boundary and re-enables pagination. Compressed visuals are not stored in the Qt model: a forced-asynchronous `QQuickImageProvider` requests a verified cache blob only when Qt needs that image and decodes only the requested display size. [`src/review_visual_request.hpp`](src/review_visual_request.hpp) owns the image-URL protocol: signed immutable grid requests may finish while the Library advances generations, whereas decoded-frame-receipt comparison requests remain strictly current-generation-bound.
 
 ## Desktop source index
 
@@ -30,7 +30,14 @@ Application startup is split from environment-driven automation:
 - [`src/main.cpp`](src/main.cpp) owns process startup, isolated RAW-helper policy, local Catalog
   recovery, service composition, QML loading, and the application run loop.
 - [`src/desktop_smoke_harness.cpp`](src/desktop_smoke_harness.cpp) owns documented
-  `SHADOW_DESKTOP_*` automation flags, readiness wiring, timeouts, and smoke-test exit policy.
+  `SHADOW_DESKTOP_*` flag selection and shared scenario dispatch.
+- [`src/desktop_smoke/edit_preview_session.cpp`](src/desktop_smoke/edit_preview_session.cpp)
+  owns the first-photo Precision acceptance lifecycle: Review-row readiness, current preview and
+  analysis, optional Before, optional complete level-zero viewport readback, deadline,
+  diagnostics, and the unique process terminal.
+- [`src/desktop_smoke/grade_stack_persistence.cpp`](src/desktop_smoke/grade_stack_persistence.cpp)
+  owns the Grade Stack acceptance lifecycle from preview readiness through durable save,
+  close/reopen verification, deadline, diagnostics, and process exit.
 
 `EditController` is the stable QObject/QML facade, with implementation grouped by responsibility:
 
@@ -59,6 +66,71 @@ Application startup is split from environment-driven automation:
 
 Add a new edit workflow to its semantic owner and wire only its stable QML contract through
 `edit_controller.hpp`; do not rebuild a monolithic controller implementation.
+
+Precision presentation follows the same responsibility tree:
+
+- [`qml/PrecisionInspector.qml`](qml/PrecisionInspector.qml) owns inspector composition, tool
+  routing, analysis presentation, and the stable Adjust/Looks surface.
+- [`qml/PrecisionCanvasPickerInput.qml`](qml/PrecisionCanvasPickerInput.qml) owns point-color and
+  white-balance sampling plus repair spot/stroke gesture lifecycles without expanding the canvas
+  composition surface.
+- [`qml/PrecisionFoundationAdjustments.qml`](qml/PrecisionFoundationAdjustments.qml) owns White
+  Balance, Light, Presence, foundational Color and Color Balance, plus the perceptual lightness
+  Curve. These sections share one editor and parameter-gesture contract.
+- [`qml/PrecisionColorMixer.qml`](qml/PrecisionColorMixer.qml) owns Color Mixer modes, hue-band
+  controls, and their curve editors while keeping the inspector as a composition boundary.
+- [`qml/PrecisionSelectiveColor.qml`](qml/PrecisionSelectiveColor.qml) owns selective-color
+  target selection and CMYK adjustment presentation.
+
+`ExportController` remains the stable QObject/QML facade, while the durable transaction has one
+backend owner:
+
+- [`src/export_controller.cpp`](src/export_controller.cpp) owns selection-to-destination planning,
+  task-center presentation, cancellation requests, and preset persistence.
+- [`src/backend/export_settings_codec.cpp`](src/backend/export_settings_codec.cpp) owns the export
+  field names, defaults, clamps, validation, preset projection, and immutable settings JSON shared
+  by the controller and executor.
+- [`src/backend/export_backend.cpp`](src/backend/export_backend.cpp) owns queue recovery and claims,
+  exact Recipe rendering, watermarking and encoding, write-conflict handling, atomic publication,
+  terminal completion, cancellation, and progress on the application's single Rust session.
+
+`DesktopBackend` composes that export component with the shared session but does not forward its
+workflow operations. [`tests/backend_export_contract_test.cpp`](tests/backend_export_contract_test.cpp)
+links the production component and verifies its settings schema plus an empty real durable queue.
+
+Review presentation keeps the workspace as the composition and compatibility surface:
+
+- [`qml/ReviewWorkspace.qml`](qml/ReviewWorkspace.qml) owns Review composition, selection
+  compatibility routing, Library navigation, and the stable triggers consumed by its toolbars and
+  delegates.
+- [`qml/ReviewSelectionState.qml`](qml/ReviewSelectionState.qml) owns identity-keyed multi-selection,
+  the off-screen-safe Shift anchor, and the primary presentation snapshot. Detailed EXIF and
+  technical facts come from an independent exact `{photo, representation}` request, so delegate
+  recycling and Library pagination cannot replace the selected representation.
+- [`src/review_comparison_coordinator.cpp`](src/review_comparison_coordinator.cpp) owns the complete
+  Compare lifecycle after cross-workflow admission: exact presentation preparation, decoded-frame
+  verification, cancellation, serialized record/forget workers, receipt validation, session-local
+  undoability, terminal status, and destruction wait. `ReviewController` preserves the public Qt
+  properties, methods, and signals while routing only the stable boundary. Its
+  [`tests/review_comparison_coordinator/`](tests/review_comparison_coordinator/) suite keeps
+  presentation, evidence, receipt-validation, and failure/lifetime contracts independently
+  navigable behind one registered runner.
+- [`src/review_photo_inspection_coordinator.cpp`](src/review_photo_inspection_coordinator.cpp) owns
+  the complete asynchronous selected-photo lifecycle: exact request coalescing, terminal failure,
+  explicit retry, and presentation. Its
+  [`review_photo_inspection_session.hpp`](src/review_photo_inspection_session.hpp) child owns only
+  independent request generation and stale-completion rejection; neither contract observes the
+  Library page generation. Focused coordinator and session tests cover rapid reselection, clear,
+  failure/retry, and same-identity refresh.
+- [`src/photo_inspection_projection.cpp`](src/photo_inspection_projection.cpp) is the sole
+  production mapping from the complete Rust FFI inspection DTO to the desktop DTO.
+  [`tests/backend_photo_inspection_contract_test.cpp`](tests/backend_photo_inspection_contract_test.cpp)
+  exercises that mapping with distinct sentinel values for every identity, presence flag, unit,
+  metadata field, and technical metric, then retains an absent exact-pair test through the real
+  Catalog/FFI/backend path.
+- [`qml/LibraryAlbumDialogs.qml`](qml/LibraryAlbumDialogs.qml) owns the complete create, membership,
+  rename, and delete dialog lifecycle plus their temporary form state. The controller remains the
+  authoritative owner of album data and mutations.
 
 Import progress is intentionally absolute rather than a fabricated percentage: the scanner does not perform a separate counting walk. During active scanning the UI reports discovered/catalogued files and queued preview checks; exact completed, decode-failure, preview-failure, and cancelled-job counts are terminal summaries. The first catalogued batch can appear while enumeration and preview checks are still active, and those rows may already be opened in Precision. Manual decisions, Compare writes, Add Folder, and pagination remain disabled through the terminal stable-prefix refresh. Stop Import uses one cooperative token across enumeration and queued decode jobs; already registered assets remain durable, queued jobs skip provider work, and one in-flight provider call may finish. If cancellation reaches enumeration/catalog registration, that journal ends as `cancelled`; if it arrives only during the `PreparingPreviews` tail, enumeration may already be journaled `completed` while the desktop/FFI job still terminates `cancelled` and queued preview work stops.
 
@@ -162,6 +234,12 @@ cargo xtask desktop-build
 open build/desktop-dev/apps/desktop/Shadow.app
 ```
 
+Every `desktop-build`, `desktop-check`, and `desktop-release` first runs the exact translation
+contract. It re-extracts production messages from `qml/` and `src/`, requires the Simplified
+Chinese catalog to have exactly one finished, non-empty entry for every message and no stale
+entries, verifies placeholder multiplicity, and compiles the result with `lrelease`. Run
+`cargo xtask desktop-i18n-check` directly when changing UI text or translations.
+
 The development preset keeps assertions and debug-friendly native code. Use the
 optimized preset for interactive photo editing and performance measurements:
 
@@ -197,16 +275,19 @@ Adding `SHADOW_DESKTOP_REQUEST_BEFORE=1` to that edit smoke waits for a second, 
 
 Adding `SHADOW_DESKTOP_GRADE_STACK_SMOKE=1` to the first-edit smoke runs a real
 three-Grade-Node controller round trip: add, edit, duplicate, reorder, bypass,
-render, save, close, reopen, and verify stable order, Grade Node and internal
-Render Op IDs, parameters, and bypass state. Use a fresh
+render, save, close, reopen, and verify stable Grade Node order and identities,
+parameters, and bypass state. Use a fresh
 `SHADOW_DESKTOP_DATA_ROOT`; the smoke intentionally creates a named Recipe
 version plus its atomic Library-wide commit in that isolated Catalog.
 
 Adding `SHADOW_DESKTOP_FULL_DETAIL_SMOKE=1` to the first-edit smoke enters the
 real level-zero detail path at the image center, prepares one bounded full-size
 LibRaw reference-RGB session, renders the visible adaptive tile grid, assembles
-one atomic RGB8 viewport presentation, and reads it back through the Qt image
-provider. It does not save a Recipe, tile artifact, or Catalog fact.
+one atomic RGB8 viewport presentation, and reads the complete generation-bound
+grid back through the Qt image provider as display-sRGB. When
+`SHADOW_DESKTOP_REQUEST_BEFORE=1` is also present, the same runner accepts
+Current, Before, and full detail in sequence. It does not save a Recipe, tile
+artifact, or Catalog fact.
 
 Adding `SHADOW_DESKTOP_RECORD_FIRST_COMPARISON=1` to a smoke run with at least
 two visuals prepares a real Compare presentation, requests both exact frames

@@ -116,6 +116,61 @@ target_link_libraries(
     INTERFACE Shadow::ImagePlatformRuntime
 )
 
+add_library(
+    shadow-desktop-export-backend
+    OBJECT
+    src/backend/export_backend.cpp
+    src/backend/export_backend.hpp
+    src/backend/export_settings_codec.cpp
+    src/backend/export_settings_codec.hpp
+)
+target_compile_features(shadow-desktop-export-backend PUBLIC cxx_std_20)
+target_include_directories(
+    shadow-desktop-export-backend
+    PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    PRIVATE "${SHADOW_CXXBRIDGE_INCLUDE_DIRECTORY}"
+)
+target_link_libraries(
+    shadow-desktop-export-backend
+    PUBLIC
+        shadow-desktop-rust
+        Shadow::Image
+        PkgConfig::LibRaw
+        PkgConfig::LittleCms
+        ${CMAKE_DL_LIBS}
+        JPEG::JPEG
+        Iconv::Iconv
+        Qt6::Core
+        Qt6::Gui
+)
+add_dependencies(
+    shadow-desktop-export-backend
+    shadow-desktop-rust-build
+)
+if(Lensfun_FOUND)
+    target_link_libraries(
+        shadow-desktop-export-backend
+        PUBLIC PkgConfig::Lensfun
+    )
+endif()
+if(LibHeif_FOUND)
+    target_link_libraries(
+        shadow-desktop-export-backend
+        PUBLIC PkgConfig::LibHeif
+    )
+endif()
+if(MSVC)
+    target_compile_options(
+        shadow-desktop-export-backend
+        PRIVATE /W4 /permissive-
+    )
+else()
+    target_compile_options(
+        shadow-desktop-export-backend
+        PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+    )
+endif()
+
 qt_add_executable(
     shadow-desktop
     MACOSX_BUNDLE
@@ -123,6 +178,10 @@ qt_add_executable(
     src/desktop_backend.hpp
     src/desktop_smoke_harness.cpp
     src/desktop_smoke_harness.hpp
+    src/desktop_smoke/edit_preview_session.cpp
+    src/desktop_smoke/edit_preview_session.hpp
+    src/desktop_smoke/grade_stack_persistence.cpp
+    src/desktop_smoke/grade_stack_persistence.hpp
     src/cache_maintenance_controller.cpp
     src/cache_maintenance_controller.hpp
     src/edit_controller.cpp
@@ -157,10 +216,14 @@ qt_add_executable(
     src/lut_library.hpp
     src/optics_profile_library.cpp
     src/optics_profile_library.hpp
+    src/photo_inspection_projection.cpp
+    src/photo_inspection_projection.hpp
     src/preview_diagnostics.cpp
     src/preview_diagnostics.hpp
     src/lut_preview_provider.cpp
     src/lut_preview_provider.hpp
+    src/review_comparison_coordinator.cpp
+    src/review_comparison_coordinator.hpp
     src/review_controller.cpp
     src/review_controller.hpp
     src/review_decision_session.hpp
@@ -169,6 +232,11 @@ qt_add_executable(
     src/review_filter_model.hpp
     src/review_model.cpp
     src/review_model.hpp
+    src/review_photo_inspection_coordinator.cpp
+    src/review_photo_inspection_coordinator.hpp
+    src/review_photo_inspection_session.hpp
+    src/review_visual_request.cpp
+    src/review_visual_request.hpp
     src/thumbnail_provider.cpp
     src/thumbnail_provider.hpp
     src/tone_curve_point_model.cpp
@@ -217,6 +285,7 @@ qt_add_resources(
         icons/reject.svg
         icons/retouch.svg
         icons/review-grid.svg
+        icons/scopes.svg
         icons/settings.svg
         icons/shared-link.svg
         icons/slot-left.svg
@@ -259,6 +328,7 @@ qt_add_qml_module(
     QML_FILES
         qml/EditHistogram.qml
         qml/ExportDialog.qml
+        qml/LibraryAlbumDialogs.qml
         qml/LibraryFacetPopup.qml
         qml/LibraryWorkspace.qml
         qml/LutManagerWindow.qml
@@ -267,7 +337,11 @@ qt_add_qml_module(
         qml/OpticsProfileManagerWindow.qml
         qml/PreferencesMenu.qml
         qml/PrecisionCanvas.qml
+        qml/PrecisionCanvasPickerInput.qml
         qml/PrecisionInspector.qml
+        qml/PrecisionFoundationAdjustments.qml
+        qml/PrecisionColorMixer.qml
+        qml/PrecisionSelectiveColor.qml
         qml/ColorWarperEditor.qml
         qml/CacheMaintenanceWindow.qml
         qml/HueCurveEditor.qml
@@ -282,6 +356,7 @@ qt_add_qml_module(
         qml/RecipeRecoveryPopup.qml
         qml/PrecisionWorkspace.qml
         qml/ReviewWorkspace.qml
+        qml/ReviewSelectionState.qml
         qml/ReviewComparisonView.qml
         qml/ReviewDecisionToolbar.qml
         qml/ReviewPhotoCard.qml
@@ -337,6 +412,7 @@ target_include_directories(
 target_link_libraries(
     shadow-desktop
     PRIVATE
+        shadow-desktop-export-backend
         shadow-desktop-rust
         Shadow::Image
         PkgConfig::LibRaw
@@ -399,6 +475,88 @@ if(BUILD_TESTING)
         PROPERTIES
             ENVIRONMENT
                 "QT_QPA_PLATFORM=offscreen;SHADOW_DESKTOP_SMOKE_TEST=1;SHADOW_DESKTOP_DATA_ROOT=${CMAKE_CURRENT_BINARY_DIR}/qml-startup-smoke"
+    )
+
+    add_executable(
+        shadow-backend-export-contract-test
+        tests/backend_export_contract_test.cpp
+    )
+    target_compile_features(
+        shadow-backend-export-contract-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-backend-export-contract-test
+        PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/src"
+            "${SHADOW_CXXBRIDGE_INCLUDE_DIRECTORY}"
+    )
+    target_link_libraries(
+        shadow-backend-export-contract-test
+        PRIVATE shadow-desktop-export-backend
+    )
+    add_dependencies(
+        shadow-backend-export-contract-test
+        shadow-desktop-rust-build
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-backend-export-contract-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-backend-export-contract-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-backend-export-contract
+        COMMAND shadow-backend-export-contract-test
+    )
+
+    add_executable(
+        shadow-backend-photo-inspection-contract-test
+        tests/backend_photo_inspection_contract_test.cpp
+        src/desktop_backend.cpp
+        src/desktop_backend.hpp
+        src/photo_inspection_projection.cpp
+        src/photo_inspection_projection.hpp
+        src/preview_diagnostics.cpp
+        src/preview_diagnostics.hpp
+    )
+    target_compile_features(
+        shadow-backend-photo-inspection-contract-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-backend-photo-inspection-contract-test
+        PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/src"
+            "${SHADOW_CXXBRIDGE_INCLUDE_DIRECTORY}"
+    )
+    target_link_libraries(
+        shadow-backend-photo-inspection-contract-test
+        PRIVATE shadow-desktop-export-backend
+    )
+    add_dependencies(
+        shadow-backend-photo-inspection-contract-test
+        shadow-desktop-rust-build
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-backend-photo-inspection-contract-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-backend-photo-inspection-contract-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-backend-photo-inspection-contract
+        COMMAND shadow-backend-photo-inspection-contract-test
     )
 
     add_executable(
@@ -596,9 +754,157 @@ if(BUILD_TESTING)
     )
 
     add_executable(
+        shadow-review-visual-request-contract-test
+        tests/review_visual_request_contract_test.cpp
+        src/review_visual_request.cpp
+    )
+    target_compile_features(
+        shadow-review-visual-request-contract-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-review-visual-request-contract-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-review-visual-request-contract-test
+        PRIVATE Qt6::Core
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-review-visual-request-contract-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-review-visual-request-contract-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-review-visual-request-contract
+        COMMAND shadow-review-visual-request-contract-test
+    )
+
+    add_executable(
+        shadow-review-photo-inspection-session-test
+        tests/review_photo_inspection_session_test.cpp
+        src/review_photo_inspection_session.hpp
+    )
+    target_compile_features(
+        shadow-review-photo-inspection-session-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-review-photo-inspection-session-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-review-photo-inspection-session-test
+        PRIVATE Qt6::Core
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-review-photo-inspection-session-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-review-photo-inspection-session-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-review-photo-inspection-session
+        COMMAND shadow-review-photo-inspection-session-test
+    )
+
+    add_executable(
+        shadow-review-photo-inspection-coordinator-test
+        tests/review_photo_inspection_coordinator_test.cpp
+        src/review_photo_inspection_coordinator.cpp
+        src/review_photo_inspection_coordinator.hpp
+        src/review_photo_inspection_session.hpp
+        src/desktop_backend.cpp
+        src/desktop_backend.hpp
+        src/photo_inspection_projection.cpp
+        src/photo_inspection_projection.hpp
+        src/preview_diagnostics.cpp
+        src/preview_diagnostics.hpp
+    )
+    target_compile_features(
+        shadow-review-photo-inspection-coordinator-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-review-photo-inspection-coordinator-test
+        PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/src"
+            "${SHADOW_CXXBRIDGE_INCLUDE_DIRECTORY}"
+    )
+    target_link_libraries(
+        shadow-review-photo-inspection-coordinator-test
+        PRIVATE
+            shadow-desktop-export-backend
+            Qt6::Concurrent
+    )
+    add_dependencies(
+        shadow-review-photo-inspection-coordinator-test
+        shadow-desktop-rust-build
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-review-photo-inspection-coordinator-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-review-photo-inspection-coordinator-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-review-photo-inspection-coordinator
+        COMMAND shadow-review-photo-inspection-coordinator-test
+    )
+
+    add_executable(
+        shadow-review-selection-state-contract-test
+        tests/review_selection_state_contract_test.cpp
+    )
+    target_compile_features(
+        shadow-review-selection-state-contract-test
+        PRIVATE cxx_std_20
+    )
+    target_compile_definitions(
+        shadow-review-selection-state-contract-test
+        PRIVATE SHADOW_DESKTOP_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+    target_link_libraries(
+        shadow-review-selection-state-contract-test
+        PRIVATE Qt6::Core Qt6::Qml
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-review-selection-state-contract-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-review-selection-state-contract-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-review-selection-state-contract
+        COMMAND shadow-review-selection-state-contract-test
+    )
+
+    add_executable(
         shadow-review-model-test
         tests/review_model_test.cpp
         src/review_model.cpp
+        src/review_visual_request.cpp
     )
     target_compile_features(shadow-review-model-test PRIVATE cxx_std_20)
     target_include_directories(
@@ -623,6 +929,8 @@ if(BUILD_TESTING)
         src/review_filter_model.hpp
         src/review_model.cpp
         src/review_model.hpp
+        src/review_visual_request.cpp
+        src/review_visual_request.hpp
     )
     target_compile_features(
         shadow-review-filter-model-test
@@ -655,6 +963,8 @@ if(BUILD_TESTING)
         src/justified_review_layout_model.hpp
         src/review_model.cpp
         src/review_model.hpp
+        src/review_visual_request.cpp
+        src/review_visual_request.hpp
     )
     target_compile_features(
         shadow-justified-review-layout-model-test
@@ -709,6 +1019,46 @@ if(BUILD_TESTING)
     add_test(
         NAME shadow-desktop-review-evidence-session
         COMMAND shadow-review-evidence-session-test
+    )
+
+    add_executable(
+        shadow-review-comparison-coordinator-test
+        tests/review_comparison_coordinator_test.cpp
+        tests/review_comparison_coordinator/comparison_backend_fixture.hpp
+        tests/review_comparison_coordinator/evidence_lifecycle_contract.cpp
+        tests/review_comparison_coordinator/failure_lifetime_contract.cpp
+        tests/review_comparison_coordinator/presentation_contract.cpp
+        tests/review_comparison_coordinator/receipt_validation_contract.cpp
+        src/review_comparison_coordinator.cpp
+        src/review_comparison_coordinator.hpp
+        src/review_evidence_session.hpp
+    )
+    target_compile_features(
+        shadow-review-comparison-coordinator-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-review-comparison-coordinator-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-review-comparison-coordinator-test
+        PRIVATE Qt6::Concurrent Qt6::Gui
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-review-comparison-coordinator-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-review-comparison-coordinator-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-review-comparison-coordinator
+        COMMAND shadow-review-comparison-coordinator-test
     )
 
     add_executable(

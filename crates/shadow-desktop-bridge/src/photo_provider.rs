@@ -5,6 +5,8 @@
 //! provider.  The desktop session consumes its previews or temporary raster
 //! paths but never loads a private SDK itself.
 
+mod grid_proxy_identity;
+
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result as AnyResult, anyhow};
@@ -15,6 +17,7 @@ use shadow_bridge::{
 use shadow_core::DecodeInspector;
 use shadow_domain::{DecoderSnapshot, PreviewPayload, ProxyPayload};
 
+use self::grid_proxy_identity::grid_proxy_variant_key;
 use crate::isolated_proxy::{
     configured_helper_path, isolated_helper_implementation_identity,
     render_isolated_photo_reference_proxy, render_isolated_photo_reference_proxy_to_file,
@@ -69,14 +72,12 @@ impl PhotoInspector {
             ),
             None => photo_provider_version(),
         };
-        let proxy_variant_key = format!(
-            "shadow-photo-router:grid-jpeg-2048-q90-444-v1;\
-             source=provider-neutral-raw-plan;{raw_development_plan_identity}"
+        let proxy_variant_key = grid_proxy_variant_key(
+            PHOTO_GRID_PROXY_MAX_EDGE,
+            PHOTO_GRID_PROXY_JPEG_QUALITY,
+            &raw_development_plan_identity,
+            isolated_implementation_identity.as_deref(),
         );
-        let proxy_variant_key = match isolated_implementation_identity {
-            Some(identity) => format!("{proxy_variant_key};isolated-graph={identity}"),
-            None => proxy_variant_key,
-        };
         Ok(Self {
             version,
             original_raster_extensions: photo_supported_raster_extensions(),
@@ -188,46 +189,7 @@ impl PhotoInspector {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn inspector_with_route_cache(runtime_cache_root: Option<PathBuf>) -> PhotoInspector {
-        PhotoInspector {
-            version: "test-router-version".to_owned(),
-            original_raster_extensions: vec!["jpg".to_owned(), "heif".to_owned()],
-            proxy_variant_key: "test-proxy".to_owned(),
-            isolated_proxy_runtime_cache: runtime_cache_root,
-        }
-    }
-
-    #[test]
-    fn helper_enabled_raw_inspection_never_chooses_the_direct_route() {
-        let inspector = inspector_with_route_cache(Some(PathBuf::from("/tmp/shadow-test-cache")));
-        assert_eq!(
-            inspector.inspection_route(Path::new("source.CR3")),
-            InspectionRoute::IsolatedRaw
-        );
-        assert_eq!(
-            inspector.inspection_route(Path::new("source.nef")),
-            InspectionRoute::IsolatedRaw
-        );
-    }
-
-    #[test]
-    fn original_rasters_and_no_helper_cache_keep_the_direct_route() {
-        let helper_enabled =
-            inspector_with_route_cache(Some(PathBuf::from("/tmp/shadow-test-cache")));
-        assert_eq!(
-            helper_enabled.inspection_route(Path::new("source.JPG")),
-            InspectionRoute::Direct
-        );
-        let direct = inspector_with_route_cache(None);
-        assert_eq!(
-            direct.inspection_route(Path::new("source.cr3")),
-            InspectionRoute::Direct
-        );
-    }
-}
+mod tests;
 
 /// Develops a source through the crash-isolated helper and returns the short-lived JPEG path
 /// that the public raster edit path can open.  The caller removes the path after preparation:

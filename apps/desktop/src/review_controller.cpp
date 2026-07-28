@@ -363,55 +363,54 @@ constexpr std::uint32_t LIBRARY_FACET_PAGE_SIZE = 24;
     ));
 }
 
-[[nodiscard]] std::optional<BackendPairwiseOutcome> pairwise_outcome(
-    const int outcome
+[[nodiscard]] ReviewComparisonCoordinator::Operations comparison_operations(
+    const std::shared_ptr<DesktopBackend>& backend
 ) {
-    switch (outcome) {
-    case 0:
-        return BackendPairwiseOutcome::LeftPreferred;
-    case 1:
-        return BackendPairwiseOutcome::RightPreferred;
-    case 2:
-        return BackendPairwiseOutcome::KeepBoth;
-    case 3:
-        return BackendPairwiseOutcome::KeepNeither;
-    case 4:
-        return BackendPairwiseOutcome::CannotCompare;
-    default:
-        return std::nullopt;
+    if (!backend) {
+        throw std::invalid_argument("Review comparison backend is required");
     }
-}
-
-[[nodiscard]] ReviewEvidenceTaskResult record_comparison(
-    const std::shared_ptr<DesktopBackend>& backend,
-    const QString& presentation_id,
-    const BackendPairwiseOutcome outcome
-) {
-    ReviewEvidenceTaskResult result;
-    result.kind = ReviewEvidenceTaskKind::Record;
-    try {
-        result.feedback = backend->recordReviewComparison(
-            presentation_id,
-            outcome
-        );
-    } catch (const std::exception& error) {
-        result.error = QString::fromUtf8(error.what());
-    }
-    return result;
-}
-
-[[nodiscard]] ReviewEvidenceTaskResult forget_comparison(
-    const std::shared_ptr<DesktopBackend>& backend,
-    const QString& event_id
-) {
-    ReviewEvidenceTaskResult result;
-    result.kind = ReviewEvidenceTaskKind::Forget;
-    try {
-        result.forget = backend->forgetReviewFeedback(event_id);
-    } catch (const std::exception& error) {
-        result.error = QString::fromUtf8(error.what());
-    }
-    return result;
+    return {
+        .prepare =
+            [backend](
+                const QString& left_visual_handle,
+                const QString& right_visual_handle
+            ) {
+                return backend->prepareReviewComparison(
+                    left_visual_handle,
+                    right_visual_handle
+                );
+            },
+        .confirm_ready =
+            [backend](
+                const QString& presentation_id,
+                const QString& left_request_ticket,
+                const QString& right_request_ticket
+            ) {
+                backend->confirmReviewComparisonReady(
+                    presentation_id,
+                    left_request_ticket,
+                    right_request_ticket
+                );
+            },
+        .cancel =
+            [backend](const QString& presentation_id) {
+                backend->cancelReviewComparison(presentation_id);
+            },
+        .record =
+            [backend](
+                const QString& presentation_id,
+                const BackendPairwiseOutcome outcome
+            ) {
+                return backend->recordReviewComparison(
+                    presentation_id,
+                    outcome
+                );
+            },
+        .forget =
+            [backend](const QString& event_id) {
+                return backend->forgetReviewFeedback(event_id);
+            },
+    };
 }
 
 [[nodiscard]] std::optional<BackendReviewDecisionFlag> decision_flag(
@@ -480,8 +479,15 @@ ReviewController::ReviewController(
 )
     : QObject(parent),
       backend_(std::move(backend)),
+      photo_inspection_coordinator_(backend_),
       model_(this),
-      filtered_model_(this) {
+      filtered_model_(this),
+      comparison_coordinator_(
+          comparison_operations(backend_),
+          [this](const QString& ticket) {
+              return model_.visualSourceFor(ticket);
+          }
+      ) {
     // Keep the constructor shape for existing test/application call sites.
     // Library state is Catalog-backed now, so the former desktop-local
     // settings file is deliberately not consulted.
@@ -532,6 +538,36 @@ ReviewController::ReviewController(
         &ReviewController::finishCount
     );
     connect(
+        &photo_inspection_coordinator_,
+        &ReviewPhotoInspectionCoordinator::stateChanged,
+        this,
+        &ReviewController::photoInspectionChanged
+    );
+    connect(
+        &comparison_coordinator_,
+        &ReviewComparisonCoordinator::stateChanged,
+        this,
+        &ReviewController::comparisonStateChanged
+    );
+    connect(
+        &comparison_coordinator_,
+        &ReviewComparisonCoordinator::statusTextChanged,
+        this,
+        &ReviewController::comparisonStatusTextChanged
+    );
+    connect(
+        &comparison_coordinator_,
+        &ReviewComparisonCoordinator::recorded,
+        this,
+        &ReviewController::comparisonRecorded
+    );
+    connect(
+        &comparison_coordinator_,
+        &ReviewComparisonCoordinator::forgotten,
+        this,
+        &ReviewController::comparisonForgotten
+    );
+    connect(
         &library_facets_watcher_,
         &QFutureWatcher<LibraryFacetTaskResult>::finished,
         this,
@@ -566,12 +602,6 @@ ReviewController::ReviewController(
         &QFutureWatcher<MissingSourceRelinkTaskResult>::finished,
         this,
         &ReviewController::finishMissingSourceRelinkTask
-    );
-    connect(
-        &evidence_watcher_,
-        &QFutureWatcher<ReviewEvidenceTaskResult>::finished,
-        this,
-        &ReviewController::finishEvidenceTask
     );
     connect(
         &decision_watcher_,
@@ -620,7 +650,6 @@ ReviewController::~ReviewController() {
     library_source_health_watcher_.waitForFinished();
     missing_source_locations_watcher_.waitForFinished();
     source_relink_watcher_.waitForFinished();
-    evidence_watcher_.waitForFinished();
     decision_watcher_.waitForFinished();
 }
 
@@ -708,20 +737,32 @@ int ReviewController::itemCount() const {
     return bounded_count(total_items_);
 }
 
+QVariantMap ReviewController::photoInspection() const {
+    return photo_inspection_coordinator_.presentation();
+}
+
+bool ReviewController::photoInspectionBusy() const noexcept {
+    return photo_inspection_coordinator_.busy();
+}
+
+bool ReviewController::photoInspectionFailed() const noexcept {
+    return photo_inspection_coordinator_.failed();
+}
+
 bool ReviewController::comparisonBusy() const noexcept {
-    return evidence_session_.busy();
+    return comparison_coordinator_.busy();
 }
 
 bool ReviewController::canUndoComparison() const noexcept {
-    return evidence_session_.canForget();
+    return comparison_coordinator_.canForget();
 }
 
 int ReviewController::sessionEvidenceCount() const noexcept {
-    return evidence_session_.activeCount();
+    return comparison_coordinator_.activeCount();
 }
 
 QString ReviewController::comparisonStatusText() const {
-    return comparison_status_message_.translated();
+    return comparison_coordinator_.statusText();
 }
 
 bool ReviewController::decisionBusy() const noexcept {
@@ -898,7 +939,7 @@ ReviewModel* ReviewController::reviewModel() noexcept {
 
 void ReviewController::scanFolder(const QUrl& folder_url) {
     if (scan_running_ || page_running_ || terminal_refresh_active_
-        || evidence_session_.busy() || decision_session_.busy()) {
+        || comparison_coordinator_.busy() || decision_session_.busy()) {
         return;
     }
     const QString path = folder_url.toLocalFile();
@@ -963,6 +1004,21 @@ void ReviewController::scanFolder(const QUrl& folder_url) {
     ));
 }
 
+void ReviewController::requestPhotoInspection(
+    const QString& photo_id,
+    const QString& representation_id
+) {
+    photo_inspection_coordinator_.request(photo_id, representation_id);
+}
+
+void ReviewController::retryPhotoInspection() {
+    photo_inspection_coordinator_.retry();
+}
+
+void ReviewController::clearPhotoInspection() {
+    photo_inspection_coordinator_.clear();
+}
+
 void ReviewController::cancelScan() {
     if (!scan_running_ || scan_phase_ == BackendScanPhase::Cancelling) {
         return;
@@ -985,7 +1041,7 @@ void ReviewController::cancelScan() {
 
 void ReviewController::loadMore() {
     if (!has_more_ || scan_running_ || refreshing() || page_running_
-        || evidence_session_.busy() || decision_session_.busy()) {
+        || comparison_coordinator_.busy() || decision_session_.busy()) {
         return;
     }
     startPage(PageTaskKind::Append);
@@ -1048,46 +1104,14 @@ QVariantMap ReviewController::prepareComparison(
     const QString& left_visual_handle,
     const QString& right_visual_handle
 ) {
-    if (evidence_session_.busy() || decision_session_.busy() || scan_running_
-        || refreshing() || page_running_) {
+    if (comparison_coordinator_.busy() || decision_session_.busy()
+        || scan_running_ || refreshing() || page_running_) {
         return {};
     }
-    if (left_visual_handle.trimmed().isEmpty()
-        || right_visual_handle.trimmed().isEmpty()) {
-    setComparisonStatusMessage(review_message(QT_TRANSLATE_NOOP(
-        "ReviewController", "Choose two verified visuals before comparing")));
-        return {};
-    }
-    try {
-        const auto presentation = backend_->prepareReviewComparison(
-            left_visual_handle,
-            right_visual_handle
-        );
-    setComparisonStatusMessage(review_message(QT_TRANSLATE_NOOP(
-        "ReviewController",
-        "Loading two exact Compare frames with durable provenance…"))
-        );
-        return {
-            {QStringLiteral("presentationId"), presentation.presentation_id},
-            {QStringLiteral("leftRequestTicket"), presentation.left_request_ticket},
-            {QStringLiteral("rightRequestTicket"), presentation.right_request_ticket},
-            {
-                QStringLiteral("leftSource"),
-                model_.visualSourceFor(presentation.left_request_ticket),
-            },
-            {
-                QStringLiteral("rightSource"),
-                model_.visualSourceFor(presentation.right_request_ticket),
-            },
-        };
-    } catch (const std::exception& error) {
-    setComparisonStatusMessage(review_message(
-        QT_TRANSLATE_NOOP("ReviewController",
-                          "Cannot prepare exact comparison · %1"),
-        {QString::fromUtf8(error.what())})
-        );
-        return {};
-    }
+    return comparison_coordinator_.prepare(
+        left_visual_handle,
+        right_visual_handle
+    );
 }
 
 bool ReviewController::confirmComparisonReady(
@@ -1098,79 +1122,30 @@ bool ReviewController::confirmComparisonReady(
     if (decision_session_.busy()) {
         return false;
     }
-    if (presentation_id.trimmed().isEmpty()
-        || left_request_ticket.trimmed().isEmpty()
-        || right_request_ticket.trimmed().isEmpty()) {
-        return false;
-    }
-    try {
-        backend_->confirmReviewComparisonReady(
-            presentation_id,
-            left_request_ticket,
-            right_request_ticket
-        );
-    setComparisonStatusMessage(review_message(QT_TRANSLATE_NOOP(
-        "ReviewController",
-        "Exact encoded artifacts and decoded Compare frames verified"))
-        );
-        return true;
-    } catch (const std::exception& error) {
-    setComparisonStatusMessage(review_message(
-        QT_TRANSLATE_NOOP("ReviewController",
-                          "Comparison frame verification failed · %1"),
-        {QString::fromUtf8(error.what())})
-        );
-        return false;
-    }
+    return comparison_coordinator_.confirmReady(
+        presentation_id,
+        left_request_ticket,
+        right_request_ticket
+    );
 }
 
 void ReviewController::cancelComparison(const QString& presentation_id) {
-    if (presentation_id.trimmed().isEmpty() || evidence_session_.busy()
-        || decision_session_.busy()) {
+    if (decision_session_.busy()) {
         return;
     }
-    try {
-        backend_->cancelReviewComparison(presentation_id);
-    setComparisonStatusMessage(review_message(QT_TRANSLATE_NOOP(
-        "ReviewController", "Comparison presentation closed")));
-    } catch (const std::exception& error) {
-    setComparisonStatusMessage(review_message(
-        QT_TRANSLATE_NOOP("ReviewController",
-                          "Cannot close comparison presentation · %1"),
-        {QString::fromUtf8(error.what())})
-        );
-    }
+    comparison_coordinator_.cancel(presentation_id);
 }
 
 void ReviewController::recordComparison(
     const QString& presentation_id,
     const int outcome
 ) {
-    const auto resolved_outcome = pairwise_outcome(outcome);
-    if (!resolved_outcome) {
-    setComparisonStatusMessage(review_message(QT_TRANSLATE_NOOP(
-        "ReviewController", "Comparison outcome is not supported")));
-        return;
-    }
-    if (presentation_id.trimmed().isEmpty()) {
-    setComparisonStatusMessage(review_message(QT_TRANSLATE_NOOP(
-        "ReviewController", "Prepare and verify the comparison first")));
-        return;
-    }
-    if (decision_session_.busy() || scan_running_ || refreshing() || page_running_) {
-        return;
-    }
-    if (!evidence_session_.beginRecord()) {
-        return;
-    }
-    emit comparisonStateChanged();
-  setComparisonStatusMessage(review_message(QT_TRANSLATE_NOOP(
-      "ReviewController", "Recording append-only comparison evidence…")));
-    evidence_watcher_.setFuture(QtConcurrent::run(
-        record_comparison,
-        backend_,
+    const bool admitted = !decision_session_.busy() && !scan_running_
+        && !refreshing() && !page_running_;
+    static_cast<void>(comparison_coordinator_.record(
         presentation_id,
-        *resolved_outcome
+        outcome,
+        admitted
     ));
 }
 
@@ -1178,18 +1153,7 @@ void ReviewController::undoLastComparison() {
     if (decision_session_.busy() || scan_running_ || refreshing() || page_running_) {
         return;
     }
-    const auto event_id = evidence_session_.beginForget();
-    if (!event_id) {
-        return;
-    }
-    emit comparisonStateChanged();
-  setComparisonStatusMessage(review_message(QT_TRANSLATE_NOOP(
-      "ReviewController", "Appending a forget fact for the latest evidence…")));
-    evidence_watcher_.setFuture(QtConcurrent::run(
-        forget_comparison,
-        backend_,
-        *event_id
-    ));
+    static_cast<void>(comparison_coordinator_.forgetLast());
 }
 
 void ReviewController::setPhotoFlag(
@@ -1202,7 +1166,8 @@ void ReviewController::setPhotoFlag(
         QT_TRANSLATE_NOOP("ReviewController", "Unsupported Review flag")));
         return;
     }
-    if (scan_running_ || refreshing() || page_running_ || evidence_session_.busy()
+    if (scan_running_ || refreshing() || page_running_
+        || comparison_coordinator_.busy()
         || decision_session_.busy()) {
         return;
     }
@@ -1246,7 +1211,8 @@ void ReviewController::setPhotoRating(
         "ReviewController", "Rating must be between 0 and 5 stars")));
         return;
     }
-    if (scan_running_ || refreshing() || page_running_ || evidence_session_.busy()
+    if (scan_running_ || refreshing() || page_running_
+        || comparison_coordinator_.busy()
         || decision_session_.busy()) {
         return;
     }
@@ -1286,7 +1252,7 @@ void ReviewController::setPhotoColorLabel(
     const QString& photo_id,
     const QString& color_label
 ) {
-    if (library_state_mutation_running_ || evidence_session_.busy()
+    if (library_state_mutation_running_ || comparison_coordinator_.busy()
         || decision_session_.busy()) {
         return;
     }
@@ -1305,7 +1271,7 @@ void ReviewController::setPhotoColorLabel(
 }
 
 void ReviewController::setPhotoLiked(const QString& photo_id, const bool liked) {
-    if (library_state_mutation_running_ || evidence_session_.busy()
+    if (library_state_mutation_running_ || comparison_coordinator_.busy()
         || decision_session_.busy()) {
         return;
     }
@@ -1653,7 +1619,8 @@ void ReviewController::setLibraryAlbumId(const QString& album_id) {
 }
 
 void ReviewController::undoLastDecision() {
-    if (scan_running_ || refreshing() || page_running_ || evidence_session_.busy()
+    if (scan_running_ || refreshing() || page_running_
+        || comparison_coordinator_.busy()
         || decision_session_.busy()) {
         return;
     }
@@ -2204,53 +2171,6 @@ void ReviewController::finishMissingSourceRelinkTask() {
     emit missingSourceLocationReviewChanged();
 }
 
-void ReviewController::finishEvidenceTask() {
-    ReviewEvidenceTaskResult result = evidence_watcher_.result();
-    if (!result.error.isEmpty()) {
-        evidence_session_.fail();
-        emit comparisonStateChanged();
-    setComparisonStatusMessage(review_message(result.kind == ReviewEvidenceTaskKind::Record
-                 ? QT_TRANSLATE_NOOP("ReviewController",
-                                "Evidence write failed · pair retained · %1")
-                 : QT_TRANSLATE_NOOP("ReviewController",
-                                "Forget write failed · evidence retained · %1"),
-        {result.error})
-        );
-        return;
-    }
-
-    if (result.kind == ReviewEvidenceTaskKind::Record) {
-        if (!evidence_session_.completeRecord(result.feedback.event_id)) {
-            emit comparisonStateChanged();
-      setComparisonStatusMessage(review_message(QT_TRANSLATE_NOOP(
-          "ReviewController", "Evidence receipt was invalid; pair retained")));
-            return;
-        }
-        emit comparisonStateChanged();
-    setComparisonStatusMessage(review_message(
-        QT_TRANSLATE_NOOP(
-            "ReviewController",
-            "Preference evidence recorded · sequence %1 · model not active"),
-        {result.feedback.sequence})
-        );
-        emit comparisonRecorded();
-        return;
-    }
-
-    if (!evidence_session_.completeForget(result.forget.target_event_id)) {
-        emit comparisonStateChanged();
-    setComparisonStatusMessage(review_message(QT_TRANSLATE_NOOP(
-        "ReviewController", "Forget receipt was invalid; evidence retained")));
-        return;
-    }
-    emit comparisonStateChanged();
-  setComparisonStatusMessage(review_message(QT_TRANSLATE_NOOP(
-      "ReviewController",
-      "Latest evidence forgotten non-destructively · source event retained"))
-    );
-    emit comparisonForgotten();
-}
-
 void ReviewController::finishDecisionTask() {
     const ReviewDecisionTaskResult result = decision_watcher_.result();
     if (!result.error.isEmpty()) {
@@ -2587,7 +2507,7 @@ bool ReviewController::eventFilter(QObject *const watched,
 
 void ReviewController::retranslateUi() {
   emit statusTextChanged();
-  emit comparisonStatusTextChanged();
+  comparison_coordinator_.retranslateUi();
   emit decisionStatusTextChanged();
 }
 
@@ -2695,14 +2615,6 @@ void ReviewController::updateScanStatus() {
         );
         break;
     }
-}
-
-void ReviewController::setComparisonStatusMessage(LocalizedUiMessage status) {
-    if (comparison_status_message_ == status) {
-        return;
-    }
-  comparison_status_message_ = std::move(status);
-    emit comparisonStatusTextChanged();
 }
 
 void ReviewController::setDecisionStatusMessage(LocalizedUiMessage status) {

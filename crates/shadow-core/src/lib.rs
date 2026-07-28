@@ -3,6 +3,8 @@
 mod cached_artifact_loader;
 mod catalog_backup;
 mod decode_inspection;
+#[cfg(test)]
+mod display_jpeg_fixture;
 mod import;
 mod native_path;
 mod performance;
