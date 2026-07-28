@@ -5,6 +5,7 @@
 #include "review_comparison_coordinator.hpp"
 #include "review_decision_coordinator.hpp"
 #include "review_filter_model.hpp"
+#include "review_library_album_coordinator.hpp"
 #include "review_model.hpp"
 #include "review_photo_inspection_coordinator.hpp"
 #include "review_source_health_coordinator.hpp"
@@ -64,26 +65,6 @@ struct LibraryStateTaskResult final {
     BackendPhotoLibraryState state;
     QString error;
     QString requested_photo_id;
-};
-
-enum class LibraryAlbumTaskAction : std::uint8_t {
-    Refresh,
-    CreateManual,
-    CreateSmart,
-    Rename,
-    Delete,
-    AddPhotos,
-    RemovePhotos,
-};
-
-struct LibraryAlbumTaskResult final {
-    QVector<BackendLibraryAlbum> albums;
-    QString error;
-    quint64 request_id = 0;
-    LibraryAlbumTaskAction action = LibraryAlbumTaskAction::Refresh;
-    QString album_id;
-    int affected_photo_count = 0;
-    bool has_album_snapshot = false;
 };
 
 class ReviewController final : public QObject {
@@ -458,7 +439,6 @@ private:
     void finishCount();
     void finishLibraryFacetsTask();
     void finishLibraryStateTask();
-    void finishLibraryAlbumsTask();
     void pollScanProgress();
     void startPage(PageTaskKind kind);
     void requestLibraryReset();
@@ -471,12 +451,6 @@ private:
         const QString& photo_id,
         bool liked,
         const QString& color_label
-    );
-    void startLibraryAlbumsTask(
-        LibraryAlbumTaskAction action,
-        const QString& name = {},
-        const QString& album_id = {},
-        const QStringList& photo_ids = {}
     );
     void emitWorkStateChanges(
         bool old_busy,
@@ -494,6 +468,7 @@ private:
     std::shared_ptr<DesktopBackend> backend_;
     ReviewPhotoInspectionCoordinator photo_inspection_coordinator_;
     ReviewSourceHealthCoordinator source_health_coordinator_;
+    ReviewLibraryAlbumCoordinator album_coordinator_;
     QString folder_path_;
   LocalizedUiMessage status_message_{
       "ReviewController",
@@ -543,12 +518,6 @@ private:
     bool scan_terminal_cancelled_ = false;
     bool has_more_ = false;
     bool library_state_mutation_running_ = false;
-    bool library_albums_task_running_ = false;
-    bool library_albums_refresh_pending_ = false;
-    quint64 library_albums_request_id_ = 0;
-    quint64 active_library_albums_request_id_ = 0;
-    QString library_album_id_;
-    QVector<BackendLibraryAlbum> library_albums_;
     bool library_facets_task_running_ = false;
     bool library_facets_refresh_pending_ = false;
     quint64 library_facets_request_id_ = 0;
@@ -569,5 +538,4 @@ private:
     QFutureWatcher<CountTaskResult> count_watcher_;
     QFutureWatcher<LibraryFacetTaskResult> library_facets_watcher_;
     QFutureWatcher<LibraryStateTaskResult> library_state_watcher_;
-    QFutureWatcher<LibraryAlbumTaskResult> library_albums_watcher_;
 };

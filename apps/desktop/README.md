@@ -163,6 +163,14 @@ Review presentation keeps the workspace as the composition and compatibility sur
   [`review_source_health_backend_contract_test.cpp`](tests/review_source_health_backend_contract_test.cpp)
   additionally runs two completed scans through the real desktop session, pages the resulting
   missing-location evidence, and proves that a wrong complete-file identity cannot relink it.
+- [`src/review_library_album_coordinator.cpp`](src/review_library_album_coordinator.cpp) owns the
+  complete Library album lifecycle: authoritative album snapshots and selection, serialized
+  refresh/CRUD/membership workers, refresh coalescing, deleted-selection invalidation, localized
+  terminal status, and destruction wait. `ReviewController` supplies the current smart-album
+  filter and reacts only to selection or selected-membership query invalidation. Its
+  [`tests/review_library_album_coordinator/`](tests/review_library_album_coordinator/) contracts
+  cover projection, smart-query freezing, deduplicated membership, coalescing, failure, and
+  lifetime.
 - [`src/photo_inspection_projection.cpp`](src/photo_inspection_projection.cpp) is the sole
   production mapping from the complete Rust FFI inspection DTO to the desktop DTO.
   [`tests/backend_photo_inspection_contract_test.cpp`](tests/backend_photo_inspection_contract_test.cpp)
@@ -170,8 +178,8 @@ Review presentation keeps the workspace as the composition and compatibility sur
   metadata field, and technical metric, then retains an absent exact-pair test through the real
   Catalog/FFI/backend path.
 - [`qml/LibraryAlbumDialogs.qml`](qml/LibraryAlbumDialogs.qml) owns the complete create, membership,
-  rename, and delete dialog lifecycle plus their temporary form state. The controller remains the
-  authoritative owner of album data and mutations.
+  rename, and delete dialog lifecycle plus temporary form state. The album coordinator remains the
+  authoritative owner of data, selection, and mutations behind the stable controller facade.
 
 Import progress is intentionally absolute rather than a fabricated percentage: the scanner does not perform a separate counting walk. During active scanning the UI reports discovered/catalogued files and queued preview checks; exact completed, decode-failure, preview-failure, and cancelled-job counts are terminal summaries. The first catalogued batch can appear while enumeration and preview checks are still active, and those rows may already be opened in Precision. Manual decisions, Compare writes, Add Folder, and pagination remain disabled through the terminal stable-prefix refresh. Stop Import uses one cooperative token across enumeration and queued decode jobs; already registered assets remain durable, queued jobs skip provider work, and one in-flight provider call may finish. If cancellation reaches enumeration/catalog registration, that journal ends as `cancelled`; if it arrives only during the `PreparingPreviews` tail, enumeration may already be journaled `completed` while the desktop/FFI job still terminates `cancelled` and queued preview work stops.
 

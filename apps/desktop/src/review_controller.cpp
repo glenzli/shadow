@@ -151,80 +151,6 @@ constexpr std::uint32_t LIBRARY_FACET_PAGE_SIZE = 24;
     return result;
 }
 
-[[nodiscard]] LibraryAlbumTaskResult run_library_albums_task(
-    const std::shared_ptr<DesktopBackend>& backend,
-    const LibraryAlbumTaskAction action,
-    const QString& name,
-    const QString& album_id,
-    const QStringList& photo_ids,
-    const BackendLibraryPhotoFilter& smart_query,
-    const quint64 request_id
-) {
-    LibraryAlbumTaskResult result;
-    result.request_id = request_id;
-    result.action = action;
-    result.album_id = album_id;
-    result.affected_photo_count = static_cast<int>(photo_ids.size());
-    try {
-        switch (action) {
-        case LibraryAlbumTaskAction::Refresh:
-            break;
-        case LibraryAlbumTaskAction::CreateManual:
-            static_cast<void>(backend->createManualLibraryAlbum(name));
-            break;
-        case LibraryAlbumTaskAction::CreateSmart:
-            static_cast<void>(backend->createSmartLibraryAlbum(name, smart_query));
-            break;
-        case LibraryAlbumTaskAction::Rename:
-            static_cast<void>(backend->renameLibraryAlbum(album_id, name));
-            break;
-        case LibraryAlbumTaskAction::Delete:
-            static_cast<void>(backend->deleteLibraryAlbum(album_id));
-            break;
-        case LibraryAlbumTaskAction::AddPhotos:
-            for (const QString& photo_id : photo_ids) {
-                backend->addPhotoToManualLibraryAlbum(album_id, photo_id);
-            }
-            break;
-        case LibraryAlbumTaskAction::RemovePhotos:
-            for (const QString& photo_id : photo_ids) {
-                static_cast<void>(backend->removePhotoFromManualLibraryAlbum(
-                    album_id,
-                    photo_id
-                ));
-            }
-            break;
-        }
-        result.albums = backend->libraryAlbums();
-        result.has_album_snapshot = true;
-    } catch (const std::exception& error) {
-        result.error = QString::fromUtf8(error.what());
-        try {
-            result.albums = backend->libraryAlbums();
-            result.has_album_snapshot = true;
-        } catch (const std::exception&) {
-            // Keep the primary mutation error: a follow-up refresh is best effort.
-        }
-    }
-    return result;
-}
-
-[[nodiscard]] QStringList photo_ids_from_targets(const QVariantList& targets) {
-    QStringList photo_ids;
-    QSet<QString> seen;
-    for (const QVariant& value : targets) {
-        const QString photo_id = value.toMap()
-            .value(QStringLiteral("photoId"))
-            .toString()
-            .trimmed();
-        if (!photo_id.isEmpty() && !seen.contains(photo_id)) {
-            seen.insert(photo_id);
-            photo_ids.push_back(photo_id);
-        }
-    }
-    return photo_ids;
-}
-
 [[nodiscard]] QVector<ReviewItem> review_items(QVector<BackendReviewItem> source) {
     QVector<ReviewItem> items;
     items.reserve(source.size());
@@ -378,6 +304,48 @@ source_health_operations(const std::shared_ptr<DesktopBackend>& backend) {
     };
 }
 
+[[nodiscard]] ReviewLibraryAlbumCoordinator::Operations
+album_operations(const std::shared_ptr<DesktopBackend>& backend) {
+    if (!backend) {
+        throw std::invalid_argument("Review Library album backend is required");
+    }
+    return {
+        .albums = [backend]() { return backend->libraryAlbums(); },
+        .create_manual =
+            [backend](const QString& name) {
+                static_cast<void>(backend->createManualLibraryAlbum(name));
+            },
+        .create_smart =
+            [backend](
+                const QString& name,
+                const BackendLibraryPhotoFilter& query
+            ) {
+                static_cast<void>(backend->createSmartLibraryAlbum(name, query));
+            },
+        .rename =
+            [backend](const QString& album_id, const QString& name) {
+                static_cast<void>(backend->renameLibraryAlbum(album_id, name));
+            },
+        .remove =
+            [backend](const QString& album_id) {
+                static_cast<void>(backend->deleteLibraryAlbum(album_id));
+            },
+        .add_photo =
+            [backend](const QString& album_id, const QString& photo_id) {
+                backend->addPhotoToManualLibraryAlbum(album_id, photo_id);
+            },
+        .remove_photo =
+            [backend](const QString& album_id, const QString& photo_id) {
+                static_cast<void>(
+                    backend->removePhotoFromManualLibraryAlbum(
+                        album_id,
+                        photo_id
+                    )
+                );
+            },
+    };
+}
+
 [[nodiscard]] ReviewDecisionCoordinator::Operations decision_operations(
     const std::shared_ptr<DesktopBackend>& backend
 ) {
@@ -433,6 +401,7 @@ ReviewController::ReviewController(
       backend_(std::move(backend)),
       photo_inspection_coordinator_(backend_),
       source_health_coordinator_(source_health_operations(backend_)),
+      album_coordinator_(album_operations(backend_)),
       model_(this),
       filtered_model_(this),
       comparison_coordinator_(
@@ -567,10 +536,39 @@ ReviewController::ReviewController(
         &ReviewController::finishLibraryStateTask
     );
     connect(
-        &library_albums_watcher_,
-        &QFutureWatcher<LibraryAlbumTaskResult>::finished,
+        &album_coordinator_,
+        &ReviewLibraryAlbumCoordinator::albumsChanged,
         this,
-        &ReviewController::finishLibraryAlbumsTask
+        &ReviewController::libraryAlbumsChanged
+    );
+    connect(
+        &album_coordinator_,
+        &ReviewLibraryAlbumCoordinator::albumSelectionChanged,
+        this,
+        &ReviewController::libraryAlbumChanged
+    );
+    connect(
+        &album_coordinator_,
+        &ReviewLibraryAlbumCoordinator::queryChanged,
+        this,
+        &ReviewController::scheduleFilterQuery
+    );
+    connect(
+        &album_coordinator_,
+        &ReviewLibraryAlbumCoordinator::statusMessageChanged,
+        this,
+        [this]() {
+            const auto channel = album_coordinator_.statusChannel();
+            if (channel
+                == ReviewLibraryAlbumCoordinator::StatusChannel::Decision) {
+                setDecisionStatusMessage(album_coordinator_.statusMessage());
+            } else if (
+                channel
+                == ReviewLibraryAlbumCoordinator::StatusChannel::Global
+            ) {
+                setStatusMessage(album_coordinator_.statusMessage());
+            }
+        }
     );
     connect(
         &source_health_coordinator_,
@@ -631,7 +629,6 @@ ReviewController::~ReviewController() {
     count_watcher_.waitForFinished();
     library_facets_watcher_.waitForFinished();
     library_state_watcher_.waitForFinished();
-    library_albums_watcher_.waitForFinished();
 }
 
 bool ReviewController::busy() const noexcept {
@@ -807,28 +804,15 @@ bool ReviewController::libraryFacetsBusy() const noexcept {
 }
 
 QString ReviewController::libraryAlbumId() const {
-    return library_album_id_;
+    return album_coordinator_.albumId();
 }
 
 QVariantList ReviewController::libraryAlbums() const {
-    QVariantList result;
-    result.reserve(library_albums_.size());
-    for (const auto& album : library_albums_) {
-        result.push_back(QVariantMap{
-            {QStringLiteral("id"), album.id},
-            {QStringLiteral("name"), album.name},
-            {
-                QStringLiteral("kind"),
-                album.kind == BackendLibraryAlbumKind::Smart
-                    ? QStringLiteral("smart") : QStringLiteral("manual"),
-            },
-        });
-    }
-    return result;
+    return album_coordinator_.albums();
 }
 
 bool ReviewController::libraryAlbumsBusy() const noexcept {
-    return library_albums_task_running_;
+    return album_coordinator_.busy();
 }
 
 QVariantList ReviewController::librarySourceHealth() const {
@@ -1173,11 +1157,7 @@ void ReviewController::setPhotoLiked(const QString& photo_id, const bool liked) 
 
 void ReviewController::clearFilters() {
     filtered_model_.clearFilters();
-    if (!library_album_id_.isEmpty()) {
-        library_album_id_.clear();
-        emit libraryAlbumChanged();
-        scheduleFilterQuery();
-    }
+    album_coordinator_.clearAlbumSelection();
 }
 
 void ReviewController::refreshVisibleLibrary() {
@@ -1209,11 +1189,7 @@ void ReviewController::clearLibraryFacet(const QString& kind) {
 }
 
 void ReviewController::refreshLibraryAlbums() {
-    if (library_albums_task_running_) {
-        library_albums_refresh_pending_ = true;
-        return;
-    }
-    startLibraryAlbumsTask(LibraryAlbumTaskAction::Refresh);
+    album_coordinator_.refresh();
 }
 
 void ReviewController::refreshLibrarySourceHealth() {
@@ -1243,82 +1219,36 @@ void ReviewController::relinkMissingSourceLocation(
 }
 
 void ReviewController::createManualLibraryAlbum(const QString& name) {
-    if (library_albums_task_running_ || name.trimmed().isEmpty()) {
-        return;
-    }
-    startLibraryAlbumsTask(LibraryAlbumTaskAction::CreateManual, name.trimmed());
+    album_coordinator_.createManual(name);
 }
 
 void ReviewController::createSmartLibraryAlbum(const QString& name) {
-    if (library_albums_task_running_ || name.trimmed().isEmpty()) {
-        return;
-    }
-    startLibraryAlbumsTask(LibraryAlbumTaskAction::CreateSmart, name.trimmed());
+    album_coordinator_.createSmart(name, currentLibraryFilter());
 }
 
 void ReviewController::renameLibraryAlbum(
     const QString& album_id,
     const QString& name
 ) {
-    const QString normalized_album_id = album_id.trimmed();
-    const QString normalized_name = name.trimmed();
-    if (library_albums_task_running_ || normalized_album_id.isEmpty()
-        || normalized_name.isEmpty()) {
-        return;
-    }
-    startLibraryAlbumsTask(
-        LibraryAlbumTaskAction::Rename,
-        normalized_name,
-        normalized_album_id
-    );
+    album_coordinator_.rename(album_id, name);
 }
 
 void ReviewController::deleteLibraryAlbum(const QString& album_id) {
-    const QString normalized_album_id = album_id.trimmed();
-    if (library_albums_task_running_ || normalized_album_id.isEmpty()) {
-        return;
-    }
-    startLibraryAlbumsTask(
-        LibraryAlbumTaskAction::Delete,
-        {},
-        normalized_album_id
-    );
+    album_coordinator_.remove(album_id);
 }
 
 void ReviewController::addPhotosToManualLibraryAlbum(
     const QString& album_id,
     const QVariantList& targets
 ) {
-    const QString normalized_album_id = album_id.trimmed();
-    const QStringList photo_ids = photo_ids_from_targets(targets);
-    if (library_albums_task_running_ || normalized_album_id.isEmpty()
-        || photo_ids.isEmpty()) {
-        return;
-    }
-    startLibraryAlbumsTask(
-        LibraryAlbumTaskAction::AddPhotos,
-        {},
-        normalized_album_id,
-        photo_ids
-    );
+    album_coordinator_.addPhotos(album_id, targets);
 }
 
 void ReviewController::removePhotosFromManualLibraryAlbum(
     const QString& album_id,
     const QVariantList& targets
 ) {
-    const QString normalized_album_id = album_id.trimmed();
-    const QStringList photo_ids = photo_ids_from_targets(targets);
-    if (library_albums_task_running_ || normalized_album_id.isEmpty()
-        || photo_ids.isEmpty()) {
-        return;
-    }
-    startLibraryAlbumsTask(
-        LibraryAlbumTaskAction::RemovePhotos,
-        {},
-        normalized_album_id,
-        photo_ids
-    );
+    album_coordinator_.removePhotos(album_id, targets);
 }
 
 void ReviewController::refreshSharedGradeNodes() {
@@ -1461,13 +1391,7 @@ void ReviewController::setFilterLensKey(const QString& lens_key) {
 }
 
 void ReviewController::setLibraryAlbumId(const QString& album_id) {
-    const QString normalized = album_id.trimmed();
-    if (library_album_id_ == normalized) {
-        return;
-    }
-    library_album_id_ = normalized;
-    emit libraryAlbumChanged();
-    scheduleFilterQuery();
+    album_coordinator_.setAlbumId(album_id);
 }
 
 void ReviewController::undoLastDecision() {
@@ -1825,85 +1749,6 @@ void ReviewController::finishLibraryStateTask() {
     }
 }
 
-void ReviewController::finishLibraryAlbumsTask() {
-    const LibraryAlbumTaskResult result = library_albums_watcher_.result();
-    library_albums_task_running_ = false;
-    const bool accepted = result.request_id == active_library_albums_request_id_;
-    if (accepted && result.has_album_snapshot) {
-        library_albums_ = result.albums;
-        if (!library_album_id_.isEmpty()) {
-            const auto selected = std::find_if(
-                library_albums_.cbegin(),
-                library_albums_.cend(),
-                [this](const BackendLibraryAlbum& album) {
-                    return album.id == library_album_id_;
-                }
-            );
-            if (selected == library_albums_.cend()) {
-                library_album_id_.clear();
-                emit libraryAlbumChanged();
-                scheduleFilterQuery();
-            }
-        }
-        emit libraryAlbumsChanged();
-    }
-
-    if (accepted && result.error.isEmpty()) {
-        if ((result.action == LibraryAlbumTaskAction::AddPhotos
-                || result.action == LibraryAlbumTaskAction::RemovePhotos)
-            && result.album_id == library_album_id_) {
-            scheduleFilterQuery();
-        }
-
-        switch (result.action) {
-        case LibraryAlbumTaskAction::Refresh:
-            break;
-        case LibraryAlbumTaskAction::CreateManual:
-        case LibraryAlbumTaskAction::CreateSmart:
-            setDecisionStatusMessage(review_message(QT_TRANSLATE_NOOP(
-                "ReviewController", "Library album created"
-            )));
-            break;
-        case LibraryAlbumTaskAction::Rename:
-            setDecisionStatusMessage(review_message(QT_TRANSLATE_NOOP(
-                "ReviewController", "Library album renamed"
-            )));
-            break;
-        case LibraryAlbumTaskAction::Delete:
-            setDecisionStatusMessage(review_message(QT_TRANSLATE_NOOP(
-                "ReviewController", "Library album deleted"
-            )));
-            break;
-        case LibraryAlbumTaskAction::AddPhotos:
-            setDecisionStatusMessage(review_message(
-                QT_TRANSLATE_NOOP(
-                    "ReviewController", "%1 photos added to the album"
-                ),
-                {QString::number(result.affected_photo_count)}
-            ));
-            break;
-        case LibraryAlbumTaskAction::RemovePhotos:
-            setDecisionStatusMessage(review_message(
-                QT_TRANSLATE_NOOP(
-                    "ReviewController", "%1 photos removed from the album"
-                ),
-                {QString::number(result.affected_photo_count)}
-            ));
-            break;
-        }
-    } else if (accepted) {
-        setStatusMessage(review_message(
-            QT_TRANSLATE_NOOP("ReviewController", "Could not update Library albums · %1"),
-            {result.error}
-        ));
-    }
-
-    if (library_albums_refresh_pending_ || !accepted) {
-        library_albums_refresh_pending_ = false;
-        startLibraryAlbumsTask(LibraryAlbumTaskAction::Refresh);
-    }
-}
-
 void ReviewController::startPage(const PageTaskKind kind) {
     if (page_running_ || decision_coordinator_.busy()) {
         return;
@@ -1995,7 +1840,7 @@ BackendLibraryPhotoFilter ReviewController::currentLibraryFilter() const {
     filter.capture_month = filtered_model_.captureMonth();
     filter.camera_key = filtered_model_.cameraKey();
     filter.lens_key = filtered_model_.lensKey();
-    filter.album_id = library_album_id_;
+    filter.album_id = album_coordinator_.albumId();
     return filter;
 }
 
@@ -2053,37 +1898,6 @@ void ReviewController::startLibraryStateMutation(
     ));
 }
 
-void ReviewController::startLibraryAlbumsTask(
-    const LibraryAlbumTaskAction action,
-    const QString& name,
-    const QString& album_id,
-    const QStringList& photo_ids
-) {
-    if (library_albums_task_running_) {
-        library_albums_refresh_pending_ = true;
-        return;
-    }
-    library_albums_task_running_ = true;
-    active_library_albums_request_id_ = ++library_albums_request_id_;
-    BackendLibraryPhotoFilter smart_query;
-    if (action == LibraryAlbumTaskAction::CreateSmart) {
-        smart_query = currentLibraryFilter();
-        // Smart albums are a stable query, never a nested membership lookup.
-        smart_query.album_id.clear();
-    }
-    emit libraryAlbumsChanged();
-    library_albums_watcher_.setFuture(QtConcurrent::run(
-        run_library_albums_task,
-        backend_,
-        action,
-        name,
-        album_id,
-        photo_ids,
-        smart_query,
-        active_library_albums_request_id_
-    ));
-}
-
 void ReviewController::emitWorkStateChanges(
     const bool old_busy,
     const bool old_loading_more,
@@ -2121,6 +1935,7 @@ void ReviewController::retranslateUi() {
   emit statusTextChanged();
   comparison_coordinator_.retranslateUi();
   source_health_coordinator_.retranslateUi();
+  album_coordinator_.retranslateUi();
   decision_coordinator_.retranslateUi();
   emit decisionStatusTextChanged();
 }
