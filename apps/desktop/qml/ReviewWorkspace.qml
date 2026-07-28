@@ -429,6 +429,7 @@ Item {
 
         ReviewPhotoInspector {
             review: review
+            metadataPresentation: metadataPresentation
             onOpenMetadataRequested: metadataWindow.present()
         }
     }

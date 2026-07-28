@@ -57,7 +57,9 @@ QtObject {
         switch (field) {
         case "captured_at":
             return Number(presentation.workspace.selectedCapturedAtUnixSeconds) > 0
-                ? new Date(Number(presentation.workspace.selectedCapturedAtUnixSeconds) * 1000).toLocaleString(Qt.locale()) : "—"
+                ? new Date(
+                    Number(presentation.workspace.selectedCapturedAtUnixSeconds) * 1000
+                ).toLocaleString(Qt.locale(), Locale.ShortFormat) : "—"
         case "camera": return joinedIdentity(presentation.workspace.selectedCameraMake, presentation.workspace.selectedCameraModel)
         case "lens": return joinedIdentity(presentation.workspace.selectedLensMake, presentation.workspace.selectedLensModel)
         case "exposure": return formatShutter(presentation.workspace.selectedExposureTimeSeconds)

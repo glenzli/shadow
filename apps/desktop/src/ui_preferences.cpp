@@ -325,6 +325,15 @@ void UiPreferences::applyLanguage() {
         QCoreApplication::installTranslator(translator_.get());
     }
 
+    // Formatting is part of the selected UI language too. Leaving Qt's
+    // default locale on the host setting can otherwise produce an English
+    // interface with Chinese dates (or vice versa).
+    QLocale::setDefault(
+        QLocale(effective == QStringLiteral("zh_CN")
+                ? QStringLiteral("zh_CN")
+                : QStringLiteral("en_US"))
+    );
+
     const bool changed = effective_language_ != effective;
     effective_language_ = std::move(effective);
     if (engine_ != nullptr) {

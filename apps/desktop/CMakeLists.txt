@@ -210,6 +210,8 @@ qt_add_executable(
     src/desktop_smoke/review_mutations.hpp
     src/desktop_smoke/scenario_setup.cpp
     src/desktop_smoke/scenario_setup.hpp
+    src/desktop_smoke/visual_capture.cpp
+    src/desktop_smoke/visual_capture.hpp
     src/cache_maintenance_controller.cpp
     src/cache_maintenance_controller.hpp
     src/edit_controller.cpp

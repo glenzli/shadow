@@ -6,6 +6,7 @@
 #include "desktop_smoke/library_lifecycle.hpp"
 #include "desktop_smoke/review_mutations.hpp"
 #include "desktop_smoke/scenario_setup.hpp"
+#include "desktop_smoke/visual_capture.hpp"
 #include "edit_controller.hpp"
 #include "review_controller.hpp"
 #include "ui_preferences.hpp"
@@ -26,6 +27,8 @@ void installDesktopSmokeHarness(
     UiPreferences& preferences,
     const QString& initial_folder
 ) {
+    DesktopSmoke::installVisualCapture(application, engine);
+
     if (qEnvironmentVariableIsSet("SHADOW_DESKTOP_OPEN_LUT_LIBRARY")) {
         QMetaObject::invokeMethod(
             engine.rootObjects().front(),

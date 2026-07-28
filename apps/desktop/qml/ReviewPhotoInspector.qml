@@ -11,8 +11,20 @@ Rectangle {
     id: photoInspector
 
     required property var review
+    required property var metadataPresentation
 
     signal openMetadataRequested()
+
+    function localizedVisualRole(role) {
+        switch (String(role).trim().toLowerCase()) {
+        case "recipe":
+            return qsTr("RECIPE")
+        case "proxy":
+            return qsTr("PROXY")
+        default:
+            return String(role).toUpperCase()
+        }
+    }
 
             Layout.preferredWidth: 278
             Layout.fillHeight: true
@@ -82,7 +94,7 @@ Rectangle {
 
                     Label {
                         text: review.selectedRole.length > 0
-                            ? review.selectedRole.toUpperCase()
+                            ? photoInspector.localizedVisualRole(review.selectedRole)
                             : qsTr("PENDING")
                         color: review.textPrimary
                         font.pixelSize: 10
@@ -204,7 +216,8 @@ Rectangle {
 
                             Label {
                                 Layout.fillWidth: true
-                                text: review.exifValue(exifRow.modelData.id)
+                                text: photoInspector.metadataPresentation.exifValue(
+                                    exifRow.modelData.id)
                                 color: review.textPrimary
                                 font.pixelSize: 10
                                 elide: Text.ElideRight

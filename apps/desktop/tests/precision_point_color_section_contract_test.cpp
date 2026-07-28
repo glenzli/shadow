@@ -191,11 +191,60 @@ namespace {
 int main(int argc, char* argv[]) {
     QGuiApplication application(argc, argv);
     QQmlEngine engine;
+    FakePointColorEditor editor;
+
+    const QString histogram_source_path = QStringLiteral(
+        SHADOW_DESKTOP_SOURCE_DIR "/qml/EditHistogram.qml"
+    );
+    QQmlComponent histogram_component(
+        &engine,
+        QUrl::fromLocalFile(histogram_source_path)
+    );
+    const QVariantMap histogram_analysis{
+        {QStringLiteral("displayScopeSkinShadowsAvailable"), true},
+        {QStringLiteral("displayScopeSkinShadowsMatchedPixels"), 128},
+        {
+            QStringLiteral("displayScopeSkinShadowsDeviationDegrees"),
+            7.5,
+        },
+    };
+    std::unique_ptr<QObject> histogram(
+        histogram_component.createWithInitialProperties({
+            {QStringLiteral("analysis"), histogram_analysis},
+            {QStringLiteral("editor"), QVariant::fromValue(&editor)},
+            {
+                QStringLiteral("displayGeneration"),
+                QStringLiteral("generation-a"),
+            },
+        })
+    );
+    QVariant shadows;
+    if (!histogram
+        || !QMetaObject::invokeMethod(
+            histogram.get(),
+            "skinToneRange",
+            Q_RETURN_ARG(QVariant, shadows),
+            Q_ARG(QVariant, QStringLiteral("Shadows"))
+        )) {
+        std::cerr << histogram_component.errorString().toStdString();
+        return EXIT_FAILURE;
+    }
+    const QVariantMap shadows_map = shadows.toMap();
+    if (!require(
+            shadows_map.value(QStringLiteral("available")).toBool()
+                && shadows_map.value(QStringLiteral("matchedPixels")).toInt()
+                    == 128
+                && shadows_map.value(QStringLiteral("deviation")).toDouble()
+                    == 7.5,
+            "histogram forwards the complete skin-tone range contract"
+        )) {
+        return EXIT_FAILURE;
+    }
+
     const QString source_path = QStringLiteral(
         SHADOW_DESKTOP_SOURCE_DIR "/qml/PrecisionPointColorSection.qml"
     );
     QQmlComponent component(&engine, QUrl::fromLocalFile(source_path));
-    FakePointColorEditor editor;
     FakeAnalysisScope analysis_scope;
     std::unique_ptr<QObject> section(component.createWithInitialProperties({
         {QStringLiteral("editor"), QVariant::fromValue(&editor)},

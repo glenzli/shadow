@@ -1,6 +1,7 @@
 #include "ui_preferences.hpp"
 
 #include <QGuiApplication>
+#include <QLocale>
 #include <QTemporaryDir>
 
 #include <cstdlib>
@@ -36,6 +37,7 @@ int main(int argc, char* argv[]) {
             || !expect(preferences.dark())
             || !expect(preferences.languageMode() == QStringLiteral("en"))
             || !expect(preferences.effectiveLanguage() == QStringLiteral("en"))
+            || !expect(QLocale().name() == QStringLiteral("en_US"))
             || !expect(preferences.exifFieldVisible(QStringLiteral("cfa")))
             || !expect(!preferences.exifFieldVisible(QStringLiteral("lens")))
             || !expect(preferences.libraryThumbnailScale() == 284)) {
@@ -73,7 +75,8 @@ int main(int argc, char* argv[]) {
         if (!expect(overridden.appearanceMode() == QStringLiteral("light"))
             || !expect(overridden.effectiveAppearance() == QStringLiteral("light"))
             || !expect(!overridden.dark())
-            || !expect(overridden.languageMode() == QStringLiteral("en"))) {
+            || !expect(overridden.languageMode() == QStringLiteral("en"))
+            || !expect(QLocale().name() == QStringLiteral("en_US"))) {
             return EXIT_FAILURE;
         }
         overridden.setAppearanceMode(QStringLiteral("system"));

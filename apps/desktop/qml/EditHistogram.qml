@@ -128,6 +128,12 @@ Item {
         return count.toLocaleString(Qt.locale(), "f", 0);
     }
 
+    // Point Color consumes the public analysis-scope contract, while
+    // EditScopeData remains this component's private defensive projection.
+    function skinToneRange(name) {
+        return scopeData.skinToneRange(name);
+    }
+
     function hdrHeadroomText() {
         if (root.hdrHeadroomPixels <= 0 || root.hdrPeakHeadroomEv <= 0)
             return qsTr("HDR —");

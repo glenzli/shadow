@@ -5586,6 +5586,16 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>照片</translation>
     </message>
     <message>
+        <location filename="../qml/ReviewPhotoInspector.qml" line="22"/>
+        <source>RECIPE</source>
+        <translation>配方</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewPhotoInspector.qml" line="24"/>
+        <source>PROXY</source>
+        <translation>代理</translation>
+    </message>
+    <message>
         <location filename="../qml/ReviewPhotoInspector.qml" line="56"/>
         <source>Nothing selected</source>
         <translation>未选择任何内容</translation>
