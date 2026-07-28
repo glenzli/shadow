@@ -339,6 +339,7 @@ qt_add_qml_module(
         qml/LibraryWorkspace.qml
         qml/LutManagerWindow.qml
         qml/Main.qml
+        qml/AutosaveFailureRecovery.qml
         qml/MetadataWindow.qml
         qml/OpticsProfileManagerWindow.qml
         qml/PreferencesMenu.qml
@@ -1029,6 +1030,42 @@ if(BUILD_TESTING)
     add_test(
         NAME shadow-desktop-review-comparison-state-contract
         COMMAND shadow-review-comparison-state-contract-test
+    )
+
+    add_executable(
+        shadow-autosave-failure-recovery-contract-test
+        tests/autosave_failure_recovery_contract_test.cpp
+    )
+    target_compile_features(
+        shadow-autosave-failure-recovery-contract-test
+        PRIVATE cxx_std_20
+    )
+    target_compile_definitions(
+        shadow-autosave-failure-recovery-contract-test
+        PRIVATE SHADOW_DESKTOP_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+    target_link_libraries(
+        shadow-autosave-failure-recovery-contract-test
+        PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-autosave-failure-recovery-contract-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-autosave-failure-recovery-contract-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-autosave-failure-recovery-contract
+        COMMAND shadow-autosave-failure-recovery-contract-test
+    )
+    set_tests_properties(
+        shadow-desktop-autosave-failure-recovery-contract
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
 
     add_executable(

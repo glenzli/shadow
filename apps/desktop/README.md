@@ -29,6 +29,11 @@ Application startup is split from environment-driven automation:
 
 - [`src/main.cpp`](src/main.cpp) owns process startup, isolated RAW-helper policy, local Catalog
   recovery, service composition, QML loading, and the application run loop.
+- [`qml/Main.qml`](qml/Main.qml) owns application-window composition, workspace navigation, theme
+  projection, and the shared chrome.
+- [`qml/AutosaveFailureRecovery.qml`](qml/AutosaveFailureRecovery.qml) owns native-close
+  interception plus the complete failed-save choice: retry, keep editing, discard only the
+  in-memory draft and continue a queued photo open, or explicitly quit without saving.
 - [`src/folder_scan_backend.cpp`](src/folder_scan_backend.cpp) owns folder-import admission,
   begin/scan/progress/cancel projection, cooperative cancellation, and terminal reporting while
   `DesktopBackend` preserves the stable compatibility methods. Its focused
