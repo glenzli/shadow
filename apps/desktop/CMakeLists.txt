@@ -359,6 +359,7 @@ qt_add_qml_module(
         qml/LibraryWorkspace.qml
         qml/LutManagerWindow.qml
         qml/Main.qml
+        qml/MainTitleBar.qml
         qml/AutosaveFailureRecovery.qml
         qml/MetadataWindow.qml
         qml/OpticsProfileManagerWindow.qml

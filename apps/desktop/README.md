@@ -30,8 +30,11 @@ Application startup is split from environment-driven automation:
 
 - [`src/main.cpp`](src/main.cpp) owns process startup, isolated RAW-helper policy, local Catalog
   recovery, service composition, QML loading, and the application run loop.
-- [`qml/Main.qml`](qml/Main.qml) owns application-window composition, workspace navigation, theme
-  projection, and the shared chrome.
+- [`qml/Main.qml`](qml/Main.qml) owns application-window composition, workspace routing, theme
+  projection, and the stable application-shell entry points used by child workspaces.
+- [`qml/MainTitleBar.qml`](qml/MainTitleBar.qml) owns title-bar geometry, native window dragging,
+  workspace navigation, edit save/undo state, settings entry, and the catalog-history popup as one
+  application-shell interaction surface. It preserves the `Main` translation context.
 - [`qml/AutosaveFailureRecovery.qml`](qml/AutosaveFailureRecovery.qml) owns native-close
   interception plus the complete failed-save choice: retry, keep editing, discard only the
   in-memory draft and continue a queued photo open, or explicitly quit without saving.
