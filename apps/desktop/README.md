@@ -102,6 +102,8 @@ Precision presentation follows the same responsibility tree:
 
 - [`qml/PrecisionCanvas.qml`](qml/PrecisionCanvas.qml) owns the preview viewport, zoom/detail
   transport, overlays, and their stable workspace-facing state.
+- [`qml/PrecisionCanvasToolbar.qml`](qml/PrecisionCanvasToolbar.qml) presents the current-photo,
+  clipping, comparison, and zoom commands while emitting intent back to the viewport owner.
 - [`qml/PrecisionComparisonSurface.qml`](qml/PrecisionComparisonSurface.qml) owns the complete
   visual comparison transaction inside that viewport: original-frame receipt, whole/wipe/dual
   layouts, divider input, and BEFORE/AFTER labels.

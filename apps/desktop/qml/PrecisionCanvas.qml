@@ -141,30 +141,6 @@ Rectangle {
         return match && match.length > 1 ? decodeURIComponent(match[1]) : ""
     }
 
-    function comparisonModeName(mode) {
-        if (mode === comparisonWhole)
-            return qsTr("Original only")
-        if (mode === comparisonWipeVertical)
-            return qsTr("Vertical wipe")
-        if (mode === comparisonWipeHorizontal)
-            return qsTr("Horizontal wipe")
-        if (mode === comparisonSideBySide)
-            return qsTr("Side by side")
-        return qsTr("Top and bottom")
-    }
-
-    function comparisonModeIcon(mode) {
-        if (mode === comparisonWipeVertical)
-            return "qrc:/icons/compare-wipe-vertical.svg"
-        if (mode === comparisonWipeHorizontal)
-            return "qrc:/icons/compare-wipe-horizontal.svg"
-        if (mode === comparisonSideBySide)
-            return "qrc:/icons/compare-side-by-side.svg"
-        if (mode === comparisonStacked)
-            return "qrc:/icons/compare-stacked.svg"
-        return "qrc:/icons/before-after.svg"
-    }
-
     function activateComparison(mode) {
         resetView()
         comparisonMode = mode
@@ -309,200 +285,26 @@ Rectangle {
                 anchors.fill: parent
                 spacing: 0
 
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 42
-                    color: Theme.chrome
-                    border.width: 0
-
-                    Rectangle {
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.bottom: parent.bottom
-                        height: 1
-                        color: canvas.frameBorderColor
-                    }
-
-                    RowLayout {
-                        anchors.fill: parent
-                        anchors.leftMargin: 14
-                        anchors.rightMargin: 12
-                        spacing: 10
-
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: 0
-                            Label {
-                                Layout.fillWidth: true
-                                text: canvas.editor.active
-                                    ? canvas.editor.title : qsTr("No photo open")
-                                color: canvas.textPrimary
-                                font.pixelSize: 12
-                                font.weight: Font.Medium
-                                elide: Text.ElideRight
-                            }
-                            Label {
-                                Layout.fillWidth: true
-                                text: canvas.editor.sourcePath
-                                color: canvas.textMuted
-                                font.pixelSize: 8
-                                elide: Text.ElideMiddle
-                            }
-                        }
-
-                        RowLayout {
-                            spacing: 2
-
-                            ShadowIconButton {
-                                id: zebraButton
-                                source: "qrc:/icons/zebra.svg"
-                                variant: ShadowIconButton.Secondary
-                                selected: canvas.zebraEnabled
-                                toolTipText: qsTr("Toggle clipping warning · RAW uses sensor limits")
-                                accessibleName: toolTipText
-                                Accessible.checked: selected
-                                enabled: canvas.editor.active
-                                onClicked: canvas.zebraEnabled = !canvas.zebraEnabled
-                            }
-
-                            ShadowIconButton {
-                                id: beforeAfterButton
-                                source: canvas.comparisonModeIcon(
-                                    canvas.comparisonMode)
-                                variant: ShadowIconButton.Secondary
-                                selected: canvas.comparisonActive
-                                toolTipText: canvas.comparisonActive
-                                    ? qsTr("Disable comparison")
-                                    : qsTr("Compare with original · %1").arg(
-                                        canvas.comparisonModeName(
-                                            canvas.comparisonMode))
-                                accessibleName: toolTipText
-                                Accessible.checked: selected
-                                enabled: canvas.editor.active
-                                onClicked: {
-                                    if (canvas.comparisonActive)
-                                        canvas.comparisonActive = false
-                                    else
-                                        canvas.activateComparison(
-                                            canvas.comparisonMode)
-                                }
-                            }
-
-                            ShadowIconButton {
-                                id: comparisonModeButton
-                                source: "qrc:/icons/chevron-down.svg"
-                                buttonSize: 24
-                                iconSize: 12
-                                toolTipText: qsTr("Choose comparison layout")
-                                accessibleName: toolTipText
-                                enabled: canvas.editor.active
-                                onClicked: comparisonModePopup.open()
-
-                                Popup {
-                                    id: comparisonModePopup
-                                    parent: comparisonModeButton
-                                    x: Math.round((comparisonModeButton.width
-                                        - width) / 2)
-                                    y: comparisonModeButton.height + 6
-                                    width: comparisonModeRow.implicitWidth + 16
-                                    height: comparisonModeRow.implicitHeight + 16
-                                    padding: 8
-                                    modal: false
-                                    closePolicy: Popup.CloseOnEscape
-                                        | Popup.CloseOnPressOutside
-
-                                    background: Rectangle {
-                                        radius: Theme.controlRadius
-                                        color: Theme.panelRaised
-                                        border.width: 1
-                                        border.color: Theme.borderStrong
-                                    }
-
-                                    contentItem: Row {
-                                        id: comparisonModeRow
-                                        spacing: 4
-
-                                        Repeater {
-                                            model: [
-                                                { "mode": canvas.comparisonWhole,
-                                                  "icon": "qrc:/icons/before-after.svg" },
-                                                { "mode": canvas.comparisonWipeVertical,
-                                                  "icon": "qrc:/icons/compare-wipe-vertical.svg" },
-                                                { "mode": canvas.comparisonWipeHorizontal,
-                                                  "icon": "qrc:/icons/compare-wipe-horizontal.svg" },
-                                                { "mode": canvas.comparisonSideBySide,
-                                                  "icon": "qrc:/icons/compare-side-by-side.svg" },
-                                                { "mode": canvas.comparisonStacked,
-                                                  "icon": "qrc:/icons/compare-stacked.svg" }
-                                            ]
-
-                                            delegate: ShadowIconButton {
-                                                required property var modelData
-                                                source: modelData.icon
-                                                variant: ShadowIconButton.Secondary
-                                                selected: canvas.comparisonMode
-                                                    === modelData.mode
-                                                toolTipText: canvas.comparisonModeName(
-                                                    modelData.mode)
-                                                accessibleName: toolTipText
-                                                onClicked: {
-                                                    comparisonModePopup.close()
-                                                    canvas.activateComparison(
-                                                        modelData.mode)
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        Label {
-                            text: canvas.fitView
-                                ? qsTr("FIT")
-                                : qsTr("%L1%").arg(
-                                    Math.round(canvas.zoomFactor * 100))
-                            color: canvas.textMuted
-                            font.family: "Menlo"
-                            font.pixelSize: 9
-                        }
-                        ShadowInlineSlider {
-                            id: zoomSlider
-                            Layout.preferredWidth: 112
-                            Layout.minimumWidth: 72
-                            from: 0.25
-                            to: 4.0
-                            stepSize: 0.05
-                            value: canvas.zoomFactor
-                            enabled: canvas.editor.active
-                                && !canvas.editor.stateBusy
-                            onMoved: canvas.setPixelZoom(value)
-                        }
-                        ShadowButton {
-                            id: actualPixelsButton
-                            Layout.preferredWidth: 52
-                            Layout.preferredHeight: 30
-                            compact: true
-                            variant: ShadowButton.Secondary
-                            selected: !canvas.fitView
-                                && Math.abs(canvas.zoomFactor - 1.0) < 0.001
-                            text: qsTr("100%")
-                            enabled: canvas.editor.active
-                            onClicked: canvas.setPixelZoom(1.0)
-                        }
-                        ShadowIconButton {
-                            id: fitButton
-                            source: "qrc:/icons/fit-view.svg"
-                            variant: ShadowIconButton.Secondary
-                            selected: canvas.fitView
-                            toolTipText: qsTr("Fit image to window")
-                            accessibleName: toolTipText
-                            Accessible.checked: selected
-                            enabled: canvas.editor.active
-                                && !canvas.editor.stateBusy
-                            onClicked: canvas.resetView()
-                        }
-                    }
+                PrecisionCanvasToolbar {
+                    editor: canvas.editor
+                    zebraEnabled: canvas.zebraEnabled
+                    comparisonActive: canvas.comparisonActive
+                    comparisonMode: canvas.comparisonMode
+                    comparisonWhole: canvas.comparisonWhole
+                    comparisonWipeVertical: canvas.comparisonWipeVertical
+                    comparisonWipeHorizontal: canvas.comparisonWipeHorizontal
+                    comparisonSideBySide: canvas.comparisonSideBySide
+                    comparisonStacked: canvas.comparisonStacked
+                    fitView: canvas.fitView
+                    zoomFactor: canvas.zoomFactor
+                    onZebraToggleRequested:
+                        canvas.zebraEnabled = !canvas.zebraEnabled
+                    onComparisonDisableRequested:
+                        canvas.comparisonActive = false
+                    onComparisonModeRequested: mode =>
+                        canvas.activateComparison(mode)
+                    onZoomRequested: value => canvas.setPixelZoom(value)
+                    onFitRequested: canvas.resetView()
                 }
 
                 Flickable {

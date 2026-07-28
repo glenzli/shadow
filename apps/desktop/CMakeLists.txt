@@ -370,6 +370,7 @@ qt_add_qml_module(
         qml/PreferencesMenu.qml
         qml/PrecisionCanvas.qml
         qml/PrecisionCanvasPickerInput.qml
+        qml/PrecisionCanvasToolbar.qml
         qml/PrecisionComparisonSurface.qml
         qml/PrecisionInspector.qml
         qml/PrecisionLutSection.qml
