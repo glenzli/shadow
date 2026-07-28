@@ -35,6 +35,9 @@ Application startup is split from environment-driven automation:
 - [`qml/MainTitleBar.qml`](qml/MainTitleBar.qml) owns title-bar geometry, native window dragging,
   workspace navigation, edit save/undo state, settings entry, and the catalog-history popup as one
   application-shell interaction surface. It preserves the `Main` translation context.
+- [`qml/MainStatusBar.qml`](qml/MainStatusBar.qml) owns the responsive bottom status and action
+  surface: Library filters, current-selection decisions, progress, Precision proxy state, and
+  workspace status projection. It preserves the `Main` translation context.
 - [`qml/AutosaveFailureRecovery.qml`](qml/AutosaveFailureRecovery.qml) owns native-close
   interception plus the complete failed-save choice: retry, keep editing, discard only the
   in-memory draft and continue a queued photo open, or explicitly quit without saving.

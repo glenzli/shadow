@@ -360,6 +360,7 @@ qt_add_qml_module(
         qml/LutManagerWindow.qml
         qml/Main.qml
         qml/MainTitleBar.qml
+        qml/MainStatusBar.qml
         qml/AutosaveFailureRecovery.qml
         qml/MetadataWindow.qml
         qml/OpticsProfileManagerWindow.qml
