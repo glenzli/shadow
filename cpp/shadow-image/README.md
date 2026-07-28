@@ -45,7 +45,13 @@ calls. The focused `decoder_types`, `decoder_error`, and `decoder_metadata` cont
 beside the provider-level decoder-source contract, so shared invariants do not depend on linking
 the LibRaw translation unit that happens to consume them.
 
-Rust consumes owned metadata/capability/preview snapshots, the selected embedded preview, and a final compressed proxy through the CXX adapter in `src/bridge/cxx_bridge.cpp`. The bridge is intentionally coarse-grained: full-size mosaic/RGB buffers remain in C++, where the fallback path performs bilinear downscaling and libjpeg-compatible encoding before transferring bytes.
+Rust consumes owned metadata/capability/preview snapshots, the selected embedded preview, and a
+final compressed proxy through the CXX adapter. `src/bridge/cxx_bridge.cpp` owns DTO projection and
+stateless provider entry points; `src/bridge/cxx_handle.cpp` owns the decode, warm-preview, and
+full-detail session lifecycles. `src/bridge/adjustment_render_wire.cpp` owns Recipe node projection.
+The bridge remains intentionally coarse-grained: full-size mosaic/RGB buffers stay in C++, where
+the fallback path performs bilinear downscaling and libjpeg-compatible encoding before transferring
+bytes.
 
 Current contract rules:
 

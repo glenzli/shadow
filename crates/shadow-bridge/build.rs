@@ -39,7 +39,9 @@ const BRIDGE_INPUTS: &[&str] = &[
     "include/shadow/image/working_rgb.hpp",
     "src/bridge/adjustment_render_wire.hpp",
     "src/bridge/adjustment_render_wire.cpp",
+    "src/bridge/cxx_bridge_projection.hpp",
     "src/bridge/cxx_bridge.cpp",
+    "src/bridge/cxx_handle.cpp",
 ];
 
 const EMBEDDED_IMAGE_INPUTS: &[&str] = &[
@@ -216,6 +218,7 @@ fn main() {
     build
         .file(image_root.join("src/bridge/adjustment_render_wire.cpp"))
         .file(image_root.join("src/bridge/cxx_bridge.cpp"))
+        .file(image_root.join("src/bridge/cxx_handle.cpp"))
         .include(&image_include)
         .std("c++20");
 
