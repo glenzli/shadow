@@ -174,12 +174,10 @@ impl LayerInstance {
             return Err(RecipeValidationError::ZeroMaskRevision);
         }
         self.content.graph().validate()?;
-        if let LayerContent::Inline { .. } = &self.content {
-            if self.scope != AdjustmentScope::Photo {
-                return Err(RecipeValidationError::InlineLayerMustBePhotoScoped {
-                    layer_id: self.id,
-                });
-            }
+        if let LayerContent::Inline { .. } = &self.content
+            && self.scope != AdjustmentScope::Photo
+        {
+            return Err(RecipeValidationError::InlineLayerMustBePhotoScoped { layer_id: self.id });
         }
         Ok(())
     }

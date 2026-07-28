@@ -79,6 +79,11 @@ impl RecipeSnapshot {
     /// is empty: that preserves the original generic graph contract. The
     /// desktop adapter writes every user-authored local mask into this vector,
     /// making normal Shadow photo recipes self-contained at commit time.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the schema, input settings, masks, or layers
+    /// violate a Recipe invariant.
     pub fn new_with_input_settings_and_masks(
         schema_version: u32,
         input_settings: RecipeInputSettings,
@@ -96,6 +101,11 @@ impl RecipeSnapshot {
 
     /// Creates a complete recipe with local-mask revisions and deterministic
     /// small-area repair targets.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when any nested Recipe value is invalid or an
+    /// identity is duplicated.
     pub fn new_with_input_settings_masks_and_retouch(
         schema_version: u32,
         input_settings: RecipeInputSettings,
@@ -118,6 +128,11 @@ impl RecipeSnapshot {
     /// The geometry is intentionally applied after the original-coordinate
     /// Grade Node graph and retouch targets. This keeps a later crop/rotate
     /// from changing what a persisted local mask or repair coordinate means.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the geometry or any nested Recipe value is
+    /// invalid.
     pub fn new_with_input_settings_masks_retouch_and_geometry(
         schema_version: u32,
         input_settings: RecipeInputSettings,
@@ -141,6 +156,11 @@ impl RecipeSnapshot {
     /// strokes, and geometry. The two repair collections deliberately remain
     /// distinct so existing persisted recipes retain their historical
     /// single-click semantics while new drag gestures are one durable stroke.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when any nested Recipe value is invalid, a collection
+    /// exceeds its bound, or an identity is duplicated.
     pub fn new_with_input_settings_masks_retouch_strokes_and_geometry(
         schema_version: u32,
         input_settings: RecipeInputSettings,
@@ -293,6 +313,11 @@ impl RecipeSnapshot {
 /// deserialize/serialize round trip. Canonicalizing through `serde_json::Value`
 /// makes equal Recipe values hash identically across Catalog and renderer
 /// boundaries.
+///
+/// # Errors
+///
+/// Returns the underlying serialization error when the snapshot cannot be
+/// converted to canonical JSON.
 pub fn canonical_recipe_snapshot_digest(
     snapshot: &RecipeSnapshot,
 ) -> Result<[u8; 32], serde_json::Error> {

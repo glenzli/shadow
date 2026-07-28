@@ -99,17 +99,12 @@ impl Default for RawDevelopmentCapabilitySnapshot {
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DecodeSupport {
+    #[default]
     Unavailable,
     Available,
-}
-
-impl Default for DecodeSupport {
-    fn default() -> Self {
-        Self::Unavailable
-    }
 }
 
 impl DecodeSupport {

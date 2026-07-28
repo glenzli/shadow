@@ -72,23 +72,29 @@ impl RetouchSpot {
         })
     }
 
+    /// Applies the repair algorithm, source displacement, and edge feather.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when either source displacement is non-finite or
+    /// outside the supported `[-2, 2]` radius range.
     pub fn with_behavior(
         mut self,
         mode: RetouchMode,
-        source_offset_x_radii: f64,
-        source_offset_y_radii: f64,
+        horizontal_source_offset_radii: f64,
+        vertical_source_offset_radii: f64,
         feather: UnitInterval,
     ) -> Result<Self, RecipeValidationError> {
-        let source_offset_x_radii = FiniteF64::new(source_offset_x_radii)?;
-        let source_offset_y_radii = FiniteF64::new(source_offset_y_radii)?;
-        if !(-2.0..=2.0).contains(&source_offset_x_radii.get())
-            || !(-2.0..=2.0).contains(&source_offset_y_radii.get())
+        let horizontal_offset = FiniteF64::new(horizontal_source_offset_radii)?;
+        let vertical_offset = FiniteF64::new(vertical_source_offset_radii)?;
+        if !(-2.0..=2.0).contains(&horizontal_offset.get())
+            || !(-2.0..=2.0).contains(&vertical_offset.get())
         {
             return Err(RecipeValidationError::InvalidRetouchSourceOffset);
         }
         self.mode = mode;
-        self.source_offset_x_radii = source_offset_x_radii;
-        self.source_offset_y_radii = source_offset_y_radii;
+        self.source_offset_x_radii = horizontal_offset;
+        self.source_offset_y_radii = vertical_offset;
         self.feather = feather;
         Ok(self)
     }
@@ -203,8 +209,8 @@ impl RetouchStroke {
                 points.len(),
             ));
         }
-        if radius_level_zero_pixels < Self::MIN_RADIUS_LEVEL_ZERO_PIXELS
-            || radius_level_zero_pixels > Self::MAX_RADIUS_LEVEL_ZERO_PIXELS
+        if !(Self::MIN_RADIUS_LEVEL_ZERO_PIXELS..=Self::MAX_RADIUS_LEVEL_ZERO_PIXELS)
+            .contains(&radius_level_zero_pixels)
         {
             return Err(RecipeValidationError::InvalidRetouchStrokeRadius(
                 radius_level_zero_pixels,
@@ -220,23 +226,30 @@ impl RetouchStroke {
         })
     }
 
+    /// Applies the repair algorithm, shared source displacement, and edge
+    /// feather to the complete continuous stroke.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when either source displacement is non-finite or
+    /// outside the supported `[-2, 2]` radius range.
     pub fn with_behavior(
         mut self,
         mode: RetouchMode,
-        source_offset_x_radii: f64,
-        source_offset_y_radii: f64,
+        horizontal_source_offset_radii: f64,
+        vertical_source_offset_radii: f64,
         feather: UnitInterval,
     ) -> Result<Self, RecipeValidationError> {
-        let source_offset_x_radii = FiniteF64::new(source_offset_x_radii)?;
-        let source_offset_y_radii = FiniteF64::new(source_offset_y_radii)?;
-        if !(-2.0..=2.0).contains(&source_offset_x_radii.get())
-            || !(-2.0..=2.0).contains(&source_offset_y_radii.get())
+        let horizontal_offset = FiniteF64::new(horizontal_source_offset_radii)?;
+        let vertical_offset = FiniteF64::new(vertical_source_offset_radii)?;
+        if !(-2.0..=2.0).contains(&horizontal_offset.get())
+            || !(-2.0..=2.0).contains(&vertical_offset.get())
         {
             return Err(RecipeValidationError::InvalidRetouchSourceOffset);
         }
         self.mode = mode;
-        self.source_offset_x_radii = source_offset_x_radii;
-        self.source_offset_y_radii = source_offset_y_radii;
+        self.source_offset_x_radii = horizontal_offset;
+        self.source_offset_y_radii = vertical_offset;
         self.feather = feather;
         Ok(self)
     }

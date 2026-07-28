@@ -66,6 +66,10 @@ impl PhotoGeometry {
     /// The crop must retain non-zero extent on both axes.  Pixel-level
     /// clamping remains the renderer's responsibility because it alone knows
     /// the original raster dimensions.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when either crop axis has zero or negative extent.
     pub const fn new(
         crop_left: UnitInterval,
         crop_top: UnitInterval,
@@ -93,6 +97,10 @@ impl PhotoGeometry {
     /// Adds a fine clockwise straighten rotation in the bounded range used by
     /// professional crop tools. It remains part of the same Recipe v1
     /// geometry contract while Shadow is pre-release.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `degrees` is non-finite or outside `[-45, 45]`.
     pub fn with_straighten_degrees(mut self, degrees: f64) -> Result<Self, RecipeValidationError> {
         let degrees = FiniteF64::new(degrees)?;
         if !(-45.0..=45.0).contains(&degrees.get()) {
@@ -136,6 +144,7 @@ impl PhotoGeometry {
         self.flip_vertical
     }
 
+    #[allow(clippy::float_cmp)]
     pub const fn is_identity(&self) -> bool {
         self.crop_left.get() == 0.0
             && self.crop_top.get() == 0.0

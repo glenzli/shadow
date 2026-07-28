@@ -125,6 +125,11 @@ pub const MAX_MASK_BRUSH_POINTS: usize = 4_096;
 impl MaskDefinition {
     /// Creates a normalized linear-gradient mask after validating that it has
     /// a measurable direction.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the start and end coordinates do not define a
+    /// measurable direction.
     pub fn linear_gradient(
         start_x: UnitInterval,
         start_y: UnitInterval,
@@ -145,6 +150,10 @@ impl MaskDefinition {
 
     /// Creates a normalized radial-gradient mask after validating its
     /// non-zero ellipse radii.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when either normalized ellipse radius is zero.
     pub fn radial_gradient(
         center_x: UnitInterval,
         center_y: UnitInterval,
@@ -167,6 +176,11 @@ impl MaskDefinition {
 
     /// Creates an editable freehand mask. No points means zero coverage until
     /// the first stroke is drawn, which is valid persistent tool state.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the brush contains more than
+    /// [`MAX_MASK_BRUSH_POINTS`] samples.
     pub fn brush(
         points: Vec<MaskBrushPoint>,
         radius: UnitInterval,

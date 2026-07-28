@@ -106,9 +106,9 @@ fn retouch_spots_are_bounded_and_persist_with_the_photo_recipe() {
 
     assert_eq!(snapshot.retouch_spots(), &[spot]);
     assert_eq!(spot.mode(), RetouchMode::Clone);
-    assert_eq!(spot.source_offset_x_radii(), 1.5);
-    assert_eq!(spot.source_offset_y_radii(), -1.0);
-    assert_eq!(spot.feather().get(), 0.4);
+    assert_eq!(spot.source_offset_x_radii().to_bits(), 1.5_f64.to_bits());
+    assert_eq!(spot.source_offset_y_radii().to_bits(), (-1.0_f64).to_bits());
+    assert_eq!(spot.feather().get().to_bits(), 0.4_f64.to_bits());
     assert!(
         serde_json::to_string(&snapshot)
             .expect("serialize repair")
@@ -159,12 +159,15 @@ fn retouch_strokes_persist_as_one_continuous_photo_local_operation() {
     .expect("valid continuous repair recipe");
 
     assert_eq!(snapshot.retouch_spots(), &[]);
-    assert_eq!(snapshot.retouch_strokes(), &[stroke.clone()]);
+    assert_eq!(snapshot.retouch_strokes(), std::slice::from_ref(&stroke));
     assert_eq!(stroke.points(), &[point(0.2, 0.3), point(0.45, 0.55)]);
     assert_eq!(stroke.mode(), RetouchMode::Clone);
-    assert_eq!(stroke.source_offset_x_radii(), 1.25);
-    assert_eq!(stroke.source_offset_y_radii(), -0.75);
-    assert_eq!(stroke.feather().get(), 0.35);
+    assert_eq!(stroke.source_offset_x_radii().to_bits(), 1.25_f64.to_bits());
+    assert_eq!(
+        stroke.source_offset_y_radii().to_bits(),
+        (-0.75_f64).to_bits()
+    );
+    assert_eq!(stroke.feather().get().to_bits(), 0.35_f64.to_bits());
 
     let json = serde_json::to_string(&snapshot).expect("serialize continuous repair");
     assert!(json.contains("\"retouch_strokes\""));
@@ -196,7 +199,10 @@ fn photo_geometry_is_recipe_local() {
     )
     .expect("geometry belongs to a valid snapshot");
     assert_eq!(snapshot.geometry(), geometry);
-    assert_eq!(snapshot.geometry().straighten_degrees(), -3.25);
+    assert_eq!(
+        snapshot.geometry().straighten_degrees().to_bits(),
+        (-3.25_f64).to_bits()
+    );
     assert!(
         serde_json::to_string(&snapshot)
             .expect("serialize geometry")
