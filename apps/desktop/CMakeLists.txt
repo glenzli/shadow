@@ -183,7 +183,13 @@ qt_add_executable(
     MACOSX_BUNDLE
     ${SHADOW_DESKTOP_EDIT_SETTINGS_PROJECTION_SOURCES}
     src/desktop_backend.cpp
+    src/desktop_backend_cache.cpp
+    src/desktop_backend_edit.cpp
+    src/desktop_backend_library.cpp
+    src/desktop_backend_review.cpp
     src/desktop_backend.hpp
+    src/backend/desktop_backend_private.hpp
+    src/backend/review_projection.hpp
     src/backend/cache_types.hpp
     src/backend/edit_types.hpp
     src/backend/library_types.hpp

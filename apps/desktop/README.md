@@ -70,6 +70,19 @@ Application startup is split from environment-driven automation:
 [`src/backend/cache_types.hpp`](src/backend/cache_types.hpp); follow the domain header before
 changing a wire shape.
 
+Its implementation follows the same navigation:
+
+- [`src/desktop_backend.cpp`](src/desktop_backend.cpp) owns session composition, folder scan, and
+  exact selected-photo inspection.
+- [`src/desktop_backend_library.cpp`](src/desktop_backend_library.cpp) owns Library queries,
+  facets, albums, source-health evidence, relinking, and mutable Library organization.
+- [`src/desktop_backend_review.cpp`](src/desktop_backend_review.cpp) owns Review visuals,
+  comparison receipts, feedback, and explicit decision mutation.
+- [`src/desktop_backend_edit.cpp`](src/desktop_backend_edit.cpp) owns Precision state, shared
+  Grade Nodes, preview/detail rendering, and durable edit transitions.
+- [`src/desktop_backend_cache.cpp`](src/desktop_backend_cache.cpp) owns export-service access and
+  conservative cache inventory/maintenance.
+
 `EditController` is the stable QObject/QML facade, with implementation grouped by responsibility:
 
 - [`src/edit_controller.cpp`](src/edit_controller.cpp) owns the stable facade, session
