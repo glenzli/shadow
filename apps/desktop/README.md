@@ -100,6 +100,11 @@ Add a new edit workflow to its semantic owner and wire only its stable QML contr
 
 Precision presentation follows the same responsibility tree:
 
+- [`qml/PrecisionCanvas.qml`](qml/PrecisionCanvas.qml) owns the preview viewport, zoom/detail
+  transport, overlays, and their stable workspace-facing state.
+- [`qml/PrecisionComparisonSurface.qml`](qml/PrecisionComparisonSurface.qml) owns the complete
+  visual comparison transaction inside that viewport: original-frame receipt, whole/wipe/dual
+  layouts, divider input, and BEFORE/AFTER labels.
 - [`qml/PrecisionInspector.qml`](qml/PrecisionInspector.qml) owns inspector composition, tool
   routing, analysis presentation, and the stable Adjust/Looks surface.
 - [`qml/PrecisionLutSection.qml`](qml/PrecisionLutSection.qml) owns the complete managed-LUT
