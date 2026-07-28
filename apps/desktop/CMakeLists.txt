@@ -1205,6 +1205,12 @@ if(BUILD_TESTING)
     add_executable(
         shadow-review-model-test
         tests/review_model_test.cpp
+        tests/review_model/review_model_fixture.hpp
+        tests/review_model/role_projection_contract.cpp
+        tests/review_model/state_projection_contract.cpp
+        tests/review_model/visual_generation_contract.cpp
+        tests/review_model/item_projection_contract.cpp
+        tests/review_model/snapshot_membership_contract.cpp
         src/review_model.cpp
         src/review_visual_request.cpp
     )

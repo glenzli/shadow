@@ -208,6 +208,12 @@ Review presentation keeps the workspace as the composition and compatibility sur
   decision, status, and work-state boundaries. Its
   [`tests/review_library_query_coordinator/`](tests/review_library_query_coordinator/) contracts
   cover projection, pagination, reset coalescing, stale completion, failures, and lifetime.
+- [`src/review_model.cpp`](src/review_model.cpp) owns the photo-keyed Qt row projection, stable QML
+  roles, visual-generation URLs, and reset/prefix/append reconciliation. Its single test runner
+  routes to responsibility-named contracts under
+  [`tests/review_model/`](tests/review_model/) for roles, mutable Library/decision state, visual
+  generations, item-field identity, and snapshot membership; executable test bodies do not live
+  in the runner or production model.
 - [`src/review_shared_grade_coordinator.cpp`](src/review_shared_grade_coordinator.cpp) owns the
   authoritative shared Grade Node snapshot and batch-link boundary: QML target normalization,
   duplicate-photo rejection, complete mutation receipts, localized status, and visible-Library
