@@ -1,23 +1,22 @@
 mod coordination_health;
 mod daily_use_smoke;
 mod desktop_i18n;
+mod doctor;
 mod library_scale_smoke;
 mod local_workspace_guard;
+mod raw_smoke;
 mod test_layout;
+mod workspace_build;
 
-use std::{
-    env, io,
-    path::{Path, PathBuf},
-    process::Command,
-};
+use std::{env, io};
 
 fn main() -> io::Result<()> {
     let command = env::args().nth(1).unwrap_or_else(|| "help".to_owned());
     match command.as_str() {
         "check" => {
             test_layout::run(std::iter::empty())?;
-            run("cargo", &["fmt", "--check"])?;
-            run(
+            workspace_build::run("cargo", &["fmt", "--check"])?;
+            workspace_build::run(
                 "cargo",
                 &[
                     "clippy",
@@ -29,45 +28,39 @@ fn main() -> io::Result<()> {
                 ],
             )
         }
-        "test" => run("cargo", &["test", "--workspace"]),
-        "native-configure" => configure_preset("native-dev").map(|_| ()),
-        "native-build" => build_preset("native-dev"),
+        "test" => workspace_build::run("cargo", &["test", "--workspace"]),
+        "native-configure" => workspace_build::configure_preset("native-dev").map(|_| ()),
+        "native-build" => workspace_build::build_preset("native-dev"),
         "desktop-build" => {
             desktop_i18n::run()?;
-            let build_directory = configure_preset("desktop-dev")?;
-            build_directory_contents(&build_directory)
+            let build_directory = workspace_build::configure_preset("desktop-dev")?;
+            workspace_build::build_directory_contents(&build_directory)
         }
         "desktop-check" => {
             desktop_i18n::run()?;
-            let build_directory = configure_preset("desktop-dev")?;
-            build_directory_contents(&build_directory)?;
-            run_ctest(&build_directory)
+            let build_directory = workspace_build::configure_preset("desktop-dev")?;
+            workspace_build::build_directory_contents(&build_directory)?;
+            workspace_build::run_ctest(&build_directory)
         }
         "desktop-release" => {
             desktop_i18n::run()?;
-            let build_directory = configure_preset("desktop-release")?;
-            build_directory_contents(&build_directory)
+            let build_directory = workspace_build::configure_preset("desktop-release")?;
+            workspace_build::build_directory_contents(&build_directory)
         }
         "desktop-i18n-check" => desktop_i18n::run(),
         "native-check" => {
-            let build_directory = configure_preset("native-dev")?;
-            build_directory_contents(&build_directory)?;
-            run_ctest(&build_directory)
+            let build_directory = workspace_build::configure_preset("native-dev")?;
+            workspace_build::build_directory_contents(&build_directory)?;
+            workspace_build::run_ctest(&build_directory)
         }
-        "raw-smoke" => raw_smoke(env::args_os().nth(2)),
+        "raw-smoke" => raw_smoke::run(env::args_os().nth(2)),
         "daily-use-smoke" => daily_use_smoke::run(env::args_os().nth(2)),
         "library-scale-smoke" => library_scale_smoke::run(env::args_os().skip(2)),
         "coordination-health" => coordination_health::run(env::args_os().skip(2)),
         "local-workspace-guard" => local_workspace_guard::run(env::args_os().skip(2)),
         "test-layout" => test_layout::run(env::args_os().skip(2)),
         "doctor" => {
-            doctor("rustc", &["--version"]);
-            doctor("cargo", &["--version"]);
-            doctor("clang++", &["--version"]);
-            doctor("cmake", &["--version"]);
-            doctor("ninja", &["--version"]);
-            doctor("pkg-config", &["--modversion", "libraw"]);
-            doctor("qtpaths6", &["--version"]);
+            doctor::run();
             Ok(())
         }
         _ => {
@@ -76,154 +69,5 @@ fn main() -> io::Result<()> {
             );
             Ok(())
         }
-    }
-}
-
-fn raw_smoke(folder: Option<std::ffi::OsString>) -> io::Result<()> {
-    let repository_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("xtask lives directly below the repository root")
-        .to_path_buf();
-    let folder = folder.map_or_else(
-        || repository_root.join("local-reference/sample-assets/raw"),
-        |path| {
-            let path = PathBuf::from(path);
-            if path.is_absolute() {
-                path
-            } else {
-                repository_root.join(path)
-            }
-        },
-    );
-    if !folder.is_dir() {
-        return Err(io::Error::new(
-            io::ErrorKind::NotFound,
-            format!("RAW fixture directory does not exist: {}", folder.display()),
-        ));
-    }
-    let folder = folder.canonicalize()?;
-
-    let status = Command::new("cargo")
-        .current_dir(repository_root)
-        .env("SHADOW_TEST_RAW_FOLDER", &folder)
-        .args([
-            "test",
-            "-p",
-            "shadow-bridge",
-            "real_raw_folder_smoke_matrix",
-            "--",
-            "--ignored",
-            "--nocapture",
-        ])
-        .status()?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(io::Error::other(format!(
-            "RAW smoke matrix exited with status {status}"
-        )))
-    }
-}
-
-fn run(program: &str, arguments: &[&str]) -> io::Result<()> {
-    let status = Command::new(program).args(arguments).status()?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(io::Error::other(format!(
-            "{program} exited with status {status}"
-        )))
-    }
-}
-
-fn configure_preset(preset: &str) -> io::Result<PathBuf> {
-    let build_directory = preset_build_directory(preset)?;
-    let status = Command::new("cmake")
-        .args(["--preset", preset, "-B"])
-        .arg(&build_directory)
-        .status()?;
-    if status.success() {
-        Ok(build_directory)
-    } else {
-        Err(io::Error::other(format!(
-            "cmake configure preset {preset} exited with status {status}"
-        )))
-    }
-}
-
-fn build_preset(preset: &str) -> io::Result<()> {
-    let build_directory = preset_build_directory(preset)?;
-    build_directory_contents(&build_directory)
-}
-
-fn build_directory_contents(build_directory: &Path) -> io::Result<()> {
-    let status = Command::new("cmake")
-        .args(["--build"])
-        .arg(build_directory)
-        .status()?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(io::Error::other(format!(
-            "cmake build {} exited with status {status}",
-            build_directory.display()
-        )))
-    }
-}
-
-fn run_ctest(build_directory: &Path) -> io::Result<()> {
-    let status = Command::new("ctest")
-        .args(["--test-dir"])
-        .arg(build_directory)
-        .arg("--output-on-failure")
-        .status()?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(io::Error::other(format!(
-            "ctest for {} exited with status {status}",
-            build_directory.display()
-        )))
-    }
-}
-
-fn preset_build_directory(preset: &str) -> io::Result<PathBuf> {
-    let repository_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("xtask lives directly below the repository root")
-        .canonicalize()?;
-    let build_directory = env::var_os("SHADOW_BUILD_DIR").map_or_else(
-        || {
-            repository_root
-                .parent()
-                .expect("repository root has a parent directory")
-                .join(".shadow-local-build")
-                .join(preset)
-        },
-        PathBuf::from,
-    );
-    if !build_directory.is_absolute() || build_directory.starts_with(&repository_root) {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!(
-                "SHADOW_BUILD_DIR must be an absolute path outside {}; received {}",
-                repository_root.display(),
-                build_directory.display()
-            ),
-        ));
-    }
-    Ok(build_directory)
-}
-
-fn doctor(program: &str, arguments: &[&str]) {
-    match Command::new(program).args(arguments).output() {
-        Ok(output) if output.status.success() => {
-            let version = String::from_utf8_lossy(&output.stdout);
-            println!(
-                "{program}: {}",
-                version.lines().next().unwrap_or("available")
-            );
-        }
-        _ => println!("{program}: missing"),
     }
 }

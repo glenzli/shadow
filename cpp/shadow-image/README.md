@@ -67,7 +67,11 @@ Current contract rules:
   local DCP may replace the provider's generic matrix; profiles carrying unsupported creative
   tables are rejected as a whole. `render_reference_rgb` remains only the explicit
   provider-processed compatibility route. Every choice and fallback is recorded in the pipeline
-  receipt and cache identity.
+  receipt and cache identity. `src/raw/raw_frame_source_development.*` owns that complete
+  sensor-frame development transaction, including calibration, denoise, reconstruction, DCP
+  post-processing, and its development receipt. `src/raw/raw_pipeline.cpp` retains route
+  selection, provider compatibility fallback, plan negotiation, exact-DCP admission, and the
+  top-level pipeline receipt.
 - `render_reference_proxy_jpeg` bounds the longest edge (2048, quality 95, and 4:4:4 chroma in the current recipe) and rejects unbounded requests. Its version belongs in the cache key.
 - `decode_jpeg_display_luma` is a separate analysis path over compressed display proxies. It requires 8-bit libjpeg-turbo with in-memory sources, rejects encoded inputs above 128 MiB and source headers above 65,535 per axis or 100 million pixels, applies a stricter 50-million-pixel limit to multi-scan inputs, caps libjpeg memory at 256 MiB, and bounds scaled intermediates before emitting a tightly packed normalized `float` luma plane with a caller-selected edge in 1 through 512. Corrupt-data warnings, including synthesized end-of-image recovery for truncation, fail closed.
 - A `DecodeSession` is thread-confined. Providers may be shared; parallel work should open independent sessions.
@@ -98,10 +102,13 @@ stub.
 
 The Metal implementation also follows the language boundary.
 `src/raw/metal_raw_development_msl.hpp` owns the complete MSL reconstruction, CFA denoise, area
-preview, and DCP post-processing program. `src/raw/metal_raw_development.mm` owns the mirrored host
-ABI, process-wide device and pipeline lifecycle, request validation, buffer/command dispatch, and
-result projection. Editing one side requires checking the shared struct layout assertions and all
-four shader entry-point names.
+preview, and DCP post-processing program. Host execution is split by transaction:
+`src/raw/metal_raw_runtime.*` owns the process-wide device, command queue, compiled pipelines,
+bounded arithmetic, and diagnostics; `metal_raw_denoise.mm`, `metal_raw_reconstruction.mm`, and
+`metal_dcp_color_rendering.mm` each own their mirrored parameter ABI, validation, buffers,
+dispatch, and result projection. `metal_raw_development.hpp` remains the narrow fallback-facing
+contract. Editing a host executor requires checking its local layout assertions and corresponding
+shader entry-point; editing the runtime requires checking all four entry-point names.
 
 DCP color development has a one-way internal owner graph.
 `src/raw/dcp_color_matrix_math.hpp` owns the shared 3×3 algebra, standard white points, and
@@ -189,8 +196,14 @@ modifier configuration, automatic correction, receipt projection, and third-part
 
 Decoder contract tests follow the production responsibilities instead of one aggregate executable:
 
-- `tests/decoder_source_contract_test.cpp` owns RawFrame validation, sensor clipping, noise
-  calibration, Bayer demosaic, RAW-plan negotiation, and embedded-preview selection.
+- `tests/raw_frame_contract_test.cpp` owns `RawFrame` storage/identity validation and explicit
+  sensor-noise calibration.
+- `tests/sensor_clipping_contract_test.cpp` owns sensor-domain highlight/shadow projection,
+  orientation, and exact downsample reduction.
+- `tests/bayer_demosaic_contract_test.cpp` owns normalized Bayer reconstruction, receipts, and
+  unsupported-layout rejection.
+- `tests/raw_development_plan_contract_test.cpp` owns default intents, cache identity, provider
+  capability negotiation, schema rejection, and the explicit absence of RAW provenance.
 - `tests/libraw_reference_development_contract_test.cpp` owns LibRaw settings validation,
   processed-reference capability/quality negotiation, and full-versus-preview admission without
   requiring a camera fixture.
@@ -211,8 +224,16 @@ Decoder contract tests follow the production responsibilities instead of one agg
   retention, repeated rendering, geometry-derived radius, bounds, and preflight validation.
 - `tests/edit_preview_execution_contract_test.cpp` owns output analysis, cancellation, backend
   receipts, and execution identity.
-- `tests/detail_tile_contract_test.cpp` owns full-resolution tile bounds, apron scheduling,
-  retained-source limits, geometry, and seam-free output.
+- `tests/detail_tile_session_contract_test.cpp` owns one-time source preparation, retained-source
+  immutability, exact crop coordinates, and render-local edit isolation.
+- `tests/detail_tile_display_output_contract_test.cpp` owns processed-linear admission, padded
+  rows, scene-to-display rolloff, shared-channel dithering, and bounded Oklab gamut mapping.
+- `tests/detail_tile_seam_contract_test.cpp` owns full-versus-irregular tile equivalence for
+  pixel-local, accumulated-neighborhood, and guided selective-tone execution.
+- `tests/detail_tile_validation_contract_test.cpp` owns apron/allocation limits, rectangle and plan
+  rejection order, overflow safety, and metadata preflight before pixel I/O.
+- `tests/detail_tile_contract_test_support.hpp` owns only their synthetic decode session, source
+  fixtures, neutral plan, and typed decode-error assertion.
 - `tests/libraw_provider_contract_test.cpp` owns LibRaw settings, provider identity, real-fixture
   metadata, and source-development provenance.
 - `tests/source_rendering_contract_test.cpp` owns the consistency of DNG baseline exposure across
@@ -221,6 +242,17 @@ Decoder contract tests follow the production responsibilities instead of one agg
   backend identity, explicit fallback, exact-DCP admission, and host capability negotiation.
 - `tests/raw_sensor_preparation_contract_test.cpp` owns CFA-preserving denoise, calibration/cache
   identity, highlight treatment, reconstruction quality, and preview/detail source calibration.
+- `tests/fused_raw_cpu_development_contract_test.cpp` owns fused CPU orientation, preview
+  footprint, active-sensor bounds, and high-quality reconstruction against the two-stage oracle.
+- `tests/fused_raw_metal_execution_contract_test.cpp` owns Metal determinism and numerical
+  agreement for full-resolution and CFA-area preview execution.
+- `tests/fused_raw_highlight_treatment_contract_test.cpp` owns clipped-sensor neutralization,
+  explicit disablement, and CPU/Metal policy agreement.
+- `tests/fused_raw_input_validation_contract_test.cpp` owns typed rejection of unsupported
+  orientation, transforms, highlight modes, and degenerate Bayer storage.
+- `tests/fused_raw_contract_test_support.hpp` owns only the synthetic RAW frame shared by those
+  four contracts; required-Metal gates, reference oracles, and highlight fixtures stay with their
+  semantic owners.
 - `tests/raw_pipeline_contract_test_support.hpp` owns only their common assertions, base Bayer
   frame, processed fallback, and synthetic decode session. Routing-only DCP fixtures and
   preparation-only noise/gradient frames live in the adjacent responsibility-named support

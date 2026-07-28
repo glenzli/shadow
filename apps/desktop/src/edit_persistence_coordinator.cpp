@@ -289,12 +289,30 @@ void EditController::resetIncompatibleRecipe() {
 
 void EditController::saveVersion(const QString& version_name) {
     const QString name = version_name.trimmed();
-    if (!active_ || state_running_) {
+    if (!active_) {
         return;
     }
     if (name.isEmpty()) {
     setStatusMessage(edit_message(
         QT_TRANSLATE_NOOP("EditController", "Enter a name for this version")));
+        return;
+    }
+    if (state_running_) {
+        if (state_task_kind_ != EditStateTaskKind::Autosave) {
+            return;
+        }
+        const bool was_locked = interactionLocked();
+        pending_version_save_name_ = name;
+        if (was_locked != interactionLocked()) {
+            emit stateBusyChanged();
+        }
+        setStatusMessage(edit_message(
+            QT_TRANSLATE_NOOP(
+                "EditController",
+                "Creating Library version “%1”…"
+            ),
+            {name}
+        ));
         return;
     }
     history_.finishGesture(grade_stack_);
@@ -413,6 +431,10 @@ void EditController::finishStateTask() {
     EditStateTaskResult result = state_watcher_.result();
     setStateRunning(false);
     if (result.photo_generation != photo_generation_) {
+        if (pending_version_save_name_.has_value()) {
+            pending_version_save_name_.reset();
+            emit stateBusyChanged();
+        }
         maybeFinishDeferredApplicationClose();
         return;
     }
@@ -441,6 +463,10 @@ void EditController::finishStateTask() {
             return;
         }
         if (result.kind == EditStateTaskKind::Autosave) {
+            if (pending_version_save_name_.has_value()) {
+                pending_version_save_name_.reset();
+                emit stateBusyChanged();
+            }
             const LocalizedUiMessage failure = edit_message(
                 QT_TRANSLATE_NOOP("EditController", "Autosave failed · %1"),
                 {result.error}
@@ -525,6 +551,13 @@ void EditController::finishStateTask() {
             emit activeChanged();
             emit gradeNodeActionsChanged();
         }
+    }
+    if (result.kind == EditStateTaskKind::Autosave
+        && pending_version_save_name_.has_value()) {
+        QString pending_name = std::move(*pending_version_save_name_);
+        pending_version_save_name_.reset();
+        saveVersion(pending_name);
+        return;
     }
     if (openPendingPhoto()) {
         return;

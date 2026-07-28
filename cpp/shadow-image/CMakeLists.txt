@@ -78,6 +78,7 @@ add_library(
     src/raw/dcp_parser.cpp
     src/raw/fused_raw_development.cpp
     src/raw/raw_denoise.cpp
+    src/raw/raw_frame_source_development.cpp
     src/raw/raw_pipeline.cpp
     src/raw/sensor_clipping.cpp
     src/decoder/private_decoder_plugin.cpp
@@ -103,7 +104,10 @@ if(APPLE AND SHADOW_ENABLE_METAL)
         shadow-image
         PRIVATE
             src/edit/metal_adjustment.mm
-            src/raw/metal_raw_development.mm
+            src/raw/metal_dcp_color_rendering.mm
+            src/raw/metal_raw_denoise.mm
+            src/raw/metal_raw_reconstruction.mm
+            src/raw/metal_raw_runtime.mm
             src/proxy/metal_display_output.mm
             src/proxy/warm_edit_gpu_dispatcher.mm
             src/proxy/warm_edit_gpu_pipeline_context.mm
@@ -247,9 +251,24 @@ if(BUILD_TESTING)
     endfunction()
 
     shadow_image_add_contract(
-        shadow-image-decoder-source-tests
-        shadow-image-decoder-source-contract
-        tests/decoder_source_contract_test.cpp
+        shadow-image-raw-frame-tests
+        shadow-image-raw-frame-contract
+        tests/raw_frame_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-sensor-clipping-tests
+        shadow-image-sensor-clipping-contract
+        tests/sensor_clipping_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-bayer-demosaic-tests
+        shadow-image-bayer-demosaic-contract
+        tests/bayer_demosaic_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-raw-development-plan-tests
+        shadow-image-raw-development-plan-contract
+        tests/raw_development_plan_contract_test.cpp
     )
     shadow_image_add_contract(
         shadow-image-decoder-types-tests
@@ -598,10 +617,26 @@ if(BUILD_TESTING)
         COMMAND shadow-image-warm-edit-gpu-tests
     )
 
-    add_executable(shadow-image-detail-tile-tests tests/detail_tile_contract_test.cpp)
-    target_link_libraries(shadow-image-detail-tile-tests PRIVATE Shadow::Image)
-    shadow_image_enable_warnings(shadow-image-detail-tile-tests)
-    add_test(NAME shadow-image-detail-tile-contract COMMAND shadow-image-detail-tile-tests)
+    shadow_image_add_contract(
+        shadow-image-detail-tile-session-tests
+        shadow-image-detail-tile-session-contract
+        tests/detail_tile_session_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-detail-tile-display-output-tests
+        shadow-image-detail-tile-display-output-contract
+        tests/detail_tile_display_output_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-detail-tile-seam-tests
+        shadow-image-detail-tile-seam-contract
+        tests/detail_tile_seam_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-detail-tile-validation-tests
+        shadow-image-detail-tile-validation-contract
+        tests/detail_tile_validation_contract_test.cpp
+    )
 
     add_executable(shadow-image-display-luma-tests tests/display_luma_contract_test.cpp)
     target_link_libraries(shadow-image-display-luma-tests PRIVATE Shadow::Image)
@@ -640,15 +675,25 @@ if(BUILD_TESTING)
         tests/raw_sensor_preparation_contract_test.cpp
     )
 
-    add_executable(
-        shadow-image-fused-raw-development-tests
-        tests/fused_raw_development_contract_test.cpp
+    shadow_image_add_contract(
+        shadow-image-fused-raw-cpu-development-tests
+        shadow-image-fused-raw-cpu-development-contract
+        tests/fused_raw_cpu_development_contract_test.cpp
     )
-    target_link_libraries(shadow-image-fused-raw-development-tests PRIVATE Shadow::Image)
-    shadow_image_enable_warnings(shadow-image-fused-raw-development-tests)
-    add_test(
-        NAME shadow-image-fused-raw-development-contract
-        COMMAND shadow-image-fused-raw-development-tests
+    shadow_image_add_contract(
+        shadow-image-fused-raw-metal-execution-tests
+        shadow-image-fused-raw-metal-execution-contract
+        tests/fused_raw_metal_execution_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-fused-raw-highlight-treatment-tests
+        shadow-image-fused-raw-highlight-treatment-contract
+        tests/fused_raw_highlight_treatment_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-fused-raw-input-validation-tests
+        shadow-image-fused-raw-input-validation-contract
+        tests/fused_raw_input_validation_contract_test.cpp
     )
     if(SHADOW_REQUIRE_METAL_TESTS)
         set_tests_properties(
@@ -674,7 +719,8 @@ if(BUILD_TESTING)
                 LABELS "metal-required"
         )
         set_tests_properties(
-            shadow-image-fused-raw-development-contract
+            shadow-image-fused-raw-metal-execution-contract
+            shadow-image-fused-raw-highlight-treatment-contract
             PROPERTIES
                 ENVIRONMENT
                     "SHADOW_IMAGE_ACCELERATION=metal;SHADOW_TEST_REQUIRE_METAL=1;SHADOW_TEST_METAL_TILE_BYTES=1"

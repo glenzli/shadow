@@ -136,8 +136,26 @@ void startI18nLifecycle(
     QObject* const settings_button = root_object->findChild<QObject*>(
         QStringLiteral("settingsButton")
     );
-    if (settings_button == nullptr) {
-        qCritical() << "I18n smoke could not find the Settings control";
+    QObject* const empty_state_text = root_object->findChild<QObject*>(
+        QStringLiteral("reviewEmptyStateText")
+    );
+    QObject* const analysis_title = root_object->findChild<QObject*>(
+        QStringLiteral("analysisScopeTitleText")
+    );
+    QObject* const analysis_shadow_summary = root_object->findChild<QObject*>(
+        QStringLiteral("analysisShadowSummaryText")
+    );
+    QObject* const capture_metadata_text = root_object->findChild<QObject*>(
+        QStringLiteral("precisionCaptureMetadataText")
+    );
+    QObject* const precision_rendering_status = root_object->findChild<QObject*>(
+        QStringLiteral("precisionRenderingStatusText")
+    );
+    if (settings_button == nullptr || empty_state_text == nullptr
+        || analysis_title == nullptr || analysis_shadow_summary == nullptr
+        || capture_metadata_text == nullptr
+        || precision_rendering_status == nullptr) {
+        qCritical() << "I18n smoke could not find its translated controls";
         application.exit(EXIT_FAILURE);
     } else {
         preferences.setLanguageMode(QStringLiteral("en"));
@@ -146,15 +164,46 @@ void startI18nLifecycle(
             0,
             &application,
             [&application, &controller, &preferences, root_object,
-             settings_button]() {
+             settings_button, empty_state_text, analysis_title,
+             analysis_shadow_summary, capture_metadata_text,
+             precision_rendering_status]() {
                 const QString chinese_controller_status =
                     controller.statusText();
                 if (preferences.effectiveLanguage()
                         != QStringLiteral("zh_CN")
                     || settings_button->property("text").toString()
                         != QString::fromUtf8("设置")
+                    || empty_state_text->property("text").toString()
+                        != QString::fromUtf8(
+                            "向本地图库添加文件夹。\n"
+                            "Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。"
+                        )
+                    || analysis_title->property("text").toString()
+                        != QString::fromUtf8("图像分析")
+                    || analysis_shadow_summary->property("text").toString()
+                        != QString::fromUtf8("阴影  —")
+                    || (capture_metadata_text->property("text").toString()
+                            != QString::fromUtf8("正在准备拍摄元数据…")
+                        && capture_metadata_text->property("text").toString()
+                            != QString::fromUtf8("拍摄元数据不可用"))
+                    || precision_rendering_status
+                           ->property("text")
+                           .toString()
+                        != QString::fromUtf8("正在打开照片")
                     || chinese_controller_status.isEmpty()) {
-                    qCritical() << "I18n smoke did not apply Simplified Chinese";
+                    qCritical()
+                        << "I18n smoke did not apply Simplified Chinese"
+                        << "language" << preferences.effectiveLanguage()
+                        << "settings" << settings_button->property("text")
+                        << "library" << empty_state_text->property("text")
+                        << "analysis" << analysis_title->property("text")
+                        << "shadows"
+                        << analysis_shadow_summary->property("text")
+                        << "metadata"
+                        << capture_metadata_text->property("text")
+                        << "Precision status"
+                        << precision_rendering_status->property("text")
+                        << "status" << chinese_controller_status;
                     application.exit(EXIT_FAILURE);
                     return;
                 }
@@ -163,19 +212,72 @@ void startI18nLifecycle(
                     0,
                     &application,
                     [&application, &controller, &preferences, root_object,
-                     settings_button, chinese_controller_status]() {
+                     settings_button, empty_state_text,
+                     analysis_title, analysis_shadow_summary,
+                     capture_metadata_text, precision_rendering_status,
+                     chinese_controller_status]() {
                         QObject* const current_button =
                             root_object->findChild<QObject*>(
                                 QStringLiteral("settingsButton")
                             );
+                        QObject* const current_empty_state =
+                            root_object->findChild<QObject*>(
+                                QStringLiteral("reviewEmptyStateText")
+                            );
                         if (current_button != settings_button
+                            || current_empty_state != empty_state_text
                             || preferences.effectiveLanguage()
                                 != QStringLiteral("en")
                             || settings_button->property("text").toString()
                                 != QStringLiteral("Settings")
+                            || empty_state_text->property("text").toString()
+                                != QStringLiteral(
+                                    "Add a folder to the local Library.\n"
+                                    "Shadow will show embedded previews immediately, "
+                                    "then replace them with locally generated proxies."
+                                )
+                            || analysis_title->property("text").toString()
+                                != QStringLiteral("ANALYSIS")
+                            || analysis_shadow_summary
+                                   ->property("text")
+                                   .toString()
+                                != QStringLiteral("SHADOWS  —")
+                            || (capture_metadata_text
+                                    ->property("text")
+                                    .toString()
+                                    != QStringLiteral(
+                                        "Preparing capture metadata…")
+                                && capture_metadata_text
+                                       ->property("text")
+                                       .toString()
+                                    != QStringLiteral(
+                                        "Capture metadata unavailable"))
+                            || precision_rendering_status
+                                   ->property("text")
+                                   .toString()
+                                != QStringLiteral("Opening photo")
                             || controller.statusText()
                                 == chinese_controller_status) {
-                            qCritical() << "I18n smoke did not retranslate in place";
+                            qCritical()
+                                << "I18n smoke did not retranslate in place"
+                                << "language"
+                                << preferences.effectiveLanguage()
+                                << "settings"
+                                << settings_button->property("text")
+                                << "library"
+                                << empty_state_text->property("text")
+                                << "analysis"
+                                << analysis_title->property("text")
+                                << "shadows"
+                                << analysis_shadow_summary->property("text")
+                                << "metadata"
+                                << capture_metadata_text->property("text")
+                                << "Precision status"
+                                << precision_rendering_status
+                                       ->property("text")
+                                << "status" << controller.statusText()
+                                << "Chinese status"
+                                << chinese_controller_status;
                             application.exit(EXIT_FAILURE);
                             return;
                         }
@@ -186,7 +288,11 @@ void startI18nLifecycle(
                             0,
                             &application,
                             [&application, &controller, &preferences,
-                             settings_button, english_controller_status]() {
+                             settings_button, empty_state_text,
+                             analysis_title, analysis_shadow_summary,
+                             capture_metadata_text,
+                             precision_rendering_status,
+                             english_controller_status]() {
                                 const bool succeeded =
                                     preferences.effectiveLanguage()
                                         == QStringLiteral("zh_CN")
@@ -194,6 +300,36 @@ void startI18nLifecycle(
                                            ->property("text")
                                            .toString()
                                         == QString::fromUtf8("设置")
+                                    && empty_state_text
+                                           ->property("text")
+                                           .toString()
+                                        == QString::fromUtf8(
+                                            "向本地图库添加文件夹。\n"
+                                            "Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。"
+                                        )
+                                    && analysis_title
+                                           ->property("text")
+                                           .toString()
+                                        == QString::fromUtf8("图像分析")
+                                    && analysis_shadow_summary
+                                           ->property("text")
+                                           .toString()
+                                        == QString::fromUtf8("阴影  —")
+                                    && (capture_metadata_text
+                                            ->property("text")
+                                            .toString()
+                                            == QString::fromUtf8(
+                                                "正在准备拍摄元数据…")
+                                        || capture_metadata_text
+                                               ->property("text")
+                                               .toString()
+                                            == QString::fromUtf8(
+                                                "拍摄元数据不可用"))
+                                    && precision_rendering_status
+                                           ->property("text")
+                                           .toString()
+                                        == QString::fromUtf8(
+                                            "正在打开照片")
                                     && !controller.statusText().isEmpty()
                                     && controller.statusText()
                                         != english_controller_status;

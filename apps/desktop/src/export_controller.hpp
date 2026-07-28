@@ -1,5 +1,8 @@
 #pragma once
 
+#include "export_task_runner.hpp"
+#include "localized_ui_message.hpp"
+
 #include <QFutureWatcher>
 #include <QObject>
 #include <QStringList>
@@ -10,22 +13,10 @@
 #include <atomic>
 #include <memory>
 
-class QSettings;
+class QEvent;
 class DesktopBackend;
 class ExportBackend;
-
-struct ExportTaskResult final {
-    int requested = 0;
-    int completed = 0;
-    int failed = 0;
-    bool cancelled = false;
-    bool recovered_on_startup = false;
-    int paused_conflicts = 0;
-    int cancelled_items = 0;
-    QString job_id;
-    QStringList destination_paths;
-    QStringList errors;
-};
+class ExportPresetStore;
 
 class ExportController final : public QObject {
     Q_OBJECT
@@ -84,6 +75,9 @@ signals:
         const QStringList& errors
     );
 
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override;
+
 private:
     void startRecoveryDrain();
     void finishExport();
@@ -95,13 +89,13 @@ private:
         int total,
         const QString& current_title
     );
-    void persistPresets();
-    [[nodiscard]] static QVariantList defaultPresets();
+    void setStatusMessage(LocalizedUiMessage status);
+    void setRawStatusText(QString status);
 
     std::shared_ptr<ExportBackend> export_backend_;
-    std::unique_ptr<QSettings> settings_;
-    QVariantList presets_;
-    QString status_text_;
+    std::unique_ptr<ExportPresetStore> preset_store_;
+    LocalizedUiMessage status_message_;
+    QString raw_status_text_;
     int completed_count_ = 0;
     int failed_count_ = 0;
     int current_count_ = 0;

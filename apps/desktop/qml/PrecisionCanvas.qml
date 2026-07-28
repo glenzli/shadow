@@ -515,176 +515,24 @@ Rectangle {
                 }
             }
 
-            Rectangle {
-                id: comparisonBadge
-                anchors.top: parent.top
-                anchors.right: parent.right
-                anchors.topMargin: 58
-                anchors.rightMargin: 14
-                width: comparisonBadgeLabel.implicitWidth + 18
-                height: 25
-                radius: 4
-                visible: canvas.editor.active
-                    && (canvas.comparisonActive || canvas.showingFullDetail)
-                color: Theme.previewHudOverlay
-                border.color: canvas.comparisonActive
-                    ? canvas.accent : Theme.previewHudBorder
-
-                Label {
-                    id: comparisonBadgeLabel
-                    anchors.centerIn: parent
-                    text: canvas.comparisonActive
-                        ? canvas.comparisonMode === canvas.comparisonWhole
-                            ? qsTr("BEFORE · NEUTRAL BASE")
-                            : canvas.comparisonMode
-                                === canvas.comparisonWipeVertical
-                                ? qsTr("BEFORE / AFTER · VERTICAL WIPE")
-                                : canvas.comparisonMode
-                                    === canvas.comparisonWipeHorizontal
-                                    ? qsTr("BEFORE / AFTER · HORIZONTAL WIPE")
-                                    : canvas.comparisonMode
-                                        === canvas.comparisonSideBySide
-                                        ? qsTr("BEFORE / AFTER · SIDE BY SIDE")
-                                        : qsTr("BEFORE / AFTER · TOP / BOTTOM")
-                        : qsTr("AFTER · FULL-RES RGB DETAIL")
-                    color: canvas.comparisonActive
-                        ? canvas.accent : canvas.textSecondary
-                    font.pixelSize: 8
-                    font.weight: Font.Bold
-                    font.letterSpacing: 0.7
-                }
-            }
-
-            Rectangle {
-                anchors.top: comparisonBadge.bottom
-                anchors.right: comparisonBadge.right
-                anchors.topMargin: 7
-                width: Math.min(350, detailHintRow.implicitWidth + 20)
-                height: 30
-                radius: 4
-                visible: !canvas.comparisonActive && !canvas.fitView
-                    && canvas.zoomFactor >= 1.0
-                    && ((canvas.editor.detailRendering && !canvas.detailImageReady)
-                        || canvas.editor.detailErrorText.length > 0
-                        || canvas.detailImageLoadFailed)
-                color: Theme.previewHudStrongOverlay
-                border.color: canvas.editor.detailErrorText.length > 0
-                    || canvas.detailImageLoadFailed
-                    ? Theme.errorBorder : canvas.frameBorderColor
-                clip: true
-
-                Row {
-                    id: detailHintRow
-                    anchors.centerIn: parent
-                    spacing: 7
-                    BusyIndicator {
-                        width: 14
-                        height: 14
-                        visible: canvas.editor.detailRendering
-                            && !canvas.detailImageReady
-                        running: visible
-                    }
-                    Label {
-                        width: Math.min(290, implicitWidth)
-                        text: canvas.editor.detailErrorText.length > 0
-                            ? canvas.editor.detailErrorText
-                            : canvas.detailImageLoadFailed
-                                ? qsTr("Full-detail viewport unavailable · showing proxy")
-                                : qsTr("Preparing exact local full-resolution pixels…")
-                        color: canvas.editor.detailErrorText.length > 0
-                            || canvas.detailImageLoadFailed
-                            ? Theme.errorText : canvas.textMuted
-                        font.pixelSize: 9
-                        elide: Text.ElideRight
-                    }
-                }
-            }
-
-            Rectangle {
-                anchors.top: comparisonBadge.bottom
-                anchors.right: comparisonBadge.right
-                anchors.topMargin: 7
-                width: Math.min(330, beforeHintRow.implicitWidth + 20)
-                height: 30
-                radius: 4
-                visible: canvas.comparisonActive
-                    && (!canvas.beforeReady || !canvas.beforeFrameReady)
-                    && canvas.editor.active
-                color: Theme.previewHudStrongOverlay
-                border.color: canvas.frameBorderColor
-                clip: true
-
-                Row {
-                    id: beforeHintRow
-                    anchors.centerIn: parent
-                    spacing: 7
-                    BusyIndicator {
-                        width: 14
-                        height: 14
-                        visible: canvas.editor.beforeRendering
-                        running: visible
-                    }
-                    Label {
-                        width: Math.min(270, implicitWidth)
-                        text: canvas.editor.beforeErrorText.length > 0
-                            ? canvas.editor.beforeErrorText
-                            : canvas.editor.beforeRendering
-                                ? qsTr("Preparing neutral import baseline…")
-                                : qsTr("Waiting for the current preview…")
-                        color: canvas.editor.beforeErrorText.length > 0
-                            ? Theme.errorText : canvas.textMuted
-                        font.pixelSize: 9
-                        elide: Text.ElideRight
-                    }
-                }
-            }
-
-            Column {
-                anchors.centerIn: parent
-                spacing: 14
-                visible: !canvas.previewFrameReady
-                    && (canvas.editor.stateBusy
-                        || canvas.editor.rendering
-                        || (canvas.comparisonActive
-                            && canvas.editor.beforeRendering))
-                BusyIndicator {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    running: parent.visible
-                }
-                Label {
-                    text: canvas.editor.active
-                        ? qsTr("Rendering local edit") : qsTr("Opening photo")
-                    color: canvas.textPrimary
-                    font.pixelSize: 12
-                }
-            }
-
-            Column {
-                anchors.centerIn: parent
-                width: Math.min(390, parent.width - 60)
-                spacing: 10
-                visible: !canvas.editor.busy
-                    && (!canvas.editor.active
-                        || (!canvas.previewFrameReady
-                            && editedPreview.status === Image.Error))
-                Label {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    text: editedPreview.status === Image.Error
-                        ? qsTr("PREVIEW ERROR") : qsTr("NO PHOTO OPEN")
-                    color: editedPreview.status === Image.Error
-                        ? Theme.errorText : canvas.textMuted
-                    font.pixelSize: 12
-                    font.weight: Font.DemiBold
-                    font.letterSpacing: 1.2
-                }
-                Label {
-                    width: parent.width
-                    text: canvas.editor.statusText
-                    color: canvas.textMuted
-                    horizontalAlignment: Text.AlignHCenter
-                    wrapMode: Text.WordWrap
-                    font.pixelSize: 10
-                    lineHeight: 1.35
-                }
+            PrecisionCanvasStatusOverlays {
+                anchors.fill: parent
+                z: 200
+                editor: canvas.editor
+                comparisonActive: canvas.comparisonActive
+                comparisonMode: canvas.comparisonMode
+                showingFullDetail: canvas.showingFullDetail
+                fitView: canvas.fitView
+                zoomFactor: canvas.zoomFactor
+                detailImageReady: canvas.detailImageReady
+                detailImageLoadFailed: canvas.detailImageLoadFailed
+                beforeReady: canvas.beforeReady
+                beforeFrameReady: canvas.beforeFrameReady
+                previewFrameReady: canvas.previewFrameReady
+                previewLoadFailed: editedPreview.status === Image.Error
+                comparisonWhole: canvas.comparisonWhole
+                comparisonWipeVertical: canvas.comparisonWipeVertical
+                comparisonWipeHorizontal: canvas.comparisonWipeHorizontal
+                comparisonSideBySide: canvas.comparisonSideBySide
             }
         }

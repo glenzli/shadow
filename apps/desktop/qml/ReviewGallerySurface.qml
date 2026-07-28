@@ -119,15 +119,16 @@ Rectangle {
     }
 
     Label {
+        objectName: "reviewEmptyStateText"
         anchors.centerIn: justifiedGrid
         width: Math.min(420, justifiedGrid.width - 60)
         visible: justifiedGrid.visible && justifiedGrid.count === 0
             && !gallery.workspace.controller.busy
         text: gallery.workspace.controller.scanning
-            ? qsTr("Searching the folder for supported photos…\nNew RAW files will appear here as they are catalogued.")
+            ? qsTranslate("ReviewWorkspace", "Searching the folder for supported photos…\nNew RAW files will appear here as they are catalogued.")
             : gallery.workspace.controller.scanProgress.phase === "failed"
-            ? qsTr("Import stopped, and no RAW files are currently visible.\nAlready catalogued files remain safely stored.")
-            : qsTr("Add a folder to the local Library.\nShadow will show embedded previews immediately, then replace them with locally generated proxies.")
+            ? qsTranslate("ReviewWorkspace", "Import stopped, and no RAW files are currently visible.\nAlready catalogued files remain safely stored.")
+            : qsTranslate("ReviewWorkspace", "Add a folder to the local Library.\nShadow will show embedded previews immediately, then replace them with locally generated proxies.")
         color: gallery.workspace.textMuted
         horizontalAlignment: Text.AlignHCenter
         wrapMode: Text.WordWrap

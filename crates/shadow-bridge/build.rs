@@ -1,4 +1,8 @@
-use std::{env, path::PathBuf};
+use std::{
+    collections::BTreeSet,
+    env, fs,
+    path::{Path, PathBuf},
+};
 
 const BRIDGE_INPUTS: &[&str] = &[
     "include/shadow/image/decoder.hpp",
@@ -44,113 +48,138 @@ const BRIDGE_INPUTS: &[&str] = &[
     "src/bridge/cxx_handle.cpp",
 ];
 
-const EMBEDDED_IMAGE_INPUTS: &[&str] = &[
+const EMBEDDED_IMAGE_SOURCES: &[&str] = &[
     "src/decoder/decoder_error.cpp",
     "src/decoder/decoder_metadata.cpp",
     "src/decoder/decoder_types.cpp",
-    "src/decoder/libraw_runtime.hpp",
     "src/decoder/libraw_runtime.cpp",
-    "src/decoder/libraw_reference_development.hpp",
     "src/decoder/libraw_reference_development.cpp",
     "src/decoder/libraw_decoder.cpp",
-    "src/decoder/raster_exif.hpp",
     "src/decoder/raster_exif.cpp",
     "src/decoder/raster_decoder.cpp",
-    "src/decoder/heif_decoder.hpp",
     "src/decoder/heif_decoder.cpp",
-    "src/decoder/decode_session_isolation.hpp",
     "src/decoder/decode_session_isolation.cpp",
     "src/decoder/photo_decoder_router.cpp",
-    "src/decoder/private_decoder_plugin.cpp",
     "src/color/lcms_color_management.cpp",
+    "src/color/neutral_balance.cpp",
     "src/color/source_profile_catalog.cpp",
     "src/color/source_rendering.cpp",
+    "src/concurrency/row_scheduler.cpp",
     "src/edit/adjustment_graph.cpp",
-    "src/edit/adjustment_node_diagnostics.hpp",
     "src/edit/adjustment_node_diagnostics.cpp",
-    "src/edit/cube_lut.cpp",
     "src/edit/adjustment_execution.cpp",
-    "src/edit/metal_adjustment_execution.hpp",
-    "src/edit/metal_adjustment_program.hpp",
-    "src/edit/metal_adjustment_program.cpp",
+    "src/edit/cube_lut.cpp",
     "src/edit/cpu_reference.cpp",
-    "src/edit/creative_detail_grading.hpp",
     "src/edit/creative_detail_grading.cpp",
-    "src/edit/edit_error.cpp",
-    "src/edit/edit_execution_validation.hpp",
     "src/edit/edit_execution_validation.cpp",
-    "src/edit/finishing_effects_cpu.hpp",
+    "src/edit/edit_error.cpp",
     "src/edit/finishing_effects_cpu.cpp",
-    "src/edit/guided_selective_tone.hpp",
     "src/edit/guided_selective_tone.cpp",
     "src/edit/local_mask.cpp",
-    "src/edit/oklab_color_warper.hpp",
+    "src/edit/metal_adjustment_program.cpp",
     "src/edit/oklab_color_warper.cpp",
-    "src/edit/perceptual_color.hpp",
     "src/edit/perceptual_color.cpp",
-    "src/edit/perceptual_contrast.hpp",
     "src/edit/perceptual_contrast.cpp",
     "src/edit/photo_geometry.cpp",
-    "src/edit/rgb_pixel_traversal.hpp",
     "src/edit/retouch.cpp",
-    "src/edit/scalar_neighborhood_filters.hpp",
     "src/edit/scalar_neighborhood_filters.cpp",
-    "src/edit/technical_detail_cpu.hpp",
     "src/edit/technical_detail_cpu.cpp",
-    "src/edit/tone_curve_internal.hpp",
     "src/edit/tone_curve.cpp",
-    "src/edit/working_color_math.hpp",
     "src/edit/working_color_math.cpp",
-    "src/edit/metal_adjustment.mm",
-    "src/edit/metal_adjustment_msl.hpp",
-    "src/edit/metal_adjustment_stub.cpp",
-    "src/concurrency/row_scheduler.hpp",
-    "src/concurrency/row_scheduler.cpp",
     "src/raw/bayer_demosaic.cpp",
-    "src/raw/bayer_sampling.hpp",
     "src/raw/bayer_sampling.cpp",
     "src/raw/camera_profile_catalog.cpp",
     "src/raw/dcp_color_development.cpp",
+    "src/raw/dcp_color_rendering.cpp",
     "src/raw/dcp_parser.cpp",
     "src/raw/fused_raw_development.cpp",
-    "src/raw/metal_raw_development.hpp",
-    "src/raw/metal_raw_development.mm",
-    "src/raw/metal_raw_development_stub.cpp",
     "src/raw/raw_denoise.cpp",
+    "src/raw/raw_frame_source_development.cpp",
     "src/raw/raw_pipeline.cpp",
     "src/raw/sensor_clipping.cpp",
-    "src/optics/lensfun_profile_catalog.hpp",
+    "src/decoder/private_decoder_plugin.cpp",
     "src/optics/lensfun_profile_catalog.cpp",
+    "src/optics/manual_optics.cpp",
     "src/optics/lensfun_optics.cpp",
-    "src/proxy/developed_source_raster.hpp",
     "src/proxy/developed_source_raster.cpp",
     "src/proxy/display_output.cpp",
-    "src/proxy/display_rgb_math.hpp",
     "src/proxy/edited_proxy_rendering.cpp",
+    "src/proxy/edit_preview_rendering.cpp",
     "src/proxy/full_edit_detail.cpp",
     "src/proxy/jpeg_display_luma.cpp",
-    "src/proxy/jpeg_proxy_encoding.hpp",
     "src/proxy/jpeg_proxy_encoding.cpp",
     "src/proxy/proxy_rendering.cpp",
-    "src/proxy/proxy_render_request_validation.hpp",
     "src/proxy/proxy_render_request_validation.cpp",
+    "src/proxy/warm_edit_gpu_render_plan.cpp",
     "src/proxy/warm_edit_preview.cpp",
-    "src/proxy/metal_display_output.hpp",
+];
+
+const EMBEDDED_IMAGE_METAL_SOURCES: &[&str] = &[
+    "src/edit/metal_adjustment.mm",
+    "src/raw/metal_dcp_color_rendering.mm",
+    "src/raw/metal_raw_denoise.mm",
+    "src/raw/metal_raw_reconstruction.mm",
+    "src/raw/metal_raw_runtime.mm",
     "src/proxy/metal_display_output.mm",
+    "src/proxy/warm_edit_gpu_dispatcher.mm",
+    "src/proxy/warm_edit_gpu_pipeline_context.mm",
+    "src/proxy/warm_edit_gpu_resident_resources.mm",
+    "src/proxy/warm_edit_gpu.mm",
+];
+
+const EMBEDDED_IMAGE_STUB_SOURCES: &[&str] = &[
+    "src/edit/metal_adjustment_stub.cpp",
+    "src/raw/metal_raw_development_stub.cpp",
     "src/proxy/metal_display_output_stub.cpp",
+    "src/proxy/warm_edit_gpu_stub.cpp",
+];
+
+const EMBEDDED_IMAGE_ADDITIONAL_INPUTS: &[&str] = &[
+    "include/shadow/image/neutral_balance.hpp",
+    "src/concurrency/row_scheduler.hpp",
+    "src/decoder/decode_session_isolation.hpp",
+    "src/decoder/heif_decoder.hpp",
+    "src/decoder/libraw_reference_development.hpp",
+    "src/decoder/libraw_runtime.hpp",
+    "src/decoder/raster_exif.hpp",
+    "src/edit/adjustment_node_diagnostics.hpp",
+    "src/edit/creative_detail_grading.hpp",
+    "src/edit/edit_execution_validation.hpp",
+    "src/edit/finishing_effects_cpu.hpp",
+    "src/edit/guided_selective_tone.hpp",
+    "src/edit/metal_adjustment_execution.hpp",
+    "src/edit/metal_adjustment_msl.hpp",
+    "src/edit/metal_adjustment_program.hpp",
+    "src/edit/oklab_color_warper.hpp",
+    "src/edit/perceptual_color.hpp",
+    "src/edit/perceptual_contrast.hpp",
+    "src/edit/rgb_pixel_traversal.hpp",
+    "src/edit/scalar_neighborhood_filters.hpp",
+    "src/edit/technical_detail_cpu.hpp",
+    "src/edit/tone_curve_internal.hpp",
+    "src/edit/working_color_math.hpp",
+    "src/optics/lensfun_profile_catalog.hpp",
+    "src/optics/manual_optics.hpp",
+    "src/proxy/developed_source_raster.hpp",
+    "src/proxy/display_rgb_math.hpp",
+    "src/proxy/edit_preview_rendering.hpp",
+    "src/proxy/jpeg_proxy_encoding.hpp",
+    "src/proxy/metal_display_output.hpp",
+    "src/proxy/proxy_render_request_validation.hpp",
     "src/proxy/warm_edit_gpu.hpp",
     "src/proxy/warm_edit_gpu_dispatcher.hpp",
-    "src/proxy/warm_edit_gpu_dispatcher.mm",
     "src/proxy/warm_edit_gpu_kernel_contract.hpp",
     "src/proxy/warm_edit_gpu_msl.hpp",
     "src/proxy/warm_edit_gpu_pipeline_context.hpp",
-    "src/proxy/warm_edit_gpu_pipeline_context.mm",
-    "src/proxy/warm_edit_gpu_resident_resources.hpp",
-    "src/proxy/warm_edit_gpu_resident_resources.mm",
     "src/proxy/warm_edit_gpu_render_plan.hpp",
-    "src/proxy/warm_edit_gpu_render_plan.cpp",
-    "src/proxy/warm_edit_gpu.mm",
-    "src/proxy/warm_edit_gpu_stub.cpp",
+    "src/proxy/warm_edit_gpu_resident_resources.hpp",
+    "src/raw/bayer_sampling.hpp",
+    "src/raw/dcp_color_matrix_math.hpp",
+    "src/raw/dcp_color_rendering.hpp",
+    "src/raw/metal_raw_development.hpp",
+    "src/raw/metal_raw_development_msl.hpp",
+    "src/raw/metal_raw_runtime.hpp",
+    "src/raw/raw_frame_source_development.hpp",
 ];
 
 fn parse_flag(name: &str, default: bool) -> bool {
@@ -179,13 +208,46 @@ macro_rules! configure_warnings {
     };
 }
 
-fn track_inputs(image_root: &std::path::Path, inputs: &[&str]) {
+fn track_inputs(image_root: &Path, inputs: &[&str]) {
     for relative_path in inputs {
         println!(
             "cargo:rerun-if-changed={}",
             image_root.join(relative_path).display()
         );
     }
+}
+
+fn verify_embedded_image_source_manifest(image_root: &Path) {
+    let cmake_path = image_root.join("CMakeLists.txt");
+    let cmake = fs::read_to_string(&cmake_path)
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", cmake_path.display()));
+    let cmake_sources = cmake
+        .split_whitespace()
+        .map(|token| token.trim_matches(|character| matches!(character, '"' | '(' | ')')))
+        .filter(|token| {
+            token.starts_with("src/")
+                && Path::new(token)
+                    .extension()
+                    .and_then(|extension| extension.to_str())
+                    .is_some_and(|extension| {
+                        extension.eq_ignore_ascii_case("cpp")
+                            || extension.eq_ignore_ascii_case("mm")
+                    })
+        })
+        .map(ToOwned::to_owned)
+        .collect::<BTreeSet<_>>();
+    let cargo_sources = EMBEDDED_IMAGE_SOURCES
+        .iter()
+        .chain(EMBEDDED_IMAGE_METAL_SOURCES)
+        .chain(EMBEDDED_IMAGE_STUB_SOURCES)
+        .map(|path| (*path).to_owned())
+        .collect::<BTreeSet<_>>();
+    let missing = cmake_sources.difference(&cargo_sources).collect::<Vec<_>>();
+    let extra = cargo_sources.difference(&cmake_sources).collect::<Vec<_>>();
+    assert!(
+        missing.is_empty() && extra.is_empty(),
+        "direct Cargo shadow-image source manifest diverged from CMake; missing={missing:?}; extra={extra:?}"
+    );
 }
 
 #[allow(clippy::too_many_lines)] // Native source tracking stays beside the matching CXX build.
@@ -200,6 +262,11 @@ fn main() {
     let repository_root = crate_root.join("../..");
     let image_root = repository_root.join("cpp/shadow-image");
     let image_include = image_root.join("include");
+    verify_embedded_image_source_manifest(&image_root);
+    println!(
+        "cargo:rerun-if-changed={}",
+        image_root.join("CMakeLists.txt").display()
+    );
     let external_image = parse_flag("SHADOW_BRIDGE_EXTERNAL_IMAGE", false);
 
     // The Rust preprocessing identity must describe the libjpeg used by the final process in
@@ -269,82 +336,19 @@ fn main() {
         "SHADOW_ENABLE_METAL=1 is supported only for a macOS target"
     );
 
-    build
-        .file(image_root.join("src/decoder/decoder_error.cpp"))
-        .file(image_root.join("src/decoder/decoder_metadata.cpp"))
-        .file(image_root.join("src/decoder/decoder_types.cpp"))
-        .file(image_root.join("src/decoder/libraw_runtime.cpp"))
-        .file(image_root.join("src/decoder/libraw_reference_development.cpp"))
-        .file(image_root.join("src/decoder/libraw_decoder.cpp"))
-        .file(image_root.join("src/decoder/raster_exif.cpp"))
-        .file(image_root.join("src/decoder/raster_decoder.cpp"))
-        .file(image_root.join("src/decoder/heif_decoder.cpp"))
-        .file(image_root.join("src/decoder/decode_session_isolation.cpp"))
-        .file(image_root.join("src/decoder/photo_decoder_router.cpp"))
-        .file(image_root.join("src/decoder/private_decoder_plugin.cpp"))
-        .file(image_root.join("src/color/lcms_color_management.cpp"))
-        .file(image_root.join("src/color/source_profile_catalog.cpp"))
-        .file(image_root.join("src/color/source_rendering.cpp"))
-        .file(image_root.join("src/edit/adjustment_graph.cpp"))
-        .file(image_root.join("src/edit/adjustment_node_diagnostics.cpp"))
-        .file(image_root.join("src/edit/adjustment_execution.cpp"))
-        .file(image_root.join("src/edit/cube_lut.cpp"))
-        .file(image_root.join("src/edit/cpu_reference.cpp"))
-        .file(image_root.join("src/edit/creative_detail_grading.cpp"))
-        .file(image_root.join("src/edit/edit_error.cpp"))
-        .file(image_root.join("src/edit/edit_execution_validation.cpp"))
-        .file(image_root.join("src/edit/finishing_effects_cpu.cpp"))
-        .file(image_root.join("src/edit/guided_selective_tone.cpp"))
-        .file(image_root.join("src/edit/local_mask.cpp"))
-        .file(image_root.join("src/edit/metal_adjustment_program.cpp"))
-        .file(image_root.join("src/edit/oklab_color_warper.cpp"))
-        .file(image_root.join("src/edit/perceptual_color.cpp"))
-        .file(image_root.join("src/edit/perceptual_contrast.cpp"))
-        .file(image_root.join("src/edit/photo_geometry.cpp"))
-        .file(image_root.join("src/edit/retouch.cpp"))
-        .file(image_root.join("src/edit/scalar_neighborhood_filters.cpp"))
-        .file(image_root.join("src/edit/technical_detail_cpu.cpp"))
-        .file(image_root.join("src/edit/tone_curve.cpp"))
-        .file(image_root.join("src/edit/working_color_math.cpp"))
-        .file(image_root.join("src/concurrency/row_scheduler.cpp"))
-        .file(image_root.join("src/raw/bayer_demosaic.cpp"))
-        .file(image_root.join("src/raw/bayer_sampling.cpp"))
-        .file(image_root.join("src/raw/camera_profile_catalog.cpp"))
-        .file(image_root.join("src/raw/dcp_color_development.cpp"))
-        .file(image_root.join("src/raw/dcp_parser.cpp"))
-        .file(image_root.join("src/raw/fused_raw_development.cpp"))
-        .file(image_root.join("src/raw/raw_denoise.cpp"))
-        .file(image_root.join("src/raw/raw_pipeline.cpp"))
-        .file(image_root.join("src/raw/sensor_clipping.cpp"))
-        .file(image_root.join("src/optics/lensfun_profile_catalog.cpp"))
-        .file(image_root.join("src/optics/lensfun_optics.cpp"))
-        .file(image_root.join("src/proxy/developed_source_raster.cpp"))
-        .file(image_root.join("src/proxy/display_output.cpp"))
-        .file(image_root.join("src/proxy/edited_proxy_rendering.cpp"))
-        .file(image_root.join("src/proxy/full_edit_detail.cpp"))
-        .file(image_root.join("src/proxy/jpeg_display_luma.cpp"))
-        .file(image_root.join("src/proxy/jpeg_proxy_encoding.cpp"))
-        .file(image_root.join("src/proxy/proxy_rendering.cpp"))
-        .file(image_root.join("src/proxy/proxy_render_request_validation.cpp"))
-        .file(image_root.join("src/proxy/warm_edit_gpu_render_plan.cpp"))
-        .file(image_root.join("src/proxy/warm_edit_preview.cpp"));
+    for relative_path in EMBEDDED_IMAGE_SOURCES {
+        build.file(image_root.join(relative_path));
+    }
     if metal_enabled {
-        build
-            .file(image_root.join("src/edit/metal_adjustment.mm"))
-            .file(image_root.join("src/raw/metal_raw_development.mm"))
-            .file(image_root.join("src/proxy/metal_display_output.mm"))
-            .file(image_root.join("src/proxy/warm_edit_gpu_dispatcher.mm"))
-            .file(image_root.join("src/proxy/warm_edit_gpu_pipeline_context.mm"))
-            .file(image_root.join("src/proxy/warm_edit_gpu_resident_resources.mm"))
-            .file(image_root.join("src/proxy/warm_edit_gpu.mm"))
-            .define("SHADOW_IMAGE_HAS_METAL", Some("1"));
+        for relative_path in EMBEDDED_IMAGE_METAL_SOURCES {
+            build.file(image_root.join(relative_path));
+        }
+        build.define("SHADOW_IMAGE_HAS_METAL", Some("1"));
     } else {
-        build
-            .file(image_root.join("src/edit/metal_adjustment_stub.cpp"))
-            .file(image_root.join("src/raw/metal_raw_development_stub.cpp"))
-            .file(image_root.join("src/proxy/metal_display_output_stub.cpp"))
-            .file(image_root.join("src/proxy/warm_edit_gpu_stub.cpp"))
-            .define("SHADOW_IMAGE_HAS_METAL", Some("0"));
+        for relative_path in EMBEDDED_IMAGE_STUB_SOURCES {
+            build.file(image_root.join(relative_path));
+        }
+        build.define("SHADOW_IMAGE_HAS_METAL", Some("0"));
     }
 
     // Put the selected Lensfun headers before generic Homebrew include roots contributed by
@@ -491,5 +495,8 @@ fn main() {
 
     println!("cargo:rerun-if-changed=src/lib.rs");
     track_inputs(&image_root, BRIDGE_INPUTS);
-    track_inputs(&image_root, EMBEDDED_IMAGE_INPUTS);
+    track_inputs(&image_root, EMBEDDED_IMAGE_SOURCES);
+    track_inputs(&image_root, EMBEDDED_IMAGE_METAL_SOURCES);
+    track_inputs(&image_root, EMBEDDED_IMAGE_STUB_SOURCES);
+    track_inputs(&image_root, EMBEDDED_IMAGE_ADDITIONAL_INPUTS);
 }

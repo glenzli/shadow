@@ -225,6 +225,7 @@ qt_add_executable(
     src/edit_point_color_model.hpp
     src/edit_geometry_controller.cpp
     src/edit_grade_node_controller.cpp
+    src/edit_history_controller.cpp
     src/edit_local_mask_controller.cpp
     src/edit_optics_controller.cpp
     src/edit_persistence_coordinator.cpp
@@ -244,6 +245,10 @@ qt_add_executable(
     src/edit_version_presentation.hpp
     src/export_controller.cpp
     src/export_controller.hpp
+    src/export_preset_store.cpp
+    src/export_preset_store.hpp
+    src/export_task_runner.cpp
+    src/export_task_runner.hpp
     src/justified_review_layout_model.cpp
     src/justified_review_layout_model.hpp
     src/main.cpp
@@ -263,7 +268,12 @@ qt_add_executable(
     src/review_controller.hpp
     src/review_controller_backend_operations.cpp
     src/review_controller_backend_operations.hpp
+    src/review_controller_comparison.cpp
     src/review_controller_connections.cpp
+    src/review_controller_decisions.cpp
+    src/review_controller_inspection.cpp
+    src/review_controller_library_management.cpp
+    src/review_controller_library_query.cpp
     src/review_decision_coordinator.cpp
     src/review_decision_coordinator.hpp
     src/review_decision_session.hpp
@@ -381,12 +391,18 @@ qt_add_qml_module(
     VERSION 1.0
     QML_FILES
         qml/EditHistogram.qml
+        qml/EditScopeClipSummary.qml
         qml/EditScopeCanvas.qml
         qml/EditScopeData.qml
+        qml/EditScopeToolbar.qml
         qml/ExportDialog.qml
         qml/ExportPresetMenus.qml
         qml/ExportSettingsPane.qml
+        qml/LibraryAlbumCreateDialog.qml
+        qml/LibraryAlbumDeleteDialog.qml
         qml/LibraryAlbumDialogs.qml
+        qml/LibraryAlbumManageDialog.qml
+        qml/LibraryAlbumMembershipDialog.qml
         qml/LibraryFacetPopup.qml
         qml/LibraryImportPane.qml
         qml/LibrarySourceHealthPane.qml
@@ -394,6 +410,9 @@ qt_add_qml_module(
         qml/LutManagerWindow.qml
         qml/Main.qml
         qml/MainTitleBar.qml
+        qml/MainLibraryFilterBar.qml
+        qml/MainPrecisionProxyStatus.qml
+        qml/MainSelectionDecisionBar.qml
         qml/MainStatusBar.qml
         qml/AutosaveFailureRecovery.qml
         qml/MetadataWindow.qml
@@ -401,7 +420,9 @@ qt_add_qml_module(
         qml/PreferencesMenu.qml
         qml/PrecisionCanvas.qml
         qml/PrecisionCanvasPickerInput.qml
+        qml/PrecisionCanvasStatusOverlays.qml
         qml/PrecisionCanvasToolbar.qml
+        qml/PrecisionCaptureMetadata.qml
         qml/PrecisionComparisonSurface.qml
         qml/PrecisionInspector.qml
         qml/PrecisionLutSection.qml
@@ -418,8 +439,14 @@ qt_add_qml_module(
         qml/PrecisionLocalMaskOverlay.qml
         qml/PrecisionCropOverlay.qml
         qml/PrecisionRetouchOverlay.qml
+        qml/PrecisionRetouchSpotHandle.qml
+        qml/PrecisionRetouchStrokeCoverage.qml
+        qml/PrecisionRetouchStrokeHandle.qml
         qml/PrecisionLocalMaskTools.qml
         qml/PrecisionRetouchTools.qml
+        qml/PrecisionDetailSection.qml
+        qml/PrecisionEffectsSection.qml
+        qml/PrecisionOpticsSection.qml
         qml/PrecisionTechnicalTools.qml
         qml/PrecisionVersionsPane.qml
         qml/RecipeRecoveryPopup.qml
@@ -431,12 +458,19 @@ qt_add_qml_module(
         qml/ReviewDecisionToolbar.qml
         qml/ReviewGallerySurface.qml
         qml/ReviewGalleryToolbar.qml
+        qml/ReviewAlbumList.qml
+        qml/ReviewComparisonEvidence.qml
+        qml/ReviewImportProgressCard.qml
         qml/ReviewLibrarySidebar.qml
         qml/ReviewMetadataPresentation.qml
+        qml/ReviewSystemCollections.qml
         qml/ReviewSharedGradePicker.qml
         qml/ReviewPhotoCard.qml
+        qml/ReviewComparisonSlots.qml
         qml/ReviewPhotoContextMenu.qml
+        qml/ReviewExifSection.qml
         qml/ReviewPhotoInspector.qml
+        qml/ReviewPhotoSummary.qml
         qml/ReviewSinglePreview.qml
         qml/ShadowButton.qml
         qml/ShadowColorLabelButton.qml
@@ -621,6 +655,42 @@ if(BUILD_TESTING)
     add_test(
         NAME shadow-desktop-backend-export-contract
         COMMAND shadow-backend-export-contract-test
+    )
+
+    add_executable(
+        shadow-export-preset-store-test
+        tests/export_preset_store_test.cpp
+        src/backend/export_settings_codec.cpp
+        src/backend/export_settings_codec.hpp
+        src/export_preset_store.cpp
+        src/export_preset_store.hpp
+    )
+    target_compile_features(
+        shadow-export-preset-store-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-export-preset-store-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-export-preset-store-test
+        PRIVATE Qt6::Core
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-export-preset-store-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-export-preset-store-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-export-preset-store
+        COMMAND shadow-export-preset-store-test
     )
 
     add_executable(

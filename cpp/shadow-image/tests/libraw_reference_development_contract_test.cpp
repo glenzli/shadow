@@ -4,11 +4,11 @@
 #include <shadow/image/libraw_development_settings.hpp>
 #include <shadow/image/raw_development_plan.hpp>
 
-#include <cassert>
 #include <cstdint>
 #include <filesystem>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 
 using shadow::image::DecodeError;
 using shadow::image::DecodeErrorCode;
@@ -26,6 +26,12 @@ using shadow::image::validate_libraw_development_settings;
 
 namespace {
 
+void require(const bool condition, const std::string_view message) {
+    if (!condition) {
+        throw std::runtime_error(std::string(message));
+    }
+}
+
 [[nodiscard]] ProviderInfo provider_info() {
     ProviderInfo info;
     info.id = "libraw";
@@ -36,11 +42,12 @@ namespace {
 void settings_contract() {
     const auto settings = default_libraw_development_settings();
     validate_libraw_development_settings(settings);
-    assert(
+    require(
         libraw_development_settings_signature(settings)
         == "shadow-libraw-develop-v1;wb=camera;matrix=camera;"
            "auto-bright=off;exposure=off;bright=1;max-adjust=0;"
-           "bps=16;qual=3"
+           "bps=16;qual=3",
+        "default LibRaw development settings must keep their cache identity"
     );
 
     auto invalid = settings;
@@ -51,7 +58,7 @@ void settings_contract() {
     } catch (const std::invalid_argument&) {
         rejected = true;
     }
-    assert(rejected);
+    require(rejected, "invalid output bit depth must be rejected");
 }
 
 void capability_and_negotiation_contract() {
@@ -65,23 +72,31 @@ void capability_and_negotiation_contract() {
         0U
     );
     const auto& capabilities = developer.capabilities();
-    assert(capabilities.available);
-    assert(!capabilities.raw_frame);
-    assert(capabilities.supports(default_raw_development_plan()));
-    assert(capabilities.supports(preview_raw_development_plan()));
+    require(capabilities.available, "reference developer must advertise availability");
+    require(!capabilities.raw_frame, "reference developer must not claim a RawFrame");
+    require(
+        capabilities.supports(default_raw_development_plan()),
+        "reference developer must support the default plan"
+    );
+    require(
+        capabilities.supports(preview_raw_development_plan()),
+        "reference developer must support the preview plan"
+    );
 
     auto export_plan = default_raw_development_plan();
     export_plan.intent = RawDevelopmentIntent::export_image;
     export_plan.quality = RawDevelopmentQuality::high;
     const auto negotiation = developer.negotiate(export_plan);
-    assert(negotiation.accepted());
-    assert(
+    require(negotiation.accepted(), "export negotiation must be accepted");
+    require(
         negotiation.status
-        == RawDevelopmentPlanNegotiationStatus::adjusted
+            == RawDevelopmentPlanNegotiationStatus::adjusted,
+        "high-quality export must report its quality adjustment"
     );
-    assert(
+    require(
         negotiation.effective.quality
-        == RawDevelopmentQuality::balanced
+            == RawDevelopmentQuality::balanced,
+        "reference development must clamp export quality to balanced"
     );
 }
 
@@ -106,7 +121,7 @@ void render_admission_contract() {
         rejected_zero_edge =
             error.code() == DecodeErrorCode::invalid_request;
     }
-    assert(rejected_zero_edge);
+    require(rejected_zero_edge, "zero-edge preview requests must fail before source I/O");
 
     bool rejected_wrong_intent = false;
     try {
@@ -117,7 +132,7 @@ void render_admission_contract() {
         rejected_wrong_intent =
             error.code() == DecodeErrorCode::invalid_request;
     }
-    assert(rejected_wrong_intent);
+    require(rejected_wrong_intent, "preview intent must not enter full reference rendering");
 }
 
 } // namespace

@@ -41,47 +41,6 @@ Rectangle {
     readonly property int toolCrop: 2
     readonly property int toolRepair: 3
 
-    function joinedIdentity(make, model) {
-        const parts = []
-        const cleanMake = String(make || "").trim()
-        const cleanModel = String(model || "").trim()
-        if (cleanMake.length > 0)
-            parts.push(cleanMake)
-        if (cleanModel.length > 0 && cleanModel !== cleanMake)
-            parts.push(cleanModel)
-        return parts.join(" ")
-    }
-
-    function formatShutter(seconds) {
-        const value = Number(seconds)
-        if (!(value > 0))
-            return "—"
-        if (value >= 1)
-            return qsTr("%1 s").arg(
-                value.toLocaleString(Qt.locale(), "f", value < 10 ? 1 : 0))
-        const reciprocal = Math.round(1 / value)
-        return reciprocal > 1 ? qsTr("1/%1 s").arg(reciprocal)
-                              : qsTr("%1 s").arg(
-                                  value.toLocaleString(Qt.locale(), "f", 2))
-    }
-
-    function captureSettingSummary() {
-        if (!captureMetadata || !captureMetadata.available)
-            return ""
-        const values = []
-        values.push(formatShutter(captureMetadata.exposureTimeSeconds))
-        values.push(Number(captureMetadata.apertureFNumber) > 0
-            ? qsTr("f/%1").arg(Number(captureMetadata.apertureFNumber)
-                .toLocaleString(Qt.locale(), "f", 1)) : "—")
-        values.push(Number(captureMetadata.isoSpeed) > 0
-            ? qsTr("ISO %1").arg(Math.round(Number(captureMetadata.isoSpeed)))
-            : "—")
-        values.push(Number(captureMetadata.focalLengthMm) > 0
-            ? qsTr("%1 mm").arg(Number(captureMetadata.focalLengthMm)
-                .toLocaleString(Qt.locale(), "f", 1)) : "—")
-        return values.join("   ·   ")
-    }
-
     function manualOpticsActive() {
         return Number(editor.manualOpticsDistortion) !== 0
             || Number(editor.manualOpticsTcaRedCyan) !== 0
@@ -130,78 +89,16 @@ Rectangle {
             accentColor: inspector.accent
         }
 
-        Rectangle {
-            id: captureMetadataPanel
+        PrecisionCaptureMetadata {
             Layout.fillWidth: true
             Layout.preferredHeight: 58
-            color: inspector.panel
-
-            readonly property bool metadataMatches:
-                inspector.captureMetadata
-                && inspector.captureMetadata.representationId
-                    === inspector.editor.representationId
-            readonly property bool metadataAvailable:
-                metadataMatches && inspector.captureMetadata.available
-
-            Rectangle {
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.bottom: parent.bottom
-                height: 1
-                color: inspector.panelBorder
-            }
-
-            Column {
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.leftMargin: 14
-                anchors.rightMargin: 14
-                spacing: 4
-
-                Label {
-                    width: parent.width
-                    text: captureMetadataPanel.metadataAvailable
-                        ? inspector.joinedIdentity(
-                            inspector.captureMetadata.cameraMake,
-                            inspector.captureMetadata.cameraModel)
-                        : captureMetadataPanel.metadataMatches
-                            && inspector.captureMetadata.pending
-                            ? qsTr("Preparing capture metadata…")
-                            : qsTr("Capture metadata unavailable")
-                    color: captureMetadataPanel.metadataAvailable
-                        ? inspector.textPrimary : inspector.textMuted
-                    font.pixelSize: 10
-                    font.weight: captureMetadataPanel.metadataAvailable
-                        ? Font.Medium : Font.Normal
-                    elide: Text.ElideRight
-                }
-
-                RowLayout {
-                    width: parent.width
-                    spacing: 8
-
-                    Label {
-                        Layout.fillWidth: true
-                        text: captureMetadataPanel.metadataAvailable
-                            ? inspector.captureSettingSummary() : ""
-                        color: inspector.textSecondary
-                        font.pixelSize: 9
-                        elide: Text.ElideRight
-                    }
-                    Label {
-                        Layout.maximumWidth: parent.width * 0.42
-                        visible: captureMetadataPanel.metadataAvailable
-                            && text.length > 0
-                        text: inspector.joinedIdentity(
-                            inspector.captureMetadata.lensMake,
-                            inspector.captureMetadata.lensModel)
-                        color: inspector.textMuted
-                        font.pixelSize: 9
-                        elide: Text.ElideRight
-                    }
-                }
-            }
+            captureMetadata: inspector.captureMetadata
+            representationId: inspector.editor.representationId
+            panelColor: inspector.panel
+            borderColor: inspector.panelBorder
+            textPrimary: inspector.textPrimary
+            textSecondary: inspector.textSecondary
+            textMuted: inspector.textMuted
         }
 
         Rectangle {

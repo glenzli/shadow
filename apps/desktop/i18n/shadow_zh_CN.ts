@@ -1121,19 +1121,9 @@ R %2 · G %3 · B %4</translation>
         <translation>H</translation>
     </message>
     <message>
-        <location filename="../qml/EditHistogram.qml" line="573"/>
-        <source>Histogram</source>
-        <translation>直方图</translation>
-    </message>
-    <message>
         <location filename="../qml/EditHistogram.qml" line="574"/>
         <source>W</source>
         <translation>W</translation>
-    </message>
-    <message>
-        <location filename="../qml/EditHistogram.qml" line="574"/>
-        <source>Waveform</source>
-        <translation>波形图</translation>
     </message>
     <message>
         <location filename="../qml/EditHistogram.qml" line="575"/>
@@ -1141,19 +1131,9 @@ R %2 · G %3 · B %4</translation>
         <translation>RGB</translation>
     </message>
     <message>
-        <location filename="../qml/EditHistogram.qml" line="575"/>
-        <source>RGB Parade</source>
-        <translation>RGB 分量波形</translation>
-    </message>
-    <message>
         <location filename="../qml/EditHistogram.qml" line="576"/>
         <source>V</source>
         <translation>V</translation>
-    </message>
-    <message>
-        <location filename="../qml/EditHistogram.qml" line="576"/>
-        <source>Vectorscope</source>
-        <translation>矢量示波器</translation>
     </message>
     <message>
         <location filename="../qml/EditHistogram.qml" line="688"/>

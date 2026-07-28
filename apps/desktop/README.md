@@ -35,9 +35,13 @@ Application startup is split from environment-driven automation:
 - [`qml/MainTitleBar.qml`](qml/MainTitleBar.qml) owns title-bar geometry, native window dragging,
   workspace navigation, edit save/undo state, settings entry, and the catalog-history popup as one
   application-shell interaction surface. It preserves the `Main` translation context.
-- [`qml/MainStatusBar.qml`](qml/MainStatusBar.qml) owns the responsive bottom status and action
-  surface: Library filters, current-selection decisions, progress, Precision proxy state, and
-  workspace status projection. It preserves the `Main` translation context.
+- [`qml/MainStatusBar.qml`](qml/MainStatusBar.qml) composes the responsive bottom status surface
+  and workspace status projection. [`qml/MainLibraryFilterBar.qml`](qml/MainLibraryFilterBar.qml)
+  owns Library filter mutations,
+  [`qml/MainSelectionDecisionBar.qml`](qml/MainSelectionDecisionBar.qml) owns the current-photo
+  decision transaction, and
+  [`qml/MainPrecisionProxyStatus.qml`](qml/MainPrecisionProxyStatus.qml) owns read-only proxy
+  state presentation. Every child uses the stable `Main` translation context explicitly.
 - [`qml/AutosaveFailureRecovery.qml`](qml/AutosaveFailureRecovery.qml) owns native-close
   interception plus the complete failed-save choice: retry, keep editing, discard only the
   in-memory draft and continue a queued photo open, or explicitly quit without saving.
@@ -94,7 +98,10 @@ Its implementation follows the same navigation:
 `EditController` is the stable QObject/QML facade, with implementation grouped by responsibility:
 
 - [`src/edit_controller.cpp`](src/edit_controller.cpp) owns the stable facade, session
-  composition, Grade Stack synchronization, and cross-workflow edit history.
+  composition, property projection, and localization.
+- [`src/edit_history_controller.cpp`](src/edit_history_controller.cpp) owns gesture coalescing,
+  undo/redo, reset/revert, Grade Stack synchronization, and dirty/autosave transitions for the
+  current editing session.
 - [`src/edit_adjustment_controller.cpp`](src/edit_adjustment_controller.cpp) owns Grade Node
   adjustment presentation and mutation, LUT, Color Mixer/Warper, grading, and Selective Color.
 - [`src/edit_fine_parameter_registry.*`](src/edit_fine_parameter_registry.hpp) is the single
@@ -119,7 +126,9 @@ Its implementation follows the same navigation:
 - [`src/edit_tone_curve_controller.cpp`](src/edit_tone_curve_controller.cpp) owns Tone Curve
   presentation, point normalization and editing, gesture integration, history, and preview timing.
 - [`src/edit_persistence_coordinator.cpp`](src/edit_persistence_coordinator.cpp) owns photo
-  open/close, autosave, version operations, and durable state transitions.
+  open/close, autosave, version operations, and durable state transitions. A named Version
+  requested during a non-blocking autosave is queued behind that exact snapshot and keeps explicit
+  state interaction locked; it must never be accepted by the UI and then silently discarded.
 - [`src/edit_render_coordinator.cpp`](src/edit_render_coordinator.cpp) owns current and neutral
   preview scheduling, cancellation, diagnostics, and presentation.
 - [`src/edit_detail_render_controller.cpp`](src/edit_detail_render_controller.cpp) owns
@@ -134,13 +143,28 @@ Add a new edit workflow to its semantic owner and wire only its stable QML contr
 
 Precision presentation follows the same responsibility tree:
 
-- [`qml/EditHistogram.qml`](qml/EditHistogram.qml) owns analysis-mode controls, status,
-  generation-aware labels, clipping badges, and the surrounding layout.
+- [`qml/EditHistogram.qml`](qml/EditHistogram.qml) is the analysis presentation index and owns
+  stable public analysis aliases plus data/canvas/summary composition.
 - [`qml/EditScopeData.qml`](qml/EditScopeData.qml) is the single defensive projection of backend
   analysis maps; [`qml/EditScopeCanvas.qml`](qml/EditScopeCanvas.qml) owns every histogram,
   waveform, RGB-parade, vectorscope, and skin-reference drawing algorithm.
+- [`qml/EditScopeToolbar.qml`](qml/EditScopeToolbar.qml) owns analysis mode, vectorscope filter,
+  freshness, and proxy-identity controls; [`qml/EditScopeClipSummary.qml`](qml/EditScopeClipSummary.qml)
+  owns the complete pre-clamp shadow/highlight summary and tooltip formatting.
+- [`qml/PrecisionCaptureMetadata.qml`](qml/PrecisionCaptureMetadata.qml) owns capture identity and
+  setting formatting instead of making the Inspector composition root interpret camera fields.
 - [`qml/PrecisionCanvas.qml`](qml/PrecisionCanvas.qml) owns the preview viewport, zoom/detail
-  transport, overlays, and their stable workspace-facing state.
+  transport, tool/comparison surface composition, and their stable workspace-facing state.
+- [`qml/PrecisionCanvasStatusOverlays.qml`](qml/PrecisionCanvasStatusOverlays.qml) owns only
+  comparison/detail/loading/error HUD presentation above that viewport and deliberately retains
+  the `PrecisionWorkspace` translation context.
+- [`qml/PrecisionRetouchOverlay.qml`](qml/PrecisionRetouchOverlay.qml) is the retouch-overlay
+  composition index. Continuous swept-disc painting lives in
+  [`qml/PrecisionRetouchStrokeCoverage.qml`](qml/PrecisionRetouchStrokeCoverage.qml), its
+  clone-source gesture in
+  [`qml/PrecisionRetouchStrokeHandle.qml`](qml/PrecisionRetouchStrokeHandle.qml), and legacy
+  point-repair target/source interaction in
+  [`qml/PrecisionRetouchSpotHandle.qml`](qml/PrecisionRetouchSpotHandle.qml).
 - [`qml/PrecisionCanvasToolbar.qml`](qml/PrecisionCanvasToolbar.qml) presents the current-photo,
   clipping, comparison, and zoom commands while emitting intent back to the viewport owner.
 - [`qml/PrecisionGradeNodePane.qml`](qml/PrecisionGradeNodePane.qml) owns Grade Node navigation,
@@ -169,6 +193,13 @@ Precision presentation follows the same responsibility tree:
   controls, and their curve editors while keeping the inspector as a composition boundary.
 - [`qml/PrecisionSelectiveColor.qml`](qml/PrecisionSelectiveColor.qml) owns selective-color
   target selection and CMYK adjustment presentation.
+- [`qml/PrecisionTechnicalTools.qml`](qml/PrecisionTechnicalTools.qml) is the ordered composition
+  index for technical adjustments. [`qml/PrecisionDetailSection.qml`](qml/PrecisionDetailSection.qml)
+  owns sharpening and noise reduction,
+  [`qml/PrecisionOpticsSection.qml`](qml/PrecisionOpticsSection.qml) owns profile matching and
+  residual optical correction, and
+  [`qml/PrecisionEffectsSection.qml`](qml/PrecisionEffectsSection.qml) owns finishing grain and
+  post-crop vignette.
 
 Review presentation keeps the workspace focused on selection and orchestration:
 
@@ -176,6 +207,18 @@ Review presentation keeps the workspace focused on selection and orchestration:
   presentation, incremental paging, comparison, empty/busy states, and decision-toolbar placement.
 - [`qml/ReviewGalleryToolbar.qml`](qml/ReviewGalleryToolbar.qml) owns gallery layout and batch
   command presentation while emitting external popup/navigation intents.
+- [`qml/ReviewLibrarySidebar.qml`](qml/ReviewLibrarySidebar.qml) is the Library-side navigation
+  index. [`qml/ReviewSystemCollections.qml`](qml/ReviewSystemCollections.qml) owns built-in
+  collection selection, [`qml/ReviewAlbumList.qml`](qml/ReviewAlbumList.qml) owns album loading
+  and commands, [`qml/ReviewImportProgressCard.qml`](qml/ReviewImportProgressCard.qml) owns one
+  import/refresh receipt, and
+  [`qml/ReviewComparisonEvidence.qml`](qml/ReviewComparisonEvidence.qml) owns session evidence
+  summary and undo.
+- [`qml/ReviewPhotoInspector.qml`](qml/ReviewPhotoInspector.qml) is the selected-photo scrolling
+  index. [`qml/ReviewPhotoSummary.qml`](qml/ReviewPhotoSummary.qml) owns visual identity,
+  [`qml/ReviewExifSection.qml`](qml/ReviewExifSection.qml) owns configurable metadata and retry,
+  and [`qml/ReviewComparisonSlots.qml`](qml/ReviewComparisonSlots.qml) owns comparison admission,
+  assignment, clearing, and entry.
 
 Library management uses the same page-composition boundary:
 
@@ -184,8 +227,8 @@ Library management uses the same page-composition boundary:
 - [`qml/LibraryImportPane.qml`](qml/LibraryImportPane.qml) owns catalog count, folder admission,
   and observable import activity.
 
-`ExportController` remains the stable QObject/QML facade, while the durable transaction has one
-backend owner:
+`ExportController` remains the stable QObject/QML facade, while the durable workflow is split by
+admission, background execution, preset persistence, and backend publication:
 
 - [`qml/ExportDialog.qml`](qml/ExportDialog.qml) owns modal export lifecycle, destination
   admission, progress, failures, and completion.
@@ -194,7 +237,12 @@ backend owner:
   naming and removal transactions.
 
 - [`src/export_controller.cpp`](src/export_controller.cpp) owns selection-to-destination planning,
-  task-center presentation, cancellation requests, and preset persistence.
+  task-center presentation, cancellation requests, and the stable QML facade. Its localized status
+  projection retranslates in place when the application language changes.
+- [`src/export_task_runner.cpp`](src/export_task_runner.cpp) owns the durable background drain:
+  recovery, queue claims, cancellation, item execution, progress receipts, and terminal results.
+- [`src/export_preset_store.cpp`](src/export_preset_store.cpp) owns preset identity, normalization,
+  settings persistence, and runtime retranslation of built-in names while preserving user names.
 - [`src/backend/export_settings_codec.cpp`](src/backend/export_settings_codec.cpp) owns the export
   field names, defaults, clamps, validation, preset projection, and immutable settings JSON shared
   by the controller and executor.
@@ -204,7 +252,10 @@ backend owner:
 
 `DesktopBackend` composes that export component with the shared session but does not forward its
 workflow operations. [`tests/backend_export_contract_test.cpp`](tests/backend_export_contract_test.cpp)
-links the production component and verifies its settings schema plus an empty real durable queue.
+links the production component and verifies its settings schema plus an empty real durable queue;
+[`tests/export_preset_store_test.cpp`](tests/export_preset_store_test.cpp) verifies preset
+normalization, persistence, stable built-in identities, runtime retranslation, and preservation of
+user-authored names.
 
 Review presentation keeps the workspace as the composition and compatibility surface:
 
@@ -222,8 +273,14 @@ Review presentation keeps the workspace as the composition and compatibility sur
 - [`qml/ReviewMetadataPresentation.qml`](qml/ReviewMetadataPresentation.qml) owns locale-aware
   EXIF/RAW value formatting and the grouped metadata-field projection consumed by the metadata
   window. Selection ownership remains in `ReviewSelectionState`.
-- [`src/review_controller.cpp`](src/review_controller.cpp) is the stable QML-facing composition
-  index and request router. [`src/review_controller_backend_operations.*`](src/review_controller_backend_operations.hpp)
+- [`src/review_controller.cpp`](src/review_controller.cpp) is the stable QML-facing composition,
+  property projection, and localization index. Request admission and routing are partitioned into
+  [`src/review_controller_inspection.cpp`](src/review_controller_inspection.cpp),
+  [`src/review_controller_comparison.cpp`](src/review_controller_comparison.cpp),
+  [`src/review_controller_decisions.cpp`](src/review_controller_decisions.cpp),
+  [`src/review_controller_library_query.cpp`](src/review_controller_library_query.cpp), and
+  [`src/review_controller_library_management.cpp`](src/review_controller_library_management.cpp).
+  [`src/review_controller_backend_operations.*`](src/review_controller_backend_operations.hpp)
   owns every backend-to-coordinator operation adapter, while
   [`src/review_controller_connections.cpp`](src/review_controller_connections.cpp) owns the
   complete coordinator signal, invalidation, and status-routing topology.
@@ -325,9 +382,14 @@ Review presentation keeps the workspace as the composition and compatibility sur
   exercises that mapping with distinct sentinel values for every identity, presence flag, unit,
   metadata field, and technical metric, then retains an absent exact-pair test through the real
   Catalog/FFI/backend path.
-- [`qml/LibraryAlbumDialogs.qml`](qml/LibraryAlbumDialogs.qml) owns the complete create, membership,
-  rename, and delete dialog lifecycle plus temporary form state. The album coordinator remains the
-  authoritative owner of data, selection, and mutations behind the stable controller facade.
+- [`qml/LibraryAlbumDialogs.qml`](qml/LibraryAlbumDialogs.qml) is the stable album-dialog router.
+  [`qml/LibraryAlbumCreateDialog.qml`](qml/LibraryAlbumCreateDialog.qml) owns manual/condition
+  creation and form state; [`qml/LibraryAlbumMembershipDialog.qml`](qml/LibraryAlbumMembershipDialog.qml)
+  owns selected-photo admission and Manual Album choice;
+  [`qml/LibraryAlbumManageDialog.qml`](qml/LibraryAlbumManageDialog.qml) owns rename and delete
+  escalation; and [`qml/LibraryAlbumDeleteDialog.qml`](qml/LibraryAlbumDeleteDialog.qml) owns the
+  explicit destructive confirmation. The album coordinator remains the authoritative owner of
+  data, selection, and mutations behind the stable controller facade.
 
 Import progress is intentionally absolute rather than a fabricated percentage: the scanner does not perform a separate counting walk. During active scanning the UI reports discovered/catalogued files and queued preview checks; exact completed, decode-failure, preview-failure, and cancelled-job counts are terminal summaries. The first catalogued batch can appear while enumeration and preview checks are still active, and those rows may already be opened in Precision. Manual decisions, Compare writes, Add Folder, and pagination remain disabled through the terminal stable-prefix refresh. Stop Import uses one cooperative token across enumeration and queued decode jobs; already registered assets remain durable, queued jobs skip provider work, and one in-flight provider call may finish. If cancellation reaches enumeration/catalog registration, that journal ends as `cancelled`; if it arrives only during the `PreparingPreviews` tail, enumeration may already be journaled `completed` while the desktop/FFI job still terminates `cancelled` and queued preview work stops.
 
@@ -444,6 +506,12 @@ optimized preset for interactive photo editing and performance measurements:
 cargo xtask desktop-release
 open build/desktop-release/apps/desktop/Shadow.app
 ```
+
+The daily workflow smoke normally builds and uses the external `desktop-release` preset. To
+validate an already-built task-private bundle without touching the shared default build directory,
+set both `SHADOW_DAILY_USE_SKIP_DESKTOP_BUILD=1` and the absolute external
+`SHADOW_DAILY_USE_DESKTOP_EXECUTABLE=/path/to/Shadow.app/Contents/MacOS/Shadow`. Relative paths and
+paths inside the source tree are rejected.
 
 `shadow-desktop_qmllint` is generated by `qt_add_qml_module`. A headless startup check is available for CI and local diagnosis:
 

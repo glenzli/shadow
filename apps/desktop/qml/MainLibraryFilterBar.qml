@@ -1,0 +1,215 @@
+pragma ComponentBehavior: Bound
+
+import QtQuick
+import QtQuick.Controls
+
+// Owns the complete Library filter projection and its controller mutations.
+Rectangle {
+    id: filterBar
+
+    required property var controller
+
+    function colorLabelName(label) {
+        switch (String(label).toLowerCase()) {
+        case "red":
+            return qsTranslate("Main", "Red")
+        case "yellow":
+            return qsTranslate("Main", "Yellow")
+        case "green":
+            return qsTranslate("Main", "Green")
+        case "blue":
+            return qsTranslate("Main", "Blue")
+        case "purple":
+            return qsTranslate("Main", "Purple")
+        default:
+            return ""
+        }
+    }
+
+    function flagToolTip(flag) {
+        switch (String(flag).toLowerCase()) {
+        case "unflagged":
+            return qsTranslate("Main", "Filter unflagged photos")
+        case "picked":
+            return qsTranslate("Main", "Filter flagged photos")
+        case "rejected":
+            return qsTranslate("Main", "Filter rejected photos")
+        default:
+            return qsTranslate("Main", "Clear all Library filters")
+        }
+    }
+
+    implicitWidth: filterControls.implicitWidth + 12
+    implicitHeight: 28
+    radius: 7
+    color: filterBar.controller.filterFlag !== "all"
+        || filterBar.controller.filterMinimumRating > 0
+        || filterBar.controller.filterColorLabel !== "all"
+        || filterBar.controller.filterEditState !== "all"
+        || filterBar.controller.filterLiked !== "all"
+        ? Theme.accentSurfaceQuiet : Theme.surfaceSubtle
+
+    Row {
+        id: filterControls
+        anchors.centerIn: parent
+        spacing: 2
+
+        ShadowIcon {
+            anchors.verticalCenter: parent.verticalCenter
+            source: "qrc:/icons/filter.svg"
+            size: 14
+            color: Theme.textMuted
+        }
+
+        Label {
+            anchors.verticalCenter: parent.verticalCenter
+            text: qsTranslate("Main", "FILTER")
+            color: Theme.textMuted
+            font.pixelSize: 9
+            font.letterSpacing: 0.7
+        }
+
+        ShadowIconButton {
+            buttonSize: 24
+            iconSize: 14
+            source: "qrc:/icons/clear.svg"
+            selected: filterBar.controller.filterFlag === "all"
+                && filterBar.controller.filterMinimumRating === 0
+                && filterBar.controller.filterColorLabel === "all"
+                && filterBar.controller.filterEditState === "all"
+                && filterBar.controller.filterLiked === "all"
+            toolTipText: qsTranslate("Main", "Clear all Library filters")
+            accessibleName: toolTipText
+            onClicked: filterBar.controller.clearFilters()
+        }
+
+        Repeater {
+            model: ListModel {
+                ListElement {
+                    filterValue: "unflagged"
+                    iconSource: "qrc:/icons/unflag.svg"
+                }
+                ListElement {
+                    filterValue: "picked"
+                    iconSource: "qrc:/icons/pick.svg"
+                }
+                ListElement {
+                    filterValue: "rejected"
+                    iconSource: "qrc:/icons/reject.svg"
+                }
+            }
+
+            delegate: ShadowIconButton {
+                required property string filterValue
+                required property url iconSource
+                buttonSize: 24
+                iconSize: 15
+                source: iconSource
+                selected: filterBar.controller.filterFlag === filterValue
+                toolTipText: filterBar.flagToolTip(filterValue)
+                accessibleName: toolTipText
+                onClicked: filterBar.controller.filterFlag = selected
+                    ? "all" : filterValue
+            }
+        }
+
+        Rectangle {
+            width: 1
+            height: 16
+            anchors.verticalCenter: parent.verticalCenter
+            color: Theme.border
+        }
+
+        Repeater {
+            model: 5
+
+            delegate: ShadowIconButton {
+                required property int index
+                buttonSize: 24
+                iconSize: 15
+                source: "qrc:/icons/star-filled.svg"
+                selected: filterBar.controller.filterMinimumRating === index + 1
+                foregroundColor:
+                    filterBar.controller.filterMinimumRating >= index + 1
+                    ? Theme.labelYellow : Theme.textMuted
+                toolTipText: qsTranslate(
+                    "Main", "Filter %L1 stars and above").arg(index + 1)
+                accessibleName: toolTipText
+                onClicked: filterBar.controller.filterMinimumRating =
+                    selected ? 0 : index + 1
+            }
+        }
+
+        Rectangle {
+            width: 1
+            height: 16
+            anchors.verticalCenter: parent.verticalCenter
+            color: Theme.border
+        }
+
+        ShadowIconButton {
+            buttonSize: 24
+            iconSize: 15
+            source: "qrc:/icons/heart-filled.svg"
+            selected: filterBar.controller.filterLiked === "liked"
+            foregroundColor: selected ? Theme.accent : Theme.textMuted
+            toolTipText: qsTranslate("Main", "Filter liked photos")
+            accessibleName: toolTipText
+            onClicked: filterBar.controller.filterLiked =
+                selected ? "all" : "liked"
+        }
+
+        Rectangle {
+            width: 1
+            height: 16
+            anchors.verticalCenter: parent.verticalCenter
+            color: Theme.border
+        }
+
+        ShadowIconButton {
+            buttonSize: 24
+            iconSize: 15
+            source: "qrc:/icons/edit.svg"
+            selected: filterBar.controller.filterEditState === "edited"
+            toolTipText: qsTranslate("Main", "Filter edited photos")
+            accessibleName: toolTipText
+            onClicked: filterBar.controller.filterEditState =
+                selected ? "all" : "edited"
+        }
+
+        ShadowIconButton {
+            buttonSize: 24
+            iconSize: 15
+            source: "qrc:/icons/edit-off.svg"
+            selected: filterBar.controller.filterEditState === "unedited"
+            toolTipText: qsTranslate("Main", "Filter unedited photos")
+            accessibleName: toolTipText
+            onClicked: filterBar.controller.filterEditState =
+                selected ? "all" : "unedited"
+        }
+
+        Rectangle {
+            width: 1
+            height: 16
+            anchors.verticalCenter: parent.verticalCenter
+            color: Theme.border
+        }
+
+        Repeater {
+            model: ["red", "yellow", "green", "blue", "purple"]
+
+            delegate: ShadowColorLabelButton {
+                required property string modelData
+                labelColor: Theme.colorLabel(modelData)
+                selected:
+                    filterBar.controller.filterColorLabel === modelData
+                toolTipText: qsTranslate(
+                    "Main", "Filter %1 color label").arg(
+                        filterBar.colorLabelName(modelData))
+                accessibleName: toolTipText
+                onClicked: filterBar.controller.filterColorLabel =
+                    selected ? "all" : modelData
+            }
+        }
+    }
+}

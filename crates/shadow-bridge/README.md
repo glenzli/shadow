@@ -126,7 +126,17 @@ The first implementation is Mac-first and accepts a UTF-8 path. This limitation 
 
 ## Build
 
-Cargo uses CXX 1.0.198 and compiles the same `shadow-image` sources used by CMake. LibRaw 0.22+ and 8-bit libjpeg-turbo with in-memory source support are discovered through `pkg-config`; unsupported JPEG builds fail at compile time. The discovered libjpeg-turbo version is embedded in the Rust and C++ preprocessing contracts. On macOS the build script filters Homebrew's obsolete `-lstdc++` entry because CXX already links libc++.
+Cargo uses CXX 1.0.198 and compiles the same `shadow-image` translation units used by CMake.
+[`build.rs`](build.rs) keeps portable, Metal, and stub source manifests separate, uses those exact
+manifests both to compile and to track changes, and compares their union with
+`cpp/shadow-image/CMakeLists.txt` on every build. Adding or extracting a native implementation
+therefore requires updating one matching source manifest; a missing or extra owner fails before
+the native archive is built. Header-only dependencies remain in the additional-input manifest.
+
+LibRaw 0.22+ and 8-bit libjpeg-turbo with in-memory source support are discovered through
+`pkg-config`; unsupported JPEG builds fail at compile time. The discovered libjpeg-turbo version
+is embedded in the Rust and C++ preprocessing contracts. On macOS the build script filters
+Homebrew's obsolete `-lstdc++` entry because CXX already links libc++.
 
 ```sh
 cargo test --package shadow-bridge

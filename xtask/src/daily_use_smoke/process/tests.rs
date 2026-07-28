@@ -6,17 +6,6 @@ fn utf8_tail_starts_at_a_character_boundary() {
 }
 
 #[test]
-fn optimized_desktop_bundle_is_outside_the_shared_source_root() {
-    let root = Path::new("/tmp/shadow-workspace");
-    assert_eq!(
-        release_desktop_executable(root).expect("derive desktop app path"),
-        PathBuf::from(
-            "/tmp/.shadow-local-build/desktop-release/apps/desktop/Shadow.app/Contents/MacOS/Shadow"
-        )
-    );
-}
-
-#[test]
 fn desktop_diagnostic_filter_rejects_binding_and_resource_failures() {
     let diagnostics = unexpected_desktop_diagnostic_lines(
         "qml: preview ready\n\

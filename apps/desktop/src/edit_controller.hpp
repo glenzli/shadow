@@ -766,6 +766,10 @@ private:
     QString provisional_preview_source_;
     QString before_preview_source_;
     std::optional<PendingPhotoOpen> pending_photo_open_;
+    // An explicit named Version requested while the non-blocking autosave
+    // transaction owns the state task slot. It keeps interaction locked until
+    // that durable snapshot can be followed by the named save.
+    std::optional<QString> pending_version_save_name_;
     QVariantMap histogram_;
     QVariantMap before_histogram_;
     QVariantMap optics_receipt_;
