@@ -199,6 +199,7 @@ qt_add_executable(
     src/edit_controller.hpp
     src/edit_fine_parameter_registry.cpp
     src/edit_fine_parameter_registry.hpp
+    src/edit_point_color_controller.cpp
     src/edit_point_color_model.hpp
     src/edit_geometry_controller.cpp
     src/edit_grade_node_controller.cpp
