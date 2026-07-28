@@ -179,12 +179,13 @@ must introduce a new versioned Recipe-aware operation; it must not overload this
 promote an unowned parser into the public crate facade, or substitute a JPEG proxy for a RAW detail
 tile.
 
-Lensfun optics has two production owners behind the stable `OpticsProvider` API.
+Lensfun optics has three production owners behind the stable `OpticsProvider` API.
 `src/optics/lensfun_profile_catalog.*` owns database selection and loading, normalized camera
 identity lookup, compatible-lens projection, explicit/manual profile resolution, synchronization,
-and the match cache. `src/optics/lensfun_optics.cpp` consumes an immutable match and owns settings
-validation, manual fallback correction, Lensfun modifier projection, and packed/scene-linear pixel
-execution.
+and the match cache. `src/optics/manual_optics.*` owns settings validation plus provider-independent
+manual distortion, transverse chromatic aberration, vignetting, and packed/scene-linear fallback
+execution. `src/optics/lensfun_optics.cpp` consumes an immutable profile match and owns Lensfun
+modifier configuration, automatic correction, receipt projection, and third-party pixel remapping.
 
 Decoder contract tests follow the production responsibilities instead of one aggregate executable:
 

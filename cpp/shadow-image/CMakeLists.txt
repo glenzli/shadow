@@ -82,6 +82,7 @@ add_library(
     src/raw/sensor_clipping.cpp
     src/decoder/private_decoder_plugin.cpp
     src/optics/lensfun_profile_catalog.cpp
+    src/optics/manual_optics.cpp
     src/optics/lensfun_optics.cpp
     src/proxy/developed_source_raster.cpp
     src/proxy/display_output.cpp
