@@ -63,6 +63,13 @@ Application startup is split from environment-driven automation:
   owns the Grade Stack acceptance lifecycle from preview readiness through durable save,
   close/reopen verification, deadline, diagnostics, and process exit.
 
+`desktop_backend.hpp` is the stable Qt/backend facade index. Its DTO contracts are owned by
+[`src/backend/review_types.hpp`](src/backend/review_types.hpp),
+[`src/backend/library_types.hpp`](src/backend/library_types.hpp),
+[`src/backend/edit_types.hpp`](src/backend/edit_types.hpp), and
+[`src/backend/cache_types.hpp`](src/backend/cache_types.hpp); follow the domain header before
+changing a wire shape.
+
 `EditController` is the stable QObject/QML facade, with implementation grouped by responsibility:
 
 - [`src/edit_controller.cpp`](src/edit_controller.cpp) owns the stable facade, session

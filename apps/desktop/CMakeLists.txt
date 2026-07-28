@@ -184,6 +184,10 @@ qt_add_executable(
     ${SHADOW_DESKTOP_EDIT_SETTINGS_PROJECTION_SOURCES}
     src/desktop_backend.cpp
     src/desktop_backend.hpp
+    src/backend/cache_types.hpp
+    src/backend/edit_types.hpp
+    src/backend/library_types.hpp
+    src/backend/review_types.hpp
     src/folder_scan_backend.cpp
     src/folder_scan_backend.hpp
     src/desktop_smoke_harness.cpp
