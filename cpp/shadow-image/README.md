@@ -263,8 +263,11 @@ together. `src/proxy/proxy_rendering.cpp` owns the ordinary one-shot reference-p
 the canonical aspect-preserving proxy dimension calculation.
 `src/proxy/edited_proxy_rendering.cpp` owns only the one-shot adjusted-proxy entry points and
 delegates the retained preview lifecycle to `WarmEditPreviewSession`.
-`src/proxy/warm_edit_preview.cpp` owns that retained interactive lifecycle, including bounded
-source preparation, execution provenance, cancellation, analysis, and JPEG delivery.
+`src/proxy/edit_preview_rendering.*` owns stateless flat-node/layer execution, CPU/Metal fallback
+receipts, display projection, and histogram/clipping/HDR analysis.
+`src/proxy/warm_edit_preview.cpp` owns the retained interactive lifecycle: bounded source and
+optics preparation, resident GPU session creation, cancellation result orchestration, analysis/JPEG
+ordering, and source/execution receipt delivery.
 `src/edit/adjustment_graph.cpp` closes the complete parameter-variant to operation/id registry;
 execution backends consume that graph identity instead of redefining it.
 `src/edit/working_color_math.*` owns D65 working-space validation, RGB↔XYZ matrices, Oklab
