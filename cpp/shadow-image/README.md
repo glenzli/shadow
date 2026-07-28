@@ -103,6 +103,13 @@ ABI, process-wide device and pipeline lifecycle, request validation, buffer/comm
 result projection. Editing one side requires checking the shared struct layout assertions and all
 four shader entry-point names.
 
+DCP color development has a one-way internal owner graph.
+`src/raw/dcp_color_matrix_math.hpp` owns the shared 3×3 algebra, standard white points, and
+Bradford adaptation. `src/raw/dcp_color_rendering.*` owns HueSatMap/LookTable/tone-curve
+preparation plus CPU/Metal post-matrix pixel execution. `src/raw/dcp_color_development.cpp`
+retains camera-neutral interpretation, single/dual-illuminant calibration, matrix-route
+selection, immutable transform composition, and receipt identity.
+
 Metal-capable CI or a local release gate should configure
 `SHADOW_REQUIRE_METAL_TESTS=ON`. That mode makes CTest require a real Metal device, forces the
 full RawFrame pipeline onto Metal, and lowers the scheduling-only tile budget so the compact

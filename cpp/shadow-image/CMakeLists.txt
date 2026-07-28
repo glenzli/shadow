@@ -74,6 +74,7 @@ add_library(
     src/raw/bayer_sampling.cpp
     src/raw/camera_profile_catalog.cpp
     src/raw/dcp_color_development.cpp
+    src/raw/dcp_color_rendering.cpp
     src/raw/dcp_parser.cpp
     src/raw/fused_raw_development.cpp
     src/raw/raw_denoise.cpp
