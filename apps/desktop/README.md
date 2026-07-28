@@ -127,8 +127,13 @@ links the production component and verifies its settings schema plus an empty re
 Review presentation keeps the workspace as the composition and compatibility surface:
 
 - [`qml/ReviewWorkspace.qml`](qml/ReviewWorkspace.qml) owns Review composition, selection
-  compatibility routing, Library navigation, and the stable triggers consumed by its toolbars and
-  delegates.
+  compatibility routing, gallery presentation, and the stable triggers consumed by its toolbars
+  and delegates.
+- [`qml/ReviewLibrarySidebar.qml`](qml/ReviewLibrarySidebar.qml) owns the complete left Library
+  navigation surface: system collections, album selection/management entry, import progress, and
+  session comparison evidence. It receives only the workspace contract and album-dialog owner;
+  explicit `ReviewWorkspace` translation context preserves the existing localized catalog while
+  the component gains independent layout ownership.
 - [`src/review_import_coordinator.cpp`](src/review_import_coordinator.cpp) owns one complete folder
   import after cross-workflow admission: scan identity, blocking worker lifetime, monotonic progress
   polling, cooperative cancellation, live-Library refresh pacing, terminal outcome, localized
