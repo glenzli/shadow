@@ -238,6 +238,8 @@ qt_add_executable(
     src/review_library_album_coordinator.hpp
     src/review_library_facet_coordinator.cpp
     src/review_library_facet_coordinator.hpp
+    src/review_library_organization_coordinator.cpp
+    src/review_library_organization_coordinator.hpp
     src/review_model.cpp
     src/review_model.hpp
     src/review_photo_inspection_coordinator.cpp
@@ -1454,6 +1456,43 @@ if(BUILD_TESTING)
     add_test(
         NAME shadow-desktop-review-library-facet-coordinator
         COMMAND shadow-review-library-facet-coordinator-test
+    )
+
+    add_executable(
+        shadow-review-library-organization-coordinator-test
+        tests/review_library_organization_coordinator_test.cpp
+        tests/review_library_organization_coordinator/library_organization_fixture.hpp
+        tests/review_library_organization_coordinator/mutation_projection_contract.cpp
+        tests/review_library_organization_coordinator/failure_lifetime_contract.cpp
+        src/review_library_organization_coordinator.cpp
+        src/review_library_organization_coordinator.hpp
+    )
+    target_compile_features(
+        shadow-review-library-organization-coordinator-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-review-library-organization-coordinator-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-review-library-organization-coordinator-test
+        PRIVATE Qt6::Concurrent Qt6::Gui
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-review-library-organization-coordinator-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-review-library-organization-coordinator-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-review-library-organization-coordinator
+        COMMAND shadow-review-library-organization-coordinator-test
     )
 
     add_executable(

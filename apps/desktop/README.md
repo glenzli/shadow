@@ -177,6 +177,14 @@ Review presentation keeps the workspace as the composition and compatibility sur
   onto the latest input, publishes localized failures, and waits for its worker at destruction.
   Its [`tests/review_library_facet_coordinator/`](tests/review_library_facet_coordinator/)
   contracts cover the shared filter/bound, projection, stale replacement, failure, and lifetime.
+- [`src/review_library_organization_coordinator.cpp`](src/review_library_organization_coordinator.cpp)
+  owns complete per-photo Like and color-label mutation: cross-workflow admission, current-state
+  synthesis, serialized persistence, receipt identity validation, authoritative model projection,
+  localized status, and destruction wait. The controller only routes the stable QML calls and
+  reacts to a successful projection by updating public signals and any active server filter. Its
+  [`tests/review_library_organization_coordinator/`](tests/review_library_organization_coordinator/)
+  contracts cover normalization, coupled-state preservation, no-op admission, projection,
+  diagnostics, invalid receipts, and lifetime.
 - [`src/photo_inspection_projection.cpp`](src/photo_inspection_projection.cpp) is the sole
   production mapping from the complete Rust FFI inspection DTO to the desktop DTO.
   [`tests/backend_photo_inspection_contract_test.cpp`](tests/backend_photo_inspection_contract_test.cpp)

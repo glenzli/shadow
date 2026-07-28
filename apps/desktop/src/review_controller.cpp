@@ -78,26 +78,6 @@ constexpr int FILTER_QUERY_DEBOUNCE_MS = 120;
     return result;
 }
 
-[[nodiscard]] LibraryStateTaskResult run_library_state_mutation(
-    const std::shared_ptr<DesktopBackend>& backend,
-    const QString& photo_id,
-    const bool liked,
-    const QString& color_label
-) {
-    LibraryStateTaskResult result;
-    result.requested_photo_id = photo_id;
-    try {
-        result.state = backend->setPhotoLibraryState(
-            photo_id,
-            liked,
-            color_label
-        );
-    } catch (const std::exception& error) {
-        result.error = QString::fromUtf8(error.what());
-    }
-    return result;
-}
-
 [[nodiscard]] QVector<ReviewItem> review_items(QVector<BackendReviewItem> source) {
     QVector<ReviewItem> items;
     items.reserve(source.size());
@@ -316,6 +296,55 @@ facet_operations(const std::shared_ptr<DesktopBackend>& backend) {
     };
 }
 
+[[nodiscard]] ReviewLibraryOrganizationCoordinator::Operations
+organization_operations(
+    const std::shared_ptr<DesktopBackend>& backend,
+    ReviewModel& model
+) {
+    if (!backend) {
+        throw std::invalid_argument(
+            "Review Library organization backend is required"
+        );
+    }
+    return {
+        .current =
+            [&model](const QString& photo_id)
+                -> std::optional<
+                    ReviewLibraryOrganizationCoordinator::CurrentState
+                > {
+                const auto current = model.libraryStateFor(photo_id);
+                if (!current) {
+                    return std::nullopt;
+                }
+                return ReviewLibraryOrganizationCoordinator::CurrentState{
+                    .liked = current->liked,
+                    .color_label = current->color_label,
+                };
+            },
+        .mutate =
+            [backend](
+                const QString& photo_id,
+                const bool liked,
+                const QString& color_label
+            ) {
+                return backend->setPhotoLibraryState(
+                    photo_id,
+                    liked,
+                    color_label
+                );
+            },
+        .project =
+            [&model](const BackendPhotoLibraryState& state) {
+                return model.updateLibraryState(
+                    state.photo_id,
+                    state.liked,
+                    state.color_label,
+                    state.updated_at_ms
+                );
+            },
+    };
+}
+
 [[nodiscard]] ReviewDecisionCoordinator::Operations decision_operations(
     const std::shared_ptr<DesktopBackend>& backend
 ) {
@@ -375,6 +404,9 @@ ReviewController::ReviewController(
       facet_coordinator_(facet_operations(backend_)),
       model_(this),
       filtered_model_(this),
+      organization_coordinator_(
+          organization_operations(backend_, model_)
+      ),
       comparison_coordinator_(
           comparison_operations(backend_),
           [this](const QString& ticket) {
@@ -509,10 +541,30 @@ ReviewController::ReviewController(
         }
     );
     connect(
-        &library_state_watcher_,
-        &QFutureWatcher<LibraryStateTaskResult>::finished,
+        &organization_coordinator_,
+        &ReviewLibraryOrganizationCoordinator::stateProjected,
         this,
-        &ReviewController::finishLibraryStateTask
+        [this](
+            const QString& photo_id,
+            const bool liked,
+            const QString& color_label
+        ) {
+            emit colorLabelChanged(photo_id, color_label);
+            emit likedChanged(photo_id, liked);
+            if (filtered_model_.hasActiveServerFilter()) {
+                scheduleFilterQuery();
+            }
+        }
+    );
+    connect(
+        &organization_coordinator_,
+        &ReviewLibraryOrganizationCoordinator::statusMessageChanged,
+        this,
+        [this]() {
+            setDecisionStatusMessage(
+                organization_coordinator_.statusMessage()
+            );
+        }
     );
     connect(
         &album_coordinator_,
@@ -606,7 +658,6 @@ ReviewController::~ReviewController() {
     scan_watcher_.waitForFinished();
     page_watcher_.waitForFinished();
     count_watcher_.waitForFinished();
-    library_state_watcher_.waitForFinished();
 }
 
 bool ReviewController::busy() const noexcept {
@@ -1097,40 +1148,19 @@ void ReviewController::setPhotoColorLabel(
     const QString& photo_id,
     const QString& color_label
 ) {
-    if (library_state_mutation_running_ || comparison_coordinator_.busy()
-        || decision_coordinator_.busy()) {
-        return;
-    }
-    const QString normalized = color_label.trimmed().toLower();
-    const auto current = model_.libraryStateFor(photo_id);
-    if (!current) {
-        setDecisionStatusMessage(review_message(QT_TRANSLATE_NOOP(
-            "ReviewController", "Select a loaded photo before changing its color label"
-        )));
-        return;
-    }
-    if (current->color_label == normalized) {
-        return;
-    }
-    startLibraryStateMutation(photo_id, current->liked, normalized);
+    organization_coordinator_.setColorLabel(
+        photo_id,
+        color_label,
+        !comparison_coordinator_.busy() && !decision_coordinator_.busy()
+    );
 }
 
 void ReviewController::setPhotoLiked(const QString& photo_id, const bool liked) {
-    if (library_state_mutation_running_ || comparison_coordinator_.busy()
-        || decision_coordinator_.busy()) {
-        return;
-    }
-    const auto current = model_.libraryStateFor(photo_id);
-    if (!current) {
-        setDecisionStatusMessage(review_message(QT_TRANSLATE_NOOP(
-            "ReviewController", "Select a loaded photo before changing its Like state"
-        )));
-        return;
-    }
-    if (current->liked == liked) {
-        return;
-    }
-    startLibraryStateMutation(photo_id, liked, current->color_label);
+    organization_coordinator_.setLiked(
+        photo_id,
+        liked,
+        !comparison_coordinator_.busy() && !decision_coordinator_.busy()
+    );
 }
 
 void ReviewController::clearFilters() {
@@ -1672,40 +1702,6 @@ void ReviewController::finishCount() {
     }
 }
 
-void ReviewController::finishLibraryStateTask() {
-    const LibraryStateTaskResult result = library_state_watcher_.result();
-    library_state_mutation_running_ = false;
-    if (!result.error.isEmpty()) {
-        setDecisionStatusMessage(review_message(
-            QT_TRANSLATE_NOOP("ReviewController", "Could not update Library state · %1"),
-            {result.error}
-        ));
-        return;
-    }
-    if (result.state.photo_id.isEmpty()
-        || result.state.photo_id != result.requested_photo_id) {
-        setDecisionStatusMessage(review_message(
-            QT_TRANSLATE_NOOP("ReviewController", "Library state receipt was invalid")
-        ));
-        return;
-    }
-    const bool projected = model_.updateLibraryState(
-        result.state.photo_id,
-        result.state.liked,
-        result.state.color_label,
-        result.state.updated_at_ms
-    );
-    (void)projected;
-    emit colorLabelChanged(result.state.photo_id, result.state.color_label);
-    emit likedChanged(result.state.photo_id, result.state.liked);
-    setDecisionStatusMessage(review_message(
-        QT_TRANSLATE_NOOP("ReviewController", "Library organization updated")
-    ));
-    if (filtered_model_.hasActiveServerFilter()) {
-        scheduleFilterQuery();
-    }
-}
-
 void ReviewController::startPage(const PageTaskKind kind) {
     if (page_running_ || decision_coordinator_.busy()) {
         return;
@@ -1817,27 +1813,6 @@ void ReviewController::startCountQuery() {
     ));
 }
 
-void ReviewController::startLibraryStateMutation(
-    const QString& photo_id,
-    const bool liked,
-    const QString& color_label
-) {
-    if (photo_id.isEmpty() || library_state_mutation_running_) {
-        return;
-    }
-    library_state_mutation_running_ = true;
-    setDecisionStatusMessage(review_message(QT_TRANSLATE_NOOP(
-        "ReviewController", "Updating Library organization…"
-    )));
-    library_state_watcher_.setFuture(QtConcurrent::run(
-        run_library_state_mutation,
-        backend_,
-        photo_id,
-        liked,
-        color_label
-    ));
-}
-
 void ReviewController::emitWorkStateChanges(
     const bool old_busy,
     const bool old_loading_more,
@@ -1877,6 +1852,7 @@ void ReviewController::retranslateUi() {
   source_health_coordinator_.retranslateUi();
   album_coordinator_.retranslateUi();
   facet_coordinator_.retranslateUi();
+  organization_coordinator_.retranslateUi();
   decision_coordinator_.retranslateUi();
   emit decisionStatusTextChanged();
 }

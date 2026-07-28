@@ -7,6 +7,7 @@
 #include "review_filter_model.hpp"
 #include "review_library_album_coordinator.hpp"
 #include "review_library_facet_coordinator.hpp"
+#include "review_library_organization_coordinator.hpp"
 #include "review_model.hpp"
 #include "review_photo_inspection_coordinator.hpp"
 #include "review_source_health_coordinator.hpp"
@@ -49,12 +50,6 @@ struct CountTaskResult final {
     QString error;
     quint64 library_generation = 0;
     quint64 request_id = 0;
-};
-
-struct LibraryStateTaskResult final {
-    BackendPhotoLibraryState state;
-    QString error;
-    QString requested_photo_id;
 };
 
 class ReviewController final : public QObject {
@@ -427,7 +422,6 @@ private:
     void finishScan();
     void finishPage();
     void finishCount();
-    void finishLibraryStateTask();
     void pollScanProgress();
     void startPage(PageTaskKind kind);
     void requestLibraryReset();
@@ -435,11 +429,6 @@ private:
     void beginFilteredLibraryQuery();
     void startCountQuery();
     [[nodiscard]] BackendLibraryPhotoFilter currentLibraryFilter() const;
-    void startLibraryStateMutation(
-        const QString& photo_id,
-        bool liked,
-        const QString& color_label
-    );
     void emitWorkStateChanges(
         bool old_busy,
         bool old_loading_more,
@@ -506,17 +495,16 @@ private:
     bool terminal_refresh_active_ = false;
     bool scan_terminal_cancelled_ = false;
     bool has_more_ = false;
-    bool library_state_mutation_running_ = false;
     QElapsedTimer scan_clock_;
     QTimer scan_progress_timer_;
     QTimer filter_debounce_timer_;
     ReviewModel model_;
     ReviewFilterModel filtered_model_;
+    ReviewLibraryOrganizationCoordinator organization_coordinator_;
     ReviewComparisonCoordinator comparison_coordinator_;
     ReviewDecisionCoordinator decision_coordinator_;
     QVector<BackendSharedGradeNode> shared_grade_nodes_;
     QFutureWatcher<ScanTaskResult> scan_watcher_;
     QFutureWatcher<PageTaskResult> page_watcher_;
     QFutureWatcher<CountTaskResult> count_watcher_;
-    QFutureWatcher<LibraryStateTaskResult> library_state_watcher_;
 };
