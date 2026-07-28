@@ -234,6 +234,8 @@ qt_add_executable(
     src/review_evidence_session.hpp
     src/review_filter_model.cpp
     src/review_filter_model.hpp
+    src/review_import_coordinator.cpp
+    src/review_import_coordinator.hpp
     src/review_library_album_coordinator.cpp
     src/review_library_album_coordinator.hpp
     src/review_library_facet_coordinator.cpp
@@ -1493,6 +1495,43 @@ if(BUILD_TESTING)
     add_test(
         NAME shadow-desktop-review-library-organization-coordinator
         COMMAND shadow-review-library-organization-coordinator-test
+    )
+
+    add_executable(
+        shadow-review-import-coordinator-test
+        tests/review_import_coordinator_test.cpp
+        tests/review_import_coordinator/import_coordinator_fixture.hpp
+        tests/review_import_coordinator/import_progress_contract.cpp
+        tests/review_import_coordinator/cancellation_failure_lifetime_contract.cpp
+        src/review_import_coordinator.cpp
+        src/review_import_coordinator.hpp
+    )
+    target_compile_features(
+        shadow-review-import-coordinator-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-review-import-coordinator-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-review-import-coordinator-test
+        PRIVATE Qt6::Concurrent Qt6::Gui
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-review-import-coordinator-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-review-import-coordinator-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-review-import-coordinator
+        COMMAND shadow-review-import-coordinator-test
     )
 
     add_executable(

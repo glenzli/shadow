@@ -5,6 +5,7 @@
 #include "review_comparison_coordinator.hpp"
 #include "review_decision_coordinator.hpp"
 #include "review_filter_model.hpp"
+#include "review_import_coordinator.hpp"
 #include "review_library_album_coordinator.hpp"
 #include "review_library_facet_coordinator.hpp"
 #include "review_library_organization_coordinator.hpp"
@@ -12,7 +13,6 @@
 #include "review_photo_inspection_coordinator.hpp"
 #include "review_source_health_coordinator.hpp"
 
-#include <QElapsedTimer>
 #include <QFutureWatcher>
 #include <QObject>
 #include <QString>
@@ -24,12 +24,6 @@
 
 #include <cstdint>
 #include <memory>
-
-struct ScanTaskResult final {
-    BackendScanReport report;
-    QString error;
-    quint64 generation = 0;
-};
 
 enum class PageTaskKind : std::uint8_t {
     InitialReset,
@@ -419,10 +413,8 @@ signals:
     void decisionUndone();
 
 private:
-    void finishScan();
     void finishPage();
     void finishCount();
-    void pollScanProgress();
     void startPage(PageTaskKind kind);
     void requestLibraryReset();
     void scheduleFilterQuery();
@@ -437,7 +429,6 @@ private:
     void setHasMore(bool has_more);
     bool eventFilter(QObject *watched, QEvent *event) override;
     void setStatusMessage(LocalizedUiMessage status);
-    void updateScanStatus();
     void updateReadyStatus();
     void setDecisionStatusMessage(LocalizedUiMessage status);
     void projectDecisionState(const BackendReviewDecisionState& state);
@@ -447,7 +438,7 @@ private:
     ReviewSourceHealthCoordinator source_health_coordinator_;
     ReviewLibraryAlbumCoordinator album_coordinator_;
     ReviewLibraryFacetCoordinator facet_coordinator_;
-    QString folder_path_;
+    ReviewImportCoordinator import_coordinator_;
   LocalizedUiMessage status_message_{
       "ReviewController",
       QT_TRANSLATE_NOOP("ReviewController",
@@ -461,42 +452,18 @@ private:
   };
     BackendLibraryPhotoCursor next_cursor_;
     quint64 library_generation_ = 1;
-    quint64 scan_generation_ = 0;
     quint64 page_request_id_ = 0;
     quint64 active_page_request_id_ = 0;
     quint64 count_request_id_ = 0;
     quint64 active_count_request_id_ = 0;
-    quint64 scan_update_sequence_ = 0;
     quint64 total_items_ = 0;
-    quint64 files_seen_ = 0;
-    quint64 supported_files_ = 0;
-    quint64 inserted_files_ = 0;
-    quint64 unchanged_files_ = 0;
-    quint64 revalidation_files_ = 0;
-    quint64 decode_queued_ = 0;
-    quint64 preview_artifacts_ready_ = 0;
-    quint64 decode_completed_ = 0;
-    quint64 decode_hard_failures_ = 0;
-    quint64 preview_failures_ = 0;
-    quint64 decode_cancelled_ = 0;
-    quint64 skipped_files_ = 0;
-    quint64 issue_count_ = 0;
-    quint64 next_stream_refresh_at_ = 1;
-    quint64 last_stream_visual_refresh_at_ = 0;
-    qint64 last_stream_refresh_ms_ = -1;
-    BackendScanPhase scan_phase_ = BackendScanPhase::Idle;
-    QString scan_terminal_error_;
-    bool scan_running_ = false;
     bool page_running_ = false;
     bool page_reset_running_ = false;
     bool library_reset_pending_ = false;
     bool count_running_ = false;
     bool count_query_pending_ = false;
     bool terminal_refresh_active_ = false;
-    bool scan_terminal_cancelled_ = false;
     bool has_more_ = false;
-    QElapsedTimer scan_clock_;
-    QTimer scan_progress_timer_;
     QTimer filter_debounce_timer_;
     ReviewModel model_;
     ReviewFilterModel filtered_model_;
@@ -504,7 +471,6 @@ private:
     ReviewComparisonCoordinator comparison_coordinator_;
     ReviewDecisionCoordinator decision_coordinator_;
     QVector<BackendSharedGradeNode> shared_grade_nodes_;
-    QFutureWatcher<ScanTaskResult> scan_watcher_;
     QFutureWatcher<PageTaskResult> page_watcher_;
     QFutureWatcher<CountTaskResult> count_watcher_;
 };

@@ -121,6 +121,13 @@ Review presentation keeps the workspace as the composition and compatibility sur
 - [`qml/ReviewWorkspace.qml`](qml/ReviewWorkspace.qml) owns Review composition, selection
   compatibility routing, Library navigation, and the stable triggers consumed by its toolbars and
   delegates.
+- [`src/review_import_coordinator.cpp`](src/review_import_coordinator.cpp) owns one complete folder
+  import after cross-workflow admission: scan identity, blocking worker lifetime, monotonic progress
+  polling, cooperative cancellation, live-Library refresh pacing, terminal outcome, localized
+  status, and destruction wait. `ReviewController` decides only whether another workflow permits
+  the import and performs the requested page/source-health refreshes. Its
+  [`tests/review_import_coordinator/`](tests/review_import_coordinator/) contracts cover progress
+  projection, refresh pacing, cancellation, terminal failure, diagnostics, and lifetime.
 - [`qml/ReviewSelectionState.qml`](qml/ReviewSelectionState.qml) owns identity-keyed multi-selection,
   the off-screen-safe Shift anchor, and the primary presentation snapshot. Detailed EXIF and
   technical facts come from an independent exact `{photo, representation}` request, so delegate
