@@ -1,6 +1,7 @@
-use super::{
-    super::*,
-    artifact_fixtures::{artifact, registered_catalog},
+use super::artifact_fixtures::{artifact, registered_catalog};
+use crate::{
+    InvalidateCachedArtifactStatus, RecordCachedArtifact, RecordCachedArtifactStatus,
+    RepresentationFingerprint,
 };
 
 #[test]

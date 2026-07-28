@@ -1,7 +1,11 @@
-use shadow_domain::{AssetLocation, Platform, RepresentationKind};
+use shadow_domain::{
+    AssetLocation, ImageDimensions, Platform, PreviewByteOrder, PreviewCodec, RepresentationId,
+    RepresentationKind,
+};
 
-use super::super::*;
-use crate::RegisterAsset;
+use crate::{
+    CachedArtifact, CachedArtifactRole, Catalog, RegisterAsset, RepresentationFingerprint,
+};
 
 pub(super) fn registered_catalog() -> (Catalog, RepresentationId, RepresentationFingerprint) {
     let mut catalog = Catalog::open_in_memory().expect("open catalog");

@@ -1,10 +1,12 @@
-use shadow_domain::{AssetLocation, Platform, RepresentationKind};
-
-use super::{
-    super::*,
-    artifact_fixtures::{artifact, registered_catalog},
+use shadow_domain::{
+    AssetLocation, ImageDimensions, Platform, PreviewByteOrder, PreviewCodec, RepresentationKind,
 };
-use crate::RegisterAsset;
+
+use super::artifact_fixtures::{artifact, registered_catalog};
+use crate::{
+    CachedArtifact, CachedArtifactRole, LiveCachedArtifactBlob, RecordCachedArtifact,
+    RegisterAsset, RepresentationFingerprint,
+};
 
 #[test]
 fn recipe_preview_is_ignored_until_a_working_recipe_names_its_digest() {
