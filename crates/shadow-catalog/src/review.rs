@@ -2,7 +2,7 @@
 //!
 //! This facade defines the public records shared by every Review consumer.
 //! Follow [`source`] for exact photo-source selection, [`page`] for stable grid
-//! pagination, and [`projection`] for their shared SQLite row/provenance codec.
+//! pagination, and [`projection`] for their shared `SQLite` row/provenance codec.
 
 mod page;
 mod projection;

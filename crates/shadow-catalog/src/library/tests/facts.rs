@@ -17,7 +17,7 @@ fn facts_are_indexed_with_their_source_provenance() {
         focal_length_tenth_mm: Some(240),
         iso_speed: Some(800.0),
         latitude_e7: Some(399_000_000),
-        longitude_e7: Some(116_400_0000),
+        longitude_e7: Some(1_164_000_000),
         place_name: "Beijing".into(),
         indexed_representation_id: Some(registered.representation_id),
         indexed_source: Some(RepresentationFingerprint {

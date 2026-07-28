@@ -1,6 +1,12 @@
 //! Client-side `CatalogHandle` request adapters.
+//!
+//! Every fallible adapter propagates [`CatalogError`] from actor
+//! unavailability or the responsibility-owned Catalog operation. Child
+//! modules document only failures beyond that shared transport contract.
 
-use super::*;
+#![allow(clippy::missing_errors_doc)]
+
+use super::{CatalogError, CatalogHandle, CatalogStats, Message, SyncSender, mpsc};
 
 mod cached_artifact;
 mod decode_snapshot;

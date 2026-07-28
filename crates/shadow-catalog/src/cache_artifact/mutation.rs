@@ -69,7 +69,7 @@ impl Catalog {
                 artifact
                     .recipe_snapshot_digest
                     .as_ref()
-                    .map(|digest| digest.as_slice()),
+                    .map(<[u8; 32]>::as_slice),
                 artifact
                     .provider_preview_id
                     .map(|value| sqlite_usize(value, "provider_preview_id"))
@@ -124,7 +124,7 @@ impl Catalog {
                 artifact
                     .recipe_snapshot_digest
                     .as_ref()
-                    .map(|digest| digest.as_slice()),
+                    .map(<[u8; 32]>::as_slice),
                 sqlite_u64(record.source.byte_len, "source_byte_len")?,
                 record.source.modified_at_ms,
                 artifact.blob_algorithm,

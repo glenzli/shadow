@@ -193,7 +193,7 @@ impl Catalog {
         })
     }
 
-    /// Deletes one album. SQLite cascades only that album's explicit manual
+    /// Deletes one album. `SQLite` cascades only that album's explicit manual
     /// memberships; it never deletes a photo, source, or another album.
     pub fn delete_library_album(&mut self, album_id: CollectionId) -> Result<bool, CatalogError> {
         let deleted = self.connection.execute(

@@ -71,6 +71,9 @@ fn positive_finite(value: f64) -> Option<f64> {
     (value.is_finite() && value > 0.0).then_some(value)
 }
 
+// The finite positive range check immediately before the conversion proves
+// that the rounded value fits losslessly in `u32`.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn scaled_positive_u32(value: f64, multiplier: f64) -> Option<u32> {
     if !value.is_finite() || value <= 0.0 {
         return None;

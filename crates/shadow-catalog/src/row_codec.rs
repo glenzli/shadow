@@ -1,4 +1,4 @@
-//! Shared decoding for SQLite entity identities and non-negative aggregate counts.
+//! Shared decoding for `SQLite` entity identities and non-negative aggregate counts.
 
 use rusqlite::{Connection, types::Type};
 use shadow_domain::EntityId;

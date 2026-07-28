@@ -41,6 +41,7 @@ fn photo_first_library_page_includes_original_raster_sources() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn photo_first_library_page_filters_facets_and_keysets_without_path_ownership() {
     let mut catalog = Catalog::open_in_memory().expect("open catalog");
     let newest = register(&mut catalog, "/one/source/first.nef");

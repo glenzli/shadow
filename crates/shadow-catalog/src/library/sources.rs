@@ -222,14 +222,13 @@ impl Catalog {
         let mut items = rows.collect::<rusqlite::Result<Vec<_>>>()?;
         let has_more = items.len() > page_size;
         items.truncate(page_size);
-        let next_cursor = has_more.then(|| {
-            let last = items
-                .last()
-                .expect("a page with a successor contains one item");
-            MissingSourceLocationCursor {
+        let next_cursor = if has_more {
+            items.last().map(|last| MissingSourceLocationCursor {
                 location_id: last.location_id,
-            }
-        });
+            })
+        } else {
+            None
+        };
         Ok(Some(MissingSourceLocationPage {
             reconciliation,
             items,

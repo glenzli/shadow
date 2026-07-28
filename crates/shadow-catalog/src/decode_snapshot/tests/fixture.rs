@@ -1,8 +1,8 @@
 use shadow_domain::{
     AssetLocation, DecodeCapabilitySnapshot, DecodeProviderSnapshot, DecodeSupport,
     DecoderSnapshot, ImageDimensions, ImageMargins, PendingCorrectionsSnapshot, Platform,
-    PreviewCodec, PreviewDescriptorSnapshot, RawMetadataSnapshot, RepresentationId,
-    RepresentationKind,
+    PreviewCodec, PreviewDescriptorSnapshot, RawDevelopmentCapabilitySnapshot, RawMetadataSnapshot,
+    RepresentationId, RepresentationKind,
 };
 
 use crate::{Catalog, RegisterAsset, RegistrationStatus};
@@ -80,7 +80,7 @@ pub(super) fn snapshot(provider_id: &str, version: &str, preview_ids: &[usize]) 
             raw_frame: DecodeSupport::Available,
             reference_rgb: DecodeSupport::Available,
             pending_corrections: PendingCorrectionsSnapshot::default(),
-            raw_development: Default::default(),
+            raw_development: RawDevelopmentCapabilitySnapshot::default(),
         },
         previews: preview_ids
             .iter()

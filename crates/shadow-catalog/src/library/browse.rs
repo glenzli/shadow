@@ -3,6 +3,8 @@
 //! These reads share one validated filter-to-SQL projection so the grid, counts, and facets cannot
 //! drift into subtly different Library semantics.
 
+use std::fmt::Write as _;
+
 use rusqlite::{params_from_iter, types::Value};
 use shadow_domain::EntityId;
 
@@ -58,21 +60,18 @@ impl Catalog {
         );
         let mut page_values = filter_values;
         if let Some(cursor) = after {
-            match cursor.captured_at_unix_seconds {
-                Some(captured_at) => {
-                    page_sql.push_str(
-                        " AND (f.captured_at_unix_seconds IS NULL
+            if let Some(captured_at) = cursor.captured_at_unix_seconds {
+                page_sql.push_str(
+                    " AND (f.captured_at_unix_seconds IS NULL
                               OR f.captured_at_unix_seconds < ?
                               OR (f.captured_at_unix_seconds = ? AND p.id < ?))",
-                    );
-                    page_values.push(Value::Integer(captured_at));
-                    page_values.push(Value::Integer(captured_at));
-                    page_values.push(Value::Blob(cursor.photo_id.as_bytes().to_vec()));
-                }
-                None => {
-                    page_sql.push_str(" AND f.captured_at_unix_seconds IS NULL AND p.id < ?");
-                    page_values.push(Value::Blob(cursor.photo_id.as_bytes().to_vec()));
-                }
+                );
+                page_values.push(Value::Integer(captured_at));
+                page_values.push(Value::Integer(captured_at));
+                page_values.push(Value::Blob(cursor.photo_id.as_bytes().to_vec()));
+            } else {
+                page_sql.push_str(" AND f.captured_at_unix_seconds IS NULL AND p.id < ?");
+                page_values.push(Value::Blob(cursor.photo_id.as_bytes().to_vec()));
             }
         }
         page_sql.push_str(
@@ -89,18 +88,17 @@ impl Catalog {
         let mut items = rows.collect::<rusqlite::Result<Vec<_>>>()?;
         let has_more = items.len() > page_size;
         items.truncate(page_size);
-        let next_cursor = has_more.then(|| {
-            let last = items
-                .last()
-                .expect("page has an item when it has a successor");
-            LibraryPhotoCursor {
+        let next_cursor = if has_more {
+            items.last().map(|last| LibraryPhotoCursor {
                 captured_at_unix_seconds: last
                     .facts
                     .as_ref()
                     .and_then(|facts| facts.captured_at_unix_seconds),
                 photo_id: last.photo_id,
-            }
-        });
+            })
+        } else {
+            None
+        };
         Ok(LibraryPhotoPage { items, next_cursor })
     }
 
@@ -153,16 +151,17 @@ impl Catalog {
         let spec = library_facet_sql(kind);
 
         let mut sql = format!(
-            "SELECT {key_sql}, {label_sql}, COUNT(*)\n             {from_sql}\n             WHERE {where_sql} AND {present_sql}\n             GROUP BY {key_sql}",
-            key_sql = spec.key_sql,
-            label_sql = spec.label_sql,
-            present_sql = spec.present_sql,
+            "SELECT {key}, {label}, COUNT(*)\n             {from_sql}\n             WHERE {where_sql} AND {present}\n             GROUP BY {key}",
+            key = spec.key,
+            label = spec.label,
+            present = spec.present,
         );
         if let Some(cursor) = after {
-            sql.push_str(&format!(
-                " HAVING COUNT(*) < ? OR (COUNT(*) = ? AND {key_sql} > ?)",
-                key_sql = spec.key_sql,
-            ));
+            let _ = write!(
+                sql,
+                " HAVING COUNT(*) < ? OR (COUNT(*) = ? AND {key} > ?)",
+                key = spec.key,
+            );
             let count = i64::try_from(cursor.photo_count).map_err(|error| {
                 CatalogError::InvalidLibraryQuery(format!("facet cursor count is invalid: {error}"))
             })?;
@@ -170,10 +169,11 @@ impl Catalog {
             values.push(Value::Integer(count));
             values.push(Value::Text(cursor.key.clone()));
         }
-        sql.push_str(&format!(
-            " ORDER BY COUNT(*) DESC, {key_sql} ASC LIMIT ?",
-            key_sql = spec.key_sql,
-        ));
+        let _ = write!(
+            sql,
+            " ORDER BY COUNT(*) DESC, {key} ASC LIMIT ?",
+            key = spec.key,
+        );
         values.push(Value::Integer(
             i64::try_from(page_size + 1).unwrap_or(i64::MAX),
         ));
@@ -183,41 +183,40 @@ impl Catalog {
         let mut items = rows.collect::<rusqlite::Result<Vec<_>>>()?;
         let has_more = items.len() > page_size;
         items.truncate(page_size);
-        let next_cursor = has_more.then(|| {
-            let last = items
-                .last()
-                .expect("a facet page with a successor contains one item");
-            LibraryFacetCursor {
+        let next_cursor = if has_more {
+            items.last().map(|last| LibraryFacetCursor {
                 photo_count: last.photo_count,
                 key: last.key.clone(),
-            }
-        });
+            })
+        } else {
+            None
+        };
         Ok(LibraryFacetPage { items, next_cursor })
     }
 }
 
 struct LibraryFacetSql {
-    key_sql: &'static str,
-    label_sql: &'static str,
-    present_sql: &'static str,
+    key: &'static str,
+    label: &'static str,
+    present: &'static str,
 }
 
 fn library_facet_sql(kind: LibraryFacetKind) -> LibraryFacetSql {
     match kind {
         LibraryFacetKind::CaptureMonth => LibraryFacetSql {
-            key_sql: "substr(f.capture_day, 1, 7)",
-            label_sql: "substr(f.capture_day, 1, 7)",
-            present_sql: "f.capture_day <> ''",
+            key: "substr(f.capture_day, 1, 7)",
+            label: "substr(f.capture_day, 1, 7)",
+            present: "f.capture_day <> ''",
         },
         LibraryFacetKind::Camera => LibraryFacetSql {
-            key_sql: "f.camera_key",
-            label_sql: "MIN(COALESCE(NULLIF(trim(f.camera_make || ' ' || f.camera_model), ''), f.camera_key))",
-            present_sql: "f.camera_key <> ''",
+            key: "f.camera_key",
+            label: "MIN(COALESCE(NULLIF(trim(f.camera_make || ' ' || f.camera_model), ''), f.camera_key))",
+            present: "f.camera_key <> ''",
         },
         LibraryFacetKind::Lens => LibraryFacetSql {
-            key_sql: "f.lens_key",
-            label_sql: "MIN(COALESCE(NULLIF(trim(f.lens_make || ' ' || f.lens_model), ''), f.lens_key))",
-            present_sql: "f.lens_key <> ''",
+            key: "f.lens_key",
+            label: "MIN(COALESCE(NULLIF(trim(f.lens_make || ' ' || f.lens_model), ''), f.lens_key))",
+            present: "f.lens_key <> ''",
         },
     }
 }
@@ -232,6 +231,9 @@ fn filter_without_facet(filter: &LibraryPhotoFilter, kind: LibraryFacetKind) -> 
     result
 }
 
+// This is one ordered compiler from the validated filter contract to SQL and
+// bound values; splitting individual predicates would make their order drift.
+#[allow(clippy::too_many_lines)]
 fn library_photo_query_parts(filter: &LibraryPhotoFilter) -> (String, String, Vec<Value>) {
     // Both correlated subqueries are backed by the current v1 catalog's
     // `(photo, kind, created)` and `(representation, status, created)` indexes.

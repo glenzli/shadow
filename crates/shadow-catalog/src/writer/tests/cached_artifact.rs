@@ -11,6 +11,7 @@ use crate::{
 use crate::writer::CatalogActor;
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn actor_routes_the_complete_cached_artifact_reference_lifecycle() {
     let actor = CatalogActor::spawn_in_memory().expect("spawn catalog actor");
     let handle = actor.handle();

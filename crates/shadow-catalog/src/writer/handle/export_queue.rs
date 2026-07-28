@@ -75,7 +75,7 @@ impl CatalogHandle {
         self.request(|response| Message::ExportQueue(ExportQueueMessage::Item(item_id, response)))
     }
 
-    /// Aggregates durable worker state for one job inside SQLite, without
+    /// Aggregates durable worker state for one job inside `SQLite`, without
     /// moving the job's individual item records through the actor.
     ///
     /// # Errors

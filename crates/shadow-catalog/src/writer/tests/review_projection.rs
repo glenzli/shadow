@@ -12,6 +12,7 @@ use crate::{
 use crate::writer::CatalogActor;
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn actor_routes_plain_and_technical_review_projections() {
     let actor = CatalogActor::spawn_in_memory().expect("spawn catalog actor");
     let handle = actor.handle();

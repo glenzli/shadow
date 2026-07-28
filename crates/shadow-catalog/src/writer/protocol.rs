@@ -4,7 +4,7 @@
 //! Variants are grouped by feature vocabulary, while dispatch and client
 //! methods remain separate consumers of this contract.
 
-use super::*;
+use super::{CatalogError, CatalogStats, SyncSender};
 
 mod cached_artifact;
 mod decode_snapshot;

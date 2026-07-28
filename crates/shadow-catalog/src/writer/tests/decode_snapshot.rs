@@ -1,7 +1,7 @@
 use shadow_domain::{
     AssetLocation, DecodeCapabilitySnapshot, DecodeProviderSnapshot, DecodeSupport,
     DecoderSnapshot, ImageDimensions, ImageMargins, PendingCorrectionsSnapshot, Platform,
-    RawMetadataSnapshot, RepresentationKind,
+    RawDevelopmentCapabilitySnapshot, RawMetadataSnapshot, RepresentationKind,
 };
 
 use crate::{
@@ -58,7 +58,7 @@ fn snapshot() -> DecoderSnapshot {
             raw_frame: DecodeSupport::Available,
             reference_rgb: DecodeSupport::Unavailable,
             pending_corrections: PendingCorrectionsSnapshot::default(),
-            raw_development: Default::default(),
+            raw_development: RawDevelopmentCapabilitySnapshot::default(),
         },
         previews: Vec::new(),
     }

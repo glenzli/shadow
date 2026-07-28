@@ -36,6 +36,7 @@ fn review_metadata_survives_unrelated_decoder_snapshot_schema_changes() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn review_page_includes_original_rasters_while_raw_edit_source_stays_raw_only() {
     let mut catalog = Catalog::open_in_memory().expect("open catalog");
     let raw = catalog

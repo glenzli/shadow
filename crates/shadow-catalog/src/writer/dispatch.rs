@@ -3,7 +3,7 @@
 //! This module is deliberately a thin mapping from each message variant to
 //! the responsibility-named synchronous `Catalog` operation.
 
-use super::*;
+use super::{Catalog, CatalogError, Message, Receiver, SyncSender};
 
 mod cached_artifact;
 mod decode_snapshot;

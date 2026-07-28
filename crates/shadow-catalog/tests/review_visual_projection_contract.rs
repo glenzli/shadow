@@ -9,6 +9,7 @@ use shadow_domain::{
 };
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn review_page_treats_an_old_recipe_preview_generator_as_a_cache_miss() {
     let mut catalog = Catalog::open_in_memory().expect("open catalog");
     let source = RepresentationFingerprint {
@@ -165,6 +166,7 @@ fn review_page_treats_an_old_recipe_preview_generator_as_a_cache_miss() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn review_query_returns_one_source_with_preferred_current_visual() {
     let mut catalog = Catalog::open_in_memory().expect("open catalog");
     let source = RepresentationFingerprint {

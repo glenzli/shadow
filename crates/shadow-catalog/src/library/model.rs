@@ -1,6 +1,6 @@
 //! Public value objects and validated query contracts for the photo-first Library.
 //!
-//! Start here to understand the durable Library vocabulary. SQLite query and mutation mechanics
+//! Start here to understand the durable Library vocabulary. `SQLite` query and mutation mechanics
 //! remain in the parent module.
 
 use serde::{Deserialize, Serialize};
@@ -14,7 +14,7 @@ use crate::{CatalogError, RepresentationFingerprint, SourceScanReconciliation};
 /// The largest page the catalog will materialize for one Library request.
 ///
 /// Keeping this bounded is important even when the UI virtualizes its grid:
-/// a large library must never turn one scroll event into an unbounded SQLite
+/// a large library must never turn one scroll event into an unbounded `SQLite`
 /// allocation.
 pub const MAX_LIBRARY_PAGE_SIZE: usize = 512;
 
@@ -647,7 +647,7 @@ pub(super) fn normalized_equipment_key(make: &str, model: &str) -> String {
     [make.trim(), model.trim()]
         .into_iter()
         .filter(|value| !value.is_empty())
-        .map(|value| value.to_ascii_lowercase())
+        .map(str::to_ascii_lowercase)
         .collect::<Vec<_>>()
         .join("\u{001f}")
 }

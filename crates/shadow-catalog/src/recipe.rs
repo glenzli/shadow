@@ -1,3 +1,5 @@
+#![allow(clippy::missing_errors_doc)]
+
 use rusqlite::{OptionalExtension, Transaction, params};
 use shadow_domain::{
     EntityId, PhotoId, RecipeCommit, RecipeCommitId, RecipeId, canonical_recipe_snapshot_digest,

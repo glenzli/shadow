@@ -1,3 +1,5 @@
+#![allow(clippy::missing_errors_doc)]
+
 use rusqlite::{OptionalExtension, params, types::Type};
 use shadow_domain::{
     AssetLocation, EntityId, ImportSessionId, LibrarySourceId, Platform, RepresentationId,

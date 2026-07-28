@@ -1,4 +1,4 @@
-//! Shared SQLite row projection and decoding for Review source consumers.
+//! Shared `SQLite` row projection and decoding for Review source consumers.
 //!
 //! Exact-source queries and paginated Review queries deliberately share this
 //! codec so artifact, metadata, decision, and technical-observation provenance

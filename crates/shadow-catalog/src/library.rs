@@ -3,11 +3,18 @@
 //! The catalog's foundational `photos -> representations -> locations` graph remains the
 //! authoritative model. This module adds the durable projections needed to browse that graph at
 //! scale without making an import directory the owner of a photo. All cache payloads remain in
-//! `shadow-cache`; SQLite stores only small, indexed facts and references.
+//! `shadow-cache`; `SQLite` stores only small, indexed facts and references.
 //!
 //! Start with [`model`] for the public vocabulary, [`browse`] for photo-grid queries,
 //! [`collections`] for albums and affinity state, [`facts`] for indexed metadata, and [`sources`]
 //! for scan roots, exact content identity, and relocation.
+//!
+//! Fallible `Catalog` methods in this subsystem uniformly propagate
+//! [`CatalogError`](crate::CatalogError) from input validation, `SQLite`
+//! execution, and persisted-row decoding. Individual methods document only
+//! additional failure semantics.
+
+#![allow(clippy::missing_errors_doc)]
 
 mod browse;
 mod collections;

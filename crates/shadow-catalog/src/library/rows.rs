@@ -1,4 +1,4 @@
-//! SQLite row decoding for Library projections.
+//! `SQLite` row decoding for Library projections.
 //!
 //! This module is the single mapping boundary between persisted columns and Library value objects.
 

@@ -104,11 +104,14 @@ impl Catalog {
         // Keep the single-image API on the same selection path as Library
         // pages, so analysis, Review, and the photo-first grid cannot diverge
         // when cache validity rules evolve.
-        Ok(self
-            .preferred_cached_artifacts(&[representation_id])?
+        self.preferred_cached_artifacts(&[representation_id])?
             .into_iter()
             .next()
-            .expect("one requested representation always yields one selection slot"))
+            .ok_or_else(|| {
+                CatalogError::InvalidLibraryQuery(
+                    "cached artifact selection omitted its requested slot".into(),
+                )
+            })
     }
 
     /// Selects the current grid artifact for every requested representation in
@@ -149,9 +152,11 @@ impl Catalog {
         let candidates = cached_artifacts_for_representations(&self.connection, &unique_ids)?;
         let mut selected = HashMap::with_capacity(unique_ids.len());
         for representation_id in unique_ids {
-            let context = contexts
-                .get(&representation_id)
-                .expect("all requested representations were checked above");
+            let Some(context) = contexts.get(&representation_id) else {
+                return Err(CatalogError::InvalidLibraryQuery(
+                    "cached artifact context disappeared during selection".into(),
+                ));
+            };
             let mut current = candidates
                 .get(&representation_id)
                 .cloned()
@@ -165,15 +170,16 @@ impl Catalog {
             current.sort_by(preferred_artifact_ordering);
             selected.insert(representation_id, current.into_iter().next());
         }
-        Ok(representation_ids
+        representation_ids
             .iter()
             .map(|representation_id| {
-                selected
-                    .get(representation_id)
-                    .expect("all requested representations have a selection slot")
-                    .clone()
+                selected.get(representation_id).cloned().ok_or_else(|| {
+                    CatalogError::InvalidLibraryQuery(
+                        "cached artifact selection omitted a requested representation".into(),
+                    )
+                })
             })
-            .collect())
+            .collect()
     }
 
     /// Lists the content-addressed cache blobs still reachable from current

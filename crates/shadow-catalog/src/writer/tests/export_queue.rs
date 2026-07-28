@@ -84,6 +84,7 @@ fn advance(
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn actor_routes_a_complete_export_item_lifecycle() {
     let actor = CatalogActor::spawn_in_memory().expect("spawn catalog actor");
     let handle = actor.handle();
