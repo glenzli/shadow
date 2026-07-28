@@ -19,6 +19,14 @@ Item {
         onPrimaryContextInvalidated: review.precisionOpenStatus = ""
     }
 
+    ReviewComparisonState {
+        id: comparisonState
+        controller: review.controller
+        selection: selectionState
+        onComparisonRecorded: justifiedGrid.forceActiveFocus()
+    }
+
+    readonly property alias comparison: comparisonState
     readonly property alias selectedPhotoId: selectionState.selectedPhotoId
     readonly property alias selectedRepresentationId:
         selectionState.selectedRepresentationId
@@ -77,17 +85,6 @@ Item {
         selectionState.selectedLaplacianVariance
     readonly property alias selectedEdgeEnergy: selectionState.selectedEdgeEnergy
     readonly property alias selectedPhotoCount: selectionState.selectedPhotoCount
-    property var leftComparisonSnapshot: null
-    property var rightComparisonSnapshot: null
-    property bool leftComparisonVisualReady: false
-    property bool rightComparisonVisualReady: false
-    property bool comparisonBackendReady: false
-    property string comparisonPresentationId: ""
-    property string leftComparisonRequestTicket: ""
-    property string rightComparisonRequestTicket: ""
-    property string leftComparisonSource: ""
-    property string rightComparisonSource: ""
-    property bool compareMode: false
     // The grid stays the broad library browser. The single presentation is a
     // deliberately focused culling surface that still consumes the same
     // filtered catalogue model.
@@ -96,25 +93,16 @@ Item {
         SinglePhotoFilmstrip
     }
     property int galleryPresentation: ReviewWorkspace.JustifiedGrid
-    property string localComparisonStatusKey: ""
-    property int localComparisonStatusSlot: -1
     property string precisionOpenStatus: ""
 
-    readonly property bool comparisonReady: leftComparisonSnapshot !== null
-        && rightComparisonSnapshot !== null
-    readonly property bool comparisonVisualsReady: leftComparisonVisualReady
-        && rightComparisonVisualReady
-    readonly property bool canSubmitComparison: comparisonReady
-        && comparisonVisualsReady && comparisonBackendReady
-        && compareMode && !controller.scanning && !controller.refreshing
-        && !controller.comparisonBusy && !controller.decisionBusy
     readonly property bool canMutateDecision: selectedPhotoId.length > 0
-        && !compareMode && !controller.scanning && !controller.refreshing
+        && !comparison.compareMode
+        && !controller.scanning && !controller.refreshing
         && !controller.busy && !controller.loadingMore
         && !controller.comparisonBusy && !controller.decisionBusy
     readonly property bool canOpenSelectedPhoto: selectedPhotoId.length > 0
         && selectedRepresentationId.length > 0 && selectedPath.length > 0
-        && !compareMode
+        && !comparison.compareMode
         && !controller.refreshing
         && !controller.busy && !controller.loadingMore
         && !controller.comparisonBusy && !controller.decisionBusy
@@ -152,16 +140,6 @@ Item {
         }
         return manualAlbums
     }
-    readonly property string localComparisonStatus: {
-        if (localComparisonStatusKey === "photo-in-both-slots")
-            return qsTr("A photo cannot occupy both comparison slots.")
-        if (localComparisonStatusKey === "slot-updated")
-            return localComparisonStatusSlot === 0
-                ? qsTr("Left evidence slot updated.")
-                : qsTr("Right evidence slot updated.")
-        return ""
-    }
-
     signal openPrecisionRequested(string photoId, string representationId,
                                   string sourcePath, string photoTitle,
                                   string previewSource)
@@ -498,151 +476,6 @@ Item {
         selectionState.clearSelection()
     }
 
-    function selectedComparisonSnapshot() {
-        return {
-            "photoId": String(selectedPhotoId),
-            "representationId": String(selectedRepresentationId),
-            "visualHandle": String(selectedVisualHandle),
-            "title": String(selectedTitle),
-            "sourcePath": String(selectedPath),
-            "visualRole": String(selectedRole),
-            "visualSource": String(selectedVisualSource),
-            "visualWidth": Number(selectedWidth),
-            "visualHeight": Number(selectedHeight),
-            "hasTechnicalObservation": Boolean(selectedHasTechnicalObservation),
-            "technicalInputWidth": Number(selectedTechnicalInputWidth),
-            "technicalInputHeight": Number(selectedTechnicalInputHeight),
-            "technicalPreprocessingVersion": String(
-                selectedTechnicalPreprocessingVersion),
-            "technicalImplementationVersion": String(
-                selectedTechnicalImplementationVersion),
-            "meanLuma": Number(selectedMeanLuma),
-            "p01Luma": Number(selectedP01Luma),
-            "p50Luma": Number(selectedP50Luma),
-            "p99Luma": Number(selectedP99Luma),
-            "nearBlackFraction": Number(selectedNearBlackFraction),
-            "nearWhiteFraction": Number(selectedNearWhiteFraction),
-            "laplacianVariance": Number(selectedLaplacianVariance),
-            "edgeEnergy": Number(selectedEdgeEnergy)
-        }
-    }
-
-    function sameComparisonIdentity(left, right) {
-        return left !== null && right !== null
-            && left.photoId === right.photoId
-            && left.representationId === right.representationId
-            && left.visualHandle === right.visualHandle
-            && left.visualSource === right.visualSource
-    }
-
-    function setLocalComparisonStatus(statusKey, slot) {
-        localComparisonStatusSlot = slot
-        localComparisonStatusKey = statusKey
-    }
-
-    function clearLocalComparisonStatus() {
-        localComparisonStatusKey = ""
-        localComparisonStatusSlot = -1
-    }
-
-    function setSelectedAsLeft() {
-        if (selectedPhotoId.length === 0 || selectedRepresentationId.length === 0
-                || selectedVisualHandle.length === 0
-                || selectedVisualSource.length === 0)
-            return
-        if (rightComparisonSnapshot !== null
-                && rightComparisonSnapshot.photoId === selectedPhotoId) {
-            setLocalComparisonStatus("photo-in-both-slots", -1)
-            return
-        }
-        const snapshot = selectedComparisonSnapshot()
-        leftComparisonVisualReady = false
-        comparisonBackendReady = false
-        leftComparisonSnapshot = snapshot
-        setLocalComparisonStatus("slot-updated", 0)
-    }
-
-    function setSelectedAsRight() {
-        if (selectedPhotoId.length === 0 || selectedRepresentationId.length === 0
-                || selectedVisualHandle.length === 0
-                || selectedVisualSource.length === 0)
-            return
-        if (leftComparisonSnapshot !== null
-                && leftComparisonSnapshot.photoId === selectedPhotoId) {
-            setLocalComparisonStatus("photo-in-both-slots", -1)
-            return
-        }
-        const snapshot = selectedComparisonSnapshot()
-        rightComparisonVisualReady = false
-        comparisonBackendReady = false
-        rightComparisonSnapshot = snapshot
-        setLocalComparisonStatus("slot-updated", 1)
-    }
-
-    function resetPreparedComparison(cancelBackend) {
-        if (cancelBackend && comparisonPresentationId.length > 0)
-            controller.cancelComparison(comparisonPresentationId)
-        comparisonPresentationId = ""
-        leftComparisonRequestTicket = ""
-        rightComparisonRequestTicket = ""
-        leftComparisonSource = ""
-        rightComparisonSource = ""
-        leftComparisonVisualReady = false
-        rightComparisonVisualReady = false
-        comparisonBackendReady = false
-    }
-
-    function clearComparisonSlots(cancelBackend) {
-        resetPreparedComparison(cancelBackend !== false)
-        leftComparisonSnapshot = null
-        rightComparisonSnapshot = null
-        compareMode = false
-        clearLocalComparisonStatus()
-    }
-
-    function enterComparison() {
-        if (!comparisonReady)
-            return
-        const prepared = controller.prepareComparison(
-            leftComparisonSnapshot.visualHandle,
-            rightComparisonSnapshot.visualHandle)
-        if (!prepared || String(prepared.presentationId).length === 0)
-            return
-        comparisonPresentationId = String(prepared.presentationId)
-        leftComparisonRequestTicket = String(prepared.leftRequestTicket)
-        rightComparisonRequestTicket = String(prepared.rightRequestTicket)
-        leftComparisonSource = String(prepared.leftSource)
-        rightComparisonSource = String(prepared.rightSource)
-        leftComparisonVisualReady = false
-        rightComparisonVisualReady = false
-        comparisonBackendReady = false
-        compareMode = true
-        clearLocalComparisonStatus()
-    }
-
-    function exitComparison() {
-        resetPreparedComparison(true)
-        compareMode = false
-        clearLocalComparisonStatus()
-    }
-
-    function refreshComparisonReadiness() {
-        comparisonBackendReady = false
-        if (!compareMode || !comparisonVisualsReady
-                || comparisonPresentationId.length === 0)
-            return
-        comparisonBackendReady = controller.confirmComparisonReady(
-            comparisonPresentationId,
-            leftComparisonRequestTicket,
-            rightComparisonRequestTicket)
-    }
-
-    function submitComparison(outcome) {
-        if (!canSubmitComparison)
-            return
-        controller.recordComparison(comparisonPresentationId, outcome)
-    }
-
     function openSelectedPhoto() {
         if (!canOpenSelectedPhoto)
             return
@@ -667,18 +500,8 @@ Item {
     Connections {
         target: review.controller
         function onItemCountChanged() {
-            if (review.controller.itemCount === 0) {
+            if (review.controller.itemCount === 0)
                 review.clearSelection()
-                review.clearComparisonSlots()
-            }
-        }
-        function onComparisonRecorded() {
-            review.clearComparisonSlots(false)
-            review.clearLocalComparisonStatus()
-            justifiedGrid.forceActiveFocus()
-        }
-        function onComparisonForgotten() {
-            review.clearLocalComparisonStatus()
         }
         function onDecisionChanged(photoId, headSequence, flag, rating) {
             selectionState.applyDecisionChanged(photoId, headSequence, flag, rating)
@@ -693,39 +516,39 @@ Item {
 
     Shortcut {
         sequence: "1"
-        enabled: review.visible && review.canSubmitComparison
-        onActivated: review.submitComparison(0)
+        enabled: review.visible && review.comparison.canSubmitComparison
+        onActivated: review.comparison.submitComparison(0)
     }
 
     Shortcut {
         sequence: "2"
-        enabled: review.visible && review.canSubmitComparison
-        onActivated: review.submitComparison(1)
+        enabled: review.visible && review.comparison.canSubmitComparison
+        onActivated: review.comparison.submitComparison(1)
     }
 
     Shortcut {
         sequence: "3"
-        enabled: review.visible && review.canSubmitComparison
-        onActivated: review.submitComparison(2)
+        enabled: review.visible && review.comparison.canSubmitComparison
+        onActivated: review.comparison.submitComparison(2)
     }
 
     Shortcut {
         sequence: "4"
-        enabled: review.visible && review.canSubmitComparison
-        onActivated: review.submitComparison(3)
+        enabled: review.visible && review.comparison.canSubmitComparison
+        onActivated: review.comparison.submitComparison(3)
     }
 
     Shortcut {
         sequence: "0"
-        enabled: review.visible && review.canSubmitComparison
-        onActivated: review.submitComparison(4)
+        enabled: review.visible && review.comparison.canSubmitComparison
+        onActivated: review.comparison.submitComparison(4)
     }
 
     Shortcut {
         sequence: "Escape"
-        enabled: review.visible && review.compareMode
+        enabled: review.visible && review.comparison.compareMode
             && !review.controller.comparisonBusy
-        onActivated: review.exitComparison()
+        onActivated: review.comparison.exitComparison()
     }
 
     Shortcut {
@@ -1223,11 +1046,11 @@ Item {
 
                 Label {
                     Layout.fillWidth: true
-                    visible: !review.compareMode
+                    visible: !review.comparison.compareMode
                         && (review.controller.comparisonStatusText.length > 0
-                            || review.localComparisonStatus.length > 0)
-                    text: review.localComparisonStatus.length > 0
-                        ? review.localComparisonStatus
+                            || review.comparison.localComparisonStatus.length > 0)
+                    text: review.comparison.localComparisonStatus.length > 0
+                        ? review.comparison.localComparisonStatus
                         : review.controller.comparisonStatusText
                     color: review.controller.comparisonBusy
                         ? review.accent : review.textMuted
@@ -1258,7 +1081,7 @@ Item {
                 anchors.right: parent.right
                 height: 42
                 z: 3
-                visible: !review.compareMode
+                visible: !review.comparison.compareMode
                 color: Theme.chrome
 
                 Rectangle {
@@ -1469,7 +1292,7 @@ Item {
                 anchors.topMargin: 14
                 anchors.bottomMargin: 18
                 clip: true
-                visible: !review.compareMode
+                visible: !review.comparison.compareMode
                     && review.galleryPresentation === ReviewWorkspace.JustifiedGrid
                 enabled: visible
                 focus: visible
@@ -1530,7 +1353,7 @@ Item {
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.bottom: parent.bottom
-                visible: !review.compareMode
+                visible: !review.comparison.compareMode
                     && review.galleryPresentation
                         === ReviewWorkspace.SinglePhotoFilmstrip
                 review: review
@@ -1575,7 +1398,7 @@ Item {
                 review: review
                 floating: true
                 includeColorLabels: true
-                visible: !review.compareMode
+                visible: !review.comparison.compareMode
                     && review.galleryPresentation === ReviewWorkspace.JustifiedGrid
                     && review.selectedPhotoId.length > 0
             }

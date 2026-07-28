@@ -365,6 +365,7 @@ qt_add_qml_module(
         qml/PrecisionWorkspace.qml
         qml/ReviewWorkspace.qml
         qml/ReviewSelectionState.qml
+        qml/ReviewComparisonState.qml
         qml/ReviewComparisonView.qml
         qml/ReviewDecisionToolbar.qml
         qml/ReviewPhotoCard.qml
@@ -996,6 +997,38 @@ if(BUILD_TESTING)
     add_test(
         NAME shadow-desktop-review-selection-state-contract
         COMMAND shadow-review-selection-state-contract-test
+    )
+
+    add_executable(
+        shadow-review-comparison-state-contract-test
+        tests/review_comparison_state_contract_test.cpp
+    )
+    target_compile_features(
+        shadow-review-comparison-state-contract-test
+        PRIVATE cxx_std_20
+    )
+    target_compile_definitions(
+        shadow-review-comparison-state-contract-test
+        PRIVATE SHADOW_DESKTOP_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+    target_link_libraries(
+        shadow-review-comparison-state-contract-test
+        PRIVATE Qt6::Core Qt6::Qml
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-review-comparison-state-contract-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-review-comparison-state-contract-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-review-comparison-state-contract
+        COMMAND shadow-review-comparison-state-contract-test
     )
 
     add_executable(

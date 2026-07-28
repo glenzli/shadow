@@ -14,7 +14,7 @@ Item {
 
                 anchors.fill: parent
                 anchors.margins: 18
-                visible: review.compareMode
+                visible: review.comparison.compareMode
 
                 ColumnLayout {
                     anchors.fill: parent
@@ -49,7 +49,7 @@ Item {
                             toolTipText: qsTr("Exit comparison (Esc)")
                             accessibleName: toolTipText
                             enabled: !review.controller.comparisonBusy
-                            onClicked: review.exitComparison()
+                            onClicked: review.comparison.exitComparison()
                         }
                     }
 
@@ -59,8 +59,8 @@ Item {
                         spacing: 12
 
                         Repeater {
-                            model: [review.leftComparisonSnapshot,
-                                    review.rightComparisonSnapshot]
+                            model: [review.comparison.leftComparisonSnapshot,
+                                    review.comparison.rightComparisonSnapshot]
 
                             delegate: Rectangle {
                                 id: comparisonCard
@@ -116,8 +116,8 @@ Item {
                                             anchors.fill: parent
                                             anchors.margins: 1
                                             source: comparisonCard.index === 0
-                                                ? review.leftComparisonSource
-                                                : review.rightComparisonSource
+                                                ? review.comparison.leftComparisonSource
+                                                : review.comparison.rightComparisonSource
                                             fillMode: Image.PreserveAspectFit
                                             asynchronous: true
                                             cache: false
@@ -125,21 +125,21 @@ Item {
                                             sourceSize.height: 960
                                             onStatusChanged: {
                                                 const current = comparisonCard.index === 0
-                                                    ? review.leftComparisonSnapshot
-                                                    : review.rightComparisonSnapshot
-                                                if (!review.sameComparisonIdentity(
+                                                    ? review.comparison.leftComparisonSnapshot
+                                                    : review.comparison.rightComparisonSnapshot
+                                                if (!review.comparison.sameComparisonIdentity(
                                                         current,
                                                         comparisonCard.modelData)
                                                         || String(comparisonImage.source)
                                                             !== (comparisonCard.index === 0
-                                                                ? review.leftComparisonSource
-                                                                : review.rightComparisonSource))
+                                                                ? review.comparison.leftComparisonSource
+                                                                : review.comparison.rightComparisonSource))
                                                     return
                                                 if (comparisonCard.index === 0)
-                                                    review.leftComparisonVisualReady = status === Image.Ready
+                                                    review.comparison.leftComparisonVisualReady = status === Image.Ready
                                                 else
-                                                    review.rightComparisonVisualReady = status === Image.Ready
-                                                Qt.callLater(review.refreshComparisonReadiness)
+                                                    review.comparison.rightComparisonVisualReady = status === Image.Ready
+                                                Qt.callLater(review.comparison.refreshComparisonReadiness)
                                             }
                                         }
 
@@ -325,11 +325,11 @@ Item {
 
                     Label {
                         Layout.fillWidth: true
-                        text: review.comparisonBackendReady
+                        text: review.comparison.comparisonBackendReady
                             ? qsTr("EXACT ARTIFACTS + DECODED %1 FRAMES VERIFIED")
                                 .arg("RGBA")
                             : qsTr("WAITING FOR BOTH EXACT COMPARE FRAME RECEIPTS")
-                        color: review.comparisonBackendReady
+                        color: review.comparison.comparisonBackendReady
                             ? Theme.readyText : Theme.textPending
                         horizontalAlignment: Text.AlignHCenter
                         font.pixelSize: 8
@@ -368,7 +368,7 @@ Item {
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: 36
                                 variant: ShadowButton.Tinted
-                                enabled: review.canSubmitComparison
+                                enabled: review.comparison.canSubmitComparison
                                 text: {
                                     switch (outcomeButton.actionId) {
                                     case "left-preferred":
@@ -385,7 +385,7 @@ Item {
                                         return ""
                                     }
                                 }
-                                onClicked: review.submitComparison(outcomeValue)
+                                onClicked: review.comparison.submitComparison(outcomeValue)
                             }
                         }
                     }
@@ -403,8 +403,8 @@ Item {
 
                         Label {
                             Layout.fillWidth: true
-                            text: review.localComparisonStatus.length > 0
-                                ? review.localComparisonStatus
+                            text: review.comparison.localComparisonStatus.length > 0
+                                ? review.comparison.localComparisonStatus
                                 : review.controller.comparisonStatusText
                             color: review.controller.comparisonBusy
                                 ? review.accent : review.textMuted

@@ -244,15 +244,15 @@ Rectangle {
                             variant: ShadowIconButton.Tinted
                             toolTipText: qsTr("Compare slots A and B")
                             accessibleName: toolTipText
-                            enabled: review.comparisonReady
-                                && !review.compareMode
+                            enabled: review.comparison.comparisonReady
+                                && !review.comparison.compareMode
                                 && !review.controller.comparisonBusy
                                 && !review.controller.decisionBusy
                                 && !review.controller.scanning
                                 && !review.controller.refreshing
                                 && !review.controller.busy
                                 && !review.controller.loadingMore
-                            onClicked: review.enterComparison()
+                            onClicked: review.comparison.enterComparison()
                         }
 
                         ShadowIconButton {
@@ -266,9 +266,9 @@ Rectangle {
                                 && !review.controller.refreshing
                                 && !review.controller.busy
                                 && !review.controller.loadingMore
-                                && (review.leftComparisonSnapshot !== null
-                                    || review.rightComparisonSnapshot !== null)
-                            onClicked: review.clearComparisonSlots()
+                                && (review.comparison.leftComparisonSnapshot !== null
+                                    || review.comparison.rightComparisonSnapshot !== null)
+                            onClicked: review.comparison.clearComparisonSlots()
                         }
                     }
 
@@ -286,11 +286,11 @@ Rectangle {
 
                             Label {
                                 Layout.fillWidth: true
-                                text: review.leftComparisonSnapshot
+                                text: review.comparison.leftComparisonSnapshot
                                     ? qsTr("A  %1").arg(
-                                        review.leftComparisonSnapshot.title)
+                                        review.comparison.leftComparisonSnapshot.title)
                                     : qsTr("A  Not set")
-                                color: review.leftComparisonSnapshot
+                                color: review.comparison.leftComparisonSnapshot
                                     ? review.textPrimary : review.textMuted
                                 elide: Text.ElideMiddle
                                 font.pixelSize: 10
@@ -303,7 +303,7 @@ Rectangle {
                                 source: "qrc:/icons/slot-left.svg"
                                 toolTipText: qsTr("Set selected photo as comparison slot A")
                                 accessibleName: toolTipText
-                                enabled: !review.compareMode
+                                enabled: !review.comparison.compareMode
                                     && !review.controller.comparisonBusy
                                     && !review.controller.decisionBusy
                                     && !review.controller.scanning
@@ -314,10 +314,10 @@ Rectangle {
                                     && review.selectedRepresentationId.length > 0
                                     && review.selectedVisualHandle.length > 0
                                     && review.selectedVisualSource.length > 0
-                                    && (review.rightComparisonSnapshot === null
-                                        || review.rightComparisonSnapshot.photoId
+                                    && (review.comparison.rightComparisonSnapshot === null
+                                        || review.comparison.rightComparisonSnapshot.photoId
                                             !== review.selectedPhotoId)
-                                onClicked: review.setSelectedAsLeft()
+                                onClicked: review.comparison.setSelectedAsLeft()
                             }
                         }
                     }
@@ -336,11 +336,11 @@ Rectangle {
 
                             Label {
                                 Layout.fillWidth: true
-                                text: review.rightComparisonSnapshot
+                                text: review.comparison.rightComparisonSnapshot
                                     ? qsTr("B  %1").arg(
-                                        review.rightComparisonSnapshot.title)
+                                        review.comparison.rightComparisonSnapshot.title)
                                     : qsTr("B  Not set")
-                                color: review.rightComparisonSnapshot
+                                color: review.comparison.rightComparisonSnapshot
                                     ? review.textPrimary : review.textMuted
                                 elide: Text.ElideMiddle
                                 font.pixelSize: 10
@@ -353,7 +353,7 @@ Rectangle {
                                 source: "qrc:/icons/slot-right.svg"
                                 toolTipText: qsTr("Set selected photo as comparison slot B")
                                 accessibleName: toolTipText
-                                enabled: !review.compareMode
+                                enabled: !review.comparison.compareMode
                                     && !review.controller.comparisonBusy
                                     && !review.controller.decisionBusy
                                     && !review.controller.scanning
@@ -364,10 +364,10 @@ Rectangle {
                                     && review.selectedRepresentationId.length > 0
                                     && review.selectedVisualHandle.length > 0
                                     && review.selectedVisualSource.length > 0
-                                    && (review.leftComparisonSnapshot === null
-                                        || review.leftComparisonSnapshot.photoId
+                                    && (review.comparison.leftComparisonSnapshot === null
+                                        || review.comparison.leftComparisonSnapshot.photoId
                                             !== review.selectedPhotoId)
-                                onClicked: review.setSelectedAsRight()
+                                onClicked: review.comparison.setSelectedAsRight()
                             }
                         }
                     }

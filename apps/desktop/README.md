@@ -120,6 +120,10 @@ Review presentation keeps the workspace as the composition and compatibility sur
   the off-screen-safe Shift anchor, and the primary presentation snapshot. Detailed EXIF and
   technical facts come from an independent exact `{photo, representation}` request, so delegate
   recycling and Library pagination cannot replace the selected representation.
+- [`qml/ReviewComparisonState.qml`](qml/ReviewComparisonState.qml) owns frozen left/right evidence
+  snapshots, duplicate-photo rejection, prepared presentation tickets and sources, visual/backend
+  readiness, local status, submission, cancellation, and terminal cleanup. Comparison surfaces
+  navigate through this owner instead of reopening the lifecycle in `ReviewWorkspace`.
 - [`src/review_comparison_coordinator.cpp`](src/review_comparison_coordinator.cpp) owns the complete
   Compare lifecycle after cross-workflow admission: exact presentation preparation, decoded-frame
   verification, cancellation, serialized record/forget workers, receipt validation, session-local
