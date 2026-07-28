@@ -242,6 +242,8 @@ qt_add_executable(
     src/review_library_facet_coordinator.hpp
     src/review_library_organization_coordinator.cpp
     src/review_library_organization_coordinator.hpp
+    src/review_library_query_coordinator.cpp
+    src/review_library_query_coordinator.hpp
     src/review_model.cpp
     src/review_model.hpp
     src/review_photo_inspection_coordinator.cpp
@@ -1532,6 +1534,49 @@ if(BUILD_TESTING)
     add_test(
         NAME shadow-desktop-review-import-coordinator
         COMMAND shadow-review-import-coordinator-test
+    )
+
+    add_executable(
+        shadow-review-library-query-coordinator-test
+        tests/review_library_query_coordinator_test.cpp
+        tests/review_library_query_coordinator/library_query_fixture.hpp
+        tests/review_library_query_coordinator/projection_pagination_contract.cpp
+        tests/review_library_query_coordinator/coalescing_failure_lifetime_contract.cpp
+        src/review_library_query_coordinator.cpp
+        src/review_library_query_coordinator.hpp
+        src/review_decision_coordinator.cpp
+        src/review_decision_coordinator.hpp
+        src/review_model.cpp
+        src/review_model.hpp
+        src/review_visual_request.cpp
+        src/review_visual_request.hpp
+    )
+    target_compile_features(
+        shadow-review-library-query-coordinator-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-review-library-query-coordinator-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-review-library-query-coordinator-test
+        PRIVATE Qt6::Concurrent Qt6::Gui
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-review-library-query-coordinator-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-review-library-query-coordinator-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-review-library-query-coordinator
+        COMMAND shadow-review-library-query-coordinator-test
     )
 
     add_executable(

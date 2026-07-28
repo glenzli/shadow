@@ -9,42 +9,20 @@
 #include "review_library_album_coordinator.hpp"
 #include "review_library_facet_coordinator.hpp"
 #include "review_library_organization_coordinator.hpp"
+#include "review_library_query_coordinator.hpp"
 #include "review_model.hpp"
 #include "review_photo_inspection_coordinator.hpp"
 #include "review_source_health_coordinator.hpp"
 
-#include <QFutureWatcher>
 #include <QObject>
 #include <QString>
 #include <QStringList>
-#include <QTimer>
 #include <QUrl>
 #include <QVariantList>
 #include <QVariantMap>
 
 #include <cstdint>
 #include <memory>
-
-enum class PageTaskKind : std::uint8_t {
-    InitialReset,
-    StreamingPrefix,
-    Append,
-};
-
-struct PageTaskResult final {
-    BackendLibraryPhotoPage page;
-    QString error;
-    quint64 library_generation = 0;
-    quint64 request_id = 0;
-    PageTaskKind kind = PageTaskKind::InitialReset;
-};
-
-struct CountTaskResult final {
-    quint64 count = 0;
-    QString error;
-    quint64 library_generation = 0;
-    quint64 request_id = 0;
-};
 
 class ReviewController final : public QObject {
     Q_OBJECT
@@ -413,20 +391,9 @@ signals:
     void decisionUndone();
 
 private:
-    void finishPage();
-    void finishCount();
-    void startPage(PageTaskKind kind);
     void requestLibraryReset();
     void scheduleFilterQuery();
-    void beginFilteredLibraryQuery();
-    void startCountQuery();
     [[nodiscard]] BackendLibraryPhotoFilter currentLibraryFilter() const;
-    void emitWorkStateChanges(
-        bool old_busy,
-        bool old_loading_more,
-        bool old_refreshing
-    );
-    void setHasMore(bool has_more);
     bool eventFilter(QObject *watched, QEvent *event) override;
     void setStatusMessage(LocalizedUiMessage status);
     void updateReadyStatus();
@@ -450,27 +417,11 @@ private:
                         "Flags and stars are explicit local library decisions"
     ),
   };
-    BackendLibraryPhotoCursor next_cursor_;
-    quint64 library_generation_ = 1;
-    quint64 page_request_id_ = 0;
-    quint64 active_page_request_id_ = 0;
-    quint64 count_request_id_ = 0;
-    quint64 active_count_request_id_ = 0;
-    quint64 total_items_ = 0;
-    bool page_running_ = false;
-    bool page_reset_running_ = false;
-    bool library_reset_pending_ = false;
-    bool count_running_ = false;
-    bool count_query_pending_ = false;
-    bool terminal_refresh_active_ = false;
-    bool has_more_ = false;
-    QTimer filter_debounce_timer_;
     ReviewModel model_;
     ReviewFilterModel filtered_model_;
+    ReviewLibraryQueryCoordinator query_coordinator_;
     ReviewLibraryOrganizationCoordinator organization_coordinator_;
     ReviewComparisonCoordinator comparison_coordinator_;
     ReviewDecisionCoordinator decision_coordinator_;
     QVector<BackendSharedGradeNode> shared_grade_nodes_;
-    QFutureWatcher<PageTaskResult> page_watcher_;
-    QFutureWatcher<CountTaskResult> count_watcher_;
 };

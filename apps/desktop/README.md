@@ -4,7 +4,8 @@ The first macOS Review slice is a native Qt Quick application backed by the exis
 
 ```text
 startup Catalog page / Add Folder / QML Review grid
-  → ReviewController (Qt UI thread + polling timer + QtConcurrent job)
+  → ReviewController (Qt facade + cross-workflow admission)
+  → ReviewImportCoordinator / ReviewLibraryQueryCoordinator
   → shadow-desktop-bridge (long-lived CXX session)
   → shadow-core controlled scan / cancellable decode workers
   → shadow-catalog single writer
@@ -192,6 +193,14 @@ Review presentation keeps the workspace as the composition and compatibility sur
   [`tests/review_library_organization_coordinator/`](tests/review_library_organization_coordinator/)
   contracts cover normalization, coupled-state preservation, no-op admission, projection,
   diagnostics, invalid receipts, and lifetime.
+- [`src/review_library_query_coordinator.cpp`](src/review_library_query_coordinator.cpp) owns the
+  generation-bound Library page and count projection: one immutable active filter, keyset cursor,
+  reset debounce/coalescing, page/count workers, stale-result rejection, cursor validation,
+  snapshot/prefix/append reconciliation, query status, and destruction wait. `ReviewController`
+  supplies filter snapshots and cross-workflow state while the coordinator emits only facet,
+  decision, status, and work-state boundaries. Its
+  [`tests/review_library_query_coordinator/`](tests/review_library_query_coordinator/) contracts
+  cover projection, pagination, reset coalescing, stale completion, failures, and lifetime.
 - [`src/photo_inspection_projection.cpp`](src/photo_inspection_projection.cpp) is the sole
   production mapping from the complete Rust FFI inspection DTO to the desktop DTO.
   [`tests/backend_photo_inspection_contract_test.cpp`](tests/backend_photo_inspection_contract_test.cpp)
