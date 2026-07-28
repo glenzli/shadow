@@ -100,6 +100,11 @@ Add a new edit workflow to its semantic owner and wire only its stable QML contr
 
 Precision presentation follows the same responsibility tree:
 
+- [`qml/EditHistogram.qml`](qml/EditHistogram.qml) owns analysis-mode controls, status,
+  generation-aware labels, clipping badges, and the surrounding layout.
+- [`qml/EditScopeData.qml`](qml/EditScopeData.qml) is the single defensive projection of backend
+  analysis maps; [`qml/EditScopeCanvas.qml`](qml/EditScopeCanvas.qml) owns every histogram,
+  waveform, RGB-parade, vectorscope, and skin-reference drawing algorithm.
 - [`qml/PrecisionCanvas.qml`](qml/PrecisionCanvas.qml) owns the preview viewport, zoom/detail
   transport, overlays, and their stable workspace-facing state.
 - [`qml/PrecisionCanvasToolbar.qml`](qml/PrecisionCanvasToolbar.qml) presents the current-photo,

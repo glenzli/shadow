@@ -356,6 +356,8 @@ qt_add_qml_module(
     VERSION 1.0
     QML_FILES
         qml/EditHistogram.qml
+        qml/EditScopeCanvas.qml
+        qml/EditScopeData.qml
         qml/ExportDialog.qml
         qml/LibraryAlbumDialogs.qml
         qml/LibraryFacetPopup.qml
