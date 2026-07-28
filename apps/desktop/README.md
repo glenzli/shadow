@@ -76,6 +76,10 @@ Precision presentation follows the same responsibility tree:
 
 - [`qml/PrecisionInspector.qml`](qml/PrecisionInspector.qml) owns inspector composition, tool
   routing, analysis presentation, and the stable Adjust/Looks surface.
+- [`qml/PrecisionLutSection.qml`](qml/PrecisionLutSection.qml) owns the complete managed-LUT
+  browser: recursive directory projection, preview-provider identities, browser expansion,
+  selection and clear actions, and the LUT-intensity gesture. An empty library contributes no
+  synthetic explanation row; management remains an explicit adjacent action.
 - [`qml/PrecisionCanvasPickerInput.qml`](qml/PrecisionCanvasPickerInput.qml) owns point-color and
   white-balance sampling plus repair spot/stroke gesture lifecycles without expanding the canvas
   composition surface.
