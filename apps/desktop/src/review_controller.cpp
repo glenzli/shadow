@@ -225,18 +225,6 @@ constexpr std::uint32_t LIBRARY_FACET_PAGE_SIZE = 24;
     return photo_ids;
 }
 
-[[nodiscard]] QString decision_flag_name(const BackendReviewDecisionFlag flag) {
-    switch (flag) {
-    case BackendReviewDecisionFlag::Unflagged:
-        return QStringLiteral("unflagged");
-    case BackendReviewDecisionFlag::Picked:
-        return QStringLiteral("picked");
-    case BackendReviewDecisionFlag::Rejected:
-        return QStringLiteral("rejected");
-    }
-    throw std::invalid_argument("unknown Review decision flag");
-}
-
 [[nodiscard]] QVector<ReviewItem> review_items(QVector<BackendReviewItem> source) {
     QVector<ReviewItem> items;
     items.reserve(source.size());
@@ -246,7 +234,7 @@ constexpr std::uint32_t LIBRARY_FACET_PAGE_SIZE = 24;
             .representation_id = std::move(item.representation_id),
             .visual_handle = std::move(item.visual_handle),
             .decision_head_sequence = item.decision_head_sequence,
-            .decision_flag = decision_flag_name(item.decision_flag),
+            .decision_flag = review_decision_flag_name(item.decision_flag),
             .decision_rating = static_cast<int>(item.decision_rating),
             .liked = item.liked,
             .color_label = std::move(item.color_label),
@@ -390,26 +378,39 @@ source_health_operations(const std::shared_ptr<DesktopBackend>& backend) {
     };
 }
 
-[[nodiscard]] std::optional<BackendReviewDecisionFlag> decision_flag(
-    const QString& flag
+[[nodiscard]] ReviewDecisionCoordinator::Operations decision_operations(
+    const std::shared_ptr<DesktopBackend>& backend
 ) {
-    if (flag == QStringLiteral("unflagged")) {
-        return BackendReviewDecisionFlag::Unflagged;
+    if (!backend) {
+        throw std::invalid_argument("Review decision backend is required");
     }
-    if (flag == QStringLiteral("picked")) {
-        return BackendReviewDecisionFlag::Picked;
-    }
-    if (flag == QStringLiteral("rejected")) {
-        return BackendReviewDecisionFlag::Rejected;
-    }
-    return std::nullopt;
+    return {
+        .mutate =
+            [backend](
+                const QString& photo_id,
+                const std::uint64_t expected_head_sequence,
+                const BackendReviewDecisionFlag desired_flag,
+                const std::uint8_t desired_rating
+            ) {
+                return backend->setReviewPhotoDecision(
+                    photo_id,
+                    expected_head_sequence,
+                    desired_flag,
+                    desired_rating
+                );
+            },
+        .authoritative_state =
+            [backend](const QString& photo_id) {
+                return backend->reviewPhotoDecisionState(photo_id);
+            },
+    };
 }
 
 [[nodiscard]] BackendReviewDecisionState backend_decision_state(
     const QString& photo_id,
     const ReviewDecisionValue& value
 ) {
-    const auto flag = decision_flag(value.flag);
+    const auto flag = review_decision_flag_from_name(value.flag);
     if (!flag || value.rating < 0 || value.rating > 5) {
         throw std::invalid_argument("Review model contains an invalid decision state");
     }
@@ -419,32 +420,6 @@ source_health_operations(const std::shared_ptr<DesktopBackend>& backend) {
         .flag = *flag,
         .rating = static_cast<std::uint8_t>(value.rating),
     };
-}
-
-[[nodiscard]] ReviewDecisionTaskResult run_decision_mutation(
-    const std::shared_ptr<DesktopBackend>& backend,
-    const ReviewDecisionMutationRequest& request
-) {
-    ReviewDecisionTaskResult result;
-    result.is_undo = request.is_undo;
-    try {
-        result.receipt = backend->setReviewPhotoDecision(
-            request.photo_id,
-            request.expected_head_sequence,
-            request.desired_flag,
-            request.desired_rating
-        );
-        return result;
-    } catch (const std::exception& error) {
-        result.error = QString::fromUtf8(error.what());
-    }
-    try {
-        result.authoritative = backend->reviewPhotoDecisionState(request.photo_id);
-        result.has_authoritative = true;
-    } catch (const std::exception& error) {
-        result.refresh_error = QString::fromUtf8(error.what());
-    }
-    return result;
 }
 
 } // namespace
@@ -464,6 +439,20 @@ ReviewController::ReviewController(
           comparison_operations(backend_),
           [this](const QString& ticket) {
               return model_.visualSourceFor(ticket);
+          }
+      ),
+      decision_coordinator_(
+          decision_operations(backend_),
+          [this](const QString& photo_id)
+              -> std::optional<BackendReviewDecisionState> {
+              const auto current = model_.decisionFor(photo_id);
+              if (!current) {
+                  return std::nullopt;
+              }
+              return backend_decision_state(photo_id, *current);
+          },
+          [this](const BackendReviewDecisionState& state) {
+              projectDecisionState(state);
           }
       ) {
     // Keep the constructor shape for existing test/application call sites.
@@ -546,6 +535,26 @@ ReviewController::ReviewController(
         &ReviewController::comparisonForgotten
     );
     connect(
+        &decision_coordinator_,
+        &ReviewDecisionCoordinator::stateChanged,
+        this,
+        &ReviewController::decisionStateChanged
+    );
+    connect(
+        &decision_coordinator_,
+        &ReviewDecisionCoordinator::statusTextChanged,
+        this,
+        [this]() {
+            setDecisionStatusMessage(decision_coordinator_.statusMessage());
+        }
+    );
+    connect(
+        &decision_coordinator_,
+        &ReviewDecisionCoordinator::undone,
+        this,
+        &ReviewController::decisionUndone
+    );
+    connect(
         &library_facets_watcher_,
         &QFutureWatcher<LibraryFacetTaskResult>::finished,
         this,
@@ -586,12 +595,6 @@ ReviewController::ReviewController(
         }
     );
     connect(
-        &decision_watcher_,
-        &QFutureWatcher<ReviewDecisionTaskResult>::finished,
-        this,
-        &ReviewController::finishDecisionTask
-    );
-    connect(
         &scan_progress_timer_,
         &QTimer::timeout,
         this,
@@ -629,7 +632,6 @@ ReviewController::~ReviewController() {
     library_facets_watcher_.waitForFinished();
     library_state_watcher_.waitForFinished();
     library_albums_watcher_.waitForFinished();
-    decision_watcher_.waitForFinished();
 }
 
 bool ReviewController::busy() const noexcept {
@@ -745,11 +747,11 @@ QString ReviewController::comparisonStatusText() const {
 }
 
 bool ReviewController::decisionBusy() const noexcept {
-    return decision_session_.busy();
+    return decision_coordinator_.busy();
 }
 
 bool ReviewController::canUndoDecision() const {
-    return decision_session_.canUndo();
+    return decision_coordinator_.canUndo();
 }
 
 QString ReviewController::decisionStatusText() const {
@@ -889,7 +891,7 @@ ReviewModel* ReviewController::reviewModel() noexcept {
 
 void ReviewController::scanFolder(const QUrl& folder_url) {
     if (scan_running_ || page_running_ || terminal_refresh_active_
-        || comparison_coordinator_.busy() || decision_session_.busy()) {
+        || comparison_coordinator_.busy() || decision_coordinator_.busy()) {
         return;
     }
     const QString path = folder_url.toLocalFile();
@@ -991,7 +993,7 @@ void ReviewController::cancelScan() {
 
 void ReviewController::loadMore() {
     if (!has_more_ || scan_running_ || refreshing() || page_running_
-        || comparison_coordinator_.busy() || decision_session_.busy()) {
+        || comparison_coordinator_.busy() || decision_coordinator_.busy()) {
         return;
     }
     startPage(PageTaskKind::Append);
@@ -1054,7 +1056,7 @@ QVariantMap ReviewController::prepareComparison(
     const QString& left_visual_handle,
     const QString& right_visual_handle
 ) {
-    if (comparison_coordinator_.busy() || decision_session_.busy()
+    if (comparison_coordinator_.busy() || decision_coordinator_.busy()
         || scan_running_ || refreshing() || page_running_) {
         return {};
     }
@@ -1069,7 +1071,7 @@ bool ReviewController::confirmComparisonReady(
     const QString& left_request_ticket,
     const QString& right_request_ticket
 ) {
-    if (decision_session_.busy()) {
+    if (decision_coordinator_.busy()) {
         return false;
     }
     return comparison_coordinator_.confirmReady(
@@ -1080,7 +1082,7 @@ bool ReviewController::confirmComparisonReady(
 }
 
 void ReviewController::cancelComparison(const QString& presentation_id) {
-    if (decision_session_.busy()) {
+    if (decision_coordinator_.busy()) {
         return;
     }
     comparison_coordinator_.cancel(presentation_id);
@@ -1090,7 +1092,7 @@ void ReviewController::recordComparison(
     const QString& presentation_id,
     const int outcome
 ) {
-    const bool admitted = !decision_session_.busy() && !scan_running_
+    const bool admitted = !decision_coordinator_.busy() && !scan_running_
         && !refreshing() && !page_running_;
     static_cast<void>(comparison_coordinator_.record(
         presentation_id,
@@ -1100,7 +1102,8 @@ void ReviewController::recordComparison(
 }
 
 void ReviewController::undoLastComparison() {
-    if (decision_session_.busy() || scan_running_ || refreshing() || page_running_) {
+    if (decision_coordinator_.busy() || scan_running_ || refreshing()
+        || page_running_) {
         return;
     }
     static_cast<void>(comparison_coordinator_.forgetLast());
@@ -1110,92 +1113,22 @@ void ReviewController::setPhotoFlag(
     const QString& photo_id,
     const QString& flag
 ) {
-    const auto desired_flag = decision_flag(flag);
-    if (!desired_flag) {
-    setDecisionStatusMessage(review_message(
-        QT_TRANSLATE_NOOP("ReviewController", "Unsupported Review flag")));
-        return;
-    }
-    if (scan_running_ || refreshing() || page_running_
-        || comparison_coordinator_.busy()
-        || decision_session_.busy()) {
-        return;
-    }
-    const auto current_value = model_.decisionFor(photo_id);
-    if (!current_value) {
-    setDecisionStatusMessage(review_message(QT_TRANSLATE_NOOP(
-        "ReviewController", "Select a loaded photo before setting a flag")));
-        return;
-    }
-    BackendReviewDecisionState current;
-    try {
-        current = backend_decision_state(photo_id, *current_value);
-    } catch (const std::exception& error) {
-    setDecisionStatusMessage(review_message(
-        QT_TRANSLATE_NOOP("ReviewController",
-                          "Could not read the current flag decision · %1"),
-        {QString::fromUtf8(error.what())}));
-        return;
-    }
-    const auto request = decision_session_.beginSet(
-        std::move(current),
-        *desired_flag,
-        static_cast<std::uint8_t>(current_value->rating)
+    const bool admitted = !scan_running_ && !refreshing() && !page_running_
+        && !comparison_coordinator_.busy();
+    static_cast<void>(
+        decision_coordinator_.setFlag(photo_id, flag, admitted)
     );
-    if (!request) {
-    setDecisionStatusMessage(review_message(QT_TRANSLATE_NOOP(
-        "ReviewController", "Flag already matches the selected photo")));
-        return;
-    }
-  setDecisionStatusMessage(review_message(QT_TRANSLATE_NOOP(
-      "ReviewController", "Appending an explicit flag decision…")));
-    startDecisionMutation(*request);
 }
 
 void ReviewController::setPhotoRating(
     const QString& photo_id,
     const int rating
 ) {
-    if (rating < 0 || rating > 5) {
-    setDecisionStatusMessage(review_message(QT_TRANSLATE_NOOP(
-        "ReviewController", "Rating must be between 0 and 5 stars")));
-        return;
-    }
-    if (scan_running_ || refreshing() || page_running_
-        || comparison_coordinator_.busy()
-        || decision_session_.busy()) {
-        return;
-    }
-    const auto current_value = model_.decisionFor(photo_id);
-    if (!current_value) {
-    setDecisionStatusMessage(review_message(QT_TRANSLATE_NOOP(
-        "ReviewController", "Select a loaded photo before setting a rating")));
-        return;
-    }
-    BackendReviewDecisionState current;
-    try {
-        current = backend_decision_state(photo_id, *current_value);
-    } catch (const std::exception& error) {
-    setDecisionStatusMessage(review_message(
-        QT_TRANSLATE_NOOP("ReviewController",
-                          "Could not read the current star rating · %1"),
-        {QString::fromUtf8(error.what())}));
-        return;
-    }
-    const BackendReviewDecisionFlag current_flag = current.flag;
-    const auto request = decision_session_.beginSet(
-        std::move(current),
-        current_flag,
-        static_cast<std::uint8_t>(rating)
+    const bool admitted = !scan_running_ && !refreshing() && !page_running_
+        && !comparison_coordinator_.busy();
+    static_cast<void>(
+        decision_coordinator_.setRating(photo_id, rating, admitted)
     );
-    if (!request) {
-    setDecisionStatusMessage(review_message(QT_TRANSLATE_NOOP(
-        "ReviewController", "Rating already matches the selected photo")));
-        return;
-    }
-  setDecisionStatusMessage(review_message(QT_TRANSLATE_NOOP(
-      "ReviewController", "Appending an explicit star rating…")));
-    startDecisionMutation(*request);
 }
 
 void ReviewController::setPhotoColorLabel(
@@ -1203,7 +1136,7 @@ void ReviewController::setPhotoColorLabel(
     const QString& color_label
 ) {
     if (library_state_mutation_running_ || comparison_coordinator_.busy()
-        || decision_session_.busy()) {
+        || decision_coordinator_.busy()) {
         return;
     }
     const QString normalized = color_label.trimmed().toLower();
@@ -1222,7 +1155,7 @@ void ReviewController::setPhotoColorLabel(
 
 void ReviewController::setPhotoLiked(const QString& photo_id, const bool liked) {
     if (library_state_mutation_running_ || comparison_coordinator_.busy()
-        || decision_session_.busy()) {
+        || decision_coordinator_.busy()) {
         return;
     }
     const auto current = model_.libraryStateFor(photo_id);
@@ -1248,7 +1181,7 @@ void ReviewController::clearFilters() {
 }
 
 void ReviewController::refreshVisibleLibrary() {
-    if (scan_running_ || decision_session_.busy()) {
+    if (scan_running_ || decision_coordinator_.busy()) {
         return;
     }
     requestLibraryReset();
@@ -1538,39 +1471,9 @@ void ReviewController::setLibraryAlbumId(const QString& album_id) {
 }
 
 void ReviewController::undoLastDecision() {
-    if (scan_running_ || refreshing() || page_running_
-        || comparison_coordinator_.busy()
-        || decision_session_.busy()) {
-        return;
-    }
-    const auto request = decision_session_.beginUndo();
-    if (!request) {
-    setDecisionStatusMessage(review_message(
-            decision_session_.undoDepth() > 0
-                ? QT_TRANSLATE_NOOP("ReviewController",
-                                "Local undo is disabled because the "
-                                "authoritative decision changed")
-                : QT_TRANSLATE_NOOP(
-                  "ReviewController",
-                  "No decision from this app session is available to undo"))
-        );
-        emit decisionStateChanged();
-        return;
-    }
-  setDecisionStatusMessage(review_message(QT_TRANSLATE_NOOP(
-      "ReviewController", "Appending an inverse decision event…")));
-    startDecisionMutation(*request);
-}
-
-void ReviewController::startDecisionMutation(
-    const ReviewDecisionMutationRequest& request
-) {
-    emit decisionStateChanged();
-    decision_watcher_.setFuture(QtConcurrent::run(
-        run_decision_mutation,
-        backend_,
-        request
-    ));
+    const bool admitted = !scan_running_ && !refreshing() && !page_running_
+        && !comparison_coordinator_.busy();
+    static_cast<void>(decision_coordinator_.undo(admitted));
 }
 
 void ReviewController::finishScan() {
@@ -1682,7 +1585,7 @@ void ReviewController::requestLibraryReset() {
     filter_debounce_timer_.stop();
     terminal_refresh_active_ = true;
     library_reset_pending_ = true;
-    if (page_running_ || decision_session_.busy()) {
+    if (page_running_ || decision_coordinator_.busy()) {
         return;
     }
     beginFilteredLibraryQuery();
@@ -1694,7 +1597,7 @@ void ReviewController::scheduleFilterQuery() {
 }
 
 void ReviewController::beginFilteredLibraryQuery() {
-    if (page_running_ || decision_session_.busy()) {
+    if (page_running_ || decision_coordinator_.busy()) {
         library_reset_pending_ = true;
         return;
     }
@@ -1811,7 +1714,7 @@ void ReviewController::finishPage() {
     }
 
     for (auto& state : decision_states) {
-        decision_session_.reconcile(std::move(state));
+        decision_coordinator_.reconcile(std::move(state));
     }
     if (result.kind == PageTaskKind::StreamingPrefix) {
         setHasMore(false);
@@ -2001,73 +1904,8 @@ void ReviewController::finishLibraryAlbumsTask() {
     }
 }
 
-void ReviewController::finishDecisionTask() {
-    const ReviewDecisionTaskResult result = decision_watcher_.result();
-    if (!result.error.isEmpty()) {
-        decision_session_.fail();
-        if (result.has_authoritative) {
-            applyDecisionState(result.authoritative);
-        }
-        emit decisionStateChanged();
-        if (result.is_undo && result.has_authoritative
-            && !decision_session_.canUndo()) {
-      setDecisionStatusMessage(review_message(QT_TRANSLATE_NOOP(
-          "ReviewController", "Undo blocked · authoritative decision changed "
-                              "outside this session"))
-            );
-        } else if (result.is_undo && decision_session_.canUndo()) {
-      setDecisionStatusMessage(review_message(
-          QT_TRANSLATE_NOOP(
-              "ReviewController",
-              "Undo write failed · unchanged state remains retryable · %1"),
-          {result.error})
-            );
-        } else if (result.has_authoritative) {
-      setDecisionStatusMessage(review_message(
-          QT_TRANSLATE_NOOP(
-              "ReviewController",
-              "Decision write failed · authoritative state refreshed · %1"),
-          {result.error})
-            );
-        } else {
-      setDecisionStatusMessage(review_message(
-          QT_TRANSLATE_NOOP(
-              "ReviewController",
-              "Decision write failed · refresh also failed · %1 · %2"),
-          {result.error, result.refresh_error})
-            );
-        }
-        return;
-    }
-
-    if (!decision_session_.complete(result.receipt)) {
-        emit decisionStateChanged();
-    setDecisionStatusMessage(review_message(QT_TRANSLATE_NOOP(
-        "ReviewController",
-        "Decision receipt was invalid; local state retained")));
-        return;
-    }
-    applyDecisionState(result.receipt.after);
-    emit decisionStateChanged();
-    if (result.is_undo) {
-    setDecisionStatusMessage(review_message(
-        QT_TRANSLATE_NOOP(
-            "ReviewController",
-            "Inverse decision appended · sequence %1 · history retained"),
-        {result.receipt.sequence})
-        );
-        emit decisionUndone();
-    } else {
-    setDecisionStatusMessage(review_message(
-        QT_TRANSLATE_NOOP("ReviewController",
-                          "Manual decision recorded · sequence %1"),
-        {result.receipt.sequence})
-        );
-    }
-}
-
 void ReviewController::startPage(const PageTaskKind kind) {
-    if (page_running_ || decision_session_.busy()) {
+    if (page_running_ || decision_coordinator_.busy()) {
         return;
     }
     const bool reset = kind != PageTaskKind::Append;
@@ -2283,6 +2121,7 @@ void ReviewController::retranslateUi() {
   emit statusTextChanged();
   comparison_coordinator_.retranslateUi();
   source_health_coordinator_.retranslateUi();
+  decision_coordinator_.retranslateUi();
   emit decisionStatusTextChanged();
 }
 
@@ -2400,11 +2239,10 @@ void ReviewController::setDecisionStatusMessage(LocalizedUiMessage status) {
     emit decisionStatusTextChanged();
 }
 
-void ReviewController::applyDecisionState(
+void ReviewController::projectDecisionState(
     const BackendReviewDecisionState& state
 ) {
-    decision_session_.reconcile(state);
-    const QString flag = decision_flag_name(state.flag);
+    const QString flag = review_decision_flag_name(state.flag);
     const int rating = static_cast<int>(state.rating);
     const bool projected = model_.updateDecision(
         state.photo_id,

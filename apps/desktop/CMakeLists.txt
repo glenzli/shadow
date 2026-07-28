@@ -228,6 +228,8 @@ qt_add_executable(
     src/review_comparison_coordinator.hpp
     src/review_controller.cpp
     src/review_controller.hpp
+    src/review_decision_coordinator.cpp
+    src/review_decision_coordinator.hpp
     src/review_decision_session.hpp
     src/review_evidence_session.hpp
     src/review_filter_model.cpp
@@ -1153,6 +1155,45 @@ if(BUILD_TESTING)
     add_test(
         NAME shadow-desktop-review-comparison-coordinator
         COMMAND shadow-review-comparison-coordinator-test
+    )
+
+    add_executable(
+        shadow-review-decision-coordinator-test
+        tests/review_decision_coordinator_test.cpp
+        tests/review_decision_coordinator/decision_coordinator_fixture.hpp
+        tests/review_decision_coordinator/admission_projection_contract.cpp
+        tests/review_decision_coordinator/failure_undo_contract.cpp
+        tests/review_decision_coordinator/lifetime_contract.cpp
+        src/review_decision_coordinator.cpp
+        src/review_decision_coordinator.hpp
+        src/review_decision_session.hpp
+    )
+    target_compile_features(
+        shadow-review-decision-coordinator-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-review-decision-coordinator-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-review-decision-coordinator-test
+        PRIVATE Qt6::Concurrent Qt6::Gui
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-review-decision-coordinator-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-review-decision-coordinator-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-review-decision-coordinator
+        COMMAND shadow-review-decision-coordinator-test
     )
 
     add_executable(

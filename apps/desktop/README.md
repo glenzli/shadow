@@ -120,6 +120,14 @@ Review presentation keeps the workspace as the composition and compatibility sur
   [`tests/review_comparison_coordinator/`](tests/review_comparison_coordinator/) suite keeps
   presentation, evidence, receipt-validation, and failure/lifetime contracts independently
   navigable behind one registered runner.
+- [`src/review_decision_coordinator.cpp`](src/review_decision_coordinator.cpp) owns the complete
+  append-only flag/rating mutation lifecycle after cross-workflow admission: current-state
+  resolution, serialized backend writes, authoritative refresh after failure, receipt validation,
+  causal session-local undo, localized status, and destruction wait. `ReviewController` projects
+  accepted states into the Library model and arbitrates its shared decision/status channel. The
+  responsibility-named
+  [`tests/review_decision_coordinator/`](tests/review_decision_coordinator/) suite keeps admission
+  and projection, failure and undo, and lifetime contracts independently navigable.
 - [`src/review_photo_inspection_coordinator.cpp`](src/review_photo_inspection_coordinator.cpp) owns
   the complete asynchronous selected-photo lifecycle: exact request coalescing, terminal failure,
   explicit retry, and presentation. Its

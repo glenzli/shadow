@@ -3,7 +3,7 @@
 #include "desktop_backend.hpp"
 #include "localized_ui_message.hpp"
 #include "review_comparison_coordinator.hpp"
-#include "review_decision_session.hpp"
+#include "review_decision_coordinator.hpp"
 #include "review_filter_model.hpp"
 #include "review_model.hpp"
 #include "review_photo_inspection_coordinator.hpp"
@@ -84,15 +84,6 @@ struct LibraryAlbumTaskResult final {
     QString album_id;
     int affected_photo_count = 0;
     bool has_album_snapshot = false;
-};
-
-struct ReviewDecisionTaskResult final {
-    BackendReviewDecisionMutationReceipt receipt;
-    BackendReviewDecisionState authoritative;
-    QString error;
-    QString refresh_error;
-    bool has_authoritative = false;
-    bool is_undo = false;
 };
 
 class ReviewController final : public QObject {
@@ -469,7 +460,6 @@ private:
     void finishLibraryStateTask();
     void finishLibraryAlbumsTask();
     void pollScanProgress();
-    void finishDecisionTask();
     void startPage(PageTaskKind kind);
     void requestLibraryReset();
     void scheduleFilterQuery();
@@ -488,7 +478,6 @@ private:
         const QString& album_id = {},
         const QStringList& photo_ids = {}
     );
-    void startDecisionMutation(const ReviewDecisionMutationRequest& request);
     void emitWorkStateChanges(
         bool old_busy,
         bool old_loading_more,
@@ -500,7 +489,7 @@ private:
     void updateScanStatus();
     void updateReadyStatus();
     void setDecisionStatusMessage(LocalizedUiMessage status);
-    void applyDecisionState(const BackendReviewDecisionState& state);
+    void projectDecisionState(const BackendReviewDecisionState& state);
 
     std::shared_ptr<DesktopBackend> backend_;
     ReviewPhotoInspectionCoordinator photo_inspection_coordinator_;
@@ -573,7 +562,7 @@ private:
     ReviewModel model_;
     ReviewFilterModel filtered_model_;
     ReviewComparisonCoordinator comparison_coordinator_;
-    ReviewDecisionSession decision_session_;
+    ReviewDecisionCoordinator decision_coordinator_;
     QVector<BackendSharedGradeNode> shared_grade_nodes_;
     QFutureWatcher<ScanTaskResult> scan_watcher_;
     QFutureWatcher<PageTaskResult> page_watcher_;
@@ -581,5 +570,4 @@ private:
     QFutureWatcher<LibraryFacetTaskResult> library_facets_watcher_;
     QFutureWatcher<LibraryStateTaskResult> library_state_watcher_;
     QFutureWatcher<LibraryAlbumTaskResult> library_albums_watcher_;
-    QFutureWatcher<ReviewDecisionTaskResult> decision_watcher_;
 };
