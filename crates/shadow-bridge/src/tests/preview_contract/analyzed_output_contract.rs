@@ -80,8 +80,7 @@ fn rust_edit_preview_backend_versions_match_the_native_generator_contract() {
     let native_identity = edit_preview_generator_implementation_identity();
     assert!(
         native_identity.contains(&format!(
-            "adjustment-metal=shadow-adjustment-metal-v{};",
-            EDIT_PREVIEW_METAL_ADJUSTMENT_BACKEND_VERSION
+            "adjustment-metal=shadow-adjustment-metal-v{EDIT_PREVIEW_METAL_ADJUSTMENT_BACKEND_VERSION};"
         )),
         "Rust's split Metal receipt version must track the native adjustment identity: \
          {native_identity}"
@@ -94,9 +93,8 @@ fn rust_edit_preview_backend_versions_match_the_native_generator_contract() {
 
     let mut split_metal = valid_ffi_edit_preview_execution_receipt();
     split_metal.cache_identity = format!(
-        "shadow-edit-preview-execution-v1;adjustment=metal-v{};\
-         plan=1;display=cpu-v1;display-contract=1;route=staged",
-        EDIT_PREVIEW_METAL_ADJUSTMENT_BACKEND_VERSION
+        "shadow-edit-preview-execution-v1;adjustment=metal-v{EDIT_PREVIEW_METAL_ADJUSTMENT_BACKEND_VERSION};\
+         plan=1;display=cpu-v1;display-contract=1;route=staged"
     );
     split_metal.adjustment_backend = ffi::FfiEditPreviewBackend::Metal;
     split_metal.adjustment_backend_version = EDIT_PREVIEW_METAL_ADJUSTMENT_BACKEND_VERSION;
@@ -114,6 +112,7 @@ fn rust_edit_preview_backend_versions_match_the_native_generator_contract() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn edit_preview_analysis_validation_fails_closed() {
     let proxy_dimensions = ImageDimensions {
         width: 2,
@@ -127,7 +126,7 @@ fn edit_preview_analysis_validation_fails_closed() {
     assert_eq!(valid.highlight_clipped_pixels, 1);
     assert_eq!(valid.hdr_headroom_pixels, 1);
     assert_eq!(valid.hdr_headroom_bins[0], 1);
-    assert_eq!(valid.hdr_peak_headroom_ev, 1.0);
+    assert_eq!(valid.hdr_peak_headroom_ev.to_bits(), 1.0_f64.to_bits());
 
     let mut wrong_version = valid_ffi_edit_preview_analysis();
     wrong_version.version.push_str(":future");
@@ -240,6 +239,7 @@ fn edit_preview_analysis_validation_fails_closed() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn edit_preview_execution_receipt_validation_is_strict_and_keeps_diagnostics_separate() {
     let mut fallback = valid_ffi_edit_preview_execution_receipt();
     fallback.adjustment_fell_back = true;
@@ -262,9 +262,9 @@ fn edit_preview_execution_receipt_validation_is_strict_and_keeps_diagnostics_sep
 
     let mut fused = valid_ffi_edit_preview_execution_receipt();
     fused.cache_identity = format!(
-        "shadow-edit-preview-execution-v1;adjustment=metal-v{};\
-         plan=1;display=metal-v{};display-contract=1;route=fused",
-        EDIT_PREVIEW_METAL_ADJUSTMENT_BACKEND_VERSION, EDIT_PREVIEW_METAL_DISPLAY_BACKEND_VERSION
+        "shadow-edit-preview-execution-v1;adjustment=metal-v{EDIT_PREVIEW_METAL_ADJUSTMENT_BACKEND_VERSION};\
+         plan=1;display=metal-v{EDIT_PREVIEW_METAL_DISPLAY_BACKEND_VERSION};\
+         display-contract=1;route=fused"
     );
     fused.adjustment_backend = ffi::FfiEditPreviewBackend::Metal;
     fused.adjustment_backend_version = EDIT_PREVIEW_METAL_ADJUSTMENT_BACKEND_VERSION;

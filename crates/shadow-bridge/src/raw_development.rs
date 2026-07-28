@@ -122,35 +122,25 @@ impl RawDevelopmentPlan {
     }
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RawDevelopmentPlanNegotiationStatus {
     Accepted,
     Adjusted,
+    #[default]
     Rejected,
 }
 
-impl Default for RawDevelopmentPlanNegotiationStatus {
-    fn default() -> Self {
-        Self::Rejected
-    }
-}
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DngOpcodeExecutionStatus {
+    #[default]
     NotDeclared,
     ProviderDefault,
     Applied,
     DeferredToShadow,
     SkippedForPreview,
     Unsupported,
-}
-
-impl Default for DngOpcodeExecutionStatus {
-    fn default() -> Self {
-        Self::NotDeclared
-    }
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Serialize, Deserialize)]
@@ -686,6 +676,9 @@ fn raw_camera_profile_status(
     }
 }
 
+// This is one ordered fail-closed validation of a versioned FFI receipt. Keeping the route,
+// profile-status, and field-coherence checks together makes the accepted wire states auditable.
+#[allow(clippy::too_many_lines)]
 pub(super) fn raw_pipeline_receipt(
     receipt: ffi::FfiRawPipelineReceipt,
 ) -> Result<RawPipelineReceipt, BridgeError> {

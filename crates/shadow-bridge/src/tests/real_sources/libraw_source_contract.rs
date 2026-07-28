@@ -1,4 +1,4 @@
-//! Direct LibRaw inspection, embedded-preview, and proxy entry-point contracts.
+//! Direct `LibRaw` inspection, embedded-preview, and proxy entry-point contracts.
 
 use std::path::Path;
 

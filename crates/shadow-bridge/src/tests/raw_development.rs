@@ -115,6 +115,7 @@ fn recorded_ffi_raw_pipeline_receipt(path: ffi::FfiRawPipelinePath) -> ffi::FfiR
 
 #[test]
 #[allow(clippy::float_cmp)] // The bridge contract preserves native scalar bits verbatim.
+#[allow(clippy::too_many_lines)]
 fn raw_development_receipt_bridge_preserves_default_and_recorded_fields() {
     let default = raw_development_receipt(ffi::FfiRawDevelopmentReceipt {
         schema_version: 0,

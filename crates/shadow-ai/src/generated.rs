@@ -92,6 +92,11 @@ impl RasterExtent {
         Ok(extent)
     }
 
+    /// Validates non-zero dimensions against the portable raster bound.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for zero or implausibly large dimensions.
     pub fn validate(self) -> Result<(), AiArtifactContractError> {
         if self.width == 0 || self.height == 0 {
             return Err(AiArtifactContractError::EmptyRasterExtent);
@@ -129,6 +134,11 @@ pub struct NormalizedMaskBox {
 }
 
 impl NormalizedMaskBox {
+    /// Validates that the normalized box has positive extent on both axes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when either pair of bounds is reversed or equal.
     pub fn validate(self) -> Result<(), AiArtifactContractError> {
         if self.left >= self.right || self.top >= self.bottom {
             return Err(AiArtifactContractError::InvalidMaskBox);
@@ -146,6 +156,12 @@ pub enum MaskPrompt {
 }
 
 impl MaskPrompt {
+    /// Validates the selected prompt shape and its bounded payload.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an empty or oversized point prompt, a point prompt
+    /// without foreground evidence, or a degenerate box.
     pub fn validate(&self) -> Result<(), AiArtifactContractError> {
         match self {
             Self::AutomaticSubject => Ok(()),
@@ -177,6 +193,12 @@ pub struct SubjectMaskParameters {
 }
 
 impl SubjectMaskParameters {
+    /// Validates the complete subject-mask request contract.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid prompt or coordinate extent, or for a
+    /// candidate count outside `1..=4`.
     pub fn validate(&self) -> Result<(), AiArtifactContractError> {
         self.prompt.validate()?;
         self.coordinate_extent.validate()?;
@@ -216,6 +238,12 @@ pub struct DenoiseParameters {
 }
 
 impl DenoiseParameters {
+    /// Validates the denoise parameter contract.
+    ///
+    /// # Errors
+    ///
+    /// Reserved for future contract revisions; the current strongly typed
+    /// fields are valid by construction.
     pub const fn validate(&self) -> Result<(), AiArtifactContractError> {
         Ok(())
     }
@@ -234,6 +262,11 @@ pub enum AiTaskParameters {
 impl AiTaskParameters {
     /// Ensures a task cannot accidentally be executed with another task's
     /// parameters after crossing a process or persistence boundary.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the parameter variant does not match `task` or
+    /// when the selected parameter payload is invalid.
     pub fn validate_for(&self, task: AiTaskKind) -> Result<(), AiArtifactContractError> {
         match (task, self) {
             (AiTaskKind::ProposeSubjectMask, Self::SubjectMask(parameters)) => {
@@ -251,7 +284,7 @@ impl AiTaskParameters {
                 expected: "denoise",
             }),
             (_, Self::None) => Ok(()),
-            (_, Self::SubjectMask(_)) | (_, Self::Denoise(_)) => {
+            (_, Self::SubjectMask(_) | Self::Denoise(_)) => {
                 Err(AiArtifactContractError::UnexpectedTaskParameters(task))
             }
         }
@@ -303,6 +336,12 @@ pub struct SoftMaskArtifact {
 }
 
 impl SoftMaskArtifact {
+    /// Validates the referenced mask artifact and both raster extents.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the artifact identity, extent, or semantic label
+    /// violates its portable contract.
     pub fn validate(&self) -> Result<(), AiArtifactContractError> {
         self.artifact.validate()?;
         self.raster_extent.validate()?;
@@ -335,6 +374,11 @@ pub struct TileContract {
 }
 
 impl TileContract {
+    /// Validates that the tile interior remains non-empty after both halos.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for a zero edge or a halo at least half the tile edge.
     pub fn validate(self) -> Result<(), AiArtifactContractError> {
         if self.tile_edge == 0 || self.halo.saturating_mul(2) >= self.tile_edge {
             return Err(AiArtifactContractError::InvalidTileContract {
@@ -354,13 +398,19 @@ pub struct DenoisedRasterArtifact {
     pub raster_extent: RasterExtent,
     pub pixel_layout: RasterPixelLayout,
     pub sample_format: RasterSampleFormat,
-    /// Exact RawFrame or decoded-raster contract from which this result arose.
+    /// Exact `RawFrame` or decoded-raster contract from which this result arose.
     pub source_pixel_contract_hash: String,
     pub tile_contract: Option<TileContract>,
     pub full_resolution: bool,
 }
 
 impl DenoisedRasterArtifact {
+    /// Validates artifact identity, domain/layout agreement, and tiling.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid provenance, extents, domain changes,
+    /// pixel-layout mismatch, or an invalid tile contract.
     pub fn validate(&self) -> Result<(), AiArtifactContractError> {
         self.artifact.validate()?;
         self.raster_extent.validate()?;
@@ -408,6 +458,12 @@ pub enum AiGeneratedPayload {
 }
 
 impl AiGeneratedPayload {
+    /// Validates that this generated payload belongs to `task`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the payload variant does not match `task` or its
+    /// nested artifact contract is invalid.
     pub fn validate_for(&self, task: AiTaskKind) -> Result<(), AiArtifactContractError> {
         match (task, self) {
             (AiTaskKind::ProposeSubjectMask, Self::SoftMask(mask)) => mask.validate(),

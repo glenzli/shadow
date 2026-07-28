@@ -15,6 +15,7 @@ use crate::{
 
 #[test]
 #[ignore = "requires SHADOW_TEST_DNG to point at a local RAW fixture"]
+#[allow(clippy::too_many_lines)]
 fn real_dng_warm_edit_session_renders_twice() {
     let path = PathBuf::from(std::env::var_os("SHADOW_TEST_DNG").expect("SHADOW_TEST_DNG"));
     std::thread::Builder::new()

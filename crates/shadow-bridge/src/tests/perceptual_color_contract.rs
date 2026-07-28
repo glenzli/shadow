@@ -77,13 +77,17 @@ fn perceptual_color_plan_validates_and_flattens_stable_ffi_contract() {
 fn perceptual_color_rejects_noncanonical_controls_before_wire_conversion() {
     let mut invalid_mixer = PerceptualColorParameters::default();
     invalid_mixer.hue_shifts[3] = -1.01;
-    let mut invalid_global_balance = PerceptualColorParameters::default();
-    invalid_global_balance.global_a_balance = 1.01;
+    let invalid_global_balance = PerceptualColorParameters {
+        global_a_balance: 1.01,
+        ..PerceptualColorParameters::default()
+    };
     let mut invalid_disabled_range = PerceptualColorParameters::default();
     invalid_disabled_range.color_range.enabled = false;
     invalid_disabled_range.color_range.width_degrees = 0.0;
-    let mut invalid_lightness_protection = PerceptualColorParameters::default();
-    invalid_lightness_protection.selective_color_lightness_protection = 1.01;
+    let invalid_lightness_protection = PerceptualColorParameters {
+        selective_color_lightness_protection: 1.01,
+        ..PerceptualColorParameters::default()
+    };
     for parameters in [
         invalid_mixer,
         invalid_global_balance,

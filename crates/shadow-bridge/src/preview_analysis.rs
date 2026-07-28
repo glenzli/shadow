@@ -225,7 +225,7 @@ pub(super) fn edit_preview_execution_receipt(
     let any_fallback = receipt.adjustment_fell_back || receipt.display_fell_back;
     if (receipt.adjustment_fell_back && adjustment_backend != EditPreviewBackend::Cpu)
         || (receipt.display_fell_back && display_backend != EditPreviewBackend::Cpu)
-        || any_fallback != !receipt.diagnostic.is_empty()
+        || any_fallback == receipt.diagnostic.is_empty()
     {
         return Err(BridgeError::InvalidEditPreviewOutput(
             "edit-preview receipt contains incoherent fallback provenance",

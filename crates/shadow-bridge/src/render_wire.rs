@@ -76,9 +76,21 @@ pub(super) const fn detail_tile_rect(rect: ffi::FfiDetailTileRect) -> DetailTile
 pub(crate) fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustmentNode {
     let (operation, parameters, parameter_group_lengths, payload) = match &node.operation {
         AdjustmentRenderOperation::LocalMaskLayerStart { opacity, mask } => {
-            let (kind, x0, y0, x1, y1, radius_x, radius_y, feather, invert, brush_points) =
+            let (kind, x0, y0, x1, y1, radius_x, radius_y, feather, invert, brush_points, is_brush) =
                 match mask {
-                    None => (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, Vec::new()),
+                    None => (
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        Vec::new(),
+                        false,
+                    ),
                     Some(AdjustmentLocalMask::LinearGradient {
                         start_x,
                         start_y,
@@ -96,6 +108,7 @@ pub(crate) fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustment
                         0.0,
                         if *invert { 1.0 } else { 0.0 },
                         Vec::new(),
+                        false,
                     ),
                     Some(AdjustmentLocalMask::RadialGradient {
                         center_x,
@@ -115,6 +128,7 @@ pub(crate) fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustment
                         *feather,
                         if *invert { 1.0 } else { 0.0 },
                         Vec::new(),
+                        false,
                     ),
                     Some(AdjustmentLocalMask::Brush {
                         points,
@@ -141,6 +155,7 @@ pub(crate) fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustment
                                 ]
                             })
                             .collect(),
+                        true,
                     ),
                 };
             let point_count = u32::try_from(brush_points.len() / 3)
@@ -152,11 +167,7 @@ pub(crate) fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustment
             (
                 ffi::FfiAdjustmentOperation::LocalMaskLayerStart,
                 parameters,
-                if kind == 3.0 {
-                    vec![point_count]
-                } else {
-                    vec![]
-                },
+                if is_brush { vec![point_count] } else { vec![] },
                 vec![],
             )
         }
@@ -382,10 +393,6 @@ pub(crate) fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustment
         }
     };
     let detail_effects_pass = match &node.operation {
-        AdjustmentRenderOperation::Sharpen {
-            pass: AdjustmentDetailEffectsPass::TechnicalDetail,
-            ..
-        } => ffi::FfiDetailEffectsPass::TechnicalDetail,
         AdjustmentRenderOperation::Sharpen {
             pass: AdjustmentDetailEffectsPass::ColorGrading,
             ..

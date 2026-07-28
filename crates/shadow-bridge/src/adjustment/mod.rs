@@ -187,13 +187,6 @@ impl AdjustmentRenderPlan {
                 ));
             }
             let contract_matches = match &node.operation {
-                AdjustmentRenderOperation::LocalMaskLayerStart { .. }
-                | AdjustmentRenderOperation::LocalMaskLayerEnd => {
-                    (
-                        ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
-                        ADJUSTMENT_IMPLEMENTATION_VERSION,
-                    ) == (node.parameter_schema_version, node.implementation_version)
-                }
                 AdjustmentRenderOperation::OklabLightnessToneCurve { .. } => {
                     (
                         OKLAB_LIGHTNESS_TONE_CURVE_PARAMETER_SCHEMA_VERSION,
@@ -221,12 +214,6 @@ impl AdjustmentRenderPlan {
                 AdjustmentRenderOperation::Sharpen { pass, .. } => {
                     pass.contract_versions()
                         == (node.parameter_schema_version, node.implementation_version)
-                }
-                AdjustmentRenderOperation::SpotHeal { .. } => {
-                    (
-                        ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
-                        ADJUSTMENT_IMPLEMENTATION_VERSION,
-                    ) == (node.parameter_schema_version, node.implementation_version)
                 }
                 _ => {
                     (

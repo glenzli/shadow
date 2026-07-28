@@ -174,6 +174,11 @@ impl LibRawEditPreviewSession {
     /// Opens a preview with an explicit RAW source-development request. The plan is validated
     /// before the source path is opened; `Preview` intent is required because the prepared
     /// session is a bounded interactive raster rather than a native-detail source.
+    ///
+    /// # Errors
+    ///
+    /// Returns a plan-validation, path, decoder, resource-limit, or invalid
+    /// bridge-output error when preparation fails.
     pub fn open_with_raw_development_plan(
         path: &Path,
         max_edge: u32,
@@ -190,6 +195,11 @@ impl LibRawEditPreviewSession {
     /// Opens a preview with explicit RAW source-development and optical-correction contracts.
     /// JPEG/HEIF sources retain their ordinary decoded-raster behavior; they never fabricate a
     /// RAW receipt merely because a caller supplied the canonical preview plan.
+    ///
+    /// # Errors
+    ///
+    /// Returns a plan/optics validation, path, decoder, resource-limit, or
+    /// invalid bridge-output error when preparation fails.
     pub fn open_with_raw_development_plan_and_optics(
         path: &Path,
         max_edge: u32,
@@ -338,6 +348,11 @@ impl LibRawEditPreviewSession {
     /// A cancelled render returns [`CancellableEditPreview::Cancelled`] and never fabricates a
     /// backend failure, fallback receipt, histogram, or JPEG. The cancellation handle is
     /// one-shot; create a fresh handle for each independently cancellable render.
+    ///
+    /// # Errors
+    ///
+    /// Returns an invalid-request, decoder, null-handle, or invalid-output
+    /// error when a non-cancelled render cannot complete its contract.
     pub fn render_plan_cancellable(
         &self,
         plan: &AdjustmentRenderPlan,
@@ -402,6 +417,11 @@ impl LibRawEditPreviewSession {
     /// Executes a typed plan with generation-matched analysis and cooperative cancellation.
     ///
     /// Cancellation before completion returns no partial pixels, analysis, or execution receipt.
+    ///
+    /// # Errors
+    ///
+    /// Returns an invalid-request, decoder, null-handle, or invalid-output
+    /// error when a non-cancelled render cannot complete its contract.
     pub fn render_plan_with_analysis_cancellable(
         &self,
         plan: &AdjustmentRenderPlan,

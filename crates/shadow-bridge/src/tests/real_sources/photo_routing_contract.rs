@@ -101,13 +101,11 @@ fn unsupported_raw_edit_sessions_fail_without_entering_preparation() {
         "fixture must retain a browseable embedded preview"
     );
 
-    let preview_error = match PhotoEditPreviewSession::open(path, 1_024) {
-        Ok(_) => panic!("preview session must reject an unsupported RAW before preparation"),
-        Err(error) => error,
+    let Err(preview_error) = PhotoEditPreviewSession::open(path, 1_024) else {
+        panic!("preview session must reject an unsupported RAW before preparation");
     };
-    let detail_error = match PhotoEditDetailSession::open(path) {
-        Ok(_) => panic!("detail session must reject an unsupported RAW before preparation"),
-        Err(error) => error,
+    let Err(detail_error) = PhotoEditDetailSession::open(path) else {
+        panic!("detail session must reject an unsupported RAW before preparation");
     };
     for error in [preview_error, detail_error] {
         assert!(

@@ -140,8 +140,13 @@ impl LibRawEditDetailSession {
     }
 
     /// Opens an immutable full-resolution session with an explicit RAW source-development plan.
-    /// Detail and ExportImage intents are accepted; Preview is rejected so a warm half-size
+    /// `Detail` and `ExportImage` intents are accepted; `Preview` is rejected so a warm half-size
     /// source can never enter a full-resolution pipeline.
+    ///
+    /// # Errors
+    ///
+    /// Returns a plan-validation, path, decoder, resource-limit, or invalid
+    /// bridge-output error when preparation fails.
     pub fn open_with_raw_development_plan(
         path: &Path,
         raw_development_plan: RawDevelopmentPlan,
@@ -154,6 +159,11 @@ impl LibRawEditDetailSession {
     }
 
     /// Opens a native-detail session with explicit RAW source-development and optical settings.
+    ///
+    /// # Errors
+    ///
+    /// Returns a plan/optics validation, path, decoder, resource-limit, or
+    /// invalid bridge-output error when preparation fails.
     pub fn open_with_raw_development_plan_and_optics(
         path: &Path,
         raw_development_plan: RawDevelopmentPlan,
