@@ -93,7 +93,10 @@ Application startup is split from environment-driven automation:
 - [`src/edit_persistence_coordinator.cpp`](src/edit_persistence_coordinator.cpp) owns photo
   open/close, autosave, version operations, and durable state transitions.
 - [`src/edit_render_coordinator.cpp`](src/edit_render_coordinator.cpp) owns preview/detail
-  scheduling, cancellation, analysis publication, and render presentation state.
+  scheduling, cancellation, and render presentation state.
+- [`src/edit_analysis_controller.cpp`](src/edit_analysis_controller.cpp) owns histogram and
+  display-scope validation/projection, Point Color reference freezing, analysis refresh,
+  publication, failure, and clearing.
 
 Add a new edit workflow to its semantic owner and wire only its stable QML contract through
 `edit_controller.hpp`; do not rebuild a monolithic controller implementation.
