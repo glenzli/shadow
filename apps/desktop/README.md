@@ -171,6 +171,12 @@ Review presentation keeps the workspace as the composition and compatibility sur
   [`tests/review_library_album_coordinator/`](tests/review_library_album_coordinator/) contracts
   cover projection, smart-query freezing, deduplicated membership, coalescing, failure, and
   lifetime.
+- [`src/review_library_facet_coordinator.cpp`](src/review_library_facet_coordinator.cpp) owns the
+  generation-bound Capture Month, Camera, and Lens facet projection. It fetches all three bounded
+  dimensions from one immutable filter snapshot, rejects stale generations, coalesces refreshes
+  onto the latest input, publishes localized failures, and waits for its worker at destruction.
+  Its [`tests/review_library_facet_coordinator/`](tests/review_library_facet_coordinator/)
+  contracts cover the shared filter/bound, projection, stale replacement, failure, and lifetime.
 - [`src/photo_inspection_projection.cpp`](src/photo_inspection_projection.cpp) is the sole
   production mapping from the complete Rust FFI inspection DTO to the desktop DTO.
   [`tests/backend_photo_inspection_contract_test.cpp`](tests/backend_photo_inspection_contract_test.cpp)

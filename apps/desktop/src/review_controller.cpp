@@ -19,7 +19,6 @@ constexpr quint64 STREAM_REFRESH_STRIDE = 16;
 constexpr qint64 STREAM_REFRESH_MIN_INTERVAL_MS = 400;
 constexpr qint64 STREAM_VISUAL_REFRESH_MIN_INTERVAL_MS = 150;
 constexpr int FILTER_QUERY_DEBOUNCE_MS = 120;
-constexpr std::uint32_t LIBRARY_FACET_PAGE_SIZE = 24;
 
 [[nodiscard]] LocalizedUiMessage review_message(
     const char *const source,
@@ -77,58 +76,6 @@ constexpr std::uint32_t LIBRARY_FACET_PAGE_SIZE = 24;
         result.error = QString::fromUtf8(error.what());
     }
     return result;
-}
-
-[[nodiscard]] LibraryFacetTaskResult run_library_facets(
-    const std::shared_ptr<DesktopBackend>& backend,
-    const BackendLibraryPhotoFilter& filter,
-    const quint64 library_generation,
-    const quint64 request_id
-) {
-    LibraryFacetTaskResult result;
-    result.library_generation = library_generation;
-    result.request_id = request_id;
-    try {
-        result.capture_months = backend->libraryFacetPage(
-            filter,
-            BackendLibraryFacetKind::CaptureMonth,
-            {},
-            LIBRARY_FACET_PAGE_SIZE
-        );
-        result.cameras = backend->libraryFacetPage(
-            filter,
-            BackendLibraryFacetKind::Camera,
-            {},
-            LIBRARY_FACET_PAGE_SIZE
-        );
-        result.lenses = backend->libraryFacetPage(
-            filter,
-            BackendLibraryFacetKind::Lens,
-            {},
-            LIBRARY_FACET_PAGE_SIZE
-        );
-    } catch (const std::exception& error) {
-        result.error = QString::fromUtf8(error.what());
-    }
-    return result;
-}
-
-[[nodiscard]] QVariantList library_facet_variants(
-    const BackendLibraryFacetPage& page
-) {
-    QVariantList values;
-    values.reserve(page.items.size());
-    for (const auto& item : page.items) {
-        values.push_back(QVariantMap{
-            {QStringLiteral("key"), item.key},
-            {QStringLiteral("label"), item.label},
-            {
-                QStringLiteral("photoCount"),
-                QVariant::fromValue(static_cast<qulonglong>(item.photo_count)),
-            },
-        });
-    }
-    return values;
 }
 
 [[nodiscard]] LibraryStateTaskResult run_library_state_mutation(
@@ -346,6 +293,29 @@ album_operations(const std::shared_ptr<DesktopBackend>& backend) {
     };
 }
 
+[[nodiscard]] ReviewLibraryFacetCoordinator::Operations
+facet_operations(const std::shared_ptr<DesktopBackend>& backend) {
+    if (!backend) {
+        throw std::invalid_argument("Review Library facet backend is required");
+    }
+    return {
+        .page =
+            [backend](
+                const BackendLibraryPhotoFilter& filter,
+                const BackendLibraryFacetKind kind,
+                const BackendLibraryFacetCursor& cursor,
+                const std::uint32_t limit
+            ) {
+                return backend->libraryFacetPage(
+                    filter,
+                    kind,
+                    cursor,
+                    limit
+                );
+            },
+    };
+}
+
 [[nodiscard]] ReviewDecisionCoordinator::Operations decision_operations(
     const std::shared_ptr<DesktopBackend>& backend
 ) {
@@ -402,6 +372,7 @@ ReviewController::ReviewController(
       photo_inspection_coordinator_(backend_),
       source_health_coordinator_(source_health_operations(backend_)),
       album_coordinator_(album_operations(backend_)),
+      facet_coordinator_(facet_operations(backend_)),
       model_(this),
       filtered_model_(this),
       comparison_coordinator_(
@@ -524,10 +495,18 @@ ReviewController::ReviewController(
         &ReviewController::decisionUndone
     );
     connect(
-        &library_facets_watcher_,
-        &QFutureWatcher<LibraryFacetTaskResult>::finished,
+        &facet_coordinator_,
+        &ReviewLibraryFacetCoordinator::facetsChanged,
         this,
-        &ReviewController::finishLibraryFacetsTask
+        &ReviewController::libraryFacetsChanged
+    );
+    connect(
+        &facet_coordinator_,
+        &ReviewLibraryFacetCoordinator::globalStatusMessageChanged,
+        this,
+        [this]() {
+            setStatusMessage(facet_coordinator_.globalStatusMessage());
+        }
     );
     connect(
         &library_state_watcher_,
@@ -627,7 +606,6 @@ ReviewController::~ReviewController() {
     scan_watcher_.waitForFinished();
     page_watcher_.waitForFinished();
     count_watcher_.waitForFinished();
-    library_facets_watcher_.waitForFinished();
     library_state_watcher_.waitForFinished();
 }
 
@@ -788,19 +766,19 @@ QString ReviewController::filterLensKey() const {
 }
 
 QVariantList ReviewController::libraryCaptureMonthFacets() const {
-    return library_facet_variants(library_capture_month_facets_);
+    return facet_coordinator_.captureMonths();
 }
 
 QVariantList ReviewController::libraryCameraFacets() const {
-    return library_facet_variants(library_camera_facets_);
+    return facet_coordinator_.cameras();
 }
 
 QVariantList ReviewController::libraryLensFacets() const {
-    return library_facet_variants(library_lens_facets_);
+    return facet_coordinator_.lenses();
 }
 
 bool ReviewController::libraryFacetsBusy() const noexcept {
-    return library_facets_task_running_;
+    return facet_coordinator_.busy();
 }
 
 QString ReviewController::libraryAlbumId() const {
@@ -1169,7 +1147,10 @@ void ReviewController::refreshVisibleLibrary() {
 
 void ReviewController::refreshLibraryFacets() {
     if (!scan_running_) {
-        startLibraryFacetsTask();
+        facet_coordinator_.refresh(
+            currentLibraryFilter(),
+            library_generation_
+        );
     }
 }
 
@@ -1537,7 +1518,7 @@ void ReviewController::beginFilteredLibraryQuery() {
     if (!scan_running_) {
         terminal_refresh_active_ = true;
     }
-    startLibraryFacetsTask();
+    facet_coordinator_.refresh(currentLibraryFilter(), library_generation_);
     startCountQuery();
     startPage(PageTaskKind::InitialReset);
 }
@@ -1691,30 +1672,6 @@ void ReviewController::finishCount() {
     }
 }
 
-void ReviewController::finishLibraryFacetsTask() {
-    const LibraryFacetTaskResult result = library_facets_watcher_.result();
-    library_facets_task_running_ = false;
-    const bool accepted = result.library_generation == library_generation_
-        && result.request_id == active_library_facets_request_id_;
-    if (accepted && result.error.isEmpty()) {
-        library_capture_month_facets_ = result.capture_months;
-        library_camera_facets_ = result.cameras;
-        library_lens_facets_ = result.lenses;
-    } else if (accepted && !result.error.isEmpty()) {
-        setStatusMessage(review_message(
-            QT_TRANSLATE_NOOP("ReviewController", "Could not update Library facets · %1"),
-            {result.error}
-        ));
-    }
-
-    if (library_facets_refresh_pending_ || !accepted) {
-        library_facets_refresh_pending_ = false;
-        startLibraryFacetsTask();
-        return;
-    }
-    emit libraryFacetsChanged();
-}
-
 void ReviewController::finishLibraryStateTask() {
     const LibraryStateTaskResult result = library_state_watcher_.result();
     library_state_mutation_running_ = false;
@@ -1860,23 +1817,6 @@ void ReviewController::startCountQuery() {
     ));
 }
 
-void ReviewController::startLibraryFacetsTask() {
-    if (library_facets_task_running_) {
-        library_facets_refresh_pending_ = true;
-        return;
-    }
-    library_facets_task_running_ = true;
-    active_library_facets_request_id_ = ++library_facets_request_id_;
-    emit libraryFacetsChanged();
-    library_facets_watcher_.setFuture(QtConcurrent::run(
-        run_library_facets,
-        backend_,
-        currentLibraryFilter(),
-        library_generation_,
-        active_library_facets_request_id_
-    ));
-}
-
 void ReviewController::startLibraryStateMutation(
     const QString& photo_id,
     const bool liked,
@@ -1936,6 +1876,7 @@ void ReviewController::retranslateUi() {
   comparison_coordinator_.retranslateUi();
   source_health_coordinator_.retranslateUi();
   album_coordinator_.retranslateUi();
+  facet_coordinator_.retranslateUi();
   decision_coordinator_.retranslateUi();
   emit decisionStatusTextChanged();
 }

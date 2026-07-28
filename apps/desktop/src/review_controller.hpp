@@ -6,6 +6,7 @@
 #include "review_decision_coordinator.hpp"
 #include "review_filter_model.hpp"
 #include "review_library_album_coordinator.hpp"
+#include "review_library_facet_coordinator.hpp"
 #include "review_model.hpp"
 #include "review_photo_inspection_coordinator.hpp"
 #include "review_source_health_coordinator.hpp"
@@ -45,17 +46,6 @@ struct PageTaskResult final {
 
 struct CountTaskResult final {
     quint64 count = 0;
-    QString error;
-    quint64 library_generation = 0;
-    quint64 request_id = 0;
-};
-
-/// Three independently bounded, catalog-side metadata facets fetched as one
-/// worker result. The grid never waits on these aggregates to paginate.
-struct LibraryFacetTaskResult final {
-    BackendLibraryFacetPage capture_months;
-    BackendLibraryFacetPage cameras;
-    BackendLibraryFacetPage lenses;
     QString error;
     quint64 library_generation = 0;
     quint64 request_id = 0;
@@ -437,7 +427,6 @@ private:
     void finishScan();
     void finishPage();
     void finishCount();
-    void finishLibraryFacetsTask();
     void finishLibraryStateTask();
     void pollScanProgress();
     void startPage(PageTaskKind kind);
@@ -445,7 +434,6 @@ private:
     void scheduleFilterQuery();
     void beginFilteredLibraryQuery();
     void startCountQuery();
-    void startLibraryFacetsTask();
     [[nodiscard]] BackendLibraryPhotoFilter currentLibraryFilter() const;
     void startLibraryStateMutation(
         const QString& photo_id,
@@ -469,6 +457,7 @@ private:
     ReviewPhotoInspectionCoordinator photo_inspection_coordinator_;
     ReviewSourceHealthCoordinator source_health_coordinator_;
     ReviewLibraryAlbumCoordinator album_coordinator_;
+    ReviewLibraryFacetCoordinator facet_coordinator_;
     QString folder_path_;
   LocalizedUiMessage status_message_{
       "ReviewController",
@@ -518,13 +507,6 @@ private:
     bool scan_terminal_cancelled_ = false;
     bool has_more_ = false;
     bool library_state_mutation_running_ = false;
-    bool library_facets_task_running_ = false;
-    bool library_facets_refresh_pending_ = false;
-    quint64 library_facets_request_id_ = 0;
-    quint64 active_library_facets_request_id_ = 0;
-    BackendLibraryFacetPage library_capture_month_facets_;
-    BackendLibraryFacetPage library_camera_facets_;
-    BackendLibraryFacetPage library_lens_facets_;
     QElapsedTimer scan_clock_;
     QTimer scan_progress_timer_;
     QTimer filter_debounce_timer_;
@@ -536,6 +518,5 @@ private:
     QFutureWatcher<ScanTaskResult> scan_watcher_;
     QFutureWatcher<PageTaskResult> page_watcher_;
     QFutureWatcher<CountTaskResult> count_watcher_;
-    QFutureWatcher<LibraryFacetTaskResult> library_facets_watcher_;
     QFutureWatcher<LibraryStateTaskResult> library_state_watcher_;
 };
