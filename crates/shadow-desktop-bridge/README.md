@@ -9,7 +9,11 @@ presentation, SQLite schema details, or native image algorithms.
 | Change | Primary owner |
 | --- | --- |
 | Desktop CXX structs, methods, and session composition | [`src/lib.rs`](src/lib.rs) |
-| Library paging and filters | [`src/library_service.rs`](src/library_service.rs) |
+| Library service composition | [`src/library_service.rs`](src/library_service.rs) |
+| Library photo paging, facets, and signed visual presentation | [`src/library_service/browse.rs`](src/library_service/browse.rs) |
+| Library filter, facet, and cursor wire contract | [`src/library_service/query_contract.rs`](src/library_service/query_contract.rs) |
+| Albums, memberships, and photo-affinity state | [`src/library_service/organization.rs`](src/library_service/organization.rs) |
+| Source-health and missing-location projections | [`src/library_service/source_health.rs`](src/library_service/source_health.rs) |
 | Desktop-session Library, relink, scan, and durable-export CXX delegation | [`src/session_library.rs`](src/session_library.rs), [`src/session_scan.rs`](src/session_scan.rs), [`src/session_export.rs`](src/session_export.rs) |
 | Desktop-session Review and cache-maintenance CXX delegation | [`src/session_review.rs`](src/session_review.rs), [`src/session_cache_maintenance.rs`](src/session_cache_maintenance.rs) |
 | Canonical wall-clock conversion and digest encoding | [`src/wall_clock.rs`](src/wall_clock.rs), [`src/digest_hex.rs`](src/digest_hex.rs) |
