@@ -96,6 +96,13 @@ SHADOW_IMAGE_ACCELERATION=auto|cpu|metal
 CPU. Build-time `SHADOW_ENABLE_METAL=OFF` compiles the same public API against a cross-platform
 stub.
 
+The Metal implementation also follows the language boundary.
+`src/raw/metal_raw_development_msl.hpp` owns the complete MSL reconstruction, CFA denoise, area
+preview, and DCP post-processing program. `src/raw/metal_raw_development.mm` owns the mirrored host
+ABI, process-wide device and pipeline lifecycle, request validation, buffer/command dispatch, and
+result projection. Editing one side requires checking the shared struct layout assertions and all
+four shader entry-point names.
+
 Metal-capable CI or a local release gate should configure
 `SHADOW_REQUIRE_METAL_TESTS=ON`. That mode makes CTest require a real Metal device, forces the
 full RawFrame pipeline onto Metal, and lowers the scheduling-only tile budget so the compact
