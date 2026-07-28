@@ -23,6 +23,12 @@ code should include the narrow semantic owner directly:
   invariants; `decoder_error.hpp` / `src/decoder/decoder_error.cpp` own stable failure categories,
   provider codes, and diagnostics.
 - `libraw_development_settings.hpp` owns the concrete LibRaw renderer configuration.
+- `src/decoder/libraw_runtime.*` owns the narrow LibRaw error/open/declared-opcode boundary shared
+  by an opened decoder and a fresh renderer. `src/decoder/libraw_reference_development.*` owns the
+  independent processed-linear reference lifecycle: settings validation and identity, capability
+  negotiation, fresh LibRaw allocation/open/unpack/process, preview bounding, and the complete
+  development receipt. `libraw_decoder.cpp` retains source metadata, embedded previews, and the
+  provider-neutral RawFrame session, then delegates processed reference work to that owner.
 - `raw_development_plan.hpp` owns requested RAW intent and capability negotiation, while
   `raw_development_receipt.hpp` owns the auditable execution result.
 - `decoder_metadata.hpp` / `src/decoder/decoder_metadata.cpp` own source facts,
@@ -164,6 +170,9 @@ Decoder contract tests follow the production responsibilities instead of one agg
 
 - `tests/decoder_source_contract_test.cpp` owns RawFrame validation, sensor clipping, noise
   calibration, Bayer demosaic, RAW-plan negotiation, and embedded-preview selection.
+- `tests/libraw_reference_development_contract_test.cpp` owns LibRaw settings validation,
+  processed-reference capability/quality negotiation, and full-versus-preview admission without
+  requiring a camera fixture.
 - `tests/color_management_contract_test.cpp` owns decoded-source ICC behavior.
 - `tests/raster_provider_contract_test.cpp` owns provider-neutral raster-source decoding.
 - `tests/private_decoder_contract_test.cpp` owns the private plugin ABI, loading, stale-module

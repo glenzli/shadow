@@ -36,6 +36,8 @@ add_library(
     src/decoder/decoder_error.cpp
     src/decoder/decoder_metadata.cpp
     src/decoder/decoder_types.cpp
+    src/decoder/libraw_runtime.cpp
+    src/decoder/libraw_reference_development.cpp
     src/decoder/libraw_decoder.cpp
     src/decoder/raster_exif.cpp
     src/decoder/raster_decoder.cpp
@@ -260,6 +262,16 @@ if(BUILD_TESTING)
         shadow-image-decoder-metadata-tests
         shadow-image-decoder-metadata-contract
         tests/decoder_metadata_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-libraw-reference-development-tests
+        shadow-image-libraw-reference-development-contract
+        tests/libraw_reference_development_contract_test.cpp
+    )
+    target_include_directories(
+        shadow-image-libraw-reference-development-tests
+        PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/decoder"
     )
     shadow_image_add_contract(
         shadow-image-color-management-tests
