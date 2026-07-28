@@ -115,6 +115,9 @@ Precision presentation follows the same responsibility tree:
   transport, overlays, and their stable workspace-facing state.
 - [`qml/PrecisionCanvasToolbar.qml`](qml/PrecisionCanvasToolbar.qml) presents the current-photo,
   clipping, comparison, and zoom commands while emitting intent back to the viewport owner.
+- [`qml/PrecisionGradeNodePane.qml`](qml/PrecisionGradeNodePane.qml) owns Grade Node navigation,
+  ordering, enablement, and collection actions; [`qml/PrecisionGradeNodeMenus.qml`](qml/PrecisionGradeNodeMenus.qml)
+  owns sharing, node-mask commands, and their popup lifecycles.
 - [`qml/PrecisionComparisonSurface.qml`](qml/PrecisionComparisonSurface.qml) owns the complete
   visual comparison transaction inside that viewport: original-frame receipt, whole/wipe/dual
   layouts, divider input, and BEFORE/AFTER labels.

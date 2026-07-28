@@ -389,6 +389,8 @@ qt_add_qml_module(
         qml/CacheMaintenanceWindow.qml
         qml/HueCurveEditor.qml
         qml/PrecisionGeometryTools.qml
+        qml/PrecisionGradeNodeMenus.qml
+        qml/PrecisionGradeNodePane.qml
         qml/PrecisionLocalMaskOverlay.qml
         qml/PrecisionCropOverlay.qml
         qml/PrecisionRetouchOverlay.qml
