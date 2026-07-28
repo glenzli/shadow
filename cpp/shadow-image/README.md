@@ -148,6 +148,13 @@ must introduce a new versioned Recipe-aware operation; it must not overload this
 promote an unowned parser into the public crate facade, or substitute a JPEG proxy for a RAW detail
 tile.
 
+Lensfun optics has two production owners behind the stable `OpticsProvider` API.
+`src/optics/lensfun_profile_catalog.*` owns database selection and loading, normalized camera
+identity lookup, compatible-lens projection, explicit/manual profile resolution, synchronization,
+and the match cache. `src/optics/lensfun_optics.cpp` consumes an immutable match and owns settings
+validation, manual fallback correction, Lensfun modifier projection, and packed/scene-linear pixel
+execution.
+
 Decoder contract tests follow the production responsibilities instead of one aggregate executable:
 
 - `tests/decoder_source_contract_test.cpp` owns RawFrame validation, sensor clipping, noise
@@ -158,8 +165,11 @@ Decoder contract tests follow the production responsibilities instead of one agg
   rejection, and router precedence.
 - `tests/neutral_detail_helper_contract.cmake` owns the real helper-process/private-provider
   development proof, including nonce-bound receipt fields and atomic RGB8 artifact publication.
-- `tests/optics_preparation_contract_test.cpp` owns manual/Lensfun optics and its position before
-  warm-preview and full-detail preparation.
+- `tests/lensfun_profile_catalog_contract_test.cpp` owns database availability, automatic/manual
+  identity admission, compatible-profile ordering and uniqueness, cached resolution, and explicit
+  missing camera/lens statuses.
+- `tests/optics_preparation_contract_test.cpp` owns manual/Lensfun pixel correction and its
+  position before warm-preview and full-detail preparation.
 - `tests/proxy_output_contract_test.cpp` owns encoded proxy limits and the explicit display-sRGB
   output boundary.
 - `tests/edit_preview_session_contract_test.cpp` owns immutable warm-preview preparation, receipt

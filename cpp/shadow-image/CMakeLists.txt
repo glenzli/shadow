@@ -75,6 +75,7 @@ add_library(
     src/raw/raw_pipeline.cpp
     src/raw/sensor_clipping.cpp
     src/decoder/private_decoder_plugin.cpp
+    src/optics/lensfun_profile_catalog.cpp
     src/optics/lensfun_optics.cpp
     src/proxy/developed_source_raster.cpp
     src/proxy/display_output.cpp
@@ -282,6 +283,27 @@ if(BUILD_TESTING)
         shadow-image-optics-preparation-contract
         tests/optics_preparation_contract_test.cpp
     )
+    shadow_image_add_contract(
+        shadow-image-lensfun-profile-catalog-tests
+        shadow-image-lensfun-profile-catalog-contract
+        tests/lensfun_profile_catalog_contract_test.cpp
+    )
+    if(Lensfun_FOUND)
+        target_include_directories(
+            shadow-image-lensfun-profile-catalog-tests
+            SYSTEM BEFORE PRIVATE
+                ${Lensfun_INCLUDE_DIRS}
+        )
+        target_compile_definitions(
+            shadow-image-lensfun-profile-catalog-tests
+            PRIVATE SHADOW_IMAGE_HAS_LENSFUN=1
+        )
+    else()
+        target_compile_definitions(
+            shadow-image-lensfun-profile-catalog-tests
+            PRIVATE SHADOW_IMAGE_HAS_LENSFUN=0
+        )
+    endif()
     if(Lensfun_FOUND)
         file(
             GLOB SHADOW_LENSFUN_DATABASE_DIRECTORIES
@@ -293,6 +315,7 @@ if(BUILD_TESTING)
             list(GET SHADOW_LENSFUN_DATABASE_DIRECTORIES 0 SHADOW_LENSFUN_TEST_DATABASE)
             set_tests_properties(
                 shadow-image-optics-preparation-contract
+                shadow-image-lensfun-profile-catalog-contract
                 PROPERTIES ENVIRONMENT
                     "SHADOW_TEST_LENSFUN_DB=$<SHELL_PATH:${SHADOW_LENSFUN_TEST_DATABASE}>"
             )
