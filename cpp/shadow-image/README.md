@@ -209,6 +209,14 @@ Decoder contract tests follow the production responsibilities instead of one agg
   metadata, and source-development provenance.
 - `tests/source_rendering_contract_test.cpp` owns the consistency of DNG baseline exposure across
   source-rendering outputs.
+- `tests/raw_pipeline_routing_contract_test.cpp` owns host-versus-provider route selection,
+  backend identity, explicit fallback, exact-DCP admission, and host capability negotiation.
+- `tests/raw_sensor_preparation_contract_test.cpp` owns CFA-preserving denoise, calibration/cache
+  identity, highlight treatment, reconstruction quality, and preview/detail source calibration.
+- `tests/raw_pipeline_contract_test_support.hpp` owns only their common assertions, base Bayer
+  frame, processed fallback, and synthetic decode session. Routing-only DCP fixtures and
+  preparation-only noise/gradient frames live in the adjacent responsibility-named support
+  headers rather than in a false-common fixture module.
 - Test-only support is responsibility-named: shared assertions, processed-RGB sessions, optics
   observations, and scoped environment overrides live in separate narrow headers.
 

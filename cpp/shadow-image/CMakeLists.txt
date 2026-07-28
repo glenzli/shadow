@@ -626,10 +626,16 @@ if(BUILD_TESTING)
     shadow_image_enable_warnings(shadow-image-source-rendering-tests)
     add_test(NAME shadow-image-source-rendering-contract COMMAND shadow-image-source-rendering-tests)
 
-    add_executable(shadow-image-raw-pipeline-tests tests/raw_pipeline_contract_test.cpp)
-    target_link_libraries(shadow-image-raw-pipeline-tests PRIVATE Shadow::Image)
-    shadow_image_enable_warnings(shadow-image-raw-pipeline-tests)
-    add_test(NAME shadow-image-raw-pipeline-contract COMMAND shadow-image-raw-pipeline-tests)
+    shadow_image_add_contract(
+        shadow-image-raw-pipeline-routing-tests
+        shadow-image-raw-pipeline-routing-contract
+        tests/raw_pipeline_routing_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-raw-sensor-preparation-tests
+        shadow-image-raw-sensor-preparation-contract
+        tests/raw_sensor_preparation_contract_test.cpp
+    )
 
     add_executable(
         shadow-image-fused-raw-development-tests
@@ -672,7 +678,8 @@ if(BUILD_TESTING)
                 LABELS "metal-required"
         )
         set_tests_properties(
-            shadow-image-raw-pipeline-contract
+            shadow-image-raw-pipeline-routing-contract
+            shadow-image-raw-sensor-preparation-contract
             PROPERTIES
                 ENVIRONMENT
                     "SHADOW_IMAGE_ACCELERATION=metal;SHADOW_TEST_REQUIRE_METAL=1"
