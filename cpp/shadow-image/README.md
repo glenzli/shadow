@@ -19,11 +19,14 @@ DecoderProvider
 `include/shadow/image/decoder.hpp` is the compatibility and navigation entry point. New production
 code should include the narrow semantic owner directly:
 
-- `decoder_types.hpp` owns small shared value types; `decoder_error.hpp` owns failure categories.
+- `decoder_types.hpp` / `src/decoder/decoder_types.cpp` own small shared value types and their
+  invariants; `decoder_error.hpp` / `src/decoder/decoder_error.cpp` own stable failure categories,
+  provider codes, and diagnostics.
 - `libraw_development_settings.hpp` owns the concrete LibRaw renderer configuration.
 - `raw_development_plan.hpp` owns requested RAW intent and capability negotiation, while
   `raw_development_receipt.hpp` owns the auditable execution result.
-- `decoder_metadata.hpp` owns source facts and embedded-preview descriptors.
+- `decoder_metadata.hpp` / `src/decoder/decoder_metadata.cpp` own source facts,
+  embedded-preview descriptors, provider-ID selection, and format names.
 - `raw_frame.hpp` owns untouched sensor samples; `reference_pixels.hpp` owns processed reference
   pixels and their output contracts.
 - `decoder_session.hpp` owns opened-source/provider lifetimes; `proxy_rendering.hpp` owns bounded
@@ -32,7 +35,9 @@ code should include the narrow semantic owner directly:
 These headers form a one-way dependency graph rather than a hidden prelude. The public contracts
 do not expose LibRaw objects, enums, pointers, or ownership rules. A provider owns its decoder
 implementation; returned buffers own their memory and remain valid after subsequent session
-calls.
+calls. The focused `decoder_types`, `decoder_error`, and `decoder_metadata` contract tests sit
+beside the provider-level decoder-source contract, so shared invariants do not depend on linking
+the LibRaw translation unit that happens to consume them.
 
 Rust consumes owned metadata/capability/preview snapshots, the selected embedded preview, and a final compressed proxy through the CXX adapter in `src/bridge/cxx_bridge.cpp`. The bridge is intentionally coarse-grained: full-size mosaic/RGB buffers remain in C++, where the fallback path performs bilinear downscaling and libjpeg-compatible encoding before transferring bytes.
 

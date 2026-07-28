@@ -43,6 +43,9 @@ const BRIDGE_INPUTS: &[&str] = &[
 ];
 
 const EMBEDDED_IMAGE_INPUTS: &[&str] = &[
+    "src/decoder/decoder_error.cpp",
+    "src/decoder/decoder_metadata.cpp",
+    "src/decoder/decoder_types.cpp",
     "src/decoder/libraw_decoder.cpp",
     "src/decoder/raster_exif.hpp",
     "src/decoder/raster_exif.cpp",
@@ -260,6 +263,9 @@ fn main() {
     );
 
     build
+        .file(image_root.join("src/decoder/decoder_error.cpp"))
+        .file(image_root.join("src/decoder/decoder_metadata.cpp"))
+        .file(image_root.join("src/decoder/decoder_types.cpp"))
         .file(image_root.join("src/decoder/libraw_decoder.cpp"))
         .file(image_root.join("src/decoder/raster_exif.cpp"))
         .file(image_root.join("src/decoder/raster_decoder.cpp"))

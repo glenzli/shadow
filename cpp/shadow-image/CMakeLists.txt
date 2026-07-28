@@ -33,6 +33,9 @@ endfunction()
 
 add_library(
     shadow-image STATIC
+    src/decoder/decoder_error.cpp
+    src/decoder/decoder_metadata.cpp
+    src/decoder/decoder_types.cpp
     src/decoder/libraw_decoder.cpp
     src/decoder/raster_exif.cpp
     src/decoder/raster_decoder.cpp
@@ -242,6 +245,21 @@ if(BUILD_TESTING)
         shadow-image-decoder-source-tests
         shadow-image-decoder-source-contract
         tests/decoder_source_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-decoder-types-tests
+        shadow-image-decoder-types-contract
+        tests/decoder_types_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-decoder-error-tests
+        shadow-image-decoder-error-contract
+        tests/decoder_error_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-decoder-metadata-tests
+        shadow-image-decoder-metadata-contract
+        tests/decoder_metadata_contract_test.cpp
     )
     shadow_image_add_contract(
         shadow-image-color-management-tests
