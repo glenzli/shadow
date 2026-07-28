@@ -171,9 +171,17 @@ else()
     )
 endif()
 
+set(
+    SHADOW_DESKTOP_EDIT_SETTINGS_PROJECTION_SOURCES
+    src/backend/edit_settings_projection.cpp
+    src/backend/edit_settings_projection.hpp
+    src/backend/rust_qt_projection.hpp
+)
+
 qt_add_executable(
     shadow-desktop
     MACOSX_BUNDLE
+    ${SHADOW_DESKTOP_EDIT_SETTINGS_PROJECTION_SOURCES}
     src/desktop_backend.cpp
     src/desktop_backend.hpp
     src/folder_scan_backend.cpp
@@ -580,6 +588,7 @@ if(BUILD_TESTING)
     add_executable(
         shadow-backend-photo-inspection-contract-test
         tests/backend_photo_inspection_contract_test.cpp
+        ${SHADOW_DESKTOP_EDIT_SETTINGS_PROJECTION_SOURCES}
         src/desktop_backend.cpp
         src/desktop_backend.hpp
         src/folder_scan_backend.cpp
@@ -626,6 +635,7 @@ if(BUILD_TESTING)
     add_executable(
         shadow-review-source-health-backend-contract-test
         tests/review_source_health_backend_contract_test.cpp
+        ${SHADOW_DESKTOP_EDIT_SETTINGS_PROJECTION_SOURCES}
         src/desktop_backend.cpp
         src/desktop_backend.hpp
         src/folder_scan_backend.cpp
@@ -932,6 +942,7 @@ if(BUILD_TESTING)
     add_executable(
         shadow-review-photo-inspection-coordinator-test
         tests/review_photo_inspection_coordinator_test.cpp
+        ${SHADOW_DESKTOP_EDIT_SETTINGS_PROJECTION_SOURCES}
         src/review_photo_inspection_coordinator.cpp
         src/review_photo_inspection_coordinator.hpp
         src/review_photo_inspection_session.hpp
@@ -978,6 +989,45 @@ if(BUILD_TESTING)
     add_test(
         NAME shadow-desktop-review-photo-inspection-coordinator
         COMMAND shadow-review-photo-inspection-coordinator-test
+    )
+
+    add_executable(
+        shadow-backend-edit-settings-projection-test
+        tests/backend_edit_settings_projection_test.cpp
+        ${SHADOW_DESKTOP_EDIT_SETTINGS_PROJECTION_SOURCES}
+    )
+    target_compile_features(
+        shadow-backend-edit-settings-projection-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-backend-edit-settings-projection-test
+        PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/src"
+            "${SHADOW_CXXBRIDGE_INCLUDE_DIRECTORY}"
+    )
+    target_link_libraries(
+        shadow-backend-edit-settings-projection-test
+        PRIVATE shadow-desktop-export-backend
+    )
+    add_dependencies(
+        shadow-backend-edit-settings-projection-test
+        shadow-desktop-rust-build
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-backend-edit-settings-projection-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-backend-edit-settings-projection-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-backend-edit-settings-projection
+        COMMAND shadow-backend-edit-settings-projection-test
     )
 
     add_executable(

@@ -40,6 +40,13 @@ Application startup is split from environment-driven automation:
   `DesktopBackend` preserves the stable compatibility methods. Its focused
   [`folder_scan_backend_contract_test.cpp`](tests/folder_scan_backend_contract_test.cpp) exercises
   cancellation and completion through the real desktop session.
+- [`src/backend/edit_settings_projection.cpp`](src/backend/edit_settings_projection.cpp) owns the
+  complete bidirectional Qt/CXX Grade Stack and edit-history wire mapping: optics, Grade Node
+  identities and controls, masks, repair spots and strokes, geometry, versions, and all bounded
+  vector-shape checks. `DesktopBackend` workflows consume this single projection instead of
+  carrying their own field interpretation. Its
+  [`backend_edit_settings_projection_test.cpp`](tests/backend_edit_settings_projection_test.cpp)
+  verifies full-stack lossless round trips plus malformed vector rejection.
 - [`src/desktop_smoke_harness.cpp`](src/desktop_smoke_harness.cpp) owns documented
   `SHADOW_DESKTOP_*` flag selection and shared scenario dispatch.
 - [`src/desktop_smoke/edit_preview_session.cpp`](src/desktop_smoke/edit_preview_session.cpp)
