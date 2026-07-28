@@ -55,6 +55,14 @@ Application startup is split from environment-driven automation:
   verifies full-stack lossless round trips plus malformed vector rejection.
 - [`src/desktop_smoke_harness.cpp`](src/desktop_smoke_harness.cpp) owns documented
   `SHADOW_DESKTOP_*` flag selection and shared scenario dispatch.
+- [`src/desktop_smoke/scenario_setup.cpp`](src/desktop_smoke/scenario_setup.cpp) owns first-photo,
+  first-comparison, and first-decision readiness wiring.
+- [`src/desktop_smoke/application_lifecycle.cpp`](src/desktop_smoke/application_lifecycle.cpp)
+  owns normal close, dirty autosave close, and live language-switch acceptance.
+- [`src/desktop_smoke/library_lifecycle.cpp`](src/desktop_smoke/library_lifecycle.cpp) owns import
+  cancellation, progressive-grid visibility, and persisted-Library reopen acceptance, while
+  [`src/desktop_smoke/review_mutations.cpp`](src/desktop_smoke/review_mutations.cpp) owns Review
+  decision/comparison completion and undo/forget outcomes.
 - [`src/desktop_smoke/edit_preview_session.cpp`](src/desktop_smoke/edit_preview_session.cpp)
   owns the first-photo Precision acceptance lifecycle: Review-row readiness, current preview and
   analysis, optional Before, optional complete level-zero viewport readback, deadline,

@@ -198,10 +198,18 @@ qt_add_executable(
     src/folder_scan_backend.hpp
     src/desktop_smoke_harness.cpp
     src/desktop_smoke_harness.hpp
+    src/desktop_smoke/application_lifecycle.cpp
+    src/desktop_smoke/application_lifecycle.hpp
     src/desktop_smoke/edit_preview_session.cpp
     src/desktop_smoke/edit_preview_session.hpp
     src/desktop_smoke/grade_stack_persistence.cpp
     src/desktop_smoke/grade_stack_persistence.hpp
+    src/desktop_smoke/library_lifecycle.cpp
+    src/desktop_smoke/library_lifecycle.hpp
+    src/desktop_smoke/review_mutations.cpp
+    src/desktop_smoke/review_mutations.hpp
+    src/desktop_smoke/scenario_setup.cpp
+    src/desktop_smoke/scenario_setup.hpp
     src/cache_maintenance_controller.cpp
     src/cache_maintenance_controller.hpp
     src/edit_controller.cpp
