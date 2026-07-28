@@ -96,13 +96,14 @@ fn ffi_library_page(
     }
     let next_cursor = page
         .next_cursor
+        .as_ref()
         .map_or_else(empty_ffi_cursor, ffi_library_cursor);
     Ok(ffi::FfiLibraryPhotoPage {
         items: page
             .items
             .into_iter()
             .zip(visuals)
-            .map(|(record, visual)| ffi_library_photo(record, visual, review))
+            .map(|(record, visual)| ffi_library_photo(record, visual.as_ref(), review))
             .collect::<AnyResult<Vec<_>>>()?,
         has_more: !next_cursor.photo_id.is_empty(),
         next_cursor,
@@ -112,14 +113,14 @@ fn ffi_library_page(
 #[allow(clippy::too_many_lines)]
 fn ffi_library_photo(
     record: LibraryPhotoRecord,
-    cached_visual: Option<CachedArtifactRecord>,
+    cached_visual: Option<&CachedArtifactRecord>,
     review: &ReviewService,
 ) -> AnyResult<ffi::FfiLibraryPhotoItem> {
     let visual = review.grid_visual(
         record.photo_id,
         record.representation_id,
         record.source,
-        cached_visual.as_ref(),
+        cached_visual,
     )?;
     let (visual_handle, visual_role, visual_width, visual_height, has_visual) =
         ffi_grid_visual(visual);

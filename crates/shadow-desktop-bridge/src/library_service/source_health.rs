@@ -12,11 +12,12 @@ impl LibraryService {
     /// Projects only observational source-scan evidence. The desktop must
     /// never infer a global missing file or a replacement path from this list.
     pub(crate) fn ffi_source_health(&self) -> AnyResult<Vec<ffi::FfiLibrarySourceHealth>> {
-        self.catalog
+        Ok(self
+            .catalog
             .library_source_health()?
             .into_iter()
             .map(ffi_library_source_health)
-            .collect()
+            .collect())
     }
 
     /// Reads a bounded page of locations absent from one completed source
@@ -56,9 +57,7 @@ impl LibraryService {
     }
 }
 
-fn ffi_library_source_health(
-    health: LibrarySourceHealth,
-) -> AnyResult<ffi::FfiLibrarySourceHealth> {
+fn ffi_library_source_health(health: LibrarySourceHealth) -> ffi::FfiLibrarySourceHealth {
     let source_id = health.source.id.to_string();
     let source_display_path = health.source.root.display_path;
     let source_enabled = health.source.enabled;
@@ -80,7 +79,7 @@ fn ffi_library_source_health(
         ),
         None => (false, String::new(), 0, 0, 0, 0),
     };
-    Ok(ffi::FfiLibrarySourceHealth {
+    ffi::FfiLibrarySourceHealth {
         source_id,
         source_display_path,
         source_enabled,
@@ -90,7 +89,7 @@ fn ffi_library_source_health(
         known_locations,
         seen_locations,
         not_seen_locations,
-    })
+    }
 }
 
 fn empty_ffi_missing_source_location_page() -> ffi::FfiMissingSourceLocationPage {

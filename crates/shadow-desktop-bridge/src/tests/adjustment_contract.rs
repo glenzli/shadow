@@ -46,6 +46,7 @@ fn basic_recipe_round_trip_preserves_renderer_parameters() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn fine_edit_round_trip_preserves_every_parameter_and_execution_slot() {
     let expected = FineEditParameters {
         selective_tone: SelectiveToneParameters {

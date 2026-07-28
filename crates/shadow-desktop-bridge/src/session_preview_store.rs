@@ -92,8 +92,7 @@ impl SessionPreviewStore {
         }
         if byte_len > MAX_SESSION_PREVIEW_BYTES {
             return Err(format!(
-                "embedded preview is {byte_len} bytes, above this session's {} byte memory limit",
-                MAX_SESSION_PREVIEW_BYTES
+                "embedded preview is {byte_len} bytes, above this session's {MAX_SESSION_PREVIEW_BYTES} byte memory limit"
             ));
         }
         let mut state = self

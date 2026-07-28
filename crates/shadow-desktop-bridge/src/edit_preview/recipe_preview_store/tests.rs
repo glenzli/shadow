@@ -10,6 +10,7 @@ use shadow_domain::{
 use super::*;
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn publication_preserves_recipe_preview_storage_and_reader_identity_contract() {
     let root = std::env::temp_dir().join(format!(
         "shadow-recipe-preview-store-{}-{}",

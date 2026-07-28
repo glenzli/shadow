@@ -5,9 +5,12 @@
 //! development uses `ExportImage` intent and the exact current Recipe, then
 //! returns one tightly packed display-sRGB RGB8 raster.
 
+use std::path::Path;
+
 use anyhow::{Context, Result as AnyResult, anyhow, bail};
 use shadow_bridge::{
-    DetailTileRect, DetailTileRequest, PhotoEditDetailSession, RawDevelopmentPlan,
+    AdjustmentRenderPlan, DetailTileRect, DetailTileRequest, OpticsSettings,
+    PhotoEditDetailSession, RawDevelopmentPlan,
 };
 use shadow_core::fingerprint_source;
 
@@ -21,6 +24,9 @@ use crate::{
     session_photo_source::catalog_native_path,
 };
 
+const EXPORT_TILE_SIDE: u32 = 1_024;
+const SOURCE_CHANGED: &str = "export source changed since Catalog registration";
+
 impl DesktopSession {
     pub(crate) fn render_basic_edit_export(
         &self,
@@ -28,9 +34,6 @@ impl DesktopSession {
         source_path: &str,
         request: &ffi::FfiEditExportRequest,
     ) -> AnyResult<ffi::FfiEditedExportRaster> {
-        const EXPORT_TILE_SIDE: u32 = 1_024;
-        const SOURCE_CHANGED: &str = "export source changed since Catalog registration";
-
         let (photo_id, source) = self.validated_photo_source(photo_id, source_path)?;
         let native_path = catalog_native_path(&source)?;
         if fingerprint_source(&native_path).context("read export source metadata")? != source.source
@@ -44,108 +47,148 @@ impl DesktopSession {
             &request.settings,
             request.use_working_recipe,
         )?;
-        let raw_plan = RawDevelopmentPlan::export_image();
         let optics = bridge_optics_settings(&request.settings.optics);
         ensure_known_quarantined_raw_does_not_open_for_export(&self.cache_root, &native_path)?;
-        let session = match PhotoEditDetailSession::open_with_raw_development_plan_and_optics(
-            &native_path,
-            raw_plan,
-            &optics,
-        ) {
-            Ok(session) => session,
-            Err(public_decoder_error) => {
-                let temporary_raster =
-                    isolated_edit_raster(&self.cache_root, &native_path, 16_384).with_context(
-                        || {
-                            format!(
-                                "public decoder could not prepare export for {}; isolated decoder fallback could not start: {public_decoder_error}",
-                                native_path.display()
-                            )
-                        },
-                    )?;
-                let isolated_result =
-                    PhotoEditDetailSession::open_with_raw_development_plan_and_optics(
-                        &temporary_raster,
-                        raw_plan,
-                        &optics,
-                    );
-                let _ = std::fs::remove_file(&temporary_raster);
-                isolated_result.with_context(|| {
-                    format!(
-                        "public decoder could not prepare export for {}; isolated decoder fallback also failed: {public_decoder_error}",
-                        native_path.display()
-                    )
-                })?
-            }
-        };
-        let dimensions = session.dimensions();
-        let row_stride_bytes = dimensions
-            .width
-            .checked_mul(3)
-            .ok_or_else(|| anyhow!("export row stride overflowed"))?;
-        let byte_len = u64::from(row_stride_bytes)
-            .checked_mul(u64::from(dimensions.height))
-            .and_then(|value| usize::try_from(value).ok())
-            .ok_or_else(|| anyhow!("export raster allocation overflowed"))?;
-        let mut bytes = vec![0_u8; byte_len];
-        let mut y = 0;
-        while y < dimensions.height {
-            let mut x = 0;
-            while x < dimensions.width {
-                let rect = DetailTileRect {
-                    x,
-                    y,
-                    width: EXPORT_TILE_SIDE.min(dimensions.width - x),
-                    height: EXPORT_TILE_SIDE.min(dimensions.height - y),
-                };
-                let tile = session.render_plan_tile(&recipe.plan, DetailTileRequest { rect })?;
-                let tile_stride =
-                    usize::try_from(tile.row_stride_bytes).context("convert export tile stride")?;
-                let destination_stride =
-                    usize::try_from(row_stride_bytes).context("convert export row stride")?;
-                let destination_x = usize::try_from(x)
-                    .context("convert export tile x")?
-                    .checked_mul(3)
-                    .ok_or_else(|| anyhow!("export tile x overflowed"))?;
-                for row in 0..usize::try_from(rect.height).context("convert export tile height")? {
-                    let source_start = row
-                        .checked_mul(tile_stride)
-                        .ok_or_else(|| anyhow!("export tile row overflowed"))?;
-                    let source_end = source_start
-                        .checked_add(tile_stride)
-                        .ok_or_else(|| anyhow!("export tile row end overflowed"))?;
-                    let destination_row = usize::try_from(y)
-                        .context("convert export tile y")?
-                        .checked_add(row)
-                        .and_then(|value| value.checked_mul(destination_stride))
-                        .and_then(|value| value.checked_add(destination_x))
-                        .ok_or_else(|| anyhow!("export destination row overflowed"))?;
-                    let destination_end = destination_row
-                        .checked_add(tile_stride)
-                        .ok_or_else(|| anyhow!("export destination row end overflowed"))?;
-                    bytes[destination_row..destination_end]
-                        .copy_from_slice(&tile.bytes[source_start..source_end]);
-                }
-                x = x
-                    .checked_add(rect.width)
-                    .ok_or_else(|| anyhow!("export tile x advance overflowed"))?;
-            }
-            y = y
-                .checked_add(EXPORT_TILE_SIDE.min(dimensions.height - y))
-                .ok_or_else(|| anyhow!("export tile y advance overflowed"))?;
-        }
+        let session = open_export_session(&self.cache_root, &native_path, &optics)?;
+        let raster = render_export_raster(&session, &recipe.plan)?;
         if fingerprint_source(&native_path).context("re-read export source metadata")?
             != source.source
         {
             bail!(SOURCE_CHANGED);
         }
-        Ok(ffi::FfiEditedExportRaster {
-            width: dimensions.width,
-            height: dimensions.height,
-            row_stride_bytes,
-            bytes,
-        })
+        Ok(raster)
     }
+}
+
+fn open_export_session(
+    cache_root: &Path,
+    native_path: &Path,
+    optics: &OpticsSettings,
+) -> AnyResult<PhotoEditDetailSession> {
+    let raw_plan = RawDevelopmentPlan::export_image();
+    match PhotoEditDetailSession::open_with_raw_development_plan_and_optics(
+        native_path,
+        raw_plan,
+        optics,
+    ) {
+        Ok(session) => Ok(session),
+        Err(public_decoder_error) => {
+            let temporary_raster =
+                isolated_edit_raster(cache_root, native_path, 16_384).with_context(|| {
+                    format!(
+                        "public decoder could not prepare export for {}; isolated decoder fallback could not start: {public_decoder_error}",
+                        native_path.display()
+                    )
+                })?;
+            let isolated_result = PhotoEditDetailSession::open_with_raw_development_plan_and_optics(
+                &temporary_raster,
+                raw_plan,
+                optics,
+            );
+            let _ = std::fs::remove_file(&temporary_raster);
+            isolated_result.with_context(|| {
+                format!(
+                    "public decoder could not prepare export for {}; isolated decoder fallback also failed: {public_decoder_error}",
+                    native_path.display()
+                )
+            })
+        }
+    }
+}
+
+fn render_export_raster(
+    session: &PhotoEditDetailSession,
+    plan: &AdjustmentRenderPlan,
+) -> AnyResult<ffi::FfiEditedExportRaster> {
+    let dimensions = session.dimensions();
+    let row_stride_bytes = dimensions
+        .width
+        .checked_mul(3)
+        .ok_or_else(|| anyhow!("export row stride overflowed"))?;
+    let byte_len = u64::from(row_stride_bytes)
+        .checked_mul(u64::from(dimensions.height))
+        .and_then(|value| usize::try_from(value).ok())
+        .ok_or_else(|| anyhow!("export raster allocation overflowed"))?;
+    let mut bytes = vec![0_u8; byte_len];
+    let destination_stride =
+        usize::try_from(row_stride_bytes).context("convert export row stride")?;
+    let mut y = 0;
+    while y < dimensions.height {
+        let mut x = 0;
+        while x < dimensions.width {
+            let rect = DetailTileRect {
+                x,
+                y,
+                width: EXPORT_TILE_SIDE.min(dimensions.width - x),
+                height: EXPORT_TILE_SIDE.min(dimensions.height - y),
+            };
+            let tile = session.render_plan_tile(plan, DetailTileRequest { rect })?;
+            copy_export_tile(
+                &mut bytes,
+                destination_stride,
+                &ExportTileCopy {
+                    origin_x: x,
+                    origin_y: y,
+                    rect,
+                    source: &tile.bytes,
+                    source_row_stride_bytes: tile.row_stride_bytes,
+                },
+            )?;
+            x = x
+                .checked_add(rect.width)
+                .ok_or_else(|| anyhow!("export tile x advance overflowed"))?;
+        }
+        y = y
+            .checked_add(EXPORT_TILE_SIDE.min(dimensions.height - y))
+            .ok_or_else(|| anyhow!("export tile y advance overflowed"))?;
+    }
+    Ok(ffi::FfiEditedExportRaster {
+        width: dimensions.width,
+        height: dimensions.height,
+        row_stride_bytes,
+        bytes,
+    })
+}
+
+struct ExportTileCopy<'a> {
+    origin_x: u32,
+    origin_y: u32,
+    rect: DetailTileRect,
+    source: &'a [u8],
+    source_row_stride_bytes: u32,
+}
+
+fn copy_export_tile(
+    destination: &mut [u8],
+    destination_stride: usize,
+    tile: &ExportTileCopy<'_>,
+) -> AnyResult<()> {
+    let source_stride =
+        usize::try_from(tile.source_row_stride_bytes).context("convert export tile stride")?;
+    let destination_x = usize::try_from(tile.origin_x)
+        .context("convert export tile x")?
+        .checked_mul(3)
+        .ok_or_else(|| anyhow!("export tile x overflowed"))?;
+    for row in 0..usize::try_from(tile.rect.height).context("convert export tile height")? {
+        let source_start = row
+            .checked_mul(source_stride)
+            .ok_or_else(|| anyhow!("export tile row overflowed"))?;
+        let source_end = source_start
+            .checked_add(source_stride)
+            .ok_or_else(|| anyhow!("export tile row end overflowed"))?;
+        let destination_row = usize::try_from(tile.origin_y)
+            .context("convert export tile y")?
+            .checked_add(row)
+            .and_then(|value| value.checked_mul(destination_stride))
+            .and_then(|value| value.checked_add(destination_x))
+            .ok_or_else(|| anyhow!("export destination row overflowed"))?;
+        let destination_end = destination_row
+            .checked_add(source_stride)
+            .ok_or_else(|| anyhow!("export destination row end overflowed"))?;
+        destination[destination_row..destination_end]
+            .copy_from_slice(&tile.source[source_start..source_end]);
+    }
+    Ok(())
 }
 
 /// A known child-process crash or timeout is evidence that this exact source

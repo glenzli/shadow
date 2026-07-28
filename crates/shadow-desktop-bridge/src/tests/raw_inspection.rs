@@ -6,7 +6,7 @@ use shadow_catalog::{RecordDecodeSnapshot, RegisterAsset, RepresentationFingerpr
 use shadow_domain::{
     AssetLocation, DecodeCapabilitySnapshot, DecodeProviderSnapshot, DecodeSupport,
     DecoderSnapshot, EntityId, ImageDimensions, ImageMargins, PendingCorrectionsSnapshot, Platform,
-    RawMetadataSnapshot, RepresentationId, RepresentationKind,
+    RawDevelopmentCapabilitySnapshot, RawMetadataSnapshot, RepresentationId, RepresentationKind,
 };
 
 use crate::{
@@ -125,7 +125,7 @@ fn optics_profile_discovery_uses_catalog_metadata_without_opening_raw_pixels() {
                     raw_frame: DecodeSupport::Unavailable,
                     reference_rgb: DecodeSupport::Unavailable,
                     pending_corrections: PendingCorrectionsSnapshot::default(),
-                    raw_development: Default::default(),
+                    raw_development: RawDevelopmentCapabilitySnapshot::default(),
                 },
                 previews: Vec::new(),
             },

@@ -26,7 +26,7 @@ use crate::{
     wall_clock::current_time_ms,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct RecipePreviewStoreRequest<'a> {
     pub(crate) representation_id: RepresentationId,
     pub(crate) expected_source: RepresentationFingerprint,

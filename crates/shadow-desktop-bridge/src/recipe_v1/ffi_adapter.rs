@@ -141,7 +141,7 @@ fn local_mask_definition_from_ffi(
             grade_node.local_mask_invert,
         )?)),
         LOCAL_MASK_BRUSH => {
-            if grade_node.local_mask_brush_points.len() % 3 != 0 {
+            if !grade_node.local_mask_brush_points.len().is_multiple_of(3) {
                 bail!("Grade Node {index} brush mask must contain x/y/stroke triples");
             }
             let point_count = grade_node.local_mask_brush_points.len() / 3;
@@ -833,6 +833,9 @@ pub(crate) fn encode_grade_stack_draft_recipe_v1(
     }
 }
 
+// The x/y names mirror the stable FFI schema; renaming only one side would
+// make the projection harder to audit than the intentional similarity.
+#[allow(clippy::similar_names)]
 pub(crate) fn encode_grade_node_draft_recipe_v1(grade_node: GradeNodeDraft) -> ffi::FfiGradeNode {
     let identity = grade_node.recipe_v1_identity;
     let (shared_layer_id, shared_revision_id) = grade_node.shared.map_or_else(

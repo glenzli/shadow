@@ -6,6 +6,7 @@ use shadow_domain::{AssetLocation, EntityId, Platform, RepresentationId, Represe
 use crate::{DesktopSession, ffi, open_desktop_session};
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn library_page_is_photo_first_keyset_paginated_and_filterable() {
     let root = std::env::temp_dir().join(format!(
         "shadow-desktop-library-page-{}-{}",

@@ -19,6 +19,7 @@ use crate::{
 };
 
 #[test]
+#[allow(clippy::float_cmp)] // FFI and Recipe round trips must preserve authored values exactly.
 fn continuous_retouch_strokes_round_trip_through_desktop_ffi_and_recipe_v1() {
     let mut incoming = ffi_parameters(0.0, 1.0, [0.0; 2], 1.0);
     incoming.retouch_spots = vec![ffi::FfiRetouchSpot {

@@ -201,7 +201,7 @@ fn autosave_persists_combined_perceptual_color_controls() {
         restored_fine.oklab_lightness_curve_points,
         settings.grade_nodes[0].fine.oklab_lightness_curve_points
     );
-    assert_eq!(restored_fine.color_range_enabled, true);
+    assert!(restored_fine.color_range_enabled);
     assert_close(restored_fine.color_range_center, 111.0);
     assert_close(restored_fine.color_range_width, 42.0);
     assert_close(restored_fine.color_range_softness, 0.64);

@@ -323,7 +323,10 @@ impl DesktopSession {
         self.photo_edit_state_for(photo_id, &source.location.display_path)
     }
 
-    #[allow(clippy::too_many_arguments)]
+    // The bounded CAS/rebase loop is one autosave publication transaction;
+    // extracting fragments would obscure which working-head observation each
+    // retry owns.
+    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
     pub(crate) fn autosave_basic_edit_working_at(
         &self,
         photo_id: &str,

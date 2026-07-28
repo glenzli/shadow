@@ -17,6 +17,7 @@ use crate::{
 };
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn new_basic_grade_node_allocates_complete_stable_identity_and_round_trips() {
     let created = new_basic_grade_node("Portrait foundation").expect("new Basic Grade Node");
     for value in [

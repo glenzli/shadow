@@ -1033,6 +1033,7 @@ mod ffi {
     /// Startup recovery is explicit so the desktop can surface a useful task
     /// status while immediately draining safe, incomplete work.
     #[derive(Debug)]
+    #[allow(clippy::struct_field_names)] // Field names are the stable CXX ABI vocabulary.
     struct FfiDurableExportRecovery {
         interrupted_items: u32,
         requeued_items: u32,

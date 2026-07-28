@@ -31,7 +31,7 @@ pub(crate) fn merge_shared_grade_node(
         // The library revision owns only the complete adjustment graph. A
         // mask is photo-instance placement and must survive an update to the
         // shared look itself.
-        replacement.local_mask = existing.local_mask.clone();
+        replacement.local_mask.clone_from(&existing.local_mask);
         if *existing == replacement {
             return Ok(SharedGradeMerge::Unchanged);
         }

@@ -205,7 +205,7 @@ fn print_inspection_outcome(outcome: &DecodeInspectionOutcome) {
             println!("stored decoder snapshot: provider={provider_id} version={provider_version}");
             match preview {
                 PreviewCacheOutcome::PublishedEmbeddedPreview { byte_len } => {
-                    println!("published session embedded preview: bytes={byte_len}")
+                    println!("published session embedded preview: bytes={byte_len}");
                 }
                 PreviewCacheOutcome::StoredEmbeddedPreview {
                     digest_hex,

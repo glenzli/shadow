@@ -9,6 +9,7 @@ use crate::recipe_v1::{
 };
 
 #[test]
+#[allow(clippy::float_cmp)] // This contract requires bit-exact persisted geometry.
 fn photo_geometry_round_trips_without_becoming_a_grade_node() {
     let geometry = PhotoGeometry::new(
         UnitInterval::new(0.125).expect("crop left"),
@@ -20,8 +21,10 @@ fn photo_geometry_round_trips_without_becoming_a_grade_node() {
         false,
     )
     .expect("valid photo-local geometry");
-    let mut grade_stack = GradeStackDraft::default();
-    grade_stack.geometry = geometry;
+    let grade_stack = GradeStackDraft {
+        geometry,
+        ..GradeStackDraft::default()
+    };
 
     let snapshot =
         grade_stack_recipe_v1_snapshot(&grade_stack, None).expect("persist photo geometry");

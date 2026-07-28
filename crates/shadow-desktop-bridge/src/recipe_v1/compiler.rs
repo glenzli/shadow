@@ -77,20 +77,7 @@ const RECIPE_V1_RETOUCH_LAYER_END_ID: &str = "recipe-v1-photo-retouch:end";
 pub(crate) fn compile_recipe_render_plan(
     snapshot: &RecipeSnapshot,
 ) -> AnyResult<AdjustmentRenderPlan> {
-    snapshot
-        .validate()
-        .context("validate Recipe before rendering")?;
-    if snapshot.schema_version() != CURRENT_RECIPE_SCHEMA_VERSION {
-        bail!(
-            "Recipe render compiler supports schema {}, received {}",
-            CURRENT_RECIPE_SCHEMA_VERSION,
-            snapshot.schema_version()
-        );
-    }
-    if !(1..=MAX_GRADE_NODES).contains(&snapshot.layers().len()) {
-        bail!("Recipe v1 render compiler supports 1 through 16 Grade Nodes");
-    }
-
+    validate_recipe_compilation_contract(snapshot)?;
     // A photo-local repair must run after every Grade Node. It uses an
     // unmasked boundary layer so the native executor can keep one ordering
     // grammar for both local Grade Nodes and photo-local spatial operations.
@@ -172,78 +159,7 @@ pub(crate) fn compile_recipe_render_plan(
         }
     }
     if has_retouch {
-        for boundary_id in [
-            RECIPE_V1_RETOUCH_LAYER_START_ID,
-            RECIPE_V1_RETOUCH_RENDER_NODE_ID,
-            RECIPE_V1_RETOUCH_LAYER_END_ID,
-        ] {
-            if !compiled_node_ids.insert(boundary_id.to_owned()) {
-                bail!("Recipe render compiler rejects duplicate photo-retouch id {boundary_id}");
-            }
-        }
-        compiled.push(AdjustmentRenderNode {
-            node_id: RECIPE_V1_RETOUCH_LAYER_START_ID.to_owned(),
-            parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
-            implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
-            enabled: true,
-            operation: AdjustmentRenderOperation::LocalMaskLayerStart {
-                opacity: 1.0,
-                mask: None,
-            },
-        });
-        compiled.push(AdjustmentRenderNode {
-            node_id: RECIPE_V1_RETOUCH_RENDER_NODE_ID.to_owned(),
-            parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
-            implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
-            enabled: true,
-            operation: AdjustmentRenderOperation::SpotHeal {
-                targets: snapshot
-                    .retouch_spots()
-                    .iter()
-                    .map(|spot| AdjustmentSpotHealTarget {
-                        center_x: spot.center_x().get(),
-                        center_y: spot.center_y().get(),
-                        radius_level_zero_pixels: spot.radius_level_zero_pixels(),
-                        mode: match spot.mode() {
-                            RetouchMode::Heal => 0,
-                            RetouchMode::Clone => 1,
-                        },
-                        source_offset_x_radii: spot.source_offset_x_radii(),
-                        source_offset_y_radii: spot.source_offset_y_radii(),
-                        feather: spot.feather().get(),
-                    })
-                    .collect(),
-                strokes: snapshot
-                    .retouch_strokes()
-                    .iter()
-                    .map(|stroke| AdjustmentRetouchStroke {
-                        points: stroke
-                            .points()
-                            .iter()
-                            .map(|point| AdjustmentRetouchStrokePoint {
-                                x: point.x().get(),
-                                y: point.y().get(),
-                            })
-                            .collect(),
-                        radius_level_zero_pixels: stroke.radius_level_zero_pixels(),
-                        mode: match stroke.mode() {
-                            RetouchMode::Heal => 0,
-                            RetouchMode::Clone => 1,
-                        },
-                        source_offset_x_radii: stroke.source_offset_x_radii(),
-                        source_offset_y_radii: stroke.source_offset_y_radii(),
-                        feather: stroke.feather().get(),
-                    })
-                    .collect(),
-            },
-        });
-        compiled.push(AdjustmentRenderNode {
-            node_id: RECIPE_V1_RETOUCH_LAYER_END_ID.to_owned(),
-            parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
-            implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
-            enabled: true,
-            operation: AdjustmentRenderOperation::LocalMaskLayerEnd,
-        });
+        append_photo_retouch_nodes(snapshot, &mut compiled, &mut compiled_node_ids)?;
     }
     if compiled.len() > MAX_ADJUSTMENT_RENDER_NODES {
         bail!("Recipe render compiler supports at most 256 executable nodes");
@@ -255,6 +171,106 @@ pub(crate) fn compile_recipe_render_plan(
     plan.validate()
         .context("validate compiled Recipe render plan")?;
     Ok(plan)
+}
+
+fn validate_recipe_compilation_contract(snapshot: &RecipeSnapshot) -> AnyResult<()> {
+    snapshot
+        .validate()
+        .context("validate Recipe before rendering")?;
+    if snapshot.schema_version() != CURRENT_RECIPE_SCHEMA_VERSION {
+        bail!(
+            "Recipe render compiler supports schema {}, received {}",
+            CURRENT_RECIPE_SCHEMA_VERSION,
+            snapshot.schema_version()
+        );
+    }
+    if !(1..=MAX_GRADE_NODES).contains(&snapshot.layers().len()) {
+        bail!("Recipe v1 render compiler supports 1 through 16 Grade Nodes");
+    }
+    Ok(())
+}
+
+/// Appends the photo-local repair stage after every Grade Node. Retouch owns a
+/// separate unmasked layer so it cannot inherit the final local adjustment's
+/// mask or enabled state.
+fn append_photo_retouch_nodes(
+    snapshot: &RecipeSnapshot,
+    compiled: &mut Vec<AdjustmentRenderNode>,
+    compiled_node_ids: &mut HashSet<String>,
+) -> AnyResult<()> {
+    for boundary_id in [
+        RECIPE_V1_RETOUCH_LAYER_START_ID,
+        RECIPE_V1_RETOUCH_RENDER_NODE_ID,
+        RECIPE_V1_RETOUCH_LAYER_END_ID,
+    ] {
+        if !compiled_node_ids.insert(boundary_id.to_owned()) {
+            bail!("Recipe render compiler rejects duplicate photo-retouch id {boundary_id}");
+        }
+    }
+    compiled.push(AdjustmentRenderNode {
+        node_id: RECIPE_V1_RETOUCH_LAYER_START_ID.to_owned(),
+        parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+        implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
+        enabled: true,
+        operation: AdjustmentRenderOperation::LocalMaskLayerStart {
+            opacity: 1.0,
+            mask: None,
+        },
+    });
+    compiled.push(AdjustmentRenderNode {
+        node_id: RECIPE_V1_RETOUCH_RENDER_NODE_ID.to_owned(),
+        parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+        implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
+        enabled: true,
+        operation: AdjustmentRenderOperation::SpotHeal {
+            targets: snapshot
+                .retouch_spots()
+                .iter()
+                .map(|spot| AdjustmentSpotHealTarget {
+                    center_x: spot.center_x().get(),
+                    center_y: spot.center_y().get(),
+                    radius_level_zero_pixels: spot.radius_level_zero_pixels(),
+                    mode: match spot.mode() {
+                        RetouchMode::Heal => 0,
+                        RetouchMode::Clone => 1,
+                    },
+                    source_offset_x_radii: spot.source_offset_x_radii(),
+                    source_offset_y_radii: spot.source_offset_y_radii(),
+                    feather: spot.feather().get(),
+                })
+                .collect(),
+            strokes: snapshot
+                .retouch_strokes()
+                .iter()
+                .map(|stroke| AdjustmentRetouchStroke {
+                    points: stroke
+                        .points()
+                        .iter()
+                        .map(|point| AdjustmentRetouchStrokePoint {
+                            x: point.x().get(),
+                            y: point.y().get(),
+                        })
+                        .collect(),
+                    radius_level_zero_pixels: stroke.radius_level_zero_pixels(),
+                    mode: match stroke.mode() {
+                        RetouchMode::Heal => 0,
+                        RetouchMode::Clone => 1,
+                    },
+                    source_offset_x_radii: stroke.source_offset_x_radii(),
+                    source_offset_y_radii: stroke.source_offset_y_radii(),
+                    feather: stroke.feather().get(),
+                })
+                .collect(),
+        },
+    });
+    compiled.push(AdjustmentRenderNode {
+        node_id: RECIPE_V1_RETOUCH_LAYER_END_ID.to_owned(),
+        parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+        implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
+        enabled: true,
+        operation: AdjustmentRenderOperation::LocalMaskLayerEnd,
+    });
+    Ok(())
 }
 
 fn adjustment_local_mask(definition: &MaskDefinition) -> AdjustmentLocalMask {

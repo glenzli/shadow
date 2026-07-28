@@ -222,7 +222,7 @@ pub(super) fn empty_ffi_cursor() -> ffi::FfiLibraryPhotoCursor {
     }
 }
 
-pub(super) fn ffi_library_cursor(cursor: LibraryPhotoCursor) -> ffi::FfiLibraryPhotoCursor {
+pub(super) fn ffi_library_cursor(cursor: &LibraryPhotoCursor) -> ffi::FfiLibraryPhotoCursor {
     ffi::FfiLibraryPhotoCursor {
         photo_id: cursor.photo_id.to_string(),
         has_capture_time: cursor.captured_at_unix_seconds.is_some(),

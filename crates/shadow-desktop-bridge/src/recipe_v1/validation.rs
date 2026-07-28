@@ -219,6 +219,15 @@ pub(crate) fn validate_fine_parameters(parameters: &FineEditParameters) -> AnyRe
     ] {
         validate_range(value, -1.0, 1.0, name)?;
     }
+    validate_perceptual_color_parameters(parameters)?;
+    if let Some(curve) = &parameters.oklab_lightness_curve {
+        validate_tone_curve(&curve.lightness).context("validate Oklab lightness curve")?;
+    }
+    validate_lut_parameters(&parameters.lut)?;
+    validate_detail_and_finishing_parameters(parameters)
+}
+
+fn validate_perceptual_color_parameters(parameters: &FineEditParameters) -> AnyResult<()> {
     let color = &parameters.perceptual_color;
     validate_range(color.global_a_balance, -1.0, 1.0, "global Oklab a balance")?;
     validate_range(color.global_b_balance, -1.0, 1.0, "global Oklab b balance")?;
@@ -273,10 +282,10 @@ pub(crate) fn validate_fine_parameters(parameters: &FineEditParameters) -> AnyRe
             "Oklab Color Warper b offset",
         )?;
     }
-    if let Some(curve) = &parameters.oklab_lightness_curve {
-        validate_tone_curve(&curve.lightness).context("validate Oklab lightness curve")?;
-    }
-    validate_lut_parameters(&parameters.lut)?;
+    Ok(())
+}
+
+fn validate_detail_and_finishing_parameters(parameters: &FineEditParameters) -> AnyResult<()> {
     let sharpen = parameters.sharpen;
     validate_range(sharpen.amount, 0.0, 2.0, "sharpen amount")?;
     validate_range(sharpen.radius, 0.1, 5.0, "sharpen radius")?;

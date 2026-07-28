@@ -452,6 +452,9 @@ pub(crate) fn point_color_ranges_from_vector_optional(
     }
 }
 
+// This is the single ordered schema projection for one persisted parameter
+// block. Keeping the fields together makes omissions and key drift visible.
+#[allow(clippy::too_many_lines)]
 pub(crate) fn perceptual_color_parameter_block(
     parameters: &PerceptualColorParameters,
 ) -> AnyResult<ParameterBlock> {

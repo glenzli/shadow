@@ -309,8 +309,10 @@ fn changed_fine_parameters(before: &FineEditParameters, after: &FineEditParamete
     }
     if before.perceptual_color.selective_color_relative
         != after.perceptual_color.selective_color_relative
-        || before.perceptual_color.selective_color_lightness_protection
-            != after.perceptual_color.selective_color_lightness_protection
+        || persisted_float_changed(
+            before.perceptual_color.selective_color_lightness_protection,
+            after.perceptual_color.selective_color_lightness_protection,
+        )
         || persisted_array_changed(
             before.perceptual_color.selective_color_cmyk,
             after.perceptual_color.selective_color_cmyk,

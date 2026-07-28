@@ -59,11 +59,15 @@ const fn admits_recipe_preview_cache(
     policy.admits_durable_cache() && matches!(terminal, PreviewTerminalClaim::Completed)
 }
 
-fn preview_registry_error(error: PreviewRenderRegistryError, token: u64) -> anyhow::Error {
+fn preview_registry_error(error: &PreviewRenderRegistryError, token: u64) -> anyhow::Error {
     anyhow!("edit preview render token {token} is invalid: {error:?}")
 }
 
 impl DesktopSession {
+    // Admission, native cancellation, the terminal claim, and publication form
+    // one linearized transaction. Splitting that sequence would hide the race
+    // invariant this function exists to make auditable.
+    #[allow(clippy::too_many_lines)]
     pub(crate) fn render_basic_edit_preview(
         &self,
         photo_id: &str,
@@ -74,20 +78,20 @@ impl DesktopSession {
             match self
                 .edit_preview_render_tokens
                 .admission(request.render_token)
-                .map_err(|error| preview_registry_error(error, request.render_token))?
+                .map_err(|error| preview_registry_error(&error, request.render_token))?
             {
                 PreviewAdmission::Active => {}
                 PreviewAdmission::Cancelled => {
                     self.edit_preview_render_tokens
                         .claim_terminal(request.render_token)
-                        .map_err(|error| preview_registry_error(error, request.render_token))?;
+                        .map_err(|error| preview_registry_error(&error, request.render_token))?;
                     return Ok(cancelled_edited_preview());
                 }
             }
             let native_cancellation = self
                 .edit_preview_render_tokens
                 .cancellation(request.render_token)
-                .map_err(|error| preview_registry_error(error, request.render_token))?;
+                .map_err(|error| preview_registry_error(&error, request.render_token))?;
 
             let (photo_id, source) = self.validated_photo_source(photo_id, source_path)?;
             let policy = EditPreviewPolicy::from_ffi(request.policy)?;
@@ -116,12 +120,12 @@ impl DesktopSession {
             if self
                 .edit_preview_render_tokens
                 .admission(request.render_token)
-                .map_err(|error| preview_registry_error(error, request.render_token))?
+                .map_err(|error| preview_registry_error(&error, request.render_token))?
                 == PreviewAdmission::Cancelled
             {
                 self.edit_preview_render_tokens
                     .claim_terminal(request.render_token)
-                    .map_err(|error| preview_registry_error(error, request.render_token))?;
+                    .map_err(|error| preview_registry_error(&error, request.render_token))?;
                 return Ok(cancelled_edited_preview());
             }
             let rendered = match policy {
@@ -163,7 +167,7 @@ impl DesktopSession {
                     match self
                         .edit_preview_render_tokens
                         .claim_terminal(request.render_token)
-                        .map_err(|error| preview_registry_error(error, request.render_token))?
+                        .map_err(|error| preview_registry_error(&error, request.render_token))?
                     {
                         PreviewTerminalClaim::Cancelled => {
                             return Ok(cancelled_edited_preview());
@@ -185,7 +189,7 @@ impl DesktopSession {
             let terminal = self
                 .edit_preview_render_tokens
                 .claim_terminal(request.render_token)
-                .map_err(|error| preview_registry_error(error, request.render_token))?;
+                .map_err(|error| preview_registry_error(&error, request.render_token))?;
             if terminal == PreviewTerminalClaim::Cancelled {
                 return Ok(cancelled_edited_preview());
             }
@@ -233,9 +237,10 @@ impl DesktopSession {
                 Ok(PreviewTerminalClaim::Cancelled) => Ok(cancelled_edited_preview()),
                 Ok(PreviewTerminalClaim::Completed)
                 | Err(PreviewRenderRegistryError::TerminalAlreadyClaimed) => Err(error),
-                Err(registry_error) => {
-                    Err(error.context(preview_registry_error(registry_error, request.render_token)))
-                }
+                Err(registry_error) => Err(error.context(preview_registry_error(
+                    &registry_error,
+                    request.render_token,
+                ))),
             },
         }
     }
@@ -255,7 +260,7 @@ impl DesktopSession {
         match self
             .edit_preview_render_tokens
             .claim_terminal(render_token)
-            .map_err(|error| preview_registry_error(error, render_token))?
+            .map_err(|error| preview_registry_error(&error, render_token))?
         {
             PreviewTerminalClaim::Completed => Ok(ffi::FfiEditPreviewTerminal::Completed),
             PreviewTerminalClaim::Cancelled => Ok(ffi::FfiEditPreviewTerminal::Cancelled),

@@ -14,6 +14,7 @@ use crate::{
 };
 
 #[test]
+#[allow(clippy::float_cmp)] // The fixed lattice projection is an exact persistence contract.
 fn oklab_color_warper_elides_neutral_lattice_and_preserves_fixed_mapping() {
     let neutral = GradeStackDraft::default();
     let neutral_snapshot =
