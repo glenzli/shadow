@@ -239,6 +239,9 @@ qt_add_executable(
     src/review_comparison_coordinator.hpp
     src/review_controller.cpp
     src/review_controller.hpp
+    src/review_controller_backend_operations.cpp
+    src/review_controller_backend_operations.hpp
+    src/review_controller_connections.cpp
     src/review_decision_coordinator.cpp
     src/review_decision_coordinator.hpp
     src/review_decision_session.hpp

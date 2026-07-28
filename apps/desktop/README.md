@@ -165,6 +165,11 @@ Review presentation keeps the workspace as the composition and compatibility sur
 - [`qml/ReviewMetadataPresentation.qml`](qml/ReviewMetadataPresentation.qml) owns locale-aware
   EXIF/RAW value formatting and the grouped metadata-field projection consumed by the metadata
   window. Selection ownership remains in `ReviewSelectionState`.
+- [`src/review_controller.cpp`](src/review_controller.cpp) is the stable QML-facing composition
+  index and request router. [`src/review_controller_backend_operations.*`](src/review_controller_backend_operations.hpp)
+  owns every backend-to-coordinator operation adapter, while
+  [`src/review_controller_connections.cpp`](src/review_controller_connections.cpp) owns the
+  complete coordinator signal, invalidation, and status-routing topology.
 - [`src/review_import_coordinator.cpp`](src/review_import_coordinator.cpp) owns one complete folder
   import after cross-workflow admission: scan identity, blocking worker lifetime, monotonic progress
   polling, cooperative cancellation, live-Library refresh pacing, terminal outcome, localized

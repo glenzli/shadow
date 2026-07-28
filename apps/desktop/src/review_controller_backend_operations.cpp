@@ -1,0 +1,326 @@
+#include "review_controller_backend_operations.hpp"
+
+#include <optional>
+#include <stdexcept>
+
+namespace ReviewControllerBackendOperations {
+
+[[nodiscard]] ReviewImportCoordinator::Operations import_operations(
+    const std::shared_ptr<DesktopBackend>& backend
+) {
+    if (!backend) {
+        throw std::invalid_argument("Review import backend is required");
+    }
+    return {
+        .begin =
+            [backend](const quint64 scan_id) {
+                backend->beginFolderScan(scan_id);
+            },
+        .scan =
+            [backend](
+                const QString& folder_path,
+                const quint64 scan_id
+            ) {
+                return backend->scanFolder(folder_path, scan_id);
+            },
+        .progress =
+            [backend](const quint64 scan_id) {
+                return backend->scanProgress(scan_id);
+            },
+        .cancel =
+            [backend](const quint64 scan_id) {
+                return backend->cancelFolderScan(scan_id);
+            },
+    };
+}
+
+[[nodiscard]] ReviewLibraryQueryCoordinator::Operations query_operations(
+    const std::shared_ptr<DesktopBackend>& backend
+) {
+    if (!backend) {
+        throw std::invalid_argument("Review Library query backend is required");
+    }
+    return {
+        .page =
+            [backend](
+                const BackendLibraryPhotoFilter& filter,
+                const BackendLibraryPhotoCursor& cursor,
+                const std::uint32_t limit
+            ) {
+                return backend->libraryPhotoPage(filter, cursor, limit);
+            },
+        .count =
+            [backend](const BackendLibraryPhotoFilter& filter) {
+                return backend->libraryPhotoCount(filter);
+            },
+    };
+}
+
+[[nodiscard]] ReviewComparisonCoordinator::Operations comparison_operations(
+    const std::shared_ptr<DesktopBackend>& backend
+) {
+    if (!backend) {
+        throw std::invalid_argument("Review comparison backend is required");
+    }
+    return {
+        .prepare =
+            [backend](
+                const QString& left_visual_handle,
+                const QString& right_visual_handle
+            ) {
+                return backend->prepareReviewComparison(
+                    left_visual_handle,
+                    right_visual_handle
+                );
+            },
+        .confirm_ready =
+            [backend](
+                const QString& presentation_id,
+                const QString& left_request_ticket,
+                const QString& right_request_ticket
+            ) {
+                backend->confirmReviewComparisonReady(
+                    presentation_id,
+                    left_request_ticket,
+                    right_request_ticket
+                );
+            },
+        .cancel =
+            [backend](const QString& presentation_id) {
+                backend->cancelReviewComparison(presentation_id);
+            },
+        .record =
+            [backend](
+                const QString& presentation_id,
+                const BackendPairwiseOutcome outcome
+            ) {
+                return backend->recordReviewComparison(
+                    presentation_id,
+                    outcome
+                );
+            },
+        .forget =
+            [backend](const QString& event_id) {
+                return backend->forgetReviewFeedback(event_id);
+            },
+    };
+}
+
+[[nodiscard]] ReviewSourceHealthCoordinator::Operations
+source_health_operations(const std::shared_ptr<DesktopBackend>& backend) {
+    if (!backend) {
+        throw std::invalid_argument("Review source-health backend is required");
+    }
+    return {
+        .source_health =
+            [backend]() {
+                return backend->librarySourceHealth();
+            },
+        .missing_locations =
+            [backend](
+                const QString& scan_session_id,
+                const QString& after_location_id,
+                const std::uint32_t limit
+            ) {
+                return backend->missingSourceLocationPage(
+                    scan_session_id,
+                    after_location_id,
+                    limit
+                );
+            },
+        .relink =
+            [backend](
+                const QString& scan_session_id,
+                const QString& location_id,
+                const QString& candidate_path
+            ) {
+                return backend->relinkMissingSourceLocation(
+                    scan_session_id,
+                    location_id,
+                    candidate_path
+                );
+            },
+    };
+}
+
+[[nodiscard]] ReviewLibraryAlbumCoordinator::Operations
+album_operations(const std::shared_ptr<DesktopBackend>& backend) {
+    if (!backend) {
+        throw std::invalid_argument("Review Library album backend is required");
+    }
+    return {
+        .albums = [backend]() { return backend->libraryAlbums(); },
+        .create_manual =
+            [backend](const QString& name) {
+                static_cast<void>(backend->createManualLibraryAlbum(name));
+            },
+        .create_smart =
+            [backend](
+                const QString& name,
+                const BackendLibraryPhotoFilter& query
+            ) {
+                static_cast<void>(backend->createSmartLibraryAlbum(name, query));
+            },
+        .rename =
+            [backend](const QString& album_id, const QString& name) {
+                static_cast<void>(backend->renameLibraryAlbum(album_id, name));
+            },
+        .remove =
+            [backend](const QString& album_id) {
+                static_cast<void>(backend->deleteLibraryAlbum(album_id));
+            },
+        .add_photo =
+            [backend](const QString& album_id, const QString& photo_id) {
+                backend->addPhotoToManualLibraryAlbum(album_id, photo_id);
+            },
+        .remove_photo =
+            [backend](const QString& album_id, const QString& photo_id) {
+                static_cast<void>(
+                    backend->removePhotoFromManualLibraryAlbum(
+                        album_id,
+                        photo_id
+                    )
+                );
+            },
+    };
+}
+
+[[nodiscard]] ReviewLibraryFacetCoordinator::Operations
+facet_operations(const std::shared_ptr<DesktopBackend>& backend) {
+    if (!backend) {
+        throw std::invalid_argument("Review Library facet backend is required");
+    }
+    return {
+        .page =
+            [backend](
+                const BackendLibraryPhotoFilter& filter,
+                const BackendLibraryFacetKind kind,
+                const BackendLibraryFacetCursor& cursor,
+                const std::uint32_t limit
+            ) {
+                return backend->libraryFacetPage(
+                    filter,
+                    kind,
+                    cursor,
+                    limit
+                );
+            },
+    };
+}
+
+[[nodiscard]] ReviewLibraryOrganizationCoordinator::Operations
+organization_operations(
+    const std::shared_ptr<DesktopBackend>& backend,
+    ReviewModel& model
+) {
+    if (!backend) {
+        throw std::invalid_argument(
+            "Review Library organization backend is required"
+        );
+    }
+    return {
+        .current =
+            [&model](const QString& photo_id)
+                -> std::optional<
+                    ReviewLibraryOrganizationCoordinator::CurrentState
+                > {
+                const auto current = model.libraryStateFor(photo_id);
+                if (!current) {
+                    return std::nullopt;
+                }
+                return ReviewLibraryOrganizationCoordinator::CurrentState{
+                    .liked = current->liked,
+                    .color_label = current->color_label,
+                };
+            },
+        .mutate =
+            [backend](
+                const QString& photo_id,
+                const bool liked,
+                const QString& color_label
+            ) {
+                return backend->setPhotoLibraryState(
+                    photo_id,
+                    liked,
+                    color_label
+                );
+            },
+        .project =
+            [&model](const BackendPhotoLibraryState& state) {
+                return model.updateLibraryState(
+                    state.photo_id,
+                    state.liked,
+                    state.color_label,
+                    state.updated_at_ms
+                );
+            },
+    };
+}
+
+[[nodiscard]] ReviewSharedGradeCoordinator::Operations
+shared_grade_operations(const std::shared_ptr<DesktopBackend>& backend) {
+    if (!backend) {
+        throw std::invalid_argument(
+            "Review shared Grade Node backend is required"
+        );
+    }
+    return {
+        .nodes = [backend]() { return backend->sharedGradeNodes(); },
+        .apply =
+            [backend](
+                const QString& layer_id,
+                const QVector<BackendBatchPhotoTarget>& targets
+            ) {
+                return backend->applySharedGradeNodeToPhotos(
+                    layer_id,
+                    targets
+                );
+            },
+    };
+}
+
+[[nodiscard]] ReviewDecisionCoordinator::Operations decision_operations(
+    const std::shared_ptr<DesktopBackend>& backend
+) {
+    if (!backend) {
+        throw std::invalid_argument("Review decision backend is required");
+    }
+    return {
+        .mutate =
+            [backend](
+                const QString& photo_id,
+                const std::uint64_t expected_head_sequence,
+                const BackendReviewDecisionFlag desired_flag,
+                const std::uint8_t desired_rating
+            ) {
+                return backend->setReviewPhotoDecision(
+                    photo_id,
+                    expected_head_sequence,
+                    desired_flag,
+                    desired_rating
+                );
+            },
+        .authoritative_state =
+            [backend](const QString& photo_id) {
+                return backend->reviewPhotoDecisionState(photo_id);
+            },
+    };
+}
+
+[[nodiscard]] BackendReviewDecisionState backend_decision_state(
+    const QString& photo_id,
+    const ReviewDecisionValue& value
+) {
+    const auto flag = review_decision_flag_from_name(value.flag);
+    if (!flag || value.rating < 0 || value.rating > 5) {
+        throw std::invalid_argument("Review model contains an invalid decision state");
+    }
+    return {
+        .photo_id = photo_id,
+        .head_sequence = value.head_sequence,
+        .flag = *flag,
+        .rating = static_cast<std::uint8_t>(value.rating),
+    };
+}
+
+} // namespace ReviewControllerBackendOperations

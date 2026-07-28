@@ -392,6 +392,7 @@ signals:
     void decisionUndone();
 
 private:
+    void initializeCoordinatorWiring();
     void requestLibraryReset();
     void scheduleFilterQuery();
     [[nodiscard]] BackendLibraryPhotoFilter currentLibraryFilter() const;
