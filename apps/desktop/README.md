@@ -68,7 +68,11 @@ Application startup is split from environment-driven automation:
 - [`src/edit_controller.cpp`](src/edit_controller.cpp) owns the stable facade, session
   composition, Grade Stack synchronization, and cross-workflow edit history.
 - [`src/edit_adjustment_controller.cpp`](src/edit_adjustment_controller.cpp) owns Grade Node
-  adjustment presentation, validation, mutation, LUT/color tools, Point Color, and pickers.
+  adjustment presentation and mutation, LUT/color tools, Point Color, and pickers.
+- [`src/edit_fine_parameter_registry.*`](src/edit_fine_parameter_registry.hpp) is the single
+  inventory for scalar fine-adjustment keys, backend fields, writable bounds, and validation
+  labels. Paired defringe endpoints remain read-only here and Point Color ranges remain owned by
+  their selected-range model.
 - [`src/edit_point_color_model.hpp`](src/edit_point_color_model.hpp) owns the canonical
   primary-plus-additional Point Color representation shared by adjustment and stack synchronization.
 - [`src/edit_geometry_controller.cpp`](src/edit_geometry_controller.cpp) owns crop-tool state,

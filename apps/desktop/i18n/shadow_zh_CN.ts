@@ -299,11 +299,6 @@
         <translation>点颜色</translation>
     </message>
     <message>
-        <location filename="../src/edit_controller.cpp" line="1691"/>
-        <source>Adjustment</source>
-        <translation>调整</translation>
-    </message>
-    <message>
         <location filename="../src/edit_controller.cpp" line="1695"/>
         <source>Highlights</source>
         <translation>高光</translation>
@@ -507,41 +502,6 @@
         <location filename="../src/edit_controller.cpp" line="1837"/>
         <source>Vignette highlights</source>
         <translation>暗角高光保护</translation>
-    </message>
-    <message>
-        <location filename="../src/edit_controller.cpp" line="1842"/>
-        <source>Color range hue</source>
-        <translation>颜色范围色相</translation>
-    </message>
-    <message>
-        <location filename="../src/edit_controller.cpp" line="1847"/>
-        <source>Color range width</source>
-        <translation>颜色范围宽度</translation>
-    </message>
-    <message>
-        <location filename="../src/edit_controller.cpp" line="1852"/>
-        <source>Color range softness</source>
-        <translation>颜色范围柔化</translation>
-    </message>
-    <message>
-        <location filename="../src/edit_controller.cpp" line="1857"/>
-        <source>Color range hue shift</source>
-        <translation>颜色范围色相偏移</translation>
-    </message>
-    <message>
-        <location filename="../src/edit_controller.cpp" line="1860"/>
-        <source>Color range saturation</source>
-        <translation>颜色范围饱和度</translation>
-    </message>
-    <message>
-        <location filename="../src/edit_controller.cpp" line="1863"/>
-        <source>Color range lightness</source>
-        <translation>颜色范围明度</translation>
-    </message>
-    <message>
-        <location filename="../src/edit_controller.cpp" line="1869"/>
-        <source>Color range</source>
-        <translation>颜色范围</translation>
     </message>
     <message>
         <location filename="../src/edit_controller.cpp" line="1905"/>

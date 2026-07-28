@@ -1,5 +1,6 @@
 #include "edit_controller.hpp"
 
+#include "edit_fine_parameter_registry.hpp"
 #include "edit_point_color_model.hpp"
 
 #include <QColor>
@@ -191,95 +192,11 @@ double EditController::parameterValue(const QString& parameter_key) const {
     const BackendFineEditParameters& fine = grade_node == nullptr
         ? neutral
         : grade_node->fine;
-    if (parameter_key == QStringLiteral("highlights")) {
-        return fine.highlights;
+    if (const auto* const descriptor =
+            EditFineParameterRegistry::find(QStringView{parameter_key});
+        descriptor != nullptr) {
+        return fine.*(descriptor->member);
     }
-    if (parameter_key == QStringLiteral("shadows")) {
-        return fine.shadows;
-    }
-    if (parameter_key == QStringLiteral("whites")) {
-        return fine.whites;
-    }
-    if (parameter_key == QStringLiteral("blacks")) {
-        return fine.blacks;
-    }
-    if (parameter_key == QStringLiteral("global_a_balance")) {
-        return fine.global_a_balance;
-    }
-    if (parameter_key == QStringLiteral("global_b_balance")) {
-        return fine.global_b_balance;
-    }
-    if (parameter_key == QStringLiteral("vibrance")) {
-        return fine.vibrance;
-    }
-    if (parameter_key == QStringLiteral("color_warper_strength")) {
-        return fine.oklab_color_warper_strength;
-    }
-    if (parameter_key == QStringLiteral("lut_intensity")) {
-        return fine.lut_intensity;
-    }
-    if (parameter_key == QStringLiteral("sharpen_amount")) {
-        return fine.sharpen_amount;
-    }
-    if (parameter_key == QStringLiteral("sharpen_radius")) {
-        return fine.sharpen_radius;
-    }
-    if (parameter_key == QStringLiteral("sharpen_threshold")) {
-        return fine.sharpen_threshold;
-    }
-    if (parameter_key == QStringLiteral("sharpen_masking")) {
-        return fine.sharpen_masking;
-    }
-    if (parameter_key == QStringLiteral("clarity")) return fine.clarity;
-    if (parameter_key == QStringLiteral("texture")) return fine.texture;
-    if (parameter_key == QStringLiteral("local_contrast")) return fine.local_contrast;
-    if (parameter_key == QStringLiteral("local_contrast_scale")) {
-        return fine.local_contrast_scale;
-    }
-    if (parameter_key == QStringLiteral("selective_color_lightness_protection")) {
-        return fine.selective_color_lightness_protection;
-    }
-    if (parameter_key == QStringLiteral("denoise_luminance")) return fine.denoise_luminance;
-    if (parameter_key == QStringLiteral("denoise_detail")) return fine.denoise_detail;
-    if (parameter_key == QStringLiteral("denoise_color")) return fine.denoise_color;
-    if (parameter_key == QStringLiteral("dehaze")) return fine.dehaze;
-    if (parameter_key == QStringLiteral("defringe_purple_amount")) {
-        return fine.defringe_purple_amount;
-    }
-    if (parameter_key == QStringLiteral("defringe_purple_hue_low")) {
-        return fine.defringe_purple_hue_low;
-    }
-    if (parameter_key == QStringLiteral("defringe_purple_hue_high")) {
-        return fine.defringe_purple_hue_high;
-    }
-    if (parameter_key == QStringLiteral("defringe_green_amount")) {
-        return fine.defringe_green_amount;
-    }
-    if (parameter_key == QStringLiteral("defringe_green_hue_low")) {
-        return fine.defringe_green_hue_low;
-    }
-    if (parameter_key == QStringLiteral("defringe_green_hue_high")) {
-        return fine.defringe_green_hue_high;
-    }
-    if (parameter_key == QStringLiteral("shadows_hue")) return fine.shadows_hue;
-    if (parameter_key == QStringLiteral("shadows_saturation")) return fine.shadows_saturation;
-    if (parameter_key == QStringLiteral("shadows_luminance")) return fine.shadows_luminance;
-    if (parameter_key == QStringLiteral("midtones_hue")) return fine.midtones_hue;
-    if (parameter_key == QStringLiteral("midtones_saturation")) return fine.midtones_saturation;
-    if (parameter_key == QStringLiteral("midtones_luminance")) return fine.midtones_luminance;
-    if (parameter_key == QStringLiteral("highlights_hue")) return fine.highlights_hue;
-    if (parameter_key == QStringLiteral("highlights_saturation")) return fine.highlights_saturation;
-    if (parameter_key == QStringLiteral("highlights_luminance")) return fine.highlights_luminance;
-    if (parameter_key == QStringLiteral("grading_blending")) return fine.grading_blending;
-    if (parameter_key == QStringLiteral("grading_balance")) return fine.grading_balance;
-    if (parameter_key == QStringLiteral("grain_amount")) return fine.grain_amount;
-    if (parameter_key == QStringLiteral("grain_size")) return fine.grain_size;
-    if (parameter_key == QStringLiteral("grain_roughness")) return fine.grain_roughness;
-    if (parameter_key == QStringLiteral("vignette_amount")) return fine.vignette_amount;
-    if (parameter_key == QStringLiteral("vignette_midpoint")) return fine.vignette_midpoint;
-    if (parameter_key == QStringLiteral("vignette_roundness")) return fine.vignette_roundness;
-    if (parameter_key == QStringLiteral("vignette_feather")) return fine.vignette_feather;
-    if (parameter_key == QStringLiteral("vignette_highlights")) return fine.vignette_highlights;
     if (parameter_key.startsWith(QStringLiteral("color_range_"))) {
         if (selected_point_color_index_ < 0
             || selected_point_color_index_ >= PointColorModel::count(fine)) {
@@ -526,15 +443,25 @@ void EditController::setParameterValue(
         double maximum = 1.0;
         double current = 0.0;
         if (parameter_key == QStringLiteral("color_range_enabled")) {
-            minimum = 0.0; maximum = 1.0; current = range.enabled ? 1.0 : 0.0;
+            minimum = 0.0;
+            maximum = 1.0;
+            current = range.enabled ? 1.0 : 0.0;
         } else if (parameter_key == QStringLiteral("color_range_center")) {
-            minimum = 0.0; maximum = 360.0; current = range.center_degrees;
+            minimum = 0.0;
+            maximum = 360.0;
+            current = range.center_degrees;
         } else if (parameter_key == QStringLiteral("color_range_width")) {
-            minimum = 1.0; maximum = 180.0; current = range.width_degrees;
+            minimum = 1.0;
+            maximum = 180.0;
+            current = range.width_degrees;
         } else if (parameter_key == QStringLiteral("color_range_softness")) {
-            minimum = 0.0; maximum = 1.0; current = range.softness;
+            minimum = 0.0;
+            maximum = 1.0;
+            current = range.softness;
         } else if (parameter_key == QStringLiteral("color_range_hue")) {
-            minimum = -180.0; maximum = 180.0; current = range.hue_shift_degrees;
+            minimum = -180.0;
+            maximum = 180.0;
+            current = range.hue_shift_degrees;
         } else if (parameter_key == QStringLiteral("color_range_saturation")) {
             current = range.saturation;
         } else if (parameter_key == QStringLiteral("color_range_lightness")) {
@@ -542,229 +469,57 @@ void EditController::setParameterValue(
         } else {
             return;
         }
-        if (current == value || !acceptParameter(
-                value, minimum, maximum,
+        if (current == value
+            || !acceptParameter(
+                value,
+                minimum,
+                maximum,
                 QT_TRANSLATE_NOOP("EditController", "Point Color")
             )) {
             return;
         }
         const BackendGradeStack before = grade_stack_;
-        if (parameter_key == QStringLiteral("color_range_enabled")) range.enabled = value >= 0.5;
-        else if (parameter_key == QStringLiteral("color_range_center")) range.center_degrees = value;
-        else if (parameter_key == QStringLiteral("color_range_width")) range.width_degrees = value;
-        else if (parameter_key == QStringLiteral("color_range_softness")) range.softness = value;
-        else if (parameter_key == QStringLiteral("color_range_hue")) range.hue_shift_degrees = value;
-        else if (parameter_key == QStringLiteral("color_range_saturation")) range.saturation = value;
-        else if (parameter_key == QStringLiteral("color_range_lightness")) range.lightness = value;
+        if (parameter_key == QStringLiteral("color_range_enabled")) {
+            range.enabled = value >= 0.5;
+        } else if (parameter_key == QStringLiteral("color_range_center")) {
+            range.center_degrees = value;
+        } else if (parameter_key == QStringLiteral("color_range_width")) {
+            range.width_degrees = value;
+        } else if (parameter_key == QStringLiteral("color_range_softness")) {
+            range.softness = value;
+        } else if (parameter_key == QStringLiteral("color_range_hue")) {
+            range.hue_shift_degrees = value;
+        } else if (parameter_key == QStringLiteral("color_range_saturation")) {
+            range.saturation = value;
+        } else if (parameter_key == QStringLiteral("color_range_lightness")) {
+            range.lightness = value;
+        }
         PointColorModel::set(fine, selected_point_color_index_, range);
         parameterEdited(
-            QStringLiteral("point_color/%1/%2").arg(selected_point_color_index_).arg(parameter_key),
+            QStringLiteral("point_color/%1/%2")
+                .arg(selected_point_color_index_)
+                .arg(parameter_key),
             before
         );
         return;
     }
-    double minimum = -1.0;
-    double maximum = 1.0;
-    const char* label = QT_TRANSLATE_NOOP("EditController", "Adjustment");
-    double* target = nullptr;
-    if (parameter_key == QStringLiteral("highlights")) {
-        target = &fine.highlights;
-        label = QT_TRANSLATE_NOOP("EditController", "Highlights");
-    } else if (parameter_key == QStringLiteral("shadows")) {
-        target = &fine.shadows;
-        label = QT_TRANSLATE_NOOP("EditController", "Shadows");
-    } else if (parameter_key == QStringLiteral("whites")) {
-        target = &fine.whites;
-        label = QT_TRANSLATE_NOOP("EditController", "Whites");
-    } else if (parameter_key == QStringLiteral("blacks")) {
-        target = &fine.blacks;
-        label = QT_TRANSLATE_NOOP("EditController", "Blacks");
-    } else if (parameter_key == QStringLiteral("global_a_balance")) {
-        target = &fine.global_a_balance;
-        label = QT_TRANSLATE_NOOP("EditController", "Green to red balance");
-    } else if (parameter_key == QStringLiteral("global_b_balance")) {
-        target = &fine.global_b_balance;
-        label = QT_TRANSLATE_NOOP("EditController", "Blue to yellow balance");
-    } else if (parameter_key == QStringLiteral("vibrance")) {
-        target = &fine.vibrance;
-        label = QT_TRANSLATE_NOOP("EditController", "Vibrance");
-    } else if (parameter_key == QStringLiteral("color_warper_strength")) {
-        target = &fine.oklab_color_warper_strength;
-        minimum = 0.0;
-        maximum = 1.0;
-        label = QT_TRANSLATE_NOOP("EditController", "Color Warper strength");
-    } else if (parameter_key == QStringLiteral("lut_intensity")) {
-        target = &fine.lut_intensity;
-        minimum = 0.0;
-        maximum = 1.0;
-        label = QT_TRANSLATE_NOOP("EditController", "LUT intensity");
-    } else if (parameter_key == QStringLiteral("sharpen_amount")) {
-        target = &fine.sharpen_amount;
-        minimum = 0.0;
-        maximum = 2.0;
-        label = QT_TRANSLATE_NOOP("EditController", "Sharpening amount");
-    } else if (parameter_key == QStringLiteral("sharpen_radius")) {
-        target = &fine.sharpen_radius;
-        minimum = 0.1;
-        maximum = 5.0;
-        label = QT_TRANSLATE_NOOP("EditController", "Sharpening radius");
-    } else if (parameter_key == QStringLiteral("sharpen_threshold")) {
-        target = &fine.sharpen_threshold;
-        minimum = 0.0;
-        maximum = 1.0;
-        label = QT_TRANSLATE_NOOP("EditController", "Sharpening threshold");
-    } else if (parameter_key == QStringLiteral("sharpen_masking")) {
-        target = &fine.sharpen_masking;
-        minimum = 0.0;
-        maximum = 1.0;
-        label = QT_TRANSLATE_NOOP("EditController", "Sharpening masking");
-    } else if (parameter_key == QStringLiteral("clarity")) {
-        target = &fine.clarity;
-        label = QT_TRANSLATE_NOOP("EditController", "Perceptual clarity");
-    } else if (parameter_key == QStringLiteral("texture")) {
-        target = &fine.texture;
-        label = QT_TRANSLATE_NOOP("EditController", "Perceptual texture");
-    } else if (parameter_key == QStringLiteral("local_contrast")) {
-        target = &fine.local_contrast;
-        label = QT_TRANSLATE_NOOP("EditController", "Local contrast");
-    } else if (parameter_key == QStringLiteral("local_contrast_scale")) {
-        target = &fine.local_contrast_scale;
-        minimum = 0.0;
-        maximum = 1.0;
-        label = QT_TRANSLATE_NOOP("EditController", "Local contrast scale");
-    } else if (parameter_key == QStringLiteral("selective_color_lightness_protection")) {
-        target = &fine.selective_color_lightness_protection;
-        minimum = 0.0;
-        maximum = 1.0;
-        label = QT_TRANSLATE_NOOP("EditController", "Selective Color lightness protection");
-    } else if (parameter_key == QStringLiteral("denoise_luminance")) {
-        target = &fine.denoise_luminance; minimum = 0.0; maximum = 1.0;
-        label = QT_TRANSLATE_NOOP("EditController", "Luminance noise reduction");
-    } else if (parameter_key == QStringLiteral("denoise_detail")) {
-        target = &fine.denoise_detail; minimum = 0.0; maximum = 1.0;
-        label = QT_TRANSLATE_NOOP("EditController", "Noise reduction detail");
-    } else if (parameter_key == QStringLiteral("denoise_color")) {
-        target = &fine.denoise_color; minimum = 0.0; maximum = 1.0;
-        label = QT_TRANSLATE_NOOP("EditController", "Color noise reduction");
-    } else if (parameter_key == QStringLiteral("dehaze")) {
-        target = &fine.dehaze;
-        label = QT_TRANSLATE_NOOP("EditController", "Dehaze");
-    } else if (parameter_key == QStringLiteral("defringe_purple_amount")) {
-        target = &fine.defringe_purple_amount; minimum = 0.0; maximum = 1.0;
-        label = QT_TRANSLATE_NOOP("EditController", "Purple defringe amount");
-    } else if (parameter_key == QStringLiteral("defringe_green_amount")) {
-        target = &fine.defringe_green_amount; minimum = 0.0; maximum = 1.0;
-        label = QT_TRANSLATE_NOOP("EditController", "Green defringe amount");
-    } else if (parameter_key == QStringLiteral("shadows_hue")) {
-        target = &fine.shadows_hue; minimum = 0.0; maximum = 360.0;
-        label = QT_TRANSLATE_NOOP("EditController", "Shadow grading hue");
-    } else if (parameter_key == QStringLiteral("shadows_saturation")) {
-        target = &fine.shadows_saturation; minimum = 0.0; maximum = 1.0;
-        label = QT_TRANSLATE_NOOP("EditController", "Shadow grading saturation");
-    } else if (parameter_key == QStringLiteral("shadows_luminance")) {
-        target = &fine.shadows_luminance;
-        label = QT_TRANSLATE_NOOP("EditController", "Shadow grading luminance");
-    } else if (parameter_key == QStringLiteral("midtones_hue")) {
-        target = &fine.midtones_hue; minimum = 0.0; maximum = 360.0;
-        label = QT_TRANSLATE_NOOP("EditController", "Midtone grading hue");
-    } else if (parameter_key == QStringLiteral("midtones_saturation")) {
-        target = &fine.midtones_saturation; minimum = 0.0; maximum = 1.0;
-        label = QT_TRANSLATE_NOOP("EditController", "Midtone grading saturation");
-    } else if (parameter_key == QStringLiteral("midtones_luminance")) {
-        target = &fine.midtones_luminance;
-        label = QT_TRANSLATE_NOOP("EditController", "Midtone grading luminance");
-    } else if (parameter_key == QStringLiteral("highlights_hue")) {
-        target = &fine.highlights_hue; minimum = 0.0; maximum = 360.0;
-        label = QT_TRANSLATE_NOOP("EditController", "Highlight grading hue");
-    } else if (parameter_key == QStringLiteral("highlights_saturation")) {
-        target = &fine.highlights_saturation; minimum = 0.0; maximum = 1.0;
-        label = QT_TRANSLATE_NOOP("EditController", "Highlight grading saturation");
-    } else if (parameter_key == QStringLiteral("highlights_luminance")) {
-        target = &fine.highlights_luminance;
-        label = QT_TRANSLATE_NOOP("EditController", "Highlight grading luminance");
-    } else if (parameter_key == QStringLiteral("grading_blending")) {
-        target = &fine.grading_blending; minimum = 0.0; maximum = 1.0;
-        label = QT_TRANSLATE_NOOP("EditController", "Color grading blending");
-    } else if (parameter_key == QStringLiteral("grading_balance")) {
-        target = &fine.grading_balance;
-        label = QT_TRANSLATE_NOOP("EditController", "Color grading balance");
-    } else if (parameter_key == QStringLiteral("grain_amount")) {
-        target = &fine.grain_amount; minimum = 0.0; maximum = 1.0;
-        label = QT_TRANSLATE_NOOP("EditController", "Grain amount");
-    } else if (parameter_key == QStringLiteral("grain_size")) {
-        target = &fine.grain_size; minimum = 0.0; maximum = 1.0;
-        label = QT_TRANSLATE_NOOP("EditController", "Grain size");
-    } else if (parameter_key == QStringLiteral("grain_roughness")) {
-        target = &fine.grain_roughness; minimum = 0.0; maximum = 1.0;
-        label = QT_TRANSLATE_NOOP("EditController", "Grain roughness");
-    } else if (parameter_key == QStringLiteral("vignette_amount")) {
-        target = &fine.vignette_amount;
-        label = QT_TRANSLATE_NOOP("EditController", "Vignette amount");
-    } else if (parameter_key == QStringLiteral("vignette_midpoint")) {
-        target = &fine.vignette_midpoint; minimum = 0.0; maximum = 1.0;
-        label = QT_TRANSLATE_NOOP("EditController", "Vignette midpoint");
-    } else if (parameter_key == QStringLiteral("vignette_roundness")) {
-        target = &fine.vignette_roundness;
-        label = QT_TRANSLATE_NOOP("EditController", "Vignette roundness");
-    } else if (parameter_key == QStringLiteral("vignette_feather")) {
-        target = &fine.vignette_feather; minimum = 0.0; maximum = 1.0;
-        label = QT_TRANSLATE_NOOP("EditController", "Vignette feather");
-    } else if (parameter_key == QStringLiteral("vignette_highlights")) {
-        target = &fine.vignette_highlights; minimum = 0.0; maximum = 1.0;
-        label = QT_TRANSLATE_NOOP("EditController", "Vignette highlights");
-    } else if (parameter_key == QStringLiteral("color_range_center")) {
-        target = &fine.color_range_center;
-        minimum = 0.0;
-        maximum = 360.0;
-        label = QT_TRANSLATE_NOOP("EditController", "Color range hue");
-    } else if (parameter_key == QStringLiteral("color_range_width")) {
-        target = &fine.color_range_width;
-        minimum = 1.0;
-        maximum = 180.0;
-        label = QT_TRANSLATE_NOOP("EditController", "Color range width");
-    } else if (parameter_key == QStringLiteral("color_range_softness")) {
-        target = &fine.color_range_softness;
-        minimum = 0.0;
-        maximum = 1.0;
-        label = QT_TRANSLATE_NOOP("EditController", "Color range softness");
-    } else if (parameter_key == QStringLiteral("color_range_hue")) {
-        target = &fine.color_range_hue;
-        minimum = -180.0;
-        maximum = 180.0;
-        label = QT_TRANSLATE_NOOP("EditController", "Color range hue shift");
-    } else if (parameter_key == QStringLiteral("color_range_saturation")) {
-        target = &fine.color_range_saturation;
-        label = QT_TRANSLATE_NOOP("EditController", "Color range saturation");
-    } else if (parameter_key == QStringLiteral("color_range_lightness")) {
-        target = &fine.color_range_lightness;
-        label = QT_TRANSLATE_NOOP("EditController", "Color range lightness");
-    } else if (parameter_key == QStringLiteral("color_range_enabled")) {
-        if (!acceptParameter(
-                value,
-                0.0,
-                1.0,
-                QT_TRANSLATE_NOOP("EditController", "Color range")
-            )) {
-            return;
-        }
-        const bool enabled = value >= 0.5;
-        if (fine.color_range_enabled == enabled) {
-            return;
-        }
-        const BackendGradeStack before = grade_stack_;
-        fine.color_range_enabled = enabled;
-        parameterEdited(parameter_key, before);
-        return;
-    } else {
+    const auto* const descriptor =
+        EditFineParameterRegistry::find(QStringView{parameter_key});
+    if (descriptor == nullptr || !descriptor->writable()) {
         return;
     }
-
-    if (target == nullptr || *target == value
-        || !acceptParameter(value, minimum, maximum, label)) {
+    double& target = fine.*(descriptor->member);
+    if (target == value
+        || !acceptParameter(
+            value,
+            descriptor->minimum,
+            descriptor->maximum,
+            descriptor->label_source
+        )) {
         return;
     }
     const BackendGradeStack before = grade_stack_;
-    *target = value;
+    target = value;
     parameterEdited(parameter_key, before);
 }
 

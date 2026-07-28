@@ -197,6 +197,8 @@ qt_add_executable(
     src/edit_controller.cpp
     src/edit_adjustment_controller.cpp
     src/edit_controller.hpp
+    src/edit_fine_parameter_registry.cpp
+    src/edit_fine_parameter_registry.hpp
     src/edit_point_color_model.hpp
     src/edit_geometry_controller.cpp
     src/edit_grade_node_controller.cpp
@@ -510,6 +512,39 @@ if(BUILD_TESTING)
         PROPERTIES
             ENVIRONMENT
                 "QT_QPA_PLATFORM=offscreen;SHADOW_DESKTOP_SMOKE_TEST=1;SHADOW_DESKTOP_DATA_ROOT=${CMAKE_CURRENT_BINARY_DIR}/qml-startup-smoke"
+    )
+
+    add_executable(
+        shadow-edit-fine-parameter-registry-test
+        tests/edit_fine_parameter_registry_test.cpp
+        src/edit_fine_parameter_registry.cpp
+    )
+    target_compile_features(
+        shadow-edit-fine-parameter-registry-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-edit-fine-parameter-registry-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-edit-fine-parameter-registry-test
+        PRIVATE Qt6::Core Qt6::Gui
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-edit-fine-parameter-registry-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-edit-fine-parameter-registry-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-edit-fine-parameter-registry
+        COMMAND shadow-edit-fine-parameter-registry-test
     )
 
     add_executable(
