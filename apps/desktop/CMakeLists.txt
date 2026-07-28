@@ -713,6 +713,7 @@ if(BUILD_TESTING)
         tests/review_source_health_backend_contract_test.cpp
         ${SHADOW_DESKTOP_EDIT_SETTINGS_PROJECTION_SOURCES}
         src/desktop_backend.cpp
+        src/desktop_backend_library.cpp
         src/desktop_backend.hpp
         src/folder_scan_backend.cpp
         src/folder_scan_backend.hpp
