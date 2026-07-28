@@ -145,6 +145,12 @@ Precision presentation follows the same responsibility tree:
 `ExportController` remains the stable QObject/QML facade, while the durable transaction has one
 backend owner:
 
+- [`qml/ExportDialog.qml`](qml/ExportDialog.qml) owns modal export lifecycle, destination
+  admission, progress, failures, and completion.
+- [`qml/ExportSettingsPane.qml`](qml/ExportSettingsPane.qml) owns the editable option draft and
+  exact backend projection; [`qml/ExportPresetMenus.qml`](qml/ExportPresetMenus.qml) owns preset
+  naming and removal transactions.
+
 - [`src/export_controller.cpp`](src/export_controller.cpp) owns selection-to-destination planning,
   task-center presentation, cancellation requests, and preset persistence.
 - [`src/backend/export_settings_codec.cpp`](src/backend/export_settings_codec.cpp) owns the export

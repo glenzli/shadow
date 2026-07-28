@@ -364,6 +364,8 @@ qt_add_qml_module(
         qml/EditScopeCanvas.qml
         qml/EditScopeData.qml
         qml/ExportDialog.qml
+        qml/ExportPresetMenus.qml
+        qml/ExportSettingsPane.qml
         qml/LibraryAlbumDialogs.qml
         qml/LibraryFacetPopup.qml
         qml/LibraryWorkspace.qml
