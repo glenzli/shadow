@@ -172,110 +172,9 @@ Item {
         manualAlbums: review.manualLibraryAlbums
     }
 
-    Popup {
-        id: sharedBatchPopup
-        width: 292
-        padding: 8
-        modal: false
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-
-        background: Rectangle {
-            color: Theme.panelRaised
-            radius: Theme.controlRadius
-            border.width: 1
-            border.color: Theme.borderStrong
-        }
-
-        contentItem: Column {
-            spacing: 4
-
-            Label {
-                width: parent.width
-                leftPadding: 8
-                rightPadding: 8
-                topPadding: 6
-                bottomPadding: 8
-                text: qsTr("APPLY SHARED NODE · %L1 PHOTOS").arg(
-                    review.selectedPhotoCount)
-                color: Theme.textMuted
-                font.pixelSize: 9
-                font.weight: Font.DemiBold
-                font.letterSpacing: 0.7
-            }
-
-            Label {
-                width: parent.width
-                leftPadding: 8
-                rightPadding: 8
-                topPadding: 4
-                bottomPadding: 8
-                visible: review.controller.sharedGradeNodes.length === 0
-                text: qsTr("No shared Grade Nodes yet")
-                color: Theme.textMuted
-                font.pixelSize: 10
-            }
-
-            ListView {
-                id: sharedBatchList
-                width: parent.width
-                height: Math.min(contentHeight, 296)
-                visible: count > 0
-                clip: true
-                spacing: 2
-                model: review.controller.sharedGradeNodes
-
-                delegate: Rectangle {
-                    id: sharedBatchRow
-                    required property var modelData
-                    width: sharedBatchList.width
-                    height: 38
-                    radius: Theme.compactControlRadius
-                    color: sharedBatchMouse.containsMouse
-                        ? Theme.buttonGhostHover : Theme.transparent
-
-                    RowLayout {
-                        anchors.fill: parent
-                        anchors.leftMargin: 8
-                        anchors.rightMargin: 8
-                        spacing: 8
-
-                        ShadowIcon {
-                            source: "qrc:/icons/shared-link.svg"
-                            color: Theme.accent
-                            size: 15
-                        }
-
-                        Label {
-                            Layout.fillWidth: true
-                            text: String(sharedBatchRow.modelData.label)
-                            color: Theme.textPrimary
-                            font.pixelSize: 11
-                            elide: Text.ElideRight
-                        }
-
-                        Label {
-                            text: qsTr("V%1").arg(
-                                Number(sharedBatchRow.modelData.revisionNumber))
-                            color: Theme.textMuted
-                            font.pixelSize: 9
-                        }
-                    }
-
-                    MouseArea {
-                        id: sharedBatchMouse
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: {
-                            review.controller.applySharedGradeNode(
-                                String(sharedBatchRow.modelData.layerId),
-                                review.batchSelectionTargets())
-                            sharedBatchPopup.close()
-                        }
-                    }
-                }
-            }
-        }
+    ReviewSharedGradePicker {
+        id: sharedGradePicker
+        workspace: review
     }
 
     readonly property color panel: Theme.panel
@@ -418,12 +317,7 @@ Item {
     }
 
     function openSharedNodePicker(x, y) {
-        controller.refreshSharedGradeNodes()
-        sharedBatchPopup.x = Math.max(8, Math.min(Number(x),
-            review.width - sharedBatchPopup.width - 8))
-        sharedBatchPopup.y = Math.max(8, Math.min(Number(y),
-            review.height - sharedBatchPopup.height - 8))
-        sharedBatchPopup.open()
+        sharedGradePicker.presentAt(x, y)
     }
 
     function addTargetsToManualAlbum(targets) {
@@ -767,17 +661,8 @@ Item {
                         accessibleName: toolTipText
                         enabled: review.selectedPhotoCount > 0
                         onClicked: {
-                            review.controller.refreshSharedGradeNodes()
-                            const position = mapToItem(
-                                review, width - sharedBatchPopup.width,
-                                height + 6)
-                            sharedBatchPopup.x = Math.max(
-                                8, Math.min(position.x,
-                                    review.width - sharedBatchPopup.width - 8))
-                            sharedBatchPopup.y = Math.max(
-                                8, Math.min(position.y,
-                                    review.height - sharedBatchPopup.height - 8))
-                            sharedBatchPopup.open()
+                            sharedGradePicker.presentFrom(
+                                applySharedGradeButton)
                         }
                     }
 

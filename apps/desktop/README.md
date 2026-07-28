@@ -140,6 +140,9 @@ Review presentation keeps the workspace as the composition and compatibility sur
   session comparison evidence. It receives only the workspace contract and album-dialog owner;
   explicit `ReviewWorkspace` translation context preserves the existing localized catalog while
   the component gains independent layout ownership.
+- [`qml/ReviewSharedGradePicker.qml`](qml/ReviewSharedGradePicker.qml) owns the shared Grade Node
+  selection popup, including refresh, bounded Overlay placement, application, and closure. Toolbar
+  and context-menu callers supply only the requested presentation point.
 - [`src/review_import_coordinator.cpp`](src/review_import_coordinator.cpp) owns one complete folder
   import after cross-workflow admission: scan identity, blocking worker lifetime, monotonic progress
   polling, cooperative cancellation, live-Library refresh pacing, terminal outcome, localized

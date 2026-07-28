@@ -392,6 +392,7 @@ qt_add_qml_module(
         qml/ReviewComparisonView.qml
         qml/ReviewDecisionToolbar.qml
         qml/ReviewLibrarySidebar.qml
+        qml/ReviewSharedGradePicker.qml
         qml/ReviewPhotoCard.qml
         qml/ReviewPhotoContextMenu.qml
         qml/ReviewPhotoInspector.qml
