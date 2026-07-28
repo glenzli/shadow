@@ -149,6 +149,13 @@ Review presentation keeps the workspace focused on selection and orchestration:
 - [`qml/ReviewGalleryToolbar.qml`](qml/ReviewGalleryToolbar.qml) owns gallery layout and batch
   command presentation while emitting external popup/navigation intents.
 
+Library management uses the same page-composition boundary:
+
+- [`qml/LibrarySourceHealthPane.qml`](qml/LibrarySourceHealthPane.qml) owns source-scan evidence,
+  missing-location paging, and exact-content relink confirmation.
+- [`qml/LibraryImportPane.qml`](qml/LibraryImportPane.qml) owns catalog count, folder admission,
+  and observable import activity.
+
 `ExportController` remains the stable QObject/QML facade, while the durable transaction has one
 backend owner:
 

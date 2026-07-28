@@ -368,6 +368,8 @@ qt_add_qml_module(
         qml/ExportSettingsPane.qml
         qml/LibraryAlbumDialogs.qml
         qml/LibraryFacetPopup.qml
+        qml/LibraryImportPane.qml
+        qml/LibrarySourceHealthPane.qml
         qml/LibraryWorkspace.qml
         qml/LutManagerWindow.qml
         qml/Main.qml
