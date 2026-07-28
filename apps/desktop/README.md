@@ -29,6 +29,11 @@ Application startup is split from environment-driven automation:
 
 - [`src/main.cpp`](src/main.cpp) owns process startup, isolated RAW-helper policy, local Catalog
   recovery, service composition, QML loading, and the application run loop.
+- [`src/folder_scan_backend.cpp`](src/folder_scan_backend.cpp) owns folder-import admission,
+  begin/scan/progress/cancel projection, cooperative cancellation, and terminal reporting while
+  `DesktopBackend` preserves the stable compatibility methods. Its focused
+  [`folder_scan_backend_contract_test.cpp`](tests/folder_scan_backend_contract_test.cpp) exercises
+  cancellation and completion through the real desktop session.
 - [`src/desktop_smoke_harness.cpp`](src/desktop_smoke_harness.cpp) owns documented
   `SHADOW_DESKTOP_*` flag selection and shared scenario dispatch.
 - [`src/desktop_smoke/edit_preview_session.cpp`](src/desktop_smoke/edit_preview_session.cpp)
@@ -122,6 +127,17 @@ Review presentation keeps the workspace as the composition and compatibility sur
   independent request generation and stale-completion rejection; neither contract observes the
   Library page generation. Focused coordinator and session tests cover rapid reselection, clear,
   failure/retry, and same-identity refresh.
+- [`src/review_source_health_coordinator.cpp`](src/review_source_health_coordinator.cpp) owns the
+  complete Library source-health review lifecycle: serialized health refreshes, scan-scoped
+  missing-location paging, stale-page rejection, exact user-selected relink workers, localized
+  status, and destruction wait. Folder scanning only requests a health refresh at its terminal
+  boundary; it does not share this state machine. The responsibility-named
+  [`tests/review_source_health_coordinator/`](tests/review_source_health_coordinator/) suite covers
+  refresh coalescing and projection, review switching/closing and keyset continuation, plus relink
+  admission, receipts, errors, and lifetime.
+  [`review_source_health_backend_contract_test.cpp`](tests/review_source_health_backend_contract_test.cpp)
+  additionally runs two completed scans through the real desktop session, pages the resulting
+  missing-location evidence, and proves that a wrong complete-file identity cannot relink it.
 - [`src/photo_inspection_projection.cpp`](src/photo_inspection_projection.cpp) is the sole
   production mapping from the complete Rust FFI inspection DTO to the desktop DTO.
   [`tests/backend_photo_inspection_contract_test.cpp`](tests/backend_photo_inspection_contract_test.cpp)

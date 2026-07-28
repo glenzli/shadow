@@ -670,26 +670,6 @@ template <std::size_t Size>
     throw std::invalid_argument("unknown Review decision flag");
 }
 
-[[nodiscard]] BackendScanPhase scan_phase(const shadow::desktop::FfiScanPhase phase) {
-    switch (phase) {
-    case shadow::desktop::FfiScanPhase::Idle:
-        return BackendScanPhase::Idle;
-    case shadow::desktop::FfiScanPhase::Discovering:
-        return BackendScanPhase::Discovering;
-    case shadow::desktop::FfiScanPhase::PreparingPreviews:
-        return BackendScanPhase::PreparingPreviews;
-    case shadow::desktop::FfiScanPhase::Cancelling:
-        return BackendScanPhase::Cancelling;
-    case shadow::desktop::FfiScanPhase::Completed:
-        return BackendScanPhase::Completed;
-    case shadow::desktop::FfiScanPhase::Cancelled:
-        return BackendScanPhase::Cancelled;
-    case shadow::desktop::FfiScanPhase::Failed:
-        return BackendScanPhase::Failed;
-    }
-    throw std::invalid_argument("unknown folder scan phase");
-}
-
 [[nodiscard]] shadow::desktop::FfiDecisionFlag ffi_decision_flag(
     const BackendReviewDecisionFlag flag
 ) {
@@ -955,9 +935,11 @@ template <std::size_t Size>
 struct DesktopBackend::Impl final {
     explicit Impl(rust::Box<shadow::desktop::DesktopSession> value)
         : session(std::move(value)),
+          folder_scan_backend(*session),
           export_backend(*session) {}
 
     rust::Box<shadow::desktop::DesktopSession> session;
+    FolderScanBackend folder_scan_backend;
     ExportBackend export_backend;
 };
 
@@ -970,56 +952,22 @@ DesktopBackend::DesktopBackend(const QString& catalog_path, const QString& cache
 DesktopBackend::~DesktopBackend() = default;
 
 void DesktopBackend::beginFolderScan(const std::uint64_t scan_id) const {
-    impl_->session->begin_folder_scan(scan_id);
+    impl_->folder_scan_backend.beginFolderScan(scan_id);
 }
 
 BackendScanReport DesktopBackend::scanFolder(
     const QString& folder_path,
     const std::uint64_t scan_id
 ) const {
-    const auto source = impl_->session->scan_folder(folder_path.toStdString(), scan_id);
-    return {
-        .folder_path = qstring(source.folder_path),
-        .files_seen = source.files_seen,
-        .supported_files = source.supported_files,
-        .inserted = source.inserted,
-        .unchanged = source.unchanged,
-        .needs_revalidation = source.needs_revalidation,
-        .decode_queued = source.decode_inspections_queued,
-        .decode_completed = source.decode_inspections_completed,
-        .decode_hard_failures = source.decode_hard_failures,
-        .preview_failures = source.preview_failures,
-        .decode_cancelled = source.decode_inspections_cancelled,
-        .issue_count = source.issue_count,
-        .cancelled = source.cancelled,
-    };
+    return impl_->folder_scan_backend.scanFolder(folder_path, scan_id);
 }
 
 BackendScanProgress DesktopBackend::scanProgress(const std::uint64_t scan_id) const {
-    const auto source = impl_->session->scan_progress(scan_id);
-    return {
-        .scan_id = source.scan_id,
-        .update_sequence = source.update_sequence,
-        .files_seen = source.files_seen,
-        .supported_files = source.supported_files,
-        .inserted = source.inserted,
-        .unchanged = source.unchanged,
-        .needs_revalidation = source.needs_revalidation,
-        .decode_queued = source.decode_inspections_queued,
-        .preview_artifacts_ready = source.preview_artifacts_published,
-        .decode_completed = source.decode_inspections_completed,
-        .decode_hard_failures = source.decode_hard_failures,
-        .preview_failures = source.preview_failures,
-        .decode_cancelled = source.decode_inspections_cancelled,
-        .skipped = source.skipped,
-        .issue_count = source.issue_count,
-        .phase = scan_phase(source.phase),
-        .valid = source.valid,
-    };
+    return impl_->folder_scan_backend.scanProgress(scan_id);
 }
 
 bool DesktopBackend::cancelFolderScan(const std::uint64_t scan_id) const {
-    return impl_->session->cancel_folder_scan(scan_id);
+    return impl_->folder_scan_backend.cancelFolderScan(scan_id);
 }
 
 BackendPhotoInspection DesktopBackend::photoInspection(

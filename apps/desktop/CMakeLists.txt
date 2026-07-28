@@ -176,6 +176,8 @@ qt_add_executable(
     MACOSX_BUNDLE
     src/desktop_backend.cpp
     src/desktop_backend.hpp
+    src/folder_scan_backend.cpp
+    src/folder_scan_backend.hpp
     src/desktop_smoke_harness.cpp
     src/desktop_smoke_harness.hpp
     src/desktop_smoke/edit_preview_session.cpp
@@ -235,6 +237,8 @@ qt_add_executable(
     src/review_photo_inspection_coordinator.cpp
     src/review_photo_inspection_coordinator.hpp
     src/review_photo_inspection_session.hpp
+    src/review_source_health_coordinator.cpp
+    src/review_source_health_coordinator.hpp
     src/review_visual_request.cpp
     src/review_visual_request.hpp
     src/thumbnail_provider.cpp
@@ -516,10 +520,52 @@ if(BUILD_TESTING)
     )
 
     add_executable(
+        shadow-folder-scan-backend-contract-test
+        tests/folder_scan_backend_contract_test.cpp
+        src/folder_scan_backend.cpp
+        src/folder_scan_backend.hpp
+    )
+    target_compile_features(
+        shadow-folder-scan-backend-contract-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-folder-scan-backend-contract-test
+        PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/src"
+            "${SHADOW_CXXBRIDGE_INCLUDE_DIRECTORY}"
+    )
+    target_link_libraries(
+        shadow-folder-scan-backend-contract-test
+        PRIVATE shadow-desktop-export-backend
+    )
+    add_dependencies(
+        shadow-folder-scan-backend-contract-test
+        shadow-desktop-rust-build
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-folder-scan-backend-contract-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-folder-scan-backend-contract-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-folder-scan-backend-contract
+        COMMAND shadow-folder-scan-backend-contract-test
+    )
+
+    add_executable(
         shadow-backend-photo-inspection-contract-test
         tests/backend_photo_inspection_contract_test.cpp
         src/desktop_backend.cpp
         src/desktop_backend.hpp
+        src/folder_scan_backend.cpp
+        src/folder_scan_backend.hpp
         src/photo_inspection_projection.cpp
         src/photo_inspection_projection.hpp
         src/preview_diagnostics.cpp
@@ -557,6 +603,52 @@ if(BUILD_TESTING)
     add_test(
         NAME shadow-desktop-backend-photo-inspection-contract
         COMMAND shadow-backend-photo-inspection-contract-test
+    )
+
+    add_executable(
+        shadow-review-source-health-backend-contract-test
+        tests/review_source_health_backend_contract_test.cpp
+        src/desktop_backend.cpp
+        src/desktop_backend.hpp
+        src/folder_scan_backend.cpp
+        src/folder_scan_backend.hpp
+        src/photo_inspection_projection.cpp
+        src/photo_inspection_projection.hpp
+        src/preview_diagnostics.cpp
+        src/preview_diagnostics.hpp
+    )
+    target_compile_features(
+        shadow-review-source-health-backend-contract-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-review-source-health-backend-contract-test
+        PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/src"
+            "${SHADOW_CXXBRIDGE_INCLUDE_DIRECTORY}"
+    )
+    target_link_libraries(
+        shadow-review-source-health-backend-contract-test
+        PRIVATE shadow-desktop-export-backend
+    )
+    add_dependencies(
+        shadow-review-source-health-backend-contract-test
+        shadow-desktop-rust-build
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-review-source-health-backend-contract-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-review-source-health-backend-contract-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-review-source-health-backend-contract
+        COMMAND shadow-review-source-health-backend-contract-test
     )
 
     add_executable(
@@ -827,6 +919,8 @@ if(BUILD_TESTING)
         src/review_photo_inspection_session.hpp
         src/desktop_backend.cpp
         src/desktop_backend.hpp
+        src/folder_scan_backend.cpp
+        src/folder_scan_backend.hpp
         src/photo_inspection_projection.cpp
         src/photo_inspection_projection.hpp
         src/preview_diagnostics.cpp
@@ -1059,6 +1153,44 @@ if(BUILD_TESTING)
     add_test(
         NAME shadow-desktop-review-comparison-coordinator
         COMMAND shadow-review-comparison-coordinator-test
+    )
+
+    add_executable(
+        shadow-review-source-health-coordinator-test
+        tests/review_source_health_coordinator_test.cpp
+        tests/review_source_health_coordinator/source_health_fixture.hpp
+        tests/review_source_health_coordinator/source_health_refresh_contract.cpp
+        tests/review_source_health_coordinator/missing_location_review_contract.cpp
+        tests/review_source_health_coordinator/relink_lifetime_contract.cpp
+        src/review_source_health_coordinator.cpp
+        src/review_source_health_coordinator.hpp
+    )
+    target_compile_features(
+        shadow-review-source-health-coordinator-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-review-source-health-coordinator-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-review-source-health-coordinator-test
+        PRIVATE Qt6::Concurrent Qt6::Gui
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-review-source-health-coordinator-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-review-source-health-coordinator-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-review-source-health-coordinator
+        COMMAND shadow-review-source-health-coordinator-test
     )
 
     add_executable(

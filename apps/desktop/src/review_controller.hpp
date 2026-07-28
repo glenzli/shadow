@@ -7,6 +7,7 @@
 #include "review_filter_model.hpp"
 #include "review_model.hpp"
 #include "review_photo_inspection_coordinator.hpp"
+#include "review_source_health_coordinator.hpp"
 
 #include <QElapsedTimer>
 #include <QFutureWatcher>
@@ -83,27 +84,6 @@ struct LibraryAlbumTaskResult final {
     QString album_id;
     int affected_photo_count = 0;
     bool has_album_snapshot = false;
-};
-
-struct LibrarySourceHealthTaskResult final {
-    QVector<BackendLibrarySourceHealth> sources;
-    QString error;
-    quint64 request_id = 0;
-};
-
-struct MissingSourceLocationTaskResult final {
-    BackendMissingSourceLocationPage page;
-    QString error;
-    QString scan_session_id;
-    quint64 request_id = 0;
-    bool append = false;
-};
-
-struct MissingSourceRelinkTaskResult final {
-    BackendVerifiedSourceRelinkReceipt receipt;
-    QString error;
-    QString location_id;
-    quint64 request_id = 0;
 };
 
 struct ReviewDecisionTaskResult final {
@@ -488,9 +468,6 @@ private:
     void finishLibraryFacetsTask();
     void finishLibraryStateTask();
     void finishLibraryAlbumsTask();
-    void finishLibrarySourceHealthTask();
-    void finishMissingSourceLocationTask();
-    void finishMissingSourceRelinkTask();
     void pollScanProgress();
     void finishDecisionTask();
     void startPage(PageTaskKind kind);
@@ -511,9 +488,6 @@ private:
         const QString& album_id = {},
         const QStringList& photo_ids = {}
     );
-    void startLibrarySourceHealthTask();
-    void startMissingSourceLocationTask(bool append);
-    void startMissingSourceRelinkTask(const QString& location_id, const QString& candidate_path);
     void startDecisionMutation(const ReviewDecisionMutationRequest& request);
     void emitWorkStateChanges(
         bool old_busy,
@@ -530,6 +504,7 @@ private:
 
     std::shared_ptr<DesktopBackend> backend_;
     ReviewPhotoInspectionCoordinator photo_inspection_coordinator_;
+    ReviewSourceHealthCoordinator source_health_coordinator_;
     QString folder_path_;
   LocalizedUiMessage status_message_{
       "ReviewController",
@@ -592,23 +567,6 @@ private:
     BackendLibraryFacetPage library_capture_month_facets_;
     BackendLibraryFacetPage library_camera_facets_;
     BackendLibraryFacetPage library_lens_facets_;
-    bool library_source_health_task_running_ = false;
-    bool library_source_health_refresh_pending_ = false;
-    quint64 library_source_health_request_id_ = 0;
-    quint64 active_library_source_health_request_id_ = 0;
-    QVector<BackendLibrarySourceHealth> library_source_health_;
-    bool missing_source_locations_task_running_ = false;
-    bool missing_source_locations_refresh_pending_ = false;
-    quint64 missing_source_locations_request_id_ = 0;
-    quint64 active_missing_source_locations_request_id_ = 0;
-    QString missing_source_location_scan_id_;
-    QString missing_source_location_next_cursor_;
-    QVector<BackendMissingSourceLocation> missing_source_locations_;
-    bool missing_source_locations_has_more_ = false;
-    bool source_relink_task_running_ = false;
-    quint64 source_relink_request_id_ = 0;
-    quint64 active_source_relink_request_id_ = 0;
-    QString source_relink_status_text_;
     QElapsedTimer scan_clock_;
     QTimer scan_progress_timer_;
     QTimer filter_debounce_timer_;
@@ -623,8 +581,5 @@ private:
     QFutureWatcher<LibraryFacetTaskResult> library_facets_watcher_;
     QFutureWatcher<LibraryStateTaskResult> library_state_watcher_;
     QFutureWatcher<LibraryAlbumTaskResult> library_albums_watcher_;
-    QFutureWatcher<LibrarySourceHealthTaskResult> library_source_health_watcher_;
-    QFutureWatcher<MissingSourceLocationTaskResult> missing_source_locations_watcher_;
-    QFutureWatcher<MissingSourceRelinkTaskResult> source_relink_watcher_;
     QFutureWatcher<ReviewDecisionTaskResult> decision_watcher_;
 };

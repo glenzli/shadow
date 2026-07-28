@@ -19,7 +19,6 @@ constexpr quint64 STREAM_REFRESH_STRIDE = 16;
 constexpr qint64 STREAM_REFRESH_MIN_INTERVAL_MS = 400;
 constexpr qint64 STREAM_VISUAL_REFRESH_MIN_INTERVAL_MS = 150;
 constexpr int FILTER_QUERY_DEBOUNCE_MS = 120;
-constexpr std::uint32_t MISSING_SOURCE_LOCATION_PAGE_SIZE = 24;
 constexpr std::uint32_t LIBRARY_FACET_PAGE_SIZE = 24;
 
 [[nodiscard]] LocalizedUiMessage review_message(
@@ -210,65 +209,6 @@ constexpr std::uint32_t LIBRARY_FACET_PAGE_SIZE = 24;
     return result;
 }
 
-[[nodiscard]] LibrarySourceHealthTaskResult run_library_source_health_task(
-    const std::shared_ptr<DesktopBackend>& backend,
-    const quint64 request_id
-) {
-    LibrarySourceHealthTaskResult result;
-    result.request_id = request_id;
-    try {
-        result.sources = backend->librarySourceHealth();
-    } catch (const std::exception& error) {
-        result.error = QString::fromUtf8(error.what());
-    }
-    return result;
-}
-
-[[nodiscard]] MissingSourceLocationTaskResult run_missing_source_location_task(
-    const std::shared_ptr<DesktopBackend>& backend,
-    const QString& scan_session_id,
-    const QString& after_location_id,
-    const quint64 request_id,
-    const bool append
-) {
-    MissingSourceLocationTaskResult result;
-    result.scan_session_id = scan_session_id;
-    result.request_id = request_id;
-    result.append = append;
-    try {
-        result.page = backend->missingSourceLocationPage(
-            scan_session_id,
-            after_location_id,
-            MISSING_SOURCE_LOCATION_PAGE_SIZE
-        );
-    } catch (const std::exception& error) {
-        result.error = QString::fromUtf8(error.what());
-    }
-    return result;
-}
-
-[[nodiscard]] MissingSourceRelinkTaskResult run_missing_source_relink_task(
-    const std::shared_ptr<DesktopBackend>& backend,
-    const QString& scan_session_id,
-    const QString& location_id,
-    const QString& candidate_path,
-    const quint64 request_id
-) {
-    MissingSourceRelinkTaskResult result;
-    result.location_id = location_id;
-    result.request_id = request_id;
-    try {
-        result.receipt = backend->relinkMissingSourceLocation(
-            scan_session_id,
-            location_id,
-            candidate_path
-        );
-    } catch (const std::exception& error) {
-        result.error = QString::fromUtf8(error.what());
-    }
-    return result;
-}
-
 [[nodiscard]] QStringList photo_ids_from_targets(const QVariantList& targets) {
     QStringList photo_ids;
     QSet<QString> seen;
@@ -413,6 +353,43 @@ constexpr std::uint32_t LIBRARY_FACET_PAGE_SIZE = 24;
     };
 }
 
+[[nodiscard]] ReviewSourceHealthCoordinator::Operations
+source_health_operations(const std::shared_ptr<DesktopBackend>& backend) {
+    if (!backend) {
+        throw std::invalid_argument("Review source-health backend is required");
+    }
+    return {
+        .source_health =
+            [backend]() {
+                return backend->librarySourceHealth();
+            },
+        .missing_locations =
+            [backend](
+                const QString& scan_session_id,
+                const QString& after_location_id,
+                const std::uint32_t limit
+            ) {
+                return backend->missingSourceLocationPage(
+                    scan_session_id,
+                    after_location_id,
+                    limit
+                );
+            },
+        .relink =
+            [backend](
+                const QString& scan_session_id,
+                const QString& location_id,
+                const QString& candidate_path
+            ) {
+                return backend->relinkMissingSourceLocation(
+                    scan_session_id,
+                    location_id,
+                    candidate_path
+                );
+            },
+    };
+}
+
 [[nodiscard]] std::optional<BackendReviewDecisionFlag> decision_flag(
     const QString& flag
 ) {
@@ -480,6 +457,7 @@ ReviewController::ReviewController(
     : QObject(parent),
       backend_(std::move(backend)),
       photo_inspection_coordinator_(backend_),
+      source_health_coordinator_(source_health_operations(backend_)),
       model_(this),
       filtered_model_(this),
       comparison_coordinator_(
@@ -586,22 +564,26 @@ ReviewController::ReviewController(
         &ReviewController::finishLibraryAlbumsTask
     );
     connect(
-        &library_source_health_watcher_,
-        &QFutureWatcher<LibrarySourceHealthTaskResult>::finished,
+        &source_health_coordinator_,
+        &ReviewSourceHealthCoordinator::sourceHealthChanged,
         this,
-        &ReviewController::finishLibrarySourceHealthTask
+        &ReviewController::librarySourceHealthChanged
     );
     connect(
-        &missing_source_locations_watcher_,
-        &QFutureWatcher<MissingSourceLocationTaskResult>::finished,
+        &source_health_coordinator_,
+        &ReviewSourceHealthCoordinator::missingLocationReviewChanged,
         this,
-        &ReviewController::finishMissingSourceLocationTask
+        &ReviewController::missingSourceLocationReviewChanged
     );
     connect(
-        &source_relink_watcher_,
-        &QFutureWatcher<MissingSourceRelinkTaskResult>::finished,
+        &source_health_coordinator_,
+        &ReviewSourceHealthCoordinator::globalStatusMessageChanged,
         this,
-        &ReviewController::finishMissingSourceRelinkTask
+        [this]() {
+            setStatusMessage(
+                source_health_coordinator_.globalStatusMessage()
+            );
+        }
     );
     connect(
         &decision_watcher_,
@@ -647,9 +629,6 @@ ReviewController::~ReviewController() {
     library_facets_watcher_.waitForFinished();
     library_state_watcher_.waitForFinished();
     library_albums_watcher_.waitForFinished();
-    library_source_health_watcher_.waitForFinished();
-    missing_source_locations_watcher_.waitForFinished();
-    source_relink_watcher_.waitForFinished();
     decision_watcher_.waitForFinished();
 }
 
@@ -851,64 +830,35 @@ bool ReviewController::libraryAlbumsBusy() const noexcept {
 }
 
 QVariantList ReviewController::librarySourceHealth() const {
-    QVariantList result;
-    result.reserve(library_source_health_.size());
-    for (const auto& source : library_source_health_) {
-        result.push_back(QVariantMap{
-            {QStringLiteral("sourceId"), source.source_id},
-            {QStringLiteral("sourcePath"), source.source_display_path},
-            {QStringLiteral("enabled"), source.source_enabled},
-            {QStringLiteral("hasLatestCompletedScan"), source.has_latest_completed_scan},
-            {QStringLiteral("scanSessionId"), source.scan_session_id},
-            {QStringLiteral("scanCompletedAtMs"), source.scan_completed_at_ms},
-            {QStringLiteral("knownLocations"), source.known_locations},
-            {QStringLiteral("seenLocations"), source.seen_locations},
-            {QStringLiteral("notSeenLocations"), source.not_seen_locations},
-        });
-    }
-    return result;
+    return source_health_coordinator_.sourceHealth();
 }
 
 bool ReviewController::librarySourceHealthBusy() const noexcept {
-    return library_source_health_task_running_;
+    return source_health_coordinator_.sourceHealthBusy();
 }
 
 QVariantList ReviewController::missingSourceLocations() const {
-    QVariantList result;
-    result.reserve(missing_source_locations_.size());
-    for (const auto& location : missing_source_locations_) {
-        result.push_back(QVariantMap{
-            {QStringLiteral("locationId"), location.location_id},
-            {QStringLiteral("photoId"), location.photo_id},
-            {QStringLiteral("title"), location.title},
-            {QStringLiteral("sourcePath"), location.source_display_path},
-            {QStringLiteral("hasCapturedAt"), location.has_captured_at},
-            {QStringLiteral("capturedAtUnixSeconds"), location.captured_at_unix_seconds},
-            {QStringLiteral("cameraKey"), location.camera_key},
-            {QStringLiteral("lastSeenAtMs"), location.last_seen_at_ms},
-        });
-    }
-    return result;
+    return source_health_coordinator_.missingLocations();
 }
 
 QString ReviewController::missingSourceLocationScanId() const {
-    return missing_source_location_scan_id_;
+    return source_health_coordinator_.missingLocationScanId();
 }
 
 bool ReviewController::missingSourceLocationsBusy() const noexcept {
-    return missing_source_locations_task_running_;
+    return source_health_coordinator_.missingLocationsBusy();
 }
 
 bool ReviewController::missingSourceLocationsHasMore() const noexcept {
-    return missing_source_locations_has_more_;
+    return source_health_coordinator_.missingLocationsHasMore();
 }
 
 bool ReviewController::sourceRelinkBusy() const noexcept {
-    return source_relink_task_running_;
+    return source_health_coordinator_.relinkBusy();
 }
 
 QString ReviewController::sourceRelinkStatusText() const {
-    return source_relink_status_text_;
+    return source_health_coordinator_.relinkStatusText();
 }
 
 int ReviewController::filteredItemCount() const noexcept {
@@ -1334,60 +1284,29 @@ void ReviewController::refreshLibraryAlbums() {
 }
 
 void ReviewController::refreshLibrarySourceHealth() {
-    if (library_source_health_task_running_) {
-        library_source_health_refresh_pending_ = true;
-        return;
-    }
-    startLibrarySourceHealthTask();
+    source_health_coordinator_.refreshSourceHealth();
 }
 
 void ReviewController::openMissingSourceLocationReview(const QString& scan_session_id) {
-    const QString normalized_scan_id = scan_session_id.trimmed();
-    if (normalized_scan_id.isEmpty()) {
-        return;
-    }
-    missing_source_location_scan_id_ = normalized_scan_id;
-    missing_source_location_next_cursor_.clear();
-    missing_source_locations_.clear();
-    missing_source_locations_has_more_ = false;
-    if (missing_source_locations_task_running_) {
-        active_missing_source_locations_request_id_ = ++missing_source_locations_request_id_;
-        missing_source_locations_refresh_pending_ = true;
-        emit missingSourceLocationReviewChanged();
-        return;
-    }
-    startMissingSourceLocationTask(false);
+    source_health_coordinator_.openMissingLocationReview(scan_session_id);
 }
 
 void ReviewController::closeMissingSourceLocationReview() {
-    active_missing_source_locations_request_id_ = ++missing_source_locations_request_id_;
-    missing_source_locations_refresh_pending_ = false;
-    missing_source_location_scan_id_.clear();
-    missing_source_location_next_cursor_.clear();
-    missing_source_locations_.clear();
-    missing_source_locations_has_more_ = false;
-    emit missingSourceLocationReviewChanged();
+    source_health_coordinator_.closeMissingLocationReview();
 }
 
 void ReviewController::loadMoreMissingSourceLocations() {
-    if (missing_source_locations_task_running_ || !missing_source_locations_has_more_
-        || missing_source_location_scan_id_.isEmpty()) {
-        return;
-    }
-    startMissingSourceLocationTask(true);
+    source_health_coordinator_.loadMoreMissingLocations();
 }
 
 void ReviewController::relinkMissingSourceLocation(
     const QString& location_id,
     const QUrl& candidate_url
 ) {
-    const QString normalized_location_id = location_id.trimmed();
-    const QString candidate_path = candidate_url.toLocalFile();
-    if (source_relink_task_running_ || missing_source_location_scan_id_.isEmpty()
-        || normalized_location_id.isEmpty() || candidate_path.isEmpty()) {
-        return;
-    }
-    startMissingSourceRelinkTask(normalized_location_id, candidate_path);
+    source_health_coordinator_.relinkMissingLocation(
+        location_id,
+        candidate_url
+    );
 }
 
 void ReviewController::createManualLibraryAlbum(const QString& name) {
@@ -2082,95 +2001,6 @@ void ReviewController::finishLibraryAlbumsTask() {
     }
 }
 
-void ReviewController::finishLibrarySourceHealthTask() {
-    const LibrarySourceHealthTaskResult result = library_source_health_watcher_.result();
-    library_source_health_task_running_ = false;
-    const bool accepted = result.request_id == active_library_source_health_request_id_;
-    if (accepted && result.error.isEmpty()) {
-        library_source_health_ = result.sources;
-        emit librarySourceHealthChanged();
-    } else if (accepted) {
-        setStatusMessage(review_message(
-            QT_TRANSLATE_NOOP("ReviewController", "Could not load Library source health · %1"),
-            {result.error}
-        ));
-        emit librarySourceHealthChanged();
-    }
-
-    if (library_source_health_refresh_pending_ || !accepted) {
-        library_source_health_refresh_pending_ = false;
-        startLibrarySourceHealthTask();
-    }
-}
-
-void ReviewController::finishMissingSourceLocationTask() {
-    const MissingSourceLocationTaskResult result = missing_source_locations_watcher_.result();
-    missing_source_locations_task_running_ = false;
-    const bool accepted = result.request_id == active_missing_source_locations_request_id_
-        && result.scan_session_id == missing_source_location_scan_id_;
-    if (accepted && result.error.isEmpty()) {
-        if (result.page.has_scan) {
-            if (result.append) {
-                missing_source_locations_ += result.page.items;
-            } else {
-                missing_source_locations_ = result.page.items;
-            }
-            missing_source_location_next_cursor_ = result.page.next_location_id;
-            missing_source_locations_has_more_ = result.page.has_more;
-        } else {
-            missing_source_locations_.clear();
-            missing_source_location_next_cursor_.clear();
-            missing_source_locations_has_more_ = false;
-        }
-        emit missingSourceLocationReviewChanged();
-    } else if (accepted) {
-        setStatusMessage(review_message(
-            QT_TRANSLATE_NOOP("ReviewController", "Could not load source scan review · %1"),
-            {result.error}
-        ));
-        emit missingSourceLocationReviewChanged();
-    } else {
-        // The user switched or closed review while this worker was in flight.
-        // Publish the cleared busy state even though its page is intentionally
-        // stale and therefore discarded.
-        emit missingSourceLocationReviewChanged();
-    }
-
-    if (missing_source_locations_refresh_pending_
-        && !missing_source_location_scan_id_.isEmpty()) {
-        missing_source_locations_refresh_pending_ = false;
-        startMissingSourceLocationTask(false);
-    }
-}
-
-void ReviewController::finishMissingSourceRelinkTask() {
-    const MissingSourceRelinkTaskResult result = source_relink_watcher_.result();
-    source_relink_task_running_ = false;
-    const bool accepted = result.request_id == active_source_relink_request_id_;
-    if (accepted && result.error.isEmpty()) {
-        const LocalizedUiMessage message = review_message(
-            QT_TRANSLATE_NOOP(
-                "ReviewController",
-                "Verified and linked · %1"
-            ),
-            {result.receipt.display_path}
-        );
-        source_relink_status_text_ = message.translated();
-        setStatusMessage(message);
-    } else if (accepted) {
-        const LocalizedUiMessage message = review_message(
-            QT_TRANSLATE_NOOP(
-                "ReviewController",
-                "Could not link selected source · %1"
-            ),
-            {result.error}
-        );
-        source_relink_status_text_ = message.translated();
-        setStatusMessage(message);
-    }
-    emit missingSourceLocationReviewChanged();
-}
-
 void ReviewController::finishDecisionTask() {
     const ReviewDecisionTaskResult result = decision_watcher_.result();
     if (!result.error.isEmpty()) {
@@ -2416,62 +2246,6 @@ void ReviewController::startLibraryAlbumsTask(
     ));
 }
 
-void ReviewController::startLibrarySourceHealthTask() {
-    if (library_source_health_task_running_) {
-        library_source_health_refresh_pending_ = true;
-        return;
-    }
-    library_source_health_task_running_ = true;
-    active_library_source_health_request_id_ = ++library_source_health_request_id_;
-    emit librarySourceHealthChanged();
-    library_source_health_watcher_.setFuture(QtConcurrent::run(
-        run_library_source_health_task,
-        backend_,
-        active_library_source_health_request_id_
-    ));
-}
-
-void ReviewController::startMissingSourceLocationTask(const bool append) {
-    if (missing_source_locations_task_running_) {
-        missing_source_locations_refresh_pending_ = true;
-        return;
-    }
-    if (missing_source_location_scan_id_.isEmpty()) {
-        return;
-    }
-    missing_source_locations_task_running_ = true;
-    active_missing_source_locations_request_id_ = ++missing_source_locations_request_id_;
-    emit missingSourceLocationReviewChanged();
-    missing_source_locations_watcher_.setFuture(QtConcurrent::run(
-        run_missing_source_location_task,
-        backend_,
-        missing_source_location_scan_id_,
-        append ? missing_source_location_next_cursor_ : QString{},
-        active_missing_source_locations_request_id_,
-        append
-    ));
-}
-
-void ReviewController::startMissingSourceRelinkTask(
-    const QString& location_id,
-    const QString& candidate_path
-) {
-    source_relink_task_running_ = true;
-    source_relink_status_text_ = review_message(QT_TRANSLATE_NOOP(
-        "ReviewController", "Verifying selected source…"
-    )).translated();
-    active_source_relink_request_id_ = ++source_relink_request_id_;
-    emit missingSourceLocationReviewChanged();
-    source_relink_watcher_.setFuture(QtConcurrent::run(
-        run_missing_source_relink_task,
-        backend_,
-        missing_source_location_scan_id_,
-        location_id,
-        candidate_path,
-        active_source_relink_request_id_
-    ));
-}
-
 void ReviewController::emitWorkStateChanges(
     const bool old_busy,
     const bool old_loading_more,
@@ -2508,6 +2282,7 @@ bool ReviewController::eventFilter(QObject *const watched,
 void ReviewController::retranslateUi() {
   emit statusTextChanged();
   comparison_coordinator_.retranslateUi();
+  source_health_coordinator_.retranslateUi();
   emit decisionStatusTextChanged();
 }
 
