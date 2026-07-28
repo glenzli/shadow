@@ -407,6 +407,8 @@ qt_add_qml_module(
         qml/ReviewComparisonState.qml
         qml/ReviewComparisonView.qml
         qml/ReviewDecisionToolbar.qml
+        qml/ReviewGallerySurface.qml
+        qml/ReviewGalleryToolbar.qml
         qml/ReviewLibrarySidebar.qml
         qml/ReviewMetadataPresentation.qml
         qml/ReviewSharedGradePicker.qml

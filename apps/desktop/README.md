@@ -142,6 +142,13 @@ Precision presentation follows the same responsibility tree:
 - [`qml/PrecisionSelectiveColor.qml`](qml/PrecisionSelectiveColor.qml) owns selective-color
   target selection and CMYK adjustment presentation.
 
+Review presentation keeps the workspace focused on selection and orchestration:
+
+- [`qml/ReviewGallerySurface.qml`](qml/ReviewGallerySurface.qml) owns grid and single-photo
+  presentation, incremental paging, comparison, empty/busy states, and decision-toolbar placement.
+- [`qml/ReviewGalleryToolbar.qml`](qml/ReviewGalleryToolbar.qml) owns gallery layout and batch
+  command presentation while emitting external popup/navigation intents.
+
 `ExportController` remains the stable QObject/QML facade, while the durable transaction has one
 backend owner:
 
