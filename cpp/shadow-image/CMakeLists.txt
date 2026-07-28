@@ -404,9 +404,19 @@ if(BUILD_TESTING)
     )
 
     shadow_image_add_contract(
-        shadow-image-edit-plan-tests
-        shadow-image-edit-plan-contract
-        tests/edit_plan_contract_test.cpp
+        shadow-image-edit-execution-plan-tests
+        shadow-image-edit-execution-plan-contract
+        tests/edit_execution_plan_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-core-adjustment-execution-tests
+        shadow-image-core-adjustment-execution-contract
+        tests/core_adjustment_execution_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-edit-input-validation-tests
+        shadow-image-edit-input-validation-contract
+        tests/edit_input_validation_contract_test.cpp
     )
     shadow_image_add_contract(
         shadow-image-guided-selective-tone-tests

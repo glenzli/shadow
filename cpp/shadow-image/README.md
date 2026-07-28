@@ -340,8 +340,12 @@ Edit-kernel contract tests follow the same ownership boundaries as the implement
   admission, resource failure, real-Metal parity, operation-order, concurrency, and optional
   benchmark contracts. Responsibility-named children own those cases; narrow fixtures separately
   own deterministic parity images, advanced LUT data, and perceptual-color parameters.
-- `tests/edit_plan_contract_test.cpp` owns operation identity, execution-plan segmentation,
-  node order, validation, layout, and the basic pixel contract.
+- `tests/edit_execution_plan_contract_test.cpp` owns operation identity, locality, footprints,
+  validation-before-elision, stable plan identity, and maximal execution-plan segmentation.
+- `tests/core_adjustment_execution_contract_test.cpp` owns the basic CPU pixel semantics,
+  observable node order, and disabled-node behavior.
+- `tests/edit_input_validation_contract_test.cpp` owns fail-closed parameter/version handling,
+  bounded validation without pixels, color encoding, working-space, and raster-layout admission.
 - `tests/perceptual_contrast_contract_test.cpp` owns the perceptual pivot, factor mapping,
   identity/collapse endpoints, and shared CPU/Metal lowering contract.
 - `tests/guided_selective_tone_contract_test.cpp` owns fixed EV zones, two-pass radius/footprint
