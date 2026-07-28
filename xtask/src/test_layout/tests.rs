@@ -7,8 +7,9 @@ use syn::File;
 
 use super::audit::{
     has_legacy_test_suffix, inline_test_identities_in_syntax, inline_test_modules_in_syntax,
-    is_canonical_test_source, is_test_tree_facade, permanently_disabled_test_findings_in_syntax,
-    source_inclusion_findings_in_syntax, test_facade_non_registration_items_in_syntax,
+    is_canonical_test_source, is_test_tree_facade, owner_test_path_override_findings_in_syntax,
+    permanently_disabled_test_findings_in_syntax, source_inclusion_findings_in_syntax,
+    test_facade_non_registration_items_in_syntax,
 };
 use super::*;
 
@@ -203,6 +204,31 @@ fn crate_test_scan_rejects_private_source_inclusion_only() {
 }
 
 #[test]
+fn production_owner_scan_rejects_redirected_test_modules_only() {
+    let syntax = parse(
+        r#"
+        #[cfg(test)]
+        #[path = "shared_tests/owner.rs"]
+        mod tests;
+
+        #[cfg_attr(feature = "alternate-tests", path = "alternate/tests.rs")]
+        mod tests;
+
+        #[path = "generated/product.rs"]
+        mod generated_product;
+        "#,
+    );
+
+    assert_eq!(
+        owner_test_path_override_findings_in_syntax(&syntax),
+        BTreeSet::from([
+            "path:alternate/tests.rs".to_owned(),
+            "path:shared_tests/owner.rs".to_owned(),
+        ])
+    );
+}
+
+#[test]
 fn canonical_test_scan_rejects_constant_false_cfg_but_allows_runnable_ignores() {
     let syntax = parse(
         r#"
@@ -273,6 +299,10 @@ fn strict_policy_reports_every_present_violation_category() {
             "src/owner.rs".to_owned(),
             BTreeSet::from(["tests::ordinary".to_owned()]),
         )]),
+        owner_test_path_overrides: BTreeMap::from([(
+            "src/owner.rs".to_owned(),
+            BTreeSet::from(["path:shared/tests.rs".to_owned()]),
+        )]),
         crate_test_source_inclusions: BTreeMap::from([(
             "tests/public.rs".to_owned(),
             BTreeSet::from(["path:../src/private.rs".to_owned()]),
@@ -294,6 +324,7 @@ fn strict_policy_reports_every_present_violation_category() {
         "Sibling *_test.rs",
         "Inline #[cfg(test)]",
         "Executable test bodies",
+        "Owner tests redirected",
         "Private production source inclusions",
         "Permanently disabled",
         "Implementation hidden",

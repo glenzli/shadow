@@ -50,7 +50,8 @@ Rust tests use one owner-controlled topology:
 
 - A production owner may end with `#[cfg(test)] mod tests;`, but its test implementations start in
   `<owner>/tests.rs`, never inside the production `.rs` file and never in a sibling
-  `<owner>_tests.rs`.
+  `<owner>_tests.rs`. Do not use `#[path]` to redirect `mod tests` into a shared or distant test
+  directory; the filesystem location must identify the production owner directly.
 - When one owner needs several test responsibilities, replace that single file with
   `<owner>/tests/mod.rs` and responsibility-named children. The directory already says “tests”, so
   children do not repeat `_test` or `_tests` and may not use generic names such as `test.rs`,

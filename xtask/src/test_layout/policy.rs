@@ -29,6 +29,12 @@ pub(super) fn enforce(observation: &TestLayoutObservation) -> io::Result<()> {
     );
     append_identities(
         &mut violations,
+        "Owner tests redirected through #[path]",
+        &observation.owner_test_path_overrides,
+        "Use the canonical <owner>/tests.rs or <owner>/tests/mod.rs path and a plain mod tests; registration.",
+    );
+    append_identities(
+        &mut violations,
         "Private production source inclusions from crate-level tests",
         &observation.crate_test_source_inclusions,
         "Consume the real public product graph or move the private contract beside its owner.",

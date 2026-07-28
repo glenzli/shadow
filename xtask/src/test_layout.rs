@@ -5,7 +5,7 @@ mod policy;
 
 use audit::{TestLayoutObservation, audit_workspace, finding_count};
 
-const OBSERVATION_SCHEMA: u32 = 1;
+const OBSERVATION_SCHEMA: u32 = 2;
 
 #[derive(Debug, Default)]
 struct Options {
@@ -67,6 +67,7 @@ pub fn run(arguments: impl IntoIterator<Item = OsString>) -> io::Result<()> {
             "schema": OBSERVATION_SCHEMA,
             "inline_test_modules": &observation.inline_test_modules,
             "inline_executable_tests": &observation.inline_executable_tests,
+            "owner_test_path_overrides": &observation.owner_test_path_overrides,
             "crate_test_source_inclusions": &observation.crate_test_source_inclusions,
             "permanently_disabled_test_sources": &observation.permanently_disabled_test_sources,
             "test_facade_non_registration_items":
@@ -83,13 +84,15 @@ pub fn run(arguments: impl IntoIterator<Item = OsString>) -> io::Result<()> {
 
     let inline_module_count = finding_count(&observation.inline_test_modules);
     let inline_test_count = finding_count(&observation.inline_executable_tests);
+    let path_override_count = finding_count(&observation.owner_test_path_overrides);
     let inclusion_count = finding_count(&observation.crate_test_source_inclusions);
     let disabled_count = finding_count(&observation.permanently_disabled_test_sources);
     let facade_item_count = finding_count(&observation.test_facade_non_registration_items);
     println!(
         "test-layout: {inline_module_count} inline modules / {inline_test_count} inline tests, \
-         {inclusion_count} source inclusions, {disabled_count} permanently disabled test \
-         conditions, {facade_item_count} test-facade implementation items; strict topology satisfied"
+         {path_override_count} owner test path overrides, {inclusion_count} source inclusions, \
+         {disabled_count} permanently disabled test conditions, {facade_item_count} test-facade \
+         implementation items; strict topology satisfied"
     );
     if options.verbose {
         print_verbose_observation(&observation);
@@ -103,6 +106,9 @@ fn print_verbose_observation(observation: &TestLayoutObservation) {
     }
     for (path, identities) in &observation.inline_executable_tests {
         println!("  {path}: {}", identities.len());
+    }
+    for (path, identities) in &observation.owner_test_path_overrides {
+        println!("  {path}: {} owner test path override(s)", identities.len());
     }
     for (path, identities) in &observation.crate_test_source_inclusions {
         println!("  {path}: {} source inclusion(s)", identities.len());

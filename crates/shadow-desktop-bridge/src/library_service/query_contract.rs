@@ -231,5 +231,4 @@ pub(super) fn ffi_library_cursor(cursor: &LibraryPhotoCursor) -> ffi::FfiLibrary
 }
 
 #[cfg(test)]
-#[path = "tests/query_contract.rs"]
 mod tests;

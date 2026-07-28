@@ -251,5 +251,4 @@ pub(super) fn library_photo_id_from_text(photo_id: &str) -> AnyResult<PhotoId> {
 }
 
 #[cfg(test)]
-#[path = "tests/organization.rs"]
 mod tests;

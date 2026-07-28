@@ -20,6 +20,7 @@ use super::invalid_data;
 pub(super) struct TestLayoutObservation {
     pub(super) inline_test_modules: BTreeMap<String, BTreeSet<String>>,
     pub(super) inline_executable_tests: BTreeMap<String, BTreeSet<String>>,
+    pub(super) owner_test_path_overrides: BTreeMap<String, BTreeSet<String>>,
     pub(super) crate_test_source_inclusions: BTreeMap<String, BTreeSet<String>>,
     pub(super) permanently_disabled_test_sources: BTreeMap<String, BTreeSet<String>>,
     pub(super) test_facade_non_registration_items: BTreeMap<String, BTreeSet<String>>,
@@ -89,6 +90,22 @@ impl<'ast> Visit<'ast> for InlineTestVisitor {
 #[derive(Debug, Default)]
 struct SourceInclusionVisitor {
     findings: BTreeSet<String>,
+}
+
+#[derive(Debug, Default)]
+struct OwnerTestPathOverrideVisitor {
+    findings: BTreeSet<String>,
+}
+
+impl<'ast> Visit<'ast> for OwnerTestPathOverrideVisitor {
+    fn visit_item_mod(&mut self, item: &'ast ItemMod) {
+        if item.ident == "tests" {
+            for attribute in &item.attrs {
+                collect_source_path_meta(&attribute.meta, &mut self.findings);
+            }
+        }
+        visit::visit_item_mod(self, item);
+    }
 }
 
 impl<'ast> Visit<'ast> for SourceInclusionVisitor {
@@ -212,6 +229,12 @@ fn audit_package(
                 }
             }
             continue;
+        }
+        let path_overrides = owner_test_path_override_findings(&path)?;
+        if !path_overrides.is_empty() {
+            observation
+                .owner_test_path_overrides
+                .insert(repository_path.clone(), path_overrides);
         }
         let inline = inline_test_findings(&path)?;
         if !inline.modules.is_empty() {
@@ -351,6 +374,17 @@ fn inline_test_findings_in_syntax(syntax: &File) -> InlineTestVisitor {
 fn source_inclusion_findings(path: &Path) -> io::Result<BTreeSet<String>> {
     let syntax = parse_rust_file(path)?;
     Ok(source_inclusion_findings_in_syntax(&syntax))
+}
+
+fn owner_test_path_override_findings(path: &Path) -> io::Result<BTreeSet<String>> {
+    let syntax = parse_rust_file(path)?;
+    Ok(owner_test_path_override_findings_in_syntax(&syntax))
+}
+
+pub(super) fn owner_test_path_override_findings_in_syntax(syntax: &File) -> BTreeSet<String> {
+    let mut visitor = OwnerTestPathOverrideVisitor::default();
+    visitor.visit_file(syntax);
+    visitor.findings
 }
 
 pub(super) fn source_inclusion_findings_in_syntax(syntax: &File) -> BTreeSet<String> {
