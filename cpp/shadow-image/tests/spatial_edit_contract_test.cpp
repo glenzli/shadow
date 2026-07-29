@@ -19,10 +19,18 @@ void local_mask_layers_blend_complete_adjustments_in_global_coordinates() {
         4U,
         1U,
         {
-            0.25F, 0.25F, 0.25F,
-            0.25F, 0.25F, 0.25F,
-            0.25F, 0.25F, 0.25F,
-            0.25F, 0.25F, 0.25F,
+            0.25F,
+            0.25F,
+            0.25F,
+            0.25F,
+            0.25F,
+            0.25F,
+            0.25F,
+            0.25F,
+            0.25F,
+            0.25F,
+            0.25F,
+            0.25F,
         }
     );
     const image::AdjustmentNode exposure{
@@ -32,21 +40,30 @@ void local_mask_layers_blend_complete_adjustments_in_global_coordinates() {
     const std::array layers{
         image::AdjustmentLayer{
             .layer_id = "linear-layer",
-            .mask = image::LocalMask{
-                .kind = image::LocalMaskKind::linear_gradient,
-                .x0 = 0.25,
-                .y0 = 0.5,
-                .x1 = 0.75,
-                .y1 = 0.5,
-            },
+            .mask =
+                image::LocalMask{
+                    .kind = image::LocalMaskKind::linear_gradient,
+                    .x0 = 0.25,
+                    .y0 = 0.5,
+                    .x1 = 0.75,
+                    .y1 = 0.5,
+                },
             .nodes = {exposure},
         },
     };
     const auto output = image::execute_adjustment_layers(input, layers);
     expect_close(output.samples[0], 0.25F, "linear masks leave the zero-coverage edge unchanged");
-    expect_close(output.samples[3], 0.3125F, "linear masks blend an intermediate before/after result");
+    expect_close(
+        output.samples[3],
+        0.3125F,
+        "linear masks blend an intermediate before/after result"
+    );
     expect_close(output.samples[6], 0.4375F, "linear masks continue their normalized ramp");
-    expect_close(output.samples[9], 0.5F, "linear masks apply the complete adjustment at full coverage");
+    expect_close(
+        output.samples[9],
+        0.5F,
+        "linear masks apply the complete adjustment at full coverage"
+    );
 
     const auto full = image::execute_adjustment_layers(
         input,
@@ -83,13 +100,14 @@ void local_mask_layers_blend_complete_adjustments_in_global_coordinates() {
     const std::array invalid_layers{
         image::AdjustmentLayer{
             .layer_id = "invalid-radial",
-            .mask = image::LocalMask{
-                .kind = image::LocalMaskKind::radial_gradient,
-                .x0 = 0.5,
-                .y0 = 0.5,
-                .radius_x = 0.0,
-                .radius_y = 0.2,
-            },
+            .mask =
+                image::LocalMask{
+                    .kind = image::LocalMaskKind::radial_gradient,
+                    .x0 = 0.5,
+                    .y0 = 0.5,
+                    .radius_x = 0.0,
+                    .radius_y = 0.2,
+                },
             .nodes = {exposure},
         },
     };
@@ -100,24 +118,21 @@ void local_mask_layers_blend_complete_adjustments_in_global_coordinates() {
         "invalid local-mask geometry fails closed before it can affect a recipe"
     );
 
-    const auto brush_input = rgb_raster(
-        5U,
-        3U,
-        std::vector<float>(5U * 3U * 3U, 0.25F)
-    );
+    const auto brush_input = rgb_raster(5U, 3U, std::vector<float>(5U * 3U * 3U, 0.25F));
     const std::array brush_layers{
         image::AdjustmentLayer{
             .layer_id = "brush-layer",
-            .mask = image::LocalMask{
-                .kind = image::LocalMaskKind::brush,
-                .radius_x = 0.22,
-                .feather = 0.0,
-                .points = {{
-                    .x = 0.5,
-                    .y = 0.5,
-                    .begins_stroke = true,
-                }},
-            },
+            .mask =
+                image::LocalMask{
+                    .kind = image::LocalMaskKind::brush,
+                    .radius_x = 0.22,
+                    .feather = 0.0,
+                    .points = {{
+                        .x = 0.5,
+                        .y = 0.5,
+                        .begins_stroke = true,
+                    }},
+                },
             .nodes = {exposure},
         },
     };
@@ -128,10 +143,204 @@ void local_mask_layers_blend_complete_adjustments_in_global_coordinates() {
         0.5F,
         "brush masks apply the complete Grade Node inside the painted radius"
     );
+    expect_close(brush_output.samples[0], 0.25F, "brush masks leave distant pixels unchanged");
+}
+
+void condition_masks_select_the_input_of_each_grade_node() {
+    const image::AdjustmentNode brighten{
+        .node_id = "condition-brighten",
+        .parameters = image::ExposureAdjustment{.stops = 2.0},
+    };
+    const std::array luminance_layers{
+        image::AdjustmentLayer{
+            .layer_id = "input-lightness",
+            .mask =
+                image::LocalMask{
+                    .kind = image::LocalMaskKind::luminance_range,
+                    .x0 = 0.45,
+                    .x1 = 0.55,
+                },
+            .nodes = {brighten},
+        },
+    };
+    const auto luminance_input = rgb_raster(
+        2U,
+        1U,
+        {
+            0.125F,
+            0.125F,
+            0.125F,
+            0.512F,
+            0.512F,
+            0.512F,
+        }
+    );
+    const auto luminance_output =
+        image::execute_adjustment_layers(luminance_input, luminance_layers);
     expect_close(
-        brush_output.samples[0],
+        luminance_output.samples[0],
+        0.5F,
+        "luminance masks select from the node input even when its result leaves the range"
+    );
+    expect_close(
+        luminance_output.samples[3],
+        0.512F,
+        "luminance masks leave input lightness outside the selected interval unchanged"
+    );
+
+    const std::array sequential_layers{
+        image::AdjustmentLayer{
+            .layer_id = "first-global",
+            .nodes =
+                {
+                    image::AdjustmentNode{
+                        .node_id = "first-exposure",
+                        .parameters = image::ExposureAdjustment{.stops = 1.0},
+                    },
+                },
+        },
+        image::AdjustmentLayer{
+            .layer_id = "second-condition",
+            .mask =
+                image::LocalMask{
+                    .kind = image::LocalMaskKind::luminance_range,
+                    .x0 = 0.60,
+                    .x1 = 0.67,
+                },
+            .nodes = {
+                image::AdjustmentNode{
+                    .node_id = "second-exposure",
+                    .parameters = image::ExposureAdjustment{.stops = 1.0},
+                },
+            },
+        },
+    };
+    const auto sequential = image::execute_adjustment_layers(
+        rgb_raster(1U, 1U, {0.125F, 0.125F, 0.125F}),
+        sequential_layers
+    );
+    expect_close(
+        sequential.samples[0],
+        0.5F,
+        "a later condition mask observes the output committed by the preceding Grade Node"
+    );
+
+    const std::array color_layers{
+        image::AdjustmentLayer{
+            .layer_id = "seam-color",
+            .mask =
+                image::LocalMask{
+                    .kind = image::LocalMaskKind::color_range,
+                    .x0 = 350.0 / 360.0,
+                    .x1 = 30.0 / 180.0,
+                    .feather = 0.0,
+                },
+            .nodes = {
+                image::AdjustmentNode{
+                    .node_id = "seam-exposure",
+                    .parameters = image::ExposureAdjustment{.stops = 1.0},
+                },
+            },
+        },
+    };
+    const auto color_input = rgb_raster(
+        3U,
+        1U,
+        {
+            0.25F,
+            0.0F,
+            0.25F,
+            0.0F,
+            0.25F,
+            0.0F,
+            0.25F,
+            0.25F,
+            0.25F,
+        }
+    );
+    const auto color_output = image::execute_adjustment_layers(color_input, color_layers);
+    expect_close(
+        color_output.samples[0],
+        0.5F,
+        "color masks select a magenta hue across the zero-degree circular seam"
+    );
+    expect_close(
+        color_output.samples[4],
         0.25F,
-        "brush masks leave distant pixels unchanged"
+        "color masks reject a hue outside their circular half width"
+    );
+    expect_close(
+        color_output.samples[6],
+        0.25F,
+        "color masks suppress unstable hue selection on neutral pixels"
+    );
+
+    auto inverted_color_layers = color_layers;
+    inverted_color_layers[0].mask->invert = true;
+    const auto inverted = image::execute_adjustment_layers(color_input, inverted_color_layers);
+    expect_close(
+        inverted.samples[0],
+        0.25F,
+        "inverting a color mask excludes the originally selected hue"
+    );
+    expect_close(
+        inverted.samples[6],
+        0.5F,
+        "inverting a color mask includes neutral pixels rejected by hue confidence"
+    );
+
+    const auto full = image::execute_adjustment_layers(
+        luminance_input,
+        luminance_layers,
+        image::AdjustmentExecutionContext{.full_dimensions = {2U, 1U}}
+    );
+    for (std::uint32_t tile_index = 0U; tile_index < 2U; ++tile_index) {
+        const std::size_t begin = static_cast<std::size_t>(tile_index) * 3U;
+        const auto tile = rgb_raster(
+            1U,
+            1U,
+            {
+                luminance_input.samples[begin],
+                luminance_input.samples[begin + 1U],
+                luminance_input.samples[begin + 2U],
+            }
+        );
+        const auto rendered_tile = image::execute_adjustment_layers(
+            tile,
+            luminance_layers,
+            image::AdjustmentExecutionContext{
+                .origin_x = tile_index,
+                .full_dimensions = {2U, 1U},
+            }
+        );
+        for (std::size_t sample = 0U; sample < rendered_tile.samples.size(); ++sample) {
+            expect_close(
+                rendered_tile.samples[sample],
+                full.samples[begin + sample],
+                "condition masks retain identical coverage in independently rendered tiles"
+            );
+        }
+    }
+
+    const std::array invalid_layers{
+        image::AdjustmentLayer{
+            .layer_id = "invalid-luminance-order",
+            .mask =
+                image::LocalMask{
+                    .kind = image::LocalMaskKind::luminance_range,
+                    .x0 = 0.8,
+                    .x1 = 0.2,
+                },
+            .nodes = {brighten},
+        },
+    };
+    expect_edit_error(
+        [&] {
+            static_cast<void>(image::execute_adjustment_layers(luminance_input, invalid_layers));
+        },
+        image::EditErrorCode::invalid_parameter,
+        std::nullopt,
+        "condition masks reject a reversed luminance interval before rendering"
     );
 }
 
@@ -176,11 +385,13 @@ void spot_heal_repairs_small_defects_in_global_coordinates() {
     );
 
     image::SpotHealAdjustment invalid;
-    invalid.spots.push_back(image::SpotHealTarget{
-        .center_x = 0.5,
-        .center_y = 0.5,
-        .radius_level_zero_pixels = 0U,
-    });
+    invalid.spots.push_back(
+        image::SpotHealTarget{
+            .center_x = 0.5,
+            .center_y = 0.5,
+            .radius_level_zero_pixels = 0U,
+        }
+    );
     expect_edit_error(
         [&] { image::validate_spot_heal(invalid); },
         image::EditErrorCode::invalid_parameter,
@@ -213,10 +424,8 @@ void spot_heal_repairs_small_defects_in_global_coordinates() {
             },
         },
     };
-    const auto cloned = image::execute_adjustment_nodes(
-        rgb_raster(9U, 9U, clone_samples),
-        clone_nodes
-    );
+    const auto cloned =
+        image::execute_adjustment_nodes(rgb_raster(9U, 9U, clone_samples), clone_nodes);
     expect_close(
         cloned.samples[center],
         0.6F,
@@ -255,31 +464,37 @@ void heal_preserves_donor_texture_while_matching_the_target_boundary() {
     const std::array nodes{
         image::AdjustmentNode{
             .node_id = "texture-preserving-heal",
-            .parameters =
-                image::SpotHealAdjustment{
-                    .spots = {{
-                        .center_x = 5.5 / static_cast<double>(width),
-                        .center_y = 4.5 / static_cast<double>(height),
-                        .radius_level_zero_pixels = 2U,
-                        .mode = image::SpotRepairMode::heal,
-                        .source_offset_x_radii = 3.0,
-                        .source_offset_y_radii = 0.0,
-                        .feather = 0.0,
-                    }},
-                },
+            .parameters = image::SpotHealAdjustment{
+                .spots = {{
+                    .center_x = 5.5 / static_cast<double>(width),
+                    .center_y = 4.5 / static_cast<double>(height),
+                    .radius_level_zero_pixels = 2U,
+                    .mode = image::SpotRepairMode::heal,
+                    .source_offset_x_radii = 3.0,
+                    .source_offset_y_radii = 0.0,
+                    .feather = 0.0,
+                }},
+            },
         },
     };
     const auto healed = image::execute_adjustment_nodes(rgb_raster(width, height, samples), nodes);
     const std::size_t center = (4U * width + 5U) * 3U;
     const std::size_t neighbor = (4U * width + 6U) * 3U;
-    expect(healed.samples[center] < 0.75F && healed.samples[neighbor] < 0.75F,
-           "Heal adapts a bright donor toward the target boundary tone");
-    expect(std::abs(healed.samples[center] - healed.samples[neighbor]) > 0.08F,
-           "Heal preserves coherent donor texture instead of filling one average "
-           "color");
+    expect(
+        healed.samples[center] < 0.75F && healed.samples[neighbor] < 0.75F,
+        "Heal adapts a bright donor toward the target boundary tone"
+    );
+    expect(
+        std::abs(healed.samples[center] - healed.samples[neighbor]) > 0.08F,
+        "Heal preserves coherent donor texture instead of filling one average "
+        "color"
+    );
     const std::size_t donor_center = (4U * width + 11U) * 3U;
-    expect_close(healed.samples[donor_center], samples[donor_center],
-                 "Heal never mutates the donor region");
+    expect_close(
+        healed.samples[donor_center],
+        samples[donor_center],
+        "Heal never mutates the donor region"
+    );
 }
 
 void continuous_retouch_strokes_sweep_one_connected_repair_region() {
@@ -295,10 +510,11 @@ void continuous_retouch_strokes_sweep_one_connected_repair_region() {
         }
     }
     const image::RetouchStroke clone_stroke{
-        .points = {
-            {.x = 4.5 / static_cast<double>(width), .y = 4.5 / static_cast<double>(height)},
-            {.x = 12.5 / static_cast<double>(width), .y = 4.5 / static_cast<double>(height)},
-        },
+        .points =
+            {
+                {.x = 4.5 / static_cast<double>(width), .y = 4.5 / static_cast<double>(height)},
+                {.x = 12.5 / static_cast<double>(width), .y = 4.5 / static_cast<double>(height)},
+            },
         .radius_level_zero_pixels = 1U,
         .mode = image::SpotRepairMode::clone,
         .source_offset_x_radii = 2.0,
@@ -319,10 +535,8 @@ void continuous_retouch_strokes_sweep_one_connected_repair_region() {
         },
         "continuous retouch strokes retain spot-heal detail-tile support"
     );
-    const auto cloned = image::execute_adjustment_nodes(
-        rgb_raster(width, height, clone_samples),
-        clone_nodes
-    );
+    const auto cloned =
+        image::execute_adjustment_nodes(rgb_raster(width, height, clone_samples), clone_nodes);
     const std::size_t middle = (4U * width + 8U) * 3U;
     const std::size_t above_middle = (2U * width + 8U) * 3U;
     expect_close(
@@ -361,10 +575,8 @@ void continuous_retouch_strokes_sweep_one_connected_repair_region() {
             },
         },
     };
-    const auto healed = image::execute_adjustment_nodes(
-        rgb_raster(width, height, heal_samples),
-        heal_nodes
-    );
+    const auto healed =
+        image::execute_adjustment_nodes(rgb_raster(width, height, heal_samples), heal_nodes);
     expect_close(
         healed.samples[middle],
         0.2F,
@@ -392,12 +604,24 @@ void photo_geometry_is_lossless_and_maps_detail_tiles_to_source_space() {
         3U,
         2U,
         {
-            0.0F, 0.0F, 0.0F,
-            1.0F, 1.0F, 1.0F,
-            2.0F, 2.0F, 2.0F,
-            3.0F, 3.0F, 3.0F,
-            4.0F, 4.0F, 4.0F,
-            5.0F, 5.0F, 5.0F,
+            0.0F,
+            0.0F,
+            0.0F,
+            1.0F,
+            1.0F,
+            1.0F,
+            2.0F,
+            2.0F,
+            2.0F,
+            3.0F,
+            3.0F,
+            3.0F,
+            4.0F,
+            4.0F,
+            4.0F,
+            5.0F,
+            5.0F,
+            5.0F,
         }
     );
     const image::PhotoGeometry clockwise{
@@ -419,20 +643,13 @@ void photo_geometry_is_lossless_and_maps_detail_tiles_to_source_space() {
     }
 
     const image::GeometryPixelRect output_row{.x = 0U, .y = 1U, .width = 2U, .height = 1U};
-    const auto required_source = image::photo_geometry_source_rect_for_output(
-        layout,
-        clockwise,
-        output_row
-    );
+    const auto required_source =
+        image::photo_geometry_source_rect_for_output(layout, clockwise, output_row);
     expect(
         required_source == image::GeometryPixelRect{.x = 1U, .y = 0U, .width = 1U, .height = 2U},
         "a rotated output tile requests only its exact source-space rectangle"
     );
-    const auto source_tile = rgb_raster(
-        1U,
-        2U,
-        {1.0F, 1.0F, 1.0F, 4.0F, 4.0F, 4.0F}
-    );
+    const auto source_tile = rgb_raster(1U, 2U, {1.0F, 1.0F, 1.0F, 4.0F, 4.0F, 4.0F});
     const auto output_tile = image::apply_photo_geometry_tile(
         source_tile,
         required_source,
@@ -440,17 +657,23 @@ void photo_geometry_is_lossless_and_maps_detail_tiles_to_source_space() {
         clockwise,
         output_row
     );
-    expect_close(output_tile.samples[0], 4.0F, "geometry detail tile retains its first mapped pixel");
-    expect_close(output_tile.samples[3], 1.0F, "geometry detail tile retains its second mapped pixel");
+    expect_close(
+        output_tile.samples[0],
+        4.0F,
+        "geometry detail tile retains its first mapped pixel"
+    );
+    expect_close(
+        output_tile.samples[3],
+        1.0F,
+        "geometry detail tile retains its second mapped pixel"
+    );
 
     // A minimally fetched detail tile on an integer source-pixel boundary has
     // no bilinear neighbour to provide. It must still render safely: the
     // zero-weight neighbour must not be dereferenced past the tile buffer.
     const image::PhotoGeometry identity_geometry{};
-    const auto identity_layout = image::photo_geometry_layout(
-        image::Dimensions{2U, 2U},
-        identity_geometry
-    );
+    const auto identity_layout =
+        image::photo_geometry_layout(image::Dimensions{2U, 2U}, identity_geometry);
     const auto boundary_tile = image::apply_photo_geometry_tile(
         rgb_raster(1U, 1U, {9.0F, 9.0F, 9.0F}),
         image::GeometryPixelRect{.x = 1U, .y = 1U, .width = 1U, .height = 1U},
@@ -486,10 +709,8 @@ void photo_geometry_is_lossless_and_maps_detail_tiles_to_source_space() {
     const image::PhotoGeometry straighten{
         .straighten_degrees = 45.0,
     };
-    const auto straightened = image::apply_photo_geometry(
-        rgb_raster(5U, 5U, straighten_samples),
-        straighten
-    );
+    const auto straightened =
+        image::apply_photo_geometry(rgb_raster(5U, 5U, straighten_samples), straighten);
     expect(
         straightened.dimensions == image::Dimensions{3U, 3U},
         "fine straighten auto-crops a centered interior canvas"
@@ -504,25 +725,17 @@ void photo_geometry_is_lossless_and_maps_detail_tiles_to_source_space() {
     const image::PhotoGeometry auto_crop_straighten{
         .straighten_degrees = 15.0,
     };
-    const auto auto_crop_layout = image::photo_geometry_layout(
-        image::Dimensions{64U, 48U},
-        auto_crop_straighten
-    );
+    const auto auto_crop_layout =
+        image::photo_geometry_layout(image::Dimensions{64U, 48U}, auto_crop_straighten);
     expect(
         auto_crop_layout.output_dimensions.width < 64U
             && auto_crop_layout.output_dimensions.height < 48U,
         "fine straighten reduces both axes enough to remove empty corners"
     );
-    const auto auto_cropped = image::apply_photo_geometry(
-        rgb_raster(64U, 48U, filled_samples),
-        auto_crop_straighten
-    );
+    const auto auto_cropped =
+        image::apply_photo_geometry(rgb_raster(64U, 48U, filled_samples), auto_crop_straighten);
     for (const float sample : auto_cropped.samples) {
-        expect_close(
-            sample,
-            0.8F,
-            "fine straighten auto-crop never leaves an empty output corner"
-        );
+        expect_close(sample, 0.8F, "fine straighten auto-crop never leaves an empty output corner");
     }
 }
 
@@ -530,6 +743,7 @@ void photo_geometry_is_lossless_and_maps_detail_tiles_to_source_space() {
 
 int main() {
     local_mask_layers_blend_complete_adjustments_in_global_coordinates();
+    condition_masks_select_the_input_of_each_grade_node();
     spot_heal_repairs_small_defects_in_global_coordinates();
     heal_preserves_donor_texture_while_matching_the_target_boundary();
     continuous_retouch_strokes_sweep_one_connected_repair_region();

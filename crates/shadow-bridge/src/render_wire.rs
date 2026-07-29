@@ -157,6 +157,42 @@ pub(crate) fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustment
                             .collect(),
                         true,
                     ),
+                    Some(AdjustmentLocalMask::LuminanceRange {
+                        lower,
+                        upper,
+                        softness,
+                        invert,
+                    }) => (
+                        4.0,
+                        *lower,
+                        0.0,
+                        *upper,
+                        0.0,
+                        0.0,
+                        0.0,
+                        *softness,
+                        if *invert { 1.0 } else { 0.0 },
+                        Vec::new(),
+                        false,
+                    ),
+                    Some(AdjustmentLocalMask::ColorRange {
+                        center_hue_degrees,
+                        width_degrees,
+                        softness,
+                        invert,
+                    }) => (
+                        5.0,
+                        *center_hue_degrees / 360.0,
+                        0.0,
+                        *width_degrees / 180.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        *softness,
+                        if *invert { 1.0 } else { 0.0 },
+                        Vec::new(),
+                        false,
+                    ),
                 };
             let point_count = u32::try_from(brush_points.len() / 3)
                 .expect("validated brush point count fits in u32");
@@ -425,3 +461,6 @@ pub(super) fn proxy_payload(proxy: ffi::FfiEncodedProxy) -> shadow_domain::Proxy
         bytes: proxy.bytes,
     }
 }
+
+#[cfg(test)]
+mod tests;

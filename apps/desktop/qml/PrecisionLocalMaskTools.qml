@@ -18,7 +18,7 @@ ColumnLayout {
 
     readonly property var mask: inspector.editor.selectedLocalMask
     readonly property int kind: Number(mask.kind || 0)
-    readonly property bool activeMask: kind >= 1 && kind <= 3
+    readonly property bool activeMask: kind >= 1 && kind <= 5
     readonly property bool nodeEditable: inspector.editor.active
         && inspector.editor.hasSelectedGradeNode
         && inspector.editor.gradeNodeEnabled
@@ -27,11 +27,15 @@ ColumnLayout {
         ? qsTr("Linear gradient")
         : kind === 2 ? qsTr("Radial gradient")
         : kind === 3 ? qsTr("Brush")
+        : kind === 4 ? qsTr("Luminance range")
+        : kind === 5 ? qsTr("Color range")
         : qsTr("No mask")
     readonly property url kindIcon: kind === 1
         ? "qrc:/icons/mask-linear.svg"
         : kind === 2 ? "qrc:/icons/mask-radial.svg"
         : kind === 3 ? "qrc:/icons/brush.svg"
+        : kind === 4 ? "qrc:/icons/mask-luminance-range.svg"
+        : kind === 5 ? "qrc:/icons/mask-color-range.svg"
         : "qrc:/icons/mask-add.svg"
 
     spacing: 8
@@ -192,6 +196,53 @@ ColumnLayout {
                                 "neutral": 0.6
                             }
                         ]
+                    : localMask.kind === 4
+                        ? [
+                            {
+                                "key": "lower",
+                                "name": qsTr("Lower"),
+                                "to": Number(localMask.mask.upper),
+                                "neutral": 0.2
+                            },
+                            {
+                                "key": "upper",
+                                "name": qsTr("Upper"),
+                                "from": Number(localMask.mask.lower),
+                                "neutral": 0.8
+                            },
+                            {
+                                "key": "softness",
+                                "name": qsTr("Softness"),
+                                "neutral": 0.08
+                            }
+                        ]
+                    : localMask.kind === 5
+                        ? [
+                            {
+                                "key": "centerHue",
+                                "name": qsTr("Hue"),
+                                "from": 0,
+                                "to": 359 / 360,
+                                "neutral": 30 / 360,
+                                "step": 1 / 360,
+                                "multiplier": 360,
+                                "suffix": "°"
+                            },
+                            {
+                                "key": "width",
+                                "name": qsTr("Range"),
+                                "from": 1 / 180,
+                                "neutral": 30 / 180,
+                                "step": 1 / 180,
+                                "multiplier": 180,
+                                "suffix": "°"
+                            },
+                            {
+                                "key": "softness",
+                                "name": qsTr("Softness"),
+                                "neutral": 0.45
+                            }
+                        ]
                     : []
 
             delegate: ShadowSlider {
@@ -202,14 +253,18 @@ ColumnLayout {
                 Layout.rightMargin: 14
                 label: modelData.name
                 from: modelData.from === undefined ? 0 : modelData.from
-                to: 1
+                to: modelData.to === undefined ? 1 : modelData.to
                 neutralValue: modelData.neutral === undefined
                     ? 0.5 : modelData.neutral
-                stepSize: modelData.key === "radiusX"
-                    && localMask.kind === 3 ? 0.005 : 0.01
+                stepSize: modelData.step === undefined
+                    ? (modelData.key === "radiusX"
+                        && localMask.kind === 3 ? 0.005 : 0.01)
+                    : modelData.step
                 decimals: 0
-                displayMultiplier: 100
-                suffix: "%"
+                displayMultiplier: modelData.multiplier === undefined
+                    ? 100 : modelData.multiplier
+                suffix: modelData.suffix === undefined
+                    ? "%" : modelData.suffix
                 value: Number(localMask.mask[modelData.key] || 0)
                 enabled: localMask.nodeEditable
                 onGestureStarted:

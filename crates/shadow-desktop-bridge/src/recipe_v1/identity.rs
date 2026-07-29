@@ -190,3 +190,6 @@ impl GradeNodeRecipeV1Identity {
             .map(|(_, render_op_id)| render_op_id)
     }
 }
+
+#[cfg(test)]
+mod tests;

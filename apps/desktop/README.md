@@ -123,8 +123,9 @@ Its implementation follows the same navigation:
   atomic choice between attaching a new mask to the selected empty node and creating, masking,
   inserting, and selecting one new node. QML never chains those state mutations.
 - [`src/edit_local_mask_controller.cpp`](src/edit_local_mask_controller.cpp) owns local-mask
-  presentation, in-session clipboard semantics, geometry validation, and brush strokes. Ordinary
-  photo-local masks are not named or persisted as a separate reusable asset library.
+  presentation, in-session clipboard semantics, the enumerable scalar-parameter contract,
+  geometry/condition validation, and brush strokes. Ordinary photo-local masks are not named or
+  persisted as a separate reusable asset library.
 - [`src/edit_optics_controller.cpp`](src/edit_optics_controller.cpp) owns optical-correction state,
   automatic and manual profiles, residual controls, validation, history, and preview scheduling.
 - [`src/edit_retouch_controller.cpp`](src/edit_retouch_controller.cpp) owns photo-level repair and
@@ -186,8 +187,10 @@ Precision presentation follows the same responsibility tree:
 - [`qml/PrecisionMaskCreateMenu.qml`](qml/PrecisionMaskCreateMenu.qml) owns mask-kind and
   current-node/new-node destination choice. The global tool defaults to a new node, a node-row
   entry defaults to that node, and an existing mask is edited rather than silently replaced.
+  Geometry masks and Oklab-lightness/Oklch-hue condition masks use the same atomic transaction.
 - [`qml/PrecisionLocalMaskTools.qml`](qml/PrecisionLocalMaskTools.qml) owns only the selected
-  node mask's geometry, inversion, removal, and in-session copy/paste controls.
+  node mask's semantic geometry/range parameters, inversion, removal, and in-session copy/paste
+  controls; QML never interprets the compact condition-mask transport slots.
 - [`qml/PrecisionComparisonSurface.qml`](qml/PrecisionComparisonSurface.qml) owns the complete
   visual comparison transaction inside that viewport: original-frame receipt, whole/wipe/dual
   layouts, divider input, and BEFORE/AFTER labels.

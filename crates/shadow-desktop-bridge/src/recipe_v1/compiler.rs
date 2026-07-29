@@ -321,6 +321,28 @@ fn adjustment_local_mask(definition: &MaskDefinition) -> AdjustmentLocalMask {
             feather: feather.get(),
             invert: *invert,
         },
+        MaskDefinition::LuminanceRange {
+            lower,
+            upper,
+            softness,
+            invert,
+        } => AdjustmentLocalMask::LuminanceRange {
+            lower: lower.get(),
+            upper: upper.get(),
+            softness: softness.get(),
+            invert: *invert,
+        },
+        MaskDefinition::ColorRange {
+            center_hue_degrees,
+            width_degrees,
+            softness,
+            invert,
+        } => AdjustmentLocalMask::ColorRange {
+            center_hue_degrees: center_hue_degrees.get(),
+            width_degrees: width_degrees.get(),
+            softness: softness.get(),
+            invert: *invert,
+        },
     }
 }
 
@@ -720,3 +742,6 @@ pub(crate) fn require_stage(node: &AdjustmentNode, expected: ProcessingStage) ->
         )
     }
 }
+
+#[cfg(test)]
+mod tests;

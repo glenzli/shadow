@@ -157,6 +157,17 @@ int main(int argc, char* argv[]) {
             invokeWithInt(menu.get(), "createMask", 3) && editor.create_count_ == 1
                 && editor.last_kind_ == 3 && editor.last_destination_ == 0,
             "current-node creation delegates one complete brush transaction"
+        )
+        || !require(
+            invokeWithInt(menu.get(), "createMask", 4) && editor.create_count_ == 2
+                && editor.last_kind_ == 4 && editor.last_destination_ == 0,
+            "luminance conditions use the same atomic current-node transaction"
+        )
+        || !require(
+            invokeWithInt(menu.get(), "selectDestination", 1)
+                && invokeWithInt(menu.get(), "createMask", 5) && editor.create_count_ == 3
+                && editor.last_kind_ == 5 && editor.last_destination_ == 1,
+            "color conditions use the same atomic new-node transaction"
         )) {
         return EXIT_FAILURE;
     }
@@ -177,7 +188,7 @@ int main(int argc, char* argv[]) {
 
     menu->setProperty("destination", 0);
     if (!require(
-            invokeWithInt(menu.get(), "createMask", 1) && editor.create_count_ == 1,
+            invokeWithInt(menu.get(), "createMask", 1) && editor.create_count_ == 3,
             "forcing the unavailable current destination cannot replace a mask"
         )) {
         return EXIT_FAILURE;
@@ -185,7 +196,7 @@ int main(int argc, char* argv[]) {
 
     if (!require(
             invokeWithInt(menu.get(), "selectDestination", 1)
-                && invokeWithInt(menu.get(), "createMask", 2) && editor.create_count_ == 2
+                && invokeWithInt(menu.get(), "createMask", 2) && editor.create_count_ == 4
                 && editor.last_kind_ == 2 && editor.last_destination_ == 1,
             "the global entry delegates one complete new-node transaction"
         )) {
@@ -204,7 +215,7 @@ int main(int argc, char* argv[]) {
 
     editor.create_result_ = false;
     if (!require(
-            invokeWithInt(menu.get(), "createMask", 1) && editor.create_count_ == 3,
+            invokeWithInt(menu.get(), "createMask", 1) && editor.create_count_ == 5,
             "a rejected backend transaction is attempted exactly once"
         )) {
         return EXIT_FAILURE;

@@ -2,6 +2,7 @@
 
 #include "../edit/guided_selective_tone.hpp"
 #include "../edit/working_color_math.hpp"
+#include "warm_edit_gpu_color_matrix.hpp"
 
 #include <shadow/image/adjustment_parameters.hpp>
 #include <shadow/image/edit_execution_plan.hpp>
@@ -28,25 +29,6 @@ is_gpu_warm_technical_detail_supported(const SharpenAdjustment& parameters) noex
                || parameters.amount > 0.0 || parameters.dehaze != 0.0
                || parameters.defringe_purple_amount > 0.0
                || parameters.defringe_green_amount > 0.0);
-}
-
-[[nodiscard]] bool fill_selective_tone_matrix_rows(
-    const Matrix3& matrix,
-    std::array<float, 4U>& row_0,
-    std::array<float, 4U>& row_1,
-    std::array<float, 4U>& row_2
-) noexcept {
-    std::array<std::array<float, 4U>*, 3U> rows{&row_0, &row_1, &row_2};
-    for (std::size_t row = 0U; row < 3U; ++row) {
-        for (std::size_t column = 0U; column < 3U; ++column) {
-            const float converted = static_cast<float>(matrix[row][column]);
-            if (!std::isfinite(converted)) {
-                return false;
-            }
-            (*rows[row])[column] = converted;
-        }
-    }
-    return true;
 }
 
 [[nodiscard]] std::optional<WarmTechnicalDetailStage> prepare_warm_technical_detail_stage(
@@ -796,13 +778,13 @@ is_gpu_warm_technical_detail_supported(const SharpenAdjustment& parameters) noex
             .blue_luminance = static_cast<float>(working_space.luminance_coefficients[2]),
         },
     };
-    if (!fill_selective_tone_matrix_rows(
+    if (!fill_warm_color_matrix_rows(
             transform.rgb_to_xyz,
             result.parameters.rgb_to_xyz_row_0,
             result.parameters.rgb_to_xyz_row_1,
             result.parameters.rgb_to_xyz_row_2
         )
-        || !fill_selective_tone_matrix_rows(
+        || !fill_warm_color_matrix_rows(
             transform.xyz_to_rgb,
             result.parameters.xyz_to_rgb_row_0,
             result.parameters.xyz_to_rgb_row_1,

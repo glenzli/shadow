@@ -86,6 +86,8 @@ enum class WarmLayerMaskKind : std::uint32_t {
     linear_gradient = 1U,
     radial_gradient = 2U,
     brush = 3U,
+    luminance_range = 4U,
+    color_range = 5U,
 };
 
 struct WarmLayerBlendParameters final {
@@ -111,6 +113,11 @@ struct WarmLayerBlendParameters final {
     std::uint32_t brush_grid_rows = 0U;
     std::uint32_t brush_capsule_count = 0U;
     std::uint32_t brush_reference_count = 0U;
+    std::uint32_t reserved_1 = 0U;
+    std::uint32_t reserved_2 = 0U;
+    std::array<float, 4U> rgb_to_xyz_row_0{};
+    std::array<float, 4U> rgb_to_xyz_row_1{};
+    std::array<float, 4U> rgb_to_xyz_row_2{};
 };
 
 struct WarmBrushCapsule final {
@@ -125,7 +132,7 @@ struct WarmBrushCellRange final {
     std::uint32_t count = 0U;
 };
 
-static_assert(sizeof(WarmLayerBlendParameters) == 88U);
+static_assert(sizeof(WarmLayerBlendParameters) == 144U);
 static_assert(sizeof(WarmBrushCapsule) == 16U);
 static_assert(sizeof(WarmBrushCellRange) == 8U);
 
@@ -383,6 +390,8 @@ static_assert(offsetof(WarmPhotoGeometryParameters, straighten_cosine) == 80U);
 static_assert(offsetof(WarmLayerBlendParameters, full_width) == 24U);
 static_assert(offsetof(WarmLayerBlendParameters, opacity) == 40U);
 static_assert(offsetof(WarmLayerBlendParameters, brush_grid_columns) == 72U);
+static_assert(offsetof(WarmLayerBlendParameters, rgb_to_xyz_row_0) == 96U);
+static_assert(offsetof(WarmLayerBlendParameters, rgb_to_xyz_row_2) == 128U);
 static_assert(offsetof(WarmRetouchRegionParameters, bounds_origin_x) == 16U);
 static_assert(offsetof(WarmRetouchRegionParameters, grid_columns) == 32U);
 static_assert(offsetof(WarmRetouchRegionParameters, mode) == 48U);

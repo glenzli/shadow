@@ -1,6 +1,8 @@
 #include "warm_edit_gpu_layer_plan.hpp"
 
 #include "../edit/local_mask_validation.hpp"
+#include "../edit/working_color_math.hpp"
+#include "warm_edit_gpu_color_matrix.hpp"
 
 #include <shadow/image/edit_execution_plan.hpp>
 
@@ -17,6 +19,7 @@ WarmGpuLayerPlan prepare_warm_gpu_layer_plan(
         validate_adjustment_layer_plan(source_layout, layers, context.adjustment);
     WarmGpuLayerPlan result;
     result.active_layers.reserve(layers.size());
+    std::optional<WorkingSpaceTransform> condition_mask_transform;
     for (std::size_t index = 0U; index < layers.size(); ++index) {
         const AdjustmentLayer& layer = layers[index];
         if (!layer.enabled || layer.opacity == 0.0) {
@@ -49,6 +52,12 @@ WarmGpuLayerPlan prepare_warm_gpu_layer_plan(
                 break;
             case LocalMaskKind::radial_gradient:
                 blend.mask_kind = WarmLayerMaskKind::radial_gradient;
+                break;
+            case LocalMaskKind::luminance_range:
+                blend.mask_kind = WarmLayerMaskKind::luminance_range;
+                break;
+            case LocalMaskKind::color_range:
+                blend.mask_kind = WarmLayerMaskKind::color_range;
                 break;
             case LocalMaskKind::brush: {
                 if (mask.points.empty()) {
@@ -98,6 +107,25 @@ WarmGpuLayerPlan prepare_warm_gpu_layer_plan(
                 );
                 continue;
             }
+            }
+            if (mask.kind == LocalMaskKind::luminance_range
+                || mask.kind == LocalMaskKind::color_range) {
+                if (!condition_mask_transform.has_value()) {
+                    condition_mask_transform =
+                        prepare_working_space_transform(source_layout.working_space);
+                }
+                if (!fill_warm_color_matrix_rows(
+                        condition_mask_transform->rgb_to_xyz,
+                        blend.rgb_to_xyz_row_0,
+                        blend.rgb_to_xyz_row_1,
+                        blend.rgb_to_xyz_row_2
+                    )) {
+                    result.complete = false;
+                    result.active_layers.clear();
+                    result.diagnostic =
+                        "resident Metal could not encode the condition-mask working space";
+                    return result;
+                }
             }
             blend.invert = mask.invert ? 1U : 0U;
             blend.x0 = static_cast<float>(mask.x0);

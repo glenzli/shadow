@@ -35,6 +35,11 @@ struct WarmLayerBlendParameters {
     uint brush_grid_rows;
     uint brush_capsule_count;
     uint brush_reference_count;
+    uint reserved_1;
+    uint reserved_2;
+    float4 rgb_to_xyz_row_0;
+    float4 rgb_to_xyz_row_1;
+    float4 rgb_to_xyz_row_2;
 };
 
 struct WarmBrushCapsule {
@@ -524,6 +529,8 @@ kernel void warm_layer_blend_v1(
     const float y = (
         float(parameters.origin_y) + float(position.y) + 0.5f
     ) / float(parameters.full_height);
+    const uint index = (position.y * parameters.width + position.x) * 3u;
+    const float3 source = float3(before[index], before[index + 1u], before[index + 2u]);
     float coverage = 1.0f;
     if (parameters.mask_kind == 1u) {
         const float dx = parameters.x1 - parameters.x0;
@@ -597,13 +604,55 @@ kernel void warm_layer_blend_v1(
         coverage = parameters.feather <= 0.0f
             ? (distance <= parameters.radius_x ? 1.0f : 0.0f)
             : 1.0f - warm_smootherstep((distance - inner) / transition);
+    } else if (parameters.mask_kind == 4u) {
+        const float3 lab = xyz_to_oklab(multiply_rows(
+            parameters.rgb_to_xyz_row_0,
+            parameters.rgb_to_xyz_row_1,
+            parameters.rgb_to_xyz_row_2,
+            source
+        ));
+        const float lightness = clamp(lab.x, 0.0f, 1.0f);
+        if (parameters.feather <= 0.0f) {
+            coverage = lightness >= parameters.x0 && lightness <= parameters.x1
+                ? 1.0f
+                : 0.0f;
+        } else {
+            const float lower = warm_smootherstep(
+                (lightness - (parameters.x0 - parameters.feather))
+                    / parameters.feather
+            );
+            const float upper = 1.0f - warm_smootherstep(
+                (lightness - parameters.x1) / parameters.feather
+            );
+            coverage = min(lower, upper);
+        }
+    } else if (parameters.mask_kind == 5u) {
+        const float3 lab = xyz_to_oklab(multiply_rows(
+            parameters.rgb_to_xyz_row_0,
+            parameters.rgb_to_xyz_row_1,
+            parameters.rgb_to_xyz_row_2,
+            source
+        ));
+        const float chroma = length(lab.yz);
+        const float relative_chroma = chroma / max(1.0e-6f, abs(lab.x));
+        const float confidence =
+            adjustment_smoothstep(0.002f, 0.02f, relative_chroma);
+        const float hue =
+            wrap_degrees(atan2(lab.z, lab.y) * (180.0f / adjustment_pi));
+        coverage = confidence * perceptual_range_weight(
+            float4(
+                1.0f,
+                parameters.x0 * 360.0f,
+                parameters.x1 * 180.0f,
+                parameters.feather
+            ),
+            hue
+        );
     }
     if (parameters.invert != 0u) {
         coverage = 1.0f - coverage;
     }
     const float alpha = parameters.opacity * coverage;
-    const uint index = (position.y * parameters.width + position.x) * 3u;
-    const float3 source = float3(before[index], before[index + 1u], before[index + 2u]);
     const float3 adjusted = float3(after[index], after[index + 1u], after[index + 2u]);
     const float3 mixed = fma(float3(alpha), adjusted - source, source);
     if (!all(isfinite(mixed))) {

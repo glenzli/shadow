@@ -46,10 +46,10 @@ void validate_normalized(const double value, const std::string_view name) {
 } // namespace
 
 void validate_local_mask(const LocalMask& mask) {
-    validate_normalized(mask.x0, "x0");
-    validate_normalized(mask.y0, "y0");
     switch (mask.kind) {
     case LocalMaskKind::linear_gradient: {
+        validate_normalized(mask.x0, "x0");
+        validate_normalized(mask.y0, "y0");
         validate_normalized(mask.x1, "x1");
         validate_normalized(mask.y1, "y1");
         const double dx = mask.x1 - mask.x0;
@@ -60,6 +60,8 @@ void validate_local_mask(const LocalMask& mask) {
         return;
     }
     case LocalMaskKind::radial_gradient:
+        validate_normalized(mask.x0, "x0");
+        validate_normalized(mask.y0, "y0");
         validate_normalized(mask.radius_x, "radius x");
         validate_normalized(mask.radius_y, "radius y");
         validate_normalized(mask.feather, "feather");
@@ -76,6 +78,25 @@ void validate_local_mask(const LocalMask& mask) {
         for (const auto& point : mask.points) {
             validate_normalized(point.x, "brush x");
             validate_normalized(point.y, "brush y");
+        }
+        return;
+    case LocalMaskKind::luminance_range:
+        validate_normalized(mask.x0, "luminance lower");
+        validate_normalized(mask.x1, "luminance upper");
+        validate_normalized(mask.feather, "luminance softness");
+        if (mask.x0 > mask.x1) {
+            invalid_mask("local-mask luminance lower bound must not exceed its upper bound");
+        }
+        return;
+    case LocalMaskKind::color_range:
+        validate_normalized(mask.x0, "color center hue");
+        validate_normalized(mask.x1, "color half width");
+        validate_normalized(mask.feather, "color softness");
+        if (mask.x0 >= 1.0 || mask.x1 < 1.0 / 180.0) {
+            invalid_mask(
+                "local-mask color center must be canonical and half width must be in [1, 180] "
+                "degrees"
+            );
         }
         return;
     }

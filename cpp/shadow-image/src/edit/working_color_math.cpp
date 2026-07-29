@@ -12,6 +12,8 @@
 #include <cstddef>
 #include <optional>
 #include <ranges>
+#include <string>
+#include <string_view>
 
 namespace shadow::image::detail {
 
@@ -23,9 +25,9 @@ constexpr double d65_y = 0.3290;
 
 [[nodiscard]] std::optional<Matrix3> inverse(const Matrix3& matrix) noexcept {
     const double determinant =
-        matrix[0][0] * (matrix[1][1] * matrix[2][2] - matrix[1][2] * matrix[2][1]) -
-        matrix[0][1] * (matrix[1][0] * matrix[2][2] - matrix[1][2] * matrix[2][0]) +
-        matrix[0][2] * (matrix[1][0] * matrix[2][1] - matrix[1][1] * matrix[2][0]);
+        matrix[0][0] * (matrix[1][1] * matrix[2][2] - matrix[1][2] * matrix[2][1])
+        - matrix[0][1] * (matrix[1][0] * matrix[2][2] - matrix[1][2] * matrix[2][0])
+        + matrix[0][2] * (matrix[1][0] * matrix[2][1] - matrix[1][1] * matrix[2][0]);
     if (!std::isfinite(determinant) || std::abs(determinant) <= 1.0e-12) {
         return std::nullopt;
     }
@@ -49,8 +51,9 @@ constexpr double d65_y = 0.3290;
         }},
     }};
     if (!std::ranges::all_of(result, [](const Vector3& row) {
-            return std::ranges::all_of(row,
-                                       [](const double value) { return std::isfinite(value); });
+            return std::ranges::all_of(row, [](const double value) {
+                return std::isfinite(value);
+            });
         })) {
         return std::nullopt;
     }
@@ -108,36 +111,28 @@ constexpr double d65_y = 0.3290;
     return result;
 }
 
-} // namespace
+struct WorkingSpaceTransformPreparation final {
+    std::optional<WorkingSpaceTransform> transform;
+    std::string_view diagnostic;
+};
 
-bool finite_chromaticity(const Chromaticity& value) noexcept {
-    return std::isfinite(value.x) && std::isfinite(value.y);
-}
-
-Vector3 apply_color_matrix(const Matrix3& matrix, const Vector3& vector) noexcept {
-    return {
-        matrix[0][0] * vector[0] + matrix[0][1] * vector[1] + matrix[0][2] * vector[2],
-        matrix[1][0] * vector[0] + matrix[1][1] * vector[1] + matrix[1][2] * vector[2],
-        matrix[2][0] * vector[0] + matrix[2][1] * vector[1] + matrix[2][2] * vector[2],
-    };
-}
-
-WorkingSpaceTransform prepare_working_space_transform(const WorkingRgbSpace& space,
-                                                      const AdjustmentNode& node,
-                                                      const std::size_t index) {
+[[nodiscard]] WorkingSpaceTransformPreparation
+derive_working_space_transform(const WorkingRgbSpace& space) noexcept {
     constexpr double white_tolerance = 5.0e-4;
-    if (std::abs(space.white_point.x - d65_x) > white_tolerance ||
-        std::abs(space.white_point.y - d65_y) > white_tolerance) {
-        throw_node_error(EditErrorCode::invalid_working_space, index, node,
-                         "D65 color adjustment requires a D65 RGB working space");
+    if (std::abs(space.white_point.x - d65_x) > white_tolerance
+        || std::abs(space.white_point.y - d65_y) > white_tolerance) {
+        return {
+            .diagnostic = "D65 color adjustment requires a D65 RGB working space",
+        };
     }
 
     Matrix3 primary_matrix{};
     for (std::size_t primary = 0U; primary < rgb_channels; ++primary) {
         const Chromaticity xy = space.primaries[primary];
         if (xy.x < 0.0 || xy.y <= 0.0 || xy.x + xy.y > 1.0 + 1.0e-9) {
-            throw_node_error(EditErrorCode::invalid_working_space, index, node,
-                             "D65 color adjustment requires valid RGB primary chromaticities");
+            return {
+                .diagnostic = "D65 color adjustment requires valid RGB primary chromaticities",
+            };
         }
         primary_matrix[0][primary] = xy.x / xy.y;
         primary_matrix[1][primary] = 1.0;
@@ -146,8 +141,9 @@ WorkingSpaceTransform prepare_working_space_transform(const WorkingRgbSpace& spa
 
     const auto primary_inverse = inverse(primary_matrix);
     if (!primary_inverse.has_value()) {
-        throw_node_error(EditErrorCode::invalid_working_space, index, node,
-                         "D65 color adjustment requires independent RGB primaries");
+        return {
+            .diagnostic = "D65 color adjustment requires independent RGB primaries",
+        };
     }
     const Vector3 white_xyz{
         space.white_point.x / space.white_point.y,
@@ -164,31 +160,84 @@ WorkingSpaceTransform prepare_working_space_transform(const WorkingRgbSpace& spa
     }
     const auto xyz_to_rgb = inverse(rgb_to_xyz);
     if (!xyz_to_rgb.has_value()) {
-        throw_node_error(EditErrorCode::invalid_working_space, index, node,
-                         "D65 color adjustment could not derive an invertible RGB matrix");
+        return {
+            .diagnostic = "D65 color adjustment could not derive an invertible RGB matrix",
+        };
     }
 
-    // The declared coefficients are also used by selective tone and saturation. Reject a
-    // contradictory space instead of silently using two different luminance definitions.
+    // Selective tone and saturation use the declared coefficients directly.
+    // Reject a contradictory space instead of silently deriving two different
+    // luminance definitions from the same working-space identity.
     for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
         if (std::abs(rgb_to_xyz[1][channel] - space.luminance_coefficients[channel]) > 5.0e-4) {
-            throw_node_error(
-                EditErrorCode::invalid_working_space, index, node,
-                "working-space luminance coefficients disagree with its RGB primaries");
+            return {
+                .diagnostic =
+                    "working-space luminance coefficients disagree with its RGB primaries",
+            };
         }
     }
-    return WorkingSpaceTransform{.rgb_to_xyz = rgb_to_xyz, .xyz_to_rgb = *xyz_to_rgb};
+    return {
+        .transform = WorkingSpaceTransform{
+            .rgb_to_xyz = rgb_to_xyz,
+            .xyz_to_rgb = *xyz_to_rgb,
+        },
+    };
 }
 
-Matrix3 prepare_rgb_white_balance_matrix(const WorkingRgbSpace& space,
-                                         const RgbWhiteBalanceAdjustment& parameters,
-                                         const AdjustmentNode& node, const std::size_t index) {
+} // namespace
+
+bool finite_chromaticity(const Chromaticity& value) noexcept {
+    return std::isfinite(value.x) && std::isfinite(value.y);
+}
+
+Vector3 apply_color_matrix(const Matrix3& matrix, const Vector3& vector) noexcept {
+    return {
+        matrix[0][0] * vector[0] + matrix[0][1] * vector[1] + matrix[0][2] * vector[2],
+        matrix[1][0] * vector[0] + matrix[1][1] * vector[1] + matrix[1][2] * vector[2],
+        matrix[2][0] * vector[0] + matrix[2][1] * vector[1] + matrix[2][2] * vector[2],
+    };
+}
+
+WorkingSpaceTransform prepare_working_space_transform(
+    const WorkingRgbSpace& space,
+    const AdjustmentNode& node,
+    const std::size_t index
+) {
+    const WorkingSpaceTransformPreparation prepared = derive_working_space_transform(space);
+    if (!prepared.transform.has_value()) {
+        throw_node_error(EditErrorCode::invalid_working_space, index, node, prepared.diagnostic);
+    }
+    return *prepared.transform;
+}
+
+WorkingSpaceTransform prepare_working_space_transform(const WorkingRgbSpace& space) {
+    const WorkingSpaceTransformPreparation prepared = derive_working_space_transform(space);
+    if (!prepared.transform.has_value()) {
+        throw EditError(
+            EditErrorCode::invalid_working_space,
+            std::nullopt,
+            "local-mask selection: " + std::string(prepared.diagnostic)
+        );
+    }
+    return *prepared.transform;
+}
+
+Matrix3 prepare_rgb_white_balance_matrix(
+    const WorkingRgbSpace& space,
+    const RgbWhiteBalanceAdjustment& parameters,
+    const AdjustmentNode& node,
+    const std::size_t index
+) {
     const WorkingSpaceTransform working = prepare_working_space_transform(space, node, index);
     const Chromaticity target_xy = tinted_white_xy(parameters.temperature, parameters.tint);
-    if (!finite_chromaticity(target_xy) || target_xy.x <= 0.0 || target_xy.y <= 0.0 ||
-        target_xy.x + target_xy.y >= 1.0) {
-        throw_node_error(EditErrorCode::invalid_parameter, index, node,
-                         "RGB white balance produced an invalid target white");
+    if (!finite_chromaticity(target_xy) || target_xy.x <= 0.0 || target_xy.y <= 0.0
+        || target_xy.x + target_xy.y >= 1.0) {
+        throw_node_error(
+            EditErrorCode::invalid_parameter,
+            index,
+            node,
+            "RGB white balance produced an invalid target white"
+        );
     }
 
     constexpr Matrix3 cat16{{
@@ -198,8 +247,12 @@ Matrix3 prepare_rgb_white_balance_matrix(const WorkingRgbSpace& space,
     }};
     const auto cat16_inverse = inverse(cat16);
     if (!cat16_inverse.has_value()) {
-        throw_node_error(EditErrorCode::numeric_overflow, index, node,
-                         "CAT16 matrix is not invertible");
+        throw_node_error(
+            EditErrorCode::numeric_overflow,
+            index,
+            node,
+            "CAT16 matrix is not invertible"
+        );
     }
     const Vector3 source_white_xyz{
         space.white_point.x / space.white_point.y,
@@ -215,29 +268,38 @@ Matrix3 prepare_rgb_white_balance_matrix(const WorkingRgbSpace& space,
     const Vector3 target_response = apply_color_matrix(cat16, target_white_xyz);
     Matrix3 response_scale{};
     for (std::size_t channel = 0U; channel < rgb_channels; ++channel) {
-        if (!std::isfinite(source_response[channel]) ||
-            std::abs(source_response[channel]) <= 1.0e-12 ||
-            !std::isfinite(target_response[channel])) {
-            throw_node_error(EditErrorCode::numeric_overflow, index, node,
-                             "CAT16 white response is not finite");
+        if (!std::isfinite(source_response[channel])
+            || std::abs(source_response[channel]) <= 1.0e-12
+            || !std::isfinite(target_response[channel])) {
+            throw_node_error(
+                EditErrorCode::numeric_overflow,
+                index,
+                node,
+                "CAT16 white response is not finite"
+            );
         }
         response_scale[channel][channel] = target_response[channel] / source_response[channel];
     }
     const Matrix3 xyz_adaptation =
         multiply_matrices(*cat16_inverse, multiply_matrices(response_scale, cat16));
-    return multiply_matrices(working.xyz_to_rgb,
-                             multiply_matrices(xyz_adaptation, working.rgb_to_xyz));
+    return multiply_matrices(
+        working.xyz_to_rgb,
+        multiply_matrices(xyz_adaptation, working.rgb_to_xyz)
+    );
 }
 
 namespace {
 
 [[nodiscard]] Vector3 xyz_to_oklab(const Vector3& xyz) noexcept {
-    const double l = std::cbrt(0.8190224379967030 * xyz[0] + 0.3619062600528904 * xyz[1] -
-                               0.1288737815209879 * xyz[2]);
-    const double m = std::cbrt(0.0329836539323885 * xyz[0] + 0.9292868615863434 * xyz[1] +
-                               0.0361446663506424 * xyz[2]);
-    const double s = std::cbrt(0.0481771893596242 * xyz[0] + 0.2642395317527308 * xyz[1] +
-                               0.6335478284694309 * xyz[2]);
+    const double l = std::cbrt(
+        0.8190224379967030 * xyz[0] + 0.3619062600528904 * xyz[1] - 0.1288737815209879 * xyz[2]
+    );
+    const double m = std::cbrt(
+        0.0329836539323885 * xyz[0] + 0.9292868615863434 * xyz[1] + 0.0361446663506424 * xyz[2]
+    );
+    const double s = std::cbrt(
+        0.0481771893596242 * xyz[0] + 0.2642395317527308 * xyz[1] + 0.6335478284694309 * xyz[2]
+    );
     return {
         0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
         1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,

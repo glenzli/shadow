@@ -1,7 +1,12 @@
 #include "edit_controller.hpp"
 
+#include <QLatin1StringView>
+
+#include <array>
 #include <cmath>
+#include <cstdint>
 #include <initializer_list>
+#include <string_view>
 #include <utility>
 
 namespace {
@@ -11,6 +16,99 @@ namespace {
     const std::initializer_list<LocalizedUiArgument> arguments = {}
 ) {
     return {"EditController", source, arguments};
+}
+
+struct LocalMaskParameterDescriptor final {
+    std::string_view key;
+    double BackendGradeNode::*field = nullptr;
+    std::uint8_t kind_mask = 0U;
+    double minimum = 0.0;
+    double maximum = 1.0;
+};
+
+[[nodiscard]] constexpr std::uint8_t mask_kind_bit(const std::uint8_t kind) noexcept {
+    return static_cast<std::uint8_t>(1U << kind);
+}
+
+constexpr std::array local_mask_parameters{
+    LocalMaskParameterDescriptor{
+        .key = "x0",
+        .field = &BackendGradeNode::local_mask_x0,
+        .kind_mask = mask_kind_bit(1U) | mask_kind_bit(2U),
+    },
+    LocalMaskParameterDescriptor{
+        .key = "y0",
+        .field = &BackendGradeNode::local_mask_y0,
+        .kind_mask = mask_kind_bit(1U) | mask_kind_bit(2U),
+    },
+    LocalMaskParameterDescriptor{
+        .key = "x1",
+        .field = &BackendGradeNode::local_mask_x1,
+        .kind_mask = mask_kind_bit(1U),
+    },
+    LocalMaskParameterDescriptor{
+        .key = "y1",
+        .field = &BackendGradeNode::local_mask_y1,
+        .kind_mask = mask_kind_bit(1U),
+    },
+    LocalMaskParameterDescriptor{
+        .key = "radiusX",
+        .field = &BackendGradeNode::local_mask_radius_x,
+        .kind_mask = mask_kind_bit(2U) | mask_kind_bit(3U),
+        .minimum = 0.005,
+    },
+    LocalMaskParameterDescriptor{
+        .key = "radiusY",
+        .field = &BackendGradeNode::local_mask_radius_y,
+        .kind_mask = mask_kind_bit(2U),
+        .minimum = 0.01,
+    },
+    LocalMaskParameterDescriptor{
+        .key = "feather",
+        .field = &BackendGradeNode::local_mask_feather,
+        .kind_mask = mask_kind_bit(2U) | mask_kind_bit(3U),
+    },
+    LocalMaskParameterDescriptor{
+        .key = "lower",
+        .field = &BackendGradeNode::local_mask_x0,
+        .kind_mask = mask_kind_bit(4U),
+    },
+    LocalMaskParameterDescriptor{
+        .key = "upper",
+        .field = &BackendGradeNode::local_mask_x1,
+        .kind_mask = mask_kind_bit(4U),
+    },
+    LocalMaskParameterDescriptor{
+        .key = "softness",
+        .field = &BackendGradeNode::local_mask_feather,
+        .kind_mask = mask_kind_bit(4U) | mask_kind_bit(5U),
+    },
+    LocalMaskParameterDescriptor{
+        .key = "centerHue",
+        .field = &BackendGradeNode::local_mask_x0,
+        .kind_mask = mask_kind_bit(5U),
+        .maximum = 359.0 / 360.0,
+    },
+    LocalMaskParameterDescriptor{
+        .key = "width",
+        .field = &BackendGradeNode::local_mask_x1,
+        .kind_mask = mask_kind_bit(5U),
+        .minimum = 1.0 / 180.0,
+    },
+};
+
+[[nodiscard]] const LocalMaskParameterDescriptor* local_mask_parameter(
+    const QString& key,
+    const std::uint8_t kind
+) noexcept {
+    const std::uint8_t kind_bit = mask_kind_bit(kind);
+    for (const auto& descriptor : local_mask_parameters) {
+        if ((descriptor.kind_mask & kind_bit) != 0U
+            && key == QLatin1StringView(descriptor.key)) {
+            return &descriptor;
+        }
+    }
+    return nullptr;
 }
 
 } // namespace
@@ -42,6 +140,11 @@ QVariantMap EditController::selectedLocalMask() const {
         {QStringLiteral("radiusX"), grade_node->local_mask_radius_x},
         {QStringLiteral("radiusY"), grade_node->local_mask_radius_y},
         {QStringLiteral("feather"), grade_node->local_mask_feather},
+        {QStringLiteral("lower"), grade_node->local_mask_x0},
+        {QStringLiteral("upper"), grade_node->local_mask_x1},
+        {QStringLiteral("centerHue"), grade_node->local_mask_x0},
+        {QStringLiteral("width"), grade_node->local_mask_x1},
+        {QStringLiteral("softness"), grade_node->local_mask_feather},
         {QStringLiteral("inverted"), grade_node->local_mask_invert},
         {QStringLiteral("brushPoints"), brush_points},
     };
@@ -56,7 +159,7 @@ void EditController::setSelectedLocalMask(const int kind) {
                                  ? nullptr
                                  : &grade_stack_.grade_nodes[selected_grade_node_index_];
     if (!active_ || interactionLocked() || grade_node == nullptr || !grade_node->enabled || kind < 0
-        || kind > 3 || grade_node->local_mask_kind == kind) {
+        || kind > 5 || grade_node->local_mask_kind == kind) {
         return;
     }
     finishActiveGesture();
@@ -69,7 +172,9 @@ void EditController::setSelectedLocalMask(const int kind) {
         kind == 0   ? "Removed local mask"
         : kind == 1 ? "Added linear gradient mask"
         : kind == 2 ? "Added radial gradient mask"
-                    : "Added brush mask"
+        : kind == 3 ? "Added brush mask"
+        : kind == 4 ? "Added luminance range mask"
+                    : "Added color range mask"
     )));
 }
 
@@ -145,45 +250,24 @@ void EditController::setSelectedLocalMaskValue(const QString& key, const double 
     auto* const grade_node = selected_grade_node_index_ < 0
                                  ? nullptr
                                  : &grade_stack_.grade_nodes[selected_grade_node_index_];
-    if (grade_node == nullptr || grade_node->local_mask_kind == 0U
-        || !acceptParameter(value, 0.0, 1.0, QT_TRANSLATE_NOOP("EditController", "Local mask"))) {
+    if (grade_node == nullptr || grade_node->local_mask_kind == 0U) {
         return;
     }
-
-    double* target = nullptr;
-    if (key == QStringLiteral("x0"))
-        target = &grade_node->local_mask_x0;
-    else if (key == QStringLiteral("y0"))
-        target = &grade_node->local_mask_y0;
-    else if (key == QStringLiteral("x1"))
-        target = &grade_node->local_mask_x1;
-    else if (key == QStringLiteral("y1"))
-        target = &grade_node->local_mask_y1;
-    else if (key == QStringLiteral("radiusX"))
-        target = &grade_node->local_mask_radius_x;
-    else if (key == QStringLiteral("radiusY"))
-        target = &grade_node->local_mask_radius_y;
-    else if (key == QStringLiteral("feather"))
-        target = &grade_node->local_mask_feather;
-    if (target == nullptr || *target == value) {
+    const auto* const descriptor =
+        local_mask_parameter(key, grade_node->local_mask_kind);
+    if (descriptor == nullptr
+        || !acceptParameter(
+            value,
+            descriptor->minimum,
+            descriptor->maximum,
+            QT_TRANSLATE_NOOP("EditController", "Local mask")
+        )
+        || grade_node->*(descriptor->field) == value) {
         return;
     }
 
     BackendGradeNode candidate = *grade_node;
-    if (key == QStringLiteral("x0"))
-        candidate.local_mask_x0 = value;
-    else if (key == QStringLiteral("y0"))
-        candidate.local_mask_y0 = value;
-    else if (key == QStringLiteral("x1"))
-        candidate.local_mask_x1 = value;
-    else if (key == QStringLiteral("y1"))
-        candidate.local_mask_y1 = value;
-    else if (key == QStringLiteral("radiusX"))
-        candidate.local_mask_radius_x = value;
-    else if (key == QStringLiteral("radiusY"))
-        candidate.local_mask_radius_y = value;
-    else
-        candidate.local_mask_feather = value;
+    candidate.*(descriptor->field) = value;
     if (candidate.local_mask_kind == 1U
         && std::hypot(
                candidate.local_mask_x1 - candidate.local_mask_x0,
@@ -205,6 +289,14 @@ void EditController::setSelectedLocalMaskValue(const QString& key, const double 
         setStatusMessage(local_mask_message(
             QT_TRANSLATE_NOOP("EditController", "A brush mask needs a non-zero size")
         ));
+        return;
+    }
+    if (candidate.local_mask_kind == 4U
+        && candidate.local_mask_x0 > candidate.local_mask_x1) {
+        setStatusMessage(local_mask_message(QT_TRANSLATE_NOOP(
+            "EditController",
+            "The lower lightness limit cannot exceed the upper limit"
+        )));
         return;
     }
 

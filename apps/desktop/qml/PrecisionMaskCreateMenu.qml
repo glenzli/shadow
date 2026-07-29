@@ -252,6 +252,44 @@ Popup {
             color: Theme.border
         }
 
+        Label {
+            Layout.fillWidth: true
+            leftPadding: 8
+            rightPadding: 8
+            topPadding: 3
+            bottomPadding: 1
+            text: qsTr("CONDITION")
+            color: Theme.textMuted
+            font.pixelSize: 9
+            font.weight: Font.DemiBold
+            font.letterSpacing: 0.7
+        }
+
+        MaskAction {
+            text: qsTr("Luminance range")
+            iconSource: "qrc:/icons/mask-luminance-range.svg"
+            maskKind: 4
+            enabled: menu.destination === menu.currentNodeDestination
+                ? menu.currentNodeAvailable : menu.newNodeAvailable
+        }
+
+        MaskAction {
+            text: qsTr("Color range")
+            iconSource: "qrc:/icons/mask-color-range.svg"
+            maskKind: 5
+            enabled: menu.destination === menu.currentNodeDestination
+                ? menu.currentNodeAvailable : menu.newNodeAvailable
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.leftMargin: 6
+            Layout.rightMargin: 6
+            Layout.topMargin: 4
+            Layout.preferredHeight: 1
+            color: Theme.border
+        }
+
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: 34

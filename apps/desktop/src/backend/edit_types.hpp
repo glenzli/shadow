@@ -133,9 +133,10 @@ struct BackendGradeNode final {
     QString grade_node_id;
     QString shared_layer_id;
     QString shared_revision_id;
-    // 0 = none, 1 = linear gradient, 2 = radial gradient, 3 = brush. These values are
-    // normalized image coordinates; Rust owns their typed validation and
-    // immutable Recipe serialization.
+    // 0 = none, 1 = linear gradient, 2 = radial gradient, 3 = brush,
+    // 4 = Oklab luminance range, 5 = Oklch hue range. Geometry and the compact
+    // condition-mask transport slots are normalized; Rust owns their typed
+    // validation and immutable Recipe serialization.
     std::uint8_t local_mask_kind = 0;
     double local_mask_x0 = 0.0;
     double local_mask_y0 = 0.0;

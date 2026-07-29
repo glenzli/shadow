@@ -147,6 +147,85 @@ void resident_layers_match_the_cpu_oracle() {
     }
 }
 
+void condition_masks_match_node_input_selection_on_resident_metal() {
+    const auto source = make_random_image(211U, 127U, true);
+    auto preparation = image::detail::prepare_warm_edit_gpu_session(source);
+    if (!preparation.session) {
+        expect(
+            std::getenv("SHADOW_TEST_REQUIRE_WARM_METAL") == nullptr,
+            "condition-mask GPU composition was required but no Metal session is available"
+        );
+        return;
+    }
+    const std::array layers{
+        image::AdjustmentLayer{
+            .layer_id = "condition-input-preparation",
+            .opacity = 0.76,
+            .nodes =
+                {
+                    image::AdjustmentNode{
+                        .node_id = "condition-input-exposure",
+                        .parameters = image::ExposureAdjustment{.stops = 0.18},
+                    },
+                },
+        },
+        image::AdjustmentLayer{
+            .layer_id = "luminance-condition",
+            .opacity = 0.83,
+            .mask =
+                image::LocalMask{
+                    .kind = image::LocalMaskKind::luminance_range,
+                    .x0 = 0.32,
+                    .x1 = 0.74,
+                    .feather = 0.08,
+                },
+            .nodes =
+                {
+                    image::AdjustmentNode{
+                        .node_id = "luminance-condition-exposure",
+                        .parameters = image::ExposureAdjustment{.stops = -0.27},
+                    },
+                },
+        },
+        image::AdjustmentLayer{
+            .layer_id = "color-condition",
+            .opacity = 0.71,
+            .mask =
+                image::LocalMask{
+                    .kind = image::LocalMaskKind::color_range,
+                    .x0 = 350.0 / 360.0,
+                    .x1 = 48.0 / 180.0,
+                    .feather = 0.42,
+                    .invert = true,
+                },
+            .nodes = {
+                image::AdjustmentNode{
+                    .node_id = "color-condition-saturation",
+                    .parameters = image::SaturationAdjustment{.factor = 0.82},
+                },
+            },
+        },
+    };
+    const auto gpu = preparation.session->render_layers(layers, true);
+    expect(
+        gpu.status == image::detail::WarmEditGpuSession::RenderStatus::completed
+            && gpu.output.has_value() && gpu.output->analyzed_linear.has_value(),
+        "luminance and color condition masks complete through resident Metal"
+    );
+    if (gpu.output && gpu.output->analyzed_linear) {
+        const auto cpu = image::execute_adjustment_layers(source, layers);
+        double maximum_error = 0.0;
+        const bool parity = linear_close(*gpu.output->analyzed_linear, cpu, maximum_error, 1.6e-3);
+        if (!parity) {
+            std::cerr << "Condition-mask warm linear parity max=" << maximum_error << '\n';
+        }
+        expect(
+            parity,
+            "resident Metal condition coverage matches the sequential node-input CPU oracle"
+        );
+    }
+}
+
 void indexed_brush_masks_match_the_continuous_cpu_oracle_and_reuse_resources() {
     const auto source = make_random_image(257U, 149U, true);
     auto preparation = image::detail::prepare_warm_edit_gpu_session(source);
@@ -383,6 +462,7 @@ void benchmark_indexed_brush_transaction_when_requested() {
 int run_resident_gpu_layer_composition_contract() {
     failures = 0;
     resident_layers_match_the_cpu_oracle();
+    condition_masks_match_node_input_selection_on_resident_metal();
     indexed_brush_masks_match_the_continuous_cpu_oracle_and_reuse_resources();
     benchmark_gradient_layer_transaction_when_requested();
     benchmark_indexed_brush_transaction_when_requested();

@@ -42,13 +42,21 @@ void EditController::initializeLocalMask(BackendGradeNode& grade_node, const int
     } else if (kind == 3) {
         grade_node.local_mask_radius_x = 0.035;
         grade_node.local_mask_feather = 0.6;
+    } else if (kind == 4) {
+        grade_node.local_mask_x0 = 0.2;
+        grade_node.local_mask_x1 = 0.8;
+        grade_node.local_mask_feather = 0.08;
+    } else if (kind == 5) {
+        grade_node.local_mask_x0 = 30.0 / 360.0;
+        grade_node.local_mask_x1 = 30.0 / 180.0;
+        grade_node.local_mask_feather = 0.45;
     }
 }
 
 bool EditController::createLocalMask(const int kind, const int destination) {
     constexpr int current_node_destination = 0;
     constexpr int new_node_destination = 1;
-    if (!active_ || interactionLocked() || kind < 1 || kind > 3
+    if (!active_ || interactionLocked() || kind < 1 || kind > 5
         || (destination != current_node_destination && destination != new_node_destination)) {
         return false;
     }

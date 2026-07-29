@@ -988,6 +988,11 @@
         <source>Created a new Grade Node with a mask</source>
         <translation>已创建带蒙版的新调色节点</translation>
     </message>
+    <message>
+        <location filename="../src/edit_local_mask_controller.cpp" line="298"/>
+        <source>The lower lightness limit cannot exceed the upper limit</source>
+        <translation>明度下限不能高于上限</translation>
+    </message>
 </context>
 <context>
     <name>EditHistogram</name>
@@ -4337,6 +4342,33 @@ R %2 · G %3 · B %4</translation>
         <location filename="../qml/PrecisionMaskCreateMenu.qml" line="288"/>
         <source>Create and select a new masked Grade Node</source>
         <translation>创建并选中带蒙版的新调色节点</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionMaskCreateMenu.qml" line="261"/>
+        <source>CONDITION</source>
+        <translation>条件</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionMaskCreateMenu.qml" line="269"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="30"/>
+        <source>Luminance range</source>
+        <translation>明度范围</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionMaskCreateMenu.qml" line="277"/>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="31"/>
+        <source>Color range</source>
+        <translation>颜色范围</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="203"/>
+        <source>Lower</source>
+        <translation>下限</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionLocalMaskTools.qml" line="209"/>
+        <source>Upper</source>
+        <translation>上限</translation>
     </message>
 </context>
 <context>

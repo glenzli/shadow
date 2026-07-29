@@ -173,6 +173,10 @@ Rectangle {
                                 ? "qrc:/icons/mask-radial.svg"
                                 : gradeNodeRow.modelData.localMaskKind === 3
                                     ? "qrc:/icons/brush.svg"
+                                    : gradeNodeRow.modelData.localMaskKind === 4
+                                        ? "qrc:/icons/mask-luminance-range.svg"
+                                        : gradeNodeRow.modelData.localMaskKind === 5
+                                            ? "qrc:/icons/mask-color-range.svg"
                                     : "qrc:/icons/mask-add.svg"
                         toolTipText: gradeNodeRow.modelData.hasLocalMask
                             ? qsTr("Edit this node mask")

@@ -20,6 +20,8 @@ enum class LocalMaskKind : std::uint8_t {
     linear_gradient,
     radial_gradient,
     brush,
+    luminance_range,
+    color_range,
 };
 
 struct LocalMaskPoint final {
@@ -30,6 +32,10 @@ struct LocalMaskPoint final {
 
 struct LocalMask final {
     LocalMaskKind kind = LocalMaskKind::linear_gradient;
+    // Geometry uses x0/y0/x1/y1 directly. Condition masks keep the fixed
+    // cross-language record compact: luminance maps lower/upper to x0/x1;
+    // color maps hue/360 and half-width/180 to x0/x1. Presentation layers
+    // expose semantic names rather than these transport slots.
     double x0 = 0.0;
     double y0 = 0.0;
     double x1 = 1.0;

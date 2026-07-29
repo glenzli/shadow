@@ -45,6 +45,12 @@ pub enum RecipeValidationError {
     DegenerateBrushMask,
     #[error("brush mask contains {0} points, but at most 4096 are supported")]
     TooManyMaskBrushPoints(usize),
+    #[error("luminance-range mask lower bound {lower} must not exceed upper bound {upper}")]
+    InvalidLuminanceMaskRange { lower: f64, upper: f64 },
+    #[error("color-range mask hue {0}° must use the canonical interval [0, 360)")]
+    InvalidColorMaskHue(f64),
+    #[error("color-range mask width {0}° must be between 1° and 180°")]
+    InvalidColorMaskWidth(f64),
     #[error("mask {mask_id} revision {revision} appears more than once")]
     DuplicateMaskRevision { mask_id: MaskId, revision: u32 },
     #[error("retouch spot radius {0} must be between 1 and 128 full-resolution pixels")]

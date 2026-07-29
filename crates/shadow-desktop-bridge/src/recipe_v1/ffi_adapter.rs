@@ -32,9 +32,14 @@ const LOCAL_MASK_NONE: u8 = 0;
 const LOCAL_MASK_LINEAR_GRADIENT: u8 = 1;
 const LOCAL_MASK_RADIAL_GRADIENT: u8 = 2;
 const LOCAL_MASK_BRUSH: u8 = 3;
+const LOCAL_MASK_LUMINANCE_RANGE: u8 = 4;
+const LOCAL_MASK_COLOR_RANGE: u8 = 5;
 
 type FfiLocalMaskFields = (u8, f64, f64, f64, f64, f64, f64, f64, bool, Vec<f64>);
 
+// Keep the complete mask sum-type projection together: every alternative
+// participates in one atomic CXX Grade Node record.
+#[allow(clippy::too_many_lines)]
 fn ffi_local_mask_fields(mask: Option<&MaskDefinition>) -> FfiLocalMaskFields {
     match mask {
         None => (
@@ -112,6 +117,40 @@ fn ffi_local_mask_fields(mask: Option<&MaskDefinition>) -> FfiLocalMaskFields {
                 })
                 .collect(),
         ),
+        Some(MaskDefinition::LuminanceRange {
+            lower,
+            upper,
+            softness,
+            invert,
+        }) => (
+            LOCAL_MASK_LUMINANCE_RANGE,
+            lower.get(),
+            0.0,
+            upper.get(),
+            0.0,
+            0.0,
+            0.0,
+            softness.get(),
+            *invert,
+            Vec::new(),
+        ),
+        Some(MaskDefinition::ColorRange {
+            center_hue_degrees,
+            width_degrees,
+            softness,
+            invert,
+        }) => (
+            LOCAL_MASK_COLOR_RANGE,
+            center_hue_degrees.get() / 360.0,
+            0.0,
+            width_degrees.get() / 180.0,
+            0.0,
+            0.0,
+            0.0,
+            softness.get(),
+            *invert,
+            Vec::new(),
+        ),
     }
 }
 
@@ -178,6 +217,18 @@ fn local_mask_definition_from_ffi(
                 grade_node.local_mask_invert,
             )?))
         }
+        LOCAL_MASK_LUMINANCE_RANGE => Ok(Some(MaskDefinition::luminance_range(
+            unit("luminance lower bound", grade_node.local_mask_x0)?,
+            unit("luminance upper bound", grade_node.local_mask_x1)?,
+            unit("luminance softness", grade_node.local_mask_feather)?,
+            grade_node.local_mask_invert,
+        )?)),
+        LOCAL_MASK_COLOR_RANGE => Ok(Some(MaskDefinition::color_range(
+            unit("color center", grade_node.local_mask_x0)?.get() * 360.0,
+            unit("color width", grade_node.local_mask_x1)?.get() * 180.0,
+            unit("color softness", grade_node.local_mask_feather)?,
+            grade_node.local_mask_invert,
+        )?)),
         other => bail!("Grade Node {index} has unsupported local mask kind {other}"),
     }
 }
@@ -882,3 +933,6 @@ pub(crate) fn encode_grade_node_draft_recipe_v1(grade_node: GradeNodeDraft) -> f
         fine: ffi_fine_parameters(&grade_node.fine),
     }
 }
+
+#[cfg(test)]
+mod tests;

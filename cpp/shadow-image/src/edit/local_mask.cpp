@@ -5,11 +5,14 @@
 #include <shadow/image/working_rgb.hpp>
 
 #include "local_mask_validation.hpp"
+#include "perceptual_hue_selection.hpp"
+#include "working_color_math.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <limits>
+#include <optional>
 #include <span>
 
 namespace shadow::image {
@@ -46,13 +49,46 @@ namespace {
     return std::hypot(scaled_x - std::fma(t, dx, start_x), scaled_y - std::fma(t, dy, start_y));
 }
 
+struct PreparedLocalMask final {
+    const LocalMask& mask;
+    double brush_scale_x = 1.0;
+    double brush_scale_y = 1.0;
+    std::optional<detail::WorkingSpaceTransform> color_transform;
+};
+
+[[nodiscard]] PreparedLocalMask
+prepare_local_mask(const LocalMask& mask, const FloatRgbImage& source, const Dimensions full) {
+    const double shorter_side = static_cast<double>(std::min(full.width, full.height));
+    PreparedLocalMask prepared{
+        .mask = mask,
+        .brush_scale_x = static_cast<double>(full.width) / shorter_side,
+        .brush_scale_y = static_cast<double>(full.height) / shorter_side,
+    };
+    if (mask.kind == LocalMaskKind::luminance_range || mask.kind == LocalMaskKind::color_range) {
+        prepared.color_transform = detail::prepare_working_space_transform(source.working_space);
+    }
+    return prepared;
+}
+
+[[nodiscard]] double
+luminance_range_coverage(const LocalMask& mask, const double lightness) noexcept {
+    const double selected_lightness = std::clamp(lightness, 0.0, 1.0);
+    if (mask.feather <= 0.0) {
+        return selected_lightness >= mask.x0 && selected_lightness <= mask.x1 ? 1.0 : 0.0;
+    }
+    const double lower =
+        smootherstep((selected_lightness - (mask.x0 - mask.feather)) / mask.feather);
+    const double upper = 1.0 - smootherstep((selected_lightness - mask.x1) / mask.feather);
+    return std::min(lower, upper);
+}
+
 [[nodiscard]] double coverage_at(
-    const LocalMask& mask,
+    const PreparedLocalMask& prepared,
     const double x,
     const double y,
-    const double brush_scale_x,
-    const double brush_scale_y
+    const detail::Vector3& source_rgb
 ) noexcept {
+    const LocalMask& mask = prepared.mask;
     double coverage = 0.0;
     switch (mask.kind) {
     case LocalMaskKind::linear_gradient: {
@@ -84,7 +120,10 @@ namespace {
             const auto& point = mask.points[index];
             distance = std::min(
                 distance,
-                std::hypot((x - point.x) * brush_scale_x, (y - point.y) * brush_scale_y)
+                std::hypot(
+                    (x - point.x) * prepared.brush_scale_x,
+                    (y - point.y) * prepared.brush_scale_y
+                )
             );
             if (index > 0U && !point.begins_stroke) {
                 distance = std::min(
@@ -94,8 +133,8 @@ namespace {
                         y,
                         mask.points[index - 1U],
                         point,
-                        brush_scale_x,
-                        brush_scale_y
+                        prepared.brush_scale_x,
+                        prepared.brush_scale_y
                     )
                 );
             }
@@ -105,6 +144,25 @@ namespace {
             std::max(mask.radius_x - inner, std::numeric_limits<double>::epsilon());
         coverage = mask.feather <= 0.0 ? (distance <= mask.radius_x ? 1.0 : 0.0)
                                        : 1.0 - smootherstep((distance - inner) / transition);
+        break;
+    }
+    case LocalMaskKind::luminance_range: {
+        const detail::Vector3 lab =
+            detail::working_rgb_to_oklab(*prepared.color_transform, source_rgb);
+        coverage = luminance_range_coverage(mask, lab[0]);
+        break;
+    }
+    case LocalMaskKind::color_range: {
+        const detail::Vector3 lab =
+            detail::working_rgb_to_oklab(*prepared.color_transform, source_rgb);
+        const detail::PerceptualHueSample hue = detail::sample_oklab_hue(lab);
+        coverage = hue.confidence
+                   * detail::perceptual_hue_range_weight(
+                       hue.degrees,
+                       mask.x0 * 360.0,
+                       mask.x1 * 180.0,
+                       mask.feather
+                   );
         break;
     }
     }
@@ -119,12 +177,10 @@ void mix_masked_layer(
     const AdjustmentExecutionContext context,
     const Dimensions full
 ) {
+    const PreparedLocalMask prepared = prepare_local_mask(mask, source, full);
     const std::size_t stride = destination.row_stride_bytes / sizeof(float);
     const auto width = static_cast<std::size_t>(destination.dimensions.width);
     const auto height = static_cast<std::size_t>(destination.dimensions.height);
-    const double shorter_side = static_cast<double>(std::min(full.width, full.height));
-    const double brush_scale_x = static_cast<double>(full.width) / shorter_side;
-    const double brush_scale_y = static_cast<double>(full.height) / shorter_side;
     for (std::size_t row = 0U; row < height; ++row) {
         const double y = (static_cast<double>(context.origin_y) + static_cast<double>(row) + 0.5)
                          / static_cast<double>(full.height);
@@ -132,8 +188,13 @@ void mix_masked_layer(
             const double x =
                 (static_cast<double>(context.origin_x) + static_cast<double>(column) + 0.5)
                 / static_cast<double>(full.width);
-            const double alpha = opacity * coverage_at(mask, x, y, brush_scale_x, brush_scale_y);
             const std::size_t sample = row * stride + column * 3U;
+            const detail::Vector3 source_rgb{
+                static_cast<double>(source.samples[sample]),
+                static_cast<double>(source.samples[sample + 1U]),
+                static_cast<double>(source.samples[sample + 2U]),
+            };
+            const double alpha = opacity * coverage_at(prepared, x, y, source_rgb);
             for (std::size_t channel = 0U; channel < 3U; ++channel) {
                 const double before = static_cast<double>(source.samples[sample + channel]);
                 const double after = static_cast<double>(destination.samples[sample + channel]);

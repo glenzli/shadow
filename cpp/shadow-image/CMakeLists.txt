@@ -65,6 +65,7 @@ add_library(
     src/edit/metal_adjustment_program.cpp
     src/edit/oklab_color_warper.cpp
     src/edit/perceptual_color.cpp
+    src/edit/perceptual_hue_selection.cpp
     src/edit/perceptual_contrast.cpp
     src/edit/photo_geometry.cpp
     src/edit/retouch.cpp
