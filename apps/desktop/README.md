@@ -101,7 +101,9 @@ Its implementation follows the same navigation:
   composition, property projection, and localization.
 - [`src/edit_history_controller.cpp`](src/edit_history_controller.cpp) owns gesture coalescing,
   undo/redo, reset/revert, Grade Stack synchronization, and dirty/autosave transitions for the
-  current editing session.
+  current editing session. [`src/edit_history_restore_projection.*`](src/edit_history_restore_projection.hpp)
+  classifies restored node-list and local-mask changes and resolves selection after an inserted
+  node is undone, keeping those UI notification invariants independently testable.
 - [`src/edit_adjustment_controller.cpp`](src/edit_adjustment_controller.cpp) owns Grade Node
   adjustment presentation and mutation, LUT, Color Mixer/Warper, grading, and Selective Color.
 - [`src/edit_fine_parameter_registry.*`](src/edit_fine_parameter_registry.hpp) is the single
@@ -117,8 +119,12 @@ Its implementation follows the same navigation:
   crop bounds and aspect ratios, straighten, rotation, flips, and geometry reset.
 - [`src/edit_grade_node_controller.cpp`](src/edit_grade_node_controller.cpp) owns Grade Node list
   presentation, selection, enablement, collection actions, sharing, and node-level resets.
+- [`src/edit_mask_assignment_controller.cpp`](src/edit_mask_assignment_controller.cpp) owns the
+  atomic choice between attaching a new mask to the selected empty node and creating, masking,
+  inserting, and selecting one new node. QML never chains those state mutations.
 - [`src/edit_local_mask_controller.cpp`](src/edit_local_mask_controller.cpp) owns local-mask
-  presentation, asset persistence, clipboard semantics, geometry validation, and brush strokes.
+  presentation, in-session clipboard semantics, geometry validation, and brush strokes. Ordinary
+  photo-local masks are not named or persisted as a separate reusable asset library.
 - [`src/edit_optics_controller.cpp`](src/edit_optics_controller.cpp) owns optical-correction state,
   automatic and manual profiles, residual controls, validation, history, and preview scheduling.
 - [`src/edit_retouch_controller.cpp`](src/edit_retouch_controller.cpp) owns photo-level repair and
@@ -176,7 +182,12 @@ Precision presentation follows the same responsibility tree:
   clipping, comparison, and zoom commands while emitting intent back to the viewport owner.
 - [`qml/PrecisionGradeNodePane.qml`](qml/PrecisionGradeNodePane.qml) owns Grade Node navigation,
   ordering, enablement, and collection actions; [`qml/PrecisionGradeNodeMenus.qml`](qml/PrecisionGradeNodeMenus.qml)
-  owns sharing, node-mask commands, and their popup lifecycles.
+  owns sharing and node collection popup lifecycles.
+- [`qml/PrecisionMaskCreateMenu.qml`](qml/PrecisionMaskCreateMenu.qml) owns mask-kind and
+  current-node/new-node destination choice. The global tool defaults to a new node, a node-row
+  entry defaults to that node, and an existing mask is edited rather than silently replaced.
+- [`qml/PrecisionLocalMaskTools.qml`](qml/PrecisionLocalMaskTools.qml) owns only the selected
+  node mask's geometry, inversion, removal, and in-session copy/paste controls.
 - [`qml/PrecisionComparisonSurface.qml`](qml/PrecisionComparisonSurface.qml) owns the complete
   visual comparison transaction inside that viewport: original-frame receipt, whole/wipe/dual
   layouts, divider input, and BEFORE/AFTER labels.

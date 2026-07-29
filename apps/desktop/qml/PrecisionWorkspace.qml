@@ -130,6 +130,10 @@ Item {
             textSecondary: precision.textSecondary
             textMuted: precision.textMuted
             accent: precision.accent
+            onMaskToolRequested: {
+                if (precision.activeSpecialTool !== precision.toolMask)
+                    precision.setActiveSpecialTool(precision.toolMask)
+            }
         }
 
         PrecisionCanvas {

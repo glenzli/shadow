@@ -173,32 +173,6 @@ Item {
                 }
             }
             PopupAction {
-                text: qsTr("Use linear node mask")
-                enabled: menus.editor.active && !menus.editor.stateBusy
-                onClicked: {
-                    gradeNodeContextPopup.close()
-                    menus.editor.setSelectedLocalMask(1)
-                }
-            }
-            PopupAction {
-                text: qsTr("Use radial node mask")
-                enabled: menus.editor.active && !menus.editor.stateBusy
-                onClicked: {
-                    gradeNodeContextPopup.close()
-                    menus.editor.setSelectedLocalMask(2)
-                }
-            }
-            PopupAction {
-                visible: gradeNodeContextPopup.targetData
-                    && gradeNodeContextPopup.targetData.hasLocalMask
-                text: qsTr("Remove node mask")
-                enabled: menus.editor.active && !menus.editor.stateBusy
-                onClicked: {
-                    gradeNodeContextPopup.close()
-                    menus.editor.setSelectedLocalMask(0)
-                }
-            }
-            PopupAction {
                 text: qsTr("Delete node")
                 enabled: menus.editor.canDeleteGradeNode
                 onClicked: {

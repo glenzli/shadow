@@ -34,25 +34,16 @@ EditController::EditController(
     std::shared_ptr<DesktopBackend> backend,
     std::shared_ptr<EditPreviewStore> preview_store,
     QObject* parent
-)
-    : QObject(parent),
-      backend_(std::move(backend)),
-      preview_store_(std::move(preview_store)),
-      versions_(this),
-      tone_curve_points_(this),
-      node_mask_asset_settings_(std::make_unique<QSettings>()) {
+) :
+    QObject(parent), backend_(std::move(backend)), preview_store_(std::move(preview_store)),
+    versions_(this), tone_curve_points_(this) {
     histogram_ = empty_histogram();
     before_histogram_ = empty_histogram();
     preview_debounce_.setSingleShot(true);
     detail_debounce_.setSingleShot(true);
     detail_warmup_debounce_.setSingleShot(true);
     autosave_debounce_.setSingleShot(true);
-    connect(
-        &preview_debounce_,
-        &QTimer::timeout,
-        this,
-        &EditController::startPreviewRender
-    );
+    connect(&preview_debounce_, &QTimer::timeout, this, &EditController::startPreviewRender);
     connect(
         &state_watcher_,
         &QFutureWatcher<EditStateTaskResult>::finished,
@@ -65,30 +56,15 @@ EditController::EditController(
         this,
         &EditController::finishPreviewTask
     );
-    connect(
-        &detail_debounce_,
-        &QTimer::timeout,
-        this,
-        &EditController::startDetailRender
-    );
-    connect(
-        &autosave_debounce_,
-        &QTimer::timeout,
-        this,
-        &EditController::startAutosave
-    );
+    connect(&detail_debounce_, &QTimer::timeout, this, &EditController::startDetailRender);
+    connect(&autosave_debounce_, &QTimer::timeout, this, &EditController::startAutosave);
     connect(
         &detail_watcher_,
         &QFutureWatcher<EditDetailTaskResult>::finished,
         this,
         &EditController::finishDetailTask
     );
-    connect(
-        &detail_warmup_debounce_,
-        &QTimer::timeout,
-        this,
-        &EditController::startDetailWarmup
-    );
+    connect(&detail_warmup_debounce_, &QTimer::timeout, this, &EditController::startDetailWarmup);
     connect(
         &detail_warmup_watcher_,
         &QFutureWatcher<EditDetailWarmupTaskResult>::finished,
@@ -98,7 +74,6 @@ EditController::EditController(
     if (auto* const application = QCoreApplication::instance()) {
         application->installEventFilter(this);
     }
-    loadNodeMaskAssets();
     refreshSharedGradeNodes();
 }
 
@@ -120,8 +95,7 @@ bool EditController::active() const noexcept {
 }
 
 bool EditController::busy() const noexcept {
-    return state_running_ || current_rendering_ || before_rendering_
-        || detail_rendering_;
+    return state_running_ || current_rendering_ || before_rendering_ || detail_rendering_;
 }
 
 bool EditController::stateBusy() const noexcept {
@@ -135,8 +109,7 @@ bool EditController::interactionLocked() const noexcept {
     // Version, and loading a Version still replace controller state, so they
     // remain interaction-locking operations.
     return pending_version_save_name_.has_value()
-        || (state_running_
-            && state_task_kind_ != EditStateTaskKind::Autosave);
+           || (state_running_ && state_task_kind_ != EditStateTaskKind::Autosave);
 }
 
 bool EditController::rendering() const noexcept {
@@ -193,10 +166,9 @@ bool EditController::dirty() const noexcept {
 
 bool EditController::autosavePending() const noexcept {
     return !autosaveFailed()
-        && (autosave_requested_ || autosave_debounce_.isActive()
-            || (state_running_
-                && state_task_kind_ == EditStateTaskKind::Autosave
-                && state_watcher_.isRunning()));
+           && (autosave_requested_ || autosave_debounce_.isActive()
+               || (state_running_ && state_task_kind_ == EditStateTaskKind::Autosave
+                   && state_watcher_.isRunning()));
 }
 
 bool EditController::autosaveFailed() const noexcept {
@@ -275,12 +247,8 @@ QAbstractItemModel* EditController::versions() noexcept {
     return &versions_;
 }
 
-bool EditController::eventFilter(
-    QObject* const watched,
-    QEvent* const event
-) {
-    if (watched == QCoreApplication::instance()
-        && event->type() == QEvent::LanguageChange) {
+bool EditController::eventFilter(QObject* const watched, QEvent* const event) {
+    if (watched == QCoreApplication::instance() && event->type() == QEvent::LanguageChange) {
         retranslateUi();
     }
     return QObject::eventFilter(watched, event);
@@ -335,9 +303,9 @@ bool EditController::acceptParameter(
     }
     const auto* const grade_node = selectedGradeNode();
     if (grade_node == nullptr) {
-        setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
-            "EditController", "Select a Grade Node before editing"
-        )));
+        setStatusMessage(
+            edit_message(QT_TRANSLATE_NOOP("EditController", "Select a Grade Node before editing"))
+        );
         return false;
     }
     if (!grade_node->enabled) {
@@ -349,14 +317,8 @@ bool EditController::acceptParameter(
     }
     if (!std::isfinite(value) || value < minimum || value > maximum) {
         setStatusMessage(edit_message(
-            QT_TRANSLATE_NOOP(
-                "EditController",
-                "%1 is outside the supported preview range"
-            ),
-            {LocalizedUiArgument::translatedText(
-                "EditController",
-                label_source
-            )}
+            QT_TRANSLATE_NOOP("EditController", "%1 is outside the supported preview range"),
+            {LocalizedUiArgument::translatedText("EditController", label_source)}
         ));
         return false;
     }

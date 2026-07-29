@@ -14,7 +14,6 @@
 #include <QFutureWatcher>
 #include <QObject>
 #include <QSet>
-#include <QSettings>
 #include <QString>
 #include <QTimer>
 #include <QVariantList>
@@ -50,19 +49,12 @@ class EditController final : public QObject {
     Q_PROPERTY(quint64 detailRetainedBytes READ detailRetainedBytes NOTIFY detailGeometryChanged)
     Q_PROPERTY(QVariantList detailTiles READ detailTiles NOTIFY detailTilesChanged)
     Q_PROPERTY(
-        bool fullResolutionPreparing
-        READ fullResolutionPreparing
-        NOTIFY fullResolutionStateChanged
+        bool fullResolutionPreparing READ fullResolutionPreparing NOTIFY fullResolutionStateChanged
     )
+    Q_PROPERTY(bool fullResolutionReady READ fullResolutionReady NOTIFY fullResolutionStateChanged)
     Q_PROPERTY(
-        bool fullResolutionReady
-        READ fullResolutionReady
-        NOTIFY fullResolutionStateChanged
-    )
-    Q_PROPERTY(
-        quint64 fullResolutionRetainedBytes
-        READ fullResolutionRetainedBytes
-        NOTIFY fullResolutionStateChanged
+        quint64 fullResolutionRetainedBytes READ fullResolutionRetainedBytes NOTIFY
+            fullResolutionStateChanged
     )
     Q_PROPERTY(bool dirty READ dirty NOTIFY dirtyChanged)
     Q_PROPERTY(bool autosavePending READ autosavePending NOTIFY autosavePendingChanged)
@@ -72,52 +64,61 @@ class EditController final : public QObject {
     Q_PROPERTY(bool canUndo READ canUndo NOTIFY historyChanged)
     Q_PROPERTY(bool canRedo READ canRedo NOTIFY historyChanged)
     Q_PROPERTY(QString photoId READ photoId NOTIFY sourceIdentityChanged)
-    Q_PROPERTY(
-        QString representationId
-        READ representationId
-        NOTIFY sourceIdentityChanged
-    )
+    Q_PROPERTY(QString representationId READ representationId NOTIFY sourceIdentityChanged)
     Q_PROPERTY(QString title READ title NOTIFY titleChanged)
     Q_PROPERTY(QString sourcePath READ sourcePath NOTIFY sourcePathChanged)
     Q_PROPERTY(QString previewSource READ previewSource NOTIFY previewSourceChanged)
     Q_PROPERTY(
-        QString provisionalPreviewSource
-        READ provisionalPreviewSource
-        NOTIFY provisionalPreviewSourceChanged
+        QString provisionalPreviewSource READ provisionalPreviewSource NOTIFY
+            provisionalPreviewSourceChanged
     )
     Q_PROPERTY(
-        QString beforePreviewSource
-        READ beforePreviewSource
-        NOTIFY beforePreviewSourceChanged
+        QString beforePreviewSource READ beforePreviewSource NOTIFY beforePreviewSourceChanged
     )
     Q_PROPERTY(QVariantMap histogram READ histogram NOTIFY histogramChanged)
-    Q_PROPERTY(
-        QVariantMap beforeHistogram
-        READ beforeHistogram
-        NOTIFY beforeHistogramChanged
-    )
+    Q_PROPERTY(QVariantMap beforeHistogram READ beforeHistogram NOTIFY beforeHistogramChanged)
     Q_PROPERTY(QString beforeErrorText READ beforeErrorText NOTIFY beforeErrorTextChanged)
+    Q_PROPERTY(bool recipeRecoveryRequired READ recipeRecoveryRequired NOTIFY recipeRecoveryChanged)
     Q_PROPERTY(
-        bool recipeRecoveryRequired
-        READ recipeRecoveryRequired
-        NOTIFY recipeRecoveryChanged
-    )
-    Q_PROPERTY(
-        QString recipeRecoveryErrorText
-        READ recipeRecoveryErrorText
-        NOTIFY recipeRecoveryChanged
+        QString recipeRecoveryErrorText READ recipeRecoveryErrorText NOTIFY recipeRecoveryChanged
     )
     Q_PROPERTY(QString statusText READ statusText NOTIFY statusTextChanged)
     Q_PROPERTY(bool opticsEnabled READ opticsEnabled WRITE setOpticsEnabled NOTIFY opticsChanged)
-    Q_PROPERTY(bool opticsDistortionEnabled READ opticsDistortionEnabled WRITE setOpticsDistortionEnabled NOTIFY opticsChanged)
-    Q_PROPERTY(bool opticsTcaEnabled READ opticsTcaEnabled WRITE setOpticsTcaEnabled NOTIFY opticsChanged)
-    Q_PROPERTY(bool opticsVignettingEnabled READ opticsVignettingEnabled WRITE setOpticsVignettingEnabled NOTIFY opticsChanged)
-    Q_PROPERTY(bool opticsAutomaticScale READ opticsAutomaticScale WRITE setOpticsAutomaticScale NOTIFY opticsChanged)
-    Q_PROPERTY(int manualOpticsDistortion READ manualOpticsDistortion WRITE setManualOpticsDistortion NOTIFY opticsChanged)
-    Q_PROPERTY(int manualOpticsTcaRedCyan READ manualOpticsTcaRedCyan WRITE setManualOpticsTcaRedCyan NOTIFY opticsChanged)
-    Q_PROPERTY(int manualOpticsTcaBlueYellow READ manualOpticsTcaBlueYellow WRITE setManualOpticsTcaBlueYellow NOTIFY opticsChanged)
-    Q_PROPERTY(int manualOpticsVignettingAmount READ manualOpticsVignettingAmount WRITE setManualOpticsVignettingAmount NOTIFY opticsChanged)
-    Q_PROPERTY(int manualOpticsVignettingMidpoint READ manualOpticsVignettingMidpoint WRITE setManualOpticsVignettingMidpoint NOTIFY opticsChanged)
+    Q_PROPERTY(
+        bool opticsDistortionEnabled READ opticsDistortionEnabled WRITE setOpticsDistortionEnabled
+            NOTIFY opticsChanged
+    )
+    Q_PROPERTY(
+        bool opticsTcaEnabled READ opticsTcaEnabled WRITE setOpticsTcaEnabled NOTIFY opticsChanged
+    )
+    Q_PROPERTY(
+        bool opticsVignettingEnabled READ opticsVignettingEnabled WRITE setOpticsVignettingEnabled
+            NOTIFY opticsChanged
+    )
+    Q_PROPERTY(
+        bool opticsAutomaticScale READ opticsAutomaticScale WRITE setOpticsAutomaticScale NOTIFY
+            opticsChanged
+    )
+    Q_PROPERTY(
+        int manualOpticsDistortion READ manualOpticsDistortion WRITE setManualOpticsDistortion
+            NOTIFY opticsChanged
+    )
+    Q_PROPERTY(
+        int manualOpticsTcaRedCyan READ manualOpticsTcaRedCyan WRITE setManualOpticsTcaRedCyan
+            NOTIFY opticsChanged
+    )
+    Q_PROPERTY(
+        int manualOpticsTcaBlueYellow READ manualOpticsTcaBlueYellow WRITE
+            setManualOpticsTcaBlueYellow NOTIFY opticsChanged
+    )
+    Q_PROPERTY(
+        int manualOpticsVignettingAmount READ manualOpticsVignettingAmount WRITE
+            setManualOpticsVignettingAmount NOTIFY opticsChanged
+    )
+    Q_PROPERTY(
+        int manualOpticsVignettingMidpoint READ manualOpticsVignettingMidpoint WRITE
+            setManualOpticsVignettingMidpoint NOTIFY opticsChanged
+    )
     Q_PROPERTY(QVariantMap opticsReceipt READ opticsReceipt NOTIFY opticsReceiptChanged)
     Q_PROPERTY(bool opticsManualProfile READ opticsManualProfile NOTIFY opticsChanged)
     Q_PROPERTY(QString opticsCameraProfile READ opticsCameraProfile NOTIFY opticsChanged)
@@ -125,26 +126,10 @@ class EditController final : public QObject {
     // A local mask belongs to the selected Grade Node instance, never to the
     // shareable adjustment graph. The compact map keeps QML insulated from
     // the persisted backend layout while all shape values remain normalized.
-    Q_PROPERTY(
-        QVariantMap selectedLocalMask
-        READ selectedLocalMask
-        NOTIFY parametersChanged
-    )
+    Q_PROPERTY(QVariantMap selectedLocalMask READ selectedLocalMask NOTIFY parametersChanged)
     // This is an in-session geometry clipboard, not a Recipe asset. A paste
     // creates the selected node's own one-mask attachment on the current photo.
-    Q_PROPERTY(
-        bool hasCopiedNodeMask
-        READ hasCopiedNodeMask
-        NOTIFY nodeMaskClipboardChanged
-    )
-    // Named mask assets are application-local geometry templates. Applying
-    // one copies it into the selected node's sole photo-local mask; a Recipe
-    // never retains a mutable asset reference.
-    Q_PROPERTY(
-        QVariantList nodeMaskAssets
-        READ nodeMaskAssets
-        NOTIFY nodeMaskAssetsChanged
-    )
+    Q_PROPERTY(bool hasCopiedNodeMask READ hasCopiedNodeMask NOTIFY nodeMaskClipboardChanged)
     // Retouch belongs to the whole photo, after every Grade Node. Unlike a
     // local mask it must remain usable even when the selected node is shared
     // or disabled.
@@ -157,120 +142,64 @@ class EditController final : public QObject {
     // already-cropped output. This is transient presentation state only; the
     // persisted v1 Recipe remains the single owner of the actual bounds.
     Q_PROPERTY(
-        bool cropToolActive
-        READ cropToolActive
-        WRITE setCropToolActive
-        NOTIFY cropToolActiveChanged
+        bool cropToolActive READ cropToolActive WRITE setCropToolActive NOTIFY cropToolActiveChanged
     )
     Q_PROPERTY(QVariantList gradeNodes READ gradeNodes NOTIFY gradeNodesChanged)
+    Q_PROPERTY(QVariantList sharedGradeNodes READ sharedGradeNodes NOTIFY sharedGradeNodesChanged)
     Q_PROPERTY(
-        QVariantList sharedGradeNodes
-        READ sharedGradeNodes
-        NOTIFY sharedGradeNodesChanged
+        int selectedGradeNodeIndex READ selectedGradeNodeIndex NOTIFY selectedGradeNodeChanged
     )
-    Q_PROPERTY(
-        int selectedGradeNodeIndex
-        READ selectedGradeNodeIndex
-        NOTIFY selectedGradeNodeChanged
-    )
-    Q_PROPERTY(
-        QString selectedGradeNodeId
-        READ selectedGradeNodeId
-        NOTIFY selectedGradeNodeChanged
-    )
-    Q_PROPERTY(
-        bool hasSelectedGradeNode
-        READ hasSelectedGradeNode
-        NOTIFY selectedGradeNodeChanged
-    )
+    Q_PROPERTY(QString selectedGradeNodeId READ selectedGradeNodeId NOTIFY selectedGradeNodeChanged)
+    Q_PROPERTY(bool hasSelectedGradeNode READ hasSelectedGradeNode NOTIFY selectedGradeNodeChanged)
     Q_PROPERTY(bool canAddGradeNode READ canAddGradeNode NOTIFY gradeNodeActionsChanged)
+    Q_PROPERTY(bool canDeleteGradeNode READ canDeleteGradeNode NOTIFY gradeNodeActionsChanged)
+    Q_PROPERTY(bool canMoveGradeNodeUp READ canMoveGradeNodeUp NOTIFY gradeNodeActionsChanged)
+    Q_PROPERTY(bool canMoveGradeNodeDown READ canMoveGradeNodeDown NOTIFY gradeNodeActionsChanged)
     Q_PROPERTY(
-        bool canDeleteGradeNode
-        READ canDeleteGradeNode
-        NOTIFY gradeNodeActionsChanged
+        bool gradeNodeEnabled READ gradeNodeEnabled WRITE setGradeNodeEnabled NOTIFY
+            gradeNodeEnabledChanged
     )
     Q_PROPERTY(
-        bool canMoveGradeNodeUp
-        READ canMoveGradeNodeUp
-        NOTIFY gradeNodeActionsChanged
+        double exposureStops READ exposureStops WRITE setExposureStops NOTIFY parametersChanged
     )
     Q_PROPERTY(
-        bool canMoveGradeNodeDown
-        READ canMoveGradeNodeDown
-        NOTIFY gradeNodeActionsChanged
+        double contrastFactor READ contrastFactor WRITE setContrastFactor NOTIFY parametersChanged
     )
     Q_PROPERTY(
-        bool gradeNodeEnabled
-        READ gradeNodeEnabled
-        WRITE setGradeNodeEnabled
-        NOTIFY gradeNodeEnabledChanged
+        double whiteBalanceTemperature READ whiteBalanceTemperature WRITE setWhiteBalanceTemperature
+            NOTIFY parametersChanged
     )
     Q_PROPERTY(
-        double exposureStops
-        READ exposureStops
-        WRITE setExposureStops
-        NOTIFY parametersChanged
+        double whiteBalanceTint READ whiteBalanceTint WRITE setWhiteBalanceTint NOTIFY
+            parametersChanged
     )
     Q_PROPERTY(
-        double contrastFactor
-        READ contrastFactor
-        WRITE setContrastFactor
-        NOTIFY parametersChanged
+        double saturationFactor READ saturationFactor WRITE setSaturationFactor NOTIFY
+            parametersChanged
     )
-    Q_PROPERTY(
-        double whiteBalanceTemperature
-        READ whiteBalanceTemperature
-        WRITE setWhiteBalanceTemperature
-        NOTIFY parametersChanged
-    )
-    Q_PROPERTY(
-        double whiteBalanceTint
-        READ whiteBalanceTint
-        WRITE setWhiteBalanceTint
-        NOTIFY parametersChanged
-    )
-    Q_PROPERTY(
-        double saturationFactor
-        READ saturationFactor
-        WRITE setSaturationFactor
-        NOTIFY parametersChanged
-    )
-    Q_PROPERTY(
-        quint64 parameterRevision
-        READ parameterRevision
-        NOTIFY parametersChanged
-    )
+    Q_PROPERTY(quint64 parameterRevision READ parameterRevision NOTIFY parametersChanged)
     Q_PROPERTY(QAbstractItemModel* toneCurvePoints READ toneCurvePoints CONSTANT)
     Q_PROPERTY(QVariantList pointColors READ pointColors NOTIFY parametersChanged)
     Q_PROPERTY(
-        QVariantList colorWarperControlPoints
-        READ colorWarperControlPoints
-        NOTIFY parametersChanged
+        QVariantList colorWarperControlPoints READ colorWarperControlPoints NOTIFY parametersChanged
     )
     Q_PROPERTY(int selectedPointColorIndex READ selectedPointColorIndex NOTIFY parametersChanged)
     Q_PROPERTY(
-        bool pointColorScopeActive
-        READ pointColorScopeActive
-        WRITE setPointColorScopeActive
-        NOTIFY pointColorScopeChanged
+        bool pointColorScopeActive READ pointColorScopeActive WRITE setPointColorScopeActive NOTIFY
+            pointColorScopeChanged
     )
+    Q_PROPERTY(bool pointColorScopeAvailable READ pointColorScopeAvailable NOTIFY parametersChanged)
     Q_PROPERTY(
-        bool pointColorScopeAvailable
-        READ pointColorScopeAvailable
-        NOTIFY parametersChanged
+        bool pointColorPickerActive READ pointColorPickerActive NOTIFY pointColorPickerActiveChanged
     )
-    Q_PROPERTY(bool pointColorPickerActive READ pointColorPickerActive NOTIFY pointColorPickerActiveChanged)
     Q_PROPERTY(bool retouchPickerActive READ retouchPickerActive NOTIFY retouchPickerActiveChanged)
     Q_PROPERTY(
-        int retouchCreationMode
-        READ retouchCreationMode
-        WRITE setRetouchCreationMode
-        NOTIFY retouchCreationModeChanged
+        int retouchCreationMode READ retouchCreationMode WRITE setRetouchCreationMode NOTIFY
+            retouchCreationModeChanged
     )
     Q_PROPERTY(
-        bool whiteBalancePickerActive
-        READ whiteBalancePickerActive
-        NOTIFY whiteBalancePickerActiveChanged
+        bool whiteBalancePickerActive READ whiteBalancePickerActive NOTIFY
+            whiteBalancePickerActiveChanged
     )
     Q_PROPERTY(bool hasToneCurve READ hasToneCurve NOTIFY toneCurveChanged)
     Q_PROPERTY(bool toneCurveEditable READ toneCurveEditable NOTIFY toneCurveChanged)
@@ -280,7 +209,7 @@ class EditController final : public QObject {
     Q_PROPERTY(double lutIntensity READ lutIntensity WRITE setLutIntensity NOTIFY parametersChanged)
     Q_PROPERTY(QAbstractItemModel* versions READ versions CONSTANT)
 
-public:
+  public:
     explicit EditController(
         std::shared_ptr<DesktopBackend> backend,
         std::shared_ptr<EditPreviewStore> preview_store,
@@ -339,7 +268,6 @@ public:
     [[nodiscard]] QString opticsLensProfile() const;
     [[nodiscard]] QVariantMap selectedLocalMask() const;
     [[nodiscard]] bool hasCopiedNodeMask() const noexcept;
-    [[nodiscard]] QVariantList nodeMaskAssets() const;
     [[nodiscard]] QVariantList retouchSpots() const;
     [[nodiscard]] QVariantList retouchStrokes() const;
     [[nodiscard]] QVariantMap photoGeometry() const;
@@ -413,23 +341,18 @@ public:
     Q_INVOKABLE void insertSharedGradeNode(const QString& layer_id);
     Q_INVOKABLE void deleteSelectedGradeNode();
     Q_INVOKABLE void moveSelectedGradeNode(int destination_index);
+    // destination: 0 = selected Grade Node, 1 = one newly inserted Grade Node.
+    // The new-node path creates, attaches, selects, and records one undo step
+    // inside the controller rather than asking QML to chain mutations.
+    Q_INVOKABLE bool createLocalMask(int kind, int destination);
     Q_INVOKABLE void setSelectedLocalMask(int kind);
     Q_INVOKABLE void copySelectedLocalMask();
     Q_INVOKABLE void pasteSelectedLocalMask();
-    Q_INVOKABLE void saveSelectedLocalMaskAsset(const QString& name);
-    Q_INVOKABLE void applySelectedLocalMaskAsset(const QString& asset_id);
-    Q_INVOKABLE void removeLocalMaskAsset(const QString& asset_id);
     Q_INVOKABLE void setSelectedLocalMaskValue(const QString& key, double value);
-    Q_INVOKABLE void setSelectedLocalMaskPoint(
-        const QString& point,
-        double normalized_x,
-        double normalized_y
-    );
-    Q_INVOKABLE void appendSelectedLocalMaskBrushPoint(
-        double normalized_x,
-        double normalized_y,
-        bool begins_stroke
-    );
+    Q_INVOKABLE void
+    setSelectedLocalMaskPoint(const QString& point, double normalized_x, double normalized_y);
+    Q_INVOKABLE void
+    appendSelectedLocalMaskBrushPoint(double normalized_x, double normalized_y, bool begins_stroke);
     Q_INVOKABLE void clearSelectedLocalMaskBrush();
     Q_INVOKABLE void setSelectedLocalMaskInverted(bool inverted);
     Q_INVOKABLE void setRetouchPickerActive(bool active);
@@ -438,88 +361,47 @@ public:
     Q_INVOKABLE void beginRetouchStroke(double normalized_x, double normalized_y);
     Q_INVOKABLE void appendRetouchStrokePoint(double normalized_x, double normalized_y);
     Q_INVOKABLE void endRetouchStroke();
-    Q_INVOKABLE void setRetouchSpotCenter(
-        int index,
-        double normalized_x,
-        double normalized_y
-    );
+    Q_INVOKABLE void setRetouchSpotCenter(int index, double normalized_x, double normalized_y);
     Q_INVOKABLE void setRetouchSpotRadius(int index, int radius_level_zero_pixels);
     Q_INVOKABLE void setRetouchSpotMode(int index, int mode);
     Q_INVOKABLE void setRetouchSpotFeather(int index, double feather);
-    Q_INVOKABLE void setRetouchSpotSourceOffset(
-        int index,
-        double offset_x_radii,
-        double offset_y_radii
-    );
+    Q_INVOKABLE void
+    setRetouchSpotSourceOffset(int index, double offset_x_radii, double offset_y_radii);
     Q_INVOKABLE void removeRetouchSpot(int index);
     Q_INVOKABLE void setRetouchStrokeRadius(int index, int radius_level_zero_pixels);
     Q_INVOKABLE void setRetouchStrokeMode(int index, int mode);
     Q_INVOKABLE void setRetouchStrokeFeather(int index, double feather);
-    Q_INVOKABLE void setRetouchStrokeSourceOffset(
-        int index,
-        double offset_x_radii,
-        double offset_y_radii
-    );
+    Q_INVOKABLE void
+    setRetouchStrokeSourceOffset(int index, double offset_x_radii, double offset_y_radii);
     Q_INVOKABLE void removeRetouchStroke(int index);
     Q_INVOKABLE void rotatePhotoClockwise();
     Q_INVOKABLE void rotatePhotoCounterClockwise();
     Q_INVOKABLE void flipPhotoHorizontally();
     Q_INVOKABLE void flipPhotoVertically();
-    Q_INVOKABLE void setCenteredPhotoCropAspectRatio(
-        double output_aspect_ratio,
-        double current_output_aspect_ratio
-    );
-    Q_INVOKABLE void setPhotoCropBounds(
-        double crop_left,
-        double crop_top,
-        double crop_right,
-        double crop_bottom
-    );
+    Q_INVOKABLE void
+    setCenteredPhotoCropAspectRatio(double output_aspect_ratio, double current_output_aspect_ratio);
+    Q_INVOKABLE void
+    setPhotoCropBounds(double crop_left, double crop_top, double crop_right, double crop_bottom);
     Q_INVOKABLE void setPhotoStraightenDegrees(double degrees);
     Q_INVOKABLE void setCropToolActive(bool active);
     Q_INVOKABLE void resetPhotoGeometry();
     Q_INVOKABLE void beginParameterEdit(const QString& parameter_key);
     Q_INVOKABLE void endParameterEdit(const QString& parameter_key);
     Q_INVOKABLE double parameterValue(const QString& parameter_key) const;
-    Q_INVOKABLE void setParameterValue(
-        const QString& parameter_key,
-        double value
-    );
-    Q_INVOKABLE void setColorGradingWheel(
-        const QString& tonal_range,
-        double hue,
-        double saturation
-    );
-    Q_INVOKABLE void setDefringeHueRange(
-        const QString& family,
-        double lower_hue,
-        double upper_hue
-    );
+    Q_INVOKABLE void setParameterValue(const QString& parameter_key, double value);
+    Q_INVOKABLE void
+    setColorGradingWheel(const QString& tonal_range, double hue, double saturation);
+    Q_INVOKABLE void setDefringeHueRange(const QString& family, double lower_hue, double upper_hue);
     Q_INVOKABLE double colorMixerValue(int band_index, const QString& component) const;
-    Q_INVOKABLE void setColorMixerValue(
-        int band_index,
-        const QString& component,
-        double value
-    );
-    Q_INVOKABLE void setColorWarperControlPoint(
-        int index,
-        double a_offset,
-        double b_offset
-    );
+    Q_INVOKABLE void setColorMixerValue(int band_index, const QString& component, double value);
+    Q_INVOKABLE void setColorWarperControlPoint(int index, double a_offset, double b_offset);
     Q_INVOKABLE void resetColorWarper();
     Q_INVOKABLE double selectiveColorValue(int target_index, int component_index) const;
-    Q_INVOKABLE void setSelectiveColorValue(
-        int target_index,
-        int component_index,
-        double value
-    );
+    Q_INVOKABLE void setSelectiveColorValue(int target_index, int component_index, double value);
     Q_INVOKABLE bool selectiveColorRelative() const noexcept;
     Q_INVOKABLE void setSelectiveColorRelative(bool relative);
-    Q_INVOKABLE void setLutResource(
-        const QString& resource_id,
-        const QString& title,
-        const QString& managed_path
-    );
+    Q_INVOKABLE void
+    setLutResource(const QString& resource_id, const QString& title, const QString& managed_path);
     Q_INVOKABLE void clearLut();
     Q_INVOKABLE QVariantList opticsProfileCandidates();
     Q_INVOKABLE void applyManualOpticsProfile(const QVariantMap& profile);
@@ -577,9 +459,9 @@ public:
     // Returns true when the window may close immediately. When an autosave is
     // required it queues the durable working snapshot and emits closeReady.
     Q_INVOKABLE bool prepareToClose();
-  Q_INVOKABLE void retranslateUi();
+    Q_INVOKABLE void retranslateUi();
 
-signals:
+  signals:
     void activeChanged();
     void busyChanged();
     void stateBusyChanged();
@@ -620,7 +502,6 @@ signals:
     void gradeNodeEnabledChanged();
     void parametersChanged();
     void nodeMaskClipboardChanged();
-    void nodeMaskAssetsChanged();
     void toneCurveChanged();
     void pointColorScopeChanged();
     void pointColorPickerActiveChanged();
@@ -629,7 +510,7 @@ signals:
     void whiteBalancePickerActiveChanged();
     void cropToolActiveChanged();
 
-private slots:
+  private slots:
     void finishStateTask();
     void finishPreviewTask();
     void finishDetailTask();
@@ -638,7 +519,7 @@ private slots:
     void startDetailRender();
     void startDetailWarmup();
 
-private:
+  private:
     struct NodeMaskClipboard final {
         std::uint8_t kind = 0;
         double x0 = 0.0;
@@ -653,22 +534,15 @@ private:
     };
 
     void applyState(BackendPhotoEditState state);
-    void setGradeStack(
-        BackendGradeStack grade_stack,
-        const QString& preferred_grade_node_id = {}
-    );
+    void setGradeStack(BackendGradeStack grade_stack, const QString& preferred_grade_node_id = {});
     [[nodiscard]] const BackendGradeNode* selectedGradeNode() const noexcept;
     [[nodiscard]] QString gradeNodeHistoryKey(const QString& key) const;
     [[nodiscard]] QString uniqueGradeNodeLabel(const QString& base) const;
-    void loadNodeMaskAssets();
-    void persistNodeMaskAssets();
+    static void initializeLocalMask(BackendGradeNode& grade_node, int kind);
     void finishActiveGesture();
     void cancelActivePreview(bool force);
     void clearSessionHistory();
-    void recordWorkingTransition(
-        const QString& key,
-        const BackendGradeStack& before
-    );
+    void recordWorkingTransition(const QString& key, const BackendGradeStack& before);
     void schedulePreview(int delay_ms);
     void maybeStartBeforePreview();
     void maybeStartDetailRender();
@@ -680,8 +554,8 @@ private:
     // arrives; Recipe/source changes still discard it immediately.
     void invalidateDetailPresentation(bool discard_tiles = true);
     void resetDetailState();
-  bool eventFilter(QObject *watched, QEvent *event) override;
-  void setStatusMessage(LocalizedUiMessage status);
+    bool eventFilter(QObject* watched, QEvent* event) override;
+    void setStatusMessage(LocalizedUiMessage status);
     void setDirty(bool dirty);
     void setAutosaveFailure(LocalizedUiMessage error);
     void clearAutosaveFailure();
@@ -716,22 +590,12 @@ private:
     void setDetailRunning(bool running);
     void setFullResolutionState(bool preparing, bool ready, quint64 retained_bytes);
     void emitBusyChange(bool previous_busy);
-    void parameterEdited(
-        const QString& key,
-        const BackendGradeStack& before
-    );
+    void parameterEdited(const QString& key, const BackendGradeStack& before);
     void opticsEdited(const QString& key, const BackendGradeStack& before);
     void notifyParametersChanged();
-    void toneCurveEdited(
-        const QString& key,
-        const BackendGradeStack& before,
-        int preview_delay_ms
-    );
-    [[nodiscard]] bool acceptParameter(
-        double value,
-        double minimum,
-        double maximum,
-        const char *label_source);
+    void toneCurveEdited(const QString& key, const BackendGradeStack& before, int preview_delay_ms);
+    [[nodiscard]] bool
+    acceptParameter(double value, double minimum, double maximum, const char* label_source);
 
     std::shared_ptr<DesktopBackend> backend_;
     std::shared_ptr<EditPreviewStore> preview_store_;
@@ -752,8 +616,6 @@ private:
     QSet<QString> active_parameter_gestures_;
     BackendGradeStack grade_stack_;
     std::optional<NodeMaskClipboard> node_mask_clipboard_;
-    std::unique_ptr<QSettings> node_mask_asset_settings_;
-    QVariantList node_mask_assets_;
     QVector<BackendSharedGradeNode> shared_grade_nodes_;
     BackendGradeStack committed_grade_stack_;
     QString base_commit_id_;
@@ -773,15 +635,14 @@ private:
     QVariantMap histogram_;
     QVariantMap before_histogram_;
     QVariantMap optics_receipt_;
-  LocalizedUiMessage before_error_message_;
-  LocalizedUiMessage detail_error_message_;
-  LocalizedUiMessage autosave_error_message_;
-  LocalizedUiMessage recipe_recovery_message_;
-  LocalizedUiMessage status_message_{
-      "EditController",
-      QT_TRANSLATE_NOOP("EditController",
-                        "Open a photo from Review to begin editing"),
-  };
+    LocalizedUiMessage before_error_message_;
+    LocalizedUiMessage detail_error_message_;
+    LocalizedUiMessage autosave_error_message_;
+    LocalizedUiMessage recipe_recovery_message_;
+    LocalizedUiMessage status_message_{
+        "EditController",
+        QT_TRANSLATE_NOOP("EditController", "Open a photo from Review to begin editing"),
+    };
     quint64 photo_generation_ = 0;
     quint64 render_revision_ = 0;
     // This advances only for user-visible recipe mutations. It lets an

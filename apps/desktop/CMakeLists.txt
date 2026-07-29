@@ -226,7 +226,9 @@ qt_add_executable(
     src/edit_geometry_controller.cpp
     src/edit_grade_node_controller.cpp
     src/edit_history_controller.cpp
+    src/edit_history_restore_projection.cpp
     src/edit_local_mask_controller.cpp
+    src/edit_mask_assignment_controller.cpp
     src/edit_optics_controller.cpp
     src/edit_persistence_coordinator.cpp
     src/edit_render_coordinator.cpp
@@ -316,9 +318,12 @@ qt_add_resources(
     FILES
         icons/add-folder.svg
         icons/before-after.svg
+        icons/brush.svg
         icons/chevron-down.svg
         icons/check.svg
         icons/clear.svg
+        icons/clone.svg
+        icons/close.svg
         icons/compare.svg
         icons/compare-side-by-side.svg
         icons/compare-stacked.svg
@@ -328,7 +333,10 @@ qt_add_resources(
         icons/duplicate.svg
         icons/edit.svg
         icons/edit-off.svg
+        icons/eraser.svg
         icons/eyedropper.svg
+        icons/eyedropper-add.svg
+        icons/eyedropper-subtract.svg
         icons/export.svg
         icons/fit-view.svg
         icons/flip-horizontal.svg
@@ -338,15 +346,25 @@ qt_add_resources(
         icons/history.svg
         icons/heart.svg
         icons/heart-filled.svg
+        icons/heal.svg
         icons/library-manage.svg
         icons/mask.svg
+        icons/mask-add.svg
+        icons/mask-color-range.svg
+        icons/mask-intersect.svg
+        icons/mask-linear.svg
+        icons/mask-luminance-range.svg
+        icons/mask-radial.svg
+        icons/mask-subtract.svg
         icons/metadata.svg
         icons/move-down.svg
         icons/move-up.svg
         icons/node-add.svg
+        icons/overlay-show.svg
         icons/pick.svg
         icons/redo.svg
         icons/reject.svg
+        icons/reset-all.svg
         icons/retouch.svg
         icons/review-grid.svg
         icons/scopes.svg
@@ -447,6 +465,7 @@ qt_add_qml_module(
         qml/PrecisionRetouchStrokeCoverage.qml
         qml/PrecisionRetouchStrokeHandle.qml
         qml/PrecisionLocalMaskTools.qml
+        qml/PrecisionMaskCreateMenu.qml
         qml/PrecisionRetouchTools.qml
         qml/PrecisionDetailSection.qml
         qml/PrecisionEffectsSection.qml
@@ -893,6 +912,41 @@ if(BUILD_TESTING)
     add_test(NAME shadow-desktop-edit-history COMMAND shadow-edit-history-test)
 
     add_executable(
+        shadow-edit-history-restore-projection-test
+        tests/edit_history_restore_projection_test.cpp
+        src/edit_history_restore_projection.cpp
+        src/edit_history_restore_projection.hpp
+        src/edit_stack.hpp
+    )
+    target_compile_features(
+        shadow-edit-history-restore-projection-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-edit-history-restore-projection-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-edit-history-restore-projection-test
+        PRIVATE Qt6::Gui
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-edit-history-restore-projection-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-edit-history-restore-projection-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-edit-history-restore-projection
+        COMMAND shadow-edit-history-restore-projection-test
+    )
+
+    add_executable(
         shadow-edit-stack-test
         tests/edit_stack_test.cpp
         src/edit_stack.hpp
@@ -1316,6 +1370,42 @@ if(BUILD_TESTING)
     )
     set_tests_properties(
         shadow-desktop-precision-lut-section-contract
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+
+    add_executable(
+        shadow-precision-mask-create-menu-contract-test
+        tests/precision_mask_create_menu_contract_test.cpp
+    )
+    target_compile_features(
+        shadow-precision-mask-create-menu-contract-test
+        PRIVATE cxx_std_20
+    )
+    target_compile_definitions(
+        shadow-precision-mask-create-menu-contract-test
+        PRIVATE SHADOW_DESKTOP_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+    target_link_libraries(
+        shadow-precision-mask-create-menu-contract-test
+        PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-precision-mask-create-menu-contract-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-precision-mask-create-menu-contract-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-precision-mask-create-menu-contract
+        COMMAND shadow-precision-mask-create-menu-contract-test
+    )
+    set_tests_properties(
+        shadow-desktop-precision-mask-create-menu-contract
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
 

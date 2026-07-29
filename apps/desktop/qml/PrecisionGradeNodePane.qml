@@ -19,6 +19,8 @@ Rectangle {
     required property color textMuted
     required property color accent
 
+    signal maskToolRequested()
+
     color: pane.panel
     PrecisionGradeNodeMenus {
         id: gradeNodeMenus
@@ -162,6 +164,35 @@ Rectangle {
                         size: 14
                     }
 
+                    ShadowIconButton {
+                        buttonSize: 30
+                        iconSize: 17
+                        source: gradeNodeRow.modelData.localMaskKind === 1
+                            ? "qrc:/icons/mask-linear.svg"
+                            : gradeNodeRow.modelData.localMaskKind === 2
+                                ? "qrc:/icons/mask-radial.svg"
+                                : gradeNodeRow.modelData.localMaskKind === 3
+                                    ? "qrc:/icons/brush.svg"
+                                    : "qrc:/icons/mask-add.svg"
+                        toolTipText: gradeNodeRow.modelData.hasLocalMask
+                            ? qsTr("Edit this node mask")
+                            : qsTr("Add a mask to this node")
+                        accessibleName: toolTipText
+                        enabled: pane.editor.active
+                            && gradeNodeRow.modelData.enabled
+                            && !pane.editor.stateBusy
+                        onClicked: {
+                            pane.editor.selectGradeNode(gradeNodeRow.index)
+                            if (gradeNodeRow.modelData.hasLocalMask) {
+                                pane.maskToolRequested()
+                            } else {
+                                nodeMaskCreateMenu.openFor(
+                                    this,
+                                    nodeMaskCreateMenu.currentNodeDestination)
+                            }
+                        }
+                    }
+
                     Switch {
                         id: rowEnabledSwitch
                         Layout.preferredWidth: 36
@@ -206,7 +237,7 @@ Rectangle {
 
                 MouseArea {
                     anchors.fill: parent
-                    anchors.rightMargin: 44
+                    anchors.rightMargin: 82
                     acceptedButtons: Qt.LeftButton | Qt.RightButton
                     cursorShape: Qt.PointingHandCursor
                     onClicked: mouse => {
@@ -247,15 +278,6 @@ Rectangle {
                 onClicked: pane.editor.deleteSelectedGradeNode()
             }
             ShadowIconButton {
-                id: clearGradeNodesButton
-                source: "qrc:/icons/clear.svg"
-                toolTipText: qsTr("Clear all Grade Nodes")
-                accessibleName: toolTipText
-                enabled: pane.editor.active
-                    && !pane.editor.stateBusy
-                onClicked: pane.editor.resetAllGradeNodes()
-            }
-            ShadowIconButton {
                 id: moveGradeNodeUpButton
                 source: "qrc:/icons/move-up.svg"
                 enabled: pane.editor.canMoveGradeNodeUp
@@ -287,11 +309,18 @@ Rectangle {
 
         Label {
             Layout.fillWidth: true
-            text: qsTr("Grade Nodes execute from top to bottom. Each node contains one complete, non-destructive grade and may reference one photo-local mask.")
+            text: qsTr("Nodes run top to bottom. A mask belongs to its node and this photo.")
             color: Theme.textSubtle
             wrapMode: Text.WordWrap
             font.pixelSize: 10
             lineHeight: 1.35
         }
+    }
+
+    PrecisionMaskCreateMenu {
+        id: nodeMaskCreateMenu
+        editor: pane.editor
+        onMaskCreated: pane.maskToolRequested()
+        onEditExistingRequested: pane.maskToolRequested()
     }
 }

@@ -119,20 +119,35 @@ Rectangle {
                 anchors.fill: parent
                 anchors.leftMargin: 12
                 anchors.rightMargin: 12
-                spacing: 4
+                spacing: 8
 
                 ShadowIconButton {
-                    source: "qrc:/icons/mask.svg"
+                    id: maskToolButton
+                    buttonSize: 34
+                    iconSize: 19
+                    source: "qrc:/icons/mask-add.svg"
                     selected: inspector.activeToolMode === inspector.toolMask
-                    toolTipText: qsTr("Mask")
+                    toolTipText: selected
+                        ? qsTr("Finish mask editing")
+                        : qsTr("Create or edit a node mask")
                     accessibleName: toolTipText
                     enabled: inspector.editor.active
                         && inspector.editor.hasSelectedGradeNode
                         && !inspector.editor.stateBusy
-                    onClicked: inspector.toolModeRequested(inspector.toolMask)
+                    onClicked: {
+                        if (selected) {
+                            inspector.toolModeRequested(inspector.toolMask)
+                        } else {
+                            maskCreateMenu.openFor(
+                                maskToolButton,
+                                maskCreateMenu.newNodeDestination)
+                        }
+                    }
                 }
 
                 ShadowIconButton {
+                    buttonSize: 34
+                    iconSize: 19
                     source: "qrc:/icons/crop.svg"
                     selected: inspector.activeToolMode === inspector.toolCrop
                     toolTipText: qsTr("Crop and straighten")
@@ -144,6 +159,8 @@ Rectangle {
                 }
 
                 ShadowIconButton {
+                    buttonSize: 34
+                    iconSize: 19
                     source: "qrc:/icons/retouch.svg"
                     selected: inspector.activeToolMode === inspector.toolRepair
                     toolTipText: qsTr("Repair")
@@ -165,6 +182,8 @@ Rectangle {
 
                 ShadowIconButton {
                     visible: inspector.activeToolMode !== inspector.toolNone
+                    buttonSize: 34
+                    iconSize: 19
                     source: "qrc:/icons/check.svg"
                     variant: ShadowIconButton.Tinted
                     toolTipText: qsTr("Exit this tool and keep its adjustments")
@@ -175,7 +194,9 @@ Rectangle {
 
                 ShadowIconButton {
                     visible: inspector.activeToolMode === inspector.toolNone
-                    source: "qrc:/icons/clear.svg"
+                    buttonSize: 34
+                    iconSize: 19
+                    source: "qrc:/icons/reset-all.svg"
                     toolTipText: qsTr("Reset all adjustments · Undo available")
                     accessibleName: toolTipText
                     enabled: inspector.editor.active
@@ -447,6 +468,10 @@ Rectangle {
                             visible: inspector.activeToolMode === inspector.toolMask
                             inspector: inspector
                             currentTabIndex: 0
+                            onCreateMaskRequested: anchorItem =>
+                                maskCreateMenu.openFor(
+                                anchorItem,
+                                maskCreateMenu.currentNodeDestination)
                         }
 
                         PrecisionGeometryTools {
@@ -470,6 +495,19 @@ Rectangle {
                     }
                 }
             }
+        }
+    }
+
+    PrecisionMaskCreateMenu {
+        id: maskCreateMenu
+        editor: inspector.editor
+        onMaskCreated: {
+            if (inspector.activeToolMode !== inspector.toolMask)
+                inspector.toolModeRequested(inspector.toolMask)
+        }
+        onEditExistingRequested: {
+            if (inspector.activeToolMode !== inspector.toolMask)
+                inspector.toolModeRequested(inspector.toolMask)
         }
     }
 

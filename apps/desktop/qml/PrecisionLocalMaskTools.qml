@@ -5,19 +5,34 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
-// A Grade Node owns at most one spatial-mask attachment. It is intentionally a
-// small separate inspector region: the node's normal controls stay complete,
-// while its one mask can be created, adjusted, or removed without growing a
-// nested mask/layer tree.
+// The tool edits the selected node's one current selector. Creation and node
+// assignment live in PrecisionMaskCreateMenu; this surface owns only mask
+// geometry and in-session copy/paste.
 ColumnLayout {
     id: localMask
 
     required property var inspector
     required property int currentTabIndex
 
+    signal createMaskRequested(var anchorItem)
+
     readonly property var mask: inspector.editor.selectedLocalMask
     readonly property int kind: Number(mask.kind || 0)
     readonly property bool activeMask: kind >= 1 && kind <= 3
+    readonly property bool nodeEditable: inspector.editor.active
+        && inspector.editor.hasSelectedGradeNode
+        && inspector.editor.gradeNodeEnabled
+        && !inspector.editor.stateBusy
+    readonly property string kindLabel: kind === 1
+        ? qsTr("Linear gradient")
+        : kind === 2 ? qsTr("Radial gradient")
+        : kind === 3 ? qsTr("Brush")
+        : qsTr("No mask")
+    readonly property url kindIcon: kind === 1
+        ? "qrc:/icons/mask-linear.svg"
+        : kind === 2 ? "qrc:/icons/mask-radial.svg"
+        : kind === 3 ? "qrc:/icons/brush.svg"
+        : "qrc:/icons/mask-add.svg"
 
     spacing: 8
 
@@ -25,196 +40,118 @@ ColumnLayout {
         Layout.fillWidth: true
         visible: localMask.currentTabIndex === 0
         title: qsTr("NODE MASK")
-        summary: localMask.activeMask
-            ? (localMask.kind === 1
-                ? qsTr("Linear")
-                : localMask.kind === 2 ? qsTr("Radial") : qsTr("Brush"))
-            : qsTr("None")
-        toolTipText: qsTr("Limit this entire Grade Node with one editable photo-local mask.")
-        sectionEnabled: localMask.inspector.editor.active
-            && localMask.inspector.editor.hasSelectedGradeNode
-            && !localMask.inspector.editor.stateBusy
+        summary: localMask.kindLabel
+        toolTipText: qsTr("Edit the selector attached to this Grade Node.")
+        sectionEnabled: localMask.nodeEditable
 
         RowLayout {
             Layout.fillWidth: true
             Layout.leftMargin: 14
             Layout.rightMargin: 14
-            spacing: 6
+            spacing: 8
 
-            ShadowButton {
-                compact: true
-                Layout.fillWidth: true
-                text: qsTr("Linear")
-                selected: localMask.kind === 1
-                enabled: localMask.inspector.editor.active
-                    && localMask.inspector.editor.hasSelectedGradeNode
-                    && !localMask.inspector.editor.stateBusy
-                toolTipText: qsTr("Limit this entire Grade Node along a straight gradient")
-                onClicked: localMask.inspector.editor.setSelectedLocalMask(1)
+            Rectangle {
+                Layout.preferredWidth: 36
+                Layout.preferredHeight: 36
+                radius: 7
+                color: Theme.accentSurfaceQuiet
+
+                ShadowIcon {
+                    anchors.centerIn: parent
+                    source: localMask.kindIcon
+                    color: localMask.inspector.accent
+                    size: 20
+                }
             }
 
-            ShadowButton {
-                compact: true
+            Label {
                 Layout.fillWidth: true
-                text: qsTr("Radial")
-                selected: localMask.kind === 2
-                enabled: localMask.inspector.editor.active
-                    && localMask.inspector.editor.hasSelectedGradeNode
-                    && !localMask.inspector.editor.stateBusy
-                toolTipText: qsTr("Limit this entire Grade Node inside a feathered ellipse")
-                onClicked: localMask.inspector.editor.setSelectedLocalMask(2)
+                text: localMask.kindLabel
+                color: Theme.textPrimary
+                font.pixelSize: 11
+                font.weight: Font.DemiBold
             }
 
-            ShadowButton {
-                compact: true
-                Layout.fillWidth: true
-                text: qsTr("Brush")
-                selected: localMask.kind === 3
-                enabled: localMask.inspector.editor.active
-                    && localMask.inspector.editor.hasSelectedGradeNode
-                    && !localMask.inspector.editor.stateBusy
-                toolTipText: qsTr("Paint the one mask that limits this entire Grade Node")
-                onClicked: localMask.inspector.editor.setSelectedLocalMask(3)
+            ShadowIconButton {
+                visible: localMask.kind === 3
+                buttonSize: 36
+                iconSize: 19
+                source: "qrc:/icons/eraser.svg"
+                toolTipText: qsTr("Clear brush strokes")
+                accessibleName: toolTipText
+                enabled: localMask.nodeEditable
+                    && (localMask.mask.brushPoints || []).length > 0
+                onClicked:
+                    localMask.inspector.editor.clearSelectedLocalMaskBrush()
             }
 
             ShadowIconButton {
                 visible: localMask.activeMask
+                buttonSize: 36
+                iconSize: 19
                 source: "qrc:/icons/trash.svg"
-                toolTipText: qsTr("Remove node mask")
+                variant: ShadowIconButton.Danger
+                toolTipText: qsTr("Remove this node mask")
                 accessibleName: toolTipText
-                enabled: localMask.inspector.editor.active
-                    && localMask.inspector.editor.hasSelectedGradeNode
-                    && !localMask.inspector.editor.stateBusy
+                enabled: localMask.nodeEditable
                 onClicked: localMask.inspector.editor.setSelectedLocalMask(0)
             }
+        }
+
+        ShadowButton {
+            id: createMaskButton
+
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            visible: !localMask.activeMask
+            text: qsTr("Create mask")
+            variant: ShadowButton.Secondary
+            enabled: localMask.nodeEditable
+            onClicked: localMask.createMaskRequested(createMaskButton)
+        }
+
+        ShadowButton {
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            visible: !localMask.activeMask
+                && localMask.inspector.editor.hasCopiedNodeMask
+            text: qsTr("Paste as mask")
+            variant: ShadowButton.Ghost
+            enabled: localMask.nodeEditable
+            toolTipText: qsTr("Attach the copied mask geometry to this node")
+            onClicked:
+                localMask.inspector.editor.pasteSelectedLocalMask()
         }
 
         RowLayout {
             Layout.fillWidth: true
             Layout.leftMargin: 14
             Layout.rightMargin: 14
-            spacing: 6
+            visible: localMask.activeMask
+            spacing: 8
 
             ShadowButton {
                 compact: true
                 Layout.fillWidth: true
-                visible: localMask.activeMask
-                text: qsTr("Copy mask")
-                enabled: localMask.inspector.editor.active
-                    && !localMask.inspector.editor.stateBusy
-                toolTipText: qsTr("Copy this normalized Node Mask geometry for another photo or Grade Node. Adjustment controls are not copied.")
-                onClicked: localMask.inspector.editor.copySelectedLocalMask()
+                text: qsTr("Copy")
+                toolTipText: qsTr("Copy this mask geometry")
+                enabled: localMask.nodeEditable
+                onClicked:
+                    localMask.inspector.editor.copySelectedLocalMask()
             }
 
             ShadowButton {
                 compact: true
                 Layout.fillWidth: true
-                text: qsTr("Paste mask")
-                enabled: localMask.inspector.editor.active
+                text: qsTr("Replace from clipboard")
+                toolTipText: qsTr("Replace this mask with copied geometry · Undo available")
+                enabled: localMask.nodeEditable
                     && localMask.inspector.editor.hasCopiedNodeMask
-                    && !localMask.inspector.editor.stateBusy
-                toolTipText: qsTr("Replace this Grade Node's one mask with the copied geometry. The node keeps its own adjustments and Recipe.")
-                onClicked: localMask.inspector.editor.pasteSelectedLocalMask()
+                onClicked:
+                    localMask.inspector.editor.pasteSelectedLocalMask()
             }
-        }
-
-        ColumnLayout {
-            Layout.fillWidth: true
-            Layout.leftMargin: 14
-            Layout.rightMargin: 14
-            spacing: 5
-
-            Label {
-                text: qsTr("MASK ASSETS")
-                color: Theme.textMuted
-                font.pixelSize: 9
-                font.weight: Font.DemiBold
-                font.letterSpacing: 0.7
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 6
-
-                ComboBox {
-                    id: assetBox
-                    Layout.fillWidth: true
-                    model: localMask.inspector.editor.nodeMaskAssets
-                    textRole: "name"
-                    valueRole: "id"
-                    enabled: model.length > 0
-                    implicitHeight: Theme.controlHeight
-                    contentItem: Label {
-                        leftPadding: 10
-                        rightPadding: 28
-                        verticalAlignment: Text.AlignVCenter
-                        text: assetBox.displayText
-                        color: assetBox.enabled ? Theme.textPrimary : Theme.textMuted
-                        font.pixelSize: 11
-                        elide: Text.ElideRight
-                    }
-                    background: Rectangle {
-                        color: Theme.control
-                        radius: Theme.compactControlRadius
-                        border.width: 1
-                        border.color: assetBox.activeFocus ? Theme.focusRing : Theme.border
-                    }
-                }
-
-                ShadowIconButton {
-                    source: "qrc:/icons/node-add.svg"
-                    toolTipText: qsTr("Save this node mask geometry as a named local asset")
-                    accessibleName: toolTipText
-                    enabled: localMask.activeMask
-                        && localMask.inspector.editor.active
-                        && !localMask.inspector.editor.stateBusy
-                    onClicked: {
-                        assetNameField.text = "";
-                        assetNamePopup.open();
-                        assetNameField.forceActiveFocus();
-                    }
-                }
-
-                ShadowButton {
-                    compact: true
-                    text: qsTr("Apply")
-                    toolTipText: qsTr("Copy this asset into the selected Grade Node's one mask. Existing photo edits remain independent.")
-                    enabled: assetBox.currentIndex >= 0
-                        && localMask.inspector.editor.active
-                        && !localMask.inspector.editor.stateBusy
-                    onClicked: localMask.inspector.editor.applySelectedLocalMaskAsset(
-                        String(assetBox.currentValue || ""))
-                }
-
-                ShadowIconButton {
-                    visible: assetBox.currentIndex >= 0
-                    source: "qrc:/icons/trash.svg"
-                    toolTipText: qsTr("Remove selected local mask asset")
-                    accessibleName: toolTipText
-                    variant: ShadowIconButton.Ghost
-                    onClicked: localMask.inspector.editor.removeLocalMaskAsset(
-                        String(assetBox.currentValue || ""))
-                }
-            }
-
-            Label {
-                Layout.fillWidth: true
-                text: qsTr("Assets save normalized geometry only. Applying one replaces this node’s single mask and never changes other photos.")
-                color: Theme.textMuted
-                font.pixelSize: 10
-                wrapMode: Text.WordWrap
-            }
-        }
-
-        Label {
-            Layout.fillWidth: true
-            Layout.leftMargin: 14
-            Layout.rightMargin: 14
-            visible: !localMask.activeMask
-            text: qsTr("Choose one mask to limit this complete adjustment node.")
-            color: Theme.textMuted
-            font.pixelSize: 10
-            wrapMode: Text.WordWrap
         }
 
         Repeater {
@@ -229,8 +166,16 @@ ColumnLayout {
                     ? [
                         { "key": "x0", "name": qsTr("Center X") },
                         { "key": "y0", "name": qsTr("Center Y") },
-                        { "key": "radiusX", "name": qsTr("Radius X"), "from": 0.01 },
-                        { "key": "radiusY", "name": qsTr("Radius Y"), "from": 0.01 },
+                        {
+                            "key": "radiusX",
+                            "name": qsTr("Width"),
+                            "from": 0.01
+                        },
+                        {
+                            "key": "radiusY",
+                            "name": qsTr("Height"),
+                            "from": 0.01
+                        },
                         { "key": "feather", "name": qsTr("Feather") }
                     ]
                     : localMask.kind === 3
@@ -248,8 +193,10 @@ ColumnLayout {
                             }
                         ]
                     : []
+
             delegate: ShadowSlider {
                 required property var modelData
+
                 Layout.fillWidth: true
                 Layout.leftMargin: 14
                 Layout.rightMargin: 14
@@ -264,14 +211,16 @@ ColumnLayout {
                 displayMultiplier: 100
                 suffix: "%"
                 value: Number(localMask.mask[modelData.key] || 0)
-                enabled: localMask.inspector.editor.active
-                    && !localMask.inspector.editor.stateBusy
-                onGestureStarted: localMask.inspector.editor.beginParameterEdit(
-                    "local_mask/" + modelData.key)
-                onEdited: value => localMask.inspector.editor.setSelectedLocalMaskValue(
-                    modelData.key, value)
-                onGestureFinished: localMask.inspector.editor.endParameterEdit(
-                    "local_mask/" + modelData.key)
+                enabled: localMask.nodeEditable
+                onGestureStarted:
+                    localMask.inspector.editor.beginParameterEdit(
+                        "local_mask/" + modelData.key)
+                onEdited: value =>
+                    localMask.inspector.editor.setSelectedLocalMaskValue(
+                        modelData.key, value)
+                onGestureFinished:
+                    localMask.inspector.editor.endParameterEdit(
+                        "local_mask/" + modelData.key)
             }
         }
 
@@ -289,26 +238,18 @@ ColumnLayout {
                 font.pixelSize: 10
             }
 
-            ShadowIconButton {
-                visible: localMask.kind === 3
-                source: "qrc:/icons/clear.svg"
-                toolTipText: qsTr("Clear brush strokes")
-                accessibleName: toolTipText
-                enabled: localMask.inspector.editor.active
-                    && !localMask.inspector.editor.stateBusy
-                    && (localMask.mask.brushPoints || []).length > 0
-                onClicked: localMask.inspector.editor.clearSelectedLocalMaskBrush()
-            }
-
             Switch {
                 id: invertSwitch
-                Layout.preferredWidth: 34
-                Layout.preferredHeight: 20
+
+                Layout.preferredWidth: 36
+                Layout.preferredHeight: 22
                 checked: Boolean(localMask.mask.inverted)
-                enabled: localMask.inspector.editor.active
-                    && !localMask.inspector.editor.stateBusy
+                enabled: localMask.nodeEditable
                 Accessible.name: qsTr("Invert node mask")
-                onClicked: localMask.inspector.editor.setSelectedLocalMaskInverted(checked)
+                onClicked:
+                    localMask.inspector.editor.setSelectedLocalMaskInverted(
+                        checked)
+
                 indicator: Rectangle {
                     implicitWidth: 34
                     implicitHeight: 18
@@ -319,6 +260,7 @@ ColumnLayout {
                         ? Theme.switchOnSurface : Theme.switchOffSurface
                     border.color: invertSwitch.checked
                         ? Theme.switchOnBorder : Theme.switchOffBorder
+
                     Rectangle {
                         width: 12
                         height: 12
@@ -330,87 +272,6 @@ ColumnLayout {
                     }
                 }
                 contentItem: Item {}
-            }
-        }
-    }
-
-    Popup {
-        id: assetNamePopup
-        parent: Overlay.overlay
-        x: Math.round((parent.width - width) / 2)
-        y: Math.round((parent.height - height) / 2)
-        width: Math.min(340, parent.width - 40)
-        padding: 16
-        modal: true
-        focus: true
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-
-        background: Rectangle {
-            color: Theme.panelRaised
-            radius: Theme.controlRadius
-            border.width: 1
-            border.color: Theme.borderStrong
-        }
-
-        contentItem: ColumnLayout {
-            spacing: 12
-
-            Label {
-                text: qsTr("SAVE MASK ASSET")
-                color: Theme.textPrimary
-                font.pixelSize: 11
-                font.weight: Font.DemiBold
-                font.letterSpacing: 0.8
-            }
-
-            Label {
-                Layout.fillWidth: true
-                text: qsTr("A matching name updates that asset. Applied masks stay as independent Recipe snapshots.")
-                color: Theme.textMuted
-                font.pixelSize: 10
-                wrapMode: Text.WordWrap
-            }
-
-            TextField {
-                id: assetNameField
-                Layout.fillWidth: true
-                placeholderText: qsTr("Asset name")
-                color: Theme.textPrimary
-                placeholderTextColor: Theme.textPlaceholder
-                selectByMouse: true
-                background: Rectangle {
-                    color: Theme.control
-                    radius: Theme.compactControlRadius
-                    border.width: 1
-                    border.color: assetNameField.activeFocus
-                        ? Theme.focusRing : Theme.border
-                }
-                onAccepted: {
-                    if (text.trim().length > 0) {
-                        localMask.inspector.editor.saveSelectedLocalMaskAsset(text);
-                        assetNamePopup.close();
-                    }
-                }
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                Item { Layout.fillWidth: true }
-                ShadowButton {
-                    text: qsTr("CANCEL")
-                    variant: ShadowButton.Ghost
-                    onClicked: assetNamePopup.close()
-                }
-                ShadowButton {
-                    text: qsTr("SAVE")
-                    variant: ShadowButton.Primary
-                    enabled: assetNameField.text.trim().length > 0
-                    onClicked: {
-                        localMask.inspector.editor.saveSelectedLocalMaskAsset(
-                            assetNameField.text);
-                        assetNamePopup.close();
-                    }
-                }
             }
         }
     }
