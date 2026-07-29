@@ -54,6 +54,7 @@ enum class WarmLayerMaskKind : std::uint32_t {
     full_frame = 0U,
     linear_gradient = 1U,
     radial_gradient = 2U,
+    brush = 3U,
 };
 
 struct WarmLayerBlendParameters final {
@@ -75,9 +76,27 @@ struct WarmLayerBlendParameters final {
     float radius_x = 0.0F;
     float radius_y = 0.0F;
     float feather = 0.0F;
+    std::uint32_t brush_grid_columns = 0U;
+    std::uint32_t brush_grid_rows = 0U;
+    std::uint32_t brush_capsule_count = 0U;
+    std::uint32_t brush_reference_count = 0U;
 };
 
-static_assert(sizeof(WarmLayerBlendParameters) == 72U);
+struct WarmBrushCapsule final {
+    float x0 = 0.0F;
+    float y0 = 0.0F;
+    float x1 = 0.0F;
+    float y1 = 0.0F;
+};
+
+struct WarmBrushCellRange final {
+    std::uint32_t offset = 0U;
+    std::uint32_t count = 0U;
+};
+
+static_assert(sizeof(WarmLayerBlendParameters) == 88U);
+static_assert(sizeof(WarmBrushCapsule) == 16U);
+static_assert(sizeof(WarmBrushCellRange) == 8U);
 
 // Capture sharpening is evaluated in log luminance, matching the CPU technical-detail
 // contract. The two scalar buffers required by its separable Gaussian stay resident beside the
@@ -217,6 +236,8 @@ inline constexpr bool warm_kernel_record =
 static_assert(warm_kernel_record<WarmDisplayParameters>);
 static_assert(warm_kernel_record<WarmStatus>);
 static_assert(warm_kernel_record<WarmLayerBlendParameters>);
+static_assert(warm_kernel_record<WarmBrushCapsule>);
+static_assert(warm_kernel_record<WarmBrushCellRange>);
 static_assert(warm_kernel_record<WarmDenoiseParameters>);
 static_assert(warm_kernel_record<WarmSharpenParameters>);
 static_assert(warm_kernel_record<WarmTextureParameters>);
@@ -231,6 +252,8 @@ static_assert(warm_kernel_record<WarmSelectiveToneParameters>);
 static_assert(alignof(WarmDisplayParameters) == alignof(std::uint32_t));
 static_assert(alignof(WarmStatus) == alignof(std::uint32_t));
 static_assert(alignof(WarmLayerBlendParameters) == alignof(std::uint32_t));
+static_assert(alignof(WarmBrushCapsule) == alignof(std::uint32_t));
+static_assert(alignof(WarmBrushCellRange) == alignof(std::uint32_t));
 static_assert(alignof(WarmDenoiseParameters) == alignof(std::uint32_t));
 static_assert(alignof(WarmSharpenParameters) == alignof(std::uint32_t));
 static_assert(alignof(WarmTextureParameters) == alignof(std::uint32_t));
@@ -247,6 +270,7 @@ static_assert(offsetof(WarmDisplayParameters, retain_linear) == 12U);
 static_assert(offsetof(WarmStatus, earliest_step) == 4U);
 static_assert(offsetof(WarmLayerBlendParameters, full_width) == 24U);
 static_assert(offsetof(WarmLayerBlendParameters, opacity) == 40U);
+static_assert(offsetof(WarmLayerBlendParameters, brush_grid_columns) == 72U);
 static_assert(offsetof(WarmDenoiseParameters, luminance_strength) == 16U);
 static_assert(offsetof(WarmDenoiseParameters, red_luminance) == 32U);
 static_assert(offsetof(WarmSharpenParameters, sigma_x) == 16U);

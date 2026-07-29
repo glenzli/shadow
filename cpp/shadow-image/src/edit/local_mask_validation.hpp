@@ -4,6 +4,8 @@
 
 namespace shadow::image::detail {
 
+void validate_local_mask(const LocalMask& mask);
+
 // Shared admission for CPU execution and resident GPU layer lowering. It validates every layer
 // and enclosed node, including bypassed content, then returns the full-image coordinate space used
 // by normalized masks.

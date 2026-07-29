@@ -35,6 +35,7 @@ namespace {
 struct PreparedWarmLayer final {
     std::size_t plan_index = 0U;
     PreparedWarmTransaction transaction;
+    RetainedMetalBuffer brush_index_buffer;
 };
 
 [[nodiscard]] bool force_test_failure() noexcept {
@@ -124,10 +125,29 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu_layers(
         if (!preparation.transaction.has_value()) {
             return failed(std::move(preparation.diagnostic));
         }
+        RetainedMetalBuffer brush_index_buffer;
+        if (entry.brush_index.has_value()) {
+            auto buffer_attempt = resident.acquire_brush_index_buffer(
+                entry.brush_index->words,
+                cancellation
+            );
+            if (buffer_attempt.cancelled) {
+                return cancelled();
+            }
+            if (!buffer_attempt.buffer) {
+                return failed(
+                    buffer_attempt.diagnostic.empty()
+                        ? "resident Metal could not upload the brush spatial index"
+                        : std::move(buffer_attempt.diagnostic)
+                );
+            }
+            brush_index_buffer = std::move(buffer_attempt.buffer);
+        }
         prepared_layers.push_back(
             PreparedWarmLayer{
                 .plan_index = index,
                 .transaction = std::move(*preparation.transaction),
+                .brush_index_buffer = std::move(brush_index_buffer),
             }
         );
     }
@@ -260,11 +280,32 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu_layers(
             }
 
             if (entry.needs_blend) {
+                const WarmGpuBrushIndex* brush_index =
+                    entry.brush_index.has_value() ? &*entry.brush_index : nullptr;
+                id<MTLBuffer> brush_buffer =
+                    layer.brush_index_buffer
+                    ? layer.brush_index_buffer.get()
+                    : slot.before_operations;
                 [encoder setComputePipelineState:context.layer_blend_pipeline()];
                 [encoder setBuffer:slot.layer_before offset:0U atIndex:0U];
                 [encoder setBuffer:current offset:0U atIndex:1U];
                 [encoder setBytes:&entry.blend length:sizeof(entry.blend) atIndex:2U];
                 [encoder setBuffer:slot.status offset:0U atIndex:3U];
+                [encoder setBuffer:brush_buffer
+                            offset:brush_index == nullptr
+                                ? 0U
+                                : brush_index->capsule_offset_bytes
+                           atIndex:4U];
+                [encoder setBuffer:brush_buffer
+                            offset:brush_index == nullptr
+                                ? 0U
+                                : brush_index->cell_range_offset_bytes
+                           atIndex:5U];
+                [encoder setBuffer:brush_buffer
+                            offset:brush_index == nullptr
+                                ? 0U
+                                : brush_index->reference_offset_bytes
+                           atIndex:6U];
                 dispatch_warm_gpu_raster(
                     encoder,
                     context.layer_blend_pipeline(),

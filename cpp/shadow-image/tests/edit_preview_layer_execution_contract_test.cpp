@@ -100,7 +100,7 @@ void supported_layers_publish_the_effective_resident_route() {
     }
 }
 
-void brush_layers_fall_back_atomically_and_forced_metal_fails_closed() {
+void brush_layers_use_resident_metal_and_failure_replays_atomically() {
     const RetainedRgbSession session(processed_linear_gradient());
     const auto warm = image::prepare_warm_edit_preview(session, 96U);
     const std::array brush_layers{
@@ -125,8 +125,21 @@ void brush_layers_fall_back_atomically_and_forced_metal_fails_closed() {
             },
         },
     };
-    {
+    if (warm.gpu_stats().resident) {
+        {
+            const ScopedEnvironment forced_metal("SHADOW_IMAGE_ACCELERATION", "metal");
+            const auto metal = warm.render_jpeg_with_analysis_layers(brush_layers, 90U);
+            expect(
+                metal.execution.valid()
+                    && metal.execution.adjustment_backend == image::EditPreviewBackend::metal
+                    && metal.execution.display_backend == image::EditPreviewBackend::metal
+                    && metal.execution.fused_pipeline && !metal.execution.adjustment_fell_back
+                    && !metal.execution.display_fell_back,
+                "continuous brush layers publish one fused resident Metal receipt"
+            );
+        }
         const ScopedEnvironment automatic("SHADOW_IMAGE_ACCELERATION", "auto");
+        const ScopedEnvironment injected_failure("SHADOW_TEST_WARM_METAL_FORCE_FAILURE", "1");
         const auto fallback = warm.render_jpeg_with_analysis_layers(brush_layers, 90U);
         expect(
             fallback.execution.valid()
@@ -134,20 +147,23 @@ void brush_layers_fall_back_atomically_and_forced_metal_fails_closed() {
                 && fallback.execution.display_backend == image::EditPreviewBackend::cpu
                 && fallback.execution.adjustment_fell_back && fallback.execution.display_fell_back
                 && !fallback.execution.diagnostic.empty(),
-            "an unsupported brush layer replays adjustment and display atomically on CPU"
+            "a failed indexed brush transaction replays adjustment and display atomically on CPU"
         );
-    }
-    if (warm.gpu_stats().resident) {
         try {
             const ScopedEnvironment forced_metal("SHADOW_IMAGE_ACCELERATION", "metal");
             static_cast<void>(warm.render_jpeg_layers(brush_layers, 90U));
-            expect(false, "forced Metal must reject an unsupported brush layer");
+            expect(false, "forced Metal must reject an injected brush transaction failure");
         } catch (const image::EditError& error) {
             expect(
                 error.code() == image::EditErrorCode::backend_failure,
-                "forced brush Metal rejection preserves typed backend semantics"
+                "forced brush Metal failure preserves typed backend semantics"
             );
         }
+    } else {
+        expect(
+            std::getenv("SHADOW_TEST_REQUIRE_WARM_METAL") == nullptr,
+            "resident indexed brush Metal was required but unavailable"
+        );
     }
 }
 
@@ -155,6 +171,6 @@ void brush_layers_fall_back_atomically_and_forced_metal_fails_closed() {
 
 int main() {
     supported_layers_publish_the_effective_resident_route();
-    brush_layers_fall_back_atomically_and_forced_metal_fails_closed();
+    brush_layers_use_resident_metal_and_failure_replays_atomically();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

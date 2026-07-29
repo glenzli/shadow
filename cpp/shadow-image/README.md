@@ -225,7 +225,7 @@ Decoder contract tests follow the production responsibilities instead of one agg
 - `tests/edit_preview_execution_contract_test.cpp` owns output analysis, cancellation, backend
   receipts, and execution identity.
 - `tests/edit_preview_layer_execution_contract_test.cpp` owns fused resident layer receipts,
-  atomic CPU replay, and forced-backend failure for masks not yet admitted by Metal.
+  continuous-brush routing, atomic CPU replay, and forced-backend failure semantics.
 - `tests/detail_tile_session_contract_test.cpp` owns one-time source preparation, retained-source
   immutability, exact crop coordinates, render-local edit isolation, resident Metal tile reuse,
   and whole-tile CPU fallback receipts.
@@ -234,7 +234,8 @@ Decoder contract tests follow the production responsibilities instead of one agg
 - `tests/detail_tile_seam_contract_test.cpp` owns full-versus-irregular tile equivalence for
   pixel-local, accumulated-neighborhood, and guided selective-tone execution.
 - `tests/detail_tile_layer_seam_contract_test.cpp` owns full-versus-irregular tile equivalence and
-  effective resident-Metal routing for opacity, linear/radial masks, and creative detail.
+  effective resident-Metal routing for opacity, linear/radial/continuous-brush masks, and creative
+  detail.
 - `tests/detail_tile_validation_contract_test.cpp` owns apron/allocation limits, rectangle and plan
   rejection order, overflow safety, and metadata preflight before pixel I/O.
 - `tests/detail_tile_contract_test_support.hpp` owns only their synthetic decode session, source
@@ -402,12 +403,16 @@ side-table leases, and owns the shared operation-buffer offsets. Its paired
 `warm_edit_gpu_transaction_encoder.*` binds and encodes that prepared plan without submitting or
 reading back a command, so ordinary renders and sequential masked layers can share one execution
 contract.
+`src/proxy/warm_edit_gpu_brush_index.*` converts each authored stroke into continuous segment
+capsules (retaining point capsules only for isolated strokes) and builds one bounded CSR grid in
+full-image coordinates. The exact packed words are cacheable as one immutable resident buffer;
+per-pixel Metal work examines only the current cell's candidates instead of every authored point.
 `src/proxy/warm_edit_gpu_layer_plan.*` is the portable layer-composition admission and lowering
-owner. It maps opacity, unmasked layers, and normalized linear/radial gradients to the mirrored
-Metal blend ABI; active brush masks fail closed until their indexed continuous-stroke stage is
-available. `src/proxy/warm_edit_gpu_layer_dispatcher.*` executes every admitted layer
-sequentially in one command buffer, snapshots only layers that require blending, preserves the
-settled linear analysis result, and performs one final RGB8 readback.
+owner. It maps opacity, unmasked layers, normalized linear/radial gradients, and indexed
+continuous brushes to the mirrored Metal blend ABI. `src/proxy/warm_edit_gpu_layer_dispatcher.*`
+executes every admitted layer sequentially in one command buffer, snapshots only layers that
+require blending, leases exact brush-index resources, preserves the settled linear analysis
+result, and performs one final RGB8 readback.
 `src/proxy/warm_edit_gpu_stage_encoder.*` owns stage-specific resource admission, Metal kernel
 order, and intermediate-buffer selection. `src/proxy/warm_edit_gpu_dispatcher.*` packs the
 prepared transaction into one command buffer, interprets status, and performs the single final
@@ -423,10 +428,12 @@ Selective Tone and composed-stage children own opt-in CPU-versus-resident-Metal 
 the detail-tile seam contract proves both one guided mask and a composed Selective Tone,
 capture-sharpening, and full-resolution Texture/Clarity/Local Contrast plan remain invariant across
 apron-expanded tiles and confirms that the composed plan uses resident Metal when available.
-The layer-composition child owns opacity/gradient CPU parity, deliberate brush decline, and the
-opt-in `SHADOW_TEST_WARM_LAYER_BENCHMARK`; the focused detail-tile layer seam contract verifies
-that the same normalized masks and creative-detail apron produce byte-identical whole and
-irregular tiled output on resident Metal.
+The layer-composition child owns opacity/gradient/continuous-brush CPU parity, resident brush-index
+reuse, and the opt-in `SHADOW_TEST_WARM_LAYER_BENCHMARK` and
+`SHADOW_TEST_WARM_BRUSH_BENCHMARK`; the portable brush-index contract proves stroke breaks and
+candidate completeness. The focused detail-tile layer seam contract verifies that the same
+normalized masks, continuous capsules, and creative-detail apron produce byte-identical whole
+and irregular tiled output on resident Metal.
 
 The edit path accepts explicitly native interleaved RGB float32, scene-referred, linear-light data
 with named RGB primaries, white point, and luminance coefficients. It is not legal to feed the
@@ -441,8 +448,7 @@ and greater-than-one scene values, performs no implicit gamut mapping or clippin
 NaN/Inf and float overflow, and refuses unknown schema/implementation versions. Node order is
 observable and stable. This ordered executor is the CPU reference subset of the future typed DAG;
 sequential Normal-blend layers and their local masks are a separate composition contract already
-shared by CPU and Metal, while branching, additional blend modes, and indexed GPU brush coverage
-remain separate work.
+shared by CPU and Metal, while branching and additional blend modes remain separate work.
 `validate_adjustment_nodes` exposes the same parameter validation without requiring pixels, so
 the one-shot edited-proxy path rejects malformed plans before asking a decoder to render RGB.
 

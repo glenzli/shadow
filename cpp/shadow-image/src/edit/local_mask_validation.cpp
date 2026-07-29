@@ -23,7 +23,29 @@ void validate_normalized(const double value, const std::string_view name) {
     }
 }
 
-void validate_mask(const LocalMask& mask) {
+[[nodiscard]] Dimensions validate_full_dimensions(
+    const Dimensions input_dimensions,
+    const AdjustmentExecutionContext context
+) {
+    const Dimensions full =
+        context.full_dimensions.width == 0U || context.full_dimensions.height == 0U
+            ? input_dimensions
+            : context.full_dimensions;
+    if (full.width == 0U || full.height == 0U || context.origin_x > full.width
+        || context.origin_y > full.height || input_dimensions.width > full.width - context.origin_x
+        || input_dimensions.height > full.height - context.origin_y) {
+        throw EditError(
+            EditErrorCode::invalid_parameter,
+            std::nullopt,
+            "local-mask execution context exceeds its full-image dimensions"
+        );
+    }
+    return full;
+}
+
+} // namespace
+
+void validate_local_mask(const LocalMask& mask) {
     validate_normalized(mask.x0, "x0");
     validate_normalized(mask.y0, "y0");
     switch (mask.kind) {
@@ -60,28 +82,6 @@ void validate_mask(const LocalMask& mask) {
     invalid_mask("local-mask has an unsupported kind");
 }
 
-[[nodiscard]] Dimensions validate_full_dimensions(
-    const Dimensions input_dimensions,
-    const AdjustmentExecutionContext context
-) {
-    const Dimensions full =
-        context.full_dimensions.width == 0U || context.full_dimensions.height == 0U
-            ? input_dimensions
-            : context.full_dimensions;
-    if (full.width == 0U || full.height == 0U || context.origin_x > full.width
-        || context.origin_y > full.height || input_dimensions.width > full.width - context.origin_x
-        || input_dimensions.height > full.height - context.origin_y) {
-        throw EditError(
-            EditErrorCode::invalid_parameter,
-            std::nullopt,
-            "local-mask execution context exceeds its full-image dimensions"
-        );
-    }
-    return full;
-}
-
-} // namespace
-
 Dimensions validate_adjustment_layer_plan(
     const FloatRgbImage& input,
     const std::span<const AdjustmentLayer> layers,
@@ -109,7 +109,7 @@ Dimensions validate_adjustment_layer_plan(
             invalid_mask("local-mask layer has invalid identity, opacity, or node content");
         }
         if (layer.mask.has_value()) {
-            validate_mask(*layer.mask);
+            validate_local_mask(*layer.mask);
         }
         // Bypassing a layer must not turn malformed persisted node content into an executable
         // Recipe later.

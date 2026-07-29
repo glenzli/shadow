@@ -21,7 +21,7 @@ using shadow::image::test_support::reference_rgb;
 using shadow::image::test_support::ScopedEnvironment;
 using shadow::image::test_support::SyntheticDecodeSession;
 
-[[nodiscard]] std::array<image::AdjustmentLayer, 3U> photographic_layers() {
+[[nodiscard]] std::array<image::AdjustmentLayer, 4U> photographic_layers() {
     return {
         image::AdjustmentLayer{
             .layer_id = "global-opacity",
@@ -70,18 +70,45 @@ using shadow::image::test_support::SyntheticDecodeSession;
                     .radius_y = 0.32,
                     .feather = 0.57,
                 },
+            .nodes =
+                {
+                    image::AdjustmentNode{
+                        .node_id = "subject-detail",
+                        .parameter_schema_version = image::detail_effects_parameter_schema_version,
+                        .implementation_version = image::color_grading_implementation_version,
+                        .parameters =
+                            image::SharpenAdjustment{
+                                .execution_pass = image::DetailEffectsExecutionPass::color_grading,
+                                .clarity = 0.27,
+                                .texture = 0.23,
+                                .local_contrast = 0.21,
+                                .local_contrast_scale = 0.66,
+                            },
+                    },
+                },
+        },
+        image::AdjustmentLayer{
+            .layer_id = "continuous-brush-dodge",
+            .opacity = 0.74,
+            .mask =
+                image::LocalMask{
+                    .kind = image::LocalMaskKind::brush,
+                    .radius_x = 0.055,
+                    .feather = 0.46,
+                    .points =
+                        {
+                            {.x = 0.04, .y = 0.18, .begins_stroke = true},
+                            {.x = 0.27, .y = 0.31},
+                            {.x = 0.51, .y = 0.49},
+                            {.x = 0.78, .y = 0.72},
+                            {.x = 0.88, .y = 0.20, .begins_stroke = true},
+                            {.x = 0.67, .y = 0.34},
+                        },
+                },
             .nodes = {
                 image::AdjustmentNode{
-                    .node_id = "subject-detail",
-                    .parameter_schema_version = image::detail_effects_parameter_schema_version,
-                    .implementation_version = image::color_grading_implementation_version,
-                    .parameters = image::SharpenAdjustment{
-                        .execution_pass = image::DetailEffectsExecutionPass::color_grading,
-                        .clarity = 0.27,
-                        .texture = 0.23,
-                        .local_contrast = 0.21,
-                        .local_contrast_scale = 0.66,
-                    },
+                    .node_id = "brush-exposure",
+                    .parameters = image::ExposureAdjustment{.stops = 0.29},
                 },
             },
         },
@@ -126,12 +153,12 @@ void resident_gradient_layers_preserve_full_resolution_tile_seams() {
 
     expect(
         stitched == full.bytes,
-        "opacity, linear, radial and creative-detail layers preserve exact irregular tile seams"
+        "opacity, gradients, continuous brush and creative detail preserve exact tile seams"
     );
     expect(
         !image::adjustment_backend_available(image::AdjustmentBackend::metal)
             || all_tiles_used_metal,
-        "supported local-mask layers stay on resident Metal at full-resolution detail"
+        "gradient and continuous brush layers stay on resident Metal at full-resolution detail"
     );
 }
 

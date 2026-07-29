@@ -31,6 +31,22 @@ struct WarmLayerBlendParameters {
     float radius_x;
     float radius_y;
     float feather;
+    uint brush_grid_columns;
+    uint brush_grid_rows;
+    uint brush_capsule_count;
+    uint brush_reference_count;
+};
+
+struct WarmBrushCapsule {
+    float x0;
+    float y0;
+    float x1;
+    float y1;
+};
+
+struct WarmBrushCellRange {
+    uint offset;
+    uint count;
 };
 
 // This first Metal neighbourhood stage deliberately keeps the working image in scene-linear
@@ -422,11 +438,35 @@ inline float warm_smootherstep(float value) {
     return x * x * x * (x * (x * 6.0f - 15.0f) + 10.0f);
 }
 
+inline float warm_brush_capsule_distance(
+    float2 point,
+    WarmBrushCapsule capsule,
+    float2 scale
+) {
+    const float2 scaled_point = point * scale;
+    const float2 start = float2(capsule.x0, capsule.y0) * scale;
+    const float2 end = float2(capsule.x1, capsule.y1) * scale;
+    const float2 direction = end - start;
+    const float denominator = dot(direction, direction);
+    if (denominator <= 2.220446049250313e-16f) {
+        return length(scaled_point - end);
+    }
+    const float projection = clamp(
+        dot(scaled_point - start, direction) / denominator,
+        0.0f,
+        1.0f
+    );
+    return length(scaled_point - (start + projection * direction));
+}
+
 kernel void warm_layer_blend_v1(
     device const float* before [[buffer(0)]],
     device float* after [[buffer(1)]],
     constant WarmLayerBlendParameters& parameters [[buffer(2)]],
     device MetalAdjustmentStatus& status [[buffer(3)]],
+    device const WarmBrushCapsule* brush_capsules [[buffer(4)]],
+    device const WarmBrushCellRange* brush_cells [[buffer(5)]],
+    device const uint* brush_references [[buffer(6)]],
     uint2 position [[thread_position_in_grid]]
 ) {
     if (position.x >= parameters.width || position.y >= parameters.height) {
@@ -460,6 +500,57 @@ kernel void warm_layer_blend_v1(
                 (distance - inner) / parameters.feather
             );
         }
+    } else if (parameters.mask_kind == 3u) {
+        if (parameters.brush_grid_columns == 0u
+            || parameters.brush_grid_rows == 0u
+            || parameters.brush_capsule_count == 0u) {
+            report_adjustment_failure(status, status_bad_resource, 0u);
+            return;
+        }
+        const uint column = min(
+            uint(x * float(parameters.brush_grid_columns)),
+            parameters.brush_grid_columns - 1u
+        );
+        const uint row = min(
+            uint(y * float(parameters.brush_grid_rows)),
+            parameters.brush_grid_rows - 1u
+        );
+        const WarmBrushCellRange range =
+            brush_cells[row * parameters.brush_grid_columns + column];
+        if (range.offset > parameters.brush_reference_count
+            || range.count > parameters.brush_reference_count - range.offset) {
+            report_adjustment_failure(status, status_bad_resource, 0u);
+            return;
+        }
+        const float shorter_side = float(min(parameters.full_width, parameters.full_height));
+        const float2 scale = float2(
+            float(parameters.full_width) / shorter_side,
+            float(parameters.full_height) / shorter_side
+        );
+        float distance = 3.402823466e+38f;
+        for (uint candidate = 0u; candidate < range.count; ++candidate) {
+            const uint capsule_index = brush_references[range.offset + candidate];
+            if (capsule_index >= parameters.brush_capsule_count) {
+                report_adjustment_failure(status, status_bad_resource, 0u);
+                return;
+            }
+            distance = min(
+                distance,
+                warm_brush_capsule_distance(
+                    float2(x, y),
+                    brush_capsules[capsule_index],
+                    scale
+                )
+            );
+        }
+        const float inner = parameters.radius_x * (1.0f - parameters.feather);
+        const float transition = max(
+            parameters.radius_x - inner,
+            2.220446049250313e-16f
+        );
+        coverage = parameters.feather <= 0.0f
+            ? (distance <= parameters.radius_x ? 1.0f : 0.0f)
+            : 1.0f - warm_smootherstep((distance - inner) / transition);
     }
     if (parameters.invert != 0u) {
         coverage = 1.0f - coverage;

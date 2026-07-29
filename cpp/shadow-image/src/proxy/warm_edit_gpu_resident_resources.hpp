@@ -71,6 +71,12 @@ struct WarmProgramBufferAttempt final {
     std::string diagnostic;
 };
 
+struct WarmBrushBufferAttempt final {
+    RetainedMetalBuffer buffer;
+    bool cancelled = false;
+    std::string diagnostic;
+};
+
 struct WarmGpuSlotBuffers final {
     id<MTLBuffer> adjusted = nil;
     id<MTLBuffer> denoised = nil;
@@ -130,6 +136,10 @@ class WarmGpuResidentResources final {
 
     [[nodiscard]] WarmProgramBufferAttempt
     acquire_program_buffers(const PreparedMetalAdjustment& program, std::stop_token cancellation);
+    [[nodiscard]] WarmBrushBufferAttempt acquire_brush_index_buffer(
+        const std::vector<std::uint32_t>& words,
+        std::stop_token cancellation
+    );
     [[nodiscard]] std::optional<WarmGpuSlotLease> acquire_slot(std::stop_token cancellation);
     [[nodiscard]] WarmEditPreviewGpuStats stats_snapshot() const noexcept;
 

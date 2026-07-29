@@ -97,6 +97,7 @@ add_library(
     src/proxy/jpeg_proxy_encoding.cpp
     src/proxy/proxy_rendering.cpp
     src/proxy/proxy_render_request_validation.cpp
+    src/proxy/warm_edit_gpu_brush_index.cpp
     src/proxy/warm_edit_gpu_layer_plan.cpp
     src/proxy/warm_edit_gpu_neighbourhood_plan.cpp
     src/proxy/warm_edit_gpu_render_plan.cpp
@@ -434,6 +435,16 @@ if(BUILD_TESTING)
             "${CMAKE_CURRENT_SOURCE_DIR}/src/proxy"
     )
     shadow_image_add_contract(
+        shadow-image-warm-edit-gpu-brush-index-tests
+        shadow-image-warm-edit-gpu-brush-index-contract
+        tests/warm_edit_gpu_brush_index_contract_test.cpp
+    )
+    target_include_directories(
+        shadow-image-warm-edit-gpu-brush-index-tests
+        PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/proxy"
+    )
+    shadow_image_add_contract(
         shadow-image-libraw-provider-tests
         shadow-image-libraw-provider-contract
         tests/libraw_provider_contract_test.cpp
@@ -720,7 +731,9 @@ if(BUILD_TESTING)
     if(SHADOW_REQUIRE_METAL_TESTS)
         set_tests_properties(
             shadow-image-edit-preview-execution-contract
+            shadow-image-edit-preview-layer-execution-contract
             shadow-image-warm-edit-gpu-contract
+            shadow-image-detail-tile-layer-seam-contract
             PROPERTIES
                 ENVIRONMENT
                     "SHADOW_IMAGE_ACCELERATION=metal;SHADOW_TEST_REQUIRE_WARM_METAL=1"

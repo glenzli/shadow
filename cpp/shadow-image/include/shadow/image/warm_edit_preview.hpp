@@ -69,14 +69,11 @@ enum class EditPreviewBackend : std::uint8_t {
 struct EditPreviewExecutionReceipt final {
     std::uint32_t schema_version = edit_preview_execution_receipt_schema_version;
     EditPreviewBackend adjustment_backend = EditPreviewBackend::cpu;
-    std::uint32_t adjustment_backend_version =
-        edit_preview_cpu_adjustment_backend_version;
-    std::uint32_t adjustment_execution_contract_version =
-        edit_execution_plan_identity_version;
+    std::uint32_t adjustment_backend_version = edit_preview_cpu_adjustment_backend_version;
+    std::uint32_t adjustment_execution_contract_version = edit_execution_plan_identity_version;
     EditPreviewBackend display_backend = EditPreviewBackend::cpu;
     std::uint32_t display_backend_version = edit_preview_cpu_display_backend_version;
-    std::uint32_t display_output_contract_version =
-        display_srgb8_output_transform_version;
+    std::uint32_t display_output_contract_version = display_srgb8_output_transform_version;
     // The session-resident Metal route is structurally distinct from the
     // staged adjustment/display route. Keep that fact explicit instead of
     // encoding a route choice by inflating a backend version number.
@@ -93,9 +90,8 @@ struct EditPreviewExecutionReceipt final {
 
 // Canonical cache-safe identity. It contains only fixed backend/contract identifiers; fallback
 // diagnostics, local device information and user-local paths are deliberately excluded.
-[[nodiscard]] std::string edit_preview_execution_receipt_identity(
-    const EditPreviewExecutionReceipt& receipt
-);
+[[nodiscard]] std::string
+edit_preview_execution_receipt_identity(const EditPreviewExecutionReceipt& receipt);
 
 // Build/runtime-independent implementation contract known before a source is decoded. The
 // desktop combines this with its bounded source-environment identity to reject stale gallery
@@ -145,14 +141,14 @@ struct WarmEditPreviewGpuStats final {
     std::uint64_t perceptual_mixer_resource_upload_count = 0U;
     std::uint64_t perceptual_range_resource_upload_count = 0U;
     std::uint64_t selective_color_resource_upload_count = 0U;
+    std::uint64_t brush_index_resource_upload_count = 0U;
     std::uint64_t resource_cache_hit_count = 0U;
     std::uint64_t resident_bytes = 0U;
 
     auto operator<=>(const WarmEditPreviewGpuStats&) const = default;
 };
 
-template <typename T>
-struct CancellableEditPreviewResult final {
+template <typename T> struct CancellableEditPreviewResult final {
     std::optional<T> completed;
 
     [[nodiscard]] bool cancelled() const noexcept {
@@ -165,7 +161,7 @@ class WarmEditGpuSession;
 }
 
 class WarmEditPreviewSession final {
-public:
+  public:
     WarmEditPreviewSession(const WarmEditPreviewSession&) = delete;
     WarmEditPreviewSession& operator=(const WarmEditPreviewSession&) = delete;
     WarmEditPreviewSession(WarmEditPreviewSession&&) noexcept = default;
@@ -189,10 +185,8 @@ public:
     // packed display-sRGB RGB8 (`width * 3` bytes per row) and deliberately
     // skips JPEG encoding. It remains transient and is never a durable cache
     // artifact.
-    [[nodiscard]] EncodedProxy render_rgb8(
-        std::span<const AdjustmentNode> nodes,
-        const PhotoGeometry& geometry = {}
-    ) const;
+    [[nodiscard]] EncodedProxy
+    render_rgb8(std::span<const AdjustmentNode> nodes, const PhotoGeometry& geometry = {}) const;
     [[nodiscard]] EncodedProxy render_rgb8_layers(
         std::span<const AdjustmentLayer> layers,
         const PhotoGeometry& geometry = {}
@@ -241,7 +235,7 @@ public:
         const PhotoGeometry& geometry = {}
     ) const;
 
-private:
+  private:
     WarmEditPreviewSession(
         FloatRgbImage working_proxy,
         std::uint32_t max_edge,

@@ -50,12 +50,54 @@ WarmGpuLayerPlan prepare_warm_gpu_layer_plan(
             case LocalMaskKind::radial_gradient:
                 blend.mask_kind = WarmLayerMaskKind::radial_gradient;
                 break;
-            case LocalMaskKind::brush:
-                result.complete = false;
-                result.active_layers.clear();
-                result.diagnostic =
-                    "resident Metal brush masks require the indexed brush-mask stage";
-                return result;
+            case LocalMaskKind::brush: {
+                if (mask.points.empty()) {
+                    if (!mask.invert) {
+                        continue;
+                    }
+                    // Inverting an empty brush selects the complete frame.
+                    blend.mask_kind = WarmLayerMaskKind::full_frame;
+                    blend.invert = 0U;
+                    result.active_layers.push_back(
+                        WarmGpuLayerPlanEntry{
+                            .layer_index = index,
+                            .execution = std::move(execution),
+                            .blend = blend,
+                            .brush_index = std::nullopt,
+                            .needs_blend = layer.opacity != 1.0,
+                        }
+                    );
+                    continue;
+                }
+                auto preparation = prepare_warm_gpu_brush_index(mask, full);
+                if (!preparation.index.has_value()) {
+                    result.complete = false;
+                    result.active_layers.clear();
+                    result.diagnostic =
+                        preparation.diagnostic.empty()
+                            ? "resident Metal could not prepare the brush spatial index"
+                            : std::move(preparation.diagnostic);
+                    return result;
+                }
+                blend.mask_kind = WarmLayerMaskKind::brush;
+                blend.brush_grid_columns = preparation.index->grid_columns;
+                blend.brush_grid_rows = preparation.index->grid_rows;
+                blend.brush_capsule_count = preparation.index->capsule_count;
+                blend.brush_reference_count = preparation.index->reference_count;
+                blend.invert = mask.invert ? 1U : 0U;
+                blend.radius_x = static_cast<float>(mask.radius_x);
+                blend.feather = static_cast<float>(mask.feather);
+                result.active_layers.push_back(
+                    WarmGpuLayerPlanEntry{
+                        .layer_index = index,
+                        .execution = std::move(execution),
+                        .blend = blend,
+                        .brush_index = std::move(preparation.index),
+                        .needs_blend = true,
+                    }
+                );
+                continue;
+            }
             }
             blend.invert = mask.invert ? 1U : 0U;
             blend.x0 = static_cast<float>(mask.x0);
@@ -71,6 +113,7 @@ WarmGpuLayerPlan prepare_warm_gpu_layer_plan(
                 .layer_index = index,
                 .execution = std::move(execution),
                 .blend = blend,
+                .brush_index = std::nullopt,
                 .needs_blend = layer.mask.has_value() || layer.opacity != 1.0,
             }
         );
