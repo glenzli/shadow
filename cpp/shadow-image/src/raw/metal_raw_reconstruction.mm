@@ -37,21 +37,23 @@ struct RawDevelopmentParameters final {
     std::uint32_t output_row_offset = 0U;
     std::uint32_t output_tile_height = 0U;
     std::uint32_t neutralize_sensor_highlights = 0U;
+    std::uint32_t project_sensor_clipping = 0U;
     std::uint32_t cfa_channels[4]{};
     float black_levels[4]{};
     float white_minus_black[4]{};
     float camera_to_linear_srgb[9]{};
 };
 
-static_assert(sizeof(RawDevelopmentParameters) == 140U);
+static_assert(sizeof(RawDevelopmentParameters) == 144U);
 static_assert(offsetof(RawDevelopmentParameters, storage_width) == 0U);
 static_assert(offsetof(RawDevelopmentParameters, reconstruction_width) == 32U);
 static_assert(offsetof(RawDevelopmentParameters, orientation) == 40U);
 static_assert(offsetof(RawDevelopmentParameters, neutralize_sensor_highlights) == 52U);
-static_assert(offsetof(RawDevelopmentParameters, cfa_channels) == 56U);
-static_assert(offsetof(RawDevelopmentParameters, black_levels) == 72U);
-static_assert(offsetof(RawDevelopmentParameters, white_minus_black) == 88U);
-static_assert(offsetof(RawDevelopmentParameters, camera_to_linear_srgb) == 104U);
+static_assert(offsetof(RawDevelopmentParameters, project_sensor_clipping) == 56U);
+static_assert(offsetof(RawDevelopmentParameters, cfa_channels) == 60U);
+static_assert(offsetof(RawDevelopmentParameters, black_levels) == 76U);
+static_assert(offsetof(RawDevelopmentParameters, white_minus_black) == 92U);
+static_assert(offsetof(RawDevelopmentParameters, camera_to_linear_srgb) == 108U);
 
 
 [[nodiscard]] std::size_t configured_tile_budget(
@@ -149,7 +151,8 @@ static_assert(offsetof(RawDevelopmentParameters, camera_to_linear_srgb) == 104U)
     const RawFrameLinearTransform& transform,
     const Dimensions reconstruction_dimensions,
     const Dimensions output_dimensions,
-    const RawHighlightRecoveryIntent highlight_recovery
+    const RawHighlightRecoveryIntent highlight_recovery,
+    const bool project_sensor_clipping
 ) {
     const auto& descriptor = frame.descriptor;
     RawDevelopmentParameters parameters;
@@ -166,6 +169,7 @@ static_assert(offsetof(RawDevelopmentParameters, camera_to_linear_srgb) == 104U)
     parameters.orientation = descriptor.orientation;
     parameters.neutralize_sensor_highlights =
         highlight_recovery == RawHighlightRecoveryIntent::provider_default ? 1U : 0U;
+    parameters.project_sensor_clipping = project_sensor_clipping ? 1U : 0U;
     for (std::size_t site = 0U; site < 4U; ++site) {
         parameters.cfa_channels[site] = cfa_channel(descriptor.bayer_2x2[site]);
         parameters.black_levels[site] =
@@ -189,8 +193,7 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
     const std::optional<std::uint32_t> preview_max_edge,
     const RawHighlightRecoveryIntent highlight_recovery,
     const RawDevelopmentQuality quality,
-    const DcpColorTransform* dcp_color_transform,
-    const PreparedRawBayerDenoise* raw_denoise
+    const MetalRawDevelopmentContinuations continuations
 ) {
     if (!preview_max_edge.has_value() && quality == RawDevelopmentQuality::high) {
         return MetalRawDevelopmentAttempt{
@@ -230,12 +233,12 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
         };
     }
     std::optional<MetalRawDenoiseEncoding> raw_denoise_encoding;
-    if (raw_denoise != nullptr && raw_denoise->applied()) {
+    if (continuations.raw_denoise != nullptr && continuations.raw_denoise->applied()) {
         std::string diagnostic;
         raw_denoise_encoding = MetalRawDenoiseEncoding::prepare(
             frame,
-            raw_denoise->mode,
-            raw_denoise->iso_sensitivity,
+            continuations.raw_denoise->mode,
+            continuations.raw_denoise->iso_sensitivity,
             diagnostic
         );
         if (!raw_denoise_encoding.has_value()) {
@@ -297,8 +300,21 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
             .diagnostic = "Metal RAW tile size overflowed",
         };
     }
+    std::size_t clipping_tile_bytes = 0U;
+    if (continuations.project_sensor_clipping
+        && !checked_multiply(
+            static_cast<std::size_t>(output_dimensions.width),
+            static_cast<std::size_t>(tile_rows),
+            clipping_tile_bytes
+        )) {
+        return MetalRawDevelopmentAttempt{
+            .development = std::nullopt,
+            .diagnostic = "Metal sensor-clipping tile size overflowed",
+        };
+    }
     std::unique_ptr<MetalDcpColorEncoding> dcp_encoding;
-    if (dcp_color_transform != nullptr && dcp_color_transform->has_post_matrix_stages()) {
+    if (continuations.dcp_color_transform != nullptr
+        && continuations.dcp_color_transform->has_post_matrix_stages()) {
         const std::size_t tile_pixel_count =
             static_cast<std::size_t>(output_dimensions.width) * tile_rows;
         if (tile_pixel_count > std::numeric_limits<std::uint32_t>::max()) {
@@ -309,7 +325,7 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
         }
         std::string diagnostic;
         dcp_encoding = MetalDcpColorEncoding::prepare(
-            *dcp_color_transform,
+            *continuations.dcp_color_transform,
             static_cast<std::uint32_t>(tile_pixel_count),
             diagnostic
         );
@@ -325,6 +341,12 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
 
     std::size_t gpu_resource_bytes = 0U;
     if (!checked_add(input_bytes, tile_buffer_bytes, gpu_resource_bytes)
+        || (continuations.project_sensor_clipping
+            && !checked_add(
+                gpu_resource_bytes,
+                clipping_tile_bytes,
+                gpu_resource_bytes
+            ))
         || (raw_denoise_encoding
             && !checked_add(
                 gpu_resource_bytes,
@@ -359,6 +381,13 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
     // while waiting for the single shared command queue.
     std::lock_guard execution_lock(metal_execution_mutex());
     SceneLinearRgbFrame output = allocate_output(output_dimensions);
+    std::optional<SensorClippingMask> sensor_clipping_mask;
+    if (continuations.project_sensor_clipping) {
+        SensorClippingMask mask;
+        mask.dimensions = output_dimensions;
+        mask.samples.resize(static_cast<std::size_t>(output_dimensions.pixel_count()));
+        sensor_clipping_mask = std::move(mask);
+    }
     @autoreleasepool {
         OwnedObjectiveCObject input_buffer(
             [metal_raw_device()
@@ -396,13 +425,27 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
                 .diagnostic = "Metal could not allocate the RAW output tile",
             };
         }
+        OwnedObjectiveCObject clipping_tile_buffer(
+            continuations.project_sensor_clipping
+                ? [metal_raw_device()
+                    newBufferWithLength:clipping_tile_bytes
+                    options:MTLResourceStorageModeShared]
+                : nil
+        );
+        if (continuations.project_sensor_clipping && !clipping_tile_buffer) {
+            return MetalRawDevelopmentAttempt{
+                .development = std::nullopt,
+                .diagnostic = "Metal could not allocate the sensor-clipping output tile",
+            };
+        }
 
         RawDevelopmentParameters parameters = make_parameters(
             frame,
             transform,
             reconstruction_dimensions,
             output_dimensions,
-            highlight_recovery
+            highlight_recovery,
+            continuations.project_sensor_clipping
         );
         const auto pipeline = area_preview
             ? metal_raw_area_preview_pipeline() : metal_raw_reconstruction_pipeline();
@@ -474,6 +517,14 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
             [encoder setBytes:&parameters
                        length:sizeof(parameters)
                       atIndex:2U];
+            if (continuations.project_sensor_clipping) {
+                [encoder setBuffer:static_cast<id<MTLBuffer>>(input_buffer.get())
+                            offset:0U
+                           atIndex:3U];
+                [encoder setBuffer:static_cast<id<MTLBuffer>>(clipping_tile_buffer.get())
+                            offset:0U
+                           atIndex:4U];
+            }
             [encoder dispatchThreads:MTLSizeMake(
                     output_dimensions.width,
                     parameters.output_tile_height,
@@ -526,6 +577,32 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
                 [static_cast<id<MTLBuffer>>(tile_buffer.get()) contents],
                 bytes
             );
+            if (sensor_clipping_mask.has_value()) {
+                const std::size_t clipping_offset =
+                    static_cast<std::size_t>(first_row) * output_dimensions.width;
+                const std::size_t clipping_bytes =
+                    static_cast<std::size_t>(parameters.output_tile_height)
+                    * output_dimensions.width;
+                std::memcpy(
+                    sensor_clipping_mask->samples.data() + clipping_offset,
+                    [static_cast<id<MTLBuffer>>(clipping_tile_buffer.get()) contents],
+                    clipping_bytes
+                );
+            }
+        }
+    }
+    if (sensor_clipping_mask.has_value()) {
+        for (const std::uint8_t flags : sensor_clipping_mask->samples) {
+            sensor_clipping_mask->highlight_pixel_count +=
+                (flags & sensor_highlight_clipped) != 0U ? 1U : 0U;
+            sensor_clipping_mask->shadow_pixel_count +=
+                (flags & sensor_shadow_clipped) != 0U ? 1U : 0U;
+        }
+        if (!sensor_clipping_mask->valid()) {
+            return MetalRawDevelopmentAttempt{
+                .development = std::nullopt,
+                .diagnostic = "Metal RAW development produced an invalid sensor-clipping mask",
+            };
         }
     }
 
@@ -548,6 +625,7 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
     }
     return MetalRawDevelopmentAttempt{
         .development = std::move(development),
+        .sensor_clipping_mask = std::move(sensor_clipping_mask),
         .raw_denoise_applied = raw_denoise_encoding.has_value(),
         .dcp_applied = dcp_encoding != nullptr,
         .diagnostic = {},

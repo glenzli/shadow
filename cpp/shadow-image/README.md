@@ -109,13 +109,15 @@ calibration, and receipts, while `raw_denoise.cpp` owns standalone CPU/Metal fal
 `metal_raw_denoise_encoding.*` owns the mirrored denoise ABI plus its GPU source-copy/dispatch,
 while `metal_raw_denoise.mm` owns only the standalone materialized-frame transaction;
 `metal_raw_reconstruction.mm` owns tiled reconstruction and its optional resident denoise and
-same-command DCP continuations; `metal_dcp_color_encoding.*` owns the compact mirrored DCP ABI,
-table buffers, and reusable encoder; `metal_dcp_color_rendering.mm` owns the standalone
-fallback-facing whole-frame execution. An eligible RawFrame is therefore uploaded once, keeps its
-denoised CFA resident through reconstruction, and applies each tile's camera rendering before its
-only host readback. `metal_raw_development.hpp` remains the narrow fallback-facing contract.
-Editing a host executor requires checking its local layout assertions and corresponding shader
-entry-point; editing the runtime requires checking all four entry-point names.
+same-command DCP continuations plus exact pre-denoise sensor-clipping projection;
+`metal_dcp_color_encoding.*` owns the compact mirrored DCP ABI, table buffers, and reusable
+encoder; `metal_dcp_color_rendering.mm` owns the standalone fallback-facing whole-frame execution.
+An eligible RawFrame is therefore uploaded once, keeps its denoised CFA resident through
+reconstruction, derives the display-oriented zebra diagnostic from the original sensor buffer,
+and applies each tile's camera rendering before its only host readback.
+`metal_raw_development.hpp` remains the narrow fallback-facing contract. Editing a host executor
+requires checking its local layout assertions and corresponding shader entry-point; editing the
+runtime requires checking all four entry-point names.
 
 DCP color development has a one-way internal owner graph.
 `src/raw/dcp_color_matrix_math.hpp` owns the shared 3×3 algebra, standard white points, and
@@ -260,8 +262,10 @@ Decoder contract tests follow the production responsibilities instead of one agg
   footprint, active-sensor bounds, and high-quality reconstruction against the two-stage oracle.
 - `tests/fused_raw_metal_execution_contract_test.cpp` owns Metal determinism and numerical
   agreement for full-resolution and CFA-area preview execution, byte-identical staged-versus-
-  fused DCP tiles, byte-identical staged-versus-resident CFA denoise, and the opt-in
-  `SHADOW_TEST_FUSED_RAW_DCP_BENCHMARK` / `SHADOW_TEST_FUSED_RAW_SENSOR_BENCHMARK` timings.
+  fused DCP tiles, byte-identical staged-versus-resident CFA denoise, exact CPU/Metal clipping
+  projection across orientations and scales, and the opt-in `SHADOW_TEST_FUSED_RAW_DCP_BENCHMARK`,
+  `SHADOW_TEST_FUSED_RAW_SENSOR_BENCHMARK`, and
+  `SHADOW_TEST_FUSED_SENSOR_CLIPPING_BENCHMARK` timings.
 - `tests/fused_raw_highlight_treatment_contract_test.cpp` owns clipped-sensor neutralization,
   explicit disablement, and CPU/Metal policy agreement.
 - `tests/fused_raw_input_validation_contract_test.cpp` owns typed rejection of unsupported

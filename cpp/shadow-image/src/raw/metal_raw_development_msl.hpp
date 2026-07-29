@@ -23,6 +23,7 @@ struct RawDevelopmentParameters {
     uint output_row_offset;
     uint output_tile_height;
     uint neutralize_sensor_highlights;
+    uint project_sensor_clipping;
     uint cfa_channels[4];
     float black_levels[4];
     float white_minus_black[4];
@@ -47,6 +48,106 @@ inline float normalized_sample(
 
 inline float sensor_clip_evidence(const float normalized) {
     return clamp((normalized - 0.98f) * 50.0f, 0.0f, 1.0f);
+}
+
+inline uint clipping_target_bin_begin(
+    const uint target_coordinate,
+    const uint source_extent,
+    const uint target_extent
+) {
+    const ulong numerator = ulong(target_coordinate) * ulong(source_extent);
+    return uint((numerator + ulong(target_extent) - 1ul) / ulong(target_extent));
+}
+
+inline uint clipping_target_bin_end(
+    const uint target_coordinate,
+    const uint source_extent,
+    const uint target_extent
+) {
+    const ulong numerator = ulong(target_coordinate + 1u) * ulong(source_extent);
+    return uint((numerator + ulong(target_extent) - 1ul) / ulong(target_extent));
+}
+
+inline uint2 clipping_active_coordinate(
+    constant RawDevelopmentParameters& parameters,
+    const uint oriented_x,
+    const uint oriented_y
+) {
+    switch (parameters.orientation) {
+    case 3:
+        return uint2(
+            parameters.active_width - 1u - oriented_x,
+            parameters.active_height - 1u - oriented_y
+        );
+    case 5:
+        return uint2(parameters.active_width - 1u - oriented_y, oriented_x);
+    case 6:
+        return uint2(oriented_y, parameters.active_height - 1u - oriented_x);
+    default:
+        return uint2(oriented_x, oriented_y);
+    }
+}
+
+inline uchar sensor_clipping_flags(
+    device const ushort* original_samples,
+    constant RawDevelopmentParameters& parameters,
+    const uint output_x,
+    const uint output_y
+) {
+    const bool transposed = parameters.orientation == 5 || parameters.orientation == 6;
+    const uint oriented_width = transposed ? parameters.active_height : parameters.active_width;
+    const uint oriented_height = transposed ? parameters.active_width : parameters.active_height;
+    if (parameters.output_width == oriented_width
+        && parameters.output_height == oriented_height) {
+        const uint2 active = clipping_active_coordinate(parameters, output_x, output_y);
+        const uint raw_x = parameters.margin_left + active.x;
+        const uint raw_y = parameters.margin_top + active.y;
+        const uint site = cfa_site(raw_x, raw_y);
+        const ushort sample = original_samples[raw_y * parameters.storage_width + raw_x];
+        uchar flags = 0u;
+        if (float(sample) <= parameters.black_levels[site]) {
+            flags |= 2u;
+        }
+        if (float(sample)
+            >= parameters.black_levels[site] + parameters.white_minus_black[site]) {
+            flags |= 1u;
+        }
+        return flags;
+    }
+    const uint oriented_x_begin =
+        clipping_target_bin_begin(output_x, oriented_width, parameters.output_width);
+    const uint oriented_x_end =
+        clipping_target_bin_end(output_x, oriented_width, parameters.output_width);
+    const uint oriented_y_begin =
+        clipping_target_bin_begin(output_y, oriented_height, parameters.output_height);
+    const uint oriented_y_end =
+        clipping_target_bin_end(output_y, oriented_height, parameters.output_height);
+    bool observed = false;
+    bool all_shadow = true;
+    bool any_highlight = false;
+    for (uint oriented_y = oriented_y_begin; oriented_y < oriented_y_end; ++oriented_y) {
+        for (uint oriented_x = oriented_x_begin; oriented_x < oriented_x_end; ++oriented_x) {
+            const uint2 active =
+                clipping_active_coordinate(parameters, oriented_x, oriented_y);
+            const uint raw_x = parameters.margin_left + active.x;
+            const uint raw_y = parameters.margin_top + active.y;
+            const uint site = cfa_site(raw_x, raw_y);
+            const ushort sample = original_samples[raw_y * parameters.storage_width + raw_x];
+            observed = true;
+            all_shadow = all_shadow && float(sample) <= parameters.black_levels[site];
+            any_highlight = any_highlight
+                || float(sample)
+                    >= parameters.black_levels[site] + parameters.white_minus_black[site];
+        }
+    }
+    uchar flags = 0u;
+    if (observed && all_shadow) {
+        flags |= 2u;
+    }
+    if (any_highlight) {
+        flags |= 1u;
+    }
+    return flags;
 }
 
 struct CameraRgbSample {
@@ -239,6 +340,8 @@ kernel void develop_bayer_full(
     device const ushort* samples [[buffer(0)]],
     device float* output [[buffer(1)]],
     constant RawDevelopmentParameters& parameters [[buffer(2)]],
+    device const ushort* clipping_source [[buffer(3)]],
+    device uchar* clipping_output [[buffer(4)]],
     uint2 position [[thread_position_in_grid]]
 ) {
     if (position.x >= parameters.output_width
@@ -273,6 +376,10 @@ kernel void develop_bayer_full(
         parameters.margin_left + source_x,
         parameters.margin_top + source_y
     );
+    if (parameters.project_sensor_clipping != 0u) {
+        clipping_output[position.y * parameters.output_width + output_x] =
+            sensor_clipping_flags(clipping_source, parameters, output_x, output_y);
+    }
     const float red =
         parameters.camera_to_linear_srgb[0] * camera.values.x
         + parameters.camera_to_linear_srgb[1] * camera.values.y
@@ -304,6 +411,8 @@ kernel void develop_bayer_area_preview(
     device const ushort* samples [[buffer(0)]],
     device float* output [[buffer(1)]],
     constant RawDevelopmentParameters& parameters [[buffer(2)]],
+    device const ushort* clipping_source [[buffer(3)]],
+    device uchar* clipping_output [[buffer(4)]],
     uint2 position [[thread_position_in_grid]]
 ) {
     if (position.x >= parameters.output_width
@@ -397,6 +506,10 @@ kernel void develop_bayer_area_preview(
             clipped_weights[2] / weights[2]
         )
     };
+    if (parameters.project_sensor_clipping != 0u) {
+        clipping_output[position.y * parameters.output_width + output_x] =
+            sensor_clipping_flags(clipping_source, parameters, output_x, output_y);
+    }
     const float red =
         parameters.camera_to_linear_srgb[0] * camera.values.x
         + parameters.camera_to_linear_srgb[1] * camera.values.y

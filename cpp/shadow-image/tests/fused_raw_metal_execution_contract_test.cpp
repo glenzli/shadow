@@ -5,7 +5,9 @@
 #include <shadow/image/camera_profile_catalog.hpp>
 #include <shadow/image/dcp_color_development.hpp>
 #include <shadow/image/fused_raw_development.hpp>
+#include <shadow/image/proxy_rendering.hpp>
 #include <shadow/image/raw_denoise.hpp>
+#include <shadow/image/sensor_clipping.hpp>
 
 #include "../src/raw/metal_raw_development.hpp"
 #include "../src/raw/raw_denoise_plan.hpp"
@@ -340,7 +342,9 @@ void metal_reconstruction_and_dcp_share_one_tiled_transaction() {
         std::nullopt,
         image::RawHighlightRecoveryIntent::provider_default,
         image::RawDevelopmentQuality::balanced,
-        &dcp
+        image::detail::MetalRawDevelopmentContinuations{
+            .dcp_color_transform = &dcp,
+        }
     );
     const auto repeated = image::detail::try_develop_bayer_linear_srgb_f32_metal(
         frame,
@@ -348,7 +352,9 @@ void metal_reconstruction_and_dcp_share_one_tiled_transaction() {
         std::nullopt,
         image::RawHighlightRecoveryIntent::provider_default,
         image::RawDevelopmentQuality::balanced,
-        &dcp
+        image::detail::MetalRawDevelopmentContinuations{
+            .dcp_color_transform = &dcp,
+        }
     );
     expect(
         fused.development.has_value() && fused.dcp_applied && repeated.development.has_value()
@@ -395,7 +401,9 @@ void metal_denoise_reconstruction_and_dcp_share_one_resident_transaction() {
         std::nullopt,
         image::RawHighlightRecoveryIntent::provider_default,
         image::RawDevelopmentQuality::balanced,
-        &dcp
+        image::detail::MetalRawDevelopmentContinuations{
+            .dcp_color_transform = &dcp,
+        }
     );
     const auto fused = image::detail::try_develop_bayer_linear_srgb_f32_metal(
         frame,
@@ -403,8 +411,10 @@ void metal_denoise_reconstruction_and_dcp_share_one_resident_transaction() {
         std::nullopt,
         image::RawHighlightRecoveryIntent::provider_default,
         image::RawDevelopmentQuality::balanced,
-        &dcp,
-        &denoise
+        image::detail::MetalRawDevelopmentContinuations{
+            .dcp_color_transform = &dcp,
+            .raw_denoise = &denoise,
+        }
     );
     const auto repeated = image::detail::try_develop_bayer_linear_srgb_f32_metal(
         frame,
@@ -412,8 +422,10 @@ void metal_denoise_reconstruction_and_dcp_share_one_resident_transaction() {
         std::nullopt,
         image::RawHighlightRecoveryIntent::provider_default,
         image::RawDevelopmentQuality::balanced,
-        &dcp,
-        &denoise
+        image::detail::MetalRawDevelopmentContinuations{
+            .dcp_color_transform = &dcp,
+            .raw_denoise = &denoise,
+        }
     );
     expect(
         staged_denoise.applied && staged.development.has_value() && staged.dcp_applied
@@ -438,6 +450,76 @@ void metal_denoise_reconstruction_and_dcp_share_one_resident_transaction() {
         fused.development->scene_linear.samples == repeated.development->scene_linear.samples,
         "resident RAW sensor development remains byte deterministic"
     );
+}
+
+void metal_sensor_clipping_projection_matches_the_cpu_contract() {
+    if (!image::raw_development_backend_available(image::RawDevelopmentBackend::metal)) {
+        return;
+    }
+    const image::RawFrameLinearTransform transform{{
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+    }};
+    for (const std::int32_t orientation : {0, 3, 5, 6}) {
+        auto frame = synthetic_frame(orientation);
+        const auto width = frame.descriptor.storage_dimensions.width;
+        const auto left = frame.descriptor.active_margins.left;
+        const auto top = frame.descriptor.active_margins.top;
+        const auto black_site = static_cast<std::size_t>((top & 1U) * 2U + (left & 1U));
+        const auto white_x = left + 1U;
+        const auto white_y = top + 1U;
+        const auto white_site = static_cast<std::size_t>((white_y & 1U) * 2U + (white_x & 1U));
+        frame.samples[static_cast<std::size_t>(top) * width + left] =
+            static_cast<std::uint16_t>(frame.descriptor.black_levels[black_site]);
+        frame.samples[static_cast<std::size_t>(white_y) * width + white_x] =
+            static_cast<std::uint16_t>(frame.descriptor.white_levels[white_site]);
+
+        for (const bool preview : {false, true}) {
+            const std::optional<std::uint32_t> max_edge =
+                preview ? std::optional<std::uint32_t>{3U} : std::nullopt;
+            const auto reconstruction =
+                max_edge.has_value()
+                    ? image::proxy_dimensions(frame.descriptor.active_dimensions, *max_edge)
+                    : frame.descriptor.active_dimensions;
+            const image::Dimensions target =
+                orientation == 5 || orientation == 6
+                    ? image::Dimensions{reconstruction.height, reconstruction.width}
+                    : reconstruction;
+            const auto cpu = image::project_sensor_clipping_mask(frame, target);
+            const auto metal = image::detail::try_develop_bayer_linear_srgb_f32_metal(
+                frame,
+                transform,
+                max_edge,
+                image::RawHighlightRecoveryIntent::provider_default,
+                image::RawDevelopmentQuality::balanced,
+                image::detail::MetalRawDevelopmentContinuations{
+                    .project_sensor_clipping = true,
+                }
+            );
+            expect(
+                metal.development.has_value() && metal.sensor_clipping_mask.has_value(),
+                "Metal RAW development returns its requested clipping diagnostic"
+            );
+            if (!metal.sensor_clipping_mask.has_value()) {
+                continue;
+            }
+            expect(
+                metal.sensor_clipping_mask->dimensions == cpu.dimensions
+                    && metal.sensor_clipping_mask->samples == cpu.samples
+                    && metal.sensor_clipping_mask->highlight_pixel_count
+                           == cpu.highlight_pixel_count
+                    && metal.sensor_clipping_mask->shadow_pixel_count == cpu.shadow_pixel_count,
+                "Metal clipping projection exactly matches CPU orientation and target-bin semantics"
+            );
+        }
+    }
 }
 
 void benchmark_fused_raw_dcp_when_requested() {
@@ -483,7 +565,9 @@ void benchmark_fused_raw_dcp_when_requested() {
             std::nullopt,
             image::RawHighlightRecoveryIntent::provider_default,
             image::RawDevelopmentQuality::balanced,
-            &dcp
+            image::detail::MetalRawDevelopmentContinuations{
+                .dcp_color_transform = &dcp,
+            }
         );
         if (!attempt.development.has_value() || !attempt.dcp_applied) {
             throw std::runtime_error(attempt.diagnostic);
@@ -534,7 +618,9 @@ void benchmark_fused_raw_sensor_development_when_requested() {
             std::nullopt,
             image::RawHighlightRecoveryIntent::provider_default,
             image::RawDevelopmentQuality::balanced,
-            &dcp
+            image::detail::MetalRawDevelopmentContinuations{
+                .dcp_color_transform = &dcp,
+            }
         );
         if (!denoise_attempt.applied || !attempt.development.has_value() || !attempt.dcp_applied) {
             throw std::runtime_error(
@@ -554,8 +640,10 @@ void benchmark_fused_raw_sensor_development_when_requested() {
             std::nullopt,
             image::RawHighlightRecoveryIntent::provider_default,
             image::RawDevelopmentQuality::balanced,
-            &dcp,
-            &denoise
+            image::detail::MetalRawDevelopmentContinuations{
+                .dcp_color_transform = &dcp,
+                .raw_denoise = &denoise,
+            }
         );
         if (!attempt.development.has_value() || !attempt.raw_denoise_applied
             || !attempt.dcp_applied) {
@@ -573,6 +661,75 @@ void benchmark_fused_raw_sensor_development_when_requested() {
               << " speedup=" << staged / fused << 'x' << " checksum=" << checksum << '\n';
 }
 
+void benchmark_fused_sensor_clipping_when_requested() {
+    if (!environment_enabled("SHADOW_TEST_FUSED_SENSOR_CLIPPING_BENCHMARK")) {
+        return;
+    }
+    if (!image::raw_development_backend_available(image::RawDevelopmentBackend::metal)) {
+        throw std::runtime_error("Metal is unavailable for the fused clipping benchmark");
+    }
+    constexpr image::Dimensions dimensions{3'000U, 2'000U};
+    const auto frame = benchmark_frame(dimensions);
+    const image::RawFrameLinearTransform transform{{
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+    }};
+    std::uint64_t checksum = 0U;
+    constexpr std::size_t iterations = 3U;
+    const double staged = median_milliseconds(iterations, [&]() {
+        const auto clipping = image::project_sensor_clipping_mask(frame, dimensions);
+        auto attempt = image::detail::try_develop_bayer_linear_srgb_f32_metal(
+            frame,
+            transform,
+            std::nullopt,
+            image::RawHighlightRecoveryIntent::provider_default,
+            image::RawDevelopmentQuality::balanced
+        );
+        if (!attempt.development.has_value()) {
+            throw std::runtime_error(attempt.diagnostic);
+        }
+        checksum += clipping.highlight_pixel_count + clipping.shadow_pixel_count;
+        checksum += static_cast<std::uint64_t>(
+            attempt.development->scene_linear
+                .samples[attempt.development->scene_linear.samples.size() / 2U]
+            * 1'000.0F
+        );
+    });
+    const double fused = median_milliseconds(iterations, [&]() {
+        auto attempt = image::detail::try_develop_bayer_linear_srgb_f32_metal(
+            frame,
+            transform,
+            std::nullopt,
+            image::RawHighlightRecoveryIntent::provider_default,
+            image::RawDevelopmentQuality::balanced,
+            image::detail::MetalRawDevelopmentContinuations{
+                .project_sensor_clipping = true,
+            }
+        );
+        if (!attempt.development.has_value() || !attempt.sensor_clipping_mask.has_value()) {
+            throw std::runtime_error(attempt.diagnostic);
+        }
+        checksum += attempt.sensor_clipping_mask->highlight_pixel_count
+                    + attempt.sensor_clipping_mask->shadow_pixel_count;
+        checksum += static_cast<std::uint64_t>(
+            attempt.development->scene_linear
+                .samples[attempt.development->scene_linear.samples.size() / 2U]
+            * 1'000.0F
+        );
+    });
+    std::cout << std::fixed << std::setprecision(3) << "BENCH fused sensor clipping "
+              << dimensions.width << 'x' << dimensions.height << " staged=" << staged << "ms"
+              << " fused=" << fused << "ms"
+              << " speedup=" << staged / fused << 'x' << " checksum=" << checksum << '\n';
+}
+
 } // namespace
 
 int main() {
@@ -580,7 +737,9 @@ int main() {
     metal_area_preview_preserves_the_cfa_footprint_contract();
     metal_reconstruction_and_dcp_share_one_tiled_transaction();
     metal_denoise_reconstruction_and_dcp_share_one_resident_transaction();
+    metal_sensor_clipping_projection_matches_the_cpu_contract();
     benchmark_fused_raw_dcp_when_requested();
     benchmark_fused_raw_sensor_development_when_requested();
+    benchmark_fused_sensor_clipping_when_requested();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

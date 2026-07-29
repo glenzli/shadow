@@ -4,6 +4,7 @@
 #include <shadow/image/raw_denoise.hpp>
 #include <shadow/image/raw_development_plan.hpp>
 #include <shadow/image/raw_frame.hpp>
+#include <shadow/image/sensor_clipping.hpp>
 
 #include "raw_denoise_plan.hpp"
 
@@ -16,8 +17,18 @@ struct DcpColorTransform;
 
 namespace detail {
 
+// Optional continuations share the uploaded sensor plane or reconstructed tile but retain their
+// own semantic owners. Grouping them here keeps the transaction API stable as resident stages are
+// added without turning the reconstruction entry point into a list of unrelated pointer flags.
+struct MetalRawDevelopmentContinuations final {
+    const DcpColorTransform* dcp_color_transform = nullptr;
+    const PreparedRawBayerDenoise* raw_denoise = nullptr;
+    bool project_sensor_clipping = false;
+};
+
 struct MetalRawDevelopmentAttempt final {
     std::optional<FusedRawFrameDevelopment> development;
+    std::optional<SensorClippingMask> sensor_clipping_mask;
     bool raw_denoise_applied = false;
     bool dcp_applied = false;
     std::string diagnostic;
@@ -64,8 +75,7 @@ struct MetalDcpColorDevelopmentAttempt final {
     std::optional<std::uint32_t> preview_max_edge,
     RawHighlightRecoveryIntent highlight_recovery,
     RawDevelopmentQuality quality,
-    const DcpColorTransform* dcp_color_transform = nullptr,
-    const PreparedRawBayerDenoise* raw_denoise = nullptr
+    MetalRawDevelopmentContinuations continuations = {}
 );
 
 [[nodiscard]] MetalDcpColorDevelopmentAttempt try_apply_dcp_color_rendering_stages_metal(

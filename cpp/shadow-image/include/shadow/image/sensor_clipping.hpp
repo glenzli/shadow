@@ -36,10 +36,10 @@ struct SensorClippingMask final {
 // black level. The latter intentionally avoids labelling ordinary dark image content as lost.
 //
 // The output is oriented with LibRaw's documented flip convention (0 normal, 3 rotate 180°, 5
-// rotate 90° CCW, 6 rotate 90° CW) so it can overlay the processed display proxy directly.
-[[nodiscard]] SensorClippingMask project_sensor_clipping_mask(
-    const RawFrame& frame,
-    Dimensions target_dimensions
-);
+// rotate 90° CCW, 6 rotate 90° CW) so it can overlay the processed display proxy directly. This
+// function is the materialized CPU reference; the owned RawFrame Metal developer may project the
+// same exact target bins beside reconstruction from the original, pre-denoise sensor buffer.
+[[nodiscard]] SensorClippingMask
+project_sensor_clipping_mask(const RawFrame& frame, Dimensions target_dimensions);
 
 } // namespace shadow::image

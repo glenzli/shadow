@@ -395,8 +395,7 @@ generic_raw_frame_transform(const RawFrameDescriptor& descriptor) {
         frame.descriptor.orientation == 5 || frame.descriptor.orientation == 6
             ? Dimensions{reconstruction_dimensions.height, reconstruction_dimensions.width}
             : reconstruction_dimensions;
-    SensorClippingMask sensor_clipping_mask =
-        project_sensor_clipping_mask(frame, diagnostic_dimensions);
+    std::optional<SensorClippingMask> sensor_clipping_mask;
     const RawBayerDenoiseRequest raw_denoise_request{
         .intent = plan.noise_reduction,
         .iso_sensitivity = iso_sensitivity,
@@ -411,21 +410,24 @@ generic_raw_frame_transform(const RawFrameDescriptor& descriptor) {
         raw_development_backend_mode_from_environment();
     const bool dcp_requested =
         camera_profile != nullptr && camera_profile->has_post_matrix_stages();
-    if (requested_backend != RawDevelopmentBackendMode::cpu
-        && (prepared_raw_denoise.applied() || dcp_requested)) {
+    if (requested_backend != RawDevelopmentBackendMode::cpu) {
         auto fused_attempt = detail::try_develop_bayer_linear_srgb_f32_metal(
             frame,
             transform,
             preview_max_edge,
             plan.highlight_recovery,
             plan.quality,
-            dcp_requested ? camera_profile : nullptr,
-            prepared_raw_denoise.applied() ? &prepared_raw_denoise : nullptr
+            detail::MetalRawDevelopmentContinuations{
+                .dcp_color_transform = dcp_requested ? camera_profile : nullptr,
+                .raw_denoise = prepared_raw_denoise.applied() ? &prepared_raw_denoise : nullptr,
+                .project_sensor_clipping = true,
+            }
         );
-        if (fused_attempt.development.has_value()
+        if (fused_attempt.development.has_value() && fused_attempt.sensor_clipping_mask.has_value()
             && fused_attempt.raw_denoise_applied == prepared_raw_denoise.applied()
             && fused_attempt.dcp_applied == dcp_requested) {
             prepared_development = std::move(fused_attempt.development);
+            sensor_clipping_mask = std::move(fused_attempt.sensor_clipping_mask);
             fused_dcp_applied = fused_attempt.dcp_applied;
             raw_denoise_receipt = detail::finalize_raw_bayer_denoise_receipt(
                 frame,
@@ -436,6 +438,7 @@ generic_raw_frame_transform(const RawFrameDescriptor& descriptor) {
         }
     }
     if (!prepared_development.has_value()) {
+        sensor_clipping_mask = project_sensor_clipping_mask(frame, diagnostic_dimensions);
         materialized_raw_denoise =
             detail::execute_prepared_raw_bayer_denoise(std::move(frame), prepared_raw_denoise);
         raw_denoise_receipt = materialized_raw_denoise->receipt;
@@ -485,7 +488,7 @@ generic_raw_frame_transform(const RawFrameDescriptor& descriptor) {
     return DevelopedRawFrame{
         .source = std::move(output),
         .raw_development_receipt = std::move(receipt),
-        .sensor_clipping_mask = std::move(sensor_clipping_mask),
+        .sensor_clipping_mask = std::move(*sensor_clipping_mask),
         .backend = developed.backend,
         .highlight_recovery = developed.highlight_recovery,
         .raw_denoise_cache_identity = raw_denoise_receipt.cache_identity,
