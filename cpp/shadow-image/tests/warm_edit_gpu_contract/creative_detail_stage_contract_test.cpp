@@ -227,11 +227,6 @@ void resident_gpu_clarity_is_complete_or_declines() {
 
 void resident_gpu_local_contrast_is_complete_or_declines() {
     auto source = make_random_image(193U, 113U, true);
-    // The broad guided support is admitted only at preview scale. A full-size
-    // image retains the complete CPU oracle rather than silently shrinking the
-    // requested photographic radius.
-    source.level_zero_to_raster_scale_x = 0.25;
-    source.level_zero_to_raster_scale_y = 0.25;
     auto preparation = image::detail::prepare_warm_edit_gpu_session(source);
     if (!preparation.session) {
         expect(
@@ -279,7 +274,7 @@ void resident_gpu_local_contrast_is_complete_or_declines() {
                 gpu.output->analyzed_linear->samples,
                 [](const float value) { return std::isfinite(value); }
             ),
-        "a preview-scale guided Local Contrast stage completes on the resident GPU"
+        "a full-resolution guided Local Contrast stage completes on the resident GPU"
     );
     if (gpu.output && gpu.output->analyzed_linear) {
         const auto cpu = image::execute_adjustment_nodes_with_backend(
@@ -296,18 +291,38 @@ void resident_gpu_local_contrast_is_complete_or_declines() {
         }
         expect(
             linear_parity,
-            "the resident guided Local Contrast path tracks the CPU Oklab-L reference"
+            "the full-resolution resident Local Contrast path tracks the CPU Oklab-L reference"
         );
     }
 
     std::get<image::SharpenAdjustment>(nodes[1U].parameters).clarity = 0.25;
-    const auto unsupported_plan = image::compile_edit_execution_plan(nodes);
-    const auto unsupported = preparation.session->render(nodes, unsupported_plan, false);
+    std::get<image::SharpenAdjustment>(nodes[1U].parameters).texture = 0.31;
+    const auto combined_plan = image::compile_edit_execution_plan(nodes);
+    const auto combined = preparation.session->render(nodes, combined_plan, true);
     expect(
-        unsupported.status == image::detail::WarmEditGpuSession::RenderStatus::unavailable_or_failed
-            && !unsupported.output.has_value() && !unsupported.diagnostic.empty(),
-        "Local Contrast plus another neighbourhood band declines as one coherent CPU fallback"
+        combined.status == image::detail::WarmEditGpuSession::RenderStatus::completed
+            && combined.output.has_value() && combined.output->analyzed_linear.has_value(),
+        "full-resolution Texture, Clarity and Local Contrast share one resident GPU stage"
     );
+    if (combined.output && combined.output->analyzed_linear) {
+        const auto cpu = image::execute_adjustment_nodes_with_backend(
+            source,
+            nodes,
+            {.full_dimensions = source.dimensions},
+            image::AdjustmentBackendMode::cpu
+        );
+        double maximum_error = 0.0;
+        const bool linear_parity =
+            linear_close(*combined.output->analyzed_linear, cpu.pixels, maximum_error, 8.0e-4);
+        if (!linear_parity) {
+            std::cerr << "Combined creative detail warm linear parity max=" << maximum_error
+                      << '\n';
+        }
+        expect(
+            linear_parity,
+            "the combined resident creative-detail stage tracks the CPU band order"
+        );
+    }
 }
 
 } // namespace

@@ -85,7 +85,7 @@ using ComposedNodes = std::array<image::AdjustmentNode, 7U>;
                 },
         },
         image::AdjustmentNode{
-            .node_id = "creative-texture-clarity",
+            .node_id = "creative-detail",
             .parameter_schema_version = image::detail_effects_parameter_schema_version,
             .implementation_version = image::color_grading_implementation_version,
             .parameters =
@@ -93,6 +93,8 @@ using ComposedNodes = std::array<image::AdjustmentNode, 7U>;
                     .execution_pass = image::DetailEffectsExecutionPass::color_grading,
                     .clarity = 0.31,
                     .texture = 0.36,
+                    .local_contrast = 0.27,
+                    .local_contrast_scale = 0.72,
                     .shadows_hue = 28.0,
                     .shadows_saturation = 0.09,
                     .midtones_hue = 142.0,

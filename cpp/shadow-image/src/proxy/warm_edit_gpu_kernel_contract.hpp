@@ -13,6 +13,7 @@ namespace shadow::image::detail {
 // without admitting arbitrarily scaled rasters.
 inline constexpr std::uint32_t warm_sharpen_radius_limit = 15U;
 inline constexpr std::uint32_t warm_creative_gaussian_radius_limit = 48U;
+inline constexpr std::uint32_t warm_local_contrast_box_radius_limit = 80U;
 
 // Host mirrors for the runtime-compiled Warm Metal program. Sizes, alignment, and selected
 // offsets are part of the buffer-binding ABI and must change atomically with the MSL records.
@@ -124,7 +125,7 @@ struct WarmDehazeDefringeParameters final {
 
 static_assert(sizeof(WarmDehazeDefringeParameters) == 48U);
 
-struct WarmTextureClarityParameters final {
+struct WarmCreativeDetailParameters final {
     std::uint32_t width = 0U;
     std::uint32_t height = 0U;
     std::uint32_t vertical_radius = 0U;
@@ -132,10 +133,10 @@ struct WarmTextureClarityParameters final {
     float sigma_y = 1.0F;
     float texture_amount = 0.0F;
     float clarity_amount = 0.0F;
-    float reserved_0 = 0.0F;
+    float local_contrast_amount = 0.0F;
 };
 
-static_assert(sizeof(WarmTextureClarityParameters) == 32U);
+static_assert(sizeof(WarmCreativeDetailParameters) == 32U);
 
 struct WarmBoxParameters final {
     std::uint32_t width = 0U;
@@ -148,13 +149,6 @@ struct WarmGuidedCoefficientsParameters final {
     std::uint32_t width = 0U;
     std::uint32_t height = 0U;
     float epsilon = 0.0F;
-    float reserved = 0.0F;
-};
-
-struct WarmLocalContrastParameters final {
-    std::uint32_t width = 0U;
-    std::uint32_t height = 0U;
-    float amount = 0.0F;
     float reserved = 0.0F;
 };
 
@@ -185,7 +179,6 @@ struct WarmSelectiveToneParameters final {
 
 static_assert(sizeof(WarmBoxParameters) == 16U);
 static_assert(sizeof(WarmGuidedCoefficientsParameters) == 16U);
-static_assert(sizeof(WarmLocalContrastParameters) == 16U);
 static_assert(sizeof(WarmSelectiveToneParameters) == 144U);
 
 template <typename Record>
@@ -200,10 +193,9 @@ static_assert(warm_kernel_record<WarmTextureParameters>);
 static_assert(warm_kernel_record<WarmGaussianParameters>);
 static_assert(warm_kernel_record<WarmClarityParameters>);
 static_assert(warm_kernel_record<WarmDehazeDefringeParameters>);
-static_assert(warm_kernel_record<WarmTextureClarityParameters>);
+static_assert(warm_kernel_record<WarmCreativeDetailParameters>);
 static_assert(warm_kernel_record<WarmBoxParameters>);
 static_assert(warm_kernel_record<WarmGuidedCoefficientsParameters>);
-static_assert(warm_kernel_record<WarmLocalContrastParameters>);
 static_assert(warm_kernel_record<WarmSelectiveToneParameters>);
 
 static_assert(alignof(WarmDisplayParameters) == alignof(std::uint32_t));
@@ -214,10 +206,9 @@ static_assert(alignof(WarmTextureParameters) == alignof(std::uint32_t));
 static_assert(alignof(WarmGaussianParameters) == alignof(std::uint32_t));
 static_assert(alignof(WarmClarityParameters) == alignof(std::uint32_t));
 static_assert(alignof(WarmDehazeDefringeParameters) == alignof(float));
-static_assert(alignof(WarmTextureClarityParameters) == alignof(std::uint32_t));
+static_assert(alignof(WarmCreativeDetailParameters) == alignof(std::uint32_t));
 static_assert(alignof(WarmBoxParameters) == alignof(std::uint32_t));
 static_assert(alignof(WarmGuidedCoefficientsParameters) == alignof(std::uint32_t));
-static_assert(alignof(WarmLocalContrastParameters) == alignof(std::uint32_t));
 static_assert(alignof(WarmSelectiveToneParameters) == alignof(std::uint32_t));
 
 static_assert(offsetof(WarmDisplayParameters, apply_scene_curve) == 8U);
@@ -231,13 +222,12 @@ static_assert(offsetof(WarmTextureParameters, sigma_x) == 16U);
 static_assert(offsetof(WarmGaussianParameters, sigma_x) == 16U);
 static_assert(offsetof(WarmClarityParameters, sigma_y) == 16U);
 static_assert(offsetof(WarmDehazeDefringeParameters, red_luminance) == 28U);
-static_assert(offsetof(WarmTextureClarityParameters, sigma_y) == 16U);
+static_assert(offsetof(WarmCreativeDetailParameters, sigma_y) == 16U);
 static_assert(offsetof(WarmBoxParameters, radius) == 8U);
 static_assert(offsetof(WarmSelectiveToneParameters, highlights) == 16U);
 static_assert(offsetof(WarmSelectiveToneParameters, red_luminance) == 32U);
 static_assert(offsetof(WarmSelectiveToneParameters, rgb_to_xyz_row_0) == 48U);
 static_assert(offsetof(WarmSelectiveToneParameters, xyz_to_rgb_row_2) == 128U);
 static_assert(offsetof(WarmGuidedCoefficientsParameters, epsilon) == 8U);
-static_assert(offsetof(WarmLocalContrastParameters, amount) == 8U);
 
 } // namespace shadow::image::detail

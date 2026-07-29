@@ -1,5 +1,7 @@
 #include "detail_tile_contract_test_support.hpp"
+#include "scoped_environment.hpp"
 
+#include <shadow/image/adjustment_execution.hpp>
 #include <shadow/image/full_edit_detail.hpp>
 
 #include <algorithm>
@@ -17,6 +19,7 @@ using shadow::image::test_support::failures;
 using shadow::image::test_support::metadata;
 using shadow::image::test_support::neutral_plan;
 using shadow::image::test_support::reference_rgb;
+using shadow::image::test_support::ScopedEnvironment;
 using shadow::image::test_support::SyntheticDecodeSession;
 
 void irregular_tiles_match_one_full_pixel_local_execution_without_seams() {
@@ -233,6 +236,7 @@ void composed_neighborhood_tiles_match_one_resident_execution_without_seams() {
     constexpr image::Dimensions dimensions{224, 72};
     SyntheticDecodeSession decoder(metadata(dimensions), reference_rgb(dimensions));
     const auto session = image::prepare_full_edit_detail(decoder);
+    const ScopedEnvironment automatic("SHADOW_IMAGE_ACCELERATION", "auto");
     const std::array plan{
         image::AdjustmentNode{
             .node_id = "guided-selective-tone",
@@ -264,17 +268,20 @@ void composed_neighborhood_tiles_match_one_resident_execution_without_seams() {
                 },
         },
         image::AdjustmentNode{
-            .node_id = "full-resolution-texture-clarity",
+            .node_id = "full-resolution-creative-detail",
             .parameter_schema_version = image::detail_effects_parameter_schema_version,
             .implementation_version = image::color_grading_implementation_version,
             .parameters = image::SharpenAdjustment{
                 .execution_pass = image::DetailEffectsExecutionPass::color_grading,
                 .clarity = 0.31,
                 .texture = 0.24,
+                .local_contrast = 0.27,
+                .local_contrast_scale = 0.72,
             },
         },
     };
     const auto full = session.render_rgb8(plan, {0, 0, dimensions.width, dimensions.height});
+    bool all_tiles_used_metal = full.execution.backend == image::DetailTileRenderBackend::metal;
     std::vector<std::uint8_t> stitched(full.bytes.size(), 0U);
     constexpr std::array tiles{
         image::DetailTileRect{0U, 0U, 73U, 29U},
@@ -286,6 +293,8 @@ void composed_neighborhood_tiles_match_one_resident_execution_without_seams() {
     };
     for (const image::DetailTileRect rect : tiles) {
         const auto tile = session.render_rgb8(plan, rect);
+        all_tiles_used_metal =
+            all_tiles_used_metal && tile.execution.backend == image::DetailTileRenderBackend::metal;
         for (std::uint32_t row = 0U; row < rect.height; ++row) {
             const auto begin =
                 tile.bytes.cbegin() + static_cast<std::ptrdiff_t>(row * tile.row_stride_bytes);
@@ -300,7 +309,12 @@ void composed_neighborhood_tiles_match_one_resident_execution_without_seams() {
     }
     expect(
         stitched == full.bytes,
-        "composed selective tone, sharpen and full-resolution Clarity preserve tiled seams"
+        "composed selective tone, sharpen and full-resolution creative detail preserve tiled seams"
+    );
+    expect(
+        !image::adjustment_backend_available(image::AdjustmentBackend::metal)
+            || all_tiles_used_metal,
+        "the composed full-resolution creative-detail seam contract executes on resident Metal"
     );
 }
 

@@ -122,6 +122,12 @@ void planner_selects_each_supported_neighbourhood_contract() {
         prepare_plan(local_contrast, image::color_grading_implementation_version),
         "local contrast selects the guided local-contrast stage"
     );
+    local_contrast.texture = 0.31;
+    local_contrast.clarity = 0.25;
+    expect_stage<image::detail::WarmLocalContrastStage>(
+        prepare_plan(local_contrast, image::color_grading_implementation_version, 1.0),
+        "combined creative bands select one ordered local-contrast stage"
+    );
 
     image::SharpenAdjustment texture;
     texture.execution_pass = image::DetailEffectsExecutionPass::color_grading;

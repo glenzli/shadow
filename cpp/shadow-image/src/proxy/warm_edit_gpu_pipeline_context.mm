@@ -263,21 +263,21 @@ WarmMetalContext::WarmMetalContext() {
                           error_description(error);
             return;
         }
-        id<MTLFunction> texture_clarity_apply_function =
-            [library newFunctionWithName:@"warm_texture_clarity_apply_v1"];
-        if (texture_clarity_apply_function == nil) {
+        id<MTLFunction> creative_detail_apply_function =
+            [library newFunctionWithName:@"warm_creative_detail_apply_v1"];
+        if (creative_detail_apply_function == nil) {
             [library release];
-            diagnostic_ = "Metal warm-preview texture-clarity shader entry point is "
+            diagnostic_ = "Metal warm-preview creative-detail shader entry point is "
                           "unavailable";
             return;
         }
-        texture_clarity_apply_pipeline_ =
-            [device_ newComputePipelineStateWithFunction:texture_clarity_apply_function
+        creative_detail_apply_pipeline_ =
+            [device_ newComputePipelineStateWithFunction:creative_detail_apply_function
                                                    error:&error];
-        [texture_clarity_apply_function release];
-        if (texture_clarity_apply_pipeline_ == nil) {
+        [creative_detail_apply_function release];
+        if (creative_detail_apply_pipeline_ == nil) {
             [library release];
-            diagnostic_ = "Metal warm-preview texture-clarity pipeline creation failed: " +
+            diagnostic_ = "Metal warm-preview creative-detail pipeline creation failed: " +
                           error_description(error);
             return;
         }
@@ -291,8 +291,6 @@ WarmMetalContext::WarmMetalContext() {
             [library newFunctionWithName:@"warm_guided_coefficients_v1"];
         id<MTLFunction> guided_combine_function =
             [library newFunctionWithName:@"warm_guided_combine_v1"];
-        id<MTLFunction> local_contrast_apply_function =
-            [library newFunctionWithName:@"warm_local_contrast_apply_v1"];
         id<MTLFunction> selective_tone_guide_function =
             [library newFunctionWithName:@"warm_selective_tone_guide_v1"];
         id<MTLFunction> reflect_box_horizontal_function =
@@ -303,15 +301,14 @@ WarmMetalContext::WarmMetalContext() {
             [library newFunctionWithName:@"warm_selective_tone_apply_v1"];
         if (box_horizontal_function == nil || box_vertical_function == nil ||
             scalar_square_function == nil || guided_coefficients_function == nil ||
-            guided_combine_function == nil || local_contrast_apply_function == nil ||
-            selective_tone_guide_function == nil || reflect_box_horizontal_function == nil ||
+            guided_combine_function == nil || selective_tone_guide_function == nil
+            || reflect_box_horizontal_function == nil ||
             reflect_box_vertical_function == nil || selective_tone_apply_function == nil) {
             [box_horizontal_function release];
             [box_vertical_function release];
             [scalar_square_function release];
             [guided_coefficients_function release];
             [guided_combine_function release];
-            [local_contrast_apply_function release];
             [selective_tone_guide_function release];
             [reflect_box_horizontal_function release];
             [reflect_box_vertical_function release];
@@ -336,10 +333,6 @@ WarmMetalContext::WarmMetalContext() {
         guided_combine_pipeline_ =
             [device_ newComputePipelineStateWithFunction:guided_combine_function error:&error];
         [guided_combine_function release];
-        local_contrast_apply_pipeline_ =
-            [device_ newComputePipelineStateWithFunction:local_contrast_apply_function
-                                                   error:&error];
-        [local_contrast_apply_function release];
         selective_tone_guide_pipeline_ =
             [device_ newComputePipelineStateWithFunction:selective_tone_guide_function
                                                    error:&error];
@@ -359,8 +352,7 @@ WarmMetalContext::WarmMetalContext() {
         [library release];
         if (box_horizontal_pipeline_ == nil || box_vertical_pipeline_ == nil ||
             scalar_square_pipeline_ == nil || guided_coefficients_pipeline_ == nil ||
-            guided_combine_pipeline_ == nil || local_contrast_apply_pipeline_ == nil ||
-            selective_tone_guide_pipeline_ == nil ||
+            guided_combine_pipeline_ == nil || selective_tone_guide_pipeline_ == nil ||
             reflect_box_horizontal_pipeline_ == nil || reflect_box_vertical_pipeline_ == nil ||
             selective_tone_apply_pipeline_ == nil) {
             diagnostic_ = "Metal warm-preview guided-stage pipeline creation failed: " +
@@ -374,13 +366,12 @@ WarmMetalContext::~WarmMetalContext() {
     [reflect_box_vertical_pipeline_ release];
     [reflect_box_horizontal_pipeline_ release];
     [selective_tone_guide_pipeline_ release];
-    [local_contrast_apply_pipeline_ release];
     [guided_combine_pipeline_ release];
     [guided_coefficients_pipeline_ release];
     [scalar_square_pipeline_ release];
     [box_vertical_pipeline_ release];
     [box_horizontal_pipeline_ release];
-    [texture_clarity_apply_pipeline_ release];
+    [creative_detail_apply_pipeline_ release];
     [dehaze_defringe_pipeline_ release];
     [clarity_apply_pipeline_ release];
     [scalar_vertical_pipeline_ release];
@@ -404,11 +395,10 @@ bool WarmMetalContext::valid() const noexcept {
            sharpen_apply_pipeline_ != nil && texture_lightness_pipeline_ != nil &&
            texture_horizontal_pipeline_ != nil && texture_apply_pipeline_ != nil &&
            scalar_vertical_pipeline_ != nil && clarity_apply_pipeline_ != nil &&
-           dehaze_defringe_pipeline_ != nil && texture_clarity_apply_pipeline_ != nil &&
+           dehaze_defringe_pipeline_ != nil && creative_detail_apply_pipeline_ != nil &&
            box_horizontal_pipeline_ != nil && box_vertical_pipeline_ != nil &&
            scalar_square_pipeline_ != nil && guided_coefficients_pipeline_ != nil &&
-           guided_combine_pipeline_ != nil && local_contrast_apply_pipeline_ != nil &&
-           selective_tone_guide_pipeline_ != nil &&
+           guided_combine_pipeline_ != nil && selective_tone_guide_pipeline_ != nil &&
            reflect_box_horizontal_pipeline_ != nil &&
            reflect_box_vertical_pipeline_ != nil && selective_tone_apply_pipeline_ != nil;
 }
@@ -465,8 +455,8 @@ id<MTLComputePipelineState> WarmMetalContext::dehaze_defringe_pipeline() const n
     return dehaze_defringe_pipeline_;
 }
 
-id<MTLComputePipelineState> WarmMetalContext::texture_clarity_apply_pipeline() const noexcept {
-    return texture_clarity_apply_pipeline_;
+id<MTLComputePipelineState> WarmMetalContext::creative_detail_apply_pipeline() const noexcept {
+    return creative_detail_apply_pipeline_;
 }
 
 id<MTLComputePipelineState> WarmMetalContext::box_horizontal_pipeline() const noexcept {
@@ -487,10 +477,6 @@ id<MTLComputePipelineState> WarmMetalContext::guided_coefficients_pipeline() con
 
 id<MTLComputePipelineState> WarmMetalContext::guided_combine_pipeline() const noexcept {
     return guided_combine_pipeline_;
-}
-
-id<MTLComputePipelineState> WarmMetalContext::local_contrast_apply_pipeline() const noexcept {
-    return local_contrast_apply_pipeline_;
 }
 
 id<MTLComputePipelineState> WarmMetalContext::selective_tone_guide_pipeline() const noexcept {

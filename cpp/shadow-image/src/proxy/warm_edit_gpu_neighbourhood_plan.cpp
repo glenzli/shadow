@@ -501,7 +501,7 @@ is_gpu_warm_technical_detail_supported(const SharpenAdjustment& parameters) noex
         .texture_gaussian = texture,
         .clarity_small_gaussian = small,
         .clarity_large_gaussian = large,
-        .parameters = WarmTextureClarityParameters{
+        .parameters = WarmCreativeDetailParameters{
             .width = dimensions.width,
             .height = dimensions.height,
             .vertical_radius = large.vertical_radius,
@@ -579,7 +579,7 @@ is_gpu_warm_technical_detail_supported(const SharpenAdjustment& parameters) noex
     }
     const auto* detail = std::get_if<SharpenAdjustment>(&nodes[step.node_index].parameters);
     if (detail == nullptr || detail->execution_pass != DetailEffectsExecutionPass::color_grading
-        || detail->local_contrast == 0.0 || detail->texture != 0.0 || detail->clarity != 0.0) {
+        || detail->local_contrast == 0.0) {
         return std::nullopt;
     }
     for (std::size_t index = 0U; index < plan.segments.size(); ++index) {
@@ -591,10 +591,9 @@ is_gpu_warm_technical_detail_supported(const SharpenAdjustment& parameters) noex
     const double effective_raster_scale = std::sqrt(std::max(0.0, scale_x * scale_y));
     const double large_radius =
         std::ceil((20.0 + 60.0 * detail->local_contrast_scale) * effective_raster_scale);
-    // The exact CPU algorithm is O(pixels) thanks to rolling means. A GPU box filter uses a
-    // deliberately fixed loop, so only compact preview supports are admitted here. Larger
-    // rasters preserve the exact same result by taking the normal CPU fallback path.
-    if (large_radius > 32.0) {
+    // Match the CPU rolling-window complexity on Metal. The authored scale is bounded to an
+    // 80-pixel level-zero radius; reject only an inconsistent enlarged raster contract.
+    if (large_radius > static_cast<double>(warm_local_contrast_box_radius_limit)) {
         return std::nullopt;
     }
     const auto large_radius_u32 = static_cast<std::uint32_t>(std::max(1.0, large_radius));
@@ -602,10 +601,43 @@ is_gpu_warm_technical_detail_supported(const SharpenAdjustment& parameters) noex
         1U,
         static_cast<std::uint32_t>(std::ceil(static_cast<double>(large_radius_u32) * 0.32))
     );
+    const auto gaussian = [dimensions, scale_x, scale_y](const double sigma) {
+        const double sigma_x = sigma * scale_x;
+        const double sigma_y = sigma * scale_y;
+        return WarmGaussianParameters{
+            .width = dimensions.width,
+            .height = dimensions.height,
+            .horizontal_radius = static_cast<std::uint32_t>(std::ceil(3.0 * sigma_x)),
+            .vertical_radius = static_cast<std::uint32_t>(std::ceil(3.0 * sigma_y)),
+            .sigma_x = static_cast<float>(sigma_x),
+            .sigma_y = static_cast<float>(sigma_y),
+        };
+    };
+    const std::optional<WarmGaussianParameters> texture =
+        detail->texture == 0.0 ? std::nullopt
+                               : std::optional<WarmGaussianParameters>{gaussian(1.4)};
+    const std::optional<WarmGaussianParameters> clarity_small =
+        detail->clarity == 0.0 ? std::nullopt
+                               : std::optional<WarmGaussianParameters>{gaussian(2.4)};
+    const std::optional<WarmGaussianParameters> clarity_large =
+        detail->clarity == 0.0 ? std::nullopt
+                               : std::optional<WarmGaussianParameters>{gaussian(12.0)};
+    const auto radius_supported = [](const std::optional<WarmGaussianParameters>& parameters) {
+        return !parameters.has_value()
+               || (parameters->horizontal_radius <= warm_creative_gaussian_radius_limit
+                   && parameters->vertical_radius <= warm_creative_gaussian_radius_limit);
+    };
+    if (!radius_supported(texture) || !radius_supported(clarity_small)
+        || !radius_supported(clarity_large)) {
+        return std::nullopt;
+    }
     WarmLocalContrastStage result{
         .before = EditExecutionPlan{.source_node_count = plan.source_node_count},
         .after = EditExecutionPlan{.source_node_count = plan.source_node_count},
         .post_nodes = std::vector<AdjustmentNode>(nodes.begin(), nodes.end()),
+        .texture_gaussian = texture,
+        .clarity_small_gaussian = clarity_small,
+        .clarity_large_gaussian = clarity_large,
         .small_box =
             WarmBoxParameters{
                 .width = dimensions.width,
@@ -630,13 +662,19 @@ is_gpu_warm_technical_detail_supported(const SharpenAdjustment& parameters) noex
                 .height = dimensions.height,
                 .epsilon = 1.6e-3F,
             },
-        .parameters = WarmLocalContrastParameters{
+        .parameters = WarmCreativeDetailParameters{
             .width = dimensions.width,
             .height = dimensions.height,
-            .amount = static_cast<float>(detail->local_contrast),
+            .vertical_radius = clarity_large.has_value() ? clarity_large->vertical_radius : 0U,
+            .sigma_y = clarity_large.has_value() ? clarity_large->sigma_y : 1.0F,
+            .texture_amount = static_cast<float>(detail->texture),
+            .clarity_amount = static_cast<float>(detail->clarity),
+            .local_contrast_amount = static_cast<float>(detail->local_contrast),
         },
     };
     auto& post_detail = std::get<SharpenAdjustment>(result.post_nodes[step.node_index].parameters);
+    post_detail.texture = 0.0;
+    post_detail.clarity = 0.0;
     post_detail.local_contrast = 0.0;
     result.before.segments.insert(
         result.before.segments.end(),

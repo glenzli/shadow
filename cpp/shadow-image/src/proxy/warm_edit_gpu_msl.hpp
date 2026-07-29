@@ -94,7 +94,7 @@ struct WarmDehazeDefringeParameters {
     float reserved_1;
 };
 
-struct WarmTextureClarityParameters {
+struct WarmCreativeDetailParameters {
     uint width;
     uint height;
     uint vertical_radius;
@@ -102,13 +102,12 @@ struct WarmTextureClarityParameters {
     float sigma_y;
     float texture_amount;
     float clarity_amount;
-    float reserved_0;
+    float local_contrast_amount;
 };
 
-// Local Contrast uses the CPU reference's two self-guided box filters.  It is
-// deliberately a separate resident stage from Gaussian Texture/Clarity: the
-// repeated box means preserve real luminance boundaries at a much broader
-// photographic support without introducing a preview-only approximation.
+// Local Contrast uses the CPU reference's two self-guided box filters. Its prepared rasters join
+// Gaussian Texture/Clarity only in the final creative-detail kernel so all three bands preserve
+// the CPU's one-conversion order.
 struct WarmBoxParameters {
     uint width;
     uint height;
@@ -120,13 +119,6 @@ struct WarmGuidedCoefficientsParameters {
     uint width;
     uint height;
     float epsilon;
-    float reserved;
-};
-
-struct WarmLocalContrastParameters {
-    uint width;
-    uint height;
-    float amount;
     float reserved;
 };
 
@@ -833,31 +825,40 @@ kernel void warm_dehaze_defringe_v1(
     output[rgb_index + 2u] = adjusted.z;
 }
 
-kernel void warm_texture_clarity_apply_v1(
+kernel void warm_creative_detail_apply_v1(
     device const float* input [[buffer(0)]],
     device const float* texture_base [[buffer(1)]],
     device const float* clarity_small [[buffer(2)]],
     device const float* clarity_large_horizontal [[buffer(3)]],
-    device float* output [[buffer(4)]],
-    constant WarmTextureClarityParameters& parameters [[buffer(5)]],
-    constant MetalAdjustmentInvocation& invocation [[buffer(6)]],
+    device const float* local_contrast_small [[buffer(4)]],
+    device const float* local_contrast_large [[buffer(5)]],
+    device float* output [[buffer(6)]],
+    constant WarmCreativeDetailParameters& parameters [[buffer(7)]],
+    constant MetalAdjustmentInvocation& invocation [[buffer(8)]],
     uint2 position [[thread_position_in_grid]]
 ) {
     if (position.x >= parameters.width || position.y >= parameters.height) {
         return;
     }
     const int radius = int(parameters.vertical_radius);
-    const float inverse_two_sigma_squared = 1.0f / max(
-        2.0f * parameters.sigma_y * parameters.sigma_y,
-        1.0e-12f
-    );
     float weighted_sum = 0.0f;
     float weight_sum = 0.0f;
-    for (int offset = -radius; offset <= radius; ++offset) {
-        const float weight = exp(-float(offset * offset) * inverse_two_sigma_squared);
-        const uint sample_y = warm_reflect101_coordinate(int(position.y) + offset, parameters.height);
-        weighted_sum += clarity_large_horizontal[sample_y * parameters.width + position.x] * weight;
-        weight_sum += weight;
+    if (parameters.clarity_amount != 0.0f) {
+        const float inverse_two_sigma_squared = 1.0f / max(
+            2.0f * parameters.sigma_y * parameters.sigma_y,
+            1.0e-12f
+        );
+        for (int offset = -radius; offset <= radius; ++offset) {
+            const float weight = exp(-float(offset * offset) * inverse_two_sigma_squared);
+            const uint sample_y = warm_reflect101_coordinate(
+                int(position.y) + offset,
+                parameters.height
+            );
+            weighted_sum += clarity_large_horizontal[
+                sample_y * parameters.width + position.x
+            ] * weight;
+            weight_sum += weight;
+        }
     }
     const uint pixel = position.y * parameters.width + position.x;
     const uint rgb_index = pixel * 3u;
@@ -866,51 +867,90 @@ kernel void warm_texture_clarity_apply_v1(
     );
     float3 lab = working_rgb_to_oklab(rgb, invocation);
     const float shadow_protection = adjustment_smoothstep(0.015f, 0.090f, lab.x);
-    const float texture_residual = lab.x - texture_base[pixel];
-    lab.x += parameters.texture_amount * 0.70f
-        * (texture_residual / (1.0f + abs(texture_residual) / 0.035f))
-        * shadow_protection;
-    const float high_frequency = lab.x - clarity_small[pixel];
-    const float mid_frequency = clarity_small[pixel]
-        - weighted_sum / max(weight_sum, 1.0e-12f);
-    const float edge_protection = 1.0f - adjustment_smoothstep(
-        0.018f, 0.085f, abs(high_frequency)
-    );
-    lab.x += parameters.clarity_amount * 1.15f
-        * (mid_frequency / (1.0f + abs(mid_frequency) / 0.090f))
-        * edge_protection * shadow_protection;
+    if (parameters.texture_amount != 0.0f) {
+        const float texture_residual = lab.x - texture_base[pixel];
+        lab.x += parameters.texture_amount * 0.70f
+            * (texture_residual / (1.0f + abs(texture_residual) / 0.035f))
+            * shadow_protection;
+    }
+    if (parameters.clarity_amount != 0.0f) {
+        const float high_frequency = lab.x - clarity_small[pixel];
+        const float mid_frequency = clarity_small[pixel]
+            - weighted_sum / max(weight_sum, 1.0e-12f);
+        const float edge_protection = 1.0f - adjustment_smoothstep(
+            0.018f,
+            0.085f,
+            abs(high_frequency)
+        );
+        lab.x += parameters.clarity_amount * 1.15f
+            * (mid_frequency / (1.0f + abs(mid_frequency) / 0.090f))
+            * edge_protection * shadow_protection;
+    }
+    if (parameters.local_contrast_amount != 0.0f) {
+        const float broad_residual =
+            local_contrast_small[pixel] - local_contrast_large[pixel];
+        const float edge_residual = lab.x - local_contrast_small[pixel];
+        const float edge_protection = 1.0f - adjustment_smoothstep(
+            0.030f,
+            0.120f,
+            abs(edge_residual)
+        );
+        const float compressed = broad_residual
+            / (1.0f + abs(broad_residual) / 0.115f);
+        lab.x += parameters.local_contrast_amount * 1.20f * compressed
+            * edge_protection * shadow_protection;
+    }
     const float3 adjusted = oklab_to_working_rgb(lab, invocation);
     output[rgb_index] = adjusted.x;
     output[rgb_index + 1u] = adjusted.y;
     output[rgb_index + 2u] = adjusted.z;
 }
 
-// A fixed loop bound keeps the preview-stage cost predictable. CPU-side stage
-// preparation declines a radius above this bound and replays the exact CPU
-// oracle instead of silently truncating the requested support.
+inline void warm_compensated_add(
+    float value,
+    thread float& sum,
+    thread float& correction
+) {
+    const float adjusted = value - correction;
+    const float next = sum + adjusted;
+    correction = (next - sum) - adjusted;
+    sum = next;
+}
+
+// One thread owns one complete row. After the bounded first window, each output advances with
+// one entering and one leaving sample. This keeps full-resolution Local Contrast O(pixels)
+// instead of repeating an O(radius) sum independently at every pixel.
 kernel void warm_box_horizontal_v1(
     device const float* input [[buffer(0)]],
     device float* output [[buffer(1)]],
     constant WarmBoxParameters& parameters [[buffer(2)]],
     uint2 position [[thread_position_in_grid]]
 ) {
-    if (position.x >= parameters.width || position.y >= parameters.height) {
+    if (position.x != 0u || position.y >= parameters.height) {
         return;
     }
+    const uint row_offset = position.y * parameters.width;
     float sum = 0.0f;
+    float correction = 0.0f;
     const int radius = int(parameters.radius);
-    for (int offset = -32; offset <= 32; ++offset) {
-        if (abs(offset) > radius) {
+    for (int offset = -radius; offset <= radius; ++offset) {
+        const uint sample_x = warm_clamp_coordinate(offset, parameters.width);
+        warm_compensated_add(input[row_offset + sample_x], sum, correction);
+    }
+    const float divisor = float(radius * 2 + 1);
+    for (uint x = 0u; x < parameters.width; ++x) {
+        output[row_offset + x] = sum / divisor;
+        if (x + 1u >= parameters.width) {
             continue;
         }
-        const uint sample_x = warm_clamp_coordinate(
-            int(position.x) + offset,
+        const uint leaving_x = warm_clamp_coordinate(int(x) - radius, parameters.width);
+        const uint entering_x = warm_clamp_coordinate(
+            int(x) + radius + 1,
             parameters.width
         );
-        sum += input[position.y * parameters.width + sample_x];
+        warm_compensated_add(-input[row_offset + leaving_x], sum, correction);
+        warm_compensated_add(input[row_offset + entering_x], sum, correction);
     }
-    output[position.y * parameters.width + position.x] = sum
-        / float(radius * 2 + 1);
 }
 
 kernel void warm_selective_tone_guide_v1(
@@ -989,23 +1029,42 @@ kernel void warm_box_vertical_v1(
     constant WarmBoxParameters& parameters [[buffer(2)]],
     uint2 position [[thread_position_in_grid]]
 ) {
-    if (position.x >= parameters.width || position.y >= parameters.height) {
+    if (position.x >= parameters.width || position.y != 0u) {
         return;
     }
     float sum = 0.0f;
+    float correction = 0.0f;
     const int radius = int(parameters.radius);
-    for (int offset = -32; offset <= 32; ++offset) {
-        if (abs(offset) > radius) {
+    for (int offset = -radius; offset <= radius; ++offset) {
+        const uint sample_y = warm_clamp_coordinate(offset, parameters.height);
+        warm_compensated_add(
+            input[sample_y * parameters.width + position.x],
+            sum,
+            correction
+        );
+    }
+    const float divisor = float(radius * 2 + 1);
+    for (uint y = 0u; y < parameters.height; ++y) {
+        output[y * parameters.width + position.x] = sum / divisor;
+        if (y + 1u >= parameters.height) {
             continue;
         }
-        const uint sample_y = warm_clamp_coordinate(
-            int(position.y) + offset,
+        const uint leaving_y = warm_clamp_coordinate(int(y) - radius, parameters.height);
+        const uint entering_y = warm_clamp_coordinate(
+            int(y) + radius + 1,
             parameters.height
         );
-        sum += input[sample_y * parameters.width + position.x];
+        warm_compensated_add(
+            -input[leaving_y * parameters.width + position.x],
+            sum,
+            correction
+        );
+        warm_compensated_add(
+            input[entering_y * parameters.width + position.x],
+            sum,
+            correction
+        );
     }
-    output[position.y * parameters.width + position.x] = sum
-        / float(radius * 2 + 1);
 }
 
 kernel void warm_scalar_square_v1(
@@ -1147,41 +1206,6 @@ kernel void warm_selective_tone_apply_v1(
     output[rgb_index + 2u] = adjusted.z;
 }
 
-kernel void warm_local_contrast_apply_v1(
-    device const float* input [[buffer(0)]],
-    device const float* small [[buffer(1)]],
-    device const float* large [[buffer(2)]],
-    device float* output [[buffer(3)]],
-    constant WarmLocalContrastParameters& parameters [[buffer(4)]],
-    constant MetalAdjustmentInvocation& invocation [[buffer(5)]],
-    uint2 position [[thread_position_in_grid]]
-) {
-    if (position.x >= parameters.width || position.y >= parameters.height) {
-        return;
-    }
-    const uint pixel = position.y * parameters.width + position.x;
-    const uint rgb_index = pixel * 3u;
-    const float3 rgb = float3(
-        input[rgb_index], input[rgb_index + 1u], input[rgb_index + 2u]
-    );
-    float3 lab = working_rgb_to_oklab(rgb, invocation);
-    const float broad_residual = small[pixel] - large[pixel];
-    const float edge_residual = lab.x - small[pixel];
-    const float edge_protection = 1.0f - adjustment_smoothstep(
-        0.030f,
-        0.120f,
-        abs(edge_residual)
-    );
-    const float shadow_protection = adjustment_smoothstep(0.015f, 0.090f, lab.x);
-    const float compressed = broad_residual
-        / (1.0f + abs(broad_residual) / 0.115f);
-    lab.x += parameters.amount * 1.20f * compressed
-        * edge_protection * shadow_protection;
-    const float3 adjusted = oklab_to_working_rgb(lab, invocation);
-    output[rgb_index] = adjusted.x;
-    output[rgb_index + 1u] = adjusted.y;
-    output[rgb_index + 2u] = adjusted.z;
-}
 )METAL";
 
 } // namespace shadow::image::detail

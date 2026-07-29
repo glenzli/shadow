@@ -48,18 +48,21 @@ struct WarmTextureClarityStage final {
     WarmGaussianParameters texture_gaussian;
     WarmGaussianParameters clarity_small_gaussian;
     WarmGaussianParameters clarity_large_gaussian;
-    WarmTextureClarityParameters parameters;
+    WarmCreativeDetailParameters parameters;
 };
 
 struct WarmLocalContrastStage final {
     EditExecutionPlan before;
     EditExecutionPlan after;
     std::vector<AdjustmentNode> post_nodes;
+    std::optional<WarmGaussianParameters> texture_gaussian;
+    std::optional<WarmGaussianParameters> clarity_small_gaussian;
+    std::optional<WarmGaussianParameters> clarity_large_gaussian;
     WarmBoxParameters small_box;
     WarmBoxParameters large_box;
     WarmGuidedCoefficientsParameters small_coefficients;
     WarmGuidedCoefficientsParameters large_coefficients;
-    WarmLocalContrastParameters parameters;
+    WarmCreativeDetailParameters parameters;
 };
 
 struct WarmSelectiveToneStage final {

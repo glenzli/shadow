@@ -56,7 +56,11 @@ id<MTLBuffer> encode_warm_gpu_neighbourhood_stage(
     const WarmGpuNeighbourhoodStage& stage,
     const MetalAdjustmentInvocation& color_invocation
 ) {
-    const auto dispatch = [encoder, &layout](id<MTLComputePipelineState> pipeline) {
+    const auto dispatch_grid = [encoder](
+        id<MTLComputePipelineState> pipeline,
+        const NSUInteger width,
+        const NSUInteger height
+    ) {
         const NSUInteger thread_width = std::min<NSUInteger>(
             32U,
             std::max<NSUInteger>(1U, pipeline.threadExecutionWidth)
@@ -69,11 +73,14 @@ id<MTLBuffer> encode_warm_gpu_neighbourhood_stage(
             )
         );
         [encoder dispatchThreads:MTLSizeMake(
-                layout.dimensions.width,
-                layout.dimensions.height,
+                width,
+                height,
                 1U
             )
             threadsPerThreadgroup:MTLSizeMake(thread_width, thread_height, 1U)];
+    };
+    const auto dispatch = [&dispatch_grid, &layout](id<MTLComputePipelineState> pipeline) {
+        dispatch_grid(pipeline, layout.dimensions.width, layout.dimensions.height);
     };
 
     return std::visit(
@@ -175,24 +182,28 @@ id<MTLBuffer> encode_warm_gpu_neighbourhood_stage(
                 dispatch(context.texture_horizontal_pipeline());
 
                 id<MTLBuffer> output = alternate_rgb_buffer(slot, input);
-                [encoder setComputePipelineState:context.texture_clarity_apply_pipeline()];
+                [encoder setComputePipelineState:context.creative_detail_apply_pipeline()];
                 [encoder setBuffer:input offset:0U atIndex:0U];
                 [encoder setBuffer:slot.perceptual_texture offset:0U atIndex:1U];
                 [encoder setBuffer:slot.perceptual_small offset:0U atIndex:2U];
                 [encoder setBuffer:slot.sharpen_horizontal offset:0U atIndex:3U];
-                [encoder setBuffer:output offset:0U atIndex:4U];
-                [encoder setBytes:&combined length:sizeof(combined) atIndex:5U];
+                // Local Contrast is inactive for this specialized stage. Bind valid resident
+                // buffers to the dormant inputs so the shared creative kernel has one ABI.
+                [encoder setBuffer:slot.perceptual_small offset:0U atIndex:4U];
+                [encoder setBuffer:slot.perceptual_texture offset:0U atIndex:5U];
+                [encoder setBuffer:output offset:0U atIndex:6U];
+                [encoder setBytes:&combined length:sizeof(combined) atIndex:7U];
                 [encoder setBytes:&color_invocation
                            length:sizeof(color_invocation)
-                          atIndex:6U];
-                dispatch(context.texture_clarity_apply_pipeline());
+                          atIndex:8U];
+                dispatch(context.creative_detail_apply_pipeline());
                 return output;
             } else if constexpr (std::is_same_v<Stage, WarmLocalContrastStage>) {
                 const auto& small = value.small_box;
                 const auto& large = value.large_box;
                 const auto& small_coefficients = value.small_coefficients;
                 const auto& large_coefficients = value.large_coefficients;
-                const auto& local_contrast = value.parameters;
+                const auto& creative = value.parameters;
                 const WarmTextureParameters lightness{
                     .width = layout.dimensions.width,
                     .height = layout.dimensions.height,
@@ -205,12 +216,20 @@ id<MTLBuffer> encode_warm_gpu_neighbourhood_stage(
                     [encoder setBuffer:source offset:0U atIndex:0U];
                     [encoder setBuffer:horizontal offset:0U atIndex:1U];
                     [encoder setBytes:&parameters length:sizeof(parameters) atIndex:2U];
-                    dispatch(context.box_horizontal_pipeline());
+                    dispatch_grid(
+                        context.box_horizontal_pipeline(),
+                        1U,
+                        parameters.height
+                    );
                     [encoder setComputePipelineState:context.box_vertical_pipeline()];
                     [encoder setBuffer:horizontal offset:0U atIndex:0U];
                     [encoder setBuffer:output offset:0U atIndex:1U];
                     [encoder setBytes:&parameters length:sizeof(parameters) atIndex:2U];
-                    dispatch(context.box_vertical_pipeline());
+                    dispatch_grid(
+                        context.box_vertical_pipeline(),
+                        parameters.width,
+                        1U
+                    );
                 };
                 const auto square = [&](id<MTLBuffer> source,
                                         id<MTLBuffer> output,
@@ -295,17 +314,60 @@ id<MTLBuffer> encode_warm_gpu_neighbourhood_stage(
                 box_mean(horizontal, scratch_b, large_output, large);
                 combine(guide, scratch_a, large_output, large_output, large);
 
+                if (value.texture_gaussian.has_value()) {
+                    const auto& texture = *value.texture_gaussian;
+                    [encoder setComputePipelineState:context.texture_horizontal_pipeline()];
+                    [encoder setBuffer:guide offset:0U atIndex:0U];
+                    [encoder setBuffer:horizontal offset:0U atIndex:1U];
+                    [encoder setBytes:&texture length:sizeof(texture) atIndex:2U];
+                    dispatch(context.texture_horizontal_pipeline());
+                    [encoder setComputePipelineState:context.scalar_vertical_pipeline()];
+                    [encoder setBuffer:horizontal offset:0U atIndex:0U];
+                    [encoder setBuffer:scratch_a offset:0U atIndex:1U];
+                    [encoder setBytes:&texture length:sizeof(texture) atIndex:2U];
+                    dispatch(context.scalar_vertical_pipeline());
+                }
+                if (value.clarity_small_gaussian.has_value()
+                    && value.clarity_large_gaussian.has_value()) {
+                    const auto& clarity_small = *value.clarity_small_gaussian;
+                    const auto& clarity_large = *value.clarity_large_gaussian;
+                    [encoder setComputePipelineState:context.texture_horizontal_pipeline()];
+                    [encoder setBuffer:guide offset:0U atIndex:0U];
+                    [encoder setBuffer:horizontal offset:0U atIndex:1U];
+                    [encoder setBytes:&clarity_small
+                               length:sizeof(clarity_small)
+                              atIndex:2U];
+                    dispatch(context.texture_horizontal_pipeline());
+                    [encoder setComputePipelineState:context.scalar_vertical_pipeline()];
+                    [encoder setBuffer:horizontal offset:0U atIndex:0U];
+                    [encoder setBuffer:scratch_b offset:0U atIndex:1U];
+                    [encoder setBytes:&clarity_small
+                               length:sizeof(clarity_small)
+                              atIndex:2U];
+                    dispatch(context.scalar_vertical_pipeline());
+                    [encoder setComputePipelineState:context.texture_horizontal_pipeline()];
+                    [encoder setBuffer:guide offset:0U atIndex:0U];
+                    [encoder setBuffer:horizontal offset:0U atIndex:1U];
+                    [encoder setBytes:&clarity_large
+                               length:sizeof(clarity_large)
+                              atIndex:2U];
+                    dispatch(context.texture_horizontal_pipeline());
+                }
+
                 id<MTLBuffer> output = alternate_rgb_buffer(slot, input);
-                [encoder setComputePipelineState:context.local_contrast_apply_pipeline()];
+                [encoder setComputePipelineState:context.creative_detail_apply_pipeline()];
                 [encoder setBuffer:input offset:0U atIndex:0U];
-                [encoder setBuffer:small_output offset:0U atIndex:1U];
-                [encoder setBuffer:large_output offset:0U atIndex:2U];
-                [encoder setBuffer:output offset:0U atIndex:3U];
-                [encoder setBytes:&local_contrast length:sizeof(local_contrast) atIndex:4U];
+                [encoder setBuffer:scratch_a offset:0U atIndex:1U];
+                [encoder setBuffer:scratch_b offset:0U atIndex:2U];
+                [encoder setBuffer:horizontal offset:0U atIndex:3U];
+                [encoder setBuffer:small_output offset:0U atIndex:4U];
+                [encoder setBuffer:large_output offset:0U atIndex:5U];
+                [encoder setBuffer:output offset:0U atIndex:6U];
+                [encoder setBytes:&creative length:sizeof(creative) atIndex:7U];
                 [encoder setBytes:&color_invocation
                            length:sizeof(color_invocation)
-                          atIndex:5U];
-                dispatch(context.local_contrast_apply_pipeline());
+                          atIndex:8U];
+                dispatch(context.creative_detail_apply_pipeline());
                 return output;
             } else if constexpr (std::is_same_v<Stage, WarmSelectiveToneStage>) {
                 const auto& horizontal_box = value.horizontal_box;

@@ -378,8 +378,12 @@ Pure, cross-platform lowering of one neighborhood operation into immutable kerne
 in `src/proxy/warm_edit_gpu_neighbourhood_plan.*`. `src/proxy/warm_edit_gpu_render_plan.*` is the
 smaller composition owner: it preserves every pixel-local gap while collecting any number of
 supported neighborhood operations into one ordered resident transaction. Bounded dynamic Gaussian
-loops admit native-resolution Texture and Clarity (including Clarity's 36-pixel large band);
-unusually enlarged rasters still fail closed to the CPU reference.
+loops admit native-resolution Texture and Clarity (including Clarity's 36-pixel large band).
+Local Contrast uses row/column sliding-window box filters, so its native 20-through-80-pixel
+support remains linear in raster size instead of multiplying per-pixel work by radius. Texture,
+Clarity, and Local Contrast prepare their source-lightness bands independently, then join one
+creative-detail kernel that preserves the CPU reference's ordered Oklab-lightness composition and
+single RGB conversion. Unusually enlarged rasters still fail closed to the CPU reference.
 Process-wide Metal device, queue, runtime compilation, and the all-or-nothing pipeline registry
 are owned by `src/proxy/warm_edit_gpu_pipeline_context.*`.
 Session-resident source buffers, side-table caches, lazy neighborhood rasters, slot leases,
@@ -398,7 +402,8 @@ creative detail dispatch, guided Selective Tone, composed neighborhood order, an
 side-table caches; their only shared fixture owns CPU-oracle parity inputs and comparisons.
 Selective Tone and composed-stage children own opt-in CPU-versus-resident-Metal benchmarks, while
 the detail-tile seam contract proves both one guided mask and a composed Selective Tone,
-capture-sharpening, and full-resolution Clarity plan remain invariant across apron-expanded tiles.
+capture-sharpening, and full-resolution Texture/Clarity/Local Contrast plan remain invariant across
+apron-expanded tiles and confirms that the composed plan uses resident Metal when available.
 
 The edit path accepts explicitly native interleaved RGB float32, scene-referred, linear-light data
 with named RGB primaries, white point, and luminance coefficients. It is not legal to feed the
