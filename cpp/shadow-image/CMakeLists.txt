@@ -98,6 +98,7 @@ add_library(
     src/proxy/proxy_rendering.cpp
     src/proxy/proxy_render_request_validation.cpp
     src/proxy/warm_edit_gpu_brush_index.cpp
+    src/proxy/warm_edit_gpu_geometry_plan.cpp
     src/proxy/warm_edit_gpu_layer_plan.cpp
     src/proxy/warm_edit_gpu_neighbourhood_plan.cpp
     src/proxy/warm_edit_gpu_retouch_plan.cpp
@@ -117,6 +118,7 @@ if(APPLE AND SHADOW_ENABLE_METAL)
             src/raw/metal_raw_runtime.mm
             src/proxy/metal_display_output.mm
             src/proxy/warm_edit_gpu_dispatcher.mm
+            src/proxy/warm_edit_gpu_geometry_encoder.mm
             src/proxy/warm_edit_gpu_layer_dispatcher.mm
             src/proxy/warm_edit_gpu_pipeline_context.mm
             src/proxy/warm_edit_gpu_resident_resources.mm
@@ -427,6 +429,11 @@ if(BUILD_TESTING)
         tests/edit_preview_layer_execution_contract_test.cpp
     )
     shadow_image_add_contract(
+        shadow-image-edit-preview-geometry-execution-tests
+        shadow-image-edit-preview-geometry-execution-contract
+        tests/edit_preview_geometry_execution_contract_test.cpp
+    )
+    shadow_image_add_contract(
         shadow-image-warm-edit-gpu-render-plan-tests
         shadow-image-warm-edit-gpu-render-plan-contract
         tests/warm_edit_gpu_render_plan_contract_test.cpp
@@ -453,6 +460,16 @@ if(BUILD_TESTING)
     )
     target_include_directories(
         shadow-image-warm-edit-gpu-retouch-plan-tests
+        PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/proxy"
+    )
+    shadow_image_add_contract(
+        shadow-image-warm-edit-gpu-geometry-plan-tests
+        shadow-image-warm-edit-gpu-geometry-plan-contract
+        tests/warm_edit_gpu_geometry_plan_contract_test.cpp
+    )
+    target_include_directories(
+        shadow-image-warm-edit-gpu-geometry-plan-tests
         PRIVATE
             "${CMAKE_CURRENT_SOURCE_DIR}/src/proxy"
     )
@@ -646,6 +663,7 @@ if(BUILD_TESTING)
         tests/warm_edit_gpu_contract/composed_stage_contract_test.cpp
         tests/warm_edit_gpu_contract/layer_composition_contract_test.cpp
         tests/warm_edit_gpu_contract/retouch_stage_contract_test.cpp
+        tests/warm_edit_gpu_contract/geometry_stage_contract_test.cpp
         tests/warm_edit_gpu_contract/resident_resource_cache_contract_test.cpp
     )
     target_link_libraries(
@@ -682,6 +700,11 @@ if(BUILD_TESTING)
         shadow-image-detail-tile-retouch-seam-tests
         shadow-image-detail-tile-retouch-seam-contract
         tests/detail_tile_retouch_seam_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-detail-tile-geometry-seam-tests
+        shadow-image-detail-tile-geometry-seam-contract
+        tests/detail_tile_geometry_seam_contract_test.cpp
     )
     shadow_image_add_contract(
         shadow-image-detail-tile-validation-tests
@@ -748,14 +771,30 @@ if(BUILD_TESTING)
     )
     if(SHADOW_REQUIRE_METAL_TESTS)
         set_tests_properties(
-            shadow-image-edit-preview-execution-contract
             shadow-image-edit-preview-layer-execution-contract
             shadow-image-warm-edit-gpu-contract
             shadow-image-detail-tile-layer-seam-contract
             shadow-image-detail-tile-retouch-seam-contract
+            shadow-image-detail-tile-geometry-seam-contract
             PROPERTIES
                 ENVIRONMENT
                     "SHADOW_IMAGE_ACCELERATION=metal;SHADOW_TEST_REQUIRE_WARM_METAL=1"
+                LABELS "metal-required"
+        )
+        # This contract intentionally exercises both automatic all-or-nothing CPU replay and a
+        # scoped forced-Metal failure. Require a real device without overriding its outer
+        # automatic-selection premise.
+        set_tests_properties(
+            shadow-image-edit-preview-execution-contract
+            PROPERTIES
+                ENVIRONMENT
+                    "SHADOW_IMAGE_ACCELERATION=auto;SHADOW_TEST_REQUIRE_WARM_METAL=1"
+                LABELS "metal-required"
+        )
+        set_tests_properties(
+            shadow-image-edit-preview-geometry-execution-contract
+            PROPERTIES
+                ENVIRONMENT "SHADOW_TEST_REQUIRE_WARM_METAL=1"
                 LABELS "metal-required"
         )
         set_tests_properties(

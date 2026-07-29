@@ -33,6 +33,29 @@ namespace shadow::image {
 
 namespace {
 
+[[nodiscard]] std::optional<detail::WarmEditGpuGeometryContext> gpu_geometry_context(
+    const PhotoGeometry& geometry,
+    const PhotoGeometryLayout& layout,
+    const DetailTileRect working_rect,
+    const GeometryPixelRect output_rect
+) {
+    if (geometry == PhotoGeometry{}) {
+        return std::nullopt;
+    }
+    return detail::WarmEditGpuGeometryContext{
+        .layout = layout,
+        .geometry = geometry,
+        .source_tile_rect =
+            GeometryPixelRect{
+                .x = working_rect.x,
+                .y = working_rect.y,
+                .width = working_rect.width,
+                .height = working_rect.height,
+            },
+        .output_rect = output_rect,
+    };
+}
+
 void validate_detail_tile_rect(const DetailTileRect rect, const Dimensions full_dimensions) {
     if (rect.width == 0U || rect.height == 0U || rect.width > maximum_edit_detail_tile_side
         || rect.height > maximum_edit_detail_tile_side) {
@@ -362,33 +385,30 @@ RenderedDetailTile FullEditDetailSession::render_rgb8(
     const AdjustmentBackendMode requested_backend = adjustment_backend_mode_from_environment();
     std::string fallback_diagnostic;
     if (requested_backend != AdjustmentBackendMode::cpu) {
-        if (geometry == PhotoGeometry{}) {
-            auto gpu = gpu_cache_->render(
-                reference_source_,
-                source_rendering_,
-                nodes,
-                rect,
-                working_rect,
-                full_dimensions
-            );
-            if (gpu.bytes.has_value()) {
-                return RenderedDetailTile{
-                    .rect = rect,
-                    .full_dimensions = geometry_layout.output_dimensions,
-                    .row_stride_bytes = rect.width * 3U,
-                    .bytes = std::move(*gpu.bytes),
-                    .execution = detail_tile_execution_receipt(
-                        DetailTileRenderBackend::metal,
-                        gpu.source_cache_hit,
-                        false,
-                        {}
-                    ),
-                };
-            }
-            fallback_diagnostic = std::move(gpu.diagnostic);
-        } else {
-            fallback_diagnostic = "photo geometry currently uses the CPU full-detail executor";
+        auto gpu = gpu_cache_->render(
+            reference_source_,
+            source_rendering_,
+            nodes,
+            rect,
+            working_rect,
+            full_dimensions,
+            gpu_geometry_context(geometry, geometry_layout, working_rect, output_rect)
+        );
+        if (gpu.bytes.has_value()) {
+            return RenderedDetailTile{
+                .rect = rect,
+                .full_dimensions = geometry_layout.output_dimensions,
+                .row_stride_bytes = rect.width * 3U,
+                .bytes = std::move(*gpu.bytes),
+                .execution = detail_tile_execution_receipt(
+                    DetailTileRenderBackend::metal,
+                    gpu.source_cache_hit,
+                    false,
+                    {}
+                ),
+            };
         }
+        fallback_diagnostic = std::move(gpu.diagnostic);
         if (requested_backend == AdjustmentBackendMode::metal) {
             throw EditError(EditErrorCode::backend_failure, std::nullopt, fallback_diagnostic);
         }
@@ -481,34 +501,30 @@ RenderedDetailTile FullEditDetailSession::render_rgb8_layers(
     const AdjustmentBackendMode requested_backend = adjustment_backend_mode_from_environment();
     std::string fallback_diagnostic;
     if (requested_backend != AdjustmentBackendMode::cpu) {
-        if (geometry == PhotoGeometry{}) {
-            auto gpu = gpu_cache_->render_layers(
-                reference_source_,
-                source_rendering_,
-                layers,
-                rect,
-                working_rect,
-                full_dimensions
-            );
-            if (gpu.bytes.has_value()) {
-                return RenderedDetailTile{
-                    .rect = rect,
-                    .full_dimensions = geometry_layout.output_dimensions,
-                    .row_stride_bytes = rect.width * 3U,
-                    .bytes = std::move(*gpu.bytes),
-                    .execution = detail_tile_execution_receipt(
-                        DetailTileRenderBackend::metal,
-                        gpu.source_cache_hit,
-                        false,
-                        {}
-                    ),
-                };
-            }
-            fallback_diagnostic = std::move(gpu.diagnostic);
-        } else {
-            fallback_diagnostic =
-                "photo geometry currently uses the CPU full-detail layer executor";
+        auto gpu = gpu_cache_->render_layers(
+            reference_source_,
+            source_rendering_,
+            layers,
+            rect,
+            working_rect,
+            full_dimensions,
+            gpu_geometry_context(geometry, geometry_layout, working_rect, output_rect)
+        );
+        if (gpu.bytes.has_value()) {
+            return RenderedDetailTile{
+                .rect = rect,
+                .full_dimensions = geometry_layout.output_dimensions,
+                .row_stride_bytes = rect.width * 3U,
+                .bytes = std::move(*gpu.bytes),
+                .execution = detail_tile_execution_receipt(
+                    DetailTileRenderBackend::metal,
+                    gpu.source_cache_hit,
+                    false,
+                    {}
+                ),
+            };
         }
+        fallback_diagnostic = std::move(gpu.diagnostic);
         if (requested_backend == AdjustmentBackendMode::metal) {
             throw EditError(EditErrorCode::backend_failure, std::nullopt, fallback_diagnostic);
         }

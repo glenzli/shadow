@@ -7,6 +7,8 @@
 
 #include "warm_edit_gpu_dispatcher.hpp"
 
+#include "warm_edit_gpu_geometry_encoder.hpp"
+#include "warm_edit_gpu_geometry_plan.hpp"
 #include "warm_edit_gpu_kernel_contract.hpp"
 #include "warm_edit_gpu_pipeline_context.hpp"
 #include "warm_edit_gpu_resident_resources.hpp"
@@ -76,6 +78,24 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu(
     const WarmGpuResidentLayout& resident_layout = resident.layout();
     const std::uint32_t source_row_floats =
         static_cast<std::uint32_t>(resident_layout.source_row_stride_bytes / sizeof(float));
+    std::optional<WarmGpuGeometryPlan> geometry_plan;
+    if (render_context.geometry.has_value()) {
+        auto geometry = prepare_warm_gpu_geometry_plan(
+            resident_layout.dimensions,
+            source_row_floats,
+            resident_layout.level_zero_to_raster_scale_x,
+            resident_layout.level_zero_to_raster_scale_y,
+            *render_context.geometry
+        );
+        if (!geometry.plan.has_value()) {
+            return failed(
+                geometry.diagnostic.empty()
+                    ? "session-resident Metal photo geometry is unavailable"
+                    : std::move(geometry.diagnostic)
+            );
+        }
+        geometry_plan = std::move(*geometry.plan);
+    }
     std::size_t operation_count = 0U;
     auto preparation = prepare_warm_gpu_transaction(
         resident,
@@ -106,6 +126,12 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu(
     if (!resource_diagnostic.empty()) {
         return failed(resource_diagnostic);
     }
+    if (geometry_plan.has_value()) {
+        const std::string geometry_diagnostic = slot_lease->ensure_denoise_resources();
+        if (!geometry_diagnostic.empty()) {
+            return failed(geometry_diagnostic);
+        }
+    }
     const WarmGpuSlotBuffers slot = slot_lease->buffers();
 
     @autoreleasepool {
@@ -135,6 +161,68 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu(
             transaction
         );
 
+        Dimensions output_dimensions = resident_layout.dimensions;
+        std::size_t output_sample_count = resident_layout.adjusted_sample_count;
+        std::size_t output_linear_bytes = resident_layout.adjusted_bytes;
+        std::size_t output_rgb8_bytes = resident_layout.rgb8_bytes;
+        double output_scale_x = resident_layout.level_zero_to_raster_scale_x;
+        double output_scale_y = resident_layout.level_zero_to_raster_scale_y;
+        auto display_invocation = transaction.final_program.program.invocation;
+        if (geometry_plan.has_value()) {
+            if (!transaction.final_program.program.operations.empty()) {
+                id<MTLBuffer> materialized =
+                    current == slot.denoised ? slot.denoised : slot.adjusted;
+                [encoder setComputePipelineState:context.adjustment_pipeline()];
+                bind_warm_gpu_adjustment(
+                    encoder,
+                    slot,
+                    current,
+                    materialized,
+                    transaction.final_program
+                );
+                dispatch_warm_gpu_raster(
+                    encoder,
+                    context.adjustment_pipeline(),
+                    resident_layout.dimensions
+                );
+                current = materialized;
+            }
+            id<MTLBuffer> geometry_output =
+                current == slot.adjusted ? slot.denoised : slot.adjusted;
+            WarmGpuGeometryPlan encoded_geometry = *geometry_plan;
+            encoded_geometry.parameters.input_row_floats =
+                current == resident.source_buffer()
+                ? source_row_floats
+                : static_cast<std::uint32_t>(
+                    resident_layout.adjusted_row_stride_bytes / sizeof(float)
+                );
+            encode_warm_gpu_geometry(
+                encoder,
+                context,
+                current,
+                geometry_output,
+                slot.status,
+                encoded_geometry
+            );
+            current = geometry_output;
+            output_dimensions = geometry_plan->output_dimensions;
+            output_sample_count =
+                static_cast<std::size_t>(output_dimensions.pixel_count()) * 3U;
+            output_linear_bytes = output_sample_count * sizeof(float);
+            output_rgb8_bytes = output_sample_count;
+            output_scale_x = geometry_plan->output_level_zero_to_raster_scale_x;
+            output_scale_y = geometry_plan->output_level_zero_to_raster_scale_y;
+            display_invocation.width = output_dimensions.width;
+            display_invocation.height = output_dimensions.height;
+            display_invocation.input_row_floats = output_dimensions.width * 3U;
+            display_invocation.output_row_floats = output_dimensions.width * 3U;
+            display_invocation.step_count = 0U;
+            display_invocation.curve_segment_count = 0U;
+            display_invocation.lut_entry_count = 0U;
+            display_invocation.perceptual_mixer_entry_count = 0U;
+            display_invocation.perceptual_range_entry_count = 0U;
+            display_invocation.selective_color_entry_count = 0U;
+        }
         id<MTLBuffer> final_adjusted =
             current == slot.adjusted ? slot.denoised : slot.adjusted;
         [encoder setComputePipelineState:context.display_pipeline()];
@@ -144,8 +232,8 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu(
         [encoder setBuffer:slot.before_operations
                     offset:transaction.final_program.operation_offset_bytes
                    atIndex:3U];
-        [encoder setBytes:&transaction.final_program.program.invocation
-                   length:sizeof(transaction.final_program.program.invocation)
+        [encoder setBytes:&display_invocation
+                   length:sizeof(display_invocation)
                   atIndex:4U];
         [encoder setBytes:&display length:sizeof(display) atIndex:5U];
         [encoder setBuffer:slot.status offset:0U atIndex:6U];
@@ -164,7 +252,7 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu(
         [encoder setBuffer:transaction.final_program.buffers.selective_color.get()
                     offset:0U
                    atIndex:11U];
-        dispatch_warm_gpu_raster(encoder, context.display_pipeline(), resident_layout.dimensions);
+        dispatch_warm_gpu_raster(encoder, context.display_pipeline(), output_dimensions);
         [encoder endEncoding];
         if (cancellation.stop_requested()) {
             return cancelled();
@@ -193,33 +281,33 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu(
         }
 
         RenderResult result{
-            .dimensions = resident_layout.dimensions,
-            .rgb8 = std::vector<std::uint8_t>(resident_layout.rgb8_bytes),
+            .dimensions = output_dimensions,
+            .rgb8 = std::vector<std::uint8_t>(output_rgb8_bytes),
             .analyzed_linear = std::nullopt,
-            .had_active_adjustments = transaction.had_active_adjustments,
+            .had_active_adjustments =
+                transaction.had_active_adjustments || geometry_plan.has_value(),
         };
         if (cancellation.stop_requested()) {
             return cancelled();
         }
-        std::memcpy(result.rgb8.data(), [slot.rgb8 contents], resident_layout.rgb8_bytes);
+        std::memcpy(result.rgb8.data(), [slot.rgb8 contents], output_rgb8_bytes);
         if (retain_linear_for_analysis) {
             FloatRgbImage linear{
-                .dimensions = resident_layout.dimensions,
-                .row_stride_bytes = resident_layout.adjusted_row_stride_bytes,
+                .dimensions = output_dimensions,
+                .row_stride_bytes =
+                    static_cast<std::size_t>(output_dimensions.width) * 3U * sizeof(float),
                 .pixel_format = resident_layout.pixel_format,
                 .transfer_function = resident_layout.transfer_function,
                 .reference = resident_layout.reference,
                 .working_space = resident_layout.working_space,
-                .level_zero_to_raster_scale_x =
-                    resident_layout.level_zero_to_raster_scale_x,
-                .level_zero_to_raster_scale_y =
-                    resident_layout.level_zero_to_raster_scale_y,
-                .samples = std::vector<float>(resident_layout.adjusted_sample_count),
+                .level_zero_to_raster_scale_x = output_scale_x,
+                .level_zero_to_raster_scale_y = output_scale_y,
+                .samples = std::vector<float>(output_sample_count),
             };
             std::memcpy(
                 linear.samples.data(),
                 [final_adjusted contents],
-                resident_layout.adjusted_bytes
+                output_linear_bytes
             );
             result.analyzed_linear = std::move(linear);
         }

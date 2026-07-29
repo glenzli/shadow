@@ -31,7 +31,8 @@ class FullEditDetailGpuCache final {
         std::span<const AdjustmentNode> nodes,
         DetailTileRect core_rect,
         DetailTileRect working_rect,
-        Dimensions full_dimensions
+        Dimensions full_dimensions,
+        std::optional<WarmEditGpuGeometryContext> geometry = std::nullopt
     );
     [[nodiscard]] RenderAttempt render_layers(
         const DevelopedSourcePixels& source,
@@ -39,7 +40,8 @@ class FullEditDetailGpuCache final {
         std::span<const AdjustmentLayer> layers,
         DetailTileRect core_rect,
         DetailTileRect working_rect,
-        Dimensions full_dimensions
+        Dimensions full_dimensions,
+        std::optional<WarmEditGpuGeometryContext> geometry = std::nullopt
     );
 
   private:
@@ -70,7 +72,8 @@ class FullEditDetailGpuCache final {
         WarmEditGpuSession::RenderAttempt attempt,
         bool source_cache_hit,
         DetailTileRect core_rect,
-        DetailTileRect working_rect
+        DetailTileRect working_rect,
+        bool geometry_applied
     );
 
     static constexpr std::uint64_t maximum_resident_bytes = 256ULL * 1'024ULL * 1'024ULL;

@@ -46,8 +46,39 @@ struct WarmDenoiseParameters final {
     float reserved_1 = 0.0F;
 };
 
+// Geometry runs after the source-coordinate edit graph and before display conversion. The
+// parameters retain both the complete output canvas and a bounded source tile so the same kernel
+// serves warm previews and apron-expanded full-detail tiles without changing crop rounding.
+struct WarmPhotoGeometryParameters final {
+    std::uint32_t input_width = 0U;
+    std::uint32_t input_height = 0U;
+    std::uint32_t input_row_floats = 0U;
+    std::uint32_t reserved_0 = 0U;
+    std::uint32_t source_tile_origin_x = 0U;
+    std::uint32_t source_tile_origin_y = 0U;
+    std::uint32_t source_crop_origin_x = 0U;
+    std::uint32_t source_crop_origin_y = 0U;
+    std::uint32_t source_crop_width = 0U;
+    std::uint32_t source_crop_height = 0U;
+    std::uint32_t output_canvas_width = 0U;
+    std::uint32_t output_canvas_height = 0U;
+    std::uint32_t output_origin_x = 0U;
+    std::uint32_t output_origin_y = 0U;
+    std::uint32_t output_width = 0U;
+    std::uint32_t output_height = 0U;
+    std::uint32_t quarter_turn = 0U;
+    std::uint32_t flip_horizontal = 0U;
+    std::uint32_t flip_vertical = 0U;
+    std::uint32_t reserved_1 = 0U;
+    float straighten_cosine = 1.0F;
+    float straighten_sine = 0.0F;
+    float reserved_2 = 0.0F;
+    float reserved_3 = 0.0F;
+};
+
 static_assert(sizeof(WarmDisplayParameters) == 16U);
 static_assert(sizeof(WarmStatus) == 16U);
+static_assert(sizeof(WarmPhotoGeometryParameters) == 96U);
 static_assert(sizeof(WarmDenoiseParameters) == 48U);
 
 enum class WarmLayerMaskKind : std::uint32_t {
@@ -300,6 +331,7 @@ inline constexpr bool warm_kernel_record =
 
 static_assert(warm_kernel_record<WarmDisplayParameters>);
 static_assert(warm_kernel_record<WarmStatus>);
+static_assert(warm_kernel_record<WarmPhotoGeometryParameters>);
 static_assert(warm_kernel_record<WarmLayerBlendParameters>);
 static_assert(warm_kernel_record<WarmBrushCapsule>);
 static_assert(warm_kernel_record<WarmBrushCellRange>);
@@ -321,6 +353,7 @@ static_assert(warm_kernel_record<WarmSelectiveToneParameters>);
 
 static_assert(alignof(WarmDisplayParameters) == alignof(std::uint32_t));
 static_assert(alignof(WarmStatus) == alignof(std::uint32_t));
+static_assert(alignof(WarmPhotoGeometryParameters) == alignof(std::uint32_t));
 static_assert(alignof(WarmLayerBlendParameters) == alignof(std::uint32_t));
 static_assert(alignof(WarmBrushCapsule) == alignof(std::uint32_t));
 static_assert(alignof(WarmBrushCellRange) == alignof(std::uint32_t));
@@ -343,6 +376,10 @@ static_assert(alignof(WarmSelectiveToneParameters) == alignof(std::uint32_t));
 static_assert(offsetof(WarmDisplayParameters, apply_scene_curve) == 8U);
 static_assert(offsetof(WarmDisplayParameters, retain_linear) == 12U);
 static_assert(offsetof(WarmStatus, earliest_step) == 4U);
+static_assert(offsetof(WarmPhotoGeometryParameters, source_tile_origin_x) == 16U);
+static_assert(offsetof(WarmPhotoGeometryParameters, output_canvas_width) == 40U);
+static_assert(offsetof(WarmPhotoGeometryParameters, quarter_turn) == 64U);
+static_assert(offsetof(WarmPhotoGeometryParameters, straighten_cosine) == 80U);
 static_assert(offsetof(WarmLayerBlendParameters, full_width) == 24U);
 static_assert(offsetof(WarmLayerBlendParameters, opacity) == 40U);
 static_assert(offsetof(WarmLayerBlendParameters, brush_grid_columns) == 72U);

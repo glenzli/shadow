@@ -380,9 +380,10 @@ owns only backend availability and the execution attempt boundary.
 operation expansion and order, all side-table ranges, stale-plan rejection, and the resident
 prevalidated-raster contract remain one test-owned transaction.
 The embedded Warm Metal program is a separate language owner in
-`src/proxy/warm_edit_gpu_msl.hpp`; the Objective-C++ runtime consumes it without owning its
-kernel implementation. Its mirrored host records and checked buffer layout live in
-`src/proxy/warm_edit_gpu_kernel_contract.hpp`.
+`src/proxy/warm_edit_gpu_msl.hpp`; post-edit crop/orientation sampling is isolated further in
+`src/proxy/warm_edit_gpu_geometry_msl.hpp`. The Objective-C++ runtime consumes these fragments
+without owning their kernel implementations. Their mirrored host records and checked buffer
+layouts live in `src/proxy/warm_edit_gpu_kernel_contract.hpp`.
 Pure, cross-platform lowering of one neighborhood operation into immutable kernel parameters lives
 in `src/proxy/warm_edit_gpu_neighbourhood_plan.*`. `src/proxy/warm_edit_gpu_render_plan.*` is the
 smaller composition owner: it preserves every pixel-local gap while collecting any number of
@@ -415,6 +416,12 @@ copies through the indexed continuous coverage directly. Heal computes a determi
 robust donor statistic, initializes the correction field, runs a screened-Poisson Jacobi solve,
 and feathers the result without leaving Metal. Mixed ordered Heal and Clone therefore remain in
 the same command transaction as surrounding pixel-local and neighborhood stages.
+`src/proxy/warm_edit_gpu_geometry_plan.*` seals the authoritative `PhotoGeometryLayout`, complete
+output canvas, bounded source tile, and output tile into one portable sampling contract. Its
+paired `warm_edit_gpu_geometry_encoder.*` performs crop, quarter-turn, mirror, fine straighten,
+and bilinear resampling after every source-coordinate edit but before display conversion.
+Geometry output never exceeds the resident source allocation, so previews and full-detail tiles
+reuse the existing two synchronized RGB slots without another upload or host round trip.
 `src/proxy/warm_edit_gpu_layer_plan.*` is the portable layer-composition admission and lowering
 owner. It maps opacity, unmasked layers, normalized linear/radial gradients, and indexed
 continuous brushes to the mirrored Metal blend ABI. `src/proxy/warm_edit_gpu_layer_dispatcher.*`
@@ -436,6 +443,11 @@ The retouch child owns mixed continuous Heal/Clone parity, ordered source snapsh
 geometry-cache reuse, and the opt-in `SHADOW_TEST_WARM_RETOUCH_BENCHMARK`; its portable plan
 contract proves tile-coordinate mapping and indexed-candidate completeness, while the focused
 retouch seam contract crosses irregular full-detail tiles on real Metal.
+The geometry child owns node and layer CPU parity, transposed native-scale propagation, encoded
+display parity, and the opt-in `SHADOW_TEST_WARM_GEOMETRY_BENCHMARK`; its portable plan contract
+proves complete and bounded-tile coordinate lowering, while the focused geometry seam contract
+proves crop, quarter-turn, mirror, and straighten remain byte-identical across irregular node and
+layer tiles on real Metal.
 Selective Tone and composed-stage children own opt-in CPU-versus-resident-Metal benchmarks, while
 the detail-tile seam contract proves both one guided mask and a composed Selective Tone,
 capture-sharpening, and full-resolution Texture/Clarity/Local Contrast plan remain invariant across

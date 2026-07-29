@@ -101,6 +101,31 @@ namespace {
     return receipt;
 }
 
+[[nodiscard]] std::optional<detail::WarmEditGpuGeometryContext>
+warm_gpu_geometry_context(const FloatRgbImage& source, const PhotoGeometry& geometry) {
+    if (geometry == PhotoGeometry{}) {
+        return std::nullopt;
+    }
+    const PhotoGeometryLayout layout = photo_geometry_layout(source.dimensions, geometry);
+    return detail::WarmEditGpuGeometryContext{
+        .layout = layout,
+        .geometry = geometry,
+        .source_tile_rect =
+            GeometryPixelRect{
+                .x = 0U,
+                .y = 0U,
+                .width = source.dimensions.width,
+                .height = source.dimensions.height,
+            },
+        .output_rect = GeometryPixelRect{
+            .x = 0U,
+            .y = 0U,
+            .width = layout.output_dimensions.width,
+            .height = layout.output_dimensions.height,
+        },
+    };
+}
+
 } // namespace
 
 [[nodiscard]] std::optional<PreparedEditPreviewPixels> prepare_edit_preview_pixels(
@@ -116,8 +141,7 @@ namespace {
         return std::nullopt;
     }
     const AdjustmentBackendMode backend_mode = adjustment_backend_mode_from_environment();
-    const bool identity_geometry = geometry == PhotoGeometry{};
-    if (backend_mode != AdjustmentBackendMode::cpu && identity_geometry) {
+    if (backend_mode != AdjustmentBackendMode::cpu) {
         // Compile before inspecting runtime availability so disabled malformed nodes and source
         // ordering fail identically on every backend.
         const EditExecutionPlan plan = compile_edit_execution_plan(
@@ -128,10 +152,14 @@ namespace {
         if (cancellation.stop_requested()) {
             return std::nullopt;
         }
+        const detail::WarmEditGpuRenderContext render_context{
+            .geometry = warm_gpu_geometry_context(working_proxy, geometry),
+        };
         std::string diagnostic(warm_gpu_diagnostic);
         if (warm_gpu_session) {
             auto attempt =
-                warm_gpu_session->render(nodes, plan, retain_linear_for_analysis, cancellation);
+                warm_gpu_session
+                    ->render(nodes, plan, retain_linear_for_analysis, render_context, cancellation);
             if (attempt.status == detail::WarmEditGpuSession::RenderStatus::cancelled) {
                 return std::nullopt;
             }
@@ -253,10 +281,6 @@ namespace {
     if (cancellation.stop_requested()) {
         return std::nullopt;
     }
-    if (!identity_geometry && backend_mode != AdjustmentBackendMode::cpu) {
-        adjustment.fell_back = true;
-        adjustment.diagnostic = "photo geometry currently uses the CPU executor";
-    }
     auto execution = edit_preview_execution_receipt(adjustment, display);
     return PreparedEditPreviewPixels{
         .dimensions = geometry_applied.dimensions,
@@ -282,18 +306,24 @@ namespace {
     }
 
     const AdjustmentBackendMode backend_mode = adjustment_backend_mode_from_environment();
-    const bool identity_geometry = geometry == PhotoGeometry{};
     static_cast<void>(detail::validate_adjustment_layer_plan(
         working_proxy,
         layers,
         AdjustmentExecutionContext{.full_dimensions = working_proxy.dimensions}
     ));
     std::string fallback_diagnostic;
-    if (backend_mode != AdjustmentBackendMode::cpu && identity_geometry) {
+    if (backend_mode != AdjustmentBackendMode::cpu) {
+        const detail::WarmEditGpuRenderContext render_context{
+            .geometry = warm_gpu_geometry_context(working_proxy, geometry),
+        };
         fallback_diagnostic = std::string(warm_gpu_diagnostic);
         if (warm_gpu_session) {
-            auto attempt =
-                warm_gpu_session->render_layers(layers, retain_linear_for_analysis, cancellation);
+            auto attempt = warm_gpu_session->render_layers(
+                layers,
+                retain_linear_for_analysis,
+                render_context,
+                cancellation
+            );
             if (attempt.status == detail::WarmEditGpuSession::RenderStatus::cancelled) {
                 return std::nullopt;
             }
@@ -331,11 +361,6 @@ namespace {
         if (fallback_diagnostic.empty()) {
             fallback_diagnostic = "session-resident Metal layer preview is unavailable";
         }
-        if (backend_mode == AdjustmentBackendMode::metal) {
-            throw EditError(EditErrorCode::backend_failure, std::nullopt, fallback_diagnostic);
-        }
-    } else if (!identity_geometry && backend_mode != AdjustmentBackendMode::cpu) {
-        fallback_diagnostic = "photo geometry currently uses the CPU layer executor";
         if (backend_mode == AdjustmentBackendMode::metal) {
             throw EditError(EditErrorCode::backend_failure, std::nullopt, fallback_diagnostic);
         }

@@ -1,6 +1,7 @@
 #include "warm_edit_gpu_pipeline_context.hpp"
 
 #include "../edit/metal_adjustment_msl.hpp"
+#include "warm_edit_gpu_geometry_msl.hpp"
 #include "warm_edit_gpu_msl.hpp"
 
 #include <string>
@@ -38,10 +39,11 @@ WarmMetalContext::WarmMetalContext() {
         std::string warm_source;
         warm_source.reserve(
             warm_kernel_source_prefix.size() + warm_retouch_kernel_source.size()
-            + warm_kernel_source_suffix.size()
+            + warm_geometry_kernel_source.size() + warm_kernel_source_suffix.size()
         );
         warm_source.append(warm_kernel_source_prefix);
         warm_source.append(warm_retouch_kernel_source);
+        warm_source.append(warm_geometry_kernel_source);
         warm_source.append(warm_kernel_source_suffix);
         const std::string metal_source = make_metal_adjustment_source(warm_source);
         NSString* source = [[NSString alloc] initWithBytes:metal_source.data()
@@ -311,6 +313,8 @@ WarmMetalContext::WarmMetalContext() {
             [library newFunctionWithName:@"warm_copy_rgb_v1"];
         id<MTLFunction> layer_blend_function =
             [library newFunctionWithName:@"warm_layer_blend_v1"];
+        id<MTLFunction> geometry_function =
+            [library newFunctionWithName:@"warm_photo_geometry_v1"];
         id<MTLFunction> retouch_clone_function =
             [library newFunctionWithName:@"warm_retouch_clone_v1"];
         id<MTLFunction> retouch_heal_statistics_function =
@@ -329,6 +333,7 @@ WarmMetalContext::WarmMetalContext() {
             || reflect_box_horizontal_function == nil ||
             reflect_box_vertical_function == nil || selective_tone_apply_function == nil ||
             layer_copy_function == nil || layer_blend_function == nil
+            || geometry_function == nil
             || retouch_clone_function == nil
             || retouch_heal_statistics_function == nil
             || retouch_heal_reduce_function == nil
@@ -346,6 +351,7 @@ WarmMetalContext::WarmMetalContext() {
             [selective_tone_apply_function release];
             [layer_copy_function release];
             [layer_blend_function release];
+            [geometry_function release];
             [retouch_clone_function release];
             [retouch_heal_statistics_function release];
             [retouch_heal_reduce_function release];
@@ -394,6 +400,9 @@ WarmMetalContext::WarmMetalContext() {
         layer_blend_pipeline_ =
             [device_ newComputePipelineStateWithFunction:layer_blend_function error:&error];
         [layer_blend_function release];
+        geometry_pipeline_ =
+            [device_ newComputePipelineStateWithFunction:geometry_function error:&error];
+        [geometry_function release];
         retouch_clone_pipeline_ =
             [device_ newComputePipelineStateWithFunction:retouch_clone_function error:&error];
         [retouch_clone_function release];
@@ -423,7 +432,8 @@ WarmMetalContext::WarmMetalContext() {
             guided_combine_pipeline_ == nil || selective_tone_guide_pipeline_ == nil ||
             reflect_box_horizontal_pipeline_ == nil || reflect_box_vertical_pipeline_ == nil ||
             selective_tone_apply_pipeline_ == nil || layer_copy_pipeline_ == nil ||
-            layer_blend_pipeline_ == nil || retouch_clone_pipeline_ == nil
+            layer_blend_pipeline_ == nil || geometry_pipeline_ == nil
+            || retouch_clone_pipeline_ == nil
             || retouch_heal_statistics_pipeline_ == nil
             || retouch_heal_reduce_pipeline_ == nil
             || retouch_heal_initialize_pipeline_ == nil
@@ -442,6 +452,7 @@ WarmMetalContext::~WarmMetalContext() {
     [retouch_heal_reduce_pipeline_ release];
     [retouch_heal_statistics_pipeline_ release];
     [retouch_clone_pipeline_ release];
+    [geometry_pipeline_ release];
     [layer_blend_pipeline_ release];
     [layer_copy_pipeline_ release];
     [selective_tone_apply_pipeline_ release];
@@ -473,7 +484,8 @@ WarmMetalContext::~WarmMetalContext() {
 bool WarmMetalContext::valid() const noexcept {
     return device_ != nil && queue_ != nil && display_pipeline_ != nil &&
            adjustment_pipeline_ != nil && layer_copy_pipeline_ != nil &&
-           layer_blend_pipeline_ != nil && retouch_clone_pipeline_ != nil &&
+           layer_blend_pipeline_ != nil && geometry_pipeline_ != nil
+           && retouch_clone_pipeline_ != nil &&
            retouch_heal_statistics_pipeline_ != nil
            && retouch_heal_reduce_pipeline_ != nil
            && retouch_heal_initialize_pipeline_ != nil
@@ -510,6 +522,10 @@ id<MTLComputePipelineState> WarmMetalContext::layer_copy_pipeline() const noexce
 
 id<MTLComputePipelineState> WarmMetalContext::layer_blend_pipeline() const noexcept {
     return layer_blend_pipeline_;
+}
+
+id<MTLComputePipelineState> WarmMetalContext::geometry_pipeline() const noexcept {
+    return geometry_pipeline_;
 }
 
 id<MTLComputePipelineState> WarmMetalContext::retouch_clone_pipeline() const noexcept {

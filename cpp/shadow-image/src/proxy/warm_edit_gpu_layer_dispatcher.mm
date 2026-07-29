@@ -7,6 +7,8 @@
 
 #include "warm_edit_gpu_layer_dispatcher.hpp"
 
+#include "warm_edit_gpu_geometry_encoder.hpp"
+#include "warm_edit_gpu_geometry_plan.hpp"
 #include "warm_edit_gpu_kernel_contract.hpp"
 #include "warm_edit_gpu_layer_plan.hpp"
 #include "warm_edit_gpu_pipeline_context.hpp"
@@ -105,6 +107,24 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu_layers(
         static_cast<std::uint32_t>(layout.source_row_stride_bytes / sizeof(float));
     const std::uint32_t packed_row_floats =
         static_cast<std::uint32_t>(layout.adjusted_row_stride_bytes / sizeof(float));
+    std::optional<WarmGpuGeometryPlan> geometry_plan;
+    if (render_context.geometry.has_value()) {
+        auto geometry = prepare_warm_gpu_geometry_plan(
+            layout.dimensions,
+            source_row_floats,
+            layout.level_zero_to_raster_scale_x,
+            layout.level_zero_to_raster_scale_y,
+            *render_context.geometry
+        );
+        if (!geometry.plan.has_value()) {
+            return failed(
+                geometry.diagnostic.empty()
+                    ? "session-resident Metal layer photo geometry is unavailable"
+                    : std::move(geometry.diagnostic)
+            );
+        }
+        geometry_plan = std::move(*geometry.plan);
+    }
     std::size_t operation_count = 0U;
     std::vector<PreparedWarmLayer> prepared_layers;
     prepared_layers.reserve(layer_plan.active_layers.size());
@@ -191,7 +211,7 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu_layers(
             return failed(diagnostic);
         }
     }
-    if (retain_linear_for_analysis) {
+    if (retain_linear_for_analysis || geometry_plan.has_value()) {
         // Sequential pixel-local layers can finish in the ordinary adjusted buffer even though
         // no neighborhood stage requested the alternate RGB allocation. The display kernel must
         // preserve that final layer result in a distinct host-readable buffer for settled
@@ -314,10 +334,44 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu_layers(
             }
         }
 
-        id<MTLBuffer> final_adjusted =
-            current == slot.adjusted ? slot.denoised : slot.adjusted;
         const PreparedWarmProgram& display_program =
             display_transaction.final_program;
+        Dimensions output_dimensions = layout.dimensions;
+        std::size_t output_sample_count = layout.adjusted_sample_count;
+        std::size_t output_linear_bytes = layout.adjusted_bytes;
+        std::size_t output_rgb8_bytes = layout.rgb8_bytes;
+        double output_scale_x = layout.level_zero_to_raster_scale_x;
+        double output_scale_y = layout.level_zero_to_raster_scale_y;
+        auto display_invocation = display_program.program.invocation;
+        if (geometry_plan.has_value()) {
+            id<MTLBuffer> geometry_output =
+                current == slot.adjusted ? slot.denoised : slot.adjusted;
+            WarmGpuGeometryPlan encoded_geometry = *geometry_plan;
+            encoded_geometry.parameters.input_row_floats =
+                current == resident.source_buffer() ? source_row_floats : packed_row_floats;
+            encode_warm_gpu_geometry(
+                encoder,
+                context,
+                current,
+                geometry_output,
+                slot.status,
+                encoded_geometry
+            );
+            current = geometry_output;
+            output_dimensions = geometry_plan->output_dimensions;
+            output_sample_count =
+                static_cast<std::size_t>(output_dimensions.pixel_count()) * 3U;
+            output_linear_bytes = output_sample_count * sizeof(float);
+            output_rgb8_bytes = output_sample_count;
+            output_scale_x = geometry_plan->output_level_zero_to_raster_scale_x;
+            output_scale_y = geometry_plan->output_level_zero_to_raster_scale_y;
+            display_invocation.width = output_dimensions.width;
+            display_invocation.height = output_dimensions.height;
+            display_invocation.input_row_floats = output_dimensions.width * 3U;
+            display_invocation.output_row_floats = output_dimensions.width * 3U;
+        }
+        id<MTLBuffer> final_adjusted =
+            current == slot.adjusted ? slot.denoised : slot.adjusted;
         [encoder setComputePipelineState:context.display_pipeline()];
         [encoder setBuffer:current offset:0U atIndex:0U];
         [encoder setBuffer:final_adjusted offset:0U atIndex:1U];
@@ -325,8 +379,8 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu_layers(
         [encoder setBuffer:slot.before_operations
                     offset:display_program.operation_offset_bytes
                    atIndex:3U];
-        [encoder setBytes:&display_program.program.invocation
-                   length:sizeof(display_program.program.invocation)
+        [encoder setBytes:&display_invocation
+                   length:sizeof(display_invocation)
                   atIndex:4U];
         [encoder setBytes:&display length:sizeof(display) atIndex:5U];
         [encoder setBuffer:slot.status offset:0U atIndex:6U];
@@ -341,7 +395,7 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu_layers(
         [encoder setBuffer:display_program.buffers.selective_color.get()
                     offset:0U
                    atIndex:11U];
-        dispatch_warm_gpu_raster(encoder, context.display_pipeline(), layout.dimensions);
+        dispatch_warm_gpu_raster(encoder, context.display_pipeline(), output_dimensions);
         [encoder endEncoding];
 
         if (cancellation.stop_requested()) {
@@ -360,31 +414,33 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu_layers(
         }
 
         RenderResult result{
-            .dimensions = layout.dimensions,
-            .rgb8 = std::vector<std::uint8_t>(layout.rgb8_bytes),
+            .dimensions = output_dimensions,
+            .rgb8 = std::vector<std::uint8_t>(output_rgb8_bytes),
             .analyzed_linear = std::nullopt,
-            .had_active_adjustments = !prepared_layers.empty(),
+            .had_active_adjustments =
+                !prepared_layers.empty() || geometry_plan.has_value(),
         };
         if (cancellation.stop_requested()) {
             return cancelled();
         }
-        std::memcpy(result.rgb8.data(), [slot.rgb8 contents], layout.rgb8_bytes);
+        std::memcpy(result.rgb8.data(), [slot.rgb8 contents], output_rgb8_bytes);
         if (retain_linear_for_analysis) {
             FloatRgbImage linear{
-                .dimensions = layout.dimensions,
-                .row_stride_bytes = layout.adjusted_row_stride_bytes,
+                .dimensions = output_dimensions,
+                .row_stride_bytes =
+                    static_cast<std::size_t>(output_dimensions.width) * 3U * sizeof(float),
                 .pixel_format = layout.pixel_format,
                 .transfer_function = layout.transfer_function,
                 .reference = layout.reference,
                 .working_space = layout.working_space,
-                .level_zero_to_raster_scale_x = layout.level_zero_to_raster_scale_x,
-                .level_zero_to_raster_scale_y = layout.level_zero_to_raster_scale_y,
-                .samples = std::vector<float>(layout.adjusted_sample_count),
+                .level_zero_to_raster_scale_x = output_scale_x,
+                .level_zero_to_raster_scale_y = output_scale_y,
+                .samples = std::vector<float>(output_sample_count),
             };
             std::memcpy(
                 linear.samples.data(),
                 [final_adjusted contents],
-                layout.adjusted_bytes
+                output_linear_bytes
             );
             result.analyzed_linear = std::move(linear);
         }

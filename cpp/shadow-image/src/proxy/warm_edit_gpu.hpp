@@ -4,6 +4,7 @@
 #include <shadow/image/adjustment_layers.hpp>
 #include <shadow/image/decoder_types.hpp>
 #include <shadow/image/edit_execution_plan.hpp>
+#include <shadow/image/photo_geometry.hpp>
 #include <shadow/image/working_rgb.hpp>
 
 #include <cstdint>
@@ -22,6 +23,13 @@ namespace shadow::image::detail {
 
 struct WarmEditGpuPreparation;
 
+struct WarmEditGpuGeometryContext final {
+    PhotoGeometryLayout layout;
+    PhotoGeometry geometry;
+    GeometryPixelRect source_tile_rect;
+    GeometryPixelRect output_rect;
+};
+
 // One resident raster may represent either a complete warm proxy or a bounded full-detail
 // working tile. Keep full-image coordinates explicit so deterministic finishing effects and
 // display dithering do not acquire seams when the same kernels execute on independent tiles.
@@ -29,6 +37,7 @@ struct WarmEditGpuRenderContext final {
     AdjustmentExecutionContext adjustment;
     std::uint32_t display_origin_x = 0U;
     std::uint32_t display_origin_y = 0U;
+    std::optional<WarmEditGpuGeometryContext> geometry;
 };
 
 // The resident backend owns one immutable source upload and two independently synchronized output

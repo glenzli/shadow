@@ -144,7 +144,8 @@ FullEditDetailGpuCache::RenderAttempt FullEditDetailGpuCache::render(
     const std::span<const AdjustmentNode> nodes,
     const DetailTileRect core_rect,
     const DetailTileRect working_rect,
-    const Dimensions full_dimensions
+    const Dimensions full_dimensions,
+    std::optional<WarmEditGpuGeometryContext> geometry
 ) {
     const EditExecutionPlan plan = compile_edit_execution_plan(nodes, 1.0, 1.0);
     auto acquisition = acquire(source, source_rendering, working_rect);
@@ -157,6 +158,11 @@ FullEditDetailGpuCache::RenderAttempt FullEditDetailGpuCache::render(
                               : std::move(acquisition.diagnostic),
         };
     }
+    const bool geometry_applied = geometry.has_value();
+    const std::uint32_t display_origin_x =
+        geometry_applied ? geometry->output_rect.x : working_rect.x;
+    const std::uint32_t display_origin_y =
+        geometry_applied ? geometry->output_rect.y : working_rect.y;
     auto attempt = acquisition.session->render(
         nodes,
         plan,
@@ -168,12 +174,19 @@ FullEditDetailGpuCache::RenderAttempt FullEditDetailGpuCache::render(
                     .origin_y = working_rect.y,
                     .full_dimensions = full_dimensions,
                 },
-            .display_origin_x = working_rect.x,
-            .display_origin_y = working_rect.y,
+            .display_origin_x = display_origin_x,
+            .display_origin_y = display_origin_y,
+            .geometry = std::move(geometry),
         }
     );
     refresh_resident_bytes(working_rect, acquisition.session);
-    return finish_render(std::move(attempt), acquisition.cache_hit, core_rect, working_rect);
+    return finish_render(
+        std::move(attempt),
+        acquisition.cache_hit,
+        core_rect,
+        working_rect,
+        geometry_applied
+    );
 }
 
 FullEditDetailGpuCache::RenderAttempt FullEditDetailGpuCache::render_layers(
@@ -182,7 +195,8 @@ FullEditDetailGpuCache::RenderAttempt FullEditDetailGpuCache::render_layers(
     const std::span<const AdjustmentLayer> layers,
     const DetailTileRect core_rect,
     const DetailTileRect working_rect,
-    const Dimensions full_dimensions
+    const Dimensions full_dimensions,
+    std::optional<WarmEditGpuGeometryContext> geometry
 ) {
     auto acquisition = acquire(source, source_rendering, working_rect);
     if (!acquisition.session) {
@@ -194,6 +208,11 @@ FullEditDetailGpuCache::RenderAttempt FullEditDetailGpuCache::render_layers(
                               : std::move(acquisition.diagnostic),
         };
     }
+    const bool geometry_applied = geometry.has_value();
+    const std::uint32_t display_origin_x =
+        geometry_applied ? geometry->output_rect.x : working_rect.x;
+    const std::uint32_t display_origin_y =
+        geometry_applied ? geometry->output_rect.y : working_rect.y;
     auto attempt = acquisition.session->render_layers(
         layers,
         false,
@@ -204,19 +223,27 @@ FullEditDetailGpuCache::RenderAttempt FullEditDetailGpuCache::render_layers(
                     .origin_y = working_rect.y,
                     .full_dimensions = full_dimensions,
                 },
-            .display_origin_x = working_rect.x,
-            .display_origin_y = working_rect.y,
+            .display_origin_x = display_origin_x,
+            .display_origin_y = display_origin_y,
+            .geometry = std::move(geometry),
         }
     );
     refresh_resident_bytes(working_rect, acquisition.session);
-    return finish_render(std::move(attempt), acquisition.cache_hit, core_rect, working_rect);
+    return finish_render(
+        std::move(attempt),
+        acquisition.cache_hit,
+        core_rect,
+        working_rect,
+        geometry_applied
+    );
 }
 
 FullEditDetailGpuCache::RenderAttempt FullEditDetailGpuCache::finish_render(
     WarmEditGpuSession::RenderAttempt attempt,
     const bool source_cache_hit,
     const DetailTileRect core_rect,
-    const DetailTileRect working_rect
+    const DetailTileRect working_rect,
+    const bool geometry_applied
 ) {
     if (attempt.status != WarmEditGpuSession::RenderStatus::completed
         || !attempt.output.has_value()) {
@@ -229,18 +256,27 @@ FullEditDetailGpuCache::RenderAttempt FullEditDetailGpuCache::finish_render(
         };
     }
     const auto& output = *attempt.output;
-    const std::uint64_t output_bytes =
-        static_cast<std::uint64_t>(working_rect.width) * working_rect.height * 3U;
-    if (output.dimensions != Dimensions{working_rect.width, working_rect.height}
-        || output_bytes > std::numeric_limits<std::size_t>::max()
-        || output.rgb8.size() != static_cast<std::size_t>(output_bytes)) {
+    const Dimensions expected_dimensions =
+        geometry_applied ? Dimensions{core_rect.width, core_rect.height}
+                         : Dimensions{working_rect.width, working_rect.height};
+    const std::uint64_t expected_bytes =
+        static_cast<std::uint64_t>(expected_dimensions.width) * expected_dimensions.height * 3U;
+    if (output.dimensions != expected_dimensions
+        || expected_bytes > std::numeric_limits<std::size_t>::max()
+        || output.rgb8.size() != static_cast<std::size_t>(expected_bytes)) {
         throw DecodeError(
             DecodeErrorCode::internal,
             0,
             "resident Metal full-detail tile returned an invalid RGB8 raster"
         );
     }
-
+    if (geometry_applied) {
+        return RenderAttempt{
+            .bytes = std::move(attempt.output->rgb8),
+            .source_cache_hit = source_cache_hit,
+            .diagnostic = {},
+        };
+    }
     const std::uint32_t core_offset_x = core_rect.x - working_rect.x;
     const std::uint32_t core_offset_y = core_rect.y - working_rect.y;
     const std::size_t output_stride = static_cast<std::size_t>(working_rect.width) * 3U;

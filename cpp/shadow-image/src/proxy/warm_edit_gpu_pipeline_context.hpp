@@ -27,6 +27,7 @@ class WarmMetalContext final {
     [[nodiscard]] id<MTLComputePipelineState> adjustment_pipeline() const noexcept;
     [[nodiscard]] id<MTLComputePipelineState> layer_copy_pipeline() const noexcept;
     [[nodiscard]] id<MTLComputePipelineState> layer_blend_pipeline() const noexcept;
+    [[nodiscard]] id<MTLComputePipelineState> geometry_pipeline() const noexcept;
     [[nodiscard]] id<MTLComputePipelineState> retouch_clone_pipeline() const noexcept;
     [[nodiscard]] id<MTLComputePipelineState> retouch_heal_statistics_pipeline() const noexcept;
     [[nodiscard]] id<MTLComputePipelineState> retouch_heal_reduce_pipeline() const noexcept;
@@ -62,6 +63,7 @@ class WarmMetalContext final {
     id<MTLComputePipelineState> adjustment_pipeline_ = nil;
     id<MTLComputePipelineState> layer_copy_pipeline_ = nil;
     id<MTLComputePipelineState> layer_blend_pipeline_ = nil;
+    id<MTLComputePipelineState> geometry_pipeline_ = nil;
     id<MTLComputePipelineState> retouch_clone_pipeline_ = nil;
     id<MTLComputePipelineState> retouch_heal_statistics_pipeline_ = nil;
     id<MTLComputePipelineState> retouch_heal_reduce_pipeline_ = nil;
