@@ -44,17 +44,20 @@ namespace shadow::image {
 
 namespace {
 
-using edit_preview_detail::PreparedEditPreviewPixels;
 using edit_preview_detail::analyze_edit_preview;
 using edit_preview_detail::prepare_edit_preview_layer_pixels;
 using edit_preview_detail::prepare_edit_preview_pixels;
+using edit_preview_detail::PreparedEditPreviewPixels;
 
 [[nodiscard]] EncodedProxy rgb8_proxy(PreparedEditPreviewPixels prepared) {
     const std::uint64_t expected_bytes = prepared.dimensions.pixel_count() * 3U;
-    if (prepared.dimensions.width == 0U || prepared.dimensions.height == 0U ||
-        expected_bytes != prepared.rgb.size()) {
-        throw DecodeError(DecodeErrorCode::internal, 0,
-                          "warm edit preview produced an invalid tightly packed RGB8 layout");
+    if (prepared.dimensions.width == 0U || prepared.dimensions.height == 0U
+        || expected_bytes != prepared.rgb.size()) {
+        throw DecodeError(
+            DecodeErrorCode::internal,
+            0,
+            "warm edit preview produced an invalid tightly packed RGB8 layout"
+        );
     }
     return EncodedProxy{
         .dimensions = prepared.dimensions,
@@ -81,13 +84,11 @@ void validate_warm_edit_max_edge(const std::uint32_t max_edge) {
 // run on the complete native reference. JPEG/HEIF remain excluded so they cannot be silently
 // double-corrected.
 [[nodiscard]] PixelBuffer working_to_linear_reference(const FloatRgbImage& source) {
-    if (
-        source.pixel_format != FloatPixelFormat::rgb_f32_native_interleaved
+    if (source.pixel_format != FloatPixelFormat::rgb_f32_native_interleaved
         || source.transfer_function != TransferFunction::linear
         || (source.reference != ImageReference::scene_referred
             && source.reference != ImageReference::display_referred)
-        || source.dimensions.width == 0U || source.dimensions.height == 0U
-    ) {
+        || source.dimensions.width == 0U || source.dimensions.height == 0U) {
         throw DecodeError(
             DecodeErrorCode::unsupported_layout,
             0,
@@ -111,13 +112,14 @@ void validate_warm_edit_max_edge(const std::uint32_t max_edge) {
     output.primaries = RgbPrimaries::srgb_rec709_d65;
     output.transfer_function = RgbTransferFunction::linear;
     output.reference = source.reference == ImageReference::scene_referred
-        ? RgbBufferReference::processed_raw
-        : RgbBufferReference::decoded_raster;
+                           ? RgbBufferReference::processed_raw
+                           : RgbBufferReference::decoded_raster;
     output.samples.resize(expected_samples);
     for (std::size_t index = 0U; index < expected_samples; ++index) {
         output.samples[index] = static_cast<std::uint16_t>(std::clamp(
-            std::llround(std::clamp(static_cast<double>(source.samples[index]), 0.0, 1.0)
-                * 65'535.0),
+            std::llround(
+                std::clamp(static_cast<double>(source.samples[index]), 0.0, 1.0) * 65'535.0
+            ),
             0LL,
             65'535LL
         ));
@@ -128,15 +130,11 @@ void validate_warm_edit_max_edge(const std::uint32_t max_edge) {
 // Shadow-owned RawFrame development never crosses the packed provider-RGB boundary. This tiny
 // adapter intentionally preserves every finite scene-linear float, including values above one
 // and small negative gamut components, for providers that explicitly advertise float support.
-[[nodiscard]] SceneLinearRgbFrame working_to_scene_linear_reference(
-    const FloatRgbImage& source
-) {
-    if (
-        source.pixel_format != FloatPixelFormat::rgb_f32_native_interleaved
+[[nodiscard]] SceneLinearRgbFrame working_to_scene_linear_reference(const FloatRgbImage& source) {
+    if (source.pixel_format != FloatPixelFormat::rgb_f32_native_interleaved
         || source.transfer_function != TransferFunction::linear
-        || source.reference != ImageReference::scene_referred
-        || source.dimensions.width == 0U || source.dimensions.height == 0U
-    ) {
+        || source.reference != ImageReference::scene_referred || source.dimensions.width == 0U
+        || source.dimensions.height == 0U) {
         throw DecodeError(
             DecodeErrorCode::unsupported_layout,
             0,
@@ -147,9 +145,7 @@ void validate_warm_edit_max_edge(const std::uint32_t max_edge) {
         proxy_detail::checked_interleaved_rgb_sample_count(source.dimensions);
     const std::size_t expected_stride =
         static_cast<std::size_t>(source.dimensions.width) * 3U * sizeof(float);
-    if (
-        source.row_stride_bytes != expected_stride || source.samples.size() != expected_samples
-    ) {
+    if (source.row_stride_bytes != expected_stride || source.samples.size() != expected_samples) {
         throw DecodeError(
             DecodeErrorCode::corrupt_data,
             0,
@@ -211,32 +207,27 @@ struct PreparedWarmEditProxy final {
     // decoder's receipt separately before the RGB conversion so a prepared session can report
     // the exact RAW-development request that created its source raster.
     RawDevelopmentReceipt raw_development_receipt = std::move(developed.raw_development_receipt);
-    std::optional<SensorClippingMask> sensor_clipping_mask = std::move(
-        developed.sensor_clipping_mask
-    );
+    std::optional<SensorClippingMask> sensor_clipping_mask =
+        std::move(developed.sensor_clipping_mask);
     const SourceRenderingReceipt source_rendering = std::visit(
         [&](const auto& value) {
             return resolve_source_rendering(value, session.metadata(), developed.pipeline_receipt);
         },
         preview_reference
     );
-    const Dimensions target = proxy_dimensions(
-        proxy_detail::developed_source_dimensions(preview_reference),
-        max_edge
-    );
-    FloatRgbImage working_proxy = proxy_detail::resize_developed_source_to_working(
-        preview_reference,
-        target
-    );
+    const Dimensions target =
+        proxy_dimensions(proxy_detail::developed_source_dimensions(preview_reference), max_edge);
+    FloatRgbImage working_proxy =
+        proxy_detail::resize_developed_source_to_working(preview_reference, target);
     // LibRaw may use a half-size demosaic above. Detail-and-effects radii remain expressed in
     // native level-zero pixels, so preserve the relationship to the *oriented* full output
     // dimensions rather than accidentally doubling one axis for a rotated camera frame.
     const Dimensions full_dimensions = oriented_full_dimensions(session.metadata());
     if (full_dimensions.width > 0U && full_dimensions.height > 0U) {
-        working_proxy.level_zero_to_raster_scale_x = static_cast<double>(target.width)
-            / static_cast<double>(full_dimensions.width);
-        working_proxy.level_zero_to_raster_scale_y = static_cast<double>(target.height)
-            / static_cast<double>(full_dimensions.height);
+        working_proxy.level_zero_to_raster_scale_x =
+            static_cast<double>(target.width) / static_cast<double>(full_dimensions.width);
+        working_proxy.level_zero_to_raster_scale_y =
+            static_cast<double>(target.height) / static_cast<double>(full_dimensions.height);
     }
 
     OpticsProfileReceipt receipt;
@@ -254,10 +245,8 @@ struct PreparedWarmEditProxy final {
         if (corrected.corrected_reference_rgb.has_value()) {
             const double level_zero_scale_x = working_proxy.level_zero_to_raster_scale_x;
             const double level_zero_scale_y = working_proxy.level_zero_to_raster_scale_y;
-            const Dimensions corrected_dimensions =
-                corrected.corrected_reference_rgb->dimensions;
-            DevelopedSourcePixels corrected_source =
-                std::move(*corrected.corrected_reference_rgb);
+            const Dimensions corrected_dimensions = corrected.corrected_reference_rgb->dimensions;
+            DevelopedSourcePixels corrected_source = std::move(*corrected.corrected_reference_rgb);
             working_proxy = proxy_detail::resize_developed_source_to_working(
                 corrected_source,
                 corrected_dimensions
@@ -291,10 +280,8 @@ struct PreparedWarmEditProxy final {
     // Optical providers currently retain preview raster geometry. If an adapter ever returns a
     // different extent, a pre-warp sensor map would be misleading; omit it instead of stretching
     // it or reopening the RAW source just for diagnostics.
-    if (
-        sensor_clipping_mask.has_value()
-        && sensor_clipping_mask->dimensions != working_proxy.dimensions
-    ) {
+    if (sensor_clipping_mask.has_value()
+        && sensor_clipping_mask->dimensions != working_proxy.dimensions) {
         sensor_clipping_mask.reset();
     }
     return {
@@ -309,10 +296,8 @@ struct PreparedWarmEditProxy final {
 } // namespace
 
 bool EditPreviewExecutionReceipt::valid() const noexcept {
-    const auto valid_adjustment_backend = [](
-        const EditPreviewBackend backend,
-        const std::uint32_t version
-    ) {
+    const auto valid_adjustment_backend = [](const EditPreviewBackend backend,
+                                             const std::uint32_t version) {
         switch (backend) {
         case EditPreviewBackend::cpu:
             return version == edit_preview_cpu_adjustment_backend_version;
@@ -321,10 +306,8 @@ bool EditPreviewExecutionReceipt::valid() const noexcept {
         }
         return false;
     };
-    const auto valid_display_backend = [](
-        const EditPreviewBackend backend,
-        const std::uint32_t version
-    ) {
+    const auto valid_display_backend = [](const EditPreviewBackend backend,
+                                          const std::uint32_t version) {
         switch (backend) {
         case EditPreviewBackend::cpu:
             return version == edit_preview_cpu_display_backend_version;
@@ -334,20 +317,18 @@ bool EditPreviewExecutionReceipt::valid() const noexcept {
         return false;
     };
     return schema_version == edit_preview_execution_receipt_schema_version
-        && valid_adjustment_backend(adjustment_backend, adjustment_backend_version)
-        && adjustment_execution_contract_version == edit_execution_plan_identity_version
-        && valid_display_backend(display_backend, display_backend_version)
-        && display_output_contract_version == display_srgb8_output_transform_version
-        && (!adjustment_fell_back || adjustment_backend == EditPreviewBackend::cpu)
-        && (!display_fell_back || display_backend == EditPreviewBackend::cpu)
-        && (!fused_pipeline || display_backend == EditPreviewBackend::metal)
-        && (!fused_pipeline || (!adjustment_fell_back && !display_fell_back))
-        && ((adjustment_fell_back || display_fell_back) == !diagnostic.empty());
+           && valid_adjustment_backend(adjustment_backend, adjustment_backend_version)
+           && adjustment_execution_contract_version == edit_execution_plan_identity_version
+           && valid_display_backend(display_backend, display_backend_version)
+           && display_output_contract_version == display_srgb8_output_transform_version
+           && (!adjustment_fell_back || adjustment_backend == EditPreviewBackend::cpu)
+           && (!display_fell_back || display_backend == EditPreviewBackend::cpu)
+           && (!fused_pipeline || display_backend == EditPreviewBackend::metal)
+           && (!fused_pipeline || (!adjustment_fell_back && !display_fell_back))
+           && ((adjustment_fell_back || display_fell_back) == !diagnostic.empty());
 }
 
-std::string edit_preview_execution_receipt_identity(
-    const EditPreviewExecutionReceipt& receipt
-) {
+std::string edit_preview_execution_receipt_identity(const EditPreviewExecutionReceipt& receipt) {
     if (!receipt.valid()) {
         throw std::invalid_argument("edit-preview execution receipt is invalid");
     }
@@ -361,37 +342,30 @@ std::string edit_preview_execution_receipt_identity(
         throw std::invalid_argument("edit-preview execution backend is invalid");
     };
     return "shadow-edit-preview-execution-v1;adjustment="
-        + std::string(backend_identity(receipt.adjustment_backend))
-        + "-v" + std::to_string(receipt.adjustment_backend_version)
-        + ";plan=" + std::to_string(receipt.adjustment_execution_contract_version)
-        + ";display=" + std::string(backend_identity(receipt.display_backend))
-        + "-v" + std::to_string(receipt.display_backend_version)
-        + ";display-contract=" + std::to_string(receipt.display_output_contract_version)
-        + ";route=" + (receipt.fused_pipeline ? "fused" : "staged");
+           + std::string(backend_identity(receipt.adjustment_backend)) + "-v"
+           + std::to_string(receipt.adjustment_backend_version)
+           + ";plan=" + std::to_string(receipt.adjustment_execution_contract_version)
+           + ";display=" + std::string(backend_identity(receipt.display_backend)) + "-v"
+           + std::to_string(receipt.display_backend_version)
+           + ";display-contract=" + std::to_string(receipt.display_output_contract_version)
+           + ";route=" + (receipt.fused_pipeline ? "fused" : "staged");
 }
 
 std::string edit_preview_generator_implementation_identity() {
     // This identity names the implementations the current generator can actually select, not a
     // local device. Runtime availability and fallback diagnostics remain on each receipt.
     return "shadow-edit-preview-generator-v1;plan="
-        + std::to_string(edit_execution_plan_identity_version)
-        + ";adjustment-cpu=" + std::string(
-            adjustment_backend_identity(AdjustmentBackend::cpu)
-        )
-        + ";adjustment-metal=" + std::string(
-            adjustment_backend_identity(AdjustmentBackend::metal)
-        )
-        + ";display-cpu=" + std::string(
-            display_output_backend_identity(DisplayOutputBackend::cpu)
-        )
-        + ";display-metal=" + std::string(
-            display_output_backend_identity(DisplayOutputBackend::metal)
-        )
-        + ";warm-fused-metal=v1;features=resident-source,double-slot,"
-            "immutable-color-resources,technical-detail,texture,clarity,optics,"
-            "adjustment,display"
-        + ";display-contract=" + std::to_string(display_srgb8_output_transform_version)
-        + ";jpeg-444=" + std::to_string(edit_preview_jpeg_444_contract_version);
+           + std::to_string(edit_execution_plan_identity_version) + ";adjustment-cpu="
+           + std::string(adjustment_backend_identity(AdjustmentBackend::cpu)) + ";adjustment-metal="
+           + std::string(adjustment_backend_identity(AdjustmentBackend::metal)) + ";display-cpu="
+           + std::string(display_output_backend_identity(DisplayOutputBackend::cpu))
+           + ";display-metal="
+           + std::string(display_output_backend_identity(DisplayOutputBackend::metal))
+           + ";warm-fused-metal=v1;features=resident-source,double-slot,"
+             "immutable-color-resources,technical-detail,texture,clarity,optics,"
+             "adjustment,display"
+           + ";display-contract=" + std::to_string(display_srgb8_output_transform_version)
+           + ";jpeg-444=" + std::to_string(edit_preview_jpeg_444_contract_version);
 }
 
 WarmEditPreviewSession::WarmEditPreviewSession(
@@ -401,12 +375,12 @@ WarmEditPreviewSession::WarmEditPreviewSession(
     RawPipelineReceipt raw_pipeline_receipt,
     OpticsProfileReceipt optics_receipt,
     std::optional<SensorClippingMask> sensor_clipping_mask
-)
-    : working_proxy_(std::move(working_proxy)), max_edge_(max_edge),
-      raw_development_receipt_(std::move(raw_development_receipt)),
-      raw_pipeline_receipt_(std::move(raw_pipeline_receipt)),
-      optics_receipt_(std::move(optics_receipt)),
-      sensor_clipping_mask_(std::move(sensor_clipping_mask)) {
+) :
+    working_proxy_(std::move(working_proxy)), max_edge_(max_edge),
+    raw_development_receipt_(std::move(raw_development_receipt)),
+    raw_pipeline_receipt_(std::move(raw_pipeline_receipt)),
+    optics_receipt_(std::move(optics_receipt)),
+    sensor_clipping_mask_(std::move(sensor_clipping_mask)) {
     auto gpu = detail::prepare_warm_edit_gpu_session(working_proxy_);
     warm_gpu_session_ = std::move(gpu.session);
     warm_gpu_diagnostic_ = std::move(gpu.diagnostic);
@@ -432,8 +406,8 @@ const OpticsProfileReceipt& WarmEditPreviewSession::optics_receipt() const noexc
     return optics_receipt_;
 }
 
-const std::optional<SensorClippingMask>& WarmEditPreviewSession::sensor_clipping_mask() const
-    noexcept {
+const std::optional<SensorClippingMask>&
+WarmEditPreviewSession::sensor_clipping_mask() const noexcept {
     return sensor_clipping_mask_;
 }
 
@@ -441,23 +415,32 @@ WarmEditPreviewGpuStats WarmEditPreviewSession::gpu_stats() const noexcept {
     return warm_gpu_session_ ? warm_gpu_session_->stats() : WarmEditPreviewGpuStats{};
 }
 
-EncodedProxy WarmEditPreviewSession::render_rgb8(const std::span<const AdjustmentNode> nodes,
-                                                 const PhotoGeometry& geometry) const {
+EncodedProxy WarmEditPreviewSession::render_rgb8(
+    const std::span<const AdjustmentNode> nodes,
+    const PhotoGeometry& geometry
+) const {
     auto rendered = render_rgb8_cancellable(nodes, {}, geometry);
     if (rendered.cancelled()) {
-        throw DecodeError(DecodeErrorCode::internal, 0,
-                          "non-cancellable RGB8 warm preview was unexpectedly cancelled");
+        throw DecodeError(
+            DecodeErrorCode::internal,
+            0,
+            "non-cancellable RGB8 warm preview was unexpectedly cancelled"
+        );
     }
     return std::move(*rendered.completed);
 }
 
-EncodedProxy
-WarmEditPreviewSession::render_rgb8_layers(const std::span<const AdjustmentLayer> layers,
-                                           const PhotoGeometry& geometry) const {
+EncodedProxy WarmEditPreviewSession::render_rgb8_layers(
+    const std::span<const AdjustmentLayer> layers,
+    const PhotoGeometry& geometry
+) const {
     auto rendered = render_rgb8_layers_cancellable(layers, {}, geometry);
     if (rendered.cancelled()) {
-        throw DecodeError(DecodeErrorCode::internal, 0,
-                          "non-cancellable layered RGB8 warm preview was unexpectedly cancelled");
+        throw DecodeError(
+            DecodeErrorCode::internal,
+            0,
+            "non-cancellable layered RGB8 warm preview was unexpectedly cancelled"
+        );
     }
     return std::move(*rendered.completed);
 }
@@ -500,7 +483,15 @@ EncodedProxy WarmEditPreviewSession::render_jpeg_layers(
     const PhotoGeometry& geometry
 ) const {
     proxy_detail::validate_jpeg_quality(jpeg_quality);
-    auto prepared = prepare_edit_preview_layer_pixels(working_proxy_, layers, geometry, false, {});
+    auto prepared = prepare_edit_preview_layer_pixels(
+        working_proxy_,
+        warm_gpu_session_,
+        warm_gpu_diagnostic_,
+        layers,
+        geometry,
+        false,
+        {}
+    );
     if (!prepared.has_value()) {
         throw DecodeError(
             DecodeErrorCode::internal,
@@ -520,7 +511,15 @@ AnalyzedEditPreview WarmEditPreviewSession::render_jpeg_with_analysis_layers(
     const PhotoGeometry& geometry
 ) const {
     proxy_detail::validate_jpeg_quality(jpeg_quality);
-    auto prepared = prepare_edit_preview_layer_pixels(working_proxy_, layers, geometry, true, {});
+    auto prepared = prepare_edit_preview_layer_pixels(
+        working_proxy_,
+        warm_gpu_session_,
+        warm_gpu_diagnostic_,
+        layers,
+        geometry,
+        true,
+        {}
+    );
     if (!prepared.has_value() || !prepared->edited.has_value()) {
         throw DecodeError(
             DecodeErrorCode::internal,
@@ -537,26 +536,34 @@ AnalyzedEditPreview WarmEditPreviewSession::render_jpeg_with_analysis_layers(
         );
     }
     return AnalyzedEditPreview{
-        .proxy = EncodedProxy{
-            .dimensions = prepared->dimensions,
-            .bytes = proxy_detail::encode_proxy_jpeg(
-                prepared->rgb,
-                prepared->dimensions,
-                jpeg_quality
-            ),
-        },
+        .proxy =
+            EncodedProxy{
+                .dimensions = prepared->dimensions,
+                .bytes = proxy_detail::encode_proxy_jpeg(
+                    prepared->rgb,
+                    prepared->dimensions,
+                    jpeg_quality
+                ),
+            },
         .analysis = std::move(*analysis),
         .execution = std::move(prepared->execution),
     };
 }
 
-CancellableEditPreviewResult<EncodedProxy>
-WarmEditPreviewSession::render_rgb8_cancellable(const std::span<const AdjustmentNode> nodes,
-                                                const std::stop_token cancellation,
-                                                const PhotoGeometry& geometry) const {
-    auto prepared =
-        prepare_edit_preview_pixels(working_proxy_, warm_gpu_session_, warm_gpu_diagnostic_, nodes,
-                                    geometry, false, cancellation);
+CancellableEditPreviewResult<EncodedProxy> WarmEditPreviewSession::render_rgb8_cancellable(
+    const std::span<const AdjustmentNode> nodes,
+    const std::stop_token cancellation,
+    const PhotoGeometry& geometry
+) const {
+    auto prepared = prepare_edit_preview_pixels(
+        working_proxy_,
+        warm_gpu_session_,
+        warm_gpu_diagnostic_,
+        nodes,
+        geometry,
+        false,
+        cancellation
+    );
     if (!prepared.has_value()) {
         return {};
     }
@@ -566,10 +573,19 @@ WarmEditPreviewSession::render_rgb8_cancellable(const std::span<const Adjustment
 }
 
 CancellableEditPreviewResult<EncodedProxy> WarmEditPreviewSession::render_rgb8_layers_cancellable(
-    const std::span<const AdjustmentLayer> layers, const std::stop_token cancellation,
-    const PhotoGeometry& geometry) const {
-    auto prepared =
-        prepare_edit_preview_layer_pixels(working_proxy_, layers, geometry, false, cancellation);
+    const std::span<const AdjustmentLayer> layers,
+    const std::stop_token cancellation,
+    const PhotoGeometry& geometry
+) const {
+    auto prepared = prepare_edit_preview_layer_pixels(
+        working_proxy_,
+        warm_gpu_session_,
+        warm_gpu_diagnostic_,
+        layers,
+        geometry,
+        false,
+        cancellation
+    );
     if (!prepared.has_value()) {
         return {};
     }
@@ -578,8 +594,7 @@ CancellableEditPreviewResult<EncodedProxy> WarmEditPreviewSession::render_rgb8_l
     };
 }
 
-CancellableEditPreviewResult<EncodedProxy>
-WarmEditPreviewSession::render_jpeg_cancellable(
+CancellableEditPreviewResult<EncodedProxy> WarmEditPreviewSession::render_jpeg_cancellable(
     const std::span<const AdjustmentNode> nodes,
     const std::uint8_t jpeg_quality,
     const std::stop_token cancellation,
@@ -642,11 +657,7 @@ WarmEditPreviewSession::render_jpeg_with_analysis_cancellable(
             "analyzed warm preview did not retain its scene-linear result"
         );
     }
-    auto analysis = analyze_edit_preview(
-        *prepared->edited,
-        prepared->rgb,
-        cancellation
-    );
+    auto analysis = analyze_edit_preview(*prepared->edited, prepared->rgb, cancellation);
     if (!analysis.has_value()) {
         return {};
     }

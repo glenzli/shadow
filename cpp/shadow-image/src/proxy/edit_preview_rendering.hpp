@@ -36,9 +36,10 @@ struct PreparedEditPreviewPixels final {
     std::stop_token cancellation
 );
 
-[[nodiscard]] std::optional<PreparedEditPreviewPixels>
-prepare_edit_preview_layer_pixels(
+[[nodiscard]] std::optional<PreparedEditPreviewPixels> prepare_edit_preview_layer_pixels(
     const FloatRgbImage& working_proxy,
+    const std::shared_ptr<detail::WarmEditGpuSession>& warm_gpu_session,
+    std::string_view warm_gpu_diagnostic,
     std::span<const AdjustmentLayer> layers,
     const PhotoGeometry& geometry,
     bool retain_linear_for_analysis,

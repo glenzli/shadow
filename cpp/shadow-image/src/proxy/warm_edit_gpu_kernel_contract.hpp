@@ -50,6 +50,35 @@ static_assert(sizeof(WarmDisplayParameters) == 16U);
 static_assert(sizeof(WarmStatus) == 16U);
 static_assert(sizeof(WarmDenoiseParameters) == 48U);
 
+enum class WarmLayerMaskKind : std::uint32_t {
+    full_frame = 0U,
+    linear_gradient = 1U,
+    radial_gradient = 2U,
+};
+
+struct WarmLayerBlendParameters final {
+    std::uint32_t width = 0U;
+    std::uint32_t height = 0U;
+    std::uint32_t input_row_floats = 0U;
+    std::uint32_t reserved = 0U;
+    std::uint32_t origin_x = 0U;
+    std::uint32_t origin_y = 0U;
+    std::uint32_t full_width = 0U;
+    std::uint32_t full_height = 0U;
+    WarmLayerMaskKind mask_kind = WarmLayerMaskKind::full_frame;
+    std::uint32_t invert = 0U;
+    float opacity = 1.0F;
+    float x0 = 0.0F;
+    float y0 = 0.0F;
+    float x1 = 1.0F;
+    float y1 = 0.0F;
+    float radius_x = 0.0F;
+    float radius_y = 0.0F;
+    float feather = 0.0F;
+};
+
+static_assert(sizeof(WarmLayerBlendParameters) == 72U);
+
 // Capture sharpening is evaluated in log luminance, matching the CPU technical-detail
 // contract. The two scalar buffers required by its separable Gaussian stay resident beside the
 // RGB slots, so changing Amount/Radius/Threshold never round-trips the warm proxy to the host.
@@ -187,6 +216,7 @@ inline constexpr bool warm_kernel_record =
 
 static_assert(warm_kernel_record<WarmDisplayParameters>);
 static_assert(warm_kernel_record<WarmStatus>);
+static_assert(warm_kernel_record<WarmLayerBlendParameters>);
 static_assert(warm_kernel_record<WarmDenoiseParameters>);
 static_assert(warm_kernel_record<WarmSharpenParameters>);
 static_assert(warm_kernel_record<WarmTextureParameters>);
@@ -200,6 +230,7 @@ static_assert(warm_kernel_record<WarmSelectiveToneParameters>);
 
 static_assert(alignof(WarmDisplayParameters) == alignof(std::uint32_t));
 static_assert(alignof(WarmStatus) == alignof(std::uint32_t));
+static_assert(alignof(WarmLayerBlendParameters) == alignof(std::uint32_t));
 static_assert(alignof(WarmDenoiseParameters) == alignof(std::uint32_t));
 static_assert(alignof(WarmSharpenParameters) == alignof(std::uint32_t));
 static_assert(alignof(WarmTextureParameters) == alignof(std::uint32_t));
@@ -214,6 +245,8 @@ static_assert(alignof(WarmSelectiveToneParameters) == alignof(std::uint32_t));
 static_assert(offsetof(WarmDisplayParameters, apply_scene_curve) == 8U);
 static_assert(offsetof(WarmDisplayParameters, retain_linear) == 12U);
 static_assert(offsetof(WarmStatus, earliest_step) == 4U);
+static_assert(offsetof(WarmLayerBlendParameters, full_width) == 24U);
+static_assert(offsetof(WarmLayerBlendParameters, opacity) == 40U);
 static_assert(offsetof(WarmDenoiseParameters, luminance_strength) == 16U);
 static_assert(offsetof(WarmDenoiseParameters, red_luminance) == 32U);
 static_assert(offsetof(WarmSharpenParameters, sigma_x) == 16U);

@@ -1,5 +1,6 @@
 #include "warm_edit_gpu.hpp"
 #include "warm_edit_gpu_dispatcher.hpp"
+#include "warm_edit_gpu_layer_dispatcher.hpp"
 #include "warm_edit_gpu_pipeline_context.hpp"
 #include "warm_edit_gpu_resident_resources.hpp"
 
@@ -59,6 +60,48 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
         *impl_->resident,
         nodes,
         plan,
+        retain_linear_for_analysis,
+        context,
+        cancellation
+    );
+}
+
+WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render_layers(
+    const std::span<const AdjustmentLayer> layers,
+    const bool retain_linear_for_analysis,
+    const std::stop_token cancellation
+) const {
+    return render_layers(
+        layers,
+        retain_linear_for_analysis,
+        WarmEditGpuRenderContext{},
+        cancellation
+    );
+}
+
+WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render_layers(
+    const std::span<const AdjustmentLayer> layers,
+    const bool retain_linear_for_analysis,
+    const WarmEditGpuRenderContext context,
+    const std::stop_token cancellation
+) const {
+    if (cancellation.stop_requested()) {
+        return RenderAttempt{
+            .status = RenderStatus::cancelled,
+            .output = std::nullopt,
+            .diagnostic = {},
+        };
+    }
+    if (!impl_ || !impl_->resident) {
+        return RenderAttempt{
+            .status = RenderStatus::unavailable_or_failed,
+            .output = std::nullopt,
+            .diagnostic = "session-resident Metal warm preview is not initialized",
+        };
+    }
+    return dispatch_warm_edit_gpu_layers(
+        *impl_->resident,
+        layers,
         retain_linear_for_analysis,
         context,
         cancellation

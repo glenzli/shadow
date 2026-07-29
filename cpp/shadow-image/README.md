@@ -224,6 +224,8 @@ Decoder contract tests follow the production responsibilities instead of one agg
   retention, repeated rendering, geometry-derived radius, bounds, and preflight validation.
 - `tests/edit_preview_execution_contract_test.cpp` owns output analysis, cancellation, backend
   receipts, and execution identity.
+- `tests/edit_preview_layer_execution_contract_test.cpp` owns fused resident layer receipts,
+  atomic CPU replay, and forced-backend failure for masks not yet admitted by Metal.
 - `tests/detail_tile_session_contract_test.cpp` owns one-time source preparation, retained-source
   immutability, exact crop coordinates, render-local edit isolation, resident Metal tile reuse,
   and whole-tile CPU fallback receipts.
@@ -231,6 +233,8 @@ Decoder contract tests follow the production responsibilities instead of one agg
   rows, scene-to-display rolloff, shared-channel dithering, and bounded Oklab gamut mapping.
 - `tests/detail_tile_seam_contract_test.cpp` owns full-versus-irregular tile equivalence for
   pixel-local, accumulated-neighborhood, and guided selective-tone execution.
+- `tests/detail_tile_layer_seam_contract_test.cpp` owns full-versus-irregular tile equivalence and
+  effective resident-Metal routing for opacity, linear/radial masks, and creative detail.
 - `tests/detail_tile_validation_contract_test.cpp` owns apron/allocation limits, rectangle and plan
   rejection order, overflow safety, and metadata preflight before pixel I/O.
 - `tests/detail_tile_contract_test_support.hpp` owns only their synthetic decode session, source
@@ -324,6 +328,10 @@ identity used by those internal semantic owners.
 contract. `src/edit/tone_curve.*` owns PCHIP preparation and sampling plus Oklab Lightness and
 Opponent curve execution; its prepared state exposes only the source curve, derivatives,
 segment count, and neutral identity required by Metal lowering.
+`src/edit/local_mask_validation.*` owns the shared layer, mask, node, and full-image-coordinate
+admission contract. CPU layer execution and resident Metal lowering both call it before bypassing
+disabled or neutral content, so malformed persisted recipes cannot acquire backend-dependent
+validation.
 `src/edit/perceptual_color.*` owns hue-band and ordered Point Color mapping, global Oklab
 opponent balance, Selective Color, validation, and the shared sub-stage classifier consumed by
 CPU execution and Metal lowering. `src/edit/oklab_color_warper.*` separately owns lattice
@@ -394,6 +402,12 @@ side-table leases, and owns the shared operation-buffer offsets. Its paired
 `warm_edit_gpu_transaction_encoder.*` binds and encodes that prepared plan without submitting or
 reading back a command, so ordinary renders and sequential masked layers can share one execution
 contract.
+`src/proxy/warm_edit_gpu_layer_plan.*` is the portable layer-composition admission and lowering
+owner. It maps opacity, unmasked layers, and normalized linear/radial gradients to the mirrored
+Metal blend ABI; active brush masks fail closed until their indexed continuous-stroke stage is
+available. `src/proxy/warm_edit_gpu_layer_dispatcher.*` executes every admitted layer
+sequentially in one command buffer, snapshots only layers that require blending, preserves the
+settled linear analysis result, and performs one final RGB8 readback.
 `src/proxy/warm_edit_gpu_stage_encoder.*` owns stage-specific resource admission, Metal kernel
 order, and intermediate-buffer selection. `src/proxy/warm_edit_gpu_dispatcher.*` packs the
 prepared transaction into one command buffer, interprets status, and performs the single final
@@ -409,6 +423,10 @@ Selective Tone and composed-stage children own opt-in CPU-versus-resident-Metal 
 the detail-tile seam contract proves both one guided mask and a composed Selective Tone,
 capture-sharpening, and full-resolution Texture/Clarity/Local Contrast plan remain invariant across
 apron-expanded tiles and confirms that the composed plan uses resident Metal when available.
+The layer-composition child owns opacity/gradient CPU parity, deliberate brush decline, and the
+opt-in `SHADOW_TEST_WARM_LAYER_BENCHMARK`; the focused detail-tile layer seam contract verifies
+that the same normalized masks and creative-detail apron produce byte-identical whole and
+irregular tiled output on resident Metal.
 
 The edit path accepts explicitly native interleaved RGB float32, scene-referred, linear-light data
 with named RGB primaries, white point, and luminance coefficients. It is not legal to feed the
@@ -422,7 +440,9 @@ deliberately preserves negative
 and greater-than-one scene values, performs no implicit gamut mapping or clipping, rejects
 NaN/Inf and float overflow, and refuses unknown schema/implementation versions. Node order is
 observable and stable. This ordered executor is the CPU reference subset of the future typed DAG;
-masks, branching, blending, tile scheduling, and GPU implementations remain separate work.
+sequential Normal-blend layers and their local masks are a separate composition contract already
+shared by CPU and Metal, while branching, additional blend modes, and indexed GPU brush coverage
+remain separate work.
 `validate_adjustment_nodes` exposes the same parameter validation without requiring pixels, so
 the one-shot edited-proxy path rejects malformed plans before asking a decoder to render RGB.
 

@@ -33,6 +33,14 @@ class FullEditDetailGpuCache final {
         DetailTileRect working_rect,
         Dimensions full_dimensions
     );
+    [[nodiscard]] RenderAttempt render_layers(
+        const DevelopedSourcePixels& source,
+        const SourceRenderingReceipt& source_rendering,
+        std::span<const AdjustmentLayer> layers,
+        DetailTileRect core_rect,
+        DetailTileRect working_rect,
+        Dimensions full_dimensions
+    );
 
   private:
     struct Acquisition final {
@@ -58,6 +66,12 @@ class FullEditDetailGpuCache final {
     void make_room_locked(std::uint64_t incoming_bytes);
     void
     refresh_resident_bytes(DetailTileRect rect, const std::shared_ptr<WarmEditGpuSession>& session);
+    [[nodiscard]] static RenderAttempt finish_render(
+        WarmEditGpuSession::RenderAttempt attempt,
+        bool source_cache_hit,
+        DetailTileRect core_rect,
+        DetailTileRect working_rect
+    );
 
     static constexpr std::uint64_t maximum_resident_bytes = 256ULL * 1'024ULL * 1'024ULL;
     static constexpr std::size_t maximum_entries = 4U;

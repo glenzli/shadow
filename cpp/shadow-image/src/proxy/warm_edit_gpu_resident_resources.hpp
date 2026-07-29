@@ -40,7 +40,7 @@ struct WarmGpuResidentLayout final {
 };
 
 class RetainedMetalBuffer final {
-public:
+  public:
     RetainedMetalBuffer() noexcept = default;
     explicit RetainedMetalBuffer(id<MTLBuffer> value) noexcept;
     ~RetainedMetalBuffer();
@@ -53,7 +53,7 @@ public:
     [[nodiscard]] id<MTLBuffer> get() const noexcept;
     [[nodiscard]] explicit operator bool() const noexcept;
 
-private:
+  private:
     id<MTLBuffer> value_ = nil;
 };
 
@@ -80,6 +80,7 @@ struct WarmGpuSlotBuffers final {
     id<MTLBuffer> perceptual_texture = nil;
     id<MTLBuffer> local_contrast_a = nil;
     id<MTLBuffer> local_contrast_b = nil;
+    id<MTLBuffer> layer_before = nil;
     id<MTLBuffer> rgb8 = nil;
     id<MTLBuffer> before_operations = nil;
     id<MTLBuffer> after_operations = nil;
@@ -89,7 +90,7 @@ struct WarmGpuSlotBuffers final {
 class WarmGpuResidentResources;
 
 class WarmGpuSlotLease final {
-public:
+  public:
     WarmGpuSlotLease(const WarmGpuSlotLease&) = delete;
     WarmGpuSlotLease& operator=(const WarmGpuSlotLease&) = delete;
     WarmGpuSlotLease(WarmGpuSlotLease&& other) noexcept;
@@ -102,13 +103,11 @@ public:
     [[nodiscard]] std::string ensure_clarity_resources();
     [[nodiscard]] std::string ensure_texture_clarity_resources();
     [[nodiscard]] std::string ensure_local_contrast_resources();
+    [[nodiscard]] std::string ensure_layer_resources();
     void mark_completed() noexcept;
 
-private:
-    WarmGpuSlotLease(
-        WarmGpuResidentResources& owner,
-        std::size_t index
-    ) noexcept;
+  private:
+    WarmGpuSlotLease(WarmGpuResidentResources& owner, std::size_t index) noexcept;
 
     WarmGpuResidentResources* owner_ = nullptr;
     std::size_t index_ = 0U;
@@ -120,7 +119,7 @@ private:
 struct WarmGpuResidentPreparation;
 
 class WarmGpuResidentResources final {
-public:
+  public:
     WarmGpuResidentResources(const WarmGpuResidentResources&) = delete;
     WarmGpuResidentResources& operator=(const WarmGpuResidentResources&) = delete;
     ~WarmGpuResidentResources();
@@ -129,16 +128,12 @@ public:
     [[nodiscard]] id<MTLBuffer> source_buffer() const noexcept;
     [[nodiscard]] std::size_t operation_capacity() const noexcept;
 
-    [[nodiscard]] WarmProgramBufferAttempt acquire_program_buffers(
-        const PreparedMetalAdjustment& program,
-        std::stop_token cancellation
-    );
-    [[nodiscard]] std::optional<WarmGpuSlotLease> acquire_slot(
-        std::stop_token cancellation
-    );
+    [[nodiscard]] WarmProgramBufferAttempt
+    acquire_program_buffers(const PreparedMetalAdjustment& program, std::stop_token cancellation);
+    [[nodiscard]] std::optional<WarmGpuSlotLease> acquire_slot(std::stop_token cancellation);
     [[nodiscard]] WarmEditPreviewGpuStats stats_snapshot() const noexcept;
 
-private:
+  private:
     struct Impl;
     explicit WarmGpuResidentResources(std::unique_ptr<Impl> impl);
 
@@ -148,15 +143,14 @@ private:
     [[nodiscard]] std::string ensure_clarity_resources(std::size_t index);
     [[nodiscard]] std::string ensure_texture_clarity_resources(std::size_t index);
     [[nodiscard]] std::string ensure_local_contrast_resources(std::size_t index);
+    [[nodiscard]] std::string ensure_layer_resources(std::size_t index);
     void release_slot(std::size_t index, bool completed) noexcept;
 
     std::unique_ptr<Impl> impl_;
 
     friend class WarmGpuSlotLease;
-    friend WarmGpuResidentPreparation prepare_warm_gpu_resident_resources(
-        const FloatRgbImage& source,
-        id<MTLDevice> device
-    );
+    friend WarmGpuResidentPreparation
+    prepare_warm_gpu_resident_resources(const FloatRgbImage& source, id<MTLDevice> device);
 };
 
 struct WarmGpuResidentPreparation final {
@@ -164,9 +158,7 @@ struct WarmGpuResidentPreparation final {
     std::string diagnostic;
 };
 
-[[nodiscard]] WarmGpuResidentPreparation prepare_warm_gpu_resident_resources(
-    const FloatRgbImage& source,
-    id<MTLDevice> device
-);
+[[nodiscard]] WarmGpuResidentPreparation
+prepare_warm_gpu_resident_resources(const FloatRgbImage& source, id<MTLDevice> device);
 
 } // namespace shadow::image::detail

@@ -173,11 +173,56 @@ FullEditDetailGpuCache::RenderAttempt FullEditDetailGpuCache::render(
         }
     );
     refresh_resident_bytes(working_rect, acquisition.session);
+    return finish_render(std::move(attempt), acquisition.cache_hit, core_rect, working_rect);
+}
+
+FullEditDetailGpuCache::RenderAttempt FullEditDetailGpuCache::render_layers(
+    const DevelopedSourcePixels& source,
+    const SourceRenderingReceipt& source_rendering,
+    const std::span<const AdjustmentLayer> layers,
+    const DetailTileRect core_rect,
+    const DetailTileRect working_rect,
+    const Dimensions full_dimensions
+) {
+    auto acquisition = acquire(source, source_rendering, working_rect);
+    if (!acquisition.session) {
+        return RenderAttempt{
+            .bytes = std::nullopt,
+            .source_cache_hit = false,
+            .diagnostic = acquisition.diagnostic.empty()
+                              ? "resident Metal full-detail layer tile is unavailable"
+                              : std::move(acquisition.diagnostic),
+        };
+    }
+    auto attempt = acquisition.session->render_layers(
+        layers,
+        false,
+        WarmEditGpuRenderContext{
+            .adjustment =
+                AdjustmentExecutionContext{
+                    .origin_x = working_rect.x,
+                    .origin_y = working_rect.y,
+                    .full_dimensions = full_dimensions,
+                },
+            .display_origin_x = working_rect.x,
+            .display_origin_y = working_rect.y,
+        }
+    );
+    refresh_resident_bytes(working_rect, acquisition.session);
+    return finish_render(std::move(attempt), acquisition.cache_hit, core_rect, working_rect);
+}
+
+FullEditDetailGpuCache::RenderAttempt FullEditDetailGpuCache::finish_render(
+    WarmEditGpuSession::RenderAttempt attempt,
+    const bool source_cache_hit,
+    const DetailTileRect core_rect,
+    const DetailTileRect working_rect
+) {
     if (attempt.status != WarmEditGpuSession::RenderStatus::completed
         || !attempt.output.has_value()) {
         return RenderAttempt{
             .bytes = std::nullopt,
-            .source_cache_hit = acquisition.cache_hit,
+            .source_cache_hit = source_cache_hit,
             .diagnostic = attempt.diagnostic.empty()
                               ? "resident Metal full-detail tile declined the adjustment plan"
                               : std::move(attempt.diagnostic),
@@ -210,7 +255,7 @@ FullEditDetailGpuCache::RenderAttempt FullEditDetailGpuCache::render(
     }
     return RenderAttempt{
         .bytes = std::move(core),
-        .source_cache_hit = acquisition.cache_hit,
+        .source_cache_hit = source_cache_hit,
         .diagnostic = {},
     };
 }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <shadow/image/adjustment_graph.hpp>
+#include <shadow/image/adjustment_layers.hpp>
 #include <shadow/image/decoder_types.hpp>
 #include <shadow/image/edit_execution_plan.hpp>
 #include <shadow/image/working_rgb.hpp>
@@ -66,6 +67,17 @@ class WarmEditGpuSession final {
         std::span<const AdjustmentNode> nodes,
         const EditExecutionPlan& plan,
         bool retain_linear_for_analysis,
+        std::stop_token cancellation = {}
+    ) const;
+    [[nodiscard]] RenderAttempt render_layers(
+        std::span<const AdjustmentLayer> layers,
+        bool retain_linear_for_analysis,
+        std::stop_token cancellation = {}
+    ) const;
+    [[nodiscard]] RenderAttempt render_layers(
+        std::span<const AdjustmentLayer> layers,
+        bool retain_linear_for_analysis,
+        WarmEditGpuRenderContext context,
         std::stop_token cancellation = {}
     ) const;
     [[nodiscard]] RenderAttempt render(

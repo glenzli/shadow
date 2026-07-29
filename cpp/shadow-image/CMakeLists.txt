@@ -60,6 +60,7 @@ add_library(
     src/edit/finishing_effects_cpu.cpp
     src/edit/guided_selective_tone.cpp
     src/edit/local_mask.cpp
+    src/edit/local_mask_validation.cpp
     src/edit/metal_adjustment_program.cpp
     src/edit/oklab_color_warper.cpp
     src/edit/perceptual_color.cpp
@@ -96,6 +97,7 @@ add_library(
     src/proxy/jpeg_proxy_encoding.cpp
     src/proxy/proxy_rendering.cpp
     src/proxy/proxy_render_request_validation.cpp
+    src/proxy/warm_edit_gpu_layer_plan.cpp
     src/proxy/warm_edit_gpu_neighbourhood_plan.cpp
     src/proxy/warm_edit_gpu_render_plan.cpp
     src/proxy/warm_edit_preview.cpp
@@ -113,6 +115,7 @@ if(APPLE AND SHADOW_ENABLE_METAL)
             src/raw/metal_raw_runtime.mm
             src/proxy/metal_display_output.mm
             src/proxy/warm_edit_gpu_dispatcher.mm
+            src/proxy/warm_edit_gpu_layer_dispatcher.mm
             src/proxy/warm_edit_gpu_pipeline_context.mm
             src/proxy/warm_edit_gpu_resident_resources.mm
             src/proxy/warm_edit_gpu_stage_encoder.mm
@@ -416,6 +419,11 @@ if(BUILD_TESTING)
         tests/edit_preview_execution_contract_test.cpp
     )
     shadow_image_add_contract(
+        shadow-image-edit-preview-layer-execution-tests
+        shadow-image-edit-preview-layer-execution-contract
+        tests/edit_preview_layer_execution_contract_test.cpp
+    )
+    shadow_image_add_contract(
         shadow-image-warm-edit-gpu-render-plan-tests
         shadow-image-warm-edit-gpu-render-plan-contract
         tests/warm_edit_gpu_render_plan_contract_test.cpp
@@ -613,6 +621,7 @@ if(BUILD_TESTING)
         tests/warm_edit_gpu_contract/creative_detail_stage_contract_test.cpp
         tests/warm_edit_gpu_contract/selective_tone_stage_contract_test.cpp
         tests/warm_edit_gpu_contract/composed_stage_contract_test.cpp
+        tests/warm_edit_gpu_contract/layer_composition_contract_test.cpp
         tests/warm_edit_gpu_contract/resident_resource_cache_contract_test.cpp
     )
     target_link_libraries(
@@ -639,6 +648,11 @@ if(BUILD_TESTING)
         shadow-image-detail-tile-seam-tests
         shadow-image-detail-tile-seam-contract
         tests/detail_tile_seam_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-detail-tile-layer-seam-tests
+        shadow-image-detail-tile-layer-seam-contract
+        tests/detail_tile_layer_seam_contract_test.cpp
     )
     shadow_image_add_contract(
         shadow-image-detail-tile-validation-tests

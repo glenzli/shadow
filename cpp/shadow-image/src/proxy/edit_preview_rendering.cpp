@@ -9,6 +9,7 @@
 #include <shadow/image/working_rgb.hpp>
 
 #include "../concurrency/row_scheduler.hpp"
+#include "../edit/local_mask_validation.hpp"
 #include "developed_source_raster.hpp"
 #include "display_rgb_math.hpp"
 #include "warm_edit_gpu.hpp"
@@ -50,15 +51,11 @@ namespace {
             "warm preview display stage returned an invalid RGB8 result"
         );
     }
-    static_assert(
-        edit_preview_cpu_adjustment_backend_version == adjustment_cpu_backend_version
-    );
+    static_assert(edit_preview_cpu_adjustment_backend_version == adjustment_cpu_backend_version);
     static_assert(
         edit_preview_metal_adjustment_backend_version == adjustment_metal_backend_version
     );
-    static_assert(
-        edit_preview_cpu_display_backend_version == display_output_cpu_backend_version
-    );
+    static_assert(edit_preview_cpu_display_backend_version == display_output_cpu_backend_version);
     static_assert(
         edit_preview_metal_display_backend_version == display_output_metal_backend_version
     );
@@ -104,7 +101,6 @@ namespace {
     return receipt;
 }
 
-
 } // namespace
 
 [[nodiscard]] std::optional<PreparedEditPreviewPixels> prepare_edit_preview_pixels(
@@ -119,8 +115,7 @@ namespace {
     if (cancellation.stop_requested()) {
         return std::nullopt;
     }
-    const AdjustmentBackendMode backend_mode =
-        adjustment_backend_mode_from_environment();
+    const AdjustmentBackendMode backend_mode = adjustment_backend_mode_from_environment();
     const bool identity_geometry = geometry == PhotoGeometry{};
     if (backend_mode != AdjustmentBackendMode::cpu && identity_geometry) {
         // Compile before inspecting runtime availability so disabled malformed nodes and source
@@ -135,12 +130,8 @@ namespace {
         }
         std::string diagnostic(warm_gpu_diagnostic);
         if (warm_gpu_session) {
-            auto attempt = warm_gpu_session->render(
-                nodes,
-                plan,
-                retain_linear_for_analysis,
-                cancellation
-            );
+            auto attempt =
+                warm_gpu_session->render(nodes, plan, retain_linear_for_analysis, cancellation);
             if (attempt.status == detail::WarmEditGpuSession::RenderStatus::cancelled) {
                 return std::nullopt;
             }
@@ -154,8 +145,7 @@ namespace {
                         edit_preview_metal_adjustment_backend_version;
                 }
                 receipt.display_backend = EditPreviewBackend::metal;
-                receipt.display_backend_version =
-                    edit_preview_metal_display_backend_version;
+                receipt.display_backend_version = edit_preview_metal_display_backend_version;
                 receipt.fused_pipeline = true;
                 if (!receipt.valid()) {
                     throw DecodeError(
@@ -180,11 +170,7 @@ namespace {
             diagnostic = "session-resident Metal warm preview is unavailable";
         }
         if (backend_mode == AdjustmentBackendMode::metal) {
-            throw EditError(
-                EditErrorCode::backend_failure,
-                std::nullopt,
-                std::move(diagnostic)
-            );
+            throw EditError(EditErrorCode::backend_failure, std::nullopt, std::move(diagnostic));
         }
 
         // Automatic selection is all-or-nothing at the fused boundary. A declined/failing warm
@@ -232,8 +218,8 @@ namespace {
         return PreparedEditPreviewPixels{
             .dimensions = geometry_applied.dimensions,
             .edited = retain_linear_for_analysis
-                ? std::optional<FloatRgbImage>{std::move(geometry_applied)}
-                : std::nullopt,
+                          ? std::optional<FloatRgbImage>{std::move(geometry_applied)}
+                          : std::nullopt,
             .rgb = std::move(display.bytes),
             .execution = std::move(receipt),
         };
@@ -275,19 +261,17 @@ namespace {
     return PreparedEditPreviewPixels{
         .dimensions = geometry_applied.dimensions,
         .edited = retain_linear_for_analysis
-            ? std::optional<FloatRgbImage>{std::move(geometry_applied)}
-            : std::nullopt,
+                      ? std::optional<FloatRgbImage>{std::move(geometry_applied)}
+                      : std::nullopt,
         .rgb = std::move(display.bytes),
         .execution = std::move(execution),
     };
 }
 
-// Local-mask layers deliberately execute on the CPU for now. The existing Metal executor owns
-// a flat node stream, while a layer needs a temporary before/after image and a spatial blend.
-// Keeping this separate means ordinary unmasked recipes retain the fast path unchanged and the
-// later GPU implementation has one clear semantic target to match.
 [[nodiscard]] std::optional<PreparedEditPreviewPixels> prepare_edit_preview_layer_pixels(
     const FloatRgbImage& working_proxy,
+    const std::shared_ptr<detail::WarmEditGpuSession>& warm_gpu_session,
+    const std::string_view warm_gpu_diagnostic,
     const std::span<const AdjustmentLayer> layers,
     const PhotoGeometry& geometry,
     const bool retain_linear_for_analysis,
@@ -297,9 +281,65 @@ namespace {
         return std::nullopt;
     }
 
-    const AdjustmentBackendMode requested_backend =
-        adjustment_backend_mode_from_environment();
-    const bool cpu_fallback = requested_backend != AdjustmentBackendMode::cpu;
+    const AdjustmentBackendMode backend_mode = adjustment_backend_mode_from_environment();
+    const bool identity_geometry = geometry == PhotoGeometry{};
+    static_cast<void>(detail::validate_adjustment_layer_plan(
+        working_proxy,
+        layers,
+        AdjustmentExecutionContext{.full_dimensions = working_proxy.dimensions}
+    ));
+    std::string fallback_diagnostic;
+    if (backend_mode != AdjustmentBackendMode::cpu && identity_geometry) {
+        fallback_diagnostic = std::string(warm_gpu_diagnostic);
+        if (warm_gpu_session) {
+            auto attempt =
+                warm_gpu_session->render_layers(layers, retain_linear_for_analysis, cancellation);
+            if (attempt.status == detail::WarmEditGpuSession::RenderStatus::cancelled) {
+                return std::nullopt;
+            }
+            if (attempt.status == detail::WarmEditGpuSession::RenderStatus::completed
+                && attempt.output.has_value()) {
+                auto output = std::move(*attempt.output);
+                EditPreviewExecutionReceipt receipt;
+                if (output.had_active_adjustments) {
+                    receipt.adjustment_backend = EditPreviewBackend::metal;
+                    receipt.adjustment_backend_version =
+                        edit_preview_metal_adjustment_backend_version;
+                }
+                receipt.display_backend = EditPreviewBackend::metal;
+                receipt.display_backend_version = edit_preview_metal_display_backend_version;
+                receipt.fused_pipeline = true;
+                if (!receipt.valid()) {
+                    throw DecodeError(
+                        DecodeErrorCode::internal,
+                        0,
+                        "session-resident Metal layer preview produced an invalid receipt"
+                    );
+                }
+                return PreparedEditPreviewPixels{
+                    .dimensions = output.dimensions,
+                    .edited = std::move(output.analyzed_linear),
+                    .rgb = std::move(output.rgb8),
+                    .execution = std::move(receipt),
+                };
+            }
+            if (cancellation.stop_requested()) {
+                return std::nullopt;
+            }
+            fallback_diagnostic = std::move(attempt.diagnostic);
+        }
+        if (fallback_diagnostic.empty()) {
+            fallback_diagnostic = "session-resident Metal layer preview is unavailable";
+        }
+        if (backend_mode == AdjustmentBackendMode::metal) {
+            throw EditError(EditErrorCode::backend_failure, std::nullopt, fallback_diagnostic);
+        }
+    } else if (!identity_geometry && backend_mode != AdjustmentBackendMode::cpu) {
+        fallback_diagnostic = "photo geometry currently uses the CPU layer executor";
+        if (backend_mode == AdjustmentBackendMode::metal) {
+            throw EditError(EditErrorCode::backend_failure, std::nullopt, fallback_diagnostic);
+        }
+    }
 
     AdjustmentExecutionResult adjustment;
     DisplayRgb8Image display;
@@ -314,10 +354,9 @@ namespace {
                 AdjustmentExecutionContext{.full_dimensions = working_proxy.dimensions}
             ),
             .backend = AdjustmentBackend::cpu,
-            .fell_back = cpu_fallback,
-            .diagnostic = cpu_fallback
-                ? "local-mask layers currently use the CPU executor"
-                : "",
+            .fell_back = !fallback_diagnostic.empty(),
+            .diagnostic = fallback_diagnostic.empty() ? std::string{}
+                                                      : "warm fused Metal: " + fallback_diagnostic,
         };
         detail::throw_if_row_cancelled();
         geometry_applied = apply_photo_geometry(adjustment.pixels, geometry);
@@ -334,11 +373,26 @@ namespace {
         return std::nullopt;
     }
     auto execution = edit_preview_execution_receipt(adjustment, display);
+    if (!fallback_diagnostic.empty()) {
+        // The resident layer route is one transaction. If it declines, both edit and display
+        // restart from the immutable host source; the receipt must describe that atomic replay
+        // just as the ordinary-node fused route does.
+        execution.adjustment_fell_back = true;
+        execution.display_fell_back = true;
+        execution.diagnostic = "warm fused Metal: " + fallback_diagnostic;
+    }
+    if (!execution.valid()) {
+        throw DecodeError(
+            DecodeErrorCode::internal,
+            0,
+            "warm-preview layer CPU fallback produced an invalid receipt"
+        );
+    }
     return PreparedEditPreviewPixels{
         .dimensions = geometry_applied.dimensions,
         .edited = retain_linear_for_analysis
-            ? std::optional<FloatRgbImage>{std::move(geometry_applied)}
-            : std::nullopt,
+                      ? std::optional<FloatRgbImage>{std::move(geometry_applied)}
+                      : std::nullopt,
         .rgb = std::move(display.bytes),
         .execution = std::move(execution),
     };
@@ -361,8 +415,7 @@ namespace {
     }
     const std::size_t expected_rgb_size =
         proxy_detail::checked_interleaved_rgb_sample_count(edited.dimensions);
-    const std::size_t minimum_row_samples =
-        static_cast<std::size_t>(edited.dimensions.width) * 3U;
+    const std::size_t minimum_row_samples = static_cast<std::size_t>(edited.dimensions.width) * 3U;
     if (edited.row_stride_bytes % sizeof(float) != 0U
         || edited.row_stride_bytes / sizeof(float) < minimum_row_samples
         || rgb.size() != expected_rgb_size) {
@@ -373,10 +426,8 @@ namespace {
         );
     }
     const std::size_t float_row_stride = edited.row_stride_bytes / sizeof(float);
-    if (
-        float_row_stride > std::numeric_limits<std::size_t>::max()
-            / static_cast<std::size_t>(edited.dimensions.height)
-    ) {
+    if (float_row_stride > std::numeric_limits<std::size_t>::max()
+                               / static_cast<std::size_t>(edited.dimensions.height)) {
         throw DecodeError(
             DecodeErrorCode::internal,
             0,
@@ -404,8 +455,7 @@ namespace {
             const std::size_t rgb_index =
                 (static_cast<std::size_t>(y) * edited.dimensions.width + x) * 3U;
             const std::size_t float_index =
-                static_cast<std::size_t>(y) * float_row_stride
-                + static_cast<std::size_t>(x) * 3U;
+                static_cast<std::size_t>(y) * float_row_stride + static_cast<std::size_t>(x) * 3U;
             const std::uint8_t red = rgb[rgb_index];
             const std::uint8_t green = rgb[rgb_index + 1U];
             const std::uint8_t blue = rgb[rgb_index + 2U];
@@ -435,9 +485,8 @@ namespace {
             // The warm-preview working space is standardized linear sRGB/Rec.709-D65.  Track
             // only luminance that survives above SDR display white: this establishes a compact
             // HDR-readiness signal without pretending that the RGB8/JPEG preview itself is HDR.
-            const double linear_luminance = linear_samples[0] * 0.2126
-                + linear_samples[1] * 0.7152
-                + linear_samples[2] * 0.0722;
+            const double linear_luminance = linear_samples[0] * 0.2126 + linear_samples[1] * 0.7152
+                                            + linear_samples[2] * 0.0722;
             if (std::isfinite(linear_luminance) && linear_luminance > 1.0) {
                 const double headroom_ev = std::log2(linear_luminance);
                 const auto bin = static_cast<std::size_t>(std::clamp(
@@ -447,16 +496,13 @@ namespace {
                 ));
                 ++analysis.hdr_headroom_bins[bin];
                 ++analysis.hdr_headroom_pixels;
-                analysis.hdr_peak_headroom_ev = std::max(
-                    analysis.hdr_peak_headroom_ev,
-                    headroom_ev
-                );
+                analysis.hdr_peak_headroom_ev =
+                    std::max(analysis.hdr_peak_headroom_ev, headroom_ev);
             }
         }
     }
-    return cancellation.stop_requested()
-        ? std::nullopt
-        : std::optional<EditPreviewAnalysis>{std::move(analysis)};
+    return cancellation.stop_requested() ? std::nullopt
+                                         : std::optional<EditPreviewAnalysis>{std::move(analysis)};
 }
 
 } // namespace shadow::image::edit_preview_detail

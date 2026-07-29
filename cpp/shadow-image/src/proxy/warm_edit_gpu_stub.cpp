@@ -48,6 +48,30 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
     };
 }
 
+WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render_layers(
+    std::span<const AdjustmentLayer>,
+    const bool,
+    const std::stop_token cancellation
+) const {
+    return render_layers({}, false, WarmEditGpuRenderContext{}, cancellation);
+}
+
+WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render_layers(
+    std::span<const AdjustmentLayer>,
+    const bool,
+    const WarmEditGpuRenderContext,
+    const std::stop_token cancellation
+) const {
+    return RenderAttempt{
+        .status = cancellation.stop_requested() ? RenderStatus::cancelled
+                                                : RenderStatus::unavailable_or_failed,
+        .output = std::nullopt,
+        .diagnostic = cancellation.stop_requested()
+                          ? std::string{}
+                          : "session-resident Metal warm preview is unavailable on this platform",
+    };
+}
+
 WarmEditPreviewGpuStats WarmEditGpuSession::stats() const noexcept {
     return {};
 }

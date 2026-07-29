@@ -12,6 +12,27 @@ struct WarmDisplayParameters {
     uint retain_linear;
 };
 
+struct WarmLayerBlendParameters {
+    uint width;
+    uint height;
+    uint input_row_floats;
+    uint reserved;
+    uint origin_x;
+    uint origin_y;
+    uint full_width;
+    uint full_height;
+    uint mask_kind;
+    uint invert;
+    float opacity;
+    float x0;
+    float y0;
+    float x1;
+    float y1;
+    float radius_x;
+    float radius_y;
+    float feather;
+};
+
 // This first Metal neighbourhood stage deliberately keeps the working image in scene-linear
 // RGB. It retains the CPU denoiser's luma/chroma decomposition, but folds the local statistics
 // into one resident, edge-aware pass so slider updates do not have to round-trip a proxy through
@@ -377,6 +398,84 @@ kernel void execute_warm_adjustment_v1(
     adjusted[output_index] = rgb.x;
     adjusted[output_index + 1u] = rgb.y;
     adjusted[output_index + 2u] = rgb.z;
+}
+
+kernel void warm_copy_rgb_v1(
+    device const float* input [[buffer(0)]],
+    device float* output [[buffer(1)]],
+    constant WarmLayerBlendParameters& parameters [[buffer(2)]],
+    uint2 position [[thread_position_in_grid]]
+) {
+    if (position.x >= parameters.width || position.y >= parameters.height) {
+        return;
+    }
+    const uint input_index =
+        position.y * parameters.input_row_floats + position.x * 3u;
+    const uint output_index = (position.y * parameters.width + position.x) * 3u;
+    output[output_index] = input[input_index];
+    output[output_index + 1u] = input[input_index + 1u];
+    output[output_index + 2u] = input[input_index + 2u];
+}
+
+inline float warm_smootherstep(float value) {
+    const float x = clamp(value, 0.0f, 1.0f);
+    return x * x * x * (x * (x * 6.0f - 15.0f) + 10.0f);
+}
+
+kernel void warm_layer_blend_v1(
+    device const float* before [[buffer(0)]],
+    device float* after [[buffer(1)]],
+    constant WarmLayerBlendParameters& parameters [[buffer(2)]],
+    device MetalAdjustmentStatus& status [[buffer(3)]],
+    uint2 position [[thread_position_in_grid]]
+) {
+    if (position.x >= parameters.width || position.y >= parameters.height) {
+        return;
+    }
+    const float x = (
+        float(parameters.origin_x) + float(position.x) + 0.5f
+    ) / float(parameters.full_width);
+    const float y = (
+        float(parameters.origin_y) + float(position.y) + 0.5f
+    ) / float(parameters.full_height);
+    float coverage = 1.0f;
+    if (parameters.mask_kind == 1u) {
+        const float dx = parameters.x1 - parameters.x0;
+        const float dy = parameters.y1 - parameters.y0;
+        coverage = clamp(
+            ((x - parameters.x0) * dx + (y - parameters.y0) * dy)
+                / (dx * dx + dy * dy),
+            0.0f,
+            1.0f
+        );
+    } else if (parameters.mask_kind == 2u) {
+        const float dx = (x - parameters.x0) / parameters.radius_x;
+        const float dy = (y - parameters.y0) / parameters.radius_y;
+        const float distance = sqrt(dx * dx + dy * dy);
+        if (parameters.feather <= 0.0f) {
+            coverage = distance <= 1.0f ? 1.0f : 0.0f;
+        } else {
+            const float inner = 1.0f - parameters.feather;
+            coverage = 1.0f - warm_smootherstep(
+                (distance - inner) / parameters.feather
+            );
+        }
+    }
+    if (parameters.invert != 0u) {
+        coverage = 1.0f - coverage;
+    }
+    const float alpha = parameters.opacity * coverage;
+    const uint index = (position.y * parameters.width + position.x) * 3u;
+    const float3 source = float3(before[index], before[index + 1u], before[index + 2u]);
+    const float3 adjusted = float3(after[index], after[index + 1u], after[index + 2u]);
+    const float3 mixed = fma(float3(alpha), adjusted - source, source);
+    if (!all(isfinite(mixed))) {
+        report_adjustment_failure(status, status_non_finite, 0u);
+        return;
+    }
+    after[index] = mixed.x;
+    after[index + 1u] = mixed.y;
+    after[index + 2u] = mixed.z;
 }
 
 kernel void guided_denoise_warm_v1(

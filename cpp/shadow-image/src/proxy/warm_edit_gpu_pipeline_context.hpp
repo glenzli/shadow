@@ -25,6 +25,8 @@ class WarmMetalContext final {
     [[nodiscard]] id<MTLCommandQueue> queue() const noexcept;
     [[nodiscard]] id<MTLComputePipelineState> display_pipeline() const noexcept;
     [[nodiscard]] id<MTLComputePipelineState> adjustment_pipeline() const noexcept;
+    [[nodiscard]] id<MTLComputePipelineState> layer_copy_pipeline() const noexcept;
+    [[nodiscard]] id<MTLComputePipelineState> layer_blend_pipeline() const noexcept;
     [[nodiscard]] id<MTLComputePipelineState> denoise_pipeline() const noexcept;
     [[nodiscard]] id<MTLComputePipelineState> sharpen_log_pipeline() const noexcept;
     [[nodiscard]] id<MTLComputePipelineState> sharpen_horizontal_pipeline() const noexcept;
@@ -52,6 +54,8 @@ class WarmMetalContext final {
     id<MTLCommandQueue> queue_ = nil;
     id<MTLComputePipelineState> display_pipeline_ = nil;
     id<MTLComputePipelineState> adjustment_pipeline_ = nil;
+    id<MTLComputePipelineState> layer_copy_pipeline_ = nil;
+    id<MTLComputePipelineState> layer_blend_pipeline_ = nil;
     id<MTLComputePipelineState> denoise_pipeline_ = nil;
     id<MTLComputePipelineState> sharpen_log_pipeline_ = nil;
     id<MTLComputePipelineState> sharpen_horizontal_pipeline_ = nil;

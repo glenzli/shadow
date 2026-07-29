@@ -12,6 +12,7 @@
 #include <shadow/image/source_rendering.hpp>
 #include <shadow/image/working_rgb.hpp>
 
+#include "../edit/local_mask_validation.hpp"
 #include "developed_source_raster.hpp"
 #include "full_edit_detail_gpu_cache.hpp"
 #include "proxy_render_request_validation.hpp"
@@ -452,6 +453,11 @@ RenderedDetailTile FullEditDetailSession::render_rgb8_layers(
     const PhotoGeometry& geometry
 ) const {
     const Dimensions full_dimensions = dimensions();
+    static_cast<void>(detail::validate_adjustment_layer_plan(
+        full_dimensions,
+        layers,
+        AdjustmentExecutionContext{.full_dimensions = full_dimensions}
+    ));
     const PhotoGeometryLayout geometry_layout = photo_geometry_layout(full_dimensions, geometry);
     validate_detail_tile_rect(rect, geometry_layout.output_dimensions);
     const GeometryPixelRect output_rect{rect.x, rect.y, rect.width, rect.height};
@@ -473,14 +479,40 @@ RenderedDetailTile FullEditDetailSession::render_rgb8_layers(
         apron
     );
     const AdjustmentBackendMode requested_backend = adjustment_backend_mode_from_environment();
-    if (requested_backend == AdjustmentBackendMode::metal) {
-        throw EditError(
-            EditErrorCode::backend_failure,
-            std::nullopt,
-            "local-mask layers currently use the CPU full-detail executor"
-        );
+    std::string fallback_diagnostic;
+    if (requested_backend != AdjustmentBackendMode::cpu) {
+        if (geometry == PhotoGeometry{}) {
+            auto gpu = gpu_cache_->render_layers(
+                reference_source_,
+                source_rendering_,
+                layers,
+                rect,
+                working_rect,
+                full_dimensions
+            );
+            if (gpu.bytes.has_value()) {
+                return RenderedDetailTile{
+                    .rect = rect,
+                    .full_dimensions = geometry_layout.output_dimensions,
+                    .row_stride_bytes = rect.width * 3U,
+                    .bytes = std::move(*gpu.bytes),
+                    .execution = detail_tile_execution_receipt(
+                        DetailTileRenderBackend::metal,
+                        gpu.source_cache_hit,
+                        false,
+                        {}
+                    ),
+                };
+            }
+            fallback_diagnostic = std::move(gpu.diagnostic);
+        } else {
+            fallback_diagnostic =
+                "photo geometry currently uses the CPU full-detail layer executor";
+        }
+        if (requested_backend == AdjustmentBackendMode::metal) {
+            throw EditError(EditErrorCode::backend_failure, std::nullopt, fallback_diagnostic);
+        }
     }
-    const bool fell_back = requested_backend == AdjustmentBackendMode::automatic;
     FloatRgbImage tile = proxy_detail::crop_developed_source_to_working(
         reference_source_,
         GeometryPixelRect{
@@ -529,8 +561,8 @@ RenderedDetailTile FullEditDetailSession::render_rgb8_layers(
         .execution = detail_tile_execution_receipt(
             DetailTileRenderBackend::cpu,
             false,
-            fell_back,
-            fell_back ? "local-mask layers currently use the CPU full-detail executor" : ""
+            !fallback_diagnostic.empty(),
+            std::move(fallback_diagnostic)
         ),
     };
 }

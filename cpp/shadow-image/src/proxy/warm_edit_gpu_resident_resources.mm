@@ -69,6 +69,7 @@ struct WarmSlot final {
     id<MTLBuffer> perceptual_texture = nil;
     id<MTLBuffer> local_contrast_a = nil;
     id<MTLBuffer> local_contrast_b = nil;
+    id<MTLBuffer> layer_before = nil;
     id<MTLBuffer> rgb8 = nil;
     id<MTLBuffer> before_operations = nil;
     id<MTLBuffer> after_operations = nil;
@@ -175,6 +176,7 @@ struct WarmGpuResidentResources::Impl final {
             [slot.after_operations release];
             [slot.before_operations release];
             [slot.rgb8 release];
+            [slot.layer_before release];
             [slot.local_contrast_b release];
             [slot.local_contrast_a release];
             [slot.perceptual_texture release];
@@ -687,6 +689,39 @@ struct WarmGpuResidentResources::Impl final {
         stats.resident_bytes += static_cast<std::uint64_t>(addition);
         return {};
     }
+
+    [[nodiscard]] std::string ensure_layer_resources(const std::size_t index) {
+        std::lock_guard lock(mutex);
+        WarmSlot& slot = slots[index];
+        if (slot.layer_before != nil) {
+            return {};
+        }
+        const std::size_t bytes = layout.adjusted_bytes;
+        if (bytes == 0U
+            || bytes > std::numeric_limits<std::size_t>::max()
+                - static_cast<std::size_t>(stats.resident_bytes)) {
+            return "warm-preview layer snapshot size overflowed";
+        }
+        const auto recommended = static_cast<std::size_t>(
+            device.recommendedMaxWorkingSetSize
+        );
+        const std::size_t allowance = recommended / 2U;
+        if (recommended > 0U
+            && (bytes > allowance
+                || static_cast<std::size_t>(stats.resident_bytes) > allowance - bytes)) {
+            return "warm-preview layer snapshot exceeds half the recommended Metal working set";
+        }
+        id<MTLBuffer> buffer = [device
+            newBufferWithLength:bytes
+            options:MTLResourceStorageModeShared];
+        if (buffer == nil) {
+            return "Metal could not allocate the resident warm-preview layer snapshot";
+        }
+        slot.layer_before = buffer;
+        ++stats.gpu_buffer_allocation_count;
+        stats.resident_bytes += static_cast<std::uint64_t>(bytes);
+        return {};
+    }
 };
 
 RetainedMetalBuffer::RetainedMetalBuffer(id<MTLBuffer> value) noexcept
@@ -772,6 +807,7 @@ WarmGpuSlotBuffers WarmGpuResidentResources::slot_buffers(
         .perceptual_texture = slot.perceptual_texture,
         .local_contrast_a = slot.local_contrast_a,
         .local_contrast_b = slot.local_contrast_b,
+        .layer_before = slot.layer_before,
         .rgb8 = slot.rgb8,
         .before_operations = slot.before_operations,
         .after_operations = slot.after_operations,
@@ -807,6 +843,12 @@ std::string WarmGpuResidentResources::ensure_local_contrast_resources(
     const std::size_t index
 ) {
     return impl_->ensure_local_contrast_resources(index);
+}
+
+std::string WarmGpuResidentResources::ensure_layer_resources(
+    const std::size_t index
+) {
+    return impl_->ensure_layer_resources(index);
 }
 
 void WarmGpuResidentResources::release_slot(
@@ -856,6 +898,10 @@ std::string WarmGpuSlotLease::ensure_texture_clarity_resources() {
 
 std::string WarmGpuSlotLease::ensure_local_contrast_resources() {
     return owner_->ensure_local_contrast_resources(index_);
+}
+
+std::string WarmGpuSlotLease::ensure_layer_resources() {
+    return owner_->ensure_layer_resources(index_);
 }
 
 void WarmGpuSlotLease::mark_completed() noexcept {

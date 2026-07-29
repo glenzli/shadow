@@ -1,0 +1,362 @@
+// Legacy MacTypes declares a global `shadow` enumerator. Rename only that SDK token while the
+// Apple headers are parsed so it cannot collide with Shadow's top-level C++ namespace.
+#define shadow shadow_mactypes_legacy_symbol
+#import <Foundation/Foundation.h>
+#import <Metal/Metal.h>
+#undef shadow
+
+#include "warm_edit_gpu_layer_dispatcher.hpp"
+
+#include "warm_edit_gpu_kernel_contract.hpp"
+#include "warm_edit_gpu_layer_plan.hpp"
+#include "warm_edit_gpu_pipeline_context.hpp"
+#include "warm_edit_gpu_resident_resources.hpp"
+#include "warm_edit_gpu_transaction.hpp"
+#include "warm_edit_gpu_transaction_encoder.hpp"
+
+#include <shadow/image/edit_execution_plan.hpp>
+#include <shadow/image/warm_edit_preview.hpp>
+
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
+#include <optional>
+#include <span>
+#include <stop_token>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+namespace shadow::image::detail {
+
+namespace {
+
+struct PreparedWarmLayer final {
+    std::size_t plan_index = 0U;
+    PreparedWarmTransaction transaction;
+};
+
+[[nodiscard]] bool force_test_failure() noexcept {
+    const char* configured = std::getenv("SHADOW_TEST_WARM_METAL_FORCE_FAILURE");
+    return configured != nullptr && std::string_view(configured) == "1";
+}
+
+[[nodiscard]] FloatRgbImage source_layout(const WarmGpuResidentLayout& layout) {
+    return FloatRgbImage{
+        .dimensions = layout.dimensions,
+        .row_stride_bytes = layout.source_row_stride_bytes,
+        .pixel_format = layout.pixel_format,
+        .transfer_function = layout.transfer_function,
+        .reference = layout.reference,
+        .working_space = layout.working_space,
+        .level_zero_to_raster_scale_x = layout.level_zero_to_raster_scale_x,
+        .level_zero_to_raster_scale_y = layout.level_zero_to_raster_scale_y,
+        .samples = {},
+    };
+}
+
+} // namespace
+
+WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu_layers(
+    WarmGpuResidentResources& resident,
+    const std::span<const AdjustmentLayer> layers,
+    const bool retain_linear_for_analysis,
+    const WarmEditGpuRenderContext render_context,
+    const std::stop_token cancellation
+) {
+    using RenderAttempt = WarmEditGpuSession::RenderAttempt;
+    using RenderResult = WarmEditGpuSession::RenderResult;
+    using RenderStatus = WarmEditGpuSession::RenderStatus;
+
+    const auto cancelled = [] {
+        return RenderAttempt{
+            .status = RenderStatus::cancelled,
+            .output = std::nullopt,
+            .diagnostic = {},
+        };
+    };
+    const auto failed = [](std::string diagnostic) {
+        return RenderAttempt{
+            .status = RenderStatus::unavailable_or_failed,
+            .output = std::nullopt,
+            .diagnostic = std::move(diagnostic),
+        };
+    };
+    if (cancellation.stop_requested()) {
+        return cancelled();
+    }
+    if (force_test_failure()) {
+        return failed("test-injected session-resident Metal warm-preview failure");
+    }
+
+    const WarmGpuResidentLayout& layout = resident.layout();
+    WarmGpuLayerPlan layer_plan = prepare_warm_gpu_layer_plan(
+        source_layout(layout),
+        layers,
+        render_context
+    );
+    if (!layer_plan.complete) {
+        return failed(std::move(layer_plan.diagnostic));
+    }
+
+    const std::uint32_t source_row_floats =
+        static_cast<std::uint32_t>(layout.source_row_stride_bytes / sizeof(float));
+    const std::uint32_t packed_row_floats =
+        static_cast<std::uint32_t>(layout.adjusted_row_stride_bytes / sizeof(float));
+    std::size_t operation_count = 0U;
+    std::vector<PreparedWarmLayer> prepared_layers;
+    prepared_layers.reserve(layer_plan.active_layers.size());
+    for (std::size_t index = 0U; index < layer_plan.active_layers.size(); ++index) {
+        const WarmGpuLayerPlanEntry& entry = layer_plan.active_layers[index];
+        auto preparation = prepare_warm_gpu_transaction(
+            resident,
+            layers[entry.layer_index].nodes,
+            entry.execution,
+            render_context,
+            index == 0U ? source_row_floats : packed_row_floats,
+            operation_count,
+            cancellation
+        );
+        if (preparation.cancelled) {
+            return cancelled();
+        }
+        if (!preparation.transaction.has_value()) {
+            return failed(std::move(preparation.diagnostic));
+        }
+        prepared_layers.push_back(
+            PreparedWarmLayer{
+                .plan_index = index,
+                .transaction = std::move(*preparation.transaction),
+            }
+        );
+    }
+
+    const EditExecutionPlan empty_plan{};
+    auto display_preparation = prepare_warm_gpu_transaction(
+        resident,
+        {},
+        empty_plan,
+        render_context,
+        prepared_layers.empty() ? source_row_floats : packed_row_floats,
+        operation_count,
+        cancellation
+    );
+    if (display_preparation.cancelled) {
+        return cancelled();
+    }
+    if (!display_preparation.transaction.has_value()) {
+        return failed(std::move(display_preparation.diagnostic));
+    }
+    PreparedWarmTransaction display_transaction =
+        std::move(*display_preparation.transaction);
+
+    auto slot_lease = resident.acquire_slot(cancellation);
+    if (!slot_lease.has_value()) {
+        return cancelled();
+    }
+    bool needs_layer_snapshot = false;
+    for (const PreparedWarmLayer& layer : prepared_layers) {
+        const std::string diagnostic =
+            ensure_warm_gpu_transaction_resources(*slot_lease, layer.transaction);
+        if (!diagnostic.empty()) {
+            return failed(diagnostic);
+        }
+        needs_layer_snapshot = needs_layer_snapshot
+            || layer_plan.active_layers[layer.plan_index].needs_blend;
+    }
+    if (needs_layer_snapshot) {
+        const std::string diagnostic = slot_lease->ensure_layer_resources();
+        if (!diagnostic.empty()) {
+            return failed(diagnostic);
+        }
+    }
+    if (retain_linear_for_analysis) {
+        // Sequential pixel-local layers can finish in the ordinary adjusted buffer even though
+        // no neighborhood stage requested the alternate RGB allocation. The display kernel must
+        // preserve that final layer result in a distinct host-readable buffer for settled
+        // histogram analysis; binding a missing alternate is legal to Metal but leaves no bytes
+        // for the host to read.
+        const std::string diagnostic = slot_lease->ensure_denoise_resources();
+        if (!diagnostic.empty()) {
+            return failed(diagnostic);
+        }
+    }
+    const WarmGpuSlotBuffers slot = slot_lease->buffers();
+
+    @autoreleasepool {
+        for (const PreparedWarmLayer& layer : prepared_layers) {
+            copy_warm_gpu_transaction_operations(
+                slot.before_operations,
+                layer.transaction
+            );
+        }
+        copy_warm_gpu_transaction_operations(
+            slot.before_operations,
+            display_transaction
+        );
+        auto* status = static_cast<WarmStatus*>([slot.status contents]);
+        *status = WarmStatus{};
+        const WarmDisplayParameters display{
+            .output_origin_x = render_context.display_origin_x,
+            .output_origin_y = render_context.display_origin_y,
+            .apply_scene_curve =
+                layout.reference == ImageReference::scene_referred ? 1U : 0U,
+            .retain_linear = retain_linear_for_analysis ? 1U : 0U,
+        };
+
+        WarmMetalContext& context = metal_context();
+        id<MTLCommandBuffer> command_buffer = [context.queue() commandBuffer];
+        id<MTLComputeCommandEncoder> encoder = [command_buffer computeCommandEncoder];
+        if (command_buffer == nil || encoder == nil) {
+            return failed("Metal could not create a warm-preview layer command");
+        }
+
+        id<MTLBuffer> current = resident.source_buffer();
+        for (const PreparedWarmLayer& layer : prepared_layers) {
+            WarmGpuLayerPlanEntry& entry =
+                layer_plan.active_layers[layer.plan_index];
+            if (entry.needs_blend) {
+                entry.blend.input_row_floats =
+                    current == resident.source_buffer()
+                    ? source_row_floats
+                    : packed_row_floats;
+                [encoder setComputePipelineState:context.layer_copy_pipeline()];
+                [encoder setBuffer:current offset:0U atIndex:0U];
+                [encoder setBuffer:slot.layer_before offset:0U atIndex:1U];
+                [encoder setBytes:&entry.blend length:sizeof(entry.blend) atIndex:2U];
+                dispatch_warm_gpu_raster(
+                    encoder,
+                    context.layer_copy_pipeline(),
+                    layout.dimensions
+                );
+            }
+
+            current = encode_warm_gpu_transaction_prefix(
+                encoder,
+                context,
+                layout,
+                slot,
+                current,
+                layer.transaction
+            );
+            if (!layer.transaction.final_program.program.operations.empty()) {
+                id<MTLBuffer> output =
+                    current == resident.source_buffer() ? slot.adjusted : current;
+                [encoder setComputePipelineState:context.adjustment_pipeline()];
+                bind_warm_gpu_adjustment(
+                    encoder,
+                    slot,
+                    current,
+                    output,
+                    layer.transaction.final_program
+                );
+                dispatch_warm_gpu_raster(
+                    encoder,
+                    context.adjustment_pipeline(),
+                    layout.dimensions
+                );
+                current = output;
+            }
+
+            if (entry.needs_blend) {
+                [encoder setComputePipelineState:context.layer_blend_pipeline()];
+                [encoder setBuffer:slot.layer_before offset:0U atIndex:0U];
+                [encoder setBuffer:current offset:0U atIndex:1U];
+                [encoder setBytes:&entry.blend length:sizeof(entry.blend) atIndex:2U];
+                [encoder setBuffer:slot.status offset:0U atIndex:3U];
+                dispatch_warm_gpu_raster(
+                    encoder,
+                    context.layer_blend_pipeline(),
+                    layout.dimensions
+                );
+            }
+        }
+
+        id<MTLBuffer> final_adjusted =
+            current == slot.adjusted ? slot.denoised : slot.adjusted;
+        const PreparedWarmProgram& display_program =
+            display_transaction.final_program;
+        [encoder setComputePipelineState:context.display_pipeline()];
+        [encoder setBuffer:current offset:0U atIndex:0U];
+        [encoder setBuffer:final_adjusted offset:0U atIndex:1U];
+        [encoder setBuffer:slot.rgb8 offset:0U atIndex:2U];
+        [encoder setBuffer:slot.before_operations
+                    offset:display_program.operation_offset_bytes
+                   atIndex:3U];
+        [encoder setBytes:&display_program.program.invocation
+                   length:sizeof(display_program.program.invocation)
+                  atIndex:4U];
+        [encoder setBytes:&display length:sizeof(display) atIndex:5U];
+        [encoder setBuffer:slot.status offset:0U atIndex:6U];
+        [encoder setBuffer:display_program.buffers.curve.get() offset:0U atIndex:7U];
+        [encoder setBuffer:display_program.buffers.lut.get() offset:0U atIndex:8U];
+        [encoder setBuffer:display_program.buffers.perceptual_mixer.get()
+                    offset:0U
+                   atIndex:9U];
+        [encoder setBuffer:display_program.buffers.perceptual_range.get()
+                    offset:0U
+                   atIndex:10U];
+        [encoder setBuffer:display_program.buffers.selective_color.get()
+                    offset:0U
+                   atIndex:11U];
+        dispatch_warm_gpu_raster(encoder, context.display_pipeline(), layout.dimensions);
+        [encoder endEncoding];
+
+        if (cancellation.stop_requested()) {
+            return cancelled();
+        }
+        [command_buffer commit];
+        [command_buffer waitUntilCompleted];
+        if (cancellation.stop_requested()) {
+            return cancelled();
+        }
+        if (command_buffer.status != MTLCommandBufferStatusCompleted) {
+            return failed(command_buffer_diagnostic(command_buffer));
+        }
+        if (status->flags != 0U) {
+            return failed("session-resident Metal layer blend produced an invalid result");
+        }
+
+        RenderResult result{
+            .dimensions = layout.dimensions,
+            .rgb8 = std::vector<std::uint8_t>(layout.rgb8_bytes),
+            .analyzed_linear = std::nullopt,
+            .had_active_adjustments = !prepared_layers.empty(),
+        };
+        if (cancellation.stop_requested()) {
+            return cancelled();
+        }
+        std::memcpy(result.rgb8.data(), [slot.rgb8 contents], layout.rgb8_bytes);
+        if (retain_linear_for_analysis) {
+            FloatRgbImage linear{
+                .dimensions = layout.dimensions,
+                .row_stride_bytes = layout.adjusted_row_stride_bytes,
+                .pixel_format = layout.pixel_format,
+                .transfer_function = layout.transfer_function,
+                .reference = layout.reference,
+                .working_space = layout.working_space,
+                .level_zero_to_raster_scale_x = layout.level_zero_to_raster_scale_x,
+                .level_zero_to_raster_scale_y = layout.level_zero_to_raster_scale_y,
+                .samples = std::vector<float>(layout.adjusted_sample_count),
+            };
+            std::memcpy(
+                linear.samples.data(),
+                [final_adjusted contents],
+                layout.adjusted_bytes
+            );
+            result.analyzed_linear = std::move(linear);
+        }
+        if (cancellation.stop_requested()) {
+            return cancelled();
+        }
+        slot_lease->mark_completed();
+        return RenderAttempt{
+            .status = RenderStatus::completed,
+            .output = std::move(result),
+            .diagnostic = {},
+        };
+    }
+}
+
+} // namespace shadow::image::detail

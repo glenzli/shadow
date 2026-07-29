@@ -299,11 +299,16 @@ WarmMetalContext::WarmMetalContext() {
             [library newFunctionWithName:@"warm_reflect_box_vertical_v1"];
         id<MTLFunction> selective_tone_apply_function =
             [library newFunctionWithName:@"warm_selective_tone_apply_v1"];
+        id<MTLFunction> layer_copy_function =
+            [library newFunctionWithName:@"warm_copy_rgb_v1"];
+        id<MTLFunction> layer_blend_function =
+            [library newFunctionWithName:@"warm_layer_blend_v1"];
         if (box_horizontal_function == nil || box_vertical_function == nil ||
             scalar_square_function == nil || guided_coefficients_function == nil ||
             guided_combine_function == nil || selective_tone_guide_function == nil
             || reflect_box_horizontal_function == nil ||
-            reflect_box_vertical_function == nil || selective_tone_apply_function == nil) {
+            reflect_box_vertical_function == nil || selective_tone_apply_function == nil ||
+            layer_copy_function == nil || layer_blend_function == nil) {
             [box_horizontal_function release];
             [box_vertical_function release];
             [scalar_square_function release];
@@ -313,6 +318,8 @@ WarmMetalContext::WarmMetalContext() {
             [reflect_box_horizontal_function release];
             [reflect_box_vertical_function release];
             [selective_tone_apply_function release];
+            [layer_copy_function release];
+            [layer_blend_function release];
             [library release];
             diagnostic_ =
                 "Metal warm-preview guided-stage shader entry point is unavailable";
@@ -349,19 +356,28 @@ WarmMetalContext::WarmMetalContext() {
             [device_ newComputePipelineStateWithFunction:selective_tone_apply_function
                                                    error:&error];
         [selective_tone_apply_function release];
+        layer_copy_pipeline_ =
+            [device_ newComputePipelineStateWithFunction:layer_copy_function error:&error];
+        [layer_copy_function release];
+        layer_blend_pipeline_ =
+            [device_ newComputePipelineStateWithFunction:layer_blend_function error:&error];
+        [layer_blend_function release];
         [library release];
         if (box_horizontal_pipeline_ == nil || box_vertical_pipeline_ == nil ||
             scalar_square_pipeline_ == nil || guided_coefficients_pipeline_ == nil ||
             guided_combine_pipeline_ == nil || selective_tone_guide_pipeline_ == nil ||
             reflect_box_horizontal_pipeline_ == nil || reflect_box_vertical_pipeline_ == nil ||
-            selective_tone_apply_pipeline_ == nil) {
-            diagnostic_ = "Metal warm-preview guided-stage pipeline creation failed: " +
+            selective_tone_apply_pipeline_ == nil || layer_copy_pipeline_ == nil ||
+            layer_blend_pipeline_ == nil) {
+            diagnostic_ = "Metal warm-preview guided/layer pipeline creation failed: " +
                           error_description(error);
         }
     }
 }
 
 WarmMetalContext::~WarmMetalContext() {
+    [layer_blend_pipeline_ release];
+    [layer_copy_pipeline_ release];
     [selective_tone_apply_pipeline_ release];
     [reflect_box_vertical_pipeline_ release];
     [reflect_box_horizontal_pipeline_ release];
@@ -390,7 +406,8 @@ WarmMetalContext::~WarmMetalContext() {
 
 bool WarmMetalContext::valid() const noexcept {
     return device_ != nil && queue_ != nil && display_pipeline_ != nil &&
-           adjustment_pipeline_ != nil && denoise_pipeline_ != nil &&
+           adjustment_pipeline_ != nil && layer_copy_pipeline_ != nil &&
+           layer_blend_pipeline_ != nil && denoise_pipeline_ != nil &&
            sharpen_log_pipeline_ != nil && sharpen_horizontal_pipeline_ != nil &&
            sharpen_apply_pipeline_ != nil && texture_lightness_pipeline_ != nil &&
            texture_horizontal_pipeline_ != nil && texture_apply_pipeline_ != nil &&
@@ -413,6 +430,14 @@ id<MTLComputePipelineState> WarmMetalContext::display_pipeline() const noexcept 
 
 id<MTLComputePipelineState> WarmMetalContext::adjustment_pipeline() const noexcept {
     return adjustment_pipeline_;
+}
+
+id<MTLComputePipelineState> WarmMetalContext::layer_copy_pipeline() const noexcept {
+    return layer_copy_pipeline_;
+}
+
+id<MTLComputePipelineState> WarmMetalContext::layer_blend_pipeline() const noexcept {
+    return layer_blend_pipeline_;
 }
 
 id<MTLComputePipelineState> WarmMetalContext::denoise_pipeline() const noexcept {
