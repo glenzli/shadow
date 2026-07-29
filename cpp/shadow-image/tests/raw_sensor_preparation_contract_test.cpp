@@ -37,10 +37,9 @@ void raw_denoise_is_cfa_preserving_and_preview_aware() {
         }
     );
     expect(
-        automatic_detail.receipt.valid()
-            && automatic_detail.receipt.applied()
+        automatic_detail.receipt.valid() && automatic_detail.receipt.applied()
             && automatic_detail.receipt.effective_intent
-                == image::RawNoiseReductionIntent::conservative
+                   == image::RawNoiseReductionIntent::conservative
             && automatic_detail.receipt.used_sensor_noise_calibration,
         "high-ISO automatic RAW denoise resolves to calibrated conservative CFA processing"
     );
@@ -55,6 +54,11 @@ void raw_denoise_is_cfa_preserving_and_preview_aware() {
             automatic_detail.receipt.backend == image::RawBayerDenoiseBackend::metal,
             "forced Metal executes high-ISO RAW denoise before demosaic"
         );
+    } else if (image::raw_development_backend_available(image::RawDevelopmentBackend::metal)) {
+        expect(
+            automatic_detail.receipt.backend == image::RawBayerDenoiseBackend::metal,
+            "automatic high-ISO RAW denoise selects the available Metal backend"
+        );
     }
     expect(
         flat_cfa_error(automatic_detail.frame) < flat_cfa_error(source),
@@ -62,9 +66,10 @@ void raw_denoise_is_cfa_preserving_and_preview_aware() {
     );
     const auto red = automatic_detail.frame.samples[0U];
     const auto green = automatic_detail.frame.samples[1U];
-    const auto blue = automatic_detail.frame.samples[
-        static_cast<std::size_t>(automatic_detail.frame.descriptor.storage_dimensions.width) + 1U
-    ];
+    const auto blue =
+        automatic_detail.frame.samples
+            [static_cast<std::size_t>(automatic_detail.frame.descriptor.storage_dimensions.width)
+             + 1U];
     expect(
         red < 800U && green > 1'000U && blue < 700U,
         "RAW denoise never mixes distinct Bayer colour planes"
@@ -76,22 +81,16 @@ void raw_denoise_is_cfa_preserving_and_preview_aware() {
     SyntheticRawSession session(source);
     auto robust_preview_plan = image::preview_raw_development_plan();
     robust_preview_plan.noise_reduction = image::RawNoiseReductionIntent::noise_robust;
-    const auto warm = image::prepare_warm_edit_preview(
-        session,
-        4U,
-        robust_preview_plan
-    );
+    const auto warm = image::prepare_warm_edit_preview(session, 4U, robust_preview_plan);
     expect(
         warm.raw_development_receipt().development_settings_signature.find(
             "raw-denoise=cfa-bilateral-noise-robust-v1"
         ) != std::string::npos
-            && session.raw_frame_count() == 1U
-            && session.processed_count() == 0U,
+            && session.raw_frame_count() == 1U && session.processed_count() == 0U,
         "a host-owned robust RAW plan is not pre-empted by the provider RGB fallback"
     );
     expect(
-        warm.sensor_clipping_mask().has_value()
-            && warm.sensor_clipping_mask()->valid()
+        warm.sensor_clipping_mask().has_value() && warm.sensor_clipping_mask()->valid()
             && warm.sensor_clipping_mask()->dimensions == warm.dimensions(),
         "a warm RAW preview retains its clipping diagnostic without a second provider decode"
     );
@@ -108,11 +107,10 @@ void raw_denoise_execution_and_calibration_are_cache_visible() {
     expect(
         first.receipt.valid()
             && first.receipt.cache_identity.find(
-                image::raw_bayer_denoise_backend_identity(first.receipt.backend)
-            ) != std::string::npos
-            && first.receipt.cache_identity.find(
-                "raw-denoise-model=poisson-gaussian-per-cfa-v1"
-            ) != std::string::npos,
+                   image::raw_bayer_denoise_backend_identity(first.receipt.backend)
+               ) != std::string::npos
+            && first.receipt.cache_identity.find("raw-denoise-model=poisson-gaussian-per-cfa-v1")
+                   != std::string::npos,
         "RAW denoise receipt identifies its actual executor and numeric model"
     );
 
@@ -141,9 +139,9 @@ void raw_denoise_execution_and_calibration_are_cache_visible() {
     expect(
         developed.pipeline_receipt.pipeline_identity.find(first.receipt.cache_identity)
                 != std::string::npos
-            && image::raw_pipeline_receipt_identity(developed.pipeline_receipt).find(
-                   first.receipt.cache_identity
-               ) != std::string::npos
+            && image::raw_pipeline_receipt_identity(developed.pipeline_receipt)
+                       .find(first.receipt.cache_identity)
+                   != std::string::npos
             && developed.raw_development_receipt.development_settings_signature.find(
                    first.receipt.cache_identity
                ) != std::string::npos,
@@ -165,14 +163,13 @@ void raw_highlight_treatment_is_executed_and_cache_visible() {
     );
     constexpr std::string_view disabled_identity = "sensor-highlights=disabled";
     expect(
-        developed.raw_development_receipt.development_settings_signature.find(
-            disabled_identity
-        ) != std::string::npos
-            && developed.pipeline_receipt.pipeline_identity.find(disabled_identity)
+        developed.raw_development_receipt.development_settings_signature.find(disabled_identity)
                 != std::string::npos
-            && image::raw_pipeline_receipt_identity(developed.pipeline_receipt).find(
-                disabled_identity
-            ) != std::string::npos,
+            && developed.pipeline_receipt.pipeline_identity.find(disabled_identity)
+                   != std::string::npos
+            && image::raw_pipeline_receipt_identity(developed.pipeline_receipt)
+                       .find(disabled_identity)
+                   != std::string::npos,
         "development, pipeline, and canonical cache identities record actual highlight treatment"
     );
 }
@@ -198,11 +195,10 @@ void high_quality_raw_plan_is_executed_and_cache_visible() {
     expect(
         developed.raw_development_receipt.demosaic_quality == 4U
             && developed.raw_development_receipt.development_settings_signature.find(
-                "demosaic=bayer-edge-aware"
-            ) != std::string::npos
-            && image::raw_pipeline_receipt_identity(developed.pipeline_receipt).find(
-                "quality=high"
-            ) != std::string::npos,
+                   "demosaic=bayer-edge-aware"
+               ) != std::string::npos
+            && image::raw_pipeline_receipt_identity(developed.pipeline_receipt).find("quality=high")
+                   != std::string::npos,
         "high-quality reconstruction is visible in source and cache provenance"
     );
 }
@@ -225,9 +221,9 @@ void raw_frame_source_calibration_is_identical_for_preview_and_detail() {
         preview.pipeline_receipt.source_scene_luminance_percentile.has_value()
             && detail.pipeline_receipt.source_scene_luminance_percentile.has_value()
             && std::abs(
-                *preview.pipeline_receipt.source_scene_luminance_percentile
-                - *detail.pipeline_receipt.source_scene_luminance_percentile
-            ) < 1.0e-12,
+                   *preview.pipeline_receipt.source_scene_luminance_percentile
+                   - *detail.pipeline_receipt.source_scene_luminance_percentile
+               ) < 1.0e-12,
         "owned RAW source calibration is measured before the preview/detail render split"
     );
     const auto preview_receipt = image::resolve_source_rendering(
@@ -248,9 +244,8 @@ void raw_frame_source_calibration_is_identical_for_preview_and_detail() {
         "warm preview and full detail use one identical Shadow Standard exposure calibration"
     );
     expect(
-        image::raw_pipeline_receipt_identity(preview.pipeline_receipt).find(
-            "source-luminance-p99="
-        ) != std::string::npos,
+        image::raw_pipeline_receipt_identity(preview.pipeline_receipt).find("source-luminance-p99=")
+            != std::string::npos,
         "stable RAW source calibration participates in pipeline cache provenance"
     );
 }

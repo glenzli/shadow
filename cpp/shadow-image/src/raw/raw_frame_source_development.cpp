@@ -7,6 +7,8 @@
 #include <shadow/image/proxy_rendering.hpp>
 #include <shadow/image/raw_denoise.hpp>
 
+#include "metal_raw_development.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -28,19 +30,16 @@ inline constexpr double source_luminance_percentile = 0.990;
     return orientation == 0 || orientation == 3 || orientation == 5 || orientation == 6;
 }
 
-[[nodiscard]] Dimensions oriented_dimensions(
-    const Dimensions dimensions,
-    const std::int32_t orientation
-) noexcept {
+[[nodiscard]] Dimensions
+oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation) noexcept {
     if (orientation == 5 || orientation == 6) {
         return Dimensions{dimensions.height, dimensions.width};
     }
     return dimensions;
 }
 
-[[nodiscard]] std::array<double, 3U> canonical_camera_neutral(
-    const RawFrameDescriptor& descriptor
-) {
+[[nodiscard]] std::array<double, 3U>
+canonical_camera_neutral(const RawFrameDescriptor& descriptor) {
     std::array<double, 3U> totals{};
     std::array<std::uint32_t, 3U> counts{};
     for (std::size_t site = 0U; site < descriptor.bayer_2x2.size(); ++site) {
@@ -87,9 +86,8 @@ inline constexpr double source_luminance_percentile = 0.990;
     return result;
 }
 
-[[nodiscard]] std::array<double, 3U> white_balance_multipliers(
-    const RawFrameDescriptor& descriptor
-) {
+[[nodiscard]] std::array<double, 3U>
+white_balance_multipliers(const RawFrameDescriptor& descriptor) {
     const auto neutral = canonical_camera_neutral(descriptor);
     std::array<double, 3U> multipliers{
         1.0 / neutral[0],
@@ -112,25 +110,20 @@ inline constexpr double source_luminance_percentile = 0.990;
 
 using Matrix3 = std::array<double, 9U>;
 
-[[nodiscard]] Matrix3 multiply_matrix(
-    const Matrix3& left,
-    const Matrix3& right
-) noexcept {
+[[nodiscard]] Matrix3 multiply_matrix(const Matrix3& left, const Matrix3& right) noexcept {
     Matrix3 result{};
     for (std::size_t row = 0U; row < 3U; ++row) {
         for (std::size_t column = 0U; column < 3U; ++column) {
             for (std::size_t inner = 0U; inner < 3U; ++inner) {
-                result[row * 3U + column] +=
-                    left[row * 3U + inner] * right[inner * 3U + column];
+                result[row * 3U + column] += left[row * 3U + inner] * right[inner * 3U + column];
             }
         }
     }
     return result;
 }
 
-[[nodiscard]] RawFrameLinearTransform generic_raw_frame_transform(
-    const RawFrameDescriptor& descriptor
-) {
+[[nodiscard]] RawFrameLinearTransform
+generic_raw_frame_transform(const RawFrameDescriptor& descriptor) {
     Matrix3 camera_to_srgb{};
     if (descriptor.has_camera_to_linear_srgb_d65) {
         camera_to_srgb = descriptor.camera_to_linear_srgb_d65;
@@ -153,19 +146,29 @@ using Matrix3 = std::array<double, 9U>;
             }
         }
         constexpr Matrix3 d50_to_d65{
-            0.9555766, -0.0230393, 0.0631636,
-            -0.0282895, 1.0099416, 0.0210077,
-            0.0122982, -0.0204830, 1.3299098,
+            0.9555766,
+            -0.0230393,
+            0.0631636,
+            -0.0282895,
+            1.0099416,
+            0.0210077,
+            0.0122982,
+            -0.0204830,
+            1.3299098,
         };
         constexpr Matrix3 xyz_d65_to_srgb{
-            3.2404542, -1.5371385, -0.4985314,
-            -0.9692660, 1.8760108, 0.0415560,
-            0.0556434, -0.2040259, 1.0572252,
+            3.2404542,
+            -1.5371385,
+            -0.4985314,
+            -0.9692660,
+            1.8760108,
+            0.0415560,
+            0.0556434,
+            -0.2040259,
+            1.0572252,
         };
-        camera_to_srgb = multiply_matrix(
-            xyz_d65_to_srgb,
-            multiply_matrix(d50_to_d65, camera_to_xyz_d50)
-        );
+        camera_to_srgb =
+            multiply_matrix(xyz_d65_to_srgb, multiply_matrix(d50_to_d65, camera_to_xyz_d50));
     }
 
     const auto white_balance = white_balance_multipliers(descriptor);
@@ -198,9 +201,7 @@ using Matrix3 = std::array<double, 9U>;
     SceneLinearRgbFrame samples;
     samples.dimensions = {sample_columns, sample_rows};
     samples.row_stride_bytes = static_cast<std::size_t>(sample_columns) * 3U * sizeof(float);
-    samples.samples.resize(
-        static_cast<std::size_t>(sample_columns) * sample_rows * 3U
-    );
+    samples.samples.resize(static_cast<std::size_t>(sample_columns) * sample_rows * 3U);
     const auto source_coordinate = [](const std::uint32_t index,
                                       const std::uint32_t sample_count,
                                       const std::uint32_t full_count) noexcept {
@@ -212,19 +213,18 @@ using Matrix3 = std::array<double, 9U>;
         );
     };
     for (std::uint32_t y = 0U; y < sample_rows; ++y) {
-        const std::uint32_t raw_y = frame.descriptor.active_margins.top
-            + source_coordinate(y, sample_rows, active.height);
+        const std::uint32_t raw_y =
+            frame.descriptor.active_margins.top + source_coordinate(y, sample_rows, active.height);
         for (std::uint32_t x = 0U; x < sample_columns; ++x) {
             const std::uint32_t raw_x = frame.descriptor.active_margins.left
-                + source_coordinate(x, sample_columns, active.width);
+                                        + source_coordinate(x, sample_columns, active.width);
             const auto camera = detail::bilinear_camera_rgb_at(frame, raw_x, raw_y);
-            const std::size_t index =
-                (static_cast<std::size_t>(y) * sample_columns + x) * 3U;
+            const std::size_t index = (static_cast<std::size_t>(y) * sample_columns + x) * 3U;
             for (std::size_t output = 0U; output < 3U; ++output) {
                 double linear_srgb = 0.0;
                 for (std::size_t input = 0U; input < 3U; ++input) {
                     linear_srgb += transform.camera_to_linear_srgb_d65[output * 3U + input]
-                        * static_cast<double>(camera[input]);
+                                   * static_cast<double>(camera[input]);
                 }
                 samples.samples[index + output] = static_cast<float>(linear_srgb);
             }
@@ -238,8 +238,8 @@ using Matrix3 = std::array<double, 9U>;
     luminances.reserve(samples.dimensions.pixel_count());
     for (std::size_t index = 0U; index < samples.samples.size(); index += 3U) {
         const double luminance = static_cast<double>(samples.samples[index]) * 0.2126
-            + static_cast<double>(samples.samples[index + 1U]) * 0.7152
-            + static_cast<double>(samples.samples[index + 2U]) * 0.0722;
+                                 + static_cast<double>(samples.samples[index + 1U]) * 0.7152
+                                 + static_cast<double>(samples.samples[index + 2U]) * 0.0722;
         if (std::isfinite(luminance) && luminance >= 0.0) {
             luminances.push_back(luminance);
         }
@@ -249,9 +249,9 @@ using Matrix3 = std::array<double, 9U>;
     }
     const std::size_t percentile_index = std::min(
         luminances.size() - 1U,
-        static_cast<std::size_t>(std::floor(
-            static_cast<double>(luminances.size() - 1U) * source_luminance_percentile
-        ))
+        static_cast<std::size_t>(
+            std::floor(static_cast<double>(luminances.size() - 1U) * source_luminance_percentile)
+        )
     );
     std::nth_element(
         luminances.begin(),
@@ -272,10 +272,10 @@ using Matrix3 = std::array<double, 9U>;
 ) {
     RawDevelopmentReceipt receipt;
     receipt.schema_version = raw_development_receipt_schema_version;
-    receipt.provider_id = descriptor.provider_id.empty()
-        ? "provider-neutral-raw-frame" : descriptor.provider_id;
-    receipt.provider_version = descriptor.provider_version.empty()
-        ? "unrecorded" : descriptor.provider_version;
+    receipt.provider_id =
+        descriptor.provider_id.empty() ? "provider-neutral-raw-frame" : descriptor.provider_id;
+    receipt.provider_version =
+        descriptor.provider_version.empty() ? "unrecorded" : descriptor.provider_version;
     switch (demosaic.algorithm) {
     case RawDemosaicAlgorithm::bayer_area_preview_v1:
         receipt.development_settings_signature = "shadow-raw-v1;demosaic=bayer-area-preview";
@@ -287,14 +287,14 @@ using Matrix3 = std::array<double, 9U>;
         receipt.development_settings_signature = "shadow-raw-v1;demosaic=bayer-bilinear";
         break;
     }
-    receipt.development_settings_signature += ";backend="
-        + std::string(raw_development_backend_identity(backend));
-    receipt.development_settings_signature += ";"
-        + std::string(raw_highlight_treatment_identity(plan.highlight_recovery));
+    receipt.development_settings_signature +=
+        ";backend=" + std::string(raw_development_backend_identity(backend));
+    receipt.development_settings_signature +=
+        ";" + std::string(raw_highlight_treatment_identity(plan.highlight_recovery));
     receipt.development_settings_signature += ";" + raw_denoise.cache_identity;
     if (camera_profile != nullptr) {
-        receipt.development_settings_signature += ";color=dcp;"
-            + dcp_color_receipt_identity(camera_profile->receipt);
+        receipt.development_settings_signature +=
+            ";color=dcp;" + dcp_color_receipt_identity(camera_profile->receipt);
     } else {
         receipt.development_settings_signature += ";wb=as-shot;matrix=provider-generic";
     }
@@ -308,10 +308,9 @@ using Matrix3 = std::array<double, 9U>;
     receipt.declared_image_dimensions = descriptor.active_dimensions;
     receipt.rendered_dimensions = rendered_dimensions;
     receipt.orientation = descriptor.orientation;
-    receipt.half_size = rendered_dimensions != oriented_dimensions(
-        descriptor.active_dimensions,
-        descriptor.orientation
-    );
+    receipt.half_size =
+        rendered_dimensions
+        != oriented_dimensions(descriptor.active_dimensions, descriptor.orientation);
     receipt.use_camera_white_balance = true;
     receipt.use_camera_matrix = true;
     receipt.use_auto_brightness = false;
@@ -319,8 +318,10 @@ using Matrix3 = std::array<double, 9U>;
     receipt.brightness = 1.0F;
     receipt.maximum_adjustment_threshold = 0.0F;
     receipt.output_bits_per_channel = 32U;
-    receipt.demosaic_quality = demosaic.algorithm == RawDemosaicAlgorithm::bayer_area_preview_v1
-        ? 1 : demosaic.algorithm == RawDemosaicAlgorithm::bayer_edge_aware_v1 ? 4 : 3;
+    receipt.demosaic_quality = demosaic.algorithm == RawDemosaicAlgorithm::bayer_area_preview_v1 ? 1
+                               : demosaic.algorithm == RawDemosaicAlgorithm::bayer_edge_aware_v1
+                                   ? 4
+                                   : 3;
     receipt.output_color = 1;
     receipt.gamma_inverse_power = 1.0;
     receipt.gamma_linear_toe_slope = 1.0;
@@ -328,8 +329,8 @@ using Matrix3 = std::array<double, 9U>;
     for (std::size_t index = 0U; index < receipt.dng_opcode_execution.size(); ++index) {
         receipt.dng_opcode_execution[index] =
             descriptor.declared_pending_corrections.dng_opcode_list_bytes[index] == 0U
-            ? DngOpcodeExecutionStatus::not_declared
-            : DngOpcodeExecutionStatus::unsupported;
+                ? DngOpcodeExecutionStatus::not_declared
+                : DngOpcodeExecutionStatus::unsupported;
     }
     return receipt;
 }
@@ -364,11 +365,8 @@ using Matrix3 = std::array<double, 9U>;
             "Shadow's RAW developer cannot yet execute this source's declared DNG opcodes"
         );
     }
-    if (
-        camera_profile == nullptr
-        && !frame.descriptor.has_camera_to_linear_srgb_d65
-        && !frame.descriptor.has_camera_to_xyz_d50
-    ) {
+    if (camera_profile == nullptr && !frame.descriptor.has_camera_to_linear_srgb_d65
+        && !frame.descriptor.has_camera_to_xyz_d50) {
         throw DecodeError(
             DecodeErrorCode::unsupported,
             0,
@@ -376,31 +374,28 @@ using Matrix3 = std::array<double, 9U>;
         );
     }
 
-    const RawFrameLinearTransform transform = camera_profile == nullptr
-        ? generic_raw_frame_transform(frame.descriptor)
-        : RawFrameLinearTransform{camera_profile->camera_to_linear_srgb_d65};
+    const RawFrameLinearTransform transform =
+        camera_profile == nullptr
+            ? generic_raw_frame_transform(frame.descriptor)
+            : RawFrameLinearTransform{camera_profile->camera_to_linear_srgb_d65};
     // Measure the source once before preview downsampling, CFA denoise, and the detail branch.
     // This is deliberately a calibration statistic, not a user auto-exposure operation.
-    const double source_scene_luminance = sampled_scene_linear_luminance_percentile(
-        frame,
-        transform,
-        camera_profile
-    );
+    const double source_scene_luminance =
+        sampled_scene_linear_luminance_percentile(frame, transform, camera_profile);
     // This is deliberately sampled before RAW-domain denoise. Zebra diagnostics describe
     // irreversible sensor clipping in the source CFA, not the values left after an optional
     // reconstruction aid. Keep this dimension calculation aligned with the fused developer's
     // preview and orientation policy without making a second source-frame copy.
-    const Dimensions reconstruction_dimensions = preview_max_edge.has_value()
-        ? proxy_dimensions(frame.descriptor.active_dimensions, *preview_max_edge)
-        : frame.descriptor.active_dimensions;
+    const Dimensions reconstruction_dimensions =
+        preview_max_edge.has_value()
+            ? proxy_dimensions(frame.descriptor.active_dimensions, *preview_max_edge)
+            : frame.descriptor.active_dimensions;
     const Dimensions diagnostic_dimensions =
         frame.descriptor.orientation == 5 || frame.descriptor.orientation == 6
-        ? Dimensions{reconstruction_dimensions.height, reconstruction_dimensions.width}
-        : reconstruction_dimensions;
-    SensorClippingMask sensor_clipping_mask = project_sensor_clipping_mask(
-        frame,
-        diagnostic_dimensions
-    );
+            ? Dimensions{reconstruction_dimensions.height, reconstruction_dimensions.width}
+            : reconstruction_dimensions;
+    SensorClippingMask sensor_clipping_mask =
+        project_sensor_clipping_mask(frame, diagnostic_dimensions);
     RawBayerDenoiseResult denoised = denoise_bayer_raw_frame(
         std::move(frame),
         RawBayerDenoiseRequest{
@@ -409,13 +404,42 @@ using Matrix3 = std::array<double, 9U>;
             .preview = preview_max_edge.has_value(),
         }
     );
-    FusedRawFrameDevelopment developed = develop_bayer_linear_srgb_f32_fused(
-        denoised.frame,
-        transform,
-        preview_max_edge,
-        plan.highlight_recovery,
-        plan.quality
-    );
+    std::optional<FusedRawFrameDevelopment> prepared_development;
+    bool fused_dcp_applied = false;
+    const RawDevelopmentBackendMode requested_backend =
+        raw_development_backend_mode_from_environment();
+    if (camera_profile != nullptr && camera_profile->has_post_matrix_stages()
+        && requested_backend != RawDevelopmentBackendMode::cpu) {
+        auto fused_attempt = detail::try_develop_bayer_linear_srgb_f32_metal(
+            denoised.frame,
+            transform,
+            preview_max_edge,
+            plan.highlight_recovery,
+            plan.quality,
+            camera_profile
+        );
+        if (fused_attempt.development.has_value() && fused_attempt.dcp_applied) {
+            prepared_development = std::move(fused_attempt.development);
+            fused_dcp_applied = true;
+        } else if (requested_backend == RawDevelopmentBackendMode::metal) {
+            throw DecodeError(
+                DecodeErrorCode::internal,
+                0,
+                fused_attempt.diagnostic.empty() ? "Metal fused RAW/DCP development is unavailable"
+                                                 : std::move(fused_attempt.diagnostic)
+            );
+        }
+    }
+    if (!prepared_development.has_value()) {
+        prepared_development = develop_bayer_linear_srgb_f32_fused(
+            denoised.frame,
+            transform,
+            preview_max_edge,
+            plan.highlight_recovery,
+            plan.quality
+        );
+    }
+    FusedRawFrameDevelopment developed = std::move(*prepared_development);
     RawDevelopmentReceipt receipt = raw_frame_development_receipt(
         denoised.frame.descriptor,
         plan,
@@ -426,23 +450,26 @@ using Matrix3 = std::array<double, 9U>;
         denoised.receipt
     );
     DevelopedSourcePixels output = std::move(developed.scene_linear);
-    DcpColorExecutionBackend dcp_execution_backend = DcpColorExecutionBackend::cpu;
+    DcpColorExecutionBackend dcp_execution_backend =
+        fused_dcp_applied ? DcpColorExecutionBackend::metal : DcpColorExecutionBackend::cpu;
     if (camera_profile != nullptr && camera_profile->has_post_matrix_stages()) {
         // DCP's HueSatMap/LookTable/ProfileToneCurve define input rendering.
         // They intentionally run before the Recipe graph and are recorded in
         // the DCP receipt, rather than leaking camera-specific style into a
         // node the user might accidentally share across photos.
-        dcp_execution_backend = apply_dcp_color_rendering_stages(
-            std::get<SceneLinearRgbFrame>(output),
-            *camera_profile
-        );
+        if (!fused_dcp_applied) {
+            dcp_execution_backend = apply_dcp_color_rendering_stages(
+                std::get<SceneLinearRgbFrame>(output),
+                *camera_profile
+            );
+        }
     }
     if (camera_profile != nullptr) {
         // The CPU reference and Metal fp32 executor are both valid DCP renderers, but their
         // numerical paths are not assumed bit-identical.  Keep the effective executor in the
         // development signature so preview/detail/export caches cannot cross that boundary.
-        receipt.development_settings_signature += ";"
-            + std::string(dcp_color_execution_backend_identity(dcp_execution_backend));
+        receipt.development_settings_signature +=
+            ";" + std::string(dcp_color_execution_backend_identity(dcp_execution_backend));
     }
     return DevelopedRawFrame{
         .source = std::move(output),

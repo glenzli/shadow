@@ -112,6 +112,7 @@ if(APPLE AND SHADOW_ENABLE_METAL)
         shadow-image
         PRIVATE
             src/edit/metal_adjustment.mm
+            src/raw/metal_dcp_color_encoding.mm
             src/raw/metal_dcp_color_rendering.mm
             src/raw/metal_raw_denoise.mm
             src/raw/metal_raw_reconstruction.mm
@@ -821,10 +822,20 @@ if(BUILD_TESTING)
         )
         set_tests_properties(
             shadow-image-raw-pipeline-routing-contract
-            shadow-image-raw-sensor-preparation-contract
             PROPERTIES
                 ENVIRONMENT
                     "SHADOW_IMAGE_ACCELERATION=metal;SHADOW_TEST_REQUIRE_METAL=1"
+                LABELS "metal-required"
+        )
+        # This aggregate also owns the high-quality edge-aware reconstruction contract, whose
+        # current reference implementation is intentionally CPU-only. Require a real Metal
+        # device for eligible denoise/reconstruction cases without overriding that per-stage
+        # selector.
+        set_tests_properties(
+            shadow-image-raw-sensor-preparation-contract
+            PROPERTIES
+                ENVIRONMENT
+                    "SHADOW_IMAGE_ACCELERATION=auto;SHADOW_TEST_REQUIRE_METAL=1"
                 LABELS "metal-required"
         )
     endif()

@@ -124,6 +124,7 @@ const EMBEDDED_IMAGE_SOURCES: &[&str] = &[
 
 const EMBEDDED_IMAGE_METAL_SOURCES: &[&str] = &[
     "src/edit/metal_adjustment.mm",
+    "src/raw/metal_dcp_color_encoding.mm",
     "src/raw/metal_dcp_color_rendering.mm",
     "src/raw/metal_raw_denoise.mm",
     "src/raw/metal_raw_reconstruction.mm",
@@ -205,6 +206,7 @@ const EMBEDDED_IMAGE_ADDITIONAL_INPUTS: &[&str] = &[
     "src/raw/bayer_sampling.hpp",
     "src/raw/dcp_color_matrix_math.hpp",
     "src/raw/dcp_color_rendering.hpp",
+    "src/raw/metal_dcp_color_encoding.hpp",
     "src/raw/metal_raw_development.hpp",
     "src/raw/metal_raw_development_msl.hpp",
     "src/raw/metal_raw_runtime.hpp",

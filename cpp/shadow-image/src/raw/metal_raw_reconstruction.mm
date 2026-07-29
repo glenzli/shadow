@@ -1,6 +1,7 @@
 #include <shadow/image/decoder_error.hpp>
 #include <shadow/image/proxy_rendering.hpp>
 
+#include "metal_dcp_color_encoding.hpp"
 #include "metal_raw_development.hpp"
 #include "metal_raw_runtime.hpp"
 
@@ -186,7 +187,8 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
     const RawFrameLinearTransform& transform,
     const std::optional<std::uint32_t> preview_max_edge,
     const RawHighlightRecoveryIntent highlight_recovery,
-    const RawDevelopmentQuality quality
+    const RawDevelopmentQuality quality,
+    const DcpColorTransform* dcp_color_transform
 ) {
     if (!preview_max_edge.has_value() && quality == RawDevelopmentQuality::high) {
         return MetalRawDevelopmentAttempt{
@@ -275,9 +277,40 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
             .diagnostic = "Metal RAW tile size overflowed",
         };
     }
+    std::unique_ptr<MetalDcpColorEncoding> dcp_encoding;
+    if (dcp_color_transform != nullptr && dcp_color_transform->has_post_matrix_stages()) {
+        const std::size_t tile_pixel_count =
+            static_cast<std::size_t>(output_dimensions.width) * tile_rows;
+        if (tile_pixel_count > std::numeric_limits<std::uint32_t>::max()) {
+            return MetalRawDevelopmentAttempt{
+                .development = std::nullopt,
+                .diagnostic = "one fused RAW/DCP tile exceeds Metal's dispatch range",
+            };
+        }
+        std::string diagnostic;
+        dcp_encoding = MetalDcpColorEncoding::prepare(
+            *dcp_color_transform,
+            static_cast<std::uint32_t>(tile_pixel_count),
+            diagnostic
+        );
+        if (!dcp_encoding) {
+            return MetalRawDevelopmentAttempt{
+                .development = std::nullopt,
+                .diagnostic = diagnostic.empty()
+                    ? "Metal could not prepare fused RAW/DCP input rendering"
+                    : std::move(diagnostic),
+            };
+        }
+    }
 
     std::size_t gpu_resource_bytes = 0U;
-    if (!checked_add(input_bytes, tile_buffer_bytes, gpu_resource_bytes)) {
+    if (!checked_add(input_bytes, tile_buffer_bytes, gpu_resource_bytes)
+        || (dcp_encoding
+            && !checked_add(
+                gpu_resource_bytes,
+                dcp_encoding->resource_bytes(),
+                gpu_resource_bytes
+            ))) {
         return MetalRawDevelopmentAttempt{
             .development = std::nullopt,
             .diagnostic = "Metal RAW working-set size overflowed",
@@ -384,6 +417,33 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
                 )
                 threadsPerThreadgroup:threads_per_group];
             [encoder endEncoding];
+            if (dcp_encoding) {
+                id<MTLComputeCommandEncoder> dcp_encoder =
+                    [command_buffer computeCommandEncoder];
+                std::string diagnostic;
+                const auto tile_pixel_count = static_cast<std::uint32_t>(
+                    static_cast<std::size_t>(output_dimensions.width)
+                    * parameters.output_tile_height
+                );
+                if (dcp_encoder == nil
+                    || !dcp_encoding->encode(
+                        dcp_encoder,
+                        static_cast<id<MTLBuffer>>(tile_buffer.get()),
+                        tile_pixel_count,
+                        diagnostic
+                    )) {
+                    if (dcp_encoder != nil) {
+                        [dcp_encoder endEncoding];
+                    }
+                    return MetalRawDevelopmentAttempt{
+                        .development = std::nullopt,
+                        .diagnostic = diagnostic.empty()
+                            ? "Metal could not encode fused RAW/DCP input rendering"
+                            : std::move(diagnostic),
+                    };
+                }
+                [dcp_encoder endEncoding];
+            }
             [command_buffer commit];
             [command_buffer waitUntilCompleted];
             if (command_buffer.status != MTLCommandBufferStatusCompleted) {
@@ -424,6 +484,7 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
     }
     return MetalRawDevelopmentAttempt{
         .development = std::move(development),
+        .dcp_applied = dcp_encoding != nullptr,
         .diagnostic = {},
     };
 }

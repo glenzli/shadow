@@ -27,9 +27,8 @@ enum class DcpColorExecutionBackend : std::uint8_t {
     metal,
 };
 
-[[nodiscard]] std::string_view dcp_color_execution_backend_identity(
-    DcpColorExecutionBackend backend
-) noexcept;
+[[nodiscard]] std::string_view
+dcp_color_execution_backend_identity(DcpColorExecutionBackend backend) noexcept;
 
 enum class DcpMatrixRoute : std::uint8_t {
     forward_matrix,
@@ -45,12 +44,12 @@ enum class DcpColorDevelopmentErrorCode : std::uint8_t {
 };
 
 class DcpColorDevelopmentError final : public std::invalid_argument {
-public:
+  public:
     DcpColorDevelopmentError(DcpColorDevelopmentErrorCode code, std::string message);
 
     [[nodiscard]] DcpColorDevelopmentErrorCode code() const noexcept;
 
-private:
+  private:
     DcpColorDevelopmentErrorCode code_;
 };
 
@@ -95,9 +94,8 @@ struct DcpColorTransform final {
     DcpColorDevelopmentReceipt receipt;
 
     [[nodiscard]] bool valid() const noexcept;
-    [[nodiscard]] std::array<double, 3U> apply(
-        const std::array<double, 3U>& camera_rgb
-    ) const noexcept;
+    [[nodiscard]] std::array<double, 3U>
+    apply(const std::array<double, 3U>& camera_rgb) const noexcept;
 
     [[nodiscard]] bool has_post_matrix_stages() const noexcept;
 };
@@ -114,23 +112,17 @@ struct DcpColorTransform final {
     const RawFrameDescriptor& descriptor
 );
 
-// Applies the compiled DCP HSV/LUT/tone stages to a canonical linear-sRGB RAW output.  This is
-// intentionally separate from the fused Bayer developer: it keeps the hot provider-neutral
-// demosaic path focused on sensor reconstruction while preserving one explicit DCP working-space
-// boundary.  The fp32 overload is the owned RAW route and preserves scene-linear headroom; the
-// packed u16 overload exists only for compatibility providers that already have a bounded source.
-[[nodiscard]] DcpColorExecutionBackend apply_dcp_color_rendering_stages(
-    SceneLinearRgbFrame& pixels,
-    const DcpColorTransform& transform
-);
+// Applies the compiled DCP HSV/LUT/tone stages to a canonical linear-sRGB RAW output. DCP remains
+// a separate semantic input-rendering stage even when the Metal RawFrame executor encodes it
+// directly after each reconstructed tile to avoid another full-frame transfer. The fp32 overload
+// is the owned RAW route and preserves scene-linear headroom; the packed u16 overload exists only
+// for compatibility providers that already have a bounded source.
+[[nodiscard]] DcpColorExecutionBackend
+apply_dcp_color_rendering_stages(SceneLinearRgbFrame& pixels, const DcpColorTransform& transform);
 
-[[nodiscard]] DcpColorExecutionBackend apply_dcp_color_rendering_stages(
-    PixelBuffer& pixels,
-    const DcpColorTransform& transform
-);
+[[nodiscard]] DcpColorExecutionBackend
+apply_dcp_color_rendering_stages(PixelBuffer& pixels, const DcpColorTransform& transform);
 
-[[nodiscard]] std::string dcp_color_receipt_identity(
-    const DcpColorDevelopmentReceipt& receipt
-);
+[[nodiscard]] std::string dcp_color_receipt_identity(const DcpColorDevelopmentReceipt& receipt);
 
 } // namespace shadow::image

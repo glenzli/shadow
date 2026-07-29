@@ -16,6 +16,7 @@ namespace detail {
 
 struct MetalRawDevelopmentAttempt final {
     std::optional<FusedRawFrameDevelopment> development;
+    bool dcp_applied = false;
     std::string diagnostic;
 };
 
@@ -27,10 +28,9 @@ struct MetalRawDenoiseAttempt final {
     std::string diagnostic;
 };
 
-// DCP input rendering is a separate stage after sensor reconstruction.  Its GPU path is kept
-// behind the same internal Metal boundary as RAW development, so a missing device, an oversized
-// buffer, or a shader failure can always fall back to the CPU reference without changing the
-// public DCP transform contract.
+// DCP input rendering remains a separate semantic stage after sensor reconstruction. Its compact
+// encoder can either continue directly from each reconstructed Metal tile or execute against a
+// standalone scene-linear frame without changing the public DCP transform contract.
 struct MetalDcpColorDevelopmentAttempt final {
     bool applied = false;
     std::string diagnostic;
@@ -53,13 +53,15 @@ struct MetalDcpColorDevelopmentAttempt final {
 );
 
 // Metal Bayer reconstruction, CFA-aware area previews, camera transform and orientation into the
-// common fp32 scene-linear sRGB boundary. A typed unavailable result preserves CPU fallback semantics.
+// common fp32 scene-linear sRGB boundary. A typed unavailable result preserves CPU fallback
+// semantics.
 [[nodiscard]] MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
     const RawFrame& frame,
     const RawFrameLinearTransform& transform,
     std::optional<std::uint32_t> preview_max_edge,
     RawHighlightRecoveryIntent highlight_recovery,
-    RawDevelopmentQuality quality
+    RawDevelopmentQuality quality,
+    const DcpColorTransform* dcp_color_transform = nullptr
 );
 
 [[nodiscard]] MetalDcpColorDevelopmentAttempt try_apply_dcp_color_rendering_stages_metal(
