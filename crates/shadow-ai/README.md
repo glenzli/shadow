@@ -6,6 +6,12 @@ Catalog. Runtime scheduling and persistence remain application-layer
 responsibilities; the first such adapter now lives in `shadow-core` and
 `shadow-catalog` without coupling this crate to either one.
 
+Use this file for the crate's current facts and navigation. The staged,
+evidence-gated route from these contracts to real culling, masks, restoration,
+denoise, and super-resolution providers lives in
+[`AI_CAPABILITY_PLAN.md`](AI_CAPABILITY_PLAN.md). That plan describes candidates
+and gates, not implemented inference.
+
 ## What is implemented now
 
 - Stable task/capability, input artifact, observation, provenance, confidence,
@@ -48,14 +54,16 @@ responsibilities; the first such adapter now lives in `shadow-core` and
   substitute for the still-unselected image feature extractor.
 
 Unaccepted model-derived data remains rebuildable. Human decisions, feedback
-events, accepted edit versions, and accepted generated edit dependencies are
-durable application facts. The current application stores manual
-Pick/Reject/rating transitions in a separate immutable Catalog ledger, but does
-not expose that ledger as AI training data or grant models write access to it. A
-feedback candidate may
-also carry the exact encoded visual artifact and the normalized decoded-frame
-receipt that were presented when the decision was made. This provenance is an
-identity contract, not proof that two differently authored proxies are comparable.
+events, and accepted edit versions are durable application facts today. The
+generated-artifact contract additionally requires any future accepted generated
+dependency to be promoted to managed derived storage before a Recipe can refer
+to it; that storage and promotion path is not implemented yet. The current
+application stores manual Pick/Reject/rating transitions in a separate immutable
+Catalog ledger, but does not expose that ledger as AI training data or grant
+models write access to it. A feedback candidate may also carry the exact encoded
+visual artifact and the normalized decoded-frame receipt that were presented
+when the decision was made. This provenance is an identity contract, not proof
+that two differently authored proxies are comparable.
 
 ## Current application integration
 
@@ -98,48 +106,13 @@ observation is displayed separately and is not yet copied into the feedback even
 - No cross-photo quality rank derived from the current display-proxy metrics.
 - No fixed hardware-name assumptions for M1 Pro or RTX 4070 Ti.
 
-## Decisions and evidence needed next
+## Next navigation
 
-These do not block the contracts above, but should be decided with real fixtures
-and the two target machines before an implementation is called usable:
-
-1. **Feature baseline:** exact frozen image extractor, revision, ONNX export,
-   preprocessing/color contract, vector dimension, throughput, and weight/data
-   license. DINOv2-small is a candidate, not an implemented fact.
-2. **Runtime packaging:** exact ONNX Runtime version/build, C API adapter boundary,
-   Core ML and CUDA provider options, CPU thread policy, binary size, and update
-   strategy. Each provider needs parity and fallback tests.
-3. **First quality models:** face/eye detector and landmarks, supported photo
-   domains, privacy defaults, false-reject behavior, and whether their weights may
-   be redistributed or must be side-loaded.
-4. **Empirical thresholds:** defect gate, confidence tiers, duplicate collapse,
-   cold-start evidence ramp, and active-learning frequency. Current policy values
-   are caller data; production defaults must come from held-out shoots.
-5. **Resource calibration:** measured peak RSS/VRAM, execution time, battery
-   behavior, unload latency, and safe concurrency on M1 Pro 32 GB and the Windows
-   64 GB/RTX 4070 Ti machine.
-6. **Quality gates:** shoot-disjoint datasets and acceptance metrics for grouping,
-   false reject, top-k recall, NDCG, pairwise agreement, mask IoU/boundary quality,
-   recipe acceptance/undo, and model-versus-rule improvement. A score without
-   this evidence stays an observation.
-7. **Worker protocol:** exact process isolation, shared-buffer handle format,
-   cancellation/health/restart semantics, sandboxing, and model-file validation.
-8. **Model distribution and licenses:** registry/signature format, upstream
-   acceptance flow, China-reachable mirror/side-load UX, notices, and per-release
-   audit of code, weights, and training-data terms.
-9. **Recipe/mask integration:** persist immutable mask revisions, compile node
-   masks in the renderer, compose add/subtract/intersect operations, and promote
-   accepted generated results into managed content-addressed assets. Recipe
-   history must retain the exact model and pixel provenance without storing the
-   generated pixels inside SQLite.
-10. **Remote providers:** whether any BYOK API is worth supporting, supported
-    regions, crop-only upload policy, cost estimate/ceiling, deletion/privacy
-    guarantees, and deterministic local fallback. Remote use remains off by
-    default.
-
-The next AI slice should first freeze a comparable analysis-artifact contract and
-benchmark it on real shoots, then benchmark one pinned frozen embedding model and
-runtime behind an isolated worker. The exact extractor, weights, preprocessing,
-licenses, and ONNX Runtime/Core ML/CUDA packaging remain decisions, not implied
-dependencies. Only after the comparability, quality, and resource gates pass
-should group ranking or personal preference affect UI recommendations.
+- Follow the source modules from [`src/lib.rs`](src/lib.rs) when changing a
+  current contract.
+- Use [`AI_CAPABILITY_PLAN.md`](AI_CAPABILITY_PLAN.md) when selecting or
+  integrating a runtime, model package, culling feature, mask generator,
+  restoration provider, denoiser, or super-resolution route.
+- Keep application scheduling, persistence, Recipe integration, and UI ownership
+  in their respective crates. This README should change only when the current
+  crate boundary or implemented facts change.
