@@ -136,6 +136,25 @@ fused_dcp_transform(const image::RawFrameDescriptor& descriptor) {
     return frame;
 }
 
+[[nodiscard]] image::RawFrame chromatic_edge_frame(const std::int32_t orientation) {
+    auto frame = synthetic_frame(orientation);
+    const auto width = frame.descriptor.storage_dimensions.width;
+    for (std::uint32_t y = 0U; y < frame.descriptor.storage_dimensions.height; ++y) {
+        for (std::uint32_t x = 0U; x < width; ++x) {
+            const auto site = static_cast<std::size_t>((y & 1U) * 2U + (x & 1U));
+            const bool bright = x >= width / 2U;
+            const auto colour = frame.descriptor.bayer_2x2[site];
+            const std::uint16_t signal =
+                colour == image::RawCfaColor::green ? (bright ? 900U : 120U)
+                : colour == image::RawCfaColor::red ? (bright ? 850U : 60U)
+                                                    : (bright ? 100U : 880U);
+            frame.samples[static_cast<std::size_t>(y) * width + x] =
+                static_cast<std::uint16_t>(frame.descriptor.black_levels[site] + signal);
+        }
+    }
+    return frame;
+}
+
 template <typename Callable>
 [[nodiscard]] double median_milliseconds(const std::size_t iterations, Callable&& callable) {
     std::vector<double> samples;
@@ -302,6 +321,101 @@ void metal_area_preview_preserves_the_cfa_footprint_contract() {
                                             / static_cast<double>(cpu.scene_linear.samples.size());
         expect(maximum_error <= 4.0e-5F, "Metal area preview stays within fp32 CPU tolerance");
         expect(mean_error <= 1.0e-5, "Metal area preview stays within fp32 mean tolerance");
+    }
+}
+
+void metal_high_quality_matches_edge_aware_cpu_reconstruction() {
+    if (!image::raw_development_backend_available(image::RawDevelopmentBackend::metal)) {
+        return;
+    }
+    const image::RawFrameLinearTransform transform{{
+        1.31,
+        -0.27,
+        0.08,
+        -0.06,
+        1.14,
+        -0.03,
+        0.04,
+        -0.22,
+        1.57,
+    }};
+    for (const std::int32_t orientation : {0, 3, 5, 6}) {
+        const auto frame = chromatic_edge_frame(orientation);
+        const auto cpu = image::develop_bayer_linear_srgb_f32_fused_with_backend(
+            frame,
+            transform,
+            std::nullopt,
+            image::RawDevelopmentBackendMode::cpu,
+            image::RawHighlightRecoveryIntent::provider_default,
+            image::RawDevelopmentQuality::high
+        );
+        const auto metal = image::develop_bayer_linear_srgb_f32_fused_with_backend(
+            frame,
+            transform,
+            std::nullopt,
+            image::RawDevelopmentBackendMode::metal,
+            image::RawHighlightRecoveryIntent::provider_default,
+            image::RawDevelopmentQuality::high
+        );
+        const auto repeated = image::develop_bayer_linear_srgb_f32_fused_with_backend(
+            frame,
+            transform,
+            std::nullopt,
+            image::RawDevelopmentBackendMode::metal,
+            image::RawHighlightRecoveryIntent::provider_default,
+            image::RawDevelopmentQuality::high
+        );
+        const auto balanced = image::develop_bayer_linear_srgb_f32_fused_with_backend(
+            frame,
+            transform,
+            std::nullopt,
+            image::RawDevelopmentBackendMode::metal
+        );
+        expect(
+            metal.valid()
+                && metal.demosaic_receipt.algorithm
+                       == image::RawDemosaicAlgorithm::bayer_edge_aware_v1
+                && metal.scene_linear.samples == repeated.scene_linear.samples,
+            "Metal high-quality RAW reconstruction is explicit and byte deterministic"
+        );
+        expect(
+            metal.scene_linear.samples != balanced.scene_linear.samples,
+            "Metal high quality is not aliased to balanced bilinear reconstruction"
+        );
+        float maximum_error = 0.0F;
+        double total_error = 0.0;
+        for (std::size_t index = 0U; index < cpu.scene_linear.samples.size(); ++index) {
+            const float error =
+                std::abs(cpu.scene_linear.samples[index] - metal.scene_linear.samples[index]);
+            maximum_error = std::max(maximum_error, error);
+            total_error += error;
+        }
+        const double mean_error =
+            cpu.scene_linear.samples.empty()
+                ? 0.0
+                : total_error / static_cast<double>(cpu.scene_linear.samples.size());
+        expect(
+            maximum_error <= 8.0e-5F,
+            "Metal edge-aware maximum error stays within the fp32 CPU tolerance"
+        );
+        expect(
+            mean_error <= 1.0e-5,
+            "Metal edge-aware mean error stays within the fp32 CPU tolerance"
+        );
+
+        const auto preview = image::develop_bayer_linear_srgb_f32_fused_with_backend(
+            frame,
+            transform,
+            3U,
+            image::RawDevelopmentBackendMode::metal,
+            image::RawHighlightRecoveryIntent::provider_default,
+            image::RawDevelopmentQuality::high
+        );
+        expect(
+            preview.demosaic_receipt.algorithm
+                == image::RawDemosaicAlgorithm::bayer_area_preview_v1,
+            "Metal high-quality requests retain CFA-area preview semantics"
+        );
     }
 }
 
@@ -730,16 +844,72 @@ void benchmark_fused_sensor_clipping_when_requested() {
               << " speedup=" << staged / fused << 'x' << " checksum=" << checksum << '\n';
 }
 
+void benchmark_edge_aware_metal_when_requested() {
+    if (!environment_enabled("SHADOW_TEST_EDGE_AWARE_METAL_BENCHMARK")) {
+        return;
+    }
+    if (!image::raw_development_backend_available(image::RawDevelopmentBackend::metal)) {
+        throw std::runtime_error("Metal is unavailable for the edge-aware benchmark");
+    }
+    constexpr image::Dimensions dimensions{1'200U, 800U};
+    const auto frame = benchmark_frame(dimensions);
+    const image::RawFrameLinearTransform transform{{
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+    }};
+    std::uint64_t checksum = 0U;
+    constexpr std::size_t iterations = 3U;
+    const double cpu = median_milliseconds(iterations, [&]() {
+        const auto developed = image::develop_bayer_linear_srgb_f32_fused_with_backend(
+            frame,
+            transform,
+            std::nullopt,
+            image::RawDevelopmentBackendMode::cpu,
+            image::RawHighlightRecoveryIntent::provider_default,
+            image::RawDevelopmentQuality::high
+        );
+        checksum += static_cast<std::uint64_t>(
+            developed.scene_linear.samples[developed.scene_linear.samples.size() / 2U] * 1'000.0F
+        );
+    });
+    const double metal = median_milliseconds(iterations, [&]() {
+        const auto developed = image::develop_bayer_linear_srgb_f32_fused_with_backend(
+            frame,
+            transform,
+            std::nullopt,
+            image::RawDevelopmentBackendMode::metal,
+            image::RawHighlightRecoveryIntent::provider_default,
+            image::RawDevelopmentQuality::high
+        );
+        checksum += static_cast<std::uint64_t>(
+            developed.scene_linear.samples[developed.scene_linear.samples.size() / 2U] * 1'000.0F
+        );
+    });
+    std::cout << std::fixed << std::setprecision(3) << "BENCH edge-aware RAW " << dimensions.width
+              << 'x' << dimensions.height << " CPU=" << cpu << "ms"
+              << " Metal=" << metal << "ms"
+              << " speedup=" << cpu / metal << 'x' << " checksum=" << checksum << '\n';
+}
+
 } // namespace
 
 int main() {
     metal_full_resolution_stays_within_the_linear_u16_contract();
     metal_area_preview_preserves_the_cfa_footprint_contract();
+    metal_high_quality_matches_edge_aware_cpu_reconstruction();
     metal_reconstruction_and_dcp_share_one_tiled_transaction();
     metal_denoise_reconstruction_and_dcp_share_one_resident_transaction();
     metal_sensor_clipping_projection_matches_the_cpu_contract();
     benchmark_fused_raw_dcp_when_requested();
     benchmark_fused_raw_sensor_development_when_requested();
     benchmark_fused_sensor_clipping_when_requested();
+    benchmark_edge_aware_metal_when_requested();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

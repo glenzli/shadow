@@ -66,9 +66,9 @@ struct MetalDcpColorDevelopmentAttempt final {
     double iso_sensitivity
 );
 
-// Metal Bayer reconstruction, CFA-aware area previews, camera transform and orientation into the
-// common fp32 scene-linear sRGB boundary. A typed unavailable result preserves CPU fallback
-// semantics.
+// Metal bilinear/edge-aware Bayer reconstruction, CFA-aware area previews, camera transform and
+// orientation into the common fp32 scene-linear sRGB boundary. A typed unavailable result
+// preserves CPU fallback semantics.
 [[nodiscard]] MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
     const RawFrame& frame,
     const RawFrameLinearTransform& transform,

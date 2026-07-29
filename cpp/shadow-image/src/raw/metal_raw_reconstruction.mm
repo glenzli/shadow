@@ -38,22 +38,24 @@ struct RawDevelopmentParameters final {
     std::uint32_t output_tile_height = 0U;
     std::uint32_t neutralize_sensor_highlights = 0U;
     std::uint32_t project_sensor_clipping = 0U;
+    std::uint32_t reconstruction_quality = 0U;
     std::uint32_t cfa_channels[4]{};
     float black_levels[4]{};
     float white_minus_black[4]{};
     float camera_to_linear_srgb[9]{};
 };
 
-static_assert(sizeof(RawDevelopmentParameters) == 144U);
+static_assert(sizeof(RawDevelopmentParameters) == 148U);
 static_assert(offsetof(RawDevelopmentParameters, storage_width) == 0U);
 static_assert(offsetof(RawDevelopmentParameters, reconstruction_width) == 32U);
 static_assert(offsetof(RawDevelopmentParameters, orientation) == 40U);
 static_assert(offsetof(RawDevelopmentParameters, neutralize_sensor_highlights) == 52U);
 static_assert(offsetof(RawDevelopmentParameters, project_sensor_clipping) == 56U);
-static_assert(offsetof(RawDevelopmentParameters, cfa_channels) == 60U);
-static_assert(offsetof(RawDevelopmentParameters, black_levels) == 76U);
-static_assert(offsetof(RawDevelopmentParameters, white_minus_black) == 92U);
-static_assert(offsetof(RawDevelopmentParameters, camera_to_linear_srgb) == 108U);
+static_assert(offsetof(RawDevelopmentParameters, reconstruction_quality) == 60U);
+static_assert(offsetof(RawDevelopmentParameters, cfa_channels) == 64U);
+static_assert(offsetof(RawDevelopmentParameters, black_levels) == 80U);
+static_assert(offsetof(RawDevelopmentParameters, white_minus_black) == 96U);
+static_assert(offsetof(RawDevelopmentParameters, camera_to_linear_srgb) == 112U);
 
 
 [[nodiscard]] std::size_t configured_tile_budget(
@@ -152,6 +154,7 @@ static_assert(offsetof(RawDevelopmentParameters, camera_to_linear_srgb) == 108U)
     const Dimensions reconstruction_dimensions,
     const Dimensions output_dimensions,
     const RawHighlightRecoveryIntent highlight_recovery,
+    const RawDevelopmentQuality quality,
     const bool project_sensor_clipping
 ) {
     const auto& descriptor = frame.descriptor;
@@ -170,6 +173,7 @@ static_assert(offsetof(RawDevelopmentParameters, camera_to_linear_srgb) == 108U)
     parameters.neutralize_sensor_highlights =
         highlight_recovery == RawHighlightRecoveryIntent::provider_default ? 1U : 0U;
     parameters.project_sensor_clipping = project_sensor_clipping ? 1U : 0U;
+    parameters.reconstruction_quality = static_cast<std::uint32_t>(quality);
     for (std::size_t site = 0U; site < 4U; ++site) {
         parameters.cfa_channels[site] = cfa_channel(descriptor.bayer_2x2[site]);
         parameters.black_levels[site] =
@@ -195,12 +199,6 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
     const RawDevelopmentQuality quality,
     const MetalRawDevelopmentContinuations continuations
 ) {
-    if (!preview_max_edge.has_value() && quality == RawDevelopmentQuality::high) {
-        return MetalRawDevelopmentAttempt{
-            .development = std::nullopt,
-            .diagnostic = "Metal high-quality Bayer reconstruction is not implemented yet",
-        };
-    }
     const Dimensions reconstruction_dimensions = preview_max_edge.has_value()
         ? proxy_dimensions(frame.descriptor.active_dimensions, *preview_max_edge)
         : frame.descriptor.active_dimensions;
@@ -445,6 +443,7 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
             reconstruction_dimensions,
             output_dimensions,
             highlight_recovery,
+            quality,
             continuations.project_sensor_clipping
         );
         const auto pipeline = area_preview
@@ -612,7 +611,9 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
             frame,
             area_preview
                 ? RawDemosaicAlgorithm::bayer_area_preview_v1
-                : RawDemosaicAlgorithm::bayer_bilinear_v1
+                : quality == RawDevelopmentQuality::high
+                    ? RawDemosaicAlgorithm::bayer_edge_aware_v1
+                    : RawDemosaicAlgorithm::bayer_bilinear_v1
         ),
         .backend = RawDevelopmentBackend::metal,
         .highlight_recovery = highlight_recovery,

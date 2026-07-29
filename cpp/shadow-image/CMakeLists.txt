@@ -829,10 +829,9 @@ if(BUILD_TESTING)
                     "SHADOW_IMAGE_ACCELERATION=metal;SHADOW_TEST_REQUIRE_METAL=1"
                 LABELS "metal-required"
         )
-        # This aggregate also owns the high-quality edge-aware reconstruction contract, whose
-        # current reference implementation is intentionally CPU-only. Require a real Metal
-        # device for eligible denoise/reconstruction cases without overriding that per-stage
-        # selector.
+        # This aggregate owns both CPU reference cases and automatic Metal selection for eligible
+        # denoise, balanced, and high-quality reconstruction. Require a real device without
+        # overriding those per-case selectors.
         set_tests_properties(
             shadow-image-raw-sensor-preparation-contract
             PROPERTIES

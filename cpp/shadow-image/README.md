@@ -83,8 +83,9 @@ Current contract rules:
   semantics.
 - Native-size Bayer reconstruction, the precompiled camera transform and orientation are fused
   into one output pass. The CPU path remains the exact reference. On macOS, Metal v1 performs the
-  same full-detail contract in fp32 and bounded output tiles, and its area-preview kernel performs
-  CFA-aware sensor-footprint integration for bounded catalog/edit sources. The actual
+  balanced bilinear and high-quality directional-green/colour-difference contracts in fp32 and
+  bounded output tiles, while its area-preview kernel performs CFA-aware sensor-footprint
+  integration for bounded catalog/edit sources. The actual
   `shadow-fused-raw-cpu-v1` or
   `shadow-fused-raw-metal-full-v1` identity is cache-visible. Metal failure in automatic mode
   falls back to CPU inside the RawFrame route and can never silently select provider-processed
@@ -261,9 +262,10 @@ Decoder contract tests follow the production responsibilities instead of one agg
 - `tests/fused_raw_cpu_development_contract_test.cpp` owns fused CPU orientation, preview
   footprint, active-sensor bounds, and high-quality reconstruction against the two-stage oracle.
 - `tests/fused_raw_metal_execution_contract_test.cpp` owns Metal determinism and numerical
-  agreement for full-resolution and CFA-area preview execution, byte-identical staged-versus-
-  fused DCP tiles, byte-identical staged-versus-resident CFA denoise, exact CPU/Metal clipping
-  projection across orientations and scales, and the opt-in `SHADOW_TEST_FUSED_RAW_DCP_BENCHMARK`,
+  agreement for balanced, high-quality, and CFA-area preview execution, byte-identical
+  staged-versus-fused DCP tiles, byte-identical staged-versus-resident CFA denoise, exact CPU/Metal
+  clipping projection across orientations and scales, and the opt-in
+  `SHADOW_TEST_EDGE_AWARE_METAL_BENCHMARK`, `SHADOW_TEST_FUSED_RAW_DCP_BENCHMARK`,
   `SHADOW_TEST_FUSED_RAW_SENSOR_BENCHMARK`, and
   `SHADOW_TEST_FUSED_SENSOR_CLIPPING_BENCHMARK` timings.
 - `tests/fused_raw_highlight_treatment_contract_test.cpp` owns clipped-sensor neutralization,

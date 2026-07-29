@@ -24,6 +24,7 @@ struct RawDevelopmentParameters {
     uint output_tile_height;
     uint neutralize_sensor_highlights;
     uint project_sensor_clipping;
+    uint reconstruction_quality;
     uint cfa_channels[4];
     float black_levels[4];
     float white_minus_black[4];
@@ -336,6 +337,204 @@ kernel void denoise_bayer_same_cfa(
     destination[source_index] = ushort(clamp(floor(blended + 0.5f), 0.0f, 65535.0f));
 }
 
+// High-quality detail reconstruction mirrors bayer_sampling.cpp: estimate green along the
+// smoothest sensor direction, then interpolate red/blue as local colour differences. The
+// bilinear sample remains the edge fallback and the owner of clipping evidence.
+struct DirectionalGreenEstimate {
+    float value;
+    float gradient;
+    bool valid;
+};
+
+inline DirectionalGreenEstimate try_directional_green(
+    device const ushort* samples,
+    constant RawDevelopmentParameters& parameters,
+    const uint raw_x,
+    const uint raw_y,
+    const int dx,
+    const int dy,
+    const uint center_channel
+) {
+    const int left_x = int(raw_x) - dx;
+    const int left_y = int(raw_y) - dy;
+    const int right_x = int(raw_x) + dx;
+    const int right_y = int(raw_y) + dy;
+    const int far_left_x = int(raw_x) - 2 * dx;
+    const int far_left_y = int(raw_y) - 2 * dy;
+    const int far_right_x = int(raw_x) + 2 * dx;
+    const int far_right_y = int(raw_y) + 2 * dy;
+    if (left_x < 0 || left_y < 0 || right_x < 0 || right_y < 0
+        || far_left_x < 0 || far_left_y < 0 || far_right_x < 0 || far_right_y < 0
+        || left_x >= int(parameters.storage_width)
+        || right_x >= int(parameters.storage_width)
+        || far_left_x >= int(parameters.storage_width)
+        || far_right_x >= int(parameters.storage_width)
+        || left_y >= int(parameters.storage_height)
+        || right_y >= int(parameters.storage_height)
+        || far_left_y >= int(parameters.storage_height)
+        || far_right_y >= int(parameters.storage_height)) {
+        return DirectionalGreenEstimate{0.0f, 0.0f, false};
+    }
+    if (parameters.cfa_channels[cfa_site(uint(left_x), uint(left_y))] != 1u
+        || parameters.cfa_channels[cfa_site(uint(right_x), uint(right_y))] != 1u
+        || parameters.cfa_channels[cfa_site(uint(far_left_x), uint(far_left_y))]
+            != center_channel
+        || parameters.cfa_channels[cfa_site(uint(far_right_x), uint(far_right_y))]
+            != center_channel) {
+        return DirectionalGreenEstimate{0.0f, 0.0f, false};
+    }
+    const float left =
+        normalized_sample(samples, parameters, uint(left_x), uint(left_y));
+    const float right =
+        normalized_sample(samples, parameters, uint(right_x), uint(right_y));
+    const float far_left =
+        normalized_sample(samples, parameters, uint(far_left_x), uint(far_left_y));
+    const float far_right =
+        normalized_sample(samples, parameters, uint(far_right_x), uint(far_right_y));
+    const float center = normalized_sample(samples, parameters, raw_x, raw_y);
+    const float chroma_laplacian = 2.0f * center - far_left - far_right;
+    return DirectionalGreenEstimate{
+        0.5f * (left + right) + 0.25f * chroma_laplacian,
+        fabs(left - right) + fabs(chroma_laplacian),
+        true,
+    };
+}
+
+inline DirectionalGreenEstimate directional_green_estimate(
+    device const ushort* samples,
+    constant RawDevelopmentParameters& parameters,
+    const uint raw_x,
+    const uint raw_y
+) {
+    const uint center_channel = parameters.cfa_channels[cfa_site(raw_x, raw_y)];
+    if (center_channel == 1u) {
+        return DirectionalGreenEstimate{
+            normalized_sample(samples, parameters, raw_x, raw_y),
+            0.0f,
+            true,
+        };
+    }
+    if (center_channel != 0u && center_channel != 2u) {
+        return DirectionalGreenEstimate{0.0f, 0.0f, false};
+    }
+    const DirectionalGreenEstimate horizontal = try_directional_green(
+        samples,
+        parameters,
+        raw_x,
+        raw_y,
+        1,
+        0,
+        center_channel
+    );
+    const DirectionalGreenEstimate vertical = try_directional_green(
+        samples,
+        parameters,
+        raw_x,
+        raw_y,
+        0,
+        1,
+        center_channel
+    );
+    if (horizontal.valid && vertical.valid) {
+        constexpr float epsilon = 1.0e-5f;
+        const float horizontal_weight = 1.0f / (epsilon + horizontal.gradient);
+        const float vertical_weight = 1.0f / (epsilon + vertical.gradient);
+        return DirectionalGreenEstimate{
+            (horizontal.value * horizontal_weight + vertical.value * vertical_weight)
+                / (horizontal_weight + vertical_weight),
+            0.0f,
+            true,
+        };
+    }
+    if (horizontal.valid) {
+        return horizontal;
+    }
+    return vertical;
+}
+
+inline float reconstruct_colour_difference(
+    device const ushort* samples,
+    constant RawDevelopmentParameters& parameters,
+    const uint raw_x,
+    const uint raw_y,
+    const uint target_channel,
+    const float center_green,
+    const float fallback
+) {
+    const uint center_channel = parameters.cfa_channels[cfa_site(raw_x, raw_y)];
+    if (center_channel == target_channel) {
+        return normalized_sample(samples, parameters, raw_x, raw_y);
+    }
+    float weighted_sum = 0.0f;
+    float total_weight = 0.0f;
+    for (int dy = -1; dy <= 1; ++dy) {
+        const int candidate_y = int(raw_y) + dy;
+        if (candidate_y < 0 || candidate_y >= int(parameters.storage_height)) {
+            continue;
+        }
+        for (int dx = -1; dx <= 1; ++dx) {
+            if (dx == 0 && dy == 0) {
+                continue;
+            }
+            const int candidate_x = int(raw_x) + dx;
+            if (candidate_x < 0 || candidate_x >= int(parameters.storage_width)) {
+                continue;
+            }
+            const uint x = uint(candidate_x);
+            const uint y = uint(candidate_y);
+            if (parameters.cfa_channels[cfa_site(x, y)] != target_channel) {
+                continue;
+            }
+            const DirectionalGreenEstimate neighbour_green =
+                directional_green_estimate(samples, parameters, x, y);
+            if (!neighbour_green.valid) {
+                continue;
+            }
+            const float weight = dx == 0 || dy == 0 ? 1.0f : 0.7071067811865476f;
+            weighted_sum += weight * (
+                normalized_sample(samples, parameters, x, y)
+                + center_green - neighbour_green.value
+            );
+            total_weight += weight;
+        }
+    }
+    return total_weight > 0.0f ? weighted_sum / total_weight : fallback;
+}
+
+inline CameraRgbSample edge_aware_camera_rgb_at(
+    device const ushort* samples,
+    constant RawDevelopmentParameters& parameters,
+    const uint raw_x,
+    const uint raw_y
+) {
+    CameraRgbSample result = camera_rgb_at(samples, parameters, raw_x, raw_y);
+    const DirectionalGreenEstimate green =
+        directional_green_estimate(samples, parameters, raw_x, raw_y);
+    if (!green.valid) {
+        return result;
+    }
+    result.values.y = green.value;
+    result.values.x = reconstruct_colour_difference(
+        samples,
+        parameters,
+        raw_x,
+        raw_y,
+        0u,
+        green.value,
+        result.values.x
+    );
+    result.values.z = reconstruct_colour_difference(
+        samples,
+        parameters,
+        raw_x,
+        raw_y,
+        2u,
+        green.value,
+        result.values.z
+    );
+    return result;
+}
+
 kernel void develop_bayer_full(
     device const ushort* samples [[buffer(0)]],
     device float* output [[buffer(1)]],
@@ -370,12 +569,11 @@ kernel void develop_bayer_full(
         break;
     }
 
-    const CameraRgbSample camera = camera_rgb_at(
-        samples,
-        parameters,
-        parameters.margin_left + source_x,
-        parameters.margin_top + source_y
-    );
+    const uint raw_x = parameters.margin_left + source_x;
+    const uint raw_y = parameters.margin_top + source_y;
+    const CameraRgbSample camera = parameters.reconstruction_quality == 2u
+        ? edge_aware_camera_rgb_at(samples, parameters, raw_x, raw_y)
+        : camera_rgb_at(samples, parameters, raw_x, raw_y);
     if (parameters.project_sensor_clipping != 0u) {
         clipping_output[position.y * parameters.output_width + output_x] =
             sensor_clipping_flags(clipping_source, parameters, output_x, output_y);

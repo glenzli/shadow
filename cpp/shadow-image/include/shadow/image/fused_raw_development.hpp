@@ -71,9 +71,9 @@ struct FusedRawFrameDevelopment final {
 
 // Reconstructs Bayer samples, applies the precompiled camera transform, maps the provider's
 // orientation, and writes scene-linear fp32 samples in one bounded parallel row pass. `balanced`
-// selects the fast bilinear detail baseline, while `high` selects host-owned edge-aware
-// reconstruction for native-size detail and export. Bounded previews always retain CFA-area
-// integration.
+// selects the fast bilinear detail baseline, while `high` selects the host-owned edge-aware
+// contract on either the CPU reference or Metal executor for native-size detail and export.
+// Bounded previews always retain CFA-area integration.
 //
 // A missing preview edge selects full-resolution 3x3 bilinear reconstruction. A non-zero preview
 // edge selects the same CFA-aware sensor-footprint integration as demosaic_bayer_preview().

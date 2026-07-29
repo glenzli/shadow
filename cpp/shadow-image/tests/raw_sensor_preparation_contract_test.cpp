@@ -201,6 +201,14 @@ void high_quality_raw_plan_is_executed_and_cache_visible() {
                    != std::string::npos,
         "high-quality reconstruction is visible in source and cache provenance"
     );
+    if (image::raw_development_backend_available(image::RawDevelopmentBackend::metal)) {
+        expect(
+            developed.raw_development_receipt.development_settings_signature.find(
+                "backend=shadow-fused-raw-metal-v1"
+            ) != std::string::npos,
+            "automatic high-quality RawFrame development selects the available Metal executor"
+        );
+    }
 }
 
 void raw_frame_source_calibration_is_identical_for_preview_and_detail() {
