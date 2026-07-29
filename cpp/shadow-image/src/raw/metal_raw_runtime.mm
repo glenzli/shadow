@@ -38,7 +38,8 @@ public:
             auto* options = static_cast<MTLCompileOptions*>(compile_options.get());
             options.mathMode = MTLMathModeSafe;
             NSError* error = nil;
-            NSString* source = [NSString stringWithUTF8String:metal_raw_kernel_source];
+            const std::string kernel_source = metal_raw_kernel_source();
+            NSString* source = [NSString stringWithUTF8String:kernel_source.c_str()];
             OwnedObjectiveCObject library(
                 [device_ newLibraryWithSource:source options:options error:&error]
             );

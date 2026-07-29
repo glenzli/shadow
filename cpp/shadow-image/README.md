@@ -102,8 +102,11 @@ SHADOW_IMAGE_ACCELERATION=auto|cpu|metal
 `SHADOW_ENABLE_METAL=OFF` compiles the same public API against a cross-platform stub.
 
 The Metal implementation also follows the language boundary.
-`src/raw/metal_raw_development_msl.hpp` owns the complete MSL reconstruction, CFA denoise, area
-preview, and DCP post-processing program. Host execution is split by transaction:
+`src/raw/metal_raw_development_msl.hpp` is the thin one-library composition index:
+`metal_raw_common_msl.hpp` owns the shared ABI, Bayer sampling, clipping, and highlight helpers;
+`metal_raw_denoise_msl.hpp` owns same-CFA sensor denoise;
+`metal_raw_reconstruction_msl.hpp` owns balanced/high-quality detail and CFA-area previews; and
+`metal_dcp_color_msl.hpp` owns DCP post-processing. Host execution is split by transaction:
 `src/raw/metal_raw_runtime.*` owns the process-wide device, command queue, compiled pipelines,
 bounded arithmetic, and diagnostics; `raw_denoise_plan.*` owns cache-visible denoise intent,
 calibration, and receipts, while `raw_denoise.cpp` owns standalone CPU/Metal fallback execution;
