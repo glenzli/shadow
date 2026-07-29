@@ -128,6 +128,8 @@ const EMBEDDED_IMAGE_METAL_SOURCES: &[&str] = &[
     "src/proxy/warm_edit_gpu_pipeline_context.mm",
     "src/proxy/warm_edit_gpu_resident_resources.mm",
     "src/proxy/warm_edit_gpu_stage_encoder.mm",
+    "src/proxy/warm_edit_gpu_transaction.mm",
+    "src/proxy/warm_edit_gpu_transaction_encoder.mm",
     "src/proxy/warm_edit_gpu.mm",
 ];
 
@@ -181,6 +183,8 @@ const EMBEDDED_IMAGE_ADDITIONAL_INPUTS: &[&str] = &[
     "src/proxy/warm_edit_gpu_render_plan.hpp",
     "src/proxy/warm_edit_gpu_resident_resources.hpp",
     "src/proxy/warm_edit_gpu_stage_encoder.hpp",
+    "src/proxy/warm_edit_gpu_transaction.hpp",
+    "src/proxy/warm_edit_gpu_transaction_encoder.hpp",
     "src/raw/bayer_sampling.hpp",
     "src/raw/dcp_color_matrix_math.hpp",
     "src/raw/dcp_color_rendering.hpp",

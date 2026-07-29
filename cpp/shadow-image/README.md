@@ -389,10 +389,15 @@ are owned by `src/proxy/warm_edit_gpu_pipeline_context.*`.
 Session-resident source buffers, side-table caches, lazy neighborhood rasters, slot leases,
 working-set admission, synchronization, and GPU statistics move together in
 `src/proxy/warm_edit_gpu_resident_resources.*`; the dispatcher only receives leased buffer views.
+`src/proxy/warm_edit_gpu_transaction.*` lowers one complete ordered edit plan, retains its
+side-table leases, and owns the shared operation-buffer offsets. Its paired
+`warm_edit_gpu_transaction_encoder.*` binds and encodes that prepared plan without submitting or
+reading back a command, so ordinary renders and sequential masked layers can share one execution
+contract.
 `src/proxy/warm_edit_gpu_stage_encoder.*` owns stage-specific resource admission, Metal kernel
 order, and intermediate-buffer selection. `src/proxy/warm_edit_gpu_dispatcher.*` packs the
-pixel-local programs, encodes that ordered plan into one command buffer, interprets status, and
-performs the single final readback. `warm_edit_gpu.mm` is the thin resident-raster session facade
+prepared transaction into one command buffer, interprets status, and performs the single final
+readback. `warm_edit_gpu.mm` is the thin resident-raster session facade
 shared by complete warm proxies and bounded full-detail working tiles. Callers pass the full-image
 adjustment and display origins explicitly so tiled finishing effects and dithering do not acquire
 seams.
