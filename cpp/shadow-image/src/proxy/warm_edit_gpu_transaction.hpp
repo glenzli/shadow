@@ -27,6 +27,7 @@ struct PreparedWarmPass final {
     std::size_t plan_index = 0U;
     PreparedWarmProgram before;
     std::optional<PreparedWarmProgram> post;
+    RetainedMetalBuffer neighbourhood_geometry;
 };
 
 struct PreparedWarmTransaction final {

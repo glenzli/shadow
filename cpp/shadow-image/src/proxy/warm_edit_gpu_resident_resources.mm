@@ -36,6 +36,7 @@ inline constexpr std::size_t maximum_resident_perceptual_mixer_tables = 16U;
 inline constexpr std::size_t maximum_resident_perceptual_range_tables = 16U;
 inline constexpr std::size_t maximum_resident_selective_color_tables = 16U;
 inline constexpr std::size_t maximum_resident_brush_index_tables = 4U;
+inline constexpr std::size_t maximum_resident_retouch_geometry_tables = 4U;
 
 [[nodiscard]] bool checked_multiply(
     const std::size_t left,
@@ -164,6 +165,7 @@ struct WarmGpuResidentResources::Impl final {
     std::vector<ResidentSideTable> perceptual_range_tables;
     std::vector<ResidentSideTable> selective_color_tables;
     std::vector<ResidentSideTable> brush_index_tables;
+    std::vector<ResidentSideTable> retouch_geometry_tables;
     std::uint64_t side_table_use_sequence = 0U;
 
     mutable std::mutex mutex;
@@ -191,6 +193,7 @@ struct WarmGpuResidentResources::Impl final {
         [empty_side_table release];
         [source release];
         brush_index_tables.clear();
+        retouch_geometry_tables.clear();
         selective_color_tables.clear();
         perceptual_range_tables.clear();
         perceptual_mixer_tables.clear();
@@ -211,6 +214,7 @@ struct WarmGpuResidentResources::Impl final {
                 || std::is_same_v<Element, MetalPerceptualRange>
                 || std::is_same_v<Element, MetalSelectiveColorEntry>
                 || std::is_same_v<Element, std::uint32_t>
+                || std::is_same_v<Element, WarmRetouchWord>
         );
         if (cancellation.stop_requested()) {
             return SideBufferAttempt{.cancelled = true};
@@ -239,6 +243,8 @@ struct WarmGpuResidentResources::Impl final {
                 return perceptual_range_tables;
             } else if constexpr (std::is_same_v<Element, std::uint32_t>) {
                 return brush_index_tables;
+            } else if constexpr (std::is_same_v<Element, WarmRetouchWord>) {
+                return retouch_geometry_tables;
             } else {
                 return selective_color_tables;
             }
@@ -258,6 +264,8 @@ struct WarmGpuResidentResources::Impl final {
                 return maximum_resident_perceptual_range_tables;
             } else if constexpr (std::is_same_v<Element, std::uint32_t>) {
                 return maximum_resident_brush_index_tables;
+            } else if constexpr (std::is_same_v<Element, WarmRetouchWord>) {
+                return maximum_resident_retouch_geometry_tables;
             } else {
                 return maximum_resident_selective_color_tables;
             }
@@ -335,6 +343,8 @@ struct WarmGpuResidentResources::Impl final {
             ++stats.perceptual_range_resource_upload_count;
         } else if constexpr (std::is_same_v<Element, std::uint32_t>) {
             ++stats.brush_index_resource_upload_count;
+        } else if constexpr (std::is_same_v<Element, WarmRetouchWord>) {
+            ++stats.retouch_geometry_resource_upload_count;
         } else {
             ++stats.selective_color_resource_upload_count;
         }
@@ -432,6 +442,18 @@ struct WarmGpuResidentResources::Impl final {
     ) {
         auto attempt = acquire_side_buffer(words, cancellation);
         return WarmBrushBufferAttempt{
+            .buffer = std::move(attempt.buffer),
+            .cancelled = attempt.cancelled,
+            .diagnostic = std::move(attempt.diagnostic),
+        };
+    }
+
+    [[nodiscard]] WarmRetouchBufferAttempt acquire_retouch_geometry_buffer(
+        const std::vector<WarmRetouchWord>& words,
+        const std::stop_token cancellation
+    ) {
+        auto attempt = acquire_side_buffer(words, cancellation);
+        return WarmRetouchBufferAttempt{
             .buffer = std::move(attempt.buffer),
             .cancelled = attempt.cancelled,
             .diagnostic = std::move(attempt.diagnostic),
@@ -807,6 +829,13 @@ WarmBrushBufferAttempt WarmGpuResidentResources::acquire_brush_index_buffer(
     return impl_->acquire_brush_index_buffer(words, cancellation);
 }
 
+WarmRetouchBufferAttempt WarmGpuResidentResources::acquire_retouch_geometry_buffer(
+    const std::vector<WarmRetouchWord>& words,
+    const std::stop_token cancellation
+) {
+    return impl_->acquire_retouch_geometry_buffer(words, cancellation);
+}
+
 std::optional<WarmGpuSlotLease> WarmGpuResidentResources::acquire_slot(
     const std::stop_token cancellation
 ) {
@@ -1088,6 +1117,9 @@ WarmGpuResidentPreparation prepare_warm_gpu_resident_resources(
         maximum_resident_selective_color_tables
     );
     impl->brush_index_tables.reserve(maximum_resident_brush_index_tables);
+    impl->retouch_geometry_tables.reserve(
+        maximum_resident_retouch_geometry_tables
+    );
     impl->stats = WarmEditPreviewGpuStats{
         .resident = true,
         .source_upload_count = 1U,

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "warm_edit_gpu_kernel_contract.hpp"
+#include "warm_edit_gpu_retouch_plan.hpp"
 
 #include <shadow/image/adjustment_graph.hpp>
 #include <shadow/image/edit_execution_plan.hpp>
@@ -75,6 +76,7 @@ struct WarmSelectiveToneStage final {
 };
 
 using WarmGpuNeighbourhoodStage = std::variant<
+    WarmRetouchCloneStage,
     WarmTechnicalDetailStage,
     WarmTextureClarityStage,
     WarmLocalContrastStage,
@@ -88,7 +90,8 @@ using WarmGpuNeighbourhoodStage = std::variant<
     Dimensions dimensions,
     const WorkingRgbSpace& working_space,
     double level_zero_to_raster_scale_x,
-    double level_zero_to_raster_scale_y
+    double level_zero_to_raster_scale_y,
+    AdjustmentExecutionContext context
 );
 
 } // namespace shadow::image::detail

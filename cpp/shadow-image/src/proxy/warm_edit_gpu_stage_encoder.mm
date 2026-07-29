@@ -1,5 +1,7 @@
 #include "warm_edit_gpu_stage_encoder.hpp"
 
+#include "warm_edit_gpu_retouch_encoder.hpp"
+
 #include <algorithm>
 #include <type_traits>
 #include <variant>
@@ -24,7 +26,9 @@ std::string ensure_warm_gpu_stage_resources(
     return std::visit(
         [&slot](const auto& value) {
             using Stage = std::decay_t<decltype(value)>;
-            if constexpr (std::is_same_v<Stage, WarmTechnicalDetailStage>) {
+            if constexpr (std::is_same_v<Stage, WarmRetouchCloneStage>) {
+                return slot.ensure_denoise_resources();
+            } else if constexpr (std::is_same_v<Stage, WarmTechnicalDetailStage>) {
                 return value.sharpen.has_value()
                     ? slot.ensure_sharpen_resources()
                     : slot.ensure_denoise_resources();
@@ -54,6 +58,7 @@ id<MTLBuffer> encode_warm_gpu_neighbourhood_stage(
     const WarmGpuSlotBuffers& slot,
     id<MTLBuffer> input,
     const WarmGpuNeighbourhoodStage& stage,
+    id<MTLBuffer> neighbourhood_geometry,
     const MetalAdjustmentInvocation& color_invocation
 ) {
     const auto dispatch_grid = [encoder](
@@ -86,7 +91,17 @@ id<MTLBuffer> encode_warm_gpu_neighbourhood_stage(
     return std::visit(
         [&](const auto& value) {
             using Stage = std::decay_t<decltype(value)>;
-            if constexpr (std::is_same_v<Stage, WarmTechnicalDetailStage>) {
+            if constexpr (std::is_same_v<Stage, WarmRetouchCloneStage>) {
+                return encode_warm_retouch_clone_stage(
+                    encoder,
+                    context,
+                    layout,
+                    slot,
+                    input,
+                    value,
+                    neighbourhood_geometry
+                );
+            } else if constexpr (std::is_same_v<Stage, WarmTechnicalDetailStage>) {
                 id<MTLBuffer> output = input;
                 if (value.denoise.has_value()) {
                     const auto& denoise = *value.denoise;

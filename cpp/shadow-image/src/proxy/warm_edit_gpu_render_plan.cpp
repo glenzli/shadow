@@ -12,7 +12,8 @@ WarmGpuRenderPlan prepare_warm_gpu_render_plan(
     const Dimensions dimensions,
     const WorkingRgbSpace& working_space,
     const double level_zero_to_raster_scale_x,
-    const double level_zero_to_raster_scale_y
+    const double level_zero_to_raster_scale_y,
+    const AdjustmentExecutionContext context
 ) {
     WarmGpuRenderPlan result{
         .after = EditExecutionPlan{.source_node_count = plan.source_node_count},
@@ -32,7 +33,8 @@ WarmGpuRenderPlan prepare_warm_gpu_render_plan(
                 dimensions,
                 working_space,
                 level_zero_to_raster_scale_x,
-                level_zero_to_raster_scale_y
+                level_zero_to_raster_scale_y,
+                context
             );
             if (!stage.has_value()) {
                 result.complete = false;

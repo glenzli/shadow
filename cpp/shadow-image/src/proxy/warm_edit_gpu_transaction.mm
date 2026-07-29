@@ -145,7 +145,8 @@ WarmTransactionPreparation prepare_warm_gpu_transaction(
             layout.dimensions,
             layout.working_space,
             layout.level_zero_to_raster_scale_x,
-            layout.level_zero_to_raster_scale_y
+            layout.level_zero_to_raster_scale_y,
+            render_context.adjustment
         ),
         .had_active_adjustments = !plan.segments.empty(),
     };
@@ -175,6 +176,25 @@ WarmTransactionPreparation prepare_warm_gpu_transaction(
             .plan_index = index,
             .before = PreparedWarmProgram{.program = std::move(*before)},
         };
+        if (const auto* retouch = std::get_if<WarmRetouchCloneStage>(
+                &pass.neighbourhood
+            )) {
+            auto resource = resident.acquire_retouch_geometry_buffer(
+                retouch->packed_geometry,
+                cancellation
+            );
+            if (resource.cancelled) {
+                return WarmTransactionPreparation{.cancelled = true};
+            }
+            if (!resource.buffer) {
+                return WarmTransactionPreparation{
+                    .diagnostic = resource.diagnostic.empty()
+                        ? "session-resident Metal has no retouch geometry buffer"
+                        : std::move(resource.diagnostic),
+                };
+            }
+            prepared.neighbourhood_geometry = std::move(resource.buffer);
+        }
         if (const auto post = stage_post_view(pass.neighbourhood); post.has_value()) {
             auto post_program = prepare_program(
                 post->nodes,

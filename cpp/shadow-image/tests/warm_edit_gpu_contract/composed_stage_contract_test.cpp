@@ -126,7 +126,8 @@ void composed_neighbourhood_plan_preserves_order_and_parity() {
         source.dimensions,
         source.working_space,
         source.level_zero_to_raster_scale_x,
-        source.level_zero_to_raster_scale_y
+        source.level_zero_to_raster_scale_y,
+        {}
     );
     expect(
         render_plan.complete && render_plan.passes.size() == 3U

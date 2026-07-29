@@ -142,6 +142,7 @@ struct WarmEditPreviewGpuStats final {
     std::uint64_t perceptual_range_resource_upload_count = 0U;
     std::uint64_t selective_color_resource_upload_count = 0U;
     std::uint64_t brush_index_resource_upload_count = 0U;
+    std::uint64_t retouch_geometry_resource_upload_count = 0U;
     std::uint64_t resource_cache_hit_count = 0U;
     std::uint64_t resident_bytes = 0U;
 

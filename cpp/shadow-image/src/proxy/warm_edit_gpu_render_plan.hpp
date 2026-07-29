@@ -29,7 +29,8 @@ struct WarmGpuRenderPlan final {
     Dimensions dimensions,
     const WorkingRgbSpace& working_space,
     double level_zero_to_raster_scale_x,
-    double level_zero_to_raster_scale_y
+    double level_zero_to_raster_scale_y,
+    AdjustmentExecutionContext context
 );
 
 } // namespace shadow::image::detail

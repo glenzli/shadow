@@ -856,7 +856,8 @@ std::optional<WarmGpuNeighbourhoodStage> prepare_warm_gpu_neighbourhood_stage(
     const Dimensions dimensions,
     const WorkingRgbSpace& working_space,
     const double level_zero_to_raster_scale_x,
-    const double level_zero_to_raster_scale_y
+    const double level_zero_to_raster_scale_y,
+    const AdjustmentExecutionContext context
 ) {
     if (step.node_index >= nodes.size()
         || operation(nodes[step.node_index].parameters) != step.operation) {
@@ -873,6 +874,21 @@ std::optional<WarmGpuNeighbourhoodStage> prepare_warm_gpu_neighbourhood_stage(
             },
         },
     };
+    if (step.operation == AdjustmentOperation::spot_heal) {
+        const auto* retouch = std::get_if<SpotHealAdjustment>(&nodes[step.node_index].parameters);
+        if (retouch == nullptr) {
+            return std::nullopt;
+        }
+        auto stage = prepare_warm_retouch_clone_stage(
+            *retouch,
+            dimensions,
+            level_zero_to_raster_scale_x,
+            level_zero_to_raster_scale_y,
+            context
+        );
+        return stage.has_value() ? std::optional<WarmGpuNeighbourhoodStage>{std::move(*stage)}
+                                 : std::nullopt;
+    }
     if (auto stage = prepare_warm_technical_detail_stage(
             nodes,
             plan,

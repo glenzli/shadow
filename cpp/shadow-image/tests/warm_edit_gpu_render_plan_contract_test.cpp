@@ -68,7 +68,8 @@ detail_recipe(image::SharpenAdjustment adjustment, const std::uint32_t implement
         image::Dimensions{160U, 90U},
         linear_srgb(),
         raster_scale,
-        raster_scale
+        raster_scale,
+        {}
     );
 }
 

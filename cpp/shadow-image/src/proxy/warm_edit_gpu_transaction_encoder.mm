@@ -73,6 +73,7 @@ id<MTLBuffer> encode_warm_gpu_transaction_prefix(
             slot,
             slot.adjusted,
             render_pass.neighbourhood,
+            pass.neighbourhood_geometry.get(),
             pass.post.has_value()
                 ? pass.post->program.invocation
                 : pass.before.program.invocation

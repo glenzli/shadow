@@ -20,6 +20,7 @@ ensure_warm_gpu_stage_resources(WarmGpuSlotLease& slot, const WarmGpuNeighbourho
     const WarmGpuSlotBuffers& slot,
     id<MTLBuffer> input,
     const WarmGpuNeighbourhoodStage& stage,
+    id<MTLBuffer> neighbourhood_geometry,
     const MetalAdjustmentInvocation& color_invocation
 );
 

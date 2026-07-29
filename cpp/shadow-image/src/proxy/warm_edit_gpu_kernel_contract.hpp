@@ -98,6 +98,54 @@ static_assert(sizeof(WarmLayerBlendParameters) == 88U);
 static_assert(sizeof(WarmBrushCapsule) == 16U);
 static_assert(sizeof(WarmBrushCellRange) == 8U);
 
+// Repair/Clone uses the same continuous-capsule principle as brush masks, but its geometry is
+// already expressed in the current raster's pixel coordinates. One compact grid is prepared per
+// authored region so a clone kernel can preserve sequential source-snapshot semantics without
+// scanning every point of a long stroke at every pixel.
+struct WarmRetouchCloneParameters final {
+    std::uint32_t width = 0U;
+    std::uint32_t height = 0U;
+    std::uint32_t input_row_floats = 0U;
+    std::uint32_t reserved_0 = 0U;
+    std::uint32_t bounds_origin_x = 0U;
+    std::uint32_t bounds_origin_y = 0U;
+    std::uint32_t bounds_width = 0U;
+    std::uint32_t bounds_height = 0U;
+    std::uint32_t grid_columns = 0U;
+    std::uint32_t grid_rows = 0U;
+    std::uint32_t capsule_count = 0U;
+    std::uint32_t reference_count = 0U;
+    float radius_x = 1.0F;
+    float radius_y = 1.0F;
+    float donor_offset_x = 0.0F;
+    float donor_offset_y = 0.0F;
+    float feather = 0.0F;
+    float reserved_1 = 0.0F;
+    float reserved_2 = 0.0F;
+    float reserved_3 = 0.0F;
+};
+
+struct WarmRetouchCapsule final {
+    float x0 = 0.0F;
+    float y0 = 0.0F;
+    float x1 = 0.0F;
+    float y1 = 0.0F;
+};
+
+struct WarmRetouchCellRange final {
+    std::uint32_t offset = 0U;
+    std::uint32_t count = 0U;
+};
+
+struct WarmRetouchWord final {
+    std::uint32_t value = 0U;
+};
+
+static_assert(sizeof(WarmRetouchCloneParameters) == 80U);
+static_assert(sizeof(WarmRetouchCapsule) == 16U);
+static_assert(sizeof(WarmRetouchCellRange) == 8U);
+static_assert(sizeof(WarmRetouchWord) == 4U);
+
 // Capture sharpening is evaluated in log luminance, matching the CPU technical-detail
 // contract. The two scalar buffers required by its separable Gaussian stay resident beside the
 // RGB slots, so changing Amount/Radius/Threshold never round-trips the warm proxy to the host.
@@ -238,6 +286,10 @@ static_assert(warm_kernel_record<WarmStatus>);
 static_assert(warm_kernel_record<WarmLayerBlendParameters>);
 static_assert(warm_kernel_record<WarmBrushCapsule>);
 static_assert(warm_kernel_record<WarmBrushCellRange>);
+static_assert(warm_kernel_record<WarmRetouchCloneParameters>);
+static_assert(warm_kernel_record<WarmRetouchCapsule>);
+static_assert(warm_kernel_record<WarmRetouchCellRange>);
+static_assert(warm_kernel_record<WarmRetouchWord>);
 static_assert(warm_kernel_record<WarmDenoiseParameters>);
 static_assert(warm_kernel_record<WarmSharpenParameters>);
 static_assert(warm_kernel_record<WarmTextureParameters>);
@@ -254,6 +306,10 @@ static_assert(alignof(WarmStatus) == alignof(std::uint32_t));
 static_assert(alignof(WarmLayerBlendParameters) == alignof(std::uint32_t));
 static_assert(alignof(WarmBrushCapsule) == alignof(std::uint32_t));
 static_assert(alignof(WarmBrushCellRange) == alignof(std::uint32_t));
+static_assert(alignof(WarmRetouchCloneParameters) == alignof(std::uint32_t));
+static_assert(alignof(WarmRetouchCapsule) == alignof(std::uint32_t));
+static_assert(alignof(WarmRetouchCellRange) == alignof(std::uint32_t));
+static_assert(alignof(WarmRetouchWord) == alignof(std::uint32_t));
 static_assert(alignof(WarmDenoiseParameters) == alignof(std::uint32_t));
 static_assert(alignof(WarmSharpenParameters) == alignof(std::uint32_t));
 static_assert(alignof(WarmTextureParameters) == alignof(std::uint32_t));
@@ -271,6 +327,10 @@ static_assert(offsetof(WarmStatus, earliest_step) == 4U);
 static_assert(offsetof(WarmLayerBlendParameters, full_width) == 24U);
 static_assert(offsetof(WarmLayerBlendParameters, opacity) == 40U);
 static_assert(offsetof(WarmLayerBlendParameters, brush_grid_columns) == 72U);
+static_assert(offsetof(WarmRetouchCloneParameters, bounds_origin_x) == 16U);
+static_assert(offsetof(WarmRetouchCloneParameters, grid_columns) == 32U);
+static_assert(offsetof(WarmRetouchCloneParameters, radius_x) == 48U);
+static_assert(offsetof(WarmRetouchCloneParameters, feather) == 64U);
 static_assert(offsetof(WarmDenoiseParameters, luminance_strength) == 16U);
 static_assert(offsetof(WarmDenoiseParameters, red_luminance) == 32U);
 static_assert(offsetof(WarmSharpenParameters, sigma_x) == 16U);

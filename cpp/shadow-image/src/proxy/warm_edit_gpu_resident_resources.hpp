@@ -15,6 +15,9 @@
 #include <optional>
 #include <stop_token>
 #include <string>
+#include <vector>
+
+#include "warm_edit_gpu_kernel_contract.hpp"
 
 namespace shadow::image {
 struct WarmEditPreviewGpuStats;
@@ -72,6 +75,12 @@ struct WarmProgramBufferAttempt final {
 };
 
 struct WarmBrushBufferAttempt final {
+    RetainedMetalBuffer buffer;
+    bool cancelled = false;
+    std::string diagnostic;
+};
+
+struct WarmRetouchBufferAttempt final {
     RetainedMetalBuffer buffer;
     bool cancelled = false;
     std::string diagnostic;
@@ -138,6 +147,10 @@ class WarmGpuResidentResources final {
     acquire_program_buffers(const PreparedMetalAdjustment& program, std::stop_token cancellation);
     [[nodiscard]] WarmBrushBufferAttempt acquire_brush_index_buffer(
         const std::vector<std::uint32_t>& words,
+        std::stop_token cancellation
+    );
+    [[nodiscard]] WarmRetouchBufferAttempt acquire_retouch_geometry_buffer(
+        const std::vector<WarmRetouchWord>& words,
         std::stop_token cancellation
     );
     [[nodiscard]] std::optional<WarmGpuSlotLease> acquire_slot(std::stop_token cancellation);
