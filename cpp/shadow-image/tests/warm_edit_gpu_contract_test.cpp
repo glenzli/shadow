@@ -11,6 +11,8 @@ int main() {
     failures += contract::run_resident_gpu_texture_contract();
     failures += contract::run_resident_gpu_clarity_contract();
     failures += contract::run_resident_gpu_local_contrast_contract();
+    failures += contract::run_resident_gpu_selective_tone_contract();
+    failures += contract::run_resident_gpu_composed_stage_contract();
     failures += contract::run_resident_gpu_dehaze_and_defringe_contract();
     failures += contract::run_advanced_resource_cache_contract();
     failures += contract::run_perceptual_resource_cache_contract();

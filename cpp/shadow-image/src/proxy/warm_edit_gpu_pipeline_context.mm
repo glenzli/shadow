@@ -293,17 +293,32 @@ WarmMetalContext::WarmMetalContext() {
             [library newFunctionWithName:@"warm_guided_combine_v1"];
         id<MTLFunction> local_contrast_apply_function =
             [library newFunctionWithName:@"warm_local_contrast_apply_v1"];
+        id<MTLFunction> selective_tone_guide_function =
+            [library newFunctionWithName:@"warm_selective_tone_guide_v1"];
+        id<MTLFunction> reflect_box_horizontal_function =
+            [library newFunctionWithName:@"warm_reflect_box_horizontal_v1"];
+        id<MTLFunction> reflect_box_vertical_function =
+            [library newFunctionWithName:@"warm_reflect_box_vertical_v1"];
+        id<MTLFunction> selective_tone_apply_function =
+            [library newFunctionWithName:@"warm_selective_tone_apply_v1"];
         if (box_horizontal_function == nil || box_vertical_function == nil ||
             scalar_square_function == nil || guided_coefficients_function == nil ||
-            guided_combine_function == nil || local_contrast_apply_function == nil) {
+            guided_combine_function == nil || local_contrast_apply_function == nil ||
+            selective_tone_guide_function == nil || reflect_box_horizontal_function == nil ||
+            reflect_box_vertical_function == nil || selective_tone_apply_function == nil) {
             [box_horizontal_function release];
             [box_vertical_function release];
             [scalar_square_function release];
             [guided_coefficients_function release];
             [guided_combine_function release];
             [local_contrast_apply_function release];
+            [selective_tone_guide_function release];
+            [reflect_box_horizontal_function release];
+            [reflect_box_vertical_function release];
+            [selective_tone_apply_function release];
             [library release];
-            diagnostic_ = "Metal warm-preview local-contrast shader entry point is unavailable";
+            diagnostic_ =
+                "Metal warm-preview guided-stage shader entry point is unavailable";
             return;
         }
         box_horizontal_pipeline_ =
@@ -325,17 +340,40 @@ WarmMetalContext::WarmMetalContext() {
             [device_ newComputePipelineStateWithFunction:local_contrast_apply_function
                                                    error:&error];
         [local_contrast_apply_function release];
+        selective_tone_guide_pipeline_ =
+            [device_ newComputePipelineStateWithFunction:selective_tone_guide_function
+                                                   error:&error];
+        [selective_tone_guide_function release];
+        reflect_box_horizontal_pipeline_ =
+            [device_ newComputePipelineStateWithFunction:reflect_box_horizontal_function
+                                                   error:&error];
+        [reflect_box_horizontal_function release];
+        reflect_box_vertical_pipeline_ =
+            [device_ newComputePipelineStateWithFunction:reflect_box_vertical_function
+                                                   error:&error];
+        [reflect_box_vertical_function release];
+        selective_tone_apply_pipeline_ =
+            [device_ newComputePipelineStateWithFunction:selective_tone_apply_function
+                                                   error:&error];
+        [selective_tone_apply_function release];
         [library release];
         if (box_horizontal_pipeline_ == nil || box_vertical_pipeline_ == nil ||
             scalar_square_pipeline_ == nil || guided_coefficients_pipeline_ == nil ||
-            guided_combine_pipeline_ == nil || local_contrast_apply_pipeline_ == nil) {
-            diagnostic_ = "Metal warm-preview local-contrast pipeline creation failed: " +
+            guided_combine_pipeline_ == nil || local_contrast_apply_pipeline_ == nil ||
+            selective_tone_guide_pipeline_ == nil ||
+            reflect_box_horizontal_pipeline_ == nil || reflect_box_vertical_pipeline_ == nil ||
+            selective_tone_apply_pipeline_ == nil) {
+            diagnostic_ = "Metal warm-preview guided-stage pipeline creation failed: " +
                           error_description(error);
         }
     }
 }
 
 WarmMetalContext::~WarmMetalContext() {
+    [selective_tone_apply_pipeline_ release];
+    [reflect_box_vertical_pipeline_ release];
+    [reflect_box_horizontal_pipeline_ release];
+    [selective_tone_guide_pipeline_ release];
     [local_contrast_apply_pipeline_ release];
     [guided_combine_pipeline_ release];
     [guided_coefficients_pipeline_ release];
@@ -369,7 +407,10 @@ bool WarmMetalContext::valid() const noexcept {
            dehaze_defringe_pipeline_ != nil && texture_clarity_apply_pipeline_ != nil &&
            box_horizontal_pipeline_ != nil && box_vertical_pipeline_ != nil &&
            scalar_square_pipeline_ != nil && guided_coefficients_pipeline_ != nil &&
-           guided_combine_pipeline_ != nil && local_contrast_apply_pipeline_ != nil;
+           guided_combine_pipeline_ != nil && local_contrast_apply_pipeline_ != nil &&
+           selective_tone_guide_pipeline_ != nil &&
+           reflect_box_horizontal_pipeline_ != nil &&
+           reflect_box_vertical_pipeline_ != nil && selective_tone_apply_pipeline_ != nil;
 }
 
 id<MTLDevice> WarmMetalContext::device() const noexcept { return device_; }
@@ -450,6 +491,22 @@ id<MTLComputePipelineState> WarmMetalContext::guided_combine_pipeline() const no
 
 id<MTLComputePipelineState> WarmMetalContext::local_contrast_apply_pipeline() const noexcept {
     return local_contrast_apply_pipeline_;
+}
+
+id<MTLComputePipelineState> WarmMetalContext::selective_tone_guide_pipeline() const noexcept {
+    return selective_tone_guide_pipeline_;
+}
+
+id<MTLComputePipelineState> WarmMetalContext::reflect_box_horizontal_pipeline() const noexcept {
+    return reflect_box_horizontal_pipeline_;
+}
+
+id<MTLComputePipelineState> WarmMetalContext::reflect_box_vertical_pipeline() const noexcept {
+    return reflect_box_vertical_pipeline_;
+}
+
+id<MTLComputePipelineState> WarmMetalContext::selective_tone_apply_pipeline() const noexcept {
+    return selective_tone_apply_pipeline_;
 }
 
 const std::string& WarmMetalContext::diagnostic() const noexcept { return diagnostic_; }

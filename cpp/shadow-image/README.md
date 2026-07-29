@@ -225,7 +225,8 @@ Decoder contract tests follow the production responsibilities instead of one agg
 - `tests/edit_preview_execution_contract_test.cpp` owns output analysis, cancellation, backend
   receipts, and execution identity.
 - `tests/detail_tile_session_contract_test.cpp` owns one-time source preparation, retained-source
-  immutability, exact crop coordinates, and render-local edit isolation.
+  immutability, exact crop coordinates, render-local edit isolation, resident Metal tile reuse,
+  and whole-tile CPU fallback receipts.
 - `tests/detail_tile_display_output_contract_test.cpp` owns processed-linear admission, padded
   rows, scene-to-display rolloff, shared-channel dithering, and bounded Oklab gamut mapping.
 - `tests/detail_tile_seam_contract_test.cpp` owns full-versus-irregular tile equivalence for
@@ -301,8 +302,11 @@ proxy-size/JPEG-quality boundary and RAW-plan schema/intent checks. Lifecycle-sp
 and rendering stay with the warm-preview, full-detail, and proxy owners rather than with these
 leaf modules. `src/proxy/full_edit_detail.cpp` is the complete retained-source/tile lifecycle
 owner; its memory policy, optical source preparation, apron expansion, and render methods move
-together. `src/proxy/proxy_rendering.cpp` owns the ordinary one-shot reference-proxy pipeline and
-the canonical aspect-preserving proxy dimension calculation.
+together. `src/proxy/full_edit_detail_gpu_cache.*` is its independent runtime accelerator: it
+owns the bounded LRU of expanded working-tile uploads, GPU execution, exact core readback, and
+post-dispatch resident-memory accounting. It does not own source geometry, fallback semantics, or
+durable cache identity. `src/proxy/proxy_rendering.cpp` owns the ordinary one-shot reference-proxy
+pipeline and the canonical aspect-preserving proxy dimension calculation.
 `src/proxy/edited_proxy_rendering.cpp` owns only the one-shot adjusted-proxy entry points and
 delegates the retained preview lifecycle to `WarmEditPreviewSession`.
 `src/proxy/edit_preview_rendering.*` owns stateless flat-node/layer execution, CPU/Metal fallback
@@ -370,21 +374,29 @@ The embedded Warm Metal program is a separate language owner in
 `src/proxy/warm_edit_gpu_msl.hpp`; the Objective-C++ runtime consumes it without owning its
 kernel implementation. Its mirrored host records and checked buffer layout live in
 `src/proxy/warm_edit_gpu_kernel_contract.hpp`.
-Pure, cross-platform neighborhood-stage recognition and before/after plan rewriting live in
-`src/proxy/warm_edit_gpu_render_plan.*`; one exhaustive variant records the selected route and
-the Objective-C++ runtime only consumes that plan.
+Pure, cross-platform lowering of one neighborhood operation into immutable kernel parameters lives
+in `src/proxy/warm_edit_gpu_neighbourhood_plan.*`. `src/proxy/warm_edit_gpu_render_plan.*` is the
+smaller composition owner: it preserves every pixel-local gap while collecting any number of
+supported neighborhood operations into one ordered resident transaction.
 Process-wide Metal device, queue, runtime compilation, and the all-or-nothing pipeline registry
 are owned by `src/proxy/warm_edit_gpu_pipeline_context.*`.
 Session-resident source buffers, side-table caches, lazy neighborhood rasters, slot leases,
 working-set admission, synchronization, and GPU statistics move together in
 `src/proxy/warm_edit_gpu_resident_resources.*`; the dispatcher only receives leased buffer views.
-Program lowering, stage-specific buffer selection, Metal command encoding, kernel order, status
-interpretation, and readback form one execution pipeline in
-`src/proxy/warm_edit_gpu_dispatcher.*`; `warm_edit_gpu.mm` is the thin session facade.
+`src/proxy/warm_edit_gpu_stage_encoder.*` owns stage-specific resource admission, Metal kernel
+order, and intermediate-buffer selection. `src/proxy/warm_edit_gpu_dispatcher.*` packs the
+pixel-local programs, encodes that ordered plan into one command buffer, interprets status, and
+performs the single final readback. `warm_edit_gpu.mm` is the thin resident-raster session facade
+shared by complete warm proxies and bounded full-detail working tiles. Callers pass the full-image
+adjustment and display origins explicitly so tiled finishing effects and dithering do not acquire
+seams.
 `tests/warm_edit_gpu_contract_test.cpp` is the thin runner for the corresponding real-device
 contract. Its responsibility-named children mirror resident session lifecycle, technical and
-creative detail dispatch, and resident side-table caches; their only shared fixture owns
-CPU-oracle parity inputs and comparisons.
+creative detail dispatch, guided Selective Tone, composed neighborhood order, and resident
+side-table caches; their only shared fixture owns CPU-oracle parity inputs and comparisons.
+Selective Tone and composed-stage children own opt-in CPU-versus-resident-Metal benchmarks, while
+the detail-tile seam contract proves both one guided mask and a composed neighborhood plan remain
+invariant across apron-expanded full-resolution tiles.
 
 The edit path accepts explicitly native interleaved RGB float32, scene-referred, linear-light data
 with named RGB primaries, white point, and luminance coefficients. It is not legal to feed the

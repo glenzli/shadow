@@ -25,6 +25,22 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
     const bool retain_linear_for_analysis,
     const std::stop_token cancellation
 ) const {
+    return render(
+        nodes,
+        plan,
+        retain_linear_for_analysis,
+        WarmEditGpuRenderContext{},
+        cancellation
+    );
+}
+
+WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
+    const std::span<const AdjustmentNode> nodes,
+    const EditExecutionPlan& plan,
+    const bool retain_linear_for_analysis,
+    const WarmEditGpuRenderContext context,
+    const std::stop_token cancellation
+) const {
     if (cancellation.stop_requested()) {
         return RenderAttempt{
             .status = RenderStatus::cancelled,
@@ -44,6 +60,7 @@ WarmEditGpuSession::RenderAttempt WarmEditGpuSession::render(
         nodes,
         plan,
         retain_linear_for_analysis,
+        context,
         cancellation
     );
 }

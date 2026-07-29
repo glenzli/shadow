@@ -130,6 +130,27 @@ struct WarmLocalContrastParameters {
     float reserved;
 };
 
+struct WarmSelectiveToneParameters {
+    uint width;
+    uint height;
+    uint reserved_0;
+    uint reserved_1;
+    float highlights;
+    float shadows;
+    float whites;
+    float blacks;
+    float red_luminance;
+    float green_luminance;
+    float blue_luminance;
+    float reserved_2;
+    float4 rgb_to_xyz_row_0;
+    float4 rgb_to_xyz_row_1;
+    float4 rgb_to_xyz_row_2;
+    float4 xyz_to_rgb_row_0;
+    float4 xyz_to_rgb_row_1;
+    float4 xyz_to_rgb_row_2;
+};
+
 inline float3 linear_srgb_to_oklab(float3 rgb) {
     const float l = signed_cbrt(
         0.4122214708f * rgb.r + 0.5363325363f * rgb.g + 0.0514459929f * rgb.b
@@ -913,6 +934,76 @@ kernel void warm_box_horizontal_v1(
         / float(radius * 2 + 1);
 }
 
+kernel void warm_selective_tone_guide_v1(
+    device const float* input [[buffer(0)]],
+    device float* guide [[buffer(1)]],
+    constant WarmSelectiveToneParameters& parameters [[buffer(2)]],
+    uint2 position [[thread_position_in_grid]]
+) {
+    if (position.x >= parameters.width || position.y >= parameters.height) {
+        return;
+    }
+    const uint pixel = position.y * parameters.width + position.x;
+    const uint rgb_index = pixel * 3u;
+    const float luminance = input[rgb_index] * parameters.red_luminance
+        + input[rgb_index + 1u] * parameters.green_luminance
+        + input[rgb_index + 2u] * parameters.blue_luminance;
+    guide[pixel] = log2(max(luminance, 5.9604645e-8f) / 0.18f);
+}
+
+// Full-detail Selective Tone uses a 48-pixel level-zero radius. Keep a separate bounded
+// reflect-101 box pair instead of doubling the loop cost of Local Contrast's smaller
+// replicated-border kernels.
+kernel void warm_reflect_box_horizontal_v1(
+    device const float* input [[buffer(0)]],
+    device float* output [[buffer(1)]],
+    constant WarmBoxParameters& parameters [[buffer(2)]],
+    uint2 position [[thread_position_in_grid]]
+) {
+    if (position.x >= parameters.width || position.y >= parameters.height) {
+        return;
+    }
+    float sum = 0.0f;
+    const int radius = int(parameters.radius);
+    for (int offset = -64; offset <= 64; ++offset) {
+        if (abs(offset) > radius) {
+            continue;
+        }
+        const uint sample_x = warm_reflect101_coordinate(
+            int(position.x) + offset,
+            parameters.width
+        );
+        sum += input[position.y * parameters.width + sample_x];
+    }
+    output[position.y * parameters.width + position.x] = sum
+        / float(radius * 2 + 1);
+}
+
+kernel void warm_reflect_box_vertical_v1(
+    device const float* input [[buffer(0)]],
+    device float* output [[buffer(1)]],
+    constant WarmBoxParameters& parameters [[buffer(2)]],
+    uint2 position [[thread_position_in_grid]]
+) {
+    if (position.x >= parameters.width || position.y >= parameters.height) {
+        return;
+    }
+    float sum = 0.0f;
+    const int radius = int(parameters.radius);
+    for (int offset = -64; offset <= 64; ++offset) {
+        if (abs(offset) > radius) {
+            continue;
+        }
+        const uint sample_y = warm_reflect101_coordinate(
+            int(position.y) + offset,
+            parameters.height
+        );
+        sum += input[sample_y * parameters.width + position.x];
+    }
+    output[position.y * parameters.width + position.x] = sum
+        / float(radius * 2 + 1);
+}
+
 kernel void warm_box_vertical_v1(
     device const float* input [[buffer(0)]],
     device float* output [[buffer(1)]],
@@ -989,6 +1080,92 @@ kernel void warm_guided_combine_v1(
     }
     const uint pixel = position.y * parameters.width + position.x;
     output[pixel] = mean_a[pixel] * guide[pixel] + mean_b[pixel];
+}
+
+inline float warm_log2_one_plus_exp2(float value) {
+    return value >= 0.0f
+        ? value + log2(1.0f + exp2(-value))
+        : log2(1.0f + exp2(value));
+}
+
+inline float warm_lower_ev_hinge(float value, float boundary, float softness) {
+    return softness * warm_log2_one_plus_exp2((boundary - value) / softness);
+}
+
+inline float warm_upper_ev_hinge(float value, float boundary, float softness) {
+    return softness * warm_log2_one_plus_exp2((value - boundary) / softness);
+}
+
+kernel void warm_selective_tone_apply_v1(
+    device const float* input [[buffer(0)]],
+    device const float* mask [[buffer(1)]],
+    device float* output [[buffer(2)]],
+    constant WarmSelectiveToneParameters& parameters [[buffer(3)]],
+    uint2 position [[thread_position_in_grid]]
+) {
+    if (position.x >= parameters.width || position.y >= parameters.height) {
+        return;
+    }
+    const uint pixel = position.y * parameters.width + position.x;
+    const uint rgb_index = pixel * 3u;
+    const float3 rgb = float3(
+        input[rgb_index], input[rgb_index + 1u], input[rgb_index + 2u]
+    );
+    float3 lab = xyz_to_oklab(multiply_rows(
+        parameters.rgb_to_xyz_row_0,
+        parameters.rgb_to_xyz_row_1,
+        parameters.rgb_to_xyz_row_2,
+        rgb
+    ));
+    float3 adjusted = rgb;
+    if (lab.x > 0.0f && isfinite(lab.x)) {
+        constexpr float endpoint_strength = 0.86f;
+        constexpr float endpoint_boundary_ev = 1.45f;
+        constexpr float endpoint_softness_ev = 0.55f;
+        constexpr float recovery_strength = 0.76f;
+        constexpr float shadow_boundary_ev = -0.15f;
+        constexpr float highlight_boundary_ev = 0.75f;
+        constexpr float recovery_softness_ev = 0.95f;
+        const float mask_ev = mask[pixel];
+        float adjusted_ev = mask_ev;
+        adjusted_ev += endpoint_strength * parameters.blacks
+            * warm_lower_ev_hinge(
+                adjusted_ev,
+                -endpoint_boundary_ev,
+                endpoint_softness_ev
+            );
+        adjusted_ev += recovery_strength * parameters.shadows
+            * warm_lower_ev_hinge(
+                adjusted_ev,
+                shadow_boundary_ev,
+                recovery_softness_ev
+            );
+        adjusted_ev += recovery_strength * parameters.highlights
+            * warm_upper_ev_hinge(
+                adjusted_ev,
+                highlight_boundary_ev,
+                recovery_softness_ev
+            );
+        adjusted_ev += endpoint_strength * parameters.whites
+            * warm_upper_ev_hinge(
+                adjusted_ev,
+                endpoint_boundary_ev,
+                endpoint_softness_ev
+            );
+        const float lightness_gain = exp2((adjusted_ev - mask_ev) / 3.0f);
+        if (lightness_gain > 0.0f && isfinite(lightness_gain)) {
+            lab.x *= lightness_gain;
+            adjusted = multiply_rows(
+                parameters.xyz_to_rgb_row_0,
+                parameters.xyz_to_rgb_row_1,
+                parameters.xyz_to_rgb_row_2,
+                oklab_to_xyz(lab)
+            );
+        }
+    }
+    output[rgb_index] = adjusted.x;
+    output[rgb_index + 1u] = adjusted.y;
+    output[rgb_index + 2u] = adjusted.z;
 }
 
 kernel void warm_local_contrast_apply_v1(

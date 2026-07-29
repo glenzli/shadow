@@ -51,21 +51,6 @@ inline constexpr std::uint16_t nikon_nef_high_efficiency_star_compression = 14U;
         || compression == nikon_nef_high_efficiency_star_compression;
 }
 
-// The public LibRaw processed-RGB developer is stable on the Z9 lossless NEF fixtures, while
-// Shadow's new owned RawFrame path is not yet safe for that exact source family.  Advertising an
-// owned frame would route the host into the sensor-domain developer before it has a chance to
-// choose LibRaw's proven processed compatibility path. Keep reference-RGB editing available and
-// make only the unverified RawFrame capability unavailable until that developer has a dedicated
-// Z9 calibration/layout validation suite.
-[[nodiscard]] bool libraw_raw_frame_is_temporarily_unsafe(
-    const LibRaw& decoder
-) noexcept {
-    const auto& identity = decoder.imgdata.idata;
-    return decoder.imgdata.makernotes.nikon.NEFCompression == 3U
-        && std::string_view(identity.normalized_make) == "Nikon"
-        && std::string_view(identity.normalized_model) == "Z 9";
-}
-
 [[nodiscard]] std::string dng_version_string(const unsigned version) {
     if (version == 0U) {
         return {};
@@ -510,7 +495,6 @@ public:
         capabilities_.metadata = true;
         capabilities_.embedded_previews = !previews_.empty();
         capabilities_.raw_frame = decoder_can_unpack
-            && !libraw_raw_frame_is_temporarily_unsafe(decoder_)
             && (decoder_.imgdata.idata.filters != 0U
                 || decoder_.imgdata.idata.colors == 1);
         capabilities_.reference_rgb = decoder_can_unpack;

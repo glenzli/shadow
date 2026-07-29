@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -151,9 +152,35 @@ struct WarmLocalContrastParameters final {
     float reserved = 0.0F;
 };
 
+// Selective Tone evaluates its edge-aware EV mask in the source working space, then changes
+// Oklab lightness without changing perceptual hue/chroma. Keep the validated working-space
+// matrices in this stage record so it remains correct even when the following pixel-local plan
+// is empty and therefore has no reason to lower an Oklab operation of its own.
+struct WarmSelectiveToneParameters final {
+    std::uint32_t width = 0U;
+    std::uint32_t height = 0U;
+    std::uint32_t reserved_0 = 0U;
+    std::uint32_t reserved_1 = 0U;
+    float highlights = 0.0F;
+    float shadows = 0.0F;
+    float whites = 0.0F;
+    float blacks = 0.0F;
+    float red_luminance = 0.2126F;
+    float green_luminance = 0.7152F;
+    float blue_luminance = 0.0722F;
+    float reserved_2 = 0.0F;
+    std::array<float, 4U> rgb_to_xyz_row_0{};
+    std::array<float, 4U> rgb_to_xyz_row_1{};
+    std::array<float, 4U> rgb_to_xyz_row_2{};
+    std::array<float, 4U> xyz_to_rgb_row_0{};
+    std::array<float, 4U> xyz_to_rgb_row_1{};
+    std::array<float, 4U> xyz_to_rgb_row_2{};
+};
+
 static_assert(sizeof(WarmBoxParameters) == 16U);
 static_assert(sizeof(WarmGuidedCoefficientsParameters) == 16U);
 static_assert(sizeof(WarmLocalContrastParameters) == 16U);
+static_assert(sizeof(WarmSelectiveToneParameters) == 144U);
 
 template <typename Record>
 inline constexpr bool warm_kernel_record =
@@ -171,6 +198,7 @@ static_assert(warm_kernel_record<WarmTextureClarityParameters>);
 static_assert(warm_kernel_record<WarmBoxParameters>);
 static_assert(warm_kernel_record<WarmGuidedCoefficientsParameters>);
 static_assert(warm_kernel_record<WarmLocalContrastParameters>);
+static_assert(warm_kernel_record<WarmSelectiveToneParameters>);
 
 static_assert(alignof(WarmDisplayParameters) == alignof(std::uint32_t));
 static_assert(alignof(WarmStatus) == alignof(std::uint32_t));
@@ -184,6 +212,7 @@ static_assert(alignof(WarmTextureClarityParameters) == alignof(std::uint32_t));
 static_assert(alignof(WarmBoxParameters) == alignof(std::uint32_t));
 static_assert(alignof(WarmGuidedCoefficientsParameters) == alignof(std::uint32_t));
 static_assert(alignof(WarmLocalContrastParameters) == alignof(std::uint32_t));
+static_assert(alignof(WarmSelectiveToneParameters) == alignof(std::uint32_t));
 
 static_assert(offsetof(WarmDisplayParameters, apply_scene_curve) == 8U);
 static_assert(offsetof(WarmDisplayParameters, retain_linear) == 12U);
@@ -198,6 +227,10 @@ static_assert(offsetof(WarmClarityParameters, sigma_y) == 16U);
 static_assert(offsetof(WarmDehazeDefringeParameters, red_luminance) == 28U);
 static_assert(offsetof(WarmTextureClarityParameters, sigma_y) == 16U);
 static_assert(offsetof(WarmBoxParameters, radius) == 8U);
+static_assert(offsetof(WarmSelectiveToneParameters, highlights) == 16U);
+static_assert(offsetof(WarmSelectiveToneParameters, red_luminance) == 32U);
+static_assert(offsetof(WarmSelectiveToneParameters, rgb_to_xyz_row_0) == 48U);
+static_assert(offsetof(WarmSelectiveToneParameters, xyz_to_rgb_row_2) == 128U);
 static_assert(offsetof(WarmGuidedCoefficientsParameters, epsilon) == 8U);
 static_assert(offsetof(WarmLocalContrastParameters, amount) == 8U);
 

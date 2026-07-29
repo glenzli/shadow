@@ -12,12 +12,12 @@
 
 namespace {
 
-using shadow::image::test_support::SyntheticDecodeSession;
 using shadow::image::test_support::expect;
 using shadow::image::test_support::failures;
 using shadow::image::test_support::metadata;
 using shadow::image::test_support::neutral_plan;
 using shadow::image::test_support::reference_rgb;
+using shadow::image::test_support::SyntheticDecodeSession;
 
 void irregular_tiles_match_one_full_pixel_local_execution_without_seams() {
     constexpr image::Dimensions dimensions{4, 3};
@@ -34,18 +34,21 @@ void irregular_tiles_match_one_full_pixel_local_execution_without_seams() {
         },
         image::AdjustmentNode{
             .node_id = "curve",
-            .parameters = image::OklabLightnessToneCurve{
-                .lightness = image::ToneCurveSet{
-                    .points = {{0.0, 0.05}, {0.45, 0.3}, {1.0, 0.95}},
+            .parameters =
+                image::OklabLightnessToneCurve{
+                    .lightness =
+                        image::ToneCurveSet{
+                            .points = {{0.0, 0.05}, {0.45, 0.3}, {1.0, 0.95}},
+                        },
                 },
-            },
         },
         image::AdjustmentNode{
             .node_id = "white-balance",
-            .parameters = image::RgbWhiteBalanceAdjustment{
-                .temperature = 0.1,
-                .tint = -0.05,
-            },
+            .parameters =
+                image::RgbWhiteBalanceAdjustment{
+                    .temperature = 0.1,
+                    .tint = -0.05,
+                },
         },
         image::AdjustmentNode{
             .node_id = "saturation",
@@ -67,8 +70,8 @@ void irregular_tiles_match_one_full_pixel_local_execution_without_seams() {
          }) {
         const auto tile = session.render_rgb8(plan, rect);
         for (std::uint32_t row = 0; row < rect.height; ++row) {
-            const auto source = tile.bytes.cbegin()
-                + static_cast<std::ptrdiff_t>(row * tile.row_stride_bytes);
+            const auto source =
+                tile.bytes.cbegin() + static_cast<std::ptrdiff_t>(row * tile.row_stride_bytes);
             const std::size_t destination =
                 (static_cast<std::size_t>(rect.y + row) * dimensions.width + rect.x) * 3U;
             std::copy_n(
@@ -93,12 +96,13 @@ void neighborhood_tiles_accumulate_two_sharpen_footprints_without_seams() {
             .node_id = "wide-sharpen-first",
             .parameter_schema_version = image::detail_effects_parameter_schema_version,
             .implementation_version = image::technical_detail_implementation_version,
-            .parameters = image::SharpenAdjustment{
-                .amount = 0.7,
-                .radius = 5.0,
-                .threshold = 0.05,
-                .masking = 0.2,
-            },
+            .parameters =
+                image::SharpenAdjustment{
+                    .amount = 0.7,
+                    .radius = 5.0,
+                    .threshold = 0.05,
+                    .masking = 0.2,
+                },
         },
         image::AdjustmentNode{
             .node_id = "wide-sharpen-second",
@@ -135,8 +139,8 @@ void neighborhood_tiles_accumulate_two_sharpen_footprints_without_seams() {
             const image::DetailTileRect rect{x, y, width, height};
             const auto tile = session.render_rgb8(plan, rect);
             for (std::uint32_t row = 0U; row < height; ++row) {
-                const auto source = tile.bytes.cbegin()
-                    + static_cast<std::ptrdiff_t>(row * tile.row_stride_bytes);
+                const auto source =
+                    tile.bytes.cbegin() + static_cast<std::ptrdiff_t>(row * tile.row_stride_bytes);
                 const std::size_t destination =
                     (static_cast<std::size_t>(y + row) * dimensions.width + x) * 3U;
                 std::copy_n(
@@ -160,17 +164,13 @@ void guided_selective_tone_tiles_match_full_execution_at_edges_and_boundaries() 
         for (std::uint32_t x = 0U; x < dimensions.width; ++x) {
             // A broad dark region with gentle texture meets a three-stop highlight edge. This
             // exercises both the self-guided mask and a tile boundary that crosses the edge.
-            const double base = x < 112U ? 0.045 + 0.004 * std::sin(
-                static_cast<double>(x + y) * 0.18
-            ) : 0.72 + 0.02 * std::cos(static_cast<double>(y) * 0.24);
-            const auto encoded = static_cast<std::uint16_t>(std::clamp(
-                std::llround(base * 65'535.0),
-                0LL,
-                65'535LL
-            ));
-            const std::size_t offset = (
-                static_cast<std::size_t>(y) * dimensions.width + x
-            ) * 3U;
+            const double base = x < 112U
+                                    ? 0.045 + 0.004 * std::sin(static_cast<double>(x + y) * 0.18)
+                                    : 0.72 + 0.02 * std::cos(static_cast<double>(y) * 0.24);
+            const auto encoded = static_cast<std::uint16_t>(
+                std::clamp(std::llround(base * 65'535.0), 0LL, 65'535LL)
+            );
+            const std::size_t offset = (static_cast<std::size_t>(y) * dimensions.width + x) * 3U;
             source.samples[offset] = encoded;
             source.samples[offset + 1U] = encoded;
             source.samples[offset + 2U] = encoded;
@@ -195,7 +195,7 @@ void guided_selective_tone_tiles_match_full_execution_at_edges_and_boundaries() 
         image::footprint(plan[0].parameters).horizontal_radius
             == static_cast<std::uint32_t>(
                 image::selective_tone_guided_mask_radius_level_zero
-                    * image::selective_tone_guided_filter_box_passes
+                * image::selective_tone_guided_filter_box_passes
             ),
         "complete guided selective tone declares both box-pass supports for its detail-tile apron"
     );
@@ -212,11 +212,10 @@ void guided_selective_tone_tiles_match_full_execution_at_edges_and_boundaries() 
     for (const image::DetailTileRect rect : tiles) {
         const auto tile = session.render_rgb8(plan, rect);
         for (std::uint32_t row = 0U; row < rect.height; ++row) {
-            const auto begin = tile.bytes.cbegin()
-                + static_cast<std::ptrdiff_t>(row * tile.row_stride_bytes);
-            const std::size_t destination = (
-                static_cast<std::size_t>(rect.y + row) * dimensions.width + rect.x
-            ) * 3U;
+            const auto begin =
+                tile.bytes.cbegin() + static_cast<std::ptrdiff_t>(row * tile.row_stride_bytes);
+            const std::size_t destination =
+                (static_cast<std::size_t>(rect.y + row) * dimensions.width + rect.x) * 3U;
             std::copy_n(
                 begin,
                 static_cast<std::ptrdiff_t>(tile.row_stride_bytes),
@@ -230,6 +229,70 @@ void guided_selective_tone_tiles_match_full_execution_at_edges_and_boundaries() 
     );
 }
 
+void composed_neighborhood_tiles_match_one_resident_execution_without_seams() {
+    constexpr image::Dimensions dimensions{224, 72};
+    SyntheticDecodeSession decoder(metadata(dimensions), reference_rgb(dimensions));
+    const auto session = image::prepare_full_edit_detail(decoder);
+    const std::array plan{
+        image::AdjustmentNode{
+            .node_id = "guided-selective-tone",
+            .parameter_schema_version = image::selective_tone_parameter_schema_version,
+            .implementation_version = image::selective_tone_implementation_version,
+            .parameters =
+                image::SelectiveToneAdjustment{
+                    .highlights = -0.42,
+                    .shadows = 0.56,
+                    .whites = -0.18,
+                    .blacks = 0.22,
+                },
+        },
+        image::AdjustmentNode{
+            .node_id = "between-stage-exposure",
+            .parameters = image::ExposureAdjustment{.stops = 0.18},
+        },
+        image::AdjustmentNode{
+            .node_id = "technical-sharpen",
+            .parameter_schema_version = image::detail_effects_parameter_schema_version,
+            .implementation_version = image::technical_detail_implementation_version,
+            .parameters = image::SharpenAdjustment{
+                .execution_pass = image::DetailEffectsExecutionPass::technical_detail,
+                .amount = 0.28,
+                .radius = 1.2,
+                .threshold = 0.06,
+                .masking = 0.25,
+            },
+        },
+    };
+    const auto full = session.render_rgb8(plan, {0, 0, dimensions.width, dimensions.height});
+    std::vector<std::uint8_t> stitched(full.bytes.size(), 0U);
+    constexpr std::array tiles{
+        image::DetailTileRect{0U, 0U, 73U, 29U},
+        image::DetailTileRect{73U, 0U, 76U, 29U},
+        image::DetailTileRect{149U, 0U, 75U, 29U},
+        image::DetailTileRect{0U, 29U, 73U, 43U},
+        image::DetailTileRect{73U, 29U, 76U, 43U},
+        image::DetailTileRect{149U, 29U, 75U, 43U},
+    };
+    for (const image::DetailTileRect rect : tiles) {
+        const auto tile = session.render_rgb8(plan, rect);
+        for (std::uint32_t row = 0U; row < rect.height; ++row) {
+            const auto begin =
+                tile.bytes.cbegin() + static_cast<std::ptrdiff_t>(row * tile.row_stride_bytes);
+            const std::size_t destination =
+                (static_cast<std::size_t>(rect.y + row) * dimensions.width + rect.x) * 3U;
+            std::copy_n(
+                begin,
+                static_cast<std::ptrdiff_t>(tile.row_stride_bytes),
+                stitched.begin() + static_cast<std::ptrdiff_t>(destination)
+            );
+        }
+    }
+    expect(
+        stitched == full.bytes,
+        "composed selective tone, pixel-local gap and sharpen preserve tiled seams"
+    );
+}
+
 void displaced_heal_tiles_include_the_donor_and_match_full_execution() {
     constexpr image::Dimensions dimensions{96, 64};
     auto source = reference_rgb(dimensions);
@@ -238,23 +301,24 @@ void displaced_heal_tiles_include_the_donor_and_match_full_execution() {
     const std::array plan{
         image::AdjustmentNode{
             .node_id = "displaced-texture-heal",
-            .parameters =
-                image::SpotHealAdjustment{
-                    .spots = {{
-                        .center_x = 40.5 / static_cast<double>(dimensions.width),
-                        .center_y = 32.5 / static_cast<double>(dimensions.height),
-                        .radius_level_zero_pixels = 4U,
-                        .mode = image::SpotRepairMode::heal,
-                        .source_offset_x_radii = 4.0,
-                        .source_offset_y_radii = 0.0,
-                        .feather = 0.25,
-                    }},
-                },
+            .parameters = image::SpotHealAdjustment{
+                .spots = {{
+                    .center_x = 40.5 / static_cast<double>(dimensions.width),
+                    .center_y = 32.5 / static_cast<double>(dimensions.height),
+                    .radius_level_zero_pixels = 4U,
+                    .mode = image::SpotRepairMode::heal,
+                    .source_offset_x_radii = 4.0,
+                    .source_offset_y_radii = 0.0,
+                    .feather = 0.25,
+                }},
+            },
         },
     };
-    expect(image::footprint(plan[0].parameters).horizontal_radius == 21U,
-           "displaced Heal declares its donor, brush radius and "
-           "gradient-neighbor apron");
+    expect(
+        image::footprint(plan[0].parameters).horizontal_radius == 21U,
+        "displaced Heal declares its donor, brush radius and "
+        "gradient-neighbor apron"
+    );
 
     const auto full = session.render_rgb8(plan, {0, 0, dimensions.width, dimensions.height});
     std::vector<std::uint8_t> stitched(full.bytes.size(), 0U);
@@ -271,12 +335,18 @@ void displaced_heal_tiles_include_the_donor_and_match_full_execution() {
                 tile.bytes.cbegin() + static_cast<std::ptrdiff_t>(row * tile.row_stride_bytes);
             const std::size_t destination =
                 (static_cast<std::size_t>(rect.y + row) * dimensions.width + rect.x) * 3U;
-            std::copy_n(begin, static_cast<std::ptrdiff_t>(tile.row_stride_bytes),
-                        stitched.begin() + static_cast<std::ptrdiff_t>(destination));
+            std::copy_n(
+                begin,
+                static_cast<std::ptrdiff_t>(tile.row_stride_bytes),
+                stitched.begin() + static_cast<std::ptrdiff_t>(destination)
+            );
         }
     }
-    expect(stitched == full.bytes, "gradient-domain Heal produces identical "
-                                   "full-frame and donor-apron tile output");
+    expect(
+        stitched == full.bytes,
+        "gradient-domain Heal produces identical "
+        "full-frame and donor-apron tile output"
+    );
 }
 
 } // namespace
@@ -285,6 +355,7 @@ int main() {
     irregular_tiles_match_one_full_pixel_local_execution_without_seams();
     neighborhood_tiles_accumulate_two_sharpen_footprints_without_seams();
     guided_selective_tone_tiles_match_full_execution_at_edges_and_boundaries();
+    composed_neighborhood_tiles_match_one_resident_execution_without_seams();
     displaced_heal_tiles_include_the_donor_and_match_full_execution();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

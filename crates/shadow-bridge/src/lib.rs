@@ -525,6 +525,11 @@ mod ffi {
         full_dimensions: FfiDimensions,
         row_stride_bytes: u32,
         bytes: Vec<u8>,
+        execution_backend: u8,
+        execution_backend_version: u32,
+        source_cache_hit: bool,
+        fell_back: bool,
+        diagnostic: String,
     }
 
     unsafe extern "C++" {

@@ -91,10 +91,12 @@ add_library(
     src/proxy/edited_proxy_rendering.cpp
     src/proxy/edit_preview_rendering.cpp
     src/proxy/full_edit_detail.cpp
+    src/proxy/full_edit_detail_gpu_cache.cpp
     src/proxy/jpeg_display_luma.cpp
     src/proxy/jpeg_proxy_encoding.cpp
     src/proxy/proxy_rendering.cpp
     src/proxy/proxy_render_request_validation.cpp
+    src/proxy/warm_edit_gpu_neighbourhood_plan.cpp
     src/proxy/warm_edit_gpu_render_plan.cpp
     src/proxy/warm_edit_preview.cpp
 )
@@ -113,6 +115,7 @@ if(APPLE AND SHADOW_ENABLE_METAL)
             src/proxy/warm_edit_gpu_dispatcher.mm
             src/proxy/warm_edit_gpu_pipeline_context.mm
             src/proxy/warm_edit_gpu_resident_resources.mm
+            src/proxy/warm_edit_gpu_stage_encoder.mm
             src/proxy/warm_edit_gpu.mm
     )
     target_compile_definitions(shadow-image PRIVATE SHADOW_IMAGE_HAS_METAL=1)
@@ -606,6 +609,8 @@ if(BUILD_TESTING)
         tests/warm_edit_gpu_contract/resident_session_contract_test.cpp
         tests/warm_edit_gpu_contract/technical_detail_stage_contract_test.cpp
         tests/warm_edit_gpu_contract/creative_detail_stage_contract_test.cpp
+        tests/warm_edit_gpu_contract/selective_tone_stage_contract_test.cpp
+        tests/warm_edit_gpu_contract/composed_stage_contract_test.cpp
         tests/warm_edit_gpu_contract/resident_resource_cache_contract_test.cpp
     )
     target_link_libraries(

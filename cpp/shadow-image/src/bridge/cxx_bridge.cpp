@@ -9,8 +9,8 @@
 #include <shadow/image/photo_geometry.hpp>
 #include <shadow/image/proxy_rendering.hpp>
 #include <shadow/image/sensor_clipping.hpp>
-#include <shadow/image/source_rendering.hpp>
 #include <shadow/image/source_profile_catalog.hpp>
+#include <shadow/image/source_rendering.hpp>
 #include <shadow/image/warm_edit_preview.hpp>
 
 #include <array>
@@ -88,9 +88,7 @@ namespace cxx_bridge_projection {
     return result;
 }
 
-[[nodiscard]] FfiSensorClippingMask sensor_clipping_mask(
-    const image::SensorClippingMask& mask
-) {
+[[nodiscard]] FfiSensorClippingMask sensor_clipping_mask(const image::SensorClippingMask& mask) {
     FfiSensorClippingMask result;
     result.available = true;
     result.dimensions = dimensions(mask.dimensions);
@@ -104,9 +102,8 @@ namespace cxx_bridge_projection {
 }
 
 template <std::size_t Size>
-[[nodiscard]] rust::Vec<std::uint64_t> sample_counts(
-    const std::array<std::uint64_t, Size>& source
-) {
+[[nodiscard]] rust::Vec<std::uint64_t>
+sample_counts(const std::array<std::uint64_t, Size>& source) {
     rust::Vec<std::uint64_t> result;
     result.reserve(source.size());
     for (const auto count : source) {
@@ -115,9 +112,8 @@ template <std::size_t Size>
     return result;
 }
 
-[[nodiscard]] FfiEditPreviewAnalysis edit_preview_analysis(
-    const image::EditPreviewAnalysis& analysis
-) {
+[[nodiscard]] FfiEditPreviewAnalysis
+edit_preview_analysis(const image::EditPreviewAnalysis& analysis) {
     FfiEditPreviewAnalysis result;
     result.version = rust::String(
         image::edit_preview_analysis_version.data(),
@@ -139,9 +135,7 @@ template <std::size_t Size>
     return result;
 }
 
-[[nodiscard]] FfiEditPreviewBackend edit_preview_backend(
-    const image::EditPreviewBackend backend
-) {
+[[nodiscard]] FfiEditPreviewBackend edit_preview_backend(const image::EditPreviewBackend backend) {
     switch (backend) {
     case image::EditPreviewBackend::cpu:
         return FfiEditPreviewBackend::Cpu;
@@ -155,9 +149,8 @@ template <std::size_t Size>
     );
 }
 
-[[nodiscard]] FfiEditPreviewExecutionReceipt edit_preview_execution_receipt(
-    const image::EditPreviewExecutionReceipt& receipt
-) {
+[[nodiscard]] FfiEditPreviewExecutionReceipt
+edit_preview_execution_receipt(const image::EditPreviewExecutionReceipt& receipt) {
     if (!receipt.valid()) {
         throw image::DecodeError(
             image::DecodeErrorCode::internal,
@@ -167,13 +160,10 @@ template <std::size_t Size>
     }
     FfiEditPreviewExecutionReceipt result;
     result.schema_version = receipt.schema_version;
-    result.cache_identity = rust::String(
-        image::edit_preview_execution_receipt_identity(receipt)
-    );
+    result.cache_identity = rust::String(image::edit_preview_execution_receipt_identity(receipt));
     result.adjustment_backend = edit_preview_backend(receipt.adjustment_backend);
     result.adjustment_backend_version = receipt.adjustment_backend_version;
-    result.adjustment_execution_contract_version =
-        receipt.adjustment_execution_contract_version;
+    result.adjustment_execution_contract_version = receipt.adjustment_execution_contract_version;
     result.display_backend = edit_preview_backend(receipt.display_backend);
     result.display_backend_version = receipt.display_backend_version;
     result.display_output_contract_version = receipt.display_output_contract_version;
@@ -184,9 +174,8 @@ template <std::size_t Size>
     return result;
 }
 
-[[nodiscard]] FfiAnalyzedEditPreview analyzed_edit_preview(
-    const image::AnalyzedEditPreview& preview
-) {
+[[nodiscard]] FfiAnalyzedEditPreview
+analyzed_edit_preview(const image::AnalyzedEditPreview& preview) {
     FfiAnalyzedEditPreview result;
     result.proxy = encoded_proxy(preview.proxy);
     result.analysis = edit_preview_analysis(preview.analysis);
@@ -238,9 +227,7 @@ template <std::size_t Size>
     return geometry;
 }
 
-[[nodiscard]] FfiRenderedDetailTile rendered_detail_tile(
-    const image::RenderedDetailTile& tile
-) {
+[[nodiscard]] FfiRenderedDetailTile rendered_detail_tile(const image::RenderedDetailTile& tile) {
     FfiRenderedDetailTile result;
     result.rect = detail_tile_rect(tile.rect);
     result.full_dimensions = dimensions(tile.full_dimensions);
@@ -249,6 +236,18 @@ template <std::size_t Size>
     for (const auto byte : tile.bytes) {
         result.bytes.push_back(byte);
     }
+    switch (tile.execution.backend) {
+    case image::DetailTileRenderBackend::cpu:
+        result.execution_backend = 0U;
+        break;
+    case image::DetailTileRenderBackend::metal:
+        result.execution_backend = 1U;
+        break;
+    }
+    result.execution_backend_version = tile.execution.backend_version;
+    result.source_cache_hit = tile.execution.source_cache_hit;
+    result.fell_back = tile.execution.fell_back;
+    result.diagnostic = rust::String(tile.execution.diagnostic);
     return result;
 }
 
@@ -291,27 +290,18 @@ template <std::size_t Size>
 }
 
 [[noreturn]] void throw_invalid_raw_development_plan(const std::string_view message) {
-    throw image::DecodeError(
-        image::DecodeErrorCode::invalid_request,
-        0,
-        std::string(message)
-    );
+    throw image::DecodeError(image::DecodeErrorCode::invalid_request, 0, std::string(message));
 }
 
 // Private providers share a local ABI with the host, so a newer or malformed provider can still
 // manufacture an enum discriminant that this host does not understand. Do not coerce that value
 // into a benign-looking plan/receipt: doing so would corrupt source provenance and cache keys.
 [[noreturn]] void throw_invalid_raw_development_provider_output(const std::string_view message) {
-    throw image::DecodeError(
-        image::DecodeErrorCode::unsupported,
-        0,
-        std::string(message)
-    );
+    throw image::DecodeError(image::DecodeErrorCode::unsupported, 0, std::string(message));
 }
 
-[[nodiscard]] FfiRawDevelopmentIntent raw_development_intent(
-    const image::RawDevelopmentIntent value
-) {
+[[nodiscard]] FfiRawDevelopmentIntent
+raw_development_intent(const image::RawDevelopmentIntent value) {
     switch (value) {
     case image::RawDevelopmentIntent::preview:
         return FfiRawDevelopmentIntent::Preview;
@@ -325,9 +315,8 @@ template <std::size_t Size>
     );
 }
 
-[[nodiscard]] image::RawDevelopmentIntent raw_development_intent(
-    const FfiRawDevelopmentIntent value
-) {
+[[nodiscard]] image::RawDevelopmentIntent
+raw_development_intent(const FfiRawDevelopmentIntent value) {
     switch (value) {
     case FfiRawDevelopmentIntent::Preview:
         return image::RawDevelopmentIntent::preview;
@@ -339,9 +328,8 @@ template <std::size_t Size>
     throw_invalid_raw_development_plan("RAW development intent is unsupported");
 }
 
-[[nodiscard]] FfiRawDevelopmentQuality raw_development_quality(
-    const image::RawDevelopmentQuality value
-) {
+[[nodiscard]] FfiRawDevelopmentQuality
+raw_development_quality(const image::RawDevelopmentQuality value) {
     switch (value) {
     case image::RawDevelopmentQuality::fast:
         return FfiRawDevelopmentQuality::Fast;
@@ -355,9 +343,8 @@ template <std::size_t Size>
     );
 }
 
-[[nodiscard]] image::RawDevelopmentQuality raw_development_quality(
-    const FfiRawDevelopmentQuality value
-) {
+[[nodiscard]] image::RawDevelopmentQuality
+raw_development_quality(const FfiRawDevelopmentQuality value) {
     switch (value) {
     case FfiRawDevelopmentQuality::Fast:
         return image::RawDevelopmentQuality::fast;
@@ -369,9 +356,7 @@ template <std::size_t Size>
     throw_invalid_raw_development_plan("RAW development quality is unsupported");
 }
 
-[[nodiscard]] FfiDngOpcodePolicy dng_opcode_policy(
-    const image::DngOpcodePolicy value
-) {
+[[nodiscard]] FfiDngOpcodePolicy dng_opcode_policy(const image::DngOpcodePolicy value) {
     switch (value) {
     case image::DngOpcodePolicy::provider_default:
         return FfiDngOpcodePolicy::ProviderDefault;
@@ -397,9 +382,8 @@ template <std::size_t Size>
     throw_invalid_raw_development_plan("DNG opcode policy is unsupported");
 }
 
-[[nodiscard]] FfiRawNoiseReductionIntent raw_noise_reduction_intent(
-    const image::RawNoiseReductionIntent value
-) {
+[[nodiscard]] FfiRawNoiseReductionIntent
+raw_noise_reduction_intent(const image::RawNoiseReductionIntent value) {
     switch (value) {
     case image::RawNoiseReductionIntent::provider_default:
         return FfiRawNoiseReductionIntent::ProviderDefault;
@@ -415,9 +399,8 @@ template <std::size_t Size>
     );
 }
 
-[[nodiscard]] image::RawNoiseReductionIntent raw_noise_reduction_intent(
-    const FfiRawNoiseReductionIntent value
-) {
+[[nodiscard]] image::RawNoiseReductionIntent
+raw_noise_reduction_intent(const FfiRawNoiseReductionIntent value) {
     switch (value) {
     case FfiRawNoiseReductionIntent::ProviderDefault:
         return image::RawNoiseReductionIntent::provider_default;
@@ -431,9 +414,8 @@ template <std::size_t Size>
     throw_invalid_raw_development_plan("RAW noise-reduction intent is unsupported");
 }
 
-[[nodiscard]] FfiRawHighlightRecoveryIntent raw_highlight_recovery_intent(
-    const image::RawHighlightRecoveryIntent value
-) {
+[[nodiscard]] FfiRawHighlightRecoveryIntent
+raw_highlight_recovery_intent(const image::RawHighlightRecoveryIntent value) {
     switch (value) {
     case image::RawHighlightRecoveryIntent::provider_default:
         return FfiRawHighlightRecoveryIntent::ProviderDefault;
@@ -449,9 +431,8 @@ template <std::size_t Size>
     );
 }
 
-[[nodiscard]] image::RawHighlightRecoveryIntent raw_highlight_recovery_intent(
-    const FfiRawHighlightRecoveryIntent value
-) {
+[[nodiscard]] image::RawHighlightRecoveryIntent
+raw_highlight_recovery_intent(const FfiRawHighlightRecoveryIntent value) {
     switch (value) {
     case FfiRawHighlightRecoveryIntent::ProviderDefault:
         return image::RawHighlightRecoveryIntent::provider_default;
@@ -465,9 +446,7 @@ template <std::size_t Size>
     throw_invalid_raw_development_plan("RAW highlight-recovery intent is unsupported");
 }
 
-[[nodiscard]] FfiRawDevelopmentPlan raw_development_plan(
-    const image::RawDevelopmentPlan& plan
-) {
+[[nodiscard]] FfiRawDevelopmentPlan raw_development_plan(const image::RawDevelopmentPlan& plan) {
     return FfiRawDevelopmentPlan{
         plan.schema_version,
         raw_development_intent(plan.intent),
@@ -478,9 +457,7 @@ template <std::size_t Size>
     };
 }
 
-[[nodiscard]] image::RawDevelopmentPlan raw_development_plan(
-    const FfiRawDevelopmentPlan& plan
-) {
+[[nodiscard]] image::RawDevelopmentPlan raw_development_plan(const FfiRawDevelopmentPlan& plan) {
     return image::RawDevelopmentPlan{
         .schema_version = plan.schema_version,
         .intent = raw_development_intent(plan.intent),
@@ -491,9 +468,8 @@ template <std::size_t Size>
     };
 }
 
-[[nodiscard]] FfiRawDevelopmentCapabilities raw_development_capabilities(
-    const image::RawDevelopmentCapabilities& capabilities
-) noexcept {
+[[nodiscard]] FfiRawDevelopmentCapabilities
+raw_development_capabilities(const image::RawDevelopmentCapabilities& capabilities) noexcept {
     return FfiRawDevelopmentCapabilities{
         capabilities.schema_version,
         capabilities.available,
@@ -507,9 +483,8 @@ template <std::size_t Size>
     };
 }
 
-[[nodiscard]] FfiRawDevelopmentPlanNegotiationStatus raw_development_plan_status(
-    const image::RawDevelopmentPlanNegotiationStatus status
-) {
+[[nodiscard]] FfiRawDevelopmentPlanNegotiationStatus
+raw_development_plan_status(const image::RawDevelopmentPlanNegotiationStatus status) {
     switch (status) {
     case image::RawDevelopmentPlanNegotiationStatus::accepted:
         return FfiRawDevelopmentPlanNegotiationStatus::Accepted;
@@ -523,9 +498,8 @@ template <std::size_t Size>
     );
 }
 
-[[nodiscard]] FfiRawDevelopmentPlanNegotiation raw_development_plan_negotiation(
-    const image::RawDevelopmentPlanNegotiation& negotiation
-) {
+[[nodiscard]] FfiRawDevelopmentPlanNegotiation
+raw_development_plan_negotiation(const image::RawDevelopmentPlanNegotiation& negotiation) {
     return FfiRawDevelopmentPlanNegotiation{
         raw_development_plan(negotiation.requested),
         raw_development_plan(negotiation.effective),
@@ -534,9 +508,8 @@ template <std::size_t Size>
     };
 }
 
-[[nodiscard]] FfiDngOpcodeExecutionStatus dng_opcode_execution_status(
-    const image::DngOpcodeExecutionStatus status
-) {
+[[nodiscard]] FfiDngOpcodeExecutionStatus
+dng_opcode_execution_status(const image::DngOpcodeExecutionStatus status) {
     switch (status) {
     case image::DngOpcodeExecutionStatus::not_declared:
         return FfiDngOpcodeExecutionStatus::NotDeclared;
@@ -556,9 +529,8 @@ template <std::size_t Size>
     );
 }
 
-[[nodiscard]] FfiRawDevelopmentReceipt raw_development_receipt(
-    const image::RawDevelopmentReceipt& receipt
-) {
+[[nodiscard]] FfiRawDevelopmentReceipt
+raw_development_receipt(const image::RawDevelopmentReceipt& receipt) {
     FfiRawDevelopmentReceipt result;
     result.schema_version = receipt.schema_version;
     result.provider_id = rust::String(receipt.provider_id);
@@ -569,9 +541,7 @@ template <std::size_t Size>
     result.effective_plan_identity = rust::String(receipt.effective_plan_identity);
     result.requested_plan = raw_development_plan(receipt.requested_plan);
     result.effective_plan = raw_development_plan(receipt.effective_plan);
-    result.plan_negotiation_status = raw_development_plan_status(
-        receipt.plan_negotiation_status
-    );
+    result.plan_negotiation_status = raw_development_plan_status(receipt.plan_negotiation_status);
     result.processed_linear_reference_contract_version =
         receipt.processed_linear_reference_contract_version;
     result.declared_image_dimensions = dimensions(receipt.declared_image_dimensions);
@@ -592,15 +562,12 @@ template <std::size_t Size>
     result.dng_opcode_list_1_bytes = receipt.declared_dng_opcode_lists.dng_opcode_list_bytes[0];
     result.dng_opcode_list_2_bytes = receipt.declared_dng_opcode_lists.dng_opcode_list_bytes[1];
     result.dng_opcode_list_3_bytes = receipt.declared_dng_opcode_lists.dng_opcode_list_bytes[2];
-    result.dng_opcode_list_1_execution = dng_opcode_execution_status(
-        receipt.dng_opcode_execution[0]
-    );
-    result.dng_opcode_list_2_execution = dng_opcode_execution_status(
-        receipt.dng_opcode_execution[1]
-    );
-    result.dng_opcode_list_3_execution = dng_opcode_execution_status(
-        receipt.dng_opcode_execution[2]
-    );
+    result.dng_opcode_list_1_execution =
+        dng_opcode_execution_status(receipt.dng_opcode_execution[0]);
+    result.dng_opcode_list_2_execution =
+        dng_opcode_execution_status(receipt.dng_opcode_execution[1]);
+    result.dng_opcode_list_3_execution =
+        dng_opcode_execution_status(receipt.dng_opcode_execution[2]);
     result.process_warnings = receipt.process_warnings;
     return result;
 }
@@ -619,9 +586,8 @@ template <std::size_t Size>
     );
 }
 
-[[nodiscard]] FfiRawCameraProfileStatus raw_camera_profile_status(
-    const image::RawCameraProfileStatus status
-) {
+[[nodiscard]] FfiRawCameraProfileStatus
+raw_camera_profile_status(const image::RawCameraProfileStatus status) {
     switch (status) {
     case image::RawCameraProfileStatus::not_considered:
         return FfiRawCameraProfileStatus::NotConsidered;
@@ -637,9 +603,7 @@ template <std::size_t Size>
     );
 }
 
-[[nodiscard]] FfiRawPipelineReceipt raw_pipeline_receipt(
-    const image::RawPipelineReceipt& receipt
-) {
+[[nodiscard]] FfiRawPipelineReceipt raw_pipeline_receipt(const image::RawPipelineReceipt& receipt) {
     if (receipt.schema_version != 0U && !receipt.valid()) {
         throw_invalid_raw_development_provider_output(
             "RAW pipeline produced an invalid route receipt"
@@ -650,7 +614,8 @@ template <std::size_t Size>
     result.schema_version = receipt.schema_version;
     result.path = raw_pipeline_path(receipt.path);
     result.cache_identity = receipt.schema_version == 0U
-        ? rust::String() : rust::String(image::raw_pipeline_receipt_identity(receipt));
+                                ? rust::String()
+                                : rust::String(image::raw_pipeline_receipt_identity(receipt));
     result.pipeline_identity = rust::String(receipt.pipeline_identity);
     result.source_provider_id = rust::String(receipt.source_provider_id);
     result.source_provider_version = rust::String(receipt.source_provider_version);
@@ -660,9 +625,7 @@ template <std::size_t Size>
     result.requested_plan = raw_development_plan(receipt.requested_plan);
     result.effective_plan = raw_development_plan(receipt.effective_plan);
     result.camera_profile_status = raw_camera_profile_status(receipt.camera_profile_status);
-    result.camera_profile_catalog_identity = rust::String(
-        receipt.camera_profile_catalog_identity
-    );
+    result.camera_profile_catalog_identity = rust::String(receipt.camera_profile_catalog_identity);
     result.camera_profile_identity = rust::String(receipt.camera_profile_identity);
     result.camera_profile_name = rust::String(receipt.camera_profile_name);
     result.camera_profile_diagnostic = rust::String(receipt.camera_profile_diagnostic);
@@ -692,9 +655,8 @@ template <std::size_t Size>
     );
 }
 
-[[nodiscard]] rust::Vec<FfiOpticsProfileCandidate> optics_profile_candidates_for(
-    const image::DecodeSession& session
-) {
+[[nodiscard]] rust::Vec<FfiOpticsProfileCandidate>
+optics_profile_candidates_for(const image::DecodeSession& session) {
     // JPEG/HEIF input may already have vendor lens corrections baked in. The first raster
     // implementation therefore keeps automatic optics discovery RAW-only; `raw_count` describes
     // the source format without coupling profile discovery to whether this provider can unpack
@@ -768,7 +730,6 @@ template <std::size_t Size>
 
 using namespace cxx_bridge_projection;
 
-
 std::unique_ptr<DecodeHandle> open_libraw_utf8(const rust::Str path) {
     auto provider = image::make_libraw_decoder_provider();
     return open_provider_path(std::move(provider), filesystem_path_from_utf8(path));
@@ -791,9 +752,8 @@ rust::Vec<FfiOpticsProfileCandidate> query_photo_optics_profiles_utf8(const rust
     return optics_profile_candidates_for(*session);
 }
 
-rust::Vec<FfiOpticsProfileCandidate> query_optics_profiles_for_metadata(
-    const FfiMetadataSnapshot& source
-) {
+rust::Vec<FfiOpticsProfileCandidate>
+query_optics_profiles_for_metadata(const FfiMetadataSnapshot& source) {
     const auto provider = image::make_lensfun_optics_provider();
     const auto candidates = provider->profile_candidates(asset_metadata(source));
     rust::Vec<FfiOpticsProfileCandidate> result;
@@ -812,8 +772,8 @@ rust::Vec<FfiOpticsProfileCandidate> query_optics_profiles_for_metadata(
 rust::String libraw_provider_version() {
     const auto provider = image::make_libraw_decoder_provider();
     return rust::String(
-        provider->info().version + ";source-render="
-        + std::to_string(image::source_rendering_implementation_version)
+        provider->info().version
+        + ";source-render=" + std::to_string(image::source_rendering_implementation_version)
         + ";source-profiles=" + image::load_local_source_profile_catalog().identity
     );
 }
@@ -838,9 +798,7 @@ rust::Vec<rust::String> photo_supported_raster_extensions() {
 }
 
 rust::String raw_development_plan_identity(const FfiRawDevelopmentPlan& plan) {
-    const std::string identity = image::raw_development_plan_identity(
-        raw_development_plan(plan)
-    );
+    const std::string identity = image::raw_development_plan_identity(raw_development_plan(plan));
     return rust::String(identity);
 }
 
@@ -851,10 +809,9 @@ FfiEncodedProxy render_photo_reference_proxy(
 ) {
     auto provider = image::make_photo_decoder_provider();
     auto session = provider->open(filesystem_path_from_utf8(path));
-    return encoded_proxy(image::render_reference_proxy_jpeg(
-        *session,
-        image::ProxyRequest{max_edge, jpeg_quality}
-    ));
+    return encoded_proxy(
+        image::render_reference_proxy_jpeg(*session, image::ProxyRequest{max_edge, jpeg_quality})
+    );
 }
 
 FfiDisplayLuma decode_jpeg_display_luma(

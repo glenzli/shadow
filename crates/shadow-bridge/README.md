@@ -96,8 +96,9 @@ edge is independently capped at 4096; 1600/2048 are the intended UI choices. The
 
 `LibRawEditDetailSession::open(path)` is the separate 1:1 path. It checks decoder metadata against
 a worst-case RGB u16 allocation before the reference render starts, verifies the actual retained
-allocation independently, and rejects either above 512 MiB. Its opaque C++ handle retains the
-immutable full-resolution processed-linear u16 RGB source in sRGB primaries but no decoder.
+allocation independently against a source-kind limit: 512 MiB for packed u16 raster sources and
+1 GiB for owned scene-linear fp32 RawFrame development. Its opaque C++ handle retains the
+immutable full-resolution linear RGB source in sRGB primaries but no decoder.
 `render_plan_tile` accepts an unscaled, in-bounds rectangle whose width and height are each at
 most 1024. Pixel-local plans normalize only that crop. Neighborhood plans such as Sharpen first
 expand it by the conservative sum of enabled operation footprints, capped at a 512-pixel apron

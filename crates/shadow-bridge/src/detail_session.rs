@@ -18,9 +18,9 @@ use super::{
     render_wire::{detail_tile_rect, ffi_detail_tile_request},
 };
 
-// SAFETY: the C++ handle owns a fully prepared, immutable u16 reference image. It contains no
-// decoder or borrowed state, and every tile render allocates independent float/RGB8 buffers.
-// The public wrapper exposes no mutable access to the handle.
+// SAFETY: the C++ handle owns a fully prepared, immutable linear reference image and a
+// mutex-protected bounded GPU cache. It contains no decoder or borrowed state, and every render
+// owns its output buffers. The public wrapper exposes no mutable access to the handle.
 unsafe impl Send for ffi::FullEditDetailHandle {}
 // SAFETY: see the Send implementation above. Concurrent calls only read the retained source.
 unsafe impl Sync for ffi::FullEditDetailHandle {}
@@ -28,8 +28,11 @@ unsafe impl Sync for ffi::FullEditDetailHandle {}
 /// Hard width and height bound for one full-resolution detail tile.
 pub const MAX_EDIT_DETAIL_TILE_SIDE: u32 = 1_024;
 
-/// Hard bound for the complete immutable u16 source retained by one detail session.
-pub const MAX_EDIT_DETAIL_RETAINED_BYTES: u64 = 512 * 1_024 * 1_024;
+/// Hard bound for the largest complete immutable source retained by one detail session.
+///
+/// Packed u16 raster sources retain at most 512 MiB. Owned RawFrame development retains fp32
+/// scene-linear RGB and is independently capped at 1 GiB by the native session.
+pub const MAX_EDIT_DETAIL_RETAINED_BYTES: u64 = 1_024 * 1_024 * 1_024;
 
 /// One exact rectangle in the processed full-resolution image coordinate space.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -78,14 +81,34 @@ pub struct RenderedDetailTile {
     pub full_dimensions: ImageDimensions,
     pub row_stride_bytes: u32,
     pub bytes: Vec<u8>,
+    pub execution: DetailTileExecutionReceipt,
 }
 
-/// A reusable immutable full-resolution processed-linear u16 RGB source in sRGB primaries for 1:1 tiles.
+/// Effective complete adjustment-plus-display backend for one detail tile.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum DetailTileRenderBackend {
+    Cpu,
+    Metal,
+}
+
+/// Runtime-only execution provenance. `source_cache_hit` reports whether an expanded working
+/// tile was already resident on the GPU; it does not participate in recipe or durable cache
+/// identities.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct DetailTileExecutionReceipt {
+    pub backend: DetailTileRenderBackend,
+    pub backend_version: u32,
+    pub source_cache_hit: bool,
+    pub fell_back: bool,
+    pub diagnostic: Option<String>,
+}
+
+/// A reusable immutable full-resolution linear RGB source in sRGB primaries for 1:1 tiles.
 ///
 /// Preparation performs one source-router reference render, retains no decoder, and fails when
-/// either the metadata worst-case RGB allocation or the actual retained allocation exceeds
-/// 512 MiB. Repeated tile renders convert and edit only the requested rectangle. The wrapper is
-/// [`Send`] + [`Sync`], and concurrent renders own independent temporary buffers.
+/// either the metadata worst-case RGB allocation or the actual retained allocation exceeds its
+/// native source-kind limit. Repeated tile renders convert and edit only the requested rectangle.
+/// The wrapper is [`Send`] + [`Sync`], and concurrent renders own independent temporary buffers.
 pub struct LibRawEditDetailSession {
     handle: cxx::UniquePtr<ffi::FullEditDetailHandle>,
     dimensions: ImageDimensions,
@@ -114,17 +137,18 @@ impl std::fmt::Debug for LibRawEditDetailSession {
 }
 
 impl LibRawEditDetailSession {
-    /// Opens a supported photo into immutable full-resolution processed-linear u16 RGB pixels in
-    /// sRGB primaries.
+    /// Opens a supported photo into immutable full-resolution linear RGB pixels in sRGB
+    /// primaries. Raster compatibility sources use packed u16; owned RAW development retains
+    /// scene-linear fp32.
     ///
     /// Provider metadata is checked against the worst-case RGB retention limit before the
-    /// reference render starts. The returned allocation is checked independently before it is
-    /// retained by the session.
+    /// reference render starts. The returned allocation is checked independently against its
+    /// source-kind limit before it is retained by the session.
     ///
     /// # Errors
     ///
     /// Returns a path, decoder, resource-limit, or invalid bridge-output error. Sources whose
-    /// worst-case or actual retained allocation exceeds 512 MiB fail closed.
+    /// worst-case or actual retained allocation exceeds the native source-kind cap fail closed.
     pub fn open(path: &Path) -> Result<Self, BridgeError> {
         Self::open_with_optics(path, &OpticsSettings::default())
     }
@@ -206,7 +230,7 @@ impl LibRawEditDetailSession {
         }
         if retained_bytes == 0 || retained_bytes > MAX_EDIT_DETAIL_RETAINED_BYTES {
             return Err(BridgeError::InvalidEditDetailOutput(
-                "retained bytes must be in 1..=512 MiB",
+                "retained bytes must be in 1..=1 GiB",
             ));
         }
         Ok(Self {
@@ -225,7 +249,8 @@ impl LibRawEditDetailSession {
         self.dimensions
     }
 
-    /// Returns the actual immutable u16 allocation retained by this session.
+    /// Returns the actual immutable packed-u16 or scene-linear-fp32 allocation retained by this
+    /// session.
     #[must_use]
     pub const fn retained_bytes(&self) -> u64 {
         self.retained_bytes
@@ -307,11 +332,41 @@ impl LibRawEditDetailSession {
                 "RGB8 byte length must equal row stride times height",
             ));
         }
+        let backend = match rendered.execution_backend {
+            0 => DetailTileRenderBackend::Cpu,
+            1 => DetailTileRenderBackend::Metal,
+            _ => {
+                return Err(BridgeError::InvalidEditDetailOutput(
+                    "detail execution backend is unknown",
+                ));
+            }
+        };
+        let valid_version = match backend {
+            DetailTileRenderBackend::Cpu => rendered.execution_backend_version == 1,
+            DetailTileRenderBackend::Metal => rendered.execution_backend_version == 1,
+        };
+        let diagnostic = (!rendered.diagnostic.is_empty()).then_some(rendered.diagnostic);
+        if !valid_version
+            || (backend == DetailTileRenderBackend::Cpu && rendered.source_cache_hit)
+            || (backend == DetailTileRenderBackend::Metal && rendered.fell_back)
+            || rendered.fell_back != diagnostic.is_some()
+        {
+            return Err(BridgeError::InvalidEditDetailOutput(
+                "detail execution receipt is inconsistent",
+            ));
+        }
         Ok(RenderedDetailTile {
             rect,
             full_dimensions,
             row_stride_bytes: rendered.row_stride_bytes,
             bytes: rendered.bytes,
+            execution: DetailTileExecutionReceipt {
+                backend,
+                backend_version: rendered.execution_backend_version,
+                source_cache_hit: rendered.source_cache_hit,
+                fell_back: rendered.fell_back,
+                diagnostic,
+            },
         })
     }
 }

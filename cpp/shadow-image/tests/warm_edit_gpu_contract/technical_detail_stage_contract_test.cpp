@@ -54,12 +54,13 @@ void resident_gpu_technical_detail_is_complete_or_declines() {
             .node_id = "technical-denoise",
             .parameter_schema_version = image::detail_effects_parameter_schema_version,
             .implementation_version = image::technical_detail_implementation_version,
-            .parameters = image::SharpenAdjustment{
-                .execution_pass = image::DetailEffectsExecutionPass::technical_detail,
-                .denoise_luminance = 1.0,
-                .denoise_detail = 0.15,
-                .denoise_color = 0.90,
-            },
+            .parameters =
+                image::SharpenAdjustment{
+                    .execution_pass = image::DetailEffectsExecutionPass::technical_detail,
+                    .denoise_luminance = 1.0,
+                    .denoise_detail = 0.15,
+                    .denoise_color = 0.90,
+                },
         },
         image::AdjustmentNode{
             .node_id = "after-denoise-saturation",
@@ -70,14 +71,12 @@ void resident_gpu_technical_detail_is_complete_or_declines() {
     const auto rendered = preparation.session->render(nodes, plan, true);
     expect(
         rendered.status == image::detail::WarmEditGpuSession::RenderStatus::completed
-            && rendered.output.has_value()
-            && rendered.output->analyzed_linear.has_value(),
+            && rendered.output.has_value() && rendered.output->analyzed_linear.has_value(),
         "a supported technical denoise stage completes entirely on the resident GPU"
     );
     const auto after_denoise = preparation.session->stats();
     expect(
-        after_denoise.gpu_buffer_allocation_count
-                == before_denoise.gpu_buffer_allocation_count + 2U
+        after_denoise.gpu_buffer_allocation_count == before_denoise.gpu_buffer_allocation_count + 2U
             && after_denoise.resident_bytes > before_denoise.resident_bytes,
         "the first GPU denoise render lazily creates only its slot-local intermediate buffers"
     );
@@ -88,11 +87,10 @@ void resident_gpu_technical_detail_is_complete_or_declines() {
         for (std::uint32_t y = 0U; y < source.dimensions.height; ++y) {
             for (std::uint32_t x = 0U; x < source.dimensions.width * 3U; ++x) {
                 mean_delta += std::abs(
-                    static_cast<double>(source.samples[
-                        static_cast<std::size_t>(y) * source_stride + x
-                    ]) - output.samples[
-                        static_cast<std::size_t>(y) * source.dimensions.width * 3U + x
-                    ]
+                    static_cast<double>(
+                        source.samples[static_cast<std::size_t>(y) * source_stride + x]
+                    )
+                    - output.samples[static_cast<std::size_t>(y) * source.dimensions.width * 3U + x]
                 );
             }
         }
@@ -108,23 +106,21 @@ void resident_gpu_technical_detail_is_complete_or_declines() {
     const auto sharpened = preparation.session->render(nodes, sharpen_plan, true);
     expect(
         sharpened.status == image::detail::WarmEditGpuSession::RenderStatus::completed
-            && sharpened.output.has_value()
-            && sharpened.output->analyzed_linear.has_value()
+            && sharpened.output.has_value() && sharpened.output->analyzed_linear.has_value()
             && std::ranges::all_of(
                 sharpened.output->analyzed_linear->samples,
                 [](const float value) { return std::isfinite(value); }
             ),
         "a mixed technical denoise and capture-sharpening node stays on the resident GPU"
     );
-    if (rendered.output && rendered.output->analyzed_linear
-        && sharpened.output && sharpened.output->analyzed_linear) {
+    if (rendered.output && rendered.output->analyzed_linear && sharpened.output
+        && sharpened.output->analyzed_linear) {
         double sharpen_delta = 0.0;
         const auto& denoised_pixels = rendered.output->analyzed_linear->samples;
         const auto& sharpened_pixels = sharpened.output->analyzed_linear->samples;
         for (std::size_t index = 0U; index < sharpened_pixels.size(); ++index) {
-            sharpen_delta += std::abs(
-                static_cast<double>(sharpened_pixels[index]) - denoised_pixels[index]
-            );
+            sharpen_delta +=
+                std::abs(static_cast<double>(sharpened_pixels[index]) - denoised_pixels[index]);
         }
         sharpen_delta /= static_cast<double>(sharpened_pixels.size());
         expect(
@@ -134,21 +130,23 @@ void resident_gpu_technical_detail_is_complete_or_declines() {
     }
     const auto after_sharpen = preparation.session->stats();
     expect(
-        after_sharpen.gpu_buffer_allocation_count
-                == after_denoise.gpu_buffer_allocation_count + 4U
+        after_sharpen.gpu_buffer_allocation_count == after_denoise.gpu_buffer_allocation_count + 4U
             && after_sharpen.resident_bytes > after_denoise.resident_bytes,
-        "the next execution slot lazily creates its detail raster plus two sharpening scalar buffers"
+        "the next execution slot lazily creates its detail raster plus two sharpening scalar "
+        "buffers"
     );
 
     std::get<image::SharpenAdjustment>(nodes[1U].parameters).dehaze = 0.25;
-    const auto unsupported_plan = image::compile_edit_execution_plan(nodes);
-    const auto unsupported = preparation.session->render(nodes, unsupported_plan, false);
+    const auto combined_plan = image::compile_edit_execution_plan(nodes);
+    const auto combined = preparation.session->render(nodes, combined_plan, true);
     expect(
-        unsupported.status
-                == image::detail::WarmEditGpuSession::RenderStatus::unavailable_or_failed
-            && !unsupported.output.has_value()
-            && !unsupported.diagnostic.empty(),
-        "an unsupported technical-detail combination declines as a whole rather than producing a hybrid frame"
+        combined.status == image::detail::WarmEditGpuSession::RenderStatus::completed
+            && combined.output.has_value() && combined.output->analyzed_linear.has_value()
+            && std::ranges::all_of(
+                combined.output->analyzed_linear->samples,
+                [](const float value) { return std::isfinite(value); }
+            ),
+        "denoise, dehaze and capture sharpening preserve their CPU order in one resident GPU stage"
     );
 }
 
@@ -172,16 +170,17 @@ void resident_gpu_dehaze_and_defringe_is_complete_or_declines() {
             .node_id = "technical-dehaze-defringe",
             .parameter_schema_version = image::detail_effects_parameter_schema_version,
             .implementation_version = image::technical_detail_implementation_version,
-            .parameters = image::SharpenAdjustment{
-                .execution_pass = image::DetailEffectsExecutionPass::technical_detail,
-                .dehaze = 0.56,
-                .defringe_purple_amount = 0.41,
-                .defringe_purple_hue_low = 272.0,
-                .defringe_purple_hue_high = 338.0,
-                .defringe_green_amount = 0.35,
-                .defringe_green_hue_low = 104.0,
-                .defringe_green_hue_high = 162.0,
-            },
+            .parameters =
+                image::SharpenAdjustment{
+                    .execution_pass = image::DetailEffectsExecutionPass::technical_detail,
+                    .dehaze = 0.56,
+                    .defringe_purple_amount = 0.41,
+                    .defringe_purple_hue_low = 272.0,
+                    .defringe_purple_hue_high = 338.0,
+                    .defringe_green_amount = 0.35,
+                    .defringe_green_hue_low = 104.0,
+                    .defringe_green_hue_high = 162.0,
+                },
         },
         image::AdjustmentNode{
             .node_id = "after-technical-optics-saturation",
@@ -192,8 +191,7 @@ void resident_gpu_dehaze_and_defringe_is_complete_or_declines() {
     const auto gpu = preparation.session->render(nodes, plan, true);
     expect(
         gpu.status == image::detail::WarmEditGpuSession::RenderStatus::completed
-            && gpu.output.has_value()
-            && gpu.output->analyzed_linear.has_value()
+            && gpu.output.has_value() && gpu.output->analyzed_linear.has_value()
             && std::ranges::all_of(
                 gpu.output->analyzed_linear->samples,
                 [](const float value) { return std::isfinite(value); }
@@ -208,15 +206,10 @@ void resident_gpu_dehaze_and_defringe_is_complete_or_declines() {
             image::AdjustmentBackendMode::cpu
         );
         double maximum_error = 0.0;
-        const bool linear_parity = linear_close(
-            *gpu.output->analyzed_linear,
-            cpu.pixels,
-            maximum_error,
-            2.5e-4
-        );
+        const bool linear_parity =
+            linear_close(*gpu.output->analyzed_linear, cpu.pixels, maximum_error, 2.5e-4);
         if (!linear_parity) {
-            std::cerr << "Technical optics warm linear parity max="
-                      << maximum_error << '\n';
+            std::cerr << "Technical optics warm linear parity max=" << maximum_error << '\n';
         }
         expect(
             linear_parity,
@@ -225,14 +218,16 @@ void resident_gpu_dehaze_and_defringe_is_complete_or_declines() {
     }
 
     std::get<image::SharpenAdjustment>(nodes[1U].parameters).denoise_luminance = 0.40;
-    const auto unsupported_plan = image::compile_edit_execution_plan(nodes);
-    const auto unsupported = preparation.session->render(nodes, unsupported_plan, false);
+    const auto combined_plan = image::compile_edit_execution_plan(nodes);
+    const auto combined = preparation.session->render(nodes, combined_plan, true);
     expect(
-        unsupported.status
-                == image::detail::WarmEditGpuSession::RenderStatus::unavailable_or_failed
-            && !unsupported.output.has_value()
-            && !unsupported.diagnostic.empty(),
-        "mixed technical denoise plus dehaze / defringe declines as one CPU fallback"
+        combined.status == image::detail::WarmEditGpuSession::RenderStatus::completed
+            && combined.output.has_value() && combined.output->analyzed_linear.has_value()
+            && std::ranges::all_of(
+                combined.output->analyzed_linear->samples,
+                [](const float value) { return std::isfinite(value); }
+            ),
+        "mixed technical denoise plus dehaze / defringe completes as one ordered GPU stage"
     );
 }
 

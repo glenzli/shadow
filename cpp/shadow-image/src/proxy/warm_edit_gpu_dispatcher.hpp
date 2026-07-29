@@ -13,6 +13,7 @@ class WarmGpuResidentResources;
     std::span<const AdjustmentNode> nodes,
     const EditExecutionPlan& plan,
     bool retain_linear_for_analysis,
+    WarmEditGpuRenderContext context,
     std::stop_token cancellation
 );
 

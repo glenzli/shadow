@@ -9,12 +9,12 @@
 
 #include "warm_edit_gpu_kernel_contract.hpp"
 #include "warm_edit_gpu_pipeline_context.hpp"
-#include "warm_edit_gpu_resident_resources.hpp"
 #include "warm_edit_gpu_render_plan.hpp"
+#include "warm_edit_gpu_resident_resources.hpp"
+#include "warm_edit_gpu_stage_encoder.hpp"
 #include "../edit/metal_adjustment_program.hpp"
 
 #include <shadow/image/adjustment_graph.hpp>
-#include <shadow/image/adjustment_parameters.hpp>
 #include <shadow/image/edit_execution_plan.hpp>
 #include <shadow/image/warm_edit_preview.hpp>
 
@@ -23,11 +23,13 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <optional>
 #include <span>
 #include <stop_token>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -41,6 +43,45 @@ namespace {
     return configured != nullptr && std::string_view(configured) == "1";
 }
 
+struct PreparedWarmProgram final {
+    PreparedMetalAdjustment program;
+    WarmProgramBuffers buffers;
+    std::size_t operation_offset_bytes = 0U;
+};
+
+struct PreparedWarmPass final {
+    const WarmGpuRenderPass* plan = nullptr;
+    PreparedWarmProgram before;
+    std::optional<PreparedWarmProgram> post;
+};
+
+struct WarmStagePostView final {
+    std::span<const AdjustmentNode> nodes;
+    const EditExecutionPlan* plan = nullptr;
+};
+
+[[nodiscard]] std::optional<WarmStagePostView> stage_post_view(
+    const WarmGpuNeighbourhoodStage& stage
+) {
+    return std::visit(
+        [](const auto& value) -> std::optional<WarmStagePostView> {
+            using Stage = std::decay_t<decltype(value)>;
+            if constexpr (requires(Stage candidate) { candidate.post_nodes; }) {
+                if (value.post_nodes.empty()) {
+                    return std::nullopt;
+                }
+                return WarmStagePostView{
+                    .nodes = value.post_nodes,
+                    .plan = &value.after,
+                };
+            } else {
+                return std::nullopt;
+            }
+        },
+        stage
+    );
+}
+
 } // namespace
 
 WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu(
@@ -48,6 +89,7 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu(
     const std::span<const AdjustmentNode> nodes,
     const EditExecutionPlan& plan,
     const bool retain_linear_for_analysis,
+    const WarmEditGpuRenderContext render_context,
     const std::stop_token cancellation
 ) {
     using RenderAttempt = WarmEditGpuSession::RenderAttempt;
@@ -61,19 +103,21 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu(
             .diagnostic = {},
         };
     };
+    const auto failed = [](std::string diagnostic) {
+        return RenderAttempt{
+            .status = RenderStatus::unavailable_or_failed,
+            .output = std::nullopt,
+            .diagnostic = std::move(diagnostic),
+        };
+    };
     if (cancellation.stop_requested()) {
         return cancelled();
     }
     if (force_test_failure()) {
-        return RenderAttempt{
-            .status = RenderStatus::unavailable_or_failed,
-            .output = std::nullopt,
-            .diagnostic = "test-injected session-resident Metal warm-preview failure",
-        };
+        return failed("test-injected session-resident Metal warm-preview failure");
     }
 
     const WarmGpuResidentLayout& resident_layout = resident.layout();
-
     const FloatRgbImage source_layout{
         .dimensions = resident_layout.dimensions,
         .row_stride_bytes = resident_layout.source_row_stride_bytes,
@@ -83,8 +127,8 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu(
         .working_space = resident_layout.working_space,
         .level_zero_to_raster_scale_x = resident_layout.level_zero_to_raster_scale_x,
         .level_zero_to_raster_scale_y = resident_layout.level_zero_to_raster_scale_y,
-        // The immutable source was fully validated before upload. Warm parameter preparation
-        // needs its layout/color metadata, not another full-raster finiteness scan.
+        // The immutable source was fully validated before upload. Program preparation needs
+        // layout/color metadata, not another full-raster finiteness scan.
         .samples = {},
     };
     std::string preparation_diagnostic;
@@ -92,7 +136,8 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu(
         &source_layout,
         &resident,
         &resident_layout,
-        &preparation_diagnostic
+        &preparation_diagnostic,
+        &render_context
     ](
         const std::span<const AdjustmentNode> program_nodes,
         const EditExecutionPlan& candidate,
@@ -109,12 +154,12 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu(
                 source_layout,
                 program_nodes,
                 candidate,
-                AdjustmentExecutionContext{.full_dimensions = resident_layout.dimensions},
+                render_context.adjustment,
                 true
             );
             if (!preparation.program.has_value()) {
                 preparation_diagnostic = preparation.diagnostic.empty()
-                    ? "session-resident Metal warm preview could not prepare the adjustment plan"
+                    ? "session-resident Metal could not prepare a pixel-local adjustment segment"
                     : std::move(preparation.diagnostic);
                 return std::nullopt;
             }
@@ -124,7 +169,7 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu(
         result.invocation.output_row_floats = output_row_floats;
         if (result.operations.size() > resident.operation_capacity()) {
             preparation_diagnostic =
-                "session-resident Metal warm preview exceeds its 256-operation slot capacity";
+                "session-resident Metal exceeds its 256-operation slot capacity";
             return std::nullopt;
         }
         return result;
@@ -143,292 +188,136 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu(
         resident_layout.level_zero_to_raster_scale_x,
         resident_layout.level_zero_to_raster_scale_y
     );
-    const auto* technical_detail_stage = std::get_if<WarmTechnicalDetailStage>(
-        &render_plan.neighbourhood_stage
-    );
-    const auto* texture_clarity_stage = std::get_if<WarmTextureClarityStage>(
-        &render_plan.neighbourhood_stage
-    );
-    const auto* local_contrast_stage = std::get_if<WarmLocalContrastStage>(
-        &render_plan.neighbourhood_stage
-    );
-    const auto* texture_stage = std::get_if<WarmTextureStage>(
-        &render_plan.neighbourhood_stage
-    );
-    const auto* clarity_stage = std::get_if<WarmClarityStage>(
-        &render_plan.neighbourhood_stage
-    );
-    const auto* dehaze_defringe_stage = std::get_if<WarmDehazeDefringeStage>(
-        &render_plan.neighbourhood_stage
-    );
-    const bool has_neighbourhood_stage = render_plan.has_neighbourhood_stage();
-    PreparedMetalAdjustment before_program;
-    std::optional<PreparedMetalAdjustment> final_program;
-    if (technical_detail_stage != nullptr) {
-        auto prepared_before = prepare_program(
-            nodes,
-            technical_detail_stage->before,
-            source_row_floats,
-            packed_row_floats
+    if (!render_plan.complete) {
+        return failed(
+            "session-resident Metal cannot lower every neighborhood stage in this adjustment plan"
         );
-        final_program = prepare_program(
-            nodes,
-            technical_detail_stage->after,
-            packed_row_floats,
-            packed_row_floats
-        );
-        if (!prepared_before.has_value() || !final_program.has_value()) {
-            return RenderAttempt{
-                .status = RenderStatus::unavailable_or_failed,
-                .output = std::nullopt,
-                .diagnostic = std::move(preparation_diagnostic),
-            };
-        }
-        before_program = std::move(*prepared_before);
-    } else if (texture_clarity_stage != nullptr) {
-        auto prepared_before = prepare_program(
-            nodes,
-            texture_clarity_stage->before,
-            source_row_floats,
-            packed_row_floats
-        );
-        final_program = prepare_program(
-            texture_clarity_stage->post_nodes,
-            texture_clarity_stage->after,
-            packed_row_floats,
-            packed_row_floats
-        );
-        if (!prepared_before.has_value() || !final_program.has_value()) {
-            return RenderAttempt{.status = RenderStatus::unavailable_or_failed,
-                                 .output = std::nullopt,
-                                 .diagnostic = std::move(preparation_diagnostic)};
-        }
-        before_program = std::move(*prepared_before);
-    } else if (local_contrast_stage != nullptr) {
-        auto prepared_before = prepare_program(
-            nodes,
-            local_contrast_stage->before,
-            source_row_floats,
-            packed_row_floats
-        );
-        final_program = prepare_program(
-            local_contrast_stage->post_nodes,
-            local_contrast_stage->after,
-            packed_row_floats,
-            packed_row_floats
-        );
-        if (!prepared_before.has_value() || !final_program.has_value()) {
-            return RenderAttempt{.status = RenderStatus::unavailable_or_failed,
-                                 .output = std::nullopt,
-                                 .diagnostic = std::move(preparation_diagnostic)};
-        }
-        before_program = std::move(*prepared_before);
-    } else if (texture_stage != nullptr) {
-        auto prepared_before = prepare_program(
-            nodes,
-            texture_stage->before,
-            source_row_floats,
-            packed_row_floats
-        );
-        final_program = prepare_program(
-            texture_stage->post_nodes,
-            texture_stage->after,
-            packed_row_floats,
-            packed_row_floats
-        );
-        if (!prepared_before.has_value() || !final_program.has_value()) {
-            return RenderAttempt{
-                .status = RenderStatus::unavailable_or_failed,
-                .output = std::nullopt,
-                .diagnostic = std::move(preparation_diagnostic),
-            };
-        }
-        before_program = std::move(*prepared_before);
-    } else if (clarity_stage != nullptr) {
-        auto prepared_before = prepare_program(
-            nodes,
-            clarity_stage->before,
-            source_row_floats,
-            packed_row_floats
-        );
-        final_program = prepare_program(
-            clarity_stage->post_nodes,
-            clarity_stage->after,
-            packed_row_floats,
-            packed_row_floats
-        );
-        if (!prepared_before.has_value() || !final_program.has_value()) {
-            return RenderAttempt{
-                .status = RenderStatus::unavailable_or_failed,
-                .output = std::nullopt,
-                .diagnostic = std::move(preparation_diagnostic),
-            };
-        }
-        before_program = std::move(*prepared_before);
-    } else if (dehaze_defringe_stage != nullptr) {
-        auto prepared_before = prepare_program(
-            nodes,
-            dehaze_defringe_stage->before,
-            source_row_floats,
-            packed_row_floats
-        );
-        final_program = prepare_program(
-            dehaze_defringe_stage->post_nodes,
-            dehaze_defringe_stage->after,
-            packed_row_floats,
-            packed_row_floats
-        );
-        if (!prepared_before.has_value() || !final_program.has_value()) {
-            return RenderAttempt{
-                .status = RenderStatus::unavailable_or_failed,
-                .output = std::nullopt,
-                .diagnostic = std::move(preparation_diagnostic),
-            };
-        }
-        before_program = std::move(*prepared_before);
-    } else {
-        final_program = prepare_program(nodes, plan, source_row_floats, packed_row_floats);
-        if (!final_program.has_value()) {
-            return RenderAttempt{
-                .status = RenderStatus::unavailable_or_failed,
-                .output = std::nullopt,
-                .diagnostic = std::move(preparation_diagnostic),
-            };
-        }
     }
 
-    if (cancellation.stop_requested()) {
-        return cancelled();
+    std::vector<PreparedWarmPass> prepared_passes;
+    prepared_passes.reserve(render_plan.passes.size());
+    for (std::size_t index = 0U; index < render_plan.passes.size(); ++index) {
+        const WarmGpuRenderPass& pass = render_plan.passes[index];
+        auto before = prepare_program(
+            nodes,
+            pass.before,
+            index == 0U ? source_row_floats : packed_row_floats,
+            packed_row_floats
+        );
+        if (!before.has_value()) {
+            return failed(std::move(preparation_diagnostic));
+        }
+        PreparedWarmPass prepared{
+            .plan = &pass,
+            .before = PreparedWarmProgram{.program = std::move(*before)},
+        };
+        if (const auto post = stage_post_view(pass.neighbourhood); post.has_value()) {
+            auto post_program = prepare_program(
+                post->nodes,
+                *post->plan,
+                packed_row_floats,
+                packed_row_floats
+            );
+            if (!post_program.has_value()) {
+                return failed(std::move(preparation_diagnostic));
+            }
+            prepared.post.emplace(
+                PreparedWarmProgram{.program = std::move(*post_program)}
+            );
+        }
+        prepared_passes.push_back(std::move(prepared));
     }
-    std::optional<WarmProgramBuffers> before_buffers;
-    if (has_neighbourhood_stage) {
-        auto attempt = resident.acquire_program_buffers(before_program, cancellation);
+    auto final_preparation = prepare_program(
+        nodes,
+        render_plan.after,
+        render_plan.passes.empty() ? source_row_floats : packed_row_floats,
+        packed_row_floats
+    );
+    if (!final_preparation.has_value()) {
+        return failed(std::move(preparation_diagnostic));
+    }
+    PreparedWarmProgram final_program{
+        .program = std::move(*final_preparation),
+    };
+
+    std::vector<PreparedWarmProgram*> programs;
+    programs.reserve(prepared_passes.size() * 2U + 1U);
+    for (PreparedWarmPass& pass : prepared_passes) {
+        programs.push_back(&pass.before);
+        if (pass.post.has_value()) {
+            programs.push_back(&*pass.post);
+        }
+    }
+    programs.push_back(&final_program);
+
+    std::size_t operation_count = 0U;
+    for (PreparedWarmProgram* program : programs) {
+        if (program->program.operations.size() > resident.operation_capacity() - operation_count) {
+            return failed(
+                "session-resident Metal composed plan exceeds its 256-operation slot capacity"
+            );
+        }
+        program->operation_offset_bytes = operation_count * sizeof(MetalAdjustmentOp);
+        operation_count += program->program.operations.size();
+
+        auto attempt = resident.acquire_program_buffers(program->program, cancellation);
         if (attempt.cancelled) {
             return cancelled();
         }
         if (!attempt.diagnostic.empty()) {
-            return RenderAttempt{
-                .status = RenderStatus::unavailable_or_failed,
-                .output = std::nullopt,
-                .diagnostic = std::move(attempt.diagnostic),
-            };
+            return failed(std::move(attempt.diagnostic));
         }
-        before_buffers.emplace(std::move(attempt.buffers));
+        program->buffers = std::move(attempt.buffers);
     }
-    auto final_buffers_attempt = resident.acquire_program_buffers(*final_program, cancellation);
-    if (final_buffers_attempt.cancelled) {
-        return cancelled();
-    }
-    if (!final_buffers_attempt.diagnostic.empty()) {
-        return RenderAttempt{
-            .status = RenderStatus::unavailable_or_failed,
-            .output = std::nullopt,
-            .diagnostic = std::move(final_buffers_attempt.diagnostic),
-        };
-    }
-    WarmProgramBuffers final_buffers = std::move(final_buffers_attempt.buffers);
     if (cancellation.stop_requested()) {
         return cancelled();
     }
+
     auto slot_lease = resident.acquire_slot(cancellation);
     if (!slot_lease.has_value()) {
         return cancelled();
     }
-    if (cancellation.stop_requested()) {
-        return cancelled();
-    }
-    if (technical_detail_stage != nullptr) {
-        const std::string diagnostic = technical_detail_stage->sharpen.has_value()
-            ? slot_lease->ensure_sharpen_resources()
-            : slot_lease->ensure_denoise_resources();
+    for (const PreparedWarmPass& pass : prepared_passes) {
+        const std::string diagnostic =
+            ensure_warm_gpu_stage_resources(*slot_lease, pass.plan->neighbourhood);
         if (!diagnostic.empty()) {
-            return RenderAttempt{
-                .status = RenderStatus::unavailable_or_failed,
-                .output = std::nullopt,
-                .diagnostic = diagnostic,
-            };
-        }
-    } else if (texture_clarity_stage != nullptr) {
-        const std::string diagnostic = slot_lease->ensure_texture_clarity_resources();
-        if (!diagnostic.empty()) {
-            return RenderAttempt{.status = RenderStatus::unavailable_or_failed,
-                                 .output = std::nullopt,
-                                 .diagnostic = diagnostic};
-        }
-    } else if (local_contrast_stage != nullptr) {
-        const std::string diagnostic = slot_lease->ensure_local_contrast_resources();
-        if (!diagnostic.empty()) {
-            return RenderAttempt{.status = RenderStatus::unavailable_or_failed,
-                                 .output = std::nullopt,
-                                 .diagnostic = diagnostic};
-        }
-    } else if (texture_stage != nullptr) {
-        const std::string diagnostic = slot_lease->ensure_sharpen_resources();
-        if (!diagnostic.empty()) {
-            return RenderAttempt{
-                .status = RenderStatus::unavailable_or_failed,
-                .output = std::nullopt,
-                .diagnostic = diagnostic,
-            };
-        }
-    } else if (clarity_stage != nullptr) {
-        const std::string diagnostic = slot_lease->ensure_clarity_resources();
-        if (!diagnostic.empty()) {
-            return RenderAttempt{
-                .status = RenderStatus::unavailable_or_failed,
-                .output = std::nullopt,
-                .diagnostic = diagnostic,
-            };
-        }
-    } else if (dehaze_defringe_stage != nullptr) {
-        const std::string diagnostic = slot_lease->ensure_denoise_resources();
-        if (!diagnostic.empty()) {
-            return RenderAttempt{
-                .status = RenderStatus::unavailable_or_failed,
-                .output = std::nullopt,
-                .diagnostic = diagnostic,
-            };
+            return failed(diagnostic);
         }
     }
     const WarmGpuSlotBuffers slot = slot_lease->buffers();
 
     @autoreleasepool {
-        const auto upload_operations = [](id<MTLBuffer> destination,
-                                          const PreparedMetalAdjustment& program) {
-            const std::size_t bytes = program.operations.size()
-                * sizeof(MetalAdjustmentOp);
+        auto* operation_bytes = static_cast<std::byte*>([slot.before_operations contents]);
+        for (const PreparedWarmProgram* program : programs) {
+            const std::size_t bytes =
+                program->program.operations.size() * sizeof(MetalAdjustmentOp);
             if (bytes > 0U) {
-                std::memcpy([destination contents], program.operations.data(), bytes);
+                std::memcpy(
+                    operation_bytes + program->operation_offset_bytes,
+                    program->program.operations.data(),
+                    bytes
+                );
             }
-        };
-        if (has_neighbourhood_stage) {
-            upload_operations(slot.before_operations, before_program);
-            upload_operations(slot.after_operations, *final_program);
-        } else {
-            upload_operations(slot.before_operations, *final_program);
         }
         auto* status = static_cast<WarmStatus*>([slot.status contents]);
         *status = WarmStatus{};
         const WarmDisplayParameters display{
+            .output_origin_x = render_context.display_origin_x,
+            .output_origin_y = render_context.display_origin_y,
             .apply_scene_curve =
                 resident_layout.reference == ImageReference::scene_referred ? 1U : 0U,
             .retain_linear = retain_linear_for_analysis ? 1U : 0U,
         };
 
-        auto& context = metal_context();
+        WarmMetalContext& context = metal_context();
         id<MTLCommandBuffer> command_buffer = [context.queue() commandBuffer];
         id<MTLComputeCommandEncoder> encoder = [command_buffer computeCommandEncoder];
         if (command_buffer == nil || encoder == nil) {
-            return RenderAttempt{
-                .status = RenderStatus::unavailable_or_failed,
-                .output = std::nullopt,
-                .diagnostic = "Metal could not create a warm-preview compute command",
-            };
+            return failed("Metal could not create a warm-preview compute command");
         }
-        const auto dispatch = [
-            encoder,
-            &resident_layout
-        ](id<MTLComputePipelineState> pipeline) {
+        const auto dispatch = [encoder, &resident_layout](
+            id<MTLComputePipelineState> pipeline
+        ) {
             const NSUInteger thread_width = std::min<NSUInteger>(
                 32U,
                 std::max<NSUInteger>(1U, pipeline.threadExecutionWidth)
@@ -450,409 +339,81 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu(
         const auto bind_adjustment = [&encoder, &slot](
             id<MTLBuffer> input,
             id<MTLBuffer> output,
-            id<MTLBuffer> operations,
-            const PreparedMetalAdjustment& program,
-            const WarmProgramBuffers& buffers
+            const PreparedWarmProgram& prepared
         ) {
             [encoder setBuffer:input offset:0U atIndex:0U];
             [encoder setBuffer:output offset:0U atIndex:1U];
-            [encoder setBuffer:operations offset:0U atIndex:3U];
-            [encoder setBytes:&program.invocation
-                       length:sizeof(program.invocation)
+            [encoder setBuffer:slot.before_operations
+                        offset:prepared.operation_offset_bytes
+                       atIndex:3U];
+            [encoder setBytes:&prepared.program.invocation
+                       length:sizeof(prepared.program.invocation)
                       atIndex:4U];
             [encoder setBuffer:slot.status offset:0U atIndex:6U];
-            [encoder setBuffer:buffers.curve.get() offset:0U atIndex:7U];
-            [encoder setBuffer:buffers.lut.get() offset:0U atIndex:8U];
-            [encoder setBuffer:buffers.perceptual_mixer.get() offset:0U atIndex:9U];
-            [encoder setBuffer:buffers.perceptual_range.get() offset:0U atIndex:10U];
-            [encoder setBuffer:buffers.selective_color.get() offset:0U atIndex:11U];
+            [encoder setBuffer:prepared.buffers.curve.get() offset:0U atIndex:7U];
+            [encoder setBuffer:prepared.buffers.lut.get() offset:0U atIndex:8U];
+            [encoder setBuffer:prepared.buffers.perceptual_mixer.get()
+                        offset:0U
+                       atIndex:9U];
+            [encoder setBuffer:prepared.buffers.perceptual_range.get()
+                        offset:0U
+                       atIndex:10U];
+            [encoder setBuffer:prepared.buffers.selective_color.get()
+                        offset:0U
+                       atIndex:11U];
         };
 
-        id<MTLBuffer> neighbourhood_output = resident.source_buffer();
-        if (technical_detail_stage != nullptr) {
+        id<MTLBuffer> current = resident.source_buffer();
+        for (const PreparedWarmPass& pass : prepared_passes) {
             [encoder setComputePipelineState:context.adjustment_pipeline()];
-            bind_adjustment(
-                resident.source_buffer(),
-                slot.adjusted,
-                slot.before_operations,
-                before_program,
-                *before_buffers
-            );
+            // Pixel-local kernels load one pixel completely before writing it. Keeping a
+            // previous stage's adjusted buffer in place is therefore safe and avoids an
+            // otherwise redundant full-raster copy between adjacent neighborhood stages.
+            bind_adjustment(current, slot.adjusted, pass.before);
             dispatch(context.adjustment_pipeline());
-            neighbourhood_output = slot.adjusted;
-
-            if (technical_detail_stage->denoise.has_value()) {
-                const auto& denoise = *technical_detail_stage->denoise;
-                [encoder setComputePipelineState:context.denoise_pipeline()];
-                [encoder setBuffer:slot.adjusted offset:0U atIndex:0U];
-                [encoder setBuffer:slot.denoised offset:0U atIndex:1U];
-                [encoder setBytes:&denoise length:sizeof(denoise) atIndex:2U];
-                dispatch(context.denoise_pipeline());
-                neighbourhood_output = slot.denoised;
-                if (denoise.passes > 1U) {
-                    [encoder setBuffer:slot.denoised offset:0U atIndex:0U];
-                    [encoder setBuffer:slot.adjusted offset:0U atIndex:1U];
-                    [encoder setBytes:&denoise length:sizeof(denoise) atIndex:2U];
-                    dispatch(context.denoise_pipeline());
-                    neighbourhood_output = slot.adjusted;
-                }
+            current = encode_warm_gpu_neighbourhood_stage(
+                encoder,
+                context,
+                resident_layout,
+                slot,
+                slot.adjusted,
+                pass.plan->neighbourhood,
+                pass.post.has_value()
+                    ? pass.post->program.invocation
+                    : pass.before.program.invocation
+            );
+            if (pass.post.has_value()) {
+                [encoder setComputePipelineState:context.adjustment_pipeline()];
+                bind_adjustment(current, current, *pass.post);
+                dispatch(context.adjustment_pipeline());
             }
-
-            if (technical_detail_stage->sharpen.has_value()) {
-                const auto& sharpen = *technical_detail_stage->sharpen;
-                [encoder setComputePipelineState:context.sharpen_log_pipeline()];
-                [encoder setBuffer:neighbourhood_output offset:0U atIndex:0U];
-                [encoder setBuffer:slot.sharpen_log_luminance offset:0U atIndex:1U];
-                [encoder setBytes:&sharpen length:sizeof(sharpen) atIndex:2U];
-                dispatch(context.sharpen_log_pipeline());
-
-                [encoder setComputePipelineState:context.sharpen_horizontal_pipeline()];
-                [encoder setBuffer:slot.sharpen_log_luminance offset:0U atIndex:0U];
-                [encoder setBuffer:slot.sharpen_horizontal offset:0U atIndex:1U];
-                [encoder setBytes:&sharpen length:sizeof(sharpen) atIndex:2U];
-                dispatch(context.sharpen_horizontal_pipeline());
-
-                const id<MTLBuffer> sharpened_output = neighbourhood_output == slot.adjusted
-                    ? slot.denoised
-                    : slot.adjusted;
-                [encoder setComputePipelineState:context.sharpen_apply_pipeline()];
-                [encoder setBuffer:neighbourhood_output offset:0U atIndex:0U];
-                [encoder setBuffer:slot.sharpen_horizontal offset:0U atIndex:1U];
-                [encoder setBuffer:sharpened_output offset:0U atIndex:2U];
-                [encoder setBytes:&sharpen length:sizeof(sharpen) atIndex:3U];
-                dispatch(context.sharpen_apply_pipeline());
-                neighbourhood_output = sharpened_output;
-            }
-        } else if (texture_clarity_stage != nullptr) {
-            [encoder setComputePipelineState:context.adjustment_pipeline()];
-            bind_adjustment(resident.source_buffer(), slot.adjusted, slot.before_operations,
-                            before_program, *before_buffers);
-            dispatch(context.adjustment_pipeline());
-
-            const auto& texture = texture_clarity_stage->texture_gaussian;
-            const auto& small = texture_clarity_stage->clarity_small_gaussian;
-            const auto& large = texture_clarity_stage->clarity_large_gaussian;
-            const auto& combined = texture_clarity_stage->parameters;
-            [encoder setComputePipelineState:context.texture_lightness_pipeline()];
-            [encoder setBuffer:slot.adjusted offset:0U atIndex:0U];
-            [encoder setBuffer:slot.sharpen_log_luminance offset:0U atIndex:1U];
-            [encoder setBytes:&texture length:sizeof(texture) atIndex:2U];
-            [encoder setBytes:&final_program->invocation length:sizeof(final_program->invocation)
-                      atIndex:3U];
-            dispatch(context.texture_lightness_pipeline());
-
-            [encoder setComputePipelineState:context.texture_horizontal_pipeline()];
-            [encoder setBuffer:slot.sharpen_log_luminance offset:0U atIndex:0U];
-            [encoder setBuffer:slot.sharpen_horizontal offset:0U atIndex:1U];
-            [encoder setBytes:&texture length:sizeof(texture) atIndex:2U];
-            dispatch(context.texture_horizontal_pipeline());
-            [encoder setComputePipelineState:context.scalar_vertical_pipeline()];
-            [encoder setBuffer:slot.sharpen_horizontal offset:0U atIndex:0U];
-            [encoder setBuffer:slot.perceptual_texture offset:0U atIndex:1U];
-            [encoder setBytes:&texture length:sizeof(texture) atIndex:2U];
-            dispatch(context.scalar_vertical_pipeline());
-
-            [encoder setComputePipelineState:context.texture_horizontal_pipeline()];
-            [encoder setBuffer:slot.sharpen_log_luminance offset:0U atIndex:0U];
-            [encoder setBuffer:slot.sharpen_horizontal offset:0U atIndex:1U];
-            [encoder setBytes:&small length:sizeof(small) atIndex:2U];
-            dispatch(context.texture_horizontal_pipeline());
-            [encoder setComputePipelineState:context.scalar_vertical_pipeline()];
-            [encoder setBuffer:slot.sharpen_horizontal offset:0U atIndex:0U];
-            [encoder setBuffer:slot.perceptual_small offset:0U atIndex:1U];
-            [encoder setBytes:&small length:sizeof(small) atIndex:2U];
-            dispatch(context.scalar_vertical_pipeline());
-
-            [encoder setComputePipelineState:context.texture_horizontal_pipeline()];
-            [encoder setBuffer:slot.sharpen_log_luminance offset:0U atIndex:0U];
-            [encoder setBuffer:slot.sharpen_horizontal offset:0U atIndex:1U];
-            [encoder setBytes:&large length:sizeof(large) atIndex:2U];
-            dispatch(context.texture_horizontal_pipeline());
-            [encoder setComputePipelineState:context.texture_clarity_apply_pipeline()];
-            [encoder setBuffer:slot.adjusted offset:0U atIndex:0U];
-            [encoder setBuffer:slot.perceptual_texture offset:0U atIndex:1U];
-            [encoder setBuffer:slot.perceptual_small offset:0U atIndex:2U];
-            [encoder setBuffer:slot.sharpen_horizontal offset:0U atIndex:3U];
-            [encoder setBuffer:slot.denoised offset:0U atIndex:4U];
-            [encoder setBytes:&combined length:sizeof(combined) atIndex:5U];
-            [encoder setBytes:&final_program->invocation length:sizeof(final_program->invocation)
-                      atIndex:6U];
-            dispatch(context.texture_clarity_apply_pipeline());
-            neighbourhood_output = slot.denoised;
-        } else if (local_contrast_stage != nullptr) {
-            [encoder setComputePipelineState:context.adjustment_pipeline()];
-            bind_adjustment(
-                resident.source_buffer(),
-                slot.adjusted,
-                slot.before_operations,
-                before_program,
-                *before_buffers
-            );
-            dispatch(context.adjustment_pipeline());
-
-            const auto& small = local_contrast_stage->small_box;
-            const auto& large = local_contrast_stage->large_box;
-            const auto& small_coefficients = local_contrast_stage->small_coefficients;
-            const auto& large_coefficients = local_contrast_stage->large_coefficients;
-            const auto& local_contrast = local_contrast_stage->parameters;
-            const WarmTextureParameters lightness{
-                .width = resident_layout.dimensions.width,
-                .height = resident_layout.dimensions.height,
-            };
-            const auto box_mean = [&encoder, &context, &dispatch](
-                id<MTLBuffer> input,
-                id<MTLBuffer> horizontal,
-                id<MTLBuffer> output,
-                const WarmBoxParameters& parameters
-            ) {
-                [encoder setComputePipelineState:context.box_horizontal_pipeline()];
-                [encoder setBuffer:input offset:0U atIndex:0U];
-                [encoder setBuffer:horizontal offset:0U atIndex:1U];
-                [encoder setBytes:&parameters length:sizeof(parameters) atIndex:2U];
-                dispatch(context.box_horizontal_pipeline());
-                [encoder setComputePipelineState:context.box_vertical_pipeline()];
-                [encoder setBuffer:horizontal offset:0U atIndex:0U];
-                [encoder setBuffer:output offset:0U atIndex:1U];
-                [encoder setBytes:&parameters length:sizeof(parameters) atIndex:2U];
-                dispatch(context.box_vertical_pipeline());
-            };
-            const auto square = [&encoder, &context, &dispatch](
-                id<MTLBuffer> input,
-                id<MTLBuffer> output,
-                const WarmBoxParameters& parameters
-            ) {
-                [encoder setComputePipelineState:context.scalar_square_pipeline()];
-                [encoder setBuffer:input offset:0U atIndex:0U];
-                [encoder setBuffer:output offset:0U atIndex:1U];
-                [encoder setBytes:&parameters length:sizeof(parameters) atIndex:2U];
-                dispatch(context.scalar_square_pipeline());
-            };
-            const auto coefficients = [&encoder, &context, &dispatch](
-                id<MTLBuffer> guide,
-                id<MTLBuffer> mean,
-                id<MTLBuffer> variance,
-                id<MTLBuffer> a,
-                id<MTLBuffer> b,
-                const WarmGuidedCoefficientsParameters& parameters
-            ) {
-                [encoder setComputePipelineState:context.guided_coefficients_pipeline()];
-                [encoder setBuffer:guide offset:0U atIndex:0U];
-                [encoder setBuffer:mean offset:0U atIndex:1U];
-                [encoder setBuffer:variance offset:0U atIndex:2U];
-                [encoder setBuffer:a offset:0U atIndex:3U];
-                [encoder setBuffer:b offset:0U atIndex:4U];
-                [encoder setBytes:&parameters length:sizeof(parameters) atIndex:5U];
-                dispatch(context.guided_coefficients_pipeline());
-            };
-            const auto combine = [&encoder, &context, &dispatch](
-                id<MTLBuffer> guide,
-                id<MTLBuffer> a,
-                id<MTLBuffer> b,
-                id<MTLBuffer> output,
-                const WarmBoxParameters& parameters
-            ) {
-                [encoder setComputePipelineState:context.guided_combine_pipeline()];
-                [encoder setBuffer:guide offset:0U atIndex:0U];
-                [encoder setBuffer:a offset:0U atIndex:1U];
-                [encoder setBuffer:b offset:0U atIndex:2U];
-                [encoder setBuffer:output offset:0U atIndex:3U];
-                [encoder setBytes:&parameters length:sizeof(parameters) atIndex:4U];
-                dispatch(context.guided_combine_pipeline());
-            };
-
-            // Scalar allocation layout:
-            // guide=A, rolling horizontal=B, small output=C, large output=D,
-            // coefficient scratch=E/F. Each phase overwrites only data whose
-            // final use has passed, retaining both guided outputs for the
-            // final broad-band residual.
-            const id<MTLBuffer> guide = slot.sharpen_log_luminance;
-            const id<MTLBuffer> horizontal = slot.sharpen_horizontal;
-            const id<MTLBuffer> small_output = slot.perceptual_small;
-            const id<MTLBuffer> large_output = slot.perceptual_texture;
-            const id<MTLBuffer> scratch_a = slot.local_contrast_a;
-            const id<MTLBuffer> scratch_b = slot.local_contrast_b;
-            [encoder setComputePipelineState:context.texture_lightness_pipeline()];
-            [encoder setBuffer:slot.adjusted offset:0U atIndex:0U];
-            [encoder setBuffer:guide offset:0U atIndex:1U];
-            [encoder setBytes:&lightness length:sizeof(lightness) atIndex:2U];
-            [encoder setBytes:&final_program->invocation
-                       length:sizeof(final_program->invocation) atIndex:3U];
-            dispatch(context.texture_lightness_pipeline());
-
-            box_mean(guide, horizontal, small_output, small);
-            square(guide, horizontal, small);
-            box_mean(horizontal, scratch_a, large_output, small);
-            coefficients(
-                guide,
-                small_output,
-                large_output,
-                scratch_a,
-                scratch_b,
-                small_coefficients
-            );
-            box_mean(scratch_a, horizontal, small_output, small);
-            box_mean(scratch_b, horizontal, large_output, small);
-            combine(guide, small_output, large_output, small_output, small);
-
-            box_mean(guide, horizontal, large_output, large);
-            square(guide, horizontal, large);
-            box_mean(horizontal, scratch_a, scratch_b, large);
-            coefficients(
-                guide,
-                large_output,
-                scratch_b,
-                scratch_a,
-                horizontal,
-                large_coefficients
-            );
-            box_mean(scratch_a, scratch_b, scratch_a, large);
-            box_mean(horizontal, scratch_b, large_output, large);
-            combine(guide, scratch_a, large_output, large_output, large);
-
-            [encoder setComputePipelineState:context.local_contrast_apply_pipeline()];
-            [encoder setBuffer:slot.adjusted offset:0U atIndex:0U];
-            [encoder setBuffer:small_output offset:0U atIndex:1U];
-            [encoder setBuffer:large_output offset:0U atIndex:2U];
-            [encoder setBuffer:slot.denoised offset:0U atIndex:3U];
-            [encoder setBytes:&local_contrast length:sizeof(local_contrast) atIndex:4U];
-            [encoder setBytes:&final_program->invocation
-                       length:sizeof(final_program->invocation) atIndex:5U];
-            dispatch(context.local_contrast_apply_pipeline());
-            neighbourhood_output = slot.denoised;
-        } else if (texture_stage != nullptr) {
-            [encoder setComputePipelineState:context.adjustment_pipeline()];
-            bind_adjustment(
-                resident.source_buffer(),
-                slot.adjusted,
-                slot.before_operations,
-                before_program,
-                *before_buffers
-            );
-            dispatch(context.adjustment_pipeline());
-
-            const auto& texture = texture_stage->parameters;
-            [encoder setComputePipelineState:context.texture_lightness_pipeline()];
-            [encoder setBuffer:slot.adjusted offset:0U atIndex:0U];
-            [encoder setBuffer:slot.sharpen_log_luminance offset:0U atIndex:1U];
-            [encoder setBytes:&texture length:sizeof(texture) atIndex:2U];
-            [encoder setBytes:&final_program->invocation
-                       length:sizeof(final_program->invocation)
-                      atIndex:3U];
-            dispatch(context.texture_lightness_pipeline());
-
-            [encoder setComputePipelineState:context.texture_horizontal_pipeline()];
-            [encoder setBuffer:slot.sharpen_log_luminance offset:0U atIndex:0U];
-            [encoder setBuffer:slot.sharpen_horizontal offset:0U atIndex:1U];
-            [encoder setBytes:&texture length:sizeof(texture) atIndex:2U];
-            dispatch(context.texture_horizontal_pipeline());
-
-            [encoder setComputePipelineState:context.texture_apply_pipeline()];
-            [encoder setBuffer:slot.adjusted offset:0U atIndex:0U];
-            [encoder setBuffer:slot.sharpen_horizontal offset:0U atIndex:1U];
-            [encoder setBuffer:slot.denoised offset:0U atIndex:2U];
-            [encoder setBytes:&texture length:sizeof(texture) atIndex:3U];
-            [encoder setBytes:&final_program->invocation
-                       length:sizeof(final_program->invocation)
-                      atIndex:4U];
-            dispatch(context.texture_apply_pipeline());
-            neighbourhood_output = slot.denoised;
-        } else if (clarity_stage != nullptr) {
-            [encoder setComputePipelineState:context.adjustment_pipeline()];
-            bind_adjustment(
-                resident.source_buffer(),
-                slot.adjusted,
-                slot.before_operations,
-                before_program,
-                *before_buffers
-            );
-            dispatch(context.adjustment_pipeline());
-
-            const auto& small = clarity_stage->small_gaussian;
-            const auto& large = clarity_stage->large_gaussian;
-            const auto& clarity = clarity_stage->parameters;
-            [encoder setComputePipelineState:context.texture_lightness_pipeline()];
-            [encoder setBuffer:slot.adjusted offset:0U atIndex:0U];
-            [encoder setBuffer:slot.sharpen_log_luminance offset:0U atIndex:1U];
-            [encoder setBytes:&small length:sizeof(small) atIndex:2U];
-            [encoder setBytes:&final_program->invocation
-                       length:sizeof(final_program->invocation)
-                      atIndex:3U];
-            dispatch(context.texture_lightness_pipeline());
-
-            [encoder setComputePipelineState:context.texture_horizontal_pipeline()];
-            [encoder setBuffer:slot.sharpen_log_luminance offset:0U atIndex:0U];
-            [encoder setBuffer:slot.sharpen_horizontal offset:0U atIndex:1U];
-            [encoder setBytes:&small length:sizeof(small) atIndex:2U];
-            dispatch(context.texture_horizontal_pipeline());
-
-            [encoder setComputePipelineState:context.scalar_vertical_pipeline()];
-            [encoder setBuffer:slot.sharpen_horizontal offset:0U atIndex:0U];
-            [encoder setBuffer:slot.perceptual_small offset:0U atIndex:1U];
-            [encoder setBytes:&small length:sizeof(small) atIndex:2U];
-            dispatch(context.scalar_vertical_pipeline());
-
-            [encoder setComputePipelineState:context.texture_horizontal_pipeline()];
-            [encoder setBuffer:slot.sharpen_log_luminance offset:0U atIndex:0U];
-            [encoder setBuffer:slot.sharpen_horizontal offset:0U atIndex:1U];
-            [encoder setBytes:&large length:sizeof(large) atIndex:2U];
-            dispatch(context.texture_horizontal_pipeline());
-
-            [encoder setComputePipelineState:context.clarity_apply_pipeline()];
-            [encoder setBuffer:slot.adjusted offset:0U atIndex:0U];
-            [encoder setBuffer:slot.perceptual_small offset:0U atIndex:1U];
-            [encoder setBuffer:slot.sharpen_horizontal offset:0U atIndex:2U];
-            [encoder setBuffer:slot.denoised offset:0U atIndex:3U];
-            [encoder setBytes:&clarity length:sizeof(clarity) atIndex:4U];
-            [encoder setBytes:&final_program->invocation
-                       length:sizeof(final_program->invocation)
-                      atIndex:5U];
-            dispatch(context.clarity_apply_pipeline());
-            neighbourhood_output = slot.denoised;
-        } else if (dehaze_defringe_stage != nullptr) {
-            [encoder setComputePipelineState:context.adjustment_pipeline()];
-            bind_adjustment(
-                resident.source_buffer(),
-                slot.adjusted,
-                slot.before_operations,
-                before_program,
-                *before_buffers
-            );
-            dispatch(context.adjustment_pipeline());
-
-            const auto& technical_optics = dehaze_defringe_stage->parameters;
-            [encoder setComputePipelineState:context.dehaze_defringe_pipeline()];
-            [encoder setBuffer:slot.adjusted offset:0U atIndex:0U];
-            [encoder setBuffer:slot.denoised offset:0U atIndex:1U];
-            [encoder setBytes:&technical_optics length:sizeof(technical_optics) atIndex:2U];
-            [encoder setBytes:&final_program->invocation
-                       length:sizeof(final_program->invocation)
-                      atIndex:3U];
-            dispatch(context.dehaze_defringe_pipeline());
-            neighbourhood_output = slot.denoised;
         }
 
+        id<MTLBuffer> final_adjusted =
+            current == slot.adjusted ? slot.denoised : slot.adjusted;
         [encoder setComputePipelineState:context.display_pipeline()];
-        id<MTLBuffer> final_input = neighbourhood_output;
-        id<MTLBuffer> final_adjusted = has_neighbourhood_stage
-            ? (final_input == slot.adjusted ? slot.denoised : slot.adjusted)
-            : slot.adjusted;
-        id<MTLBuffer> final_operations = has_neighbourhood_stage
-            ? slot.after_operations
-            : slot.before_operations;
-        [encoder setBuffer:final_input offset:0U atIndex:0U];
+        [encoder setBuffer:current offset:0U atIndex:0U];
         [encoder setBuffer:final_adjusted offset:0U atIndex:1U];
         [encoder setBuffer:slot.rgb8 offset:0U atIndex:2U];
-        [encoder setBuffer:final_operations offset:0U atIndex:3U];
-        [encoder setBytes:&final_program->invocation
-                   length:sizeof(final_program->invocation)
+        [encoder setBuffer:slot.before_operations
+                    offset:final_program.operation_offset_bytes
+                   atIndex:3U];
+        [encoder setBytes:&final_program.program.invocation
+                   length:sizeof(final_program.program.invocation)
                   atIndex:4U];
         [encoder setBytes:&display length:sizeof(display) atIndex:5U];
         [encoder setBuffer:slot.status offset:0U atIndex:6U];
-        [encoder setBuffer:final_buffers.curve.get() offset:0U atIndex:7U];
-        [encoder setBuffer:final_buffers.lut.get() offset:0U atIndex:8U];
-        [encoder setBuffer:final_buffers.perceptual_mixer.get() offset:0U atIndex:9U];
-        [encoder setBuffer:final_buffers.perceptual_range.get() offset:0U atIndex:10U];
-        [encoder setBuffer:final_buffers.selective_color.get() offset:0U atIndex:11U];
+        [encoder setBuffer:final_program.buffers.curve.get() offset:0U atIndex:7U];
+        [encoder setBuffer:final_program.buffers.lut.get() offset:0U atIndex:8U];
+        [encoder setBuffer:final_program.buffers.perceptual_mixer.get()
+                    offset:0U
+                   atIndex:9U];
+        [encoder setBuffer:final_program.buffers.perceptual_range.get()
+                    offset:0U
+                   atIndex:10U];
+        [encoder setBuffer:final_program.buffers.selective_color.get()
+                    offset:0U
+                   atIndex:11U];
         dispatch(context.display_pipeline());
         [encoder endEncoding];
         if (cancellation.stop_requested()) {
@@ -864,35 +425,20 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu(
             return cancelled();
         }
         if (command_buffer.status != MTLCommandBufferStatusCompleted) {
-            return RenderAttempt{
-                .status = RenderStatus::unavailable_or_failed,
-                .output = std::nullopt,
-                .diagnostic = command_buffer_diagnostic(command_buffer),
-            };
+            return failed(command_buffer_diagnostic(command_buffer));
         }
         if (status->flags != 0U) {
             std::string diagnostic =
                 "session-resident Metal warm preview produced an invalid result";
-            const auto append_node = [&diagnostic, status](
-                const PreparedMetalAdjustment& program
-            ) {
-                if (status->earliest_step < program.operations.size()) {
-                    diagnostic += " at source node " + std::to_string(
-                        program.operations[status->earliest_step].source_node_index
+            for (const PreparedWarmProgram* program : programs) {
+                if (status->earliest_step < program->program.operations.size()) {
+                    diagnostic += " near source node " + std::to_string(
+                        program->program.operations[status->earliest_step].source_node_index
                     );
+                    break;
                 }
-            };
-            if (has_neighbourhood_stage) {
-                append_node(before_program);
-                append_node(*final_program);
-            } else {
-                append_node(*final_program);
             }
-            return RenderAttempt{
-                .status = RenderStatus::unavailable_or_failed,
-                .output = std::nullopt,
-                .diagnostic = std::move(diagnostic),
-            };
+            return failed(std::move(diagnostic));
         }
 
         RenderResult result{
@@ -913,8 +459,10 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu(
                 .transfer_function = resident_layout.transfer_function,
                 .reference = resident_layout.reference,
                 .working_space = resident_layout.working_space,
-                .level_zero_to_raster_scale_x = resident_layout.level_zero_to_raster_scale_x,
-                .level_zero_to_raster_scale_y = resident_layout.level_zero_to_raster_scale_y,
+                .level_zero_to_raster_scale_x =
+                    resident_layout.level_zero_to_raster_scale_x,
+                .level_zero_to_raster_scale_y =
+                    resident_layout.level_zero_to_raster_scale_y,
                 .samples = std::vector<float>(resident_layout.adjusted_sample_count),
             };
             std::memcpy(

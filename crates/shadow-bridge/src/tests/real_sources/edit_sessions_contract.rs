@@ -194,7 +194,10 @@ fn real_dng_full_edit_detail_session_renders_deterministic_tiles() {
             let second = session
                 .render_plan_tile(&neutral_plan, request)
                 .expect("repeat neutral full-resolution detail tile");
-            assert_eq!(first, second);
+            assert_eq!(first.rect, second.rect);
+            assert_eq!(first.full_dimensions, second.full_dimensions);
+            assert_eq!(first.row_stride_bytes, second.row_stride_bytes);
+            assert_eq!(first.bytes, second.bytes);
             assert_eq!(first.rect, request.rect);
             assert_eq!(first.full_dimensions, full);
             assert_eq!(first.row_stride_bytes, width * 3);

@@ -12,12 +12,17 @@
 
 #include <compare>
 #include <cstdint>
+#include <memory>
 #include <span>
+#include <string>
 #include <vector>
 
 namespace shadow::image {
 
 class DecodeSession;
+namespace detail {
+class FullEditDetailGpuCache;
+}
 
 // Full-detail sessions retain the provider's complete 16-bit reference RGB image, but never
 // more than 512 MiB. The metadata preflight assumes worst-case RGB even when a provider may
@@ -43,6 +48,29 @@ struct DetailTileRect final {
     auto operator<=>(const DetailTileRect&) const = default;
 };
 
+inline constexpr std::uint32_t detail_tile_execution_receipt_schema_version = 1U;
+inline constexpr std::uint32_t detail_tile_cpu_backend_version = 1U;
+inline constexpr std::uint32_t detail_tile_metal_backend_version = 1U;
+
+enum class DetailTileRenderBackend : std::uint8_t {
+    cpu,
+    metal,
+};
+
+// Runtime provenance for one tile render. The backend and fallback status describe the effective
+// complete adjustment-plus-display route. Cache reuse remains operational telemetry and must not
+// enter a recipe, export, or durable image-cache identity.
+struct DetailTileExecutionReceipt final {
+    std::uint32_t schema_version = detail_tile_execution_receipt_schema_version;
+    DetailTileRenderBackend backend = DetailTileRenderBackend::cpu;
+    std::uint32_t backend_version = detail_tile_cpu_backend_version;
+    bool source_cache_hit = false;
+    bool fell_back = false;
+    std::string diagnostic;
+
+    [[nodiscard]] bool valid() const noexcept;
+};
+
 // Packed, display-referred sRGB bytes for one exact full-resolution rectangle. Rows carry no
 // padding and no compression is applied, avoiding independently encoded JPEG block or chroma
 // boundaries between neighboring tiles.
@@ -51,18 +79,19 @@ struct RenderedDetailTile final {
     Dimensions full_dimensions;
     std::uint32_t row_stride_bytes = 0;
     std::vector<std::uint8_t> bytes;
+    DetailTileExecutionReceipt execution;
 };
 
 // An immutable complete linear source for 1:1 detail requests. Raster/provider-compatibility
 // sources retain packed u16 RGB; Shadow's owned RawFrame route retains scene-linear fp32 so
 // highlight headroom survives until the requested tile reaches the edit graph.
 class FullEditDetailSession final {
-public:
+  public:
     FullEditDetailSession(const FullEditDetailSession&) = delete;
     FullEditDetailSession& operator=(const FullEditDetailSession&) = delete;
-    FullEditDetailSession(FullEditDetailSession&&) noexcept = default;
-    FullEditDetailSession& operator=(FullEditDetailSession&&) noexcept = default;
-    ~FullEditDetailSession() = default;
+    FullEditDetailSession(FullEditDetailSession&&) noexcept;
+    FullEditDetailSession& operator=(FullEditDetailSession&&) noexcept;
+    ~FullEditDetailSession();
 
     [[nodiscard]] Dimensions dimensions() const noexcept;
     [[nodiscard]] std::uint64_t retained_bytes() const noexcept;
@@ -80,7 +109,7 @@ public:
         const PhotoGeometry& geometry = {}
     ) const;
 
-private:
+  private:
     FullEditDetailSession(
         DevelopedSourcePixels reference_source,
         std::uint64_t retained_bytes,
@@ -100,6 +129,10 @@ private:
     // Source rendering is independent from the editable Recipe. Retain its compact receipt so
     // full-resolution tiles apply the exact same standard/profile exposure as the warm proxy.
     SourceRenderingReceipt source_rendering_;
+    // The cache is an independent runtime accelerator: it owns bounded resident working tiles,
+    // while this session remains the semantic owner of source geometry, CPU fallback, and the
+    // public result contract.
+    std::unique_ptr<detail::FullEditDetailGpuCache> gpu_cache_;
 
     friend FullEditDetailSession prepare_full_edit_detail(
         const DecodeSession& session,

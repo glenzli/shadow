@@ -42,6 +42,10 @@ class WarmMetalContext final {
     [[nodiscard]] id<MTLComputePipelineState> guided_coefficients_pipeline() const noexcept;
     [[nodiscard]] id<MTLComputePipelineState> guided_combine_pipeline() const noexcept;
     [[nodiscard]] id<MTLComputePipelineState> local_contrast_apply_pipeline() const noexcept;
+    [[nodiscard]] id<MTLComputePipelineState> selective_tone_guide_pipeline() const noexcept;
+    [[nodiscard]] id<MTLComputePipelineState> reflect_box_horizontal_pipeline() const noexcept;
+    [[nodiscard]] id<MTLComputePipelineState> reflect_box_vertical_pipeline() const noexcept;
+    [[nodiscard]] id<MTLComputePipelineState> selective_tone_apply_pipeline() const noexcept;
     [[nodiscard]] const std::string& diagnostic() const noexcept;
 
   private:
@@ -66,6 +70,10 @@ class WarmMetalContext final {
     id<MTLComputePipelineState> guided_coefficients_pipeline_ = nil;
     id<MTLComputePipelineState> guided_combine_pipeline_ = nil;
     id<MTLComputePipelineState> local_contrast_apply_pipeline_ = nil;
+    id<MTLComputePipelineState> selective_tone_guide_pipeline_ = nil;
+    id<MTLComputePipelineState> reflect_box_horizontal_pipeline_ = nil;
+    id<MTLComputePipelineState> reflect_box_vertical_pipeline_ = nil;
+    id<MTLComputePipelineState> selective_tone_apply_pipeline_ = nil;
     std::string diagnostic_;
 };
 
