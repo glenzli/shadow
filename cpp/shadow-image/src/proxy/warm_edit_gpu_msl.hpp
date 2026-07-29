@@ -541,10 +541,7 @@ kernel void warm_sharpen_horizontal_v1(
     );
     float weighted_sum = 0.0f;
     float weight_sum = 0.0f;
-    for (int offset = -15; offset <= 15; ++offset) {
-        if (abs(offset) > radius) {
-            continue;
-        }
+    for (int offset = -radius; offset <= radius; ++offset) {
         const float weight = exp(-float(offset * offset) * inverse_two_sigma_squared);
         const uint sample_x = warm_reflect101_coordinate(int(position.x) + offset, parameters.width);
         weighted_sum += input[position.y * parameters.width + sample_x] * weight;
@@ -570,10 +567,7 @@ kernel void warm_sharpen_apply_v1(
     );
     float weighted_sum = 0.0f;
     float weight_sum = 0.0f;
-    for (int offset = -15; offset <= 15; ++offset) {
-        if (abs(offset) > radius) {
-            continue;
-        }
+    for (int offset = -radius; offset <= radius; ++offset) {
         const float weight = exp(-float(offset * offset) * inverse_two_sigma_squared);
         const uint sample_y = warm_reflect101_coordinate(int(position.y) + offset, parameters.height);
         weighted_sum += horizontal[sample_y * parameters.width + position.x] * weight;
@@ -640,10 +634,7 @@ kernel void warm_texture_horizontal_v1(
     );
     float weighted_sum = 0.0f;
     float weight_sum = 0.0f;
-    for (int offset = -15; offset <= 15; ++offset) {
-        if (abs(offset) > radius) {
-            continue;
-        }
+    for (int offset = -radius; offset <= radius; ++offset) {
         const float weight = exp(-float(offset * offset) * inverse_two_sigma_squared);
         const uint sample_x = warm_reflect101_coordinate(int(position.x) + offset, parameters.width);
         weighted_sum += input[position.y * parameters.width + sample_x] * weight;
@@ -670,10 +661,7 @@ kernel void warm_texture_apply_v1(
     );
     float weighted_sum = 0.0f;
     float weight_sum = 0.0f;
-    for (int offset = -15; offset <= 15; ++offset) {
-        if (abs(offset) > radius) {
-            continue;
-        }
+    for (int offset = -radius; offset <= radius; ++offset) {
         const float weight = exp(-float(offset * offset) * inverse_two_sigma_squared);
         const uint sample_y = warm_reflect101_coordinate(int(position.y) + offset, parameters.height);
         weighted_sum += horizontal[sample_y * parameters.width + position.x] * weight;
@@ -711,10 +699,7 @@ kernel void warm_scalar_vertical_v1(
     );
     float weighted_sum = 0.0f;
     float weight_sum = 0.0f;
-    for (int offset = -15; offset <= 15; ++offset) {
-        if (abs(offset) > radius) {
-            continue;
-        }
+    for (int offset = -radius; offset <= radius; ++offset) {
         const float weight = exp(-float(offset * offset) * inverse_two_sigma_squared);
         const uint sample_y = warm_reflect101_coordinate(int(position.y) + offset, parameters.height);
         weighted_sum += input[sample_y * parameters.width + position.x] * weight;
@@ -746,10 +731,7 @@ kernel void warm_clarity_apply_v1(
     );
     float weighted_sum = 0.0f;
     float weight_sum = 0.0f;
-    for (int offset = -15; offset <= 15; ++offset) {
-        if (abs(offset) > radius) {
-            continue;
-        }
+    for (int offset = -radius; offset <= radius; ++offset) {
         const float weight = exp(-float(offset * offset) * inverse_two_sigma_squared);
         const uint sample_y = warm_reflect101_coordinate(int(position.y) + offset, parameters.height);
         weighted_sum += large_horizontal[sample_y * parameters.width + position.x] * weight;
@@ -871,10 +853,7 @@ kernel void warm_texture_clarity_apply_v1(
     );
     float weighted_sum = 0.0f;
     float weight_sum = 0.0f;
-    for (int offset = -15; offset <= 15; ++offset) {
-        if (abs(offset) > radius) {
-            continue;
-        }
+    for (int offset = -radius; offset <= radius; ++offset) {
         const float weight = exp(-float(offset * offset) * inverse_two_sigma_squared);
         const uint sample_y = warm_reflect101_coordinate(int(position.y) + offset, parameters.height);
         weighted_sum += clarity_large_horizontal[sample_y * parameters.width + position.x] * weight;

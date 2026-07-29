@@ -254,12 +254,23 @@ void composed_neighborhood_tiles_match_one_resident_execution_without_seams() {
             .node_id = "technical-sharpen",
             .parameter_schema_version = image::detail_effects_parameter_schema_version,
             .implementation_version = image::technical_detail_implementation_version,
+            .parameters =
+                image::SharpenAdjustment{
+                    .execution_pass = image::DetailEffectsExecutionPass::technical_detail,
+                    .amount = 0.28,
+                    .radius = 1.2,
+                    .threshold = 0.06,
+                    .masking = 0.25,
+                },
+        },
+        image::AdjustmentNode{
+            .node_id = "full-resolution-texture-clarity",
+            .parameter_schema_version = image::detail_effects_parameter_schema_version,
+            .implementation_version = image::color_grading_implementation_version,
             .parameters = image::SharpenAdjustment{
-                .execution_pass = image::DetailEffectsExecutionPass::technical_detail,
-                .amount = 0.28,
-                .radius = 1.2,
-                .threshold = 0.06,
-                .masking = 0.25,
+                .execution_pass = image::DetailEffectsExecutionPass::color_grading,
+                .clarity = 0.31,
+                .texture = 0.24,
             },
         },
     };
@@ -289,7 +300,7 @@ void composed_neighborhood_tiles_match_one_resident_execution_without_seams() {
     }
     expect(
         stitched == full.bytes,
-        "composed selective tone, pixel-local gap and sharpen preserve tiled seams"
+        "composed selective tone, sharpen and full-resolution Clarity preserve tiled seams"
     );
 }
 

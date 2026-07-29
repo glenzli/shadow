@@ -35,10 +35,8 @@ void expect(const bool condition, const std::string_view message) {
     };
 }
 
-[[nodiscard]] std::vector<image::AdjustmentNode> detail_recipe(
-    image::SharpenAdjustment adjustment,
-    const std::uint32_t implementation_version
-) {
+[[nodiscard]] std::vector<image::AdjustmentNode>
+detail_recipe(image::SharpenAdjustment adjustment, const std::uint32_t implementation_version) {
     return {
         image::AdjustmentNode{
             .node_id = "before-detail",
@@ -63,11 +61,7 @@ void expect(const bool condition, const std::string_view message) {
     const double raster_scale = 0.25
 ) {
     const auto nodes = detail_recipe(std::move(adjustment), implementation_version);
-    const auto execution = image::compile_edit_execution_plan(
-        nodes,
-        raster_scale,
-        raster_scale
-    );
+    const auto execution = image::compile_edit_execution_plan(nodes, raster_scale, raster_scale);
     return image::detail::prepare_warm_gpu_render_plan(
         nodes,
         execution,
@@ -79,13 +73,10 @@ void expect(const bool condition, const std::string_view message) {
 }
 
 template <typename Stage>
-void expect_stage(
-    const image::detail::WarmGpuRenderPlan& plan,
-    const std::string_view message
-) {
+void expect_stage(const image::detail::WarmGpuRenderPlan& plan, const std::string_view message) {
     expect(
-        plan.has_neighbourhood_stage()
-            && std::holds_alternative<Stage>(plan.neighbourhood_stage),
+        plan.complete && plan.passes.size() == 1U
+            && std::holds_alternative<Stage>(plan.passes.front().neighbourhood),
         message
     );
 }
@@ -94,23 +85,22 @@ void planner_selects_each_supported_neighbourhood_contract() {
     image::SharpenAdjustment technical;
     technical.execution_pass = image::DetailEffectsExecutionPass::technical_detail;
     technical.denoise_luminance = 0.75;
-    const auto technical_plan = prepare_plan(
-        technical,
-        image::technical_detail_implementation_version,
-        1.0
-    );
+    const auto technical_plan =
+        prepare_plan(technical, image::technical_detail_implementation_version, 1.0);
     expect_stage<image::detail::WarmTechnicalDetailStage>(
         technical_plan,
         "technical denoise selects the technical-detail stage"
     );
     if (const auto* stage = std::get_if<image::detail::WarmTechnicalDetailStage>(
-            &technical_plan.neighbourhood_stage
+            &technical_plan.passes.front().neighbourhood
         )) {
         expect(
-            stage->before.segments.size() == 1U
-                && stage->before.segments.front().steps.front().node_index == 0U
-                && stage->after.segments.size() == 1U
-                && stage->after.segments.front().steps.front().node_index == 2U,
+            stage->before.segments.empty() && stage->after.segments.empty()
+                && technical_plan.passes.front().before.segments.size() == 1U
+                && technical_plan.passes.front().before.segments.front().steps.front().node_index
+                       == 0U
+                && technical_plan.after.segments.size() == 1U
+                && technical_plan.after.segments.front().steps.front().node_index == 2U,
             "technical-detail planning preserves the before/after source-node order"
         );
     }
@@ -152,24 +142,19 @@ void planner_selects_each_supported_neighbourhood_contract() {
     image::SharpenAdjustment dehaze;
     dehaze.execution_pass = image::DetailEffectsExecutionPass::technical_detail;
     dehaze.dehaze = 0.38;
-    expect_stage<image::detail::WarmDehazeDefringeStage>(
+    expect_stage<image::detail::WarmTechnicalDetailStage>(
         prepare_plan(dehaze, image::technical_detail_implementation_version, 1.0),
-        "dehaze selects the technical optics stage"
+        "dehaze selects the ordered technical-detail stage"
     );
 }
 
-void planner_declines_empty_and_mixed_neighbourhood_contracts() {
+void planner_handles_empty_and_combined_neighbourhood_contracts() {
     image::SharpenAdjustment neutral;
     neutral.execution_pass = image::DetailEffectsExecutionPass::color_grading;
-    const auto neutral_plan = prepare_plan(
-        neutral,
-        image::color_grading_implementation_version
-    );
+    const auto neutral_plan = prepare_plan(neutral, image::color_grading_implementation_version);
     expect(
-        !neutral_plan.has_neighbourhood_stage()
-            && std::holds_alternative<std::monostate>(
-                neutral_plan.neighbourhood_stage
-            ),
+        neutral_plan.complete && !neutral_plan.has_neighbourhood_stage()
+            && neutral_plan.after.segments.size() == 1U,
         "a pixel-local recipe keeps the neighbourhood variant empty"
     );
 
@@ -177,14 +162,11 @@ void planner_declines_empty_and_mixed_neighbourhood_contracts() {
     mixed.execution_pass = image::DetailEffectsExecutionPass::technical_detail;
     mixed.denoise_luminance = 0.35;
     mixed.dehaze = 0.25;
-    const auto mixed_plan = prepare_plan(
-        mixed,
-        image::technical_detail_implementation_version,
-        1.0
-    );
-    expect(
-        !mixed_plan.has_neighbourhood_stage(),
-        "an unsupported mixed technical route declines instead of selecting two stages"
+    const auto mixed_plan =
+        prepare_plan(mixed, image::technical_detail_implementation_version, 1.0);
+    expect_stage<image::detail::WarmTechnicalDetailStage>(
+        mixed_plan,
+        "mixed technical operations select one ordered resident stage"
     );
 }
 
@@ -192,6 +174,6 @@ void planner_declines_empty_and_mixed_neighbourhood_contracts() {
 
 int main() {
     planner_selects_each_supported_neighbourhood_contract();
-    planner_declines_empty_and_mixed_neighbourhood_contracts();
+    planner_handles_empty_and_combined_neighbourhood_contracts();
     return failures == 0 ? 0 : 1;
 }

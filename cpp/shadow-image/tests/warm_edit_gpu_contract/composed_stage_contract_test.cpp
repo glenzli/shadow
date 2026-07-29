@@ -112,8 +112,6 @@ using ComposedNodes = std::array<image::AdjustmentNode, 7U>;
 
 void composed_neighbourhood_plan_preserves_order_and_parity() {
     auto source = make_random_image(193U, 113U, true);
-    source.level_zero_to_raster_scale_x = 0.25;
-    source.level_zero_to_raster_scale_y = 0.25;
     const auto nodes = composed_nodes();
     const auto execution = image::compile_edit_execution_plan(
         nodes,
@@ -153,7 +151,7 @@ void composed_neighbourhood_plan_preserves_order_and_parity() {
                 gpu.output->analyzed_linear->samples,
                 [](const float value) { return std::isfinite(value); }
             ),
-        "three separated neighbourhood stages complete in one resident Metal command"
+        "three full-resolution neighbourhood stages complete in one resident Metal command"
     );
     if (gpu.output && gpu.output->analyzed_linear) {
         const auto cpu = image::execute_adjustment_nodes_with_backend(
@@ -195,8 +193,6 @@ void benchmark_composed_neighbourhood_plan_when_requested() {
     }
     constexpr image::Dimensions dimensions{1'200U, 800U};
     auto source = make_random_image(dimensions.width, dimensions.height, false);
-    source.level_zero_to_raster_scale_x = 0.25;
-    source.level_zero_to_raster_scale_y = 0.25;
     auto preparation = image::detail::prepare_warm_edit_gpu_session(source);
     if (!preparation.session) {
         std::cerr << "BENCH composed warm stages unavailable: " << preparation.diagnostic << '\n';
@@ -223,7 +219,7 @@ void benchmark_composed_neighbourhood_plan_when_requested() {
         {.full_dimensions = dimensions},
         image::AdjustmentBackendMode::cpu
     ));
-    constexpr std::size_t iterations = 5U;
+    constexpr std::size_t iterations = 3U;
     const double cpu = median_milliseconds(iterations, [&]() {
         auto adjusted = image::execute_adjustment_nodes_with_backend(
             source,

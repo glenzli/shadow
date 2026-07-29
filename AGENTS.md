@@ -82,6 +82,9 @@ Native tests follow their build-system idioms while preserving the same semantic
   registration. Moving a test also moves its compile definitions, dependencies, environment,
   labels, timeouts, and fixture contract. When a test property is assigned conditionally, inspect
   the generated CTest registry so a later assignment cannot silently overwrite the earlier gate.
+- A CTest invocation does not establish source freshness. After changing native sources, headers,
+  manifests, or test contracts, build the exact affected targets first and then run those freshly
+  linked artifacts or their CTest registrations; an old passing executable is invalid evidence.
 - A QML source-path load is a focused component test, not proof that the shipped module can reach
   that component. Each newly registered component family needs at least one test or startup path
   that resolves it through the packaged module/resource graph; real-window acceptance remains the

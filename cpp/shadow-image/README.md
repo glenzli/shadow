@@ -377,7 +377,9 @@ kernel implementation. Its mirrored host records and checked buffer layout live 
 Pure, cross-platform lowering of one neighborhood operation into immutable kernel parameters lives
 in `src/proxy/warm_edit_gpu_neighbourhood_plan.*`. `src/proxy/warm_edit_gpu_render_plan.*` is the
 smaller composition owner: it preserves every pixel-local gap while collecting any number of
-supported neighborhood operations into one ordered resident transaction.
+supported neighborhood operations into one ordered resident transaction. Bounded dynamic Gaussian
+loops admit native-resolution Texture and Clarity (including Clarity's 36-pixel large band);
+unusually enlarged rasters still fail closed to the CPU reference.
 Process-wide Metal device, queue, runtime compilation, and the all-or-nothing pipeline registry
 are owned by `src/proxy/warm_edit_gpu_pipeline_context.*`.
 Session-resident source buffers, side-table caches, lazy neighborhood rasters, slot leases,
@@ -395,8 +397,8 @@ contract. Its responsibility-named children mirror resident session lifecycle, t
 creative detail dispatch, guided Selective Tone, composed neighborhood order, and resident
 side-table caches; their only shared fixture owns CPU-oracle parity inputs and comparisons.
 Selective Tone and composed-stage children own opt-in CPU-versus-resident-Metal benchmarks, while
-the detail-tile seam contract proves both one guided mask and a composed neighborhood plan remain
-invariant across apron-expanded full-resolution tiles.
+the detail-tile seam contract proves both one guided mask and a composed Selective Tone,
+capture-sharpening, and full-resolution Clarity plan remain invariant across apron-expanded tiles.
 
 The edit path accepts explicitly native interleaved RGB float32, scene-referred, linear-light data
 with named RGB primaries, white point, and luminance coefficients. It is not legal to feed the

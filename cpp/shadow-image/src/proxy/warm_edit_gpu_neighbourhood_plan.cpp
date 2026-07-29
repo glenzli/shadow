@@ -156,10 +156,10 @@ is_gpu_warm_technical_detail_supported(const SharpenAdjustment& parameters) noex
     if (detail->amount > 0.0) {
         const double radius_x = std::ceil(3.0 * detail->radius * level_zero_to_raster_scale_x);
         const double radius_y = std::ceil(3.0 * detail->radius * level_zero_to_raster_scale_y);
-        // The shader intentionally has a fixed loop bound, keeping its resource and execution
-        // footprint predictable. A non-preview-scale source that needs wider support simply
-        // declines and replays through the complete CPU oracle.
-        if (radius_x > 15.0 || radius_y > 15.0) {
+        // Keep capture sharpening compact even though the shader loop is dynamic. A source that
+        // needs wider support declines and replays through the complete CPU oracle.
+        if (radius_x > static_cast<double>(warm_sharpen_radius_limit)
+            || radius_y > static_cast<double>(warm_sharpen_radius_limit)) {
             return std::nullopt;
         }
         result.sharpen = WarmSharpenParameters{
@@ -233,7 +233,8 @@ is_gpu_warm_technical_detail_supported(const SharpenAdjustment& parameters) noex
     const double sigma_y = texture_sigma_level_zero * level_zero_to_raster_scale_y;
     const double radius_x = std::ceil(3.0 * sigma_x);
     const double radius_y = std::ceil(3.0 * sigma_y);
-    if (radius_x > 15.0 || radius_y > 15.0) {
+    if (radius_x > static_cast<double>(warm_creative_gaussian_radius_limit)
+        || radius_y > static_cast<double>(warm_creative_gaussian_radius_limit)) {
         return std::nullopt;
     }
 
@@ -347,10 +348,12 @@ is_gpu_warm_technical_detail_supported(const SharpenAdjustment& parameters) noex
     const double small_radius_y = std::ceil(3.0 * small_sigma_y);
     const double large_radius_x = std::ceil(3.0 * large_sigma_x);
     const double large_radius_y = std::ceil(3.0 * large_sigma_y);
-    // The resident shader deliberately has a fixed bound. The stage is intended for preview
-    // rasters; full-size output and an unusually large proxy simply use the exact CPU oracle.
-    if (small_radius_x > 15.0 || small_radius_y > 15.0 || large_radius_x > 15.0
-        || large_radius_y > 15.0) {
+    // Native Clarity needs a 36-pixel large band. Admit it explicitly while keeping unusually
+    // enlarged rasters bounded so a malformed scale cannot create unbounded shader work.
+    if (small_radius_x > static_cast<double>(warm_creative_gaussian_radius_limit)
+        || small_radius_y > static_cast<double>(warm_creative_gaussian_radius_limit)
+        || large_radius_x > static_cast<double>(warm_creative_gaussian_radius_limit)
+        || large_radius_y > static_cast<double>(warm_creative_gaussian_radius_limit)) {
         return std::nullopt;
     }
 
@@ -483,9 +486,12 @@ is_gpu_warm_technical_detail_supported(const SharpenAdjustment& parameters) noex
     const WarmGaussianParameters texture = gaussian(1.4);
     const WarmGaussianParameters small = gaussian(2.4);
     const WarmGaussianParameters large = gaussian(12.0);
-    if (texture.horizontal_radius > 15U || texture.vertical_radius > 15U
-        || small.horizontal_radius > 15U || small.vertical_radius > 15U
-        || large.horizontal_radius > 15U || large.vertical_radius > 15U) {
+    if (texture.horizontal_radius > warm_creative_gaussian_radius_limit
+        || texture.vertical_radius > warm_creative_gaussian_radius_limit
+        || small.horizontal_radius > warm_creative_gaussian_radius_limit
+        || small.vertical_radius > warm_creative_gaussian_radius_limit
+        || large.horizontal_radius > warm_creative_gaussian_radius_limit
+        || large.vertical_radius > warm_creative_gaussian_radius_limit) {
         return std::nullopt;
     }
     WarmTextureClarityStage result{

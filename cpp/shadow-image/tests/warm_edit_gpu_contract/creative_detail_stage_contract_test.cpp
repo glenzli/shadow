@@ -53,18 +53,19 @@ void resident_gpu_texture_is_complete_or_declines() {
             .node_id = "perceptual-texture",
             .parameter_schema_version = image::detail_effects_parameter_schema_version,
             .implementation_version = image::color_grading_implementation_version,
-            .parameters = image::SharpenAdjustment{
-                .execution_pass = image::DetailEffectsExecutionPass::color_grading,
-                .texture = 0.72,
-                .shadows_hue = 24.0,
-                .shadows_saturation = 0.17,
-                .midtones_hue = 148.0,
-                .midtones_saturation = 0.12,
-                .highlights_hue = 248.0,
-                .highlights_saturation = 0.21,
-                .grading_blending = 0.68,
-                .grading_balance = -0.18,
-            },
+            .parameters =
+                image::SharpenAdjustment{
+                    .execution_pass = image::DetailEffectsExecutionPass::color_grading,
+                    .texture = 0.72,
+                    .shadows_hue = 24.0,
+                    .shadows_saturation = 0.17,
+                    .midtones_hue = 148.0,
+                    .midtones_saturation = 0.12,
+                    .highlights_hue = 248.0,
+                    .highlights_saturation = 0.21,
+                    .grading_blending = 0.68,
+                    .grading_balance = -0.18,
+                },
         },
         image::AdjustmentNode{
             .node_id = "after-texture-saturation",
@@ -75,8 +76,7 @@ void resident_gpu_texture_is_complete_or_declines() {
     const auto gpu = preparation.session->render(nodes, plan, true);
     expect(
         gpu.status == image::detail::WarmEditGpuSession::RenderStatus::completed
-            && gpu.output.has_value()
-            && gpu.output->analyzed_linear.has_value()
+            && gpu.output.has_value() && gpu.output->analyzed_linear.has_value()
             && std::ranges::all_of(
                 gpu.output->analyzed_linear->samples,
                 [](const float value) { return std::isfinite(value); }
@@ -91,40 +91,45 @@ void resident_gpu_texture_is_complete_or_declines() {
             image::AdjustmentBackendMode::cpu
         );
         double maximum_error = 0.0;
-        const bool linear_parity = linear_close(
-            *gpu.output->analyzed_linear,
-            cpu.pixels,
-            maximum_error,
-            2.5e-4
-        );
+        const bool linear_parity =
+            linear_close(*gpu.output->analyzed_linear, cpu.pixels, maximum_error, 2.5e-4);
         if (!linear_parity) {
-            std::cerr << "Texture warm linear parity max="
+            std::cerr << "Texture warm linear parity max=" << maximum_error << '\n';
+        }
+        expect(linear_parity, "the resident Texture path tracks the CPU Oklab-L reference");
+    }
+
+    std::get<image::SharpenAdjustment>(nodes[1U].parameters).clarity = 0.25;
+    const auto combined_plan = image::compile_edit_execution_plan(nodes);
+    const auto combined = preparation.session->render(nodes, combined_plan, true);
+    expect(
+        combined.status == image::detail::WarmEditGpuSession::RenderStatus::completed
+            && combined.output.has_value() && combined.output->analyzed_linear.has_value(),
+        "full-resolution Texture plus Clarity completes as one resident GPU stage"
+    );
+    if (combined.output && combined.output->analyzed_linear) {
+        const auto cpu = image::execute_adjustment_nodes_with_backend(
+            source,
+            nodes,
+            {.full_dimensions = source.dimensions},
+            image::AdjustmentBackendMode::cpu
+        );
+        double maximum_error = 0.0;
+        const bool linear_parity =
+            linear_close(*combined.output->analyzed_linear, cpu.pixels, maximum_error, 3.5e-4);
+        if (!linear_parity) {
+            std::cerr << "Full-resolution Texture + Clarity warm linear parity max="
                       << maximum_error << '\n';
         }
         expect(
             linear_parity,
-            "the resident Texture path tracks the CPU Oklab-L reference"
+            "full-resolution resident Texture plus Clarity tracks the CPU reference"
         );
     }
-
-    std::get<image::SharpenAdjustment>(nodes[1U].parameters).clarity = 0.25;
-    const auto unsupported_plan = image::compile_edit_execution_plan(nodes);
-    const auto unsupported = preparation.session->render(nodes, unsupported_plan, false);
-    expect(
-        unsupported.status
-                == image::detail::WarmEditGpuSession::RenderStatus::unavailable_or_failed
-            && !unsupported.output.has_value()
-            && !unsupported.diagnostic.empty(),
-        "Texture plus unsupported broad Clarity declines as one coherent CPU fallback"
-    );
 }
 
 void resident_gpu_clarity_is_complete_or_declines() {
     auto source = make_random_image(193U, 113U, true);
-    // Clarity is intentionally a preview-scale Metal stage: its large 12px native support is
-    // compact at a quarter-scale warm proxy while full-size output keeps using the CPU oracle.
-    source.level_zero_to_raster_scale_x = 0.25;
-    source.level_zero_to_raster_scale_y = 0.25;
     auto preparation = image::detail::prepare_warm_edit_gpu_session(source);
     if (!preparation.session) {
         expect(
@@ -143,18 +148,19 @@ void resident_gpu_clarity_is_complete_or_declines() {
             .node_id = "perceptual-clarity",
             .parameter_schema_version = image::detail_effects_parameter_schema_version,
             .implementation_version = image::color_grading_implementation_version,
-            .parameters = image::SharpenAdjustment{
-                .execution_pass = image::DetailEffectsExecutionPass::color_grading,
-                .clarity = 0.64,
-                .shadows_hue = 38.0,
-                .shadows_saturation = 0.14,
-                .midtones_hue = 154.0,
-                .midtones_saturation = 0.10,
-                .highlights_hue = 236.0,
-                .highlights_saturation = 0.19,
-                .grading_blending = 0.64,
-                .grading_balance = 0.15,
-            },
+            .parameters =
+                image::SharpenAdjustment{
+                    .execution_pass = image::DetailEffectsExecutionPass::color_grading,
+                    .clarity = 0.64,
+                    .shadows_hue = 38.0,
+                    .shadows_saturation = 0.14,
+                    .midtones_hue = 154.0,
+                    .midtones_saturation = 0.10,
+                    .highlights_hue = 236.0,
+                    .highlights_saturation = 0.19,
+                    .grading_blending = 0.64,
+                    .grading_balance = 0.15,
+                },
         },
         image::AdjustmentNode{
             .node_id = "after-clarity-saturation",
@@ -165,13 +171,12 @@ void resident_gpu_clarity_is_complete_or_declines() {
     const auto gpu = preparation.session->render(nodes, plan, true);
     expect(
         gpu.status == image::detail::WarmEditGpuSession::RenderStatus::completed
-            && gpu.output.has_value()
-            && gpu.output->analyzed_linear.has_value()
+            && gpu.output.has_value() && gpu.output->analyzed_linear.has_value()
             && std::ranges::all_of(
                 gpu.output->analyzed_linear->samples,
                 [](const float value) { return std::isfinite(value); }
             ),
-        "a preview-scale Oklab-L Clarity stage completes on the resident GPU"
+        "a full-resolution Oklab-L Clarity stage completes on the resident GPU"
     );
     if (gpu.output && gpu.output->analyzed_linear) {
         const auto cpu = image::execute_adjustment_nodes_with_backend(
@@ -181,19 +186,14 @@ void resident_gpu_clarity_is_complete_or_declines() {
             image::AdjustmentBackendMode::cpu
         );
         double maximum_error = 0.0;
-        const bool linear_parity = linear_close(
-            *gpu.output->analyzed_linear,
-            cpu.pixels,
-            maximum_error,
-            3.0e-4
-        );
+        const bool linear_parity =
+            linear_close(*gpu.output->analyzed_linear, cpu.pixels, maximum_error, 3.0e-4);
         if (!linear_parity) {
-            std::cerr << "Clarity warm linear parity max="
-                      << maximum_error << '\n';
+            std::cerr << "Clarity warm linear parity max=" << maximum_error << '\n';
         }
         expect(
             linear_parity,
-            "the resident Clarity path tracks the CPU Oklab-L reference"
+            "the full-resolution resident Clarity path tracks the CPU Oklab-L reference"
         );
     }
 
@@ -202,22 +202,21 @@ void resident_gpu_clarity_is_complete_or_declines() {
     const auto combined = preparation.session->render(nodes, combined_plan, true);
     expect(
         combined.status == image::detail::WarmEditGpuSession::RenderStatus::completed
-            && combined.output.has_value()
-            && combined.output->analyzed_linear.has_value(),
-        "a preview-scale Texture plus Clarity stage completes on the resident GPU"
+            && combined.output.has_value() && combined.output->analyzed_linear.has_value(),
+        "a full-resolution Texture plus Clarity stage completes on the resident GPU"
     );
     if (combined.output && combined.output->analyzed_linear) {
         const auto cpu = image::execute_adjustment_nodes_with_backend(
-            source, nodes, {.full_dimensions = source.dimensions},
+            source,
+            nodes,
+            {.full_dimensions = source.dimensions},
             image::AdjustmentBackendMode::cpu
         );
         double maximum_error = 0.0;
-        const bool linear_parity = linear_close(
-            *combined.output->analyzed_linear, cpu.pixels, maximum_error, 3.5e-4
-        );
+        const bool linear_parity =
+            linear_close(*combined.output->analyzed_linear, cpu.pixels, maximum_error, 3.5e-4);
         if (!linear_parity) {
-            std::cerr << "Texture + Clarity warm linear parity max="
-                      << maximum_error << '\n';
+            std::cerr << "Texture + Clarity warm linear parity max=" << maximum_error << '\n';
         }
         expect(
             linear_parity,
@@ -251,19 +250,20 @@ void resident_gpu_local_contrast_is_complete_or_declines() {
             .node_id = "edge-aware-local-contrast",
             .parameter_schema_version = image::detail_effects_parameter_schema_version,
             .implementation_version = image::color_grading_implementation_version,
-            .parameters = image::SharpenAdjustment{
-                .execution_pass = image::DetailEffectsExecutionPass::color_grading,
-                .local_contrast = 0.62,
-                .local_contrast_scale = 0.50,
-                .shadows_hue = 38.0,
-                .shadows_saturation = 0.14,
-                .midtones_hue = 154.0,
-                .midtones_saturation = 0.10,
-                .highlights_hue = 236.0,
-                .highlights_saturation = 0.19,
-                .grading_blending = 0.64,
-                .grading_balance = 0.15,
-            },
+            .parameters =
+                image::SharpenAdjustment{
+                    .execution_pass = image::DetailEffectsExecutionPass::color_grading,
+                    .local_contrast = 0.62,
+                    .local_contrast_scale = 0.50,
+                    .shadows_hue = 38.0,
+                    .shadows_saturation = 0.14,
+                    .midtones_hue = 154.0,
+                    .midtones_saturation = 0.10,
+                    .highlights_hue = 236.0,
+                    .highlights_saturation = 0.19,
+                    .grading_blending = 0.64,
+                    .grading_balance = 0.15,
+                },
         },
         image::AdjustmentNode{
             .node_id = "after-local-contrast-saturation",
@@ -274,8 +274,7 @@ void resident_gpu_local_contrast_is_complete_or_declines() {
     const auto gpu = preparation.session->render(nodes, plan, true);
     expect(
         gpu.status == image::detail::WarmEditGpuSession::RenderStatus::completed
-            && gpu.output.has_value()
-            && gpu.output->analyzed_linear.has_value()
+            && gpu.output.has_value() && gpu.output->analyzed_linear.has_value()
             && std::ranges::all_of(
                 gpu.output->analyzed_linear->samples,
                 [](const float value) { return std::isfinite(value); }
@@ -290,15 +289,10 @@ void resident_gpu_local_contrast_is_complete_or_declines() {
             image::AdjustmentBackendMode::cpu
         );
         double maximum_error = 0.0;
-        const bool linear_parity = linear_close(
-            *gpu.output->analyzed_linear,
-            cpu.pixels,
-            maximum_error,
-            5.0e-4
-        );
+        const bool linear_parity =
+            linear_close(*gpu.output->analyzed_linear, cpu.pixels, maximum_error, 5.0e-4);
         if (!linear_parity) {
-            std::cerr << "Local Contrast warm linear parity max="
-                      << maximum_error << '\n';
+            std::cerr << "Local Contrast warm linear parity max=" << maximum_error << '\n';
         }
         expect(
             linear_parity,
@@ -310,10 +304,8 @@ void resident_gpu_local_contrast_is_complete_or_declines() {
     const auto unsupported_plan = image::compile_edit_execution_plan(nodes);
     const auto unsupported = preparation.session->render(nodes, unsupported_plan, false);
     expect(
-        unsupported.status
-                == image::detail::WarmEditGpuSession::RenderStatus::unavailable_or_failed
-            && !unsupported.output.has_value()
-            && !unsupported.diagnostic.empty(),
+        unsupported.status == image::detail::WarmEditGpuSession::RenderStatus::unavailable_or_failed
+            && !unsupported.output.has_value() && !unsupported.diagnostic.empty(),
         "Local Contrast plus another neighbourhood band declines as one coherent CPU fallback"
     );
 }

@@ -8,6 +8,12 @@
 
 namespace shadow::image::detail {
 
+// Bound the radii passed to the runtime-compiled MSL's dynamic loops. Technical sharpening has
+// compact support, while full-resolution Clarity needs its native 36-pixel Gaussian radius
+// without admitting arbitrarily scaled rasters.
+inline constexpr std::uint32_t warm_sharpen_radius_limit = 15U;
+inline constexpr std::uint32_t warm_creative_gaussian_radius_limit = 48U;
+
 // Host mirrors for the runtime-compiled Warm Metal program. Sizes, alignment, and selected
 // offsets are part of the buffer-binding ABI and must change atomically with the MSL records.
 struct WarmDisplayParameters final {
